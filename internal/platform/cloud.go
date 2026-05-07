@@ -74,10 +74,6 @@ func checkIMDS(url string) bool {
 	return true
 }
 
-func detectAWSStorageType() CloudEnvironment {
-	return detectAWSStorageTypeFromPaths("/sys/block")
-}
-
 func detectAWSStorageTypeFromPaths(blockDir string) CloudEnvironment {
 	entries, err := os.ReadDir(blockDir)
 	if err != nil {
