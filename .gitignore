@@ -2,3 +2,4 @@ dist/
 *.test
 coverage.out
 .DS_Store
+prompts/
