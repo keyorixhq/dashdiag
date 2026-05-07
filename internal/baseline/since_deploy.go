@@ -19,7 +19,7 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		"redis", "redis-server", "docker", "containerd", "node", "gunicorn",
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		out, err := exec.CommandContext(ctx, "systemctl", "show", svc,
+		out, err := exec.CommandContext(ctx, "systemctl", "show", svc, // #nosec G204 -- command is hardcoded "systemctl"; svc is from internal hardcoded service list, not user input
 			"--property=ActiveEnterTimestamp", "--value").Output()
 		cancel()
 		if err != nil || strings.TrimSpace(string(out)) == "" {
@@ -57,7 +57,7 @@ func newestProcStart(maxAge time.Duration) (time.Time, string, error) {
 	var newest time.Time
 	var newestName string
 	for _, entry := range entries {
-		data, err := os.ReadFile(entry)
+		data, err := os.ReadFile(filepath.Clean(entry))
 		if err != nil {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -70,7 +71,7 @@ func parseDiskstats(r io.Reader) (map[string]diskStatRaw, error) {
 }
 
 func readRotational(dev string) bool {
-	data, err := os.ReadFile("/sys/block/" + dev + "/queue/rotational")
+	data, err := os.ReadFile(filepath.Join("/sys/block", dev, "queue/rotational")) // #nosec G304 -- root is hardcoded to /sys/block; dev is from kernel diskstats, not user input
 	if err != nil {
 		return false // assume SSD on error
 	}

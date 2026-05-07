@@ -104,12 +104,12 @@ func deletedFilesForPID(pid string) (count int, sizeGB float64) {
 }
 
 func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
-	f, err := os.Open("/proc/" + pid + "/limits")
+	f, err := os.Open(filepath.Join("/proc", pid, "limits")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	if err != nil {
 		return models.FDProcessInfo{}, false
 	}
 	softLimit := parseSoftLimit(f)
-	f.Close()
+	_ = f.Close()
 	if softLimit <= 0 {
 		return models.FDProcessInfo{}, false
 	}
@@ -119,7 +119,7 @@ func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
 		return models.FDProcessInfo{}, false
 	}
 	pidInt, _ := strconv.Atoi(pid)
-	nameData, _ := os.ReadFile("/proc/" + pid + "/comm")
+	nameData, _ := os.ReadFile(filepath.Join("/proc", pid, "comm")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	name := strings.TrimSpace(string(nameData))
 	return models.FDProcessInfo{
 		PID:       pidInt,
@@ -143,7 +143,7 @@ func (c *FDLimitsCollector) collectLinux() (*models.FDInfo, error) {
 		return nil, fmt.Errorf("opening file-nr: %w", err)
 	}
 	open, max, err := parseFileNr(f)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parsing file-nr: %w", err)
 	}

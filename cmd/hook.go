@@ -139,7 +139,7 @@ func runHookInstall(cmd *cobra.Command, _ []string) error {
 		state, _ := tips.LoadState()
 		if state != nil {
 			state.HookInstalled = true
-			state.Save() //nolint:errcheck
+			_ = state.Save()
 		}
 		fmt.Println("\n✅ Hooks installed. Run dsd health to verify.")
 	}
@@ -164,7 +164,7 @@ func installSSHHook(dryRun bool) {
 		fmt.Println()
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) //nolint:gosec // shell RC files are conventionally 0644
+	f, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) // #nosec G302 G304 -- shell RC files (.bashrc, .zshrc) must be world-readable; path comes from internal home-dir detection, not user input
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: could not write %s: %v\n", path, err)
 		return
@@ -185,7 +185,7 @@ func installPreDeploy(dryRun bool) {
 		return
 	}
 	// 0755: pre-deploy script must be executable
-	if err := os.WriteFile(path, []byte(preDeployScript), 0755); err != nil { //nolint:gosec
+	if err := os.WriteFile(path, []byte(preDeployScript), 0755); err != nil { // #nosec G306 -- pre-deploy script must be executable
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
@@ -207,7 +207,7 @@ func installGitHook(dryRun bool) {
 		return
 	}
 	// 0755: git hook must be executable
-	if err := os.WriteFile(path, []byte(gitPrePushHook), 0755); err != nil { //nolint:gosec
+	if err := os.WriteFile(path, []byte(gitPrePushHook), 0755); err != nil { // #nosec G306 -- git hook must be executable
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
@@ -223,12 +223,12 @@ func installSystemdTimer(dryRun bool) {
 		return
 	}
 	// 0644: systemd unit files in /etc/systemd/system/ are conventionally world-readable
-	if err := os.WriteFile(timerPath, []byte(systemdTimer), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(timerPath, []byte(systemdTimer), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error (may need sudo): %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Run: sudo dsd hook install")
 		return
 	}
-	if err := os.WriteFile(svcPath, []byte(systemdService), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(svcPath, []byte(systemdService), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
 	fmt.Printf("✅ Systemd timer installed. Enable with: sudo systemctl enable --now dsd-health.timer\n")
@@ -244,7 +244,7 @@ func installGitHubActions(dryRun bool) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(path, []byte(githubWorkflow), 0644); err != nil { //nolint:gosec // CI workflow files are world-readable by convention
+	if err := os.WriteFile(path, []byte(githubWorkflow), 0644); err != nil { // #nosec G306 -- CI workflow files are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
