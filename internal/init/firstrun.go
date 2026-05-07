@@ -41,5 +41,5 @@ func writeProfileConfig(profile string) {
 		return
 	}
 	content := fmt.Sprintf("# DashDiag configuration\n# Profile: %s\n# Edit thresholds here\nthresholds:\n", profile)
-	os.WriteFile(path, []byte(content), 0644)
+	_ = os.WriteFile(path, []byte(content), 0600)
 }

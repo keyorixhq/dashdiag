@@ -158,19 +158,19 @@ func installSSHHook(dryRun bool) {
 	path := shellRCPath()
 	if dryRun {
 		fmt.Printf("Would modify %s:\n", path)
-		for _, line := range strings.Split(strings.TrimSpace(sshSnippet), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(sshSnippet), "\n") {
 			fmt.Printf("  + %s\n", line)
 		}
 		fmt.Println()
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) //nolint:gosec // shell RC files are conventionally 0644
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: could not write %s: %v\n", path, err)
 		return
 	}
-	defer f.Close()
-	f.WriteString(sshSnippet) //nolint:errcheck
+	defer func() { _ = f.Close() }()
+	_, _ = f.WriteString(sshSnippet)
 	fmt.Printf("✅ SSH hook added to %s\n", path)
 }
 
@@ -180,8 +180,12 @@ func installPreDeploy(dryRun bool) {
 		fmt.Printf("Would create %s\n\n", path)
 		return
 	}
-	os.MkdirAll("scripts", 0755) //nolint:errcheck
-	if err := os.WriteFile(path, []byte(preDeployScript), 0755); err != nil {
+	if err := os.MkdirAll("scripts", 0750); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	// 0755: pre-deploy script must be executable
+	if err := os.WriteFile(path, []byte(preDeployScript), 0755); err != nil { //nolint:gosec
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
@@ -198,8 +202,12 @@ func installGitHook(dryRun bool) {
 		fmt.Fprintln(os.Stderr, "error: not a git repository")
 		return
 	}
-	os.MkdirAll(".git/hooks", 0755) //nolint:errcheck
-	if err := os.WriteFile(path, []byte(gitPrePushHook), 0755); err != nil {
+	if err := os.MkdirAll(".git/hooks", 0750); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	// 0755: git hook must be executable
+	if err := os.WriteFile(path, []byte(gitPrePushHook), 0755); err != nil { //nolint:gosec
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
@@ -214,12 +222,15 @@ func installSystemdTimer(dryRun bool) {
 		fmt.Printf("Would create %s (requires root)\n\n", svcPath)
 		return
 	}
-	if err := os.WriteFile(timerPath, []byte(systemdTimer), 0644); err != nil {
+	// 0644: systemd unit files in /etc/systemd/system/ are conventionally world-readable
+	if err := os.WriteFile(timerPath, []byte(systemdTimer), 0644); err != nil { //nolint:gosec
 		fmt.Fprintf(os.Stderr, "error (may need sudo): %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Run: sudo dsd hook install")
 		return
 	}
-	os.WriteFile(svcPath, []byte(systemdService), 0644) //nolint:errcheck
+	if err := os.WriteFile(svcPath, []byte(systemdService), 0644); err != nil { //nolint:gosec
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
 	fmt.Printf("✅ Systemd timer installed. Enable with: sudo systemctl enable --now dsd-health.timer\n")
 }
 
@@ -229,8 +240,11 @@ func installGitHubActions(dryRun bool) {
 		fmt.Printf("Would create %s\n\n", path)
 		return
 	}
-	os.MkdirAll(".github/workflows", 0755) //nolint:errcheck
-	if err := os.WriteFile(path, []byte(githubWorkflow), 0644); err != nil {
+	if err := os.MkdirAll(".github/workflows", 0750); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(githubWorkflow), 0644); err != nil { //nolint:gosec // CI workflow files are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}

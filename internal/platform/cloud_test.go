@@ -13,12 +13,12 @@ func makeDMIDir(t *testing.T, productName, biosVendor string) (dir string, dmiDi
 	t.Helper()
 	dir = t.TempDir()
 	dmiDir = filepath.Join(dir, "dmi")
-	os.MkdirAll(dmiDir, 0755)
+	_ = os.MkdirAll(dmiDir, 0755)
 	if productName != "" {
-		os.WriteFile(filepath.Join(dmiDir, "product_name"), []byte(productName+"\n"), 0644)
+		_ = os.WriteFile(filepath.Join(dmiDir, "product_name"), []byte(productName+"\n"), 0644)
 	}
 	if biosVendor != "" {
-		os.WriteFile(filepath.Join(dmiDir, "bios_vendor"), []byte(biosVendor+"\n"), 0644)
+		_ = os.WriteFile(filepath.Join(dmiDir, "bios_vendor"), []byte(biosVendor+"\n"), 0644)
 	}
 	return dir, dmiDir
 }
@@ -42,7 +42,7 @@ func TestDetectCloud_Azure(t *testing.T) {
 func TestDetectCloud_AWSEBS_ProductName(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "Amazon EC2", "")
 	blockDir := filepath.Join(dir, "block")
-	os.MkdirAll(blockDir, 0755)
+	_ = os.MkdirAll(blockDir, 0755)
 
 	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, "")
 	if got != EnvAWSEBS {
@@ -54,8 +54,8 @@ func TestDetectCloud_AWSNVMe_BiosVendor(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "", "Amazon")
 	blockDir := filepath.Join(dir, "block")
 	nvmeDevDir := filepath.Join(blockDir, "nvme0", "device")
-	os.MkdirAll(nvmeDevDir, 0755)
-	os.WriteFile(filepath.Join(nvmeDevDir, "model"), []byte("Amazon EC2 NVMe Instance Storage\n"), 0644)
+	_ = os.MkdirAll(nvmeDevDir, 0755)
+	_ = os.WriteFile(filepath.Join(nvmeDevDir, "model"), []byte("Amazon EC2 NVMe Instance Storage\n"), 0644)
 
 	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, "")
 	if got != EnvAWSNVMe {
@@ -66,9 +66,9 @@ func TestDetectCloud_AWSNVMe_BiosVendor(t *testing.T) {
 func TestDetectCloud_AWSEBS_HypervisorUUID(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "", "")
 	uuidFile := filepath.Join(dir, "uuid")
-	os.WriteFile(uuidFile, []byte("ec2abcdef-1234-5678-abcd-ef0123456789\n"), 0644)
+	_ = os.WriteFile(uuidFile, []byte("ec2abcdef-1234-5678-abcd-ef0123456789\n"), 0644)
 	blockDir := filepath.Join(dir, "block")
-	os.MkdirAll(blockDir, 0755)
+	_ = os.MkdirAll(blockDir, 0755)
 
 	got := detectCloudEnvironmentFromPaths(dmiDir, uuidFile, blockDir, "")
 	if got != EnvAWSEBS {
@@ -79,7 +79,7 @@ func TestDetectCloud_AWSEBS_HypervisorUUID(t *testing.T) {
 func TestDetectCloud_BareMetal(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "Standard PC", "")
 	blockDir := filepath.Join(dir, "block")
-	os.MkdirAll(blockDir, 0755)
+	_ = os.MkdirAll(blockDir, 0755)
 
 	// Use a server that immediately closes so IMDS check fails fast
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +96,7 @@ func TestDetectCloud_BareMetal(t *testing.T) {
 func TestDetectCloud_IMDSTimeout(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
-	os.MkdirAll(blockDir, 0755)
+	_ = os.MkdirAll(blockDir, 0755)
 
 	// Server that never responds within 150ms
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func TestDetectCloud_IMDSTimeout(t *testing.T) {
 func TestDetectCloud_IMDS_Reachable(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
-	os.MkdirAll(blockDir, 0755)
+	_ = os.MkdirAll(blockDir, 0755)
 
 	// Server that responds immediately (simulates reachable IMDS)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

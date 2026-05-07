@@ -137,7 +137,7 @@ thresholds:
   disk_warn_pct: 65
 `
 	cfgFile := filepath.Join(dir, "partial.yaml")
-	os.WriteFile(cfgFile, []byte(yaml), 0644)
+	_ = os.WriteFile(cfgFile, []byte(yaml), 0644)
 
 	cfg, err := Load(cfgFile)
 	if err != nil {
@@ -174,7 +174,7 @@ services:
     protocol: tcp
 `
 	cfgFile := filepath.Join(dir, "services.yaml")
-	os.WriteFile(cfgFile, []byte(yaml), 0644)
+	_ = os.WriteFile(cfgFile, []byte(yaml), 0644)
 
 	cfg, err := Load(cfgFile)
 	if err != nil {
@@ -194,7 +194,7 @@ services:
 func TestLoad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "bad.yaml")
-	os.WriteFile(cfgFile, []byte("thresholds: [not: valid: yaml: {{\n"), 0644)
+	_ = os.WriteFile(cfgFile, []byte("thresholds: [not: valid: yaml: {{\n"), 0644)
 
 	// Load should not panic — it may return error or fall back to defaults
 	cfg, err := Load(cfgFile)

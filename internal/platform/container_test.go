@@ -9,7 +9,7 @@ import (
 func TestDetectContainer_Docker(t *testing.T) {
 	dir := t.TempDir()
 	dockerenv := filepath.Join(dir, "dockerenv")
-	os.WriteFile(dockerenv, nil, 0644)
+	_ = os.WriteFile(dockerenv, nil, 0644)
 
 	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"), filepath.Join(dir, "cgroup", "cgroup.controllers"))
 
@@ -27,7 +27,7 @@ func TestDetectContainer_Docker(t *testing.T) {
 func TestDetectContainer_Podman(t *testing.T) {
 	dir := t.TempDir()
 	containerenv := filepath.Join(dir, "containerenv")
-	os.WriteFile(containerenv, nil, 0644)
+	_ = os.WriteFile(containerenv, nil, 0644)
 
 	cc := detectContainerContextFromPaths(filepath.Join(dir, "dockerenv"), containerenv, filepath.Join(dir, "cgroup", "cgroup.controllers"))
 
@@ -58,10 +58,10 @@ func TestDetectContainer_NotInContainer(t *testing.T) {
 func TestDetectContainer_CgroupV2_Memory(t *testing.T) {
 	dir := t.TempDir()
 	cgroupDir := filepath.Join(dir, "cgroup")
-	os.MkdirAll(cgroupDir, 0755)
-	os.WriteFile(filepath.Join(cgroupDir, "cgroup.controllers"), []byte("cpu memory io"), 0644)
-	os.WriteFile(filepath.Join(cgroupDir, "memory.max"), []byte("536870912\n"), 0644)  // 512 MB
-	os.WriteFile(filepath.Join(cgroupDir, "cpu.max"), []byte("100000 100000\n"), 0644) // 1 core
+	_ = os.MkdirAll(cgroupDir, 0755)
+	_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.controllers"), []byte("cpu memory io"), 0644)
+	_ = os.WriteFile(filepath.Join(cgroupDir, "memory.max"), []byte("536870912\n"), 0644)  // 512 MB
+	_ = os.WriteFile(filepath.Join(cgroupDir, "cpu.max"), []byte("100000 100000\n"), 0644) // 1 core
 
 	cc := detectContainerContextFromPaths(
 		filepath.Join(dir, "dockerenv"),
@@ -83,10 +83,10 @@ func TestDetectContainer_CgroupV2_Memory(t *testing.T) {
 func TestDetectContainer_CgroupV2_MemoryMax_Unlimited(t *testing.T) {
 	dir := t.TempDir()
 	cgroupDir := filepath.Join(dir, "cgroup")
-	os.MkdirAll(cgroupDir, 0755)
-	os.WriteFile(filepath.Join(cgroupDir, "cgroup.controllers"), []byte("cpu memory"), 0644)
-	os.WriteFile(filepath.Join(cgroupDir, "memory.max"), []byte("max\n"), 0644)
-	os.WriteFile(filepath.Join(cgroupDir, "cpu.max"), []byte("max 100000\n"), 0644)
+	_ = os.MkdirAll(cgroupDir, 0755)
+	_ = os.WriteFile(filepath.Join(cgroupDir, "cgroup.controllers"), []byte("cpu memory"), 0644)
+	_ = os.WriteFile(filepath.Join(cgroupDir, "memory.max"), []byte("max\n"), 0644)
+	_ = os.WriteFile(filepath.Join(cgroupDir, "cpu.max"), []byte("max 100000\n"), 0644)
 
 	cc := detectContainerContextFromPaths(
 		filepath.Join(dir, "dockerenv"),
@@ -106,8 +106,8 @@ func TestDetectContainer_CgroupV1_Memory(t *testing.T) {
 	dir := t.TempDir()
 	cgroupDir := filepath.Join(dir, "cgroup")
 	memDir := filepath.Join(cgroupDir, "memory")
-	os.MkdirAll(memDir, 0755)
-	os.WriteFile(filepath.Join(memDir, "memory.limit_in_bytes"), []byte("268435456\n"), 0644) // 256 MB
+	_ = os.MkdirAll(memDir, 0755)
+	_ = os.WriteFile(filepath.Join(memDir, "memory.limit_in_bytes"), []byte("268435456\n"), 0644) // 256 MB
 
 	cc := detectContainerContextFromPaths(
 		filepath.Join(dir, "dockerenv"),
@@ -127,8 +127,8 @@ func TestDetectContainer_BothDockerAndPodman(t *testing.T) {
 	dir := t.TempDir()
 	dockerenv := filepath.Join(dir, "dockerenv")
 	containerenv := filepath.Join(dir, "containerenv")
-	os.WriteFile(dockerenv, nil, 0644)
-	os.WriteFile(containerenv, nil, 0644)
+	_ = os.WriteFile(dockerenv, nil, 0644)
+	_ = os.WriteFile(containerenv, nil, 0644)
 
 	cc := detectContainerContextFromPaths(dockerenv, containerenv, filepath.Join(dir, "cgroup.controllers"))
 

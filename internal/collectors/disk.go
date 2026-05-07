@@ -89,7 +89,7 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening mounts: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	entries, err := readMounts(f)
 	if err != nil {

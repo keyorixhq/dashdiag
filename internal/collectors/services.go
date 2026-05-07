@@ -75,7 +75,7 @@ func checkService(ctx context.Context, svc config.ServiceConfig) models.ServiceR
 			res.Status = "WARN"
 			return res
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		res.StatusCode = resp.StatusCode
 		res.Reachable = true
 		if resp.StatusCode >= 500 {
@@ -91,7 +91,7 @@ func checkService(ctx context.Context, svc config.ServiceConfig) models.ServiceR
 			res.Status = "WARN"
 			return res
 		}
-		conn.Close()
+		_ = conn.Close()
 		res.Reachable = true
 	}
 	return res

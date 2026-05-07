@@ -38,7 +38,7 @@ var healthDeepCmd = &cobra.Command{
 	RunE:  runHealth,
 }
 
-func runHealth(cmd *cobra.Command, _ []string) error {
+func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")

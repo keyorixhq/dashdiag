@@ -105,7 +105,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	r, err := c.readers.loadAvgOpen()
 	if err == nil {
 		load1, load5, load15, err = parseLoadAvg(r)
-		r.Close()
+		_ = r.Close()
 	}
 	if err != nil && runtime.GOOS == "darwin" {
 		load1, load5, load15, err = loadAvgDarwin(ctx)
@@ -119,7 +119,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	r1, err1 := c.readers.statOpen()
 	if err1 == nil {
 		idle1, total1, parseErr := parseCPUStat(r1)
-		r1.Close()
+		_ = r1.Close()
 
 		if parseErr == nil {
 			select {
@@ -131,7 +131,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			r2, err2 := c.readers.statOpen()
 			if err2 == nil {
 				idle2, total2, _ := parseCPUStat(r2)
-				r2.Close()
+				_ = r2.Close()
 				if total2 > total1 && idle2 >= idle1 {
 					usagePct = (1 - float64(idle2-idle1)/float64(total2-total1)) * 100
 				}

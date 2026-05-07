@@ -277,7 +277,7 @@ func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 }
 
 func checkSystemd(sys models.SystemdInfo) []models.Insight {
-	var out []models.Insight
+	out := make([]models.Insight, 0, len(sys.FailedUnits)+len(sys.StuckUnits))
 	for _, unit := range sys.FailedUnits {
 		out = append(out, insight("CRIT", "Systemd",
 			fmt.Sprintf("unit %s has failed", unit),
