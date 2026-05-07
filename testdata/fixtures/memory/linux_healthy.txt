@@ -1,0 +1,6 @@
+MemTotal:       16384000 kB
+MemFree:         8192000 kB
+MemAvailable:    9000000 kB
+Slab:             512000 kB
+CommitLimit:    20000000 kB
+Committed_AS:   10000000 kB

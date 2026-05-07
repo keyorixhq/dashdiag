@@ -11,6 +11,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -22,6 +23,7 @@ import (
 func init() {
 	rootCmd.AddCommand(healthCmd)
 	healthCmd.AddCommand(healthDeepCmd)
+	healthCmd.Flags().Duration("watch-interval", 60*time.Second, "refresh interval for --watch mode")
 }
 
 var healthCmd = &cobra.Command{
@@ -40,34 +42,31 @@ func runHealth(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	yamlOut, _ := cmd.Flags().GetBool("yaml")
 	outputFmt := ""
-	if jsonOut {
+	switch {
+	case jsonOut:
 		outputFmt = "json"
+	case yamlOut:
+		outputFmt = "yaml"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
 
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 
+	watchFlag, _ := cmd.Flags().GetBool("watch")
+	if watchFlag {
+		interval, _ := cmd.Flags().GetDuration("watch-interval")
+		return runWatch(ctx, interval, ctrCtx, cloudEnv, mode)
+	}
+
 	state, _ := tips.LoadState()
 	if state != nil {
 		tips.MaybePrintReengagement(state, mode, version.Version)
 	}
 
-	cols := buildHealthCollectors(ctrCtx)
-	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
-	p.Start()
-	defer p.Done()
-
-	var results []runner.Result
-	for r := range runner.RunAll(ctx, toRunnerCols(cols)) {
-		p.Step(r.Name)
-		results = append(results, r)
-	}
-
-	thresh := analysis.DefaultThresholds(cloudEnv)
-	insights := analysis.ApplyThresholds(results, thresh, cloudEnv)
-	snap := baseline.BuildSnapshot(results, insights)
+	results, insights, snap := runHealthOnce(ctx, ctrCtx, cloudEnv, mode)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -103,12 +102,18 @@ func runHealth(cmd *cobra.Command, _ []string) error {
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
-	if mode == output.ModeJSON {
+	switch mode {
+	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
 		if err == nil {
 			os.Stdout.Write(data) //nolint:errcheck
 		}
-	} else {
+	case output.ModeYAML:
+		data, err := render.RenderYAML(results, insights)
+		if err == nil {
+			os.Stdout.Write(data) //nolint:errcheck
+		}
+	default:
 		renderer.PrintAll(results, insights)
 	}
 
@@ -146,6 +151,47 @@ func runHealth(cmd *cobra.Command, _ []string) error {
 		os.Exit(exitCode)
 	}
 	return nil
+}
+
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
+	cols := buildHealthCollectors(ctrCtx)
+	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
+	p.Start()
+	defer p.Done()
+
+	var results []runner.Result
+	for r := range runner.RunAll(ctx, toRunnerCols(cols)) {
+		p.Step(r.Name)
+		results = append(results, r)
+	}
+
+	thresh := analysis.DefaultThresholds(cloudEnv)
+	insights := analysis.ApplyThresholds(results, thresh, cloudEnv)
+	snap := baseline.BuildSnapshot(results, insights)
+	return results, insights, snap
+}
+
+func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	run := func() {
+		results, insights, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode)
+		renderer := render.NewRenderer(mode)
+		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
+		renderer.PrintAll(results, insights)
+		renderer.PrintSummary(insights) //nolint:errcheck
+	}
+
+	run()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collector {

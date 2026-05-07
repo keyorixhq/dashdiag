@@ -1,0 +1,24 @@
+#!/bin/bash
+# scripts/hooks/pre-commit
+# Install: cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+echo "→ Pre-commit checks"
+
+if [ -n "$(gofmt -l .)" ]; then
+    echo "❌ Files need formatting. Run: make fmt"
+    gofmt -l .
+    exit 1
+fi
+
+if ! go vet ./... 2>&1; then
+    echo "❌ go vet failed"
+    exit 1
+fi
+
+if ! go test -race -count=1 -timeout 30s ./... 2>&1; then
+    echo "❌ Tests failed"
+    exit 1
+fi
+
+echo "✅ Pre-commit checks passed"

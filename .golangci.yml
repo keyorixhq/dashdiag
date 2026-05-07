@@ -1,0 +1,47 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gofmt
+    - goimports
+    - revive
+    - gosec
+    - prealloc
+    - bodyclose
+    - cyclop
+    - funlen
+
+linters-settings:
+  funlen:
+    lines: 55
+    statements: 45
+  cyclop:
+    max-complexity: 10
+  gosec:
+    excludes:
+      - G115
+  revive:
+    rules:
+      - name: exported
+      - name: error-return
+      - name: var-naming
+      - name: indent-error-flow
+      - name: superfluous-else
+
+issues:
+  max-same-issues: 3
+  exclude-rules:
+    - path: "_test.go"
+      linters: [gosec, errcheck, funlen]
+    - path: "cmd/"
+      linters: [funlen]
+    - path: "internal/version/version.go"
+      linters: [gochecknoglobals]

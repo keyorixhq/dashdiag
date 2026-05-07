@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/version"
@@ -34,6 +36,15 @@ type JSONInsight struct {
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
+	return json.MarshalIndent(buildOutput(results, insights), "", "  ")
+}
+
+func RenderYAML(results []runner.Result, insights []models.Insight) ([]byte, error) {
+	out := buildOutput(results, insights)
+	return yaml.Marshal(out)
+}
+
+func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput {
 	hostname, _ := os.Hostname()
 
 	insightMap := make(map[string]models.Insight, len(insights))
@@ -46,11 +57,7 @@ func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, err
 
 	checks := make([]JSONCheck, 0, len(results))
 	for _, r := range results {
-		c := JSONCheck{
-			Name:     r.Name,
-			Status:   "OK",
-			Duration: r.Duration.String(),
-		}
+		c := JSONCheck{Name: r.Name, Status: "OK", Duration: r.Duration.String()}
 		if r.Err != nil {
 			c.Status = "ERROR"
 			c.Error = r.Err.Error()
@@ -66,20 +73,15 @@ func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, err
 			continue
 		}
 		jsonInsights = append(jsonInsights, JSONInsight{
-			Level:   ins.Level,
-			Check:   ins.Check,
-			Message: ins.Message,
-			Hints:   ins.Hints,
+			Level: ins.Level, Check: ins.Check, Message: ins.Message, Hints: ins.Hints,
 		})
 	}
 
-	out := JSONOutput{
+	return JSONOutput{
 		Hostname:  hostname,
 		Timestamp: time.Now().UTC(),
 		Version:   version.Version,
 		Checks:    checks,
 		Insights:  jsonInsights,
 	}
-
-	return json.MarshalIndent(out, "", "  ")
 }

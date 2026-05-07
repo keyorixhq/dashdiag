@@ -1,0 +1,5 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda1 / ext4 rw,relatime 0 0
+/dev/sda2 /data ext4 rw,relatime 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime 0 0

@@ -1,0 +1,3 @@
+nr_free_pages 1234567
+pswpin 0
+pswpout 0
