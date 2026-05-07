@@ -1,5 +1,5 @@
 package main
 
-import "github.com/andreibeshkov/dashdiag/cmd"
+import "github.com/keyorixhq/dashdiag/cmd"
 
 func main() { cmd.Execute() }

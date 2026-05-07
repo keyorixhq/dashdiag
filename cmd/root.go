@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/andreibeshkov/dashdiag/internal/version"
+	"github.com/keyorixhq/dashdiag/internal/version"
 	"github.com/spf13/cobra"
 )
 
