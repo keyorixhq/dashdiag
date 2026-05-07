@@ -1,44 +1,35 @@
 name: Feature Request
-description: Suggest an improvement or new capability
+description: Suggest a new collector, flag, or command
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
-      value: |
-        Before opening, search existing issues to avoid duplicates.
+      value: "Feature requests with a concrete use case get prioritised faster."
 
   - type: textarea
     id: problem
     attributes:
       label: What problem does this solve?
-      description: Describe the situation where you felt something was missing.
+      placeholder: "When I was debugging X, I couldn't see Y..."
     validations:
       required: true
 
   - type: textarea
     id: solution
     attributes:
-      label: Proposed solution
-      description: What would you like `dsd` to do?
-    validations:
-      required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: What workarounds do you currently use?
+      label: What would the output look like?
+      placeholder: "dsd health --show-x would output..."
 
   - type: dropdown
-    id: area
+    id: category
     attributes:
-      label: Area
+      label: Category
       options:
-        - New collector (CPU / memory / disk / network / …)
-        - Output format
-        - Configuration / flags
-        - Performance
-        - Platform support
+        - New collector (new data source)
+        - New output flag
+        - New command
+        - Performance improvement
+        - Documentation
         - Other
     validations:
       required: true

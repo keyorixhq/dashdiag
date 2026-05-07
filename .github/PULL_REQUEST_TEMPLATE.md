@@ -1,31 +1,27 @@
-## Summary
+## What this PR does
 
-<!-- What does this PR do? Why? One paragraph max. -->
+<!-- One sentence -->
 
 ## Type of change
 
 - [ ] Bug fix
-- [ ] New feature / collector
-- [ ] Refactor (no behaviour change)
-- [ ] Documentation
-- [ ] CI / tooling
+- [ ] New feature (backward compatible)
+- [ ] Breaking change (changes JSON output schema or exit codes)
+- [ ] Documentation / tests only
 
 ## Checklist
 
-- [ ] `make check` passes (format + vet + lint)
+- [ ] `make check` passes (gofmt + vet + lint)
 - [ ] `make test` passes with race detector
-- [ ] New collectors have: unit tests + fixtures + golden file
-- [ ] New thresholds are in `analysis/heuristics.go` ONLY
-- [ ] `dsd health --json | python3 -m json.tool` produces valid JSON
-- [ ] `--plain` output contains no ANSI escape codes
-- [ ] No new dependencies without justification below
+- [ ] New collectors have unit tests + fixtures + fuzz test
+- [ ] New thresholds are in `analysis/heuristics.go` only — not in collectors
+- [ ] `dsd health --json | python3 -m json.tool` still produces valid JSON
+- [ ] `dsd health --plain` output has no ANSI escape codes
 
-## New dependency justification (if any)
+## If JSON output changed
 
-<!-- What does it do? Why can't stdlib do it? License? Maintenance status? -->
+<!-- Is this backward compatible? What fields changed? -->
 
-## Screenshots / output (if applicable)
+## If a new dependency was added
 
-```
-paste dsd output here
-```
+<!-- Why can't stdlib do it? What is the license? -->

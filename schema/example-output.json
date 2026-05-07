@@ -1,0 +1,107 @@
+{
+    "hostname": "Andreis-MacBook-Pro.local",
+    "timestamp": "2026-05-07T23:03:12.144126Z",
+    "version": "v0.1.0-11-g8f3c7f7-dirty",
+    "checks": [
+        {
+            "name": "Disk",
+            "status": "OK",
+            "duration": "69.459\u00b5s"
+        },
+        {
+            "name": "Systemd",
+            "status": "OK",
+            "duration": "709ns"
+        },
+        {
+            "name": "Swap",
+            "status": "OK",
+            "duration": "6.541\u00b5s"
+        },
+        {
+            "name": "MACPolicy",
+            "status": "OK",
+            "duration": "83ns"
+        },
+        {
+            "name": "IO",
+            "status": "OK",
+            "duration": "375ns"
+        },
+        {
+            "name": "Memory",
+            "status": "OK",
+            "duration": "3.518625ms"
+        },
+        {
+            "name": "FDLimits",
+            "status": "OK",
+            "duration": "5.54125ms"
+        },
+        {
+            "name": "CPU",
+            "status": "ERROR",
+            "duration": "5.501125ms",
+            "error": "load average: parsing load1: strconv.ParseFloat: parsing \"9,55\": invalid syntax"
+        },
+        {
+            "name": "Clock",
+            "status": "CRIT",
+            "duration": "7.788584ms"
+        },
+        {
+            "name": "Processes",
+            "status": "OK",
+            "duration": "33.594541ms"
+        },
+        {
+            "name": "Sysctl",
+            "status": "CRIT",
+            "duration": "60.380583ms"
+        },
+        {
+            "name": "Network",
+            "status": "OK",
+            "duration": "1.2891385s"
+        }
+    ],
+    "insights": [
+        {
+            "level": "CRIT",
+            "check": "Disk /dev",
+            "message": "disk usage at 100% on /dev (devfs)",
+            "hints": [
+                "df -h",
+                "du -sh /dev/* 2>/dev/null | sort -h | tail -20"
+            ]
+        },
+        {
+            "level": "CRIT",
+            "check": "Disk /dev",
+            "message": "inode usage at 100% on /dev",
+            "hints": [
+                "df -i",
+                "find /dev -xdev -printf '%h\\n' | sort | uniq -c | sort -rn | head -20"
+            ]
+        },
+        {
+            "level": "CRIT",
+            "check": "Clock",
+            "message": "NTP is not synchronized",
+            "hints": [
+                "timedatectl status",
+                "chronyc tracking",
+                "systemctl status chronyd ntpd"
+            ]
+        },
+        {
+            "level": "CRIT",
+            "check": "Sysctl",
+            "message": "net.core.somaxconn=128 is critically low (< 512)",
+            "hints": [
+                "sysctl net.core.somaxconn",
+                "sysctl -w net.core.somaxconn=4096"
+            ]
+        }
+    ]
+}

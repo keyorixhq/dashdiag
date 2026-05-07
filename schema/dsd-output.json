@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/keyorixhq/dashdiag/schema/dsd-output.json",
+  "title": "dsd health output",
+  "description": "JSON output schema for `dsd health --json`",
+  "type": "object",
+  "required": ["hostname", "timestamp", "version", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "hostname": {
+      "type": "string",
+      "description": "Hostname of the machine that ran the check"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC timestamp when the check ran"
+    },
+    "version": {
+      "type": "string",
+      "description": "dsd binary version string (e.g. v0.1.0)"
+    },
+    "checks": {
+      "type": "array",
+      "description": "One entry per collector that ran",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Collector name (e.g. CPU, Disk, Memory)"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["OK", "WARN", "CRIT", "INFO", "PENDING", "ERROR"],
+            "description": "Outcome of the collector run"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Wall-clock time taken by the collector (e.g. 1.2ms)"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if status is ERROR"
+          }
+        }
+      }
+    },
+    "insights": {
+      "type": "array",
+      "description": "Actionable findings produced by analysis",
+      "items": {
+        "type": "object",
+        "required": ["level", "check", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": ["OK", "WARN", "CRIT", "INFO"],
+            "description": "Severity level of this insight"
+          },
+          "check": {
+            "type": "string",
+            "description": "Which collector or sub-check produced this insight"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description of the finding"
+          },
+          "hints": {
+            "type": "array",
+            "description": "Suggested commands or actions to investigate",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
