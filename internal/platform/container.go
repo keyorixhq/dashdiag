@@ -61,7 +61,7 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers 
 }
 
 func parseCgroupV2Memory(path string) float64 {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return 0
 	}
@@ -77,7 +77,7 @@ func parseCgroupV2Memory(path string) float64 {
 }
 
 func parseCgroupV2CPU(path string) float64 {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return 0
 	}
@@ -94,7 +94,7 @@ func parseCgroupV2CPU(path string) float64 {
 }
 
 func parseCgroupV1Memory(path string) float64 {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return 0
 	}

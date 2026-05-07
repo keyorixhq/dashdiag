@@ -75,7 +75,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 		HungProcs:   make([]models.ProcessState, 0),
 	}
 	for _, dir := range dirs {
-		data, err := os.ReadFile(dir + "/stat")
+		data, err := os.ReadFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from filepath.Glob("/proc/[0-9]*"), not user input
 		if err != nil {
 			continue
 		}

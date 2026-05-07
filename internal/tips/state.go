@@ -36,7 +36,7 @@ func stateFilePath() string {
 
 func LoadState() (*State, error) {
 	path := stateFilePath()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if os.IsNotExist(err) {
 		return &State{
 			TipsEnabled:   true,

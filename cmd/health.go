@@ -94,7 +94,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	}
 	if pmFlag != "" {
 		fmt.Println(render.RenderPostMortem(pmFlag, snap, insights, mode))
-		baseline.SaveBaseline(snap) //nolint:errcheck
+		_ = baseline.SaveBaseline(snap)
 		return nil
 	}
 
@@ -106,12 +106,12 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
 		if err == nil {
-			os.Stdout.Write(data) //nolint:errcheck
+			_, _ = os.Stdout.Write(data)
 		}
 	case output.ModeYAML:
 		data, err := render.RenderYAML(results, insights)
 		if err == nil {
-			os.Stdout.Write(data) //nolint:errcheck
+			_, _ = os.Stdout.Write(data)
 		}
 	default:
 		renderer.PrintAll(results, insights)
@@ -121,20 +121,20 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	if diffFlag {
 		prev, err := baseline.LoadBaseline("")
 		if err == nil {
-			render.PrintDiff(prev, snap, mode) //nolint:errcheck
+			_ = render.PrintDiff(prev, snap, mode)
 		} else {
 			fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
 		}
 	}
 
 	exitCode := renderer.PrintSummary(insights)
-	baseline.SaveBaseline(snap) //nolint:errcheck
+	_ = baseline.SaveBaseline(snap)
 
 	// --qr: show QR code for share URL (shareURL stub until --share is implemented)
 	qrFlag, _ := cmd.Flags().GetBool("qr")
 	if qrFlag {
 		shareURL := ""
-		output.PrintQRCode(shareURL, mode) //nolint:errcheck
+		_ = output.PrintQRCode(shareURL, mode)
 	}
 
 	if state != nil {
@@ -144,7 +144,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 			state.CommandCounts = make(map[string]int)
 		}
 		state.CommandCounts["health"]++
-		state.Save() //nolint:errcheck
+		_ = state.Save()
 	}
 
 	if exitCode > 0 {

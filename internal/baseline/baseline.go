@@ -110,7 +110,7 @@ func LoadBaseline(path string) (*Snapshot, error) {
 		hostname, _ := os.Hostname()
 		data, err = os.ReadFile(prevPath(hostname))
 	default:
-		data, err = os.ReadFile(path)
+		data, err = os.ReadFile(filepath.Clean(path))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading baseline: %w", err)

@@ -23,7 +23,7 @@ func (c *SysctlCollector) Timeout() time.Duration { return 1 * time.Second }
 
 // readIntFile reads a single integer from a file (e.g. /proc/sys/* files).
 func readIntFile(path string) (int, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return 0, fmt.Errorf("reading %s: %w", path, err)
 	}
@@ -58,7 +58,7 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 }
 
 func readSysctlInt(ctx context.Context, key string) int {
-	out, err := exec.CommandContext(ctx, "sysctl", "-n", key).Output()
+	out, err := exec.CommandContext(ctx, "sysctl", "-n", key).Output() // #nosec G204 -- command is hardcoded "sysctl"; key is from internal constant list, not user input
 	if err != nil {
 		return 0
 	}

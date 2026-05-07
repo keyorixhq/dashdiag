@@ -45,7 +45,7 @@ func parseUnitList(r io.Reader) []string {
 }
 
 func listUnits(ctx context.Context, state string) []string {
-	out, err := exec.CommandContext(ctx, "systemctl", "list-units",
+	out, err := exec.CommandContext(ctx, "systemctl", "list-units", // #nosec G204 -- command is hardcoded "systemctl"; state is from internal enum values, not user input
 		"--state="+state, "--no-legend", "--no-pager", "--plain").Output()
 	if err != nil {
 		return nil
