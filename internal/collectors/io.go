@@ -118,7 +118,7 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 		return nil, fmt.Errorf("opening diskstats: %w", err)
 	}
 	before, err := parseDiskstats(f1)
-	f1.Close()
+	_ = f1.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parsing diskstats (1st): %w", err)
 	}
@@ -134,7 +134,7 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 		return nil, fmt.Errorf("opening diskstats (2nd): %w", err)
 	}
 	after, err := parseDiskstats(f2)
-	f2.Close()
+	_ = f2.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parsing diskstats (2nd): %w", err)
 	}

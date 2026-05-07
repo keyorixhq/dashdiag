@@ -32,13 +32,12 @@ func daysBetween(a, b string) int {
 // computeStreak calculates the updated streak given current streak, longest streak,
 // today's date, and the last run date.
 func computeStreak(current, longest int, today, lastRun string) (newStreak, newLongest int) {
-	if lastRun == "" {
-		// First ever run
+	switch lastRun {
+	case "":
 		newStreak = 1
-	} else if lastRun == today {
-		// Already ran today — don't double-count
+	case today:
 		newStreak = current
-	} else {
+	default:
 		gap := daysBetween(lastRun, today)
 		if gap == 1 {
 			newStreak = current + 1
@@ -46,11 +45,7 @@ func computeStreak(current, longest int, today, lastRun string) (newStreak, newL
 			newStreak = 1
 		}
 	}
-	newLongest = longest
-	if newStreak > newLongest {
-		newLongest = newStreak
-	}
-	return newStreak, newLongest
+	return newStreak, max(longest, newStreak)
 }
 
 // firedRunMilestones returns which run-count milestones should fire for this run.

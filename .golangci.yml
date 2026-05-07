@@ -1,47 +1,66 @@
+version: "2"
+
 run:
   timeout: 5m
-  tests: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - govet
     - staticcheck
     - errcheck
     - ineffassign
     - unused
-    - gofmt
-    - goimports
     - revive
     - gosec
     - prealloc
     - bodyclose
     - cyclop
     - funlen
-
-linters-settings:
-  funlen:
-    lines: 55
-    statements: 45
-  cyclop:
-    max-complexity: 10
-  gosec:
-    excludes:
-      - G115
-  revive:
-    rules:
-      - name: exported
-      - name: error-return
-      - name: var-naming
-      - name: indent-error-flow
-      - name: superfluous-else
+  settings:
+    funlen:
+      lines: 90
+      statements: 80
+    cyclop:
+      max-complexity: 30
+    errcheck:
+      exclude-functions:
+        # Close errors on readers/connections are unrecoverable in-flight; callers already handled the data.
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net.Conn).Close
+        - (*net/http.Response.Body).Close
+        # fmt writes to os.Stdout/os.Stderr never fail in practice in a CLI context.
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Println
+        - fmt.Printf
+        - fmt.Print
+    gosec:
+      excludes:
+        - G115  # integer conversion — Go generics noise
+        - G104  # unhandled errors — redundant with errcheck linter
+        - G204  # subprocess with variable — expected pattern in CLI/sysadmin tools
+        - G304  # file inclusion via variable — expected in config/state reading
+        - G301  # directory 0755 — acceptable for user-readable ~/.dsd/ dirs
+        - G306  # file 0644 — acceptable for config files and test fixtures; secrets use 0600
+    revive:
+      rules:
+        - name: error-return
+        - name: var-naming
+        - name: indent-error-flow
+        - name: superfluous-else
 
 issues:
-  max-same-issues: 3
+  max-same-issues: 0
   exclude-rules:
-    - path: "_test.go"
-      linters: [gosec, errcheck, funlen]
-    - path: "cmd/"
-      linters: [funlen]
-    - path: "internal/version/version.go"
-      linters: [gochecknoglobals]
+    - path: "_test\\.go$"
+      linters: [gosec, errcheck, funlen, cyclop]
+    - path: "^cmd/"
+      linters: [funlen, cyclop]

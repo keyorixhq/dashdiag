@@ -96,7 +96,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 		return nil, fmt.Errorf("opening vmstat: %w", err)
 	}
 	pin1, pout1, _ := parseVMStat(r1)
-	r1.Close()
+	_ = r1.Close()
 
 	select {
 	case <-ctx.Done():
@@ -110,7 +110,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 		return nil, fmt.Errorf("opening vmstat (2nd): %w", err)
 	}
 	pin2, pout2, _ := parseVMStat(r2)
-	r2.Close()
+	_ = r2.Close()
 
 	info := &models.SwapInfo{
 		PagesInPerSec:  float64(pin2 - pin1),
@@ -127,7 +127,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 	sf, err := os.Open(c.swapsPath)
 	if err == nil {
 		totalKB, usedKB, _ := parseSwaps(sf)
-		sf.Close()
+		_ = sf.Close()
 		info.TotalGB = float64(totalKB) / (1024 * 1024)
 		info.UsedGB = float64(usedKB) / (1024 * 1024)
 		if totalKB > 0 {

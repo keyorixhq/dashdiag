@@ -21,10 +21,10 @@ type Snapshot struct {
 }
 
 type CheckResult struct {
-	Name   string      `json:"name"`
-	Status string      `json:"status"`
-	Value  string      `json:"value"`
-	Raw    interface{} `json:"raw,omitempty"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Value  string `json:"value"`
+	Raw    any    `json:"raw,omitempty"`
 }
 
 type DiffEntry struct {
@@ -51,7 +51,7 @@ func prevPath(hostname string) string {
 
 func SaveBaseline(snap *Snapshot) error {
 	dir := baselineDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating baseline dir: %w", err)
 	}
 	data, err := json.MarshalIndent(snap, "", "  ")
@@ -65,9 +65,9 @@ func SaveBaseline(snap *Snapshot) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -79,7 +79,7 @@ func SaveBaseline(snap *Snapshot) error {
 
 	latest := latestPath(snap.Hostname)
 	if _, err := os.Stat(latest); err == nil {
-		os.Rename(latest, prevPath(snap.Hostname))
+		_ = os.Rename(latest, prevPath(snap.Hostname))
 	}
 
 	tmp2, err := os.CreateTemp(dir, ".latest-*.tmp")
@@ -87,9 +87,14 @@ func SaveBaseline(snap *Snapshot) error {
 		return fmt.Errorf("creating latest temp: %w", err)
 	}
 	tmp2Name := tmp2.Name()
-	defer os.Remove(tmp2Name)
-	tmp2.Write(data)
-	tmp2.Close()
+	defer func() { _ = os.Remove(tmp2Name) }()
+	if _, err := tmp2.Write(data); err != nil {
+		_ = tmp2.Close()
+		return err
+	}
+	if err := tmp2.Close(); err != nil {
+		return err
+	}
 	return os.Rename(tmp2Name, latest)
 }
 

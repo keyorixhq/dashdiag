@@ -36,10 +36,10 @@ func TestLoadState_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	os.MkdirAll(filepath.Join(dir, ".dsd"), 0755)
+	_ = os.MkdirAll(filepath.Join(dir, ".dsd"), 0755)
 	existing := &State{TotalRuns: 42, TipsEnabled: false, CommandCounts: map[string]int{"health": 10}}
 	data, _ := json.MarshalIndent(existing, "", "  ")
-	os.WriteFile(filepath.Join(dir, ".dsd", "state.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(dir, ".dsd", "state.json"), data, 0644)
 
 	s, err := LoadState()
 	if err != nil {
