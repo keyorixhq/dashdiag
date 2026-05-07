@@ -49,6 +49,7 @@ linters:
         - G204  # subprocess with variable — expected pattern in CLI/sysadmin tools
         - G304  # file inclusion via variable — expected in config/state reading
         - G301  # directory 0755 — acceptable for user-readable ~/.dsd/ dirs
+        - G302  # OpenFile 0644 — shell RC files (.bashrc, .zshrc) must be world-readable
         - G306  # file 0644 — acceptable for config files and test fixtures; secrets use 0600
     revive:
       rules:

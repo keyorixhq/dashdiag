@@ -148,6 +148,9 @@ func TestParseSwaps(t *testing.T) {
 
 func TestSwapCollector_Collect_InjectableReaders(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 1s vmstat sampling in short mode")
+	}
 	if runtime.GOOS == "darwin" {
 		t.Skip("vmstat sampling not available on darwin")
 	}

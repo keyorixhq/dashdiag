@@ -131,6 +131,9 @@ func TestParseCPUStat(t *testing.T) {
 
 func TestCPUCollector_Collect_InjectableReaders(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
 
 	loadAvgContent := "1.50 1.20 0.90 3/412 8932"
 	// idle delta=100, total delta=200 → usage = (1 - 100/200)*100 = 50%

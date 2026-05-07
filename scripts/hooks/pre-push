@@ -1,0 +1,53 @@
+#!/bin/bash
+# Pre-push: thorough checks before code reaches GitHub — target < 90 seconds
+# Install: cp scripts/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+set -e
+echo "→ Pre-push (thorough checks)"
+
+# 1. Full test suite with race detector
+echo "  Running tests with race detector..."
+if ! go test -race -count=1 -timeout 90s ./... 2>&1; then
+    echo "❌ Tests failed (race detector)"
+    exit 1
+fi
+echo "  ✅ tests (race)"
+
+# 2. golangci-lint — full linter suite
+if command -v golangci-lint &>/dev/null; then
+    echo "  Running golangci-lint..."
+    if ! golangci-lint run ./... 2>&1; then
+        echo "❌ golangci-lint failed"
+        echo "   Fix issues then: git push"
+        exit 1
+    fi
+    echo "  ✅ golangci-lint"
+else
+    echo "  ⚠️  golangci-lint not installed — run: make tools"
+    echo "  Skipping lint check"
+fi
+
+# 3. staticcheck (if installed)
+if command -v staticcheck &>/dev/null; then
+    echo "  Running staticcheck..."
+    if ! staticcheck ./... 2>&1; then
+        echo "❌ staticcheck failed"
+        exit 1
+    fi
+    echo "  ✅ staticcheck"
+fi
+
+# 4. gosec (if installed) — security scan before push
+# Exclusions mirror .golangci.yml: G104=errcheck dup, G115=uint conv, G204=subprocess,
+# G301=dir 0755, G302=OpenFile 0644 (shell RC files), G304=file path var, G306=file 0644.
+if command -v gosec &>/dev/null; then
+    echo "  Running gosec..."
+    if ! gosec -quiet -exclude=G104,G115,G204,G301,G302,G304,G306 ./... 2>&1; then
+        echo "❌ gosec found security issues"
+        exit 1
+    fi
+    echo "  ✅ gosec"
+fi
+
+echo ""
+echo "✅ Pre-push passed — pushing to GitHub"
