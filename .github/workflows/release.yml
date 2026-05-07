@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22', cache: true}
+
+      - name: Run tests
+        run: go test -race -count=1 ./...
+
+      - name: Build all platforms
+        run: |
+          VERSION=$(git describe --tags --always)
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          MODULE=github.com/keyorixhq/dashdiag
+          FLAGS="-X ${MODULE}/internal/version.Version=${VERSION} -X ${MODULE}/internal/version.Commit=${COMMIT} -X ${MODULE}/internal/version.Built=${BUILT} -s -w"
+          mkdir -p dist
+          GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-linux-amd64   ./cmd/dsd
+          GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-linux-arm64   ./cmd/dsd
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-darwin-amd64  ./cmd/dsd
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-darwin-arm64  ./cmd/dsd
+          cd dist && sha256sum dsd-* > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

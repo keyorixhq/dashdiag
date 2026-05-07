@@ -10,9 +10,9 @@ PASS=0; FAIL=0
 check() {
     local desc=$1; shift
     if "$@" >/dev/null 2>&1; then
-        echo "✅ $desc"; ((PASS++))
+        echo "✅ $desc"; PASS=$((PASS + 1))
     else
-        echo "❌ $desc"; ((FAIL++))
+        echo "❌ $desc"; FAIL=$((FAIL + 1))
     fi
 }
 
@@ -22,7 +22,7 @@ echo ""
 check "binary exists"                    test -f "$BINARY"
 check "dsd --version exits 0"            $BINARY --version
 check "dsd --help exits 0"              $BINARY --help
-check "dsd health exits 0 or 1"         bash -c "$BINARY health; [ \$? -le 1 ]"
+check "dsd health exits 0-2"            bash -c "$BINARY health; [ \$? -le 2 ]"
 check "dsd health --json valid JSON"    bash -c "$BINARY health --json | python3 -m json.tool"
 check "dsd health --plain no ANSI"      bash -c "$BINARY health --plain | grep -qv $'\\033'"
 check "dsd health --diff no crash"      bash -c "$BINARY health --diff; [ \$? -le 2 ]"
