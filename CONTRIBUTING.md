@@ -7,8 +7,7 @@ git clone https://github.com/keyorixhq/dashdiag
 cd dashdiag
 go mod download
 make tools
-cp scripts/hooks/pre-commit .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+make hooks
 make all
 ```
 
@@ -35,7 +34,7 @@ dashdiag/
 │   ├── golden/           # expected renderer output (committed)
 │   └── fuzz/             # fuzz corpus (committed)
 ├── schema/               # dsd-output.json — public JSON contract
-├── scripts/              # smoke-test.sh, hooks/pre-commit
+├── scripts/              # smoke-test.sh, hooks/pre-commit, hooks/pre-push
 └── SPEC.md               # product bible — read before writing any code
 ```
 

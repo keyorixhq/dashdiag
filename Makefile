@@ -124,6 +124,16 @@ tools:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "✅ Tools installed"
 
+.PHONY: hooks
+hooks:
+	@echo "→ Installing git hooks"
+	cp scripts/hooks/pre-commit .git/hooks/pre-commit
+	cp scripts/hooks/pre-push   .git/hooks/pre-push
+	chmod +x .git/hooks/pre-commit .git/hooks/pre-push
+	@echo "✅ Hooks installed"
+	@echo "   pre-commit: gofmt + go vet + go test -short"
+	@echo "   pre-push:   go test -race + golangci-lint + gosec"
+
 # ── CLEAN ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean:
@@ -146,4 +156,5 @@ help:
 	@echo "  make vuln         → govulncheck"
 	@echo "  make security     → govulncheck + gosec"
 	@echo "  make tools        → install all dev tools"
+	@echo "  make hooks        → install pre-commit and pre-push git hooks"
 	@echo "  make clean        → remove dist/ and coverage files"
