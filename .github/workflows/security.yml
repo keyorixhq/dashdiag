@@ -18,6 +18,7 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+        # GitHub will email you when this step fails in a scheduled run
 
       - name: gosec
         run: |
