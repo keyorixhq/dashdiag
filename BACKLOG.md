@@ -7,9 +7,12 @@
 
 ## STATUS
 Last updated: 2026-05-08
-Binary: dist/dsd ✅ (Go 1.26, all 4 platforms)
+Binary: dist/dsd ✅ (Go 1.26.3, all 4 platforms)
 Sprints 0-4: ✅ COMPLETE
-Code quality: ✅ CLEAN (golangci-lint 0 issues, gofmt applied)
+Code quality: ✅ CLEAN
+  - golangci-lint: 0 issues
+  - gosec: 0 issues (was 32 — G104/G204/G304/G306 all fixed)
+  - govulncheck: 0 CVEs (was 2 — x/net and toolchain updated)
 
 ---
 
@@ -19,8 +22,8 @@ Code quality: ✅ CLEAN (golangci-lint 0 issues, gofmt applied)
 - [x] Run `make tools` — golangci-lint, gosec, govulncheck, staticcheck installed
 - [x] Run `gofmt -w . && goimports -w ./...` — formatting applied
 - [x] Run `golangci-lint run ./...` — 0 issues
-- [ ] Run `gosec -quiet ./...` and fix any security findings
-- [ ] Run `govulncheck ./...` and update any vulnerable deps
+- [x] Run `gosec -quiet ./...` — 0 issues (32 fixed: G104/G204/G304/G306)
+- [x] Run `govulncheck ./...` — 0 CVEs (GO-2026-4918, GO-2026-4971 fixed)
 - [ ] Add `testing.Short()` skip to slow collectors (IO, swap, network, clock)
 - [ ] Install pre-push hook: `make hooks`
 
