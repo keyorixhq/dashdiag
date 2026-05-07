@@ -1,0 +1,3 @@
+nr_free_pages 100000
+pswpin 142
+pswpout 89

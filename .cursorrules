@@ -1,0 +1,229 @@
+# DashDiag (.cursorrules)
+# Go 1.22+ · Static binary · Read-only diagnostic CLI
+# module: github.com/keyorixhq/dashdiag
+# "One command → instant system health overview"
+# ─────────────────────────────────────────────────────────────────────────────
+
+## PRODUCT IDENTITY (never deviate from these)
+
+This is DashDiag — a Go CLI tool that takes a read-only snapshot of system
+health and exits. It NEVER modifies the system, NEVER runs as a daemon,
+NEVER makes network calls from collectors (only from platform/ and init/).
+
+The tool must work as a single static binary with zero runtime dependencies.
+Every feature must satisfy all six design constraints:
+1. Works offline
+2. No external API calls by default
+3. Completes in < 35 seconds
+4. Read-only — no side effects on the checked system
+5. Zero-config for basic use
+6. Single static binary — no venv, no node_modules, no runtime deps
+
+Module path: github.com/keyorixhq/dashdiag
+
+
+## ARCHITECTURE — LAYERED PIPELINE (NON-NEGOTIABLE)
+
+The dependency direction is ONE-WAY and NEVER reversed:
+
+  cmd → runner → collectors → models ← analysis ← render ← output
+
+Permitted imports:
+  cmd/          imports: runner, analysis, render, output, platform, baseline, tips, tui, version, config
+  runner/       imports: collectors, models ONLY
+  collectors/   imports: models, platform ONLY
+  models/       imports: NOTHING internal (stdlib only)
+  analysis/     imports: models, config, platform ONLY
+  render/       imports: models, output, baseline ONLY
+  output/       imports: NOTHING internal (stdlib + lipgloss only)
+  platform/     imports: NOTHING internal (stdlib only)
+  baseline/     imports: models, runner, output
+  tips/         imports: output, version ONLY
+  tui/          imports: output ONLY
+  init/         imports: platform, output ONLY
+  config/       imports: NOTHING internal (stdlib + viper only)
+
+FORBIDDEN import directions (cause circular dependencies):
+  collectors importing analysis   — NEVER
+  collectors importing render     — NEVER
+  models importing anything internal — NEVER
+  output importing models         — NEVER
+  analysis importing render       — NEVER
+
+
+## LAYER CONTRACTS (each layer has ONE job)
+
+### Collectors
+- Pure functions: input = context.Context, output = (interface{}, error)
+- Return RAW data only — never set Status, StatusReason, or thresholds
+- Never spawn goroutines — the runner owns all concurrency
+- Implement the Collector interface:
+    Name()    string
+    Timeout() time.Duration
+    Collect(ctx context.Context) (interface{}, error)
+- Read /proc, /sys files directly — never shell out for basic metrics
+- Shell out ONLY when no file API exists (exec.CommandContext always, never exec.Command)
+- Always provide macOS fallback (check runtime.GOOS == "darwin")
+
+### Models
+- Dumb structs ONLY — no methods, no logic, no validation
+- Every exported field has a json struct tag
+- Status fields: string type, values "OK"|"WARN"|"CRIT"|"INFO"|"PENDING"
+- StatusReason field: human-readable explanation string
+
+### Analysis
+- THE ONLY PLACE that sets Status and StatusReason
+- Reads raw collector output, applies thresholds, produces []models.Insight
+- Thresholds come from config (user-configurable), with hardcoded defaults
+
+### Runner
+- Owns ALL concurrency — runs collectors in parallel with goroutines
+- Each collector gets its own ctx derived from parent with collector.Timeout()
+- Results stream through a channel — never buffer all results in memory
+- Never panics on collector error — wraps in Result{Err: err}
+
+### cmd/ files (commands)
+- WIRING ONLY — connect flags to packages
+- Maximum 80 lines per file
+- No business logic — if you write an if-statement not about flags, move it
+
+
+## DASHDIAG-SPECIFIC PATTERNS — CURSOR COMMONLY GETS THESE WRONG
+
+### 1. Cgroup-aware resource collection (CRITICAL)
+DashDiag runs INSIDE containers. /proc/meminfo returns HOST RAM, not container
+limit. Always use ContainerContext to get effective limits.
+
+### 2. IO collectors require TWO samples
+/proc/diskstats has cumulative counters. Read TWICE with 1s gap, compute delta.
+Single read = meaningless absolute numbers.
+
+### 3. Parsers must accept io.Reader not hardcoded /proc paths
+WRONG: os.ReadFile("/proc/vmstat") inside Collect()
+RIGHT: parseVMStat(r io.Reader) — inject file in tests, open in production
+
+### 4. Platform files need build tags
+//go:build linux  on linux.go
+//go:build darwin on macos.go
+
+### 5. state.json writes must be atomic
+Use temp file + os.Rename() — never direct os.WriteFile on state.json
+
+### 6. Cobra subcommand pattern for deep variants
+healthCmd.AddCommand(healthDeepCmd) — NOT rootCmd.AddCommand(healthDeepCmd)
+Results in: dsd health deep (correct), NOT dsd health-deep (wrong)
+
+### 7. Exit codes must flow from insights, not error handling
+0=all OK, 1=WARN, 2=CRIT. Derive from highest severity insight.
+os.Exit() permitted ONLY in cmd/ files for this purpose.
+
+### 8. Context must be propagated, never re-created
+WRONG: context.WithTimeout(context.Background(), ...) inside a collector
+RIGHT: use the ctx passed to Collect(ctx context.Context)
+
+### 9. Lipgloss colours must be adaptive
+WRONG: lipgloss.Color("#FF0000")
+RIGHT: lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF6B6B"}
+Define ALL styles in internal/render/styles.go — nowhere else.
+
+### 10. Cloud environment affects IO thresholds
+AWS EBS await WARN=5ms CRIT=20ms (not bare-metal 1ms/5ms)
+Always check platform.CloudEnvironment in analysis layer.
+
+
+## GO CODE QUALITY RULES
+
+- NEVER ignore errors with bare _  (exception: defer f.Close())
+- Always wrap errors: fmt.Errorf("reading /proc/loadavg: %w", err)
+- Every function that does I/O takes context.Context as first arg
+- Always exec.CommandContext(ctx,...) — never exec.Command(...)
+- Always http.NewRequestWithContext(ctx,...) — never http.Get(...)
+- Maximum function length: 50 lines
+- Maximum nesting depth: 3 levels
+- Pre-allocate slices: make([]T, 0, n)
+- Use bufio.Scanner for line-by-line file reading
+
+
+## SECURITY RULES
+
+- NEVER use user input directly in file paths — filepath.Clean() first
+- NEVER use exec.Command without context
+- NEVER shell out with string interpolation: exec.Command("sh", "-c", "ls "+input)
+- Only write to ~/.dsd/ — never to system directories
+- No credentials in code or config files
+
+
+## TESTING RULES
+
+- Every collector: parser unit tests + golden file test + fuzz test
+- Every model: JSON round-trip test
+- Every renderer: golden file test
+- Every threshold: table-driven boundary test (below/at/above WARN and CRIT)
+- t.Parallel() at top of every test and sub-test
+- NEVER read real /proc in tests — use testdata/fixtures/
+- Use t.TempDir() for any test that writes files
+- Golden files in testdata/golden/, update with: go test ./... -update
+
+
+## OUTPUT FORMAT RULES
+
+- ALL progress output to STDERR — stdout stays clean for --json
+- Never fmt.Printf with raw ANSI codes — always lipgloss
+- --json must always be valid JSON (validate in tests)
+- --plain must work in CI (no ANSI, no emoji)
+- Exit codes: 0=OK, 1=WARN, 2=CRIT (public contract, never change)
+
+
+## CONFIDENCE THRESHOLD — WHEN TO ASK VS WHEN TO ACT
+
+STOP and ask ONE question when:
+- Scope is ambiguous (which file? which collector?)
+- Architecture decision required (which layer owns this?)
+- About to overwrite existing file with content
+- About to change JSON output schema (public contract)
+- About to change exit code behaviour
+- Prompt references something not visible in codebase
+
+ACT immediately without asking:
+- Formatting, import ordering, gofmt
+- Adding error wrapping context strings
+- Writing tests for code just generated
+- Filling in obvious boilerplate following existing patterns
+- Fixing a compilation error with obvious solution
+
+Ask format: ❓ Before I proceed: [single specific question]
+             My assumption if you say "go ahead": [what I'll do]
+
+
+## TOKEN EFFICIENCY — RESPONSE FORMAT RULES
+
+- Start responses with code or the clarifying question — no prose preamble
+- Never "Sure! I'd be happy to..." or "Great question!"
+- Show only what changes when modifying existing files — not full file rewrites
+- One short paragraph max after code (explain non-obvious decisions only)
+- Do not repeat the user's question back
+- Do not add "Let me know if you need changes!" at the end
+- Do not write TODO comments — either implement or leave it out
+
+
+## WHEN ASKED TO BUILD SOMETHING
+
+Before writing any code:
+1. Which layer? (collector? analysis? render? cmd?)
+2. Does the import direction work?
+3. Does a model already exist for this data?
+4. Does a similar collector/renderer exist to follow the pattern?
+
+When in doubt: make it simpler. Ship the minimal correct implementation first.
+
+─────────────────────────────────────────────────────────────────────────────
+# REFERENCE: Key file locations
+# SPEC.md                  — complete product specification
+# internal/models/         — all data structs (read before writing collectors)
+# internal/output/tty.go   — OutputMode enum
+# internal/runner/         — Collector interface definition
+# .golangci.yml            — linter configuration
+# testdata/                — fixtures, golden files, fuzz corpus
+# scripts/smoke-test.sh    — integration test runner
+# module: github.com/keyorixhq/dashdiag
+─────────────────────────────────────────────────────────────────────────────
