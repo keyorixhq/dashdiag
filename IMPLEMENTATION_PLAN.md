@@ -1,731 +1,37 @@
 # DashDiag — Complete Implementation Plan
 ## Claude Code Execution Guide
-
-**Version:** Based on DashDiag Project Bible v48.0  
-**Goal:** Working binary shipping to first paying customer  
-**Philosophy:** Build one layer at a time. Compile after every step. Commit when green.
+### Paired with SPEC.md v48.0
 
 ---
 
-## HOW TO USE THIS PLAN WITH CLAUDE CODE
+## HOW TO USE THIS PLAN
 
-Each task has:
-- **Objective** — what must exist when done
-- **Prompt** — paste this directly into Claude Code
-- **Verify** — commands to run to confirm it worked
-- **Commit** — the git commit message to use
+Work through tasks in order. After each task:
+1. `go build ./...` — must compile with zero errors
+2. `go test ./... -race` — must pass
+3. Commit before moving to next task
 
-Run `go build ./...` after every task. If it does not compile, do not move on.
+**Already implemented (do not touch):**
+- internal/models/ (all model files)
+- internal/output/ (tty.go, progress.go, formatter.go)
+- internal/runner/ (runner.go, Collector interface, RunAll)
+- internal/analysis/ (heuristics.go, thresholds.go)
+- internal/platform/ (cloud.go, container.go, platform.go)
+- internal/tips/ (state.go, tips.go, milestones.go)
 
 ---
 
 ## SPRINT 0 — FOUNDATION
-### Goal: A binary that compiles, runs, and exits cleanly
 
----
+### TASK 0.8 — Baseline system
 
-### TASK 0.1 — Project scaffold and go.mod
-
-**Objective:** Project compiles. `go build ./...` succeeds. `./dsd` prints version.
+**Objective:** `--diff` and `--since-deploy` work. Baselines save atomically.
 
 **Prompt for Claude Code:**
 ```
-Create the complete Go project scaffold for DashDiag.
+Read SPEC.md §19b --diff section and the since_deploy.go spec.
 
-Module path: github.com/andreibeshkov/dashdiag
-Go version: 1.22
-
-Required files:
-
-1. go.mod with these dependencies:
-   github.com/spf13/cobra v1.8.1
-   github.com/spf13/viper v1.18.2
-   github.com/charmbracelet/lipgloss v0.10.0
-   github.com/charmbracelet/bubbletea v0.25.0
-   github.com/shirou/gopsutil/v3 v3.24.1
-   gopkg.in/yaml.v3 v3.0.1
-   github.com/skip2/go-qrcode v0.0.0-20231117125638-6ca3b78deaef
-   github.com/prometheus-community/go-ping v0.4.0
-
-2. cmd/dsd/main.go:
-   package main
-   import "github.com/andreibeshkov/dashdiag/cmd"
-   func main() { cmd.Execute() }
-
-3. cmd/root.go:
-   - rootCmd: Use "dsd", Short "DashDiag — instant system health"
-   - RunE calls runHealth (stub: just prints "dsd health — not yet implemented")
-   - PersistentFlags: --plain (bool), --json (bool), --yaml (bool),
-     --report (bool), --out (string), --debug (bool), --compact (bool),
-     --diff (bool), --since-deploy (bool), --watch (bool),
-     --post-mortem (string), --share (bool), --qr (bool)
-   - SuggestionsMinimumDistance = 2
-   - Version via ldflags
-   - Execute() function
-
-4. internal/version/version.go:
-   var Version = "dev"
-   var Commit  = "none"
-   var Built   = "unknown"
-
-5. Makefile with targets:
-   - build: CGO_ENABLED=0 go build -ldflags with version injection -o dist/dsd ./cmd/dsd
-   - check: go vet ./... && gofmt -l .
-   - test:  go test -race -count=1 -timeout 60s ./...
-   - clean: rm -rf dist/
-
-6. .gitignore for Go (dist/, *.test, coverage.out, .DS_Store)
-
-Every file must compile. Run go build ./... mentally before responding.
-No placeholder TODO comments — real stubs only.
-```
-
-**Verify:**
-```bash
-go mod tidy
-go build ./...
-./dist/dsd --version   # should print "dsd version dev"
-./dist/dsd healt       # should suggest "dsd health"
-```
-
-**Commit:** `chore: initial project scaffold with cobra root command`
-
----
-
-### TASK 0.2 — Output layer (tty.go + progress.go)
-
-**Objective:** OutputMode enum, DetectMode, StatusIcon, and CommandProgress all exist and are tested.
-
-**Prompt for Claude Code:**
-```
-Create the output layer for DashDiag.
-
-File 1: internal/output/tty.go
-
-type OutputMode int
-const (
-    ModeHuman  OutputMode = iota
-    ModePlain
-    ModeReport
-    ModeJSON
-    ModeYAML
-)
-
-func DetectMode(plain, report bool, outputFmt string) OutputMode {
-    switch {
-    case outputFmt == "json":  return ModeJSON
-    case outputFmt == "yaml":  return ModeYAML
-    case outputFmt == "quiet": return ModePlain
-    case report:               return ModeReport
-    case plain:                return ModePlain
-    case !isaTTY():            return ModePlain
-    default:                   return ModeHuman
-    }
-}
-
-func StatusIcon(status string, mode OutputMode) string {
-    // Human mode: ✅ ⚠️  ❌ ℹ️  ⏳
-    // Plain mode:  OK WARN FAIL INFO PENDING
-    // Report mode: ✅ OK  ⚠️ WARN  ❌ FAIL  ℹ️ INFO
-    // JSON/YAML:   (not called — handled by marshalling)
-}
-
-func isaTTY() bool // check os.Stderr is character device
-func IsPlain(flag bool) bool // flag OR not a TTY
-
-File 2: internal/output/progress.go
-
-type CommandProgress struct {
-    label    string
-    estimate time.Duration
-    mode     OutputMode
-    total    int
-    done     int
-    start    time.Time
-}
-
-func NewCommandProgress(label string, estimate time.Duration, mode OutputMode, total int) *CommandProgress
-func (p *CommandProgress) Start()                    // prints "⚡ label (read-only) — ~Xs" to stderr
-func (p *CommandProgress) Step(collectorName string) // updates \r progress line on stderr
-func (p *CommandProgress) Note(msg string)           // prints contextual note on new line
-func (p *CommandProgress) Done()                     // clears line, prints elapsed time
-
-Rules:
-- ALL output to stderr — never stdout
-- \r overwrite pattern for Step() in TTY mode
-- In plain/non-TTY: static [INFO] lines
-- No color in plain mode
-
-File 3: internal/output/tty_test.go
-Table-driven tests for DetectMode and StatusIcon.
-All cases: all 5 modes, all status values, TTY and non-TTY.
-
-File 4: internal/output/formatter.go
-func ProLabel(tier string, mode OutputMode) string
-  // Human: dim lipgloss "  ◆ Team" or "  ◆ Free account"
-  // Plain: "  [Team]" or "  [Free account]"  
-  // JSON/YAML: ""
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/output/... -v
-```
-
-**Commit:** `feat: add output layer — OutputMode, StatusIcon, CommandProgress`
-
----
-
-### TASK 0.3 — All model structs
-
-**Objective:** Every model defined in internal/models/ with JSON tags. JSON round-trip tests pass.
-
-**Prompt for Claude Code:**
-```
-Create all model files for DashDiag. One struct per file.
-Location: internal/models/
-
-Rules:
-- Every exported field has a json struct tag
-- Status fields: string type, values "OK"|"WARN"|"CRIT"|"INFO"|"PENDING"
-- StatusReason: string, human-readable
-- NO methods, NO logic — pure data structs
-- NO imports from internal packages — stdlib only
-
-Files to create:
-
-internal/models/cpu.go — CPUInfo:
-  LoadAvg1, LoadAvg5, LoadAvg15 float64
-  NumCPU int
-  UsagePct float64
-  LoadPct float64        // LoadAvg1 / NumCPU * 100
-  Status, StatusReason string
-
-internal/models/memory.go — MemoryInfo:
-  TotalGB, FreeGB, UsedPct float64
-  SlabMB float64           // kernel slab cache
-  CommitLimitMB float64
-  CommittedAsMB float64
-  OverCommitted bool        // Committed_AS > CommitLimit
-  Status, StatusReason string
-
-internal/models/swap.go — SwapInfo:
-  TotalGB, UsedGB, UsedPct float64
-  PagesInPerSec float64    // si from /proc/vmstat delta
-  PagesOutPerSec float64   // so from /proc/vmstat delta
-  ZramDevices int
-  ZramUsedPct float64
-  Status, StatusReason string
-
-internal/models/disk.go — DiskInfo:
-  Filesystems []FilesystemInfo
-  Status, StatusReason string
-
-FilesystemInfo:
-  Mount, Device, FSType string
-  TotalGB, UsedGB, FreeGB float64
-  UsedPct float64
-  InodesUsedPct float64
-  ReadOnly bool
-  Status, StatusReason string
-
-internal/models/io.go — IOInfo:
-  Devices []IODeviceInfo
-  Status, StatusReason string
-
-IODeviceInfo:
-  Name string
-  IsSSD bool
-  UtilPct float64
-  AwaitMs float64
-  ReadMBps, WriteMBps float64
-  QueueDepth float64
-  Status, StatusReason string
-
-internal/models/network.go — NetworkInfo, InterfaceInfo:
-  Interfaces []InterfaceInfo
-  GatewayPingMs float64
-  InternetPingMs float64
-  DNSResolvesMs float64
-  CloseWaitCount int
-  NATDetected bool
-  Status, StatusReason string
-
-InterfaceInfo:
-  Name, IP string
-  Up bool
-  RxDrops, TxDrops uint64
-  SpeedMbps int
-
-internal/models/clock.go — ClockInfo:
-  Synced bool
-  OffsetMs float64   // -1 if unavailable (macOS)
-  Source string      // timedatectl / chronyc / systemsetup
-  Status, StatusReason string
-
-internal/models/fdlimits.go — FDInfo, FDProcessInfo:
-  OpenCount, MaxCount uint64
-  UsedPct float64
-  HotProcesses []FDProcessInfo
-  DeletedOpenFiles int
-  DeletedOpenSizeGB float64
-  Status, StatusReason string
-
-FDProcessInfo:
-  PID int
-  Name string
-  OpenFDs int
-  SoftLimit int
-  UsedPct float64
-
-internal/models/process.go — ProcessState:
-  PID, PPID int
-  Name, State string
-  CPU, MemMB float64
-  WChan string
-
-internal/models/systemd.go — SystemdInfo:
-  Available bool
-  FailedUnits []string
-  StuckUnits []string
-  Status, StatusReason string
-
-internal/models/sysctl.go — SysctlInfo:
-  VMSwappiness int
-  NetSomaxconn int
-  FSFileMax int
-  KernelPIDMax int
-  PIDCount int
-  Status, StatusReason string
-
-internal/models/mac_policy.go — MACPolicyInfo:
-  SELinuxPresent bool
-  SELinuxMode string
-  SELinuxDenials int
-  AppArmorPresent bool
-  AppArmorMode string
-  Status, StatusReason string
-
-internal/models/logs.go — LogsInfo, LogError:
-  ErrorCount, WarnCount int
-  TopErrors []LogError
-  Sources []string
-  SinceMinutes int
-  JournalSizeGB float64
-  Status, StatusReason string
-
-LogError:
-  Message string
-  Count int
-  FirstSeen, LastSeen time.Time
-  Source string
-
-internal/models/security.go — SecurityInfo, PortEntry:
-  FailedLogins int
-  ListeningPorts []PortEntry
-  SSHPermitRoot bool
-  SSHPasswordAuth bool
-  SudoNopasswd []string
-  WorldWritableEtc []string
-  Status, StatusReason string
-
-PortEntry:
-  Port int
-  Protocol string
-  Process string
-  Expected bool
-
-internal/models/insight.go — Insight:
-  Level string    // CRIT, WARN, INFO
-  Check string
-  Message string
-  Hints []string
-
-Create internal/models/models_test.go with JSON round-trip tests for every struct.
-Pattern: marshal to JSON, unmarshal back, compare key fields.
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/models/... -v
-```
-
-**Commit:** `feat: add all model structs with JSON round-trip tests`
-
----
-
-### TASK 0.4 — Runner (concurrency engine)
-
-**Objective:** Runner compiles. Streaming channel works. Tests prove fast collectors arrive before slow ones.
-
-**Prompt for Claude Code:**
-```
-Create the runner package for DashDiag.
-
-File: internal/runner/runner.go
-
-type Collector interface {
-    Name()    string
-    Timeout() time.Duration
-    Collect(ctx context.Context) (interface{}, error)
-}
-
-type Result struct {
-    Name     string
-    Data     interface{}
-    Err      error
-    Duration time.Duration
-}
-
-func RunAll(ctx context.Context, collectors []Collector) <-chan Result
-  // - Runs all collectors concurrently in goroutines
-  // - Each collector gets ctx derived from parent with collector.Timeout()
-  // - Results stream through channel as they complete (not batched)
-  // - Channel closes when all collectors done
-  // - Never panics on collector error — wraps in Result{Err: err}
-  // - Records actual Duration for --debug output
-
-File: internal/runner/runner_test.go
-Tests:
-1. TestRunAll_AllComplete: 5 mock collectors (10ms, 50ms, 100ms, 200ms, 500ms)
-   Verify all 5 results arrive, verify faster results arrive before slower
-2. TestRunAll_CollectorError: one collector returns error
-   Verify Result.Err is set, other collectors still complete
-3. TestRunAll_ContextCancellation: cancel parent context mid-run
-   Verify no goroutine leak (use goleak or manual WaitGroup check)
-4. TestRunAll_Timeout: collector with 50ms timeout that sleeps 200ms
-   Verify result arrives within ~100ms with context.DeadlineExceeded error
-
-Mock collector pattern:
-type mockCollector struct {
-    name    string
-    delay   time.Duration
-    result  interface{}
-    err     error
-    timeout time.Duration
-}
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/runner/... -v -race
-```
-
-**Commit:** `feat: add concurrent runner with streaming result channel`
-
----
-
-### TASK 0.5 — Platform detection
-
-**Objective:** Container and cloud environment detected correctly. Tests use fake paths.
-
-**Prompt for Claude Code:**
-```
-Create the platform detection package.
-
-File: internal/platform/container.go (no build tag — all platforms)
-
-type ContainerContext struct {
-    InContainer   bool
-    IsDocker      bool
-    IsPodman      bool
-    IsKubernetes  bool
-    CPULimitCores float64  // 0 = unlimited
-    MemLimitMB    float64  // 0 = unlimited
-    CgroupVersion int      // 1 or 2
-}
-
-func DetectContainerContext() ContainerContext
-Detection logic:
-  InContainer: /.dockerenv exists OR /run/.containerenv exists OR
-               cgroup path contains "docker" or "kubepods"
-  IsDocker: /.dockerenv exists
-  IsPodman: /run/.containerenv exists
-  IsKubernetes: KUBERNETES_SERVICE_HOST env var set
-  CgroupVersion: /sys/fs/cgroup/cgroup.controllers exists → v2, else v1
-  MemLimitMB (cgroup v2): read /sys/fs/cgroup/memory.max (parse "max" as 0)
-  MemLimitMB (cgroup v1): read /sys/fs/cgroup/memory/memory.limit_in_bytes
-  CPULimitCores (cgroup v2): read /sys/fs/cgroup/cpu.max (format: "quota period")
-
-Make paths injectable for testing:
-func detectContainerContextFromPaths(dockerenv, containerenv, cgroupV2 string) ContainerContext
-
-File: internal/platform/cloud.go (no build tag)
-
-type CloudEnvironment int
-const (
-    EnvUnknown      CloudEnvironment = iota
-    EnvBareMetal
-    EnvAWSEBS
-    EnvAWSNVMe
-    EnvGCP
-    EnvAzure
-    EnvDigitalOcean
-)
-
-func DetectCloudEnvironment() CloudEnvironment
-Detection order (file reads first, network last):
-  1. /sys/class/dmi/id/product_name → "Google Compute"→GCP, "Microsoft Azure"→Azure, "Amazon EC2"→detectAWSStorageType()
-  2. /sys/class/dmi/id/bios_vendor  → "Amazon" → detectAWSStorageType()
-  3. /sys/hypervisor/uuid           → starts with "ec2" → detectAWSStorageType()
-  4. http://169.254.169.254 GET with 150ms timeout → detectAWSStorageType()
-  5. Default: EnvBareMetal
-
-func detectAWSStorageType() CloudEnvironment
-  Read /sys/block/nvme*/device/model
-  Contains "Instance Storage" → EnvAWSNVMe
-  Otherwise → EnvAWSEBS
-
-File: internal/platform/platform.go (all platforms)
-func IsLinux() bool  { return runtime.GOOS == "linux" }
-func IsMacOS() bool  { return runtime.GOOS == "darwin" }
-
-File: internal/platform/container_test.go
-Test DetectContainerContextFromPaths with temp directories containing
-fake /.dockerenv, fake cgroup files (v1 and v2 formats).
-
-File: internal/platform/cloud_test.go  
-Test DetectCloudEnvironment with fake DMI files via temp directories.
-Test the 150ms timeout: mock server that never responds.
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/platform/... -v -race
-```
-
-**Commit:** `feat: add platform detection for containers and cloud environments`
-
----
-
-### TASK 0.6 — Analysis layer skeleton
-
-**Objective:** Heuristics function exists, all thresholds from SPEC.md §12 implemented, table-driven tests for every boundary.
-
-**Prompt for Claude Code:**
-```
-Create the analysis layer for DashDiag.
-
-File: internal/analysis/thresholds.go
-
-type Thresholds struct {
-    // CPU
-    CPULoadWarnMultiplier float64  // default 0.7
-    CPULoadCritMultiplier float64  // default 0.9
-
-    // Memory
-    RAMWarnPct  float64  // default 80
-    RAMCritPct  float64  // default 95
-    SlabWarnPct float64  // default 20 (% of total RAM)
-
-    // Disk
-    DiskWarnPct  float64  // default 80
-    DiskCritPct  float64  // default 90
-
-    // Swap
-    SwapWarnPct     float64  // default 20
-    SwapCritPct     float64  // default 60
-    SwapActivityWarn float64 // pages/sec > 0
-    SwapActivityCrit float64 // pages/sec > 100
-
-    // IO — cloud environment aware
-    IOUtilWarnPctSSD   float64  // default 60 bare metal / 60 NVMe
-    IOUtilCritPctSSD   float64  // default 85 bare metal / 85 NVMe
-    IOAwaitWarnMsSSD   float64  // default 1ms bare metal / 5ms EBS / 5ms GCP
-    IOAwaitCritMsSSD   float64  // default 5ms bare metal / 20ms EBS / 20ms GCP
-
-    // NTP
-    NTPOffsetWarnMs float64  // default 100
-    NTPOffsetCritMs float64  // default 500
-
-    // FD
-    FDSystemWarnPct  float64  // default 80
-    FDSystemCritPct  float64  // default 90
-    FDProcWarnPct    float64  // default 80
-
-    // Process
-    ZombieWarnCount int  // default 5
-    HungDStateCrit  int  // default 1
-
-    // Systemd
-    // FailedUnits: any = CRIT, StuckUnits: any = WARN
-
-    // Logs
-    JournalSizeWarnGB float64  // default 2
-    JournalSizeCritGB float64  // default 5
-
-    // SELinux
-    SELinuxDenialsWarnPerHr int  // default 1
-    SELinuxDenialsCritPerHr int  // default 10
-}
-
-func DefaultThresholds(env platform.CloudEnvironment) Thresholds
-  // Adjusts IO thresholds based on cloud environment:
-  // EnvAWSEBS, EnvGCP, EnvAzure: AwaitWarnMs=5, AwaitCritMs=20
-  // EnvAWSNVMe, EnvBareMetal:    AwaitWarnMs=1, AwaitCritMs=5
-  // EnvUnknown:                  AwaitWarnMs=2, AwaitCritMs=10
-
-File: internal/analysis/heuristics.go
-
-func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.CloudEnvironment) []models.Insight
-
-For each result by type:
-- models.CPUInfo   → check LoadPct vs CPULoadWarnMultiplier/CritMultiplier × NumCPU
-- models.MemoryInfo → check UsedPct, SlabMB/Total, OverCommitted
-- models.DiskInfo  → check each filesystem UsedPct and InodesUsedPct
-- models.SwapInfo  → check UsedPct, PagesInPerSec, PagesOutPerSec
-- models.IOInfo    → check each device UtilPct and AwaitMs (cloud-aware)
-- models.NetworkInfo → check GatewayPingMs, DNSResolvesMs, CloseWaitCount
-- models.ClockInfo → check Synced, OffsetMs
-- models.FDInfo    → check UsedPct, HotProcesses, DeletedOpenSizeGB
-- models.SystemdInfo → any FailedUnits = CRIT, StuckUnits = WARN
-- models.SysctlInfo → NetSomaxconn < 1024 = WARN, < 512 = CRIT; PIDCount/PIDMax
-- models.MACPolicyInfo → SELinuxDenials per hour vs thresholds
-
-Each check produces an Insight with:
-  Level: "WARN" or "CRIT"
-  Check: the check name (e.g., "Memory", "Disk /var")
-  Message: human-readable description of the problem
-  Hints: 1-3 commands to run next
-
-File: internal/analysis/heuristics_test.go
-Table-driven tests for EVERY threshold boundary.
-For each threshold test: below-warn, at-warn, above-warn, at-crit, above-crit.
-Use mock runner.Result values — no real collectors needed.
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/analysis/... -v -race
-```
-
-**Commit:** `feat: add analysis layer with all thresholds and heuristics`
-
----
-
-### TASK 0.7 — State management (tips, milestones, NPS)
-
-**Objective:** state.json saves and loads atomically. Milestones fire at correct run counts.
-
-**Prompt for Claude Code:**
-```
-Create the state management and tips system.
-
-File: internal/tips/state.go
-
-type State struct {
-    TotalRuns       int            `json:"total_runs"`
-    ShownMilestones []int          `json:"shown_milestones"`
-    LastTipDate     string         `json:"last_tip_date"`
-    TipIndex        int            `json:"tip_index"`
-    TipsEnabled     bool           `json:"tips_enabled"`
-    NPSDone         bool           `json:"nps_done"`
-    NPSScore        string         `json:"nps_score"`
-    NPSReason       string         `json:"nps_reason"`
-    HookInstalled   bool           `json:"hook_installed"`
-    CurrentStreak   int            `json:"current_streak"`
-    LongestStreak   int            `json:"longest_streak"`
-    LastRunDate     string         `json:"last_run_date"`
-    LastVersion     string         `json:"last_version"`
-    TrialOffered    bool           `json:"trial_offered"`
-    PipedRuns       int            `json:"piped_runs"`
-    CommandCounts   map[string]int `json:"command_counts"`
-    ErrorExits      int            `json:"error_exits"`
-}
-
-func stateFilePath() string  // ~/.dsd/state.json
-func LoadState() (*State, error)  // creates default if not exists, TipsEnabled=true
-func (s *State) Save() error  // ATOMIC: write temp file then os.Rename
-
-func (s *State) HasShownMilestone(m int) bool
-func (s *State) MarkMilestone(m int)
-func (s *State) HasShownStreak(days int) bool
-func (s *State) MarkStreak(days int)
-func (s *State) IncrementCommand(name string)
-
-File: internal/tips/milestones.go
-
-func MaybePrintMilestone(state *State, mode output.OutputMode)
-  // 1. state.TotalRuns++
-  // 2. Update streak (today vs yesterday vs older → increment/reset)
-  // 3. Re-engagement: if gap >= 7 days AND ModeHuman → print "👋 Welcome back! N days"
-  //    If version changed: "New in vX.Y.Z — run dsd --changelog"
-  // 4. state.LastRunDate = today, state.LastVersion = version.Version
-  // 5. Streak milestones: 7 days → "⚡ 7-day streak", 30 days → "🔥 30-day streak"  
-  // 6. Run milestones: 10 (NPS), 50, 100, 500
-  // 7. Pro trial: TotalRuns>=10 AND CurrentStreak>=5 AND !TrialOffered → offer
-  // ONLY in ModeHuman and isaTTY()
-
-func MaybeRunNPS(state *State, mode output.OutputMode)
-  // Only at TotalRuns==10, !NPSDone, ModeHuman, isaTTY()
-  // Print score question (0-10), read with fmt.Scanln
-  // If score given: ask follow-up reason
-  // Store in state, set NPSDone=true
-
-func MaybePrintReengagement(state *State, mode output.OutputMode, ver string)
-  // Call BEFORE health output (first thing printed)
-  // Gap calculation and welcome back message
-
-File: internal/tips/tips.go
-
-var tips = []struct{ Message, Command, Tier string }{
-    {"See only what changed since your last check", "dsd health --diff", ""},
-    {"Get a human-readable narrative of system state", "dsd health --story", ""},
-    {"Share a snapshot URL in Slack — no install needed", "dsd health --share", "Free account"},
-    {"Generate a pre-filled post-mortem template", "dsd health --post-mortem \"title\"", ""},
-    {"Deep network analysis: jitter, bonds, traceroute", "dsd net deep", ""},
-    {"Markdown output for GitHub issues and Jira", "dsd health --report", ""},
-    {"Compare health across multiple servers", "dsd compare server1 server2", "Team"},
-    {"Auto-run dsd on SSH login or before deploys", "dsd hook install", ""},
-    {"Monitor for changes every 60 seconds", "dsd health --watch", ""},
-    {"Embed a live health badge in your README", "dsd health --badge", "Free account"},
-    {"Custom thresholds and service checks", "~/.dsd.yaml", ""},
-    {"Run all checks — the complete picture", "dsd full", ""},
-}
-
-func MaybePrintTip(state *State, mode output.OutputMode)
-  // Only if TipsEnabled, ModeHuman, today != LastTipDate
-  // Show AFTER health output
-  // Format: "\n💡 Tip: <message>\n   Try: <command>\n   Tip N of 12  |  dsd tips (see all)  |  dsd config set tips off"
-  // Pro tips add: "\n   ◆ <Tier>" at end
-  // Update LastTipDate, TipIndex
-
-func PrintAllTips() // dsd tips command — shows all 12
-
-File: internal/tips/state_test.go
-Tests:
-- TestLoadState_Default: no file → creates with TipsEnabled=true
-- TestSave_Atomic: verify temp file then rename (no partial writes)
-- TestMilestoneFiresAtCorrectCount: mock state, verify milestone fires at 10, 50, 100
-- TestStreakCalculation: test gap=0, gap=1, gap=2+ cases
-- TestNPSFiresOnce: fires at run 10, not run 11
-- TestReengagementAfterGap: gap < 7 = no message, gap >= 7 = message
-```
-
-**Verify:**
-```bash
-go build ./...
-go test ./internal/tips/... -v -race
-```
-
-**Commit:** `feat: add state management, milestones, NPS survey, tip of the day`
-
----
-
-### TASK 0.8 — Baseline system (--diff and --since-deploy)
-
-**Objective:** Baselines save/load atomically. Diff computes correctly. Deploy time detected.
-
-**Prompt for Claude Code:**
-```
-Create the baseline system for --diff and --since-deploy.
-
-File: internal/baseline/baseline.go
+Create internal/baseline/baseline.go:
 
 type Snapshot struct {
     Hostname  string        `json:"hostname"`
@@ -738,44 +44,1070 @@ type CheckResult struct {
     Name   string      `json:"name"`
     Status string      `json:"status"`
     Value  string      `json:"value"`
-    Raw    interface{} `json:"raw"`
+    Raw    interface{} `json:"raw,omitempty"`
 }
 
 type DiffEntry struct {
     Name         string
-    Before       string  // status + value
+    Before       string
     After        string
-    StatusChange string  // "OK→WARN" etc
+    StatusChange string
     Changed      bool
-    Improved     bool    // CRIT→WARN or WARN→OK
+    Improved     bool
 }
 
-func baselineDir() string   // ~/.dsd/baselines/
-func latestPath(host string) string
-func prevPath(host string) string
-
+func baselineDir() string  // ~/.dsd/baselines/
 func SaveBaseline(snap *Snapshot) error
-  // 1. Marshal to JSON
-  // 2. Write to ~/.dsd/baselines/<host>-<timestamp>.json (atomic)
-  // 3. Copy latest → prev
-  // 4. Copy new → latest
+    // atomic: temp file + os.Rename
+    // rotate: copy latest→prev, then write new→latest
 
 func LoadBaseline(path string) (*Snapshot, error)
-  // path == "-"  → read from os.Stdin
-  // path != ""   → read from explicit file
-  // path == ""   → load prev baseline
+    // path="-"  → read os.Stdin
+    // path!=""  → read explicit file
+    // path==""  → load prev baseline from ~/.dsd/baselines/<hostname>-prev.json
 
-func LoadPrevBaseline(hostname string) (*Snapshot, error)
-
+func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 func ComputeDiff(before, after *Snapshot) []DiffEntry
-  // Return ALL checks (Changed and Unchanged)
-  // Changed = status differs OR value differs by >5%
-  // Sort: CRIT changes first, WARN changes, improvements, unchanged
+    // Changed = status differs OR value changed meaningfully
+    // Sort: CRIT changes → WARN changes → improvements → unchanged
 
-File: internal/baseline/since_deploy.go
+Create internal/baseline/since_deploy.go:
 
-func DetectLastDeployTime() (deployTime time.Time, signal string, err error)
-  // Check in order, return first that succeeds:
-  // 1. systemctl show nginx,apache2,caddy,postgres,mysqld,redis,docker,containerd
-  //    --property=ActiveEnterTimestamp --value
-  //    (try
+func DetectLastDeployTime() (time.Time, string, error)
+    // Try in order:
+    // 1. systemctl show nginx,apache2,postgres,mysql,redis,docker --property=ActiveEnterTimestamp
+    // 2. Scan /proc/[PID]/stat for most recently started process (uptime < 2h)
+    // 3. git log -1 --format=%ct in current directory
+    // Return first that succeeds. Return error if all fail.
+
+func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error)
+    // Scan ~/.dsd/baselines/<hostname>-*.json
+    // Return newest whose Timestamp is before t
+
+func RunSinceDeployDiff(mode output.OutputMode) error
+    // 1. DetectLastDeployTime
+    // 2. If no signal: print guidance, return nil (not error)
+    // 3. FindBaselineBeforeTime
+    // 4. If no baseline: print guidance, return nil
+    // 5. Run health snapshot, ComputeDiff, print
+
+Graceful messages when data missing:
+  No signal:   "ℹ️  No deploy signal detected.\n    Run dsd health before your next deploy."
+  No baseline: "ℹ️  No pre-deploy baseline found (<signal> N min ago).\n    Run dsd health before your next deploy."
+
+Tests (baseline_test.go):
+  TestSaveLoad_RoundTrip: save then load, compare
+  TestComputeDiff_OneChange: before has OK memory, after has WARN memory
+  TestComputeDiff_NoChange: identical snapshots → all Changed=false
+  Use t.TempDir() for all file writes
+```
+
+**Verification:**
+```bash
+go build ./internal/baseline/...
+go test ./internal/baseline/... -v -race
+```
+
+---
+
+### TASK 0.9 — Config layer
+
+**Objective:** `~/.dsd.yaml` loads with viper. Defaults match SPEC.md §12 thresholds.
+
+**Prompt for Claude Code:**
+```
+Create internal/config/config.go:
+
+package config
+
+import (
+    "github.com/spf13/viper"
+    "os"
+    "path/filepath"
+)
+
+type Config struct {
+    Thresholds ThresholdConfig `yaml:"thresholds" mapstructure:"thresholds"`
+    Logs       LogsConfig      `yaml:"logs"       mapstructure:"logs"`
+    Security   SecurityConfig  `yaml:"security"   mapstructure:"security"`
+    Services   []ServiceConfig `yaml:"services"   mapstructure:"services"`
+}
+
+type ThresholdConfig struct {
+    DiskWarnPct           float64 `yaml:"disk_warn_pct"            mapstructure:"disk_warn_pct"`
+    DiskCritPct           float64 `yaml:"disk_crit_pct"            mapstructure:"disk_crit_pct"`
+    RAMWarnPct            float64 `yaml:"ram_warn_pct"             mapstructure:"ram_warn_pct"`
+    RAMCritPct            float64 `yaml:"ram_crit_pct"             mapstructure:"ram_crit_pct"`
+    CPULoadWarnMultiplier float64 `yaml:"cpu_load_warn_multiplier" mapstructure:"cpu_load_warn_multiplier"`
+    IOUtilWarnPct         float64 `yaml:"io_util_warn_pct"         mapstructure:"io_util_warn_pct"`
+    IOUtilCritPct         float64 `yaml:"io_util_crit_pct"         mapstructure:"io_util_crit_pct"`
+    SwapWarnPct           float64 `yaml:"swap_warn_pct"            mapstructure:"swap_warn_pct"`
+    SwapCritPct           float64 `yaml:"swap_crit_pct"            mapstructure:"swap_crit_pct"`
+    NTPWarnMs             float64 `yaml:"ntp_warn_ms"              mapstructure:"ntp_warn_ms"`
+    NTPCritMs             float64 `yaml:"ntp_crit_ms"              mapstructure:"ntp_crit_ms"`
+}
+
+type LogsConfig struct {
+    SinceMinutes int `yaml:"since_minutes" mapstructure:"since_minutes"`
+}
+
+type SecurityConfig struct {
+    AllowedPorts       []int `yaml:"allowed_ports"         mapstructure:"allowed_ports"`
+    SSHFailedLoginWarn int   `yaml:"ssh_failed_login_warn" mapstructure:"ssh_failed_login_warn"`
+    SSHFailedLoginCrit int   `yaml:"ssh_failed_login_crit" mapstructure:"ssh_failed_login_crit"`
+}
+
+type ServiceConfig struct {
+    Name     string `yaml:"name"     mapstructure:"name"`
+    Host     string `yaml:"host"     mapstructure:"host"`
+    Port     int    `yaml:"port"     mapstructure:"port"`
+    Protocol string `yaml:"protocol" mapstructure:"protocol"`
+}
+
+var defaults = Config{
+    Thresholds: ThresholdConfig{
+        DiskWarnPct:           80.0,
+        DiskCritPct:           90.0,
+        RAMWarnPct:            80.0,
+        RAMCritPct:            95.0,
+        CPULoadWarnMultiplier: 0.7,
+        IOUtilWarnPct:         60.0,
+        IOUtilCritPct:         85.0,
+        SwapWarnPct:           20.0,
+        SwapCritPct:           60.0,
+        NTPWarnMs:             100.0,
+        NTPCritMs:             500.0,
+    },
+    Logs:     LogsConfig{SinceMinutes: 60},
+    Security: SecurityConfig{AllowedPorts: []int{22, 80, 443, 8080, 5432}, SSHFailedLoginWarn: 20, SSHFailedLoginCrit: 50},
+}
+
+func Load(cfgFile string) (*Config, error)
+    // if cfgFile empty: look for ~/.dsd.yaml
+    // use viper to load, unmarshal into Config
+    // if file not found: return Default() (not error)
+
+func Default() *Config {
+    d := defaults
+    return &d
+}
+```
+
+**Verification:**
+```bash
+go build ./internal/config/...
+go test ./internal/config/... -v
+```
+
+---
+
+### TASK 0.10 — All 12 health collectors
+
+**Objective:** Every collector returns correct data. Parser tests pass. Fuzz tests run.
+
+**Prompt for Claude Code (part A — interface + cpu + memory + swap):**
+```
+Read .cursorrules section "DASHDIAG-SPECIFIC PATTERNS" before writing any code.
+
+Create internal/collectors/collector.go — Collector interface matching runner.Collector:
+package collectors
+import ("context"; "time")
+type Collector interface {
+    Name()    string
+    Timeout() time.Duration
+    Collect(ctx context.Context) (interface{}, error)
+}
+
+Create internal/collectors/cpu.go:
+  Name: "CPU", Timeout: 500ms
+  
+  Injectable reader pattern (MANDATORY — enables testing):
+  type cpuReader interface {
+      loadAvg() (io.ReadCloser, error)
+      stat() (io.ReadCloser, error)
+  }
+  type CPUCollector struct {
+      reader       cpuReader
+      ContainerCtx platform.ContainerContext
+  }
+  func NewCPUCollector(ctx platform.ContainerContext) *CPUCollector
+  
+  Pure parsers (no OS calls — injectable in tests):
+  func parseLoadAvg(r io.Reader) (load1, load5, load15 float64, err error)
+  func parseCPUStat(r io.Reader) (idle, total uint64, err error)
+  
+  Collect():
+  - Read /proc/loadavg via reader.loadAvg()
+  - macOS fallback: exec sysctl kern.loadavg
+  - Two reads of /proc/stat with 500ms select gap for usage%
+  - ContainerCtx: if CPULimitCores > 0, use as effective NumCPU
+  - Return *models.CPUInfo (NO Status field — analysis sets that)
+
+Create testdata/fixtures/cpu/linux_healthy.txt with real /proc/loadavg content:
+  0.52 0.43 0.32 3/412 8932
+
+Create internal/collectors/cpu_test.go:
+  TestParseLoadAvg (table-driven, t.Parallel())
+  FuzzParseLoadAvg (fuzz test — must never panic)
+
+Create internal/collectors/memory.go:
+  Name: "Memory", Timeout: 200ms
+  
+  type MemoryCollector struct {
+      ContainerCtx platform.ContainerContext
+      meminfoPath  string  // "/proc/meminfo" — injectable for tests
+  }
+  
+  func parseMeminfo(r io.Reader) (map[string]uint64, error)
+  // parse lines like "MemTotal:       16384000 kB"
+  // return map of field names to kB values
+  
+  Collect():
+  - gopsutil/v3/mem VirtualMemory() for basic stats
+  - parseMeminfo for: MemTotal, MemFree, MemAvailable, Slab, CommitLimit, Committed_AS
+  - OverCommitted = Committed_AS > CommitLimit
+  - ContainerCtx: if MemLimitMB > 0, use as effective total
+  - macOS: gopsutil works, /proc/meminfo not available → Slab/CommitLimit = -1
+  - Return *models.MemoryInfo
+
+Create internal/collectors/swap.go:
+  Name: "Swap", Timeout: 3s
+  
+  func parseVMStat(r io.Reader) (pswpin, pswpout uint64, err error)
+  // parse pswpin and pswpout fields from /proc/vmstat
+  
+  Collect():
+  - Read /proc/swaps for configured swap
+  - TWO reads of /proc/vmstat with 1s gap (use select + time.After)
+  - Compute per-second delta for SwapInPerSec, SwapOutPerSec
+  - Check /sys/block/zram0/stat existence for ZramPresent
+  - macOS: exec vm_stat, parse "Pages swapped in/out" (single snapshot, no rate)
+  - Return *models.SwapInfo
+
+Create fixture files and fuzz tests for memory and swap parsers.
+```
+
+**Prompt for Claude Code (part B — disk + io + network_quick):**
+```
+Create internal/collectors/disk.go:
+  Name: "Disk", Timeout: 1s
+  
+  func readMounts(r io.Reader) ([]string, error)
+  // parse /proc/mounts, return mount point paths
+  // skip: tmpfs, devtmpfs, overlay, squashfs, proc, sysfs, cgroup, devpts
+  
+  Collect():
+  - Parse /proc/mounts via injectable reader
+  - For each mount point: syscall.Statfs() for size/free/inodes
+  - Return []models.DiskInfo (one per filesystem, skip pseudo filesystems)
+  - Each DiskInfo: Device, MountPoint, TotalGB, FreeGB, UsedPct, InodesUsedPct
+  - macOS: same approach (Statfs works on macOS)
+
+Create internal/collectors/io.go:
+  Name: "IO", Timeout: 4s
+  
+  type diskStats struct { reads, writes, readSectors, writeSectors, ioTime uint64 }
+  func parseDiskstats(r io.Reader) (map[string]diskStats, error)
+  // parse /proc/diskstats fields 3-13 (field indices per kernel docs)
+  // only physical devices: name starts with sd, nvme, vd, xvd
+  
+  Collect():
+  - TWO reads of /proc/diskstats with 1s gap
+  - Compute per-second deltas
+  - IsRotational: read /sys/block/<dev>/queue/rotational (1=HDD, 0=SSD)
+  - UtilPct: ioTime delta / 1000 * 100
+  - AwaitMs: (readTime+writeTime)delta / max(1, reads+writes delta)
+  - macOS: gopsutil/v3/disk IOCounters() — no rotational detection
+  - Return []models.IOInfo
+
+Create internal/collectors/network_quick.go:
+  Name: "Network", Timeout: 3s
+  
+  Collect() — all pings run concurrently:
+  - Interfaces: gopsutil/v3/net Interfaces(), filter loopback + virtual
+    skip: lo, docker0, br-, veth*, virbr*, bond* sub-interfaces
+  - Gateway: detect via net.InterfaceAddrs() / route parsing
+  - Ping gateway: 3 ICMP pings via go-ping, 500ms timeout each, run concurrently
+  - Ping 8.8.8.8: 3 pings concurrent with gateway
+  - DNS: net.LookupHost("github.com") with 2s timeout
+  - CLOSE_WAIT: gopsutil net.Connections("tcp"), count CLOSE_WAIT state
+  - Total timeout: 3s — all work concurrent, no sequential blocking
+  - macOS: same code path (go-ping works on macOS)
+  - Return *models.NetworkInfo
+```
+
+**Prompt for Claude Code (part C — clock + fdlimits + processes + systemd + sysctl + mac_policy):**
+```
+Create these 6 remaining collectors:
+
+internal/collectors/clock.go (Name:"Clock", Timeout:2s):
+  func parseTimedatectl(r io.Reader) (synced bool, offsetMs float64, err error)
+  // parse "NTPSynchronized=yes" and "NTPOffsetUsec=12345"
+  Linux:
+  - exec timedatectl show --property=NTPSynchronized,NTPOffset (via ctx)
+  - fallback: exec chronyc tracking, parse "System time offset"
+  macOS:
+  - exec systemsetup -getusingnetworktime
+  - sync state only, OffsetMs = -1
+  Return *models.ClockInfo
+
+internal/collectors/fdlimits.go (Name:"FDLimits", Timeout:1s):
+  - System: read /proc/sys/fs/file-nr → OpenCount, MaxCount
+  - Per-process hot: scan /proc/[0-9]*/limits for "Max open files" soft limit
+    count /proc/[PID]/fd/* entries (os.ReadDir)
+    flag if fd_count/soft_limit > 0.8
+  - Deleted-but-open: /proc/[PID]/fd/* symlinks ending in "(deleted)"
+  - macOS: use sysctl kern.maxfiles for MaxCount
+  Return *models.FDInfo
+
+internal/collectors/processes.go (Name:"Processes", Timeout:2s):
+  func parseProcStat(r io.Reader) (state string, err error)
+  // parse 3rd field of /proc/[PID]/stat
+  - Scan /proc/[0-9]* directories
+  - Read /proc/[PID]/stat, parse state field
+  - Z = zombie, D = uninterruptible sleep
+  - For D-state: read /proc/[PID]/wchan for kernel function name
+  - Read /proc/[PID]/comm for process name
+  Return []models.ProcessState
+
+internal/collectors/systemd.go (Name:"Systemd", Timeout:3s):
+  - Check SystemdAvailable() from platform package first
+  - exec systemctl list-units --state=failed --no-legend --no-pager (via ctx)
+  - exec systemctl list-units --state=activating --no-legend --no-pager
+  - Parse output: extract unit names
+  - macOS / no systemd: return &models.SystemdInfo{Available: false}
+  Return *models.SystemdInfo
+
+internal/collectors/sysctl.go (Name:"Sysctl", Timeout:1s):
+  - /proc/sys/net/core/somaxconn (Linux) or sysctl kern.ipc.somaxconn (macOS)
+  - /proc/sys/kernel/pid_max
+  - /proc/sys/vm/swappiness (Linux only)
+  - Current PID count: count entries in /proc matching [0-9]+
+  Return *models.SysctlInfo
+
+internal/collectors/mac_policy.go (Name:"MACPolicy", Timeout:5s):
+  - SELinux: exec getenforce (via ctx), parse "Enforcing"/"Permissive"/"Disabled"
+    AVC denials: if SELinux enforcing, count "avc:  denied" in last hour via journalctl
+  - AppArmor: read /sys/module/apparmor/parameters/enabled
+  - macOS: return &models.MACPolicyInfo{} (not applicable)
+  Return *models.MACPolicyInfo
+
+For EACH collector create:
+- Parser unit test (table-driven, t.Parallel())
+- Fuzz test for any parser that reads structured text
+- testdata/fixtures/<name>/linux_healthy.txt with real /proc content
+```
+
+**Verification:**
+```bash
+go build ./internal/collectors/...
+go test ./internal/collectors/... -v -race -count=1 -timeout 60s
+```
+
+---
+
+### TASK 0.11 — Render layer
+
+**Objective:** Health output renders correctly in human/plain/json modes. Golden file tests pass.
+
+**Prompt for Claude Code:**
+```
+Read .cursorrules "Lipgloss colours must be adaptive" before writing any code.
+
+Create internal/render/styles.go:
+ALL lipgloss styles defined here ONLY. Use AdaptiveColor everywhere.
+
+var (
+    StyleOK   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#66BB6A"})
+    StyleWarn = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#E65100", Dark: "#FFB74D"})
+    StyleCrit = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B71C1C", Dark: "#EF5350"})
+    StyleInfo = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1565C0", Dark: "#64B5F6"})
+    StyleDim  = lipgloss.NewStyle().Faint(true)
+    StyleBold = lipgloss.NewStyle().Bold(true)
+)
+
+Create internal/render/health.go:
+
+type Renderer struct{ mode output.OutputMode }
+func NewRenderer(mode output.OutputMode) *Renderer
+
+func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight)
+  // For each result: format one line per check
+  // Human: "CPU        ✅  load 0.52 / 4 cores (13%)"
+  // Plain: "CPU        OK  load 0.52 / 4 cores (13%)"
+  // Status icon from output.StatusIcon(status, mode)
+
+func (r *Renderer) PrintSummary(insights []models.Insight) int
+  // Returns exit code: 0=OK, 1=WARN, 2=CRIT
+  // Human: "─────────────────────\n⚠️  1 warning — Memory..."
+  // Followed by hint commands for each WARN/CRIT insight
+
+func (r *Renderer) PrintContainerBanner(ctx platform.ContainerContext)
+  // "ℹ️  Running inside container — host limits may differ"
+
+Create internal/render/diff.go:
+func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error
+  Changes first (CRIT → WARN → improved), then collapsed unchanged line.
+  "Unchanged (9 checks): CPU ✅  Disk ✅  ..."
+
+Create internal/render/postmortem.go:
+func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.Insight, mode output.OutputMode) string
+  Always markdown output. Include: header table, issues, steps, timeline placeholder, footer.
+  Footer: "*Generated by DashDiag — https://dashdiag.sh*"
+
+Create internal/render/story.go:
+func RenderStory(insights []models.Insight, snap *baseline.Snapshot) string
+  Template-based — NO AI, NO API calls.
+  One paragraph per active pattern. If all healthy: "All checks passed. System healthy."
+
+Create internal/render/json.go:
+func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error)
+
+Create internal/render/weekly.go:
+func RenderWeekly(state *tips.State, period string) string
+  Guard: < 7 days data → return info message.
+  Format: terminal box with ChecksRun, DailyAvg, IssuesTotal, TimeSavedMin.
+  Footer: "💡 See 90-day history: dashdiag.sh/teams"
+
+Golden file tests:
+  go test ./internal/render/... -update    (generate first time)
+  go test ./internal/render/... -race      (verify)
+```
+
+---
+
+### TASK 0.12 and 0.13 — TUI + cmd/health.go wiring
+
+**Objective:** `dsd health` produces real output on your machine with all collectors running.
+
+**Prompt for Claude Code:**
+```
+1. Create internal/tui/tui.go:
+func IsTTY() bool  // os.Stdin file stat check
+
+2. Create internal/tui/select.go:
+SingleSelect and MultiSelect bubbletea components.
+Both fall back to numbered text prompt when !IsTTY().
+Used ONLY by dsd init and dsd hook install — nowhere else.
+
+3. Create cmd/dsd/main.go if not present:
+package main
+import "github.com/keyorixhq/dashdiag/cmd"
+func main() { cmd.Execute() }
+
+4. Create cmd/health.go — WIRING ONLY, max 80 lines:
+
+package cmd
+
+func init() {
+    rootCmd.AddCommand(healthCmd)
+    healthCmd.AddCommand(healthDeepCmd)
+}
+
+var healthCmd = &cobra.Command{
+    Use:   "health",
+    Short: "System health check — CPU, memory, disk, network (~5s)",
+    RunE:  runHealth,
+}
+
+var healthDeepCmd = &cobra.Command{
+    Use:   "deep",
+    Short: "Thorough health check including per-core CPU (~8s)",
+    RunE:  runHealth,  // same for now — deep adds more collectors later
+}
+
+func runHealth(cmd *cobra.Command, args []string) error {
+    ctx := context.Background()
+
+    plain, _  := cmd.Flags().GetBool("plain")
+    jsonOut,_ := cmd.Flags().GetBool("json")
+    outputFmt := ""
+    if jsonOut { outputFmt = "json" }
+    mode := output.DetectMode(plain, false, outputFmt)
+
+    ctrCtx   := platform.DetectContainerContext()
+    cloudEnv := platform.DetectCloudEnvironment()
+    cfg      := config.Default()
+
+    // Load state — for re-engagement (BEFORE progress)
+    state, _ := tips.LoadState()
+    if state != nil {
+        tips.MaybePrintReengagement(state, mode, version.Version)
+    }
+
+    // Progress — prints estimate BEFORE any collector work
+    cols := buildHealthCollectors(ctrCtx)
+    p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
+    p.Start()
+    defer p.Done()
+
+    // Run all 12 collectors concurrently
+    var results []runner.Result
+    for r := range runner.RunAll(ctx, toRunnerCollectors(cols)) {
+        p.Step(r.Name)
+        results = append(results, r)
+    }
+
+    // Apply thresholds
+    insights := analysis.ApplyThresholds(results, cfg, cloudEnv, ctrCtx)
+
+    // Handle special output flags
+    snap := baseline.BuildSnapshot(results, insights)
+
+    sdFlag, _  := cmd.Flags().GetBool("since-deploy")
+    diffFlag,_ := cmd.Flags().GetBool("diff")
+    pmFlag, _  := cmd.Flags().GetString("post-mortem")
+
+    if sdFlag {
+        return baseline.RunSinceDeployDiff(mode)
+    }
+    if pmFlag != "" {
+        fmt.Println(render.RenderPostMortem(pmFlag, snap, insights, mode))
+        baseline.SaveBaseline(snap)
+        return nil
+    }
+
+    // Render output
+    renderer := render.NewRenderer(mode)
+    if ctrCtx.InContainer {
+        renderer.PrintContainerBanner(ctrCtx)
+    }
+    renderer.PrintAll(results, insights)
+
+    if diffFlag {
+        prev, err := baseline.LoadBaseline("")
+        if err == nil {
+            render.PrintDiff(prev, snap, mode)
+        }
+    }
+
+    exitCode := renderer.PrintSummary(insights)
+    baseline.SaveBaseline(snap)
+
+    // Engagement — AFTER all output
+    if state != nil {
+        tips.MaybePrintMilestone(state, mode)
+        tips.MaybePrintTip(state, mode)
+        state.TotalRuns++
+        if state.CommandCounts == nil {
+            state.CommandCounts = make(map[string]int)
+        }
+        state.CommandCounts["health"]++
+        state.Save()
+    }
+
+    if exitCode > 0 {
+        os.Exit(exitCode)
+    }
+    return nil
+}
+
+func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collector {
+    return []collectors.Collector{
+        collectors.NewCPUCollector(ctrCtx),
+        collectors.NewMemoryCollector(ctrCtx),
+        collectors.NewDiskCollector(),
+        collectors.NewSwapCollector(),
+        collectors.NewIOCollector(),
+        collectors.NewNetworkQuickCollector(),
+        collectors.NewClockCollector(),
+        collectors.NewFDLimitsCollector(),
+        collectors.NewProcessCollector(),
+        collectors.NewSystemdCollector(),
+        collectors.NewSysctlCollector(),
+        collectors.NewMACPolicyCollector(),
+    }
+}
+
+// toRunnerCollectors adapts collectors.Collector to runner.Collector
+func toRunnerCollectors(cols []collectors.Collector) []runner.Collector {
+    result := make([]runner.Collector, len(cols))
+    for i, c := range cols {
+        result[i] = c
+    }
+    return result
+}
+
+After writing cmd/health.go, run:
+  go build ./...
+  make build
+  ./dist/dsd health
+  ./dist/dsd health --json | python3 -m json.tool
+  ./dist/dsd health --plain
+  echo $?   // 0, 1, or 2
+
+Fix any compilation errors. The binary MUST produce real health output before proceeding.
+```
+
+---
+
+## SPRINT 0 DONE — VERIFICATION
+
+```bash
+go build ./...
+go test ./... -race -count=1 -timeout 60s
+./dist/dsd --version
+./dist/dsd health
+./dist/dsd health --json | python3 -m json.tool
+./dist/dsd health --plain
+./dist/dsd healt    # typo correction → suggests "dsd health"
+git add -A && git commit -m "feat: Sprint 0 complete — dsd health working"
+git tag v0.1.0
+```
+
+---
+
+# SPRINT 1 — MAXIMUM VIRALITY
+
+---
+
+### TASK 1.1 and 1.2 — --diff, --since-deploy, --post-mortem, --story
+
+**Prompt for Claude Code:**
+```
+Wire Sprint 1 viral flags into cmd/health.go (already partially wired in 0.13).
+Complete the wiring and verify all four work end-to-end.
+
+Add --story to root.go persistent flags:
+  f.Bool("story", false, "human-readable narrative of system state")
+  f.Bool("weekly", false, "show weekly usage report from state.json")
+
+Wire --story in runHealth():
+  storyFlag, _ := cmd.Flags().GetBool("story")
+  if storyFlag {
+      fmt.Println(render.RenderStory(insights, snap))
+      return nil
+  }
+
+Wire --weekly in runHealth() (early return, before collectors):
+  weeklyFlag, _ := cmd.Flags().GetBool("weekly")
+  if weeklyFlag {
+      state, _ := tips.LoadState()
+      if state == nil || state.TotalRuns < 7 {
+          fmt.Println("ℹ️  Not enough data yet. Run dsd health for 7+ days first.")
+          return nil
+      }
+      fmt.Println(render.RenderWeekly(state, "weekly"))
+      return nil
+  }
+
+Verify all these work:
+  ./dist/dsd health --diff
+  ./dist/dsd health --since-deploy
+  ./dist/dsd health --post-mortem "test incident"
+  ./dist/dsd health --story
+  ./dist/dsd health --weekly
+```
+
+---
+
+### TASK 1.3 and 1.4 — --qr, Pro labels, milestones wiring
+
+**Prompt for Claude Code:**
+```
+1. Create internal/output/qr.go:
+
+func PrintQRCode(url string, mode output.OutputMode) error
+  - go get github.com/skip2/go-qrcode if not in go.mod
+  - Generate QR as terminal Unicode art
+  - Only activates when url != ""
+  - Plain/non-TTY mode: print "Scan or visit: <url>" instead
+  - Non-fatal if QR generation fails
+
+2. Add ProLabel to internal/output/formatter.go:
+
+func ProLabel(tier string, mode output.OutputMode) string
+  // ModeHuman: lipgloss.NewStyle().Faint(true).Render("  ◆ " + tier)
+  // ModePlain: "  [" + tier + "]"
+  // JSON/YAML:  ""
+
+3. Add ◆ labels to --help. In cmd/root.go, update long description:
+  rootCmd.Long = "DashDiag (dsd) — one command instant system health overview.\n\n" +
+      "◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup"
+
+4. Verify milestones fire correctly (end-to-end):
+  rm -f ~/.dsd/state.json
+  for i in $(seq 1 10); do ./dist/dsd health 2>/dev/null; done
+  # Should see NPS survey prompt on 10th run
+  cat ~/.dsd/state.json  # verify total_runs: 10
+
+5. Test tip rotation:
+  go test ./internal/tips/... -v -race
+```
+
+---
+
+# SPRINT 2 — HABIT FORMATION
+
+---
+
+### TASK 2.1 and 2.2 — dsd examples + dsd hook install
+
+**Prompt for Claude Code:**
+```
+1. Create cmd/examples.go:
+
+func init() { rootCmd.AddCommand(examplesCmd) }
+var examplesCmd = &cobra.Command{
+    Use:   "examples",
+    Short: "Real-world usage workflows",
+    RunE:  runExamples,
+}
+examplesCmd.Flags().Int("scenario", 0, "show only one scenario (1-6)")
+
+func runExamples(cmd *cobra.Command, args []string) error
+  Print the 6 scenarios from SPEC.md §19c Priority 6.
+  scenario flag 0 = all, 1-6 = specific one.
+
+2. Create internal/init/ directory:
+
+internal/init/detector.go:
+func DetectServerProfile() string
+  Parse /proc/[0-9]*/comm (or ps aux on macOS)
+  Return: "web" / "database" / "kubernetes" / "proxmox" / "general"
+
+internal/init/firstrun.go:
+func IsFirstRun() bool  // ~/.dsd/state.json does not exist
+
+func RunWizard(mode output.OutputMode) error
+  1. Detect profile
+  2. Show menu: tui.SingleSelect (or numbered prompt if non-TTY)
+  3. Write ~/.dsd.yaml with profile-specific thresholds
+  4. Print "✅ Profile saved → running first check..." then return nil
+
+Wire IsFirstRun in cmd/root.go RunE — before calling runHealth:
+  if init_pkg.IsFirstRun() {
+      init_pkg.RunWizard(mode)
+  }
+
+3. Create cmd/hook.go:
+
+func init() { rootCmd.AddCommand(hookCmd) }
+var hookCmd = &cobra.Command{ Use: "hook", Short: "Manage shell/CI hooks" }
+var hookInstallCmd = &cobra.Command{
+    Use: "install", Short: "Install DashDiag hooks",
+    RunE: runHookInstall,
+}
+hookCmd.AddCommand(hookInstallCmd)
+hookInstallCmd.Flags().Bool("dry-run", false, "show what would be written without writing")
+
+6 hook options via tui.MultiSelect.
+--dry-run shows diff-style preview.
+After install: update state.HookInstalled = true, state.Save()
+```
+
+---
+
+# SPRINT 3 — PHASE 1 COMPLETE
+
+---
+
+### TASK 3.1 and 3.2 — dsd net + dsd services
+
+**Prompt for Claude Code:**
+```
+1. Create internal/collectors/network_deep.go:
+  Name: "NetworkDeep", Timeout: 30s
+  All of network_quick PLUS:
+  - Jitter: 20-sample ping loop with time.After spacing
+  - Bonds: read /proc/net/bonding/* if directory exists
+  - Ethtool: exec ethtool <iface> (graceful if not installed)
+  - Wireless: exec iw dev <iface> link (graceful if not installed)
+  - Traceroute: only if packet_loss > 5% OR latency > 200ms (conditional)
+    Use github.com/nxtrace/NTrace-core or exec traceroute as fallback
+
+2. Create cmd/net.go:
+  func init() {
+      rootCmd.AddCommand(netCmd)
+      netCmd.AddCommand(netDeepCmd)
+  }
+  dsd net      → NetworkQuickCollector, progress "Network snapshot" ~3s
+  dsd net deep → NetworkDeepCollector, progress "Deep network analysis" ~30s
+  Progress note on deep: "ℹ️  Traceroute only runs if a problem is detected"
+
+3. Create internal/collectors/services.go:
+  Name: "Services", Timeout: 10s
+  Read services from config.Load().Services
+  TCP: net.DialTimeout("tcp", "host:port", 5*time.Second)
+  HTTP: http.Client with 10s timeout, check status code
+  Empty state (no services in config) → return with guidance message
+
+4. Create cmd/services.go wiring services collector.
+  Empty state message:
+    ℹ️  No services configured yet.
+        Add to ~/.dsd.yaml:
+        services:
+          - name: nginx
+            host: localhost
+            port: 80
+            protocol: http
+        Or run: dsd init  to configure automatically.
+```
+
+---
+
+### TASK 3.3 and 3.4 — Final Phase 1 verification + commit
+
+**Prompt for Claude Code:**
+```
+Run full Phase 1 verification. Fix any failures before proceeding.
+
+1. Build checks:
+  go build ./...
+  go vet ./...
+  go test ./... -race -count=1 -timeout 60s
+
+2. Binary checks:
+  make build
+  ./dist/dsd health
+  ./dist/dsd health --json | python3 -m json.tool
+  ./dist/dsd health --plain
+  ./dist/dsd health --diff
+  ./dist/dsd health --since-deploy
+  ./dist/dsd health --story
+  ./dist/dsd health --post-mortem "phase 1 test"
+  ./dist/dsd net
+  ./dist/dsd services
+  ./dist/dsd examples
+  ./dist/dsd hook install --dry-run
+  ./dist/dsd healt     # typo → suggests "dsd health"
+  ./dist/dsd --help | grep "◆"
+
+3. Commit:
+  git add -A
+  git commit -m "feat: Phase 1 complete — dsd health, net, services all working"
+  git tag v0.3.0-phase1
+```
+
+---
+
+# SPRINT 4 — FIRST REVENUE
+
+---
+
+### TASK 4.1 and 4.2 — --watch mode + --yaml output
+
+**Prompt for Claude Code:**
+```
+1. Wire --watch in cmd/health.go:
+
+Add to healthCmd flags:
+  healthCmd.Flags().Bool("watch", false, "refresh health check every 60 seconds")
+  healthCmd.Flags().Duration("watch-interval", 60*time.Second, "watch refresh interval")
+
+In runHealth(), after mode detection (early return):
+  watchFlag, _ := cmd.Flags().GetBool("watch")
+  if watchFlag {
+      interval, _ := cmd.Flags().GetDuration("watch-interval")
+      return runWatch(cmd, interval, ctrCtx, cloudEnv, cfg, mode)
+  }
+
+func runWatch(...) error {
+    ticker := time.NewTicker(interval)
+    defer ticker.Stop()
+    var prevSnap *baseline.Snapshot
+    fmt.Fprintf(os.Stderr, "⚡ Watching (refresh every %s, Ctrl+C to exit)\n\n", interval)
+    for {
+        results, insights := runHealthOnce(ctx, ctrCtx, cloudEnv, cfg)
+        snap := baseline.BuildSnapshot(results, insights)
+        if prevSnap == nil {
+            renderer := render.NewRenderer(mode)
+            renderer.PrintAll(results, insights)
+        } else {
+            diffs := baseline.ComputeDiff(prevSnap, snap)
+            changed := false
+            for _, d := range diffs {
+                if d.Changed { changed = true; break }
+            }
+            if changed {
+                render.PrintDiff(prevSnap, snap, mode)
+            } else {
+                fmt.Printf("  %s  No changes — %s\n",
+                    output.StatusIcon("OK", mode), time.Now().Format("15:04:05"))
+            }
+        }
+        prevSnap = snap
+        <-ticker.C
+    }
+}
+
+2. Add ModeYAML to internal/output/tty.go:
+  const ModeYAML OutputMode = 4  // add after ModeJSON
+  Update DetectMode(): case outputFmt == "yaml": return ModeYAML
+
+3. Add YAML rendering to internal/render/json.go (or new yaml.go):
+  func RenderYAML(results []runner.Result, insights []models.Insight) ([]byte, error)
+  // gopkg.in/yaml.v3 marshal of same struct as JSON
+
+4. Wire in runHealth():
+  if mode == output.ModeYAML {
+      data, err := render.RenderYAML(results, insights)
+      if err == nil { os.Stdout.Write(data) }
+      return nil
+  }
+
+Verify:
+  ./dist/dsd health --yaml
+  ./dist/dsd health --watch &
+  sleep 5 && kill %1
+```
+
+---
+
+### TASK 4.3 — Final integration + git tag
+
+**Prompt for Claude Code:**
+```
+Final end-to-end test of everything. Fix any failures.
+
+./dist/dsd health
+./dist/dsd health --json | python3 -m json.tool
+./dist/dsd health --yaml
+./dist/dsd health --plain
+./dist/dsd health --diff
+./dist/dsd health --since-deploy
+./dist/dsd health --story
+./dist/dsd health --post-mortem "final test"
+./dist/dsd health --weekly
+./dist/dsd health --watch &
+sleep 3 && kill %1
+./dist/dsd net
+./dist/dsd net deep
+./dist/dsd services
+./dist/dsd examples
+./dist/dsd examples --scenario 1
+./dist/dsd hook install --dry-run
+./dist/dsd healt   # typo correction
+./dist/dsd --help | grep "◆"
+make test-all
+bash scripts/smoke-test.sh
+
+Commit:
+git add -A
+git commit -m "feat: Sprint 4 complete — all flags working"
+git tag v0.4.0
+```
+
+---
+
+# POST-LAUNCH MILESTONES (phase-gated)
+
+---
+
+### TASK PL.1 — dsd health deep (gate: health in daily use)
+
+**Prompt for Claude Code:**
+```
+Create internal/collectors/cpu_detail.go:
+  Name: "CPUDetail", Timeout: 2s
+  Per-core data from:
+  - /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq  (frequency)
+  - /sys/bus/platform/drivers/coretemp/*/hwmon/*/temp*_input (temperature milli-celsius)
+  - Throttle: compare current freq vs max freq from scaling_max_freq
+  Return []models.CPUCoreInfo
+
+Update cmd/health.go buildHealthDeepCollectors():
+func buildHealthDeepCollectors(ctrCtx platform.ContainerContext) []collectors.Collector {
+    base := buildHealthCollectors(ctrCtx)
+    return append(base, collectors.NewCPUDetailCollector(ctrCtx))
+}
+Update healthDeepCmd RunE to use buildHealthDeepCollectors.
+```
+
+---
+
+### TASK PL.2 — dsd docker (gate: GitHub issue requesting containers)
+
+**Prompt for Claude Code:**
+```
+go get github.com/docker/docker/client
+
+Create internal/collectors/docker.go:
+  Name: "Docker", Timeout: 5s
+  Auto-detect socket path:
+    /var/run/docker.sock     → Docker
+    /var/run/podman/podman.sock → Podman
+  Use Docker Engine API v1.41
+  Collect per container: ID (short), Name, Image, State, Status, RestartCount, Health
+  Empty state (no socket found): return []models.ContainerInfo{} (not error)
+  macOS Docker Desktop: /var/run/docker.sock also works
+
+Create cmd/docker.go with:
+  dsd docker command running DockerCollector
+  Empty state message if no Docker/Podman socket found:
+    ℹ️  No container runtime detected.
+        → Install Docker: https://docs.docker.com/get-docker/
+        → Or ensure Docker daemon is running: systemctl start docker
+```
+
+---
+
+### TASK PL.3 — dsd k8s (gate: GitHub issue requesting Kubernetes)
+
+**Prompt for Claude Code:**
+```
+go get k8s.io/client-go@latest
+go get k8s.io/api@latest
+go get k8s.io/apimachinery@latest
+
+Create internal/collectors/k8s.go:
+  Name: "Kubernetes", Timeout: 10s
+  
+  Kubeconfig detection order:
+  1. In-cluster: rest.InClusterConfig()
+  2. $KUBECONFIG env var
+  3. ~/.kube/config
+  
+  Collect 8 failure modes (full spec in SPEC.md §models K8sInfo):
+  1. OOMKilled: lastTerminationState.terminated.reason == "OOMKilled"
+  2. Evicted:   pod.Status.Reason == "Evicted"
+  3. CrashLoop: state.waiting.reason contains "CrashLoop"
+  4. ImagePull: state.waiting.reason contains "ImagePull" or "ErrImagePull"
+  5. Pending:   Phase == Pending, read PodScheduled condition message
+  6. PVC:       PVC.Status.Phase != Bound
+  7. CoreDNS:   pods label k8s-app=kube-dns, count Ready vs Total
+  8. Nodes:     conditions MemoryPressure, DiskPressure, PIDPressure
+
+  Empty state (no kubeconfig):
+    ℹ️  No kubeconfig found.
+        → Set KUBECONFIG=/path/to/your/config
+        → Or copy kubeconfig to ~/.kube/config
+
+Create cmd/k8s.go:
+  dsd k8s      → K8sCollector
+  dsd k8s deep → K8sCollector (same for now — BestEffort/throttling added when gate met)
+```
+
+---
+
+## MILESTONE TRACKER
+
+| Task | Description | Status |
+|---|---|---|
+| 0.1–0.7 | Scaffold through tips engine | ✅ Done |
+| 0.8 | Baseline system | ⬜ Todo |
+| 0.9 | Config layer | ⬜ Todo |
+| 0.10 | 12 collectors | ⬜ Todo |
+| 0.11 | Render layer | ⬜ Todo |
+| 0.12 | TUI components | ⬜ Todo |
+| 0.13 | Wire cmd/health.go | ⬜ Todo |
+| 1.1 | --diff + --since-deploy | ⬜ Todo |
+| 1.2 | --post-mortem + --story | ⬜ Todo |
+| 1.3 | --qr + Pro labels | ⬜ Todo |
+| 1.4 | Milestones wiring | ⬜ Todo |
+| 2.1 | dsd examples + dsd init | ⬜ Todo |
+| 2.2 | dsd hook install | ⬜ Todo |
+| 3.1 | dsd net + dsd services | ⬜ Todo |
+| 3.2 | dsd net deep | ⬜ Todo |
+| 3.3 | CI verification | ⬜ Todo |
+| 3.4 | Phase 1 commit | ⬜ Todo |
+| 4.1 | --watch mode | ⬜ Todo |
+| 4.2 | --yaml output | ⬜ Todo |
+| 4.3 | Final integration | ⬜ Todo |
+| PL.1 | dsd health deep | ⬜ Gated |
+| PL.2 | dsd docker | ⬜ Gated |
+| PL.3 | dsd k8s | ⬜ Gated |
+
+---
+
+*DashDiag Implementation Plan — paired with SPEC.md v48.0*

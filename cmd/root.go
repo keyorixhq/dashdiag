@@ -11,7 +11,9 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "dsd",
 	Short: "DashDiag — instant system health",
-	RunE:  runHealth,
+	Long: "DashDiag (dsd) — one command instant system health overview.\n\n" +
+		"◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup",
+	RunE: runHealth,
 	Version: fmt.Sprintf("%s (commit %s, built %s)",
 		version.Version, version.Commit, version.Built),
 }
@@ -33,11 +35,8 @@ func init() {
 	f.String("post-mortem", "", "generate post-mortem for given incident ID")
 	f.Bool("share", false, "share report via URL")
 	f.Bool("qr", false, "display share URL as QR code")
-}
-
-func runHealth(cmd *cobra.Command, args []string) error {
-	fmt.Fprintln(os.Stdout, "dsd health — not yet implemented")
-	return nil
+	f.Bool("story", false, "human-readable narrative of current state")
+	f.Bool("weekly", false, "show weekly usage report")
 }
 
 func Execute() {
