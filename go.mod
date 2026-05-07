@@ -1,4 +1,4 @@
-module github.com/andreibeshkov/dashdiag
+module github.com/keyorixhq/dashdiag
 
 go 1.22
 

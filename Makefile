@@ -1,4 +1,4 @@
-MODULE  := github.com/andreibeshkov/dashdiag
+MODULE  := github.com/keyorixhq/dashdiag
 VERSION ?= dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILT   ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
