@@ -1,0 +1,44 @@
+name: Feature Request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening, search existing issues to avoid duplicates.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation where you felt something was missing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like `dsd` to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds do you currently use?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New collector (CPU / memory / disk / network / …)
+        - Output format
+        - Configuration / flags
+        - Performance
+        - Platform support
+        - Other
+    validations:
+      required: true
