@@ -49,8 +49,8 @@ func TestParseGatewayLinux(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			gw := parseGatewayLinux(strings.NewReader(tc.input))
-			if gw != tc.wantGW {
-				t.Errorf("gateway: got %q, want %q", gw, tc.wantGW)
+			if gw.GatewayIP != tc.wantGW {
+				t.Errorf("gateway: got %q, want %q", gw.GatewayIP, tc.wantGW)
 			}
 		})
 	}
@@ -65,8 +65,8 @@ func TestParseGatewayLinux_FixtureFile(t *testing.T) {
 	defer f.Close()
 
 	gw := parseGatewayLinux(f)
-	if gw != "192.168.1.1" {
-		t.Errorf("gateway: got %q, want 192.168.1.1", gw)
+	if gw.GatewayIP != "192.168.1.1" {
+		t.Errorf("gateway: got %q, want 192.168.1.1", gw.GatewayIP)
 	}
 }
 

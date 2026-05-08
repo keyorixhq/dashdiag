@@ -21,30 +21,118 @@ func NewClockCollector() *ClockCollector { return &ClockCollector{} }
 func (c *ClockCollector) Name() string           { return "Clock" }
 func (c *ClockCollector) Timeout() time.Duration { return 2 * time.Second }
 
-// parseTimedatectl parses `timedatectl show` output (KEY=VALUE pairs).
-func parseTimedatectl(r io.Reader) (synced bool, offsetMs float64, err error) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		kv := strings.SplitN(scanner.Text(), "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		switch kv[0] {
-		case "NTPSynchronized":
-			synced = kv[1] == "yes"
-		case "NTPOffsetUsec":
-			v, e := strconv.ParseFloat(kv[1], 64)
-			if e != nil {
-				return false, 0, fmt.Errorf("parsing NTPOffsetUsec: %w", e)
-			}
-			offsetMs = v / 1000.0
-		}
+func (c *ClockCollector) Collect(ctx context.Context) (interface{}, error) {
+	info := &models.ClockInfo{}
+	if runtime.GOOS == "darwin" {
+		return c.collectDarwin(ctx, info)
 	}
-	return synced, offsetMs, scanner.Err()
+	return c.collectLinux(ctx, info)
 }
 
-// parseChronyTracking parses `chronyc tracking` output and returns offset in ms.
-func parseChronyTracking(r io.Reader) (float64, error) {
+func (c *ClockCollector) collectDarwin(ctx context.Context, info *models.ClockInfo) (interface{}, error) {
+	out, err := exec.CommandContext(ctx, "systemsetup", "-getusingnetworktime").Output()
+	if err != nil {
+		info.Source = "unavailable"
+		info.OffsetMs = -1
+		return info, nil
+	}
+	info.Synced = strings.Contains(string(out), "On")
+	info.OffsetMs = -1
+	info.Source = "systemsetup"
+	return info, nil
+}
+
+func (c *ClockCollector) collectLinux(ctx context.Context, info *models.ClockInfo) (interface{}, error) {
+	// Step 1: plain `timedatectl show` — no --property filter, works on all distro versions.
+	// Using --property=NTPSynchronized,NTPOffsetUsec fails on Ubuntu 24.04 because
+	// timedatectl treats the comma-separated string as a single unknown property name,
+	// returning empty output and leaving info.Synced=false even though NTP is active.
+	out, err := exec.CommandContext(ctx, "timedatectl", "show").Output()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "NTPSynchronized=") {
+				info.Synced = strings.TrimPrefix(line, "NTPSynchronized=") == "yes"
+			}
+			// Ubuntu 22.04 and earlier: NTPOffsetUsec present here.
+			if strings.HasPrefix(line, "NTPOffsetUsec=") {
+				val := strings.TrimPrefix(line, "NTPOffsetUsec=")
+				if val != "" {
+					if usec, parseErr := strconv.ParseFloat(val, 64); parseErr == nil {
+						info.OffsetMs = usec / 1000.0
+						info.Source = "timedatectl"
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: Ubuntu 24.04+ removed NTPOffsetUsec; offset lives in timesync-status.
+	if info.Source == "" || info.OffsetMs == 0 {
+		tsOut, tsErr := exec.CommandContext(ctx, "timedatectl", "timesync-status").Output()
+		if tsErr == nil {
+			if ms, parseErr := parseTimesyncStatus(strings.NewReader(string(tsOut))); parseErr == nil {
+				info.OffsetMs = ms
+				info.Source = "timedatectl-timesync"
+			}
+		}
+	}
+
+	// Step 3: chronyc fallback for RHEL, Rocky, Amazon Linux.
+	if info.Source == "" {
+		chrOut, chrErr := exec.CommandContext(ctx, "chronyc", "tracking").Output()
+		if chrErr == nil {
+			if synced, ms, parseErr := parseChronyTracking(strings.NewReader(string(chrOut))); parseErr == nil {
+				info.Synced = synced
+				info.OffsetMs = ms
+				info.Source = "chronyc"
+			}
+		}
+	}
+
+	// Step 4: graceful degradation — never return nil, never return error.
+	if info.Source == "" {
+		info.Source = "unavailable"
+		info.OffsetMs = -1
+	}
+
+	return info, nil
+}
+
+// parseTimesyncStatus parses `timedatectl timesync-status` and returns the offset in ms.
+// It finds the first "Offset:" line, e.g. "       Offset: +1.866ms".
+func parseTimesyncStatus(r io.Reader) (float64, error) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "Offset:") {
+			continue
+		}
+		val := strings.TrimSpace(strings.TrimPrefix(line, "Offset:"))
+		return parseOffsetString(val)
+	}
+	return 0, fmt.Errorf("offset line not found")
+}
+
+// parseOffsetString converts "+1.866ms", "+123us", "+0.001s" to milliseconds.
+func parseOffsetString(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	switch {
+	case strings.HasSuffix(s, "ms"):
+		f, err := strconv.ParseFloat(strings.TrimSuffix(s, "ms"), 64)
+		return f, err
+	case strings.HasSuffix(s, "us"):
+		f, err := strconv.ParseFloat(strings.TrimSuffix(s, "us"), 64)
+		return f / 1000.0, err
+	case strings.HasSuffix(s, "s"):
+		f, err := strconv.ParseFloat(strings.TrimSuffix(s, "s"), 64)
+		return f * 1000.0, err
+	default:
+		return 0, fmt.Errorf("unknown offset format: %s", s)
+	}
+}
+
+// parseChronyTracking parses `chronyc tracking` and returns synced + offset in ms.
+func parseChronyTracking(r io.Reader) (bool, float64, error) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -61,59 +149,9 @@ func parseChronyTracking(r io.Reader) (float64, error) {
 		}
 		v, err := strconv.ParseFloat(fields[0], 64)
 		if err != nil {
-			return 0, fmt.Errorf("parsing chrony offset: %w", err)
+			return false, 0, fmt.Errorf("parsing chrony offset: %w", err)
 		}
-		return v * 1000, nil
+		return true, v * 1000, nil
 	}
-	return 0, fmt.Errorf("system time offset not found in chrony output")
-}
-
-func (c *ClockCollector) Collect(ctx context.Context) (interface{}, error) {
-	if runtime.GOOS == "darwin" {
-		return c.collectDarwin(ctx)
-	}
-	return c.collectLinux(ctx)
-}
-
-func (c *ClockCollector) collectLinux(ctx context.Context) (*models.ClockInfo, error) {
-	out, err := exec.CommandContext(ctx, "timedatectl", "show",
-		"--property=NTPSynchronized,NTPOffsetUsec").Output()
-	if err == nil {
-		synced, offsetMs, parseErr := parseTimedatectl(strings.NewReader(string(out)))
-		if parseErr == nil {
-			return &models.ClockInfo{
-				Synced:   synced,
-				OffsetMs: offsetMs,
-				Source:   "timedatectl",
-			}, nil
-		}
-	}
-
-	// Fallback: chronyc tracking
-	out2, err2 := exec.CommandContext(ctx, "chronyc", "tracking").Output()
-	if err2 != nil {
-		return &models.ClockInfo{OffsetMs: -1, Source: "unavailable"}, nil
-	}
-	offsetMs, parseErr := parseChronyTracking(strings.NewReader(string(out2)))
-	if parseErr != nil {
-		return &models.ClockInfo{OffsetMs: -1, Source: "chronyc"}, nil
-	}
-	return &models.ClockInfo{
-		Synced:   true,
-		OffsetMs: offsetMs,
-		Source:   "chronyc",
-	}, nil
-}
-
-func (c *ClockCollector) collectDarwin(ctx context.Context) (*models.ClockInfo, error) {
-	out, err := exec.CommandContext(ctx, "systemsetup", "-getusingnetworktime").Output()
-	synced := false
-	if err == nil {
-		synced = strings.Contains(string(out), "Network Time: On")
-	}
-	return &models.ClockInfo{
-		Synced:   synced,
-		OffsetMs: -1,
-		Source:   "systemsetup",
-	}, nil
+	return false, 0, fmt.Errorf("system time offset not found in chrony output")
 }

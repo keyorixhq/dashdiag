@@ -72,28 +72,47 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		})
 	}
 
-	gw := detectDefaultGateway(ctx)
+	route := detectDefaultGateway(ctx)
 
-	var gwMs, internetMs, dnsMs float64
+	// Detect primary interface state by scanning all interfaces (before skip filter).
+	if route.Iface != "" {
+		result.PrimaryInterface = route.Iface
+		result.PrimaryInterfaceDown = true // assume down until we find it UP
+		for _, iface := range ifaces {
+			if iface.Name == route.Iface {
+				for _, flag := range iface.Flags {
+					if flag == "up" {
+						result.PrimaryInterfaceDown = false
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+
+	var gwMs, gwLoss, internetMs, internetLoss, dnsMs float64
+	var dnsFailed bool
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		if gw != "" {
-			gwMs = pingRTT(ctx, gw)
+		if route.GatewayIP != "" {
+			gwMs, gwLoss = pingRTT(ctx, route.GatewayIP)
 		} else {
-			gwMs = -1
+			gwMs, gwLoss = -1, 100
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		internetMs = pingRTT(ctx, "8.8.8.8")
+		internetMs, internetLoss = pingRTT(ctx, "8.8.8.8")
 	}()
 	go func() {
 		defer wg.Done()
 		start := time.Now()
 		_, err := net.DefaultResolver.LookupHost(ctx, "github.com")
 		if err != nil {
+			dnsFailed = true
 			dnsMs = -1
 			return
 		}
@@ -102,8 +121,11 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	wg.Wait()
 
 	result.GatewayPingMs = gwMs
+	result.GatewayPacketLossPct = gwLoss
 	result.InternetPingMs = internetMs
+	result.InternetPacketLossPct = internetLoss
 	result.DNSResolvesMs = dnsMs
+	result.DNSFailed = dnsFailed
 
 	conns, _ := gopsutilnet.ConnectionsWithContext(ctx, "tcp")
 	for _, conn := range conns {
@@ -125,23 +147,23 @@ func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
 }
 
 // pingRTT tries privileged ICMP first, then unprivileged UDP.
-// Returns average RTT in ms, or -1 on failure.
-func pingRTT(ctx context.Context, host string) float64 {
+// Returns (average RTT in ms, packet loss pct). RTT is -1 on total failure.
+func pingRTT(ctx context.Context, host string) (ms, lossPct float64) {
 	for _, privileged := range []bool{true, false} {
 		if ctx.Err() != nil {
-			return -1
+			return -1, 100
 		}
-		if ms, ok := tryOnePing(ctx, host, privileged); ok {
-			return ms
+		if ms, loss, ok := tryOnePing(ctx, host, privileged); ok {
+			return ms, loss
 		}
 	}
-	return -1
+	return -1, 100
 }
 
-func tryOnePing(ctx context.Context, host string, privileged bool) (ms float64, ok bool) {
+func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct float64, ok bool) {
 	p, err := goping.NewPinger(host)
 	if err != nil {
-		return -1, false
+		return -1, 100, false
 	}
 	p.Count = 3
 	p.Timeout = 1200 * time.Millisecond
@@ -153,20 +175,25 @@ func tryOnePing(ctx context.Context, host string, privileged bool) (ms float64, 
 	select {
 	case <-ctx.Done():
 		p.Stop()
-		return -1, false
+		return -1, 100, false
 	case err := <-errCh:
 		if err != nil {
-			return -1, false
+			return -1, 100, false
 		}
 	}
 	stats := p.Statistics()
 	if stats.PacketsRecv == 0 {
-		return -1, false
+		return -1, 100, false
 	}
-	return float64(stats.AvgRtt) / float64(time.Millisecond), true
+	return float64(stats.AvgRtt) / float64(time.Millisecond), stats.PacketLoss, true
 }
 
-func detectDefaultGateway(ctx context.Context) string {
+type routeInfo struct {
+	GatewayIP string
+	Iface     string
+}
+
+func detectDefaultGateway(ctx context.Context) routeInfo {
 	if runtime.GOOS == "darwin" {
 		return detectGatewayDarwin(ctx)
 	}
@@ -175,7 +202,7 @@ func detectDefaultGateway(ctx context.Context) string {
 
 // parseGatewayLinux finds the default route in /proc/net/route format.
 // Gateway field is 4-byte little-endian hex (e.g. "0101A8C0" = 192.168.1.1).
-func parseGatewayLinux(r io.Reader) string {
+func parseGatewayLinux(r io.Reader) routeInfo {
 	scanner := bufio.NewScanner(r)
 	scanner.Scan() // skip header
 	for scanner.Scan() {
@@ -187,33 +214,41 @@ func parseGatewayLinux(r io.Reader) string {
 		if err != nil || len(b) != 4 {
 			continue
 		}
-		return net.IP([]byte{b[3], b[2], b[1], b[0]}).String()
+		return routeInfo{
+			GatewayIP: net.IP([]byte{b[3], b[2], b[1], b[0]}).String(),
+			Iface:     fields[0],
+		}
 	}
-	return ""
+	return routeInfo{}
 }
 
-func detectGatewayLinux() string {
+func detectGatewayLinux() routeInfo {
 	f, err := os.Open("/proc/net/route")
 	if err != nil {
-		return ""
+		return routeInfo{}
 	}
 	defer f.Close()
 	return parseGatewayLinux(f)
 }
 
-func detectGatewayDarwin(ctx context.Context) string {
+func detectGatewayDarwin(ctx context.Context) routeInfo {
 	out, err := exec.CommandContext(ctx, "route", "-n", "get", "default").Output()
 	if err != nil {
-		return ""
+		return routeInfo{}
 	}
+	var info routeInfo
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "gateway:") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				return parts[1]
-			}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		switch parts[0] {
+		case "gateway:":
+			info.GatewayIP = parts[1]
+		case "interface:":
+			info.Iface = parts[1]
 		}
 	}
-	return ""
+	return info
 }

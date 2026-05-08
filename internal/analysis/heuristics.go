@@ -43,7 +43,9 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.Cl
 		case models.ClockInfo:
 			insights = append(insights, checkClock(data, thresh)...)
 		case *models.ClockInfo:
-			insights = append(insights, checkClock(*data, thresh)...)
+			if data != nil {
+				insights = append(insights, checkClock(*data, thresh)...)
+			}
 		case models.FDInfo:
 			insights = append(insights, checkFD(data, thresh)...)
 		case *models.FDInfo:
@@ -64,6 +66,10 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.Cl
 			insights = append(insights, checkLogs(data, thresh)...)
 		case *models.LogsInfo:
 			insights = append(insights, checkLogs(*data, thresh)...)
+		case models.ProcessInfo:
+			insights = append(insights, checkProcesses(data)...)
+		case *models.ProcessInfo:
+			insights = append(insights, checkProcesses(*data)...)
 		}
 	}
 	return insights
@@ -124,15 +130,16 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds) []models.Insight {
 func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	for _, fs := range disk.Filesystems {
-		check := "Disk " + fs.Mount
+		// Use collector name "Disk" so insightForResult("Disk", insights) finds this insight.
+		// Mount path is preserved in the message.
 		if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
-			out = append(out, insight(l, check,
+			out = append(out, insight(l, "Disk",
 				fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),
 				[]string{"df -h", fmt.Sprintf("du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)},
 			))
 		}
 		if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
-			out = append(out, insight(l, check,
+			out = append(out, insight(l, "Disk",
 				fmt.Sprintf("inode usage at %.0f%% on %s", fs.InodesUsedPct, fs.Mount),
 				[]string{"df -i", fmt.Sprintf("find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
 			))
@@ -172,15 +179,16 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	for _, dev := range io.Devices {
-		check := "IO " + dev.Name
+		// Use collector name "IO" so insightForResult("IO", insights) finds this insight.
+		// Device name is preserved in the message.
 		if l := levelPct(dev.UtilPct, thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD); l != "" {
-			out = append(out, insight(l, check,
+			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s utilization at %.0f%%", dev.Name, dev.UtilPct),
 				[]string{"iostat -x 1 5", "iotop -ao"},
 			))
 		}
 		if l := levelPct(dev.AwaitMs, thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD); l != "" {
-			out = append(out, insight(l, check,
+			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s await latency %.1f ms", dev.Name, dev.AwaitMs),
 				[]string{"iostat -x 1 5", "iotop -ao"},
 			))
@@ -191,7 +199,17 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 
 func checkNetwork(net models.NetworkInfo) []models.Insight {
 	var out []models.Insight
-	if net.GatewayPingMs > 200 {
+	if net.PrimaryInterfaceDown {
+		out = append(out, insight("CRIT", "Network",
+			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
+			[]string{fmt.Sprintf("ip link set %s up", net.PrimaryInterface), "ip link show", "ip route"},
+		))
+	} else if net.GatewayPingMs < 0 {
+		out = append(out, insight("CRIT", "Network",
+			"gateway is unreachable — check routing table",
+			[]string{"ip route", "ping -c3 $(ip route | awk '/default/{print $3}')"},
+		))
+	} else if net.GatewayPingMs > 200 {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("gateway ping is %.0f ms — severe latency", net.GatewayPingMs),
 			[]string{"ping -c5 $(ip route | awk '/default/{print $3}')", "ip route"},
@@ -202,7 +220,25 @@ func checkNetwork(net models.NetworkInfo) []models.Insight {
 			[]string{"ping -c5 $(ip route | awk '/default/{print $3}')"},
 		))
 	}
-	if net.DNSResolvesMs > 1000 {
+	if !net.PrimaryInterfaceDown && net.GatewayPingMs >= 0 {
+		if net.GatewayPacketLossPct >= 50 {
+			out = append(out, insight("CRIT", "Network",
+				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct),
+				[]string{"ping -c20 $(ip route | awk '/default/{print $3}')", "ip link show"},
+			))
+		} else if net.GatewayPacketLossPct >= 10 {
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct),
+				[]string{"ping -c20 $(ip route | awk '/default/{print $3}')"},
+			))
+		}
+	}
+	if net.DNSFailed {
+		out = append(out, insight("CRIT", "Network/DNS",
+			"DNS resolution failed — cannot resolve hostnames",
+			[]string{"dig @8.8.8.8 google.com", "cat /etc/resolv.conf", "systemctl status systemd-resolved"},
+		))
+	} else if net.DNSResolvesMs > 1000 {
 		out = append(out, insight("CRIT", "Network/DNS",
 			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs),
 			[]string{"dig @8.8.8.8 google.com", "cat /etc/resolv.conf", "systemctl status systemd-resolved"},
@@ -277,17 +313,11 @@ func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 }
 
 func checkSystemd(sys models.SystemdInfo) []models.Insight {
-	out := make([]models.Insight, 0, len(sys.FailedUnits)+len(sys.StuckUnits))
+	out := make([]models.Insight, 0, len(sys.FailedUnits))
 	for _, unit := range sys.FailedUnits {
 		out = append(out, insight("CRIT", "Systemd",
 			fmt.Sprintf("unit %s has failed", unit),
 			[]string{fmt.Sprintf("systemctl status %s", unit), fmt.Sprintf("journalctl -u %s -n 50", unit)},
-		))
-	}
-	for _, unit := range sys.StuckUnits {
-		out = append(out, insight("WARN", "Systemd",
-			fmt.Sprintf("unit %s appears stuck", unit),
-			[]string{fmt.Sprintf("systemctl status %s", unit)},
 		))
 	}
 	return out
@@ -347,4 +377,31 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 		)}
 	}
 	return nil
+}
+
+func checkProcesses(proc models.ProcessInfo) []models.Insight {
+	var out []models.Insight
+	if proc.ZombieCount >= 10 {
+		out = append(out, insight("CRIT", "Processes",
+			fmt.Sprintf("%d zombie processes detected", proc.ZombieCount),
+			[]string{"ps aux | grep Z", "cat /proc/*/status | grep -E '^Name|^State' | paste - -"},
+		))
+	} else if proc.ZombieCount > 0 {
+		out = append(out, insight("WARN", "Processes",
+			fmt.Sprintf("%d zombie process(es) detected", proc.ZombieCount),
+			[]string{"ps aux | grep Z"},
+		))
+	}
+	if proc.HungCount >= 5 {
+		out = append(out, insight("CRIT", "Processes",
+			fmt.Sprintf("%d hung (uninterruptible) processes", proc.HungCount),
+			[]string{"ps aux | grep ' D '", "for pid in $(ps -eo pid,stat | awk '$2~/D/{print $1}'); do cat /proc/$pid/wchan 2>/dev/null; done"},
+		))
+	} else if proc.HungCount > 0 {
+		out = append(out, insight("WARN", "Processes",
+			fmt.Sprintf("%d hung (uninterruptible) process(es)", proc.HungCount),
+			[]string{"ps aux | grep ' D '"},
+		))
+	}
+	return out
 }

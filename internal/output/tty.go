@@ -40,7 +40,7 @@ func StatusIcon(status string, mode OutputMode) string {
 		case "warn":
 			return "WARN"
 		case "fail":
-			return "FAIL"
+			return "CRIT"
 		case "info":
 			return "INFO"
 		case "pending":

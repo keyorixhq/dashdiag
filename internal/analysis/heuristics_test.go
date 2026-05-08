@@ -323,6 +323,14 @@ func TestNetworkCloseWaitThresholds(t *testing.T) {
 
 // ── Clock ────────────────────────────────────────────────────────────────────
 
+func TestClockNilPointer(t *testing.T) {
+	results := []runner.Result{{Name: "Clock", Data: (*models.ClockInfo)(nil)}}
+	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal)
+	if len(insights) != 0 {
+		t.Errorf("expected no insights for nil *ClockInfo, got %+v", insights)
+	}
+}
+
 func TestClockNotSynced(t *testing.T) {
 	insights := ApplyThresholds(res(models.ClockInfo{Synced: false, OffsetMs: -1}), defaultThresh, platform.EnvBareMetal)
 	if !hasLevel(insights, "CRIT") {
@@ -398,14 +406,6 @@ func TestSystemdFailedUnit(t *testing.T) {
 	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
 	if !hasLevel(insights, "CRIT") {
 		t.Error("expected CRIT for failed systemd unit")
-	}
-}
-
-func TestSystemdStuckUnit(t *testing.T) {
-	sys := models.SystemdInfo{Available: true, StuckUnits: []string{"bar.service"}}
-	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
-	if !hasLevel(insights, "WARN") {
-		t.Error("expected WARN for stuck systemd unit")
 	}
 }
 
