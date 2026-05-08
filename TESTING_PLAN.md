@@ -136,8 +136,13 @@ for c in data.get('checks', []):
 - [ ] Network shows correct interfaces (not VM bridges as primary)
 - [ ] MACPolicy: no crash (Proxmox may have SELinux disabled)
 
-**Status:** [ ] PASS  [ ] FAIL  [ ] PARTIAL
+**Status:** [x] PASS
 **Notes:**
+2026-05-08: 12/12 stress tests passing. Machine: 8-core Intel, 32GB RAM,
+119GB SSD (LVM), 1.8TB data disk, no ZFS. Proxmox VE hypervisor.
+Fixes needed: stress suite self-calibration (CPU cores*2, swap 150% free RAM,
+IO LVM device detection), run_stress.sh sudo check for root-only environments.
+No collector bugs found — all 12 checks work correctly on Proxmox.
 
 ---
 
@@ -608,7 +613,7 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 | Priority | Test | Status | Date | Notes |
 |---|---|---|---|---|
 | P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 16/16 stress tests. 20 bugs fixed across 2 sessions. kind k8s running. |
-| P1.2 | Proxmox host | ⬜ Todo | | |
+| P1.2 | Proxmox host | ✅ PASS | 2026-05-08 | 12/12 stress tests. 8-core Intel, 32GB RAM, LVM storage. Stress suite self-calibration fixes. |
 | P1.3 | Colima arm64 VM | ⬜ Todo | | |
 | P2.1 | Rocky Linux 9 Docker | ⬜ Todo | | |
 | P2.2 | Debian 12 Docker | ⬜ Todo | | |

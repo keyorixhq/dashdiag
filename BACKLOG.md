@@ -8,27 +8,25 @@
 ## STATUS
 Last updated: 2026-05-08
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: ✅ v0.1.1 (pending push)
+Tag: ✅ v0.1.1
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
-Linux testing: ✅ P1.1 COMPLETE (16/16) | 🔄 P1.2 NEXT — Proxmox host
+Linux testing: ✅ P1.1 COMPLETE (16/16) | ✅ P1.2 COMPLETE (12/12) | 🔄 P1.3 NEXT — Colima arm64
 
 ---
 
-## NOW — P1.2 Proxmox testing
+## NOW — P1.3 Colima arm64
 
 ### Infrastructure
-- [ ] Tag and push v0.1.1
-- [ ] Run stress suite on Proxmox host (P1.2)
-- [ ] Update TESTING_PLAN.md with P1.2 results
+- [ ] Run stress suite on Colima arm64 VM (P1.3)
+- [ ] Update TESTING_PLAN.md with P1.3 results
+- [ ] Commit P1.2 fixes
 
----
 
-## NEXT — After P1.2 complete
+## NEXT — After P1.3 complete
 
 ### Remaining Linux testing (TESTING_PLAN.md)
-- [ ] P1.3 Colima arm64 VM
 - [ ] P2.1–P2.8 Docker distro sweep (Rocky, Debian, Alpine, SUSE, Flatcar...)
 - [ ] P3.1–P3.4 arm64 Docker sweep
 - [ ] P4.1–P4.2 Container context tests
@@ -99,59 +97,45 @@ Linux testing: ✅ P1.1 COMPLETE (16/16) | 🔄 P1.2 NEXT — Proxmox host
 ## BUGS / KNOWN ISSUES
 
 ### Known limitations (not bugs)
-- CPU stress test: FAIL on busy k8s nodes — baseline load dampens 1-min avg
-  Mitigated: test now skips spinner phase if baseline already WARN/CRIT
-- macOS: clock OffsetMs always -1 (by design — no timedatectl)
-- Any container: Systemd Available=false (by design — no systemd in containers)
+- CPU stress: FAIL on busy machines — mitigated by baseline skip + cores*2 spinners
+- Swap stress: fixed 5GB was insufficient on high-RAM machines — now dynamic (150% free RAM)
+- IO stress: LVM/tmpfs device detection — now follows mount chain to physical device
+- macOS: clock OffsetMs always -1 (by design)
+- Any container: Systemd Available=false (by design)
 
 ### Pre-existing
 - [ ] `--qr` shows empty QR (shareURL stub)
 - [ ] `dsd health --weekly` needs 7 days of data
 - [ ] `dsd services` empty state needs real config testing
+- [ ] raw:{} empty in JSON output — collector data not serialised
 
 ---
 
 ## BUGS FIXED
 
+### P1.2 Proxmox — Session 1 (2026-05-08)
+- [x] stress.sh CPU: cores+2 spinners insufficient on 8-core machine → cores*2
+- [x] stress.sh Swap: fixed 5GB allocation insufficient on 32GB machine → 150% free RAM
+- [x] stress.sh IO: device detection returns tmpfs on LVM systems
+      Fix: follow mount chain, validate block device, fallback to first physical disk
+- [x] run_stress.sh: sudo check fails on root-only environments (Proxmox)
+      Fix: conditional sudo hint based on sudo availability
+- [x] stress.sh net_dns: reorder physical tests net_down → net_gateway → net_dns
+- [x] stress.sh net_down: 5s recovery sleep after interface restore
+
 ### P1.1 Ubuntu 24.04 — Session 2 (2026-05-08)
 - [x] CPU status shows FAIL — invalid status string in render layer
 - [x] Zombie processes not detected — missing ProcessInfo case in ApplyThresholds
-      Fix: added checkProcesses + ProcessInfo case; parseProcStat already correct
 - [x] Disk threshold not triggering — Bfree vs Bavail
-      Fix: UsedPct uses Bavail; InodesUsedPct correctly uses Ffree (no reservation)
-- [x] Network: packet loss not detected
-      Fix: GatewayPacketLossPct ≥10% WARN, ≥50% CRIT; suppressed when NIC down
-- [x] Network: NIC DOWN not detected
-      Fix: PrimaryInterfaceDown=true when primary NIC flags exclude "up"
-- [x] Network: DNS failure not detected + wrong status promotion
-      Fix: DNSFailed bool + heuristics; DNSFailed promotes Network check to CRIT
-- [x] FDLimits: insight check name was "FileDescriptors" → fixed to "FDLimits"
-- [x] FDLimits: hot process threshold lowered 80% → 70%
-- [x] FDLimits: test used prlimit on sudo wrapper; fixed to resource.setrlimit inside Python
-- [x] stress.sh: CLEANUP_SERVICES empty → rm /etc/systemd/system (directory)
-      Fix: [ -z "$svc" ] && continue guard
-- [x] stress.sh: FDLimits check name wrong (was FileDescriptors)
-- [x] stress.sh: CPU stress needs 30s wait on busy k8s nodes
-- [x] stress.sh: results counter stuck at 0 — tee pipe creates subshell
-      Fix: write PASS/FAIL/SKIP to temp file, read in cleanup_all
-- [x] stress.sh: CPU spinners not killed after test — hang in full suite
-      Fix: kill CLEANUP_PIDS inline after assert_status in test_cpu
-- [x] stress.sh: get_check_status blocks indefinitely on slow network collectors
-      Fix: timeout 15 wrapping dsd call
-- [x] stress.sh: iotop hangs (interactive mode)
-      Fix: iotop -aob -n 3
-- [x] stress.sh: net_dns assertion wrong on Ubuntu 24.04 (stub resolver)
-      Fix: mask/stop systemd-resolved instead of replacing resolv.conf
-- [x] stress.sh: net_dns fails in --physical all due to NIC recovery dirty state
-      Fix: sleep 5 after net_down + reorder to net_down → net_gateway → net_dns
-- [x] stress.sh: CPU test FAIL on busy k8s baseline
-      Fix: skip spinner phase if baseline already WARN/CRIT
-- [x] stress.sh: test_disk moved to end of SSH_SAFE_TESTS for faster feedback
+- [x] Network: packet loss, NIC DOWN, DNS failure not detected
+- [x] Network: DNSFailed promotes check status to CRIT
+- [x] FDLimits: insight check name fix + threshold 80→70%
+- [x] FDLimits: resource.setrlimit inside Python for correct limit scope
+- [x] stress.sh: 20 fixes (results counter, CPU spinners, iotop, timeouts, etc.)
 
 ### P1.1 Ubuntu 24.04 — Session 1 (2026-05-08)
-- [x] Clock CRIT on Ubuntu 24.04 — NTPOffsetUsec removed in systemd 245
-      Fix: timedatectl timesync-status parsing as fallback
-- [x] --plain and --json disagree on status (render layer computing own thresholds)
+- [x] Clock CRIT on Ubuntu 24.04 — NTPOffsetUsec removed
+- [x] --plain and --json disagree on status
 - [x] insights:[] in JSON when WARNs present
 - [x] Exit code 0 when WARNs/CRITs present
 - [x] Systemd false WARN on socket-activated units

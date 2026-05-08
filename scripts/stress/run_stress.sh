@@ -52,7 +52,11 @@ echo ""
 # Must run as root for physical tests
 if [ "$(id -u)" -ne 0 ]; then
     echo -e "${RED}ERROR: must run as root for physical tests${RESET}"
-    echo "Run: sudo bash /tmp/run_stress.sh $TEST"
+    if command -v sudo &>/dev/null; then
+        echo "Run: sudo bash /tmp/run_stress.sh $TEST"
+    else
+        echo "Run as root: bash /tmp/run_stress.sh $TEST"
+    fi
     exit 1
 fi
 
