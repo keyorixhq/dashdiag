@@ -286,14 +286,14 @@ func checkClock(clock models.ClockInfo, thresh Thresholds) []models.Insight {
 func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if l := levelPct(fd.UsedPct, thresh.FDSystemWarnPct, thresh.FDSystemCritPct); l != "" {
-		out = append(out, insight(l, "FileDescriptors",
+		out = append(out, insight(l, "FDLimits",
 			fmt.Sprintf("system FD usage at %.0f%% (%d / %d open)", fd.UsedPct, fd.OpenCount, fd.MaxCount),
 			[]string{"cat /proc/sys/fs/file-nr", "lsof | wc -l"},
 		))
 	}
 	for _, proc := range fd.HotProcesses {
 		if proc.UsedPct >= thresh.FDProcWarnPct {
-			out = append(out, insight("WARN", "FileDescriptors",
+			out = append(out, insight("WARN", "FDLimits",
 				fmt.Sprintf("process %s (PID %d) has %d/%d FDs open (%.0f%%)",
 					proc.Name, proc.PID, proc.OpenFDs, proc.SoftLimit, proc.UsedPct),
 				[]string{
@@ -304,7 +304,7 @@ func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 		}
 	}
 	if fd.DeletedOpenSizeGB >= 1 {
-		out = append(out, insight("WARN", "FileDescriptors",
+		out = append(out, insight("WARN", "FDLimits",
 			fmt.Sprintf("%.1f GB held by deleted-but-open files", fd.DeletedOpenSizeGB),
 			[]string{"lsof | grep deleted | head -20", "lsof | grep deleted | awk '{sum+=$7} END{print sum/1024/1024/1024\" GB\"}'"},
 		))

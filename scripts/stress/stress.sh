@@ -98,7 +98,9 @@ require_physical() {
 
 # ── Global cleanup ────────────────────────────────────────────────────────────
 cleanup_all() {
-    echo -e "\n${YELLOW}→ Restoring system state...${RESET}"
+    echo -e "\n${BOLD}→ Restoring system state...${RESET}"
+    echo -e "${DIM}  (cleanup may take up to 30s — do not interrupt)${RESET}"
+    sleep 1
 
     for pid in "${CLEANUP_PIDS[@]:-}"; do
         kill "$pid" 2>/dev/null || true
@@ -111,6 +113,7 @@ cleanup_all() {
     done
 
     # Wait for all background jobs to fully exit
+    jobs -p | xargs -r kill -9 2>/dev/null || true
     wait 2>/dev/null || true
 
     for f in "${CLEANUP_FILES[@]:-}"; do
@@ -177,8 +180,10 @@ trap cleanup_all EXIT INT TERM
 get_check_status() {
     local name="$1"
     local json
-    rm -f /root/.dsd/state.json /home/*/.dsd/state.json 2>/dev/null || true
-    json=$("$DSD" health --json 2>/dev/null) || true
+    rm -f /root/.dsd/state.json /root/.dsd/*.json 2>/dev/null || true
+    rm -f /home/*/.dsd/state.json /home/*/.dsd/*.json 2>/dev/null || true
+    rm -f /tmp/dsd-*.json 2>/dev/null || true
+    json=$(timeout 15 "$DSD" health --json 2>/dev/null) || true
     echo "$json" | python3 -c "
 import sys, json as j
 data = j.load(sys.stdin)
@@ -263,6 +268,11 @@ while True: _ = sum(range(100000))
     sleep 30
     info "Load: $(cat /proc/loadavg)"
     assert_status "Load > cores*0.7" "CPU" "WARN_OR_CRIT"
+    # Kill spinners immediately after test
+    for pid in "${CLEANUP_PIDS[@]:-}"; do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+    CLEANUP_PIDS=()
 }
 
 test_io() {
@@ -331,14 +341,13 @@ PYEOF
 
 test_fd() {
     hdr "TEST: File descriptor exhaustion"
-    local limit=$(ulimit -n)
-    local target=$(( limit * 85 / 100 ))
-    info "Opening $target / $limit FDs"
+    info "Opening 870 / 1024 FDs (resource.setrlimit inside Python)"
     mkdir -p /tmp/dsd_fd_test
     python3 << PYEOF &
-import time
+import resource, time, os
+resource.setrlimit(resource.RLIMIT_NOFILE, (1024, 1024))
 fds = []
-for i in range($target):
+for i in range(870):
     try: fds.append(open(f'/tmp/dsd_fd_test/f{i}', 'w'))
     except OSError: break
 print(f'Opened {len(fds)} FDs', flush=True)
@@ -365,8 +374,8 @@ test_disk() {
     local fill=$(( (total * 83 / 100) - (total - avail) ))
     [ "$fill" -lt 50 ] && { warn "Not enough space — skipping"; return; }
     local f="/tmp/dsd_fill_$$"; CLEANUP_FILES+=("$f")
-    info "Writing ${fill}MB fill file..."
-    dd if=/dev/zero of="$f" bs=1M count="$fill" 2>/dev/null; sync
+    info "Writing ${fill}MB fill file (this may take 1-2 minutes)..."
+    dd if=/dev/zero of="$f" bs=1M count="$fill" status=progress 2>&1; sync
     info "Disk now: $(df -h / | awk 'NR==2{print $5}')"
     assert_status "Disk > 80%" "Disk" "WARN_OR_CRIT"
     rm -f "$f"; sync
@@ -551,18 +560,12 @@ test_net_gateway() {
     ip route add default via "$gw" dev "$iface" 2>/dev/null || true
     CLEANUP_GATEWAY_RESTORE=""
     sleep 2
-    info "Connectivity: $(ping -c 1 -W 2 8.8.8.8 2>/dev/null | grep -o '[0-9]* received' || echo checking)"
+    timeout 10 ping -c 1 8.8.8.8 2>/dev/null && info "Connectivity restored" || warn "Connectivity check timed out — route restored but internet may be slow"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-show_report() {
-    hdr "FINAL HEALTH SNAPSHOT (post-cleanup)"
-    sleep 3
-    "$DSD" health --plain 2>/dev/null || true
-}
-
 SSH_SAFE_TESTS=(
     test_memory test_cpu test_io test_swap test_zombie
     test_fd test_disk test_systemd test_clock
@@ -596,7 +599,6 @@ main() {
             if [ "$PHYSICAL" = true ]; then
                 for fn in "${PHYSICAL_TESTS[@]}"; do $fn; done
             fi
-            show_report
             ;;
         # Individual SSH-safe tests
         memory)        test_baseline; test_memory ;;

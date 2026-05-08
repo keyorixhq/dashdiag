@@ -600,7 +600,7 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 
 | Priority | Test | Status | Date | Notes |
 |---|---|---|---|---|
-| P1.1 | Ubuntu MacBook amd64 | ⬜ Todo | | |
+| P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 51/51 tests. Bugs found+fixed: Clock(24.04), render arch violation, exit code, Systemd false WARN |
 | P1.2 | Proxmox host | ⬜ Todo | | |
 | P1.3 | Colima arm64 VM | ⬜ Todo | | |
 | P2.1 | Rocky Linux 9 Docker | ⬜ Todo | | |

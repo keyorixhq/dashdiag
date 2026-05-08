@@ -115,7 +115,7 @@ func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
 	}
 	fdCount := fdCountForPID(pid)
 	usedPct := float64(fdCount) / float64(softLimit) * 100
-	if usedPct <= 80 {
+	if usedPct <= 70 {
 		return models.FDProcessInfo{}, false
 	}
 	pidInt, _ := strconv.Atoi(pid)

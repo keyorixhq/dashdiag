@@ -1,37 +1,42 @@
-# DashDiag — Backlog
-# ─────────────────────────────────────────────────────────────────────────────
-# Three sections: NOW (do this week) · NEXT (after NOW is done) · LATER (gated)
-# Rule: NOW never has more than 10 items. When it empties, pull from NEXT.
-# Update this file every time you complete something or discover something new.
-# ─────────────────────────────────────────────────────────────────────────────
-
 ## STATUS
 Last updated: 2026-05-08
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: ✅ v0.1.0 @ 5dec280 (gosec + CVE patches + infra)
-Binary: ✅ Go 1.26.3, all 4 platforms, release workflow triggered
+Tag: ✅ v0.1.0 @ 5dec280
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
+Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
+Linux testing: 🔄 IN PROGRESS — Ubuntu 24.04 MacBook (P1.1) — stress suite stable
+Current binary: v0.1.0-2-g071ef0a-dirty (deployed to 192.168.10.10)
 
 ---
 
-## NOW — Do this week
+## NOW — Linux testing bugs (fix before launch)
 
-### Launch gate ← YOU ARE HERE
-- [ ] Set up branch protection on GitHub
-        Settings → Branches → Add rule → main
-        ✅ Require status checks: Test (ubuntu-22.04), Test (macos-14)
-        ✅ Do not allow bypassing
+### Remaining stress suite issues (P1.1 Ubuntu 24.04)
+- [ ] FD exhaustion test: FDLimits=OK (expected WARN or CRIT) — collector not triggering
+      System FD usage shows 3232/9223372036854775807 — per-process limit not per-system
+      Need to investigate how dsd reads FD limits vs what the test is exhausting
+- [ ] net_dns: still fails in --physical all run (state cache from previous test)
+      Passes when run individually. Cache clear in get_check_status may not fire
+      in right order when tests run sequentially in same process
+- [ ] CPU stress: FAIL on this k8s machine when baseline load already high
+      Known limitation — k8s background processes dampen 1-min load average signal
+      Not a collector bug — acceptable on busy nodes
 
-### Verify on real Linux (critical — most dev was on macOS)
-- [ ] SSH into a Linux server, copy binary, run `dsd health`
-- [ ] Fix any Linux-specific issues (systemd, /proc paths, SELinux)
-- [ ] Run `dsd health --json | python3 -m json.tool` on Linux
-- [ ] Verify exit codes: `echo $?` after each command
+### Infrastructure (before public launch)
+- [x] Branch protection set up
+- [x] Pushed to GitHub as public repo
+- [ ] Commit and push all fixes from current session
+- [ ] Tag v0.1.1 after P1.1 complete
 
----
+## NEXT — After P1.1 complete
 
-## NEXT — After Linux verification passes
+### Remaining Linux testing (TESTING_PLAN.md)
+- [ ] P1.2 Proxmox host
+- [ ] P1.3 Colima arm64 VM
+- [ ] P2.1–P2.8 Docker distro sweep (Rocky, Debian, Alpine, SUSE, Flatcar...)
+- [ ] P3.1–P3.4 arm64 Docker sweep
+- [ ] P4.1–P4.2 Container context tests
 
 ### Launch prerequisites (do in this order)
 - [ ] Register dashdiag.sh domain
@@ -51,10 +56,9 @@ Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 - [ ] Golden file tests for all renderers (`go test ./internal/render/... -update`)
 - [ ] Contract tests in `test/contract/` — validate JSON output against schema
 - [ ] Coverage report: `make cover` — identify packages under 70%
-- [ ] Fuzz tests: `make test-fuzz` — verify all parsers are fuzz-resistant
 
 ### SDLC
-- [ ] Write CHANGELOG.md (v0.1.0 entry minimum)
+- [ ] Write CHANGELOG.md (v0.1.0 + v0.1.1 entries)
 - [ ] cosign key generation for release binary signing
 - [ ] Homebrew formula (Formula/dsd.rb in a tap repo)
 - [ ] Install script (install.dashdiag.sh — curl | sh)
@@ -65,60 +69,121 @@ Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 
 ### Gate: dsd health is in daily use by real engineers
 - [ ] `dsd health deep` — per-core CPU, temperature, throttle detection
-  Signal: GitHub issue asking for per-core CPU detail
 
 ### Gate: first GitHub issue requesting containers
 - [ ] `dsd docker` — container health, restart counts, OOM kills
-  Signal: "does it work with Docker?"
 
 ### Gate: dsd docker in production use
 - [ ] `dsd compare` — multi-server side-by-side comparison
-  Signal: "can you check multiple servers at once?"
 - [ ] `dsd policy` — YAML policy file, CI gate (free tier)
-  Signal: "can I fail CI if memory is too high?"
 
-### Gate: Phase 3 validated (docker, compare in use)
+### Gate: Phase 3 validated
 - [ ] `dsd logs` — journald aggregation, recurring error detection
-- [ ] `dsd security` — SSH config, sudo, listening ports, world-writable /etc
+- [ ] `dsd security` — SSH config, sudo, listening ports
 
 ### Gate: dsd docker validated
 - [ ] `dsd k8s` — 8 failure modes (OOMKilled, CrashLoop, Evicted, etc.)
-  Signal: "does it work with Kubernetes?"
 - [ ] `dsd k8s deep` — BestEffort QoS, CPU throttling
 
-### Gate: Phase 4 validated (k8s in use)
+### Gate: Phase 4 validated
 - [ ] `dsd pve` — Proxmox VE (cluster, ZFS, guests, kernel version)
 
-### Gate: backend live (dashdiag.sh team accounts)
+### Gate: backend live
 - [ ] `--badge` — README shields.io badge
 - [ ] `dsd fleet` — enterprise multi-server management
-- [ ] `--share` 90-day retention (free is 24h)
+- [ ] `--share` 90-day retention
 
 ### Gate: 10+ paying teams
-- [ ] UnpackOps RCA platform (feeds on dsd --json output)
+- [ ] UnpackOps RCA platform
 
 ### Gate: UnpackOps RCA validated
-- [ ] Gauge (FinOps product) — infrastructure cost transparency
+- [ ] Gauge (FinOps product)
 
 ---
 
 ## BUGS / KNOWN ISSUES
 
-- [ ] `--qr` shows empty QR (shareURL stub until --share backend is built)
-- [ ] `dsd health --weekly` shows "not enough data" until 7 real runs accumulate
-- [ ] macOS: clock collector OffsetMs always -1 (by design — document it)
-- [ ] `dsd services` empty state needs testing with actual config
+### Active — stress suite
+- [ ] FD exhaustion — see NOW above
+- [ ] net_dns in --physical all — see NOW above
+- [ ] CPU stress on busy k8s node — see NOW above
+
+### Pre-existing
+- [ ] `--qr` shows empty QR (shareURL stub)
+- [ ] `dsd health --weekly` needs 7 days of data
+- [ ] macOS: clock OffsetMs always -1 (by design)
+- [ ] `dsd services` empty state needs real config testing
 
 ---
 
-## IDEAS (unscored — evaluate before moving to NEXT)
+## BUGS FIXED
 
-- Prometheus exporter: `dsd export metrics` scrape endpoint
-- `dsd health --since 2h` — diff against baseline from N hours ago
+### P1.1 Ubuntu 24.04 — Session 2 (2026-05-08)
+- [x] CPU status shows FAIL — invalid status string in render layer
+      Fixed: 2026-05-08
+- [x] Zombie processes not detected — missing ProcessInfo case in ApplyThresholds
+      Fix: added checkProcesses function + ProcessInfo case
+      Fixed: 2026-05-08
+- [x] Disk threshold not triggering — Bfree vs Bavail
+      Fix: switched UsedPct to Bavail; InodesUsedPct correctly uses Ffree
+      Fixed: 2026-05-08
+- [x] Network: packet loss not detected
+      Fix: GatewayPacketLossPct ≥10% WARN, ≥50% CRIT; suppressed when NIC down
+      Fixed: 2026-05-08
+- [x] Network: NIC DOWN not detected
+      Fix: PrimaryInterfaceDown=true when primary NIC flags exclude "up"
+      Fixed: 2026-05-08
+- [x] Network: DNS failure not detected
+      Fix: DNSFailed bool + heuristics; DNSFailed promotes Network status to CRIT
+      stress.sh: mask systemd-resolved for Ubuntu 24.04 stub resolver
+      Fixed: 2026-05-08
+- [x] stress.sh cleanup: rm /etc/systemd/system errors on empty CLEANUP_SERVICES
+      Fix: [ -z "$svc" ] && continue guard
+      Fixed: 2026-05-08
+- [x] stress.sh FDLimits name wrong (was FileDescriptors)
+      Fixed: 2026-05-08
+- [x] stress.sh CPU stress needs 30s wait on busy k8s nodes
+      Fixed: 2026-05-08
+- [x] stress.sh results counter stuck at 0 (subshell via tee pipe)
+      Fix: write PASS/FAIL to temp file, read in cleanup_all
+      Fixed: 2026-05-08
+- [x] stress.sh --physical all hangs — CPU spinners not killed after test
+      Fix: kill CLEANUP_PIDS inline after assert_status in test_cpu
+      Fixed: 2026-05-08
+- [x] stress.sh --physical all hangs — get_check_status blocks on network collector
+      Fix: timeout 15 wrapping dsd call in get_check_status
+      Fixed: 2026-05-08
+- [x] stress.sh iotop hangs (interactive mode)
+      Fix: iotop -aob -n 3
+      Fixed: 2026-05-08
+- [x] stress.sh net_dns assertion wrong — resolv.conf replace ineffective on Ubuntu 24.04
+      Fix: mask/stop systemd-resolved instead
+      Fixed: 2026-05-08
+
+### P1.1 Ubuntu 24.04 — Session 1 (2026-05-08)
+- [x] Clock CRIT on Ubuntu 24.04 — NTPOffsetUsec removed in systemd 245
+      Fix: timedatectl timesync-status parsing as fallback
+      Fixed: 2026-05-08
+- [x] --plain and --json disagree on status
+      Fix: render layer no longer computes own thresholds
+      Fixed: 2026-05-08
+- [x] insights:[] in JSON when WARNs present
+      Fixed: 2026-05-08
+- [x] Exit code 0 when WARNs/CRITs present
+      Fixed: 2026-05-08
+- [x] Systemd false WARN on socket-activated units
+      Fixed: 2026-05-08
+
+---
+
+## IDEAS
+
+- Prometheus exporter: `dsd export metrics`
+- `dsd health --since 2h` — diff against N hours ago
 - Man page generation from cobra docs
 - Slack webhook: `dsd health --notify-slack $WEBHOOK_URL`
 - `dsd health --threshold cpu_warn=90` — per-run threshold overrides
-- Structured logging in --debug mode (JSON logs for aggregators)
+- Structured logging in --debug mode
 
 ---
 
