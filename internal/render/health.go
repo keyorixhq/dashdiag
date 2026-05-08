@@ -21,10 +21,11 @@ func NewRenderer(mode output.OutputMode) *Renderer { return &Renderer{mode: mode
 func insightForResult(name string, insights []models.Insight) *models.Insight {
 	order := map[string]int{"CRIT": 3, "WARN": 2, "INFO": 1, "OK": 0}
 	prefix := name + " "
+	slash := name + "/"
 	var worst *models.Insight
 	for i := range insights {
 		check := insights[i].Check
-		if check != name && !strings.HasPrefix(check, prefix) {
+		if check != name && !strings.HasPrefix(check, prefix) && !strings.HasPrefix(check, slash) {
 			continue
 		}
 		if worst == nil || order[insights[i].Level] > order[worst.Level] {
