@@ -116,6 +116,24 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 	return result, nil
 }
 
+var skipMacFSTypes = map[string]bool{
+	"devfs": true, "autofs": true, "synthfs": true, "bindfs": true,
+}
+
+func skipMacOSMount(fstype, mountpoint string) bool {
+	if skipMacFSTypes[fstype] {
+		return true
+	}
+	if mountpoint == "/dev" {
+		return true
+	}
+	// Skip all /System/Volumes/* synthetic volumes except Data (the real user volume).
+	if strings.HasPrefix(mountpoint, "/System/Volumes/") && mountpoint != "/System/Volumes/Data" {
+		return true
+	}
+	return false
+}
+
 func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, error) {
 	parts, err := gopsutildisk.PartitionsWithContext(ctx, false)
 	if err != nil {
@@ -123,6 +141,9 @@ func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, er
 	}
 	result := &models.DiskInfo{}
 	for _, p := range parts {
+		if skipMacOSMount(p.Fstype, p.Mountpoint) {
+			continue
+		}
 		usage, err := gopsutildisk.UsageWithContext(ctx, p.Mountpoint)
 		if err != nil {
 			continue

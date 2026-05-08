@@ -31,17 +31,16 @@ func (c *ClockCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func (c *ClockCollector) collectDarwin(ctx context.Context, info *models.ClockInfo) (interface{}, error) {
-	out, err := exec.CommandContext(ctx, "systemsetup", "-getusingnetworktime").Output()
-	if err != nil {
-		// systemsetup requires sudo on macOS Ventura+; if unavailable assume synced.
-		info.Synced = true
-		info.Source = "unavailable"
-		info.OffsetMs = -1
-		return info, nil
-	}
-	info.Synced = strings.Contains(string(out), "Network Time: On")
+	// timed is the macOS clock synchronisation daemon. If it's running, the clock is synced.
+	// systemsetup -getusingnetworktime requires sudo on macOS Ventura+ and is unreliable.
 	info.OffsetMs = -1
-	info.Source = "systemsetup"
+	if err := exec.CommandContext(ctx, "pgrep", "timed").Run(); err == nil {
+		info.Synced = true
+		info.Source = "timed"
+	} else {
+		info.Synced = false
+		info.Source = "unavailable"
+	}
 	return info, nil
 }
 
