@@ -91,14 +91,26 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
+	probeConnectivity(ctx, route.GatewayIP, result)
+
+	conns, _ := gopsutilnet.ConnectionsWithContext(ctx, "tcp")
+	for _, conn := range conns {
+		if conn.Status == "CLOSE_WAIT" {
+			result.CloseWaitCount++
+		}
+	}
+	return result, nil
+}
+
+func probeConnectivity(ctx context.Context, gatewayIP string, result *models.NetworkInfo) {
 	var gwMs, gwLoss, internetMs, internetLoss, dnsMs float64
 	var dnsFailed bool
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		if route.GatewayIP != "" {
-			gwMs, gwLoss = pingRTT(ctx, route.GatewayIP)
+		if gatewayIP != "" {
+			gwMs, gwLoss = pingRTT(ctx, gatewayIP)
 		} else {
 			gwMs, gwLoss = -1, 100
 		}
@@ -121,21 +133,12 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		dnsMs = float64(time.Since(start).Milliseconds())
 	}()
 	wg.Wait()
-
 	result.GatewayPingMs = gwMs
 	result.GatewayPacketLossPct = gwLoss
 	result.InternetPingMs = internetMs
 	result.InternetPacketLossPct = internetLoss
 	result.DNSResolvesMs = dnsMs
 	result.DNSFailed = dnsFailed
-
-	conns, _ := gopsutilnet.ConnectionsWithContext(ctx, "tcp")
-	for _, conn := range conns {
-		if conn.Status == "CLOSE_WAIT" {
-			result.CloseWaitCount++
-		}
-	}
-	return result, nil
 }
 
 func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
