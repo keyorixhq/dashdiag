@@ -109,8 +109,10 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	}()
 	go func() {
 		defer wg.Done()
+		dnsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		start := time.Now()
-		_, err := net.DefaultResolver.LookupHost(ctx, "github.com")
+		_, err := net.DefaultResolver.LookupHost(dnsCtx, "github.com")
 		if err != nil {
 			dnsFailed = true
 			dnsMs = -1

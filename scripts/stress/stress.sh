@@ -52,6 +52,7 @@ set -- "${ARGS[@]:-}"
 
 DSD="${DSD_BIN:-/tmp/dsd}"
 LOG="/tmp/dsd_stress_results.txt"
+COUNTS_FILE="/tmp/dsd_stress_counts.$$"
 PASS_COUNT=0
 FAIL_COUNT=0
 SKIP_COUNT=0
@@ -68,10 +69,10 @@ RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
 
 info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
-pass()  { echo -e "${GREEN}[PASS]${RESET}  $*"; (( PASS_COUNT++ )) || true; }
-fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; (( FAIL_COUNT++ )) || true; }
+pass()  { echo -e "${GREEN}[PASS]${RESET}  $*"; PASS_COUNT=$(( PASS_COUNT + 1 )); echo "PASS" >> "$COUNTS_FILE"; }
+fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; FAIL_COUNT=$(( FAIL_COUNT + 1 )); echo "FAIL" >> "$COUNTS_FILE"; }
 warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
-skip()  { echo -e "${DIM}[SKIP]${RESET}  $* (requires --physical)"; (( SKIP_COUNT++ )) || true; }
+skip()  { echo -e "${DIM}[SKIP]${RESET}  $* (requires --physical)"; SKIP_COUNT=$(( SKIP_COUNT + 1 )); echo "SKIP" >> "$COUNTS_FILE"; }
 hdr()   { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Network helpers ───────────────────────────────────────────────────────────
@@ -138,6 +139,9 @@ cleanup_all() {
         info "resolv.conf restored"
         CLEANUP_RESOLV_BACKUP=""
     fi
+    # Always attempt to restart systemd-resolved — harmless if already running,
+    # ensures DNS is restored if the net_dns test was interrupted mid-flight.
+    systemctl start systemd-resolved 2>/dev/null || true
 
     if [ -n "$CLEANUP_GATEWAY_RESTORE" ]; then
         eval "$CLEANUP_GATEWAY_RESTORE" 2>/dev/null && \
@@ -151,10 +155,19 @@ cleanup_all() {
         ip link set "$iface" up 2>/dev/null || true
     fi
 
+    local _p=0 _f=0 _s=0
+    if [ -f "$COUNTS_FILE" ]; then
+        _p=$(awk '/^PASS$/{c++}END{print c+0}' "$COUNTS_FILE")
+        _f=$(awk '/^FAIL$/{c++}END{print c+0}' "$COUNTS_FILE")
+        _s=$(awk '/^SKIP$/{c++}END{print c+0}' "$COUNTS_FILE")
+        rm -f "$COUNTS_FILE"
+    else
+        _p=$PASS_COUNT; _f=$FAIL_COUNT; _s=$SKIP_COUNT
+    fi
     echo -e "\n${BOLD}━━━ RESULTS ━━━${RESET}"
-    echo -e "  ${GREEN}Passed:${RESET}  $PASS_COUNT"
-    echo -e "  ${RED}Failed:${RESET}  $FAIL_COUNT"
-    echo -e "  ${DIM}Skipped:${RESET} $SKIP_COUNT"
+    echo -e "  ${GREEN}Passed:${RESET}  $_p"
+    echo -e "  ${RED}Failed:${RESET}  $_f"
+    echo -e "  ${DIM}Skipped:${RESET} $_s"
     echo -e "  Log: $LOG"
     echo ""
 }
@@ -164,6 +177,7 @@ trap cleanup_all EXIT INT TERM
 get_check_status() {
     local name="$1"
     local json
+    rm -f /root/.dsd/state.json /home/*/.dsd/state.json 2>/dev/null || true
     json=$("$DSD" health --json 2>/dev/null) || true
     echo "$json" | python3 -c "
 import sys, json as j
@@ -492,16 +506,31 @@ test_net_dns() {
     require_physical "net_dns (resolv.conf corruption)" || return 0
     hdr "TEST: Network — DNS failure [PHYSICAL]"
     [ "$(id -u)" -eq 0 ] || { warn "Needs root — skipping"; return; }
-    local backup="/tmp/resolv.conf.dsd.$$"
-    cp /etc/resolv.conf "$backup"
-    CLEANUP_RESOLV_BACKUP="$backup"
-    info "Replacing resolv.conf with RFC 5737 test IP (192.0.2.1 — guaranteed unreachable)"
-    echo "nameserver 192.0.2.1" > /etc/resolv.conf
-    info "DNS will time out — running dsd health..."
-    assert_status "DNS failure" "Network" "WARN_OR_CRIT"
-    cp "$backup" /etc/resolv.conf
-    rm -f "$backup"; CLEANUP_RESOLV_BACKUP=""
-    info "resolv.conf restored"
+
+    if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+        # Ubuntu 24.04+: /etc/resolv.conf is a symlink to stub-resolv.conf
+        # (nameserver 127.0.0.53). Stopping the stub makes 127.0.0.53:53
+        # unreachable — DNS fails immediately without touching any file.
+        # cleanup_all unconditionally restarts systemd-resolved on EXIT/INT/TERM.
+        info "systemd-resolved detected — stopping stub resolver"
+        systemctl stop systemd-resolved
+        sleep 1  # let the stub fully stop before dsd attempts DNS resolution
+        info "DNS will fail (stub at 127.0.0.53 not responding) — running dsd health..."
+        assert_status "DNS failure" "Network" "WARN_OR_CRIT"
+        systemctl start systemd-resolved 2>/dev/null && info "systemd-resolved restarted" || true
+    else
+        # Non-systemd-resolved: replace /etc/resolv.conf directly
+        local backup="/tmp/resolv.conf.dsd.$$"
+        cp /etc/resolv.conf "$backup"
+        CLEANUP_RESOLV_BACKUP="$backup"
+        info "Replacing /etc/resolv.conf with RFC 5737 test IP (192.0.2.1 — guaranteed unreachable)"
+        echo "nameserver 192.0.2.1" > /etc/resolv.conf
+        info "DNS will time out — running dsd health..."
+        assert_status "DNS failure" "Network" "WARN_OR_CRIT"
+        cp "$backup" /etc/resolv.conf
+        rm -f "$backup"; CLEANUP_RESOLV_BACKUP=""
+        info "/etc/resolv.conf restored"
+    fi
 }
 
 test_net_gateway() {

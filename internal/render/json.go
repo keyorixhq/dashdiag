@@ -66,8 +66,9 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			c.Status = ins.Level
 		} else {
 			prefix := r.Name + " "
+			slash := r.Name + "/"
 			for chk, ins := range insightMap {
-				if strings.HasPrefix(chk, prefix) && severityOrder(ins.Level) > severityOrder(c.Status) {
+				if (strings.HasPrefix(chk, prefix) || strings.HasPrefix(chk, slash)) && severityOrder(ins.Level) > severityOrder(c.Status) {
 					c.Status = ins.Level
 				}
 			}
