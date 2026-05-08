@@ -185,8 +185,14 @@ DSD_BIN=/tmp/dsd sudo bash /tmp/stress.sh --physical all
 - [ ] All non-systemd checks work normally
 - [ ] Stress suite completes all tests
 
-**Status:** [ ] PASS  [ ] FAIL  [ ] PARTIAL
+**Status:** [x] PASS
 **Notes:**
+2026-05-08: 14/15 stress tests passing. IO test skipped — iostat not
+available in Colima Lima VM (expected, graceful degradation).
+Fixes applied: lima-cidata disk excluded, cloud-init services excluded.
+Clock/Processes CRIT on first boot — transient, resolved after NTP sync.
+Machine: Apple Silicon Mac, Colima 0.10.1, aarch64, Ubuntu 24.04 Lima VM.
+arm64 binary confirmed working.
 
 ---
 
@@ -614,7 +620,7 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 |---|---|---|---|---|
 | P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 16/16 stress tests. 20 bugs fixed across 2 sessions. kind k8s running. |
 | P1.2 | Proxmox host | ✅ PASS | 2026-05-08 | 12/12 stress tests. 8-core Intel, 32GB RAM, LVM storage. Stress suite self-calibration fixes. |
-| P1.3 | Colima arm64 VM | ⬜ Todo | | |
+| P1.3 | Colima arm64 VM | ✅ PASS | 2026-05-08 | 14/15 (IO skipped — no iostat). arm64 confirmed. Lima fixes: cidata disk, cloud-init services. |
 | P2.1 | Rocky Linux 9 Docker | ⬜ Todo | | |
 | P2.2 | Debian 12 Docker | ⬜ Todo | | |
 | P2.3 | Amazon Linux 2023 Docker | ⬜ Todo | | |
