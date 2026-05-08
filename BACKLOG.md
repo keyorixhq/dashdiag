@@ -5,7 +5,7 @@ Tag: ✅ v0.1.0 @ 5dec280
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
-Linux testing: 🔄 IN PROGRESS — Ubuntu 24.04 MacBook (P1.1) — stress suite stable
+Linux testing: ✅ P1.1 COMPLETE — Ubuntu 24.04 MacBook | 🔄 P1.2 NEXT — Proxmox host
 Current binary: v0.1.0-2-g071ef0a-dirty (deployed to 192.168.10.10)
 
 ---
