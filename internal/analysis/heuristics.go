@@ -325,12 +325,12 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 
 func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 	var out []models.Insight
-	if sysctl.NetSomaxconn < 512 {
+	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 512 {
 		out = append(out, insight("CRIT", "Sysctl",
 			fmt.Sprintf("net.core.somaxconn=%d is critically low (< 512)", sysctl.NetSomaxconn),
 			[]string{"sysctl net.core.somaxconn", "sysctl -w net.core.somaxconn=4096"},
 		))
-	} else if sysctl.NetSomaxconn < 1024 {
+	} else if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
 		out = append(out, insight("WARN", "Sysctl",
 			fmt.Sprintf("net.core.somaxconn=%d is low (< 1024)", sysctl.NetSomaxconn),
 			[]string{"sysctl net.core.somaxconn", "sysctl -w net.core.somaxconn=4096"},
