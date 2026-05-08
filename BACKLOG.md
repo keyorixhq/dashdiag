@@ -21,8 +21,9 @@ Linux testing: ✅ P1.1 COMPLETE (16/16) | ✅ P1.2 COMPLETE (12/12) | 🔄 P1.3
 ### Infrastructure
 - [ ] Run stress suite on Colima arm64 VM (P1.3)
 - [ ] Update TESTING_PLAN.md with P1.3 results
-- [ ] Commit P1.2 fixes
+- [x] Commit P1.2 + raw data fixes
 
+---
 
 ## NEXT — After P1.3 complete
 
@@ -107,21 +108,22 @@ Linux testing: ✅ P1.1 COMPLETE (16/16) | ✅ P1.2 COMPLETE (12/12) | 🔄 P1.3
 - [ ] `--qr` shows empty QR (shareURL stub)
 - [ ] `dsd health --weekly` needs 7 days of data
 - [ ] `dsd services` empty state needs real config testing
-- [ ] raw:{} empty in JSON output — collector data not serialised
 
 ---
 
 ## BUGS FIXED
 
-### P1.2 Proxmox — Session 1 (2026-05-08)
+### P1.2 Proxmox + raw data (2026-05-08)
+- [x] raw:{} empty in JSON output — all 12 collectors now serialise raw data
+      Fix: added Raw field to JSONCheck, populated from r.Data
+      Fixed: 2026-05-08
+- [x] stress.sh IO test: writes to / root filesystem on LVM systems
+      Fix: always write to /tmp/dsd_io_test, never to device mount point
+      Fixed: 2026-05-08
 - [x] stress.sh CPU: cores+2 spinners insufficient on 8-core machine → cores*2
-- [x] stress.sh Swap: fixed 5GB allocation insufficient on 32GB machine → 150% free RAM
-- [x] stress.sh IO: device detection returns tmpfs on LVM systems
-      Fix: follow mount chain, validate block device, fallback to first physical disk
+- [x] stress.sh Swap: fixed 5GB allocation insufficient → 150% of free RAM
+- [x] stress.sh IO: LVM/tmpfs device detection for iostat monitoring
 - [x] run_stress.sh: sudo check fails on root-only environments (Proxmox)
-      Fix: conditional sudo hint based on sudo availability
-- [x] stress.sh net_dns: reorder physical tests net_down → net_gateway → net_dns
-- [x] stress.sh net_down: 5s recovery sleep after interface restore
 
 ### P1.1 Ubuntu 24.04 — Session 2 (2026-05-08)
 - [x] CPU status shows FAIL — invalid status string in render layer
@@ -167,6 +169,6 @@ Linux testing: ✅ P1.1 COMPLETE (16/16) | ✅ P1.2 COMPLETE (12/12) | 🔄 P1.3
 
 When you complete a NOW item: mark [x], pull from NEXT if NOW empties, commit.
 When you find a bug: add to BUGS, escalate to top of NOW if blocking.
-When someone requests a feature: add to IDEAS first, promote only after validation.
+When someone requests a feature: add to IDEAS first, promote only after planning.
 When a phase gate opens: move from LATER to NEXT (never directly to NOW).
 Weekly review: 5 minutes — NOW accurate? anything stuck? IDEAS to promote?
