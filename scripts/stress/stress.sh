@@ -119,7 +119,7 @@ cleanup_all() {
     for f in "${CLEANUP_FILES[@]:-}"; do
         rm -f "$f" 2>/dev/null || true
     done
-    rm -rf /tmp/dsd_disk_test /tmp/dsd_fd_test 2>/dev/null || true
+    rm -rf /tmp/dsd_disk_test /tmp/dsd_fd_test /tmp/dsd_io_test 2>/dev/null || true
 
     for svc in "${CLEANUP_SERVICES[@]:-}"; do
         [ -z "$svc" ] && continue
@@ -308,12 +308,10 @@ test_io() {
         dev=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | head -1)
     fi
     [ -z "$dev" ] && { warn "No disk found — skipping"; return; }
-    local mount_point
-    mount_point=$(lsblk -no MOUNTPOINT "/dev/${dev}1" 2>/dev/null | head -1)
-    [ -z "$mount_point" ] && mount_point="/"
-    local stress_dir="$mount_point/dsd_io_test"
-    info "Stressing /dev/$dev (mount: $mount_point)"
+    local stress_dir="/tmp/dsd_io_test"
     mkdir -p "$stress_dir"
+    CLEANUP_FILES+=("$stress_dir")
+    info "Stressing /dev/$dev (writes to $stress_dir)"
     (while true; do
         dd if=/dev/urandom of="$stress_dir/s" bs=1M count=256 oflag=direct 2>/dev/null
         rm -f "$stress_dir/s"
