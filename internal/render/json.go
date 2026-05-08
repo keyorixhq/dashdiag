@@ -23,10 +23,11 @@ type JSONOutput struct {
 }
 
 type JSONCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Duration string `json:"duration,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Name     string      `json:"name"`
+	Status   string      `json:"status"`
+	Duration string      `json:"duration,omitempty"`
+	Error    string      `json:"error,omitempty"`
+	Raw      interface{} `json:"raw,omitempty"`
 }
 
 type JSONInsight struct {
@@ -58,7 +59,7 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 
 	checks := make([]JSONCheck, 0, len(results))
 	for _, r := range results {
-		c := JSONCheck{Name: r.Name, Status: "OK", Duration: r.Duration.String()}
+		c := JSONCheck{Name: r.Name, Status: "OK", Duration: r.Duration.String(), Raw: r.Data}
 		if r.Err != nil {
 			c.Status = "ERROR"
 			c.Error = r.Err.Error()
