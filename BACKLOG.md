@@ -12,7 +12,7 @@ Tag: ✅ v0.1.1
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
-Linux testing: ✅ P1 COMPLETE | ✅ P2 COMPLETE (7/8, Flatcar deferred) | ✅ P3 COMPLETE | ✅ P4 COMPLETE
+Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 
 ---
 
@@ -51,6 +51,9 @@ Linux testing: ✅ P1 COMPLETE | ✅ P2 COMPLETE (7/8, Flatcar deferred) | ✅ P
 - [ ] P5.1 Fedora 40, P5.2 Oracle Linux 9, P5.3 AlmaLinux 9
 - [ ] AWS Graviton EC2 — real arm64 server hardware
 - [ ] Raspberry Pi OS
+- [ ] macOS Intel (x86_64) validation
+- [ ] macOS stress suite — needs native macOS version (networksetup, pfctl, launchctl)
+      Linux stress.sh uses tc/ip/systemctl — not portable to macOS
 
 ---
 
@@ -96,7 +99,7 @@ Linux testing: ✅ P1 COMPLETE | ✅ P2 COMPLETE (7/8, Flatcar deferred) | ✅ P
 - CPU stress: FAIL on busy machines — mitigated by baseline skip + cores*2 spinners
 - IO stress: no iostat in Colima Lima VM — graceful skip expected
 - Flatcar: registry access denied — deferred
-- macOS: clock OffsetMs always -1 (by design)
+- macOS: clock OffsetMs always -1 (by design — no offset API without sudo)
 - Any container: Systemd Available=false (by design)
 - Memory WARN in 512MB containers — slab cache threshold fires (expected)
 
@@ -109,34 +112,30 @@ Linux testing: ✅ P1 COMPLETE | ✅ P2 COMPLETE (7/8, Flatcar deferred) | ✅ P
 
 ## BUGS FIXED
 
+### macOS validation (2026-05-08)
+- [x] Disk CRIT /dev (devfs) — macOS virtual filesystem false positive
+      Fix: exclude devfs and /System/Volumes/* from disk collector
+- [x] Clock CRIT on macOS — timedatectl/chronyc not available
+      Fix: check timed daemon running (macOS time sync service)
+- [x] Sysctl CRIT net.core.somaxconn — Linux-only sysctl on macOS
+      Fix: skip somaxconn check on darwin
+- [x] Processes WARN zombie false positive on macOS
+      Fix: use ps axo pid,stat on darwin, check only stat column for Z
+- [x] Swap/Memory hints wrong on macOS (free -h, vmstat don't exist)
+      Fix: macOS-appropriate hints (vm_stat, sysctl vm.swapusage, top -l 1)
+
 ### P1.3 Colima + Docker distro sweep (2026-05-08)
-- [x] Clock CRIT in all containers — no NTP/timedatectl inside containers
-      Fix: detect container environment, skip NTP check, inherit host clock
-      Fixed: 2026-05-08
-- [x] Disk CRIT /mnt/lima-cidata — Lima virtual metadata disk false positive
-      Fix: exclude /mnt/lima-* from disk collector
-      Fixed: 2026-05-08
-- [x] Systemd CRIT cloud-final.service — Lima cloud-init false positive
-      Fix: exclude cloud-init services from failed unit detection
-      Fixed: 2026-05-08
+- [x] Clock CRIT in all containers — inherit host clock fix
+- [x] Disk CRIT /mnt/lima-cidata — Lima metadata disk excluded
+- [x] Systemd CRIT cloud-final.service — cloud-init services excluded
 
 ### P1.2 Proxmox + raw data (2026-05-08)
-- [x] raw:{} empty in JSON output — all 12 collectors now serialise raw data
-      Fix: added Raw field to JSONCheck, populated from r.Data
-- [x] stress.sh IO test: writes to / root filesystem on LVM systems
-- [x] stress.sh CPU: cores*2 spinners for high core count machines
-- [x] stress.sh Swap: dynamic allocation 150% of free RAM
-- [x] run_stress.sh: conditional sudo hint for root-only environments
+- [x] raw:{} empty in JSON — all 12 collectors serialise raw data
+- [x] stress.sh IO: writes to / on LVM, CPU cores*2, Swap 150% free RAM
+- [x] run_stress.sh: conditional sudo for root-only environments
 
-### P1.1 Ubuntu 24.04 — Session 2 (2026-05-08)
-- [x] CPU status invalid string, Zombie detection, Disk Bfree→Bavail
-- [x] Network: NIC DOWN, packet loss, DNS failure, status promotion
-- [x] FDLimits: check name fix, threshold, resource.setrlimit
-- [x] stress.sh: 20 fixes (results counter, CPU spinners, iotop, timeouts, etc.)
-
-### P1.1 Ubuntu 24.04 — Session 1 (2026-05-08)
-- [x] Clock CRIT on Ubuntu 24.04, --plain/--json disagree, insights:[]
-- [x] Exit code 0 on WARN/CRIT, Systemd false WARN
+### P1.1 Ubuntu 24.04 — Sessions 1+2 (2026-05-08)
+- [x] 25 bugs fixed — see git log for full details
 
 ---
 

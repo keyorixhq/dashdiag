@@ -611,6 +611,24 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 
 ---
 
+## macOS Testing (bonus — not in original plan)
+
+### macOS arm64 (Apple Silicon)
+**Binary:** dsd-darwin-arm64
+**Machine:** Apple Silicon Mac (aarch64)
+**Date:** 2026-05-08
+
+**Fixes applied:**
+- devfs excluded from disk collector
+- Clock: timed daemon check (no sudo needed)
+- Sysctl: somaxconn skipped on darwin
+- Processes: ps axo pid,stat for zombie detection
+- Hints: macOS-appropriate commands
+
+**Status:** [x] PASS — 12/12 checks working correctly
+
+---
+
 ## PROGRESS TRACKER
 
 | Priority | Test | Status | Date | Notes |
