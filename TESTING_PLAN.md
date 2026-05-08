@@ -187,12 +187,9 @@ DSD_BIN=/tmp/dsd sudo bash /tmp/stress.sh --physical all
 
 **Status:** [x] PASS
 **Notes:**
-2026-05-08: 14/15 stress tests passing. IO test skipped — iostat not
-available in Colima Lima VM (expected, graceful degradation).
-Fixes applied: lima-cidata disk excluded, cloud-init services excluded.
-Clock/Processes CRIT on first boot — transient, resolved after NTP sync.
-Machine: Apple Silicon Mac, Colima 0.10.1, aarch64, Ubuntu 24.04 Lima VM.
-arm64 binary confirmed working.
+2026-05-08: 14/15 stress tests (IO skipped — no iostat in Lima VM).
+Fixes: lima-cidata disk excluded, cloud-init services excluded,
+container clock fix (inherit host). arm64 binary confirmed working.
 
 ---
 
@@ -620,21 +617,21 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 |---|---|---|---|---|
 | P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 16/16 stress tests. 20 bugs fixed across 2 sessions. kind k8s running. |
 | P1.2 | Proxmox host | ✅ PASS | 2026-05-08 | 12/12 stress tests. 8-core Intel, 32GB RAM, LVM storage. Stress suite self-calibration fixes. |
-| P1.3 | Colima arm64 VM | ✅ PASS | 2026-05-08 | 14/15 (IO skipped — no iostat). arm64 confirmed. Lima fixes: cidata disk, cloud-init services. |
-| P2.1 | Rocky Linux 9 Docker | ⬜ Todo | | |
-| P2.2 | Debian 12 Docker | ⬜ Todo | | |
-| P2.3 | Amazon Linux 2023 Docker | ⬜ Todo | | |
-| P2.4 | Alpine 3.x Docker | ⬜ Todo | | |
-| P2.5 | SUSE 15 Docker | ⬜ Todo | | |
-| P2.6 | Arch Linux Docker | ⬜ Todo | | |
-| P2.7 | Ubuntu 20.04 Docker | ⬜ Todo | | |
-| P2.8 | Flatcar Docker | ⬜ Todo | | |
-| P3.1 | Ubuntu 22.04 arm64 | ⬜ Todo | | |
-| P3.2 | Rocky Linux 9 arm64 | ⬜ Todo | | |
-| P3.3 | Alpine arm64 | ⬜ Todo | | |
-| P3.4 | Debian 12 arm64 | ⬜ Todo | | |
-| P4.1 | Container: unprivileged | ⬜ Todo | | |
-| P4.2 | Container: privileged | ⬜ Todo | | |
+| P1.3 | Colima arm64 VM | ✅ PASS | 2026-05-08 | 14/15. arm64 confirmed. Lima fixes applied. |
+| P2.1 | Rocky Linux 9 Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.2 | Debian 12 Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.3 | Amazon Linux 2023 Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.4 | Alpine 3.x Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.5 | SUSE 15 Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.6 | Arch Linux Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.7 | Ubuntu 20.04 Docker | ✅ PASS | 2026-05-08 | All checks OK. |
+| P2.8 | Flatcar Docker | ⏳ Deferred | | Registry access denied. |
+| P3.1 | Ubuntu 22.04 arm64 | ✅ PASS | 2026-05-08 | Native arm64. |
+| P3.2 | Rocky Linux 9 arm64 | ✅ PASS | 2026-05-08 | via QEMU. |
+| P3.3 | Alpine arm64 | ✅ PASS | 2026-05-08 | via QEMU. |
+| P3.4 | Debian 12 arm64 | ✅ PASS | 2026-05-08 | via QEMU. |
+| P4.1 | Container: unprivileged | ✅ PASS | 2026-05-08 | Memory WARN on 512MB expected. |
+| P4.2 | Container: privileged | ✅ PASS | 2026-05-08 | All checks OK. |
 | P5.1 | Fedora 40 | ⬜ Todo | | |
 | P5.2 | Oracle Linux 9 | ⬜ Todo | | |
 | P5.3 | AlmaLinux 9 | ⬜ Todo | | |
