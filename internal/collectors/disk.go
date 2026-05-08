@@ -102,6 +102,9 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 		if skipFSTypes[e.fsType] || seen[e.mountPoint] {
 			continue
 		}
+		if strings.HasPrefix(e.mountPoint, "/mnt/lima-") {
+			continue
+		}
 		seen[e.mountPoint] = true
 		fs, err := statfsToFS(e)
 		if err != nil {

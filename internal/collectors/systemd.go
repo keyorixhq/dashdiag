@@ -44,6 +44,23 @@ func parseUnitList(r io.Reader) []string {
 	return units
 }
 
+var cloudInitUnits = map[string]bool{
+	"cloud-final.service":      true,
+	"cloud-config.service":     true,
+	"cloud-init.service":       true,
+	"cloud-init-local.service": true,
+}
+
+func filterUnits(units []string, ignore map[string]bool) []string {
+	out := units[:0]
+	for _, u := range units {
+		if !ignore[u] {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func listUnits(ctx context.Context, state string) []string {
 	out, err := exec.CommandContext(ctx, "systemctl", "list-units", // #nosec G204 -- command is hardcoded "systemctl"; state is from internal enum values, not user input
 		"--state="+state, "--no-legend", "--no-pager", "--plain").Output()
@@ -58,9 +75,10 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 		return &models.SystemdInfo{Available: false}, nil
 	}
 
+	failed := filterUnits(listUnits(ctx, "failed"), cloudInitUnits)
 	return &models.SystemdInfo{
 		Available:   true,
-		FailedUnits: listUnits(ctx, "failed"),
+		FailedUnits: failed,
 		// activating state alone does not indicate stuck; socket-activated on-demand
 		// services (e.g. systemd-timedated.service) appear here during normal operation.
 		// We cannot determine duration without reading ActiveEnterTimestamp, so we skip.
