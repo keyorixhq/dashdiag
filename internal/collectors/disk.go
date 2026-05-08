@@ -21,6 +21,7 @@ var skipFSTypes = map[string]bool{
 	"proc": true, "sysfs": true, "cgroup": true, "cgroup2": true,
 	"devpts": true, "pstore": true, "securityfs": true, "debugfs": true,
 	"hugetlbfs": true, "mqueue": true, "fusectl": true,
+	"devfs": true,
 }
 
 type mountEntry struct {

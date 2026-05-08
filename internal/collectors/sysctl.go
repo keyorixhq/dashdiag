@@ -71,7 +71,8 @@ func readSysctlInt(ctx context.Context, key string) int {
 
 func (c *SysctlCollector) collectDarwin(ctx context.Context) (*models.SysctlInfo, error) {
 	info := &models.SysctlInfo{
-		NetSomaxconn: readSysctlInt(ctx, "kern.ipc.somaxconn"),
+		// NetSomaxconn intentionally omitted — kern.ipc.somaxconn (macOS default 128)
+		// is not comparable to Linux net.core.somaxconn; analysis thresholds are Linux-only.
 		KernelPIDMax: readSysctlInt(ctx, "kern.maxproc"),
 		FSFileMax:    readSysctlInt(ctx, "kern.maxfiles"),
 		VMSwappiness: -1,
