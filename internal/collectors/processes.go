@@ -99,8 +99,9 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 }
 
 // collectDarwin uses ps to find zombie and D-state processes on macOS.
+// stat is placed before comm so spaces in process names never shift its column position.
 func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.ProcessInfo, error) {
-	out, err := exec.CommandContext(ctx, "ps", "-eo", "pid,ppid,comm,stat").Output()
+	out, err := exec.CommandContext(ctx, "ps", "axo", "pid,ppid,stat,comm").Output()
 	if err != nil {
 		return &models.ProcessInfo{}, nil
 	}
@@ -111,13 +112,16 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines[1:] { // skip header
 		fields := strings.Fields(line)
-		if len(fields) < 4 {
+		if len(fields) < 3 {
 			continue
 		}
 		pid, _ := strconv.Atoi(fields[0])
 		ppid, _ := strconv.Atoi(fields[1])
-		name := fields[2]
-		stat := fields[3]
+		stat := fields[2]
+		name := ""
+		if len(fields) > 3 {
+			name = fields[3]
+		}
 		if !strings.HasPrefix(stat, "Z") && !strings.HasPrefix(stat, "D") {
 			continue
 		}
