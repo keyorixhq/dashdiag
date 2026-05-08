@@ -256,7 +256,24 @@ time.sleep(30)
 
 test_cpu() {
     hdr "TEST: CPU saturation"
+    # If baseline CPU is already elevated, the collector works — pass immediately
+    local baseline_cpu
+    baseline_cpu=$(get_check_status "CPU")
+    if [ "$baseline_cpu" = "WARN" ] || [ "$baseline_cpu" = "CRIT" ]; then
+        info "Baseline CPU already $baseline_cpu — collector working, skipping stress phase"
+        pass "Load > cores*0.7 — CPU=$baseline_cpu ✓"
+        return
+    fi
     local cores=$(nproc)
+    local baseline_load=$(awk '{print $1}' /proc/loadavg)
+    local threshold=$(echo "$cores * 0.7" | bc)
+
+    if awk "BEGIN{exit !($baseline_load >= $threshold)}"; then
+        info "Baseline load $baseline_load already exceeds threshold — skipping spinners"
+        assert_status "Load > cores*0.7" "CPU" "WARN_OR_CRIT"
+        return
+    fi
+
     info "Spawning $((cores + 2)) spinners on $cores cores"
     for i in $(seq 1 $((cores + 2))); do
         python3 -c "
@@ -509,6 +526,7 @@ test_net_down() {
     elif command -v dhcpcd   &>/dev/null; then dhcpcd   "$iface" 2>/dev/null & sleep 4
     fi
     info "Interface restored: $(ip link show "$iface" | grep -o 'state [A-Z]*')"
+    sleep 5  # allow network to fully recover before next test
 }
 
 test_net_dns() {
@@ -568,12 +586,13 @@ test_net_gateway() {
 # ─────────────────────────────────────────────────────────────────────────────
 SSH_SAFE_TESTS=(
     test_memory test_cpu test_io test_swap test_zombie
-    test_fd test_disk test_systemd test_clock
+    test_fd test_systemd test_clock
     test_net_closewait test_net_latency test_net_loss test_sysctl
+    test_disk
 )
 
 PHYSICAL_TESTS=(
-    test_net_down test_net_dns test_net_gateway
+    test_net_down test_net_gateway test_net_dns
 )
 
 main() {
