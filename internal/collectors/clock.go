@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 type ClockCollector struct{}
@@ -43,6 +44,13 @@ func (c *ClockCollector) collectDarwin(ctx context.Context, info *models.ClockIn
 }
 
 func (c *ClockCollector) collectLinux(ctx context.Context, info *models.ClockInfo) (interface{}, error) {
+	if platform.DetectContainerContext().InContainer {
+		info.Synced = true
+		info.Source = "host"
+		info.OffsetMs = -1
+		return info, nil
+	}
+
 	// Step 1: plain `timedatectl show` — no --property filter, works on all distro versions.
 	// Using --property=NTPSynchronized,NTPOffsetUsec fails on Ubuntu 24.04 because
 	// timedatectl treats the comma-separated string as a single unknown property name,
