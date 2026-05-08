@@ -73,7 +73,7 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	}
 	fs.UsedGB = fs.TotalGB - fs.FreeGB
 	if stat.Blocks > 0 {
-		fs.UsedPct = (1 - float64(stat.Bfree)/float64(stat.Blocks)) * 100
+		fs.UsedPct = (1 - float64(stat.Bavail)/float64(stat.Blocks)) * 100
 	}
 	if stat.Files > 0 {
 		fs.InodesUsedPct = (1 - float64(stat.Ffree)/float64(stat.Files)) * 100

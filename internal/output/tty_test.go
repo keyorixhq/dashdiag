@@ -45,7 +45,7 @@ func TestStatusIcon(t *testing.T) {
 		"ok": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️", "pending": "⏳",
 	}
 	plainWant := map[string]string{
-		"ok": "OK", "warn": "WARN", "fail": "FAIL", "info": "INFO", "pending": "PENDING",
+		"ok": "OK", "warn": "WARN", "fail": "CRIT", "info": "INFO", "pending": "PENDING",
 	}
 	reportWant := map[string]string{
 		"ok": "✅ OK", "warn": "⚠️  WARN", "fail": "❌ FAIL", "info": "ℹ️  INFO", "pending": "⏳ PENDING",

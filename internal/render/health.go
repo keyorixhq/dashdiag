@@ -15,12 +15,16 @@ type Renderer struct{ mode output.OutputMode }
 
 func NewRenderer(mode output.OutputMode) *Renderer { return &Renderer{mode: mode} }
 
-// insightForResult returns the highest-severity insight matching name.
+// insightForResult returns the highest-severity insight for a collector result.
+// It matches on exact check name or the "Name " prefix (e.g. "IO" matches "IO sda").
+// Analysis check names must equal the collector name; this prefix rule is a safety net.
 func insightForResult(name string, insights []models.Insight) *models.Insight {
 	order := map[string]int{"CRIT": 3, "WARN": 2, "INFO": 1, "OK": 0}
+	prefix := name + " "
 	var worst *models.Insight
 	for i := range insights {
-		if insights[i].Check != name {
+		check := insights[i].Check
+		if check != name && !strings.HasPrefix(check, prefix) {
 			continue
 		}
 		if worst == nil || order[insights[i].Level] > order[worst.Level] {

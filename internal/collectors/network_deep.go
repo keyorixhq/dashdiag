@@ -27,8 +27,8 @@ func (c *NetworkDeepCollector) Collect(ctx context.Context) (any, error) {
 
 	// 20-sample jitter against gateway
 	if info.GatewayPingMs > 0 {
-		if gw := detectDefaultGateway(ctx); gw != "" {
-			info.JitterMs = measureJitter(ctx, gw, 20)
+		if gw := detectDefaultGateway(ctx); gw.GatewayIP != "" {
+			info.JitterMs = measureJitter(ctx, gw.GatewayIP, 20)
 		}
 	}
 

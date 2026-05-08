@@ -61,6 +61,9 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 	return &models.SystemdInfo{
 		Available:   true,
 		FailedUnits: listUnits(ctx, "failed"),
-		StuckUnits:  listUnits(ctx, "activating"),
+		// activating state alone does not indicate stuck; socket-activated on-demand
+		// services (e.g. systemd-timedated.service) appear here during normal operation.
+		// We cannot determine duration without reading ActiveEnterTimestamp, so we skip.
+		StuckUnits: nil,
 	}, nil
 }

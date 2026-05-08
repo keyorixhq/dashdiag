@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -29,10 +30,10 @@ type JSONCheck struct {
 }
 
 type JSONInsight struct {
-	Level   string   `json:"level"`
-	Check   string   `json:"check"`
-	Message string   `json:"message"`
-	Hints   []string `json:"hints,omitempty"`
+	Check   string `json:"check"`
+	Level   string `json:"level"`
+	Message string `json:"message"`
+	Hint    string `json:"hint,omitempty"`
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
@@ -63,6 +64,13 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			c.Error = r.Err.Error()
 		} else if ins, ok := insightMap[r.Name]; ok && ins.Level != "OK" {
 			c.Status = ins.Level
+		} else {
+			prefix := r.Name + " "
+			for chk, ins := range insightMap {
+				if strings.HasPrefix(chk, prefix) && severityOrder(ins.Level) > severityOrder(c.Status) {
+					c.Status = ins.Level
+				}
+			}
 		}
 		checks = append(checks, c)
 	}
@@ -72,9 +80,11 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		if ins.Level == "OK" {
 			continue
 		}
-		jsonInsights = append(jsonInsights, JSONInsight{
-			Level: ins.Level, Check: ins.Check, Message: ins.Message, Hints: ins.Hints,
-		})
+		ji := JSONInsight{Check: ins.Check, Level: ins.Level, Message: ins.Message}
+		if len(ins.Hints) > 0 {
+			ji.Hint = ins.Hints[0]
+		}
+		jsonInsights = append(jsonInsights, ji)
 	}
 
 	return JSONOutput{
