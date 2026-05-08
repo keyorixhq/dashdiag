@@ -274,8 +274,9 @@ test_cpu() {
         return
     fi
 
-    info "Spawning $((cores + 2)) spinners on $cores cores"
-    for i in $(seq 1 $((cores + 2))); do
+    local spinners=$(( cores * 2 ))
+    info "Spawning $spinners spinners on $cores cores"
+    for i in $(seq 1 $spinners); do
         python3 -c "
 while True: _ = sum(range(100000))
 " &
@@ -294,19 +295,34 @@ while True: _ = sum(range(100000))
 
 test_io() {
     hdr "TEST: IO saturation"
-    local dev; dev=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | head -1)
+    local dev
+    dev=$(df /tmp | awk 'NR==2{print $1}' | sed 's|/dev/||' | sed 's/[0-9]*$//')
+    # Handle LVM: if device is dm-*, find underlying physical disk
+    if echo "$dev" | grep -q "^dm-"; then
+        dev=$(dmsetup deps -o devname "$dev" 2>/dev/null | \
+              grep -oP '\(\K[^)]+' | head -1 | sed 's/[0-9]*$//')
+    fi
+    [ -z "$dev" ] && dev=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | head -1)
+    # Validate detected device is a real block device
+    if [ -z "$dev" ] || [ "$dev" = "tmpfs" ] || [ ! -b "/dev/$dev" ]; then
+        dev=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | head -1)
+    fi
     [ -z "$dev" ] && { warn "No disk found — skipping"; return; }
-    info "Stressing /dev/$dev"
-    mkdir -p /tmp/dsd_disk_test
+    local mount_point
+    mount_point=$(lsblk -no MOUNTPOINT "/dev/${dev}1" 2>/dev/null | head -1)
+    [ -z "$mount_point" ] && mount_point="/"
+    local stress_dir="$mount_point/dsd_io_test"
+    info "Stressing /dev/$dev (mount: $mount_point)"
+    mkdir -p "$stress_dir"
     (while true; do
-        dd if=/dev/urandom of=/tmp/dsd_disk_test/s bs=1M count=256 oflag=direct 2>/dev/null
-        rm -f /tmp/dsd_disk_test/s
+        dd if=/dev/urandom of="$stress_dir/s" bs=1M count=256 oflag=direct 2>/dev/null
+        rm -f "$stress_dir/s"
     done) &
     CLEANUP_PIDS+=($!)
     sleep 8
     assert_status "IO utilization" "IO" "WARN_OR_CRIT"
     kill "${CLEANUP_PIDS[-1]}" 2>/dev/null || true
-    rm -rf /tmp/dsd_disk_test
+    rm -rf "$stress_dir"
 }
 
 test_swap() {
@@ -316,10 +332,9 @@ test_swap() {
         info "Enable: fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
         return
     }
-    local total=$(free -m | awk '/^Mem:/{print $2}')
-    local swap=$(free -m | awk '/^Swap:/{print $2}')
-    local alloc=$(( total + swap / 3 ))
-    info "Allocating ${alloc}MB to force paging"
+    local free_mb=$(free -m | awk '/^Mem:/{print $7}')
+    local alloc=$(( free_mb * 150 / 100 ))
+    info "Allocating ${alloc}MB to force paging (150% of ${free_mb}MB free)"
     python3 -c "
 import time
 data, n = [], 0
