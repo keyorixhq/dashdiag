@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"runtime"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -103,9 +104,15 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 func checkMemory(mem models.MemoryInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
+		var memHints []string
+		if runtime.GOOS == "darwin" {
+			memHints = []string{"vm_stat", "top -l 1 | grep PhysMem", "ps aux -m | head -10"}
+		} else {
+			memHints = []string{"free -h", "ps aux --sort=-%mem | head -10"}
+		}
 		out = append(out, insight(l, "Memory",
 			fmt.Sprintf("RAM usage at %.0f%% (%.1f GB free of %.1f GB total)", mem.UsedPct, mem.FreeGB, mem.TotalGB),
-			[]string{"free -h", "ps aux --sort=-%mem | head -10"},
+			memHints,
 		))
 	}
 	if mem.OverCommitted {
@@ -150,10 +157,17 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 
 func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
+	darwin := runtime.GOOS == "darwin"
 	if l := levelPct(swap.UsedPct, thresh.SwapWarnPct, thresh.SwapCritPct); l != "" {
+		var swapHints []string
+		if darwin {
+			swapHints = []string{"vm_stat | grep swap", "sysctl vm.swapusage", "top -l 1 | grep PhysMem"}
+		} else {
+			swapHints = []string{"free -h", "vmstat 1 5"}
+		}
 		out = append(out, insight(l, "Swap",
 			fmt.Sprintf("swap usage at %.0f%% (%.1f GB used)", swap.UsedPct, swap.UsedGB),
-			[]string{"free -h", "vmstat 1 5"},
+			swapHints,
 		))
 	}
 	actIn := swap.PagesInPerSec
@@ -163,14 +177,26 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 		maxAct = actOut
 	}
 	if maxAct > thresh.SwapActivityCrit {
+		var actHints []string
+		if darwin {
+			actHints = []string{"vm_stat | grep swap", "sysctl vm.swapusage", "ps aux -m | head -10"}
+		} else {
+			actHints = []string{"vmstat 1 5", "sar -W 1 5", "ps aux --sort=-%mem | head -10"}
+		}
 		out = append(out, insight("CRIT", "Swap",
 			fmt.Sprintf("heavy swap activity: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			[]string{"vmstat 1 5", "sar -W 1 5", "ps aux --sort=-%mem | head -10"},
+			actHints,
 		))
 	} else if maxAct > thresh.SwapActivityWarn {
+		var actHints []string
+		if darwin {
+			actHints = []string{"vm_stat | grep swap", "top -l 1 | grep PhysMem"}
+		} else {
+			actHints = []string{"vmstat 1 5", "free -h"}
+		}
 		out = append(out, insight("WARN", "Swap",
 			fmt.Sprintf("swap activity detected: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			[]string{"vmstat 1 5", "free -h"},
+			actHints,
 		))
 	}
 	return out
