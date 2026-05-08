@@ -7,37 +7,21 @@
 
 ## STATUS
 Last updated: 2026-05-08
-Binary: dist/dsd ✅ (Go 1.26.3, all 4 platforms)
-Sprints 0-4: ✅ COMPLETE
-Code quality: ✅ CLEAN
-  - golangci-lint: 0 issues
-  - gosec: 0 issues (was 32)
-  - govulncheck: 0 CVEs (was 2)
-  - go test -short: 4.5s
-  - Hooks: pre-commit + pre-push installed
-Infrastructure: ✅ DONE
-  - dependabot.yml, issue templates, PR template, JSON schema
+GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
+Tag: ✅ v0.1.0 @ 5dec280 (gosec + CVE patches + infra)
+Binary: ✅ Go 1.26.3, all 4 platforms, release workflow triggered
+Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
+Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 
 ---
 
 ## NOW — Do this week
 
-### Code quality ✅ DONE
-- [x] make tools installed
-- [x] gofmt + goimports clean
-- [x] golangci-lint 0 issues
-- [x] gosec 0 issues
-- [x] govulncheck 0 CVEs
-- [x] testing.Short() skips — 4.5s short suite
-- [x] make hooks installed
-
-### Infrastructure ✅ DONE
-- [x] .github/dependabot.yml
-- [x] .github/ISSUE_TEMPLATE/ (bug + feature + config)
-- [x] .github/PULL_REQUEST_TEMPLATE.md
-- [x] schema/dsd-output.json + example-output.json
-- [ ] Push to GitHub as public repo
-- [ ] Set up branch protection (main requires CI — do immediately after push)
+### Launch gate ← YOU ARE HERE
+- [ ] Set up branch protection on GitHub
+        Settings → Branches → Add rule → main
+        ✅ Require status checks: Test (ubuntu-22.04), Test (macos-14)
+        ✅ Do not allow bypassing
 
 ### Verify on real Linux (critical — most dev was on macOS)
 - [ ] SSH into a Linux server, copy binary, run `dsd health`
@@ -47,14 +31,14 @@ Infrastructure: ✅ DONE
 
 ---
 
-## NEXT — After NOW is done
+## NEXT — After Linux verification passes
 
-### Launch prerequisites
+### Launch prerequisites (do in this order)
 - [ ] Register dashdiag.sh domain
-- [ ] Build dashdiag.sh landing page (single page, waitlist form)
-- [ ] Add waitlist link to README.md
-- [ ] Write README.md (demo GIF, install command, quick start)
+- [ ] Build dashdiag.sh landing page (single page + waitlist form)
+- [ ] Write README.md (install command, quick start, demo output)
 - [ ] Record demo GIF with vhs or asciinema
+- [ ] Add waitlist link to README, push
 - [ ] Write Hacker News Show HN post draft
 
 ### Features
@@ -111,10 +95,10 @@ Infrastructure: ✅ DONE
 - [ ] `--share` 90-day retention (free is 24h)
 
 ### Gate: 10+ paying teams
-- [ ] UnpackOps RCA platform
+- [ ] UnpackOps RCA platform (feeds on dsd --json output)
 
 ### Gate: UnpackOps RCA validated
-- [ ] Gauge (FinOps product)
+- [ ] Gauge (FinOps product) — infrastructure cost transparency
 
 ---
 
