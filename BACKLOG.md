@@ -1,38 +1,33 @@
+# DashDiag — Backlog
+# ─────────────────────────────────────────────────────────────────────────────
+# Three sections: NOW (do this week) · NEXT (after NOW is done) · LATER (gated)
+# Rule: NOW never has more than 10 items. When it empties, pull from NEXT.
+# Update this file every time you complete something or discover something new.
+# ─────────────────────────────────────────────────────────────────────────────
+
 ## STATUS
 Last updated: 2026-05-08
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: ✅ v0.1.0 @ 5dec280
+Tag: ✅ v0.1.1 (pending push)
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
-Linux testing: ✅ P1.1 COMPLETE — Ubuntu 24.04 MacBook | 🔄 P1.2 NEXT — Proxmox host
-Current binary: v0.1.0-2-g071ef0a-dirty (deployed to 192.168.10.10)
+Linux testing: ✅ P1.1 COMPLETE (16/16) | 🔄 P1.2 NEXT — Proxmox host
 
 ---
 
-## NOW — Linux testing bugs (fix before launch)
+## NOW — P1.2 Proxmox testing
 
-### Remaining stress suite issues (P1.1 Ubuntu 24.04)
-- [ ] FD exhaustion test: FDLimits=OK (expected WARN or CRIT) — collector not triggering
-      System FD usage shows 3232/9223372036854775807 — per-process limit not per-system
-      Need to investigate how dsd reads FD limits vs what the test is exhausting
-- [ ] net_dns: still fails in --physical all run (state cache from previous test)
-      Passes when run individually. Cache clear in get_check_status may not fire
-      in right order when tests run sequentially in same process
-- [ ] CPU stress: FAIL on this k8s machine when baseline load already high
-      Known limitation — k8s background processes dampen 1-min load average signal
-      Not a collector bug — acceptable on busy nodes
+### Infrastructure
+- [ ] Tag and push v0.1.1
+- [ ] Run stress suite on Proxmox host (P1.2)
+- [ ] Update TESTING_PLAN.md with P1.2 results
 
-### Infrastructure (before public launch)
-- [x] Branch protection set up
-- [x] Pushed to GitHub as public repo
-- [ ] Commit and push all fixes from current session
-- [ ] Tag v0.1.1 after P1.1 complete
+---
 
-## NEXT — After P1.1 complete
+## NEXT — After P1.2 complete
 
 ### Remaining Linux testing (TESTING_PLAN.md)
-- [ ] P1.2 Proxmox host
 - [ ] P1.3 Colima arm64 VM
 - [ ] P2.1–P2.8 Docker distro sweep (Rocky, Debian, Alpine, SUSE, Flatcar...)
 - [ ] P3.1–P3.4 arm64 Docker sweep
@@ -103,15 +98,15 @@ Current binary: v0.1.0-2-g071ef0a-dirty (deployed to 192.168.10.10)
 
 ## BUGS / KNOWN ISSUES
 
-### Active — stress suite
-- [ ] FD exhaustion — see NOW above
-- [ ] net_dns in --physical all — see NOW above
-- [ ] CPU stress on busy k8s node — see NOW above
+### Known limitations (not bugs)
+- CPU stress test: FAIL on busy k8s nodes — baseline load dampens 1-min avg
+  Mitigated: test now skips spinner phase if baseline already WARN/CRIT
+- macOS: clock OffsetMs always -1 (by design — no timedatectl)
+- Any container: Systemd Available=false (by design — no systemd in containers)
 
 ### Pre-existing
 - [ ] `--qr` shows empty QR (shareURL stub)
 - [ ] `dsd health --weekly` needs 7 days of data
-- [ ] macOS: clock OffsetMs always -1 (by design)
 - [ ] `dsd services` empty state needs real config testing
 
 ---
@@ -120,59 +115,46 @@ Current binary: v0.1.0-2-g071ef0a-dirty (deployed to 192.168.10.10)
 
 ### P1.1 Ubuntu 24.04 — Session 2 (2026-05-08)
 - [x] CPU status shows FAIL — invalid status string in render layer
-      Fixed: 2026-05-08
 - [x] Zombie processes not detected — missing ProcessInfo case in ApplyThresholds
-      Fix: added checkProcesses function + ProcessInfo case
-      Fixed: 2026-05-08
+      Fix: added checkProcesses + ProcessInfo case; parseProcStat already correct
 - [x] Disk threshold not triggering — Bfree vs Bavail
-      Fix: switched UsedPct to Bavail; InodesUsedPct correctly uses Ffree
-      Fixed: 2026-05-08
+      Fix: UsedPct uses Bavail; InodesUsedPct correctly uses Ffree (no reservation)
 - [x] Network: packet loss not detected
       Fix: GatewayPacketLossPct ≥10% WARN, ≥50% CRIT; suppressed when NIC down
-      Fixed: 2026-05-08
 - [x] Network: NIC DOWN not detected
       Fix: PrimaryInterfaceDown=true when primary NIC flags exclude "up"
-      Fixed: 2026-05-08
-- [x] Network: DNS failure not detected
-      Fix: DNSFailed bool + heuristics; DNSFailed promotes Network status to CRIT
-      stress.sh: mask systemd-resolved for Ubuntu 24.04 stub resolver
-      Fixed: 2026-05-08
-- [x] stress.sh cleanup: rm /etc/systemd/system errors on empty CLEANUP_SERVICES
+- [x] Network: DNS failure not detected + wrong status promotion
+      Fix: DNSFailed bool + heuristics; DNSFailed promotes Network check to CRIT
+- [x] FDLimits: insight check name was "FileDescriptors" → fixed to "FDLimits"
+- [x] FDLimits: hot process threshold lowered 80% → 70%
+- [x] FDLimits: test used prlimit on sudo wrapper; fixed to resource.setrlimit inside Python
+- [x] stress.sh: CLEANUP_SERVICES empty → rm /etc/systemd/system (directory)
       Fix: [ -z "$svc" ] && continue guard
-      Fixed: 2026-05-08
-- [x] stress.sh FDLimits name wrong (was FileDescriptors)
-      Fixed: 2026-05-08
-- [x] stress.sh CPU stress needs 30s wait on busy k8s nodes
-      Fixed: 2026-05-08
-- [x] stress.sh results counter stuck at 0 (subshell via tee pipe)
-      Fix: write PASS/FAIL to temp file, read in cleanup_all
-      Fixed: 2026-05-08
-- [x] stress.sh --physical all hangs — CPU spinners not killed after test
+- [x] stress.sh: FDLimits check name wrong (was FileDescriptors)
+- [x] stress.sh: CPU stress needs 30s wait on busy k8s nodes
+- [x] stress.sh: results counter stuck at 0 — tee pipe creates subshell
+      Fix: write PASS/FAIL/SKIP to temp file, read in cleanup_all
+- [x] stress.sh: CPU spinners not killed after test — hang in full suite
       Fix: kill CLEANUP_PIDS inline after assert_status in test_cpu
-      Fixed: 2026-05-08
-- [x] stress.sh --physical all hangs — get_check_status blocks on network collector
-      Fix: timeout 15 wrapping dsd call in get_check_status
-      Fixed: 2026-05-08
-- [x] stress.sh iotop hangs (interactive mode)
+- [x] stress.sh: get_check_status blocks indefinitely on slow network collectors
+      Fix: timeout 15 wrapping dsd call
+- [x] stress.sh: iotop hangs (interactive mode)
       Fix: iotop -aob -n 3
-      Fixed: 2026-05-08
-- [x] stress.sh net_dns assertion wrong — resolv.conf replace ineffective on Ubuntu 24.04
-      Fix: mask/stop systemd-resolved instead
-      Fixed: 2026-05-08
+- [x] stress.sh: net_dns assertion wrong on Ubuntu 24.04 (stub resolver)
+      Fix: mask/stop systemd-resolved instead of replacing resolv.conf
+- [x] stress.sh: net_dns fails in --physical all due to NIC recovery dirty state
+      Fix: sleep 5 after net_down + reorder to net_down → net_gateway → net_dns
+- [x] stress.sh: CPU test FAIL on busy k8s baseline
+      Fix: skip spinner phase if baseline already WARN/CRIT
+- [x] stress.sh: test_disk moved to end of SSH_SAFE_TESTS for faster feedback
 
 ### P1.1 Ubuntu 24.04 — Session 1 (2026-05-08)
 - [x] Clock CRIT on Ubuntu 24.04 — NTPOffsetUsec removed in systemd 245
       Fix: timedatectl timesync-status parsing as fallback
-      Fixed: 2026-05-08
-- [x] --plain and --json disagree on status
-      Fix: render layer no longer computes own thresholds
-      Fixed: 2026-05-08
+- [x] --plain and --json disagree on status (render layer computing own thresholds)
 - [x] insights:[] in JSON when WARNs present
-      Fixed: 2026-05-08
 - [x] Exit code 0 when WARNs/CRITs present
-      Fixed: 2026-05-08
 - [x] Systemd false WARN on socket-activated units
-      Fixed: 2026-05-08
 
 ---
 

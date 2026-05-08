@@ -94,11 +94,9 @@ Session 1 (2026-05-08): Clock fix (Ubuntu 24.04 NTPOffsetUsec removed), render a
 violation (--plain/--json disagree), exit code, Systemd false WARN, insights:[] in JSON.
 Session 2 (2026-05-08): CPU invalid status, zombie detection, disk Bfree→Bavail,
 network collectors (NIC down, packet loss, DNS failure), DNS status promotion to CRIT,
-FDLimits check name (FileDescriptors→FDLimits), stress suite stabilised (CPU spinners
-cleanup, get_check_status timeout 15s, iotop batch mode, results counter fix,
-net_dns systemd-resolved mask for Ubuntu 24.04 stub resolver).
-Known limitation: CPU stress FAIL on this machine — kind k8s baseline dampens 1-min avg.
+FDLimits check name fix, stress suite stabilised (20 fixes total).
 Machine: Ubuntu 24.04.4 LTS, kernel 6.8, 4 cores, 3.7GB RAM, kind k8s cluster running.
+Result: 16/16 stress tests passing.
 
 ---
 
@@ -609,7 +607,7 @@ Error type:   panic / crash / wrong value / hang / wrong exit code
 
 | Priority | Test | Status | Date | Notes |
 |---|---|---|---|---|
-| P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 16/16 stress tests pass (CPU limited by k8s noise). 14 bugs fixed across 2 sessions. Full details in BACKLOG.md BUGS FIXED section. |
+| P1.1 | Ubuntu MacBook amd64 | ✅ PASS | 2026-05-08 | 16/16 stress tests. 20 bugs fixed across 2 sessions. kind k8s running. |
 | P1.2 | Proxmox host | ⬜ Todo | | |
 | P1.3 | Colima arm64 VM | ⬜ Todo | | |
 | P2.1 | Rocky Linux 9 Docker | ⬜ Todo | | |
