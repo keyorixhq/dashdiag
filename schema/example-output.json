@@ -19,7 +19,7 @@
             "duration": "6.541\u00b5s"
         },
         {
-            "name": "MACPolicy",
+            "name": "KernelSecurity",
             "status": "OK",
             "duration": "83ns"
         },

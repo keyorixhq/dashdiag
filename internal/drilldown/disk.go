@@ -77,7 +77,7 @@ func parseDuSize(s string) int64 {
 	suffix := s[len(s)-1]
 	numStr := s[:len(s)-1]
 	var v float64
-	fmt.Sscanf(numStr, "%f", &v)
+	_, _ = fmt.Sscanf(numStr, "%f", &v)
 	switch suffix {
 	case 'T', 't':
 		return int64(v * 1e9)

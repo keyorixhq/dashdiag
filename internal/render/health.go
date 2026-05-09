@@ -114,7 +114,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 			if i > 0 {
 				hdr.WriteString("  ")
 			}
-			hdr.WriteString(fmt.Sprintf("%-*s", widths[i], col))
+			fmt.Fprintf(&hdr, "%-*s", widths[i], col)
 		}
 		fmt.Fprintln(os.Stdout, StyleDim.Render(hdr.String()))
 
@@ -130,7 +130,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 				if i < len(widths) {
 					w = widths[i]
 				}
-				sb.WriteString(fmt.Sprintf("%-*s", w, cell))
+				fmt.Fprintf(&sb, "%-*s", w, cell)
 			}
 			fmt.Fprintln(os.Stdout, sb.String())
 		}

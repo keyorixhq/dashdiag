@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -142,16 +143,29 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
+func darwinMemPressureLevel(ctx context.Context) int {
+	out, err := exec.CommandContext(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level").Output()
+	if err != nil {
+		return 1 // assume normal if unavailable
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || v < 1 {
+		return 1
+	}
+	return v
+}
+
 func (c *SwapCollector) collectDarwin(ctx context.Context) (*models.SwapInfo, error) {
 	swap, err := mem.SwapMemoryWithContext(ctx)
 	if err != nil {
-		return &models.SwapInfo{PagesInPerSec: -1, PagesOutPerSec: -1}, nil
+		return &models.SwapInfo{PagesInPerSec: -1, PagesOutPerSec: -1, MemPressureLevel: 1}, nil
 	}
 	return &models.SwapInfo{
-		TotalGB:        float64(swap.Total) / (1024 * 1024 * 1024),
-		UsedGB:         float64(swap.Used) / (1024 * 1024 * 1024),
-		UsedPct:        swap.UsedPercent,
-		PagesInPerSec:  -1,
-		PagesOutPerSec: -1,
+		TotalGB:          float64(swap.Total) / (1024 * 1024 * 1024),
+		UsedGB:           float64(swap.Used) / (1024 * 1024 * 1024),
+		UsedPct:          swap.UsedPercent,
+		PagesInPerSec:    -1,
+		PagesOutPerSec:   -1,
+		MemPressureLevel: darwinMemPressureLevel(ctx),
 	}, nil
 }

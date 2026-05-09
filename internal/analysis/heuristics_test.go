@@ -198,6 +198,50 @@ func TestSwapActivityThresholds(t *testing.T) {
 	}
 }
 
+func TestSwapMacOSPressureGating(t *testing.T) {
+	// macOS: high swap alone (pressure == 1 = normal) must never trigger an alert.
+	noAlert := []struct {
+		name string
+		pct  float64
+	}{
+		{"50pct normal pressure", 50},
+		{"74pct normal pressure", 74},
+		{"80pct normal pressure", 80},
+		{"95pct normal pressure", 95},
+	}
+	for _, tc := range noAlert {
+		t.Run(tc.name, func(t *testing.T) {
+			s := models.SwapInfo{UsedPct: tc.pct, PagesInPerSec: -1, PagesOutPerSec: -1, MemPressureLevel: 1}
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			if len(insights) != 0 {
+				t.Errorf("expected no insights at %.0f%% with normal pressure, got %+v", tc.pct, insights)
+			}
+		})
+	}
+
+	// macOS: high swap WITH elevated pressure triggers.
+	withPressure := []struct {
+		name     string
+		pct      float64
+		pressure int
+		want     string
+	}{
+		{"74pct warn pressure — below threshold", 74, 2, ""},
+		{"75pct warn pressure — at threshold", 75, 2, "WARN"},
+		{"80pct warn pressure", 80, 2, "WARN"},
+		{"89pct warn pressure — below crit", 89, 2, "WARN"},
+		{"90pct crit pressure", 90, 2, "CRIT"},
+		{"95pct urgent pressure", 95, 3, "CRIT"},
+	}
+	for _, tc := range withPressure {
+		t.Run(tc.name, func(t *testing.T) {
+			s := models.SwapInfo{UsedPct: tc.pct, PagesInPerSec: -1, PagesOutPerSec: -1, MemPressureLevel: tc.pressure}
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			assertLevel(t, insights, tc.want)
+		})
+	}
+}
+
 // ── IO ───────────────────────────────────────────────────────────────────────
 
 func TestIOUtilPctThresholds(t *testing.T) {
@@ -472,7 +516,7 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mac := models.MACPolicyInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: tc.count}
+			mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: tc.count}
 			insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
 			assertLevel(t, insights, tc.want)
 		})
@@ -480,7 +524,7 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 }
 
 func TestSELinuxAbsent(t *testing.T) {
-	mac := models.MACPolicyInfo{SELinuxPresent: false, SELinuxDenials: 100}
+	mac := models.KernelSecurityInfo{SELinuxPresent: false, SELinuxDenials: 100}
 	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
 	if len(insights) != 0 {
 		t.Errorf("expected no insights when SELinux not present, got %+v", insights)

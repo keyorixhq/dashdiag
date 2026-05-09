@@ -5,3 +5,14 @@ coverage.html
 .DS_Store
 prompts/
 .claude/
+
+# Strategic documents — keep local until ENISA cofounder checks complete
+KEYORIX_FOUNDATION.md
+POSITIONING.md
+STRATEGY.md
+FEATURES.md
+LAUNCH_PREP.md
+PRODUCT_IDEAS.md
+
+# Content drafts — release coordinated with launch
+CONTENT_*.md
