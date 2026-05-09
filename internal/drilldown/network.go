@@ -80,7 +80,7 @@ func parseSsOutput(out string) *models.Details {
 		name  string
 		count int
 	}
-	var cwProcs []procCount
+	cwProcs := make([]procCount, 0, len(procClose))
 	for name, cnt := range procClose {
 		cwProcs = append(cwProcs, procCount{name, cnt})
 	}
@@ -92,7 +92,7 @@ func parseSsOutput(out string) *models.Details {
 		rows = append(rows, []string{p.name, "CLOSE_WAIT", fmt.Sprintf("%d", p.count)})
 	}
 
-	var twProcs []procCount
+	twProcs := make([]procCount, 0, len(procTime))
 	for name, cnt := range procTime {
 		twProcs = append(twProcs, procCount{name, cnt})
 	}

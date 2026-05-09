@@ -59,10 +59,10 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.Cl
 			insights = append(insights, checkSysctl(data)...)
 		case *models.SysctlInfo:
 			insights = append(insights, checkSysctl(*data)...)
-		case models.MACPolicyInfo:
-			insights = append(insights, checkMAC(data, thresh)...)
-		case *models.MACPolicyInfo:
-			insights = append(insights, checkMAC(*data, thresh)...)
+		case models.KernelSecurityInfo:
+			insights = append(insights, checkKernelSecurity(data, thresh)...)
+		case *models.KernelSecurityInfo:
+			insights = append(insights, checkKernelSecurity(*data, thresh)...)
 		case models.LogsInfo:
 			insights = append(insights, checkLogs(data, thresh)...)
 		case *models.LogsInfo:
@@ -157,46 +157,43 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 
 func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
-	darwin := runtime.GOOS == "darwin"
-	if l := levelPct(swap.UsedPct, thresh.SwapWarnPct, thresh.SwapCritPct); l != "" {
-		var swapHints []string
-		if darwin {
-			swapHints = []string{"vm_stat | grep swap", "sysctl vm.swapusage", "top -l 1 | grep PhysMem"}
-		} else {
-			swapHints = []string{"free -h", "vmstat 1 5"}
+
+	// macOS path: MemPressureLevel > 0 is the Darwin sentinel (always set by collectDarwin).
+	// macOS uses swap proactively even without memory pressure, so threshold-based alerts
+	// without a pressure gate produce constant false WARNs on healthy machines.
+	if swap.MemPressureLevel > 0 {
+		if swap.MemPressureLevel > 1 {
+			if l := levelPct(swap.UsedPct, 75, 90); l != "" {
+				out = append(out, insight(l, "Swap",
+					fmt.Sprintf("swap usage at %.0f%% with elevated memory pressure (level %d)", swap.UsedPct, swap.MemPressureLevel),
+					[]string{"vm_stat | grep swap", "sysctl vm.swapusage", "top -l 1 | grep PhysMem"},
+				))
+			}
 		}
+		return out
+	}
+
+	// Linux path: threshold-based.
+	if l := levelPct(swap.UsedPct, thresh.SwapWarnPct, thresh.SwapCritPct); l != "" {
 		out = append(out, insight(l, "Swap",
 			fmt.Sprintf("swap usage at %.0f%% (%.1f GB used)", swap.UsedPct, swap.UsedGB),
-			swapHints,
+			[]string{"free -h", "vmstat 1 5"},
 		))
 	}
-	actIn := swap.PagesInPerSec
-	actOut := swap.PagesOutPerSec
+	actIn, actOut := swap.PagesInPerSec, swap.PagesOutPerSec
 	maxAct := actIn
 	if actOut > maxAct {
 		maxAct = actOut
 	}
 	if maxAct > thresh.SwapActivityCrit {
-		var actHints []string
-		if darwin {
-			actHints = []string{"vm_stat | grep swap", "sysctl vm.swapusage", "ps aux -m | head -10"}
-		} else {
-			actHints = []string{"vmstat 1 5", "sar -W 1 5", "ps aux --sort=-%mem | head -10"}
-		}
 		out = append(out, insight("CRIT", "Swap",
 			fmt.Sprintf("heavy swap activity: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			actHints,
+			[]string{"vmstat 1 5", "sar -W 1 5", "ps aux --sort=-%mem | head -10"},
 		))
 	} else if maxAct > thresh.SwapActivityWarn {
-		var actHints []string
-		if darwin {
-			actHints = []string{"vm_stat | grep swap", "top -l 1 | grep PhysMem"}
-		} else {
-			actHints = []string{"vmstat 1 5", "free -h"}
-		}
 		out = append(out, insight("WARN", "Swap",
 			fmt.Sprintf("swap activity detected: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			actHints,
+			[]string{"vmstat 1 5", "free -h"},
 		))
 	}
 	return out
@@ -374,7 +371,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 	return out
 }
 
-func checkMAC(mac models.MACPolicyInfo, thresh Thresholds) []models.Insight {
+func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
 	if !mac.SELinuxPresent {
 		return nil
 	}

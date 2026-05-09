@@ -336,7 +336,7 @@ Create internal/collectors/network_quick.go:
   - Return *models.NetworkInfo
 ```
 
-**Prompt for Claude Code (part C — clock + fdlimits + processes + systemd + sysctl + mac_policy):**
+**Prompt for Claude Code (part C — clock + fdlimits + processes + systemd + sysctl + kernel_security):**
 ```
 Create these 6 remaining collectors:
 
@@ -385,12 +385,12 @@ internal/collectors/sysctl.go (Name:"Sysctl", Timeout:1s):
   - Current PID count: count entries in /proc matching [0-9]+
   Return *models.SysctlInfo
 
-internal/collectors/mac_policy.go (Name:"MACPolicy", Timeout:5s):
+internal/collectors/kernel_security.go (Name:"KernelSecurity", Timeout:5s):
   - SELinux: exec getenforce (via ctx), parse "Enforcing"/"Permissive"/"Disabled"
     AVC denials: if SELinux enforcing, count "avc:  denied" in last hour via journalctl
   - AppArmor: read /sys/module/apparmor/parameters/enabled
-  - macOS: return &models.MACPolicyInfo{} (not applicable)
-  Return *models.MACPolicyInfo
+  - macOS: return &models.KernelSecurityInfo{} (not applicable)
+  Return *models.KernelSecurityInfo
 
 For EACH collector create:
 - Parser unit test (table-driven, t.Parallel())
@@ -615,7 +615,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collec
         collectors.NewProcessCollector(),
         collectors.NewSystemdCollector(),
         collectors.NewSysctlCollector(),
-        collectors.NewMACPolicyCollector(),
+        collectors.NewKernelSecurityCollector(),
     }
 }
 

@@ -29,10 +29,9 @@ func TopProcessesBySwap(ctx context.Context, n int) (*models.Details, error) {
 }
 
 type procSwap struct {
-	pid     int
-	name    string
-	swapKB  int64
-	partial bool
+	pid    int
+	name   string
+	swapKB int64
 }
 
 func topProcessesBySwapLinux(ctx context.Context, n int) (*models.Details, error) {

@@ -134,7 +134,7 @@ for c in data.get('checks', []):
 - [ ] Systemd collector: Available=true, lists pvedaemon/pvestatd
 - [ ] Memory reflects host RAM (not a VM's limit)
 - [ ] Network shows correct interfaces (not VM bridges as primary)
-- [ ] MACPolicy: no crash (Proxmox may have SELinux disabled)
+- [ ] KernelSecurity: no crash (Proxmox may have SELinux disabled)
 
 **Status:** [x] PASS
 **Notes:**
@@ -243,7 +243,7 @@ docker run --rm \
 
 **Things that will be different from Ubuntu:**
 - [ ] Clock: timedatectl fallback → chronyc tracking path fires
-- [ ] MACPolicy: SELinux present (getenforce returns Permissive/Enforcing)
+- [ ] KernelSecurity: SELinux present (getenforce returns Permissive/Enforcing)
 - [ ] No AppArmor
 - [ ] All checks exit without crash
 
@@ -292,7 +292,7 @@ docker run --rm \
 **Things to check:**
 - [ ] Clock: chronyd fallback
 - [ ] IO: no crash when no physical disks visible in container
-- [ ] MACPolicy: SELinux permissive (AL2023 default)
+- [ ] KernelSecurity: SELinux permissive (AL2023 default)
 
 **Status:** [ ] PASS  [ ] FAIL  [ ] PARTIAL
 **Notes:**
@@ -319,7 +319,7 @@ docker run --rm \
 - [ ] Binary executes (CGO_ENABLED=0 means musl is not an issue)
 - [ ] Systemd: Available=false, status=OK
 - [ ] Clock: no timedatectl, no chronyc — graceful degradation
-- [ ] MACPolicy: no getenforce — graceful degradation
+- [ ] KernelSecurity: no getenforce — graceful degradation
 - [ ] No crash from missing commands
 
 **Status:** [ ] PASS  [ ] FAIL  [ ] PARTIAL
@@ -415,7 +415,7 @@ docker run --rm \
 - [ ] Binary executes (no crash on startup)
 - [ ] Systemd: Available=false, status=OK
 - [ ] Clock: graceful degradation
-- [ ] MACPolicy: graceful degradation
+- [ ] KernelSecurity: graceful degradation
 - [ ] No panic from any collector
 
 **Status:** [ ] PASS  [ ] FAIL  [ ] PARTIAL

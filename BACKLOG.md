@@ -6,25 +6,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## STATUS
-Last updated: 2026-05-08
+Last updated: 2026-05-09
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: ✅ v0.1.1
+Tag: ✅ v0.1.1 (v0.2.0 pending — F0 + drilldown package)
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
 Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
 Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
 Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
+F0 inline drill-down: ✅ SHIPPED 2026-05-09 — next: test on real WARN/CRIT system
 
 ---
 
 ## NOW — Launch prerequisites
 
-- [ ] **Inline drill-down on WARN/CRIT** — when a check fires, show
-      the relevant raw data (top 10 processes, largest dirs, failed
-      units, etc.) inline rather than just hinting at a command.
-      THE single biggest UX improvement before launch. Closes the
-      "diagnose then explain" loop. Makes the demo GIF dramatically
-      more compelling. ~1-2 weeks of focused work across all 12 checks.
-      See "Customer journey & inline drill-down" section below.
+- [x] **Inline drill-down on WARN/CRIT** ✅ SHIPPED 2026-05-09
+      See "F0 shipped" section in BUGS FIXED for full implementation details.
 - [ ] Decide and commit DashDiag license (Apache 2.0 recommended — see PRODUCT_IDEAS.md)
 - [ ] Register dashdiag.sh domain
 - [ ] Build dashdiag.sh landing page (single page + waitlist form)
@@ -33,7 +29,11 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 - [ ] Add waitlist link to README, push
 - [ ] Write Hacker News Show HN post draft
 - [ ] Write CHANGELOG.md (v0.1.0 + v0.1.1 entries)
-- [ ] Backup strategic documents off-laptop (gitignored, single-machine = risk)
+- [ ] Backup strategic documents to private GitHub repo
+      (keyorixhq/strategy, private). Today.
+      See "Strategy backup setup" section at bottom of this file
+      for the 5-minute setup commands and ongoing sync workflow.
+      Risk: 8 documents (~3000 lines) currently exist only on one laptop.
 
 ---
 
@@ -148,6 +148,56 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 
 ## BUGS FIXED
 
+### F0 — Inline drill-down shipped (2026-05-09)
+
+All 12 checks now produce inline attribution on WARN/CRIT. Healthy
+systems unchanged — drilldown code never runs on OK checks.
+
+**New files:**
+- `internal/models/insight.go` — Details struct added to Insight
+  (Type, Title, Columns, Rows, KV, Note)
+- `internal/drilldown/drilldown.go` — PopulateAll dispatcher +
+  shared helpers (walkProcs, runCmd, formatBytes, mount/unit parsers)
+- `internal/drilldown/memory.go` — /proc/PID/status VmRSS on Linux,
+  ps on macOS
+- `internal/drilldown/cpu.go` — double-sample for accurate CPU%
+- `internal/drilldown/swap.go` — /proc/PID/status VmSwap on Linux;
+  nil+note on macOS (no public API)
+- `internal/drilldown/disk.go` — du --max-depth=1 (macOS: -hd 1)
+  with os.ReadDir fallback
+- `internal/drilldown/io.go` — double-sample /proc/PID/io with 500ms
+  gap on Linux; nil+note on macOS
+- `internal/drilldown/network.go` — ss -tnp with /proc/net/tcp
+  fallback on Linux, netstat on macOS
+- `internal/drilldown/processes.go` — /proc/PID/stat zombie+parent
+  lookup on Linux, ps on macOS
+- `internal/drilldown/systemd.go` — journalctl -u <unit> tail
+- `internal/drilldown/fdlimits.go` — /proc/PID/fd + /proc/PID/limits
+  on Linux, lsof on macOS
+- `internal/drilldown/clock.go` — chronyc tracking / timedatectl on
+  Linux, sntp on macOS
+- `internal/drilldown/sysctl.go` — /proc/sys/ reads with
+  recommended-value table
+- `internal/drilldown/kernelsec.go` — aa-status + getsebool on Linux
+
+**Modified files:**
+- `cmd/health.go` — wires drilldown.PopulateAll(ctx, insights,
+  results) after ApplyThresholds; adds --terse flag (skips drilldown)
+- `render/health.go` — renderDetails() prints tabular rows or KV
+  pairs indented under the check line (ModeHuman only)
+- `render/json.go` — JSONInsight.Details *models.Details propagated
+  from insight (backward-compatible: field is omitempty)
+
+**Behaviour summary:**
+- Healthy: no drilldown, wall time unchanged (~1.3s)
+- WARN/CRIT: attribution inline, <2s typical
+- `--terse`: skips drilldown even on WARN/CRIT (minimal output)
+- `--json`: always includes Details when present
+
+**Next step:** Test on a real system with actual WARN/CRIT firing to
+verify output format, indentation, and table rendering look right
+before tagging v0.2.0.
+
 ### macOS validation (2026-05-08)
 - [x] Disk CRIT /dev (devfs) — macOS virtual filesystem false positive
       Fix: exclude devfs and /System/Volumes/* from disk collector
@@ -185,8 +235,33 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 - Slack webhook: `dsd health --notify-slack $WEBHOOK_URL`
 - `dsd health --threshold cpu_warn=90` — per-run threshold overrides
 - Structured logging in --debug mode
-- `dsd how "check if a port is open"` — built-in command lookup mode
-   (replaces cheat sheets — reinforces "burn the cheat sheet" positioning)
+- `dsd how "check if a port is open"` — built-in command lookup mode.
+   The strategic insight: generic cheat sheets (like the giant Linux
+   command mouse pads engineers buy) are useless during incidents. They
+   contain commands you'd already know if you used them daily, and lack
+   commands you'd need precisely when something unfamiliar is broken.
+   They serve as PLACEBO COMPETENCE — make engineers feel less anxious
+   without solving the underlying problem.
+   
+   DashDiag is uniquely positioned to do better because it knows what's
+   wrong AND knows what commands are available on this specific system.
+   No cheat sheet can do this. No Stack Overflow answer can. Even AI
+   assistants don't know your specific system without DashDiag's data.
+   
+   Example interactions:
+     dsd how "check firewall rules"
+     → Detects nftables vs iptables vs ufw via systemctl + which
+     → Suggests the right command for THIS system
+     → Cross-references to dsd net for automatic diagnosis
+   
+     dsd how "find process holding a port"
+     → Suggests ss -tnlp on Linux with iproute2
+     → Falls back to lsof -i if iproute2 not present
+     → Falls back to netstat -tnlp on RHEL 6 / minimal containers
+   
+   Replaces cheat sheets entirely. Reinforces "burn the cheat sheet"
+   positioning. High strategic value, medium build cost (~2-3 weeks
+   for v1 with ~50 common queries).
 - Conntrack table saturation check — read /proc/sys/net/netfilter/nf_conntrack_count
    vs nf_conntrack_max. When the table fills, new connections silently fail.
    Common cause of "the network feels slow but I can't tell why" on systems
@@ -514,25 +589,283 @@ output.
 - Cheap, fast, no external impact
 - No permission issues, deterministic
 - Just reads what the kernel already knows
+- Wall time per check: 10-200ms
 
 **Active probing** (gateway ping, TCP-connect, DNS query):
 - Costs wall time (4s for 20 ping samples)
 - May require capabilities (cap_net_raw for ICMP)
 - Changes external state slightly (creates packets)
 - Results vary with external conditions
+- Wall time per probe: 1-10 seconds
 
-**Keyorix design rule for probing:**
+**Wall time matters for UX:**
 
-Be opinionated about what to probe but make it visible. Don't probe
-silently. Show the user what was measured and why.
+Current `dsd health` runs in ~1.3s — fast enough that engineers don't
+break flow when running it during incidents. Adding a 4s gateway ping
+to every run would triple wall time. That's a meaningful UX cost.
+
+**Keyorix design rule for probing — tiered execution:**
+
+> Match wall time to user intent. Healthy = fast. Broken = thorough.
+
+```
+Default `dsd health` — passive checks only, ~1.3s
+├── If everything OK → done (no wall time penalty for healthy systems)
+├── If WARN/CRIT detected → run inline drill-down
+│   ├── Process attribution (cheap, <100ms)
+│   ├── Connection state analysis (cheap, <200ms)
+│   └── Active probes only for the failing check
+│       └── Network failed → gateway ping (4s)
+│       └── Disk failed → recently-grown files scan
+│       └── (Each check decides its own probing budget)
+```
+
+User mental model this matches: "if it's healthy I want to know fast;
+if it's broken I want to understand why."
+
+**Future flags (not v0):**
+- `--quick` — force passive-only mode even on WARN/CRIT
+   (incident response: skip probes when you already know the problem)
+- `--deep` — run ALL probing including upstream connectivity, bandwidth
+   (periodic baseline runs, not incident response)
 
 For F0:
-- Gateway ping latency/jitter: always run on Network WARN/CRIT
-   (cheap, local, high value, no external dependency)
-- Upstream connectivity probe: opt-in only via `--check-upstream`
-   (deferred to post-launch idea)
+- Gateway ping latency/jitter: only runs on Network WARN/CRIT,
+   not on every health check (preserves the ~1.3s healthy-case wall time)
+- Upstream connectivity probe: opt-in only via future `--check-upstream`
+- Be opinionated about what to probe but make it visible — show user
+   what was measured and why
 
-If a user wants the fastest possible health check during an active
-incident, future `--quick` flag could skip all active probing. But
-default behavior includes the gateway ping because it's the difference
-between "Network OK" and "Network OK with confirmed local connectivity."
+### Parallel execution architecture (for F0 implementation)
+
+Wall time matters for UX. Goroutines shrink wall time when you have
+independent operations that block on I/O. Both apply to DashDiag.
+
+**Three-phase execution model for F0:**
+
+```
+Phase 1: Parallel passive collection (verify already working)
+   ├── 12 goroutines, one per check
+   ├── errgroup with context timeout (5s max per check)
+   └── Wait for all to complete or timeout
+   Wall time: ~200-300ms
+
+Phase 2: Conditional drill-down (new for F0)
+   ├── For each check that returned WARN/CRIT:
+   │   ├── Spawn drill-down goroutine for that check
+   │   └── Drill-down internally parallelizes its work
+   │       (e.g., Memory drill-down: worker pool of 8 reads 500 /proc/PID/status)
+   └── Drill-downs run in parallel with each other
+   Wall time when triggered: ~500ms-1s
+
+Phase 3: Conditional probing (new for F0)
+   ├── If Network drill-down needs gateway ping → ping (~1s)
+   ├── Other probes parallel to ping if any
+   └── Use errgroup.SetLimit() to cap concurrent probes
+   Wall time when triggered: ~1s
+```
+
+**Resulting wall times:**
+- Healthy system: ~300ms (Phase 1 only)
+- WARN/CRIT system: ~1.5-2s (Phase 1 + 2 + 3)
+
+Healthy systems actually get faster than the current 1.3s. Broken
+systems take ~2s but provide actionable diagnosis instead of just
+verdict.
+
+**Key Go patterns to use:**
+
+```go
+import "golang.org/x/sync/errgroup"
+
+// Worker pool with concurrency limit
+g, ctx := errgroup.WithContext(ctx)
+g.SetLimit(8) // 8 concurrent workers
+
+for _, pid := range pids {
+    pid := pid // capture loop variable
+    g.Go(func() error {
+        return readProcStatus(ctx, pid)
+    })
+}
+if err := g.Wait(); err != nil { /* handle */ }
+
+// Context with timeout per check
+ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
+defer cancel()
+```
+
+**Implementation rules:**
+
+1. **Verify Phase 1 is already parallel.** Quick check:
+   `grep -r "go func\|sync.WaitGroup\|errgroup" internal/`
+   If sequential, this is a quick win — move to parallel goroutines first.
+
+2. **Use worker pool for /proc iteration.** Don't spawn 500 goroutines
+   reading /proc/PID/*. Use errgroup.SetLimit(8) or runtime.NumCPU().
+   Prevents pathological behavior on systems with thousands of processes.
+
+3. **Always use context.WithTimeout.** 5 seconds max per check. If
+   something hangs (D-Bus to systemd can stall, ping can take longer
+   than expected), it gets killed and reported as "Check X timed out"
+   instead of blocking the whole run.
+
+4. **Always use recover() in each goroutine.** A panic in one check
+   should not crash DashDiag. Report "Check X errored: <reason>" instead.
+
+5. **Test output stability.** Parallel execution must not produce
+   non-deterministic output ordering. Collect results into a map keyed
+   by check name, render in stable sorted order.
+
+6. **Don't over-parallelize ping.** ping -c 20 -i 0.2 takes 4s by design
+   (measuring jitter). Running parallel pings would skew the measurement.
+   If 4s is too long, reduce sample count (-c 10 -i 0.1 = 1s, less data
+   but still useful).
+
+7. **Context-aware hints (small F0 enhancement).** Currently hints are
+   static suggestions like "ss -tnp state close-wait". But ss may not
+   be installed on RHEL 6, Alpine, or stripped containers.
+   
+   Each hint generator should check what's actually available on this
+   system via exec.LookPath() and suggest the command that exists:
+   
+     if hasSS := exec.LookPath("ss"); hasSS == nil {
+         hints = append(hints, "ss -tnp state close-wait")
+     } else if hasNetstat := exec.LookPath("netstat"); hasNetstat == nil {
+         hints = append(hints, "netstat -tnp | grep CLOSE_WAIT")
+     } else {
+         hints = append(hints, "(install net-tools or iproute2 to investigate)")
+     }
+   
+   Small but meaningful: difference between "here's a command" and
+   "here's a command that will actually work on YOUR system."
+   ~1 day of work added to F0. The deeper version (`dsd how`) is in IDEAS.
+
+---
+
+## Strategy backup setup (NOW item — ~5 minutes)
+
+8 strategic documents currently exist only on one laptop:
+- KEYORIX_FOUNDATION.md (philosophy, ~970 lines)
+- POSITIONING.md (brand, voice, category)
+- STRATEGY.md (5 monetization paths)
+- FEATURES.md (12 features incl. F0)
+- LAUNCH_PREP.md (launch sequence)
+- PRODUCT_IDEAS.md (xwan + portfolio)
+- CONTENT_LINKEDIN_CHEATSHEET.md (launch content)
+- CONTENT_HN_REDDIT_CHEATSHEET.md (launch content)
+
+Plus BACKLOG.md (this file) which IS in the public repo.
+
+Total ~3000 lines of strategic work. A laptop loss = catastrophic.
+
+### 5-minute setup commands
+
+```bash
+# Create a fresh local directory for the strategy repo
+cd ~
+mkdir -p dev/keyorix-strategy
+cd dev/keyorix-strategy
+git init
+
+# Copy current strategy docs from dashdiag/
+cp /Users/andreibeshkov/dev/dashdiag/KEYORIX_FOUNDATION.md .
+cp /Users/andreibeshkov/dev/dashdiag/POSITIONING.md .
+cp /Users/andreibeshkov/dev/dashdiag/STRATEGY.md .
+cp /Users/andreibeshkov/dev/dashdiag/FEATURES.md .
+cp /Users/andreibeshkov/dev/dashdiag/LAUNCH_PREP.md .
+cp /Users/andreibeshkov/dev/dashdiag/PRODUCT_IDEAS.md .
+cp /Users/andreibeshkov/dev/dashdiag/CONTENT_*.md .
+
+# Add a README explaining what this repo is
+cat > README.md <<'EOF'
+# Keyorix Strategy
+
+Private strategy and positioning documents for Keyorix S.L.
+
+This repo is the canonical source of truth for company-level strategic
+thinking. The public dashdiag/keyorixhq repos contain operational
+documentation only.
+
+## Documents
+
+- KEYORIX_FOUNDATION.md — philosophy and conviction (the why)
+- POSITIONING.md — brand, voice, audience, category framing
+- STRATEGY.md — monetization paths
+- FEATURES.md — feature roadmap with priority
+- LAUNCH_PREP.md — launch sequence
+- PRODUCT_IDEAS.md — future products beyond DashDiag and Keyorix Vault
+- CONTENT_*.md — drafts for launch coordination
+
+## Access
+
+Restricted to founders and approved cofounders post-ENISA verification.
+EOF
+
+git add -A
+git commit -m "Initial strategy snapshot - 2026-05-09"
+
+# Create the private repo on GitHub and push
+gh repo create keyorixhq/strategy --private --source=. --push
+
+# Verify it pushed
+gh repo view keyorixhq/strategy --web
+```
+
+### Sync script for ongoing updates
+
+After initial setup, save this as `~/bin/sync-keyorix-strategy.sh`:
+
+```bash
+#!/bin/bash
+set -e
+
+DASHDIAG=/Users/andreibeshkov/dev/dashdiag
+STRATEGY=$HOME/dev/keyorix-strategy
+
+# Copy current versions
+cp "$DASHDIAG"/KEYORIX_FOUNDATION.md "$STRATEGY"/
+cp "$DASHDIAG"/POSITIONING.md "$STRATEGY"/
+cp "$DASHDIAG"/STRATEGY.md "$STRATEGY"/
+cp "$DASHDIAG"/FEATURES.md "$STRATEGY"/
+cp "$DASHDIAG"/LAUNCH_PREP.md "$STRATEGY"/
+cp "$DASHDIAG"/PRODUCT_IDEAS.md "$STRATEGY"/
+cp "$DASHDIAG"/CONTENT_*.md "$STRATEGY"/ 2>/dev/null || true
+
+cd "$STRATEGY"
+git add -A
+
+# Only commit if there are changes
+if ! git diff --cached --quiet; then
+    git commit -m "snapshot $(date +%Y-%m-%d-%H%M)"
+    git push
+    echo "Strategy backed up to private repo"
+else
+    echo "No changes to back up"
+fi
+```
+
+Make it executable: `chmod +x ~/bin/sync-keyorix-strategy.sh`
+
+Run after every strategy session.
+
+### When ENISA cofounder checks clear
+
+Grant cofounders access to the strategy repo:
+```bash
+gh api repos/keyorixhq/strategy/collaborators/USERNAME -X PUT \
+  -f permission=push
+```
+
+Or via web UI: github.com/keyorixhq/strategy/settings/access
+
+### Defense in depth (after launch)
+
+Once the immediate backup is in place, consider additional layers:
+- Local encrypted backup to external drive (monthly)
+- iCloud Drive copy of the strategy repo (auto-syncs continuously)
+- Optional: GitLab.com mirror for EU sovereignty story consistency
+   (GitHub is owned by Microsoft, US jurisdiction)
+
+Don't let perfect-backup planning prevent imperfect-backup execution.
+GitHub private repo tonight is enough.

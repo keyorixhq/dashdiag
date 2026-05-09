@@ -646,7 +646,7 @@ dashdiag/
 │   │   ├── processes.go         # zombie (Z) and hung (D-state) process detection
 │   │   ├── systemd.go           # failed/stuck systemd units
 │   │   ├── sysctl.go            # key kernel parameters: somaxconn, pid_max, swappiness
-│   │   ├── mac_policy.go        # SELinux / AppArmor status and recent denials
+│   │   ├── kernel_security.go        # SELinux / AppArmor status and recent denials
 │   │   ├── logs.go              # journald + syslog error aggregation + journal size
 │   │   ├── security.go          # read-only security posture: SSH config, ports, sudo
 │   │   ├── clock.go             # NTP sync check
@@ -680,7 +680,7 @@ dashdiag/
 │   │   ├── process.go           # ProcessState, ProcessInfo
 │   │   ├── systemd.go           # SystemdInfo (failed/stuck units)
 │   │   ├── sysctl.go            # SysctlInfo (kernel parameters)
-│   │   ├── mac_policy.go        # MACPolicyInfo (SELinux/AppArmor)
+│   │   ├── kernel_security.go        # KernelSecurityInfo (SELinux/AppArmor)
 │   │   ├── logs.go              # LogError, LogsInfo (+ journal size)
 │   │   ├── security.go          # PortEntry, SecurityInfo
 │   │   └── progress.go          # ProgressBar() locked spec
@@ -1043,7 +1043,7 @@ func runHealth(cmd *cobra.Command, args []string) {
         collectors.NewFDLimitsCollector(),        // system + per-process + deleted files
         collectors.NewSystemdCollector(),         // failed/stuck units
         collectors.NewSysctlCollector(),          // somaxconn, pid_max
-        collectors.NewMACPolicyCollector(),       // SELinux/AppArmor
+        collectors.NewKernelSecurityCollector(),       // SELinux/AppArmor
         collectors.NewProcessCollector(),         // zombie + D-state
     }
 
@@ -1054,7 +1054,7 @@ func runHealth(cmd *cobra.Command, args []string) {
     // Note: command-to-collector routing:
     //   dsd health      → CPUCollector, MemoryCollector, DiskCollector, SwapCollector,
     //                  IOCollector, NetworkQuickCollector, ClockCollector, FDLimitsCollector,
-    //                  SystemdCollector, SysctlCollector, MACPolicyCollector, ProcessCollector
+    //                  SystemdCollector, SysctlCollector, KernelSecurityCollector, ProcessCollector
     //   dsd net      → NetworkDeepCollector
     //   dsd docker   → ContainerCollector
     //   dsd services → ServicesCollector
@@ -5696,11 +5696,11 @@ for _, unit := range snapshot.Systemd.FailedUnits {
 }
 
 // SELinux denials — application silently blocked
-if snapshot.MACPolicy.SELinuxDenials > 0 {
+if snapshot.KernelSecurity.SELinuxDenials > 0 {
     insights = append(insights, models.Insight{
         Level:   "WARN",
         Message: fmt.Sprintf("SELinux: %d AVC denial(s) in last hour — application may be silently blocked",
-            snapshot.MACPolicy.SELinuxDenials),
+            snapshot.KernelSecurity.SELinuxDenials),
         Hints: []string{
             "ausearch -m avc -ts recent",
             "sealert -l "*"  (if setroubleshoot installed)",
@@ -7341,12 +7341,12 @@ type SysctlInfo struct {
 }
 ```
 
-**`internal/models/mac_policy.go`:**
+**`internal/models/kernel_security.go`:**
 
 ```go
 package models
 
-type MACPolicyInfo struct {
+type KernelSecurityInfo struct {
     SELinuxPresent  bool   `json:"selinux_present"`
     SELinuxMode     string `json:"selinux_mode"`    // "enforcing" / "permissive" / "disabled"
     SELinuxDenials  int    `json:"selinux_denials"` // AVC denials in last hour
@@ -7518,7 +7518,7 @@ func readSysctlInt(key string) int {
 }
 ```
 
-**`internal/collectors/mac_policy.go` — SELinux and AppArmor status:**
+**`internal/collectors/kernel_security.go` — SELinux and AppArmor status:**
 
 ```go
 package collectors
@@ -7534,13 +7534,13 @@ import (
     "github.com/yourusername/dashdiag/internal/models"
 )
 
-type MACPolicyCollector struct{}
+type KernelSecurityCollector struct{}
 
-func (c *MACPolicyCollector) Name()    string        { return "MAC Policy" }
-func (c *MACPolicyCollector) Timeout() time.Duration { return 5 * time.Second }
+func (c *KernelSecurityCollector) Name()    string        { return "KernelSecurity" }
+func (c *KernelSecurityCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *MACPolicyCollector) Collect(ctx context.Context) (interface{}, error) {
-    info := models.MACPolicyInfo{}
+func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, error) {
+    info := models.KernelSecurityInfo{}
 
     // ── SELinux ──────────────────────────────────────────────────────────────
     if out, err := exec.CommandContext(ctx, "getenforce").Output(); err == nil {
@@ -7743,8 +7743,8 @@ Return models.SysctlInfo. No errors — missing files return 0."
 ```
 
 ```
-Prompt — mac_policy.go:
-"Write internal/collectors/mac_policy.go with MACPolicyCollector.
+Prompt — kernel_security.go:
+"Write internal/collectors/kernel_security.go with KernelSecurityCollector.
 Timeout: 5 seconds.
 SELinux:
   1. exec 'getenforce' → SELinuxMode (enforcing/permissive/disabled)
@@ -7796,7 +7796,7 @@ Hint message: 'journalctl --vacuum-size=500M' or '--vacuum-time=4weeks'."
    → sysctl -w net.core.somaxconn=4096
    → echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf
 
-[MAC Policy]
+[KernelSecurity]
 ⚠️  SELinux enforcing: 23 AVC denials in last hour
    → ausearch -m avc -ts recent
    → sealert -l "*" (if setroubleshoot installed)
@@ -10751,7 +10751,7 @@ and shareability before adding more checks.
 | Process health | `/proc/[0-9]*/stat` | Zombie (Z) and hung (D-state) detection |
 | Systemd units | `systemctl list-units --state=failed,activating` | Failed and stuck service detection |
 | Kernel params | `/proc/sys/` (no exec) | somaxconn, pid_max, swappiness — read-only |
-| MAC policy | `getenforce` + `/sys/module/apparmor` | SELinux/AppArmor mode + recent AVC denials |
+| kernel security | `getenforce` + `/sys/module/apparmor` | SELinux/AppArmor mode + recent AVC denials |
 | Memory slab | `/proc/meminfo` Slab/CommitLimit | Kernel cache growth and overcommit detection |
 | Journal size | `journalctl --disk-usage` | Journal disk consumption |
 
