@@ -31,10 +31,11 @@ type JSONCheck struct {
 }
 
 type JSONInsight struct {
-	Check   string `json:"check"`
-	Level   string `json:"level"`
-	Message string `json:"message"`
-	Hint    string `json:"hint,omitempty"`
+	Check   string          `json:"check"`
+	Level   string          `json:"level"`
+	Message string          `json:"message"`
+	Hint    string          `json:"hint,omitempty"`
+	Details *models.Details `json:"details,omitempty"`
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
@@ -82,7 +83,7 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		if ins.Level == "OK" {
 			continue
 		}
-		ji := JSONInsight{Check: ins.Check, Level: ins.Level, Message: ins.Message}
+		ji := JSONInsight{Check: ins.Check, Level: ins.Level, Message: ins.Message, Details: ins.Details}
 		if len(ins.Hints) > 0 {
 			ji.Hint = ins.Hints[0]
 		}
