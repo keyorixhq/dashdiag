@@ -79,6 +79,77 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 			}
 		}
 		fmt.Fprintln(os.Stdout, line)
+
+		if ins != nil && ins.Details != nil && r.mode == output.ModeHuman {
+			r.renderDetails(ins.Details)
+		}
+	}
+}
+
+func (r *Renderer) renderDetails(d *models.Details) {
+	const indent = "   "
+
+	if d.Title != "" {
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(d.Title+":"))
+	}
+
+	if len(d.Columns) > 0 && len(d.Rows) > 0 {
+		// Compute column widths
+		widths := make([]int, len(d.Columns))
+		for i, col := range d.Columns {
+			widths[i] = len(col)
+		}
+		for _, row := range d.Rows {
+			for i, cell := range row {
+				if i < len(widths) && len(cell) > widths[i] {
+					widths[i] = len(cell)
+				}
+			}
+		}
+
+		// Header
+		var hdr strings.Builder
+		hdr.WriteString(indent)
+		for i, col := range d.Columns {
+			if i > 0 {
+				hdr.WriteString("  ")
+			}
+			hdr.WriteString(fmt.Sprintf("%-*s", widths[i], col))
+		}
+		fmt.Fprintln(os.Stdout, StyleDim.Render(hdr.String()))
+
+		// Rows
+		for _, row := range d.Rows {
+			var sb strings.Builder
+			sb.WriteString(indent)
+			for i, cell := range row {
+				if i > 0 {
+					sb.WriteString("  ")
+				}
+				w := 0
+				if i < len(widths) {
+					w = widths[i]
+				}
+				sb.WriteString(fmt.Sprintf("%-*s", w, cell))
+			}
+			fmt.Fprintln(os.Stdout, sb.String())
+		}
+	}
+
+	if d.Type == "log_tail" {
+		if tail, ok := d.KV["log_tail"]; ok {
+			for _, line := range strings.Split(strings.TrimSpace(tail), "\n") {
+				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(line))
+			}
+		}
+	} else if len(d.KV) > 0 && len(d.Rows) == 0 {
+		for k, v := range d.KV {
+			fmt.Fprintf(os.Stdout, "%s%s: %s\n", indent, StyleDim.Render(k), v)
+		}
+	}
+
+	if d.Note != "" {
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render("note: "+d.Note))
 	}
 }
 

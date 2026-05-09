@@ -147,9 +147,9 @@ func TestSysctlInfo(t *testing.T) {
 	}
 }
 
-func TestMACPolicyInfo(t *testing.T) {
-	in := MACPolicyInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 3, Status: "WARN"}
-	var out MACPolicyInfo
+func TestKernelSecurityInfo(t *testing.T) {
+	in := KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 3, Status: "WARN"}
+	var out KernelSecurityInfo
 	roundTrip(t, &in, &out)
 	if !out.SELinuxPresent || out.SELinuxMode != in.SELinuxMode || out.SELinuxDenials != in.SELinuxDenials {
 		t.Errorf("round-trip mismatch: got %+v", out)
@@ -201,5 +201,44 @@ func TestInsight(t *testing.T) {
 	roundTrip(t, &in, &out)
 	if out.Level != in.Level || out.Check != in.Check || len(out.Hints) != 2 {
 		t.Errorf("round-trip mismatch: got %+v", out)
+	}
+}
+
+func TestInsightWithDetails(t *testing.T) {
+	in := Insight{
+		Level:   "CRIT",
+		Check:   "Memory",
+		Message: "RAM at 96%",
+		Hints:   []string{"free -h"},
+		Details: &Details{
+			Type:    "process_table",
+			Title:   "Top processes by memory (RSS)",
+			Columns: []string{"PID", "MEM%", "RSS", "COMMAND"},
+			Rows:    [][]string{{"1234", "31.4%", "5.0GB", "postgres"}},
+			Note:    "some processes hidden",
+		},
+	}
+	var out Insight
+	roundTrip(t, &in, &out)
+	if out.Details == nil {
+		t.Fatal("Details should not be nil after round-trip")
+	}
+	if out.Details.Type != in.Details.Type {
+		t.Errorf("Details.Type mismatch: got %q want %q", out.Details.Type, in.Details.Type)
+	}
+	if len(out.Details.Rows) != 1 || out.Details.Rows[0][3] != "postgres" {
+		t.Errorf("Details.Rows mismatch: got %v", out.Details.Rows)
+	}
+	if out.Details.Note != in.Details.Note {
+		t.Errorf("Details.Note mismatch: got %q", out.Details.Note)
+	}
+}
+
+func TestInsightDetailsOmitEmpty(t *testing.T) {
+	in := Insight{Level: "OK", Check: "CPU", Message: "fine", Hints: nil}
+	var out Insight
+	roundTrip(t, &in, &out)
+	if out.Details != nil {
+		t.Error("Details should be nil when not set")
 	}
 }

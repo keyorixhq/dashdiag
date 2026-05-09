@@ -11,6 +11,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/drilldown"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -24,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(healthCmd)
 	healthCmd.AddCommand(healthDeepCmd)
 	healthCmd.Flags().Duration("watch-interval", 60*time.Second, "refresh interval for --watch mode")
+	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
 }
 
 var healthCmd = &cobra.Command{
@@ -43,6 +45,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	yamlOut, _ := cmd.Flags().GetBool("yaml")
+	terse, _ := cmd.Flags().GetBool("terse")
 	outputFmt := ""
 	switch {
 	case jsonOut:
@@ -66,7 +69,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		tips.MaybePrintReengagement(state, mode, version.Version)
 	}
 
-	results, insights, snap := runHealthOnce(ctx, ctrCtx, cloudEnv, mode)
+	results, insights, snap := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -153,7 +156,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
 	cols := buildHealthCollectors(ctrCtx)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
@@ -167,6 +170,9 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 
 	thresh := analysis.DefaultThresholds(cloudEnv)
 	insights := analysis.ApplyThresholds(results, thresh, cloudEnv)
+	if !terse {
+		insights = drilldown.PopulateAll(ctx, insights, results)
+	}
 	snap := baseline.BuildSnapshot(results, insights)
 	return results, insights, snap
 }
@@ -176,7 +182,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	defer ticker.Stop()
 
 	run := func() {
-		results, insights, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode)
+		results, insights, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
@@ -207,7 +213,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collec
 		collectors.NewProcessesCollector(),
 		collectors.NewSystemdCollector(),
 		collectors.NewSysctlCollector(),
-		collectors.NewMACPolicyCollector(),
+		collectors.NewKernelSecurityCollector(),
 	}
 }
 
