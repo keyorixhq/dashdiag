@@ -18,6 +18,7 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 
 ## NOW — Launch prerequisites
 
+- [ ] Decide and commit DashDiag license (Apache 2.0 recommended — see PRODUCT_IDEAS.md)
 - [ ] Register dashdiag.sh domain
 - [ ] Build dashdiag.sh landing page (single page + waitlist form)
 - [ ] Write README.md (install command, quick start, demo output)
@@ -25,6 +26,7 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 - [ ] Add waitlist link to README, push
 - [ ] Write Hacker News Show HN post draft
 - [ ] Write CHANGELOG.md (v0.1.0 + v0.1.1 entries)
+- [ ] Backup strategic documents off-laptop (gitignored, single-machine = risk)
 
 ---
 
@@ -66,8 +68,22 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 - [ ] `dsd docker` — container health, restart counts, OOM kills
 
 ### Gate: dsd docker in production use
-- [ ] `dsd compare` — multi-server side-by-side comparison
-- [ ] `dsd policy` — YAML policy file, CI gate (free tier)
+- [ ] `dsd compare` — multi-server side-by-side comparison (FEATURES.md F2)
+- [ ] `dsd policy` — YAML policy file, CI gate (FEATURES.md F1, F3)
+
+### Gate: 3+ users request configurable thresholds
+- [ ] Configurable thresholds via config file (~/.dsd/config.yaml)
+      Defer until 3+ users request it. Keep minimal scope:
+      override specific thresholds, defaults applied otherwise.
+      Connects to policy-as-code (FEATURES.md F1, F3) when built.
+      See KEYORIX_FOUNDATION.md §6 — defaults, not configuration.
+
+### Gate: AI ops integration becomes priority (~year 2)
+- [ ] `dsd mcp` — MCP server subcommand for AI assistant integration
+      DashDiag's --json output is already AI-ready. Wrap as MCP server
+      so Claude/Cursor/etc. can call dsd_health(), dsd_diff() etc. directly.
+      ~1 week of work. Don't market heavily — let it be discovered.
+      See PRODUCT_IDEAS.md §0 — portfolio MCP layer.
 
 ### Gate: Phase 3 validated
 - [ ] `dsd logs` — journald aggregation, recurring error detection
@@ -91,9 +107,22 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 ### Gate: UnpackOps RCA validated
 - [ ] Gauge (FinOps product)
 
+### Strategic docs (see private gitignored files)
+- KEYORIX_FOUNDATION.md — philosophy, audience, method
+- POSITIONING.md — brand, voice, messaging
+- STRATEGY.md — 5 monetization paths
+- FEATURES.md — 11 enterprise features ranked by enterprise pull
+- LAUNCH_PREP.md — README/GIF/HN post sequence
+- PRODUCT_IDEAS.md — xwan, future products, acquisition lens
+
 ---
 
 ## BUGS / KNOWN ISSUES
+
+### In progress
+- [ ] macOS swap threshold producing false WARNs (sent to Claude Code 2026-05-08)
+      Platform-aware thresholds: Linux 20%/50%, macOS 75%/90% gated by
+      memory pressure (sysctl kern.memorystatus_vm_pressure_level)
 
 ### Known limitations (not bugs)
 - CPU stress: FAIL on busy machines — mitigated by baseline skip + cores*2 spinners
@@ -123,6 +152,8 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
       Fix: use ps axo pid,stat on darwin, check only stat column for Z
 - [x] Swap/Memory hints wrong on macOS (free -h, vmstat don't exist)
       Fix: macOS-appropriate hints (vm_stat, sysctl vm.swapusage, top -l 1)
+- [x] MACPolicy collector renamed to KernelSecurity
+      MAC abbreviation collided with macOS naming — confused users on Mac
 
 ### P1.3 Colima + Docker distro sweep (2026-05-08)
 - [x] Clock CRIT in all containers — inherit host clock fix
@@ -147,6 +178,13 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 - Slack webhook: `dsd health --notify-slack $WEBHOOK_URL`
 - `dsd health --threshold cpu_warn=90` — per-run threshold overrides
 - Structured logging in --debug mode
+- `dsd how "check if a port is open"` — built-in command lookup mode
+   (replaces cheat sheets — reinforces "burn the cheat sheet" positioning)
+- Pre/post-deploy diff (FEATURES.md F1) — capture baseline, diff after deploy
+- Multi-env compare (FEATURES.md F2) — diff prod vs staging system state
+- GitHub Action for PR checks (FEATURES.md F3) — block merges on CRIT
+- Drift detection (FEATURES.md F4) — daily snapshots, trend analysis
+- Approval workflow (FEATURES.md F5) — Slack-mediated risky-change approval
 
 ---
 
@@ -157,6 +195,8 @@ Linux testing: ✅ P1–P4 COMPLETE | macOS arm64: ✅ VALIDATED
 2026-05  Rejected: RPG achievements — too gamey for DevOps/SRE audience
 2026-05  Rejected: Speed tier differentiation — runs locally, no server queues
 2026-05  Deferred: Watermarks on --share — engineers would remove them
+2026-05  Renamed: MACPolicy → KernelSecurity (macOS naming collision)
+2026-05  Decided: Defaults over configuration — see KEYORIX_FOUNDATION.md §6
 
 ---
 
