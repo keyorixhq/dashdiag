@@ -5,9 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — v0.2.0
+## [v0.2.0] — 2026-05-10
 
 ### Added
+
+- **`--debug` flag** — enables structured debug logging to stderr for
+  troubleshooting silent failures and slow checks. Output is independent
+  of the configured output mode (`--json`, `--yaml`, `--plain`) so machine-
+  readable stdout stays clean. Format: `[debug] HH:MM:SS.mmm  Component
+  message  key=value`. Debug logging covers:
+  - Per-collector start, finish, duration, and error from `internal/runner`
+  - Network probe trace from `internal/collectors/network_quick.go`:
+    gateway detection, each ICMP attempt (host, mode, error), TCP fallback
+    attempts, final probe results
+  See `internal/debug/` package for the API. Disabled by default — zero
+  overhead when off.
 
 - **F0 — inline drill-down on WARN/CRIT.** When a check fires WARN or CRIT,
   DashDiag now automatically gathers and displays the relevant attribution
@@ -32,6 +44,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Drill-down output appears in both terminal and `--json` formats.
   Use `--terse` to skip drill-down and see only the verdict.
 
+- **`models.NetworkInfo.ICMPBlocked`** field (JSON: `icmp_blocked`,
+  omitempty). Set to `true` when DashDiag had to fall back from ICMP
+  probes to TCP probes for L3 reachability — typically when running
+  as a non-root user on a system with restrictive
+  `net.ipv4.ping_group_range`. Surfaces this fact for future privilege-
+  aware UX messaging.
+
 ### Breaking changes
 
 - **`--json` output**: check name `"MACPolicy"` renamed to `"KernelSecurity"`.
@@ -50,8 +69,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `OK`. Same change for KernelSecurity when no kernel security module is enforcing.
   Previous behaviour would silently report OK and mislead users into thinking these
   subsystems were healthy when they weren't even running.
+- **Errored collectors now surface as INFO insights** instead of being silently
+  dropped. Previously, if a collector returned a non-nil error from `Collect()`,
+  the analysis layer would silently skip it (`continue`) and the user would see
+  *nothing* — indistinguishable from a passing check. Now any collector error
+  produces an INFO insight: `<Check> check could not run — <error>`. Covers
+  permission denials (`opening diskstats: permission denied`), context timeouts,
+  missing system files, and any future collector failure mode.
 
 ### Fixed
+
+- **Network check false-positive "gateway unreachable" for non-root Linux users.**
+  The `go-ping` library required either `CAP_NET_RAW` or a permissive
+  `net.ipv4.ping_group_range` (Ubuntu's default `1 0` blocks unprivileged
+  ICMP). Both ICMP modes failed silently for typical non-root users,
+  returning 100% packet loss — which heuristics interpreted as gateway
+  CRIT. Discovered on real-hardware testing (2011 MacBook running Ubuntu
+  24.04). Would have triggered for ~every `curl install.sh | sh` user
+  on launch.
+  
+  Fix: added a TCP-connect fallback in `pingRTT`. When both privileged
+  and unprivileged ICMP fail, DashDiag now tries TCP dial to ports 53
+  and 80 — *both successful connection AND `connection refused` count
+  as L3 reachability proof*, since the host responded to the packet.
+  No `CAP_NET_RAW` required; works under every Linux distribution's
+  default settings.
+
+- **Gateway probe ambiguity for routers that ignore probes (e.g. Zyxel
+  Keenetic).** Previously, any condition that produced `GatewayPingMs <
+  0` triggered a CRIT "gateway unreachable" alert — even when the
+  internet itself was clearly reachable. Some consumer routers drop
+  ICMP/TCP probes on the LAN interface while still forwarding traffic
+  normally. The analysis now distinguishes:
+  - Both gateway *and* internet unreachable → CRIT "host appears offline"
+  - Gateway silent but internet reachable → INFO "gateway not responding
+    to probes — internet traffic is flowing"
+  - Both reachable → normal latency thresholds apply
 
 - **F0 drill-down didn't render in non-TTY contexts** — `internal/render/health.go`
   gated drill-down rendering on `mode == ModeHuman`, but `output.DetectMode`
@@ -59,6 +112,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pipelines, shell pipes, redirected output). Extended the condition to
   `ModeHuman || ModePlain`. Lipgloss strips ANSI codes automatically in non-TTY
   contexts, so output stayed clean.
+
+- **`SwapInfo.ZramUsedPct` field was always zero.** The field existed in
+  the model since v0.1 but was never populated — a silent zero. Now reads
+  `/sys/block/zramN/disksize` and `mm_stat` field 0 (`orig_data_size`)
+  across all zram devices and calculates utilisation percentage.
+  Graceful: if `mm_stat` is unavailable, the field stays zero.
+
+- **SELinux insight orphaned by check-name mismatch.** SELinux insights
+  used `Check: "SELinux"` but the renderer attached drill-down via prefix
+  match against `"KernelSecurity"`. The drill-down was generated correctly
+  but never displayed. Renamed the insight to `"KernelSecurity"` so prefix
+  matching attaches the drill-down output.
 
 ---
 
