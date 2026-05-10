@@ -21,7 +21,7 @@ var skipFSTypes = map[string]bool{
 	"proc": true, "sysfs": true, "cgroup": true, "cgroup2": true,
 	"devpts": true, "pstore": true, "securityfs": true, "debugfs": true,
 	"hugetlbfs": true, "mqueue": true, "fusectl": true,
-	"devfs": true,
+	"devfs": true, "efivarfs": true, "bpf": true, "tracefs": true,
 }
 
 type mountEntry struct {
@@ -103,7 +103,9 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 		if skipFSTypes[e.fsType] || seen[e.mountPoint] {
 			continue
 		}
-		if strings.HasPrefix(e.mountPoint, "/mnt/lima-") {
+		if strings.HasPrefix(e.mountPoint, "/mnt/lima-") ||
+			strings.HasPrefix(e.mountPoint, "/sys/") ||
+			strings.HasPrefix(e.mountPoint, "/proc/") {
 			continue
 		}
 		seen[e.mountPoint] = true
