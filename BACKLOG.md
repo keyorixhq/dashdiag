@@ -248,7 +248,16 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       - English (default)
       - Spanish — founder + Spanish-speaking friends review panel
       - Russian — founder native
-      - Chinese (Simplified) — trusted friend reviewer
+      
+      Chinese (Simplified) reviewer is on standby but added only after
+      community/customer validation per the "validation gates new languages"
+      rule in COMPANY_PRINCIPLES.md.
+      
+      String surface is small (≈54 user-facing strings of meaningful
+      length as of 2026-05-10). Three languages × 54 = 162 strings, well
+      within human-pipeline review without auto-translation tooling.
+      This is the key reason Russian fits at v0.3 launch — small surface
+      avoids the Keyorix carry-cost trap.
       
       Languages beyond launch set arrive via community pull requests with
       public credit (JetBrains / VLC / Linux model). No machine-translated
@@ -279,10 +288,11 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       - --lang flag override on root command.
       - Fallback chain: --lang → env → English.
       
-      Phase 4 — Spanish translation pass (1-2 days):
-      - Founder + friend-network review panel.
+      Phase 4 — Translation pass (1-2 days):
+      - Spanish: founder + friend-network review panel.
+      - Russian: founder native, self-review.
       - Side-by-side review tooling: dsd health --lang=es vs --lang=en.
-      - Russian and Chinese added as pipeline matures, before public push.
+      - Chinese added later as a separate workstream after validation.
       
       Phase 5 — Tests (half day):
       - Snapshot tests per locale for representative outputs.

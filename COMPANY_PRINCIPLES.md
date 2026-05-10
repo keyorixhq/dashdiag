@@ -99,31 +99,58 @@ Every product launches with translations in the languages where
 we can vouch for native-speaker quality. Bad translation is worse
 than no translation — it signals "we don't actually care."
 
-At the time of writing (founder + close network):
+DashDiag v0.3 launch set:
 
 | Language              | Reviewer / source                                  |
 |-----------------------|----------------------------------------------------|
 | English               | Default, native quality                            |
 | Spanish (Spain + LATAM) | Founder + Spanish-speaking friends as review panel |
 | Russian               | Founder native                                     |
-| Chinese (Simplified)  | Trusted friend, native speaker                     |
 
-This covers >2 billion potential users at launch. It is a stronger
-footprint than most B2B tools achieve in their first three years.
+This is feasible because DashDiag's user-facing string surface is
+small (≈54 strings of meaningful length as of 2026-05-10). Three
+languages × 54 strings = 162 strings, well within human-review
+pipeline capacity — no auto-translation tooling needed.
 
-### Languages beyond the launch set
+### Languages added after validation
 
-Everything else is community-driven, by design:
+Additional languages are added **only after the product is
+validated by community use and paying customers** — not on
+reviewer availability alone, even when a trusted reviewer exists.
 
+The rule: validation gates new languages. This prevents the
+temptation to add a language because translation is cheap, then
+discover the carry cost is real once the surface area grows.
+
+Expected sequence (revisable with data):
+- Chinese (Simplified) — trusted friend reviewer on standby; added
+  when DashDiag has paying customers and stable copy.
 - Portuguese, German, French, Hindi, Japanese, Italian, Polish,
-  and any others arrive via GitHub pull requests from native
-  speakers in the community.
-- Translators are publicly credited in product docs and release
-  notes.
-- A community translator becomes an advocate. A hired translator
-  is a one-shot transaction. The community model is structurally
-  better, not just cheaper.
-- This is the JetBrains / VLC / Linux model and it works at scale.
+  others — via community pull requests with public credit
+  (JetBrains / VLC / Linux model).
+
+### Lesson from Keyorix (captured 2026-05-10)
+
+In Keyorix, even with auto-translation tooling, the carry cost of
+10 languages exceeded what the pipeline could sustain at the pace
+of source-language change in early-stage development. Translation
+APIs ran out of tokens; review queues backlogged; strings drifted
+out of sync.
+
+The lesson is **not** "avoid i18n." The lesson is:
+
+- i18n architecture from v1.0 is correct. The architectural
+  affordances must exist from the start, or retrofitting later
+  is painful.
+- **Populate translations only when (a) the source-language string
+  surface is small enough for human-pipeline review without
+  auto-translation tooling, OR (b) message churn has dropped
+  below auto-translation pipeline throughput.**
+- Many languages × high churn = the trap. Few languages × small
+  surface = manageable. Many languages × stable surface =
+  manageable. DashDiag at v0.3 is in the second category.
+- Adding a language is a commitment to keep it current. "Just one
+  more" with a willing reviewer is how the trap forms.
 
 ### What gets localised
 
@@ -155,6 +182,11 @@ Everything else is community-driven, by design:
   Spanish-speaking market is a missed signal. Spanish at launch
   says "we are a Spanish company building globally" rather than
   "we are a US-style startup that happens to live here."
+- ENISA two-year horizon: Spanish across the product portfolio is
+  a regulatory factor in startup-residence-permit renewal for
+  co-founders. This is a portfolio-level requirement on a two-year
+  timeline, not a per-product launch requirement — but DashDiag
+  Spanish at v0.3 contributes to that picture.
 - It is also simply the right thing to do. Engineers maintaining
   global infrastructure deserve tools in their language regardless
   of where they sit on the global wage curve.
@@ -166,18 +198,18 @@ Everything else is community-driven, by design:
   for localisation, even if only English is populated at first.
 - **Launch translations** are limited to languages we can vouch
   for via native-speaker review. No machine-translated fallbacks.
-- **DashDiag launch:** English + Spanish at v0.3 if achievable;
-  Russian and Chinese added as the i18n pipeline matures. Build
-  the architecture in v0.3, populate the launch set as quickly
-  as quality review allows.
-- **Keyorix launch:** same principle applies retroactively. Spanish
-  and English minimum at launch; Russian and Chinese added before
-  major public push. ENISA's 5-10 language commitment is a
-  two-year window — doing the architecture right at launch
-  de-risks that commitment, rather than treating it as a future
-  scramble.
-- **Future products** (RCA platform, FinOps tool): same pattern,
-  no exceptions.
+- **DashDiag v0.3:** English + Spanish + Russian at launch.
+  String surface is small enough (≈54 strings) for human-pipeline
+  review without auto-translation. Chinese added after community/
+  customer validation, not on reviewer-availability alone.
+- **Keyorix launch:** Spanish + English minimum. The string
+  surface is larger — stabilise copy before adding more languages.
+  ENISA's 5-10 language commitment is a two-year window;
+  doing the architecture right at launch and pacing language
+  additions to validation milestones de-risks that commitment.
+- **Future products** (RCA platform, FinOps tool): same pattern.
+  i18n architecture from v1.0; populate based on string surface
+  size and validation gates.
 - Translation contributions welcomed via GitHub pull requests.
 - Translators credited publicly in product docs and release notes.
 
