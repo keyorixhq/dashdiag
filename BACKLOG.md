@@ -207,7 +207,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       cannot exercise:
       
       - **cgroup v2** (RHEL 9 default; 2011 Ubuntu may be v1 or hybrid)
-      - **Modern systemd** (252+ on RHEL 9, 254+ on Debian 12)
+      - **Modern systemd** (252+ on RHEL 9, ~256+ on Debian 13)
       - **Multi-device NVMe** in /proc/diskstats — IO collector has
         never been tested with two physical drives. Disk collector
         likewise. *Highest-probability bug-finding surface.*
@@ -233,7 +233,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       
       Plan A — Multi-boot rig (preferred):
       
-      Build a single multi-boot system covering RHEL 9 + Debian 12 +
+      Build a single multi-boot system covering RHEL 9 + Debian 13 +
       NixOS on the Legion's 2 × 1TB NVMe drives. Boot into any OS in
       minutes, do A/B comparisons on the same hardware in a single
       afternoon, and revisit interesting bugs without losing state.
@@ -243,7 +243,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       NVMe0 (boot drive, 1TB):
       - 1 GB EFI System Partition (shared by all OSes)
       - 250 GB RHEL 9 (root + swap + home)
-      - 250 GB Debian 12 (root + swap + home)
+      - 250 GB Debian 13 (root + swap + home)
       - 250 GB NixOS (root + swap + home)
       - ~250 GB free (4th OS slot if needed, e.g. Ubuntu 24.04 to
         compare against testing MacBook on modern hardware)
@@ -267,7 +267,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       
       - NVMe0: RHEL 9 owns the whole drive (its installer sees a
         clean disk and writes GRUB to NVMe0's own ESP)
-      - NVMe1: Debian 12 owns the whole drive (writes GRUB to
+      - NVMe1: Debian 13 owns the whole drive (writes GRUB to
         NVMe1's own ESP)
       - Switch OS via BIOS boot menu (F12 at boot on Lenovo Legion):
         no shared bootloader, no risk of one OS's update breaking
@@ -304,7 +304,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       | Days  | OS         | Bar                         | Goal |
       |-------|------------|-----------------------------|------|
       | 1-7   | RHEL 9     | B — adversarial bug-finding | Real Red Hat stack, parallel cron |
-      | 8-10  | Debian 12  | A — smoke / coverage        | Pure Debian quirks |
+      | 8-10  | Debian 13  | A — smoke / coverage        | Pure Debian quirks, kernel 6.12 vs RHEL's 5.14 |
       | 11-12 | NixOS      | A — optional                | Stretch goal |
       | 13    | Wipe + Windows install   | —                | Handover prep |
       
@@ -382,7 +382,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       This pairs with the post-launch "non-root user testing matrix
       expansion" item in NEXT/Testing — between the Legion campaign
       and the testing MacBook parallel cron, the matrix becomes:
-      RHEL 9 / Debian 12 / Ubuntu 24.04 × root / non-root × 12 checks.
+      RHEL 9 / Debian 13 / Ubuntu 24.04 × root / non-root × 12 checks.
       That's enough coverage to be confident before HN launch.
 
 ---
