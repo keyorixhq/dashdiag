@@ -11,6 +11,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/debug"
 	"github.com/keyorixhq/dashdiag/internal/drilldown"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -42,6 +43,8 @@ var healthDeepCmd = &cobra.Command{
 
 func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
 	ctx := context.Background()
+	debugFlag, _ := cmd.Flags().GetBool("debug")
+	ctx = debug.With(ctx, debugFlag)
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	yamlOut, _ := cmd.Flags().GetBool("yaml")

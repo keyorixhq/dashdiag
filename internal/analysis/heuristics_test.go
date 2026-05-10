@@ -461,6 +461,17 @@ func TestSystemdHealthy(t *testing.T) {
 	}
 }
 
+func TestSystemdNotAvailable(t *testing.T) {
+	// On Alpine, macOS, and most containers systemd doesn't exist.
+	// Should produce INFO insight, not silently fall through to OK
+	// which would mislead users into thinking systemd is healthy.
+	sys := models.SystemdInfo{Available: false}
+	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
+	if !hasLevel(insights, "INFO") {
+		t.Errorf("expected INFO insight when systemd not available, got %+v", insights)
+	}
+}
+
 // ── Sysctl ────────────────────────────────────────────────────────────────────
 
 func TestSysctlSomaxconnThresholds(t *testing.T) {
@@ -526,8 +537,30 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 func TestSELinuxAbsent(t *testing.T) {
 	mac := models.KernelSecurityInfo{SELinuxPresent: false, SELinuxDenials: 100}
 	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	// Now expects an INFO insight when no kernel security module is enforcing,
+	// rather than no insights at all (which previously fell through to OK and
+	// misled users on Alpine/macOS/containers into thinking security was active).
+	if !hasLevel(insights, "INFO") {
+		t.Errorf("expected INFO insight when no kernel security module is enforcing, got %+v", insights)
+	}
+}
+
+func TestSELinuxDisabled(t *testing.T) {
+	// SELinux compiled in but mode=disabled should also produce INFO,
+	// since "present but disabled" means no policy is being enforced.
+	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "disabled"}
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	if !hasLevel(insights, "INFO") {
+		t.Errorf("expected INFO insight for SELinux in disabled mode, got %+v", insights)
+	}
+}
+
+func TestKernelSecurityEnforcing(t *testing.T) {
+	// SELinux enforcing with no denials should produce no insight (healthy state).
+	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 0}
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
 	if len(insights) != 0 {
-		t.Errorf("expected no insights when SELinux not present, got %+v", insights)
+		t.Errorf("expected no insights for healthy enforcing SELinux, got %+v", insights)
 	}
 }
 
@@ -563,4 +596,63 @@ func TestErrorResultSkipped(t *testing.T) {
 	if len(insights) != 0 {
 		t.Errorf("expected no insights for errored result, got %+v", insights)
 	}
+}
+
+func TestCheckNetworkGatewayStates(t *testing.T) {
+	tests := []struct {
+		name      string
+		net       models.NetworkInfo
+		wantLevel string
+		wantMsg   string
+	}{
+		{
+			name:      "both unreachable — truly offline",
+			net:       models.NetworkInfo{GatewayPingMs: -1, InternetPingMs: -1},
+			wantLevel: "CRIT",
+			wantMsg:   "host appears offline",
+		},
+		{
+			name:      "gateway blocks probes but internet flows — Zyxel case",
+			net:       models.NetworkInfo{GatewayPingMs: -1, InternetPingMs: 14},
+			wantLevel: "INFO",
+			wantMsg:   "internet traffic is flowing",
+		},
+		{
+			name:      "normal — both reachable",
+			net:       models.NetworkInfo{GatewayPingMs: 5, InternetPingMs: 14},
+			wantLevel: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			insights := checkNetwork(tt.net)
+			if tt.wantLevel == "" {
+				if len(insights) != 0 {
+					t.Errorf("expected no insights, got %+v", insights)
+				}
+				return
+			}
+			if len(insights) == 0 {
+				t.Fatalf("expected insight with level %s, got none", tt.wantLevel)
+			}
+			if insights[0].Level != tt.wantLevel {
+				t.Errorf("level: got %q, want %q", insights[0].Level, tt.wantLevel)
+			}
+			if tt.wantMsg != "" && !contains(insights[0].Message, tt.wantMsg) {
+				t.Errorf("message %q does not contain %q", insights[0].Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		})())
 }
