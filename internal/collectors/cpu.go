@@ -161,6 +161,7 @@ func partialCPUInfo(load1, load5, load15 float64, numCPU int) *models.CPUInfo {
 
 // loadAvgDarwin reads load averages on macOS via sysctl.
 // Output format: "{ 0.52 0.43 0.32 }"
+// On non-English locales the decimal separator may be a comma: "{ 2,12 0,43 0,32 }"
 func loadAvgDarwin(ctx context.Context) (float64, float64, float64, error) {
 	out, err := exec.CommandContext(ctx, "sysctl", "-n", "vm.loadavg").Output()
 	if err != nil {
@@ -169,5 +170,6 @@ func loadAvgDarwin(ctx context.Context) (float64, float64, float64, error) {
 	s := strings.TrimSpace(string(out))
 	s = strings.TrimPrefix(s, "{")
 	s = strings.TrimSuffix(s, "}")
+	s = strings.ReplaceAll(s, ",", ".") // normalize locale decimal separator
 	return parseLoadAvg(strings.NewReader(strings.TrimSpace(s)))
 }
