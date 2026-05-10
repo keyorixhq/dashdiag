@@ -80,7 +80,7 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 		}
 		fmt.Fprintln(os.Stdout, line)
 
-		if ins != nil && ins.Details != nil && r.mode == output.ModeHuman {
+		if ins != nil && ins.Details != nil && (r.mode == output.ModeHuman || r.mode == output.ModePlain) {
 			r.renderDetails(ins.Details)
 		}
 	}
