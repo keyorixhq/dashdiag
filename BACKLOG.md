@@ -201,6 +201,75 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       Flags currently hidden from --help (cmd/root.go) until backend ships.
 - [ ] `--report --out <file>` — save markdown report to file
 - [ ] Shell completion: `dsd completion bash/zsh/fish` (cobra built-in, 5 min)
+- [ ] **`dsd hardware` — diagnostics for aged & degrading hardware (deferred, 2026-05-10).**
+      
+      Strategic rationale: The vast majority of running infrastructure globally
+      is aged hardware on extended life cycles — Spanish small business, Eastern
+      European hosting, Indian datacentres on 8-year-old Dells, Brazilian
+      universities, NHS Trusts on 2014 boxes, African ISPs. Hardware shortage
+      worldwide means this is the default, not the edge case. Cloud-native
+      monitoring tools serve none of these users well. SMART monitoring exists
+      (smartd, Netdata exporters) but requires assembly — not a `curl install.sh`
+      experience. DashDiag's identity ("instant, no-agent, no-setup") fits this
+      gap perfectly.
+      
+      Why deferred (not built now): These users are real but hard to monetise
+      — small business, public sector, regions where EUR pricing is a meaningful
+      chunk of monthly salary. Sprint 1-4 monetisation targets DevOps/SRE/platform
+      engineers at companies with ops budgets. Build for paying users first,
+      ship, get first paying customer, *then* expand. Aged-hardware operators
+      become the open-source community-builder layer in a HashiCorp/GitLab/MongoDB
+      "we serve everyone, but enterprises pay" model.
+      
+      Scope sketch (v0.3 or v0.4):
+      - `dsd hardware` (fast): SMART summary via smartctl --json if installed,
+        thermal from /sys/class/thermal, ECC count from EDAC. Non-root where
+        possible. <500ms.
+      - `dsd hardware deep`: full SMART attribute dump, lm-sensors readings,
+        thermal history, vendor-specific drive health.
+      - Hint integration in `dsd health`: when disk wear or thermal looks
+        suspicious, suggest "run `dsd hardware` for details".
+      - Runtime dependency: smartmontools (graceful degrade if missing).
+      
+      Identity question to revisit when prioritising: does this expand DashDiag
+      from "system health for ops engineers" toward "diagnostics for the
+      infrastructure that's actually running the world"? That's a sharper market
+      position but a real repositioning — affects landing page, HN angle, target
+      audience.
+
+- [ ] **Internationalisation — 5-10 major languages (deferred, 2026-05-10).**
+      
+      Strategic rationale: Localisation is a distribution strategy, not a
+      translation cost. Spanish-speaking ops engineer in Argentina shares
+      DashDiag with their team because it speaks their language → that team
+      shares with Brazilian colleagues → two years later it's the de-facto
+      tool in LATAM ops culture → their North American parent company starts
+      paying for the team tier. Most localised users won't pay directly but
+      become propagation vectors that compound over time.
+      
+      Why deferred: English ships first. Localisation only makes sense once
+      the messages, insights, and hints have stabilised — translating moving
+      targets wastes work. Likely v0.4+ once v0.3 features stop churning copy.
+      
+      Target language priority (rough, revisit with data):
+      1. Spanish (Spain + LATAM) — founder location, large ops community
+      2. Portuguese (Brazil) — large engineering market, underserved by tools
+      3. Russian — large diaspora ops community, technical pragmatism
+      4. Chinese (Simplified) — vast ops market, current tools are English-only
+      5. German — strong DevOps culture, paying market
+      6. French — France + francophone Africa
+      7. Hindi — India ops scale
+      8. Japanese — paying market, English-tool friction
+      9. Italian — small but technical
+      10. Polish — Eastern European hub
+      
+      Scope sketch:
+      - All user-facing strings in `internal/i18n/messages.go` keyed by ID
+      - Locale detection from $LANG / $LC_MESSAGES with --lang override
+      - Insights, hints, error messages, headers — yes; debug logs — no
+        (debug stays English so issue reports are universally readable)
+      - JSON/YAML output stays English (machine-readable contract)
+      - Crowdsourced translation via GitHub PRs once core is stable
 
 ### Quality
 - [ ] 🔴 **Systematic error-handling audit & refactor.** Pattern observed
