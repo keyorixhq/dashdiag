@@ -123,10 +123,14 @@ func topProcessesByIOLinux(ctx context.Context, n int) (*models.Details, error) 
 		})
 	}
 
-	return &models.Details{
+	d := &models.Details{
 		Type:    "process_table",
 		Title:   "Top processes by I/O",
 		Columns: []string{"PID", "READ/s", "WRITE/s", "COMMAND"},
 		Rows:    rows,
-	}, nil
+	}
+	if len(rows) == 0 {
+		d.Note = "no active I/O detected in sampling window"
+	}
+	return d, nil
 }

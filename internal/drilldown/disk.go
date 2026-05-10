@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -18,16 +17,10 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		mount = "/"
 	}
 
-	// Use du for reliability; flags differ by platform.
-	var out string
-	var err error
-	if runtime.GOOS == "darwin" {
-		out, err = runCmd(ctx, "du", "-hd", "1", mount)
-	} else {
-		out, err = runCmd(ctx, "du", "-h", "--max-depth=1", mount)
-	}
+	// Use du on each immediate child (files + directories) so that large files
+	// at the mount root are visible, not just subdirectories.
+	children, err := os.ReadDir(mount)
 	if err != nil {
-		// Fallback to os.ReadDir if du fails
 		return largestDirsFallback(ctx, mount)
 	}
 
@@ -38,17 +31,18 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		rawKB int64
 	}
 	var entries []entry
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
+	for _, child := range children {
+		full := filepath.Join(mount, child.Name())
+		out, err := runCmd(ctx, "du", "-sh", full)
+		if err != nil {
 			continue
 		}
-		path := fields[1]
-		if path == mount {
-			continue // skip the total line
+		fields := strings.Fields(out)
+		if len(fields) < 1 {
+			continue
 		}
 		size := fields[0]
-		entries = append(entries, entry{size: size, path: path, rawKB: parseDuSize(size)})
+		entries = append(entries, entry{size: size, path: full, rawKB: parseDuSize(size)})
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].rawKB > entries[j].rawKB })

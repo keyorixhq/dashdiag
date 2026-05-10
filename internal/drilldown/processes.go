@@ -13,6 +13,66 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// HungProcesses returns processes in uninterruptible sleep (state D).
+func HungProcesses(ctx context.Context) (*models.Details, error) {
+	if runtime.GOOS == "darwin" {
+		return &models.Details{
+			Type:  "kv_table",
+			Title: "Hung processes",
+			Note:  "Uninterruptible process listing not available on macOS.",
+		}, nil
+	}
+	var mu sync.Mutex
+	type hungInfo struct {
+		pid  int
+		name string
+		ppid int
+	}
+	var hung []hungInfo
+
+	err := walkProcs(ctx, func(pid int) error {
+		path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "stat")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) < 5 {
+			return nil
+		}
+		if fields[2] != "D" {
+			return nil
+		}
+		name := strings.Trim(fields[1], "()")
+		ppid, _ := strconv.Atoi(fields[3])
+		mu.Lock()
+		hung = append(hung, hungInfo{pid: pid, name: name, ppid: ppid})
+		mu.Unlock()
+		return nil
+	})
+	if err != nil && len(hung) == 0 {
+		return nil, err
+	}
+
+	rows := make([][]string, 0, len(hung))
+	for _, h := range hung {
+		parentCmd := procComm(h.ppid)
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", h.pid),
+			h.name,
+			fmt.Sprintf("%d", h.ppid),
+			parentCmd,
+		})
+	}
+
+	return &models.Details{
+		Type:    "process_table",
+		Title:   "Hung (uninterruptible) processes",
+		Columns: []string{"PID", "NAME", "PARENT_PID", "PARENT_CMD"},
+		Rows:    rows,
+	}, nil
+}
+
 // ZombiesWithParent returns zombie processes with their parent process info.
 func ZombiesWithParent(ctx context.Context) (*models.Details, error) {
 	if runtime.GOOS == "darwin" {
