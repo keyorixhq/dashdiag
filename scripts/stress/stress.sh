@@ -312,12 +312,15 @@ test_io() {
     mkdir -p "$stress_dir"
     CLEANUP_FILES+=("$stress_dir")
     info "Stressing /dev/$dev (writes to $stress_dir)"
-    (while true; do
-        dd if=/dev/urandom of="$stress_dir/s" bs=1M count=256 oflag=direct 2>/dev/null
-        rm -f "$stress_dir/s"
-    done) &
-    CLEANUP_PIDS+=($!)
-    sleep 8
+    # Run 4 parallel writers to saturate NVMe — /dev/zero is fast, /dev/urandom is CPU-bound
+    for i in 1 2 3 4; do
+        (while true; do
+            dd if=/dev/zero of="$stress_dir/s$i" bs=1M count=512 oflag=direct 2>/dev/null
+            rm -f "$stress_dir/s$i"
+        done) &
+        CLEANUP_PIDS+=($!)
+    done
+    sleep 15
     assert_status "IO utilization" "IO" "WARN_OR_CRIT"
     kill "${CLEANUP_PIDS[-1]}" 2>/dev/null || true
     rm -rf "$stress_dir"
