@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -161,10 +162,24 @@ func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
 
 // pingRTT tries privileged ICMP, then unprivileged UDP, then TCP as a
 // privilege-free fallback. Returns (average RTT in ms, packet loss pct,
-// icmpBlocked). icmpBlocked is true when both ICMP modes failed and TCP
-// was used instead — callers can surface this in UX.
+// icmpBlocked). icmpBlocked is true when ICMP was unavailable or failed
+// and TCP was used instead — callers can surface this in UX.
 // RTT is -1 on total failure.
+//
+// Optimisation: when icmpAvailable() returns false (typical Linux non-root
+// user with restrictive ping_group_range and no CAP_NET_RAW), skip both
+// ICMP attempts entirely. This avoids producing two EPERM syscalls per
+// host per run — important for systems with auditd or SOC log monitoring
+// that would otherwise see denied raw-socket attempts on every cron run.
 func pingRTT(ctx context.Context, host string) (ms, lossPct float64, icmpBlocked bool) {
+	if !icmpAvailable() {
+		debug.Log(ctx, "Network", "ICMP unavailable for this process — skipping to TCP", "host", host)
+		if ms, ok := tcpProbe(ctx, host); ok {
+			return ms, 0, true
+		}
+		debug.Log(ctx, "Network", "all probes failed", "host", host)
+		return -1, 100, false
+	}
 	for _, privileged := range []bool{true, false} {
 		if ctx.Err() != nil {
 			return -1, 100, false
@@ -173,15 +188,121 @@ func pingRTT(ctx context.Context, host string) (ms, lossPct float64, icmpBlocked
 			return ms, loss, false
 		}
 	}
-	// Both ICMP modes failed. Try TCP as a privilege-free fallback.
-	// A TCP connection (or refused response) proves L3 reachability without
-	// requiring CAP_NET_RAW or a permissive ping_group_range.
+	// ICMP detection said it should work but probes failed anyway.
+	// Fall back to TCP — this can happen if e.g. iptables blocks ICMP
+	// despite our process having permission to send it.
 	if ms, ok := tcpProbe(ctx, host); ok {
-		debug.Log(ctx, "Network", "ICMP blocked — TCP fallback succeeded", "host", host, "ms", ms)
+		debug.Log(ctx, "Network", "ICMP probes failed despite availability — TCP fallback", "host", host, "ms", ms)
 		return ms, 0, true
 	}
 	debug.Log(ctx, "Network", "all probes failed", "host", host)
 	return -1, 100, false
+}
+
+// icmpAvailable reports whether this process can send ICMP probes
+// without hitting EPERM. Cached via sync.Once — capabilities and
+// ping_group_range don't change at runtime.
+//
+// On Linux, ICMP works if either:
+//  1. Process has CAP_NET_RAW (raw ICMP socket), OR
+//  2. Process GID (or any supplementary GID) is inside
+//     /proc/sys/net/ipv4/ping_group_range (unprivileged ICMP via UDP).
+//
+// On non-Linux platforms (macOS), ICMP semantics differ; return true
+// and let the existing privileged/unprivileged go-ping fallback handle it.
+var (
+	icmpAvailableOnce  sync.Once
+	icmpAvailableValue bool
+)
+
+func icmpAvailable() bool {
+	icmpAvailableOnce.Do(func() {
+		icmpAvailableValue = detectICMPAvailability()
+	})
+	return icmpAvailableValue
+}
+
+func detectICMPAvailability() bool {
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	if hasCapNetRaw() {
+		return true
+	}
+	if gidInPingGroupRange() {
+		return true
+	}
+	return false
+}
+
+// hasCapNetRaw reads /proc/self/status and checks the effective
+// capabilities bitmap for CAP_NET_RAW (capability 13).
+func hasCapNetRaw() bool {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return false
+	}
+	return parseCapEffHasNetRaw(string(data))
+}
+
+func parseCapEffHasNetRaw(status string) bool {
+	for _, line := range strings.Split(status, "\n") {
+		if !strings.HasPrefix(line, "CapEff:") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			return false
+		}
+		capBits, err := strconv.ParseUint(parts[1], 16, 64)
+		if err != nil {
+			return false
+		}
+		const capNetRaw = 13 // see capabilities(7) man page
+		return capBits&(1<<capNetRaw) != 0
+	}
+	return false
+}
+
+// gidInPingGroupRange reads /proc/sys/net/ipv4/ping_group_range and
+// checks whether the process's primary or supplementary GIDs fall
+// inside the allowed range. "1 0" (low > high) means no groups allowed.
+func gidInPingGroupRange() bool {
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ping_group_range")
+	if err != nil {
+		return false
+	}
+	low, high, ok := parsePingGroupRange(string(data))
+	if !ok {
+		return false
+	}
+	gids := []int{os.Getgid()}
+	if sup, err := os.Getgroups(); err == nil {
+		gids = append(gids, sup...)
+	}
+	for _, g := range gids {
+		if g >= low && g <= high {
+			return true
+		}
+	}
+	return false
+}
+
+func parsePingGroupRange(s string) (low, high int, ok bool) {
+	fields := strings.Fields(s)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	l, err1 := strconv.Atoi(fields[0])
+	h, err2 := strconv.Atoi(fields[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	if l > h {
+		// "1 0" — explicit "no groups allowed" sentinel.
+		return 0, 0, false
+	}
+	return l, h, true
 }
 
 // tcpProbe dials host on common ports (53, 80) to check L3 reachability
