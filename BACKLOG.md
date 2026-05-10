@@ -237,39 +237,69 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       position but a real repositioning — affects landing page, HN angle, target
       audience.
 
-- [ ] **Internationalisation — 5-10 major languages (deferred, 2026-05-10).**
+- [ ] 🔴 **i18n architecture for DashDiag v0.3 (committed, 2026-05-10).**
       
-      Strategic rationale: Localisation is a distribution strategy, not a
-      translation cost. Spanish-speaking ops engineer in Argentina shares
-      DashDiag with their team because it speaks their language → that team
-      shares with Brazilian colleagues → two years later it's the de-facto
-      tool in LATAM ops culture → their North American parent company starts
-      paying for the team tier. Most localised users won't pay directly but
-      become propagation vectors that compound over time.
+      Source of truth: COMPANY_PRINCIPLES.md § Principle 2. The principle
+      requires i18n architecture mandatory from v1.0 in every product.
+      DashDiag v0.3 is the first public release — the architecture
+      commitment binds at v0.3.
       
-      Why deferred: English ships first. Localisation only makes sense once
-      the messages, insights, and hints have stabilised — translating moving
-      targets wastes work. Likely v0.4+ once v0.3 features stop churning copy.
+      Launch language set (per principles, native-speaker reviewed):
+      - English (default)
+      - Spanish — founder + Spanish-speaking friends review panel
+      - Russian — founder native
+      - Chinese (Simplified) — trusted friend reviewer
       
-      Target language priority (rough, revisit with data):
-      1. Spanish (Spain + LATAM) — founder location, large ops community
-      2. Portuguese (Brazil) — large engineering market, underserved by tools
-      3. Russian — large diaspora ops community, technical pragmatism
-      4. Chinese (Simplified) — vast ops market, current tools are English-only
-      5. German — strong DevOps culture, paying market
-      6. French — France + francophone Africa
-      7. Hindi — India ops scale
-      8. Japanese — paying market, English-tool friction
-      9. Italian — small but technical
-      10. Polish — Eastern European hub
+      Languages beyond launch set arrive via community pull requests with
+      public credit (JetBrains / VLC / Linux model). No machine-translated
+      fallbacks. Bad translation worse than no translation.
       
-      Scope sketch:
-      - All user-facing strings in `internal/i18n/messages.go` keyed by ID
-      - Locale detection from $LANG / $LC_MESSAGES with --lang override
-      - Insights, hints, error messages, headers — yes; debug logs — no
-        (debug stays English so issue reports are universally readable)
-      - JSON/YAML output stays English (machine-readable contract)
-      - Crowdsourced translation via GitHub PRs once core is stable
+      Realistic scope (≈3-5 days focused work):
+      
+      Phase 1 — Library + extraction (1-2 days):
+      - Choose i18n library. Candidates: golang.org/x/text/message (stdlib-
+        adjacent, plural rules built in), nicksnyder/go-i18n (mature, large
+        ecosystem), or hand-rolled map[string]map[string]string (simplest).
+        Decision: lean toward go-i18n unless plural complexity is low
+        enough that stdlib suffices.
+      - Extract all user-facing strings into internal/i18n/messages/<locale>.toml
+        (or .json/.yaml depending on library).
+      - String inventory targets: internal/analysis/heuristics.go (insights),
+        internal/render/*.go (output), cmd/*.go (cobra help text),
+        internal/tips/*.go (tip messages), internal/drilldown/*.go.
+      
+      Phase 2 — Plumbing (1 day):
+      - Pass *i18n.Localizer through render layer.
+      - All Sprintf calls converted to Localize(messageID, args).
+      - Verify --json / --yaml stay English (machine contract per principles).
+      - Verify --debug logs stay English (diagnostic contract per principles).
+      
+      Phase 3 — Detection + flag (half day):
+      - Locale detection from $LANG / $LC_MESSAGES / $LC_ALL.
+      - --lang flag override on root command.
+      - Fallback chain: --lang → env → English.
+      
+      Phase 4 — Spanish translation pass (1-2 days):
+      - Founder + friend-network review panel.
+      - Side-by-side review tooling: dsd health --lang=es vs --lang=en.
+      - Russian and Chinese added as pipeline matures, before public push.
+      
+      Phase 5 — Tests (half day):
+      - Snapshot tests per locale for representative outputs.
+      - Test that --json output stays English regardless of locale.
+      - Test fallback to English on missing keys.
+      
+      Open decisions to make before starting:
+      - Library choice (go-i18n vs golang.org/x/text vs roll-our-own)
+      - String storage format (TOML vs JSON vs YAML — affects translator UX)
+      - String ID convention (e.g. "network.gateway.unreachable")
+      - Plural handling for Russian (3 forms) and Chinese (no plurals)
+      - Where Sprintf interpolation arguments fit into translatable strings
+      
+      What stays English regardless of locale (machine + diagnostic contracts):
+      - JSON / YAML output (programmatic consumers)
+      - Debug logs (universal issue reports)
+      - Source code, comments, commit messages, API responses
 
 ### Quality
 - [ ] 🔴 **Systematic error-handling audit & refactor.** Pattern observed
