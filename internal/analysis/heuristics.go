@@ -397,9 +397,19 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// "Active" means the module is present AND actually applying policies.
 	// AppArmor in "disabled" mode counts as not active — common in containers
 	// where /sys reports the host's AppArmor state but no profiles apply.
+	// AppArmor in "unknown" mode means we couldn't read the profiles file
+	// (typically running as non-root); we surface that explicitly rather
+	// than misclassifying it as "no module enforcing".
 	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled"
-	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled"
+	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled" && mac.AppArmorMode != "unknown"
+	aaIndeterminate := mac.AppArmorPresent && mac.AppArmorMode == "unknown"
 	if !seActive && !aaActive {
+		if aaIndeterminate {
+			return []models.Insight{insight("INFO", "KernelSecurity",
+				"AppArmor is loaded but its mode requires root to read — run as root for accurate reporting",
+				nil,
+			)}
+		}
 		return []models.Insight{insight("INFO", "KernelSecurity",
 			"no kernel security module enforcing on this system",
 			nil,

@@ -50,12 +50,35 @@ func apparmorEnabled() bool {
 	return strings.TrimSpace(string(data)) == "Y"
 }
 
+// apparmorMode returns the AppArmor enforcement mode by inspecting the
+// loaded profiles list. Distinguishes three outcomes:
+//   - "enforce" / "complain" / "disabled": confirmed mode
+//   - "unknown": cannot determine mode (typically EACCES because
+//     /sys/kernel/security/apparmor/profiles is root-readable only).
+//
+// The EACCES distinction matters: on Ubuntu and most Debian-family
+// systems the profiles file is mode 0440 root:root. As non-root, the
+// previous behaviour was to silently report "disabled" — a wrong
+// system-fact claim. Reporting "unknown" lets the analysis layer
+// surface the privilege limitation honestly instead of producing a
+// false "no kernel security module enforcing" verdict.
 func apparmorMode() string {
-	data, err := os.ReadFile("/sys/kernel/security/apparmor/profiles")
+	return apparmorModeFromPath("/sys/kernel/security/apparmor/profiles")
+}
+
+func apparmorModeFromPath(path string) string {
+	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return "unknown"
+		}
 		return "disabled"
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	return parseApparmorProfiles(string(data))
+}
+
+func parseApparmorProfiles(data string) string {
+	for _, line := range strings.Split(data, "\n") {
 		if strings.HasSuffix(line, "(enforce)") {
 			return "enforce"
 		}

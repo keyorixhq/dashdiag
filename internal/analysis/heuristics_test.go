@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -561,6 +562,40 @@ func TestKernelSecurityEnforcing(t *testing.T) {
 	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
 	if len(insights) != 0 {
 		t.Errorf("expected no insights for healthy enforcing SELinux, got %+v", insights)
+	}
+}
+
+func TestAppArmorUnknownAsNonRoot(t *testing.T) {
+	// AppArmor present with mode=unknown means we couldn't read the
+	// profiles file (typical non-root case). Must NOT be misclassified
+	// as "no kernel security module enforcing" — that would be a false
+	// system-fact claim. Should produce a privilege-aware INFO instead.
+	mac := models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "unknown"}
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	if !hasLevel(insights, "INFO") {
+		t.Fatalf("expected INFO insight for AppArmor unknown mode, got %+v", insights)
+	}
+	found := false
+	for _, ins := range insights {
+		if ins.Check == "KernelSecurity" && strings.Contains(ins.Message, "requires root") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected privilege-aware message mentioning root, got %+v", insights)
+	}
+}
+
+func TestAppArmorEnforcingHidesNoModuleMessage(t *testing.T) {
+	// Sanity check the negative: when AppArmor is enforcing, the
+	// "no kernel security module enforcing" message must not appear.
+	mac := models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce"}
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	for _, ins := range insights {
+		if strings.Contains(ins.Message, "no kernel security module") {
+			t.Errorf("AppArmor enforcing should not yield 'no module' message, got %+v", insights)
+		}
 	}
 }
 
