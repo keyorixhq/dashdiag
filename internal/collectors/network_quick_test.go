@@ -99,3 +99,94 @@ func TestShouldSkipIface(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePingGroupRange(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		input    string
+		wantLow  int
+		wantHigh int
+		wantOK   bool
+	}{
+		{"ubuntu default — no groups allowed", "1\t0\n", 0, 0, false},
+		{"ubuntu default with spaces", "1 0\n", 0, 0, false},
+		{"all users allowed", "0 2147483647\n", 0, 2147483647, true},
+		{"narrow allow range", "100 200\n", 100, 200, true},
+		{"single GID allowed", "1000 1000\n", 1000, 1000, true},
+		{"empty", "", 0, 0, false},
+		{"single field", "100", 0, 0, false},
+		{"three fields", "1 2 3", 0, 0, false},
+		{"non-numeric", "foo bar", 0, 0, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			low, high, ok := parsePingGroupRange(tc.input)
+			if ok != tc.wantOK {
+				t.Errorf("ok: got %v, want %v", ok, tc.wantOK)
+			}
+			if tc.wantOK && (low != tc.wantLow || high != tc.wantHigh) {
+				t.Errorf("range: got [%d,%d], want [%d,%d]", low, high, tc.wantLow, tc.wantHigh)
+			}
+		})
+	}
+}
+
+func TestParseCapEffHasNetRaw(t *testing.T) {
+	t.Parallel()
+	// CAP_NET_RAW is bit 13 = 0x2000.
+	// Real /proc/self/status formatting uses tab between key and value.
+	cases := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{
+			name:  "root with full caps including CAP_NET_RAW",
+			input: "Name:\troot\nCapEff:\t000001ffffffffff\n",
+			want:  true,
+		},
+		{
+			name:  "non-root with no caps",
+			input: "Name:\tandrei\nCapEff:\t0000000000000000\n",
+			want:  false,
+		},
+		{
+			name:  "only CAP_NET_RAW set",
+			input: "CapEff:\t0000000000002000\n",
+			want:  true,
+		},
+		{
+			name:  "CAP_NET_BIND_SERVICE (10) set, NET_RAW not",
+			input: "CapEff:\t0000000000000400\n",
+			want:  false,
+		},
+		{
+			name:  "missing CapEff line",
+			input: "Name:\troot\n",
+			want:  false,
+		},
+		{
+			name:  "malformed CapEff value",
+			input: "CapEff:\tnot-a-hex-number\n",
+			want:  false,
+		},
+		{
+			name:  "empty input",
+			input: "",
+			want:  false,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseCapEffHasNetRaw(tc.input)
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
