@@ -184,6 +184,107 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       privilege-sensitive code paths empirically — maps the testing
       blind spot for the post-launch matrix expansion.
 
+- [ ] 🔴 **Real-hardware testing campaign on Lenovo Legion 5 15ACH6H —
+      time-bounded window: 2026-05-11 to 2026-05-22 (12 days).**
+      
+      Hardware available temporarily — must be wiped and Windows-
+      installed for handover by 2026-05-23. Cannot defer; cannot extend.
+      Captured 2026-05-10 (session 3).
+      
+      Hardware specs:
+      - AMD Ryzen 5 5600H or Ryzen 7 5800H (Zen 3 chiplet architecture)
+      - 16 GB DDR4-3200 (or up to 32GB depending on config)
+      - 2 × 1TB NVMe SSDs (M.2 PCIe 3.0)
+      - NVIDIA RTX 3060/3070 Laptop GPU + AMD integrated Radeon (hybrid)
+      - Wi-Fi 6 wireless
+      
+      Why this hardware is high-value for DashDiag testing:
+      
+      Each item below is a class of behaviour that current testing
+      surfaces (dev Mac, 2011 MacBook Ubuntu, Fedora/Alpine docker)
+      cannot exercise:
+      
+      - **cgroup v2** (Rocky 9 default; 2011 Ubuntu may be v1 or hybrid)
+      - **Modern systemd** (252+ on Rocky 9, 254+ on Debian 12)
+      - **Multi-device NVMe** in /proc/diskstats — IO collector has
+        never been tested with two physical drives. Disk collector
+        likewise. *Highest-probability bug-finding surface.*
+      - **NUMA visibility on Zen 3 chiplets** — process/memory observability
+      - **AMD k10temp thermal sensors** (vs Intel coretemp)
+      - **EDAC on modern DDR4 controllers** — relevant for future
+        `dsd hardware` work
+      - **Wi-Fi 6 driver patterns** in /sys/class/net
+      - **Multiple GPU vendors in /sys/class/drm** (validates that
+        Network and other collectors don't choke on multi-vendor
+        device enumeration)
+      
+      GPU strategy: ignore the NVIDIA GPU for this campaign. Boot
+      with `modprobe.blacklist=nouveau` or disable NVIDIA in BIOS,
+      run on AMD integrated graphics only. DashDiag does not yet
+      observe GPU state, so NVIDIA driver wrestling buys nothing.
+      Saves ~1 day of setup friction per OS install. NVIDIA testing
+      revisits when `dsd hardware` work begins (deferred, see backlog).
+      
+      OS rotation plan:
+      
+      | Days  | OS         | Bar                    | Goal                                         |
+      |-------|------------|------------------------|----------------------------------------------|
+      | 1-7   | Rocky 9    | B — adversarial bug-finding | Enterprise standard. Stress all 12 collectors. Parallel root + non-root cron. |
+      | 8-10  | Debian 12  | A — smoke / coverage   | Pure Debian quirks vs Ubuntu (different from 2011 MacBook). |
+      | 11-12 | NixOS *or* extended Rocky | A — optional | Stretch goal. NixOS only if first two went smooth. |
+      | 13    | Wipe + Windows install | — | Handover prep. |
+      
+      Why Rocky 9 first and longest:
+      - Highest commercial alignment (RHEL family = where paying
+        customers actually run things)
+      - Different SELinux defaults than Fedora (Fedora was already
+        tested in Docker; RHEL family has different policy versions)
+      - 7-day window enables parallel root + non-root cron with
+        meaningful diff comparison (mirrors testing MacBook setup)
+      - Bug-finding bar (B) justified by length of window and
+        commercial value of the surface
+      
+      Setup checklist per OS install:
+      1. Install OS, AMD-only graphics, network up
+      2. Install build deps: git, go (latest), make
+      3. Clone DashDiag, `make release`, install to /usr/local/bin/dsd
+      4. Smoke test: `dsd health --debug 2>&1 | head -50`
+      5. Verify all 12 checks emit expected output (look for INFO
+         on errored collectors — should be nothing surprising)
+      6. Set up parallel root + non-root cron (Rocky 9 only):
+           crontab -e   # 0 6,12,18,23 * * * /usr/local/bin/dsd health > /dev/null 2>&1
+           sudo crontab -e   # same
+      7. Run adversarial scenarios per `scripts/stress/` (CPU peg,
+         disk IO, swap pressure) — verify F0 drilldown fires
+         correctly on this hardware
+      8. Capture `dsd health --json` output to dev Mac via scp for
+         baseline diff against existing test outputs
+      
+      What we are looking for:
+      - CRIT or WARN false-positives (silent or otherwise)
+      - Silent zeros in any of the 12 collectors
+      - Different output structure on cgroup v2 vs v1
+      - NVMe-specific quirks in IO / Disk / FDLimits collectors
+      - Anything where multi-device storage breaks single-device assumptions
+      - Any /proc/* path that exists on Ubuntu but not on Rocky/Debian
+        (or vice versa)
+      
+      What we are NOT testing:
+      - GPU telemetry (out of scope until `dsd hardware` work)
+      - Performance benchmarking (DashDiag is fast; not the point)
+      - SMART / sensors (deferred to `dsd hardware` work)
+      
+      Cleanup (2026-05-23):
+      - Capture all state.json files and any bug write-ups to dev Mac
+      - Wipe both NVMe drives
+      - Install Windows for handover to daughter
+      
+      This pairs with the post-launch "non-root user testing matrix
+      expansion" item in NEXT/Testing — between the Legion campaign
+      and the testing MacBook parallel cron, the matrix becomes:
+      Rocky 9 / Debian 12 / Ubuntu 24.04 × root / non-root × 12 checks.
+      That's enough coverage to be confident before HN launch.
+
 ---
 
 ## NEXT — After first HN post
