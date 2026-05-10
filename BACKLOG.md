@@ -191,12 +191,14 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       installed for handover by 2026-05-23. Cannot defer; cannot extend.
       Captured 2026-05-10 (session 3).
       
-      Hardware specs:
-      - AMD Ryzen 5 5600H or Ryzen 7 5800H (Zen 3 chiplet architecture)
-      - 16 GB DDR4-3200 (or up to 32GB depending on config)
-      - 2 × 1TB NVMe SSDs (M.2 PCIe 3.0)
-      - NVIDIA RTX 3060/3070 Laptop GPU + AMD integrated Radeon (hybrid)
+      Hardware specs (confirmed from Windows system info, 2026-05-10):
+      - AMD Ryzen 7 5800H @ 3.20 GHz (8 cores / 16 threads, Zen 3)
+      - NVIDIA GeForce RTX 3070 Laptop GPU (8 GB) + AMD integrated Radeon
+      - 16 GB DDR4-3200
+      - 2 × 1TB NVMe SSDs (1.86 TB visible after format)
       - Wi-Fi 6 wireless
+      - Lenovo SKU 82JU
+      - Currently running Windows (~41 GB used) — wipe before Linux install
       
       Why this hardware is high-value for DashDiag testing:
       
