@@ -69,7 +69,11 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 	case "Network":
 		d, err = TCPStateAttribution(dctx, results)
 	case "Processes":
-		d, err = ZombiesWithParent(dctx)
+		if strings.Contains(ins.Message, "hung") || strings.Contains(ins.Message, "uninterruptible") {
+			d, err = HungProcesses(dctx)
+		} else {
+			d, err = ZombiesWithParent(dctx)
+		}
 	case "Systemd":
 		unit := parseUnitFromMessage(ins.Message)
 		d, err = FailedUnitLogs(dctx, unit, 20)
