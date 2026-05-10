@@ -14,6 +14,13 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.Cl
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
+			// Surface collector failures as INFO instead of silently dropping them.
+			// An invisible check looks identical to a passing check — worse than
+			// showing an honest "could not run" message.
+			insights = append(insights, insight("INFO", r.Name,
+				fmt.Sprintf("check could not run — %v", r.Err),
+				nil,
+			))
 			continue
 		}
 		switch data := r.Data.(type) {

@@ -588,13 +588,25 @@ func TestJournalSizeThresholds(t *testing.T) {
 
 // ── Error result skipped ──────────────────────────────────────────────────────
 
-func TestErrorResultSkipped(t *testing.T) {
+func TestErrorResultSurfacedAsInfo(t *testing.T) {
+	// Previously errored collectors were silently dropped (continue).
+	// Now they must emit an INFO insight so the user knows the check didn't run.
+	errMsg := "opening diskstats: permission denied"
 	results := []runner.Result{
-		{Name: "cpu", Err: fmt.Errorf("collector failed"), Data: models.CPUInfo{LoadPct: 99}},
+		{Name: "IO", Err: fmt.Errorf("%s", errMsg)},
 	}
 	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal)
-	if len(insights) != 0 {
-		t.Errorf("expected no insights for errored result, got %+v", insights)
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 INFO insight for errored collector, got %d: %+v", len(insights), insights)
+	}
+	if insights[0].Level != "INFO" {
+		t.Errorf("level: got %q, want INFO", insights[0].Level)
+	}
+	if insights[0].Check != "IO" {
+		t.Errorf("check: got %q, want IO", insights[0].Check)
+	}
+	if !contains(insights[0].Message, errMsg) {
+		t.Errorf("message %q does not contain error %q", insights[0].Message, errMsg)
 	}
 }
 
