@@ -136,9 +136,33 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
-	// Zram devices
+	// Zram devices — count devices and calculate utilisation from mm_stat.
+	// mm_stat fields (space-separated): orig_data_size compr_data_size
+	// mem_used_total mem_limit mem_used_max same_pages pages_compacted huge_pages
+	// ZramUsedPct = orig_data_size / disksize * 100 (how full the swap device is).
 	zrams, _ := filepath.Glob("/sys/block/zram*")
 	info.ZramDevices = len(zrams)
+	var zramTotalBytes, zramOrigBytes uint64
+	for _, dev := range zrams {
+		// disksize: configured capacity of this zram device.
+		if dsData, err := os.ReadFile(filepath.Join(dev, "disksize")); err == nil {
+			if ds, err := strconv.ParseUint(strings.TrimSpace(string(dsData)), 10, 64); err == nil {
+				zramTotalBytes += ds
+			}
+		}
+		// mm_stat field 0: orig_data_size (uncompressed bytes currently stored).
+		if mmData, err := os.ReadFile(filepath.Join(dev, "mm_stat")); err == nil {
+			fields := strings.Fields(string(mmData))
+			if len(fields) >= 1 {
+				if orig, err := strconv.ParseUint(fields[0], 10, 64); err == nil {
+					zramOrigBytes += orig
+				}
+			}
+		}
+	}
+	if zramTotalBytes > 0 {
+		info.ZramUsedPct = float64(zramOrigBytes) / float64(zramTotalBytes) * 100
+	}
 
 	return info, nil
 }
