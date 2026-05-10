@@ -6,37 +6,51 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## STATUS
-Last updated: 2026-05-10 (afternoon, end of session 2)
+Last updated: 2026-05-10 (evening, end of session 3 — Day 4)
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: 🟡 v0.1.1 in git (v0.2.0 code complete + uncommitted; needs Network bug fix before tag)
+Tag: ✅ **v0.2.0 TAGGED** (commit 15c217b, 2026-05-10)
 Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0 as of last check)
-Tests: ✅ ALL GREEN (full suite passes including 6 new weekly tests, 4 new heuristics tests)
+Tests: ✅ ALL GREEN (full suite passes; new: 5 debug tests, 3 network gateway-state tests)
 Linux testing: ✅ P1–P4 + Fedora 40 ARM64 + Alpine 3.21 ARM64/amd64
               + 2011 MacBook Ubuntu 24.04 with Kind cluster + zram
 macOS arm64: ✅ VALIDATED on dev machine
 
 F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
-   - Fedora docker testing covered 9/12 checks; 3 bugs fixed this session
-   - Real-hardware testing on 2011 MacBook surfaced privilege issue (below)
+   - Fedora docker testing covered 9/12 checks; 3 bugs fixed in session 2
+   - Real-hardware testing on 2011 MacBook surfaced privilege issue
    - Drilldown bug fixed: renderer now respects ModePlain (Docker, CI, pipes)
 
-🔴 LAUNCH BLOCKER FOUND TODAY: Network check false-positives "gateway
-   unreachable" when run as non-root user on Linux. See NOW section.
-   Caught by real-hardware testing on 2011 MacBook before launch.
-   Estimated fix: 2-3 hours (Option B graceful degrade) or
-   half-day (Option A TCP connect probe replacement).
-   Must fix before launch — else every "curl install.sh" user sees
-   false-positive Network CRIT on first run.
+✅ **LAUNCH BLOCKER FIXED 2026-05-10 (session 3):** Network check
+   false-positive "gateway unreachable" on non-root Linux. Implemented
+   Option A — TCP-connect fallback in `pingRTT`. Connection-refused
+   counts as L3 reachability proof. No CAP_NET_RAW required. Verified
+   on Mac (still uses ICMP), will be re-verified on testing MacBook.
 
-🔴 TESTING BLIND SPOT IDENTIFIED: Today's bug was the first non-root
-   Linux test in the project's history. All previous testing surfaces
-   (unit tests, CI, Mac, Docker tests as root) masked the issue.
-   Other checks likely have similar non-root degraded behaviour we
-   haven't observed yet. See NEXT/Testing section for matrix expansion
-   plan: per-distro × {root, normal user, CAP_NET_RAW} × all 12 checks.
-   This pairs with the systematic error-handling refactor — together
-   they eliminate the silent-failure category that produced 6 bugs
-   in the past 2 days.
+✅ **DEBUG MODE SHIPPED 2026-05-10 (session 3):** `--debug` flag wired
+   through context. Per-collector timing + full network probe trace to
+   stderr. New `internal/debug/` package. Would have diagnosed yesterday's
+   network bug in 10 seconds instead of an hour of manual sysctl work.
+
+✅ **SILENT-FAILURE PATTERN PARTIALLY ADDRESSED 2026-05-10:** Errored
+   collectors now emit INFO insights instead of being silently dropped
+   (was the most dangerous pattern — invisible check looked identical
+   to passing check). Zram percentage now populated. Zyxel-style probe-
+   blocking routers no longer trigger false CRIT. Systematic error-
+   handling refactor still in NEXT for post-launch.
+
+✅ **COMPANY PRINCIPLES CAPTURED 2026-05-10 (session 3):** Two foundational
+   principles for the four-product portfolio (DashDiag, Keyorix, future
+   RCA, future FinOps): "free for individual use forever" + "localisation
+   as distribution." Lives in COMPANY_PRINCIPLES.md. Includes Keyorix
+   i18n carry-cost lesson. v0.3 binds DashDiag to English+Spanish+Russian.
+
+🔴 TESTING BLIND SPOT IDENTIFIED (2026-05-09): Network bug was the first
+   non-root Linux test in the project's history. All previous testing
+   surfaces (unit tests, CI, Mac, Docker tests as root) masked it. Other
+   checks likely have similar non-root degraded behaviour we haven't
+   observed yet. See NEXT/Testing for matrix expansion plan: per-distro
+   × {root, normal user, CAP_NET_RAW} × all 12 checks. Pairs with the
+   systematic error-handling refactor.
 
 ---
 
@@ -73,47 +87,36 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       command used `2>&1` which merged stderr into stdout. Code in
       internal/output/progress.go correctly uses fmt.Fprintf(os.Stderr, ...)
       for all progress messages. Without `2>&1`, JSON output is clean.
-- [ ] 🔴 **LAUNCH-BLOCKING: Fix Network check false-positive for non-root users.**
-      Discovered 2026-05-10 testing on real 2011 MacBook with Ubuntu 24.04:
-      manual `ping 192.168.10.1` succeeds 4/4 with 0.6ms RTT, but
-      `dsd health` (run as user andrei) reports Network CRIT
-      "gateway is unreachable" simultaneously.
+- [x] ✅ **Fix Network check false-positive for non-root users.** RESOLVED
+      2026-05-10 (session 3). Implemented Option A — TCP-connect fallback
+      in `pingRTT`. Both successful connection AND `connection refused`
+      count as L3 reachability proof, since the host responded to the packet.
+      No CAP_NET_RAW required; works under every Linux distribution's
+      default settings. Also added `models.NetworkInfo.ICMPBlocked` field
+      for future privilege-aware UX messaging.
       
-      Root cause: internal/collectors/network_quick.go uses go-ping
-      library which needs either CAP_NET_RAW (raw ICMP) or the user's
-      GID inside net.ipv4.ping_group_range (unprivileged ICMP via UDP).
-      Ubuntu default: `net.ipv4.ping_group_range = 1 0` which means
-      no groups can use unprivileged ICMP. So both code paths fail
-      for non-root users, returning 100% packet loss, which heuristics
-      interprets as "gateway unreachable" → CRIT.
+      As a related fix, also distinguished the Zyxel/probe-blocking-router
+      case (gateway silent but internet reachable) from genuine offline
+      state: now emits INFO "gateway not responding to probes — internet
+      traffic is flowing" instead of CRIT "gateway unreachable".
       
-      Confirmed with `sysctl net.ipv4.ping_group_range` → "1 0" and
-      `id` → uid=1000 gid=1000 (outside the empty allow-range).
-      
-      Why this is launch-blocking: every user installing via
-      "curl install.sh" runs as their normal user. Almost all Linux
-      distros ship with restrictive ping_group_range. So almost
-      everyone evaluating DashDiag at launch will see false-positive
-      Network CRIT on first run. Looks broken to engineers reviewing
-      the tool. Will damage the launch.
-      
-      Fix options (combination of A+B recommended):
-      A) Replace ICMP ping with TCP connect probe to gateway port 53
-         or 80. No privilege needed. Works on every Linux. Slightly
-         different semantic ("is gateway providing service" rather
-         than "is gateway alive") but arguably more useful.
-      B) When both ping paths fail, detect the privilege failure
-         specifically (errno EPERM or similar) and emit a different
-         INFO message: "ICMP unavailable to non-root user (Network
-         check skipped — run with sudo for full network diagnostic)"
-         instead of CRIT "gateway unreachable".
-      C) Document: install instructions can suggest
-         `sudo setcap cap_net_raw=ep ~/bin/dsd` to grant capability
-         without requiring full root.
-      
-      Minimum fix for launch: Option B (~2-3 hours). Stops false-positive
-      from looking like real alarm.
-      Better fix: Option A (~half day). Actually solves the problem.
+      Verified on dev Mac (ICMP still works, fallback path tested via
+      debug log). Will be re-verified on testing MacBook with cron data.
+
+- [x] ✅ **`--debug` flag for diagnostic visibility.** SHIPPED 2026-05-10
+      (session 3). Wired `--debug` through context; new `internal/debug/`
+      package writes timestamped, structured logs to stderr. Per-collector
+      timing + full Network probe trace covered. Would have diagnosed
+      the Network bug in 10 seconds instead of an hour. 5 tests, all green.
+
+- [x] ✅ **Silent-failure pattern — most dangerous instances fixed.**
+      2026-05-10 (session 3). Errored collectors now surface as INFO
+      insights instead of `continue`-dropped. Zram percentage now
+      populated from /sys/block/zramN/mm_stat. Systematic error-handling
+      refactor for the remaining cases moved to NEXT/Quality.
+
+- [x] ✅ **Write CHANGELOG.md** — v0.2.0 entry complete. (was already
+      done in session 2; updated with session 3 additions on 2026-05-10).
 - [ ] Decide and commit DashDiag license (Apache 2.0 recommended — see PRODUCT_IDEAS.md)
       Once decided, write LICENSE file in repo root and update README.md
       license footer accordingly. README currently states Apache 2.0.
@@ -151,40 +154,35 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       hero section.
 - [ ] Add waitlist link to README, push
 - [ ] Write Hacker News Show HN post draft
-- [ ] Write CHANGELOG.md (v0.1.0 + v0.1.1 entries)
+- [x] ✅ Write CHANGELOG.md (v0.1.0 + v0.1.1 + v0.2.0 entries) — done 2026-05-10
 - [ ] Backup strategic documents to private GitHub repo
       (keyorixhq/strategy, private). Today.
       See "Strategy backup setup" section at bottom of this file
       for the 5-minute setup commands and ongoing sync workflow.
-      Risk: 8 documents (~3000 lines) currently exist only on one laptop.
-- [🟡] **Testing MacBook deployment — in progress.** Binary deployed at
-      `/home/andrei/bin/dsd` on 2011 MacBook (192.168.10.10) running
-      Ubuntu 24.04 with Kind cluster + zram. Smoke test successful
-      (12 checks run in 1.0s, F0 drilldown verified, KernelSecurity
-      INFO behaviour confirmed correct).
+      Risk: 8+ documents (~3500 lines) currently exist only on one laptop.
+      Now includes COMPANY_PRINCIPLES.md — founder-written portfolio
+      principles document; backup priority elevated.
+- [ ] **Testing MacBook deployment — redeploy + parallel cron.** Now
+      unblocked by Network bug fix. Original deployment from session 2
+      had the buggy v0.2.0-pre code; needs fresh build with TCP fallback.
       
-      Discovered the launch-blocking Network privilege bug during smoke
-      test (see above).
-      
-      **Plan: parallel root + andrei cron jobs** — provides direct
-      comparison dataset of privilege-sensitive code paths over 7 days.
-      Run both simultaneously every 6 hours. Compare state.json at end
-      of week to see exactly which checks differ between privilege levels.
-      Higher signal than single-user cron data alone.
-      
-      Setup (after Network bug fix + redeploy):
+      Steps:
+        # On dev Mac:
+        make release
+        scp dist/dsd-linux-amd64 andrei@192.168.10.10:/home/andrei/bin/dsd
+        
+        # On testing MacBook (192.168.10.10):
         ssh andrei@192.168.10.10
+        /home/andrei/bin/dsd --debug 2>&1 | head -30   # verify TCP fallback works
         crontab -e
         # add: 0 6,12,18,23 * * * /home/andrei/bin/dsd health > /dev/null 2>&1
         sudo crontab -e
         # add: 0 6,12,18,23 * * * /home/andrei/bin/dsd health > /dev/null 2>&1
+      
       State accumulates in /home/andrei/.dsd/state.json (user) and
       /root/.dsd/state.json (root). Diff after a week reveals all
-      privilege-sensitive code paths empirically.
-      
-      Optional: start parallel cron BEFORE Network fix. Pre-fix data
-      becomes the empirical baseline showing exactly what the bug
-      looked like; post-fix data shows the improvement directly.
+      privilege-sensitive code paths empirically — maps the testing
+      blind spot for the post-launch matrix expansion.
 
 ---
 
@@ -573,6 +571,119 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
 ---
 
 ## BUGS FIXED
+
+### Network false-positive "gateway unreachable" for non-root Linux users (2026-05-10, session 3) 🔴 LAUNCH BLOCKER
+
+Discovered in session 2 via real-hardware testing on a 2011 MacBook running
+Ubuntu 24.04 as user `andrei`. Manual `ping 192.168.10.1` succeeded 4/4
+with 0.6ms RTT, but `dsd health` reported Network CRIT "gateway is
+unreachable" simultaneously.
+
+Root cause: `internal/collectors/network_quick.go` used the `go-ping`
+library which requires either CAP_NET_RAW (raw ICMP) or the user's GID
+inside `net.ipv4.ping_group_range` (unprivileged ICMP via UDP). Ubuntu's
+default `net.ipv4.ping_group_range = 1 0` blocks all unprivileged ICMP.
+Both code paths failed silently for non-root users → 100% packet loss →
+heuristics interpreted as "gateway unreachable" → CRIT.
+
+Why launch-blocking: every `curl install.sh | sh` user runs as their
+normal user. Almost every Linux distro has restrictive ping_group_range.
+So almost every first-time DashDiag user would have seen false-positive
+Network CRIT on first run. Would have damaged launch credibility with
+the target audience (engineers reviewing the tool).
+
+Fix: implemented Option A from the bug write-up — added a TCP-connect
+fallback in `pingRTT`. When both privileged and unprivileged ICMP fail,
+DashDiag now tries TCP dial to ports 53 and 80. *Both successful
+connection AND `connection refused` count as L3 reachability proof*
+because the host responded to the packet — the round-trip happened.
+No CAP_NET_RAW required.
+
+Also added `models.NetworkInfo.ICMPBlocked` field (JSON: `icmp_blocked`,
+omitempty) for future privilege-aware UX messaging — surfaces when
+the TCP fallback was used.
+
+Commit: 15c217b. Verified on dev Mac via `--debug` output showing
+fallback path. Re-verification on testing MacBook pending Cron deploy.
+
+### Gateway probe ambiguity for routers that ignore probes (2026-05-10, session 3)
+
+Identified during session 3 discussion: an old Zyxel Keenetic router was
+not responding to ping requests even though it was still passing internet
+traffic. The `checkNetwork` analysis logic had a single condition
+`GatewayPingMs < 0` → CRIT, which couldn't distinguish between "router
+is dead" and "router ignores probes."
+
+Fix: split the condition into three explicit states in
+`internal/analysis/heuristics.go`:
+- `GatewayPingMs < 0` AND `InternetPingMs < 0` → CRIT "host appears offline"
+- `GatewayPingMs < 0` AND `InternetPingMs >= 0` → INFO "gateway not
+  responding to probes — internet traffic is flowing" (Zyxel case)
+- Both reachable → normal latency thresholds apply
+
+Added `TestCheckNetworkGatewayStates` with one test per state, named
+after the scenario it captures. Lock-in for the future.
+
+Commit: 15c217b.
+
+### Silent-failure pattern — errored collectors invisible (2026-05-10, session 3)
+
+The most dangerous instance of the silent-failure pattern identified in
+session 2: `internal/analysis/heuristics.go` had `if r.Err != nil {
+continue }` at the top of `ApplyThresholds`. Any collector that returned
+an error was silently dropped from output — the user saw *nothing* about
+that check, indistinguishable from a passing check.
+
+Fix: errored collectors now produce an INFO insight: `<Check> check could
+not run — <error>`. Covers permission denials (`opening diskstats:
+permission denied`), context timeouts (`context deadline exceeded`),
+missing system files, and any future collector failure mode.
+
+This is one targeted fix, not the full systematic refactor (still in
+NEXT/Quality). The runner-level error path is now visible; deeper silent
+zeros inside individual collectors are still post-launch work — but the
+most dangerous pattern ("check disappears entirely") is closed.
+
+Commit: 39573cd.
+
+### Zram percentage was always zero (2026-05-10, session 3)
+
+Noted in session 2 handoff: `SwapInfo.ZramUsedPct` field existed in the
+model since v0.1 but was never populated. Silent zero — looked like
+"zram has 0% utilisation" when actually it meant "never measured."
+
+Fix: `internal/collectors/swap.go` now reads `/sys/block/zramN/disksize`
+(configured capacity) and `mm_stat` field 0 (`orig_data_size`,
+uncompressed bytes currently stored) across all zram devices, then
+calculates `ZramUsedPct = sum(orig_data_size) / sum(disksize) * 100`.
+Graceful: if `mm_stat` is unavailable on older kernels, the field stays
+zero — same behaviour as before but at least we tried.
+
+Commit: 39573cd.
+
+### `--debug` flag for diagnostic visibility (2026-05-10, session 3) — not a bug fix, but worth recording here
+
+New `internal/debug/` package provides context-aware structured logging
+to stderr, gated by the `--debug` flag wired through `cmd/health.go`.
+Format: `[debug] HH:MM:SS.mmm  Component  message  key=value`. Independent
+of output mode — stdout (`--json`, `--yaml`) stays clean for machine
+consumers.
+
+Instrumentation covers:
+- `internal/runner/runner.go`: per-collector start, finish, duration, error
+- `internal/collectors/network_quick.go`: gateway detection, every ICMP
+  attempt (host, mode, error), TCP fallback decisions, final probe results
+
+The Network bug yesterday took ~1 hour of manual `sysctl` investigation
+to diagnose. With `--debug`, the same diagnosis is 10 seconds:
+
+  [debug] Network  ping run failed  host=192.168.10.1  mode=privileged  err=...EPERM...
+  [debug] Network  ping run failed  host=192.168.10.1  mode=unprivileged  err=...EPERM...
+  [debug] Network  ICMP blocked — TCP fallback succeeded  host=192.168.10.1  ms=1
+
+Five tests in `internal/debug/debug_test.go`. All green.
+
+Commit: 15c217b.
 
 ### Systemd and KernelSecurity now report INFO when not applicable (2026-05-10)
 
