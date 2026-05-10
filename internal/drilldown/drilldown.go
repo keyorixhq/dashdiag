@@ -70,7 +70,10 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 		d, err = TCPStateAttribution(dctx, results)
 	case "Processes":
 		if strings.Contains(ins.Message, "hung") || strings.Contains(ins.Message, "uninterruptible") {
-			d, err = HungProcesses(dctx)
+			d = hungProcessesFromResults(results)
+			if d == nil {
+				d, err = HungProcesses(dctx)
+			}
 		} else {
 			d, err = ZombiesWithParent(dctx)
 		}
@@ -163,6 +166,37 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// hungProcessesFromResults builds a Details table from already-captured
+// HungProcs in the Processes collector result, avoiding a late /proc re-scan
+// that would miss transient D-state processes.
+func hungProcessesFromResults(results []runner.Result) *models.Details {
+	for _, r := range results {
+		if r.Name != "Processes" {
+			continue
+		}
+		info, ok := r.Data.(*models.ProcessInfo)
+		if !ok || len(info.HungProcs) == 0 {
+			return nil
+		}
+		rows := make([][]string, 0, len(info.HungProcs))
+		for _, p := range info.HungProcs {
+			rows = append(rows, []string{
+				fmt.Sprintf("%d", p.PID),
+				p.Name,
+				fmt.Sprintf("%d", p.PPID),
+				p.WChan,
+			})
+		}
+		return &models.Details{
+			Type:    "process_table",
+			Title:   "Hung (uninterruptible) processes",
+			Columns: []string{"PID", "NAME", "PPID", "WCHAN"},
+			Rows:    rows,
+		}
+	}
+	return nil
 }
 
 // formatBytes returns a human-readable string for a byte count.

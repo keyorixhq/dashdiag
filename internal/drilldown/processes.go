@@ -65,6 +65,14 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 		})
 	}
 
+	if len(rows) == 0 {
+		return &models.Details{
+			Type:  "kv_table",
+			Title: "Hung (uninterruptible) processes",
+			Note:  "processes exited D state before capture — D state is transient, run: ps aux | grep ' D '",
+		}, nil
+	}
+
 	return &models.Details{
 		Type:    "process_table",
 		Title:   "Hung (uninterruptible) processes",
