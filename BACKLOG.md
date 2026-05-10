@@ -259,15 +259,47 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       
       Setup days (1-2): build the multi-boot rig. Days 3-12: testing.
       
-      Plan B — Sequential install (fallback if multi-boot fails):
+      Plan B — One OS per NVMe drive (preferred fallback if Plan A fails):
       
-      If partitioning gets messy, GRUB doesn't cooperate, or anaconda
-      refuses the manual layout: fall back to sequential single-OS
-      install. Cost: lose multi-OS A/B comparison ability and lose
-      data when wiping between OSes. Benefit: known-good install
-      path, no bootloader fights.
+      If shared multi-boot gets messy (GRUB fights, anaconda refuses
+      manual partitioning, ESP coordination breaks), fall back to
+      one OS per physical drive instead of one OS per partition:
       
-      Sequential timeline (used only if Plan A fails):
+      - NVMe0: RHEL 9 owns the whole drive (its installer sees a
+        clean disk and writes GRUB to NVMe0's own ESP)
+      - NVMe1: Debian 12 owns the whole drive (writes GRUB to
+        NVMe1's own ESP)
+      - Switch OS via BIOS boot menu (F12 at boot on Lenovo Legion):
+        no shared bootloader, no risk of one OS's update breaking
+        the other's boot
+      - Both drives still physically present in /sys/block/nvme*n1
+        from whichever OS is booted — IO collector still gets the
+        multi-device test scenario for free
+      
+      Trade-offs vs Plan A:
+      - Lose: simultaneous access to both OSes' filesystems and
+        shared /srv/dashdiag-test data partition
+      - Gain: each installer sees a clean disk (much higher success
+        rate); bootloaders fully isolated; can wipe one drive
+        without affecting the other; supports a third OS by swapping
+        one drive's install at week 1 boundary if needed
+      - Cross-distro comparisons happen by scp'ing JSON outputs to
+        dev Mac and diffing there — what we'd do anyway
+      
+      For most purposes Plan B is nearly as good as Plan A and
+      dramatically more robust. Worth attempting Plan A first, but
+      Plan B is a strong fallback, not a degraded one.
+      
+      Plan C — Sequential single-OS install (last resort):
+      
+      If even Plan B has issues (one drive fails, both installers
+      reject the other's presence somehow): fall back to sequential
+      single-OS install on a single drive. Cost: lose multi-OS
+      A/B comparison ability and lose data when wiping between
+      OSes. Benefit: known-good install path, no bootloader fights,
+      no inter-drive coordination.
+      
+      Sequential timeline (used only if both A and B fail):
       
       | Days  | OS         | Bar                         | Goal |
       |-------|------------|-----------------------------|------|
