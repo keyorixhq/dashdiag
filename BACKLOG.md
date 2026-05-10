@@ -6,18 +6,37 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## STATUS
-Last updated: 2026-05-10
+Last updated: 2026-05-10 (afternoon, end of session 2)
 GitHub: ✅ PUBLIC — github.com/keyorixhq/dashdiag
-Tag: ✅ v0.1.1 (v0.2.0 ready to tag — F0 verified end-to-end)
-Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0)
-Infrastructure: ✅ dependabot + issue templates + PR template + JSON schema
-Branch protection: ✅ Active (Test ubuntu-22.04 + macos-14 required)
-Linux testing: ✅ P1–P4 + Fedora 40 arm64 | macOS arm64: ✅ VALIDATED
-F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
-   - 9/12 checks drilldown verified in Docker (CPU, Memory, Processes, IO, Disk,
-     FDLimits, Network, Sysctl — all pass; 3 bugs fixed this session)
-   - 4 checks deferred to VM: Swap, Systemd, Clock, KernelSecurity (env limits)
+Tag: 🟡 v0.1.1 in git (v0.2.0 code complete + uncommitted; needs Network bug fix before tag)
+Code quality: ✅ CLEAN (golangci-lint + gosec + govulncheck all 0 as of last check)
+Tests: ✅ ALL GREEN (full suite passes including 6 new weekly tests, 4 new heuristics tests)
+Linux testing: ✅ P1–P4 + Fedora 40 ARM64 + Alpine 3.21 ARM64/amd64
+              + 2011 MacBook Ubuntu 24.04 with Kind cluster + zram
+macOS arm64: ✅ VALIDATED on dev machine
+
+F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
+   - Fedora docker testing covered 9/12 checks; 3 bugs fixed this session
+   - Real-hardware testing on 2011 MacBook surfaced privilege issue (below)
    - Drilldown bug fixed: renderer now respects ModePlain (Docker, CI, pipes)
+
+🔴 LAUNCH BLOCKER FOUND TODAY: Network check false-positives "gateway
+   unreachable" when run as non-root user on Linux. See NOW section.
+   Caught by real-hardware testing on 2011 MacBook before launch.
+   Estimated fix: 2-3 hours (Option B graceful degrade) or
+   half-day (Option A TCP connect probe replacement).
+   Must fix before launch — else every "curl install.sh" user sees
+   false-positive Network CRIT on first run.
+
+🔴 TESTING BLIND SPOT IDENTIFIED: Today's bug was the first non-root
+   Linux test in the project's history. All previous testing surfaces
+   (unit tests, CI, Mac, Docker tests as root) masked the issue.
+   Other checks likely have similar non-root degraded behaviour we
+   haven't observed yet. See NEXT/Testing section for matrix expansion
+   plan: per-distro × {root, normal user, CAP_NET_RAW} × all 12 checks.
+   This pairs with the systematic error-handling refactor — together
+   they eliminate the silent-failure category that produced 6 bugs
+   in the past 2 days.
 
 ---
 
@@ -54,11 +73,82 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
       command used `2>&1` which merged stderr into stdout. Code in
       internal/output/progress.go correctly uses fmt.Fprintf(os.Stderr, ...)
       for all progress messages. Without `2>&1`, JSON output is clean.
+- [ ] 🔴 **LAUNCH-BLOCKING: Fix Network check false-positive for non-root users.**
+      Discovered 2026-05-10 testing on real 2011 MacBook with Ubuntu 24.04:
+      manual `ping 192.168.10.1` succeeds 4/4 with 0.6ms RTT, but
+      `dsd health` (run as user andrei) reports Network CRIT
+      "gateway is unreachable" simultaneously.
+      
+      Root cause: internal/collectors/network_quick.go uses go-ping
+      library which needs either CAP_NET_RAW (raw ICMP) or the user's
+      GID inside net.ipv4.ping_group_range (unprivileged ICMP via UDP).
+      Ubuntu default: `net.ipv4.ping_group_range = 1 0` which means
+      no groups can use unprivileged ICMP. So both code paths fail
+      for non-root users, returning 100% packet loss, which heuristics
+      interprets as "gateway unreachable" → CRIT.
+      
+      Confirmed with `sysctl net.ipv4.ping_group_range` → "1 0" and
+      `id` → uid=1000 gid=1000 (outside the empty allow-range).
+      
+      Why this is launch-blocking: every user installing via
+      "curl install.sh" runs as their normal user. Almost all Linux
+      distros ship with restrictive ping_group_range. So almost
+      everyone evaluating DashDiag at launch will see false-positive
+      Network CRIT on first run. Looks broken to engineers reviewing
+      the tool. Will damage the launch.
+      
+      Fix options (combination of A+B recommended):
+      A) Replace ICMP ping with TCP connect probe to gateway port 53
+         or 80. No privilege needed. Works on every Linux. Slightly
+         different semantic ("is gateway providing service" rather
+         than "is gateway alive") but arguably more useful.
+      B) When both ping paths fail, detect the privilege failure
+         specifically (errno EPERM or similar) and emit a different
+         INFO message: "ICMP unavailable to non-root user (Network
+         check skipped — run with sudo for full network diagnostic)"
+         instead of CRIT "gateway unreachable".
+      C) Document: install instructions can suggest
+         `sudo setcap cap_net_raw=ep ~/bin/dsd` to grant capability
+         without requiring full root.
+      
+      Minimum fix for launch: Option B (~2-3 hours). Stops false-positive
+      from looking like real alarm.
+      Better fix: Option A (~half day). Actually solves the problem.
 - [ ] Decide and commit DashDiag license (Apache 2.0 recommended — see PRODUCT_IDEAS.md)
+      Once decided, write LICENSE file in repo root and update README.md
+      license footer accordingly. README currently states Apache 2.0.
 - [ ] Register dashdiag.sh domain
+      README currently references https://dashdiag.sh/install.sh as the install
+      command. Until domain exists, the install line in README is broken.
+      Either register first OR temporarily change install instructions to
+      point at github.com/keyorixhq/dashdiag/releases.
 - [ ] Build dashdiag.sh landing page (single page + waitlist form)
-- [ ] Write README.md (install command, quick start, demo output)
+- [x] Write README.md ✅ DRAFTED 2026-05-10
+      ~210 lines, structure: hero → install → usage → checks table →
+      why → how it works → output formats → examples → status →
+      license/contributing/about. F0 drilldown shown in hero example.
+      
+      Open review items before final ship:
+      - [ ] Replace invented Memory CRIT example output with real output
+            captured from a production-like system, OR keep as illustrative
+            (current state). Real output makes the README more authentic.
+      - [ ] Resolve dashdiag.sh URL question — register domain first, OR
+            change install command to github releases URL until domain exists
+      - [ ] Resolve Keyorix link in About footer — currently links to
+            keyorix.com which may not exist or may be aimed at the secrets
+            manager. Decide: link now, remove link, or use plain text.
+      - [ ] Verify license footer matches actual LICENSE file once written
+      - [ ] Read top to bottom for voice / honesty / accuracy issues
+      - [ ] Decide on examples section depth — currently 3 examples, could
+            add: dramatic before/after with CPU pegged, JSON-driven script,
+            --diff between snapshots
+      - [ ] After demo GIF is recorded, embed at top of README (replace or
+            supplement the text example block in hero)
 - [ ] Record demo GIF with vhs or asciinema (after drill-down ships)
+      Now unblocked — F0 verified end-to-end on Fedora 40 ARM64.
+      The wow moment to capture: Memory CRIT firing → top processes
+      table appearing inline. After GIF is recorded, embed in README
+      hero section.
 - [ ] Add waitlist link to README, push
 - [ ] Write Hacker News Show HN post draft
 - [ ] Write CHANGELOG.md (v0.1.0 + v0.1.1 entries)
@@ -67,6 +157,34 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
       See "Strategy backup setup" section at bottom of this file
       for the 5-minute setup commands and ongoing sync workflow.
       Risk: 8 documents (~3000 lines) currently exist only on one laptop.
+- [🟡] **Testing MacBook deployment — in progress.** Binary deployed at
+      `/home/andrei/bin/dsd` on 2011 MacBook (192.168.10.10) running
+      Ubuntu 24.04 with Kind cluster + zram. Smoke test successful
+      (12 checks run in 1.0s, F0 drilldown verified, KernelSecurity
+      INFO behaviour confirmed correct).
+      
+      Discovered the launch-blocking Network privilege bug during smoke
+      test (see above).
+      
+      **Plan: parallel root + andrei cron jobs** — provides direct
+      comparison dataset of privilege-sensitive code paths over 7 days.
+      Run both simultaneously every 6 hours. Compare state.json at end
+      of week to see exactly which checks differ between privilege levels.
+      Higher signal than single-user cron data alone.
+      
+      Setup (after Network bug fix + redeploy):
+        ssh andrei@192.168.10.10
+        crontab -e
+        # add: 0 6,12,18,23 * * * /home/andrei/bin/dsd health > /dev/null 2>&1
+        sudo crontab -e
+        # add: 0 6,12,18,23 * * * /home/andrei/bin/dsd health > /dev/null 2>&1
+      State accumulates in /home/andrei/.dsd/state.json (user) and
+      /root/.dsd/state.json (root). Diff after a week reveals all
+      privilege-sensitive code paths empirically.
+      
+      Optional: start parallel cron BEFORE Network fix. Pre-fix data
+      becomes the empirical baseline showing exactly what the bug
+      looked like; post-fix data shows the improvement directly.
 
 ---
 
@@ -74,12 +192,83 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
 
 ### Features
 - [ ] `dsd init` — wire into root.go so it runs on first launch
-- [ ] `dsd health --share` — upload snapshot to dashdiag.sh (requires backend)
+- [ ] `dsd health --share` — upload snapshot to dashdiag.sh (requires backend).
+      Full design captured in docs/SHARE_DESIGN.md (2026-05-10). Includes
+      decisions on public-vs-private links (public default, password opt-in),
+      retention (7d free, 30-90d paid), pricing model (freemium), what data
+      is sensitive in shares, and trigger conditions for prioritizing the
+      build. Estimated 2-3 weeks of focused work for minimal v0.3 backend.
+      Flags currently hidden from --help (cmd/root.go) until backend ships.
 - [ ] `--report --out <file>` — save markdown report to file
 - [ ] Shell completion: `dsd completion bash/zsh/fish` (cobra built-in, 5 min)
 
 ### Quality
+- [ ] 🔴 **Systematic error-handling audit & refactor.** Pattern observed
+      across multiple bugs found 2026-05-09 to 2026-05-10:
+      
+      DashDiag has a category of silent-failure bugs where errors are
+      swallowed, missing data is interpreted as "everything fine", and
+      the boundary between "no problem" / "no data" / "couldn't measure"
+      is not surfaced. Examples found in this session:
+      
+      1. F0 drilldown silently skipped in non-TTY mode (renderer mode check)
+      2. Systemd OK on non-systemd systems (empty insight list → OK)
+      3. KernelSecurity OK on no-MAC systems (same pattern)
+      4. SELinux insight orphaned by check name mismatch
+      5. Network ICMP privilege failure → CRIT "gateway unreachable"
+      6. Zram percentage field exists but never populated
+      
+      All 6 are instances of the same architectural pattern: empty results
+      look like healthy results; skipped checks look like passing checks.
+      
+      Fix is systematic, not per-bug. Do post-launch but soon (1-2 weeks):
+      
+      Phase 1: Audit (1-2 days). Read every collector and analysis function.
+        List every silent-failure path. Output: markdown doc.
+      
+      Phase 2: Define semantics (half day). Add explicit status field for
+        "couldn't run" vs "ran and found nothing". Already partial via
+        Systemd/KernelSecurity INFO change today; needs consistency.
+      
+      Phase 3: Refactor collectors (2-3 days). Each returns
+        `{Data, Status: "ok"|"no_data"|"error", Reason: string}` instead
+        of just `(Data, error)`.
+      
+      Phase 4: Refactor analysis (1-2 days). Heuristics check status field
+        before computing thresholds. Status != "ok" → INFO insight explaining,
+        not OK fallthrough.
+      
+      Phase 5: Test patterns for error paths (1-2 days). For each collector
+        test: required file missing, command absent, EPERM, empty/malformed
+        input, timeout. Verify result is informative.
+      
+      Total: ~1-2 weeks post-launch. Worth it: eliminates entire class of
+      bugs, makes DashDiag self-diagnosing, improves trust ("OK" actually
+      means OK).
 - [ ] Golden file tests for all renderers (`go test ./internal/render/... -update`)
+- [ ] **Privilege-aware UX messaging.** Pairs with systematic error-handling
+      refactor above. Once collectors return explicit `{Status, Reason}`
+      including degraded-due-to-privilege cases, the renderer should:
+      
+      1. Per-check inline message when degradation happens:
+         "Network ℹ️  ICMP unavailable as non-root user — gateway not verified
+                     For full check: sudo dsd health
+                     Or: sudo setcap cap_net_raw=ep ~/bin/dsd"
+      
+      2. Optional bottom-of-output footer when ANY check degraded:
+         "ℹ️  N checks ran with reduced accuracy due to user privileges.
+              See per-check messages above. Run `dsd help privileges`."
+      
+      Considered and rejected: a generic always-on banner when running
+      as non-root ("running as user, results may be inaccurate"). Would
+      cause banner-blindness within days. The right pattern is
+      check-specific messaging only when degradation actually happened,
+      not a generic warning that fires regardless.
+      
+      Don't ship this until the systematic refactor lands — it depends
+      on collectors being able to distinguish "I ran fine and found
+      nothing" from "I couldn't run for privilege reasons" from "I
+      ran with reduced data."
 - [ ] Contract tests in `test/contract/` — validate JSON output against schema
 - [ ] Coverage report: `make cover` — identify packages under 70%
 
@@ -89,8 +278,77 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
 - [ ] Install script (install.dashdiag.sh — curl | sh)
 
 ### Testing (deferred)
+- [ ] 🔴 **Non-root user testing matrix.** Critical gap discovered 2026-05-10:
+      DashDiag's first non-root Linux test in project history happened
+      today on the 2011 MacBook, and immediately surfaced a launch-blocking
+      bug (Network privilege issue → false-positive CRIT). Five previous
+      testing surfaces all masked the issue:
+      
+      1. Unit tests don't actually exec privileged operations
+      2. CI tests run with whatever capabilities Actions grants
+      3. Mac uses different ping/network stack — privilege issues don't
+         translate
+      4. Docker tests ran as root (default Docker user) — privileged
+         ICMP works
+      5. Docker tests on Alpine/Fedora same as above
+      
+      This means **other checks likely have similar non-root degraded
+      behaviour** we haven't observed yet:
+      
+      Likely affected by privilege:
+      - IO check: /proc/PID/io requires CAP_SYS_PTRACE or same-user
+      - FDLimits check: /proc/PID/fd/ has user-restricted access
+      - Processes drilldown: limited info for other users' processes
+      - Network drilldown: ss -tnp shows process info only for own connections
+      - Systemd drilldown: journalctl access varies by unit
+      
+      Likely safe (world-readable interfaces):
+      - Memory, CPU, Swap, Disk, Clock, Sysctl, KernelSecurity
+      
+      Required testing matrix:
+      
+      Per distro × {root, normal user, CAP_NET_RAW set} × all 12 checks
+      
+      Currently 1×1 (only Ubuntu non-root via 2011 MacBook). Need:
+      - Ubuntu 22.04 + 24.04 (most common server distro)
+      - Fedora 40 (RPM family proxy)
+      - Alpine 3.21 (musl/busybox edge cases)
+      - Rocky 9 (RHEL-compatible enterprise)
+      - All under all three privilege levels
+      
+      Implementation: Docker tests with `--user 1000:1000` flag + a
+      separate test pass with `setcap cap_net_raw=ep` on the binary.
+      
+      Pair with the systematic error-handling refactor (NEXT/Quality):
+      once collectors return explicit "I couldn't run because EPERM",
+      tests verify "given user level X, check Y returns appropriate
+      status" rather than just "check Y produces some output".
+      
+      Estimated: 2-3 days for the matrix expansion alone, after the
+      systematic refactor lands.
 - [ ] P2.8 Flatcar — requires registry authentication
-- [ ] P5.1 Fedora 40, P5.2 Oracle Linux 9, P5.3 AlmaLinux 9
+- [x] ~~P5.1 Fedora 40~~ ✅ validated 2026-05-10 in docker
+- [ ] P5.2 Oracle Linux 9, P5.3 AlmaLinux 9 — both binary-compatible
+      with Rocky Linux 9 (already validated). Skip unless an enterprise
+      prospect specifically requests one.
+- [ ] RHEL 9 on Proxmox VM — 60-90 minutes of work via Red Hat Developer
+      free subscription. Adds NO technical signal beyond Rocky Linux 9
+      (already validated, binary-compatible). Marketing-only value:
+      "tested on RHEL 9" reads better than "tested on Rocky Linux 9
+      (RHEL-compatible)" to enterprise procurement processes.
+      Defer until: an enterprise prospect specifically asks about RHEL
+      OR you want a satisfying low-cognitive-load infrastructure task
+      to break up strategic work.
+- [x] ~~Alpine 3.21 verification~~ ✅ validated 2026-05-10 in docker
+      All 12 collectors green, F0 Memory drilldown fires correctly with
+      real process attribution (stress-ng-vm at 29.4%/575.7MB shown
+      inline). Wall time 1.3s. busybox concerns turned out to be
+      non-issues for the collectors that ran. Disk drilldown not
+      exercised in container — would need filesystem fill test, but
+      no evidence of issues from the basic suite.
+      Minor UX nit (not launch-blocking): Systemd check returns OK on
+      Alpine when systemd isn't present at all. Should arguably return
+      "N/A" or "not applicable" rather than OK to avoid misleading users.
 - [ ] AWS Graviton EC2 — real arm64 server hardware
 - [ ] Raspberry Pi OS
 - [ ] macOS Intel (x86_64) validation
@@ -139,7 +397,7 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
 ### Gate: backend live
 - [ ] `--badge` — README shields.io badge
 - [ ] `dsd fleet` — enterprise multi-server management
-- [ ] `--share` 90-day retention
+- [ ] `--share` 90-day retention (paid tier feature, see docs/SHARE_DESIGN.md)
 
 ### Gate: 10+ paying teams
 - [ ] UnpackOps RCA platform
@@ -173,13 +431,61 @@ F0 inline drill-down: ✅ SHIPPED + FULLY VERIFIED 2026-05-10
 - Memory WARN in 512MB containers — slab cache threshold fires (expected)
 
 ### Pre-existing
-- [ ] `--qr` shows empty QR (shareURL stub)
-- [ ] `dsd health --weekly` needs 7 days of data
-- [ ] `dsd services` empty state needs real config testing
+- [x] ✅ ~~`--qr` shows empty QR (shareURL stub)~~ RESOLVED 2026-05-10
+      `output.PrintQRCode` was already returning silently when URL is empty
+      (not actually rendering an empty QR). Real issue was UX — `--qr` and
+      `--share` flags appearing in `--help` despite share backend not
+      being implemented. Fix: marked both flags as hidden in cmd/root.go.
+      Flags still functional (no breaking change) but invisible from help.
+- [x] ✅ ~~`dsd health --weekly` needs 7 days of data~~ NOT A BUG. By design.
+      Already shows clear message when state has fewer than 7 runs:
+      "Not enough data yet. Run dsd health for 7+ days first." Tested
+      working with accumulated state.
+- [x] ✅ ~~`dsd services` empty state needs real config testing~~ RESOLVED.
+      Empty state already prints helpful message with example yaml config.
+      "Needs real config testing" was scope creep, not a bug. Defer real
+      config integration testing to NEXT phase.
+- [x] ✅ ~~SELinux denial insights use Check name "SELinux" but collector
+      name is "KernelSecurity"~~ RESOLVED 2026-05-10. Fixed insight check
+      name to "KernelSecurity" so renderer prefix matching can attach
+      drill-down details. One-line change in heuristics.go line 404.
+- [ ] Zram usage percentage not actually populated. Discovered while
+      planning testing on a 2011 MacBook with zram-enabled Ubuntu.
+      internal/collectors/swap.go counts zram devices via
+      filepath.Glob("/sys/block/zram*") and sets ZramDevices, but
+      never reads /sys/block/zram*/mm_stat or /sys/block/zram*/io_stat
+      to populate ZramUsedPct (the field exists in models.SwapInfo
+      but stays at 0). Low priority — affects systems using zram
+      (uncommon but real, e.g. mobile-derived distros, memory-constrained
+      servers). Fix: read mm_stat for compressed/decompressed sizes,
+      compute compression ratio, surface as ZramCompressionRatio and
+      populate ZramUsedPct from /proc/swaps zram device entries.
 
 ---
 
 ## BUGS FIXED
+
+### Systemd and KernelSecurity now report INFO when not applicable (2026-05-10)
+
+Previously: on systems without systemd (Alpine, OpenWrt, most Docker
+containers, macOS) the Systemd check returned an empty insight slice,
+which the renderer interpreted as OK. Same problem for KernelSecurity
+on systems with no SELinux/AppArmor active. Users got "Systemd OK"
+when systemd wasn't even running, which is misleading.
+
+Fix in `internal/analysis/heuristics.go`:
+- `checkSystemd` now returns INFO insight "systemd not present on this
+  system" when `SystemdInfo.Available == false`
+- `checkKernelSecurity` now returns INFO insight when neither SELinux
+  nor AppArmor is actively enforcing. Treats `present + mode=disabled`
+  the same as `not present` — common in containers where /sys reports
+  the host's AppArmor state but no profiles apply.
+
+Tests added: `TestSystemdNotAvailable`, `TestSELinuxDisabled`,
+`TestKernelSecurityEnforcing`. Existing `TestSELinuxAbsent` updated.
+
+Verified on Alpine 3.21 ARM64, Fedora 40 ARM64, and macOS arm64 — all
+three correctly show INFO for these checks now.
 
 ### F0 drilldown — full check coverage verified (2026-05-10)
 

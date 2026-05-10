@@ -22,6 +22,7 @@ type NetworkInfo struct {
 	JitterMs              float64         `json:"jitter_ms,omitempty"`
 	CloseWaitCount        int             `json:"close_wait_count"`
 	NATDetected           bool            `json:"nat_detected"`
+	ICMPBlocked           bool            `json:"icmp_blocked,omitempty"` // ICMP unavailable (e.g. no CAP_NET_RAW); TCP fallback used
 	Status                string          `json:"status"`
 	StatusReason          string          `json:"status_reason"`
 }

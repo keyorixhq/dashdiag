@@ -37,6 +37,12 @@ func init() {
 	f.Bool("qr", false, "display share URL as QR code")
 	f.Bool("story", false, "human-readable narrative of current state")
 	f.Bool("weekly", false, "show weekly usage report")
+
+	// Hide --share and --qr from --help until the share backend ships.
+	// Flags remain valid (no breaking change) but don't appear in help text
+	// so users don't see features that don't work yet.
+	_ = f.MarkHidden("share")
+	_ = f.MarkHidden("qr")
 }
 
 func Execute() {

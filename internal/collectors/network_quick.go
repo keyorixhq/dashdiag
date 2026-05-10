@@ -16,6 +16,7 @@ import (
 	goping "github.com/go-ping/ping"
 	gopsutilnet "github.com/shirou/gopsutil/v3/net"
 
+	"github.com/keyorixhq/dashdiag/internal/debug"
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -73,6 +74,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	route := detectDefaultGateway(ctx)
+	debug.Log(ctx, "Network", "gateway", "ip", route.GatewayIP, "iface", route.Iface)
 
 	// Detect primary interface state by scanning all interfaces (before skip filter).
 	if route.Iface != "" {
@@ -104,20 +106,20 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 
 func probeConnectivity(ctx context.Context, gatewayIP string, result *models.NetworkInfo) {
 	var gwMs, gwLoss, internetMs, internetLoss, dnsMs float64
-	var dnsFailed bool
+	var dnsFailed, gwICMPBlocked, inetICMPBlocked bool
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		if gatewayIP != "" {
-			gwMs, gwLoss = pingRTT(ctx, gatewayIP)
+			gwMs, gwLoss, gwICMPBlocked = pingRTT(ctx, gatewayIP)
 		} else {
 			gwMs, gwLoss = -1, 100
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		internetMs, internetLoss = pingRTT(ctx, "8.8.8.8")
+		internetMs, internetLoss, inetICMPBlocked = pingRTT(ctx, "8.8.8.8")
 	}()
 	go func() {
 		defer wg.Done()
@@ -133,12 +135,18 @@ func probeConnectivity(ctx context.Context, gatewayIP string, result *models.Net
 		dnsMs = float64(time.Since(start).Milliseconds())
 	}()
 	wg.Wait()
+	debug.Log(ctx, "Network", "probe results",
+		"gw_ms", gwMs, "gw_loss_pct", gwLoss,
+		"inet_ms", internetMs, "inet_loss_pct", internetLoss,
+		"dns_ms", dnsMs, "dns_failed", dnsFailed)
 	result.GatewayPingMs = gwMs
 	result.GatewayPacketLossPct = gwLoss
 	result.InternetPingMs = internetMs
 	result.InternetPacketLossPct = internetLoss
 	result.DNSResolvesMs = dnsMs
 	result.DNSFailed = dnsFailed
+	// Mark ICMP as blocked if either probe fell back to TCP.
+	result.ICMPBlocked = gwICMPBlocked || inetICMPBlocked
 }
 
 func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
@@ -151,23 +159,66 @@ func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
 	return ""
 }
 
-// pingRTT tries privileged ICMP first, then unprivileged UDP.
-// Returns (average RTT in ms, packet loss pct). RTT is -1 on total failure.
-func pingRTT(ctx context.Context, host string) (ms, lossPct float64) {
+// pingRTT tries privileged ICMP, then unprivileged UDP, then TCP as a
+// privilege-free fallback. Returns (average RTT in ms, packet loss pct,
+// icmpBlocked). icmpBlocked is true when both ICMP modes failed and TCP
+// was used instead — callers can surface this in UX.
+// RTT is -1 on total failure.
+func pingRTT(ctx context.Context, host string) (ms, lossPct float64, icmpBlocked bool) {
 	for _, privileged := range []bool{true, false} {
 		if ctx.Err() != nil {
-			return -1, 100
+			return -1, 100, false
 		}
 		if ms, loss, ok := tryOnePing(ctx, host, privileged); ok {
-			return ms, loss
+			return ms, loss, false
 		}
 	}
-	return -1, 100
+	// Both ICMP modes failed. Try TCP as a privilege-free fallback.
+	// A TCP connection (or refused response) proves L3 reachability without
+	// requiring CAP_NET_RAW or a permissive ping_group_range.
+	if ms, ok := tcpProbe(ctx, host); ok {
+		debug.Log(ctx, "Network", "ICMP blocked — TCP fallback succeeded", "host", host, "ms", ms)
+		return ms, 0, true
+	}
+	debug.Log(ctx, "Network", "all probes failed", "host", host)
+	return -1, 100, false
+}
+
+// tcpProbe dials host on common ports (53, 80) to check L3 reachability
+// without ICMP privileges. Both a successful connection AND a "connection
+// refused" response prove the host is reachable — the packet made a round
+// trip. Returns (rtt_ms, ok).
+func tcpProbe(ctx context.Context, host string) (ms float64, ok bool) {
+	for _, port := range []string{"53", "80"} {
+		tctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		start := time.Now()
+		conn, err := (&net.Dialer{}).DialContext(tctx, "tcp", net.JoinHostPort(host, port))
+		cancel()
+		rtt := float64(time.Since(start).Milliseconds())
+		if conn != nil {
+			_ = conn.Close()
+			debug.Log(ctx, "Network", "TCP probe connected", "host", host, "port", port, "ms", rtt)
+			return rtt, true
+		}
+		if err != nil && strings.Contains(err.Error(), "connection refused") {
+			debug.Log(ctx, "Network", "TCP probe refused (reachable)", "host", host, "port", port, "ms", rtt)
+			return rtt, true
+		}
+		debug.Log(ctx, "Network", "TCP probe failed", "host", host, "port", port, "err", err)
+	}
+	return -1, false
 }
 
 func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct float64, ok bool) {
+	mode := "unprivileged"
+	if privileged {
+		mode = "privileged"
+	}
+	debug.Log(ctx, "Network", "ping attempt", "host", host, "mode", mode)
+
 	p, err := goping.NewPinger(host)
 	if err != nil {
+		debug.Log(ctx, "Network", "ping new pinger failed", "host", host, "mode", mode, "err", err)
 		return -1, 100, false
 	}
 	p.Count = 3
@@ -180,17 +231,22 @@ func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct 
 	select {
 	case <-ctx.Done():
 		p.Stop()
+		debug.Log(ctx, "Network", "ping cancelled", "host", host, "mode", mode)
 		return -1, 100, false
 	case err := <-errCh:
 		if err != nil {
+			debug.Log(ctx, "Network", "ping run failed", "host", host, "mode", mode, "err", err)
 			return -1, 100, false
 		}
 	}
 	stats := p.Statistics()
 	if stats.PacketsRecv == 0 {
+		debug.Log(ctx, "Network", "ping 100% loss", "host", host, "mode", mode, "sent", stats.PacketsSent)
 		return -1, 100, false
 	}
-	return float64(stats.AvgRtt) / float64(time.Millisecond), stats.PacketLoss, true
+	avgMs := float64(stats.AvgRtt) / float64(time.Millisecond)
+	debug.Log(ctx, "Network", "ping ok", "host", host, "mode", mode, "ms", avgMs, "loss_pct", stats.PacketLoss)
+	return avgMs, stats.PacketLoss, true
 }
 
 type routeInfo struct {

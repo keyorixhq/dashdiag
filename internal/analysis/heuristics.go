@@ -227,10 +227,19 @@ func checkNetwork(net models.NetworkInfo) []models.Insight {
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
 			[]string{fmt.Sprintf("ip link set %s up", net.PrimaryInterface), "ip link show", "ip route"},
 		))
-	} else if net.GatewayPingMs < 0 {
+	} else if net.GatewayPingMs < 0 && net.InternetPingMs < 0 {
+		// Both gateway and internet unreachable — truly disconnected.
 		out = append(out, insight("CRIT", "Network",
-			"gateway is unreachable — check routing table",
-			[]string{"ip route", "ping -c3 $(ip route | awk '/default/{print $3}')"},
+			"gateway and internet unreachable — host appears offline",
+			[]string{"ip route", "ip link show", "ping -c3 $(ip route | awk '/default/{print $3}')"},
+		))
+	} else if net.GatewayPingMs < 0 && net.InternetPingMs >= 0 {
+		// Gateway not responding to probes but internet traffic is flowing.
+		// Common with routers (e.g. Zyxel Keenetic) that drop ICMP/TCP probes
+		// on the LAN interface while still forwarding traffic.
+		out = append(out, insight("INFO", "Network",
+			"gateway not responding to probes — internet traffic is flowing",
+			[]string{"traceroute 8.8.8.8", "ping -c3 $(ip route | awk '/default/{print $3}')"},
 		))
 	} else if net.GatewayPingMs > 200 {
 		out = append(out, insight("CRIT", "Network",
@@ -336,6 +345,12 @@ func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 }
 
 func checkSystemd(sys models.SystemdInfo) []models.Insight {
+	if !sys.Available {
+		return []models.Insight{insight("INFO", "Systemd",
+			"systemd not present on this system",
+			nil,
+		)}
+	}
 	out := make([]models.Insight, 0, len(sys.FailedUnits))
 	for _, unit := range sys.FailedUnits {
 		out = append(out, insight("CRIT", "Systemd",
@@ -372,6 +387,17 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 }
 
 func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
+	// "Active" means the module is present AND actually applying policies.
+	// AppArmor in "disabled" mode counts as not active — common in containers
+	// where /sys reports the host's AppArmor state but no profiles apply.
+	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled"
+	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled"
+	if !seActive && !aaActive {
+		return []models.Insight{insight("INFO", "KernelSecurity",
+			"no kernel security module enforcing on this system",
+			nil,
+		)}
+	}
 	if !mac.SELinuxPresent {
 		return nil
 	}
@@ -384,7 +410,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		}
 		return ""
 	}(); l != "" {
-		return []models.Insight{insight(l, "SELinux",
+		return []models.Insight{insight(l, "KernelSecurity",
 			fmt.Sprintf("%d SELinux denials (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
 			[]string{"ausearch -m avc -ts recent", "sealert -a /var/log/audit/audit.log"},
 		)}
