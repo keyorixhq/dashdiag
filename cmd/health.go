@@ -184,6 +184,28 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	startCountdown := func(cancelCh <-chan struct{}) {
+		if mode != output.ModeHuman {
+			return
+		}
+		countTicker := time.NewTicker(1 * time.Second)
+		defer countTicker.Stop()
+		remaining := interval
+		for {
+			select {
+			case <-cancelCh:
+				fmt.Print("\r\033[K") // clear countdown line before next run
+				return
+			case <-countTicker.C:
+				remaining -= time.Second
+				if remaining < 0 {
+					remaining = 0
+				}
+				fmt.Printf("\r  ↻ next refresh in %ds   ", int(remaining.Seconds()))
+			}
+		}
+	}
+
 	run := func() {
 		results, insights, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false)
 		renderer := render.NewRenderer(mode)
@@ -193,12 +215,19 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run()
+	cancelCh := make(chan struct{})
+	go startCountdown(cancelCh)
+
 	for {
 		select {
 		case <-ctx.Done():
+			close(cancelCh)
 			return nil
 		case <-ticker.C:
+			close(cancelCh)
+			cancelCh = make(chan struct{})
 			run()
+			go startCountdown(cancelCh)
 		}
 	}
 }
