@@ -6,6 +6,4 @@ type KernelSecurityInfo struct {
 	SELinuxDenials  int    `json:"se_linux_denials"`
 	AppArmorPresent bool   `json:"app_armor_present"`
 	AppArmorMode    string `json:"app_armor_mode"`
-	Status          string `json:"status"`
-	StatusReason    string `json:"status_reason"`
 }

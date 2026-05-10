@@ -148,7 +148,7 @@ func TestSysctlInfo(t *testing.T) {
 }
 
 func TestKernelSecurityInfo(t *testing.T) {
-	in := KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 3, Status: "WARN"}
+	in := KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 3}
 	var out KernelSecurityInfo
 	roundTrip(t, &in, &out)
 	if !out.SELinuxPresent || out.SELinuxMode != in.SELinuxMode || out.SELinuxDenials != in.SELinuxDenials {
