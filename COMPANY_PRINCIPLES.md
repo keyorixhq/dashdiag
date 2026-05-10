@@ -88,20 +88,42 @@ of honest purchasing-power parity.
 Every UnpackOps product ships with localisation in major languages
 as a **first-class capability**, not a v3 afterthought.
 
-### Target languages
+The rule: **i18n architecture is mandatory from v1.0 in every
+product.** Translations beyond the launch set arrive via community
+pull requests over time — but the architecture must be there from
+day one to make those contributions possible.
 
-Priority order, revisable with usage data:
+### Launch language set
 
-1. Spanish (Spain + LATAM)
-2. Portuguese (Brazil)
-3. Russian
-4. Chinese (Simplified)
-5. German
-6. French
-7. Hindi
-8. Japanese
-9. Italian
-10. Polish
+Every product launches with translations in the languages where
+we can vouch for native-speaker quality. Bad translation is worse
+than no translation — it signals "we don't actually care."
+
+At the time of writing (founder + close network):
+
+| Language              | Reviewer / source                                  |
+|-----------------------|----------------------------------------------------|
+| English               | Default, native quality                            |
+| Spanish (Spain + LATAM) | Founder + Spanish-speaking friends as review panel |
+| Russian               | Founder native                                     |
+| Chinese (Simplified)  | Trusted friend, native speaker                     |
+
+This covers >2 billion potential users at launch. It is a stronger
+footprint than most B2B tools achieve in their first three years.
+
+### Languages beyond the launch set
+
+Everything else is community-driven, by design:
+
+- Portuguese, German, French, Hindi, Japanese, Italian, Polish,
+  and any others arrive via GitHub pull requests from native
+  speakers in the community.
+- Translators are publicly credited in product docs and release
+  notes.
+- A community translator becomes an advocate. A hired translator
+  is a one-shot transaction. The community model is structurally
+  better, not just cheaper.
+- This is the JetBrains / VLC / Linux model and it works at scale.
 
 ### What gets localised
 
@@ -128,17 +150,34 @@ Priority order, revisable with usage data:
 - Localisation at v0 means a 5-year flywheel of multilingual
   community. Localisation at v3 means catching up to competitors
   who got there first.
+- Spanish at launch specifically: we are a Spanish-registered
+  company building from Zaragoza. Shipping English-only to a
+  Spanish-speaking market is a missed signal. Spanish at launch
+  says "we are a Spanish company building globally" rather than
+  "we are a US-style startup that happens to live here."
 - It is also simply the right thing to do. Engineers maintaining
   global infrastructure deserve tools in their language regardless
   of where they sit on the global wage curve.
 
 ### Implementation rules
 
-- **New products:** i18n architecture from v1.0. No exceptions.
-- **Existing products** (DashDiag, Keyorix): English-first;
-  localisation lands in a v1.x release with an explicit deadline,
-  once messaging stabilises and we are not translating moving
-  targets.
+- **i18n architecture is mandatory from v1.0** in every product.
+  No product ships v1.0 without the architectural affordances
+  for localisation, even if only English is populated at first.
+- **Launch translations** are limited to languages we can vouch
+  for via native-speaker review. No machine-translated fallbacks.
+- **DashDiag launch:** English + Spanish at v0.3 if achievable;
+  Russian and Chinese added as the i18n pipeline matures. Build
+  the architecture in v0.3, populate the launch set as quickly
+  as quality review allows.
+- **Keyorix launch:** same principle applies retroactively. Spanish
+  and English minimum at launch; Russian and Chinese added before
+  major public push. ENISA's 5-10 language commitment is a
+  two-year window — doing the architecture right at launch
+  de-risks that commitment, rather than treating it as a future
+  scramble.
+- **Future products** (RCA platform, FinOps tool): same pattern,
+  no exceptions.
 - Translation contributions welcomed via GitHub pull requests.
 - Translators credited publicly in product docs and release notes.
 
