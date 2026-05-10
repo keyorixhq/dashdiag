@@ -206,19 +206,23 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       surfaces (dev Mac, 2011 MacBook Ubuntu, Fedora/Alpine docker)
       cannot exercise:
       
-      - **cgroup v2** (Rocky 9 default; 2011 Ubuntu may be v1 or hybrid)
-      - **Modern systemd** (252+ on Rocky 9, 254+ on Debian 12)
+      - **cgroup v2** (RHEL 9 default; 2011 Ubuntu may be v1 or hybrid)
+      - **Modern systemd** (252+ on RHEL 9, 254+ on Debian 12)
       - **Multi-device NVMe** in /proc/diskstats — IO collector has
         never been tested with two physical drives. Disk collector
         likewise. *Highest-probability bug-finding surface.*
-      - **NUMA visibility on Zen 3 chiplets** — process/memory observability
+      - **NUMA + CCX topology on Ryzen 7 5800H** — monolithic die,
+        single NUMA node, but CCX boundary affects cache observability
       - **AMD k10temp thermal sensors** (vs Intel coretemp)
       - **EDAC on modern DDR4 controllers** — relevant for future
         `dsd hardware` work
       - **Wi-Fi 6 driver patterns** in /sys/class/net
       - **Multiple GPU vendors in /sys/class/drm** (validates that
-        Network and other collectors don't choke on multi-vendor
-        device enumeration)
+        collectors don't choke on multi-vendor device enumeration)
+      - **Real RHEL stack** — subscription-manager, insights-client,
+        rhsm.service, rhsmcertd.service. None of these exist on Rocky/
+        AlmaLinux/Fedora. If DashDiag's Systemd or Processes collectors
+        have any bug related to those units, only RHEL surfaces it.
       
       GPU strategy: ignore the NVIDIA GPU for this campaign. Boot
       with `modprobe.blacklist=nouveau` or disable NVIDIA in BIOS,
@@ -227,38 +231,100 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       Saves ~1 day of setup friction per OS install. NVIDIA testing
       revisits when `dsd hardware` work begins (deferred, see backlog).
       
-      OS rotation plan:
+      Plan A — Multi-boot rig (preferred):
       
-      | Days  | OS         | Bar                    | Goal                                         |
-      |-------|------------|------------------------|----------------------------------------------|
-      | 1-7   | Rocky 9    | B — adversarial bug-finding | Enterprise standard. Stress all 12 collectors. Parallel root + non-root cron. |
-      | 8-10  | Debian 12  | A — smoke / coverage   | Pure Debian quirks vs Ubuntu (different from 2011 MacBook). |
-      | 11-12 | NixOS *or* extended Rocky | A — optional | Stretch goal. NixOS only if first two went smooth. |
-      | 13    | Wipe + Windows install | — | Handover prep. |
+      Build a single multi-boot system covering RHEL 9 + Debian 12 +
+      NixOS on the Legion's 2 × 1TB NVMe drives. Boot into any OS in
+      minutes, do A/B comparisons on the same hardware in a single
+      afternoon, and revisit interesting bugs without losing state.
       
-      Why Rocky 9 first and longest:
-      - Highest commercial alignment (RHEL family = where paying
-        customers actually run things)
-      - Different SELinux defaults than Fedora (Fedora was already
-        tested in Docker; RHEL family has different policy versions)
-      - 7-day window enables parallel root + non-root cron with
-        meaningful diff comparison (mirrors testing MacBook setup)
-      - Bug-finding bar (B) justified by length of window and
-        commercial value of the surface
+      Partition layout:
+      
+      NVMe0 (boot drive, 1TB):
+      - 1 GB EFI System Partition (shared by all OSes)
+      - 250 GB RHEL 9 (root + swap + home)
+      - 250 GB Debian 12 (root + swap + home)
+      - 250 GB NixOS (root + swap + home)
+      - ~250 GB free (4th OS slot if needed, e.g. Ubuntu 24.04 to
+        compare against testing MacBook on modern hardware)
+      
+      NVMe1 (test data drive, 1TB):
+      - One large ext4 partition mounted at /srv/dashdiag-test from
+        whichever OS is booted
+      - Holds DashDiag git checkout (built per-OS into per-OS subdirs),
+        captured --json baselines, cron state files, stress scratch
+      - Survives across OS boots: same data accessible from every distro
+      - Both drives visible in /sys/block/nvme* from every OS — IO
+        collector sees real multi-device scenario regardless of boot
+      
+      Setup days (1-2): build the multi-boot rig. Days 3-12: testing.
+      
+      Plan B — Sequential install (fallback if multi-boot fails):
+      
+      If partitioning gets messy, GRUB doesn't cooperate, or anaconda
+      refuses the manual layout: fall back to sequential single-OS
+      install. Cost: lose multi-OS A/B comparison ability and lose
+      data when wiping between OSes. Benefit: known-good install
+      path, no bootloader fights.
+      
+      Sequential timeline (used only if Plan A fails):
+      
+      | Days  | OS         | Bar                         | Goal |
+      |-------|------------|-----------------------------|------|
+      | 1-7   | RHEL 9     | B — adversarial bug-finding | Real Red Hat stack, parallel cron |
+      | 8-10  | Debian 12  | A — smoke / coverage        | Pure Debian quirks |
+      | 11-12 | NixOS      | A — optional                | Stretch goal |
+      | 13    | Wipe + Windows install   | —                | Handover prep |
+      
+      Either way, Day 13 (May 23) is reserved for Windows install
+      and handover prep regardless of which plan is in flight.
+      
+      Why RHEL 9 (not Rocky 9):
+      - Real RHEL stack: subscription-manager, insights-client,
+        rhsm.service, rhsmcertd.service — none of these exist on
+        Rocky. If our Systemd / Processes / FDLimits collectors have
+        bugs around those units, only RHEL surfaces them.
+      - SELinux policy versions drift between RHEL and Rocky
+      - Kernel patchsets: RHEL ships its own backports; Rocky inherits
+        with lag. /proc and /sys interface behaviour can differ.
+      - Credibility: "Tested on RHEL 9" carries weight in enterprise
+        contexts that "tested on Rocky 9, RHEL-compatible" does not.
+      - Cost: zero. Red Hat Developer Subscription for Individuals
+        (developers.redhat.com) gives full RHEL 9 entitlement free
+        for personal/development use. Sign up, register the system
+        with subscription-manager, full repos available.
+      
+      Why RHEL first and longest:
+      - Highest commercial alignment — paying customers run RHEL
+      - 7-day window enables parallel root + non-root cron (mirrors
+        testing MacBook setup) with meaningful diff after a week
+      - Bug-finding bar (B) justified by window length and commercial
+        value
+      
+      GPU strategy: ignore the NVIDIA RTX 3070 for this campaign.
+      Boot with `modprobe.blacklist=nouveau` or disable NVIDIA in BIOS,
+      run on AMD integrated Radeon only. DashDiag does not yet observe
+      GPU state, so NVIDIA driver wrestling buys nothing. Saves ~1 day
+      of setup friction per OS install. NVIDIA testing revisits when
+      `dsd hardware` work begins (deferred, see backlog).
+      
+      Secure Boot: disable in BIOS. Almost necessary for clean Linux
+      multi-boot; mildly compromises Windows hibernate but the laptop
+      is leaving anyway.
       
       Setup checklist per OS install:
       1. Install OS, AMD-only graphics, network up
       2. Install build deps: git, go (latest), make
-      3. Clone DashDiag, `make release`, install to /usr/local/bin/dsd
+      3. Clone DashDiag to /srv/dashdiag-test/<os>/dashdiag,
+         `make release`, install to /usr/local/bin/dsd
       4. Smoke test: `dsd health --debug 2>&1 | head -50`
-      5. Verify all 12 checks emit expected output (look for INFO
-         on errored collectors — should be nothing surprising)
-      6. Set up parallel root + non-root cron (Rocky 9 only):
+      5. Verify all 12 checks emit expected output (INFO on errored
+         collectors should be nothing surprising)
+      6. Set up parallel root + non-root cron (RHEL only):
            crontab -e   # 0 6,12,18,23 * * * /usr/local/bin/dsd health > /dev/null 2>&1
            sudo crontab -e   # same
       7. Run adversarial scenarios per `scripts/stress/` (CPU peg,
-         disk IO, swap pressure) — verify F0 drilldown fires
-         correctly on this hardware
+         disk IO, swap pressure) — verify F0 drilldown fires correctly
       8. Capture `dsd health --json` output to dev Mac via scp for
          baseline diff against existing test outputs
       
@@ -268,7 +334,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       - Different output structure on cgroup v2 vs v1
       - NVMe-specific quirks in IO / Disk / FDLimits collectors
       - Anything where multi-device storage breaks single-device assumptions
-      - Any /proc/* path that exists on Ubuntu but not on Rocky/Debian
+      - Any /proc/* path that exists on Ubuntu but not on RHEL/Debian
         (or vice versa)
       
       What we are NOT testing:
@@ -284,7 +350,7 @@ F0 inline drill-down: ✅ SHIPPED + END-TO-END VERIFIED 2026-05-10
       This pairs with the post-launch "non-root user testing matrix
       expansion" item in NEXT/Testing — between the Legion campaign
       and the testing MacBook parallel cron, the matrix becomes:
-      Rocky 9 / Debian 12 / Ubuntu 24.04 × root / non-root × 12 checks.
+      RHEL 9 / Debian 12 / Ubuntu 24.04 × root / non-root × 12 checks.
       That's enough coverage to be confident before HN launch.
 
 ---
