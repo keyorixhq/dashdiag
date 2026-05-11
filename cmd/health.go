@@ -145,8 +145,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	}
 
 	if state != nil {
-		tips.MaybePrintMilestone(state, mode) // increments TotalRuns and updates streak
+		tips.MaybePrintMilestone(state, mode)
 		tips.MaybePrintTip(state, mode)
+		tips.MaybePrintChangelog(state, mode, version.Version)
 		if state.CommandCounts == nil {
 			state.CommandCounts = make(map[string]int)
 		}

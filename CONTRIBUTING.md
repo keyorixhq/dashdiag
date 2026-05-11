@@ -1,5 +1,12 @@
 # Contributing to DashDiag
 
+## Tested Platforms
+
+| OS | Version | Kernel | Architecture | Status |
+|---|---|---|---|---|
+| macOS | Sequoia 15.x | Darwin 24.x | arm64 | ✅ primary dev |
+| RHEL | 10.1 (Coughlan) | 6.12.0-124.55.1.el10_1 | x86_64 | ✅ validated |
+
 ## Quick Start
 
 ```bash

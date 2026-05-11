@@ -83,8 +83,15 @@ func MaybePrintReengagement(state *State, mode output.OutputMode, ver string) {
 	if gap >= 7 {
 		fmt.Fprintf(os.Stderr, "\n👋 Welcome back! %d days since your last check.\n", gap)
 	}
+}
+
+// MaybePrintChangelog prints a conversational nudge after results when the version changed.
+func MaybePrintChangelog(state *State, mode output.OutputMode, ver string) {
+	if mode != output.ModeHuman || output.IsPlain(false) {
+		return
+	}
 	if state.LastVersion != "" && state.LastVersion != ver {
-		fmt.Fprintf(os.Stderr, "   New in %s — run dsd --changelog\n", ver)
+		fmt.Fprintf(os.Stderr, "   What's new in %s? Run dsd --changelog\n", ver)
 	}
 }
 

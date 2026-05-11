@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,34 +12,24 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func init() {
 	rootCmd.AddCommand(netCmd)
-	netCmd.AddCommand(netDeepCmd)
+	// TODO(backlog): dsd net deep — jitter analysis, bond detection, wireless signal,
+	// traceroute on problem detected. Build after dsd net fast is in production use.
 }
 
 var netCmd = &cobra.Command{
 	Use:   "net",
-	Short: "Network snapshot — interfaces, gateway, internet (~3s)",
+	Short: "Network health — interfaces, gateway, internet (~3s)",
 	RunE:  runNet,
 }
 
-var netDeepCmd = &cobra.Command{
-	Use:   "deep",
-	Short: "Deep network analysis — jitter, bonds, wireless (~30s)",
-	RunE:  runNetDeep,
-}
-
 func runNet(cmd *cobra.Command, _ []string) error {
-	return runNetWith(cmd, collectors.NewNetworkCollector(), "Network snapshot", 3*time.Second)
-}
-
-func runNetDeep(cmd *cobra.Command, _ []string) error {
-	p := output.NewCommandProgress("Deep network analysis", 30*time.Second, output.ModeHuman, 1)
-	p.Note("ℹ️  Traceroute only runs if problem detected")
-	return runNetWith(cmd, collectors.NewNetworkDeepCollector(), "Deep network analysis", 30*time.Second)
+	return runNetWith(cmd, collectors.NewNetworkCollector(), "Network health", 3*time.Second)
 }
 
 func runNetWith(cmd *cobra.Command, col collectors.Collector, label string, estimate time.Duration) error {
@@ -53,13 +44,14 @@ func runNetWith(cmd *cobra.Command, col collectors.Collector, label string, esti
 
 	p := output.NewCommandProgress(label, estimate, mode, 1)
 	p.Start()
-	defer p.Done()
 
 	var result runner.Result
 	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		p.Step(r.Name)
 		result = r
 	}
+	elapsed := p.Elapsed()
+	p.Done()
 
 	if result.Err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", result.Err)
@@ -71,11 +63,13 @@ func runNetWith(cmd *cobra.Command, col collectors.Collector, label string, esti
 		return nil
 	}
 
-	printNetworkInfo(info, mode)
+	printNetworkInfo(info, mode, elapsed)
 	return nil
 }
 
-func printNetworkInfo(info *models.NetworkInfo, mode output.OutputMode) {
+func printNetworkInfo(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration) {
+	sep := strings.Repeat("─", 56)
+	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 	hostname, _ := os.Hostname()
 	fmt.Printf("\nNetwork — %s\n\n", hostname)
 
@@ -112,11 +106,12 @@ func printNetworkInfo(info *models.NetworkInfo, mode output.OutputMode) {
 	if info.CloseWaitCount > 0 {
 		fmt.Printf("  %-14s %d\n", "CLOSE_WAIT:", info.CloseWaitCount)
 	}
-	fmt.Println()
 
+	fmt.Println()
+	fmt.Println(sep)
 	if info.GatewayPingMs < 0 && info.InternetPingMs < 0 {
-		fmt.Println("  ❌  No network connectivity")
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌  Network unhealthy%s", timing)))
 	} else {
-		fmt.Println("  ✅  Network healthy")
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Network healthy. Checks passed%s", timing)))
 	}
 }

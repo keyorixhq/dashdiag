@@ -179,7 +179,7 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 
 	if len(crits)+len(warns) == 0 {
 		if r.mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleOK.Render(fmt.Sprintf("⚡ All checks passed%s", timing)))
+			fmt.Fprintln(os.Stdout, StyleOK.Render(fmt.Sprintf("✅ System healthy. Checks passed%s", timing)))
 		} else {
 			fmt.Fprintf(os.Stdout, "OK: All checks passed%s\n", timing)
 		}
