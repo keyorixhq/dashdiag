@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/version"
 	"github.com/spf13/cobra"
@@ -13,13 +14,28 @@ var rootCmd = &cobra.Command{
 	Short: "DashDiag — instant system health",
 	Long: "DashDiag (dsd) — one command instant system health overview.\n\n" +
 		"◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		plain, _ := cmd.Flags().GetBool("plain")
+		jsonOut, _ := cmd.Flags().GetBool("json")
+		if !plain && !jsonOut {
+			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd)\n")
+		}
+	},
 	RunE: runHealth,
 	Version: fmt.Sprintf("%s (commit %s, built %s)",
 		version.Version, version.Commit, version.Built),
 }
 
 func init() {
-	rootCmd.SuggestionsMinimumDistance = 2
+	rootCmd.CompletionOptions.HiddenDefaultCmd = true
+
+	// Override help to print brand header before help text
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd)\n")
+		fmt.Fprintf(os.Stderr, "System health — read only checks, usually under 5s\n")
+		fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
+		cmd.Usage() //nolint:errcheck
+	})
 
 	f := rootCmd.PersistentFlags()
 	f.Bool("plain", false, "plain text output")

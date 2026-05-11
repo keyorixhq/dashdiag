@@ -28,9 +28,8 @@ func NewCommandProgress(label string, estimate time.Duration, mode OutputMode, t
 func (p *CommandProgress) Start() {
 	p.start = time.Now()
 	if p.mode == ModeHuman {
-		fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd)\n")
-		fmt.Fprintf(os.Stderr, "%s — read only observation usually takes ~%ds\n", p.label, int(p.estimate.Seconds()))
-		fmt.Fprintf(os.Stderr, " %s\n", strings.Repeat("─", 48))
+		fmt.Fprintf(os.Stderr, "%s — read only checks, usually under %ds\n", p.label, int(p.estimate.Seconds()))
+		fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
 	} else {
 		fmt.Fprintf(os.Stderr, "[INFO] %s — ~%ds\n", p.label, int(p.estimate.Seconds()))
 	}

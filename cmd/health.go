@@ -24,7 +24,6 @@ import (
 
 func init() {
 	rootCmd.AddCommand(healthCmd)
-	healthCmd.AddCommand(healthDeepCmd)
 	healthCmd.Flags().Duration("watch-interval", 60*time.Second, "refresh interval for --watch mode")
 	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
 }
@@ -35,11 +34,10 @@ var healthCmd = &cobra.Command{
 	RunE:  runHealth,
 }
 
-var healthDeepCmd = &cobra.Command{
-	Use:   "deep",
-	Short: "Thorough health check including per-core CPU (~8s)",
-	RunE:  runHealth,
-}
+// TODO(backlog): dsd health deep — extended health check with per-core CPU breakdown,
+// per-process memory detail, extended sysctl analysis, and kernel tuning recommendations.
+// Build rule: implement only after dsd health fast variant is in production use.
+// Estimated scope: ~3 days. Add back healthDeepCmd and wire into init() when ready.
 
 func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
 	ctx := context.Background()
@@ -72,6 +70,17 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		tips.MaybePrintReengagement(state, mode, version.Version)
 	}
 
+	// --story: try history first without running collectors
+	storyFlag, _ := cmd.Flags().GetBool("story")
+	if storyFlag {
+		history, err := baseline.LoadHistory(48)
+		if err == nil && len(history) >= 2 {
+			fmt.Println(render.RenderStoryFromHistory(history))
+			return nil
+		}
+		// Not enough history yet — fall through to live run
+	}
+
 	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse)
 
 	// --weekly: early return, reads state.json only
@@ -85,14 +94,6 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		fmt.Println(render.RenderWeekly(weeklyState, "weekly"))
 		return nil
 	}
-
-	// --story: deterministic narrative
-	storyFlag, _ := cmd.Flags().GetBool("story")
-	if storyFlag {
-		fmt.Println(render.RenderStory(insights, snap))
-		return nil
-	}
-
 	sdFlag, _ := cmd.Flags().GetBool("since-deploy")
 	pmFlag, _ := cmd.Flags().GetString("post-mortem")
 	if sdFlag {
