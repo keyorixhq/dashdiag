@@ -49,15 +49,15 @@ func TestPrintSummaryExitCode(t *testing.T) {
 		r := NewRenderer(mode)
 		os.Stdout = devnull
 
-		if got := r.PrintSummary(warnInsights); got != 1 {
+		if got := r.PrintSummary(warnInsights, 0); got != 1 {
 			os.Stdout = old
 			t.Errorf("mode %s WARN: PrintSummary returned %d, want 1", modeNames[i], got)
 		}
-		if got := r.PrintSummary(critInsights); got != 2 {
+		if got := r.PrintSummary(critInsights, 0); got != 2 {
 			os.Stdout = old
 			t.Errorf("mode %s CRIT: PrintSummary returned %d, want 2", modeNames[i], got)
 		}
-		if got := r.PrintSummary(nil); got != 0 {
+		if got := r.PrintSummary(nil, 0); got != 0 {
 			os.Stdout = old
 			t.Errorf("mode %s empty: PrintSummary returned %d, want 0", modeNames[i], got)
 		}

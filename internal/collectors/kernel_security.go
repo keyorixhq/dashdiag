@@ -15,7 +15,7 @@ type KernelSecurityCollector struct{}
 
 func NewKernelSecurityCollector() *KernelSecurityCollector { return &KernelSecurityCollector{} }
 
-func (c *KernelSecurityCollector) Name() string           { return "KernelSecurity" }
+func (c *KernelSecurityCollector) Name() string           { return "KernelSec" }
 func (c *KernelSecurityCollector) Timeout() time.Duration { return 5 * time.Second }
 
 // parseSELinuxMode normalises getenforce output to lowercase.
