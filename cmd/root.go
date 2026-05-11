@@ -17,7 +17,7 @@ var rootCmd = &cobra.Command{
 		plain, _ := cmd.Flags().GetBool("plain")
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		if !plain && !jsonOut {
-			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd)\n")
+			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s\n", version.Version)
 		}
 	},
 	RunE: runHealth,

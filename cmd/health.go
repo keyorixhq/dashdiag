@@ -39,6 +39,33 @@ var healthCmd = &cobra.Command{
 // Build rule: implement only after dsd health fast variant is in production use.
 // Estimated scope: ~3 days. Add back healthDeepCmd and wire into init() when ready.
 
+// TODO(backlog): entropy collector — check /proc/sys/kernel/random/entropy_avail.
+// Low entropy (<256) silently breaks crypto operations (TLS handshakes, key generation).
+// Read: /proc/sys/kernel/random/entropy_avail and /proc/sys/kernel/random/poolsize.
+// WARN < 256, CRIT < 64. Add to buildHealthCollectors().
+// Estimated scope: ~2 hours.
+
+// TODO(backlog): package security advisory collector — surface available security updates.
+// Linux: parse `dnf check-update --security` or `apt list --upgradable` (distro-detect).
+// macOS: `brew outdated --greedy` for Homebrew packages.
+// Show count of security updates available; WARN if > 0 critical CVE updates pending.
+// Estimated scope: ~1 day. Note: this is the only collector that shells out intentionally
+// (no kernel interface for package state); follow existing macOS pgrep pattern.
+
+// TODO(backlog): kernel tuning recommendations (sysctl advisor) — compare live sysctl
+// values against known-good profiles for common workloads (web server, database, k8s node).
+// Extend SysctlCollector to flag suboptimal values with specific recommended settings.
+// Examples: vm.swappiness > 10 on SSD, net.core.rmem_max < 16MB on high-throughput host.
+// Workload profile auto-detected from running processes (nginx, postgres, kubelet etc).
+// Estimated scope: ~2 days.
+
+// TODO(backlog): CVE exposure check — cross-reference installed packages against a local
+// advisory feed. On RHEL/CentOS: parse /var/cache/dnf or query OVAL data from
+// https://access.redhat.com/security/data/oval/. On Ubuntu: parse /var/lib/apt/lists/.
+// No cloud registration required — advisory data downloaded and cached locally (~weekly).
+// WARN: any CVE with CVSS >= 7.0. CRIT: any CVE with CVSS >= 9.0 or known exploited.
+// Estimated scope: ~1 week (advisory feed parsing is the bulk of the work).
+
 func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
 	ctx := context.Background()
 	debugFlag, _ := cmd.Flags().GetBool("debug")
