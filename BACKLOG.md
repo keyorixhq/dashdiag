@@ -66,10 +66,9 @@ Estimated scope: ~2 days.
 
 ## Collectors (dsd health additions)
 
-### Entropy collector
-Read /proc/sys/kernel/random/entropy_avail. Low entropy silently breaks crypto.
-WARN < 256, CRIT < 64. Add to buildHealthCollectors(). Linux only.
-Estimated scope: ~2 hours.
+### ~~Entropy collector~~ ✅ DONE
+Implemented in internal/collectors/entropy_linux.go.
+Reads /proc/sys/kernel/random/entropy_avail. WARN < 256, CRIT < 64.
 
 ### Package security advisory
 Surface available security updates. dnf check-update --security / apt / brew outdated.
