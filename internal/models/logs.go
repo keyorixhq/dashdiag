@@ -1,22 +1,14 @@
 package models
 
-import "time"
-
-type LogError struct {
-	Message   string    `json:"message"`
-	Count     int       `json:"count"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
-	Source    string    `json:"source"`
-}
-
+// LogsInfo holds system log health data.
 type LogsInfo struct {
-	ErrorCount    int        `json:"error_count"`
-	WarnCount     int        `json:"warn_count"`
-	TopErrors     []LogError `json:"top_errors"`
-	Sources       []string   `json:"sources"`
-	SinceMinutes  int        `json:"since_minutes"`
-	JournalSizeGB float64    `json:"journal_size_gb"`
-	Status        string     `json:"status"`
-	StatusReason  string     `json:"status_reason"`
+	OOMKills      int      `json:"oom_kills"`      // OOM kills in last hour from /dev/kmsg
+	OOMProcesses  []string `json:"oom_processes"`  // Names of killed processes
+	Segfaults     int      `json:"segfaults"`      // Segfaults in last hour from /dev/kmsg
+	SegfaultProcs []string `json:"segfault_procs"` // Names of faulting processes
+	JournalSizeGB float64  `json:"journal_size_gb"`
+	CrashLoops    []string `json:"crash_loops"`
+	NeedsRoot     bool     `json:"needs_root,omitempty"` // kmsg and auth logs require root
+	Status        string   `json:"status,omitempty"`
+	StatusReason  string   `json:"status_reason,omitempty"`
 }

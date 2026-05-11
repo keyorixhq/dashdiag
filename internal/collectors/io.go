@@ -78,6 +78,17 @@ func readRotational(dev string) bool {
 	return strings.TrimSpace(string(data)) == "1"
 }
 
+// driveType returns "nvme", "ssd", or "hdd" by reading sysfs.
+func driveType(dev string) string {
+	if strings.HasPrefix(dev, "nvme") {
+		return "nvme"
+	}
+	if readRotational(dev) {
+		return "hdd"
+	}
+	return "ssd"
+}
+
 func computeDelta(name string, before, after diskStatRaw) models.IODeviceInfo {
 	var readSec, writeSec, ioMs uint64
 	if after.readSectors >= before.readSectors {
@@ -99,9 +110,11 @@ func computeDelta(name string, before, after diskStatRaw) models.IODeviceInfo {
 		totalTimeMs := (after.readTimeMs + after.writeTimeMs) - (before.readTimeMs + before.writeTimeMs)
 		awaitMs = float64(totalTimeMs) / float64(ops)
 	}
+	dt := driveType(name)
 	return models.IODeviceInfo{
 		Name:      name,
-		IsSSD:     !readRotational(name),
+		IsSSD:     dt != "hdd",
+		DriveType: dt,
 		ReadMBps:  float64(readSec) * 512 / 1e6,
 		WriteMBps: float64(writeSec) * 512 / 1e6,
 		UtilPct:   util,

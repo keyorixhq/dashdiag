@@ -53,7 +53,45 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info.FSFileMax, _ = readIntFile("/proc/sys/fs/file-max")
 	info.KernelPIDMax, _ = readIntFile("/proc/sys/kernel/pid_max")
 	info.PIDCount = countProcDirs()
+
+	// Extended tuning fields
+	info.NetRmemMax, _ = readIntFile("/proc/sys/net/core/rmem_max")
+	info.NetWmemMax, _ = readIntFile("/proc/sys/net/core/wmem_max")
+	info.TCPTWReuse, _ = readIntFile("/proc/sys/net/ipv4/tcp_tw_reuse")
+	info.TCPSynBacklog, _ = readIntFile("/proc/sys/net/ipv4/tcp_max_syn_backlog")
+	info.VMMaxMapCount, _ = readIntFile("/proc/sys/vm/max_map_count")
+	info.VMDirtyRatio, _ = readIntFile("/proc/sys/vm/dirty_ratio")
+	info.VMOvercommit, _ = readIntFile("/proc/sys/vm/overcommit_memory")
+	info.FSInotifyWatches, _ = readIntFile("/proc/sys/fs/inotify/max_user_watches")
+
+	// Detect workload from running process names
+	info.Workload = detectWorkload()
+
 	return info, nil
+}
+
+// detectWorkload scans /proc/*/comm to identify the primary workload.
+func detectWorkload() string {
+	procs := make(map[string]bool)
+	dirs, _ := filepath.Glob("/proc/[0-9]*")
+	for _, dir := range dirs {
+		comm, err := os.ReadFile(filepath.Join(dir, "comm")) // #nosec G304
+		if err != nil {
+			continue
+		}
+		procs[strings.TrimSpace(string(comm))] = true
+	}
+
+	switch {
+	case procs["kubelet"] || procs["k3s"] || procs["k3s-server"]:
+		return "k8s"
+	case procs["nginx"] || procs["apache2"] || procs["httpd"] || procs["caddy"]:
+		return "webserver"
+	case procs["postgres"] || procs["mysqld"] || procs["mongod"] || procs["redis-server"]:
+		return "database"
+	default:
+		return "default"
+	}
 }
 
 func readSysctlInt(ctx context.Context, key string) int {

@@ -196,13 +196,100 @@ func (r *Renderer) printInsightGroup(ins []models.Insight) {
 		if r.mode == output.ModeHuman {
 			icon := styleForStatus(i.Level).Render(output.StatusIcon(levelToStatusKey(i.Level), r.mode))
 			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(i.Check), i.Message)
-			for _, h := range i.Hints {
-				fmt.Fprintf(os.Stdout, "   %s %s\n", StyleDim.Render("→"), h)
-			}
+			r.printHints(i.Hints)
 		} else {
 			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, i.Check, i.Message)
-			for _, h := range i.Hints {
-				fmt.Fprintf(os.Stdout, "   -> %s\n", h)
+			r.printHintsPlain(i.Hints)
+		}
+	}
+}
+
+// printHints groups hints by their prefix (to inspect / to fix) and prints them
+// as a labelled block rather than repeating the prefix on every line.
+func (r *Renderer) printHints(hints []string) {
+	type group struct {
+		label string
+		cmds  []string
+	}
+
+	// Preserve order of first appearance of each label
+	seen := make(map[string]int) // label → index in groups
+	var groups []group
+
+	for _, h := range hints {
+		label := ""
+		cmd := h
+		for _, prefix := range []string{"to inspect: ", "to fix: ", "to inspect:", "to fix:"} {
+			if strings.HasPrefix(h, prefix) {
+				label = strings.TrimSuffix(strings.TrimSpace(prefix), ":")
+				cmd = strings.TrimPrefix(h, prefix)
+				break
+			}
+		}
+		if label == "" {
+			// No known prefix — print as-is
+			fmt.Fprintf(os.Stdout, "   %s %s\n", StyleDim.Render("→"), h)
+			continue
+		}
+		if idx, exists := seen[label]; exists {
+			groups[idx].cmds = append(groups[idx].cmds, cmd)
+		} else {
+			seen[label] = len(groups)
+			groups = append(groups, group{label: label, cmds: []string{cmd}})
+		}
+	}
+
+	for _, g := range groups {
+		if len(g.cmds) == 1 {
+			fmt.Fprintf(os.Stdout, "   %s %s: %s\n",
+				StyleDim.Render("→"), g.label, g.cmds[0])
+		} else {
+			fmt.Fprintf(os.Stdout, "   %s %s:\n", StyleDim.Render("→"), g.label)
+			for _, cmd := range g.cmds {
+				fmt.Fprintf(os.Stdout, "     %s\n", StyleDim.Render(cmd))
+			}
+		}
+	}
+}
+
+// printHintsPlain is the plain-text version of printHints — same grouping, no styling.
+func (r *Renderer) printHintsPlain(hints []string) {
+	type group struct {
+		label string
+		cmds  []string
+	}
+	seen := make(map[string]int)
+	var groups []group
+
+	for _, h := range hints {
+		label := ""
+		cmd := h
+		for _, prefix := range []string{"to inspect: ", "to fix: "} {
+			if strings.HasPrefix(h, prefix) {
+				label = strings.TrimSuffix(prefix, ": ")
+				cmd = strings.TrimPrefix(h, prefix)
+				break
+			}
+		}
+		if label == "" {
+			fmt.Fprintf(os.Stdout, "   -> %s\n", h)
+			continue
+		}
+		if idx, exists := seen[label]; exists {
+			groups[idx].cmds = append(groups[idx].cmds, cmd)
+		} else {
+			seen[label] = len(groups)
+			groups = append(groups, group{label: label, cmds: []string{cmd}})
+		}
+	}
+
+	for _, g := range groups {
+		if len(g.cmds) == 1 {
+			fmt.Fprintf(os.Stdout, "   -> %s: %s\n", g.label, g.cmds[0])
+		} else {
+			fmt.Fprintf(os.Stdout, "   -> %s:\n", g.label)
+			for _, cmd := range g.cmds {
+				fmt.Fprintf(os.Stdout, "      %s\n", cmd)
 			}
 		}
 	}

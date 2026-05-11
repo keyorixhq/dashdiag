@@ -204,3 +204,15 @@ Estimated scope: ~1 day.
 Trust building for dsd init and dsd hook.
 Show what would be written without writing it.
 Estimated scope: ~0.5 days.
+
+### [DISCUSS] Multi-socket / NUMA testing
+Rent Hetzner AX162-S or similar (2x AMD EPYC) for a few hours to validate:
+- NUMA topology collector (/sys/devices/system/node/)
+- Per-socket load imbalance detection (/proc/stat per-CPU)
+- IRQ affinity analysis (/proc/interrupts)
+- Cross-node memory traffic
+- CPU pinning drift detection
+
+Hetzner dedicated auction servers: ~€0.50-2/hour.
+Also: ask friends with multi-socket hardware.
+Build after core product is stable and first paying customer exists.
