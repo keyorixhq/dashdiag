@@ -23,7 +23,6 @@ build:
 	@echo "→ Building $(BINARY) $(VERSION)"
 	@mkdir -p dist
 	CGO_ENABLED=$(CGO_ENABLED) go build -ldflags "$(LDFLAGS)" -trimpath -o dist/$(BINARY) ./cmd/dsd
-	@echo "✅ dist/$(BINARY)"
 
 .PHONY: release
 release:
