@@ -58,7 +58,7 @@ func readWchan(pid int) string {
 }
 
 func readComm(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid)) // #nosec G703 -- pid is an integer from /proc glob, not user input
 	if err != nil {
 		return ""
 	}
