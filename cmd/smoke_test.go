@@ -11,15 +11,21 @@ const dsdPkg = "github.com/keyorixhq/dashdiag/cmd/dsd"
 func run(t *testing.T, args ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command("go", append([]string{"run", dsdPkg}, args...)...)
-	out, err := cmd.Output()
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	code := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code = exitErr.ExitCode()
-			out = exitErr.Stderr // fall back to stderr for non-JSON commands
 		}
 	}
-	return string(out), code
+	out := stdout.String()
+	if out == "" {
+		out = stderr.String()
+	}
+	return out, code
 }
 
 func TestVersion(t *testing.T) {
