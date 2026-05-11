@@ -14,11 +14,14 @@ var sysctlRecommended = map[string]struct {
 	recommended string
 	note        string
 }{
-	"net.core.somaxconn":    {"4096", "increase for high-concurrency servers"},
-	"vm.swappiness":         {"10", "lower for database servers; 60 for general workloads"},
-	"fs.file-max":           {"1048576", "increase if file descriptor limit is hit"},
-	"kernel.pid_max":        {"4194304", "increase for systems running many processes"},
-	"net.ipv4.tcp_tw_reuse": {"1", "allow TIME_WAIT socket reuse for outbound connections"},
+	"net.core.somaxconn":            {"4096", "increase for high-concurrency servers"},
+	"vm.swappiness":                 {"10", "lower for k8s/database; 60 for general workloads"},
+	"fs.file-max":                   {"1048576", "increase if file descriptor limit is hit"},
+	"kernel.pid_max":                {"4194304", "increase for systems running many processes"},
+	"net.ipv4.tcp_tw_reuse":         {"1", "allow TIME_WAIT socket reuse for outbound connections"},
+	"vm.max_map_count":              {"262144", "required for k8s/Elasticsearch"},
+	"fs.inotify.max_user_watches":   {"524288", "required for k8s file watchers"},
+	"fs.inotify.max_user_instances": {"512", "required for k8s"},
 }
 
 // ActualVsRecommended returns current vs recommended values for sysctl keys
@@ -44,7 +47,15 @@ func ActualVsRecommended(ctx context.Context, message string) (*models.Details, 
 	for _, key := range keys {
 		current := readSysctl(key)
 		rec := sysctlRecommended[key]
+		// Only show rows where current differs from recommended
+		if current == rec.recommended {
+			continue
+		}
 		rows = append(rows, []string{key, current, rec.recommended, rec.note})
+	}
+
+	if len(rows) == 0 {
+		return nil, nil
 	}
 
 	return &models.Details{
@@ -56,7 +67,6 @@ func ActualVsRecommended(ctx context.Context, message string) (*models.Details, 
 }
 
 func readSysctl(key string) string {
-	// Read from /proc/sys/net/core/somaxconn etc.
 	path := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
 	data, err := os.ReadFile(path)
 	if err != nil {

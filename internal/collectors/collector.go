@@ -17,9 +17,11 @@ type Collector interface {
 
 // runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
 // always uses dot as the decimal separator regardless of the user's locale.
+// The process is killed (not just abandoned) when ctx is cancelled.
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

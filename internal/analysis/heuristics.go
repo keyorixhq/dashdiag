@@ -4,82 +4,134 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
-func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.CloudEnvironment) []models.Insight {
+func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment) []models.Insight {
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
 			insights = append(insights, insight("INFO", r.Name,
-				fmt.Sprintf("check could not run — %v", r.Err),
-				nil,
-			))
+				fmt.Sprintf("check could not run — %v", r.Err), nil))
 			continue
 		}
-		switch data := r.Data.(type) {
-		case models.CPUInfo:
-			insights = append(insights, checkCPU(data, thresh)...)
-		case *models.CPUInfo:
-			insights = append(insights, checkCPU(*data, thresh)...)
-		case models.MemoryInfo:
-			insights = append(insights, checkMemory(data, thresh)...)
-		case *models.MemoryInfo:
-			insights = append(insights, checkMemory(*data, thresh)...)
-		case models.DiskInfo:
-			insights = append(insights, checkDisk(data, thresh)...)
-		case *models.DiskInfo:
-			insights = append(insights, checkDisk(*data, thresh)...)
-		case models.SwapInfo:
-			insights = append(insights, checkSwap(data, thresh)...)
-		case *models.SwapInfo:
-			insights = append(insights, checkSwap(*data, thresh)...)
-		case models.IOInfo:
-			insights = append(insights, checkIO(data, thresh)...)
-		case *models.IOInfo:
-			insights = append(insights, checkIO(*data, thresh)...)
-		case models.NetworkInfo:
-			insights = append(insights, checkNetwork(data)...)
-		case *models.NetworkInfo:
-			insights = append(insights, checkNetwork(*data)...)
-		case models.ClockInfo:
-			insights = append(insights, checkClock(data, thresh)...)
-		case *models.ClockInfo:
-			if data != nil {
-				insights = append(insights, checkClock(*data, thresh)...)
-			}
-		case models.FDInfo:
-			insights = append(insights, checkFD(data, thresh)...)
-		case *models.FDInfo:
-			insights = append(insights, checkFD(*data, thresh)...)
-		case models.SystemdInfo:
-			insights = append(insights, checkSystemd(data)...)
-		case *models.SystemdInfo:
-			insights = append(insights, checkSystemd(*data)...)
-		case models.SysctlInfo:
-			insights = append(insights, checkSysctl(data)...)
-		case *models.SysctlInfo:
-			insights = append(insights, checkSysctl(*data)...)
-		case models.KernelSecurityInfo:
-			insights = append(insights, checkKernelSecurity(data, thresh)...)
-		case *models.KernelSecurityInfo:
-			insights = append(insights, checkKernelSecurity(*data, thresh)...)
-		case models.LogsInfo:
-			insights = append(insights, checkLogs(data, thresh)...)
-		case *models.LogsInfo:
-			insights = append(insights, checkLogs(*data, thresh)...)
-		case models.EntropyInfo:
-			insights = append(insights, checkEntropy(data)...)
-		case *models.EntropyInfo:
-			if data != nil {
-				insights = append(insights, checkEntropy(*data)...)
-			}
-		}
+		insights = append(insights, applyOne(r.Data, thresh)...)
 	}
 	return insights
+}
+
+//nolint:cyclop // type dispatch — each case is trivial
+func applyOne(data interface{}, thresh Thresholds) []models.Insight {
+	switch d := data.(type) {
+	case models.CPUInfo:
+		return checkCPU(d, thresh)
+	case *models.CPUInfo:
+		return checkCPU(*d, thresh)
+	case models.MemoryInfo:
+		return checkMemory(d, thresh)
+	case *models.MemoryInfo:
+		return checkMemory(*d, thresh)
+	case models.DiskInfo:
+		return checkDisk(d, thresh)
+	case *models.DiskInfo:
+		return checkDisk(*d, thresh)
+	case models.SwapInfo:
+		return checkSwap(d, thresh)
+	case *models.SwapInfo:
+		return checkSwap(*d, thresh)
+	case models.IOInfo:
+		return checkIO(d, thresh)
+	case *models.IOInfo:
+		return checkIO(*d, thresh)
+	case models.NetworkInfo:
+		return checkNetwork(d)
+	case *models.NetworkInfo:
+		return checkNetwork(*d)
+	case models.ClockInfo:
+		return checkClock(d, thresh)
+	case *models.ClockInfo:
+		if d != nil {
+			return checkClock(*d, thresh)
+		}
+	}
+	return applyOneExtended(data, thresh)
+}
+
+//nolint:cyclop // type dispatch — each case is trivial
+func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
+	switch d := data.(type) {
+	case models.FDInfo:
+		return checkFD(d, thresh)
+	case *models.FDInfo:
+		return checkFD(*d, thresh)
+	case models.SystemdInfo:
+		return checkSystemd(d)
+	case *models.SystemdInfo:
+		return checkSystemd(*d)
+	case models.SysctlInfo:
+		return checkSysctl(d)
+	case *models.SysctlInfo:
+		return checkSysctl(*d)
+	case models.KernelSecurityInfo:
+		return checkKernelSecurity(d, thresh)
+	case *models.KernelSecurityInfo:
+		return checkKernelSecurity(*d, thresh)
+	case models.LogsInfo:
+		return checkLogs(d, thresh)
+	case *models.LogsInfo:
+		return checkLogs(*d, thresh)
+	case models.EntropyInfo:
+		return checkEntropy(d)
+	case *models.EntropyInfo:
+		if d != nil {
+			return checkEntropy(*d)
+		}
+	case models.PackagesInfo:
+		return checkPackages(d)
+	case *models.PackagesInfo:
+		if d != nil {
+			return checkPackages(*d)
+		}
+	case models.NVMeInfo:
+		return checkNVMe(d)
+	case *models.NVMeInfo:
+		if d != nil {
+			return checkNVMe(*d)
+		}
+	case models.BatteryInfo:
+		return checkBattery(d)
+	case *models.BatteryInfo:
+		if d != nil {
+			return checkBattery(*d)
+		}
+	case models.ThermalInfo:
+		return checkThermal(d)
+	case *models.ThermalInfo:
+		if d != nil {
+			return checkThermal(*d)
+		}
+	case models.GPUInfo:
+		return checkGPU(d)
+	case *models.GPUInfo:
+		if d != nil {
+			return checkGPU(*d)
+		}
+	case models.SecurityInfo:
+		return checkSecurity(d)
+	case *models.SecurityInfo:
+		if d != nil {
+			return checkSecurity(*d)
+		}
+	case models.ProcessInfo:
+		return checkProcesses(d)
+	case *models.ProcessInfo:
+		return checkProcesses(*d)
+	}
+	return nil
 }
 
 func levelPct(val, warn, crit float64) string {
@@ -106,6 +158,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 		[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
 	)}
 }
+
 func checkMemory(mem models.MemoryInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
@@ -199,13 +252,16 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	for _, dev := range io.Devices {
-		if l := levelPct(dev.UtilPct, thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD); l != "" {
+		warnUtil, critUtil := thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD
+		warnAwait, critAwait := ioAwaitThresholds(dev.DriveType, thresh)
+
+		if l := levelPct(dev.UtilPct, warnUtil, critUtil); l != "" {
 			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s utilization at %.0f%%", dev.Name, dev.UtilPct),
 				[]string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"},
 			))
 		}
-		if l := levelPct(dev.AwaitMs, thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD); l != "" {
+		if l := levelPct(dev.AwaitMs, warnAwait, critAwait); l != "" {
 			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s await latency %.1f ms", dev.Name, dev.AwaitMs),
 				[]string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"},
@@ -213,6 +269,18 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 		}
 	}
 	return out
+}
+
+// ioAwaitThresholds returns WARN and CRIT await thresholds based on drive type.
+func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64) {
+	switch driveType {
+	case "nvme":
+		return 5.0, 15.0
+	case "hdd":
+		return 50.0, 100.0
+	default: // ssd, unknown
+		return thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD
+	}
 }
 func checkNetwork(net models.NetworkInfo) []models.Insight {
 	var out []models.Insight
@@ -352,6 +420,8 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 
 func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 	var out []models.Insight
+
+	// somaxconn — always checked
 	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 512 {
 		out = append(out, insight("CRIT", "Sysctl",
 			fmt.Sprintf("net.core.somaxconn=%d is critically low (< 512)", sysctl.NetSomaxconn),
@@ -363,6 +433,8 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096"},
 		))
 	}
+
+	// PID table usage — always checked
 	if sysctl.KernelPIDMax > 0 {
 		pidPct := float64(sysctl.PIDCount) / float64(sysctl.KernelPIDMax) * 100
 		if l := levelPct(pidPct, 80, 90); l != "" {
@@ -372,6 +444,56 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 			))
 		}
 	}
+
+	// Workload-aware tuning recommendations
+	switch sysctl.Workload {
+	case "k8s":
+		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
+				[]string{"to fix: sysctl -w vm.max_map_count=262144"},
+			))
+		}
+		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for k8s (recommended: 524288)", sysctl.FSInotifyWatches),
+				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=524288"},
+			))
+		}
+		if sysctl.VMSwappiness > 10 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: ≤ 10)", sysctl.VMSwappiness),
+				[]string{"to fix: sysctl -w vm.swappiness=10"},
+			))
+		}
+	case "webserver":
+		if sysctl.TCPTWReuse == 0 {
+			out = append(out, insight("WARN", "Sysctl",
+				"net.ipv4.tcp_tw_reuse=0 — enabling helps high-traffic web servers reuse TIME_WAIT sockets",
+				[]string{"to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
+			))
+		}
+		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 16777216 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("net.core.rmem_max=%d is low for high-throughput web server (recommended: 16MB)", sysctl.NetRmemMax),
+				[]string{"to fix: sysctl -w net.core.rmem_max=16777216"},
+			))
+		}
+	case "database":
+		if sysctl.VMSwappiness > 10 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: ≤ 10)", sysctl.VMSwappiness),
+				[]string{"to fix: sysctl -w vm.swappiness=10"},
+			))
+		}
+		if sysctl.VMDirtyRatio > 10 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.dirty_ratio=%d is high for database (recommended: ≤ 10 to reduce write latency spikes)", sysctl.VMDirtyRatio),
+				[]string{"to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3"},
+			))
+		}
+	}
+
 	return out
 }
 
@@ -412,13 +534,40 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 }
 
 func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
+	var out []models.Insight
+	if logs.NeedsRoot {
+		out = append(out, insight("INFO", "Logs",
+			"some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
+			nil,
+		))
+	}
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
-		return []models.Insight{insight(l, "Logs",
+		out = append(out, insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),
 			[]string{"to inspect: journalctl --disk-usage", "to fix: journalctl --vacuum-size=1G"},
-		)}
+		))
 	}
-	return nil
+	if logs.OOMKills > 0 {
+		procs := strings.Join(logs.OOMProcesses, ", ")
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("%d OOM kill(s) in the last hour — processes killed: %s", logs.OOMKills, procs),
+			[]string{"to inspect: dmesg | grep -i 'out of memory'", "to inspect: free -h"},
+		))
+	}
+	if logs.Segfaults > 0 {
+		procs := strings.Join(logs.SegfaultProcs, ", ")
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("%d segfault(s) in the last hour — processes: %s", logs.Segfaults, procs),
+			[]string{"to inspect: dmesg | grep segfault", "to inspect: journalctl -p err -n 50"},
+		))
+	}
+	for _, unit := range logs.CrashLoops {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("crash loop detected: %s", unit),
+			[]string{fmt.Sprintf("to inspect: journalctl -u %s -n 50", strings.Fields(unit)[0])},
+		))
+	}
+	return out
 }
 
 func checkEntropy(e models.EntropyInfo) []models.Insight {
@@ -462,6 +611,266 @@ func checkProcesses(proc models.ProcessInfo) []models.Insight {
 		out = append(out, insight("WARN", "Processes",
 			fmt.Sprintf("%d hung (uninterruptible) process(es)", proc.HungCount),
 			[]string{"to inspect: ps aux | grep ' D '"},
+		))
+	}
+	return out
+}
+
+func checkNVMe(n models.NVMeInfo) []models.Insight {
+	if len(n.Devices) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, dev := range n.Devices {
+		if dev.CriticalWarning > 0 {
+			out = append(out, insight("CRIT", "NVMe",
+				fmt.Sprintf("%s critical warning flag set (0x%02x) — drive may be failing", dev.Name, dev.CriticalWarning),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+		if dev.MediaErrors > 0 {
+			out = append(out, insight("CRIT", "NVMe",
+				fmt.Sprintf("%s has %d media error(s) — data integrity risk", dev.Name, dev.MediaErrors),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+		if dev.AvailableSparePct > 0 && dev.AvailableSparePct <= dev.SpareThresholdPct {
+			out = append(out, insight("CRIT", "NVMe",
+				fmt.Sprintf("%s spare capacity at %d%% (threshold: %d%%) — drive near end of life", dev.Name, dev.AvailableSparePct, dev.SpareThresholdPct),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		} else if dev.AvailableSparePct > 0 && dev.AvailableSparePct < 20 {
+			out = append(out, insight("WARN", "NVMe",
+				fmt.Sprintf("%s spare capacity low at %d%%", dev.Name, dev.AvailableSparePct),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+		if dev.PercentageUsed >= 90 {
+			out = append(out, insight("WARN", "NVMe",
+				fmt.Sprintf("%s wear at %d%% — consider replacement planning", dev.Name, dev.PercentageUsed),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+		if dev.TempC >= 70 {
+			out = append(out, insight("WARN", "NVMe",
+				fmt.Sprintf("%s temperature %g°C — elevated for NVMe", dev.Name, dev.TempC),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+	}
+	return out
+}
+
+func checkBattery(b models.BatteryInfo) []models.Insight {
+	if !b.Present {
+		return nil // desktop or no battery
+	}
+	var out []models.Insight
+
+	// Battery wear
+	if b.HealthPct > 0 {
+		if b.HealthPct < 60 {
+			out = append(out, insight("CRIT", "Battery",
+				fmt.Sprintf("battery health at %.0f%% — replacement recommended", b.HealthPct),
+				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full_design"},
+			))
+		} else if b.HealthPct < 80 {
+			out = append(out, insight("WARN", "Battery",
+				fmt.Sprintf("battery health at %.0f%% (%.0f cycle(s)) — degraded", b.HealthPct, float64(b.CycleCounts)),
+				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full"},
+			))
+		}
+	}
+
+	// Low charge while discharging
+	if b.Status == "Discharging" && b.CapacityPct <= 10 {
+		out = append(out, insight("CRIT", "Battery",
+			fmt.Sprintf("battery at %d%% and discharging — connect power", b.CapacityPct),
+			nil,
+		))
+	} else if b.Status == "Discharging" && b.CapacityPct <= 20 {
+		out = append(out, insight("WARN", "Battery",
+			fmt.Sprintf("battery at %d%% and discharging", b.CapacityPct),
+			nil,
+		))
+	}
+
+	return out
+}
+
+func checkThermal(t models.ThermalInfo) []models.Insight {
+	if t.CPUTempC == 0 || t.Source == "" {
+		return nil // no thermal data available on this platform
+	}
+	if t.CPUTempC >= 95 {
+		return []models.Insight{insight("CRIT", "Thermal",
+			fmt.Sprintf("CPU temperature %g°C — thermal throttling active", t.CPUTempC),
+			[]string{"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input", "to inspect: check cooling and airflow"},
+		)}
+	}
+	if t.CPUTempC >= 85 {
+		return []models.Insight{insight("WARN", "Thermal",
+			fmt.Sprintf("CPU temperature %g°C — elevated (source: %s)", t.CPUTempC, t.Source),
+			[]string{"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input"},
+		)}
+	}
+	return nil
+}
+
+func checkGPU(gpu models.GPUInfo) []models.Insight {
+	if len(gpu.Devices) == 0 {
+		return nil // no GPU or driver not loaded — skip silently
+	}
+	var out []models.Insight
+	for _, dev := range gpu.Devices {
+		prefix := dev.Name
+		if len(gpu.Devices) > 1 {
+			prefix = fmt.Sprintf("GPU%d (%s)", dev.Index, dev.Name)
+		}
+		if dev.TempC >= 90 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
+				[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
+			))
+		} else if dev.TempC >= 80 {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
+				[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
+			))
+		}
+		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" {
+			out = append(out, insight(l, "GPU",
+				fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
+				[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},
+			))
+		}
+		if dev.XidErrors > 0 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s %d Xid error(s) in the last hour — hardware fault detected", prefix, dev.XidErrors),
+				[]string{"to inspect: dmesg | grep 'NVRM: Xid'", "to inspect: nvidia-smi -q | grep -A2 'Xid'"},
+			))
+		}
+	}
+	return out
+}
+
+func checkSecurity(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
+	if sec.NeedsRoot {
+		out = append(out, insight("INFO", "Hardening",
+			"some checks limited — run as root for port process names, failed logins, and SELinux audit log",
+			nil,
+		))
+	}
+
+	// SSH misconfigurations
+	if sec.SSHPermitRoot {
+		out = append(out, insight("CRIT", "Hardening",
+			"SSH permits root login",
+			[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", "to fix: systemctl restart sshd"},
+		))
+	}
+	if sec.SSHPasswordAuth {
+		out = append(out, insight("WARN", "Hardening",
+			"SSH allows password authentication — key-based auth recommended",
+			[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
+		))
+	}
+
+	// Failed logins
+	if sec.FailedLogins >= 20 {
+		msg := fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins)
+		if len(sec.FailedLoginIPs) > 0 {
+			msg += fmt.Sprintf(" — top sources: %s", strings.Join(sec.FailedLoginIPs[:min(3, len(sec.FailedLoginIPs))], ", "))
+		}
+		out = append(out, insight("CRIT", "Hardening", msg,
+			[]string{"to inspect: grep 'Failed password' /var/log/secure | tail -20", "to fix: consider fail2ban or firewall rules"},
+		))
+	} else if sec.FailedLogins >= 5 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins),
+			[]string{"to inspect: grep 'Failed password' /var/log/secure | tail -20"},
+		))
+	}
+
+	// Unexpected listening ports — group all into one insight
+	var unexpectedPorts []string
+	var portHints []string
+	portHints = append(portHints, "to inspect: ss -tlnp")
+	for _, p := range sec.ListeningPorts {
+		if !p.Expected {
+			unexpectedPorts = append(unexpectedPorts,
+				fmt.Sprintf("%d/%s", p.Port, p.Protocol))
+			portHints = append(portHints,
+				fmt.Sprintf("to inspect: ss -tlnp | grep :%d", p.Port))
+		}
+	}
+	if len(unexpectedPorts) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d unexpected port(s) listening on all interfaces: %s",
+				len(unexpectedPorts), strings.Join(unexpectedPorts, ", ")),
+			portHints,
+		))
+	}
+
+	// Sudo NOPASSWD
+	if len(sec.SudoNopasswd) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("NOPASSWD sudo for: %s", strings.Join(sec.SudoNopasswd, ", ")),
+			[]string{"to inspect: sudo -l", "to inspect: cat /etc/sudoers"},
+		))
+	}
+
+	// Unexpected SUID binaries
+	if len(sec.SUIDBinaries) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d unexpected SUID binary(ies): %s", len(sec.SUIDBinaries),
+				strings.Join(sec.SUIDBinaries[:min(3, len(sec.SUIDBinaries))], ", ")),
+			[]string{"to inspect: find / -perm -4000 -type f 2>/dev/null"},
+		))
+	}
+
+	// SELinux denials
+	if sec.SELinuxDenials >= 10 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d SELinux denials in the last hour (mode: %s)", sec.SELinuxDenials, sec.SELinuxMode),
+			[]string{"to inspect: ausearch -m avc -ts recent", "to inspect: sealert -a /var/log/audit/audit.log"},
+		))
+	}
+
+	return out
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func checkPackages(pkg models.PackagesInfo) []models.Insight {
+	var out []models.Insight
+	if pkg.SecurityUpdates == 0 {
+		return nil
+	}
+	if pkg.CriticalUpdates > 0 {
+		out = append(out, insight("CRIT", "Packages",
+			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
+			[]string{
+				fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager),
+				fmt.Sprintf("to inspect: %s updateinfo list security", pkg.PackageManager),
+			},
+		))
+	} else if pkg.ImportantUpdates > 0 {
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d important security update(s) available (%s)", pkg.ImportantUpdates, pkg.PackageManager),
+			[]string{fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager)},
+		))
+	} else {
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) available (%s)", pkg.SecurityUpdates, pkg.PackageManager),
+			[]string{fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager)},
 		))
 	}
 	return out

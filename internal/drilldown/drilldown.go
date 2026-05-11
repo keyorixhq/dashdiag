@@ -91,6 +91,8 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 		d, err = ActualVsRecommended(dctx, ins.Message)
 	case "SELinux", "KernelSec":
 		d, err = PoliciesNotEnforcing(dctx)
+	case "Hardening":
+		d = hardeningFromResults(results, ins.Message)
 	}
 	_ = err
 	return d
@@ -237,6 +239,62 @@ func hungProcessesFromResults(results []runner.Result) *models.Details {
 			Title:   "Hung (uninterruptible) processes",
 			Columns: []string{"PID", "NAME", "PPID", "WCHAN"},
 			Rows:    rows,
+		}
+	}
+	return nil
+}
+
+// hardeningFromResults builds a Details table from already-captured SecurityInfo.
+// Different insight messages get different table views.
+func hardeningFromResults(results []runner.Result, msg string) *models.Details {
+	for _, r := range results {
+		if r.Name != "Hardening" {
+			continue
+		}
+		info, ok := r.Data.(*models.SecurityInfo)
+		if !ok || info == nil {
+			return nil
+		}
+
+		// Unexpected ports table
+		if strings.Contains(msg, "unexpected port") {
+			var rows [][]string
+			for _, p := range info.ListeningPorts {
+				if !p.Expected {
+					rows = append(rows, []string{
+						fmt.Sprintf("%d", p.Port),
+						p.Protocol,
+						p.Process,
+					})
+				}
+			}
+			if len(rows) > 0 {
+				note := ""
+				if info.PortsNeedRoot {
+					note = "process names require root — run: sudo dsd health"
+				}
+				return &models.Details{
+					Type:    "process_table",
+					Title:   "Unexpected ports listening on all interfaces",
+					Columns: []string{"PORT", "PROTO", "PROCESS"},
+					Rows:    rows,
+					Note:    note,
+				}
+			}
+		}
+
+		// Failed logins table
+		if strings.Contains(msg, "failed login") && len(info.FailedLoginIPs) > 0 {
+			var rows [][]string
+			for _, ip := range info.FailedLoginIPs {
+				rows = append(rows, []string{ip})
+			}
+			return &models.Details{
+				Type:    "process_table",
+				Title:   "Top source IPs for failed logins",
+				Columns: []string{"IP (attempts)"},
+				Rows:    rows,
+			}
 		}
 	}
 	return nil

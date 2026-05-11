@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func roundTrip(t *testing.T, in, out interface{}) {
@@ -139,11 +138,24 @@ func TestSystemdInfo(t *testing.T) {
 }
 
 func TestSysctlInfo(t *testing.T) {
-	in := SysctlInfo{VMSwappiness: 60, NetSomaxconn: 128, FSFileMax: 100000, KernelPIDMax: 32768, PIDCount: 400, Status: "OK"}
+	in := SysctlInfo{
+		VMSwappiness:     60,
+		NetSomaxconn:     128,
+		FSFileMax:        100000,
+		KernelPIDMax:     32768,
+		PIDCount:         400,
+		VMMaxMapCount:    65530,
+		FSInotifyWatches: 8192,
+		Workload:         "k8s",
+		Status:           "OK",
+	}
 	var out SysctlInfo
 	roundTrip(t, &in, &out)
 	if out.VMSwappiness != in.VMSwappiness || out.PIDCount != in.PIDCount {
 		t.Errorf("round-trip mismatch: got %+v", out)
+	}
+	if out.Workload != in.Workload {
+		t.Errorf("workload round-trip mismatch: got %q want %q", out.Workload, in.Workload)
 	}
 }
 
@@ -157,23 +169,25 @@ func TestKernelSecurityInfo(t *testing.T) {
 }
 
 func TestLogsInfo(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
 	in := LogsInfo{
-		ErrorCount:   5,
-		WarnCount:    12,
-		SinceMinutes: 60,
-		Status:       "WARN",
-		TopErrors: []LogError{
-			{Message: "OOM", Count: 3, FirstSeen: now, LastSeen: now, Source: "kern"},
-		},
+		OOMKills:      2,
+		OOMProcesses:  []string{"nginx", "postgres"},
+		Segfaults:     1,
+		SegfaultProcs: []string{"myapp"},
+		JournalSizeGB: 0.5,
+		CrashLoops:    []string{"broken.service (restarted 6 times)"},
+		Status:        "CRIT",
 	}
 	var out LogsInfo
 	roundTrip(t, &in, &out)
-	if out.ErrorCount != in.ErrorCount || len(out.TopErrors) != 1 || out.TopErrors[0].Message != "OOM" {
+	if out.OOMKills != in.OOMKills || len(out.OOMProcesses) != 2 || out.OOMProcesses[0] != "nginx" {
 		t.Errorf("round-trip mismatch: got %+v", out)
 	}
-	if !out.TopErrors[0].FirstSeen.Equal(now) {
-		t.Errorf("time round-trip mismatch: got %v want %v", out.TopErrors[0].FirstSeen, now)
+	if out.Segfaults != in.Segfaults || len(out.SegfaultProcs) != 1 {
+		t.Errorf("segfault round-trip mismatch: got %+v", out)
+	}
+	if len(out.CrashLoops) != 1 {
+		t.Errorf("crash loop round-trip mismatch: got %+v", out)
 	}
 }
 

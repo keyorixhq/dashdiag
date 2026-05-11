@@ -2,10 +2,10 @@
 
 ## Tested Platforms
 
-| OS | Version | Kernel | Architecture | Status |
-|---|---|---|---|---|
-| macOS | Sequoia 15.x | Darwin 24.x | arm64 | ✅ primary dev |
-| RHEL | 10.1 (Coughlan) | 6.12.0-124.55.1.el10_1 | x86_64 | ✅ validated |
+| OS | Version | Kernel | Architecture | Hardware | Status |
+|---|---|---|---|---|---|
+| macOS | Sequoia 15.x | Darwin 24.x | arm64 | Apple Silicon | ✅ primary dev |
+| RHEL | 10.1 (Coughlan) | 6.12.0-124.55.1.el10_1 | x86_64 | AMD Ryzen 7 5800H, 16GB RAM, 2x1TB NVMe, RTX 3070 8GB | ✅ validated |
 
 ## Quick Start
 

@@ -26,6 +26,8 @@ func init() {
 	rootCmd.AddCommand(healthCmd)
 	healthCmd.Flags().Duration("watch-interval", 60*time.Second, "refresh interval for --watch mode")
 	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
+	healthCmd.Flags().Bool("packages", false, "include package security advisory check (may be slow on unregistered systems)")
+	healthCmd.Flags().Bool("gpu", false, "include GPU health check via nvidia-smi")
 }
 
 var healthCmd = &cobra.Command{
@@ -113,7 +115,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		// Not enough history yet — fall through to live run
 	}
 
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse)
+	pkgFlag, _ := cmd.Flags().GetBool("packages")
+	gpuFlag, _ := cmd.Flags().GetBool("gpu")
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -193,8 +197,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx)
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+	cols := buildHealthCollectors(ctrCtx, includePackages, includeGPU)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -241,7 +245,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run := func() {
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
@@ -266,7 +270,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collector {
+func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool) []collectors.Collector {
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -281,6 +285,18 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collec
 		collectors.NewSysctlCollector(),
 		collectors.NewKernelSecurityCollector(),
 		collectors.NewEntropyCollector(),
+		collectors.NewLogsCollector(),
+		collectors.NewSecurityCollector(),
+		collectors.NewThermalCollector(),
+		collectors.NewBatteryCollector(),
+		collectors.NewNVMeCollector(),
+		// GPUCollector is opt-in via --gpu flag — nvidia-smi can hang on some systems
+	}
+	if includePackages {
+		cols = append(cols, collectors.NewPackagesCollector())
+	}
+	if includeGPU {
+		cols = append(cols, collectors.NewGPUCollector())
 	}
 	return cols
 }

@@ -24,6 +24,11 @@ build:
 	@mkdir -p dist
 	CGO_ENABLED=$(CGO_ENABLED) go build -ldflags "$(LDFLAGS)" -trimpath -o dist/$(BINARY) ./cmd/dsd
 
+.PHONY: install
+install: build
+	@sudo cp dist/$(BINARY) /usr/local/bin/$(BINARY)
+	@echo "✅ Installed to /usr/local/bin/$(BINARY)"
+
 .PHONY: release
 release:
 	@echo "→ Cross-compiling $(VERSION)"
