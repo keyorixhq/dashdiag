@@ -94,7 +94,66 @@ Estimated scope: ~1 day.
 
 ---
 
-## Monetisation Infrastructure
+## Strategic Discussions Required
+
+These items need a design/strategy session before implementation begins.
+Do not start building until the discussion is complete and decisions are recorded.
+
+### [DISCUSS] Team mode — how should it work?
+Before building any paid tier, answer these questions:
+
+**Sharing model:**
+- How does a user share a snapshot? URL? File? Email?
+- Is sharing pull (recipient requests) or push (sender uploads)?
+- Does a shared snapshot expire? How long?
+- Can a recipient re-run the check or only view the saved state?
+- What happens when the shared system is behind a firewall?
+
+**Team workspace:**
+- What does a "team" own? Snapshots? Alerts? Policies?
+- Is the team model org-based (like GitHub orgs) or invite-based?
+- How does a solo user graduate to a team account?
+- What is the free tier limit? (e.g. 1 host, 7 days history, no sharing)
+
+**Fleet view:**
+- How do multiple hosts register to a team workspace?
+- Push model (host uploads on cron) vs pull model (server SSHes in)?
+- What does the fleet overview screen look like — table? map? timeline?
+- How does dsd compare fit into the fleet view?
+
+**Identity and auth:**
+- SSO only? Email/password? CLI token?
+- How does the CLI authenticate to dashdiag.sh? API key in ~/.dsd.yaml?
+- How do we handle key rotation and revocation?
+
+**Monetisation boundary:**
+- What is free forever vs paid?
+- Is the paid gate per-host, per-user, or per-team?
+- What is the pricing model — seat-based, usage-based, or flat?
+- What triggers an upgrade prompt inside the CLI?
+
+**Privacy and trust:**
+- What data leaves the machine on --share?
+- Can users redact hostnames or IPs from shared snapshots?
+- Where is data stored and for how long?
+- GDPR implications for EU users (Andrei is in Spain)?
+
+Suggested session format: 1-2 hour whiteboard session.
+Output: decisions recorded in SPEC.md §30 before any backend work begins.
+
+### [DISCUSS] Viral growth mechanics — how do we get word-of-mouth?
+- --share URL: what does the landing page look like for a non-dsd user?
+- --badge: where exactly does the badge embed and what does it show?
+- Is there a "powered by DashDiag" attribution in shared snapshots?
+- What is the install command we want spreading? (curl | bash vs brew vs apt)
+- Should dsd health output include a one-liner install hint for new users?
+
+### [DISCUSS] Pricing strategy
+- What is the anchor price for team workspace?
+- Is there a per-host fee or unlimited hosts per team?
+- Open source core + paid cloud, or freemium CLI?
+- Competitor reference: Datadog charges ~$15/host/month. What is DashDiag's angle?
+
 
 ### --share flag
 Upload snapshot to dashdiag.sh and return a shareable URL.
