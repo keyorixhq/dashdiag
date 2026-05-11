@@ -51,13 +51,13 @@ func TestHealthJSONValid(t *testing.T) {
 }
 
 func TestHealthOutputContainsCollectors(t *testing.T) {
-	out, code := run(t, "health", "--plain")
+	out, code := run(t, "health", "--json")
 	if code > 2 {
-		t.Fatalf("health --plain returned unexpected exit code %d", code)
+		t.Fatalf("health --json returned unexpected exit code %d", code)
 	}
 	for _, collector := range []string{"CPU", "Memory", "Disk", "Network"} {
 		if !strings.Contains(out, collector) {
-			t.Errorf("health --plain output missing collector %q", collector)
+			t.Errorf("health --json output missing collector %q", collector)
 		}
 	}
 }

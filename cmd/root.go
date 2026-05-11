@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/version"
 	"github.com/spf13/cobra"
@@ -31,9 +30,6 @@ func init() {
 
 	// Override help to print brand header before help text
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd)\n")
-		fmt.Fprintf(os.Stderr, "System health — read only checks, usually under 5s\n")
-		fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
 		cmd.Usage() //nolint:errcheck
 	})
 

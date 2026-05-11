@@ -29,7 +29,7 @@ func runServices(cmd *cobra.Command, _ []string) error {
 	plain, _ := cmd.Flags().GetBool("plain")
 	mode := output.DetectMode(plain, false, "")
 
-	p := output.NewCommandProgress("Service checks", 10*time.Second, mode, 1)
+	p := output.NewCommandProgress("Service health", 10*time.Second, mode, 1)
 	p.Start()
 	defer p.Done()
 
