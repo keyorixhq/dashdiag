@@ -71,10 +71,12 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, env platform.Cl
 			insights = append(insights, checkLogs(data, thresh)...)
 		case *models.LogsInfo:
 			insights = append(insights, checkLogs(*data, thresh)...)
-		case models.ProcessInfo:
-			insights = append(insights, checkProcesses(data)...)
-		case *models.ProcessInfo:
-			insights = append(insights, checkProcesses(*data)...)
+		case models.EntropyInfo:
+			insights = append(insights, checkEntropy(data)...)
+		case *models.EntropyInfo:
+			if data != nil {
+				insights = append(insights, checkEntropy(*data)...)
+			}
 		}
 	}
 	return insights
@@ -414,6 +416,25 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 		return []models.Insight{insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),
 			[]string{"to inspect: journalctl --disk-usage", "to fix: journalctl --vacuum-size=1G"},
+		)}
+	}
+	return nil
+}
+
+func checkEntropy(e models.EntropyInfo) []models.Insight {
+	if e.Available < 0 {
+		return nil // not available on this platform
+	}
+	if e.Available < 64 {
+		return []models.Insight{insight("CRIT", "Entropy",
+			fmt.Sprintf("entropy pool critically low (%d bits) — crypto operations may block or fail", e.Available),
+			[]string{"to inspect: cat /proc/sys/kernel/random/entropy_avail", "to fix: install haveged or rng-tools"},
+		)}
+	}
+	if e.Available < 256 {
+		return []models.Insight{insight("WARN", "Entropy",
+			fmt.Sprintf("entropy pool low (%d bits) — TLS and key generation may slow down", e.Available),
+			[]string{"to inspect: cat /proc/sys/kernel/random/entropy_avail", "to fix: install haveged or rng-tools"},
 		)}
 	}
 	return nil

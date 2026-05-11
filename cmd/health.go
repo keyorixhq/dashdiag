@@ -39,12 +39,6 @@ var healthCmd = &cobra.Command{
 // Build rule: implement only after dsd health fast variant is in production use.
 // Estimated scope: ~3 days. Add back healthDeepCmd and wire into init() when ready.
 
-// TODO(backlog): entropy collector — check /proc/sys/kernel/random/entropy_avail.
-// Low entropy (<256) silently breaks crypto operations (TLS handshakes, key generation).
-// Read: /proc/sys/kernel/random/entropy_avail and /proc/sys/kernel/random/poolsize.
-// WARN < 256, CRIT < 64. Add to buildHealthCollectors().
-// Estimated scope: ~2 hours.
-
 // TODO(backlog): package security advisory collector — surface available security updates.
 // Linux: parse `dnf check-update --security` or `apt list --upgradable` (distro-detect).
 // macOS: `brew outdated --greedy` for Homebrew packages.
@@ -273,7 +267,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 }
 
 func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collector {
-	return []collectors.Collector{
+	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
 		collectors.NewDiskCollector(),
@@ -286,7 +280,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext) []collectors.Collec
 		collectors.NewSystemdCollector(),
 		collectors.NewSysctlCollector(),
 		collectors.NewKernelSecurityCollector(),
+		collectors.NewEntropyCollector(),
 	}
+	return cols
 }
 
 func toRunnerCols(cols []collectors.Collector) []runner.Collector {
