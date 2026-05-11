@@ -36,7 +36,21 @@ Estimated scope: ~2 days.
 ### dsd compare (multi-server)
 Compare health snapshots across multiple hosts — outlier detection, drift between nodes.
 Phase 3. Fleet upgrade path. Requires --json output from multiple hosts piped in.
-Estimated scope: ~3 days.
+
+Red Hat does this via cloud upload and ML across registered fleets. DashDiag does it
+locally — no cloud, no agent, no registration. One command:
+
+  dsd health --json | ssh host2 dsd compare --stdin
+  cat host1.json host2.json host3.json | dsd compare
+
+Key capabilities to implement:
+- Identify which host looks different from the others (outlier detection)
+- Show which checks diverged between hosts (e.g. host3 has swap, others don't)
+- Flag hosts where a value is outside 2 standard deviations of the fleet average
+- Drift detection: compare current state against a saved "golden" snapshot
+
+This is a genuine differentiator vs Red Hat Insights — same capability, zero infrastructure.
+Estimated scope: ~3 days. See also: --json output (already implemented as the data layer).
 
 ### dsd pve (Proxmox)
 Proxmox VE health — VM/LXC status, storage pool usage, cluster quorum.
