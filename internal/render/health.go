@@ -169,7 +169,7 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 		}
 	}
 
-	sep := strings.Repeat("─", 50)
+	sep := strings.Repeat("─", 56)
 	fmt.Fprintln(os.Stdout, sep)
 
 	timing := ""
