@@ -103,8 +103,8 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("System health — %d snapshots — %s to %s on %s\n",
-		n, start, end, hostname))
+	fmt.Fprintf(&sb, "System health — %d snapshots — %s to %s on %s\n",
+		n, start, end, hostname)
 	sb.WriteString(strings.Repeat("─", 56) + "\n")
 
 	if len(events) == 0 && len(currentIssues) == 0 {
@@ -117,9 +117,9 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 		for _, e := range events {
 			arrow := degradeArrow(e.from, e.to)
 			if e.message != "" {
-				sb.WriteString(fmt.Sprintf("  %s  %s %s %s — %s\n", e.ts, e.check, arrow, e.to, e.message))
+				fmt.Fprintf(&sb, "  %s  %s %s %s — %s\n", e.ts, e.check, arrow, e.to, e.message)
 			} else {
-				sb.WriteString(fmt.Sprintf("  %s  %s %s %s\n", e.ts, e.check, arrow, e.to))
+				fmt.Fprintf(&sb, "  %s  %s %s %s\n", e.ts, e.check, arrow, e.to)
 			}
 		}
 	}
