@@ -66,6 +66,17 @@ var healthCmd = &cobra.Command{
 // WARN: any CVE with CVSS >= 7.0. CRIT: any CVE with CVSS >= 9.0 or known exploited.
 // Estimated scope: ~1 week (advisory feed parsing is the bulk of the work).
 
+// TODO(backlog): configuration drift detection — compare current sysctl/kernel params
+// against a user-defined or auto-generated "known good" baseline profile, not just the
+// previous run. Use case: after a kernel upgrade or sysctl change, show what drifted
+// from the last blessed state. Extends existing baseline infrastructure.
+// Estimated scope: ~1 day.
+
+// TODO(backlog): CIS/STIG compliance checks — compare system config against CIS Benchmark
+// or STIG profiles. Enterprise-only feature, implement after core health checks are stable
+// and paying customers exist. Requires mapping CIS rules to kernel/sysctl/file checks.
+// Estimated scope: ~2 weeks.
+
 func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
 	ctx := context.Background()
 	debugFlag, _ := cmd.Flags().GetBool("debug")

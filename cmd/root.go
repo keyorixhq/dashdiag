@@ -25,10 +25,24 @@ var rootCmd = &cobra.Command{
 		version.Version, version.Commit, version.Built),
 }
 
+// TODO(backlog): --share flag — upload snapshot to dashdiag.sh, return shareable URL.
+// Viral: every shared link is a product impression. Requires dashdiag.sh backend.
+// Estimated scope: ~1 day CLI side + backend. See BACKLOG.md.
+
+// TODO(backlog): --badge flag — shields.io-compatible badge showing system health status.
+// Embeds in GitHub README. Viral — visible to every repo visitor.
+// Requires dashdiag.sh backend. Estimated scope: ~2 hours CLI + backend. See BACKLOG.md.
+
+// TODO(backlog): dsd policy — YAML policy file defines health thresholds for CI gates.
+// Free tier feature that drives paid cloud management upsell.
+// Estimated scope: ~3 days. See BACKLOG.md.
+
+// TODO(backlog): team workspace MVP — shared snapshot history across a team.
+// First paid product. Requires dashdiag.sh backend, auth, billing.
+// Estimated scope: ~10 days. See BACKLOG.md.
+
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
-
-	// Override help to print brand header before help text
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		cmd.Usage() //nolint:errcheck
 	})
