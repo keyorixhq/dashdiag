@@ -75,7 +75,10 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 				d, err = HungProcesses(dctx)
 			}
 		} else {
-			d, err = ZombiesWithParent(dctx)
+			d = zombiesFromResults(results)
+			if d == nil {
+				d, err = ZombiesWithParent(dctx)
+			}
 		}
 	case "Systemd":
 		unit := parseUnitFromMessage(ins.Message)
@@ -86,7 +89,7 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 		d, err = ClockTracking(dctx)
 	case "Sysctl":
 		d, err = ActualVsRecommended(dctx, ins.Message)
-	case "SELinux":
+	case "SELinux", "KernelSec":
 		d, err = PoliciesNotEnforcing(dctx)
 	}
 	_ = err
@@ -158,14 +161,54 @@ func procComm(pid int) string {
 }
 
 // runCmd runs a command with context and returns its combined stdout.
+// LC_ALL=C and LANG=C are always set so numeric output uses dot as the
+// decimal separator regardless of the user's locale.
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// zombiesFromResults builds a Details table from already-captured
+// ZombieProcs in the Processes collector result.
+func zombiesFromResults(results []runner.Result) *models.Details {
+	for _, r := range results {
+		if r.Name != "Processes" {
+			continue
+		}
+		info, ok := r.Data.(*models.ProcessInfo)
+		if !ok || len(info.ZombieProcs) == 0 {
+			return nil
+		}
+		rows := make([][]string, 0, len(info.ZombieProcs))
+		for _, p := range info.ZombieProcs {
+			parentName := p.ParentName
+			if parentName == "" {
+				parentName = procComm(p.PPID) // Linux fallback via /proc
+			}
+			// Use only the base name — full paths break table formatting
+			if idx := strings.LastIndexByte(parentName, '/'); idx >= 0 {
+				parentName = parentName[idx+1:]
+			}
+			rows = append(rows, []string{
+				fmt.Sprintf("%d", p.PID),
+				fmt.Sprintf("%d", p.PPID),
+				parentName,
+			})
+		}
+		return &models.Details{
+			Type:    "process_table",
+			Title:   "Zombie processes (parent is the reaping offender)",
+			Columns: []string{"ZOMBIE_PID", "PARENT_PID", "PARENT_NAME"},
+			Rows:    rows,
+		}
+	}
+	return nil
 }
 
 // hungProcessesFromResults builds a Details table from already-captured

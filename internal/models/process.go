@@ -1,13 +1,14 @@
 package models
 
 type ProcessState struct {
-	PID   int     `json:"pid"`
-	PPID  int     `json:"ppid"`
-	Name  string  `json:"name"`
-	State string  `json:"state"`
-	CPU   float64 `json:"cpu"`
-	MemMB float64 `json:"mem_mb"`
-	WChan string  `json:"wchan"`
+	PID        int     `json:"pid"`
+	PPID       int     `json:"ppid"`
+	Name       string  `json:"name"`
+	ParentName string  `json:"parent_name,omitempty"`
+	State      string  `json:"state"`
+	CPU        float64 `json:"cpu"`
+	MemMB      float64 `json:"mem_mb"`
+	WChan      string  `json:"wchan,omitempty"`
 }
 
 type ProcessInfo struct {

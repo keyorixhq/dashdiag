@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -58,11 +57,11 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 }
 
 func readSysctlInt(ctx context.Context, key string) int {
-	out, err := exec.CommandContext(ctx, "sysctl", "-n", key).Output() // #nosec G204 -- command is hardcoded "sysctl"; key is from internal constant list, not user input
+	out, err := runCmd(ctx, "sysctl", "-n", key) // #nosec G204 -- command is hardcoded "sysctl"; key is from internal constant list, not user input
 	if err != nil {
 		return 0
 	}
-	v, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	v, err := strconv.Atoi(strings.TrimSpace(out))
 	if err != nil {
 		return 0
 	}
@@ -71,17 +70,15 @@ func readSysctlInt(ctx context.Context, key string) int {
 
 func (c *SysctlCollector) collectDarwin(ctx context.Context) (*models.SysctlInfo, error) {
 	info := &models.SysctlInfo{
-		// NetSomaxconn intentionally omitted — kern.ipc.somaxconn (macOS default 128)
-		// is not comparable to Linux net.core.somaxconn; analysis thresholds are Linux-only.
 		KernelPIDMax: readSysctlInt(ctx, "kern.maxproc"),
 		FSFileMax:    readSysctlInt(ctx, "kern.maxfiles"),
 		VMSwappiness: -1,
 	}
-	out, err := exec.CommandContext(ctx, "ps", "-A").Output()
+	out, err := runCmd(ctx, "ps", "-A")
 	if err == nil {
-		lines := strings.Count(string(out), "\n")
+		lines := strings.Count(out, "\n")
 		if lines > 1 {
-			info.PIDCount = lines - 1 // subtract header
+			info.PIDCount = lines - 1
 		}
 	}
 	return info, nil

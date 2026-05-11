@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -132,7 +133,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 				}
 				fmt.Fprintf(&sb, "%-*s", w, cell)
 			}
-			fmt.Fprintln(os.Stdout, sb.String())
+			fmt.Fprintln(os.Stdout, StyleDim.Render(sb.String()))
 		}
 	}
 
@@ -153,7 +154,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 	}
 }
 
-func (r *Renderer) PrintSummary(insights []models.Insight) int {
+func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration) int {
 	if r.mode == output.ModeJSON {
 		return exitCodeFromInsights(insights)
 	}
@@ -171,11 +172,16 @@ func (r *Renderer) PrintSummary(insights []models.Insight) int {
 	sep := strings.Repeat("─", 50)
 	fmt.Fprintln(os.Stdout, sep)
 
+	timing := ""
+	if elapsed > 0 {
+		timing = fmt.Sprintf(" in %.1fs", elapsed.Seconds())
+	}
+
 	if len(crits)+len(warns) == 0 {
 		if r.mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleOK.Render("✅  All checks passed"))
+			fmt.Fprintln(os.Stdout, StyleOK.Render(fmt.Sprintf("⚡ All checks passed%s", timing)))
 		} else {
-			fmt.Fprintln(os.Stdout, "OK: All checks passed")
+			fmt.Fprintf(os.Stdout, "OK: All checks passed%s\n", timing)
 		}
 		return 0
 	}

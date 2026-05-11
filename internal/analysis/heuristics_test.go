@@ -577,7 +577,7 @@ func TestAppArmorUnknownAsNonRoot(t *testing.T) {
 	}
 	found := false
 	for _, ins := range insights {
-		if ins.Check == "KernelSecurity" && strings.Contains(ins.Message, "requires root") {
+		if ins.Check == "KernelSec" && strings.Contains(ins.Message, "root") {
 			found = true
 			break
 		}

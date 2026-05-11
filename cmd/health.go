@@ -72,7 +72,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		tips.MaybePrintReengagement(state, mode, version.Version)
 	}
 
-	results, insights, snap := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse)
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -133,7 +133,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		}
 	}
 
-	exitCode := renderer.PrintSummary(insights)
+	exitCode := renderer.PrintSummary(insights, elapsed)
 	_ = baseline.SaveBaseline(snap)
 
 	// --qr: show QR code for share URL (shareURL stub until --share is implemented)
@@ -159,7 +159,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
 	cols := buildHealthCollectors(ctrCtx)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
@@ -177,7 +177,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 		insights = drilldown.PopulateAll(ctx, insights, results)
 	}
 	snap := baseline.BuildSnapshot(results, insights)
-	return results, insights, snap
+	return results, insights, snap, p.Elapsed()
 }
 
 func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode) error {
@@ -207,11 +207,11 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run := func() {
-		results, insights, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
-		renderer.PrintSummary(insights) //nolint:errcheck
+		renderer.PrintSummary(insights, 0) //nolint:errcheck
 	}
 
 	run()

@@ -57,6 +57,14 @@ func readWchan(pid int) string {
 	return strings.TrimSpace(string(data))
 }
 
+func readComm(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func (c *ProcessesCollector) Collect(ctx context.Context) (interface{}, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
@@ -87,6 +95,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 		ps := models.ProcessState{PID: pid, PPID: ppid, Name: name, State: state}
 		switch state {
 		case "Z":
+			ps.ParentName = readComm(ppid)
 			info.ZombieCount++
 			info.ZombieProcs = append(info.ZombieProcs, ps)
 		case "D":
@@ -110,7 +119,22 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		HungProcs:   make([]models.ProcessState, 0),
 	}
 	lines := strings.Split(string(out), "\n")
-	for _, line := range lines[1:] { // skip header
+
+	// Build pid→name map so we can resolve parent names.
+	pidName := make(map[int]string, len(lines))
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		pidName[pid] = fields[3]
+	}
+
+	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -118,14 +142,16 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		pid, _ := strconv.Atoi(fields[0])
 		ppid, _ := strconv.Atoi(fields[1])
 		stat := fields[2]
-		name := ""
-		if len(fields) > 3 {
-			name = fields[3]
-		}
 		if !strings.HasPrefix(stat, "Z") && !strings.HasPrefix(stat, "D") {
 			continue
 		}
-		ps := models.ProcessState{PID: pid, PPID: ppid, Name: name, State: string(stat[0])}
+		ps := models.ProcessState{
+			PID:        pid,
+			PPID:       ppid,
+			Name:       pidName[pid],
+			ParentName: pidName[ppid],
+			State:      string(stat[0]),
+		}
 		if strings.HasPrefix(stat, "Z") {
 			info.ZombieCount++
 			info.ZombieProcs = append(info.ZombieProcs, ps)

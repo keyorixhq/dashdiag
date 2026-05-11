@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -26,25 +27,24 @@ func NewCommandProgress(label string, estimate time.Duration, mode OutputMode, t
 
 func (p *CommandProgress) Start() {
 	p.start = time.Now()
-	est := int(p.estimate.Seconds())
 	if p.mode == ModeHuman {
-		fmt.Fprintf(os.Stderr, "⚡ %s (read-only) — ~%ds\n", p.label, est)
+		fmt.Fprintf(os.Stderr, "⚡ DashDiag\n")
+		fmt.Fprintf(os.Stderr, "%s — observation usually ~%ds\n", p.label, int(p.estimate.Seconds()))
+		fmt.Fprintf(os.Stderr, " %s\n", strings.Repeat("─", 48))
 	} else {
-		fmt.Fprintf(os.Stderr, "[INFO] %s (read-only) — ~%ds\n", p.label, est)
+		fmt.Fprintf(os.Stderr, "[INFO] %s — ~%ds\n", p.label, int(p.estimate.Seconds()))
 	}
 }
 
-func (p *CommandProgress) Step(collectorName string) {
+func (p *CommandProgress) Step(_ string) {
 	p.done++
-	if p.mode == ModeHuman {
-		pct := 0
-		if p.total > 0 {
-			pct = (p.done * 100) / p.total
-		}
-		fmt.Fprintf(os.Stderr, "\r  %s [%d/%d] %d%%   ", collectorName, p.done, p.total, pct)
-	} else {
-		fmt.Fprintf(os.Stderr, "[INFO] %s\n", collectorName)
+	if p.mode != ModeHuman {
+		fmt.Fprintf(os.Stderr, "[INFO] step %d/%d\n", p.done, p.total)
 	}
+}
+
+func (p *CommandProgress) Elapsed() time.Duration {
+	return time.Since(p.start)
 }
 
 func (p *CommandProgress) Note(msg string) {
@@ -56,10 +56,7 @@ func (p *CommandProgress) Note(msg string) {
 }
 
 func (p *CommandProgress) Done() {
-	elapsed := time.Since(p.start)
-	if p.mode == ModeHuman {
-		fmt.Fprintf(os.Stderr, "\r\033[K  done in %.1fs\n", elapsed.Seconds())
-	} else {
-		fmt.Fprintf(os.Stderr, "[INFO] done in %.1fs\n", elapsed.Seconds())
+	if p.mode != ModeHuman {
+		fmt.Fprintf(os.Stderr, "[INFO] done in %.1fs\n", p.Elapsed().Seconds())
 	}
 }
