@@ -313,31 +313,10 @@ func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 		return
 	}
 
-	// Count AVC denials in /var/log/audit/audit.log in the last hour
-	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
-	if err != nil {
-		return // requires root
-	}
-	defer f.Close() //nolint:errcheck
-
-	cutoff := time.Now().Add(-1 * time.Hour)
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "type=AVC") {
-			continue
-		}
-		// Extract timestamp: "msg=audit(1715000000.000:1)"
-		if idx := strings.Index(line, "msg=audit("); idx >= 0 {
-			rest := line[idx+10:]
-			dotIdx := strings.IndexByte(rest, '.')
-			if dotIdx > 0 {
-				sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64)
-				if err == nil && time.Unix(sec, 0).After(cutoff) {
-					info.SELinuxDenials++
-				}
-			}
-		}
+	// Delegate to the shared audit log reader in kernel_security.go.
+	// Returns (0, false) when /var/log/audit/audit.log is unreadable (non-root).
+	if n, ok := countAVCsFromAuditLog(1 * time.Hour); ok {
+		info.SELinuxDenials = n
 	}
 
 	_ = ctx // reserved for future timeout use

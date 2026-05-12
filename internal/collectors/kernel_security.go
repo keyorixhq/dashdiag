@@ -1,10 +1,12 @@
 package collectors
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +35,15 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	if mode != "enforcing" {
 		return present, mode, 0
 	}
+
+	// Prefer reading /var/log/audit/audit.log directly — when auditd is running
+	// it intercepts AVC messages at the audit socket, so they never reach journald.
+	// Falling back to journald handles the rare case where auditd is absent.
+	if n, ok := countAVCsFromAuditLog(1 * time.Hour); ok {
+		return present, mode, n
+	}
+
+	// Fallback: journald (works only when auditd is NOT running)
 	jout, err := exec.CommandContext(ctx, "journalctl",
 		"--since=1 hour ago", "--no-pager", "-q").Output()
 	if err != nil {
@@ -40,6 +51,45 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	}
 	denials = strings.Count(string(jout), "avc:  denied")
 	return present, mode, denials
+}
+
+// countAVCsFromAuditLog reads /var/log/audit/audit.log and counts type=AVC
+// entries whose Unix timestamp falls within the last window duration.
+// Returns (count, true) on success, (0, false) if the file is unreadable.
+func countAVCsFromAuditLog(window time.Duration) (int, bool) {
+	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	if err != nil {
+		return 0, false // requires root — signal caller to try fallback
+	}
+	defer f.Close() //nolint:errcheck
+
+	cutoff := time.Now().Add(-window)
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "type=AVC") {
+			continue
+		}
+		// Parse Unix timestamp from: msg=audit(1715000000.000:1)
+		idx := strings.Index(line, "msg=audit(")
+		if idx < 0 {
+			continue
+		}
+		rest := line[idx+10:]
+		dotIdx := strings.IndexByte(rest, '.')
+		if dotIdx <= 0 {
+			continue
+		}
+		sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64)
+		if err != nil {
+			continue
+		}
+		if time.Unix(sec, 0).After(cutoff) {
+			count++
+		}
+	}
+	return count, true
 }
 
 func apparmorEnabled() bool {
