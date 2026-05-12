@@ -854,23 +854,32 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	if pkg.SecurityUpdates == 0 {
 		return nil
 	}
+
+	// distro-correct fix commands
+	fixCmd := "apt-get upgrade"
+	inspectCmd := "apt list --upgradable 2>/dev/null | grep -i security"
+	if pkg.PackageManager == "dnf" {
+		fixCmd = "dnf upgrade --security"
+		inspectCmd = "dnf updateinfo list security"
+	}
+
 	if pkg.CriticalUpdates > 0 {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
 			[]string{
-				fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager),
-				fmt.Sprintf("to inspect: %s updateinfo list security", pkg.PackageManager),
+				fmt.Sprintf("to fix: %s", fixCmd),
+				fmt.Sprintf("to inspect: %s", inspectCmd),
 			},
 		))
 	} else if pkg.ImportantUpdates > 0 {
 		out = append(out, insight("WARN", "Packages",
 			fmt.Sprintf("%d important security update(s) available (%s)", pkg.ImportantUpdates, pkg.PackageManager),
-			[]string{fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager)},
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
 		))
 	} else {
 		out = append(out, insight("WARN", "Packages",
 			fmt.Sprintf("%d security update(s) available (%s)", pkg.SecurityUpdates, pkg.PackageManager),
-			[]string{fmt.Sprintf("to fix: %s upgrade --security", pkg.PackageManager)},
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
 		))
 	}
 	return out
