@@ -54,7 +54,7 @@ func TestCPUThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.CPUInfo{LoadPct: tc.loadPct, NumCPU: 4}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.CPUInfo{LoadPct: tc.loadPct, NumCPU: 4}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.wantLevel)
 		})
 	}
@@ -76,14 +76,14 @@ func TestMemoryUsedPctThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.MemoryInfo{UsedPct: tc.pct, TotalGB: 16}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.MemoryInfo{UsedPct: tc.pct, TotalGB: 16}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
 }
 
 func TestMemoryOverCommitted(t *testing.T) {
-	insights := ApplyThresholds(res(models.MemoryInfo{OverCommitted: true, TotalGB: 16}), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(models.MemoryInfo{OverCommitted: true, TotalGB: 16}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "CRIT") {
 		t.Error("expected CRIT for OverCommitted=true")
 	}
@@ -103,7 +103,7 @@ func TestMemorySlabThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := models.MemoryInfo{TotalGB: 16, SlabMB: tc.slabMB}
-			insights := ApplyThresholds(res(m), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(m), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			found := hasLevel(insights, "WARN")
 			wantFound := tc.want == "WARN"
 			if found != wantFound {
@@ -130,7 +130,7 @@ func TestDiskUsedPctThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := models.DiskInfo{Filesystems: []models.FilesystemInfo{{Mount: "/", UsedPct: tc.pct}}}
-			insights := ApplyThresholds(res(d), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(d), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -149,7 +149,7 @@ func TestDiskInodesUsedPctThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := models.DiskInfo{Filesystems: []models.FilesystemInfo{{Mount: "/var", InodesUsedPct: tc.pct}}}
-			insights := ApplyThresholds(res(d), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(d), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -171,7 +171,7 @@ func TestSwapUsedPctThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.SwapInfo{UsedPct: tc.pct}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.SwapInfo{UsedPct: tc.pct}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -193,7 +193,7 @@ func TestSwapActivityThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := models.SwapInfo{PagesInPerSec: tc.pagesIn, PagesOutPerSec: tc.pagesOut}
-			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.wantLevel)
 		})
 	}
@@ -213,7 +213,7 @@ func TestSwapMacOSPressureGating(t *testing.T) {
 	for _, tc := range noAlert {
 		t.Run(tc.name, func(t *testing.T) {
 			s := models.SwapInfo{UsedPct: tc.pct, PagesInPerSec: -1, PagesOutPerSec: -1, MemPressureLevel: 1}
-			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			if len(insights) != 0 {
 				t.Errorf("expected no insights at %.0f%% with normal pressure, got %+v", tc.pct, insights)
 			}
@@ -237,7 +237,7 @@ func TestSwapMacOSPressureGating(t *testing.T) {
 	for _, tc := range withPressure {
 		t.Run(tc.name, func(t *testing.T) {
 			s := models.SwapInfo{UsedPct: tc.pct, PagesInPerSec: -1, PagesOutPerSec: -1, MemPressureLevel: tc.pressure}
-			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -260,7 +260,7 @@ func TestIOUtilPctThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			io := models.IOInfo{Devices: []models.IODeviceInfo{{Name: "sda", UtilPct: tc.pct}}}
-			insights := ApplyThresholds(res(io), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(io), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -283,7 +283,7 @@ func TestIOAwaitMsThresholds_BareMetal(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			io := models.IOInfo{Devices: []models.IODeviceInfo{{Name: "sda", AwaitMs: tc.ms}}}
-			insights := ApplyThresholds(res(io), thresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(io), thresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -304,7 +304,7 @@ func TestIOAwaitMsThresholds_EBS(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			io := models.IOInfo{Devices: []models.IODeviceInfo{{Name: "xvda", AwaitMs: tc.ms}}}
-			insights := ApplyThresholds(res(io), thresh, platform.EnvAWSEBS)
+			insights := ApplyThresholds(res(io), thresh, platform.EnvAWSEBS, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -324,7 +324,7 @@ func TestNetworkGatewayPingThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.NetworkInfo{GatewayPingMs: tc.ms}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.NetworkInfo{GatewayPingMs: tc.ms}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -342,7 +342,7 @@ func TestNetworkDNSThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.NetworkInfo{DNSResolvesMs: tc.ms}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.NetworkInfo{DNSResolvesMs: tc.ms}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -360,7 +360,7 @@ func TestNetworkCloseWaitThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.NetworkInfo{CloseWaitCount: tc.count}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.NetworkInfo{CloseWaitCount: tc.count}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -370,14 +370,14 @@ func TestNetworkCloseWaitThresholds(t *testing.T) {
 
 func TestClockNilPointer(t *testing.T) {
 	results := []runner.Result{{Name: "Clock", Data: (*models.ClockInfo)(nil)}}
-	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if len(insights) != 0 {
 		t.Errorf("expected no insights for nil *ClockInfo, got %+v", insights)
 	}
 }
 
 func TestClockNotSynced(t *testing.T) {
-	insights := ApplyThresholds(res(models.ClockInfo{Synced: false, OffsetMs: -1}), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(models.ClockInfo{Synced: false, OffsetMs: -1}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "CRIT") {
 		t.Error("expected CRIT for unsynced clock")
 	}
@@ -398,7 +398,7 @@ func TestClockOffsetThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.ClockInfo{Synced: true, OffsetMs: tc.offsetMs}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.ClockInfo{Synced: true, OffsetMs: tc.offsetMs}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -418,7 +418,7 @@ func TestFDSystemThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.FDInfo{UsedPct: tc.pct}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.FDInfo{UsedPct: tc.pct}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -430,7 +430,7 @@ func TestFDProcessWarn(t *testing.T) {
 			{PID: 1, Name: "app", OpenFDs: 820, SoftLimit: 1024, UsedPct: 80.1},
 		},
 	}
-	insights := ApplyThresholds(res(fd), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(fd), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "WARN") {
 		t.Error("expected WARN for process at 80.1% FD usage")
 	}
@@ -438,7 +438,7 @@ func TestFDProcessWarn(t *testing.T) {
 
 func TestFDDeletedFilesWarn(t *testing.T) {
 	fd := models.FDInfo{DeletedOpenSizeGB: 1.5}
-	insights := ApplyThresholds(res(fd), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(fd), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "WARN") {
 		t.Error("expected WARN for 1.5 GB deleted open files")
 	}
@@ -448,7 +448,7 @@ func TestFDDeletedFilesWarn(t *testing.T) {
 
 func TestSystemdFailedUnit(t *testing.T) {
 	sys := models.SystemdInfo{Available: true, FailedUnits: []string{"foo.service"}}
-	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "CRIT") {
 		t.Error("expected CRIT for failed systemd unit")
 	}
@@ -456,7 +456,7 @@ func TestSystemdFailedUnit(t *testing.T) {
 
 func TestSystemdHealthy(t *testing.T) {
 	sys := models.SystemdInfo{Available: true}
-	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if len(insights) != 0 {
 		t.Errorf("expected no insights for healthy systemd, got %+v", insights)
 	}
@@ -467,7 +467,7 @@ func TestSystemdNotAvailable(t *testing.T) {
 	// Should produce INFO insight, not silently fall through to OK
 	// which would mislead users into thinking systemd is healthy.
 	sys := models.SystemdInfo{Available: false}
-	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(sys), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "INFO") {
 		t.Errorf("expected INFO insight when systemd not available, got %+v", insights)
 	}
@@ -487,7 +487,7 @@ func TestSysctlSomaxconnThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.SysctlInfo{NetSomaxconn: tc.val}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.SysctlInfo{NetSomaxconn: tc.val}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -506,7 +506,7 @@ func TestSysctlPIDCountThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := models.SysctlInfo{PIDCount: tc.count, KernelPIDMax: tc.max, NetSomaxconn: 4096}
-			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -529,7 +529,7 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: tc.count}
-			insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -537,7 +537,7 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 
 func TestSELinuxAbsent(t *testing.T) {
 	mac := models.KernelSecurityInfo{SELinuxPresent: false, SELinuxDenials: 100}
-	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	// Now expects an INFO insight when no kernel security module is enforcing,
 	// rather than no insights at all (which previously fell through to OK and
 	// misled users on Alpine/macOS/containers into thinking security was active).
@@ -550,7 +550,7 @@ func TestSELinuxDisabled(t *testing.T) {
 	// SELinux compiled in but mode=disabled should also produce INFO,
 	// since "present but disabled" means no policy is being enforced.
 	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "disabled"}
-	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "INFO") {
 		t.Errorf("expected INFO insight for SELinux in disabled mode, got %+v", insights)
 	}
@@ -559,7 +559,7 @@ func TestSELinuxDisabled(t *testing.T) {
 func TestKernelSecurityEnforcing(t *testing.T) {
 	// SELinux enforcing with no denials should produce no insight (healthy state).
 	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 0}
-	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if len(insights) != 0 {
 		t.Errorf("expected no insights for healthy enforcing SELinux, got %+v", insights)
 	}
@@ -571,7 +571,7 @@ func TestAppArmorUnknownAsNonRoot(t *testing.T) {
 	// as "no kernel security module enforcing" — that would be a false
 	// system-fact claim. Should produce a privilege-aware INFO instead.
 	mac := models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "unknown"}
-	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if !hasLevel(insights, "INFO") {
 		t.Fatalf("expected INFO insight for AppArmor unknown mode, got %+v", insights)
 	}
@@ -591,7 +591,7 @@ func TestAppArmorEnforcingHidesNoModuleMessage(t *testing.T) {
 	// Sanity check the negative: when AppArmor is enforcing, the
 	// "no kernel security module enforcing" message must not appear.
 	mac := models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce"}
-	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	for _, ins := range insights {
 		if strings.Contains(ins.Message, "no kernel security module") {
 			t.Errorf("AppArmor enforcing should not yield 'no module' message, got %+v", insights)
@@ -615,7 +615,7 @@ func TestJournalSizeThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			insights := ApplyThresholds(res(models.LogsInfo{JournalSizeGB: tc.gb}), defaultThresh, platform.EnvBareMetal)
+			insights := ApplyThresholds(res(models.LogsInfo{JournalSizeGB: tc.gb}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.want)
 		})
 	}
@@ -630,7 +630,7 @@ func TestErrorResultSurfacedAsInfo(t *testing.T) {
 	results := []runner.Result{
 		{Name: "IO", Err: fmt.Errorf("%s", errMsg)},
 	}
-	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal)
+	insights := ApplyThresholds(results, defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 	if len(insights) != 1 {
 		t.Fatalf("expected 1 INFO insight for errored collector, got %d: %+v", len(insights), insights)
 	}

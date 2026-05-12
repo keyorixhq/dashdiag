@@ -11,7 +11,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
-func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment) []models.Insight {
+func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
@@ -19,22 +19,22 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 				fmt.Sprintf("check could not run — %v", r.Err), nil))
 			continue
 		}
-		insights = append(insights, applyOne(r.Data, thresh)...)
+		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
 	}
 	return insights
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOne(data interface{}, thresh Thresholds) []models.Insight {
+func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	switch d := data.(type) {
 	case models.CPUInfo:
 		return checkCPU(d, thresh)
 	case *models.CPUInfo:
 		return checkCPU(*d, thresh)
 	case models.MemoryInfo:
-		return checkMemory(d, thresh)
+		return checkMemory(d, thresh, ctrCtx)
 	case *models.MemoryInfo:
-		return checkMemory(*d, thresh)
+		return checkMemory(*d, thresh, ctrCtx)
 	case models.DiskInfo:
 		return checkDisk(d, thresh)
 	case *models.DiskInfo:
@@ -159,7 +159,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	)}
 }
 
-func checkMemory(mem models.MemoryInfo, thresh Thresholds) []models.Insight {
+func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
 	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
 		var memHints []string
@@ -183,7 +183,10 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds) []models.Insight {
 	if mem.TotalGB > 0 {
 		slabPct = (mem.SlabMB / 1024) / mem.TotalGB * 100
 	}
-	if slabPct >= thresh.SlabWarnPct {
+	// Suppress slab check inside containers — /proc/meminfo Slab is a host-level
+	// value but mem.TotalGB reflects the cgroup memory limit, not host RAM.
+	// Comparing host slab against container ceiling always produces false WARNs.
+	if slabPct >= thresh.SlabWarnPct && !ctrCtx.InContainer {
 		out = append(out, insight("WARN", "Memory/Slab",
 			fmt.Sprintf("kernel slab cache is %.0f%% of total RAM (%.0f MB)", slabPct, mem.SlabMB),
 			[]string{"to inspect: cat /proc/slabinfo | sort -k3 -rn | head -20", "to inspect: slabtop -o | head -20"},
