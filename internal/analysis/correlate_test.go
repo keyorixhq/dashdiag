@@ -229,11 +229,77 @@ func TestIOUnderMemPressureDoesNotFireWithoutIOCrit(t *testing.T) {
 	}
 }
 
-// ── multiple rules can fire simultaneously ───────────────────────────────────
+// ── ruleNetworkDegradedUnderLoad ────────────────────────────────────────────
+
+func TestNetworkDegradedUnderLoadFiresWithCPU(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Network", "gateway ping 271ms"),
+		ins("CRIT", "CPU", "load at 266%"),
+	}
+	corrs := Correlate(insights)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Network Degraded Under System Load" {
+			found = true
+			if c.Level != "WARN" {
+				t.Errorf("expected WARN level, got %q", c.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Network Degraded Under System Load to fire")
+	}
+}
+
+func TestNetworkDegradedUnderLoadFiresWithSwap(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Network", "gateway ping 271ms"),
+		ins("CRIT", "Swap", "heavy swap"),
+	}
+	corrs := Correlate(insights)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Network Degraded Under System Load" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected Network Degraded Under System Load to fire with swap")
+	}
+}
+
+func TestNetworkDegradedDoesNotFireAlone(t *testing.T) {
+	// Network CRIT with everything else OK = external network problem, not system load
+	insights := []models.Insight{
+		ins("CRIT", "Network", "gateway 300ms"),
+		ins("OK", "CPU", "fine"),
+		ins("OK", "Swap", "fine"),
+		ins("OK", "Memory", "fine"),
+	}
+	corrs := Correlate(insights)
+	for _, c := range corrs {
+		if c.Name == "Network Degraded Under System Load" {
+			t.Error("should not fire when all other checks OK — likely external network issue")
+		}
+	}
+}
+
+func TestNetworkDegradedDoesNotFireWithoutNetCrit(t *testing.T) {
+	insights := []models.Insight{
+		ins("WARN", "Network", "gateway 60ms"), // WARN not CRIT
+		ins("CRIT", "CPU", "load at 266%"),
+	}
+	corrs := Correlate(insights)
+	for _, c := range corrs {
+		if c.Name == "Network Degraded Under System Load" {
+			t.Error("should not fire — Network is WARN not CRIT")
+		}
+	}
+}
 
 func TestMultipleRulesFire(t *testing.T) {
 	// The full stress-test cluster from 2026-05-11 overnight run on RHEL 10.1.
-	// Memory Cascade + IO Under Memory Pressure should both fire.
+	// Memory Cascade + IO Under Memory Pressure + Network Degraded should all fire.
 	insights := []models.Insight{
 		ins("CRIT", "Memory", "RAM at 97%, OOM kill risk"),
 		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
@@ -241,6 +307,7 @@ func TestMultipleRulesFire(t *testing.T) {
 		ins("CRIT", "Logs", "5 OOM kills: traefik, coredns, stress"),
 		ins("CRIT", "IO", "nvme1n1 await 18ms"),
 		ins("CRIT", "CPU", "load at 266%"),
+		ins("CRIT", "Network", "gateway ping 271ms, 50% packet loss"),
 		ins("WARN", "Thermal", "CPU 92°C"),
 	}
 	corrs := Correlate(insights)
@@ -253,6 +320,9 @@ func TestMultipleRulesFire(t *testing.T) {
 	}
 	if !names["IO Stall Under Memory Pressure"] {
 		t.Error("expected IO Stall Under Memory Pressure")
+	}
+	if !names["Network Degraded Under System Load"] {
+		t.Error("expected Network Degraded Under System Load")
 	}
 	// Hard OOM should NOT fire when swap is also CRIT
 	if names["Hard OOM Event"] {
