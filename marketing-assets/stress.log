@@ -1,0 +1,38 @@
+stress: info: [5879] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: FAIL: [5879] (425) <-- worker 5889 got signal 9
+stress: WARN: [5879] (427) now reaping child worker processes
+stress: FAIL: [5879] (431) kill error: No such process
+stress: FAIL: [5879] (461) failed run completed in 300s
+bash: 58: command not found...
+stress: info: [68492] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: FAIL: [68492] (425) <-- worker 68502 got signal 9
+stress: WARN: [68492] (427) now reaping child worker processes
+stress: FAIL: [68492] (431) kill error: No such process
+stress: FAIL: [68492] (461) failed run completed in 300s
+stress: info: [73544] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: FAIL: [73544] (425) <-- worker 73550 got signal 9
+stress: WARN: [73544] (427) now reaping child worker processes
+stress: FAIL: [73544] (431) kill error: No such process
+stress: FAIL: [73544] (461) failed run completed in 300s
+stress: info: [11100] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [11100] successful run completed in 300s
+stress: info: [14635] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [14635] successful run completed in 300s
+stress: info: [17603] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [17603] successful run completed in 301s
+stress: info: [20651] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [20651] successful run completed in 301s
+stress: info: [23971] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [23971] successful run completed in 300s
+stress: info: [27045] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [27045] successful run completed in 300s
+stress: info: [30155] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: FAIL: [30155] (425) <-- worker 30175 got signal 9
+stress: WARN: [30155] (427) now reaping child worker processes
+stress: FAIL: [30155] (431) kill error: No such process
+stress: FAIL: [30155] (461) failed run completed in 300s
+stress: info: [33236] dispatching hogs: 16 cpu, 4 io, 4 vm, 0 hdd
+stress: FAIL: [33236] (425) <-- worker 33249 got signal 9
+stress: WARN: [33236] (427) now reaping child worker processes
+stress: FAIL: [33236] (431) kill error: No such process
+stress: FAIL: [33236] (461) failed run completed in 300s
