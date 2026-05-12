@@ -1,0 +1,52 @@
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.3s
+Memory       OK
+Entropy      OK
+Disk         OK
+Clock        OK
+Thermal      OK
+Systemd      OK
+Sysctl       WARN  fs.inotify.max_user_watches=122241 is low for k8s (recommended: 524288)
+Processes    OK
+KernelSec    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  2 unexpected port(s) listening on all interfaces: 6443/tcp, 10250/tcp
+Battery      OK
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      OK
+────────────────────────────────────────────────────────
+WARN: Sysctl: fs.inotify.max_user_watches=122241 is low for k8s (recommended: 524288)
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: 2 unexpected port(s) listening on all interfaces: 6443/tcp, 10250/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :6443
+      ss -tlnp | grep :10250
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
