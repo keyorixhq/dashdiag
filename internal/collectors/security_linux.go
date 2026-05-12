@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -73,6 +74,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 }
 
 // parseFailedLogins reads /var/log/secure (RHEL) or /var/log/auth.log (Debian).
+// Falls back to journalctl on systems using journald-only auth logging (Debian 13+).
 // Counts failed SSH login attempts in the last hour.
 func parseFailedLogins(info *models.SecurityInfo) {
 	paths := []string{"/var/log/secure", "/var/log/auth.log"}
@@ -84,6 +86,9 @@ func parseFailedLogins(info *models.SecurityInfo) {
 		}
 	}
 	if logPath == "" {
+		// Neither file exists — Debian 13+ with journald-only auth logging.
+		// Fall back to journalctl which reads from the binary journal directly.
+		parseFailedLoginsFromJournal(info)
 		return
 	}
 
@@ -125,6 +130,62 @@ func parseFailedLogins(info *models.SecurityInfo) {
 	}
 
 	// Top offending IPs
+	for ip, count := range ipCount {
+		if count >= 3 {
+			info.FailedLoginIPs = append(info.FailedLoginIPs,
+				fmt.Sprintf("%s (%d attempts)", ip, count))
+		}
+	}
+}
+
+// parseFailedLoginsFromJournal reads failed SSH logins from journald.
+// Used on systems where /var/log/secure and /var/log/auth.log do not exist
+// (Debian 13+ with journald-only auth logging).
+// Handles two sshd log formats:
+//   - Legacy (OpenSSH ≤8): "Failed password for [invalid user] X from IP port P ssh2"
+//   - Modern (OpenSSH 9+): "drop connection #N from [IP]:P on [IP]:P penalty: failed authentication"
+func parseFailedLoginsFromJournal(info *models.SecurityInfo) {
+	out, err := exec.Command("journalctl", "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q").Output()
+	if err != nil {
+		return
+	}
+
+	ipCount := make(map[string]int)
+	for _, line := range strings.Split(string(out), "\n") {
+		var ip string
+
+		switch {
+		// Legacy format: "Failed password" or "Invalid user"
+		case strings.Contains(line, "Failed password") || strings.Contains(line, "Invalid user"):
+			if idx := strings.Index(line, " from "); idx >= 0 {
+				rest := line[idx+6:]
+				ipEnd := strings.IndexByte(rest, ' ')
+				if ipEnd > 0 {
+					ip = rest[:ipEnd]
+				}
+			}
+
+		// Modern format (OpenSSH 9+): "drop connection #N from [IP]:port ... penalty: failed authentication"
+		case strings.Contains(line, "penalty: failed authentication"):
+			// Extract IP from: "from [192.168.1.1]:12345"
+			if idx := strings.Index(line, " from ["); idx >= 0 {
+				rest := line[idx+7:]
+				ipEnd := strings.IndexByte(rest, ']')
+				if ipEnd > 0 {
+					ip = rest[:ipEnd]
+				}
+			}
+
+		default:
+			continue
+		}
+
+		info.FailedLogins++
+		if net.ParseIP(ip) != nil {
+			ipCount[ip]++
+		}
+	}
+
 	for ip, count := range ipCount {
 		if count >= 3 {
 			info.FailedLoginIPs = append(info.FailedLoginIPs,
