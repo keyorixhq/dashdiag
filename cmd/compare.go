@@ -177,7 +177,7 @@ func printCompare(snaps []*compareSnapshot, plain, showAll bool) {
 		statuses []string
 		differs  bool
 	}
-	var rows []row
+	rows := make([]row, 0, len(allChecks))
 	for _, name := range allChecks {
 		statuses := statusMatrix[name]
 		differs := statusesDiffer(statuses)
