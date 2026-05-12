@@ -61,6 +61,7 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info.TCPSynBacklog, _ = readIntFile("/proc/sys/net/ipv4/tcp_max_syn_backlog")
 	info.VMMaxMapCount, _ = readIntFile("/proc/sys/vm/max_map_count")
 	info.VMDirtyRatio, _ = readIntFile("/proc/sys/vm/dirty_ratio")
+	info.VMDirtyBackgroundRatio, _ = readIntFile("/proc/sys/vm/dirty_background_ratio")
 	info.VMOvercommit, _ = readIntFile("/proc/sys/vm/overcommit_memory")
 	info.FSInotifyWatches, _ = readIntFile("/proc/sys/fs/inotify/max_user_watches")
 
@@ -85,10 +86,14 @@ func detectWorkload() string {
 	switch {
 	case procs["kubelet"] || procs["k3s"] || procs["k3s-server"]:
 		return "k8s"
-	case procs["nginx"] || procs["apache2"] || procs["httpd"] || procs["caddy"]:
+	case procs["nginx"] || procs["apache2"] || procs["httpd"] || procs["caddy"] || procs["haproxy"]:
 		return "webserver"
-	case procs["postgres"] || procs["mysqld"] || procs["mongod"] || procs["redis-server"]:
+	case procs["postgres"] || procs["mysqld"] || procs["mongod"] || procs["redis-server"] || procs["mariadbd"]:
 		return "database"
+	case procs["java"] && (procs["elasticsearch"] || procs["kibana"]):
+		return "elasticsearch"
+	case procs["dockerd"] || procs["containerd"]:
+		return "container"
 	default:
 		return "default"
 	}

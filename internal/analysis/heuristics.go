@@ -448,51 +448,96 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight {
 		}
 	}
 
-	// Workload-aware tuning recommendations
+	// Workload-aware tuning recommendations.
+	// Each case adds "to persist:" hints so engineers know the fix survives reboot.
 	switch sysctl.Workload {
 	case "k8s":
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{"to fix: sysctl -w vm.max_map_count=262144"},
+				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for k8s (recommended: 524288)", sysctl.FSInotifyWatches),
-				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=524288"},
+				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=524288", "to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: ≤ 10)", sysctl.VMSwappiness),
-				[]string{"to fix: sysctl -w vm.swappiness=10"},
+				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: \u2264 10)", sysctl.VMSwappiness),
+				[]string{"to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
+
 	case "webserver":
 		if sysctl.TCPTWReuse == 0 {
 			out = append(out, insight("WARN", "Sysctl",
-				"net.ipv4.tcp_tw_reuse=0 — enabling helps high-traffic web servers reuse TIME_WAIT sockets",
-				[]string{"to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
+				"net.ipv4.tcp_tw_reuse=0 \u2014 enabling helps high-traffic web servers reuse TIME_WAIT sockets",
+				[]string{"to fix: sysctl -w net.ipv4.tcp_tw_reuse=1", "to persist: echo 'net.ipv4.tcp_tw_reuse=1' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 16777216 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("net.core.rmem_max=%d is low for high-throughput web server (recommended: 16MB)", sysctl.NetRmemMax),
-				[]string{"to fix: sysctl -w net.core.rmem_max=16777216"},
+				[]string{"to fix: sysctl -w net.core.rmem_max=16777216", "to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
+
 	case "database":
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: ≤ 10)", sysctl.VMSwappiness),
-				[]string{"to fix: sysctl -w vm.swappiness=10"},
+				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: \u2264 10)", sysctl.VMSwappiness),
+				[]string{"to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMDirtyRatio > 10 {
 			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("vm.dirty_ratio=%d is high for database (recommended: ≤ 10 to reduce write latency spikes)", sysctl.VMDirtyRatio),
-				[]string{"to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3"},
+				fmt.Sprintf("vm.dirty_ratio=%d is high for database (recommended: \u2264 10 to reduce write latency spikes)", sysctl.VMDirtyRatio),
+				[]string{"to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3", "to persist: echo 'vm.dirty_ratio=10' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+
+	case "elasticsearch":
+		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
+			out = append(out, insight("CRIT", "Sysctl",
+				fmt.Sprintf("vm.max_map_count=%d \u2014 Elasticsearch requires \u2265 262144 or it will refuse to start", sysctl.VMMaxMapCount),
+				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+		if sysctl.VMSwappiness > 1 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.swappiness=%d \u2014 Elasticsearch recommends 1 to minimise GC pauses from swapping", sysctl.VMSwappiness),
+				[]string{"to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+
+	case "container":
+		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.max_map_count=%d is low for container host running JVM workloads (recommended: 262144)", sysctl.VMMaxMapCount),
+				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 131072 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for container host (recommended: 131072+)", sysctl.FSInotifyWatches),
+				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=131072", "to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+
+	default: // general production server \u2014 flag values clearly suboptimal for any server role
+		if sysctl.VMSwappiness > 30 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("vm.swappiness=%d is high for a server (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
+				[]string{"to inspect: cat /proc/sys/vm/swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+			))
+		}
+		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 4194304 {
+			out = append(out, insight("WARN", "Sysctl",
+				fmt.Sprintf("net.core.rmem_max=%d is low (recommended: \u2265 4MB for modern network throughput)", sysctl.NetRmemMax),
+				[]string{"to fix: sysctl -w net.core.rmem_max=4194304", "to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 	}
