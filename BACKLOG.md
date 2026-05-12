@@ -216,3 +216,143 @@ Rent Hetzner AX162-S or similar (2x AMD EPYC) for a few hours to validate:
 Hetzner dedicated auction servers: ~€0.50-2/hour.
 Also: ask friends with multi-socket hardware.
 Build after core product is stable and first paying customer exists.
+
+---
+
+## [STRATEGIC] V2 Diagnostic Engine — From Collector to Doctor
+
+These ideas were captured during a strategic review session. The core insight:
+DashDiag v1 is a high-quality collector platform. V2's moat is interpretation —
+becoming "OBD that reads codes" not just "OBD that shows sensor values".
+
+Do NOT start any of these items before first paying customer is acquired
+(target: 6 weeks from initial sprint per project guide).
+
+### [V2-CORRELATION] Symptom correlation engine
+The highest-leverage v2 feature. Move from "showing symptoms" to "explaining them".
+
+Examples of rules to encode:
+- CPU high + IO wait high + Memory CRIT → likely memory pressure causing swap thrashing
+- Memory pressure + swap + high disk writes → memory leak or cache thrashing
+- Network retransmits + CPU idle → NIC / kernel networking issue
+- Entropy low + TLS failures → crypto / bootstrapping failure
+- IO CRIT on one device + Disk OK overall → single drive degradation
+- Multiple OOM kills + same service → memory leak in that service
+- Sysctl drift + recent reboot → kernel parameter not persisted
+
+Implementation phases:
+1. Hardcoded ruleset (~10 rules) in heuristics package
+2. Confidence scoring per rule match
+3. "Likely cause ranking" in summary output
+4. (V3) graph-based DAG of symptom → cause → fix
+
+Output design:
+  Instead of: ❌ Memory 97%, ❌ CPU 280%, ❌ IO 28ms latency
+  Show:       ❌ Memory pressure with cascade
+              ├─ Memory 97% (primary symptom)
+              ├─ CPU 280% (consequence: swap thrashing)
+              └─ IO 28ms (consequence: high swap I/O)
+              → likely cause: memory leak or insufficient RAM
+
+Estimated scope: 1 week for v0 ruleset, ongoing iteration for accuracy.
+
+### [V2-COLLECTOR] Filesystem & inode pressure
+- inode exhaustion per mount (df -i equivalent via statfs)
+- filesystem read-only remount detection (compare /proc/mounts to fstab)
+- mount degradation / stale NFS
+- ext4/xfs reservation pressure
+Signals: /proc/mounts, statfs syscall, dmesg ext4/xfs errors via LogsCollector
+Estimated scope: ~2 days.
+
+### [V2-COLLECTOR] Kernel instability extensions
+Extend LogsCollector:
+- soft lockups (kernel: BUG: soft lockup)
+- hard lockups (NMI watchdog)
+- kernel panic history (/sys/fs/pstore, /var/crash)
+- watchdog resets
+Signals: journalctl -k, /sys/fs/pstore, dmesg patterns
+Estimated scope: ~2 days.
+
+### [V2-COLLECTOR] Network deep diagnostics
+Extend NetworkCollector:
+- TCP retransmissions rate (/proc/net/netstat)
+- SYN backlog saturation
+- TIME_WAIT explosion (already partial in TCP states)
+- connection tracking table usage (/proc/sys/net/netfilter/nf_conntrack_count)
+Signals: /proc/net/netstat, /proc/net/sockstat, conntrack
+Estimated scope: ~2 days. Belongs in `dsd net deep`.
+
+### [V2-COLLECTOR] CPU scheduling pathology
+- run queue saturation (load vs cores)
+- context switch spike detection
+- iowait vs steal time separation (VM-host vs host-host)
+- CPU throttling due to cgroups (/sys/fs/cgroup/cpu.stat)
+Signals: /proc/stat, /proc/schedstat, cgroup files
+Estimated scope: ~2 days. Belongs in `dsd health deep`.
+
+### [V2-COLLECTOR] Storage performance diagnostics
+- write amplification estimate (SSD wear prediction from SMART)
+- queue depth saturation (/sys/block/*/queue/nr_requests vs in_flight)
+- fsync latency spikes (eBPF — significant complexity)
+- disk scheduler latency distribution
+Signals: iostat -x equivalent, /sys/block/*/queue/, /proc/diskstats
+Estimated scope: ~3 days. fsync latency would need eBPF — defer to v3.
+
+### [V2-COLLECTOR] TLS / certificate health (high-value cross-platform)
+New `dsd tls` standalone command:
+- expired cert detection (local cert paths)
+- remote endpoint cert expiry (configurable list)
+- TLS handshake failures from logs
+- system trust store drift (compare to known baseline)
+Signals: /etc/ssl/certs/*, openssl s_client, /etc/pki/ca-trust/
+Estimated scope: ~3 days. High leverage for DevOps audience.
+
+### [V2-COLLECTOR] Security drift detection (extends Hardening)
+- SSH config drift vs baseline
+- sudoers unexpected changes (audit /etc/sudoers timestamp + diff)
+- new SUID binaries (find / -perm -4000, compare to baseline snapshot)
+- cron job injection detection (/etc/cron*, /var/spool/cron/)
+- writable PATH binaries
+- new users with UID 0
+Signals: file system scans, baseline comparison
+Estimated scope: ~3 days.
+
+### [V2-COLLECTOR] Process-to-network anomaly mapping
+- unknown process listening on port
+- port-process mismatch (e.g. nginx listening on :22)
+- reverse shell heuristics (tty-less shell + network connection)
+Signals: /proc/*/cmdline cross-referenced with /proc/net/tcp
+Estimated scope: ~2 days.
+
+CAUTION: This drifts toward EDR territory (CrowdStrike, SentinelOne).
+EDR is a regulated, compliance-heavy market. Do not position DashDiag as
+EDR-class without explicit strategic decision.
+
+### [V2-COLLECTOR] macOS additions
+Lower priority — DashDiag audience is primarily Linux servers.
+- top CPU processes by app bundle
+- memory pressure breakdown (swap vs compressed memory)
+- LaunchAgents / LaunchDaemons inspection (~/Library/LaunchAgents)
+- Spotlight indexing health (mdutil -s /)
+Estimated scope: ~3 days combined. Defer until macOS user demand exists.
+
+---
+
+## [STRATEGIC] V2 Framing Decision Required
+
+The original analysis claimed: "Collectors are commoditized. Interpretation is not."
+
+Counter-position: DashDiag's collectors are NOT commoditized — most tools shell out
+to top/vmstat/ss with shallow parsing. DashDiag reads /proc and /sys directly with
+mount detection, build tags, and platform-aware logic. THAT is the moat for v1.
+
+For v2, the framing shifts toward interpretation. The correlation engine becomes
+the unique value, not the collectors.
+
+[DISCUSS] Question to answer before v2:
+- Are we a "comprehensive observability CLI" or a "system doctor"?
+- If doctor: lean hard into correlation, accept fewer collectors
+- If observability: expand collector matrix, treat correlation as nice-to-have
+
+This decision affects messaging, pricing tier structure, and engineering priorities.
+Do not start v2 work until this is decided.
