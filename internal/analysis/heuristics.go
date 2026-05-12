@@ -619,6 +619,26 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 			[]string{fmt.Sprintf("to inspect: journalctl -u %s -n 50", strings.Fields(unit)[0])},
 		))
 	}
+
+	// Kernel instability signals — always CRIT, any count is too many
+	if logs.SoftLockups > 0 {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("%d soft lockup(s) detected — CPU stuck in kernel context", logs.SoftLockups),
+			[]string{"to inspect: dmesg | grep -i 'soft lockup'", "to inspect: check for runaway kernel threads or NFS hangs"},
+		))
+	}
+	if logs.HardLockups > 0 {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("%d hard lockup(s) detected — CPU unresponsive, NMI watchdog fired", logs.HardLockups),
+			[]string{"to inspect: dmesg | grep -i 'hard lockup'", "to inspect: likely hardware issue — check memory and CPU"},
+		))
+	}
+	if logs.KernelPanics > 0 {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("%d kernel panic record(s) found — system crashed previously", logs.KernelPanics),
+			[]string{"to inspect: ls /sys/fs/pstore/", "to inspect: dmesg | grep -i panic", "to inspect: check /var/crash if kdump is enabled"},
+		))
+	}
 	return out
 }
 
