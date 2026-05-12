@@ -19,6 +19,9 @@ const (
 	EnvGCP
 	EnvAzure
 	EnvDigitalOcean
+	EnvHetzner
+	EnvOracleCloud
+	EnvVultr
 )
 
 func DetectCloudEnvironment() CloudEnvironment {
@@ -31,27 +34,71 @@ func DetectCloudEnvironment() CloudEnvironment {
 }
 
 func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL string) CloudEnvironment {
+	// Read all useful DMI fields — sys_vendor and board_vendor are often
+	// more reliable than product_name on cloud VMs.
 	productName := readFileTrimmed(filepath.Join(dmiDir, "product_name"))
-	if strings.Contains(productName, "Google Compute") {
+	sysVendor := readFileTrimmed(filepath.Join(dmiDir, "sys_vendor"))
+	biosVendor := readFileTrimmed(filepath.Join(dmiDir, "bios_vendor"))
+	boardVendor := readFileTrimmed(filepath.Join(dmiDir, "board_vendor"))
+	chassisVendor := readFileTrimmed(filepath.Join(dmiDir, "chassis_vendor"))
+
+	// Combine all DMI fields for easier matching
+	dmiAll := strings.ToLower(productName + " " + sysVendor + " " + biosVendor + " " + boardVendor + " " + chassisVendor)
+
+	// AWS — check product_name, bios_vendor, sys_vendor
+	if strings.Contains(productName, "Amazon EC2") ||
+		strings.Contains(sysVendor, "Amazon EC2") ||
+		strings.Contains(biosVendor, "Amazon") {
+		return detectAWSStorageTypeFromPaths(blockDir)
+	}
+
+	// GCP
+	if strings.Contains(productName, "Google Compute") ||
+		strings.Contains(sysVendor, "Google") ||
+		strings.Contains(boardVendor, "Google") {
 		return EnvGCP
 	}
-	if strings.Contains(productName, "Microsoft Azure") {
+
+	// Azure
+	if strings.Contains(productName, "Virtual Machine") && strings.Contains(sysVendor, "Microsoft") ||
+		strings.Contains(dmiAll, "microsoft azure") ||
+		strings.Contains(sysVendor, "Microsoft Corporation") {
 		return EnvAzure
 	}
-	if strings.Contains(productName, "Amazon EC2") {
-		return detectAWSStorageTypeFromPaths(blockDir)
+
+	// DigitalOcean
+	if strings.Contains(sysVendor, "DigitalOcean") ||
+		strings.Contains(productName, "Droplet") {
+		return EnvDigitalOcean
 	}
 
-	biosVendor := readFileTrimmed(filepath.Join(dmiDir, "bios_vendor"))
-	if strings.Contains(biosVendor, "Amazon") {
-		return detectAWSStorageTypeFromPaths(blockDir)
+	// Hetzner
+	if strings.Contains(sysVendor, "Hetzner") ||
+		strings.Contains(productName, "Hetzner") ||
+		strings.Contains(boardVendor, "Hetzner") {
+		return EnvHetzner
 	}
 
+	// Oracle Cloud (OCI)
+	if strings.Contains(sysVendor, "Oracle") ||
+		strings.Contains(productName, "OracleCloud") ||
+		strings.Contains(chassisVendor, "Oracle") {
+		return EnvOracleCloud
+	}
+
+	// Vultr
+	if strings.Contains(sysVendor, "Vultr") ||
+		strings.Contains(productName, "Vultr") {
+		return EnvVultr
+	}
+
+	// EC2 hypervisor UUID fallback
 	uuid := readFileTrimmed(hypervisorUUID)
 	if strings.HasPrefix(strings.ToLower(uuid), "ec2") {
 		return detectAWSStorageTypeFromPaths(blockDir)
 	}
 
+	// IMDS last resort — only if nothing else matched
 	if imdsURL != "" && checkIMDS(imdsURL) {
 		return detectAWSStorageTypeFromPaths(blockDir)
 	}
@@ -97,4 +144,35 @@ func readFileTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// String returns a human-readable name for the cloud environment.
+func (e CloudEnvironment) String() string {
+	switch e {
+	case EnvBareMetal:
+		return "bare-metal"
+	case EnvAWSEBS:
+		return "aws-ebs"
+	case EnvAWSNVMe:
+		return "aws-nvme"
+	case EnvGCP:
+		return "gcp"
+	case EnvAzure:
+		return "azure"
+	case EnvDigitalOcean:
+		return "digitalocean"
+	case EnvHetzner:
+		return "hetzner"
+	case EnvOracleCloud:
+		return "oracle-cloud"
+	case EnvVultr:
+		return "vultr"
+	default:
+		return "unknown"
+	}
+}
+
+// IsCloud returns true when running on any cloud provider.
+func (e CloudEnvironment) IsCloud() bool {
+	return e != EnvBareMetal && e != EnvUnknown
 }

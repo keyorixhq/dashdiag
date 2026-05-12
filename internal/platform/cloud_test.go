@@ -23,6 +23,17 @@ func makeDMIDir(t *testing.T, productName, biosVendor string) (dir string, dmiDi
 	return dir, dmiDir
 }
 
+func makeDMIFull(t *testing.T, fields map[string]string) (dir string, dmiDir string) {
+	t.Helper()
+	dir = t.TempDir()
+	dmiDir = filepath.Join(dir, "dmi")
+	_ = os.MkdirAll(dmiDir, 0755)
+	for k, v := range fields {
+		_ = os.WriteFile(filepath.Join(dmiDir, k), []byte(v+"\n"), 0644)
+	}
+	return dir, dmiDir
+}
+
 func TestDetectCloud_GCP(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "Google Compute Engine", "")
 	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
@@ -130,5 +141,91 @@ func TestDetectCloud_IMDS_Reachable(t *testing.T) {
 	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, ts.URL)
 	if got != EnvAWSEBS {
 		t.Errorf("expected EnvAWSEBS when IMDS reachable, got %v", got)
+	}
+}
+
+func TestDetectCloud_Hetzner(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "Hetzner",
+		"product_name": "cx22",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvHetzner {
+		t.Errorf("expected EnvHetzner, got %v", got)
+	}
+}
+
+func TestDetectCloud_DigitalOcean(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "DigitalOcean",
+		"product_name": "Droplet",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvDigitalOcean {
+		t.Errorf("expected EnvDigitalOcean, got %v", got)
+	}
+}
+
+func TestDetectCloud_OracleCloud(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "Oracle Corporation",
+		"product_name": "OracleCloud",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvOracleCloud {
+		t.Errorf("expected EnvOracleCloud, got %v", got)
+	}
+}
+
+func TestDetectCloud_Vultr(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor": "Vultr",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvVultr {
+		t.Errorf("expected EnvVultr, got %v", got)
+	}
+}
+
+func TestDetectCloud_AzureSysVendor(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "Microsoft Corporation",
+		"product_name": "Virtual Machine",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvAzure {
+		t.Errorf("expected EnvAzure, got %v", got)
+	}
+}
+
+func TestCloudEnvironment_String(t *testing.T) {
+	cases := []struct {
+		env  CloudEnvironment
+		want string
+	}{
+		{EnvBareMetal, "bare-metal"},
+		{EnvAWSEBS, "aws-ebs"},
+		{EnvGCP, "gcp"},
+		{EnvHetzner, "hetzner"},
+		{EnvDigitalOcean, "digitalocean"},
+		{EnvOracleCloud, "oracle-cloud"},
+		{EnvVultr, "vultr"},
+	}
+	for _, tc := range cases {
+		if got := tc.env.String(); got != tc.want {
+			t.Errorf("%v.String() = %q, want %q", tc.env, got, tc.want)
+		}
+	}
+}
+
+func TestCloudEnvironment_IsCloud(t *testing.T) {
+	if EnvBareMetal.IsCloud() {
+		t.Error("EnvBareMetal.IsCloud() should be false")
+	}
+	if !EnvHetzner.IsCloud() {
+		t.Error("EnvHetzner.IsCloud() should be true")
+	}
+	if !EnvAWSEBS.IsCloud() {
+		t.Error("EnvAWSEBS.IsCloud() should be true")
 	}
 }
