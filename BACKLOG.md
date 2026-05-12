@@ -397,3 +397,161 @@ Open questions still requiring decision:
 - Confirm: lean hard into correlation, accept fewer collectors in v2?
 - This decision affects messaging, pricing tier structure, engineering priorities.
 - Re-confirm after first paying customer is acquired and gives input.
+
+---
+
+## [TESTBEDS] Hardware Validation — Use Real Hardware Before It Goes Away
+
+DashDiag is validated against /proc, /sys, and kernel interfaces. Different hardware
+and OS combinations expose different code paths. This section tracks which scenarios
+need testing on which physical hardware, before access expires.
+
+### RHEL 10 Laptop (192.168.1.145) — ~2 weeks remaining
+
+Hardware that cloud VMs can't replicate:
+- 2x SK Hynix 1TB NVMe (one Windows, one RHEL — dual boot)
+- RTX 3070 Laptop GPU 8GB (validated under gpu_burn)
+- AMD Ryzen 7 5800H (8c/16t)
+- Wi-Fi (wlp4s0) + ethernet (eno1)
+- k3s on bare metal (containerd runtime)
+- Real battery + thermal + power transitions
+
+Scenarios still worth testing (ranked by uniqueness):
+
+**[HIGH] Suspend/resume cycle**
+Laptop-only behavior. Does `dsd health` cope when clock jumps after wake?
+Does the baseline file detect the gap? Does `--story` handle a 10-hour gap?
+Likely surfaces real bugs in time-based collectors and history.
+
+**[HIGH] Battery vs AC power transitions**
+Switch from AC to battery and back. Does CPU frequency scaling change visibly?
+Does Battery collector show meaningful state transitions in story output?
+Does dsd detect throttling under battery?
+
+**[MEDIUM] Wi-Fi disconnect/reconnect**
+Pull ethernet, switch to Wi-Fi. Does Network collector handle primary interface
+change cleanly? Does it correctly detect the new gateway and primary route?
+
+**[MEDIUM] GPU power state transitions**
+Full burn → idle → burn again. Does Xid error detection work? Does VRAM
+free correctly? Does dsd report stale process data after gpu_burn ends?
+
+**[HIGH] Install Docker alongside k3s — build dsd docker v0 here**
+RHEL has k3s (containerd). Adding Docker gives us a testbed for the new
+`dsd docker` command without setting up a new machine. Test against:
+- Deliberately broken containers (OOM, crash loop, unhealthy)
+- Container detection when dsd itself runs inside docker
+- cgroup v2 limits respected when inside container
+
+**[LOW] Suspend laptop overnight**
+See how baseline/story handles a long gap with no cron runs. Validates
+the story is robust to non-continuous data.
+
+### Proxmox Host — High Value, Multi-Disk, Production Workload
+
+Hardware that the laptop doesn't have:
+- Mixed disk types: HDD + SSD + NVMe (validates per-device IO thresholds)
+- ZFS pools (whole new filesystem we haven't tested)
+- LVM thin pools (Proxmox standard for VM disks)
+- Server-class CPU (likely Xeon or Ryzen server, ECC RAM)
+- Long uptime → real `power_on_hours` data, real wear patterns
+- Server NIC (not consumer Realtek)
+- Running VMs + LXC containers (real workload, not synthetic)
+
+Scenarios to test:
+
+**[HIGH] `dsd disk` with mixed drive types**
+Currently only tested on NVMe. HDD detection via `/sys/block/DEV/queue/rotational=1`
+is coded but unvalidated. Validate:
+- HDD shows up as "HDD" in `dsd disk`
+- SSD shows up as "SSD" (rotational=0, but not NVMe)
+- NVMe shows up as "NVMe"
+- IO thresholds applied correctly per device type (HDD=50/100ms, SSD=default,
+  NVMe=5/15ms — coded in IOCollector but only NVMe tested)
+
+**[HIGH] NVMe wear data on multi-year drives**
+Laptop NVMe has 7000h power on, 0% wear (essentially new).
+Proxmox NVMe likely has 20,000+ hours uptime — real wear patterns.
+Validate: PercentageUsed, AvailableSparePct, MediaErrors on aged drives.
+
+**[HIGH] ZFS pool support**
+Does Disk collector read `/proc/mounts` entries for `zfs` filesystem type?
+Does it handle ZFS pool names correctly (e.g. `rpool/ROOT/pve-1`)?
+Does it ignore ZFS internal datasets we don't want to show?
+May need a dedicated ZFS pool collector for pool health (zpool status equivalent).
+
+**[HIGH] LVM mount detection**
+Proxmox uses `/dev/mapper/pve-root` style devices. Does our mount parsing handle
+device-mapper names? Does it correctly link back to physical disks?
+
+**[MEDIUM] Running inside an LXC container**
+Run dsd inside one of the Proxmox LXC containers. Does it correctly detect
+LXC (vs Docker, vs k8s pod)? Does cgroup memory/CPU limit detection work?
+
+**[MEDIUM] Running inside a Proxmox VM**
+QEMU/KVM virtualization. Does platform detection identify it as virt?
+Does `steal time` get surfaced correctly in CPU collector?
+
+**[HIGH] Build dsd pve here**
+Natural place to build the Proxmox-specific command. Read from:
+- `/etc/pve/` — Proxmox config files
+- `pvesh get /nodes/{node}/status` — node status API
+- `qm list` — VM list
+- `pct list` — LXC list
+- `pvecm status` — cluster quorum (if clustered)
+- `/etc/pve/storage.cfg` — storage pools
+
+Would surface:
+- VM/LXC status (running, stopped, paused)
+- Storage pool usage and health
+- Cluster quorum (if clustered)
+- Backup status (PBS integration if available)
+- Replication lag
+- HA service status
+
+Estimated scope: ~3-5 days. Strategic value: Proxmox users are exactly the
+self-hosted SRE audience that values "no agent, no cloud" — high signal for
+early adopters.
+
+### Future Testbeds (Not Yet Acquired)
+
+**Debian/Ubuntu via Hetzner CX22 (€4/month)**
+- Validates apt vs dnf in Packages collector
+- Standard cloud Linux for most deployments
+- Sets up after RHEL laptop access ends
+
+**Multi-socket / NUMA via Hetzner AX162-S (€0.50-2/hour)**
+- 2x AMD EPYC dedicated server
+- NUMA topology, IRQ affinity, cross-socket memory traffic
+- Already in backlog under separate [DISCUSS] section
+
+**Raspberry Pi / Oracle Cloud ARM**
+- ARM Debian on real hardware
+- Validates Linux/arm64 build
+- Free (Oracle) or one-time cost (Pi)
+
+---
+
+## Test Coverage Matrix
+
+What we have validated vs what we need:
+
+| Scenario              | RHEL Laptop | Proxmox Host | Hetzner Debian | macOS arm64 |
+| --------------------- | ----------- | ------------ | -------------- | ----------- |
+| 18 collectors         | ✅          | TODO         | TODO           | ✅          |
+| NVMe SMART            | ✅          | TODO (aged)  | N/A            | ✅ (no nvme-cli) |
+| HDD detection         | N/A         | TODO         | N/A            | N/A         |
+| SSD (non-NVMe)        | N/A         | TODO         | TODO           | N/A         |
+| ZFS                   | N/A         | TODO         | TODO           | N/A         |
+| LVM                   | N/A         | TODO         | possible       | N/A         |
+| Mixed-OS drives       | ✅          | unlikely     | N/A            | N/A         |
+| RTX 3070 GPU          | ✅          | depends      | depends        | N/A         |
+| k3s / k8s             | ✅          | depends      | TODO           | N/A         |
+| Docker                | TODO        | depends      | TODO           | TODO (Docker Desktop) |
+| Battery               | ✅          | N/A          | N/A            | ✅          |
+| Suspend/resume        | TODO        | N/A          | N/A            | TODO        |
+| Wi-Fi switching       | TODO        | N/A          | N/A            | TODO        |
+| Multi-socket / NUMA   | N/A         | depends      | N/A            | N/A         |
+| Long uptime wear      | N/A         | ✅ likely    | TODO           | depends     |
+| apt vs dnf            | dnf only    | apt likely   | apt            | brew        |
+| Cloud detection       | bare metal  | bare metal   | cloud          | bare metal  |
