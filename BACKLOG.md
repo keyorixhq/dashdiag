@@ -258,15 +258,14 @@ Compare system config against CIS Benchmark or STIG profiles.
 Enterprise-only. Implement after core health checks are stable and paying customers exist.
 Estimated scope: ~2 weeks.
 
-### dsd init cloud detection improvements
-DMI file reads for accurate cloud provider detection.
-Correct IO thresholds per cloud provider (EBS vs NVMe vs network disk).
-Estimated scope: ~1 day.
+### ~~dsd init cloud detection improvements~~ ✅ DONE
+DMI file reads: sys_vendor, board_vendor, chassis_vendor added.
+Hetzner, Oracle Cloud, Vultr detection added. String() and IsCloud() methods.
+Commit: 5919214
 
-### --dry-run on file-writing operations
-Trust building for dsd init and dsd hook.
-Show what would be written without writing it.
-Estimated scope: ~0.5 days.
+### ~~--dry-run on file-writing operations~~ ✅ DONE
+Implemented in `dsd hook --dry-run`. Shows what would be written without writing.
+Trust building for dsd hook. Already shipped.
 
 ### [DISCUSS] Multi-socket / NUMA testing
 Rent Hetzner AX162-S or similar (2x AMD EPYC) for a few hours to validate:
