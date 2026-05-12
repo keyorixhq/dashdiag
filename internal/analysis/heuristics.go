@@ -835,7 +835,7 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 	return out
 }
 
-func checkSecurity(sec models.SecurityInfo) []models.Insight {
+func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen // security checks are a flat list of independent conditions; splitting would harm readability
 	var out []models.Insight
 
 	if sec.NeedsRoot {
@@ -909,6 +909,22 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight {
 			fmt.Sprintf("%d unexpected SUID binary(ies): %s", len(sec.SUIDBinaries),
 				strings.Join(sec.SUIDBinaries[:min(3, len(sec.SUIDBinaries))], ", ")),
 			[]string{"to inspect: find / -perm -4000 -type f 2>/dev/null"},
+		))
+	}
+
+	// Non-root users with UID 0 — always CRIT
+	if len(sec.UID0Users) > 0 {
+		out = append(out, insight("CRIT", "Hardening",
+			fmt.Sprintf("non-root user(s) with UID 0: %s", strings.Join(sec.UID0Users, ", ")),
+			[]string{"to inspect: awk -F: '$3==0' /etc/passwd", "to fix: remove or reassign UID for affected accounts"},
+		))
+	}
+
+	// Suspect cron entries
+	if len(sec.SuspectCrons) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d suspect cron entry(ies) — pipes to shell or writes to sensitive paths", len(sec.SuspectCrons)),
+			[]string{"to inspect: cat /etc/cron.d/* /var/spool/cron/crontabs/*", "to inspect: review entries piping to bash or wget/curl"},
 		))
 	}
 

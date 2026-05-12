@@ -18,6 +18,8 @@ type SecurityInfo struct {
 	// Privilege escalation
 	SudoNopasswd []string `json:"sudo_nopasswd,omitempty"` // users/groups with NOPASSWD
 	SUIDBinaries []string `json:"suid_binaries,omitempty"` // unexpected SUID binaries
+	UID0Users    []string `json:"uid0_users,omitempty"`    // non-root users with UID 0
+	SuspectCrons []string `json:"suspect_crons,omitempty"` // cron jobs writing to sensitive paths
 
 	// SELinux
 	SELinuxDenials int    `json:"se_linux_denials"` // denials in last hour
