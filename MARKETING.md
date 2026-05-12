@@ -290,6 +290,47 @@ can reproduce it. It's not a claim — it's a demonstration.
 
 ---
 
+### Founder Credibility Layer
+
+Andrei contributed to Nagios 20 years ago — including the full Russian
+localisation. Nagios is one of the tools silently blind to this issue.
+
+This is not a talking point to attack Nagios. Nagios is 25+ years old and
+the auditd/SELinux architecture it doesn't handle was designed well after
+Nagios was established. The tool predates the problem. That's the point.
+
+The credibility arc:
+> *"I contributed to Nagios 20 years ago. Last week I found a silent gap
+> in how it handles SELinux on modern hardened Linux. Built the fix into
+> something new."*
+
+This works because:
+- It's not an attack — it's evolution. Nagios was right for its era.
+- It establishes deep domain knowledge from the inside, not theory.
+- It gives the story a human arc: contributor → problem found → new tool.
+- It's verifiable — the Nagios Russian localisation is historical record.
+- "Still alive after 25 years" is actually a compliment, not a dig.
+
+**Use cases for this angle:**
+- HN Show HN — "I was a Nagios contributor" earns immediate credibility
+  with the audience that remembers when Nagios was the answer
+- First customer conversations with SREs who've used Nagios — they'll
+  immediately understand what "reads journald instead of audit.log" means
+- LinkedIn founder story — the full-circle angle resonates strongly
+
+**What NOT to do:**
+- Don't make it about Nagios being bad — it's about the problem evolving
+- Don't name-drop Nagios in a headline — it invites defensive responses
+- Use it as context in conversation, not as an attack in copy
+
+**The cleanest version of the line:**
+> *"Twenty years ago I contributed to Nagios. Last week, testing DashDiag
+> on RHEL, I found something Nagios quietly gets wrong on every hardened
+> modern Linux server. Not Nagios's fault — the problem didn't exist when
+> Nagios was designed. But it exists now."*
+
+---
+
 ### Customer Conversation Framing
 
 Use this in conversations with security-conscious platform engineers:
@@ -337,6 +378,32 @@ it monitorable without an agent or a SIEM.
 >
 > This only surfaced because we tested on a real machine with auditd active.
 > You can't find this in documentation.
+
+**Founder arc (LinkedIn — strongest version):**
+> Twenty years ago I contributed to Nagios.
+> Full Russian localisation. I was proud of it.
+>
+> Last week, testing DashDiag on RHEL, I found something that Nagios
+> quietly gets wrong on every hardened modern Linux server.
+>
+> When auditd is running — and it's running on every properly hardened
+> RHEL system — the kernel sends SELinux denial messages directly to the
+> audit socket. They never reach journald. Never reach dmesg.
+>
+> Any monitoring tool reading journald for SELinux events will always
+> return zero on those systems. Always. Silently.
+>
+> Nagios does this. So does Prometheus node_exporter. So did we, until
+> we caught it.
+>
+> Not Nagios's fault. The auditd architecture postdates Nagios by years.
+> The tool was right for its time. The problem evolved.
+>
+> We fixed it by reading from /var/log/audit/audit.log directly —
+> same source as auditd itself.
+>
+> This only surfaces on a real hardened machine. You can't find it in
+> documentation. You find it by testing.
 
 **Story-led (LinkedIn long form):**
 > While validating DashDiag on RHEL 10.1, I generated some SELinux policy
