@@ -230,6 +230,24 @@ Estimated scope: ~1 day.
 
 ## Polish
 
+### [LOW] External bug reports — upstream kernel / distro issues found during DashDiag validation
+
+During testbed validation we found bugs in the Linux kernel and distros
+that affect the hardware DashDiag runs on. Low priority, do when time
+permits. All data collected and stored in `bug-reports/`.
+
+**ELAN touchpad dead on Lenovo Legion 5 15ACH6H — kernel i2c_designware**
+- File: `bug-reports/elan-touchpad-i2c-lenovo-legion.md`
+- Root cause: ACPI DSDT specifies 400kHz I2C, driver forces 100kHz as
+  "Firmware Bug" workaround. ELAN06FA needs 400kHz for data transfer.
+  Touch events never reach kernel. Physical click also silent.
+- Reproduced on: Debian 13.4 (kernel 6.12.73) + RHEL 10.1 (kernel 6.12.0)
+- Hardware: Lenovo Legion 5 15ACH6H (82JU), AMDI0010:01 + ELAN06FA:00
+- Report to: kernel.org Bugzilla (I2C/SMBus), Red Hat Bugzilla, Debian BTS
+- Before filing: search lkml.org + Arch/Gentoo trackers — may already exist
+- Try first: kernel param `i2c_designware.timings=0,400000` to confirm theory
+
+
 ### dsd health deep
 Per-core CPU breakdown, per-process memory detail, extended sysctl analysis.
 Build rule: implement only after dsd health fast is in production use.
