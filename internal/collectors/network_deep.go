@@ -3,6 +3,9 @@ package collectors
 import (
 	"context"
 	"math"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	goping "github.com/go-ping/ping"
@@ -31,6 +34,9 @@ func (c *NetworkDeepCollector) Collect(ctx context.Context) (any, error) {
 			info.JitterMs = measureJitter(ctx, gw.GatewayIP, 20)
 		}
 	}
+
+	// TCP kernel counters from /proc/net/netstat and /proc/net/sockstat
+	parseTCPCounters(info)
 
 	return info, nil
 }
@@ -99,4 +105,70 @@ func jitterStddev(values []float64) float64 {
 		sq += d * d
 	}
 	return math.Sqrt(sq / float64(n))
+}
+
+// parseTCPCounters reads TCP statistics from /proc/net/netstat and /proc/net/sockstat.
+// These are cumulative counters since boot — we report current values, not deltas.
+// High values indicate persistent network stress, not momentary spikes.
+func parseTCPCounters(info *models.NetworkInfo) {
+	// /proc/net/sockstat: current socket counts including TIME_WAIT
+	if data, err := os.ReadFile("/proc/net/sockstat"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "TCP:") {
+				fields := strings.Fields(line)
+				// Format: "TCP: inuse N orphan N tw N alloc N mem N"
+				for i, f := range fields {
+					if f == "tw" && i+1 < len(fields) {
+						if n, err := strconv.Atoi(fields[i+1]); err == nil {
+							info.TimeWaitCount = n
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// /proc/net/netstat: TcpExt counters — two rows: header then values
+	data, err := os.ReadFile("/proc/net/netstat")
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for i := 0; i+1 < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], "TcpExt:") {
+			continue
+		}
+		headers := strings.Fields(lines[i])
+		values := strings.Fields(lines[i+1])
+		if len(headers) != len(values) {
+			continue
+		}
+		idx := make(map[string]int, len(headers))
+		for j, h := range headers {
+			idx[h] = j
+		}
+		get := func(name string) int {
+			j, ok := idx[name]
+			if !ok || j >= len(values) {
+				return 0
+			}
+			n, _ := strconv.Atoi(values[j])
+			return n
+		}
+		info.SynRetransCount = get("TCPSynRetrans")
+		info.ListenOverflows = get("ListenOverflows")
+		info.RetransFailCount = get("TCPRetransFail")
+		break
+	}
+
+	// /proc/sys/net/netfilter/nf_conntrack_{count,max} — optional, needs nf_conntrack module
+	countData, err1 := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_count")
+	maxData, err2 := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max")
+	if err1 == nil && err2 == nil {
+		count, _ := strconv.Atoi(strings.TrimSpace(string(countData)))
+		max, _ := strconv.Atoi(strings.TrimSpace(string(maxData)))
+		if max > 0 {
+			info.ConntrackUsedPct = float64(count) / float64(max) * 100
+		}
+	}
 }
