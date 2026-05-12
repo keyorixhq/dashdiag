@@ -1,0 +1,20 @@
+stress: info: [11664] dispatching hogs: 8 cpu, 2 io, 4 vm, 0 hdd
+stress: info: [11664] successful run completed in 300s
+stress: info: [12168] dispatching hogs: 8 cpu, 2 io, 4 vm, 0 hdd
+stress: info: [12168] successful run completed in 300s
+stress: info: [12651] dispatching hogs: 8 cpu, 2 io, 4 vm, 0 hdd
+stress: info: [12651] successful run completed in 300s
+stress: info: [13148] dispatching hogs: 8 cpu, 2 io, 4 vm, 0 hdd
+stress: info: [13148] successful run completed in 300s
+stress: info: [13645] dispatching hogs: 8 cpu, 2 io, 4 vm, 0 hdd
+stress: info: [13645] successful run completed in 300s
+stress: info: [15003] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [15003] successful run completed in 300s
+stress: info: [15509] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [15509] successful run completed in 300s
+stress: info: [16569] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [16569] successful run completed in 301s
+stress: info: [17361] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [17361] successful run completed in 300s
+stress: info: [18532] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [18532] successful run completed in 300s
