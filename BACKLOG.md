@@ -68,15 +68,11 @@ Debian/Ubuntu is the natural Docker testbed. Most users install Docker on Ubuntu
 - Test container detection when DashDiag itself runs inside Docker
 - Validate cgroup v1 vs v2 (Debian 12 = cgroup v2, Ubuntu 20.04 = mixed)
 
-### dsd logs
-Log health — journald error rate, log volume, OOM kills in recent logs, segfaults.
-Phase 3. Reads journald directly, no external tools.
-Estimated scope: ~2 days.
+### ~~dsd logs~~ ✅ DONE
+OOM kills, segfaults, crash loops, journal size. Reads journald directly.
 
-### dsd security
-Security posture — open ports, SSH config, sudo rules, world-writable files, SUID binaries.
-Phase 3. High signal for security-conscious users.
-Estimated scope: ~2 days.
+### ~~dsd security~~ ✅ DONE
+SSH config, failed logins, listening ports, sudo NOPASSWD, SELinux/AppArmor denials.
 
 ### ~~dsd compare (multi-server)~~ ✅ DONE
 Status matrix, outlier detection, stdin/file/process substitution input.
@@ -87,10 +83,9 @@ Proxmox VE health — VM/LXC status, storage pool usage, cluster quorum.
 Phase 4. Specialist audience. After dsd docker is validated.
 Estimated scope: ~3 days.
 
-### dsd net deep
-Jitter analysis, bond detection, wireless signal strength, traceroute on problem detected.
-Phase gate: after dsd net fast is in production use.
-Estimated scope: ~2 days.
+### ~~dsd net deep~~ ✅ DONE
+dsd net --deep: jitter, TCP SYN retrans, TIME_WAIT, listen overflows, conntrack.
+parseTCPCounters from /proc/net/netstat + /proc/net/sockstat. Commit: b2d6d98
 
 ---
 
@@ -241,6 +236,23 @@ Compare system config against CIS Benchmark or STIG profiles.
 Enterprise-only. Implement after core health checks are stable and paying customers exist.
 Estimated scope: ~2 weeks.
 
+### [TESTBED] openSUSE Leap 16 + SLES validation
+openSUSE Leap 16 (free, based on SLES 16) — download and install on p17 (58GB).
+SLES requires registration — use openSUSE Leap as proxy for SLES validation.
+
+Key things to validate vs other distros:
+- zypper package manager — packages collector has zero zypper support yet
+- btrfs default filesystem — disk collector behavior on btrfs
+- YaST — different network/system config layer
+- AppArmor enforcing (same as Ubuntu)
+- Different sysctl defaults
+
+Download (net installer, ~300MB):
+https://download.opensuse.org/distribution/leap/16.0/iso/openSUSE-Leap-16.0-NET-x86_64-Current.iso
+
+Partition: p17 (58GB, 686-744GB on nvme0n1) + p18 (2GB swap)
+EFI: reuse p6 (existing ESP, do not format)
+
 ### ~~dsd init cloud detection improvements~~ ✅ DONE
 DMI file reads: sys_vendor, board_vendor, chassis_vendor added.
 Hetzner, Oracle Cloud, Vultr detection added. String() and IsCloud() methods.
@@ -285,15 +297,9 @@ Output: DIAGNOSIS block between per-collector results and summary.
 
 **Next rules to add (evidence from RHEL validation):**
 
-GPU Sustained Compute Load context rule:
-- Trigger: GPU util ≥ 80% + power ≥ 80W (sustained GPU workload detected)
-- Not a fault — context for other signals (thermal, memory pressure)
-- Data from RHEL: solo gpu-burn = 100% util, 114.6W, 83% VRAM, 61°C peak
-- Overnight (gpu-burn + k3s VRAM): 95% VRAM → WARN threshold crossed
-- Note: laptop cooling kept temp at 61°C, desktop/datacenter GPU would hit 80°C+
-- Rule design: WARN level only, message = "GPU under sustained compute load —
-  check thermal and VRAM headroom if other signals are degraded"
-- Estimated scope: ~2h (pattern is clear, just needs threshold tuning on more hardware)
+~~GPU Sustained Compute Load context rule~~ ✅ DONE
+Shipped in correlate.go. Fires when GPU INFO/WARN + Thermal or Memory elevated.
+INFO level, shows which secondary signals are GPU-driven. 4 tests in correlate_test.go.
 
 Other rules backlogged:
 - Multiple OOM kills + same service → memory leak in that specific service
@@ -305,13 +311,10 @@ Implementation phases remaining:
 2. Confidence scoring per rule match
 3. (V3) graph-based DAG of symptom → cause → fix
 
-### [V2-COLLECTOR] Filesystem & inode pressure
-- inode exhaustion per mount (df -i equivalent via statfs)
-- filesystem read-only remount detection (compare /proc/mounts to fstab)
-- mount degradation / stale NFS
-- ext4/xfs reservation pressure
-Signals: /proc/mounts, statfs syscall, dmesg ext4/xfs errors via LogsCollector
-Estimated scope: ~2 days.
+### ~~[V2-COLLECTOR] Filesystem & inode pressure~~ ✅ ALREADY DONE
+InodesUsedPct collected via statfs in DiskCollector, checked in checkDisk
+against DiskWarnPct/DiskCritPct thresholds. WARN at 80%, CRIT at 90%.
+Hint: df -i + find to identify inode hog. No new work needed.
 
 ### [V2-COLLECTOR] Kernel instability extensions
 Extend LogsCollector:
