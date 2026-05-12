@@ -785,12 +785,12 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight {
 			msg += fmt.Sprintf(" — top sources: %s", strings.Join(sec.FailedLoginIPs[:min(3, len(sec.FailedLoginIPs))], ", "))
 		}
 		out = append(out, insight("CRIT", "Hardening", msg,
-			[]string{"to inspect: grep 'Failed password' /var/log/secure | tail -20", "to fix: consider fail2ban or firewall rules"},
+			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20", "to fix: consider fail2ban or firewall rules"},
 		))
 	} else if sec.FailedLogins >= 5 {
 		out = append(out, insight("WARN", "Hardening",
 			fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins),
-			[]string{"to inspect: grep 'Failed password' /var/log/secure | tail -20"},
+			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20"},
 		))
 	}
 
