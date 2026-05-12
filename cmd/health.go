@@ -74,7 +74,7 @@ var healthCmd = &cobra.Command{
 // and paying customers exist. Requires mapping CIS rules to kernel/sysctl/file checks.
 // Estimated scope: ~2 weeks.
 
-func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch
+func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch/loadPolicyIfSet
 	ctx := context.Background()
 	debugFlag, _ := cmd.Flags().GetBool("debug")
 	ctx = debug.With(ctx, debugFlag)
@@ -119,16 +119,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	pkgFlag, _ := cmd.Flags().GetBool("packages")
 	gpuFlag, _ := cmd.Flags().GetBool("gpu")
 	policyPath, _ := cmd.Flags().GetString("policy")
-
-	// Load policy file if specified — overrides thresholds and sets CI deny rules
-	var policy *analysis.PolicyFile
-	if policyPath != "" {
-		var err error
-		policy, err = analysis.LoadPolicy(policyPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "dsd: policy error: %v\n", err)
-			return err
-		}
+	policy, err := loadPolicyIfSet(policyPath)
+	if err != nil {
+		return err
 	}
 
 	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag, policy)
@@ -299,6 +292,20 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 			go startCountdown(cancelCh)
 		}
 	}
+}
+
+// loadPolicyIfSet loads a policy file when path is non-empty.
+// Returns nil policy (no error) when path is empty.
+func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
+	if path == "" {
+		return nil, nil
+	}
+	p, err := analysis.LoadPolicy(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dsd: policy error: %v\n", err)
+		return nil, err
+	}
+	return p, nil
 }
 
 func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool) []collectors.Collector {
