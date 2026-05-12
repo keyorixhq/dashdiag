@@ -421,7 +421,7 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	return out
 }
 
-func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop // workload-profile switch — each case is a distinct set of checks, splitting would harm readability
+func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,funlen // workload-profile switch — each case is a distinct set of checks, splitting would harm readability
 	var out []models.Insight
 
 	// somaxconn — always checked
