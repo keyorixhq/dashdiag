@@ -1,0 +1,261 @@
+{
+  "hostname": "localhost.localdomain",
+  "timestamp": "2026-05-10T17:44:31.901536524-04:00",
+  "version": "v0.2.0-15-g57229e4-dirty",
+  "checks": [
+    {
+      "name": "Memory",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "total_gb": 15.214958190917969,
+        "free_gb": 14.213695526123047,
+        "used_pct": 4.810392853471597,
+        "slab_mb": 157.81640625,
+        "commit_limit_mb": 15773.0546875,
+        "committed_as_mb": 2679.34375,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/nvme0n1p3",
+            "fs_type": "xfs",
+            "total_gb": 75.05686528,
+            "used_gb": 5.611638783999993,
+            "free_gb": 69.445226496,
+            "used_pct": 7.476516322745097,
+            "inodes_used_pct": 0.32850537981305994,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot",
+            "device": "/dev/nvme0n1p2",
+            "fs_type": "xfs",
+            "total_gb": 0.981655552,
+            "used_gb": 0.398651392,
+            "free_gb": 0.58300416,
+            "used_pct": 40.610109237175685,
+            "inodes_used_pct": 0.00438690185546875,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/home",
+            "device": "/dev/nvme0n1p5",
+            "fs_type": "xfs",
+            "total_gb": 193.693802496,
+            "used_gb": 3.7632614399999795,
+            "free_gb": 189.930541056,
+            "used_pct": 1.9428920241667091,
+            "inodes_used_pct": 0.00032548384653052764,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme0n1p1",
+            "fs_type": "vfat",
+            "total_gb": 0.627900416,
+            "used_gb": 0.009101311999999973,
+            "free_gb": 0.618799104,
+            "used_pct": 1.449483352468428,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 379,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "KernelSecurity",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 0,
+        "app_armor_present": false,
+        "app_armor_mode": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "open_count": 5536,
+        "max_count": 9223372036854775807,
+        "used_pct": 6.002143226879753e-14,
+        "hot_processes": null,
+        "deleted_open_files": 0,
+        "deleted_open_size_gb": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "synced": true,
+        "offset_ms": 2.946182,
+        "source": "chronyc",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "CPU",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "load_avg_1": 0.04,
+        "load_avg_5": 0.07,
+        "load_avg_15": 0.02,
+        "num_cpu": 16,
+        "usage_pct": 1.9975031210986316,
+        "load_pct": 0.25,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "total_gb": 7.795894622802734,
+        "used_gb": 0,
+        "used_pct": 0,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "CRIT",
+      "value": "disk nvme0n1 await latency 6.0 ms",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "util_pct": 0.6,
+            "await_ms": 6,
+            "read_mbps": 0.016384,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.145",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0
+          }
+        ],
+        "primary_interface": "eno1",
+        "gateway_ping_ms": 0.609453,
+        "internet_ping_ms": 6.136646,
+        "dns_resolves_ms": 7,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    }
+  ]
+}

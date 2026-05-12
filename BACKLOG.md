@@ -40,6 +40,15 @@ What to verify:
 - Platform detection (`platform.DetectContainerContext`) works
 - File reads from /host/proc, /host/sys work correctly
 
+**Validated on RHEL 10.1 + Docker 29.4.3 (2026-05-12):**
+- cgroup memory limit correctly read (tested with `--memory=512m`, showed 512MB not 15GB)
+- `dsd` binary footprint inside container: 20.5MB RSS — good marketing data
+- Systemd and KernelSec correctly report INFO (not CRIT) when not present in container
+- Known false alarm: Memory/Slab WARN fires inside containers with tight cgroup limits
+  because kernel slab (host-level, from /proc/meminfo) is evaluated against the
+  container ceiling. Fix: suppress slab check when `ctrCtx.InContainer == true`,
+  or compute slab% against host total rather than cgroup limit.
+
 Layer 2 — `dsd docker` AGAINST the daemon (new command):
 Read `/var/run/docker.sock` or shell out to `docker ps`. Catch:
 - Stopped containers that should be running
@@ -547,7 +556,7 @@ What we have validated vs what we need:
 | Mixed-OS drives       | ✅          | unlikely     | N/A            | N/A         |
 | RTX 3070 GPU          | ✅          | depends      | depends        | N/A         |
 | k3s / k8s             | ✅          | depends      | TODO           | N/A         |
-| Docker                | TODO        | depends      | TODO           | TODO (Docker Desktop) |
+| Docker                | ✅ (validated 2026-05-12) | depends | TODO      | TODO (Docker Desktop) |
 | Battery               | ✅          | N/A          | N/A            | ✅          |
 | Suspend/resume        | TODO        | N/A          | N/A            | TODO        |
 | Wi-Fi switching       | TODO        | N/A          | N/A            | TODO        |

@@ -1,0 +1,489 @@
+{
+  "hostname": "localhost.localdomain",
+  "timestamp": "2026-05-12T00:30:03.126456113-04:00",
+  "version": "v0.2.0-32-g5034efd-dirty",
+  "checks": [
+    {
+      "name": "Memory",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "total_gb": 15.214927673339844,
+        "free_gb": 12.758136749267578,
+        "used_pct": 14.348946045407523,
+        "slab_mb": 199.3984375,
+        "commit_limit_mb": 15773.0390625,
+        "committed_as_mb": 3462.6953125,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "present": true,
+        "status": "Full",
+        "capacity_pct": 100,
+        "health_pct": 84.51666666666667,
+        "energy_now_uwh": 50710000,
+        "energy_full_uwh": 50710000,
+        "energy_design_uwh": 60000000,
+        "cycle_count": 150,
+        "voltage_uv": 17225000,
+        "power_now_uw": 0,
+        "manufacturer": "Sunwoda",
+        "model_name": "L20D4PC0"
+      }
+    },
+    {
+      "name": "Thermal",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "cpu_temp_c": 60.625,
+        "core_temps": {
+          "Tctl": 60.625
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/nvme1n1p3",
+            "fs_type": "xfs",
+            "total_gb": 75.05686528,
+            "used_gb": 16.576061439999997,
+            "free_gb": 58.48080384,
+            "used_pct": 22.084670573654954,
+            "inodes_used_pct": 0.5207579476492752,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot",
+            "device": "/dev/nvme1n1p2",
+            "fs_type": "xfs",
+            "total_gb": 0.981655552,
+            "used_gb": 0.723779584,
+            "free_gb": 0.257875968,
+            "used_pct": 73.73050379284159,
+            "inodes_used_pct": 0.007739323702171674,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/home",
+            "device": "/dev/nvme1n1p5",
+            "fs_type": "xfs",
+            "total_gb": 193.693802496,
+            "used_gb": 3.7525176319999787,
+            "free_gb": 189.941284864,
+            "used_pct": 1.9373452240824762,
+            "inodes_used_pct": 0.0004586363292036211,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme1n1p1",
+            "fs_type": "vfat",
+            "total_gb": 0.627900416,
+            "used_gb": 0.009105408000000037,
+            "free_gb": 0.618795008,
+            "used_pct": 1.4501356852103076,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-938e834e-41a3-cb66-f40f-71b2ba901136",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-f80ff910-37f4-a1a1-bf09-6bb1fde6cee0",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-be82d94a-6874-02e3-b49c-088ea97d4410",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-380a318c-70a9-57d7-6e95-f29f3c0f05b5",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-d29372f4-e772-357a-8190-b39982d17fe6",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "INFO",
+      "value": "some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
+      "raw": {
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "journal_size_gb": 0.0859375,
+        "crash_loops": null,
+        "needs_root": true
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "NVMe",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "value": "fs.inotify.max_user_watches=122241 is low for k8s (recommended: 524288)",
+      "raw": {
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 337,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 1024,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_overcommit": 1,
+        "fs_inotify_watches": 122241,
+        "workload": "k8s",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "open_count": 2464,
+        "max_count": 9223372036854775807,
+        "used_pct": 2.671474153004283e-14,
+        "hot_processes": null,
+        "deleted_open_files": 0,
+        "deleted_open_size_gb": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 0,
+        "app_armor_present": false,
+        "app_armor_mode": ""
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "INFO",
+      "value": "some checks limited — run as root for port process names, failed logins, and SELinux audit log",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": false,
+        "ssh_root_login": false,
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "",
+            "expected": true
+          },
+          {
+            "port": 6443,
+            "protocol": "tcp",
+            "process": "",
+            "expected": false
+          },
+          {
+            "port": 9090,
+            "protocol": "tcp",
+            "process": "",
+            "expected": true
+          },
+          {
+            "port": 10250,
+            "protocol": "tcp",
+            "process": "",
+            "expected": false
+          }
+        ],
+        "ports_need_root": true,
+        "se_linux_denials": 0,
+        "se_linux_mode": "enforcing",
+        "needs_root": true
+      }
+    },
+    {
+      "name": "CPU",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "load_avg_1": 0.18,
+        "load_avg_5": 0.25,
+        "load_avg_15": 2.46,
+        "num_cpu": 16,
+        "usage_pct": 2.7603513174404015,
+        "load_pct": 1.125,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "WARN",
+      "value": "swap activity detected: 4 pages/s in, 0 pages/s out",
+      "raw": {
+        "total_gb": 7.795894622802734,
+        "used_gb": 0.14682388305664062,
+        "used_pct": 1.883348738798824,
+        "pages_in_per_sec": 4,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0,
+            "await_ms": 0.1111111111111111,
+            "read_mbps": 0.032768,
+            "write_mbps": 0.02048,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "CRIT",
+      "value": "gateway ping is 201 ms — severe latency",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.145",
+            "up": true,
+            "rx_drops": 301,
+            "tx_drops": 0,
+            "speed_mbps": 0
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 2,
+            "speed_mbps": 0
+          },
+          {
+            "name": "flannel.1",
+            "ip": "10.42.0.0",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 27,
+            "speed_mbps": 0
+          },
+          {
+            "name": "cni0",
+            "ip": "10.42.0.1",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0
+          }
+        ],
+        "primary_interface": "eno1",
+        "gateway_ping_ms": 200.820741,
+        "internet_ping_ms": 206,
+        "dns_resolves_ms": 204,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "icmp_blocked": true,
+        "status": "",
+        "status_reason": ""
+      }
+    }
+  ]
+}
