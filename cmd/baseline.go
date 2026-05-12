@@ -78,7 +78,7 @@ func runBaselineSave(_ *cobra.Command, args []string) error {
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 
-	_, _, snap, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, output.ModePlain, true, false, false, nil)
+	_, _, snap, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, output.ModePlain, true, false, false, false, nil)
 
 	if err := baseline.SaveGolden(snap, name); err != nil {
 		return fmt.Errorf("saving golden baseline: %w", err)
@@ -101,7 +101,7 @@ func runBaselineDiff(_ *cobra.Command, args []string) error {
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 
-	_, _, current, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, output.ModePlain, true, false, false, nil)
+	_, _, current, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, output.ModePlain, true, false, false, false, nil)
 
 	// Status diff
 	diffs := baseline.ComputeDiff(golden, current)
