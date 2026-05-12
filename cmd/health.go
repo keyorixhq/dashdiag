@@ -212,7 +212,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	}
 
 	thresh := analysis.DefaultThresholds(cloudEnv)
-	insights := analysis.ApplyThresholds(results, thresh, cloudEnv)
+	insights := analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx)
 	if !terse {
 		insights = drilldown.PopulateAll(ctx, insights, results)
 	}
