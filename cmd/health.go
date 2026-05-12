@@ -145,6 +145,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
+	correlations := analysis.Correlate(insights)
 	switch mode {
 	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
@@ -158,6 +159,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 		}
 	default:
 		renderer.PrintAll(results, insights)
+		renderer.PrintCorrelations(correlations)
 	}
 
 	diffFlag, _ := cmd.Flags().GetBool("diff")

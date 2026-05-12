@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -315,4 +316,39 @@ func (r *Renderer) PrintContainerBanner(ctx platform.ContainerContext) {
 		return
 	}
 	fmt.Fprintln(os.Stdout, StyleInfo.Render("ℹ️  Running inside a container — showing container limits"))
+}
+
+// PrintCorrelations renders the DIAGNOSIS block when the correlation engine
+// finds pattern matches. Called between PrintAll and PrintSummary in runHealth.
+// No-ops in JSON/YAML/plain modes — correlations are included in JSON output
+// separately via RenderJSON if needed in a future pass.
+func (r *Renderer) PrintCorrelations(corrs []analysis.Correlation) {
+	if len(corrs) == 0 {
+		return
+	}
+	if r.mode == output.ModeJSON || r.mode == output.ModeYAML {
+		return
+	}
+
+	sep := strings.Repeat("─", 56)
+	fmt.Fprintln(os.Stdout, sep)
+
+	if r.mode == output.ModeHuman {
+		fmt.Fprintln(os.Stdout, StyleBold.Render("DIAGNOSIS"))
+	} else {
+		fmt.Fprintln(os.Stdout, "DIAGNOSIS")
+	}
+
+	for _, c := range corrs {
+		if r.mode == output.ModeHuman {
+			style := styleForStatus(c.Level)
+			icon := style.Render("▶")
+			name := StyleBold.Render(c.Name)
+			fmt.Fprintf(os.Stdout, "%s  %s\n", icon, name)
+		} else {
+			fmt.Fprintf(os.Stdout, "%s: %s\n", c.Level, c.Name)
+		}
+		fmt.Fprintf(os.Stdout, "   %s\n", c.Summary)
+		fmt.Fprintf(os.Stdout, "   → %s\n", c.Action)
+	}
 }
