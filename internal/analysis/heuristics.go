@@ -114,6 +114,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
 		if d != nil {
 			return checkThermal(*d)
 		}
+	case models.TLSInfo:
+		return checkTLS(d)
+	case *models.TLSInfo:
+		return checkTLS(*d)
 	case models.GPUInfo:
 		return checkGPU(d)
 	case *models.GPUInfo:
@@ -951,5 +955,53 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
 		))
 	}
+	return out
+}
+
+func checkTLS(tls models.TLSInfo) []models.Insight {
+	if len(tls.Certs) == 0 {
+		return nil // no certs found — don't fire
+	}
+	var out []models.Insight
+
+	// Expired certs — always CRIT
+	for _, cert := range tls.Certs {
+		if cert.ExpiresIn < 0 {
+			out = append(out, insight("CRIT", "TLS",
+				fmt.Sprintf("certificate expired %d day(s) ago: %s (%s)", -cert.ExpiresIn, cert.Subject, cert.Path),
+				[]string{
+					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
+					"to fix: renew certificate (certbot renew or manual replacement)",
+				},
+			))
+		}
+	}
+
+	// Expiring within 7 days — CRIT
+	for _, cert := range tls.Certs {
+		if cert.ExpiresIn >= 0 && cert.ExpiresIn <= 7 {
+			out = append(out, insight("CRIT", "TLS",
+				fmt.Sprintf("certificate expires in %d day(s): %s (%s)", cert.ExpiresIn, cert.Subject, cert.Path),
+				[]string{
+					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
+					"to fix: renew now — certbot renew or manual replacement",
+				},
+			))
+		}
+	}
+
+	// Expiring within 30 days — WARN
+	for _, cert := range tls.Certs {
+		if cert.ExpiresIn > 7 && cert.ExpiresIn <= 30 {
+			out = append(out, insight("WARN", "TLS",
+				fmt.Sprintf("certificate expires in %d day(s): %s (%s)", cert.ExpiresIn, cert.Subject, cert.Path),
+				[]string{
+					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
+					"to fix: renew soon — certbot renew or manual replacement",
+				},
+			))
+		}
+	}
+
 	return out
 }

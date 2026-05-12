@@ -28,6 +28,7 @@ func init() {
 	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
 	healthCmd.Flags().Bool("packages", false, "include package security advisory check (may be slow on unregistered systems)")
 	healthCmd.Flags().Bool("gpu", false, "include GPU health check via nvidia-smi")
+	healthCmd.Flags().Bool("tls", false, "include TLS certificate expiry check")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 }
 
@@ -118,13 +119,14 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 
 	pkgFlag, _ := cmd.Flags().GetBool("packages")
 	gpuFlag, _ := cmd.Flags().GetBool("gpu")
+	tlsFlag, _ := cmd.Flags().GetBool("tls")
 	policyPath, _ := cmd.Flags().GetString("policy")
 	policy, err := loadPolicyIfSet(policyPath)
 	if err != nil {
 		return err
 	}
 
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag, policy)
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag, tlsFlag, policy)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -220,8 +222,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, includePackages, includeGPU)
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+	cols := buildHealthCollectors(ctrCtx, includePackages, includeGPU, includeTLS)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -269,7 +271,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run := func() {
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false, nil)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false, false, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
@@ -308,7 +310,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool) []collectors.Collector {
+func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool) []collectors.Collector {
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -335,6 +337,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())
+	}
+	if includeTLS {
+		cols = append(cols, collectors.NewTLSCollector())
 	}
 	return cols
 }
