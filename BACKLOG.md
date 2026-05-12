@@ -115,10 +115,10 @@ Estimated scope: ~2 days.
 Implemented in internal/collectors/entropy_linux.go.
 Reads /proc/sys/kernel/random/entropy_avail. WARN < 256, CRIT < 64.
 
-### Package security advisory
-Surface available security updates. dnf check-update --security / apt / brew outdated.
-WARN if any security updates pending. High visibility to users.
-Estimated scope: ~1 day.
+### ~~Package security advisory~~ ✅ DONE
+Shipped 2026-05-12. apt (Debian/Ubuntu) + dnf (RHEL) paths implemented.
+Severity classification by package name. Missing security repo detection.
+Commit: 924512e + 3ee96cd
 
 ### Sysctl advisor / kernel tuning
 Compare live sysctl against known-good profiles per workload (web, db, k8s node).
@@ -216,10 +216,10 @@ Shared snapshot history across a team. First paid product.
 Requires dashdiag.sh backend, auth, and billing.
 Estimated scope: ~10 days.
 
-### dsd policy (CI gate)
-YAML policy file defines health thresholds. dsd health --policy fails CI if violated.
-Free tier feature that drives paid cloud management upsell.
-Estimated scope: ~3 days.
+### ~~dsd policy (CI gate)~~ ✅ DONE
+Shipped 2026-05-12. YAML policy file overrides thresholds, controls CI exit behaviour.
+dsd policy init, dsd policy check, dsd health --policy PATH.
+Commit: 5d8e644 + e34c630
 
 ### dsd trial start
 Onboarding command for paid tier trial.
