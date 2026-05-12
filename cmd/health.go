@@ -28,6 +28,7 @@ func init() {
 	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
 	healthCmd.Flags().Bool("packages", false, "include package security advisory check (may be slow on unregistered systems)")
 	healthCmd.Flags().Bool("gpu", false, "include GPU health check via nvidia-smi")
+	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 }
 
 var healthCmd = &cobra.Command{
@@ -117,7 +118,20 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 
 	pkgFlag, _ := cmd.Flags().GetBool("packages")
 	gpuFlag, _ := cmd.Flags().GetBool("gpu")
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag)
+	policyPath, _ := cmd.Flags().GetString("policy")
+
+	// Load policy file if specified — overrides thresholds and sets CI deny rules
+	var policy *analysis.PolicyFile
+	if policyPath != "" {
+		var err error
+		policy, err = analysis.LoadPolicy(policyPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "dsd: policy error: %v\n", err)
+			return err
+		}
+	}
+
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag, policy)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -175,6 +189,20 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	exitCode := renderer.PrintSummary(insights, elapsed)
 	_ = baseline.SaveBaseline(snap)
 
+	// Policy CI gate — override exit code based on deny rules.
+	// Default (no policy): exit 1 on WARN, 2 on CRIT (already from PrintSummary).
+	// With policy deny:[WARN]: exit non-zero on any WARN or CRIT.
+	if policy != nil {
+		for _, ins := range insights {
+			if analysis.PolicyDeniesLevel(policy, ins.Level) && exitCode == 0 {
+				exitCode = 1
+			}
+		}
+		if policyPath != "" && mode == output.ModeHuman {
+			fmt.Fprintf(os.Stderr, "\n── policy: %s ──\n", policyPath)
+		}
+	}
+
 	// --qr: show QR code for share URL (shareURL stub until --share is implemented)
 	qrFlag, _ := cmd.Flags().GetBool("qr")
 	if qrFlag {
@@ -199,7 +227,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // comman
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
 	cols := buildHealthCollectors(ctrCtx, includePackages, includeGPU)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
@@ -212,6 +240,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	}
 
 	thresh := analysis.DefaultThresholds(cloudEnv)
+	thresh = analysis.ApplyPolicy(thresh, policy)
 	insights := analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx)
 	if !terse {
 		insights = drilldown.PopulateAll(ctx, insights, results)
@@ -247,7 +276,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run := func() {
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
