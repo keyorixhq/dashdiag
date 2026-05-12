@@ -289,7 +289,7 @@ func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64)
 		return thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD
 	}
 }
-func checkNetwork(net models.NetworkInfo) []models.Insight {
+func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 	if net.PrimaryInterfaceDown {
 		out = append(out, insight("CRIT", "Network",
@@ -355,6 +355,43 @@ func checkNetwork(net models.NetworkInfo) []models.Insight {
 		out = append(out, insight("WARN", "Network",
 			fmt.Sprintf("%d CLOSE_WAIT connections", net.CloseWaitCount),
 			[]string{"to inspect: ss -s", "to inspect: netstat -an | grep CLOSE_WAIT | wc -l"},
+		))
+	}
+
+	// Deep TCP metrics — only populated when NetworkDeepCollector is used
+	if net.TimeWaitCount > 1000 {
+		out = append(out, insight("WARN", "Network",
+			fmt.Sprintf("%d TIME_WAIT sockets — high connection churn or missing tcp_tw_reuse", net.TimeWaitCount),
+			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
+		))
+	}
+	if net.SynRetransCount > 100 {
+		out = append(out, insight("WARN", "Network",
+			fmt.Sprintf("%d SYN retransmissions — packet loss or server overload", net.SynRetransCount),
+			[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans", "to inspect: ss -tan state syn-sent"},
+		))
+	}
+	if net.ListenOverflows > 0 {
+		out = append(out, insight("CRIT", "Network",
+			fmt.Sprintf("%d listen queue overflow(s) — SYN backlog saturated, connections being dropped", net.ListenOverflows),
+			[]string{"to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"},
+		))
+	}
+	if net.RetransFailCount > 10 {
+		out = append(out, insight("WARN", "Network",
+			fmt.Sprintf("%d TCP retransmit failures — persistent connectivity problems", net.RetransFailCount),
+			[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail", "to inspect: ss -ti"},
+		))
+	}
+	if net.ConntrackUsedPct >= 80 {
+		out = append(out, insight("CRIT", "Network",
+			fmt.Sprintf("conntrack table %.0f%% full — new connections will be dropped when full", net.ConntrackUsedPct),
+			[]string{"to inspect: conntrack -C", "to fix: sysctl -w net.netfilter.nf_conntrack_max=262144"},
+		))
+	} else if net.ConntrackUsedPct >= 60 {
+		out = append(out, insight("WARN", "Network",
+			fmt.Sprintf("conntrack table %.0f%% full", net.ConntrackUsedPct),
+			[]string{"to inspect: conntrack -C", "to inspect: cat /proc/sys/net/netfilter/nf_conntrack_count"},
 		))
 	}
 	return out

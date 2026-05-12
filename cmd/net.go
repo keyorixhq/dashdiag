@@ -19,6 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(netCmd)
+	netCmd.Flags().Bool("deep", false, "deep scan — jitter, TCP retransmissions, TIME_WAIT, SYN backlog, conntrack")
 }
 
 var netCmd = &cobra.Command{
@@ -30,15 +31,23 @@ var netCmd = &cobra.Command{
 func runNet(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
+	deepFlag, _ := cmd.Flags().GetBool("deep")
 	mode := output.DetectMode(plain, false, "")
 	ctrCtx := platform.DetectContainerContext()
 
-	p := output.NewCommandProgress("Network health", 10*time.Second, mode, 1)
+	label := "Network health"
+	var col runner.Collector = collectors.NewNetworkCollector()
+	if deepFlag {
+		label = "Network health (deep)"
+		col = collectors.NewNetworkDeepCollector()
+	}
+
+	p := output.NewCommandProgress(label, 30*time.Second, mode, 1)
 	p.Start()
 	defer p.Done()
 
 	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewNetworkCollector()}) {
+	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		p.Step(r.Name)
 		result = r
 	}
@@ -54,7 +63,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) {
+func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // report renderer — each branch is a distinct display condition
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -118,6 +127,18 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	if info.NATDetected {
 		fmt.Println("\n  ℹ️   NAT detected — behind router or in container")
 	}
+
+	// Deep TCP metrics — shown when collected by NetworkDeepCollector
+	if info.SynRetransCount > 0 || info.ListenOverflows > 0 || info.RetransFailCount > 0 || info.TimeWaitCount > 0 {
+		fmt.Println("\nTCP Kernel Counters")
+		printTCPCounter("SYN retransmissions", info.SynRetransCount, 100, 500)
+		printTCPCounter("Listen queue overflows", info.ListenOverflows, 1, 10)
+		printTCPCounter("Retransmit failures", info.RetransFailCount, 10, 50)
+		printTCPCounter("TIME_WAIT sockets", info.TimeWaitCount, 1000, 5000)
+		if info.ConntrackUsedPct > 0 {
+			printNetMetric("Conntrack used", info.ConntrackUsedPct, "%", 60, 80)
+		}
+	}
 	if ctrCtx.InContainer {
 		fmt.Println("\n  ℹ️   Running inside a container")
 	}
@@ -141,6 +162,18 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	if info.CloseWaitCount > 100 {
 		issues++
 	}
+	if info.ListenOverflows > 0 {
+		issues++
+	}
+	if info.SynRetransCount > 100 {
+		issues++
+	}
+	if info.RetransFailCount > 10 {
+		issues++
+	}
+	if info.ConntrackUsedPct >= 80 {
+		issues++
+	}
 
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Network healthy. Checks passed%s", timing)))
@@ -161,6 +194,19 @@ func printNetMetric(label string, val float64, unit string, warn, crit float64) 
 		icon = "⚠️ "
 	}
 	fmt.Printf("  %s  %-24s %.1f %s\n", icon, label+":", val, unit)
+}
+
+func printTCPCounter(label string, val int, warn, crit int) {
+	if val == 0 {
+		return // skip zero counters
+	}
+	icon := "✅"
+	if val >= crit {
+		icon = "❌"
+	} else if val >= warn {
+		icon = "⚠️ "
+	}
+	fmt.Printf("  %s  %-24s %d\n", icon, label+":", val)
 }
 
 func netReadTCPStates() map[string]int {
