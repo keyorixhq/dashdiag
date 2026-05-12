@@ -23,6 +23,42 @@ Container health — running/stopped/unhealthy containers, image age, volume usa
 Phase 3. Build after dsd health fast is validated.
 Estimated scope: ~2 days.
 
+**Why this matters:**
+Docker is the most common deployment context for backend developers. Every backend
+team uses Docker. It's also the easiest distro-agnostic way to test DashDiag inside
+a container.
+
+**Two testing layers worth validating:**
+
+Layer 1 — `dsd health` from INSIDE a container:
+```
+docker run -it --rm -v /:/host:ro alpine sh -c "wget dashdiag.sh/dsd && ./dsd health"
+```
+What to verify:
+- Container banner shows correctly
+- cgroup limits are respected (Memory shows container limits, not host)
+- Platform detection (`platform.DetectContainerContext`) works
+- File reads from /host/proc, /host/sys work correctly
+
+Layer 2 — `dsd docker` AGAINST the daemon (new command):
+Read `/var/run/docker.sock` or shell out to `docker ps`. Catch:
+- Stopped containers that should be running
+- Containers restarting frequently (CrashLoopBackOff equivalent)
+- Volumes filling up (`docker system df`)
+- Stale images (>30 days unused)
+- Failed health checks
+- Container resource pressure (CPU/memory near limit)
+
+**Where to test:**
+RHEL machine has k3s (containerd, not docker) — NOT testable there directly.
+Debian/Ubuntu is the natural Docker testbed. Most users install Docker on Ubuntu.
+
+**Test scenarios to set up:**
+- Spin up deliberately broken containers (OOM, crash loops, unhealthy)
+- Validate dsd catches stopped + restart-looping containers
+- Test container detection when DashDiag itself runs inside Docker
+- Validate cgroup v1 vs v2 (Debian 12 = cgroup v2, Ubuntu 20.04 = mixed)
+
 ### dsd logs
 Log health — journald error rate, log volume, OOM kills in recent logs, segfaults.
 Phase 3. Reads journald directly, no external tools.
@@ -349,10 +385,15 @@ mount detection, build tags, and platform-aware logic. THAT is the moat for v1.
 For v2, the framing shifts toward interpretation. The correlation engine becomes
 the unique value, not the collectors.
 
-[DISCUSS] Question to answer before v2:
-- Are we a "comprehensive observability CLI" or a "system doctor"?
-- If doctor: lean hard into correlation, accept fewer collectors
-- If observability: expand collector matrix, treat correlation as nice-to-have
+**DECISION RECORDED (initial review):** Lean toward "system doctor" — correlation
+engine over collector expansion. Rationale:
+- Anyone can add another collector; correlation rules encode actual SRE knowledge
+- The cascade output format ("Memory pressure with cascade") differentiates strongly
+- v1 already has solid collector coverage (18 collectors validated on RHEL + macOS)
+- Overnight stress cron data is a natural validation dataset for correlation rules
 
-This decision affects messaging, pricing tier structure, and engineering priorities.
-Do not start v2 work until this is decided.
+Open questions still requiring decision:
+- Are we a "comprehensive observability CLI" or a "system doctor"?
+- Confirm: lean hard into correlation, accept fewer collectors in v2?
+- This decision affects messaging, pricing tier structure, engineering priorities.
+- Re-confirm after first paying customer is acquired and gives input.
