@@ -78,24 +78,9 @@ Security posture — open ports, SSH config, sudo rules, world-writable files, S
 Phase 3. High signal for security-conscious users.
 Estimated scope: ~2 days.
 
-### dsd compare (multi-server)
-Compare health snapshots across multiple hosts — outlier detection, drift between nodes.
-Phase 3. Fleet upgrade path. Requires --json output from multiple hosts piped in.
-
-Red Hat does this via cloud upload and ML across registered fleets. DashDiag does it
-locally — no cloud, no agent, no registration. One command:
-
-  dsd health --json | ssh host2 dsd compare --stdin
-  cat host1.json host2.json host3.json | dsd compare
-
-Key capabilities to implement:
-- Identify which host looks different from the others (outlier detection)
-- Show which checks diverged between hosts (e.g. host3 has swap, others don't)
-- Flag hosts where a value is outside 2 standard deviations of the fleet average
-- Drift detection: compare current state against a saved "golden" snapshot
-
-This is a genuine differentiator vs Red Hat Insights — same capability, zero infrastructure.
-Estimated scope: ~3 days. See also: --json output (already implemented as the data layer).
+### ~~dsd compare (multi-server)~~ ✅ DONE
+Status matrix, outlier detection, stdin/file/process substitution input.
+Validated RHEL+Debian+macOS 3-host fleet. Commit: 8f1b5cf
 
 ### dsd pve (Proxmox)
 Proxmox VE health — VM/LXC status, storage pool usage, cluster quorum.
@@ -120,10 +105,9 @@ Shipped 2026-05-12. apt (Debian/Ubuntu) + dnf (RHEL) paths implemented.
 Severity classification by package name. Missing security repo detection.
 Commit: 924512e + 3ee96cd
 
-### Sysctl advisor / kernel tuning
-Compare live sysctl against known-good profiles per workload (web, db, k8s node).
-Auto-detect workload from running processes (nginx, postgres, kubelet etc).
-Estimated scope: ~2 days.
+### ~~Sysctl advisor / kernel tuning~~ ✅ DONE
+6 workload profiles: k8s, webserver, database, elasticsearch, container, default.
+Persist hints, dirty_background_ratio field added. Commit: 6f6c4b6
 
 ### CVE exposure check
 Cross-reference installed packages against local OVAL advisory feed.
@@ -131,10 +115,9 @@ WARN CVSS >= 7.0, CRIT CVSS >= 9.0 or known exploited.
 Advisory data downloaded and cached locally (~weekly). No cloud registration.
 Estimated scope: ~1 week.
 
-### Configuration drift detection
-Compare current sysctl/kernel params against a user-defined "known good" baseline.
-Extends existing baseline infrastructure. Use case: post kernel-upgrade validation.
-Estimated scope: ~1 day.
+### ~~Configuration drift detection~~ ✅ DONE
+dsd baseline save/diff/list. Sysctl value drift + status changes. Exit 1 on drift.
+Validated on Debian 13. Commit: 52b64f1
 
 ---
 

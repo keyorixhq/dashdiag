@@ -798,6 +798,15 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 				[]string{"to inspect: dmesg | grep 'NVRM: Xid'", "to inspect: nvidia-smi -q | grep -A2 'Xid'"},
 			))
 		}
+		// Sustained compute load — INFO signal for correlation engine.
+		// Not a fault on its own, but provides context when combined with
+		// thermal or memory pressure signals.
+		if dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
+			out = append(out, insight("INFO", "GPU",
+				fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
+				nil,
+			))
+		}
 	}
 	return out
 }
