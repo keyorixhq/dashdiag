@@ -114,6 +114,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
 		if d != nil {
 			return checkThermal(*d)
 		}
+	case models.HealthDeepInfo:
+		return checkHealthDeep(d)
+	case *models.HealthDeepInfo:
+		return checkHealthDeep(*d)
 	case models.TLSInfo:
 		return checkTLS(d)
 	case *models.TLSInfo:
@@ -1074,6 +1078,49 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 				},
 			))
 		}
+	}
+
+	return out
+}
+
+func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
+	var out []models.Insight
+
+	// Core imbalance — one thread bottleneck
+	if d.CoreImbalance >= 80 && len(d.Cores) > 1 {
+		// Find the hot core
+		hotCore := 0
+		for _, c := range d.Cores {
+			if c.UsagePct == d.MaxCorePct {
+				hotCore = c.Core
+				break
+			}
+		}
+		out = append(out, insight("WARN", "CPUDeep",
+			fmt.Sprintf("CPU core imbalance: core%d at %.0f%% while others average %.0f%% — single-threaded bottleneck",
+				hotCore, d.MaxCorePct, d.MinCorePct),
+			[]string{
+				"to inspect: mpstat -P ALL 1 3",
+				"to inspect: ps aux --sort=-%cpu | head -10",
+			},
+		))
+	} else if d.MaxCorePct >= 95 && len(d.Cores) > 1 {
+		// All cores pegged
+		out = append(out, insight("WARN", "CPUDeep",
+			fmt.Sprintf("all CPU cores near saturation (max: %.0f%%, min: %.0f%%)", d.MaxCorePct, d.MinCorePct),
+			[]string{"to inspect: mpstat -P ALL 1 3"},
+		))
+	}
+
+	// Dirty pages — large write backlog risks data loss on crash
+	if d.DirtyMB >= 500 {
+		out = append(out, insight("WARN", "CPUDeep",
+			fmt.Sprintf("%.0f MB of dirty pages pending write-back — data loss risk on crash", d.DirtyMB),
+			[]string{
+				"to inspect: cat /proc/meminfo | grep Dirty",
+				"to inspect: iostat -x 1 5",
+			},
+		))
 	}
 
 	return out
