@@ -187,3 +187,152 @@ the team already runs, rather than requiring adoption of a new platform.
 >
 > No agent. No cloud. No new infrastructure.
 > Just SSH and one binary.
+
+---
+
+## The Overnight Story — 2026-05-11 RHEL Validation
+
+### What happened
+
+A real RHEL 10.1 laptop with AMD Ryzen 7 5800H, 16GB RAM, RTX 3070, k3s running.
+Cron jobs scheduled to alternate stress every 30 minutes:
+
+- :00 — CPU + memory + IO + network stress (5 minutes)
+- :30 — GPU stress (gpu_burn for 2 minutes)
+- `dsd health --terse` ran every 30 minutes, logging to `/root/.dsd/cron.log`
+
+Then I went to sleep.
+
+### What the morning report showed
+
+```
+$ sudo dsd health --story
+⚡ DashDiag (dsd) v0.2.0-32-g5034efd-dirty
+System health — 48 snapshots — 18:03 11.05.2026 to 03:00 12.05.2026 on localhost.localdomain
+────────────────────────────────────────────────────────
+
+Events:
+  19:00  Memory ↓ CRIT — RAM usage at 98% (0.1 GB free of 15.2 GB total)
+  19:00  Thermal ↓ WARN — CPU temperature 89.25°C — elevated (source: k10temp)
+  19:00  Processes ↓ CRIT — 11 hung (uninterruptible) processes
+  19:00  CPU ↓ CRIT — load average at 257% of capacity (41.14 / 16 CPUs)
+  19:00  Swap ↓ CRIT — swap usage at 84% (6.5 GB used)
+  19:43  Memory ↑ OK
+  19:43  Thermal ↑ OK
+  19:43  Processes ↑ OK
+  19:43  CPU ↑ OK
+  19:43  Swap ↑ OK
+
+  20:00  Memory ↓ CRIT — RAM usage at 97%
+  20:00  Thermal ↓ CRIT — CPU temperature 98.375°C — thermal throttling active
+  20:00  CPU ↓ CRIT — load average at 272% of capacity (43.58 / 16 CPUs)
+  20:00  Processes ↓ CRIT — 6 hung (uninterruptible) processes
+  20:00  Logs ↓ CRIT — 5 OOM kills: traefik, coredns, stress
+  20:00  IO ↓ WARN — disk nvme1n1 await latency 10.6 ms
+  20:00  Swap ↓ CRIT — swap usage at 83% (6.5 GB used)
+  20:00  Network ↓ CRIT — gateway ping is 364 ms — severe latency
+
+  20:30  GPU ↓ WARN — RTX 3070 VRAM usage at 95% (7747/8192 MB)
+  20:30  Swap ↑ WARN — swap activity detected: 16 pages/s
+
+  ...continues for 7 more hours, alternating CPU/memory stress
+        and GPU stress every 30 minutes, every event captured...
+
+  03:00  Memory ↓ WARN — RAM usage at 93%
+  03:00  Thermal ↓ WARN — CPU temperature 92°C
+  03:00  CPU ↓ CRIT — load average at 266%
+  03:00  Processes ↓ CRIT — 5 hung processes
+  03:00  Swap ↓ CRIT — heavy swap activity: 29989 pages/s in
+```
+
+### Why this output matters
+
+**No log diving.** No `dmesg | grep oom`. No `journalctl --since yesterday`.
+No SSH into 4 different commands. One command, full timeline.
+
+**Real incident detection.** Not just thresholds — actual recovery cycles.
+The `↓ CRIT` followed by `↑ OK` pattern shows the system degrading and
+recovering autonomously. That's how an SRE thinks about incidents.
+
+**Real signals caught:**
+- **20:00** — CPU genuinely thermal throttled at 98.375°C. Not a synthetic
+  threshold trip. The machine was actually struggling.
+- **03:00** — 29,989 pages/s swap activity. That's a number that would make
+  any SRE wince. Real production systems in this state are unrecoverable
+  without intervention.
+- **01:00** — 19.6ms NVMe await latency. NVMe should be sub-5ms. Caught.
+- **GPU + CPU stress windows clearly separated.** :00 = CPU stress signature,
+  :30 = GPU stress signature. The 30-minute cron cadence is visible in the
+  data itself.
+
+### Marketing angle
+
+This is the demo. Show this output to any SRE for 5 seconds and they get it.
+
+The narrative writes itself:
+- 9 hours of system stress
+- 48 health snapshots
+- Every incident captured with timestamps
+- Every recovery captured
+- One command at the end told the whole story
+
+Three headlines that work with this output:
+
+> **"9 hours. 48 snapshots. Every incident captured. One binary."**
+
+> **"I left a stress test running overnight. This morning I ran one command."**
+
+> **"Your incident response runbook starts with `dsd health --story`."**
+
+### Social media — long form
+
+**LinkedIn / Twitter thread:**
+
+> Spent the night beating up a RHEL server.
+>
+> Scheduled cron jobs to stress CPU, memory, IO, network, and GPU on a 30-min
+> alternating cycle. Each round of stress lasts 2-5 minutes.
+>
+> Then I went to sleep.
+>
+> This morning, one command:
+>
+> `sudo dsd health --story`
+>
+> [screenshot of overnight story output]
+>
+> 9 hours, 48 snapshots, every incident captured with timestamps and recovery.
+> Memory CRIT, thermal throttling at 98°C, OOM kills, swap thrashing, GPU
+> stress — all visible in a single command.
+>
+> No agent. No cloud. No log diving. Just SSH and one binary.
+>
+> This is what I'm building. DashDiag — OBD for your server.
+
+### Why this is the right asset
+
+Most observability marketing shows dashboards. Dashboards require setup,
+agents, cloud accounts, and pricing pages. DashDiag's marketing shows a
+terminal output. Anyone reading it understands in 5 seconds. There's
+nothing to set up to imagine using it.
+
+The terminal output IS the product. The marketing IS the product.
+
+### Demo scenarios for landing page
+
+1. **The "morning after" scenario** — overnight stress, morning story
+2. **Pre-deploy gate** — `ssh prod 'dsd health' && deploy.sh`
+3. **The 1.3 seconds** — `✅ System healthy. Checks passed in 1.3s`
+4. **The drilldown** — Hardening WARN with `→ to inspect: ss -tlnp`
+5. **The GPU offender** — `dsd gpu` showing gpu_burn process by name + PID
+
+### Validation data — single source of truth
+
+Raw cron log saved at `/root/.dsd/cron.log` on RHEL test machine.
+48 snapshots, 9 hours, 2026-05-11 18:03 → 2026-05-12 03:00 EDT.
+
+This file is the reference for:
+- Future correlation engine rule design (real incident patterns)
+- Marketing screenshots
+- Demo content
+- Customer conversations ("here's what one night of monitoring looks like")
