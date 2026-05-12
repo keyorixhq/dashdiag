@@ -39,6 +39,8 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseListeningPorts(info)
 	parseSudoers(info)
 	parseSELinuxDenials(ctx, info)
+	parseUID0Users(info)
+	parseSuspectCrons(info)
 
 	return info, nil
 }
@@ -411,4 +413,82 @@ func findUnexpectedSUIDs(info *models.SecurityInfo) {
 			return nil
 		})
 	}
+}
+
+// parseUID0Users scans /etc/passwd for non-root accounts with UID 0.
+// Only root should have UID 0. Any other UID-0 account is a critical finding.
+func parseUID0Users(info *models.SecurityInfo) {
+	data, err := os.ReadFile("/etc/passwd") // #nosec G304 -- hardcoded system file
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.SplitN(line, ":", 4)
+		if len(fields) < 4 {
+			continue
+		}
+		user := fields[0]
+		uid := fields[2]
+		if uid == "0" && user != "root" && user != "" {
+			info.UID0Users = append(info.UID0Users, user)
+		}
+	}
+}
+
+// parseSuspectCrons scans cron directories for entries that write to sensitive paths.
+// Cron injection is a common persistence technique — writing to /etc, /usr, /tmp
+// or piping to bash from a cron job is a red flag.
+func parseSuspectCrons(info *models.SecurityInfo) {
+	cronDirs := []string{
+		"/etc/cron.d",
+		"/etc/cron.daily",
+		"/etc/cron.weekly",
+		"/etc/cron.monthly",
+		"/var/spool/cron/crontabs",
+	}
+	suspectPatterns := []string{
+		"| bash", "| sh", "|bash", "|sh",
+		"wget ", "curl ", // downloading and executing
+		"> /etc/", "> /usr/", // writing to system dirs
+		"/tmp/", "/var/tmp/", // writing to world-writable
+		"chmod +s", "chmod 4", // setting SUID
+	}
+
+	for _, dir := range cronDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- hardcoded dirs
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "#") || line == "" {
+					continue
+				}
+				for _, pat := range suspectPatterns {
+					if strings.Contains(line, pat) {
+						entry := fmt.Sprintf("%s: %s", e.Name(), truncate(line, 80))
+						info.SuspectCrons = append(info.SuspectCrons, entry)
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
+// truncate shortens a string to maxLen characters.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…"
 }
