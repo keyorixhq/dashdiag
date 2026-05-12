@@ -63,6 +63,9 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	defer loopCancel()
 	info.CrashLoops = detectCrashLoops(loopCtx)
 
+	// Check pstore for panic records from previous boots
+	info.KernelPanics += countPstorePanics()
+
 	return info, nil
 }
 
@@ -148,6 +151,21 @@ func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duratio
 			}
 			info.Segfaults++
 		}
+
+		// Soft lockup: "BUG: soft lockup - CPU#0 stuck for 22s!"
+		if strings.Contains(msgLower, "soft lockup") {
+			info.SoftLockups++
+		}
+
+		// Hard lockup: "BUG: hard lockup on CPU 0" or NMI watchdog
+		if strings.Contains(msgLower, "hard lockup") || strings.Contains(msgLower, "nmi watchdog: bug") {
+			info.HardLockups++
+		}
+
+		// Kernel panic in kmsg (rare — usually in pstore after reboot)
+		if strings.Contains(msgLower, "kernel panic") {
+			info.KernelPanics++
+		}
 	}
 }
 
@@ -226,4 +244,24 @@ func detectCrashLoops(ctx context.Context) []string {
 		}
 	}
 	return loops
+}
+
+// countPstorePanics counts kernel panic dump files in /sys/fs/pstore.
+// pstore files persist across reboots and are named dmesg-efi-*, dmesg-erst-*, etc.
+// A panic file means the previous boot ended in a kernel panic.
+// Returns 0 when pstore is not mounted or no panic files exist.
+func countPstorePanics() int {
+	entries, err := os.ReadDir("/sys/fs/pstore")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		name := strings.ToLower(e.Name())
+		// pstore panic files: dmesg-efi-NNN, dmesg-erst-NNN, dmesg-ramoops-NNN
+		if strings.HasPrefix(name, "dmesg-") || strings.Contains(name, "panic") {
+			count++
+		}
+	}
+	return count
 }
