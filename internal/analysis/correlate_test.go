@@ -329,3 +329,76 @@ func TestMultipleRulesFire(t *testing.T) {
 		t.Error("Hard OOM should not fire when swap is CRIT (cascade takes precedence)")
 	}
 }
+
+// ── ruleGPUSustainedLoad ──────────────────────────────────────────────────────
+
+func TestGPUSustainedLoadFiresWithThermal(t *testing.T) {
+	insights := []models.Insight{
+		ins("INFO", "GPU", "RTX 3070 sustained compute load — util 100%, 114W"),
+		ins("WARN", "Thermal", "CPU 85°C elevated"),
+	}
+	corrs := Correlate(insights)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "GPU Sustained Compute Load" {
+			found = true
+			if c.Level != "WARN" {
+				t.Errorf("expected WARN, got %q", c.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected GPU Sustained Compute Load to fire with Thermal WARN")
+	}
+}
+
+func TestGPUSustainedLoadFiresWithVRAM(t *testing.T) {
+	// When GPU is under sustained load AND thermal is elevated,
+	// both an INFO (util) and WARN (VRAM) insight exist.
+	// The index stores worst-level per key, so GPU index = WARN.
+	// The rule fires when GPU WARN + Thermal WARN together.
+	insights := []models.Insight{
+		ins("INFO", "GPU", "RTX 3070 sustained compute — util 85%, 100W"),
+		ins("WARN", "GPU", "VRAM usage at 85% (6970/8192 MB)"),
+		ins("WARN", "Thermal", "CPU 82°C elevated"),
+	}
+	corrs := Correlate(insights)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "GPU Sustained Compute Load" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected GPU Sustained Compute Load with VRAM WARN + Thermal WARN")
+	}
+}
+
+func TestGPUSustainedLoadDoesNotFireAlone(t *testing.T) {
+	// GPU load with everything else OK — not a problem worth surfacing
+	insights := []models.Insight{
+		ins("INFO", "GPU", "RTX 3070 sustained compute — util 90%, 115W"),
+		ins("OK", "Thermal", "45°C"),
+		ins("OK", "Memory", "fine"),
+	}
+	corrs := Correlate(insights)
+	for _, c := range corrs {
+		if c.Name == "GPU Sustained Compute Load" {
+			t.Error("should not fire when no other signals are elevated")
+		}
+	}
+}
+
+func TestGPUSustainedLoadDoesNotFireWithoutGPUInfo(t *testing.T) {
+	// Thermal WARN without GPU load — not GPU's fault
+	insights := []models.Insight{
+		ins("WARN", "Thermal", "CPU 85°C"),
+		ins("OK", "GPU", "idle"),
+	}
+	corrs := Correlate(insights)
+	for _, c := range corrs {
+		if c.Name == "GPU Sustained Compute Load" {
+			t.Error("should not fire without GPU INFO insight")
+		}
+	}
+}
