@@ -22,7 +22,6 @@ func policiesLinux(ctx context.Context) (*models.Details, error) {
 	// Check AppArmor profiles in complain mode
 	aaOut, err := runCmd(ctx, "aa-status", "--pretty-json")
 	if err != nil {
-		// Try plain aa-status
 		aaOut, _ = runCmd(ctx, "aa-status")
 	}
 	if aaOut != "" {
@@ -34,13 +33,15 @@ func policiesLinux(ctx context.Context) (*models.Details, error) {
 		}
 	}
 
-	// Check SELinux booleans that might be relevant
+	// Check SELinux booleans explicitly set to ON — these are relaxed policies
+	// and worth surfacing. "off" booleans are the normal default for 200+ booleans
+	// and produce useless noise; we never list them.
 	seboolOut, _ := runCmd(ctx, "getsebool", "-a")
 	for _, line := range strings.Split(seboolOut, "\n") {
-		if strings.Contains(line, " off") {
+		if strings.Contains(line, " on") {
 			parts := strings.SplitN(line, " --> ", 2)
-			if len(parts) == 2 {
-				rows = append(rows, []string{parts[0], "off", "SELinux boolean"})
+			if len(parts) == 2 && strings.TrimSpace(parts[1]) == "on" {
+				rows = append(rows, []string{strings.TrimSpace(parts[0]), "on", "SELinux policy relaxed"})
 			}
 		}
 	}

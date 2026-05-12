@@ -1,0 +1,35 @@
+# dsd gpu during gpu-burn 120s — RHEL 10.1, RTX 3070 Laptop GPU
+# Captured ~15s into burn
+
+GPU 0 — NVIDIA GeForce RTX 3070 Laptop GPU
+  Driver:        595.71.05
+  Temperature:   ✅ 61°C
+  Utilization:   ⚠️  100%
+  VRAM:          ✅ 6823 MB / 8192 MB (83%)
+  Power draw:    ✅  114.6W
+  Xid errors:    ✅  none (last 1h)
+  Processes:
+    PID      VRAM       NAME
+    43037    6806MB     ./gpu_burn
+
+────────────────────────────────────────────────────────
+⚠️  GPU elevated in 0.0s
+
+# Notes for future GPU correlation rule design:
+#
+# Solo gpu-burn (no other GPU workloads):
+#   util=100%, VRAM=83%, temp=61°C peak, power=114.6W
+#   → dsd health GPU: OK (below WARN thresholds)
+#   → dsd gpu: WARN (util≥50% triggers drilldown, shows gpu_burn PID)
+#
+# Overnight (gpu-burn + k3s pods holding VRAM):
+#   VRAM=95% (7747/8192 MB)
+#   → dsd health GPU: WARN (VRAM≥85% threshold crossed)
+#
+# RTX 3070 Laptop thermal limit: ~85-90°C (throttles here)
+# 120s gpu-burn on laptop cooling: peaks at 61°C, not enough for WARN
+# Desktop GPU or longer sustained run needed to hit 80°C WARN
+#
+# Key signal for correlation rule:
+#   GPU util=100% + VRAM≥80% + power≥100W = sustained GPU compute load
+#   (not a fault, but context for other signals — e.g. thermal, memory pressure)
