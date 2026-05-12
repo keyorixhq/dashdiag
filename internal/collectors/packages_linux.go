@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -89,9 +90,17 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{PackageManager: "apt"}
 
+	// Check sources.list for security repos before running apt-get.
+	// If no security repo is configured, apt will never show security updates
+	// and the collector will silently return 0 — worse than no data at all.
+	if !aptHasSecurityRepo() {
+		info.Status = "no-security-repo"
+		info.StatusReason = "no security repository configured in apt sources — add security.debian.org or ubuntu security mirror"
+		return info, nil
+	}
+
 	// apt-get update is NOT run here — too slow and requires root for lock.
-	// Caller should ensure apt cache is fresh (e.g. via unattended-upgrades
-	// or periodic cron). We read whatever is cached.
+	// We read whatever is cached; caller should ensure cache is fresh.
 	out, err := runCmd(ctx, "apt-get", "-s", "upgrade")
 	if err != nil {
 		// apt-get -s (simulate) requires no lock but may fail without root
@@ -162,4 +171,44 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 
 	return info, nil
+}
+
+// aptHasSecurityRepo checks whether a security repository is configured
+// in /etc/apt/sources.list and /etc/apt/sources.list.d/*.
+// Returns false when no security repo is found — in that case the collector
+// should surface a WARN rather than silently returning zero updates.
+//
+// Recognises:
+//   - Debian: security.debian.org, *-security component
+//   - Ubuntu: security.ubuntu.com, *-security pocket
+func aptHasSecurityRepo() bool {
+	paths := []string{"/etc/apt/sources.list"}
+
+	// Include all .list and .sources files from sources.list.d/
+	entries, _ := os.ReadDir("/etc/apt/sources.list.d")
+	for _, e := range entries {
+		if !e.IsDir() {
+			paths = append(paths, "/etc/apt/sources.list.d/"+e.Name())
+		}
+	}
+
+	for _, p := range paths {
+		data, err := os.ReadFile(p) // #nosec G304 -- hardcoded known paths
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#") || line == "" {
+				continue
+			}
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "security.debian.org") ||
+				strings.Contains(lower, "security.ubuntu.com") ||
+				strings.Contains(lower, "-security") {
+				return true
+			}
+		}
+	}
+	return false
 }

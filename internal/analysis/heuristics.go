@@ -851,6 +851,18 @@ func min(a, b int) int {
 
 func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	var out []models.Insight
+
+	// No security repo configured — warn explicitly rather than showing zero.
+	if pkg.Status == "no-security-repo" {
+		return []models.Insight{insight("WARN", "Packages",
+			"no security repository configured — security updates cannot be detected",
+			[]string{
+				"to fix (Debian): add 'deb http://security.debian.org/debian-security <suite>-security main' to /etc/apt/sources.list",
+				"to fix (Ubuntu): add 'deb http://security.ubuntu.com/ubuntu <suite>-security main' to /etc/apt/sources.list",
+			},
+		)}
+	}
+
 	if pkg.SecurityUpdates == 0 {
 		return nil
 	}
