@@ -274,32 +274,36 @@ Do NOT start any of these items before first paying customer is acquired
 (target: 6 weeks from initial sprint per project guide).
 
 ### [V2-CORRELATION] Symptom correlation engine
-The highest-leverage v2 feature. Move from "showing symptoms" to "explaining them".
+**v0 SHIPPED (2026-05-12, commit dc729d4)** — 4 hardcoded rules live:
+- Memory Pressure Cascade: RAM WARN/CRIT + Swap CRIT + Processes CRIT or Logs OOM
+- Hard OOM Event: Memory CRIT + Logs OOM + Swap not CRIT
+- IO Stall Under Memory Pressure: IO CRIT + Memory WARN/CRIT + Swap CRIT
+- Network Degraded Under System Load: Network CRIT + CPU/Swap/Memory loaded
 
-Examples of rules to encode:
-- CPU high + IO wait high + Memory CRIT → likely memory pressure causing swap thrashing
-- Memory pressure + swap + high disk writes → memory leak or cache thrashing
-- Network retransmits + CPU idle → NIC / kernel networking issue
-- Entropy low + TLS failures → crypto / bootstrapping failure
-- IO CRIT on one device + Disk OK overall → single drive degradation
-- Multiple OOM kills + same service → memory leak in that service
-- Sysctl drift + recent reboot → kernel parameter not persisted
+All 4 rules validated live on RHEL 10.1. 20 tests in correlate_test.go.
+Output: DIAGNOSIS block between per-collector results and summary.
 
-Implementation phases:
-1. Hardcoded ruleset (~10 rules) in heuristics package
+**Next rules to add (evidence from RHEL validation):**
+
+GPU Sustained Compute Load context rule:
+- Trigger: GPU util ≥ 80% + power ≥ 80W (sustained GPU workload detected)
+- Not a fault — context for other signals (thermal, memory pressure)
+- Data from RHEL: solo gpu-burn = 100% util, 114.6W, 83% VRAM, 61°C peak
+- Overnight (gpu-burn + k3s VRAM): 95% VRAM → WARN threshold crossed
+- Note: laptop cooling kept temp at 61°C, desktop/datacenter GPU would hit 80°C+
+- Rule design: WARN level only, message = "GPU under sustained compute load —
+  check thermal and VRAM headroom if other signals are degraded"
+- Estimated scope: ~2h (pattern is clear, just needs threshold tuning on more hardware)
+
+Other rules backlogged:
+- Multiple OOM kills + same service → memory leak in that specific service
+- Entropy low + TLS/crypto collector signals → crypto bootstrapping failure
+- IO CRIT on one device + other devices OK → single drive degradation (not load)
+- Sysctl drift + recent reboot → kernel parameter not persisted across reboot
+
+Implementation phases remaining:
 2. Confidence scoring per rule match
-3. "Likely cause ranking" in summary output
-4. (V3) graph-based DAG of symptom → cause → fix
-
-Output design:
-  Instead of: ❌ Memory 97%, ❌ CPU 280%, ❌ IO 28ms latency
-  Show:       ❌ Memory pressure with cascade
-              ├─ Memory 97% (primary symptom)
-              ├─ CPU 280% (consequence: swap thrashing)
-              └─ IO 28ms (consequence: high swap I/O)
-              → likely cause: memory leak or insufficient RAM
-
-Estimated scope: 1 week for v0 ruleset, ongoing iteration for accuracy.
+3. (V3) graph-based DAG of symptom → cause → fix
 
 ### [V2-COLLECTOR] Filesystem & inode pressure
 - inode exhaustion per mount (df -i equivalent via statfs)
