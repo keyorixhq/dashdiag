@@ -190,7 +190,223 @@ the team already runs, rather than requiring adoption of a new platform.
 
 ---
 
-## The Overnight Story — 2026-05-11 RHEL Validation
+## The SELinux Blind Spot — A Technical Differentiator Story
+
+### What We Found
+
+While validating DashDiag on RHEL 10.1 with auditd running, we generated 17
+real SELinux AVC denial events. Then we ran `dsd health` and compared two
+outputs — before and after a bug fix.
+
+**Before the fix:**
+```
+KernelSec    OK
+```
+
+**After the fix:**
+```
+KernelSec    CRIT  17 SELinux denials (mode: enforcing)
+```
+
+The 17 denials were real. They existed in `/var/log/audit/audit.log` the
+entire time. The collector was just reading the wrong source.
+
+---
+
+### Why It Happened — The Linux Audit Framework
+
+When `auditd` is running, the kernel sends AVC (SELinux denial) messages to
+a privileged audit netlink socket that auditd owns exclusively. auditd writes
+them to `/var/log/audit/audit.log`.
+
+The kernel does **not** send them to the ring buffer — dmesg, journald, kmsg —
+when a registered audit daemon is listening. This is intentional: it prevents
+security events from being lost, delayed, or tampered with by unprivileged
+log consumers.
+
+This is documented, expected behavior. Not a bug. Not a RHEL issue.
+
+The consequence: **any monitoring tool that looks for SELinux violations in
+journald or dmesg will silently return zero on any system where auditd is
+running.** Which is every hardened RHEL, CentOS, AlmaLinux, and Rocky Linux
+system in production.
+
+---
+
+### Who This Affects
+
+The affected approach is:
+```bash
+# This returns nothing on systems with auditd running:
+journalctl --since "1 hour ago" | grep "avc:  denied"
+dmesg | grep "avc:  denied"
+```
+
+This affects:
+- Prometheus `node_exporter` (reads /proc and system calls, not audit.log)
+- Datadog host agent (reads journald and syslog)
+- Netdata (reads /proc and cgroup interfaces)
+- Nagios/Icinga SELinux checks (typically grep dmesg or journald)
+- Any custom script or runbook that uses `journalctl | grep avc`
+- Any monitoring tool not running as root with direct audit.log access
+
+None of these tools will report SELinux denials on a hardened RHEL system
+with auditd active. They will show zero. The system will appear clean.
+
+---
+
+### What DashDiag Does
+
+DashDiag reads from `/var/log/audit/audit.log` directly — the same source
+the audit daemon uses. It parses Unix timestamps from AVC entries and counts
+denials within a configurable time window (default: last hour).
+
+If the audit log is unreadable (non-root), it falls back to journald rather
+than silently returning zero.
+
+The fix was two files, ~50 lines. The discovery required a real RHEL machine
+with auditd running — something you can't replicate in a CI environment or
+find in documentation.
+
+---
+
+### The Positioning
+
+This is not a bug report. Red Hat would close it in minutes — auditd
+behaving this way is correct by design.
+
+The story is that common monitoring tools are silently wrong on hardened
+Linux systems, and DashDiag isn't.
+
+**The line:**
+> Most monitoring tools look for SELinux violations in journald.
+> On any hardened RHEL system — which means auditd is running —
+> they will always report zero. Not because nothing is happening.
+> Because they're reading the wrong place.
+> DashDiag reads from the audit subsystem itself.
+
+This is technically verifiable. Anyone with a RHEL machine and 5 minutes
+can reproduce it. It's not a claim — it's a demonstration.
+
+---
+
+### Customer Conversation Framing
+
+Use this in conversations with security-conscious platform engineers:
+
+> "We found something interesting during RHEL validation. Do you run auditd
+> on your production servers? Most hardened systems do. It turns out that
+> when auditd is active, SELinux denial messages never reach journald —
+> the kernel sends them directly to the audit socket instead. Any monitoring
+> tool reading journald for SELinux events will report zero, always, on those
+> systems. We fixed this by reading from /var/log/audit/audit.log directly.
+> Happy to show you the before/after."
+
+Target personas where this resonates:
+- Platform engineers at regulated companies (finance, healthcare, gov)
+- SREs at companies running RHEL/CentOS/AlmaLinux
+- Security engineers who own compliance posture
+- Anyone who has ever said "SELinux is always in permissive mode in prod
+  because it's too hard to monitor properly"
+
+That last one is the buyer. SELinux in permissive mode because the team
+gave up on monitoring it is a real and common failure mode. DashDiag makes
+it monitorable without an agent or a SIEM.
+
+---
+
+### Social Media Angles
+
+**Technical (Twitter/X, LinkedIn):**
+> Found something unexpected while testing DashDiag on RHEL.
+>
+> Generated 17 SELinux denials. Ran `dsd health`. Got:
+> `KernelSec    OK`
+>
+> The denials were real. They were in /var/log/audit/audit.log.
+> The collector was reading journald — where they weren't.
+>
+> When auditd runs, the kernel sends AVC messages to the audit socket
+> directly. They never reach journald. By design. This is correct behavior.
+>
+> The consequence: every monitoring tool that reads journald for SELinux
+> events silently returns zero on any hardened RHEL system.
+>
+> We fixed it. DashDiag now reads from the audit subsystem itself.
+> Same source as auditd. No intermediary.
+>
+> This only surfaced because we tested on a real machine with auditd active.
+> You can't find this in documentation.
+
+**Story-led (LinkedIn long form):**
+> While validating DashDiag on RHEL 10.1, I generated some SELinux policy
+> violations on purpose — just to see if the tool would catch them.
+>
+> It didn't.
+>
+> 17 real AVC denials in /var/log/audit/audit.log.
+> `dsd health` reported: `KernelSec OK`
+>
+> I spent an hour in the source code before I understood why.
+>
+> When auditd is running — which it is on every hardened RHEL system —
+> the kernel sends SELinux denial messages to the audit netlink socket,
+> not to the kernel ring buffer. auditd owns that socket exclusively.
+> The messages go to /var/log/audit/audit.log and nowhere else.
+>
+> journalctl? Empty. dmesg? Empty. /proc/kmsg? Empty.
+> The system appears clean. It isn't.
+>
+> This means every monitoring tool that reads journald for SELinux events
+> is silently wrong on every properly hardened production Linux server.
+>
+> We fixed it by reading from the audit log directly — same source as
+> auditd itself. The fix was ~50 lines. Finding it took a real machine.
+>
+> This is why testbeds matter.
+
+**Short punchy (Twitter/X):**
+> Fun fact: if auditd is running, SELinux denials never reach journald.
+> Kernel sends them to the audit socket directly. By design.
+>
+> Every monitoring tool reading journald for SELinux events returns zero
+> on every hardened RHEL server in production.
+>
+> We found this the hard way. Fixed it. DashDiag now reads from
+> /var/log/audit/audit.log — same source as auditd.
+
+---
+
+### Landing Page Usage
+
+This story works as a **"what we got right"** section:
+
+> **We read from the right place.**
+>
+> On hardened RHEL systems, SELinux denial messages go to the audit
+> subsystem — not journald, not dmesg. auditd intercepts them first.
+> Most monitoring tools reading journald will always report zero denials
+> on these systems, even when violations are happening.
+>
+> DashDiag reads from /var/log/audit/audit.log directly — the same source
+> as auditd. If your SELinux policy is generating denials, we'll catch them.
+
+Pair with the before/after output from `selinux-blind-spot-evidence.md`.
+
+---
+
+### Evidence File
+
+Full technical evidence — before/after outputs, sample AVC entries,
+explanation of Linux Audit Framework behavior:
+→ `marketing-assets/selinux-blind-spot-evidence.md`
+
+**System:** RHEL 10.1, auditd 4.0.3, SELinux enforcing (targeted policy)
+**Date discovered:** 2026-05-12
+**Commit fixing it:** `968a097` — "fix: SELinux denial detection blind when auditd is running"
+
+---
+
 
 ### What happened
 
