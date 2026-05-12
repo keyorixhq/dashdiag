@@ -170,6 +170,25 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
   Works on both legacy and modern OpenSSH across all distros.
 **Commit:** `07df7b8`
 
+### BUG-014 — Fresh Debian install missing security repo — silent zero updates
+**Found:** Debian 13.4 first run
+**Symptom:** `dsd health --packages` reported 0 security updates on a freshly
+  installed Debian 13 system that had real security updates available.
+  No error, no warning — just silent zero.
+**Root cause:** Debian installer only configures the main mirror in
+  sources.list. The security repository (security.debian.org) is a separate
+  entry that must be added manually. Without it, `apt-get -s upgrade` never
+  shows security packages. The collector returned 0 with no indication why.
+**Affected:** PackagesCollector, Packages insight — any fresh Debian/Ubuntu
+  install without explicit security repo configuration
+**Fix:** aptHasSecurityRepo() probes sources.list + sources.list.d/* before
+  running apt-get. If no security repo found, returns Status='no-security-repo'.
+  checkPackages() surfaces this as WARN with exact fix instructions for both
+  Debian (security.debian.org) and Ubuntu (security.ubuntu.com) formats.
+**Commit:** `3ee96cd`
+**Note:** Silent zero is worse than an error — user thinks system is patched.
+  This is the most dangerous category of monitoring failure.
+
 ---
 
 ## Summary — Bugs by Category
@@ -196,4 +215,30 @@ BUG-011/012 required specifically Debian 13 with OpenSSH 9.
 | macOS arm64 | 3 | ioreg hang, locale parsing, ps column order |
 | RHEL 10.1 | 7 | SELinux/auditd blind spot (the big one) |
 | Debian 13.4 | 3 | journald-only auth, OpenSSH 9 format |
+| Ubuntu 24.04 | TBD | next testbed |
+## Summary — Bugs by Category
+
+| Category | Count | Notes |
+|---|---|---|
+| Platform-specific parsing | 4 | BUG-001, 002, 003, 013 |
+| Silent failures / blind spots | 5 | BUG-006, 007, 009, 011, 014 |
+| Data quality / noise | 3 | BUG-004, 008, 010 |
+| Timing / race conditions | 1 | BUG-005 |
+| New format not handled | 1 | BUG-012 |
+
+**Bugs only findable on real hardware:** BUG-003, 007, 009, 010, 011, 012, 014
+— 7 out of 14 required a physical testbed to discover.
+BUG-009 (SELinux/auditd) required specifically RHEL with auditd active.
+BUG-011/012 required specifically Debian 13 with OpenSSH 9.
+BUG-014 required a fresh Debian install without post-install hardening.
+
+---
+
+## Testbed Coverage — What Each Platform Unlocked
+
+| Platform | Bugs Found | Key discovery |
+|---|---|---|
+| macOS arm64 | 3 | ioreg hang, locale parsing, ps column order |
+| RHEL 10.1 | 7 | SELinux/auditd blind spot (the big one) |
+| Debian 13.4 | 4 | journald-only auth, OpenSSH 9 format, missing security repo |
 | Ubuntu 24.04 | TBD | next testbed |
