@@ -137,7 +137,7 @@ func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "zypper"}
 
 	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
-		"lp", "--cve", cveID)
+		"lp", "--cve="+cveID)
 
 	lower := strings.ToLower(out)
 

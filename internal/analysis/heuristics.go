@@ -970,7 +970,7 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 	return out
 }
 
-func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen // security checks are a flat list of independent conditions; splitting would harm readability
+func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,cyclop // security checks are a flat list of independent conditions; splitting would harm readability
 	var out []models.Insight
 
 	if sec.NeedsRoot {
@@ -1152,6 +1152,27 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 			out = append(out, insight("INFO", "Hardening",
 				fmt.Sprintf("supportconfig last run %d day(s) ago — consider refreshing before a support call", sec.SupportconfigLastRunDays),
 				[]string{"to run: supportconfig"},
+			))
+		}
+	}
+
+	// SUSEConnect subscription expiry
+	if sec.SUSEConnectRegistered {
+		switch {
+		case sec.SUSEConnectExpiresDays == 0:
+			out = append(out, insight("CRIT", "Hardening",
+				"SUSEConnect subscription EXPIRED — security patches no longer available",
+				[]string{"to fix: renew subscription at https://scc.suse.com"},
+			))
+		case sec.SUSEConnectExpiresDays > 0 && sec.SUSEConnectExpiresDays <= 14:
+			out = append(out, insight("CRIT", "Hardening",
+				fmt.Sprintf("SUSEConnect subscription expires in %d day(s) — renew immediately", sec.SUSEConnectExpiresDays),
+				[]string{"to fix: renew subscription at https://scc.suse.com"},
+			))
+		case sec.SUSEConnectExpiresDays > 14 && sec.SUSEConnectExpiresDays <= 30:
+			out = append(out, insight("WARN", "Hardening",
+				fmt.Sprintf("SUSEConnect subscription expires in %d day(s)", sec.SUSEConnectExpiresDays),
+				[]string{"to fix: renew subscription at https://scc.suse.com"},
 			))
 		}
 	}
