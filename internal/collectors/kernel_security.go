@@ -119,7 +119,7 @@ func apparmorMode() string {
 }
 
 func apparmorModeFromPath(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304
 	if err != nil {
 		if os.IsPermission(err) {
 			return "unknown"
@@ -129,6 +129,7 @@ func apparmorModeFromPath(path string) string {
 	return parseApparmorProfiles(string(data))
 }
 
+// parseApparmorProfiles returns the dominant mode from the profiles list.
 func parseApparmorProfiles(data string) string {
 	for _, line := range strings.Split(data, "\n") {
 		if strings.HasSuffix(line, "(enforce)") {
@@ -141,6 +142,93 @@ func parseApparmorProfiles(data string) string {
 	return "disabled"
 }
 
+// apparmorDetail returns profile counts by mode from the profiles list.
+// Path is /sys/kernel/security/apparmor/profiles — requires root.
+func apparmorDetail() (total, enforce, complain int) {
+	data, err := os.ReadFile("/sys/kernel/security/apparmor/profiles") // #nosec G304
+	if err != nil {
+		return 0, 0, 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		total++
+		switch {
+		case strings.HasSuffix(line, "(enforce)"):
+			enforce++
+		case strings.HasSuffix(line, "(complain)"):
+			complain++
+		}
+	}
+	return total, enforce, complain
+}
+
+// countAppArmorDenials counts AppArmor DENIED entries in the audit log
+// within the last hour. Returns -1 when the audit log is unreadable.
+func countAppArmorDenials(window time.Duration) int {
+	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	if err != nil {
+		// Try dmesg fallback — kernel logs AppArmor denials there too
+		return countAppArmorDenialsDmesg(window)
+	}
+	defer f.Close() //nolint:errcheck
+
+	cutoff := time.Now().Add(-window)
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "apparmor") && !strings.Contains(line, "APPARMOR") {
+			continue
+		}
+		if !strings.Contains(line, "DENIED") && !strings.Contains(line, "denied") {
+			continue
+		}
+		// Parse timestamp from msg=audit(TS.ms:n)
+		idx := strings.Index(line, "msg=audit(")
+		if idx < 0 {
+			count++ // count even if no timestamp
+			continue
+		}
+		rest := line[idx+10:]
+		dotIdx := strings.IndexByte(rest, '.')
+		if dotIdx <= 0 {
+			count++
+			continue
+		}
+		sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64)
+		if err != nil || time.Unix(sec, 0).After(cutoff) {
+			count++
+		}
+	}
+	return count
+}
+
+// countAppArmorDenialsDmesg reads recent kernel messages for AppArmor denials.
+func countAppArmorDenialsDmesg(window time.Duration) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := runCmd(ctx, "dmesg", "--since",
+		time.Now().Add(-window).Format("2006-01-02T15:04:05"))
+	if err != nil {
+		// dmesg --since may not be supported on all kernels
+		out, err = runCmd(ctx, "dmesg")
+		if err != nil {
+			return -1
+		}
+	}
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "apparmor") && strings.Contains(lower, "denied") {
+			count++
+		}
+	}
+	return count
+}
+
 func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	if runtime.GOOS == "darwin" {
 		return &models.KernelSecurityInfo{}, nil
@@ -149,16 +237,24 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 	sePresent, seMode, seDenials := collectSELinux(ctx)
 	aaPresent := apparmorEnabled()
 	aaMode := ""
+	aaTotal, aaEnforce, aaComplain := 0, 0, 0
+	aaDenials := 0
 	if aaPresent {
 		aaMode = apparmorMode()
+		aaTotal, aaEnforce, aaComplain = apparmorDetail()
+		aaDenials = countAppArmorDenials(1 * time.Hour)
 	}
 
 	return &models.KernelSecurityInfo{
-		SELinuxPresent:  sePresent,
-		SELinuxMode:     seMode,
-		SELinuxDenials:  seDenials,
-		AppArmorPresent: aaPresent,
-		AppArmorMode:    aaMode,
+		SELinuxPresent:   sePresent,
+		SELinuxMode:      seMode,
+		SELinuxDenials:   seDenials,
+		AppArmorPresent:  aaPresent,
+		AppArmorMode:     aaMode,
+		AppArmorProfiles: aaTotal,
+		AppArmorEnforce:  aaEnforce,
+		AppArmorComplain: aaComplain,
+		AppArmorDenials:  aaDenials,
 	}, nil
 }
 
