@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -33,6 +34,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	if socket == "" {
 		info.Status = "unavailable"
 		info.StatusReason = "no Docker or Podman socket found"
+		// Check if Docker is installed but daemon not running
+		if dockerInstalled() {
+			info.StatusReason = "Docker installed but daemon not running"
+			if isRHEL10Plus() {
+				info.StatusReason = "Docker installed but daemon not running — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
+			}
+		}
 		return info, nil
 	}
 	info.Available = true
@@ -55,6 +63,12 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// Volumes
 	collectVolumes(ctx, client, info)
+
+	// On RHEL/Rocky 10+ with zero images and containers, daemon likely failed
+	// to start due to missing iptables-legacy — add actionable hint.
+	if info.TotalContainers == 0 && info.ImagesCount == 0 && isRHEL10Plus() {
+		info.StatusReason = "Docker daemon may have failed to start — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
+	}
 
 	return info, nil
 }
@@ -254,4 +268,43 @@ func collectVolumes(ctx context.Context, client *http.Client, info *models.Docke
 		return
 	}
 	info.VolumesCount = len(vols.Volumes)
+}
+
+// dockerInstalled returns true if the docker binary is present on PATH.
+func dockerInstalled() bool {
+	_, err := runCmd(context.Background(), "docker", "--version")
+	return err == nil
+}
+
+// isRHEL10Plus returns true when running on RHEL, Rocky, AlmaLinux or
+// compatible distro at major version 10 or above.
+// Reads /etc/os-release which is present on all modern Linux distros.
+func isRHEL10Plus() bool {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	content := strings.ToLower(string(data))
+	// Must be a RHEL-family distro
+	rhel := strings.Contains(content, "rhel") ||
+		strings.Contains(content, "rocky") ||
+		strings.Contains(content, "almalinux") ||
+		strings.Contains(content, "centos")
+	if !rhel {
+		return false
+	}
+	// Extract VERSION_ID and check major version >= 10
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "VERSION_ID=") {
+			ver := strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+			parts := strings.SplitN(ver, ".", 2)
+			if len(parts) > 0 {
+				major := 0
+				if _, err := fmt.Sscanf(parts[0], "%d", &major); err == nil {
+					return major >= 10
+				}
+			}
+		}
+	}
+	return false
 }

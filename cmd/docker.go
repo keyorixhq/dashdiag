@@ -58,7 +58,11 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
 	if !info.Available {
-		fmt.Println("\n  ℹ️   Docker/Podman not available on this system")
+		if info.StatusReason != "" {
+			fmt.Printf("\n  ⚠️   %s\n", info.StatusReason)
+		} else {
+			fmt.Println("\n  ℹ️   Docker/Podman not available on this system")
+		}
 		fmt.Println()
 		fmt.Println(sep)
 		fmt.Println(render.StyleOK.Render("✅ No container runtime detected" + timing))

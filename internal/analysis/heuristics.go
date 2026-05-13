@@ -1134,10 +1134,12 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
 
 	if !d.Available {
-		out = append(out, insight("INFO", "Docker",
-			"docker daemon not running or not installed",
-			[]string{"to inspect: systemctl status docker", "to install: https://docs.docker.com/engine/install"},
-		))
+		if d.StatusReason != "" {
+			out = append(out, insight("WARN", "Docker",
+				d.StatusReason,
+				[]string{"to inspect: systemctl status docker"},
+			))
+		}
 		return out
 	}
 
