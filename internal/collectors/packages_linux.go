@@ -256,27 +256,50 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 		return info, nil
 	}
 
-	// Parse output — lines look like:
-	// Repository | Name           | Category | Severity | Interactive | Status | Summary
-	// ---------- | -------------- | -------- | -------- | ----------- | ------ | -------
-	// updates    | openSUSE-2024  | security | important|    ---      | needed | fix for CVE-...
+	// Parse output — pipe-separated table:
+	// Repository | Name | Category | Severity | Interactive | Status | Summary
+	// Status is "needed", "not needed", "applied", or "not applicable"
 	securityNeeded := 0
-	criticalNeeded := 0
 	for _, line := range strings.Split(out, "\n") {
 		lower := strings.ToLower(line)
+		// Must be a security patch
 		if !strings.Contains(lower, "security") {
 			continue
 		}
-		if strings.Contains(lower, "needed") || strings.Contains(lower, "not installed") {
-			securityNeeded++
-			if strings.Contains(lower, "critical") || strings.Contains(lower, "important") {
-				criticalNeeded++
-			}
+		// Only count patches with status exactly "needed" — not "not needed"
+		fields := strings.Split(line, "|")
+		if len(fields) < 6 {
+			continue
 		}
+		status := strings.TrimSpace(strings.ToLower(fields[5]))
+		if status != "needed" {
+			continue
+		}
+		securityNeeded++
+		severity := strings.TrimSpace(strings.ToLower(fields[3]))
+		if severity == "critical" || severity == "important" {
+			info.CriticalUpdates++
+		}
+		name := ""
+		if len(fields) >= 2 {
+			name = strings.TrimSpace(fields[1])
+		}
+		sev := "Moderate"
+		switch severity {
+		case "critical":
+			sev = "Critical"
+		case "important":
+			sev = "Important"
+		}
+		info.Updates = append(info.Updates, models.PackageUpdate{
+			Name:     name,
+			Severity: sev,
+			Advisory: name,
+		})
 	}
 
 	info.SecurityUpdates = securityNeeded
-	info.CriticalUpdates = criticalNeeded
+	// CriticalUpdates already set inline per patch
 
 	// Check if security repos are configured
 	info.HasSecurityRepo = zypperHasSecurityRepo(ctx)
