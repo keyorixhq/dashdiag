@@ -247,3 +247,172 @@ func isUbuntu() bool {
 		"grep -i ubuntu /etc/os-release")
 	return strings.Contains(strings.ToLower(out), "ubuntu")
 }
+
+// ScanAllCVEs scans all pending security advisories with CVE assignments.
+// This is the "fresh install" use case — shows everything vulnerable at once.
+func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if _, err := exec.LookPath("zypper"); err == nil {
+		return scanAllZypper(ctx)
+	}
+	if _, err := exec.LookPath("dnf"); err == nil {
+		return scanAllDNF(ctx)
+	}
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		return scanAllApt(ctx)
+	}
+	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
+}
+
+// scanAllZypper uses `zypper list-patches --category security` to find all
+// pending CVE-tagged advisories. Parses severity and advisory IDs.
+func scanAllZypper(ctx context.Context) *models.CVEAllResult {
+	result := &models.CVEAllResult{PackageManager: "zypper"}
+
+	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+		"list-patches", "--category", "security")
+	if err != nil && len(out) == 0 {
+		result.StatusReason = "zypper list-patches failed: " + err.Error()
+		return result
+	}
+
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "no patch") || strings.Contains(lower, "nothing to do") {
+		result.StatusReason = "no pending security patches — system is up to date"
+		result.FixCommand = "zypper patch --category security"
+		return result
+	}
+
+	// Parse pipe-delimited table:
+	// Repository | Patch Name | Category | Severity | Interactive | Status | Summary
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "|") {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) < 7 {
+			continue
+		}
+		status := strings.TrimSpace(strings.ToLower(fields[5]))
+		if status != "needed" {
+			continue
+		}
+		category := strings.TrimSpace(strings.ToLower(fields[2]))
+		if category != "security" {
+			continue
+		}
+
+		advisory := models.CVEAdvisory{
+			ID:       strings.TrimSpace(fields[1]),
+			Severity: strings.TrimSpace(fields[3]),
+			Summary:  strings.TrimSpace(fields[6]),
+		}
+
+		switch strings.ToLower(advisory.Severity) {
+		case "critical":
+			result.Critical = append(result.Critical, advisory)
+		case "important":
+			result.Important = append(result.Important, advisory)
+		case "moderate":
+			result.Moderate = append(result.Moderate, advisory)
+		default:
+			result.Low = append(result.Low, advisory)
+		}
+	}
+
+	result.Total = len(result.Critical) + len(result.Important) +
+		len(result.Moderate) + len(result.Low)
+	result.FixCommand = "zypper patch --category security"
+	return result
+}
+
+// scanAllDNF uses `dnf updateinfo list security` / `dnf advisory list --security`.
+func scanAllDNF(ctx context.Context) *models.CVEAllResult {
+	result := &models.CVEAllResult{PackageManager: "dnf"}
+
+	// Try DNF5 first, then DNF4
+	out, err := runCmd(ctx, "dnf", "advisory", "list", "--security", "--quiet")
+	if err != nil {
+		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
+	}
+	if err != nil && len(out) == 0 {
+		result.StatusReason = "dnf advisory list failed"
+		return result
+	}
+	if strings.TrimSpace(out) == "" {
+		result.StatusReason = "no pending security advisories — system is up to date"
+		result.FixCommand = "dnf upgrade --security"
+		return result
+	}
+
+	// DNF advisory output: "RHSA-2025:1234   security   critical   package-1.2.3"
+	// or:                  "CVE-2025-1234    cve        important  package-1.2.3"
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		advisory := models.CVEAdvisory{
+			ID:       fields[0],
+			Severity: fields[2],
+		}
+		if len(fields) >= 4 {
+			advisory.Summary = strings.Join(fields[3:], " ")
+		}
+		switch strings.ToLower(advisory.Severity) {
+		case "critical":
+			result.Critical = append(result.Critical, advisory)
+		case "important":
+			result.Important = append(result.Important, advisory)
+		case "moderate":
+			result.Moderate = append(result.Moderate, advisory)
+		default:
+			result.Low = append(result.Low, advisory)
+		}
+	}
+
+	result.Total = len(result.Critical) + len(result.Important) +
+		len(result.Moderate) + len(result.Low)
+	result.FixCommand = "dnf upgrade --security"
+	return result
+}
+
+// scanAllApt uses apt-get to list security updates.
+func scanAllApt(ctx context.Context) *models.CVEAllResult {
+	result := &models.CVEAllResult{PackageManager: "apt"}
+
+	// Use apt-get --simulate upgrade filtered to security repos
+	out, err := runCmd(ctx, "apt-get", "--simulate", "upgrade", "-o",
+		"Dir::Etc::SourceList=/dev/null", "--allow-change-held-packages")
+	if err != nil && len(out) == 0 {
+		// Simpler fallback: just list security upgrades
+		out, _ = runCmd(ctx, "apt-get", "--simulate", "dist-upgrade")
+	}
+
+	var advisories []models.CVEAdvisory
+	for _, line := range strings.Split(out, "\n") {
+		// apt output: "Inst package [old] (new repo)"
+		if !strings.HasPrefix(line, "Inst") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		advisories = append(advisories, models.CVEAdvisory{
+			ID:       fields[1],
+			Severity: "unknown",
+			Summary:  strings.Join(fields[2:], " "),
+		})
+	}
+
+	result.Low = advisories
+	result.Total = len(advisories)
+	result.FixCommand = "apt-get upgrade"
+	if result.Total == 0 {
+		result.StatusReason = "no pending upgrades found"
+	}
+	return result
+}

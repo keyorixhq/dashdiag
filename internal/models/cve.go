@@ -27,6 +27,26 @@ type CVEResult struct {
 	StatusReason string `json:"status_reason,omitempty"`
 }
 
+// CVEAllResult holds the full security advisory scan from a package manager.
+type CVEAllResult struct {
+	PackageManager string        `json:"package_manager"`
+	Total          int           `json:"total"`
+	Critical       []CVEAdvisory `json:"critical,omitempty"`
+	Important      []CVEAdvisory `json:"important,omitempty"`
+	Moderate       []CVEAdvisory `json:"moderate,omitempty"`
+	Low            []CVEAdvisory `json:"low,omitempty"`
+	FixCommand     string        `json:"fix_command,omitempty"`
+	StatusReason   string        `json:"status_reason,omitempty"`
+}
+
+// CVEAdvisory is one pending security advisory from a full scan.
+type CVEAdvisory struct {
+	ID       string `json:"id"`   // advisory ID e.g. SUSE-SLE-2025-1234
+	CVEs     string `json:"cves"` // CVE IDs associated
+	Severity string `json:"severity"`
+	Summary  string `json:"summary"`
+}
+
 // CVEPackage describes a package affected by a CVE.
 type CVEPackage struct {
 	Name     string `json:"name"`
