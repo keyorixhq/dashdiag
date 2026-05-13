@@ -65,12 +65,14 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 		ip := firstIPv4(iface.Addrs)
 		cnt := counterMap[iface.Name]
+		speedMbps := readIfaceSpeed(iface.Name)
 		result.Interfaces = append(result.Interfaces, models.InterfaceInfo{
-			Name:    iface.Name,
-			Up:      up,
-			IP:      ip,
-			RxDrops: cnt.Dropin,
-			TxDrops: cnt.Dropout,
+			Name:      iface.Name,
+			Up:        up,
+			IP:        ip,
+			RxDrops:   cnt.Dropin,
+			TxDrops:   cnt.Dropout,
+			SpeedMbps: speedMbps,
 		})
 	}
 
@@ -433,4 +435,23 @@ func detectGatewayDarwin(ctx context.Context) routeInfo {
 		}
 	}
 	return info
+}
+
+// readIfaceSpeed reads the link speed for a network interface from sysfs.
+// Returns 0 when unavailable (loopback, tunnel, wifi with driver quirks).
+func readIfaceSpeed(name string) int {
+	data, err := os.ReadFile("/sys/class/net/" + name + "/speed") // #nosec G304
+	if err != nil {
+		return 0
+	}
+	v := strings.TrimSpace(string(data))
+	// Speed of -1 or 4294967295 means unknown/not connected
+	if v == "-1" || v == "4294967295" || v == "65535" {
+		return 0
+	}
+	speed, err := strconv.Atoi(v)
+	if err != nil || speed <= 0 {
+		return 0
+	}
+	return speed
 }
