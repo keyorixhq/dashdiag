@@ -189,6 +189,9 @@ func parseMiB(s string) float64 {
 //
 //	LC_ALL=C (runCmd default): "Wed May 13 20:39:27 2026"  (24h, year at end)
 //	System locale:             "Wed 13 May 2026 08:39:27 PM CEST" (12h, TZ suffix)
+//
+// Always parses in local timezone — snapper dates are wall-clock local time.
+// time.Parse defaults to UTC which causes negative time.Since() on UTC+ systems.
 func parseSnapperDate(s string) time.Time {
 	s = strings.TrimSpace(s)
 
@@ -199,7 +202,7 @@ func parseSnapperDate(s string) time.Time {
 		"Mon Jan _2 15:04:05 2006",
 		"Mon Jan 2 15:04:05 2006",
 	} {
-		if t, err := time.Parse(layout, s); err == nil {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 			return t
 		}
 	}
@@ -224,7 +227,7 @@ func parseSnapperDate(s string) time.Time {
 			"Mon Jan _2 2006 03:04:05 PM",
 			"Mon Jan 2 2006 03:04:05 PM",
 		} {
-			if t, err := time.Parse(layout, reordered); err == nil {
+			if t, err := time.ParseInLocation(layout, reordered, time.Local); err == nil {
 				return t
 			}
 		}

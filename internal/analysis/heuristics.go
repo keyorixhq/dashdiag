@@ -150,6 +150,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkProcesses(d)
 	case *models.ProcessInfo:
 		return checkProcesses(*d)
+	case models.SnapperInfo:
+		return checkSnapper(d)
+	case *models.SnapperInfo:
+		if d != nil {
+			return checkSnapper(*d)
+		}
 	}
 	return nil
 }
@@ -1495,6 +1501,102 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 			fmt.Sprintf("%d non-security firmware upgrade(s) available", nonSec),
 			[]string{"to inspect: fwupdmgr get-upgrades"},
 		))
+	}
+
+	return out
+}
+
+// checkSnapper evaluates Btrfs/Snapper snapshot health.
+// Thresholds:
+//
+//	WARN  — no snapshot in >24h (rollback safety window exceeded)
+//	WARN  — total snapshot space >20GB (may indicate cleanup needed)
+//	CRIT  — no snapshot in >72h (3 days without a rollback point)
+//	INFO  — snapper available but no snapshots exist yet
+func checkSnapper(s models.SnapperInfo) []models.Insight {
+	if !s.Available {
+		return nil // snapper not installed — not an error, just skip
+	}
+
+	var out []models.Insight
+
+	if s.Error != "" {
+		out = append(out, insight("WARN", "Snapshots",
+			fmt.Sprintf("snapper error: %s", s.Error),
+			[]string{"to fix: ensure snapper is configured — snapper list-configs"},
+		))
+		return out
+	}
+
+	// No snapshots at all
+	if s.SnapshotCount == 0 {
+		out = append(out, insight("WARN", "Snapshots",
+			"snapper is installed but no snapshots exist — system has no rollback points",
+			[]string{
+				"to fix: snapper create --description 'initial'",
+				"to enable automatic snapshots: snapper set-config TIMELINE_CREATE=yes",
+			},
+		))
+		return out
+	}
+
+	// Staleness — how long since last snapshot
+	switch {
+	case s.LastSnapshotH < 0:
+		// Could not determine last snapshot time — treat as stale
+		out = append(out, insight("WARN", "Snapshots",
+			fmt.Sprintf("%d snapshot(s) found but last snapshot time could not be determined", s.SnapshotCount),
+			[]string{"to check: sudo snapper list"},
+		))
+	case s.LastSnapshotH >= 72:
+		out = append(out, insight("CRIT", "Snapshots",
+			fmt.Sprintf("no Btrfs snapshot in %dh — system has no recent rollback point", s.LastSnapshotH),
+			[]string{
+				"to fix: snapper create --description 'manual'",
+				"to enable timeline: snapper set-config TIMELINE_CREATE=yes",
+			},
+		))
+	case s.LastSnapshotH >= 24:
+		out = append(out, insight("WARN", "Snapshots",
+			fmt.Sprintf("last Btrfs snapshot was %dh ago — rollback window may be stale", s.LastSnapshotH),
+			[]string{
+				"to fix: snapper create --description 'manual'",
+				"to check schedule: snapper get-config | grep TIMELINE",
+			},
+		))
+	}
+
+	// Space usage
+	switch {
+	case s.TotalSpaceGB >= 50:
+		out = append(out, insight("CRIT", "Snapshots",
+			fmt.Sprintf("Btrfs snapshots consuming %.1f GB — filesystem space at risk", s.TotalSpaceGB),
+			[]string{
+				"to clean up: snapper delete --sync <number>",
+				"to list by size: sudo snapper list",
+				"to limit retention: snapper set-config NUMBER_LIMIT=10",
+			},
+		))
+	case s.TotalSpaceGB >= 20:
+		out = append(out, insight("WARN", "Snapshots",
+			fmt.Sprintf("Btrfs snapshots consuming %.1f GB — consider pruning old snapshots", s.TotalSpaceGB),
+			[]string{
+				"to clean up: snapper delete --sync <number>",
+				"to limit retention: snapper set-config NUMBER_LIMIT=10",
+			},
+		))
+	}
+
+	// Healthy state — emit INFO so the check is visible in output
+	if len(out) == 0 {
+		msg := fmt.Sprintf("%d Btrfs snapshot(s)", s.SnapshotCount)
+		if s.LastSnapshotH >= 0 {
+			msg += fmt.Sprintf(" — last < %dh ago", s.LastSnapshotH+1)
+		}
+		if s.TotalSpaceGB > 0 {
+			msg += fmt.Sprintf(", %.1f GB used", s.TotalSpaceGB)
+		}
+		out = append(out, insight("OK", "Snapshots", msg, nil))
 	}
 
 	return out
