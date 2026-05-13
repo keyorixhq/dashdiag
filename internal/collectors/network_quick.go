@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -66,6 +67,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		ip := firstIPv4(iface.Addrs)
 		cnt := counterMap[iface.Name]
 		speedMbps := readIfaceSpeed(iface.Name)
+		isUSB, driver := readIfaceUSB(iface.Name)
 		result.Interfaces = append(result.Interfaces, models.InterfaceInfo{
 			Name:      iface.Name,
 			Up:        up,
@@ -73,6 +75,8 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 			RxDrops:   cnt.Dropin,
 			TxDrops:   cnt.Dropout,
 			SpeedMbps: speedMbps,
+			IsUSB:     isUSB,
+			Driver:    driver,
 		})
 	}
 
@@ -454,4 +458,29 @@ func readIfaceSpeed(name string) int {
 		return 0
 	}
 	return speed
+}
+
+// readIfaceUSB returns true when the network interface is USB-attached.
+// Detected by checking if the sysfs device path passes through a USB bus.
+func readIfaceUSB(name string) (bool, string) {
+	devPath := "/sys/class/net/" + name + "/device"
+	resolved, err := os.Readlink(devPath)
+	if err != nil {
+		return false, ""
+	}
+	// Resolve relative symlink
+	if !strings.HasPrefix(resolved, "/") {
+		resolved = "/sys/class/net/" + name + "/" + resolved
+	}
+	isUSB := strings.Contains(resolved, "/usb") || strings.Contains(resolved, "usb/")
+
+	// Read driver name from driver symlink
+	driver := ""
+	driverPath := devPath + "/driver"
+	driverResolved, err := os.Readlink(driverPath)
+	if err == nil {
+		driver = filepath.Base(driverResolved)
+	}
+
+	return isUSB, driver
 }
