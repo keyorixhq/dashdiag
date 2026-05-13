@@ -67,9 +67,21 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	// Interfaces
-	fmt.Printf("\nInterfaces (%d)\n", len(info.Interfaces))
+	// Interfaces — skip unconfigured down interfaces (e.g. WiFi with no IP)
+	visible := make([]models.InterfaceInfo, 0, len(info.Interfaces))
 	for _, iface := range info.Interfaces {
+		// Skip interfaces that are unconfigured and not the primary:
+		// - no IP assigned, AND
+		// - either down or no carrier (operstate check)
+		// This suppresses WiFi interfaces that are administratively up
+		// but have no carrier/connection (common on server installs).
+		if iface.IP == "" && iface.Name != info.PrimaryInterface {
+			continue // no IP, not primary — not interesting
+		}
+		visible = append(visible, iface)
+	}
+	fmt.Printf("\nInterfaces (%d)\n", len(visible))
+	for _, iface := range visible {
 		statusIcon := "✅"
 		if !iface.Up {
 			statusIcon = "❌"
