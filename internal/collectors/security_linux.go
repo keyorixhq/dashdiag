@@ -332,6 +332,7 @@ func isExpectedPort(port int) bool {
 		80:    true, // HTTP
 		443:   true, // HTTPS
 		9090:  true, // Cockpit (RHEL web console)
+		5355:  true, // LLMNR (systemd-resolved, Fedora/Ubuntu)
 		10250: true, // kubelet (k8s/k3s node)
 		10255: true, // kubelet read-only
 		6443:  true, // kube-apiserver
