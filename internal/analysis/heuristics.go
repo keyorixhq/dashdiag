@@ -162,6 +162,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkSUSEConnect(*d)
 		}
+	case models.HardwareInfo:
+		return checkHardware(d)
+	case *models.HardwareInfo:
+		if d != nil {
+			return checkHardware(*d)
+		}
 	}
 	return nil
 }
@@ -1643,4 +1649,171 @@ func checkSUSEConnect(s models.SUSEConnectInfo) []models.Insight {
 			nil,
 		)}
 	}
+}
+
+// checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
+func checkHardware(h models.HardwareInfo) []models.Insight {
+	var out []models.Insight
+
+	// ── Drive health ──────────────────────────────────────────────────────────
+	for _, d := range h.Drives {
+		if !d.SmartctlAvailable {
+			out = append(out, insight("INFO", "Hardware",
+				"smartctl not installed — drive health unavailable",
+				[]string{"to fix: install smartmontools (apt/dnf/zypper install smartmontools)"},
+			))
+			return out
+		}
+		if d.Error != "" {
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s: %s", d.Device, d.Error),
+				nil,
+			))
+			continue
+		}
+
+		prefix := d.Device
+		if d.Model != "" {
+			prefix = fmt.Sprintf("%s (%s)", d.Device, d.Model)
+		}
+
+		// SMART overall
+		if !d.SmartOK {
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s — SMART FAILED: drive may fail imminently, back up immediately", prefix),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to run self-test: smartctl -t short " + d.Device,
+				},
+			))
+		}
+
+		// Drive temperature
+		switch {
+		case d.Type == "nvme" && d.TempC >= 80:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — NVMe critical thermal threshold", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type == "nvme" && d.TempC >= 70:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — NVMe running hot", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type != "nvme" && d.TempC >= 60:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — HDD critical thermal threshold", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type != "nvme" && d.TempC >= 50:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — HDD running hot", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+
+		// Wear / endurance
+		switch {
+		case d.WearPct >= 95:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s wear at %d%% — drive near end of rated life, replace soon", prefix, d.WearPct),
+				[]string{"to plan: schedule drive replacement"},
+			))
+		case d.WearPct >= 80:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s wear at %d%% — approaching end of rated endurance", prefix, d.WearPct),
+				[]string{"to plan: schedule drive replacement"},
+			))
+		}
+
+		// SATA bad sectors
+		if d.ReallocatedSectors > 0 {
+			level := "WARN"
+			if d.ReallocatedSectors >= 10 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d reallocated sector(s) — drive remapping failed reads", prefix, d.ReallocatedSectors),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to test: smartctl -t long " + d.Device,
+				},
+			))
+		}
+		if d.PendingSectors > 0 {
+			level := "WARN"
+			if d.PendingSectors >= 5 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d pending sector(s) — unreadable sectors awaiting remap", prefix, d.PendingSectors),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+		if d.UncorrectableErrors > 0 {
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s: %d offline uncorrectable sector(s) — data loss risk", prefix, d.UncorrectableErrors),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to rescue: back up immediately",
+				},
+			))
+		}
+
+		// NVMe media errors
+		if d.MediaErrors > 0 {
+			level := "WARN"
+			if d.MediaErrors >= 10 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d media error(s) — NVMe data integrity events", prefix, d.MediaErrors),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+
+		// Healthy drive — emit OK so it shows in output
+		healthy := len(out) == 0 || func() bool {
+			for _, i := range out {
+				if i.Check == "Hardware" && strings.HasPrefix(i.Message, prefix) {
+					return false
+				}
+			}
+			return true
+		}()
+		if healthy {
+			msg := fmt.Sprintf("%s — SMART OK", prefix)
+			if d.TempC > 0 {
+				msg += fmt.Sprintf(", %d°C", d.TempC)
+			}
+			if d.PowerOnH > 0 {
+				msg += fmt.Sprintf(", %d h", d.PowerOnH)
+			}
+			if d.WearPct > 0 {
+				msg += fmt.Sprintf(", %d%% worn", d.WearPct)
+			}
+			out = append(out, insight("OK", "Hardware", msg, nil))
+		}
+	}
+
+	// ── EDAC memory ───────────────────────────────────────────────────────────
+	if h.Memory.EDACAvailable {
+		switch {
+		case h.Memory.UncorrectedErrors > 0:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("EDAC: %d uncorrected memory error(s) — hardware RAM fault", h.Memory.UncorrectedErrors),
+				[]string{
+					"to inspect: edac-util -s 4",
+					"to diagnose: run memtest86+",
+				},
+			))
+		case h.Memory.CorrectedErrors > 100:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("EDAC: %d corrected memory error(s) — RAM degrading", h.Memory.CorrectedErrors),
+				[]string{"to inspect: edac-util -s 4"},
+			))
+		}
+	}
+
+	return out
 }
