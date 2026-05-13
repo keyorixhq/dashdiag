@@ -11337,3 +11337,117 @@ Data stored in `marketing-assets/<distro>-data/` per distro.
 9. **gpu_burn + GCC 16** — CUDA 12.6 doesn't support GCC 16 (Fedora 44). Use nvidia-smi for GPU monitoring instead.
 10. **auditd 0 rules** — Rocky ships with auditd running but zero rules. Fedora and openSUSE ship 1 default rule. Surfaced as WARN.
 
+
+## 28. Session Log — 2026-05-13 (Multi-Distro Validation Day)
+
+### Summary
+
+Full-day development session focused on hardware validation across 6 Linux distros
+plus major new features built during install/download wait times.
+
+**Commits today:** 30+  
+**Distros validated:** Rocky Linux 10.1, Fedora 44, openSUSE Tumbleweed  
+**Distros in progress:** SLES 16 (installing from GM ISO)  
+**Legal milestone:** Keyorix SL escritura signed, CIF provisional obtained
+
+---
+
+### Morning — Rocky Linux 10.1 Validation
+
+| Commit | Feature |
+|---|---|
+| 2f12f90 | Cockpit port 9090 socket-activation service name resolution |
+| c5390cd | BUG-009 SELinux AVC blind spot fix (non-root ausearch fallback) |
+| f208e67 | Podman rootless socket + LVM disk collector validated |
+| 1ac8542 | firewalld detection (zone, allowed services, SSH lockout CRIT) |
+| 7329131 | `dsd health --firmware` via fwupd (UEFI dbx WARN — real finding) |
+| 64a5bd1 | FIPS, crypto-policies, auditd rules, AIDE, USBGuard |
+| 2592e34 | Rocky 10.1 final dataset — 197 baselines committed |
+
+### Afternoon — Fedora 44 + openSUSE Tumbleweed Validation
+
+| Commit | Feature |
+|---|---|
+| b2f974c | DNF5 advisory command syntax fix |
+| 98ff59c | LLMNR port 5355 added to expected ports |
+| 907c9f0 | zypper security patch parser fix (`not needed` bug) |
+| a578009 | FDLimits sshd-auth false positive fix |
+| d0c39f7 | Port display improvements (postfix/master, wellKnownPort) |
+| 1c2b514 | AppArmor deep inspection (profiles, complain mode, denials) |
+| 9194b5b | AppArmor in `dsd security` output |
+| 8b5afb7 | SUSE supportconfig detection (last run date, archive path) |
+| 8d6c05c | SUSEConnect registration check in zypper repo detection |
+
+### Evening — Hardware Features + New Commands
+
+| Commit | Feature |
+|---|---|
+| 0b164cf | Network link speed + 100Mbps WARN (real finding: machine at 100Mbps) |
+| 95cd3d6 | USB-Ethernet detection on Linux (sysfs /usb/ path) |
+| 19880b8 | macOS USB-Ethernet via networksetup (en7 RTL8156 detected) |
+| 44fe858 | NVMe unsafe shutdowns + power-on hours heuristics + NIC rx_errors |
+| 762ae59 | `dsd health --report` — shareable markdown health report |
+
+### CVE Feature (built during SLES download)
+
+| Commit | Feature |
+|---|---|
+| d942a16 | `dsd cve CVE-XXXX` — cross-distro CVE vulnerability checker |
+| 043dfac | `dsd cve --all` — scan all pending security advisories |
+| ded658d | Air-gapped OVAL import + embedded snapshot (initial) |
+| 55f3704 | OVAL parser fixed — 26,349 CVEs generated from SUSE OVAL |
+| 9d58d1e | **Removed embed** — sidecar file pattern (stable binary hash) |
+| 78b5836 | `dsd cve info` + snapshot fallback chain |
+
+### Key Architecture Decision: CVE Sidecar Files
+
+**Problem identified:** Embedding CVE data in binary changes its hash on every update.
+In air-gapped enterprise environments, binary hashes are verified before deployment.
+A binary that changes hash without a code change breaks change control.
+
+**Solution:** Sidecar file pattern (like antivirus):
+```
+/usr/local/bin/dsd                    ← stable binary, predictable hash
+/var/lib/dsd/oval/sles16.xml.bz2     ← OVAL data, updated separately
+```
+
+**CVE check priority chain:**
+1. `zypper lp --cve CVE-XXXX` (live, requires updated repos)
+2. OVAL sidecar file auto-discovery (`/var/lib/dsd/oval/`)
+3. Pre-converted snapshot (`/var/lib/dsd/cvedata.json.gz`)
+
+**Air-gapped workflow:**
+```bash
+# Internet machine
+curl -O https://ftp.suse.com/pub/projects/security/oval/suse.linux.enterprise.server.16.xml.bz2
+# USB transfer
+mkdir -p /var/lib/dsd/oval && cp sles16.xml.bz2 /var/lib/dsd/oval/
+# Air-gapped query (no flags needed)
+dsd cve CVE-2025-32462
+```
+
+### SLES 16 GM ISO Strategy
+
+Intentionally installing from GM ISO (May 2025 packages, not QU1):
+- Every CVE discovered after May 2025 will be VULNERABLE on first boot
+- `dsd cve --all` on fresh install → expect 20-50 CRITICAL/IMPORTANT findings
+- This is the marketing screenshot — shows dsd catching what went unfixed
+
+First boot validation plan:
+```bash
+sudo dsd health --plain --terse
+sudo dsd security --plain        # AppArmor, supportconfig, SUSEConnect
+sudo dsd health --packages       # zypper + SUSEConnect registration
+sudo dsd cve --all               # THE MONEY SHOT
+sudo dsd cve CVE-2025-32462 CVE-2025-32463 CVE-2024-3094
+sudo dsd health --report         # Generate shareable report
+```
+
+### Hardware Findings (real, from testbed)
+
+- Machine connected at **100Mbps not 1Gbps** — dsd caught it, we didn't notice manually
+- USB-Ethernet (en7, RTL8156) detected as primary interface on macOS — WARN fires
+- NVMe1 at **7094 power-on hours** (295 days), 0 unsafe shutdowns — healthy
+- Battery health at **84.5%** (50.71Wh / 60Wh design, 150 cycles) — normal wear
+- SELinux enforcing on openSUSE Tumbleweed (expected AppArmor — surprise!)
+
