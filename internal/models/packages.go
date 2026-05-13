@@ -13,7 +13,8 @@ type PackagesInfo struct {
 	CriticalUpdates  int             `json:"critical_updates"`
 	ImportantUpdates int             `json:"important_updates"`
 	Updates          []PackageUpdate `json:"updates,omitempty"`
-	PackageManager   string          `json:"package_manager"` // dnf, apt, brew
+	PackageManager   string          `json:"package_manager"` // dnf, apt, zypper, brew
+	HasSecurityRepo  bool            `json:"has_security_repo,omitempty"`
 	Status           string          `json:"status,omitempty"`
 	StatusReason     string          `json:"status_reason,omitempty"`
 }
