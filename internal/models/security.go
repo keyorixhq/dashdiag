@@ -28,6 +28,12 @@ type SecurityInfo struct {
 	UID0Users    []string `json:"uid0_users,omitempty"`    // non-root users with UID 0
 	SuspectCrons []string `json:"suspect_crons,omitempty"` // cron jobs writing to sensitive paths
 
+	// AppArmor (SLES/Ubuntu/Debian)
+	AppArmorMode     string `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled
+	AppArmorProfiles int    `json:"apparmor_profiles,omitempty"` // total loaded profiles
+	AppArmorComplain int    `json:"apparmor_complain,omitempty"` // profiles in complain mode
+	AppArmorDenials  int    `json:"apparmor_denials,omitempty"`  // denials in last hour
+
 	// SELinux
 	SELinuxDenials int    `json:"se_linux_denials"` // denials in last hour
 	SELinuxMode    string `json:"se_linux_mode"`

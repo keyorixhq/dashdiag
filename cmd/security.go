@@ -182,6 +182,22 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		}
 	}
 
+	// AppArmor (SLES/Ubuntu/Debian)
+	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" {
+		fmt.Printf("\nAppArmor mode: %s (%d profiles loaded)\n", info.AppArmorMode, info.AppArmorProfiles)
+		if info.AppArmorComplain > 0 {
+			fmt.Printf("  \u26a0\ufe0f  %d profile(s) in complain mode\n", info.AppArmorComplain)
+		} else {
+			fmt.Println("  \u2705  All profiles enforcing")
+		}
+		switch {
+		case info.AppArmorDenials > 0:
+			fmt.Printf("  \u26a0\ufe0f  %d denial(s) in the last hour\n", info.AppArmorDenials)
+		default:
+			fmt.Println("  \u2705  No denials in the last hour")
+		}
+	}
+
 	// SUID binaries
 	if len(info.SUIDBinaries) > 0 {
 		fmt.Printf("\nUnexpected SUID binaries (%d):\n", len(info.SUIDBinaries))
