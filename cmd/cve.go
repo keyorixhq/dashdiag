@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +23,7 @@ func init() {
 	cveCmd.Flags().Bool("json", false, "JSON output")
 	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
 	cveCmd.Flags().String("oval", "", "path to OVAL file for air-gapped CVE check (e.g. /mnt/usb/sles16.oval.xml.bz2)")
+	cveCmd.AddCommand(cveInfoCmd)
 }
 
 var cveCmd = &cobra.Command{
@@ -264,4 +268,82 @@ func printOVALResult(r *cvedata.OVALResult) {
 	}
 	fmt.Println()
 	fmt.Println(sep)
+}
+
+func runCVEInfo() {
+	sep := strings.Repeat("─", 56)
+	fmt.Println("\nCVE data sources on this system")
+	fmt.Println(sep)
+
+	// Package manager
+	for _, pm := range []string{"zypper", "dnf", "apt-get"} {
+		if _, err := exec.LookPath(pm); err == nil {
+			fmt.Printf("  ✅  Package manager:  %s (live queries available)\n", pm)
+			break
+		}
+	}
+
+	// OVAL sidecar files
+	fmt.Println("\nOVAL files (place in /var/lib/dsd/oval/):")
+	foundOVAL := false
+	for _, dir := range cvedata.StandardOVALPaths() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			fi, _ := e.Info()
+			age := ""
+			if fi != nil {
+				days := int(time.Since(fi.ModTime()).Hours() / 24)
+				age = fmt.Sprintf(" (%d days old)", days)
+			}
+			fmt.Printf("  ✅  %s%s\n", path, age)
+			foundOVAL = true
+		}
+	}
+	if !foundOVAL {
+		fmt.Println("  ─   none found")
+		fmt.Println()
+		fmt.Println("  Download from SUSE:")
+		fmt.Println("    curl -O https://ftp.suse.com/pub/projects/security/oval/suse.linux.enterprise.server.16.xml.bz2")
+		fmt.Println("    mkdir -p /var/lib/dsd/oval && mv *.xml.bz2 /var/lib/dsd/oval/")
+	}
+
+	// Pre-converted snapshot
+	fmt.Println("\nPre-converted snapshot (generate with: scripts/update-cve-data.sh):")
+	if snap := cvedata.FindSnapshot(); snap != "" {
+		s, err := cvedata.LoadSnapshot(snap)
+		if err == nil && !s.IsEmpty() {
+			fmt.Printf("  ✅  %s\n", snap)
+			fmt.Printf("      %d CVEs  —  generated %s\n", len(s.CVEs), s.Generated.Format("2006-01-02"))
+		} else {
+			fmt.Printf("  ⚠️   %s (could not load)\n", snap)
+		}
+	} else {
+		fmt.Println("  ─   none found")
+		fmt.Println("  Generate: make update-cve-data  (requires internet)")
+		fmt.Printf("  Place at: %s\n", cvedata.SnapshotStandardPaths()[0])
+	}
+
+	fmt.Println()
+	fmt.Println(sep)
+}
+
+var cveInfoCmd = &cobra.Command{
+	Use:   "info",
+	Short: "Show what CVE data sources are available on this system",
+	Long: `Shows available CVE data sources:
+  - Package manager (zypper/dnf/apt) for live queries
+  - OVAL sidecar files in standard locations
+  - Pre-converted snapshot files
+
+Examples:
+  dsd cve info`,
+	Args: cobra.NoArgs,
+	Run:  func(_ *cobra.Command, _ []string) { runCVEInfo() },
 }
