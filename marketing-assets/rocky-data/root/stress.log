@@ -1,0 +1,406 @@
+stress: info: [12873] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [12873] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778630642  (DIED!)  temps: 54 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778631842  (DIED!)  temps: 46 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778633042  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [26602] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [26602] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778634242  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778635442  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778636642  (DIED!)  temps: 44 C 
+
+No clients are alive!  Aborting
+stress: info: [40487] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [40487] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778637842  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778639042  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778640242  (DIED!)  temps: 44 C 
+
+No clients are alive!  Aborting
+stress: info: [54144] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [54144] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778641442  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778642642  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778643842  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [67786] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [67786] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778645042  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778646242  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778647442  (DIED!)  temps: 46 C 
+
+No clients are alive!  Aborting
+stress: info: [81764] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [81764] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778648642  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778649842  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778651042  (DIED!)  temps: 44 C 
+
+No clients are alive!  Aborting
+stress: info: [95628] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [95628] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778652242  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778653442  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778654642  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [109317] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [109317] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778655842  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778657042  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778658242  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [123095] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [123095] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778659442  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778660642  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778661842  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [136712] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [136712] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778663042  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778664242  (DIED!)  temps: 46 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.8%  proc'd: -1 (0 Gflop/s)   errors: 1778665442  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
+stress: info: [150508] dispatching hogs: 8 cpu, 4 io, 4 vm, 0 hdd
+stress: info: [150508] successful run completed in 300s
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778666642  (DIED!)  temps: 53 C 
+
+No clients are alive!  Aborting
+GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-c141da9c-2598-9323-e5ae-219e640d0143)
+cuInit returned 0 (no error)
+Couldn't init a GPU test: Error in couldn't find compare kernel: compare.ptx (gpu_burn-drv.cpp:240): named symbol not found
+Using compare file: compare.ptx
+Burning for 120 seconds.
+Initialized device 0 with 7833 MB of memory (7661 MB available, using 6895 MB of it), using FLOATS
+Results are 268435456 bytes each, thus performing 24 iterations
+read[0] error 0Using compare file: compare.ptx
+Burning for 120 seconds.
+0.0%  proc'd: -1 (0 Gflop/s)   errors: 1778667842  (DIED!)  temps: 45 C 
+
+No clients are alive!  Aborting
