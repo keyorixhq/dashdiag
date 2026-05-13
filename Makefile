@@ -162,3 +162,13 @@ help:
 	@echo "  make tools        → install all dev tools"
 	@echo "  make hooks        → install pre-commit and pre-push git hooks"
 	@echo "  make clean        → remove dist/ and coverage files"
+
+
+# Update embedded CVE snapshot from SUSE/RHEL OVAL feeds.
+# Requires internet. Run before release to keep air-gapped data fresh.
+update-cve-data:
+	@echo "→ Updating embedded CVE snapshot..."
+	@bash scripts/update-cve-data.sh
+	@echo "→ Rebuild to embed: make release"
+
+.PHONY: update-cve-data

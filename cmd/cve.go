@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/render"
 )
@@ -18,6 +19,7 @@ func init() {
 	rootCmd.AddCommand(cveCmd)
 	cveCmd.Flags().Bool("json", false, "JSON output")
 	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
+	cveCmd.Flags().String("oval", "", "path to OVAL file for air-gapped CVE check (e.g. /mnt/usb/sles16.oval.xml.bz2)")
 }
 
 var cveCmd = &cobra.Command{
@@ -39,7 +41,32 @@ Examples:
 func runCVE(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	allFlag, _ := cmd.Flags().GetBool("all")
+	ovalPath, _ := cmd.Flags().GetString("oval")
 	ctx := context.Background()
+
+	// --oval: air-gapped OVAL file check
+	if ovalPath != "" {
+		if len(args) == 0 {
+			return fmt.Errorf("specify at least one CVE ID with --oval")
+		}
+		fmt.Printf("\nUsing OVAL file: %s\n", ovalPath)
+		for _, cveID := range args {
+			fmt.Printf("Checking %s ...\n", strings.ToUpper(cveID))
+			r, err := cvedata.CheckCVEFromOVAL(ctx, ovalPath, cveID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "oval error: %v\n", err)
+				continue
+			}
+			if jsonOut {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(r)
+				continue
+			}
+			printOVALResult(r)
+		}
+		return nil
+	}
 
 	if allFlag {
 		fmt.Println("\nScanning all pending security advisories...")
@@ -199,4 +226,42 @@ func printAdvisoryGroup(label string, advisories []models.CVEAdvisory) {
 		fmt.Println(line)
 	}
 	fmt.Println()
+}
+
+func printOVALResult(r *cvedata.OVALResult) {
+	sep := strings.Repeat("─", 56)
+	fmt.Println()
+	fmt.Printf("CVE: %s   (via OVAL)\n", r.CVE)
+	fmt.Println(sep)
+
+	if !r.Found {
+		fmt.Println(render.StyleOK.Render("✅ NOT IN OVAL — CVE not defined for this OS/version"))
+		fmt.Println()
+		fmt.Println(sep)
+		return
+	}
+
+	if r.Summary != "" {
+		fmt.Printf("Summary:  %s\n", r.Summary)
+	}
+	if r.Severity != "" {
+		fmt.Printf("Severity: %s\n\n", r.Severity)
+	}
+
+	if len(r.Packages) == 0 {
+		fmt.Println(render.StyleOK.Render("✅ NOT AFFECTED — no vulnerable packages installed"))
+	} else {
+		fmt.Println(render.StyleCrit.Render(
+			fmt.Sprintf("🔴 VULNERABLE — %d package(s) need updating", len(r.Packages))))
+		fmt.Println()
+		for _, p := range r.Packages {
+			fmt.Printf("  • %-30s installed: %-20s fix: %s\n",
+				p.Name, p.Installed, p.FixedIn)
+		}
+		fmt.Println()
+		fmt.Println("  to fix: zypper patch --category security")
+		fmt.Println("       or: zypper update <package>")
+	}
+	fmt.Println()
+	fmt.Println(sep)
 }
