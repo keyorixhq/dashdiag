@@ -35,38 +35,54 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	return &models.PackagesInfo{PackageManager: "unknown"}, nil
 }
 
-// collectDNF parses `dnf updateinfo list security` for RHEL/Fedora/CentOS.
-// Output format: "RHSA-2026:1234 Critical/Sec. package-1.2.3-4.el10.x86_64"
-// dnf check-update exits 100 if updates available, 0 if up to date.
+// collectDNF parses security advisories for RHEL/Rocky/Fedora/CentOS.
+// DNF4 (RHEL/Rocky): dnf updateinfo list security
+// DNF5 (Fedora 41+): dnf advisory list --security
 func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{PackageManager: "dnf"}
 
-	// Check repos — Rocky/RHEL include security updates in baseos, no separate security repo
+	// Check repos
 	if reposOk := dnfHasUpdateRepo(ctx); !reposOk {
 		info.StatusReason = "no enabled dnf repositories found"
 		return info, nil
 	}
-	info.HasSecurityRepo = true // dnf with baseos is sufficient for security updates
+	info.HasSecurityRepo = true
 
-	out, err := runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
+	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4 (RHEL/Rocky)
+	out, err := runCmd(ctx, "dnf", "advisory", "list", "--security", "--quiet")
 	if err != nil {
-		// dnf may not have updateinfo data without subscription — not a hard error
-		info.StatusReason = "dnf updateinfo unavailable"
+		// DNF4 fallback: RHEL/Rocky/older Fedora
+		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
+	}
+	if err != nil {
+		info.StatusReason = "dnf advisory/updateinfo unavailable"
 		return info, nil
 	}
 
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "Last metadata") {
+		if line == "" || strings.HasPrefix(line, "Last metadata") ||
+			strings.HasPrefix(line, "Updating") || strings.HasPrefix(line, "Repositories") {
 			continue
 		}
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
-		advisory := fields[0] // RHSA-2026:1234
-		severity := fields[1] // Critical/Sec. or Important/Sec.
-		pkg := fields[2]      // package-version.arch
+
+		// DNF5 format: ADVISORY-ID  type  severity  package  date
+		// DNF4 format: ADVISORY-ID  severity/Sec.  package
+		advisory := fields[0]
+		var severity, pkg string
+		if len(fields) >= 4 && !strings.Contains(fields[1], "/") && !strings.Contains(fields[1], "Sec") {
+			// DNF5: advisory type severity package date
+			severity = fields[2]
+			pkg = fields[3]
+		} else {
+			// DNF4: advisory severity/Sec. package
+			severity = fields[1]
+			pkg = fields[2]
+		}
 
 		// Normalise severity
 		sev := "Low"
