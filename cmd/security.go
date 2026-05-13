@@ -48,11 +48,14 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	printSecurityReport(info, mode, elapsed)
+	// Snapper runs in parallel (requires root; silently skipped if unavailable)
+	snapInfo, _ := collectors.CollectSnapper(ctx)
+
+	printSecurityReport(info, snapInfo, mode, elapsed)
 	return nil
 }
 
-func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
+func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -190,7 +193,26 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		}
 	}
 
-	// SELinux
+	// Snapper / Btrfs snapshots (SLES / openSUSE)
+	if snap != nil && snap.Available {
+		fmt.Println("\nBtrfs snapshots (snapper)")
+		if snap.SnapshotCount == 0 {
+			fmt.Printf("  \u26a0\ufe0f  no snapshots found\n")
+		} else {
+			spaceStr := ""
+			if snap.TotalSpaceGB > 0 {
+				spaceStr = fmt.Sprintf(", %.2f GiB used", snap.TotalSpaceGB)
+			}
+			switch {
+			case snap.LastSnapshotH < 0:
+				fmt.Printf("  \u26a0\ufe0f  %d snapshot(s)%s — no recent snapshot\n", snap.SnapshotCount, spaceStr)
+			case snap.LastSnapshotH == 0:
+				fmt.Printf("  \u2705  %d snapshot(s)%s — last: < 1h ago\n", snap.SnapshotCount, spaceStr)
+			default:
+				fmt.Printf("  \u2705  %d snapshot(s)%s — last: %dh ago\n", snap.SnapshotCount, spaceStr, snap.LastSnapshotH)
+			}
+		}
+	}
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)
 		switch {
