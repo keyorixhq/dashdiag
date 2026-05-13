@@ -42,6 +42,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseUID0Users(info)
 	parseSuspectCrons(info)
 	parseFirewall(ctx, info)
+	parseRHELSecurity(ctx, info)
 
 	return info, nil
 }
@@ -639,4 +640,114 @@ func detectIPTables(info *models.SecurityInfo) bool {
 		return true
 	}
 	return false
+}
+
+// parseRHELSecurity collects security state specific to RHEL/Rocky/Fedora:
+// FIPS mode, crypto-policies, USBGuard, AIDE, and auditd rules.
+func parseRHELSecurity(ctx context.Context, info *models.SecurityInfo) {
+	parseFIPS(info)
+	parseCryptoPolicy(ctx, info)
+	parseUSBGuard(info)
+	parseAIDE(info)
+	parseAuditRules(ctx, info)
+}
+
+// parseFIPS checks /proc/sys/crypto/fips_enabled.
+// Returns silently on non-RHEL systems where the file doesn't exist.
+func parseFIPS(info *models.SecurityInfo) {
+	data, err := os.ReadFile("/proc/sys/crypto/fips_enabled") // #nosec G304
+	if err != nil {
+		return
+	}
+	info.FIPSEnabled = strings.TrimSpace(string(data)) == "1"
+}
+
+// parseCryptoPolicy reads the active system-wide cryptographic policy.
+// RHEL/Rocky uses /etc/crypto-policies/config (DEFAULT, LEGACY, FUTURE, FIPS).
+func parseCryptoPolicy(ctx context.Context, info *models.SecurityInfo) {
+	// Prefer reading the config file directly — no subprocess needed
+	if data, err := os.ReadFile("/etc/crypto-policies/config"); err == nil { // #nosec G304
+		policy := strings.TrimSpace(string(data))
+		if policy != "" {
+			info.CryptoPolicy = policy
+			return
+		}
+	}
+	// Fallback: update-crypto-policies --show (Fedora may need this)
+	if out, err := runCmd(ctx, "update-crypto-policies", "--show"); err == nil {
+		info.CryptoPolicy = strings.TrimSpace(out)
+	}
+}
+
+// parseUSBGuard checks if usbguard service is active.
+func parseUSBGuard(info *models.SecurityInfo) {
+	data, err := os.ReadFile("/sys/class/usb_device") // #nosec G304
+	_ = data
+	// usbguard detection: check if the service unit exists and is active
+	if _, err2 := os.Stat("/usr/sbin/usbguard"); err2 == nil {
+		// Binary present — check if service is active via systemd cgroup
+		if _, err3 := os.Stat("/sys/fs/cgroup/system.slice/usbguard.service"); err3 == nil {
+			info.USBGuardActive = true
+			return
+		}
+	}
+	_ = err
+	// Fallback: check pid file or socket
+	if _, err4 := os.Stat("/run/usbguard/usbguard-daemon.pid"); err4 == nil {
+		info.USBGuardActive = true
+	}
+}
+
+// parseAIDE checks if AIDE is installed and when the database was last updated.
+func parseAIDE(info *models.SecurityInfo) {
+	// Check binary
+	aidePaths := []string{"/usr/sbin/aide", "/usr/bin/aide"}
+	for _, p := range aidePaths {
+		if _, err := os.Stat(p); err == nil {
+			info.AIDEInstalled = true
+			break
+		}
+	}
+	if !info.AIDEInstalled {
+		return
+	}
+
+	// Check database existence
+	dbPaths := []string{
+		"/var/lib/aide/aide.db",
+		"/var/lib/aide/aide.db.gz",
+		"/var/lib/aide/aide.db.new",
+	}
+	for _, p := range dbPaths {
+		if fi, err := os.Stat(p); err == nil {
+			info.AIDEDBExists = true
+			days := int(time.Since(fi.ModTime()).Hours() / 24)
+			info.AIDELastRunDays = days
+			return
+		}
+	}
+	info.AIDELastRunDays = -1 // installed but never run
+}
+
+// parseAuditRules counts active auditd rules via auditctl.
+// Returns -1 when auditctl is unavailable or auditd not running.
+func parseAuditRules(ctx context.Context, info *models.SecurityInfo) {
+	out, err := runCmd(ctx, "auditctl", "-l")
+	if err != nil {
+		info.AuditRules = -1
+		return
+	}
+	// "No rules" means auditd running but empty ruleset
+	if strings.Contains(out, "No rules") || strings.TrimSpace(out) == "" {
+		info.AuditRules = 0
+		return
+	}
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			count++
+		}
+	}
+	info.AuditRules = count
 }
