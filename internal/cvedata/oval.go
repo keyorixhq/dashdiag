@@ -53,9 +53,20 @@ type ovalCriterion struct {
 }
 
 type ovalRPMTest struct {
-	ID        string `xml:"id,attr"`
-	ObjectRef string `xml:"object>object_ref,attr"`
-	StateRef  string `xml:"state>state_ref,attr"`
+	ID     string        `xml:"id,attr"`
+	Object ovalObjectRef `xml:"object"`
+	State  ovalStateRef  `xml:"state"`
+}
+
+func (t ovalRPMTest) ObjectRef() string { return t.Object.Ref }
+func (t ovalRPMTest) StateRef() string  { return t.State.Ref }
+
+type ovalObjectRef struct {
+	Ref string `xml:"object_ref,attr"`
+}
+
+type ovalStateRef struct {
+	Ref string `xml:"state_ref,attr"`
 }
 
 type ovalRPMObject struct {
@@ -64,9 +75,13 @@ type ovalRPMObject struct {
 }
 
 type ovalRPMState struct {
-	ID        string `xml:"id,attr"`
-	EVR       string `xml:"evr"`
-	Operation string `xml:"evr>operation,attr"`
+	ID  string  `xml:"id,attr"`
+	EVR ovalEVR `xml:"evr"`
+}
+
+type ovalEVR struct {
+	Value     string `xml:",chardata"`
+	Operation string `xml:"operation,attr"`
 }
 
 // CheckCVEFromOVAL checks a CVE using an OVAL file (bzip2 or plain XML).
@@ -98,11 +113,14 @@ func CheckCVEFromOVAL(ctx context.Context, ovalPath string, cveID string) (*OVAL
 	}
 
 	// Find definition matching our CVE
+	// SUSE OVAL uses ref_id like "Mitre CVE-XXXX" or "SUSE CVE-XXXX"
+	// so we check if ref_id equals OR contains the CVE ID.
 	var matchDef *ovalDefinition
 	for i := range oval.Definitions {
 		def := &oval.Definitions[i]
 		for _, ref := range def.Metadata.References {
-			if strings.EqualFold(ref.RefID, cveID) {
+			if strings.EqualFold(ref.RefID, cveID) ||
+				strings.Contains(strings.ToUpper(ref.RefID), strings.ToUpper(cveID)) {
 				matchDef = def
 				break
 			}
@@ -147,11 +165,11 @@ func collectMatches(criteria ovalCriteria, tests map[string]*ovalRPMTest,
 		if !ok {
 			continue
 		}
-		obj, ok := objects[test.ObjectRef]
+		obj, ok := objects[test.ObjectRef()]
 		if !ok {
 			continue
 		}
-		state, ok := states[test.StateRef]
+		state, ok := states[test.StateRef()]
 		if !ok {
 			continue
 		}
@@ -159,7 +177,7 @@ func collectMatches(criteria ovalCriteria, tests map[string]*ovalRPMTest,
 		if !present {
 			continue // package not installed → not affected
 		}
-		fixedIn := state.EVR
+		fixedIn := state.EVR.Value
 		if IsVulnerable(installedEVR, fixedIn) {
 			result.Packages = append(result.Packages, OVALPackageMatch{
 				Name:      obj.Name,
