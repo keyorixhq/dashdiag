@@ -773,8 +773,9 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	}
 
 	// Find most recent archive in /var/log/
+	// SLES 16 creates directories (scc_HOST_DATE/) not archives
 	patterns := []string{
-		"/var/log/scc_*.txz", // SLES 15+/16 format
+		"/var/log/scc_*.txz", // SLES 15+/16 archive format
 		"/var/log/nts_*.tbz", // older SLES format
 		"/tmp/scc_*.txz",
 		"/tmp/nts_*.tbz",
@@ -782,6 +783,21 @@ func parseSupportconfig(info *models.SecurityInfo) {
 
 	var newest os.FileInfo
 	var newestPath string
+
+	// Also check for directory-based output (SLES 16 default)
+	if entries, err := os.ReadDir("/var/log"); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && (strings.HasPrefix(e.Name(), "scc_") || strings.HasPrefix(e.Name(), "nts_")) {
+				p := "/var/log/" + e.Name()
+				fi, err := e.Info()
+				if err == nil && (newest == nil || fi.ModTime().After(newest.ModTime())) {
+					newest = fi
+					newestPath = p
+				}
+			}
+		}
+	}
+
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {

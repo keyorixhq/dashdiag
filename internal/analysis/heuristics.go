@@ -1187,9 +1187,13 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	// distro-correct fix commands
 	fixCmd := "apt-get upgrade"
 	inspectCmd := "apt list --upgradable 2>/dev/null | grep -i security"
-	if pkg.PackageManager == "dnf" {
+	switch pkg.PackageManager {
+	case "dnf":
 		fixCmd = "dnf upgrade --security"
 		inspectCmd = "dnf updateinfo list security"
+	case "zypper":
+		fixCmd = "zypper patch --category security"
+		inspectCmd = "zypper list-patches --category security"
 	}
 
 	if pkg.CriticalUpdates > 0 {
