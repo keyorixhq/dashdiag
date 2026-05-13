@@ -118,6 +118,12 @@ func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
 	if usedPct <= 70 {
 		return models.FDProcessInfo{}, false
 	}
+	// Skip socket-activated transient helpers (sshd-auth, systemd per-connection
+	// units) that have artificially low soft limits set by their service config.
+	// These are not real FD exhaustion risks.
+	if softLimit <= 16 && fdCount <= 32 {
+		return models.FDProcessInfo{}, false
+	}
 	pidInt, _ := strconv.Atoi(pid)
 	nameData, _ := os.ReadFile(filepath.Join("/proc", pid, "comm")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	name := strings.TrimSpace(string(nameData))
