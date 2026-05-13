@@ -311,14 +311,25 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 }
 
 // zypperHasSecurityRepo checks if a security-related repo is enabled.
+// On SLES, security patches require SUSEConnect registration.
+// On openSUSE Tumbleweed, update-tumbleweed is the security channel.
 func zypperHasSecurityRepo(ctx context.Context) bool {
 	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "repos")
 	if err != nil {
 		return false
 	}
 	lower := strings.ToLower(out)
-	for _, keyword := range []string{"security", "update", "sle-module", "opensuse-update"} {
+	for _, keyword := range []string{"security", "update", "sle-module", "opensuse-update", "tumbleweed"} {
 		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+
+	// SLES: check if SUSEConnect is registered — without it, no security repos
+	if _, err := runCmd(ctx, "SUSEConnect", "--status"); err == nil {
+		// SUSEConnect present — check if system is registered
+		statusOut, _ := runCmd(ctx, "SUSEConnect", "--status")
+		if strings.Contains(strings.ToLower(statusOut), "registered") {
 			return true
 		}
 	}
