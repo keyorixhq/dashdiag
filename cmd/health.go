@@ -192,7 +192,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 
 	// --report: write shareable markdown file
 	if reportFlag && snap != nil {
-		path, err := render.GenerateReport(snap, insights, elapsed)
+		// Collect CVE data for report (runs quickly, uses same package manager)
+		cveData := collectors.ScanAllCVEs(ctx)
+		path, err := render.GenerateReport(snap, insights, elapsed, cveData)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "report: %v\n", err)
 		} else {

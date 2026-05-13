@@ -373,7 +373,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 	}
 
 	// Parse pipe-delimited table:
-	// Repository | Patch Name | Category | Severity | Interactive | Status | Summary
+	// Repository | Patch Name | Category | Severity | Interactive | Status | Since | Summary
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, "|") {
 			continue
@@ -390,11 +390,13 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 		if category != "security" {
 			continue
 		}
+		// Summary is the last field (index 6 with 7 cols, index 7 with 8 cols)
+		summary := strings.TrimSpace(fields[len(fields)-1])
 
 		advisory := models.CVEAdvisory{
 			ID:       strings.TrimSpace(fields[1]),
 			Severity: strings.TrimSpace(fields[3]),
-			Summary:  strings.TrimSpace(fields[6]),
+			Summary:  summary,
 		}
 
 		switch strings.ToLower(advisory.Severity) {
