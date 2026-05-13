@@ -69,3 +69,14 @@ type PortEntry struct {
 	Process  string `json:"process"`
 	Expected bool   `json:"expected"`
 }
+
+// SnapperInfo holds Btrfs/Snapper snapshot health for SLES/openSUSE.
+type SnapperInfo struct {
+	Available     bool    `json:"available"`
+	ConfigCount   int     `json:"config_count"`
+	SnapshotCount int     `json:"snapshot_count"`
+	OldestDays    int     `json:"oldest_days"`     // age of oldest snapshot
+	TotalSpaceGB  float64 `json:"total_space_gb"`  // total space used by snapshots
+	LastSnapshotH int     `json:"last_snapshot_h"` // hours since last snapshot (-1 = none)
+	Error         string  `json:"error,omitempty"`
+}
