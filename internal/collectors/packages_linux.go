@@ -23,6 +23,9 @@ func (c *PackagesCollector) Timeout() time.Duration { return 30 * time.Second }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Detect package manager
+	if _, err := runCmd(ctx, "zypper", "--version"); err == nil {
+		return collectZypper(ctx)
+	}
 	if _, err := runCmd(ctx, "dnf", "--version"); err == nil {
 		return collectDNF(ctx)
 	}
@@ -208,6 +211,69 @@ func aptHasSecurityRepo() bool {
 				strings.Contains(lower, "-security") {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// collectZypper parses `zypper list-patches --category security` for openSUSE/SLES.
+// zypper list-patches exits 0 whether or not patches are available.
+// Security patches are identified by category "security" in the output.
+func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
+	info := &models.PackagesInfo{PackageManager: "zypper"}
+
+	// Check for security patches
+	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+		"list-patches", "--category", "security")
+	if err != nil {
+		// zypper may require root for full repo access — not a hard error
+		info.StatusReason = "zypper list-patches unavailable (try running as root)"
+		info.Status = "OK"
+		info.StatusReason = "unable to check security patches"
+		return info, nil
+	}
+
+	// Parse output — lines look like:
+	// Repository | Name           | Category | Severity | Interactive | Status | Summary
+	// ---------- | -------------- | -------- | -------- | ----------- | ------ | -------
+	// updates    | openSUSE-2024  | security | important|    ---      | needed | fix for CVE-...
+	securityNeeded := 0
+	criticalNeeded := 0
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "security") {
+			continue
+		}
+		if strings.Contains(lower, "needed") || strings.Contains(lower, "not installed") {
+			securityNeeded++
+			if strings.Contains(lower, "critical") || strings.Contains(lower, "important") {
+				criticalNeeded++
+			}
+		}
+	}
+
+	info.SecurityUpdates = securityNeeded
+	info.CriticalUpdates = criticalNeeded
+
+	// Check if security repos are configured
+	info.HasSecurityRepo = zypperHasSecurityRepo(ctx)
+	if !info.HasSecurityRepo {
+		info.StatusReason = "no security repository configured — add openSUSE security or SLES update repo"
+	}
+
+	return info, nil
+}
+
+// zypperHasSecurityRepo checks if a security-related repo is enabled.
+func zypperHasSecurityRepo(ctx context.Context) bool {
+	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "repos")
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(out)
+	for _, keyword := range []string{"security", "update", "sle-module", "opensuse-update"} {
+		if strings.Contains(lower, keyword) {
+			return true
 		}
 	}
 	return false
