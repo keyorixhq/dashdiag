@@ -345,6 +345,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewEntropyCollector(),
 		collectors.NewLogsCollector(),
 		collectors.NewSecurityCollector(),
+		collectors.NewSnapperCollector(),
 		collectors.NewThermalCollector(),
 		collectors.NewBatteryCollector(),
 		collectors.NewNVMeCollector(),
