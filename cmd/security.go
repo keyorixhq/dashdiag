@@ -103,6 +103,25 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		fmt.Println("\nSudo NOPASSWD entries: none")
 	}
 
+	// Firewall
+	if info.FirewallActive {
+		sshIcon := "✅"
+		if !info.SSHAllowed {
+			sshIcon = "❌"
+		}
+		zone := ""
+		if info.FirewallZone != "" {
+			zone = fmt.Sprintf(" (zone: %s)", info.FirewallZone)
+		}
+		fmt.Printf("\nFirewall: %s active%s\n", info.FirewallType, zone)
+		if len(info.FirewallServices) > 0 {
+			fmt.Printf("  ✅  allowed: %s\n", strings.Join(info.FirewallServices, ", "))
+		}
+		fmt.Printf("  %s  SSH accessible\n", sshIcon)
+	} else {
+		fmt.Println("\nFirewall: none detected")
+	}
+
 	// SELinux
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)

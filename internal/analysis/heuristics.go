@@ -962,6 +962,17 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 		}
 	}
 
+	// Firewall
+	if sec.FirewallActive && !sec.SSHAllowed {
+		out = append(out, insight("CRIT", "Hardening",
+			fmt.Sprintf("firewall (%s) active but SSH (port 22) not in allowed services — you may lose remote access after reconnect", sec.FirewallType),
+			[]string{
+				"to fix (firewalld): firewall-cmd --add-service=ssh --permanent && firewall-cmd --reload",
+				"to fix (ufw): ufw allow ssh",
+			},
+		))
+	}
+
 	// Sudo NOPASSWD
 	if len(sec.SudoNopasswd) > 0 {
 		out = append(out, insight("WARN", "Hardening",

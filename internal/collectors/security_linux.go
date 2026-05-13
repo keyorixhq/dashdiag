@@ -41,6 +41,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseSELinuxDenials(ctx, info)
 	parseUID0Users(info)
 	parseSuspectCrons(info)
+	parseFirewall(ctx, info)
 
 	return info, nil
 }
@@ -326,10 +327,15 @@ func buildInodeProcMap() (map[string]string, bool) {
 // TODO(backlog): let users configure expected ports via dsd config.
 func isExpectedPort(port int) bool {
 	expected := map[int]bool{
-		22:   true, // SSH
-		80:   true, // HTTP
-		443:  true, // HTTPS
-		9090: true, // Cockpit (RHEL web console)
+		22:    true, // SSH
+		80:    true, // HTTP
+		443:   true, // HTTPS
+		9090:  true, // Cockpit (RHEL web console)
+		10250: true, // kubelet (k8s/k3s node)
+		10255: true, // kubelet read-only
+		6443:  true, // kube-apiserver
+		2379:  true, // etcd
+		2380:  true, // etcd peer
 	}
 	return expected[port]
 }
@@ -515,4 +521,122 @@ func wellKnownPortName(port int) string {
 		6443:  "kube-apiserver",
 	}
 	return names[port]
+}
+
+// parseFirewall detects the active firewall type and collects key state.
+// Checks firewalld, ufw, nftables, and iptables in priority order.
+func parseFirewall(ctx context.Context, info *models.SecurityInfo) {
+	// firewalld — RHEL/Rocky/Fedora/CentOS default
+	if detectFirewalld(ctx, info) {
+		return
+	}
+	// ufw — Ubuntu/Debian common choice
+	if detectUFW(ctx, info) {
+		return
+	}
+	// nftables — bare nftables without a management daemon
+	if detectNFTables(info) {
+		return
+	}
+	// iptables — legacy, common on older systems
+	if detectIPTables(info) {
+		return
+	}
+	// No firewall detected — not an error, just record it
+	info.FirewallActive = false
+	info.SSHAllowed = true // no firewall = everything reachable
+}
+
+func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
+	out, err := runCmd(ctx, "firewall-cmd", "--state")
+	if err != nil || strings.TrimSpace(out) != "running" {
+		return false
+	}
+	info.FirewallActive = true
+	info.FirewallType = "firewalld"
+
+	// Active zone
+	if zoneOut, err := runCmd(ctx, "firewall-cmd", "--get-default-zone"); err == nil {
+		info.FirewallZone = strings.TrimSpace(zoneOut)
+	}
+
+	// Allowed services in active zone
+	if svcOut, err := runCmd(ctx, "firewall-cmd", "--list-services"); err == nil {
+		for _, svc := range strings.Fields(svcOut) {
+			info.FirewallServices = append(info.FirewallServices, svc)
+		}
+	}
+
+	// SSH allowed?
+	info.SSHAllowed = false
+	for _, svc := range info.FirewallServices {
+		if svc == "ssh" {
+			info.SSHAllowed = true
+			break
+		}
+	}
+	// Also check explicit port 22
+	if !info.SSHAllowed {
+		if portsOut, err := runCmd(ctx, "firewall-cmd", "--list-ports"); err == nil {
+			if strings.Contains(portsOut, "22/tcp") {
+				info.SSHAllowed = true
+			}
+		}
+	}
+	return true
+}
+
+func detectUFW(ctx context.Context, info *models.SecurityInfo) bool {
+	out, err := runCmd(ctx, "ufw", "status")
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(out)
+	if !strings.Contains(lower, "active") {
+		return false
+	}
+	info.FirewallActive = true
+	info.FirewallType = "ufw"
+	// ufw status shows "22/tcp ALLOW" or "OpenSSH ALLOW"
+	info.SSHAllowed = strings.Contains(lower, "22") && strings.Contains(lower, "allow") ||
+		strings.Contains(lower, "openssh") && strings.Contains(lower, "allow")
+	return true
+}
+
+func detectNFTables(info *models.SecurityInfo) bool {
+	data, err := os.ReadFile("/proc/net/nf_conntrack_stat") // #nosec G304
+	if err != nil {
+		// Try listing nft tables instead
+		if _, err2 := os.Stat("/proc/sys/net/netfilter"); err2 != nil {
+			return false
+		}
+	}
+	_ = data
+	// Check if nftables has any rules
+	entries, _ := filepath.Glob("/etc/nftables.conf")
+	if len(entries) == 0 {
+		entries, _ = filepath.Glob("/etc/nftables.d/*.nft")
+	}
+	if len(entries) > 0 {
+		info.FirewallActive = true
+		info.FirewallType = "nftables"
+		info.SSHAllowed = true // conservative — assume SSH ok unless we parse rules
+		return true
+	}
+	return false
+}
+
+func detectIPTables(info *models.SecurityInfo) bool {
+	// Check if iptables has non-trivial rules (INPUT chain has entries)
+	data, err := os.ReadFile("/proc/net/ip_tables_names") // #nosec G304
+	if err != nil {
+		return false
+	}
+	if strings.Contains(string(data), "filter") {
+		info.FirewallActive = true
+		info.FirewallType = "iptables"
+		info.SSHAllowed = true // conservative default
+		return true
+	}
+	return false
 }
