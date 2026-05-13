@@ -118,6 +118,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
 		return checkHealthDeep(d)
 	case *models.HealthDeepInfo:
 		return checkHealthDeep(*d)
+	case models.DockerInfo:
+		return checkDocker(d)
+	case *models.DockerInfo:
+		return checkDocker(*d)
 	case models.TLSInfo:
 		return checkTLS(d)
 	case *models.TLSInfo:
@@ -1120,6 +1124,71 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 				"to inspect: cat /proc/meminfo | grep Dirty",
 				"to inspect: iostat -x 1 5",
 			},
+		))
+	}
+
+	return out
+}
+
+func checkDocker(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
+
+	if !d.Available {
+		out = append(out, insight("INFO", "Docker",
+			"docker daemon not running or not installed",
+			[]string{"to inspect: systemctl status docker", "to install: https://docs.docker.com/engine/install"},
+		))
+		return out
+	}
+
+	// Crash looping containers — always CRIT
+	for _, name := range d.CrashLooping {
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("container %q is crash looping (restarted >5 times)", name),
+			[]string{
+				fmt.Sprintf("to inspect: docker logs %s --tail 50", name),
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A5 RestartCount", name),
+			},
+		))
+	}
+
+	// Unhealthy containers
+	for _, name := range d.Unhealthy {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("container %q health check failing", name),
+			[]string{
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A10 Health", name),
+				fmt.Sprintf("to inspect: docker logs %s --tail 20", name),
+			},
+		))
+	}
+
+	// Stopped containers — informational, not always bad
+	if d.Stopped > 5 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d stopped containers accumulating — consider pruning", d.Stopped),
+			[]string{"to fix: docker container prune"},
+		))
+	}
+
+	// Dangling images eating disk
+	if d.DanglingImagesMB >= 1024 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),
+			[]string{"to fix: docker image prune", "to fix: docker system prune"},
+		))
+	} else if d.DanglingImages > 0 {
+		out = append(out, insight("INFO", "Docker",
+			fmt.Sprintf("%d dangling image(s) using %.0f MB", d.DanglingImages, d.DanglingImagesMB),
+			[]string{"to fix: docker image prune"},
+		))
+	}
+
+	// Orphaned volumes
+	if d.OrphanedVolumes > 3 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
+			[]string{"to fix: docker volume prune"},
 		))
 	}
 
