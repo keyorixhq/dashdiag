@@ -307,6 +307,21 @@ func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64)
 }
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
+
+	// Link speed check — 100Mbps on a server primary interface suggests wrong
+	// cable (Cat5 instead of Cat5e/Cat6) or switch port misconfiguration.
+	for _, iface := range net.Interfaces {
+		if iface.Name == net.PrimaryInterface && iface.SpeedMbps > 0 && iface.SpeedMbps < 1000 {
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("primary interface %s linked at %d Mbps — expected 1000+ Mbps (check cable or switch port)", iface.Name, iface.SpeedMbps),
+				[]string{
+					"to inspect: ethtool " + iface.Name,
+					"to inspect: cat /sys/class/net/" + iface.Name + "/speed",
+				},
+			))
+		}
+	}
+
 	if net.PrimaryInterfaceDown {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
