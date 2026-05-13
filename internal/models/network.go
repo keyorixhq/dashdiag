@@ -6,6 +6,8 @@ type InterfaceInfo struct {
 	Up        bool   `json:"up"`
 	RxDrops   uint64 `json:"rx_drops"`
 	TxDrops   uint64 `json:"tx_drops"`
+	RxErrors  uint64 `json:"rx_errors,omitempty"` // hardware errors (CRC, frame, overrun)
+	TxErrors  uint64 `json:"tx_errors,omitempty"`
 	SpeedMbps int    `json:"speed_mbps"`
 	IsUSB     bool   `json:"is_usb,omitempty"` // USB-attached NIC (unreliable for production)
 	Driver    string `json:"driver,omitempty"` // kernel driver (r8152, ax88179, cdc_ether...)
