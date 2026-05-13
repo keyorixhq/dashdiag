@@ -44,6 +44,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseFirewall(ctx, info)
 	parseRHELSecurity(ctx, info)
 	parseSupportconfig(info)
+	parseAppArmor(info)
 
 	return info, nil
 }
@@ -809,4 +810,17 @@ func parseSupportconfig(info *models.SecurityInfo) {
 
 	info.SupportconfigArchive = newestPath
 	info.SupportconfigLastRunDays = int(time.Since(newest.ModTime()).Hours() / 24)
+}
+
+// parseAppArmor populates AppArmor state into SecurityInfo.
+// Reuses the same detection logic as KernelSecurityCollector.
+func parseAppArmor(info *models.SecurityInfo) {
+	if !apparmorEnabled() {
+		return
+	}
+	info.AppArmorMode = apparmorMode()
+	total, _, complain := apparmorDetail()
+	info.AppArmorProfiles = total
+	info.AppArmorComplain = complain
+	info.AppArmorDenials = countAppArmorDenials(1 * time.Hour)
 }
