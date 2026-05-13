@@ -122,6 +122,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
 		return checkDocker(d)
 	case *models.DockerInfo:
 		return checkDocker(*d)
+	case models.K8sInfo:
+		return checkK8s(d)
+	case *models.K8sInfo:
+		return checkK8s(*d)
 	case models.TLSInfo:
 		return checkTLS(d)
 	case *models.TLSInfo:
@@ -940,6 +944,21 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 		))
 	}
 
+	// Cockpit (port 9090) — informational: management UI exposed
+	for _, p := range sec.ListeningPorts {
+		if p.Port == 9090 {
+			out = append(out, insight("INFO", "Hardening",
+				"Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
+				[]string{
+					"to inspect: systemctl status cockpit",
+					"to restrict: configure AllowUnencrypted=false in /etc/cockpit/cockpit.conf",
+					"to restrict: limit access with firewall-cmd --add-rich-rule",
+				},
+			))
+			break
+		}
+	}
+
 	// Sudo NOPASSWD
 	if len(sec.SudoNopasswd) > 0 {
 		out = append(out, insight("WARN", "Hardening",
@@ -1191,6 +1210,71 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
 			[]string{"to fix: docker volume prune"},
+		))
+	}
+
+	return out
+}
+
+func checkK8s(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+
+	if !k.Detected {
+		return out // k8s not present — not an error
+	}
+
+	// Nodes not ready — always CRIT
+	if k.NodesNotReady > 0 {
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("%d node(s) not Ready — cluster may be degraded", k.NodesNotReady),
+			[]string{
+				"to inspect: kubectl get nodes -o wide",
+				"to inspect: kubectl describe node <name>",
+			},
+		))
+	}
+
+	// Crash looping pods — always CRIT
+	if k.CrashLooping > 0 {
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping),
+			[]string{
+				"to inspect: kubectl get pods -A | grep -v Running",
+				"to inspect: kubectl logs <pod> -n <ns> --previous",
+			},
+		))
+	}
+
+	// Pods not ready (container 0/1 in Running state)
+	if k.PodsNotReady > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) running but containers not ready", k.PodsNotReady),
+			[]string{
+				"to inspect: kubectl get pods -A | grep '0/'",
+				"to inspect: kubectl describe pod <name> -n <ns>",
+			},
+		))
+	}
+
+	// Pending pods — may indicate resource pressure
+	if k.Pending > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck in Pending — check node resources or PVC availability", k.Pending),
+			[]string{
+				"to inspect: kubectl get pods -A | grep Pending",
+				"to inspect: kubectl describe pod <name> -n <ns> | grep -A5 Events",
+			},
+		))
+	}
+
+	// High restart count
+	if k.HighRestarts > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) with ≥ 10 restarts — instability detected", k.HighRestarts),
+			[]string{
+				"to inspect: kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'",
+				"to inspect: kubectl logs <pod> -n <ns> --previous",
+			},
 		))
 	}
 
