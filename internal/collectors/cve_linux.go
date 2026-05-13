@@ -4,17 +4,19 @@ package collectors
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // CheckCVE queries the system package manager to determine if a CVE
 // is affecting the current system. Supports zypper, dnf (4+5), and apt.
+// Falls back to OVAL file auto-discovery when package manager has stale metadata.
 func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
-	// Validate CVE format loosely
 	cveID = strings.TrimSpace(strings.ToUpper(cveID))
 	if !strings.HasPrefix(cveID, "CVE-") {
 		return &models.CVEResult{
@@ -27,21 +29,103 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Detect package manager and delegate
-	if _, err := exec.LookPath("zypper"); err == nil {
-		return checkCVEZypper(ctx, cveID)
+	// Try live package manager first
+	var result *models.CVEResult
+	switch {
+	case hasCmd("zypper"):
+		result = checkCVEZypper(ctx, cveID)
+	case hasCmd("dnf"):
+		result = checkCVEDNF(ctx, cveID)
+	case hasCmd("apt-get"):
+		result = checkCVEApt(ctx, cveID)
+	default:
+		result = &models.CVEResult{
+			CVE:          cveID,
+			Status:       models.CVEUnknown,
+			StatusReason: "no supported package manager found (zypper/dnf/apt)",
+		}
 	}
-	if _, err := exec.LookPath("dnf"); err == nil {
-		return checkCVEDNF(ctx, cveID)
+
+	// If package manager is definitive (VULNERABLE or PATCHED) — done.
+	// If NOT_AFFECTED or UNKNOWN — repo metadata may be stale.
+	// Try OVAL sidecar file as a secondary check.
+	if result.Status == models.CVENotAffected || result.Status == models.CVEUnknown {
+		if ovalResult := tryOVALFallback(ctx, cveID); ovalResult != nil {
+			return ovalResult
+		}
 	}
-	if _, err := exec.LookPath("apt-get"); err == nil {
-		return checkCVEApt(ctx, cveID)
+	return result
+}
+
+// hasCmd returns true when the given command is in PATH.
+func hasCmd(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+// tryOVALFallback looks for an OVAL sidecar file and checks the CVE against it.
+// Returns nil when no OVAL file is found.
+func tryOVALFallback(ctx context.Context, cveID string) *models.CVEResult {
+	// Detect distro ID from /etc/os-release
+	distroID := readDistroID()
+
+	// Try OVAL file from standard paths
+	ovalPath := cvedata.FindOVALFile(distroID)
+	if ovalPath == "" {
+		return nil
 	}
-	return &models.CVEResult{
-		CVE:          cveID,
-		Status:       models.CVEUnknown,
-		StatusReason: "no supported package manager found (zypper/dnf/apt)",
+
+	ovalResult, err := cvedata.CheckCVEFromOVAL(ctx, ovalPath, cveID)
+	if err != nil || !ovalResult.Found {
+		return nil
 	}
+
+	// Convert OVALResult to CVEResult
+	r := &models.CVEResult{
+		CVE:            cveID,
+		PackageManager: "oval:" + ovalPath,
+		StatusReason:   "from OVAL sidecar: " + ovalPath,
+	}
+	if len(ovalResult.Packages) > 0 {
+		r.Status = models.CVEVulnerable
+		r.FixCommand = fixCommand()
+		for _, p := range ovalResult.Packages {
+			r.AffectedPackages = append(r.AffectedPackages, models.CVEPackage{
+				Name:    p.Name,
+				Version: p.Installed,
+				FixedIn: p.FixedIn,
+			})
+		}
+	} else {
+		r.Status = models.CVENotAffected
+		r.StatusReason = "OVAL: no vulnerable packages installed"
+	}
+	return r
+}
+
+func readDistroID() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			return strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+		}
+	}
+	return ""
+}
+
+func fixCommand() string {
+	switch {
+	case hasCmd("zypper"):
+		return "zypper patch --category security"
+	case hasCmd("dnf"):
+		return "dnf upgrade --security"
+	case hasCmd("apt-get"):
+		return "apt-get upgrade"
+	}
+	return ""
 }
 
 // checkCVEZypper uses `zypper lp --cve CVE-XXXX` (SLES/openSUSE).
