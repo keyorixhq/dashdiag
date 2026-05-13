@@ -514,6 +514,7 @@ func truncate(s string, maxLen int) string {
 // activated via systemd socket activation where the process shows as 'systemd'.
 func wellKnownPortName(port int) string {
 	names := map[int]string{
+		25:    "postfix", // SMTP — default MTA on openSUSE/SLES server
 		9090:  "cockpit", // RHEL/Rocky web console
 		9100:  "node-exporter",
 		10250: "kubelet",
