@@ -11238,3 +11238,102 @@ The vision did not.**
 ---
 
 *DashDiag Project Bible — Version 48.0 — Consolidated from fifty planning sessions*
+
+## 27. Multi-Distro Validation Testbed
+
+### Hardware
+
+**Lenovo Legion 5 15ACH6H (82JU)**
+- CPU: AMD Ryzen 7 5800H (8 cores / 16 threads)
+- GPU: NVIDIA RTX 3070 Laptop (8GB VRAM)
+- RAM: 16GB DDR4
+- Storage: 2x NVMe (nvme0n1 = Windows, nvme1n1 = Linux multi-boot)
+- Network: 192.168.1.145 (rotates across OS boots)
+
+### Multi-Boot Partition Map (nvme1n1, 1TB)
+
+| Partition | Size | OS | Status |
+|---|---|---|---|
+| p1-p5 | ~280GB | RHEL 10.1 | ✅ Validated |
+| p6 | 977MB | Shared ESP | All distros use this |
+| p7-p10 | 185GB | Debian 13.4 | ✅ Validated |
+| p11-p12 | 76GB | Ubuntu 26.04 | ✅ Installed, stress pending |
+| p13 | 74GB | Fedora 44 | ✅ Validated (GPU, DNF5) |
+| p14 | 2GB | Fedora swap | |
+| p15-p16 | 56GB | openSUSE Tumbleweed | ✅ Validated |
+| p17-p18 | 56GB | SLES 16 | ⏳ Installing |
+| p19-p20 | 80GB | Reserved (Gentoo TBD) | |
+| p21 | 1GB | Rocky /boot (LVM) | |
+| p22 | 184GB | Rocky Linux 10.1 LVM | ✅ Validated |
+
+Note: Rocky installer ignored pre-created p13/p14 and used the reserve space (p21/p22).
+Pre-created partitions p13-p20 are intact and available for other distros.
+
+### Validated Distros
+
+| OS | Kernel | Baselines | Stress | GPU | Key Findings |
+|---|---|---|---|---|---|
+| macOS arm64 | — | — | — | — | ✅ Full support |
+| RHEL 10.1 | 6.12.0 | Separate | ✅ | No | SELinux, subscription |
+| Debian 13.4 | 6.12.73 | 144 | ✅ | No | Overnight 9h, soft lockups |
+| Ubuntu 26.04 | 7.0.0 | — | Pending | No | |
+| Rocky Linux 10.1 | 6.12.0 | 197 | ✅ | ✅ 83°C peak | LVM, Podman, FIPS, AIDE |
+| Fedora 44 | 6.19.10 | Collecting | ✅ | ✅ Driver 595 | DNF5, gpu_burn fails GCC16 |
+| openSUSE Tumbleweed | 7.0.5 | Collecting | ✅ | ✅ Driver 580 | zypper, SELinux (not AppArmor!) |
+| SLES 16 | TBD | Pending | Pending | TBD | AppArmor, SUSEConnect, supportconfig |
+
+### Features Discovered/Built Per Distro
+
+**Rocky Linux 10.1 (2026-05-13)**
+- Cockpit port awareness + socket-activation service name resolution
+- BUG-009 SELinux AVC blind spot fix (non-root ausearch fallback)
+- dnf `has_security_repo` validation
+- Podman rootless socket (`/run/user/<uid>/podman/podman.sock`)
+- LVM disk collector validation (`/dev/mapper/rl-root`)
+- firewalld detection (zone, allowed services, SSH lockout CRIT)
+- `dsd health --firmware` via fwupd (UEFI dbx WARN — real finding)
+- FIPS mode, crypto-policies, auditd rules, AIDE, USBGuard
+
+**Fedora 44 (2026-05-13)**
+- DNF5 advisory command syntax (`dnf advisory list --security`)
+- LLMNR port 5355 added to expected ports (systemd-resolved)
+- gpu_burn incompatible with GCC 16 + CUDA 12.6
+
+**openSUSE Tumbleweed (2026-05-13)**
+- zypper security patch parser (fixed `not needed` bug)
+- FDLimits sshd-auth false positive fixed (socket-activated transient units)
+- postfix port 25 → `wellKnownPort` resolution
+- nvidia-persistenced /dev/nvidia* permission fix (dsd caught crash loop)
+- Stress every 10 minutes via stress-ng (no `stress` package on Tumbleweed)
+- SELinux enforcing on Tumbleweed (expected AppArmor — surprise!)
+
+**SLES 16 (2026-05-13) — Built, awaiting validation:**
+- AppArmor profiles + complain mode + denials in `dsd security`
+- SUSEConnect registration check in zypper repo detection
+- supportconfig detection (last run date, archive path)
+- SUMA competitive analysis added to project bible
+
+### Stress Test Infrastructure
+
+Each distro runs:
+```
+*/10 * * * * stress/stress-ng --cpu 8 --vm 2 --vm-bytes 2G --timeout 60s
+*/10 * * * * nvidia-smi snapshot after stress (GPU distros)
+* * * * * dsd health --json && dsd baseline collect
+```
+
+Data stored in `marketing-assets/<distro>-data/` per distro.
+
+### Key Multi-Distro Learnings
+
+1. **Port 9090 (Cockpit)** — shows as `systemd` due to socket activation. Fixed globally.
+2. **Port 5355 (LLMNR)** — standard on Fedora/Ubuntu, add to expected ports.
+3. **Port 25 (postfix)** — default on openSUSE/SLES server, show as `postfix` not `master`.
+4. **SELinux on Tumbleweed** — openSUSE moved from AppArmor to SELinux in Tumbleweed.
+5. **DNF5 syntax break** — `dnf updateinfo list security` → `dnf advisory list --security`.
+6. **zypper `not needed` bug** — `strings.Contains("not needed", "needed")` is true. Fixed to parse pipe-separated columns.
+7. **FDLimits sshd-auth** — systemd socket-activated transient processes have soft limit=1 by design. Not a real FD exhaustion.
+8. **Rocky installer grabs free space** — Anaconda ignores pre-created partitions and creates its own LVM layout using the reserve space. Use Expert Partitioner and name partitions explicitly.
+9. **gpu_burn + GCC 16** — CUDA 12.6 doesn't support GCC 16 (Fedora 44). Use nvidia-smi for GPU monitoring instead.
+10. **auditd 0 rules** — Rocky ships with auditd running but zero rules. Fedora and openSUSE ship 1 default rule. Surfaced as WARN.
+
