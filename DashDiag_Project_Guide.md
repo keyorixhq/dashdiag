@@ -1844,6 +1844,21 @@ Return models.K8sInfo. All list calls use context with 10s timeout."
 
 **Your real moat:** No tool combines composable subcommands + shareable formatted output + container/k8s pre-flight workflow in a single static binary.
 
+### Fleet Management Tools — Complementary, Not Competitive
+
+A separate category that looks competitive but isn't:
+
+| Tool | What it does | Why DashDiag still fits |
+|---|---|---|
+| SUSE Multi-Linux Manager (SUMA) | Patch/compliance/config management for 10–100,000 servers | Requires central server + agent registration. DashDiag works before onboarding, during incidents, when agent is broken |
+| Red Hat Satellite | Same as SUMA for RHEL estate | Same story — DashDiag is the escape hatch |
+| Ansible / SaltStack | Configuration management + orchestration | Push-based, requires connectivity to controller. DashDiag is local-only |
+| Datadog / Grafana | Monitoring and alerting platform | DashDiag is the tool for the 30 seconds before you open Datadog |
+
+**The SUSE insight:** SUSE claims 60% of Fortune 500 runs SLES. SUMA manages those fleets. DashDiag is what sysadmins run on individual SLES servers — before SUMA, during incidents, outside SUMA's coverage. These are the same customers, not competing tools.
+
+**Integration angle:** DashDiag's `--json` output is the platform API surface. Fleet tools like SUMA could consume dsd JSON output as a health signal without DashDiag ever needing to know about them. That's the moat — structured output that plugs into any pipeline.
+
 ### Objection Handling
 
 **"I just use aliases"** — Aliases don't provide structured output, cross-machine consistency, color-coded status indicators, or summary views with pass/fail logic. DashDiag isn't just running commands; it's interpreting results and presenting actionable conclusions.
