@@ -100,6 +100,9 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		if iface.RxDrops > 0 || iface.TxDrops > 0 {
 			details += fmt.Sprintf("  drops rx:%d tx:%d", iface.RxDrops, iface.TxDrops)
 		}
+		if iface.RxErrors > 0 || iface.TxErrors > 0 {
+			details += fmt.Sprintf("  errors rx:%d tx:%d", iface.RxErrors, iface.TxErrors)
+		}
 		primary := ""
 		if iface.Name == info.PrimaryInterface {
 			primary = "  ← primary"

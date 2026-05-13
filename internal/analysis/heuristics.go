@@ -305,7 +305,7 @@ func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64)
 		return thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD
 	}
 }
-func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen // network checks are a flat list; splitting would hurt readability
+func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
 	// Link speed check — 100Mbps on a server primary interface suggests wrong
@@ -331,6 +331,16 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen // 
 				[]string{
 					"to inspect: dmesg | grep -i usb",
 					"to inspect: lsusb",
+				},
+			))
+		}
+		// Hardware NIC errors (CRC, frame, overrun) — distinct from drops
+		if iface.RxErrors > 100 || iface.TxErrors > 100 {
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("%s has hardware errors: rx:%d tx:%d — may indicate bad cable, NIC, or switch port", iface.Name, iface.RxErrors, iface.TxErrors),
+				[]string{
+					"to inspect: ethtool -S " + iface.Name,
+					"to inspect: ip -s link show " + iface.Name,
 				},
 			))
 		}
@@ -837,6 +847,20 @@ func checkNVMe(n models.NVMeInfo) []models.Insight {
 		if dev.TempC >= 70 {
 			out = append(out, insight("WARN", "NVMe",
 				fmt.Sprintf("%s temperature %g°C — elevated for NVMe", dev.Name, dev.TempC),
+				[]string{"to inspect: nvme smart-log " + dev.Name},
+			))
+		}
+		// Unsafe shutdowns — each risks filesystem corruption
+		if dev.UnsafeShutdowns > 100 {
+			out = append(out, insight("WARN", "NVMe",
+				fmt.Sprintf("%s has %d unsafe shutdown(s) — power cuts risk filesystem corruption", dev.Name, dev.UnsafeShutdowns),
+				[]string{"to inspect: nvme smart-log " + dev.Name, "to fix: ensure clean shutdowns, check UPS"},
+			))
+		}
+		// Power-on hours — consumer NVMe beyond 4 years (35k hours) enters replacement window
+		if dev.PowerOnHours > 35000 {
+			out = append(out, insight("WARN", "NVMe",
+				fmt.Sprintf("%s has %d power-on hours (~%.1f years) — beyond typical consumer NVMe lifespan", dev.Name, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
