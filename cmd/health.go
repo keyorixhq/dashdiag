@@ -31,6 +31,7 @@ func init() {
 	healthCmd.Flags().Bool("tls", false, "include TLS certificate expiry check")
 	healthCmd.Flags().Bool("deep", false, "extended analysis: per-core CPU breakdown, top memory consumers")
 	healthCmd.Flags().Bool("firmware", false, "check for pending firmware upgrades via fwupd")
+	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 }
 
@@ -124,6 +125,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	tlsFlag, _ := cmd.Flags().GetBool("tls")
 	deepFlag, _ := cmd.Flags().GetBool("deep")
 	firmwareFlag, _ := cmd.Flags().GetBool("firmware")
+	reportFlag, _ := cmd.Flags().GetBool("report")
 	policyPath, _ := cmd.Flags().GetString("policy")
 	policy, err := loadPolicyIfSet(policyPath)
 	if err != nil {
@@ -187,6 +189,16 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 
 	exitCode := renderer.PrintSummary(insights, elapsed)
 	_ = baseline.SaveBaseline(snap)
+
+	// --report: write shareable markdown file
+	if reportFlag && snap != nil {
+		path, err := render.GenerateReport(snap, insights, elapsed)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "report: %v\n", err)
+		} else {
+			fmt.Printf("\n📄 Report saved: %s\n", path)
+		}
+	}
 
 	// Policy CI gate — override exit code based on deny rules.
 	// Default (no policy): exit 1 on WARN, 2 on CRIT (already from PrintSummary).
