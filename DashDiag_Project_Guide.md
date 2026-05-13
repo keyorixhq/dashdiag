@@ -11451,3 +11451,89 @@ sudo dsd health --report         # Generate shareable report
 - Battery health at **84.5%** (50.71Wh / 60Wh design, 150 cycles) — normal wear
 - SELinux enforcing on openSUSE Tumbleweed (expected AppArmor — surprise!)
 
+
+
+## 29. Session Log — 2026-05-14 (SLES 16 Hardware Validation + New Features)
+
+### Summary
+
+Hardware validation session on Lenovo Legion 5 (192.168.1.145) running SLES 16.
+Stress cron running throughout — Thermal CRITs captured in baselines overnight.
+Keyorix SL legally incorporated 2026-05-13, CIF provisional obtained.
+
+**Commits this session:** 5
+**Hardware validated:** SLES 16, dual NVMe, RTX 3070 GPU, AMD k10temp
+
+---
+
+### Features Shipped
+
+| Commit | Feature |
+|---|---|
+| `f710c02` | Snapper/Btrfs heuristic in `dsd health` — CRIT/WARN on stale/missing snapshots |
+| `257eec3` | SUSEConnect subscription status in `dsd health` as dedicated Subscription check |
+| `6c338d4` | `dsd hardware` — SMART via smartctl, hwmon thermals, EDAC memory errors |
+| `dc9df89` | nolint cyclop fix on checkHardware + printHardwareReport |
+
+---
+
+### Bugs Fixed
+
+- **Snapper date timezone bug**: `time.Parse` defaults to UTC; snapper dates are local wall-clock time. On CEST (UTC+2) machines, `time.Since(lastTime)` returned ~-1.7h, cast to int gave -1 which is the "unknown" sentinel. Fixed with `time.ParseInLocation(layout, s, time.Local)`.
+- **SUSEConnect orphaned insight**: insight with check name "Subscription" was silently dropped because `insightForResult` matches by runner result name — no collector named "Subscription" existed. Fixed by creating `SUSEConnectCollector` returning `*models.SUSEConnectInfo` (new thin type to avoid type-switch collision with SecurityInfo/checkSecurity).
+
+---
+
+### Hardware Validated
+
+| Check | Result |
+|---|---|
+| Dual NVMe IO collector | Both drives visible — nvme0n1 idle, nvme1n1 active. No bugs. |
+| OVAL air-gap path | Two outcomes: NOT AFFECTED + NOT IN OVAL both correct |
+| SUSEConnect in health | `Subscription OK SUSEConnect ACTIVE — expires in 60 day(s)` |
+| GPU VRAM WARN | 7314 MB / 8192 MB (89%) — WARN fires correctly at >85% threshold |
+| Snapper heuristic | `Snapshots OK 11 Btrfs snapshot(s) — last < 1h ago` |
+| dsd hardware NVMe | SKHynix 49/54°C, 7081/7100h, 0 media errors, SMART PASSED |
+| k10temp | 71°C post-stress, 100°C during stress-ng (CRIT fires correctly) |
+| EDAC | `/sys/devices/system/edac/mc` empty on AMD Zen 3 SLES 16 — correctly reports unavailable |
+
+---
+
+### Pending (Hardware Required)
+
+- **Marketing screenshots**: Thermal CRIT during stress + combined health output with multiple WARNs — tomorrow
+- **SATA validation**: `dsd hardware` SATA path built but untested — needs Proxmox HP ProDesk G2 (mix of SATA + NVMe). Validate `ata_smart_attributes` parsing (attrs 5, 197, 198, 173/177/231/233).
+- **Multi-distro smoke tests**: RHEL 10.1, Debian 13.4, Fedora 44, Rocky 10.1, openSUSE Tumbleweed all bootable on nvme1n1 — blocked by stress cron, reboot needed.
+- **Old MacBook Ubuntu**: aged Intel SSD — good `dsd hardware` wear % validation target.
+
+---
+
+### Architecture Decisions
+
+**SUSEConnectInfo separate from SecurityInfo**: When two different collectors both return `SecurityInfo`, the heuristics type switch can only route to one function. Solution: create a thin wrapper type `SUSEConnectInfo{Registered, ExpiresDays, Status}` so the type switch routes independently. Pattern to follow for any future "sub-check" extracted from an existing collector.
+
+---
+
+### Backlog Items Added (from 2026-05-14 session)
+
+**Distro-aware health checks** (sprint 3, collector layer discipline):
+Collectors should detect the running distro and adjust checks accordingly rather than
+being retrofitted later. Already largely done (zypper vs apt vs dnf, RHEL vs Debian
+log paths). What's missing is a formal discipline: every new collector should document
+which distro variants it handles and have a fallback for unknown distros.
+Implementation: add a `platform.Distro()` call at the top of each collector's
+`Collect()` function where behaviour differs, rather than scattered `if` checks.
+Not a sprint 2 item — add to collector review checklist for v0.3 quality pass.
+
+**Log surfacing in `dsd health deep`** (sprint 3):
+When a service or check is unhealthy, `dsd health deep` should surface the 3-5 most
+relevant log lines inline rather than just reporting the failed state. Keeps users in
+one tool instead of jumping to `journalctl`. Example: `systemd unit postgres.service
+failed` should show the last 3 journal lines for that unit inline.
+Prerequisite: `dsd health deep` fast variant must be in production use first
+(build-order rule). Implementation sketch: after each collector result, if status is
+WARN/CRIT and the check has an associated systemd unit or log source, call
+`journalctl -u <unit> -n 5 --no-pager` and attach output to the insight's Details
+field. Already have the Details rendering infrastructure.
+Sprint 3 target.
+
