@@ -43,6 +43,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseSuspectCrons(info)
 	parseFirewall(ctx, info)
 	parseRHELSecurity(ctx, info)
+	parseSupportconfig(info)
 
 	return info, nil
 }
@@ -752,4 +753,60 @@ func parseAuditRules(ctx context.Context, info *models.SecurityInfo) {
 		}
 	}
 	info.AuditRules = count
+}
+
+// parseSupportconfig detects SUSE's supportconfig diagnostic tool.
+// supportutils package provides /usr/sbin/supportconfig.
+// Archives are saved to /var/log/ as nts_HOST_DATE.tbz or scc_HOST_DATE.txz.
+func parseSupportconfig(info *models.SecurityInfo) {
+	// Check binary exists
+	paths := []string{"/usr/sbin/supportconfig", "/sbin/supportconfig"}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			info.SupportconfigAvailable = true
+			break
+		}
+	}
+	if !info.SupportconfigAvailable {
+		return
+	}
+
+	// Find most recent archive in /var/log/
+	patterns := []string{
+		"/var/log/scc_*.txz", // SLES 15+/16 format
+		"/var/log/nts_*.tbz", // older SLES format
+		"/tmp/scc_*.txz",
+		"/tmp/nts_*.tbz",
+	}
+
+	var newest os.FileInfo
+	var newestPath string
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			// Skip .md5 checksum files
+			if strings.HasSuffix(match, ".md5") {
+				continue
+			}
+			fi, err := os.Stat(match)
+			if err != nil {
+				continue
+			}
+			if newest == nil || fi.ModTime().After(newest.ModTime()) {
+				newest = fi
+				newestPath = match
+			}
+		}
+	}
+
+	if newest == nil {
+		info.SupportconfigLastRunDays = -1 // never run
+		return
+	}
+
+	info.SupportconfigArchive = newestPath
+	info.SupportconfigLastRunDays = int(time.Since(newest.ModTime()).Hours() / 24)
 }

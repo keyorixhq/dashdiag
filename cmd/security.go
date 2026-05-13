@@ -156,6 +156,19 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		}
 	}
 
+	// SUSE supportconfig
+	if info.SupportconfigAvailable {
+		fmt.Println("\nSUSE supportconfig")
+		switch {
+		case info.SupportconfigLastRunDays == -1:
+			fmt.Println("  \u2139\ufe0f  never run — run before contacting SUSE support")
+		case info.SupportconfigLastRunDays > 30:
+			fmt.Printf("  \u26a0\ufe0f  last run %d days ago\n", info.SupportconfigLastRunDays)
+		default:
+			fmt.Printf("  \u2705  last run %d days ago (%s)\n", info.SupportconfigLastRunDays, info.SupportconfigArchive)
+		}
+	}
+
 	// SELinux
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)

@@ -1087,6 +1087,22 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 		))
 	}
 
+	// SUSE supportconfig — stale or never run
+	if sec.SupportconfigAvailable {
+		switch {
+		case sec.SupportconfigLastRunDays == -1:
+			out = append(out, insight("INFO", "Hardening",
+				"supportconfig available but never run — collect before opening SUSE support ticket",
+				[]string{"to run: supportconfig", "archives saved to /var/log/scc_*.txz"},
+			))
+		case sec.SupportconfigLastRunDays > 30:
+			out = append(out, insight("INFO", "Hardening",
+				fmt.Sprintf("supportconfig last run %d day(s) ago — consider refreshing before a support call", sec.SupportconfigLastRunDays),
+				[]string{"to run: supportconfig"},
+			))
+		}
+	}
+
 	return out
 }
 
