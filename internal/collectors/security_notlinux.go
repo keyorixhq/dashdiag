@@ -20,3 +20,6 @@ func (c *SecurityCollector) Timeout() time.Duration { return 1 * time.Second }
 func (c *SecurityCollector) Collect(_ context.Context) (interface{}, error) {
 	return &models.SecurityInfo{}, nil
 }
+
+// CollectSUSEConnect is a no-op on non-Linux platforms.
+func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) {}

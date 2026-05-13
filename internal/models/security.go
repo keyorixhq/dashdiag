@@ -80,3 +80,12 @@ type SnapperInfo struct {
 	LastSnapshotH int     `json:"last_snapshot_h"` // hours since last snapshot (-1 = none)
 	Error         string  `json:"error,omitempty"`
 }
+
+// SUSEConnectInfo holds SUSEConnect subscription state for dsd health.
+// Separated from SecurityInfo so the Subscription collector can route
+// independently through the runner without colliding with the Hardening check.
+type SUSEConnectInfo struct {
+	Registered  bool   `json:"registered"`
+	ExpiresDays int    `json:"expires_days"` // -1=unknown, 0=expired, >0=days remaining
+	Status      string `json:"status"`       // ACTIVE, EXPIRED, evaluation
+}
