@@ -15,6 +15,13 @@ type SecurityInfo struct {
 	ListeningPorts []PortEntry `json:"listening_ports,omitempty"`
 	PortsNeedRoot  bool        `json:"ports_need_root,omitempty"` // true when process names unavailable
 
+	// Firewall
+	FirewallActive   bool     `json:"firewall_active"`             // any firewall running
+	FirewallType     string   `json:"firewall_type,omitempty"`     // firewalld, ufw, nftables, iptables
+	FirewallZone     string   `json:"firewall_zone,omitempty"`     // active zone (firewalld only)
+	FirewallServices []string `json:"firewall_services,omitempty"` // allowed services
+	SSHAllowed       bool     `json:"ssh_allowed"`                 // SSH reachable through firewall
+
 	// Privilege escalation
 	SudoNopasswd []string `json:"sudo_nopasswd,omitempty"` // users/groups with NOPASSWD
 	SUIDBinaries []string `json:"suid_binaries,omitempty"` // unexpected SUID binaries
