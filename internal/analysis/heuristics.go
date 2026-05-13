@@ -62,7 +62,7 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
+func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //nolint:funlen // flat type switch — splitting would harm readability
 	switch d := data.(type) {
 	case models.FDInfo:
 		return checkFD(d, thresh)
@@ -118,6 +118,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight {
 		return checkHealthDeep(d)
 	case *models.HealthDeepInfo:
 		return checkHealthDeep(*d)
+	case models.FirmwareInfo:
+		return checkFirmware(d)
+	case *models.FirmwareInfo:
+		return checkFirmware(*d)
 	case models.DockerInfo:
 		return checkDocker(d)
 	case *models.DockerInfo:
@@ -1289,6 +1293,44 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 				"to inspect: kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'",
 				"to inspect: kubectl logs <pod> -n <ns> --previous",
 			},
+		))
+	}
+
+	return out
+}
+
+func checkFirmware(f models.FirmwareInfo) []models.Insight {
+	var out []models.Insight
+
+	if !f.Available || f.UpgradeCount == 0 {
+		return out
+	}
+
+	// Security-critical firmware (dbx, BIOS security patches)
+	if f.SecurityCount > 0 {
+		var names []string
+		for _, u := range f.Upgrades {
+			if u.SecurityFix {
+				names = append(names, u.Name)
+			}
+		}
+		out = append(out, insight("WARN", "Firmware",
+			fmt.Sprintf("%d security-relevant firmware upgrade(s) pending: %s",
+				f.SecurityCount, strings.Join(names, ", ")),
+			[]string{
+				"to inspect: fwupdmgr get-upgrades",
+				"to apply:   fwupdmgr update",
+				"note: most firmware updates require a reboot",
+			},
+		))
+	}
+
+	// Non-security firmware upgrades
+	nonSec := f.UpgradeCount - f.SecurityCount
+	if nonSec > 0 {
+		out = append(out, insight("INFO", "Firmware",
+			fmt.Sprintf("%d non-security firmware upgrade(s) available", nonSec),
+			[]string{"to inspect: fwupdmgr get-upgrades"},
 		))
 	}
 
