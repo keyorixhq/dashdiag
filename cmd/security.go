@@ -83,6 +83,13 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		if proc == "" {
 			proc = "unknown"
 		}
+		// Resolve well-known service names — systemd socket activation
+		// hides the real service name behind 'systemd'
+		if proc == "systemd" || proc == "unknown" {
+			if name := wellKnownPort(p.Port); name != "" {
+				proc = name
+			}
+		}
 		fmt.Printf("  %s  %-6d %-5s %-20s%s\n", icon, p.Port, p.Protocol, proc, tag)
 	}
 
@@ -155,4 +162,26 @@ func countSecurityIssues(info *models.SecurityInfo) int {
 		n++
 	}
 	return n
+}
+
+// wellKnownPort maps common port numbers to service names.
+// Used to resolve ports where systemd socket activation hides the real service.
+func wellKnownPort(port int) string {
+	names := map[int]string{
+		22:    "sshd",
+		25:    "smtp",
+		53:    "dns",
+		80:    "http",
+		443:   "https",
+		3306:  "mysql",
+		5432:  "postgres",
+		6379:  "redis",
+		8080:  "http-alt",
+		8443:  "https-alt",
+		9090:  "cockpit", // RHEL/Rocky web console — socket activated via systemd
+		9100:  "node-exporter",
+		10250: "kubelet",
+		10255: "kubelet-ro",
+	}
+	return names[port]
 }

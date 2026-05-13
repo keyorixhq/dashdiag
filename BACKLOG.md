@@ -13,6 +13,20 @@ Kubernetes cluster health — pod restarts, node pressure, failing deployments, 
 Fast/deep split. Build after dsd health and dsd net are validated in production.
 Estimated scope: ~5 days.
 
+Validation note: k3s on Rocky/RHEL 10 has nftables masquerade issues (kernel 6.12).
+Use Ubuntu 22.04 VM or kind for k8s validation. Collector code and heuristics already
+built and tested against a running k3s cluster — just needs full validation run.
+
+### [HIGH VALUE] dsd k8s --deep — OS-layer k8s diagnosis
+Goes beyond kubectl. Reads underlying OS signals to explain WHY pods fail:
+  - /run/flannel/subnet.env → CNI readiness
+  - ip_forward, nftables/iptables FORWARD rules → pod routing
+  - SELinux AVC denials for containerd/flannel → security blocking
+  - firewalld masquerade → service CIDR reachability
+  - kubelet systemd + journal errors → node-level failures
+This is the moat: not a viewer like kubectl/Lens/k9s, a diagnostician.
+Discovered and validated the exact failure scenarios on Rocky 10.1 hardware.
+
 ### dsd k8s deep
 Extended k8s analysis — resource quotas, HPA status, network policies, certificate expiry.
 Phase gate: after dsd k8s fast is in production use.

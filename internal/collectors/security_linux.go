@@ -260,6 +260,12 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 			}
 		}
 		if !seen {
+			// Resolve systemd socket-activated services to their real name
+			if procName == "systemd" || procName == "" {
+				if name := wellKnownPortName(port); name != "" {
+					procName = name
+				}
+			}
 			info.ListeningPorts = append(info.ListeningPorts, models.PortEntry{
 				Port:     port,
 				Protocol: "tcp",
@@ -491,4 +497,19 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "…"
+}
+
+// wellKnownPortName returns a friendly service name for ports commonly
+// activated via systemd socket activation where the process shows as 'systemd'.
+func wellKnownPortName(port int) string {
+	names := map[int]string{
+		9090:  "cockpit", // RHEL/Rocky web console
+		9100:  "node-exporter",
+		10250: "kubelet",
+		10255: "kubelet-ro",
+		2379:  "etcd",
+		2380:  "etcd-peer",
+		6443:  "kube-apiserver",
+	}
+	return names[port]
 }
