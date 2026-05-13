@@ -90,6 +90,13 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		if iface.SpeedMbps > 0 {
 			details += fmt.Sprintf("  %d Mbps", iface.SpeedMbps)
 		}
+		if iface.IsUSB {
+			if iface.Driver != "" {
+				details += fmt.Sprintf("  [USB:%s]", iface.Driver)
+			} else {
+				details += "  [USB]"
+			}
+		}
 		if iface.RxDrops > 0 || iface.TxDrops > 0 {
 			details += fmt.Sprintf("  drops rx:%d tx:%d", iface.RxDrops, iface.TxDrops)
 		}

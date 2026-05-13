@@ -7,6 +7,8 @@ type InterfaceInfo struct {
 	RxDrops   uint64 `json:"rx_drops"`
 	TxDrops   uint64 `json:"tx_drops"`
 	SpeedMbps int    `json:"speed_mbps"`
+	IsUSB     bool   `json:"is_usb,omitempty"` // USB-attached NIC (unreliable for production)
+	Driver    string `json:"driver,omitempty"` // kernel driver (r8152, ax88179, cdc_ether...)
 }
 
 type NetworkInfo struct {

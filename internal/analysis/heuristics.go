@@ -320,6 +320,20 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen // 
 				},
 			))
 		}
+		// USB-attached NIC as primary interface
+		if iface.Name == net.PrimaryInterface && iface.IsUSB {
+			driver := iface.Driver
+			if driver == "" {
+				driver = "USB NIC"
+			}
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("primary interface %s is USB-attached (%s) — susceptible to disconnect/reset, not recommended for production", iface.Name, driver),
+				[]string{
+					"to inspect: dmesg | grep -i usb",
+					"to inspect: lsusb",
+				},
+			))
+		}
 	}
 
 	if net.PrimaryInterfaceDown {
