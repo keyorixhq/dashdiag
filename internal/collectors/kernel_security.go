@@ -56,10 +56,12 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 // countAVCsFromAuditLog reads /var/log/audit/audit.log and counts type=AVC
 // entries whose Unix timestamp falls within the last window duration.
 // Returns (count, true) on success, (0, false) if the file is unreadable.
+// When the direct read fails (non-root), falls back to ausearch if available.
 func countAVCsFromAuditLog(window time.Duration) (int, bool) {
 	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
 	if err != nil {
-		return 0, false // requires root — signal caller to try fallback
+		// Fallback: try ausearch which uses the auditd socket (works non-root)
+		return countAVCsViaAusearch(window)
 	}
 	defer f.Close() //nolint:errcheck
 
@@ -158,4 +160,41 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 		AppArmorPresent: aaPresent,
 		AppArmorMode:    aaMode,
 	}, nil
+}
+
+// countAVCsViaAusearch uses the ausearch binary as a fallback when
+// /var/log/audit/audit.log is not readable (non-root). ausearch
+// communicates with auditd via socket and works for unprivileged users.
+// Returns (count, false) if ausearch is not installed or fails.
+func countAVCsViaAusearch(window time.Duration) (int, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	// Convert window to seconds for ausearch -ts
+	// ausearch supports: recent, today, this-week, or explicit timestamp
+	// Use "recent" for last 10 minutes, otherwise compute start time
+	var tsArg string
+	if window <= 10*time.Minute {
+		tsArg = "recent"
+	} else {
+		start := time.Now().Add(-window)
+		tsArg = start.Format("01/02/2006 15:04:05")
+	}
+
+	out, err := runCmd(ctx, "ausearch", "-m", "avc", "-ts", tsArg, "--raw")
+	if err != nil {
+		// ausearch exits 1 when no records found — not an error
+		if strings.Contains(out, "<no matches>") || strings.Contains(out, "no matches") {
+			return 0, true
+		}
+		return 0, false // ausearch not available
+	}
+
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "type=AVC") {
+			count++
+		}
+	}
+	return count, true
 }

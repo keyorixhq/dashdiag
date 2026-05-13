@@ -106,9 +106,12 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 	// SELinux
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)
-		if info.SELinuxDenials > 0 {
+		switch {
+		case info.SELinuxDenials > 0:
 			fmt.Printf("  ⚠️  %d denial(s) in the last hour\n", info.SELinuxDenials)
-		} else {
+		case info.SELinuxDenials == -1:
+			fmt.Printf("  ℹ️  AVC denial data unavailable — run as root or install audit-libs\n")
+		default:
 			fmt.Printf("  ✅  No denials in the last hour\n")
 		}
 	}

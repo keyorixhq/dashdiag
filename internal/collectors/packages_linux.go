@@ -41,6 +41,13 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{PackageManager: "dnf"}
 
+	// Check repos — Rocky/RHEL include security updates in baseos, no separate security repo
+	if reposOk := dnfHasUpdateRepo(ctx); !reposOk {
+		info.StatusReason = "no enabled dnf repositories found"
+		return info, nil
+	}
+	info.HasSecurityRepo = true // dnf with baseos is sufficient for security updates
+
 	out, err := runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
 	if err != nil {
 		// dnf may not have updateinfo data without subscription — not a hard error
@@ -277,4 +284,20 @@ func zypperHasSecurityRepo(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// dnfHasUpdateRepo returns true when at least one enabled dnf repo is available.
+// Rocky Linux and RHEL ship security updates via baseos — no separate security repo needed.
+func dnfHasUpdateRepo(ctx context.Context) bool {
+	out, err := runCmd(ctx, "dnf", "repolist", "--enabled", "-q")
+	if err != nil {
+		return false
+	}
+	lines := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	return lines > 0
 }

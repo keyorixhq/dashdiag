@@ -382,10 +382,13 @@ func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 		return
 	}
 
-	// Delegate to the shared audit log reader in kernel_security.go.
-	// Returns (0, false) when /var/log/audit/audit.log is unreadable (non-root).
-	if n, ok := countAVCsFromAuditLog(1 * time.Hour); ok {
+	// Try audit log (root) then ausearch fallback (non-root).
+	n, ok := countAVCsFromAuditLog(1 * time.Hour)
+	if ok {
 		info.SELinuxDenials = n
+	} else {
+		// Neither audit.log nor ausearch available — flag as incomplete
+		info.SELinuxDenials = -1 // sentinel: unknown
 	}
 
 	_ = ctx // reserved for future timeout use

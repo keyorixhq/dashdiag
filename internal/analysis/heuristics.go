@@ -618,6 +618,9 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		return nil
 	}
 	if l := func() string {
+		if mac.SELinuxDenials < 0 {
+			return "" // sentinel: data unavailable
+		}
 		if mac.SELinuxDenials >= thresh.SELinuxDenialsCritPerHr {
 			return "CRIT"
 		}
@@ -992,7 +995,7 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 		))
 	}
 
-	// SELinux denials
+	// SELinux denials — skip sentinel value (-1 = data unavailable)
 	if sec.SELinuxDenials >= 10 {
 		out = append(out, insight("WARN", "Hardening",
 			fmt.Sprintf("%d SELinux denials in the last hour (mode: %s)", sec.SELinuxDenials, sec.SELinuxMode),
