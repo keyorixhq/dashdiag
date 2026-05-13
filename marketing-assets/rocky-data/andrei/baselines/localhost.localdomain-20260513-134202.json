@@ -1,7 +1,7 @@
 {
   "hostname": "localhost.localdomain",
-  "timestamp": "2026-05-13T15:52:04.064393231+02:00",
-  "version": "v0.2.0-84-g7329131-dirty",
+  "timestamp": "2026-05-13T13:42:02.573232549+02:00",
+  "version": "v0.2.0-76-gfe5d50b-dirty",
   "checks": [
     {
       "name": "Memory",
@@ -9,35 +9,26 @@
       "value": "",
       "raw": {
         "total_gb": 15.214950561523438,
-        "free_gb": 12.021041870117188,
-        "used_pct": 17.86507636439491,
-        "slab_mb": 542.99609375,
+        "free_gb": 12.964534759521484,
+        "used_pct": 12.519242784519927,
+        "slab_mb": 271.67578125,
         "commit_limit_mb": 15774.05078125,
-        "committed_as_mb": 9285.84375,
+        "committed_as_mb": 7453.94921875,
         "over_committed": false,
         "status": "",
         "status_reason": ""
       }
     },
     {
-      "name": "Clock",
+      "name": "Thermal",
       "status": "OK",
       "value": "",
       "raw": {
-        "synced": true,
-        "offset_ms": 0,
-        "source": "adjtimex",
-        "status": "",
-        "status_reason": ""
-      }
-    },
-    {
-      "name": "Entropy",
-      "status": "OK",
-      "value": "",
-      "raw": {
-        "entropy_available": 256,
-        "pool_size": 256
+        "cpu_temp_c": 54.125,
+        "core_temps": {
+          "Tctl": 54.125
+        },
+        "source": "k10temp"
       }
     },
     {
@@ -51,10 +42,10 @@
             "device": "/dev/mapper/rl-root",
             "fs_type": "xfs",
             "total_gb": 75.05686528,
-            "used_gb": 11.458981887999997,
-            "free_gb": 63.597883392,
-            "used_pct": 15.267066970159505,
-            "inodes_used_pct": 0.46405519757951597,
+            "used_gb": 11.047317503999992,
+            "free_gb": 64.009547776,
+            "used_pct": 14.71859697682274,
+            "inodes_used_pct": 0.4619898114885612,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -77,10 +68,10 @@
             "device": "/dev/mapper/rl-home",
             "fs_type": "xfs",
             "total_gb": 113.493467136,
-            "used_gb": 2.388951040000009,
-            "free_gb": 111.104516096,
-            "used_pct": 2.1049238341950605,
-            "inodes_used_pct": 0.00575646887922554,
+            "used_gb": 2.2315868160000036,
+            "free_gb": 111.26188032,
+            "used_pct": 1.966268960067874,
+            "inodes_used_pct": 0.00080586958628448,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -110,19 +101,6 @@
             "read_only": false,
             "status": "",
             "status_reason": ""
-          },
-          {
-            "mount": "/run/user/1000/doc",
-            "device": "portal",
-            "fs_type": "fuse.portal",
-            "total_gb": 0,
-            "used_gb": 0,
-            "free_gb": 0,
-            "used_pct": 0,
-            "inodes_used_pct": 0,
-            "read_only": false,
-            "status": "",
-            "status_reason": ""
           }
         ],
         "status": "",
@@ -130,15 +108,24 @@
       }
     },
     {
-      "name": "Thermal",
-      "status": "WARN",
-      "value": "CPU temperature 88.5°C — elevated (source: k10temp)",
+      "name": "Clock",
+      "status": "OK",
+      "value": "",
       "raw": {
-        "cpu_temp_c": 88.5,
-        "core_temps": {
-          "Tctl": 88.5
-        },
-        "source": "k10temp"
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "entropy_available": 256,
+        "pool_size": 256
       }
     },
     {
@@ -151,6 +138,62 @@
         "stuck_units": null,
         "status": "",
         "status_reason": ""
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "INFO",
+      "value": "some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
+      "raw": {
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.015625,
+        "crash_loops": null,
+        "needs_root": true
+      }
+    },
+    {
+      "name": "NVMe",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          }
+        ]
       }
     },
     {
@@ -174,7 +217,7 @@
         "net_somaxconn": 4096,
         "fs_file_max": 9223372036854775807,
         "kernel_pid_max": 4194304,
-        "pid_count": 441,
+        "pid_count": 740,
         "net_rmem_max": 212992,
         "net_wmem_max": 212992,
         "tcp_tw_reuse": 2,
@@ -182,7 +225,7 @@
         "vm_max_map_count": 1048576,
         "vm_dirty_ratio": 20,
         "vm_dirty_background_ratio": 10,
-        "vm_overcommit": 1,
+        "vm_overcommit": 0,
         "fs_inotify_watches": 122577,
         "workload": "webserver",
         "status": "",
@@ -203,59 +246,16 @@
       }
     },
     {
-      "name": "NVMe",
-      "status": "OK",
-      "value": "",
-      "raw": {
-        "devices": [
-          {
-            "name": "/dev/nvme0",
-            "model": "SKHynix_HFS001TDE9X084N",
-            "state": "live",
-            "temp_c": 47.85000000000002,
-            "available_spare_pct": 100,
-            "spare_threshold_pct": 10,
-            "percentage_used": 0,
-            "critical_warning": 0,
-            "media_errors": 0,
-            "unsafe_shutdowns": 53,
-            "power_on_hours": 7073,
-            "power_cycles": 4604,
-            "has_linux": false
-          },
-          {
-            "name": "/dev/nvme1",
-            "model": "SKHynix_HFS001TDE9X084N",
-            "state": "live",
-            "temp_c": 58.85000000000002,
-            "available_spare_pct": 100,
-            "spare_threshold_pct": 10,
-            "percentage_used": 0,
-            "critical_warning": 0,
-            "media_errors": 0,
-            "unsafe_shutdowns": 52,
-            "power_on_hours": 7091,
-            "power_cycles": 4602,
-            "mount_points": [
-              "/boot",
-              "/boot/efi"
-            ],
-            "has_linux": true
-          }
-        ]
-      }
-    },
-    {
       "name": "FDLimits",
       "status": "OK",
       "value": "",
       "raw": {
-        "open_count": 9376,
+        "open_count": 8288,
         "max_count": 9223372036854775807,
-        "used_pct": 1.016547956922409e-13,
+        "used_pct": 8.985867605559861e-14,
         "hot_processes": null,
-        "deleted_open_files": 46,
-        "deleted_open_size_gb": 0.21249190700000006,
+        "deleted_open_files": 44,
+        "deleted_open_size_gb": 0.14328589100000005,
         "status": "",
         "status_reason": ""
       }
@@ -273,31 +273,16 @@
         "energy_full_uwh": 50710000,
         "energy_design_uwh": 60000000,
         "cycle_count": 150,
-        "voltage_uv": 17177000,
+        "voltage_uv": 17181000,
         "power_now_uw": 0,
         "manufacturer": "Sunwoda",
         "model_name": "L20D4PC0"
       }
     },
     {
-      "name": "CPU",
-      "status": "OK",
-      "value": "",
-      "raw": {
-        "load_avg_1": 0.92,
-        "load_avg_5": 0.72,
-        "load_avg_15": 0.57,
-        "num_cpu": 16,
-        "usage_pct": 20.632911392405063,
-        "load_pct": 5.75,
-        "status": "",
-        "status_reason": ""
-      }
-    },
-    {
       "name": "Hardening",
       "status": "INFO",
-      "value": "Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
+      "value": "some checks limited — run as root for port process names, failed logins, and SELinux audit log",
       "raw": {
         "ssh_permit_root": false,
         "ssh_password_auth": false,
@@ -308,53 +293,35 @@
           {
             "port": 22,
             "protocol": "tcp",
-            "process": "sshd",
+            "process": "",
             "expected": true
           },
           {
             "port": 9090,
             "protocol": "tcp",
-            "process": "cockpit",
+            "process": "",
             "expected": true
           }
         ],
-        "firewall_active": true,
-        "firewall_type": "firewalld",
-        "firewall_zone": "public",
-        "firewall_services": [
-          "cockpit",
-          "dhcpv6-client",
-          "ssh"
-        ],
-        "ssh_allowed": true,
-        "sudo_nopasswd": [
-          "andrei"
-        ],
+        "ports_need_root": true,
         "se_linux_denials": 0,
         "se_linux_mode": "enforcing",
-        "fips_enabled": false,
-        "crypto_policy": "DEFAULT",
-        "usb_guard_active": false,
-        "aide_installed": true,
-        "aide_db_exists": true,
-        "aide_last_run_days": 0,
-        "audit_rules": 0
+        "needs_root": true
       }
     },
     {
-      "name": "Logs",
+      "name": "CPU",
       "status": "OK",
       "value": "",
       "raw": {
-        "oom_kills": 0,
-        "oom_processes": null,
-        "segfaults": 0,
-        "segfault_procs": null,
-        "soft_lockups": 0,
-        "hard_lockups": 0,
-        "kernel_panics": 0,
-        "journal_size_gb": 0.138580322265625,
-        "crash_loops": null
+        "load_avg_1": 0.07,
+        "load_avg_5": 0.06,
+        "load_avg_15": 0.02,
+        "num_cpu": 16,
+        "usage_pct": 8.760951188986233,
+        "load_pct": 0.43750000000000006,
+        "status": "",
+        "status_reason": ""
       }
     },
     {
@@ -364,19 +331,19 @@
       "raw": {
         "devices": [
           {
-            "name": "nvme1n1",
+            "name": "nvme0n1",
             "is_ssd": true,
             "drive_type": "nvme",
-            "util_pct": 0.6,
-            "await_ms": 4,
+            "util_pct": 0,
+            "await_ms": 0,
             "read_mbps": 0,
-            "write_mbps": 1.00352,
+            "write_mbps": 0,
             "queue_depth": 0,
             "status": "",
             "status_reason": ""
           },
           {
-            "name": "nvme0n1",
+            "name": "nvme1n1",
             "is_ssd": true,
             "drive_type": "nvme",
             "util_pct": 0,
@@ -398,8 +365,8 @@
       "value": "",
       "raw": {
         "total_gb": 7.796871185302734,
-        "used_gb": 0.4081611633300781,
-        "used_pct": 5.234935317380521,
+        "used_gb": 0.4628448486328125,
+        "used_pct": 5.936289540159195,
         "pages_in_per_sec": 0,
         "pages_out_per_sec": 0,
         "zram_devices": 0,
@@ -424,9 +391,9 @@
           }
         ],
         "primary_interface": "eno1",
-        "gateway_ping_ms": 200.778971,
-        "internet_ping_ms": 206.066462,
-        "dns_resolves_ms": 203,
+        "gateway_ping_ms": 200.812752,
+        "internet_ping_ms": 206.225733,
+        "dns_resolves_ms": 208,
         "gateway_packet_loss_pct": 50,
         "internet_packet_loss_pct": 50,
         "close_wait_count": 0,

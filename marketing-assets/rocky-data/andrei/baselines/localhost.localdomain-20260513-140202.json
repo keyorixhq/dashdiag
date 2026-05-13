@@ -1,31 +1,18 @@
 {
   "hostname": "localhost.localdomain",
-  "timestamp": "2026-05-13T15:48:43.835289979+02:00",
-  "version": "v0.2.0-84-g7329131-dirty",
+  "timestamp": "2026-05-13T14:02:02.784238804+02:00",
+  "version": "v0.2.0-78-g5ce9593-dirty",
   "checks": [
     {
-      "name": "Memory",
+      "name": "Clock",
       "status": "OK",
       "value": "",
       "raw": {
-        "total_gb": 15.214950561523438,
-        "free_gb": 12.678733825683594,
-        "used_pct": 13.607168394798256,
-        "slab_mb": 477.671875,
-        "commit_limit_mb": 15774.05078125,
-        "committed_as_mb": 7727.02734375,
-        "over_committed": false,
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
         "status": "",
         "status_reason": ""
-      }
-    },
-    {
-      "name": "Entropy",
-      "status": "OK",
-      "value": "",
-      "raw": {
-        "entropy_available": 256,
-        "pool_size": 256
       }
     },
     {
@@ -39,10 +26,10 @@
             "device": "/dev/mapper/rl-root",
             "fs_type": "xfs",
             "total_gb": 75.05686528,
-            "used_gb": 11.444527103999995,
-            "free_gb": 63.612338176,
-            "used_pct": 15.247808526649942,
-            "inodes_used_pct": 0.4639870779854949,
+            "used_gb": 11.047489536,
+            "free_gb": 64.009375744,
+            "used_pct": 14.718826179040768,
+            "inodes_used_pct": 0.4620116097586502,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -65,10 +52,10 @@
             "device": "/dev/mapper/rl-home",
             "fs_type": "xfs",
             "total_gb": 113.493467136,
-            "used_gb": 2.388951040000009,
-            "free_gb": 111.104516096,
-            "used_pct": 2.1049238341950605,
-            "inodes_used_pct": 0.00575646887922554,
+            "used_gb": 2.2316154880000028,
+            "free_gb": 111.261851648,
+            "used_pct": 1.9662942231959857,
+            "inodes_used_pct": 0.0008094752667608951,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -98,19 +85,6 @@
             "read_only": false,
             "status": "",
             "status_reason": ""
-          },
-          {
-            "mount": "/run/user/1000/doc",
-            "device": "portal",
-            "fs_type": "fuse.portal",
-            "total_gb": 0,
-            "used_gb": 0,
-            "free_gb": 0,
-            "used_pct": 0,
-            "inodes_used_pct": 0,
-            "read_only": false,
-            "status": "",
-            "status_reason": ""
           }
         ],
         "status": "",
@@ -118,15 +92,28 @@
       }
     },
     {
-      "name": "Clock",
+      "name": "Memory",
       "status": "OK",
       "value": "",
       "raw": {
-        "synced": true,
-        "offset_ms": 0,
-        "source": "adjtimex",
+        "total_gb": 15.214950561523438,
+        "free_gb": 12.649768829345703,
+        "used_pct": 14.608545350792829,
+        "slab_mb": 272.046875,
+        "commit_limit_mb": 15774.05078125,
+        "committed_as_mb": 8429.484375,
+        "over_committed": false,
         "status": "",
         "status_reason": ""
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "entropy_available": 256,
+        "pool_size": 256
       }
     },
     {
@@ -134,9 +121,9 @@
       "status": "OK",
       "value": "",
       "raw": {
-        "cpu_temp_c": 70.625,
+        "cpu_temp_c": 67.75,
         "core_temps": {
-          "Tctl": 70.625
+          "Tctl": 67.75
         },
         "source": "k10temp"
       }
@@ -163,61 +150,62 @@
             "name": "/dev/nvme0",
             "model": "SKHynix_HFS001TDE9X084N",
             "state": "live",
-            "temp_c": 48.85000000000002,
-            "available_spare_pct": 100,
-            "spare_threshold_pct": 10,
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
             "percentage_used": 0,
             "critical_warning": 0,
             "media_errors": 0,
-            "unsafe_shutdowns": 53,
-            "power_on_hours": 7073,
-            "power_cycles": 4604,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
             "has_linux": false
           },
           {
             "name": "/dev/nvme1",
             "model": "SKHynix_HFS001TDE9X084N",
             "state": "live",
-            "temp_c": 51.85000000000002,
-            "available_spare_pct": 100,
-            "spare_threshold_pct": 10,
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
             "percentage_used": 0,
             "critical_warning": 0,
             "media_errors": 0,
-            "unsafe_shutdowns": 52,
-            "power_on_hours": 7091,
-            "power_cycles": 4602,
-            "mount_points": [
-              "/boot",
-              "/boot/efi"
-            ],
-            "has_linux": true
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
           }
         ]
       }
     },
     {
-      "name": "KernelSec",
-      "status": "OK",
-      "value": "",
+      "name": "Logs",
+      "status": "INFO",
+      "value": "some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
       "raw": {
-        "se_linux_present": true,
-        "se_linux_mode": "enforcing",
-        "se_linux_denials": 0,
-        "app_armor_present": false,
-        "app_armor_mode": ""
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.015625,
+        "crash_loops": null,
+        "needs_root": true
       }
     },
     {
       "name": "Sysctl",
       "status": "WARN",
-      "value": "fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)",
+      "value": "fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)",
       "raw": {
         "vm_swappiness": 60,
         "net_somaxconn": 4096,
         "fs_file_max": 9223372036854775807,
         "kernel_pid_max": 4194304,
-        "pid_count": 426,
+        "pid_count": 378,
         "net_rmem_max": 212992,
         "net_wmem_max": 212992,
         "tcp_tw_reuse": 2,
@@ -225,9 +213,9 @@
         "vm_max_map_count": 1048576,
         "vm_dirty_ratio": 20,
         "vm_dirty_background_ratio": 10,
-        "vm_overcommit": 1,
+        "vm_overcommit": 0,
         "fs_inotify_watches": 122577,
-        "workload": "k8s",
+        "workload": "container",
         "status": "",
         "status_reason": ""
       }
@@ -246,18 +234,60 @@
       }
     },
     {
+      "name": "KernelSec",
+      "status": "OK",
+      "value": "",
+      "raw": {
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 0,
+        "app_armor_present": false,
+        "app_armor_mode": ""
+      }
+    },
+    {
       "name": "FDLimits",
       "status": "OK",
       "value": "",
       "raw": {
-        "open_count": 9312,
+        "open_count": 8032,
         "max_count": 9223372036854775807,
-        "used_pct": 1.0096090630185017e-13,
+        "used_pct": 8.708311849403572e-14,
         "hot_processes": null,
-        "deleted_open_files": 46,
-        "deleted_open_size_gb": 0.21249190700000006,
+        "deleted_open_files": 44,
+        "deleted_open_size_gb": 0.14328589100000005,
         "status": "",
         "status_reason": ""
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "INFO",
+      "value": "some checks limited — run as root for port process names, failed logins, and SELinux audit log",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": false,
+        "ssh_root_login": false,
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "",
+            "expected": true
+          },
+          {
+            "port": 9090,
+            "protocol": "tcp",
+            "process": "",
+            "expected": true
+          }
+        ],
+        "ports_need_root": true,
+        "se_linux_denials": 0,
+        "se_linux_mode": "enforcing",
+        "needs_root": true
       }
     },
     {
@@ -273,63 +303,10 @@
         "energy_full_uwh": 50710000,
         "energy_design_uwh": 60000000,
         "cycle_count": 150,
-        "voltage_uv": 17178000,
+        "voltage_uv": 17181000,
         "power_now_uw": 0,
         "manufacturer": "Sunwoda",
         "model_name": "L20D4PC0"
-      }
-    },
-    {
-      "name": "Hardening",
-      "status": "INFO",
-      "value": "Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
-      "raw": {
-        "ssh_permit_root": false,
-        "ssh_password_auth": false,
-        "ssh_root_login": false,
-        "failed_logins": 0,
-        "failed_login_ips": null,
-        "listening_ports": [
-          {
-            "port": 22,
-            "protocol": "tcp",
-            "process": "sshd",
-            "expected": true
-          },
-          {
-            "port": 10250,
-            "protocol": "tcp",
-            "process": "k3s-server",
-            "expected": true
-          },
-          {
-            "port": 9090,
-            "protocol": "tcp",
-            "process": "cockpit",
-            "expected": true
-          }
-        ],
-        "firewall_active": true,
-        "firewall_type": "firewalld",
-        "firewall_zone": "public",
-        "firewall_services": [
-          "cockpit",
-          "dhcpv6-client",
-          "ssh"
-        ],
-        "ssh_allowed": true,
-        "sudo_nopasswd": [
-          "andrei"
-        ],
-        "se_linux_denials": 0,
-        "se_linux_mode": "enforcing",
-        "fips_enabled": false,
-        "crypto_policy": "LEGACY",
-        "usb_guard_active": false,
-        "aide_installed": false,
-        "aide_db_exists": false,
-        "aide_last_run_days": 0,
-        "audit_rules": 0
       }
     },
     {
@@ -337,30 +314,14 @@
       "status": "OK",
       "value": "",
       "raw": {
-        "load_avg_1": 0.77,
-        "load_avg_5": 0.51,
-        "load_avg_15": 0.47,
+        "load_avg_1": 0,
+        "load_avg_5": 0.03,
+        "load_avg_15": 0,
         "num_cpu": 16,
-        "usage_pct": 7.9999999999999964,
-        "load_pct": 4.8125,
+        "usage_pct": 4.767879548306153,
+        "load_pct": 0,
         "status": "",
         "status_reason": ""
-      }
-    },
-    {
-      "name": "Logs",
-      "status": "OK",
-      "value": "",
-      "raw": {
-        "oom_kills": 0,
-        "oom_processes": null,
-        "segfaults": 0,
-        "segfault_procs": null,
-        "soft_lockups": 0,
-        "hard_lockups": 0,
-        "kernel_panics": 0,
-        "journal_size_gb": 0.138580322265625,
-        "crash_loops": null
       }
     },
     {
@@ -369,8 +330,8 @@
       "value": "",
       "raw": {
         "total_gb": 7.796871185302734,
-        "used_gb": 0.4081611633300781,
-        "used_pct": 5.234935317380521,
+        "used_gb": 0.4596710205078125,
+        "used_pct": 5.895583107417524,
         "pages_in_per_sec": 0,
         "pages_out_per_sec": 0,
         "zram_devices": 0,
@@ -401,9 +362,9 @@
             "name": "nvme1n1",
             "is_ssd": true,
             "drive_type": "nvme",
-            "util_pct": 0.6,
-            "await_ms": 2.111111111111111,
-            "read_mbps": 0.503808,
+            "util_pct": 0,
+            "await_ms": 0.16666666666666666,
+            "read_mbps": 0.24576,
             "write_mbps": 0,
             "queue_depth": 0,
             "status": "",
@@ -430,10 +391,9 @@
           }
         ],
         "primary_interface": "eno1",
-        "gateway_ping_ms": 200.666457,
-        "internet_ping_ms": 205.94396,
-        "dns_resolves_ms": -1,
-        "dns_failed": true,
+        "gateway_ping_ms": 200.606999,
+        "internet_ping_ms": 205.589618,
+        "dns_resolves_ms": 207,
         "gateway_packet_loss_pct": 50,
         "internet_packet_loss_pct": 50,
         "close_wait_count": 0,

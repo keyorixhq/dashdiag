@@ -4533,3 +4533,1286 @@ WARN: Network/DNS: DNS resolution took 209 ms
    -> to inspect:
       dig @8.8.8.8 google.com
       cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-75-g5d255e0
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.3s
+Disk         OK
+Clock        OK
+Memory       OK
+Battery      OK
+Entropy      OK
+Thermal      OK
+Systemd      OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+KernelSec    OK
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 205 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-75-g5d255e0
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Clock        OK
+Disk         OK
+Memory       OK
+Thermal      OK
+Entropy      OK
+Battery      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 205 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-75-g5d255e0
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Entropy      OK
+Memory       OK
+Disk         OK
+Clock        OK
+Battery      OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 203 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-76-gfe5d50b-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Clock        OK
+Entropy      OK
+Disk         OK
+Thermal      OK
+Battery      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+Processes    WARN  1 hung (uninterruptible) process(es)
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           WARN  disk nvme1n1 await latency 6.3 ms
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Processes: 1 hung (uninterruptible) process(es)
+   -> to inspect: ps aux | grep ' D '
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: IO: disk nvme1n1 await latency 6.3 ms
+   -> to inspect:
+      iostat -x 1 5
+      iotop -ao
+WARN: Network/DNS: DNS resolution took 206 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-76-gfe5d50b-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Clock        OK
+Memory       OK
+Battery      OK
+Thermal      OK
+Entropy      OK
+Disk         OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+Processes    WARN  1 hung (uninterruptible) process(es)
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+Swap         OK
+IO           OK
+Network      CRIT  gateway ping is 202 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 202 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Processes: 1 hung (uninterruptible) process(es)
+   -> to inspect: ps aux | grep ' D '
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 265 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-76-gfe5d50b-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 3.0s
+Clock        OK
+Disk         OK
+Memory       OK
+Entropy      OK
+Battery      OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+Processes    WARN  1 hung (uninterruptible) process(es)
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+CRIT: Network/DNS: DNS resolution failed — cannot resolve hostnames
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+      systemctl status systemd-resolved
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+WARN: Processes: 1 hung (uninterruptible) process(es)
+   -> to inspect: ps aux | grep ' D '
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+⚡ DashDiag (dsd) v0.2.0-76-gfe5d50b-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Clock        OK
+Disk         OK
+Battery      OK
+Entropy      OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+   -> to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=16777216
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 204 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-78-g5ce9593-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Clock        OK
+Memory       OK
+Disk         OK
+Entropy      OK
+Thermal      OK
+Battery      OK
+Systemd      CRIT  unit docker.service has failed
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           WARN  disk nvme1n1 await latency 6.0 ms
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Systemd: unit docker.service has failed
+   -> to inspect:
+      systemctl status docker.service
+      journalctl -u docker.service -n 50
+CRIT: Systemd: unit docker.socket has failed
+   -> to inspect:
+      systemctl status docker.socket
+      journalctl -u docker.socket -n 50
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+   -> to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=131072
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: IO: disk nvme1n1 await latency 6.0 ms
+   -> to inspect:
+      iostat -x 1 5
+      iotop -ao
+WARN: Network/DNS: DNS resolution took 203 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-78-g5ce9593-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Thermal      OK
+Clock        OK
+Disk         OK
+Memory       OK
+Entropy      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+NVMe         OK
+Processes    OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+Swap         OK
+IO           OK
+Network      CRIT  gateway ping is 202 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 202 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+   -> to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=131072
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 208 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Clock        OK
+Thermal      OK
+Disk         OK
+Memory       OK
+Entropy      OK
+Systemd      OK
+KernelSec    OK
+NVMe         OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+Processes    OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: 2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :10250
+      ss -tlnp | grep :6443
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 203 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 2.4s
+Clock        OK
+Entropy      OK
+Memory       OK
+Disk         OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+Processes    WARN  1 hung (uninterruptible) process(es)
+NVMe         OK
+FDLimits     OK
+Hardening    WARN  2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+Battery      OK
+CPU          OK
+Logs         OK
+Swap         WARN  swap activity detected: 8 pages/s in, 0 pages/s out
+IO           OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Processes: 1 hung (uninterruptible) process(es)
+   -> to inspect: ps aux | grep ' D '
+WARN: Hardening: 2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :10250
+      ss -tlnp | grep :6443
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Swap: swap activity detected: 8 pages/s in, 0 pages/s out
+   -> to inspect:
+      vmstat 1 5
+      free -h
+WARN: Network/DNS: DNS resolution took 207 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 2.4s
+Entropy      OK
+Clock        OK
+Memory       OK
+Disk         OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: 2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :10250
+      ss -tlnp | grep :6443
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 206 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Clock        OK
+Entropy      OK
+Disk         OK
+Thermal      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 200 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 200 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: 2 unexpected port(s) listening on all interfaces: 10250/tcp, 6443/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :10250
+      ss -tlnp | grep :6443
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 205 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 2.4s
+Memory       OK
+Disk         OK
+Thermal      OK
+Entropy      OK
+Clock        OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+Swap         OK
+IO           OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+   -> to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=131072
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 205 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Clock        OK
+Entropy      OK
+Disk         OK
+Thermal      WARN  CPU temperature 90.625°C — elevated (source: k10temp)
+Memory       OK
+Systemd      OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+KernelSec    OK
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  1 unexpected port(s) listening on all interfaces: 6443/tcp
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Thermal: CPU temperature 90.625°C — elevated (source: k10temp)
+   -> to inspect: cat /sys/class/hwmon/hwmon*/temp*_input
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: 1 unexpected port(s) listening on all interfaces: 6443/tcp
+   -> to inspect:
+      ss -tlnp
+      ss -tlnp | grep :6443
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 206 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-79-g71d1b87-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Disk         OK
+Entropy      OK
+Thermal      OK
+Clock        OK
+Systemd      OK
+NVMe         OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+Processes    OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+   -> to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=131072
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 208 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-80-g2f12f90-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Disk         OK
+Entropy      OK
+Thermal      OK
+Clock        OK
+Systemd      OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+KernelSec    OK
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 200 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 200 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for container host (recommended: 131072+)
+   -> to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=131072
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 206 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-81-gc5390cd-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 1.2s
+Memory       OK
+Entropy      OK
+Thermal      OK
+Disk         OK
+Clock        OK
+Systemd      OK
+Sysctl       WARN  net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+KernelSec    OK
+Processes    WARN  1 hung (uninterruptible) process(es)
+NVMe         OK
+FDLimits     OK
+Battery      OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+CPU          OK
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Sysctl: net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+   -> to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=16777216
+WARN: Processes: 1 hung (uninterruptible) process(es)
+   -> to inspect: ps aux | grep ' D '
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Network/DNS: DNS resolution took 208 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+⚡ DashDiag (dsd) v0.2.0-83-g1ac8542-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 3.0s
+Clock        OK
+Memory       OK
+Thermal      WARN  CPU temperature 91.25°C — elevated (source: k10temp)
+Disk         OK
+Entropy      OK
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+CPU          OK
+Logs         OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+CRIT: Network/DNS: DNS resolution took 2998 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
+      systemctl status systemd-resolved
+WARN: Thermal: CPU temperature 91.25°C — elevated (source: k10temp)
+   -> to inspect: cat /sys/class/hwmon/hwmon*/temp*_input
+WARN: Sysctl: fs.inotify.max_user_watches=122577 is low for k8s (recommended: 524288)
+   -> to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w fs.inotify.max_user_watches=524288
+WARN: Sysctl: vm.swappiness=60 is high for k8s node (recommended: ≤ 10)
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w vm.swappiness=10
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+⚡ DashDiag (dsd) v0.2.0-84-g7329131-dirty
+[INFO] System health — ~5s
+[INFO] step 1/18
+[INFO] step 2/18
+[INFO] step 3/18
+[INFO] step 4/18
+[INFO] step 5/18
+[INFO] step 6/18
+[INFO] step 7/18
+[INFO] step 8/18
+[INFO] step 9/18
+[INFO] step 10/18
+[INFO] step 11/18
+[INFO] step 12/18
+[INFO] step 13/18
+[INFO] step 14/18
+[INFO] step 15/18
+[INFO] step 16/18
+[INFO] step 17/18
+[INFO] step 18/18
+[INFO] done in 2.4s
+Memory       OK
+Clock        OK
+Entropy      OK
+Disk         OK
+Thermal      WARN  CPU temperature 88.5°C — elevated (source: k10temp)
+Systemd      OK
+KernelSec    OK
+Sysctl       WARN  net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+Processes    OK
+NVMe         OK
+FDLimits     OK
+Battery      OK
+CPU          OK
+Hardening    WARN  NOPASSWD sudo for: andrei
+Logs         OK
+IO           OK
+Swap         OK
+Network      CRIT  gateway ping is 201 ms — severe latency
+────────────────────────────────────────────────────────
+CRIT: Network: gateway ping is 201 ms — severe latency
+   -> to inspect:
+      ping -c5 $(ip route | awk '/default/{print $3}')
+      ip route
+CRIT: Network: gateway packet loss 50%
+   -> to inspect:
+      ping -c20 $(ip route | awk '/default/{print $3}')
+      ip link show
+WARN: Thermal: CPU temperature 88.5°C — elevated (source: k10temp)
+   -> to inspect: cat /sys/class/hwmon/hwmon*/temp*_input
+WARN: Sysctl: net.core.rmem_max=212992 is low for high-throughput web server (recommended: 16MB)
+   -> to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf
+   -> to fix: sysctl -w net.core.rmem_max=16777216
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Hardening: auditd is running but has no active rules — system calls and file access are not being audited
+   -> to inspect: auditctl -l
+   -> to fix: augenrules --load or add rules to /etc/audit/rules.d/
+WARN: Network/DNS: DNS resolution took 203 ms
+   -> to inspect:
+      dig @8.8.8.8 google.com
+      cat /etc/resolv.conf
