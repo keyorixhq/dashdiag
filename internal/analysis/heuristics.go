@@ -1018,6 +1018,49 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen /
 		))
 	}
 
+	// RHEL/Rocky: crypto-policies — LEGACY is a security risk
+	if sec.CryptoPolicy == "LEGACY" {
+		out = append(out, insight("WARN", "Hardening",
+			"system-wide crypto policy is LEGACY — weak algorithms (MD5, SHA-1, DH<1024) are permitted",
+			[]string{
+				"to inspect: update-crypto-policies --show",
+				"to fix: update-crypto-policies --set DEFAULT",
+			},
+		))
+	}
+
+	// RHEL/Rocky: auditd running but no rules — security theater
+	if sec.AuditRules == 0 && sec.SELinuxMode != "" {
+		out = append(out, insight("WARN", "Hardening",
+			"auditd is running but has no active rules — system calls and file access are not being audited",
+			[]string{
+				"to inspect: auditctl -l",
+				"to fix: augenrules --load or add rules to /etc/audit/rules.d/",
+			},
+		))
+	}
+
+	// RHEL/Rocky: AIDE installed but database never initialised
+	if sec.AIDEInstalled && !sec.AIDEDBExists {
+		out = append(out, insight("WARN", "Hardening",
+			"AIDE is installed but database has never been initialised — file integrity monitoring is inactive",
+			[]string{
+				"to fix: aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db",
+			},
+		))
+	}
+
+	// RHEL/Rocky: AIDE database stale (> 7 days)
+	if sec.AIDEInstalled && sec.AIDEDBExists && sec.AIDELastRunDays > 7 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("AIDE file integrity database is %d day(s) old — run a fresh check", sec.AIDELastRunDays),
+			[]string{
+				"to fix: aide --check",
+				"to automate: add 'aide --check' to cron or systemd timer",
+			},
+		))
+	}
+
 	return out
 }
 

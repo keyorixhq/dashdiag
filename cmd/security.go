@@ -52,7 +52,7 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elapsed time.Duration) {
+func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -120,6 +120,42 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		fmt.Printf("  %s  SSH accessible\n", sshIcon)
 	} else {
 		fmt.Println("\nFirewall: none detected")
+	}
+
+	// RHEL/Rocky security
+	if info.CryptoPolicy != "" || info.FIPSEnabled || info.AIDEInstalled || info.USBGuardActive || info.AuditRules >= 0 {
+		fmt.Println("\nSystem Security")
+		if info.FIPSEnabled {
+			fmt.Println("  ✅  FIPS mode: enabled")
+		} else if info.CryptoPolicy != "" {
+			fmt.Println("  ℹ️   FIPS mode: disabled")
+		}
+		if info.CryptoPolicy != "" {
+			policyIcon := "✅"
+			if info.CryptoPolicy == "LEGACY" {
+				policyIcon = "⚠️ "
+			}
+			fmt.Printf("  %s  Crypto policy: %s\n", policyIcon, info.CryptoPolicy)
+		}
+		if info.AuditRules >= 0 {
+			if info.AuditRules == 0 {
+				fmt.Println("  ⚠️  auditd: running, no rules configured")
+			} else {
+				fmt.Printf("  ✅  auditd: %d rule(s) active\n", info.AuditRules)
+			}
+		}
+		if info.USBGuardActive {
+			fmt.Println("  ✅  USBGuard: active")
+		}
+		if info.AIDEInstalled {
+			if !info.AIDEDBExists {
+				fmt.Println("  ⚠️  AIDE: installed but database not initialised")
+			} else if info.AIDELastRunDays > 7 {
+				fmt.Printf("  ⚠️  AIDE: database %d days old\n", info.AIDELastRunDays)
+			} else {
+				fmt.Printf("  ✅  AIDE: database %d days old\n", info.AIDELastRunDays)
+			}
+		}
 	}
 
 	// SELinux

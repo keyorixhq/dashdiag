@@ -32,6 +32,15 @@ type SecurityInfo struct {
 	SELinuxDenials int    `json:"se_linux_denials"` // denials in last hour
 	SELinuxMode    string `json:"se_linux_mode"`
 
+	// RHEL/Rocky-specific security
+	FIPSEnabled     bool   `json:"fips_enabled"`            // /proc/sys/crypto/fips_enabled
+	CryptoPolicy    string `json:"crypto_policy,omitempty"` // DEFAULT, FIPS, FUTURE, LEGACY
+	USBGuardActive  bool   `json:"usb_guard_active"`        // usbguard service running
+	AIDEInstalled   bool   `json:"aide_installed"`          // aide binary present
+	AIDEDBExists    bool   `json:"aide_db_exists"`          // /var/lib/aide/aide.db exists
+	AIDELastRunDays int    `json:"aide_last_run_days"`      // days since last aide check (-1 = never)
+	AuditRules      int    `json:"audit_rules"`             // number of active auditd rules (-1 = unavailable)
+
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
 	NeedsRoot    bool   `json:"needs_root,omitempty"` // some checks require root
