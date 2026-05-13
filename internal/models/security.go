@@ -41,6 +41,11 @@ type SecurityInfo struct {
 	AIDELastRunDays int    `json:"aide_last_run_days"`      // days since last aide check (-1 = never)
 	AuditRules      int    `json:"audit_rules"`             // number of active auditd rules (-1 = unavailable)
 
+	// SUSE-specific: supportconfig diagnostic tool
+	SupportconfigAvailable   bool   `json:"supportconfig_available"`         // supportutils package installed
+	SupportconfigLastRunDays int    `json:"supportconfig_last_run_days"`     // days since last archive (-1 = never)
+	SupportconfigArchive     string `json:"supportconfig_archive,omitempty"` // path to most recent archive
+
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
 	NeedsRoot    bool   `json:"needs_root,omitempty"` // some checks require root
