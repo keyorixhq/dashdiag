@@ -52,6 +52,11 @@ type SecurityInfo struct {
 	SupportconfigLastRunDays int    `json:"supportconfig_last_run_days"`     // days since last archive (-1 = never)
 	SupportconfigArchive     string `json:"supportconfig_archive,omitempty"` // path to most recent archive
 
+	// SUSEConnect subscription
+	SUSEConnectRegistered  bool   `json:"suseconnect_registered,omitempty"`
+	SUSEConnectExpiresDays int    `json:"suseconnect_expires_days,omitempty"` // days until expiry (-1 = unknown, 0 = expired)
+	SUSEConnectStatus      string `json:"suseconnect_status,omitempty"`       // ACTIVE, EXPIRED, evaluation
+
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
 	NeedsRoot    bool   `json:"needs_root,omitempty"` // some checks require root

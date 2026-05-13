@@ -169,6 +169,27 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		}
 	}
 
+	// SUSEConnect subscription
+	if info.SUSEConnectRegistered {
+		fmt.Println("\nSUSEConnect subscription")
+		status := info.SUSEConnectStatus
+		if status == "" {
+			status = "unknown"
+		}
+		switch {
+		case info.SUSEConnectExpiresDays == 0:
+			fmt.Printf("  \U0001f534  EXPIRED (%s)\n", status)
+		case info.SUSEConnectExpiresDays > 0 && info.SUSEConnectExpiresDays <= 14:
+			fmt.Printf("  \U0001f534  expires in %d day(s) \u2014 renew immediately\n", info.SUSEConnectExpiresDays)
+		case info.SUSEConnectExpiresDays > 14 && info.SUSEConnectExpiresDays <= 30:
+			fmt.Printf("  \u26a0\ufe0f   expires in %d day(s) \u2014 renew soon\n", info.SUSEConnectExpiresDays)
+		case info.SUSEConnectExpiresDays > 30:
+			fmt.Printf("  \u2705  active \u2014 expires in %d day(s) (%s)\n", info.SUSEConnectExpiresDays, status)
+		default:
+			fmt.Printf("  \u2139\ufe0f   registered, expiry unknown\n")
+		}
+	}
+
 	// SELinux
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)

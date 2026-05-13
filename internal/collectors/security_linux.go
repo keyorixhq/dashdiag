@@ -45,6 +45,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseRHELSecurity(ctx, info)
 	parseSupportconfig(info)
 	parseAppArmor(info)
+	parseSUSEConnect(ctx, info)
 
 	return info, nil
 }
@@ -839,4 +840,64 @@ func parseAppArmor(info *models.SecurityInfo) {
 	info.AppArmorProfiles = total
 	info.AppArmorComplain = complain
 	info.AppArmorDenials = countAppArmorDenials(1 * time.Hour)
+}
+
+// parseSUSEConnect reads SUSEConnect registration + subscription expiry.
+// `SUSEConnect --status` returns JSON like:
+// [{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE",
+//
+//	"expires_at":"2026-07-13 00:00:00 UTC","type":"evaluation",...}]
+func parseSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
+	if _, err := exec.LookPath("SUSEConnect"); err != nil {
+		return
+	}
+	out, err := runCmd(ctx, "SUSEConnect", "--status")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return
+	}
+
+	lower := strings.ToLower(out)
+	if !strings.Contains(lower, "registered") && !strings.Contains(lower, "identifier") {
+		return
+	}
+
+	info.SUSEConnectRegistered = strings.Contains(lower, "\"registered\"") ||
+		strings.Contains(lower, "registered")
+
+	// Extract subscription_status
+	if idx := strings.Index(lower, "subscription_status"); idx >= 0 {
+		rest := out[idx:]
+		if start := strings.Index(rest, `"`); start >= 0 {
+			rest = rest[start+1:]
+			if colon := strings.Index(rest, `"`); colon >= 0 {
+				rest = rest[colon+1:]
+				if end := strings.Index(rest, `"`); end >= 0 {
+					info.SUSEConnectStatus = rest[:end]
+				}
+			}
+		}
+	}
+
+	// Extract expires_at and compute days remaining
+	if idx := strings.Index(out, "expires_at"); idx >= 0 {
+		rest := out[idx:]
+		// Format: "expires_at":"2026-07-13 00:00:00 UTC"
+		if start := strings.Index(rest, `":"`); start >= 0 {
+			rest = rest[start+3:]
+			if end := strings.Index(rest, `"`); end >= 0 {
+				expiryStr := strings.TrimSpace(rest[:end])
+				// Parse "2026-07-13 00:00:00 UTC"
+				t, err := time.Parse("2006-01-02 15:04:05 MST", expiryStr)
+				if err == nil {
+					days := int(time.Until(t).Hours() / 24)
+					if days < 0 {
+						days = 0 // expired
+					}
+					info.SUSEConnectExpiresDays = days
+				} else {
+					info.SUSEConnectExpiresDays = -1
+				}
+			}
+		}
+	}
 }
