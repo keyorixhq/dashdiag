@@ -848,6 +848,12 @@ func parseAppArmor(info *models.SecurityInfo) {
 //
 //	"expires_at":"2026-07-13 00:00:00 UTC","type":"evaluation",...}]
 func parseSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
+	CollectSUSEConnect(ctx, info)
+}
+
+// CollectSUSEConnect populates SUSEConnect subscription fields into info.
+// Exported so SUSEConnectCollector can call it directly without duplicating logic.
+func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 	if _, err := exec.LookPath("SUSEConnect"); err != nil {
 		return
 	}

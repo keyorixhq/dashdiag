@@ -156,6 +156,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkSnapper(*d)
 		}
+	case models.SUSEConnectInfo:
+		return checkSUSEConnect(d)
+	case *models.SUSEConnectInfo:
+		if d != nil {
+			return checkSUSEConnect(*d)
+		}
 	}
 	return nil
 }
@@ -1600,4 +1606,41 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 	}
 
 	return out
+}
+
+// checkSUSEConnect surfaces SUSEConnect subscription status in dsd health.
+// CRIT if expired or expires <=14d, WARN if <=30d, OK otherwise.
+// Silent (no insight) when SUSEConnect is not registered — non-SLES systems.
+func checkSUSEConnect(s models.SUSEConnectInfo) []models.Insight {
+	if !s.Registered {
+		return nil
+	}
+
+	status := s.Status
+	if status == "" {
+		status = "ACTIVE"
+	}
+
+	switch {
+	case s.ExpiresDays == 0:
+		return []models.Insight{insight("CRIT", "Subscription",
+			"SUSEConnect subscription EXPIRED — security patches unavailable",
+			[]string{"to fix: renew at https://scc.suse.com"},
+		)}
+	case s.ExpiresDays > 0 && s.ExpiresDays <= 14:
+		return []models.Insight{insight("CRIT", "Subscription",
+			fmt.Sprintf("SUSEConnect expires in %d day(s) — renew immediately", s.ExpiresDays),
+			[]string{"to fix: renew at https://scc.suse.com"},
+		)}
+	case s.ExpiresDays > 14 && s.ExpiresDays <= 30:
+		return []models.Insight{insight("WARN", "Subscription",
+			fmt.Sprintf("SUSEConnect expires in %d day(s)", s.ExpiresDays),
+			[]string{"to fix: renew at https://scc.suse.com"},
+		)}
+	default:
+		return []models.Insight{insight("OK", "Subscription",
+			fmt.Sprintf("SUSEConnect %s — expires in %d day(s)", status, s.ExpiresDays),
+			nil,
+		)}
+	}
 }
