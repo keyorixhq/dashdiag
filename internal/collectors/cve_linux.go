@@ -1,0 +1,249 @@
+//go:build linux
+
+package collectors
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// CheckCVE queries the system package manager to determine if a CVE
+// is affecting the current system. Supports zypper, dnf (4+5), and apt.
+func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
+	// Validate CVE format loosely
+	cveID = strings.TrimSpace(strings.ToUpper(cveID))
+	if !strings.HasPrefix(cveID, "CVE-") {
+		return &models.CVEResult{
+			CVE:          cveID,
+			Status:       models.CVEUnknown,
+			StatusReason: "invalid CVE ID format — expected CVE-YYYY-NNNNN",
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Detect package manager and delegate
+	if _, err := exec.LookPath("zypper"); err == nil {
+		return checkCVEZypper(ctx, cveID)
+	}
+	if _, err := exec.LookPath("dnf"); err == nil {
+		return checkCVEDNF(ctx, cveID)
+	}
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		return checkCVEApt(ctx, cveID)
+	}
+	return &models.CVEResult{
+		CVE:          cveID,
+		Status:       models.CVEUnknown,
+		StatusReason: "no supported package manager found (zypper/dnf/apt)",
+	}
+}
+
+// checkCVEZypper uses `zypper lp --cve CVE-XXXX` (SLES/openSUSE).
+// Exit 0 + output = patches available; "No patch" in output = not affected.
+func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
+	result := &models.CVEResult{CVE: cveID, PackageManager: "zypper"}
+
+	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+		"lp", "--cve", cveID)
+
+	lower := strings.ToLower(out)
+
+	// "No patch" or "no updates found" = not affected / already patched
+	if strings.Contains(lower, "no patch") ||
+		strings.Contains(lower, "no updates found") ||
+		strings.Contains(lower, "nothing to do") {
+		result.Status = models.CVENotAffected
+		result.StatusReason = "no patches found for this CVE on this system"
+		return result
+	}
+
+	if err != nil && len(out) == 0 {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "zypper lp failed: " + err.Error()
+		result.FallbackURL = "https://www.suse.com/security/cve/" + cveID + "/"
+		return result
+	}
+
+	// Parse patch table output
+	// Format: Repository | Patch Name | Category | Severity | Interactive | Status | Summary
+	var pkgs []models.CVEPackage
+	isVulnerable := false
+
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "security") {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) < 6 {
+			continue
+		}
+		status := strings.TrimSpace(strings.ToLower(fields[5]))
+		if status == "needed" {
+			isVulnerable = true
+			advisory := strings.TrimSpace(fields[1])
+			severity := strings.TrimSpace(fields[3])
+			pkgs = append(pkgs, models.CVEPackage{
+				Advisory: advisory,
+				Severity: severity,
+			})
+		}
+	}
+
+	if isVulnerable {
+		result.Status = models.CVEVulnerable
+		result.AffectedPackages = pkgs
+		result.FixCommand = "zypper patch --cve " + cveID
+		if len(pkgs) > 0 {
+			result.FixAdvisory = pkgs[0].Advisory
+		}
+	} else {
+		// Output present but no "needed" patches = already patched
+		result.Status = models.CVEPatched
+		result.StatusReason = "patches for this CVE are already applied"
+	}
+	return result
+}
+
+// checkCVEDNF uses dnf updateinfo / dnf advisory (RHEL/Rocky/Fedora).
+func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
+	result := &models.CVEResult{CVE: cveID, PackageManager: "dnf"}
+
+	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4
+	out, err := runCmd(ctx, "dnf", "advisory", "info", "--cve", cveID, "--quiet")
+	if err != nil {
+		out, err = runCmd(ctx, "dnf", "updateinfo", "info", "--cve", cveID, "--quiet")
+	}
+
+	lower := strings.ToLower(out)
+
+	if err != nil && len(out) == 0 {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "dnf advisory query failed"
+		result.FallbackURL = "https://access.redhat.com/security/cve/" + cveID
+		return result
+	}
+
+	// "No advisory" or empty output = not in scope
+	if strings.Contains(lower, "no advisory") ||
+		strings.Contains(lower, "no match") ||
+		strings.TrimSpace(out) == "" {
+		result.Status = models.CVENotAffected
+		result.StatusReason = "no advisory found for this CVE"
+		return result
+	}
+
+	// Look for packages listed as needing update
+	var pkgs []models.CVEPackage
+	var currentAdvisory, currentSeverity string
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		lower := strings.ToLower(line)
+
+		if strings.HasPrefix(lower, "advisory id") || strings.HasPrefix(lower, "name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				currentAdvisory = strings.TrimSpace(parts[1])
+			}
+		}
+		if strings.HasPrefix(lower, "severity") || strings.HasPrefix(lower, "type") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				currentSeverity = strings.TrimSpace(parts[1])
+			}
+		}
+		// Package lines in dnf advisory output: "  package-name-version.arch"
+		if strings.HasPrefix(line, "  ") && strings.Contains(line, ".") &&
+			!strings.Contains(line, ":") {
+			pkgName := strings.TrimSpace(line)
+			if pkgName != "" && !strings.HasPrefix(strings.ToLower(pkgName), "update") {
+				pkgs = append(pkgs, models.CVEPackage{
+					Name:     pkgName,
+					Advisory: currentAdvisory,
+					Severity: currentSeverity,
+				})
+			}
+		}
+	}
+
+	if len(pkgs) > 0 || len(out) > 50 {
+		result.Status = models.CVEVulnerable
+		result.AffectedPackages = pkgs
+		result.FixAdvisory = currentAdvisory
+		result.FixCommand = "dnf upgrade --cve " + cveID
+	} else {
+		result.Status = models.CVEPatched
+		result.StatusReason = "advisory found but no pending updates"
+	}
+	return result
+}
+
+// checkCVEApt handles Ubuntu/Debian. apt itself doesn't have a direct CVE flag;
+// we use `apt-cache policy` + security tracker heuristics.
+func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
+	result := &models.CVEResult{CVE: cveID, PackageManager: "apt"}
+
+	// Try apt-get changelog approach or debsecan if available
+	if _, err := exec.LookPath("debsecan"); err == nil {
+		return checkCVEDebsecan(ctx, cveID, result)
+	}
+
+	// Fall back to checking if security updates are pending
+	// and linking to the Debian/Ubuntu tracker
+	result.Status = models.CVEUnknown
+	result.StatusReason = "apt does not support direct CVE queries — install 'debsecan' for Debian, or check tracker"
+
+	// Detect distro for appropriate tracker URL
+	if isUbuntu() {
+		result.FallbackURL = "https://ubuntu.com/security/CVE/" + strings.ToLower(cveID)
+	} else {
+		result.FallbackURL = "https://security-tracker.debian.org/tracker/" + cveID
+	}
+	return result
+}
+
+// checkCVEDebsecan uses debsecan (Debian Security Analyzer) when available.
+func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResult) *models.CVEResult {
+	out, err := runCmd(ctx, "debsecan", "--cve", cveID, "--format", "detail")
+	if err != nil || strings.TrimSpace(out) == "" {
+		result.Status = models.CVENotAffected
+		result.StatusReason = "debsecan: no vulnerabilities found for " + cveID
+		return result
+	}
+
+	var pkgs []models.CVEPackage
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// debsecan format: "CVE-XXXX package [fix-available] description"
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			pkgs = append(pkgs, models.CVEPackage{Name: fields[1]})
+		}
+	}
+
+	if len(pkgs) > 0 {
+		result.Status = models.CVEVulnerable
+		result.AffectedPackages = pkgs
+		result.FixCommand = "apt-get upgrade"
+	} else {
+		result.Status = models.CVEPatched
+	}
+	return result
+}
+
+// isUbuntu checks /etc/os-release for Ubuntu.
+func isUbuntu() bool {
+	out, _ := runCmd(context.Background(), "sh", "-c",
+		"grep -i ubuntu /etc/os-release")
+	return strings.Contains(strings.ToLower(out), "ubuntu")
+}
