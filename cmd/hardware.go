@@ -74,7 +74,7 @@ func runHardware(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) {
+func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
 	sep := render.StyleDim.Render("────────────────────────────────────────────────────────")
 
 	// ── Drives ────────────────────────────────────────────────────────────────

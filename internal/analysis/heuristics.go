@@ -1652,7 +1652,7 @@ func checkSUSEConnect(s models.SUSEConnectInfo) []models.Insight {
 }
 
 // checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
-func checkHardware(h models.HardwareInfo) []models.Insight {
+func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // flat independent hardware checks — splitting would harm readability
 	var out []models.Insight
 
 	// ── Drive health ──────────────────────────────────────────────────────────
