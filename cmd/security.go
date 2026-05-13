@@ -83,12 +83,10 @@ func printSecurityReport(info *models.SecurityInfo, mode output.OutputMode, elap
 		if proc == "" {
 			proc = "unknown"
 		}
-		// Resolve well-known service names — systemd socket activation
-		// hides the real service name behind 'systemd'
-		if proc == "systemd" || proc == "unknown" {
-			if name := wellKnownPort(p.Port); name != "" {
-				proc = name
-			}
+		// Always use well-known service name for standard ports —
+		// raw process names (master, systemd, python3) are less readable.
+		if name := wellKnownPort(p.Port); name != "" {
+			proc = name
 		}
 		fmt.Printf("  %s  %-6d %-5s %-20s%s\n", icon, p.Port, p.Protocol, proc, tag)
 	}
@@ -227,7 +225,7 @@ func countSecurityIssues(info *models.SecurityInfo) int {
 func wellKnownPort(port int) string {
 	names := map[int]string{
 		22:    "sshd",
-		25:    "smtp",
+		25:    "postfix", // SMTP — default MTA on openSUSE/SLES/RHEL
 		53:    "dns",
 		80:    "http",
 		443:   "https",
