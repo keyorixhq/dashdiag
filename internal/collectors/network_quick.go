@@ -47,6 +47,12 @@ func shouldSkipIface(name string) bool {
 func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	result := &models.NetworkInfo{}
 
+	// macOS: build USB interface map upfront from networksetup
+	darwinUSB := map[string]string{}
+	if runtime.GOOS == "darwin" {
+		darwinUSB = darwinUSBInterfaces(ctx)
+	}
+
 	ifaces, _ := gopsutilnet.InterfacesWithContext(ctx)
 	ioCounters, _ := gopsutilnet.IOCountersWithContext(ctx, true)
 	counterMap := make(map[string]gopsutilnet.IOCountersStat, len(ioCounters))
@@ -68,6 +74,13 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		cnt := counterMap[iface.Name]
 		speedMbps := readIfaceSpeed(iface.Name)
 		isUSB, driver := readIfaceUSB(iface.Name)
+		// macOS: override with networksetup detection
+		if portName, ok := darwinUSB[iface.Name]; ok {
+			isUSB = true
+			if driver == "" {
+				driver = portName // e.g. "USB 10/100/1G/2.5G LAN"
+			}
+		}
 		result.Interfaces = append(result.Interfaces, models.InterfaceInfo{
 			Name:      iface.Name,
 			Up:        up,
@@ -483,4 +496,33 @@ func readIfaceUSB(name string) (bool, string) {
 	}
 
 	return isUSB, driver
+}
+
+// darwinUSBInterfaces parses `networksetup -listallhardwareports` to find
+// USB-attached network interfaces on macOS. Returns a map of interface name
+// → hardware port description (e.g. "en7" → "USB 10/100/1G/2.5G LAN").
+func darwinUSBInterfaces(ctx context.Context) map[string]string {
+	out, err := runCmd(ctx, "networksetup", "-listallhardwareports")
+	if err != nil {
+		return nil
+	}
+	result := make(map[string]string)
+	var currentPort, currentDevice string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Hardware Port:") {
+			currentPort = strings.TrimSpace(strings.TrimPrefix(line, "Hardware Port:"))
+			_ = currentDevice // reset intentional — new port starts fresh
+			currentDevice = ""
+		} else if strings.HasPrefix(line, "Device:") {
+			currentDevice = strings.TrimSpace(strings.TrimPrefix(line, "Device:"))
+			if currentDevice != "" && currentPort != "" {
+				// Flag any interface with "USB" in the port name
+				if strings.Contains(strings.ToUpper(currentPort), "USB") {
+					result[currentDevice] = currentPort
+				}
+			}
+		}
+	}
+	return result
 }
