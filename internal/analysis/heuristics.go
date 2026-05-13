@@ -618,8 +618,34 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			nil,
 		)}
 	}
+
+	var out []models.Insight
+
+	// AppArmor-specific checks
+	if aaActive {
+		// Profiles in complain mode mean enforcement is bypassed
+		if mac.AppArmorComplain > 0 {
+			out = append(out, insight("WARN", "KernelSec",
+				fmt.Sprintf("%d AppArmor profile(s) in complain mode — not enforcing", mac.AppArmorComplain),
+				[]string{
+					"to inspect: aa-status",
+					"to enforce: aa-enforce /etc/apparmor.d/*",
+				},
+			))
+		}
+		// Denials in last hour
+		if mac.AppArmorDenials > 0 {
+			out = append(out, insight("WARN", "KernelSec",
+				fmt.Sprintf("%d AppArmor denial(s) in the last hour", mac.AppArmorDenials),
+				[]string{
+					"to inspect: dmesg | grep -i apparmor",
+					"to inspect: journalctl -k | grep apparmor",
+				},
+			))
+		}
+	}
 	if !mac.SELinuxPresent {
-		return nil
+		return out
 	}
 	if l := func() string {
 		if mac.SELinuxDenials < 0 {
@@ -633,12 +659,12 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		}
 		return ""
 	}(); l != "" {
-		return []models.Insight{insight(l, "KernelSec",
+		out = append(out, insight(l, "KernelSec",
 			fmt.Sprintf("%d SELinux denials (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
 			[]string{"to inspect: ausearch -m avc -ts recent", "to inspect: sealert -a /var/log/audit/audit.log"},
-		)}
+		))
 	}
-	return nil
+	return out
 }
 
 func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
