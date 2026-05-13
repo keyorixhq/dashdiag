@@ -81,6 +81,14 @@ func detectContainerSocket() (string, string) {
 		{"/run/podman/podman.sock", "podman"},
 		{"/var/run/podman/podman.sock", "podman"},
 	}
+
+	// Also check user-mode Podman socket (rootless, XDG_RUNTIME_DIR)
+	// Common path: /run/user/<uid>/podman/podman.sock
+	if uid := os.Getuid(); uid > 0 {
+		xdgPath := fmt.Sprintf("/run/user/%d/podman/podman.sock", uid)
+		candidates = append(candidates, struct{ path, runtime string }{xdgPath, "podman"})
+	}
+
 	for _, c := range candidates {
 		conn, err := net.DialTimeout("unix", c.path, 500*time.Millisecond)
 		if err == nil {
