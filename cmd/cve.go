@@ -17,10 +17,11 @@ import (
 func init() {
 	rootCmd.AddCommand(cveCmd)
 	cveCmd.Flags().Bool("json", false, "JSON output")
+	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
 }
 
 var cveCmd = &cobra.Command{
-	Use:   "cve CVE-YYYY-NNNNN [CVE-YYYY-NNNNN...]",
+	Use:   "cve [CVE-YYYY-NNNNN...]",
 	Short: "Check if this system is affected by one or more CVEs",
 	Long: `Query the system package manager to determine if CVEs affect this host.
 
@@ -29,14 +30,32 @@ Supports zypper (SLES/openSUSE), dnf (RHEL/Rocky/Fedora), and apt (Ubuntu/Debian
 Examples:
   dsd cve CVE-2024-3094
   dsd cve CVE-2024-3094 CVE-2025-32462 CVE-2025-32463
-  dsd cve CVE-2024-1234 --json`,
-	Args: cobra.MinimumNArgs(1),
+  dsd cve --all                    (scan all pending security advisories)
+  dsd cve --all --json`,
+	Args: cobra.ArbitraryArgs,
 	RunE: runCVE,
 }
 
 func runCVE(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	allFlag, _ := cmd.Flags().GetBool("all")
 	ctx := context.Background()
+
+	if allFlag {
+		fmt.Println("\nScanning all pending security advisories...")
+		r := collectors.ScanAllCVEs(ctx)
+		if jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(r)
+		}
+		printAllCVEs(r)
+		return nil
+	}
+
+	if len(args) == 0 {
+		return fmt.Errorf("specify at least one CVE ID, or use --all to scan everything")
+	}
 
 	results := make([]*models.CVEResult, 0, len(args))
 	for _, cveID := range args {
@@ -58,7 +77,6 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		printCVEResult(r)
 	}
 
-	// Summary when checking multiple CVEs
 	if len(results) > 1 {
 		vulnerable := 0
 		for _, r := range results {
@@ -129,4 +147,56 @@ func printCVEResult(r *models.CVEResult) {
 
 	fmt.Println()
 	fmt.Println(sep)
+}
+
+func printAllCVEs(r *models.CVEAllResult) {
+	sep := strings.Repeat("─", 56)
+	fmt.Println()
+	fmt.Printf("Security advisory scan   (via %s)\n", r.PackageManager)
+	fmt.Println(sep)
+
+	if r.StatusReason != "" && r.Total == 0 {
+		fmt.Printf("✅  %s\n", r.StatusReason)
+		fmt.Println(sep)
+		return
+	}
+
+	if r.Total == 0 {
+		fmt.Println("✅  No pending security advisories — system is up to date")
+		fmt.Println(sep)
+		return
+	}
+
+	fmt.Printf("Found %d pending security advisory(ies)\n\n", r.Total)
+
+	printAdvisoryGroup("🔴 CRITICAL", r.Critical)
+	printAdvisoryGroup("⚠️  IMPORTANT", r.Important)
+	printAdvisoryGroup("   MODERATE", r.Moderate)
+	printAdvisoryGroup("   LOW", r.Low)
+
+	fmt.Println(sep)
+	if r.FixCommand != "" {
+		fmt.Printf("to fix all:  %s\n", r.FixCommand)
+	}
+	fmt.Println()
+}
+
+func printAdvisoryGroup(label string, advisories []models.CVEAdvisory) {
+	if len(advisories) == 0 {
+		return
+	}
+	fmt.Printf("%s (%d)\n", label, len(advisories))
+	for _, a := range advisories {
+		line := fmt.Sprintf("  %-40s", a.ID)
+		if a.Summary != "" {
+			// Truncate long summaries
+			summary := a.Summary
+			if len(summary) > 50 {
+				summary = summary[:47] + "..."
+			}
+			line += "  " + summary
+		}
+		fmt.Println(line)
+	}
+	fmt.Println()
 }
