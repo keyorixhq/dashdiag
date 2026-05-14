@@ -11537,3 +11537,138 @@ WARN/CRIT and the check has an associated systemd unit or log source, call
 field. Already have the Details rendering infrastructure.
 Sprint 3 target.
 
+
+
+## 30. Pricing Strategy, TAM/SAM/SOM & 3-Year Projection
+
+*Written 2026-05-14 post hardware validation sweep across 7 distros.*
+
+---
+
+### Positioning
+
+DashDiag sits **below full APM, above nothing** — the gap between "no monitoring" and "Datadog at $18/host/month". Target buyer is a sysadmin or DevOps engineer managing 5-500 Linux hosts who wants instant actionable health data without deploying an agent, configuring a SaaS, or learning a complex platform.
+
+**Closest comparables:**
+| Product | Price | Why DashDiag wins |
+|---|---|---|
+| Datadog Agent | $18-23/host/month | No agent, no cloud dependency, instant CLI |
+| New Relic | $16/host/month | Zero config, works air-gapped |
+| Checkmk | €600/year/10 hosts | Better UX, multi-distro, CVE-aware |
+| Site24x7 | $9/host/month | Local-first, no data leaves the machine |
+| Netdata | Free/OSS | Actionable output, not just metrics |
+
+---
+
+### Pricing Tiers
+
+| Tier | Price | Hosts | Target |
+|---|---|---|---|
+| **Free** | €0 | 1 | Individual devs, OSS projects, viral acquisition |
+| **Pro** | €9/host/month or €79/year | 1-10 | Freelancers, solo operators, small teams |
+| **Team** | €29/host/month (min 5) | 5-100 | SME ops teams, startups with infra |
+| **Enterprise** | POQ | Unlimited | MSPs, large infra, custom SLA |
+
+**Rules:**
+- Annual billing at 20% discount (encourages commitment, improves cash flow)
+- Free tier limited to `dsd health` + `dsd cve` on 1 host — enough to demonstrate value, not enough to run production
+- Pro unlocks: `dsd hardware`, `dsd security`, `dsd net`, `--report`, `--json` API, baseline history
+- Team adds: multi-host dashboard, `dsd health --diff` across fleet, email/Slack alerts
+- Enterprise adds: SSO, audit log, SLA, custom integrations, dedicated support
+
+**First paying customer target:** Pro at €79/year — achievable within 6 weeks of launch (Sprint 2 goal).
+
+---
+
+### TAM / SAM / SOM
+
+**TAM — Total Addressable Market**
+- Linux servers in production: ~40M worldwide (conservative, 2026)
+- System monitoring/observability market: ~$20B by 2026
+- Linux-specific ops tooling segment: **~$4B**
+
+**SAM — Serviceable Addressable Market**
+- SMEs + mid-market with 5-500 Linux hosts not using enterprise APM
+- ~2M companies globally fitting this profile
+- Average spend: ~$500/year/company
+- SAM: **~$1B**
+
+**SOM — Serviceable Obtainable Market (realistic 3-year)**
+- Solo founder, no VC, bootstrapped
+- Community-led growth via HN, Reddit r/sysadmin, DevOps Slack communities
+- SOM target: **€500K-€2M ARR by end of Year 3**
+
+---
+
+### 3-Year Revenue Projection
+
+| Year | Paying Customers | Avg ARR/Customer | ARR | Key Milestone |
+|---|---|---|---|---|
+| **Y1** | 50-200 | €400 | €20K-€80K | PMF confirmed, 50 paying, Pro tier only, first MSP conversation |
+| **Y2** | 500-2,000 | €300 | €150K-€400K | Team tier live, first MSP deal, Slack/email alerts, UnpackOps RCA beta |
+| **Y3** | 2,000-8,000 | €250 | €500K-€1.5M | Enterprise tier, channel partners, UnpackOps platform, Gauge (FinOps) beta |
+
+*Average ARR/customer declines as free-to-Pro conversions grow the base — offset by Team/Enterprise upsells.*
+
+---
+
+### The MSP Multiplier
+
+MSPs (Managed Service Providers) are the highest-leverage customer segment:
+
+> One MSP managing 200 clients × 10 servers each = 2,000 hosts
+> Team pricing: €29/host/month = **€58,000/year from one customer**
+
+This is the Y1 target in a single deal. MSPs need exactly what DashDiag provides:
+- Multi-distro support (their clients run everything)
+- Air-gapped/no-agent operation (security-conscious clients)
+- `--json` output for integration into their own dashboards
+- `--report` flag for client-facing reports
+- CVE scanning as a service delivery feature
+
+**MSP acquisition strategy:** target MSPs advertising SLES/RHEL support on LinkedIn. The SLES 16 CVE screenshot (74 advisories, 2 CRITICAL on fresh install) is the opening conversation.
+
+---
+
+### Upside Drivers
+
+1. **Platform stickiness** — `--json` API connects DashDiag to UnpackOps RCA and Gauge (FinOps). Once a customer uses three products, churn drops to near zero.
+2. **Multi-distro validation** — 7 distros tested in production. Most competitors only test Ubuntu. This is a real differentiator for enterprise/MSP customers running RHEL/SLES.
+3. **Air-gapped positioning** — financial services, healthcare, government all require on-premise tools. DashDiag works with zero internet access. No competitor in this price range does.
+4. **Word of mouth velocity** — CLI tools spread via GitHub stars, HN posts, r/sysadmin recommendations. Zero CAC if the first 50 users love it.
+
+---
+
+### Risks
+
+| Risk | Mitigation |
+|---|---|
+| Datadog/New Relic adds lightweight CLI mode | Speed to market — be established before they notice |
+| Open source forks (Netdata, node_exporter) | Actionable output + CVE + hardware — not just metrics |
+| Solo founder bandwidth | Sprint discipline, no feature creep, ship fast |
+| Pricing too low for enterprise | POQ tier with annual commitment protects margin |
+| SLES/RHEL customer needs SLA | Enterprise tier with SLA offering from Y2 |
+
+---
+
+### Key Decision: Freemium vs Free Trial
+
+**Chosen model: Freemium** (Free tier permanent, not time-limited trial)
+
+Rationale:
+- CLI tools need organic adoption — engineers try before buying
+- Free tier creates viral spread via GitHub, HN, blog posts
+- Free users become paid users when they hit host limits or want `--report`
+- Free tier on 1 host is a permanent marketing channel
+- Alternative (14-day trial) would kill word-of-mouth for a CLI tool
+
+---
+
+### Pricing Review Triggers
+
+Revisit pricing at these milestones:
+- First 50 paying customers — validate willingness to pay
+- First MSP deal — validate Team tier price point
+- First Enterprise inquiry — validate POQ approach
+- €100K ARR — consider raising Pro tier to €12/month
+
