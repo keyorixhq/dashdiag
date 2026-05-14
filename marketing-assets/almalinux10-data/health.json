@@ -1,0 +1,2395 @@
+{
+  "hostname": "localhost.localdomain",
+  "timestamp": "2026-05-14T22:44:27.386583466Z",
+  "version": "dev",
+  "checks": [
+    {
+      "name": "Subscription",
+      "status": "OK",
+      "duration": "47.425µs",
+      "raw": {
+        "registered": false,
+        "expires_days": 0,
+        "status": ""
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "duration": "76.9µs",
+      "raw": {
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "Thermal",
+      "status": "OK",
+      "duration": "241.386µs",
+      "raw": {
+        "cpu_temp_c": 44.75,
+        "core_temps": {
+          "Tctl": 44.75
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "Memory",
+      "status": "OK",
+      "duration": "141.088µs",
+      "raw": {
+        "total_gb": 15.214958190917969,
+        "free_gb": 13.668201446533203,
+        "used_pct": 8.202612002978556,
+        "slab_mb": 246.01953125,
+        "commit_limit_mb": 11566.0546875,
+        "committed_as_mb": 4661.390625,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Snapshots",
+      "status": "OK",
+      "duration": "33.386µs",
+      "raw": {
+        "available": false,
+        "config_count": 0,
+        "snapshot_count": 0,
+        "oldest_days": 0,
+        "total_space_gb": 0,
+        "last_snapshot_h": 0
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "duration": "76.69µs",
+      "raw": {
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "CRIT",
+      "duration": "561.278µs",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/mapper/almalinux-root",
+            "fs_type": "xfs",
+            "total_gb": 32.446918656,
+            "used_gb": 4.816805888000001,
+            "free_gb": 27.630112768,
+            "used_pct": 14.845187424628648,
+            "inodes_used_pct": 0.7579053939786862,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot",
+            "device": "/dev/nvme1n1p18",
+            "fs_type": "xfs",
+            "total_gb": 0.981655552,
+            "used_gb": 0.408297472,
+            "free_gb": 0.57335808,
+            "used_pct": 41.59274311321778,
+            "inodes_used_pct": 0.00438690185546875,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme1n1p1",
+            "fs_type": "vfat",
+            "total_gb": 0.627900416,
+            "used_gb": 0.030044159999999986,
+            "free_gb": 0.597856256,
+            "used_pct": 4.784860661726331,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/gvfs",
+            "device": "gvfsd-fuse",
+            "fs_type": "fuse.gvfsd-fuse",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd",
+            "device": "/dev/sda1",
+            "fs_type": "iso9660",
+            "total_gb": 8.944340992,
+            "used_gb": 8.944340992,
+            "free_gb": 0,
+            "used_pct": 100,
+            "inodes_used_pct": 0,
+            "read_only": true,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/doc",
+            "device": "portal",
+            "fs_type": "fuse.portal",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "OK",
+      "duration": "2.47749ms",
+      "raw": {
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 0,
+        "app_armor_present": false,
+        "app_armor_mode": "",
+        "app_armor_profiles": 0,
+        "app_armor_enforce": 0,
+        "app_armor_complain": 0,
+        "app_armor_denials": 0
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "OK",
+      "duration": "8.118773ms",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "15.831045ms",
+      "raw": {
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 435,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 1024,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 0,
+        "fs_inotify_watches": 122235,
+        "workload": "default",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "OK",
+      "duration": "16.609333ms",
+      "raw": {
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "NVMe",
+      "status": "OK",
+      "duration": "18.19329ms",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 44.85000000000002,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 63,
+            "power_on_hours": 7102,
+            "power_cycles": 4620,
+            "has_linux": false
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 45.85000000000002,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 62,
+            "power_on_hours": 7121,
+            "power_cycles": 4618,
+            "mount_points": [
+              "/boot",
+              "/boot/efi"
+            ],
+            "has_linux": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "duration": "32.918749ms",
+      "raw": {
+        "open_count": 7456,
+        "max_count": 9223372036854775807,
+        "used_pct": 8.083811398051921e-14,
+        "hot_processes": null,
+        "deleted_open_files": 38,
+        "deleted_open_size_gb": 0.15270318300000005,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "duration": "65.397402ms",
+      "raw": {
+        "present": true,
+        "status": "Full",
+        "capacity_pct": 100,
+        "health_pct": 84.51666666666667,
+        "energy_now_uwh": 50710000,
+        "energy_full_uwh": 50710000,
+        "energy_design_uwh": 60000000,
+        "cycle_count": 150,
+        "voltage_uv": 17137000,
+        "power_now_uw": 0,
+        "manufacturer": "Sunwoda",
+        "model_name": "L20D4PC0"
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "WARN",
+      "duration": "491.028842ms",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": false,
+        "ssh_root_login": false,
+        "failed_logins": 2,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "sshd",
+            "expected": true
+          },
+          {
+            "port": 9090,
+            "protocol": "tcp",
+            "process": "cockpit",
+            "expected": true
+          }
+        ],
+        "firewall_active": true,
+        "firewall_type": "firewalld",
+        "firewall_zone": "public",
+        "firewall_services": [
+          "cockpit",
+          "dhcpv6-client",
+          "ssh"
+        ],
+        "ssh_allowed": true,
+        "sudo_nopasswd": [
+          "andrei"
+        ],
+        "se_linux_denials": 0,
+        "se_linux_mode": "enforcing",
+        "fips_enabled": false,
+        "crypto_policy": "DEFAULT",
+        "usb_guard_active": false,
+        "aide_installed": false,
+        "aide_db_exists": false,
+        "aide_last_run_days": 0,
+        "audit_rules": 0,
+        "supportconfig_available": false,
+        "supportconfig_last_run_days": 0
+      }
+    },
+    {
+      "name": "CPU",
+      "status": "OK",
+      "duration": "500.484738ms",
+      "raw": {
+        "load_avg_1": 0.07,
+        "load_avg_5": 0.36,
+        "load_avg_15": 0.22,
+        "num_cpu": 16,
+        "usage_pct": 14.035087719298245,
+        "load_pct": 0.43750000000000006,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "OK",
+      "duration": "606.457075ms",
+      "raw": {
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.015625,
+        "crash_loops": null
+      }
+    },
+    {
+      "name": "Packages",
+      "status": "CRIT",
+      "duration": "819.234659ms",
+      "raw": {
+        "security_updates": 354,
+        "critical_updates": 7,
+        "important_updates": 176,
+        "updates": [
+          {
+            "name": "bind-libs-32:9.18.33-10.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8312"
+          },
+          {
+            "name": "bind-license-32:9.18.33-10.el10_1.3.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8312"
+          },
+          {
+            "name": "bind-utils-32:9.18.33-10.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8312"
+          },
+          {
+            "name": "binutils-2.41-58.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23306"
+          },
+          {
+            "name": "binutils-gold-2.41-58.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23306"
+          },
+          {
+            "name": "buildah-2:1.41.6-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:22012"
+          },
+          {
+            "name": "buildah-2:1.41.8-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0436"
+          },
+          {
+            "name": "buildah-2:1.41.8-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3297"
+          },
+          {
+            "name": "cockpit-344-3.el10_1.x86_64",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-bridge-344-3.el10_1.noarch",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-packagekit-344-3.el10_1.noarch",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-storaged-344-3.el10_1.noarch",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-system-344-3.el10_1.noarch",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-ws-344-3.el10_1.x86_64",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "cockpit-ws-selinux-344-3.el10_1.x86_64",
+            "severity": "Critical",
+            "advisory": "ALSA-2026:7383"
+          },
+          {
+            "name": "crun-1.27-1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6622"
+          },
+          {
+            "name": "cups-1:2.4.10-12.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0464"
+          },
+          {
+            "name": "cups-client-1:2.4.10-12.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0464"
+          },
+          {
+            "name": "cups-filesystem-1:2.4.10-12.el10_1.2.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0464"
+          },
+          {
+            "name": "cups-ipptool-1:2.4.10-12.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0464"
+          },
+          {
+            "name": "cups-libs-1:2.4.10-12.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0464"
+          },
+          {
+            "name": "curl-8.12.1-2.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1825"
+          },
+          {
+            "name": "firefox-140.10.0-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10767"
+          },
+          {
+            "name": "firefox-140.5.0-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21281"
+          },
+          {
+            "name": "firefox-140.6.0-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23035"
+          },
+          {
+            "name": "firefox-140.7.0-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2271"
+          },
+          {
+            "name": "firefox-140.8.0-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3361"
+          },
+          {
+            "name": "firefox-140.9.0-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:5931"
+          },
+          {
+            "name": "firefox-140.9.1-1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7672"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2222"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3068"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:5939"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.5.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6799"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.6.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8458"
+          },
+          {
+            "name": "freerdp-libs-2:3.10.3-5.el10_1.8.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:16014"
+          },
+          {
+            "name": "gdk-pixbuf2-2.42.12-4.el10_1.5.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10707"
+          },
+          {
+            "name": "gdk-pixbuf2-modules-2.42.12-4.el10_1.5.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10707"
+          },
+          {
+            "name": "giflib-5.2.1-22.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8858"
+          },
+          {
+            "name": "glib2-2.80.4-10.el10_1.12.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0975"
+          },
+          {
+            "name": "glib2-2.80.4-10.el10_1.13.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:15969"
+          },
+          {
+            "name": "glibc-2.39-58.el10_1.7.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1334"
+          },
+          {
+            "name": "glibc-all-langpacks-2.39-58.el10_1.7.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1334"
+          },
+          {
+            "name": "glibc-common-2.39-58.el10_1.7.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1334"
+          },
+          {
+            "name": "glibc-gconv-extra-2.39-58.el10_1.7.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1334"
+          },
+          {
+            "name": "gnupg2-2.4.5-3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0697"
+          },
+          {
+            "name": "gnupg2-2.4.5-4.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2719"
+          },
+          {
+            "name": "gnupg2-smime-2.4.5-3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0697"
+          },
+          {
+            "name": "gnupg2-smime-2.4.5-4.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2719"
+          },
+          {
+            "name": "gnutls-3.8.10-3.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3477"
+          },
+          {
+            "name": "grub2-common-1:2.12-29.el10_1.2.alma.1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4649"
+          },
+          {
+            "name": "grub2-efi-x64-1:2.12-29.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4649"
+          },
+          {
+            "name": "grub2-tools-1:2.12-29.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4649"
+          },
+          {
+            "name": "grub2-tools-extra-1:2.12-29.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4649"
+          },
+          {
+            "name": "grub2-tools-minimal-1:2.12-29.el10_1.2.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4649"
+          },
+          {
+            "name": "gstreamer1-plugins-bad-free-1.24.11-3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6259"
+          },
+          {
+            "name": "gstreamer1-plugins-bad-free-libs-1.24.11-3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6259"
+          },
+          {
+            "name": "gstreamer1-plugins-base-1.24.11-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6259"
+          },
+          {
+            "name": "gstreamer1-plugins-good-1.24.11-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6259"
+          },
+          {
+            "name": "gstreamer1-plugins-ugly-free-1.24.11-2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6259"
+          },
+          {
+            "name": "ipp-usb-0.9.27-4.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1715"
+          },
+          {
+            "name": "ipp-usb-0.9.27-5.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7992"
+          },
+          {
+            "name": "ipp-usb-0.9.27-5.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3092"
+          },
+          {
+            "name": "kernel-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-core-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-modules-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-modules-core-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-modules-extra-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-modules-extra-matched-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-tools-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "kernel-tools-libs-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "libarchive-3.7.7-5.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:5063"
+          },
+          {
+            "name": "libarchive-3.7.7-8.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8492"
+          },
+          {
+            "name": "libblkid-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "libbrotli-1.1.0-7.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0845"
+          },
+          {
+            "name": "libcap-2.69-7.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:12423"
+          },
+          {
+            "name": "libcurl-8.12.1-2.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1825"
+          },
+          {
+            "name": "libfdisk-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "libipa_hbac-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "libmount-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "libnghttp2-1.64.0-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7666"
+          },
+          {
+            "name": "libpng-2:1.6.40-8.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0237"
+          },
+          {
+            "name": "libpng-2:1.6.40-8.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3551"
+          },
+          {
+            "name": "libpng-2:1.6.40-8.el10_1.3.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:14790"
+          },
+          {
+            "name": "libsmartcols-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "libsoup3-3.6.5-3.el10_1.10.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2410"
+          },
+          {
+            "name": "libsoup3-3.6.5-3.el10_1.11.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:15968"
+          },
+          {
+            "name": "libsoup3-3.6.5-3.el10_1.7.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23139"
+          },
+          {
+            "name": "libsoup3-3.6.5-3.el10_1.8.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0423"
+          },
+          {
+            "name": "libsoup3-3.6.5-3.el10_1.9.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2182"
+          },
+          {
+            "name": "libssh-0.11.1-5.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23484"
+          },
+          {
+            "name": "libssh-config-0.11.1-5.el10_1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23484"
+          },
+          {
+            "name": "libsss_certmap-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "libsss_idmap-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "libsss_nss_idmap-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "libsss_sudo-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "libtiff-4.6.0-6.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:7081"
+          },
+          {
+            "name": "libtiff-4.6.0-6.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:12265"
+          },
+          {
+            "name": "libudisks2-2.10.90-6.el10_1.1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3476"
+          },
+          {
+            "name": "libuuid-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "libvpx-1.14.1-6.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:4629"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:2222"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3068"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:5939"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.5.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6799"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.6.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:8458"
+          },
+          {
+            "name": "libwinpr-2:3.10.3-5.el10_1.8.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:16014"
+          },
+          {
+            "name": "ncurses-6.4-15.20240127.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:5913"
+          },
+          {
+            "name": "ncurses-base-6.4-15.20240127.el10_1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:5913"
+          },
+          {
+            "name": "ncurses-libs-6.4-15.20240127.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:5913"
+          },
+          {
+            "name": "net-snmp-libs-1:5.9.4-15.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0668"
+          },
+          {
+            "name": "openssh-9.9p1-12.el10_1.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23479"
+          },
+          {
+            "name": "openssh-9.9p1-13.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6463"
+          },
+          {
+            "name": "openssh-9.9p1-14.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13380"
+          },
+          {
+            "name": "openssh-clients-9.9p1-12.el10_1.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23479"
+          },
+          {
+            "name": "openssh-clients-9.9p1-13.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6463"
+          },
+          {
+            "name": "openssh-clients-9.9p1-14.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13380"
+          },
+          {
+            "name": "openssh-server-9.9p1-12.el10_1.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23479"
+          },
+          {
+            "name": "openssh-server-9.9p1-13.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6463"
+          },
+          {
+            "name": "openssh-server-9.9p1-14.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13380"
+          },
+          {
+            "name": "openssl-1:3.5.1-4.el10_1.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21248"
+          },
+          {
+            "name": "openssl-1:3.5.1-7.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1472"
+          },
+          {
+            "name": "openssl-libs-1:3.5.1-4.el10_1.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21248"
+          },
+          {
+            "name": "openssl-libs-1:3.5.1-7.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1472"
+          },
+          {
+            "name": "podman-7:5.6.0-11.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0545"
+          },
+          {
+            "name": "podman-7:5.6.0-12.el10_1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3336"
+          },
+          {
+            "name": "podman-7:5.6.0-6.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21220"
+          },
+          {
+            "name": "podman-7:5.6.0-8.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23295"
+          },
+          {
+            "name": "poppler-24.02.0-7.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0128"
+          },
+          {
+            "name": "poppler-cpp-24.02.0-7.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0128"
+          },
+          {
+            "name": "poppler-glib-24.02.0-7.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0128"
+          },
+          {
+            "name": "poppler-utils-24.02.0-7.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0128"
+          },
+          {
+            "name": "python-unversioned-command-3.12.12-1.el10_1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23940"
+          },
+          {
+            "name": "python-unversioned-command-3.12.12-3.el10_1.1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4713"
+          },
+          {
+            "name": "python-unversioned-command-3.12.12-3.el10_1.2.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6256"
+          },
+          {
+            "name": "python-unversioned-command-3.12.12-3.el10_1.3.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10711"
+          },
+          {
+            "name": "python-unversioned-command-3.12.12-3.el10_1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1828"
+          },
+          {
+            "name": "python3-3.12.12-1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23940"
+          },
+          {
+            "name": "python3-3.12.12-3.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4713"
+          },
+          {
+            "name": "python3-3.12.12-3.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6256"
+          },
+          {
+            "name": "python3-3.12.12-3.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10711"
+          },
+          {
+            "name": "python3-3.12.12-3.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1828"
+          },
+          {
+            "name": "python3-libs-3.12.12-1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:23940"
+          },
+          {
+            "name": "python3-libs-3.12.12-3.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4713"
+          },
+          {
+            "name": "python3-libs-3.12.12-3.el10_1.2.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:6256"
+          },
+          {
+            "name": "python3-libs-3.12.12-3.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10711"
+          },
+          {
+            "name": "python3-libs-3.12.12-3.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1828"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.13.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:21931"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.16.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22395"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.20.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2025:22854"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.21.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:23279"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.27.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0453"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.28.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:0786"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.29.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1178"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.31.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1690"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.35.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2282"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.38.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:2721"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.39.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:3275"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.43.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4012"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.45.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4723"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.47.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6053"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.49.1.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6632"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.52.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:9264"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.52.2.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A003"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.55.1.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:13566"
+          },
+          {
+            "name": "python3-perf-6.12.0-124.55.3.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:A006"
+          },
+          {
+            "name": "python3-urllib3-1.26.19-2.el10_1.1.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:1086"
+          },
+          {
+            "name": "qemu-guest-agent-18:10.0.0-14.el10_1.5.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1831"
+          },
+          {
+            "name": "rsync-3.4.1-2.el10_1.2.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:6825"
+          },
+          {
+            "name": "sssd-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-ad-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-client-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-common-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-common-pac-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-ipa-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-kcm-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-krb5-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-krb5-common-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-ldap-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sssd-proxy-2.11.1-2.el10_1.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2025:21020"
+          },
+          {
+            "name": "sudo-1.9.15-10.p5.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10758"
+          },
+          {
+            "name": "sudo-python-plugin-1.9.15-10.p5.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:10758"
+          },
+          {
+            "name": "systemd-257-13.el10_1.3.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:13651"
+          },
+          {
+            "name": "systemd-libs-257-13.el10_1.3.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:13651"
+          },
+          {
+            "name": "systemd-pam-257-13.el10_1.3.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:13651"
+          },
+          {
+            "name": "systemd-udev-257-13.el10_1.3.alma.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:13651"
+          },
+          {
+            "name": "tar-2:1.35-9.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:0002"
+          },
+          {
+            "name": "udisks2-2.10.90-6.el10_1.1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3476"
+          },
+          {
+            "name": "udisks2-iscsi-2.10.90-6.el10_1.1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3476"
+          },
+          {
+            "name": "udisks2-lvm2-2.10.90-6.el10_1.1.alma.1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:3476"
+          },
+          {
+            "name": "util-linux-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "util-linux-core-2.40.2-15.el10_1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:1696"
+          },
+          {
+            "name": "vim-common-2:9.1.083-6.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "vim-common-2:9.1.083-6.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "vim-common-2:9.1.083-6.el10_1.4.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          },
+          {
+            "name": "vim-data-2:9.1.083-6.el10_1.1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "vim-data-2:9.1.083-6.el10_1.3.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "vim-data-2:9.1.083-6.el10_1.4.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          },
+          {
+            "name": "vim-enhanced-2:9.1.083-6.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "vim-enhanced-2:9.1.083-6.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "vim-enhanced-2:9.1.083-6.el10_1.4.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          },
+          {
+            "name": "vim-filesystem-2:9.1.083-6.el10_1.1.noarch",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "vim-filesystem-2:9.1.083-6.el10_1.3.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "vim-filesystem-2:9.1.083-6.el10_1.4.noarch",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          },
+          {
+            "name": "vim-minimal-2:9.1.083-6.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "vim-minimal-2:9.1.083-6.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "vim-minimal-2:9.1.083-6.el10_1.4.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          },
+          {
+            "name": "xorg-x11-server-Xwayland-24.1.5-6.el10_1.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11352"
+          },
+          {
+            "name": "xxd-2:9.1.083-6.el10_1.1.x86_64",
+            "severity": "Moderate",
+            "advisory": "ALSA-2026:4715"
+          },
+          {
+            "name": "xxd-2:9.1.083-6.el10_1.3.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:7711"
+          },
+          {
+            "name": "xxd-2:9.1.083-6.el10_1.4.x86_64",
+            "severity": "Important",
+            "advisory": "ALSA-2026:11389"
+          }
+        ],
+        "package_manager": "dnf",
+        "has_security_repo": true
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "duration": "1.001573499s",
+      "raw": {
+        "total_gb": 3.6874961853027344,
+        "used_gb": 0,
+        "used_pct": 0,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "duration": "1.001490592s",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 1.7,
+            "await_ms": 1.7272727272727273,
+            "read_mbps": 0.405504,
+            "write_mbps": 0.172032,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "sda",
+            "is_ssd": false,
+            "drive_type": "hdd",
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "WARN",
+      "duration": "1.29354507s",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.145",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 100,
+            "driver": "r8169"
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0,
+            "driver": "rtw_8822ce"
+          }
+        ],
+        "primary_interface": "eno1",
+        "gateway_ping_ms": 1.004972,
+        "internet_ping_ms": 6.470384,
+        "dns_resolves_ms": 3,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    }
+  ],
+  "insights": [
+    {
+      "check": "Disk",
+      "level": "CRIT",
+      "message": "disk usage at 100% on /run/media/andrei/AlmaLinux-10-1-x86_64-dvd (/dev/sda1)",
+      "hint": "to inspect: df -h",
+      "details": {
+        "type": "directory_sizes",
+        "title": "Largest directories under /run/media/andrei/AlmaLinux-10-1-x86_64-dvd",
+        "columns": [
+          "SIZE",
+          "PATH"
+        ],
+        "rows": [
+          [
+            "6.1G",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/AppStream"
+          ],
+          [
+            "1.4G",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/BaseOS"
+          ],
+          [
+            "915M",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/images"
+          ],
+          [
+            "7.9M",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/EFI"
+          ],
+          [
+            "3.3M",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/boot"
+          ],
+          [
+            "18K",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/LICENSE"
+          ],
+          [
+            "2.0K",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/RPM-GPG-KEY-AlmaLinux-10"
+          ],
+          [
+            "1.5K",
+            "/run/media/andrei/AlmaLinux-10-1-x86_64-dvd/.treeinfo"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)",
+      "hint": "to inspect: cat /proc/sys/vm/swappiness",
+      "details": {
+        "type": "sysctl_table",
+        "title": "Sysctl: current vs recommended",
+        "columns": [
+          "SYSCTL",
+          "CURRENT",
+          "RECOMMENDED",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "vm.swappiness",
+            "60",
+            "10",
+            "lower for k8s/database; 60 for general workloads"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)",
+      "hint": "to fix: sysctl -w net.core.rmem_max=4194304"
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
+      "hint": "to inspect: systemctl status cockpit"
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "NOPASSWD sudo for: andrei",
+      "hint": "to inspect: sudo -l"
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "auditd is running but has no active rules — system calls and file access are not being audited",
+      "hint": "to inspect: auditctl -l"
+    },
+    {
+      "check": "Packages",
+      "level": "CRIT",
+      "message": "7 critical security update(s) available (dnf)",
+      "hint": "to fix: dnf upgrade --security"
+    },
+    {
+      "check": "Network",
+      "level": "WARN",
+      "message": "primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps (check cable or switch port)",
+      "hint": "to inspect: ethtool eno1",
+      "details": {
+        "type": "tcp_states",
+        "title": "TCP connection state summary",
+        "columns": [
+          "PROCESS",
+          "STATE",
+          "COUNT"
+        ],
+        "kv": {
+          "ESTAB": "2",
+          "SYN-SENT": "1"
+        }
+      }
+    }
+  ]
+}

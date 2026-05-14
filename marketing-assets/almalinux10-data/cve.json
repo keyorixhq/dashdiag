@@ -1,0 +1,615 @@
+
+Scanning all pending security advisories...
+{
+  "package_manager": "dnf",
+  "total": 101,
+  "low": [
+    {
+      "id": "ALSA-2026:8312",
+      "cves": "",
+      "severity": "bind-libs-32:9.18.33-10.el10_1.3.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23306",
+      "cves": "",
+      "severity": "binutils-2.41-58.el10_1.2.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:22012",
+      "cves": "",
+      "severity": "buildah-2:1.41.6-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0436",
+      "cves": "",
+      "severity": "buildah-2:1.41.8-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3297",
+      "cves": "",
+      "severity": "buildah-2:1.41.8-2.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7383",
+      "cves": "",
+      "severity": "cockpit-344-3.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6622",
+      "cves": "",
+      "severity": "crun-1.27-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0464",
+      "cves": "",
+      "severity": "cups-1:2.4.10-12.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1825",
+      "cves": "",
+      "severity": "curl-8.12.1-2.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:10767",
+      "cves": "",
+      "severity": "firefox-140.10.0-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:21281",
+      "cves": "",
+      "severity": "firefox-140.5.0-2.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23035",
+      "cves": "",
+      "severity": "firefox-140.6.0-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2271",
+      "cves": "",
+      "severity": "firefox-140.7.0-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3361",
+      "cves": "",
+      "severity": "firefox-140.8.0-2.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:5931",
+      "cves": "",
+      "severity": "firefox-140.9.0-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7672",
+      "cves": "",
+      "severity": "firefox-140.9.1-1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2222",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3068",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:5939",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.3.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6799",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.5.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:8458",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.6.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:16014",
+      "cves": "",
+      "severity": "freerdp-libs-2:3.10.3-5.el10_1.8.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:10707",
+      "cves": "",
+      "severity": "gdk-pixbuf2-2.42.12-4.el10_1.5.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:8858",
+      "cves": "",
+      "severity": "giflib-5.2.1-22.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0975",
+      "cves": "",
+      "severity": "glib2-2.80.4-10.el10_1.12.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:15969",
+      "cves": "",
+      "severity": "glib2-2.80.4-10.el10_1.13.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1334",
+      "cves": "",
+      "severity": "glibc-2.39-58.el10_1.7.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0697",
+      "cves": "",
+      "severity": "gnupg2-2.4.5-3.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2719",
+      "cves": "",
+      "severity": "gnupg2-2.4.5-4.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3477",
+      "cves": "",
+      "severity": "gnutls-3.8.10-3.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4649",
+      "cves": "",
+      "severity": "grub2-common-1:2.12-29.el10_1.2.alma.1.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6259",
+      "cves": "",
+      "severity": "gstreamer1-plugins-bad-free-1.24.11-3.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1715",
+      "cves": "",
+      "severity": "ipp-usb-0.9.27-4.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7992",
+      "cves": "",
+      "severity": "ipp-usb-0.9.27-5.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3092",
+      "cves": "",
+      "severity": "ipp-usb-0.9.27-5.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:21931",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.13.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:22395",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.16.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:22854",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.20.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23279",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.21.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0453",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.27.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0786",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.28.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1178",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.29.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1690",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.31.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2282",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.35.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2721",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.38.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3275",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.39.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4012",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.43.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4723",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.45.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6053",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.47.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6632",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.49.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:9264",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.52.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:A003",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.52.2.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:13566",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.55.1.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:A006",
+      "cves": "",
+      "severity": "kernel-6.12.0-124.55.3.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:5063",
+      "cves": "",
+      "severity": "libarchive-3.7.7-5.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:8492",
+      "cves": "",
+      "severity": "libarchive-3.7.7-8.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1696",
+      "cves": "",
+      "severity": "libblkid-2.40.2-15.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0845",
+      "cves": "",
+      "severity": "libbrotli-1.1.0-7.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:12423",
+      "cves": "",
+      "severity": "libcap-2.69-7.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:21020",
+      "cves": "",
+      "severity": "libipa_hbac-2.11.1-2.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7666",
+      "cves": "",
+      "severity": "libnghttp2-1.64.0-2.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0237",
+      "cves": "",
+      "severity": "libpng-2:1.6.40-8.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3551",
+      "cves": "",
+      "severity": "libpng-2:1.6.40-8.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:14790",
+      "cves": "",
+      "severity": "libpng-2:1.6.40-8.el10_1.3.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2410",
+      "cves": "",
+      "severity": "libsoup3-3.6.5-3.el10_1.10.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:15968",
+      "cves": "",
+      "severity": "libsoup3-3.6.5-3.el10_1.11.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23139",
+      "cves": "",
+      "severity": "libsoup3-3.6.5-3.el10_1.7.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0423",
+      "cves": "",
+      "severity": "libsoup3-3.6.5-3.el10_1.8.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:2182",
+      "cves": "",
+      "severity": "libsoup3-3.6.5-3.el10_1.9.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23484",
+      "cves": "",
+      "severity": "libssh-0.11.1-5.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7081",
+      "cves": "",
+      "severity": "libtiff-4.6.0-6.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:12265",
+      "cves": "",
+      "severity": "libtiff-4.6.0-6.el10_1.3.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3476",
+      "cves": "",
+      "severity": "libudisks2-2.10.90-6.el10_1.1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4629",
+      "cves": "",
+      "severity": "libvpx-1.14.1-6.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:5913",
+      "cves": "",
+      "severity": "ncurses-6.4-15.20240127.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0668",
+      "cves": "",
+      "severity": "net-snmp-libs-1:5.9.4-15.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23479",
+      "cves": "",
+      "severity": "openssh-9.9p1-12.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6463",
+      "cves": "",
+      "severity": "openssh-9.9p1-13.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:13380",
+      "cves": "",
+      "severity": "openssh-9.9p1-14.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:21248",
+      "cves": "",
+      "severity": "openssl-1:3.5.1-4.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1472",
+      "cves": "",
+      "severity": "openssl-1:3.5.1-7.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0545",
+      "cves": "",
+      "severity": "podman-7:5.6.0-11.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:3336",
+      "cves": "",
+      "severity": "podman-7:5.6.0-12.el10_1.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:21220",
+      "cves": "",
+      "severity": "podman-7:5.6.0-6.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23295",
+      "cves": "",
+      "severity": "podman-7:5.6.0-8.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0128",
+      "cves": "",
+      "severity": "poppler-24.02.0-7.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2025:23940",
+      "cves": "",
+      "severity": "python-unversioned-command-3.12.12-1.el10_1.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4713",
+      "cves": "",
+      "severity": "python-unversioned-command-3.12.12-3.el10_1.1.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6256",
+      "cves": "",
+      "severity": "python-unversioned-command-3.12.12-3.el10_1.2.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:10711",
+      "cves": "",
+      "severity": "python-unversioned-command-3.12.12-3.el10_1.3.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1828",
+      "cves": "",
+      "severity": "python-unversioned-command-3.12.12-3.el10_1.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1086",
+      "cves": "",
+      "severity": "python3-urllib3-1.26.19-2.el10_1.1.noarch",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:1831",
+      "cves": "",
+      "severity": "qemu-guest-agent-18:10.0.0-14.el10_1.5.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:6825",
+      "cves": "",
+      "severity": "rsync-3.4.1-2.el10_1.2.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:10758",
+      "cves": "",
+      "severity": "sudo-1.9.15-10.p5.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:13651",
+      "cves": "",
+      "severity": "systemd-257-13.el10_1.3.alma.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:0002",
+      "cves": "",
+      "severity": "tar-2:1.35-9.el10_1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:4715",
+      "cves": "",
+      "severity": "vim-common-2:9.1.083-6.el10_1.1.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:7711",
+      "cves": "",
+      "severity": "vim-common-2:9.1.083-6.el10_1.3.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:11389",
+      "cves": "",
+      "severity": "vim-common-2:9.1.083-6.el10_1.4.x86_64",
+      "summary": ""
+    },
+    {
+      "id": "ALSA-2026:11352",
+      "cves": "",
+      "severity": "xorg-x11-server-Xwayland-24.1.5-6.el10_1.x86_64",
+      "summary": ""
+    }
+  ],
+  "fix_command": "dnf upgrade --security"
+}
