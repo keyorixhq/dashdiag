@@ -438,13 +438,20 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 
 	// DNF advisory output: "RHSA-2025:1234   security   critical   package-1.2.3"
 	// or:                  "CVE-2025-1234    cve        important  package-1.2.3"
+	// dnf returns one row per affected package — deduplicate by advisory ID.
+	seen := map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
+		id := fields[0]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		advisory := models.CVEAdvisory{
-			ID:       fields[0],
+			ID:       id,
 			Severity: fields[2],
 		}
 		if len(fields) >= 4 {
