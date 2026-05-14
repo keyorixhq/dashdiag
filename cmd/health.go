@@ -289,6 +289,9 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 	}
 
 	run := func() {
+		if mode == output.ModeHuman {
+			fmt.Print("\033[H\033[2J") // clear screen + move cursor to top
+		}
 		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false, false, false, false, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
