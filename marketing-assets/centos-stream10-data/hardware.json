@@ -8,7 +8,7 @@
     "model": "AMD Ryzen 7 5800H with Radeon Graphics",
     "cores": 8,
     "threads": 16,
-    "freq_mhz": 3551.926,
+    "freq_mhz": 3553.078,
     "max_freq_mhz": 4465.261
   },
   "drives": [
@@ -17,7 +17,7 @@
       "model": "SKHynix_HFS001TDE9X084N",
       "type": "nvme",
       "smart_ok": true,
-      "temp_c": 47,
+      "temp_c": 46,
       "power_on_h": 7122,
       "wear_pct": 0,
       "media_errors": 0,
@@ -47,7 +47,7 @@
     {
       "sensor": "k10temp",
       "label": "Tctl",
-      "temp_c": 60
+      "temp_c": 59
     }
   ],
   "memory": {
@@ -68,7 +68,7 @@
     },
     {
       "name": "wlp4s0",
-      "mac": "aa:74:ce:29:6a:2b",
+      "mac": "ea:2d:84:32:c3:13",
       "speed_mbps": 0,
       "state": "down",
       "rx_errors": 0,
