@@ -1,0 +1,628 @@
+{
+  "hostname": "localhost.localdomain",
+  "timestamp": "2026-05-14T07:27:07.430186304Z",
+  "version": "dev",
+  "checks": [
+    {
+      "name": "Thermal",
+      "status": "OK",
+      "duration": "685.77µs",
+      "raw": {
+        "cpu_temp_c": 47.375,
+        "core_temps": {
+          "Tctl": 47.375
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "Subscription",
+      "status": "OK",
+      "duration": "28.774µs",
+      "raw": {
+        "registered": false,
+        "expires_days": 0,
+        "status": ""
+      }
+    },
+    {
+      "name": "Memory",
+      "status": "OK",
+      "duration": "743.111µs",
+      "raw": {
+        "total_gb": 15.464801788330078,
+        "free_gb": 14.235008239746094,
+        "used_pct": 5.008947941603427,
+        "slab_mb": 209.6796875,
+        "commit_limit_mb": 15900.97265625,
+        "committed_as_mb": 610.31640625,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "duration": "82.064µs",
+      "raw": {
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "duration": "96.031µs",
+      "raw": {
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "OK",
+      "duration": "522.552µs",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/.snapshots",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/srv",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/opt",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/usr/local",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/root",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/home",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme0n1p16",
+            "fs_type": "vfat",
+            "total_gb": 1.99675904,
+            "used_gb": 0.4619714559999999,
+            "free_gb": 1.534787584,
+            "used_pct": 23.136064329524707,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/var",
+            "device": "/dev/nvme0n1p15",
+            "fs_type": "btrfs",
+            "total_gb": 57.999884288,
+            "used_gb": 6.602248191999998,
+            "free_gb": 51.397636096,
+            "used_pct": 14.176234847594593,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "OK",
+      "duration": "5.390415ms",
+      "raw": {
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 0,
+        "app_armor_present": false,
+        "app_armor_mode": "",
+        "app_armor_profiles": 0,
+        "app_armor_enforce": 0,
+        "app_armor_complain": 0,
+        "app_armor_denials": 0
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "OK",
+      "duration": "9.011193ms",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "11.462899ms",
+      "raw": {
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 281,
+        "net_rmem_max": 4194304,
+        "net_wmem_max": 4194304,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 1024,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 0,
+        "fs_inotify_watches": 125390,
+        "workload": "default",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "WARN",
+      "duration": "10.95243ms",
+      "raw": {
+        "zombie_count": 0,
+        "hung_count": 1,
+        "zombie_procs": [],
+        "hung_procs": [
+          {
+            "pid": 7675,
+            "ppid": 7663,
+            "name": "nvme",
+            "state": "D",
+            "cpu": 0,
+            "mem_mb": 0,
+            "wchan": "blk_execute_rq"
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "duration": "19.007077ms",
+      "raw": {
+        "open_count": 2028,
+        "max_count": 9223372036854775807,
+        "used_pct": 2.198762005800603e-14,
+        "hot_processes": null,
+        "deleted_open_files": 6,
+        "deleted_open_size_gb": 0.014966784,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "NVMe",
+      "status": "OK",
+      "duration": "24.300902ms",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 43,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 56,
+            "power_on_hours": 7108,
+            "power_cycles": 4610,
+            "mount_points": [
+              "/",
+              "/.snapshots",
+              "/srv",
+              "/opt",
+              "/usr/local",
+              "/root",
+              "/home",
+              "/boot/efi",
+              "/var"
+            ],
+            "has_linux": true
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 42,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 57,
+            "power_on_hours": 7089,
+            "power_cycles": 4612,
+            "has_linux": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "duration": "65.346096ms",
+      "raw": {
+        "present": true,
+        "status": "Full",
+        "capacity_pct": 100,
+        "health_pct": 84.51666666666667,
+        "energy_now_uwh": 50710000,
+        "energy_full_uwh": 50710000,
+        "energy_design_uwh": 60000000,
+        "cycle_count": 150,
+        "voltage_uv": 17158000,
+        "power_now_uw": 0,
+        "manufacturer": "Sunwoda",
+        "model_name": "L20D4PC0"
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "WARN",
+      "duration": "468.142323ms",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": false,
+        "ssh_root_login": false,
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "sshd",
+            "expected": true
+          },
+          {
+            "port": 25,
+            "protocol": "tcp",
+            "process": "master",
+            "expected": false
+          }
+        ],
+        "firewall_active": true,
+        "firewall_type": "firewalld",
+        "firewall_zone": "public",
+        "firewall_services": [
+          "dhcpv6-client",
+          "ssh"
+        ],
+        "ssh_allowed": true,
+        "sudo_nopasswd": [
+          "andrei"
+        ],
+        "se_linux_denials": 0,
+        "se_linux_mode": "enforcing",
+        "fips_enabled": false,
+        "crypto_policy": "DEFAULT",
+        "usb_guard_active": false,
+        "aide_installed": false,
+        "aide_db_exists": false,
+        "aide_last_run_days": 0,
+        "audit_rules": 1,
+        "supportconfig_available": false,
+        "supportconfig_last_run_days": 0
+      }
+    },
+    {
+      "name": "CPU",
+      "status": "OK",
+      "duration": "501.092851ms",
+      "raw": {
+        "load_avg_1": 0.1,
+        "load_avg_5": 0.66,
+        "load_avg_15": 0.88,
+        "num_cpu": 16,
+        "usage_pct": 13.28320802005013,
+        "load_pct": 0.625,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "OK",
+      "duration": "605.758505ms",
+      "raw": {
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.078125,
+        "crash_loops": null
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "duration": "1.000766738s",
+      "raw": {
+        "total_gb": 7.795894622802734,
+        "used_gb": 0.037109375,
+        "used_pct": 0.47601175741211665,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "duration": "1.001468921s",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0.6,
+            "await_ms": 2.074074074074074,
+            "read_mbps": 0,
+            "write_mbps": 1.286144,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "WARN",
+      "duration": "1.263505415s",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.151",
+            "up": true,
+            "rx_drops": 76,
+            "tx_drops": 2,
+            "speed_mbps": 100,
+            "driver": "r8169"
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0,
+            "driver": "rtw88_8822ce"
+          }
+        ],
+        "primary_interface": "eno1",
+        "gateway_ping_ms": 1.019437,
+        "internet_ping_ms": 6.227427,
+        "dns_resolves_ms": 7,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Snapshots",
+      "status": "OK",
+      "duration": "1.592600301s",
+      "raw": {
+        "available": true,
+        "config_count": 2,
+        "snapshot_count": 12,
+        "oldest_days": 0,
+        "total_space_gb": 0,
+        "last_snapshot_h": 13
+      }
+    }
+  ],
+  "insights": [
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)",
+      "hint": "to inspect: cat /proc/sys/vm/swappiness",
+      "details": {
+        "type": "sysctl_table",
+        "title": "Sysctl: current vs recommended",
+        "columns": [
+          "SYSCTL",
+          "CURRENT",
+          "RECOMMENDED",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "vm.swappiness",
+            "60",
+            "10",
+            "lower for k8s/database; 60 for general workloads"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Processes",
+      "level": "WARN",
+      "message": "1 hung (uninterruptible) process(es)",
+      "hint": "to inspect: ps aux | grep ' D '",
+      "details": {
+        "type": "process_table",
+        "title": "Hung (uninterruptible) processes",
+        "columns": [
+          "PID",
+          "NAME",
+          "PPID",
+          "WCHAN"
+        ],
+        "rows": [
+          [
+            "7675",
+            "nvme",
+            "7663",
+            "blk_execute_rq"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "1 unexpected port(s) listening on all interfaces: 25/tcp",
+      "hint": "to inspect: ss -tlnp",
+      "details": {
+        "type": "process_table",
+        "title": "Unexpected ports listening on all interfaces",
+        "columns": [
+          "PORT",
+          "PROTO",
+          "PROCESS"
+        ],
+        "rows": [
+          [
+            "25",
+            "tcp",
+            "master"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "NOPASSWD sudo for: andrei",
+      "hint": "to inspect: sudo -l"
+    },
+    {
+      "check": "Network",
+      "level": "WARN",
+      "message": "primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps (check cable or switch port)",
+      "hint": "to inspect: ethtool eno1",
+      "details": {
+        "type": "tcp_states",
+        "title": "TCP connection state summary",
+        "columns": [
+          "PROCESS",
+          "STATE",
+          "COUNT"
+        ],
+        "kv": {
+          "ESTAB": "2",
+          "SYN-SENT": "1"
+        }
+      }
+    }
+  ]
+}
