@@ -11803,3 +11803,82 @@ Same post works on:
 
 **AppImage first, then post.** Timing: at or shortly after public launch when GitHub repo is public and landing page is live.
 
+
+## 32. Marketing Copy — Key Headlines & Positioning Statements
+
+*Written 2026-05-14. Raw marketing insights captured from real-world observations.*
+
+---
+
+### Headline Candidates
+
+**From the Ubuntu cheat sheet observation:**
+> "Ubuntu ships a CLI cheat sheet. DashDiag ships answers."
+
+**From the SLES 16 CVE screenshot:**
+> "One command. 74 security advisories. 2 critical. On a fresh install."
+
+**From the thermal throttling screenshot:**
+> "Your server has warning lights. Now you can see them."
+
+**From the car dashboard metaphor:**
+> "Your car has a dashboard. Your server should too."
+
+**From the MSP angle:**
+> "One command per server. Know everything. Bill accordingly."
+
+**From the air-gapped positioning:**
+> "No agent. No cloud. No data leaves your machine. Just answers."
+
+**From the multi-distro validation:**
+> "RHEL, Debian, Ubuntu, SLES, Fedora, Rocky, openSUSE. One tool. One command."
+
+**From the firewall false-positive fix:**
+> "dsd health caught a potential lock-out on a fresh Ubuntu install. Before we did."
+
+---
+
+### The Ubuntu Cheat Sheet Insight
+
+Canonical ships an official CLI cheat sheet with every Ubuntu Server download. It covers basic file management, LXD virtualization, and Ubuntu Pro.
+
+**What this tells us:**
+- Ubuntu Server users need hand-holding for basic operations
+- The complexity gap between "installed Linux" and "know what's happening" is large
+- This is the exact gap DashDiag fills — not a tutorial, not a cheat sheet, just answers
+
+**Landing page angle:**
+> "Ubuntu ships a cheat sheet to help you use the command line.
+> DashDiag ships answers about what's actually happening on your server."
+
+---
+
+### Positioning Matrix
+
+| Situation | What users do today | What DashDiag does |
+|---|---|---|
+| Fresh server install | Read cheat sheet, run 10 commands | `dsd health` — one command |
+| Security audit | Check CVE lists manually, run apt/dnf | `dsd cve --all` — full advisory list |
+| Performance issue | `top`, `iostat`, `dmesg`, `journalctl` | `dsd health` — root cause surfaced |
+| Hardware inventory | `lshw`, `dmidecode`, `smartctl`, `iw` | `dsd hardware` — unified output |
+| Pre-handoff checklist | Manual checklist, tribal knowledge | `dsd health --report` — shareable PDF |
+| MSP client review | SSH to each server, run manual checks | `dsd health --json` — scriptable fleet |
+
+---
+
+### Copy Don'ts
+
+- Don't say "monitoring" — implies agents, dashboards, ongoing cost
+- Don't say "observability" — enterprise jargon, wrong audience
+- Don't say "DevOps platform" — too broad, no meaning
+- Don't lead with features — lead with the problem ("74 advisories on a fresh install")
+- Don't compare to Datadog — different category, different buyer
+
+### Copy Dos
+
+- Lead with the output, not the tool ("CPU at 108% capacity — here's what's causing it")
+- Use real numbers from real hardware ("74 advisories", "97°C", "89% VRAM")
+- Show the command is short (`dsd health`, not `dsd health --format=json --output=...`)
+- Emphasise zero setup ("no agent, no config, no account")
+- Show it works on their distro (multi-distro validation is a differentiator)
+
