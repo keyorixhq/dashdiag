@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 type CommandProgress struct {
@@ -28,12 +30,18 @@ func NewCommandProgress(label string, estimate time.Duration, mode OutputMode, t
 func (p *CommandProgress) Start() {
 	p.start = time.Now()
 	if p.mode == ModeHuman {
-		line := fmt.Sprintf("%s — read only checks, usually under %ds", p.label, int(p.estimate.Seconds()))
+		sysLabel := platform.SystemLabel()
+		line := fmt.Sprintf("%s — %s", p.label, sysLabel)
+		subline := fmt.Sprintf("read only checks, usually under %ds", int(p.estimate.Seconds()))
 		width := len(line)
+		if len(subline) > width {
+			width = len(subline)
+		}
 		if width < 56 {
 			width = 56
 		}
 		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(os.Stderr, subline)
 		fmt.Fprintln(os.Stderr, strings.Repeat("─", width))
 	} else {
 		fmt.Fprintf(os.Stderr, "[INFO] %s — ~%ds\n", p.label, int(p.estimate.Seconds()))
