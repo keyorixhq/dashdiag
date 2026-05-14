@@ -11676,7 +11676,7 @@ Revisit pricing at these milestones:
 
 ## 31. Viral Channel Strategy — Gaming Community & SteamOS
 
-*Written 2026-05-14. Strategic note only — no product changes required.*
+*Written 2026-05-14. Strategic note only — minimal product changes required.*
 
 ---
 
@@ -11708,7 +11708,57 @@ What DashDiag already catches that gamers care about:
 
 The Steam Deck throttles aggressively under sustained load. A screenshot of `dsd health` showing `Thermal CRIT CPU 96°C — thermal throttling active` during a gaming session would resonate immediately with r/SteamDeck's 2M+ members.
 
-**Zero additional dev work required.** The product already does this.
+---
+
+### The SteamOS Install Problem
+
+SteamOS has an **immutable read-only rootfs**. This is the critical friction point:
+- `/usr` is read-only by default
+- `pacman` (package manager) is disabled
+- Standard installs to `/usr/local/bin` get **wiped on every OS update**
+- `sudo steamos-readonly disable` unlocks temporarily but updates re-lock it
+
+Developer mode only enables SSH — it does NOT fix the read-only problem. Any user can enable it in the Deck settings in 30 seconds, but it doesn't help with persistence.
+
+**Options evaluated:**
+
+| Option | Verdict |
+|---|---|
+| Install to `/usr/local/bin` | ❌ Wiped on SteamOS updates |
+| Flatpak | ❌ Sandbox blocks `/proc` and `/sys` — dsd breaks entirely |
+| Distrobox container | ✅ Works but too many steps for casual users |
+| Install to `~/.local/bin` | ✅ Persists, but requires PATH setup |
+| **AppImage** | ✅ **Best option — single binary, no install, survives updates** |
+
+**The right answer: AppImage.**
+
+```bash
+curl -L https://dashdiag.sh/dsd -o ~/dsd && chmod +x ~/dsd && ~/dsd health
+```
+
+Single command. No install. Survives every SteamOS update. Works immediately. This is already how most power users on the Deck install CLI tools.
+
+**The Reddit post headline:**
+> "No install needed — download and run. Found thermal throttling on my Deck in 2 seconds."
+
+AppImage build is already on the packaging roadmap — the Steam Deck angle makes it **higher priority** since it directly enables the viral play.
+
+---
+
+### Hardware Required
+
+A **Steam Deck OLED** (~€550 new, €300-400 refurbished).
+
+**Buy trigger: after first paying customer.** Not before. The viral play costs nothing until the product is ready to receive traffic.
+
+**What the Deck validates that nothing else does:**
+- Real SteamOS 3.x immutable rootfs — confirms AppImage install works
+- AMD Van Gogh APU — validates AMD GPU collector via `/sys/class/drm/`
+- Real thermal throttling under gaming load — Deck is notorious for it
+- Battery collector (Deck is essentially a laptop)
+- Developer mode SSH — same flow casual users would follow
+
+**Alternative before buying:** SteamOS recovery image in a VM — free, confirms `dsd health` doesn't crash, covers 80% of validation. Good enough to de-risk before buying hardware.
 
 ---
 
@@ -11716,7 +11766,8 @@ The Steam Deck throttles aggressively under sustained load. A screenshot of `dsd
 
 One well-timed Reddit post on r/SteamDeck:
 
-> "I built a one-command system health tool for Linux. Ran it on my Deck during a Cyberpunk session — it immediately caught thermal throttling at 96°C. Here's what it showed: [screenshot]"
+> "I built a one-command Linux health tool. No install needed — just download and run. Caught thermal throttling at 96°C during a Cyberpunk session. [screenshot]
+> `curl -L https://dashdiag.sh/dsd -o ~/dsd && chmod +x ~/dsd && ~/dsd health`"
 
 Cost: €0. Potential reach: 50K-200K views in 48h if it resonates.
 
@@ -11733,28 +11784,22 @@ Same post works on:
 
 - **Don't build gaming-specific features** — `dsd gaming` or `dsd deck` subcommands add maintenance burden for a non-paying segment
 - **Don't optimise for gamers** — they're a funnel, not a customer segment
-- **Don't promise SteamOS support** — just let it work (it already does) and let users discover it
-- **Don't delay the post** — SteamOS 3.x is the window, before Valve potentially ships native diagnostics
+- **Don't promise SteamOS support** — just let it work and let users discover it
+- **Don't post before AppImage is ready** — without it the install story is too painful
 
 ---
 
-### SteamOS Validation (TODO before post)
+### Dev Work Required (minimal)
 
-Before posting, verify `dsd health` runs cleanly on SteamOS 3.x:
-- Boot a Steam Deck or SteamOS VM
-- Run `dsd health --plain` — confirm no panics, sensible output
-- Run `dsd gpu` — confirm RTX/AMD GPU reading works (Steam Deck uses AMD APU)
-- Screenshot the output — this is the Reddit post
-
-AMD APU note: Steam Deck uses AMD Van Gogh APU. `dsd gpu` currently reads via `nvidia-smi` — AMD GPU support via `rocm-smi` or `/sys/class/drm/` is needed for the Deck specifically. This is the **only** gaming-specific dev work worth doing, and it doubles as general AMD GPU support for production servers.
+| Item | Priority | Reason |
+|---|---|---|
+| AppImage packaging | **High** | Enables Steam Deck install story + Linux packaging generally |
+| AMD GPU via `/sys/class/drm/` | Medium | Steam Deck APU + production AMD servers |
+| SteamOS VM validation | Low | Confirm no crashes before posting |
 
 ---
 
 ### Priority
 
-**Low dev priority, high marketing priority.**
-
-Add SteamOS to the distro validation list when a Steam Deck or SteamOS VM is available. The AMD GPU collector (`dsd gpu` via `/sys/class/drm/`) is worth building for production AMD servers anyway — the gaming angle is a bonus.
-
-The Reddit post should happen at or shortly after public launch, not before. Timing: when the GitHub repo is public and the landing page is live.
+**AppImage first, then post.** Timing: at or shortly after public launch when GitHub repo is public and landing page is live.
 
