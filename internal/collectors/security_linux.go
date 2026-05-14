@@ -598,7 +598,8 @@ func detectUFW(ctx context.Context, info *models.SecurityInfo) bool {
 		return false
 	}
 	lower := strings.ToLower(out)
-	if !strings.Contains(lower, "active") {
+	// "Status: inactive" contains "active" as substring — check for "status: active" specifically
+	if !strings.Contains(lower, "status: active") {
 		return false
 	}
 	info.FirewallActive = true
