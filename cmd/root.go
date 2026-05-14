@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -17,7 +18,7 @@ var rootCmd = &cobra.Command{
 		plain, _ := cmd.Flags().GetBool("plain")
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		if !plain && !jsonOut {
-			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s\n", version.Version)
+			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s — %s\n", version.Version, platform.SystemLabel())
 		}
 	},
 	RunE: runHealth,
