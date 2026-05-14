@@ -267,10 +267,6 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println()
 	}
-	if !info.Memory.EDACAvailable {
-		// already shown in Memory section above
-	}
-
 	fmt.Println(sep)
 	fmt.Println(render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
 	_ = os.Stdout.Sync()
