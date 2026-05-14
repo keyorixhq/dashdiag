@@ -77,6 +77,56 @@ func runHardware(cmd *cobra.Command, _ []string) error {
 func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
 	sep := render.StyleDim.Render("────────────────────────────────────────────────────────")
 
+	// ── System ────────────────────────────────────────────────────────────────
+	if info.System.Vendor != "" || info.System.Model != "" {
+		fmt.Println(render.StyleBold.Render("System"))
+		if info.System.Vendor != "" {
+			fmt.Printf("  %-14s %s\n", "Vendor:", info.System.Vendor)
+		}
+		if info.System.Model != "" {
+			fmt.Printf("  %-14s %s\n", "Model:", info.System.Model)
+		}
+		fmt.Println()
+	}
+
+	// ── CPU ───────────────────────────────────────────────────────────────────
+	if info.CPU.Model != "" {
+		fmt.Println(render.StyleBold.Render("CPU"))
+		fmt.Printf("  %-14s %s\n", "Model:", info.CPU.Model)
+		if info.CPU.Cores > 0 {
+			fmt.Printf("  %-14s %d cores / %d threads\n", "Topology:", info.CPU.Cores, info.CPU.Threads)
+		}
+		if info.CPU.FreqMHz > 0 {
+			fmt.Printf("  %-14s %.0f MHz\n", "Frequency:", info.CPU.FreqMHz)
+		}
+		fmt.Println()
+	}
+
+	// ── Memory ────────────────────────────────────────────────────────────────
+	fmt.Println(render.StyleBold.Render("Memory"))
+	if info.Memory.TotalGB > 0 {
+		fmt.Printf("  %-14s %.0f GB total\n", "RAM:", info.Memory.TotalGB)
+		for _, s := range info.Memory.Slots {
+			fmt.Printf("  %-14s %s — %.0f GB %s @ %d MT/s\n",
+				"", s.Locator, s.SizeGB, s.Type, s.SpeedMT)
+		}
+	}
+	if !info.Memory.EDACAvailable {
+		fmt.Printf("  %-14s %s  EDAC not available\n", "ECC errors:", output.StatusIcon("info", mode))
+	} else {
+		ueLevel := "ok"
+		if info.Memory.UncorrectedErrors > 0 {
+			ueLevel = "fail"
+		}
+		ceLevel := "ok"
+		if info.Memory.CorrectedErrors > 100 {
+			ceLevel = "warn"
+		}
+		fmt.Printf("  %-14s %s  %d uncorrected\n", "ECC (UE):", output.StatusIcon(ueLevel, mode), info.Memory.UncorrectedErrors)
+		fmt.Printf("  %-14s %s  %d corrected\n", "ECC (CE):", output.StatusIcon(ceLevel, mode), info.Memory.CorrectedErrors)
+	}
+	fmt.Println()
+
 	// ── Drives ────────────────────────────────────────────────────────────────
 	if len(info.Drives) == 0 {
 		fmt.Printf("%-12s %s  no drives detected\n", "Drives", output.StatusIcon("info", mode))
@@ -187,25 +237,40 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		fmt.Println()
 	}
 
-	// ── EDAC memory ───────────────────────────────────────────────────────────
-	fmt.Println(render.StyleBold.Render("Memory"))
+	// ── Network interfaces ────────────────────────────────────────────────────
+	if len(info.NICs) > 0 {
+		fmt.Println(render.StyleBold.Render("Network"))
+		for _, n := range info.NICs {
+			stateLevel := "ok"
+			if n.State != "up" {
+				stateLevel = "warn"
+			}
+			errLevel := "ok"
+			if n.RxErrors > 0 || n.TxErrors > 0 {
+				errLevel = "warn"
+			}
+			speed := ""
+			if n.SpeedMbps > 0 {
+				speed = fmt.Sprintf(" @ %d Mbps", n.SpeedMbps)
+			}
+			driver := ""
+			if n.Driver != "" {
+				driver = fmt.Sprintf(" [%s]", n.Driver)
+			}
+			fmt.Printf("  %-14s %s  %s%s%s  MAC: %s\n",
+				n.Name+":", output.StatusIcon(stateLevel, mode),
+				n.State, speed, driver, n.MAC)
+			if n.RxErrors > 0 || n.TxErrors > 0 {
+				fmt.Printf("  %-14s %s  rx_errors:%d  tx_errors:%d\n",
+					"errors:", output.StatusIcon(errLevel, mode), n.RxErrors, n.TxErrors)
+			}
+		}
+		fmt.Println()
+	}
 	if !info.Memory.EDACAvailable {
-		fmt.Printf("  %-14s %s  EDAC not available on this hardware\n",
-			"ECC errors:", output.StatusIcon("info", mode))
-	} else {
-		ueLevel := "ok"
-		if info.Memory.UncorrectedErrors > 0 {
-			ueLevel = "fail"
-		}
-		ceLevel := "ok"
-		if info.Memory.CorrectedErrors > 100 {
-			ceLevel = "warn"
-		}
-		fmt.Printf("  %-14s %s  %d uncorrected\n", "ECC (UE):", output.StatusIcon(ueLevel, mode), info.Memory.UncorrectedErrors)
-		fmt.Printf("  %-14s %s  %d corrected\n", "ECC (CE):", output.StatusIcon(ceLevel, mode), info.Memory.CorrectedErrors)
+		// already shown in Memory section above
 	}
 
-	fmt.Println()
 	fmt.Println(sep)
 	fmt.Println(render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
 	_ = os.Stdout.Sync()
