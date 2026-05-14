@@ -1,47 +1,79 @@
 package models
 
 // HardwareDrive holds SMART health for a single drive (NVMe or SATA/SAS).
-// Populated from smartctl --json output — unified across drive types.
 type HardwareDrive struct {
-	Device   string `json:"device"`     // /dev/sda, /dev/nvme0
-	Model    string `json:"model"`      // drive model string
-	Type     string `json:"type"`       // nvme, sata, sas
-	SmartOK  bool   `json:"smart_ok"`   // overall SMART self-assessment passed
-	TempC    int    `json:"temp_c"`     // current temperature in °C
-	PowerOnH int64  `json:"power_on_h"` // total power-on hours
-
-	// Wear / endurance
-	WearPct int `json:"wear_pct"` // % of rated endurance consumed (NVMe: percentage_used; SATA SSD: 100 - remaining_life)
-
-	// Error counters
-	MediaErrors         int64 `json:"media_errors"`         // NVMe media/data integrity errors
-	UnsafeShutdowns     int64 `json:"unsafe_shutdowns"`     // NVMe unsafe shutdown count
-	ReallocatedSectors  int   `json:"reallocated_sectors"`  // SATA attr 5 — sectors remapped due to errors
-	PendingSectors      int   `json:"pending_sectors"`      // SATA attr 197 — sectors waiting for remap
-	UncorrectableErrors int   `json:"uncorrectable_errors"` // SATA attr 198 — offline uncorrectable
-
-	// Availability
-	SmartctlAvailable bool   `json:"smartctl_available"` // false if smartctl not installed
-	Error             string `json:"error,omitempty"`
+	Device              string `json:"device"`
+	Model               string `json:"model"`
+	Type                string `json:"type"`
+	SmartOK             bool   `json:"smart_ok"`
+	TempC               int    `json:"temp_c"`
+	PowerOnH            int64  `json:"power_on_h"`
+	WearPct             int    `json:"wear_pct"`
+	MediaErrors         int64  `json:"media_errors"`
+	UnsafeShutdowns     int64  `json:"unsafe_shutdowns"`
+	ReallocatedSectors  int    `json:"reallocated_sectors"`
+	PendingSectors      int    `json:"pending_sectors"`
+	UncorrectableErrors int    `json:"uncorrectable_errors"`
+	SmartctlAvailable   bool   `json:"smartctl_available"`
+	Error               string `json:"error,omitempty"`
 }
 
 // HardwareThermal holds a single hwmon temperature reading.
 type HardwareThermal struct {
-	Sensor string `json:"sensor"` // k10temp, coretemp, nvme
-	Label  string `json:"label"`  // Tctl, Core 0, Composite
+	Sensor string `json:"sensor"`
+	Label  string `json:"label"`
 	TempC  int    `json:"temp_c"`
 }
 
-// HardwareMemory holds EDAC memory error counts.
+// MemorySlot holds info about a single RAM slot from dmidecode.
+type MemorySlot struct {
+	Locator string  `json:"locator"`
+	SizeGB  float64 `json:"size_gb"`
+	Type    string  `json:"type"`
+	SpeedMT int     `json:"speed_mt"` // MT/s
+}
+
+// HardwareMemory holds EDAC error counts and RAM slot info.
 type HardwareMemory struct {
-	EDACAvailable     bool  `json:"edac_available"`
-	UncorrectedErrors int64 `json:"uncorrected_errors"` // ue_count — hardware fault
-	CorrectedErrors   int64 `json:"corrected_errors"`   // ce_count — soft error, self-corrected
+	EDACAvailable     bool         `json:"edac_available"`
+	UncorrectedErrors int64        `json:"uncorrected_errors"`
+	CorrectedErrors   int64        `json:"corrected_errors"`
+	TotalGB           float64      `json:"total_gb"`
+	Slots             []MemorySlot `json:"slots,omitempty"`
+}
+
+// HardwareCPU holds CPU info from /proc/cpuinfo.
+type HardwareCPU struct {
+	Model   string  `json:"model"`
+	Cores   int     `json:"cores"`
+	Threads int     `json:"threads"`
+	FreqMHz float64 `json:"freq_mhz"`
+}
+
+// HardwareNIC holds network interface hardware info.
+type HardwareNIC struct {
+	Name      string `json:"name"`
+	MAC       string `json:"mac"`
+	SpeedMbps int    `json:"speed_mbps"`
+	State     string `json:"state"`
+	RxErrors  int64  `json:"rx_errors"`
+	TxErrors  int64  `json:"tx_errors"`
+	Driver    string `json:"driver,omitempty"`
+}
+
+// HardwareSystem holds system identity from DMI/sysfs.
+type HardwareSystem struct {
+	Vendor string `json:"vendor"`
+	Model  string `json:"model"`
+	Board  string `json:"board,omitempty"`
 }
 
 // HardwareInfo is the top-level model returned by HardwareCollector.
 type HardwareInfo struct {
+	System   HardwareSystem    `json:"system"`
+	CPU      HardwareCPU       `json:"cpu"`
 	Drives   []HardwareDrive   `json:"drives"`
 	Thermals []HardwareThermal `json:"thermals,omitempty"`
 	Memory   HardwareMemory    `json:"memory"`
+	NICs     []HardwareNIC     `json:"nics,omitempty"`
 }

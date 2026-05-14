@@ -26,9 +26,13 @@ func (c *HardwareCollector) Timeout() time.Duration { return 15 * time.Second }
 
 func (c *HardwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.HardwareInfo{}
+	collectSystem(info)
+	collectCPU(info)
+	collectRAM(ctx, info)
 	collectSMARTDrives(ctx, info)
 	collectHwmonThermals(info)
 	collectEDAC(info)
+	collectNICs(ctx, info)
 	return info, nil
 }
 
@@ -261,5 +265,197 @@ func collectEDAC(info *models.HardwareInfo) {
 				info.Memory.CorrectedErrors += n
 			}
 		}
+	}
+}
+
+// ── CPU ───────────────────────────────────────────────────────────────────────
+
+func collectCPU(info *models.HardwareInfo) {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return
+	}
+
+	var model string
+	var threads, cores int
+	var freq float64
+	seen := map[string]bool{}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "model name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				model = strings.TrimSpace(parts[1])
+			}
+			threads++
+		}
+		if strings.HasPrefix(line, "cpu cores") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				if n, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && !seen["cores"] {
+					cores = n
+					seen["cores"] = true
+				}
+			}
+		}
+		if strings.HasPrefix(line, "cpu MHz") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil && freq == 0 {
+					freq = f
+				}
+			}
+		}
+	}
+
+	info.CPU = models.HardwareCPU{
+		Model:   model,
+		Cores:   cores,
+		Threads: threads,
+		FreqMHz: freq,
+	}
+}
+
+// ── SYSTEM IDENTITY ───────────────────────────────────────────────────────────
+
+func collectSystem(info *models.HardwareInfo) {
+	readDMI := func(f string) string {
+		b, err := os.ReadFile(f) // #nosec G304
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	info.System = models.HardwareSystem{
+		Vendor: readDMI("/sys/class/dmi/id/sys_vendor"),
+		Model:  readDMI("/sys/class/dmi/id/product_name"),
+		Board:  readDMI("/sys/class/dmi/id/board_name"),
+	}
+}
+
+// ── RAM SLOTS (dmidecode) ─────────────────────────────────────────────────────
+
+func collectRAM(ctx context.Context, info *models.HardwareInfo) {
+	out, err := runCmd(ctx, "dmidecode", "-t", "memory")
+	if err != nil {
+		return
+	}
+
+	var slots []models.MemorySlot
+	var current models.MemorySlot
+	inSlot := false
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Memory Device") {
+			if inSlot && current.SizeGB > 0 {
+				slots = append(slots, current)
+			}
+			current = models.MemorySlot{}
+			inSlot = true
+			continue
+		}
+		if !inSlot {
+			continue
+		}
+		if strings.HasPrefix(line, "Size:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "Size:"))
+			if strings.Contains(val, "GB") {
+				if n, err := strconv.ParseFloat(strings.Fields(val)[0], 64); err == nil {
+					current.SizeGB = n
+				}
+			} else if strings.Contains(val, "MB") {
+				if n, err := strconv.ParseFloat(strings.Fields(val)[0], 64); err == nil {
+					current.SizeGB = n / 1024
+				}
+			}
+		}
+		if strings.HasPrefix(line, "Locator:") && !strings.HasPrefix(line, "Bank") {
+			current.Locator = strings.TrimSpace(strings.TrimPrefix(line, "Locator:"))
+		}
+		if strings.HasPrefix(line, "Type:") && !strings.Contains(line, "Error") {
+			current.Type = strings.TrimSpace(strings.TrimPrefix(line, "Type:"))
+		}
+		if strings.HasPrefix(line, "Speed:") && !strings.Contains(line, "Configured") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "Speed:"))
+			if strings.Contains(val, "MT/s") {
+				if n, err := strconv.Atoi(strings.Fields(val)[0]); err == nil {
+					current.SpeedMT = n
+				}
+			}
+		}
+	}
+	if inSlot && current.SizeGB > 0 {
+		slots = append(slots, current)
+	}
+
+	var total float64
+	for _, s := range slots {
+		total += s.SizeGB
+	}
+	info.Memory.TotalGB = total
+	info.Memory.Slots = slots
+}
+
+// ── NETWORK INTERFACES ────────────────────────────────────────────────────────
+
+func collectNICs(ctx context.Context, info *models.HardwareInfo) {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+		if name == "lo" {
+			continue
+		}
+		// Skip virtual/tunnel interfaces
+		switch {
+		case strings.HasPrefix(name, "veth"),
+			strings.HasPrefix(name, "docker"),
+			strings.HasPrefix(name, "br-"),
+			strings.HasPrefix(name, "vxlan"),
+			strings.HasPrefix(name, "cali"),
+			strings.HasPrefix(name, "flannel"),
+			strings.HasPrefix(name, "cni"),
+			strings.HasPrefix(name, "virbr"),
+			strings.HasPrefix(name, "tunl"),
+			strings.HasPrefix(name, "tun"):
+			continue
+		}
+
+		nic := models.HardwareNIC{Name: name}
+
+		netDir := "/sys/class/net/" + name
+		if b, err := os.ReadFile(netDir + "/address"); err == nil { // #nosec G304
+			nic.MAC = strings.TrimSpace(string(b))
+		}
+		if b, err := os.ReadFile(netDir + "/operstate"); err == nil { // #nosec G304
+			nic.State = strings.TrimSpace(string(b))
+		}
+		if b, err := os.ReadFile(netDir + "/speed"); err == nil { // #nosec G304
+			if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
+				nic.SpeedMbps = n
+			}
+		}
+		// Driver from symlink
+		if link, err := os.Readlink(netDir + "/device/driver"); err == nil {
+			nic.Driver = filepath.Base(link)
+		}
+		// RX/TX errors from sysfs stats
+		if b, err := os.ReadFile(netDir + "/statistics/rx_errors"); err == nil { // #nosec G304
+			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
+				nic.RxErrors = n
+			}
+		}
+		if b, err := os.ReadFile(netDir + "/statistics/tx_errors"); err == nil { // #nosec G304
+			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
+				nic.TxErrors = n
+			}
+		}
+
+		info.NICs = append(info.NICs, nic)
 	}
 }
