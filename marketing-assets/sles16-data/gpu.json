@@ -1,0 +1,11 @@
+
+GPU 0 — NVIDIA GeForce RTX 3070 Laptop GPU
+  Driver:        580.159.03
+  Temperature:   ✅ 56°C
+  Utilization:   ✅ 2%
+  VRAM:          ✅ 0 MB / 8192 MB (0%)
+  Power draw:    ✅  32.2W
+  Xid errors:    ✅  none (last 1h)
+
+────────────────────────────────────────────────────────
+✅ GPU healthy. Checks passed in 2.3s

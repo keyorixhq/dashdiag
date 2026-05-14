@@ -1,0 +1,76 @@
+{
+  "drives": [
+    {
+      "device": "/dev/nvme0",
+      "model": "SKHynix_HFS001TDE9X084N",
+      "type": "nvme",
+      "smart_ok": true,
+      "temp_c": 46,
+      "power_on_h": 7099,
+      "wear_pct": 0,
+      "media_errors": 0,
+      "unsafe_shutdowns": 57,
+      "reallocated_sectors": 0,
+      "pending_sectors": 0,
+      "uncorrectable_errors": 0,
+      "smartctl_available": true
+    },
+    {
+      "device": "/dev/nvme1",
+      "model": "SKHynix_HFS001TDE9X084N",
+      "type": "nvme",
+      "smart_ok": true,
+      "temp_c": 51,
+      "power_on_h": 7117,
+      "wear_pct": 0,
+      "media_errors": 0,
+      "unsafe_shutdowns": 56,
+      "reallocated_sectors": 0,
+      "pending_sectors": 0,
+      "uncorrectable_errors": 0,
+      "smartctl_available": true
+    }
+  ],
+  "thermals": [
+    {
+      "sensor": "nvme",
+      "label": "Composite",
+      "temp_c": 45
+    },
+    {
+      "sensor": "nvme",
+      "label": "Sensor 1",
+      "temp_c": 38
+    },
+    {
+      "sensor": "nvme",
+      "label": "Sensor 2",
+      "temp_c": 38
+    },
+    {
+      "sensor": "nvme",
+      "label": "Composite",
+      "temp_c": 50
+    },
+    {
+      "sensor": "nvme",
+      "label": "Sensor 1",
+      "temp_c": 43
+    },
+    {
+      "sensor": "nvme",
+      "label": "Sensor 2",
+      "temp_c": 43
+    },
+    {
+      "sensor": "k10temp",
+      "label": "Tctl",
+      "temp_c": 70
+    }
+  ],
+  "memory": {
+    "edac_available": true,
+    "uncorrected_errors": 0,
+    "corrected_errors": 0
+  }
+}

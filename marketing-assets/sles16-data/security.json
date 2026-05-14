@@ -1,0 +1,36 @@
+
+SSH Configuration
+  ✅  PermitRootLogin:             no (secure)
+  ✅  PasswordAuthentication:      no (key-only)
+
+Failed Logins (last hour): 0
+
+Listening Ports (1 total)
+  ✅  22     tcp   sshd                
+
+Sudo NOPASSWD entries:
+  ⚠️   andrei
+
+Firewall: firewalld active (zone: public)
+  ✅  allowed: dhcpv6-client, ssh
+  ✅  SSH accessible
+
+System Security
+  ℹ️   FIPS mode: disabled
+  ✅  Crypto policy: DEFAULT
+  ✅  auditd: 1 rule(s) active
+
+SUSE supportconfig
+  ✅  last run 0 days ago (/var/log/scc_localhost.localdomain_260513_2117.txz)
+
+SUSEConnect subscription
+  ✅  active — expires in 59 day(s) (ACTIVE)
+
+Btrfs snapshots (snapper)
+  ✅  13 snapshot(s) — last: 17h ago
+
+SELinux mode: enforcing
+  ✅  No denials in the last hour
+
+────────────────────────────────────────────────────────
+⚠️  1 security concern(s) found in 0.7s
