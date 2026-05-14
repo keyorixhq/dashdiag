@@ -160,13 +160,15 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 		return exitCodeFromInsights(insights)
 	}
 
-	var crits, warns []models.Insight
+	var crits, warns, infos []models.Insight
 	for _, ins := range insights {
 		switch ins.Level {
 		case "CRIT":
 			crits = append(crits, ins)
 		case "WARN":
 			warns = append(warns, ins)
+		case "INFO":
+			infos = append(infos, ins)
 		}
 	}
 
@@ -189,6 +191,7 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 
 	r.printInsightGroup(crits)
 	r.printInsightGroup(warns)
+	r.printInsightGroup(infos)
 	return exitCodeFromInsights(insights)
 }
 
