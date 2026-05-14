@@ -2,6 +2,7 @@ package drilldown
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 
@@ -50,10 +51,18 @@ func policiesLinux(ctx context.Context) (*models.Details, error) {
 		return nil, nil
 	}
 
+	const maxRows = 5
+	note := ""
+	if len(rows) > maxRows {
+		note = fmt.Sprintf("... and %d more — run: aa-status | grep complain", len(rows)-maxRows)
+		rows = rows[:maxRows]
+	}
+
 	return &models.Details{
 		Type:    "policy_table",
 		Title:   "Security policies not in enforcing mode",
 		Columns: []string{"POLICY", "MODE", "NOTE"},
 		Rows:    rows,
+		Note:    note,
 	}, nil
 }
