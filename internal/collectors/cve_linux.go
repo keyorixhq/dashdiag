@@ -485,11 +485,10 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 		if !strings.HasPrefix(line, "Inst") {
 			continue
 		}
-		// Only count packages from security repositories
 		lineLower := strings.ToLower(line)
-		if !strings.Contains(lineLower, "-security") &&
-			!strings.Contains(lineLower, "security-updates") &&
-			!strings.Contains(lineLower, "debian-security") {
+		// Filter to security repositories only.
+		// Patterns: debian-security, ubuntu resolute-security, *-security
+		if !strings.Contains(lineLower, "security") {
 			continue
 		}
 		fields := strings.Fields(line)
