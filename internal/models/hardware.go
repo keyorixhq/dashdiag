@@ -42,12 +42,13 @@ type HardwareMemory struct {
 	Slots             []MemorySlot `json:"slots,omitempty"`
 }
 
-// HardwareCPU holds CPU info from /proc/cpuinfo.
+// HardwareCPU holds CPU info from /proc/cpuinfo and cpufreq sysfs.
 type HardwareCPU struct {
-	Model   string  `json:"model"`
-	Cores   int     `json:"cores"`
-	Threads int     `json:"threads"`
-	FreqMHz float64 `json:"freq_mhz"`
+	Model      string  `json:"model"`
+	Cores      int     `json:"cores"`
+	Threads    int     `json:"threads"`
+	FreqMHz    float64 `json:"freq_mhz"`     // current frequency
+	MaxFreqMHz float64 `json:"max_freq_mhz"` // max boost frequency
 }
 
 // HardwareNIC holds network interface hardware info.

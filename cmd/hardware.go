@@ -97,7 +97,11 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 			fmt.Printf("  %-14s %d cores / %d threads\n", "Topology:", info.CPU.Cores, info.CPU.Threads)
 		}
 		if info.CPU.FreqMHz > 0 {
-			fmt.Printf("  %-14s %.0f MHz\n", "Frequency:", info.CPU.FreqMHz)
+			freqStr := fmt.Sprintf("%.0f MHz", info.CPU.FreqMHz)
+			if info.CPU.MaxFreqMHz > 0 {
+				freqStr += fmt.Sprintf(" (max %.0f MHz)", info.CPU.MaxFreqMHz)
+			}
+			fmt.Printf("  %-14s %s\n", "Frequency:", freqStr)
 		}
 		fmt.Println()
 	}
