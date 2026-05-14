@@ -1028,18 +1028,78 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
-	// Unexpected listening ports — group all into one insight
+	// Unexpected listening ports — split into known services (INFO) vs truly unexpected (WARN)
+	// Known service processes are auto-detected and downgraded to INFO with context.
+	knownServiceProcesses := map[string]string{
+		// Kubernetes / k8s distributions
+		"kubelite":        "k8s/microk8s",
+		"kubelet":         "k8s",
+		"kube-apiserver":  "k8s",
+		"kube-scheduler":  "k8s",
+		"kube-controller": "k8s",
+		"cluster-agent":   "k8s/microk8s",
+		"containerd":      "container-runtime",
+		"dockerd":         "docker",
+		// Observability
+		"prometheus":    "prometheus",
+		"node_exporter": "prometheus",
+		"grafana":       "grafana",
+		"alertmanager":  "prometheus",
+		// Databases
+		"mysqld":       "mysql",
+		"postgres":     "postgresql",
+		"mongod":       "mongodb",
+		"redis-server": "redis",
+		// Web/proxy
+		"nginx":   "nginx",
+		"apache2": "apache",
+		"httpd":   "apache",
+		"traefik": "traefik",
+		"haproxy": "haproxy",
+	}
+
 	var unexpectedPorts []string
+	var knownPorts []string
+	var knownServices []string
 	var portHints []string
 	portHints = append(portHints, "to inspect: ss -tlnp")
+
 	for _, p := range sec.ListeningPorts {
-		if !p.Expected {
-			unexpectedPorts = append(unexpectedPorts,
-				fmt.Sprintf("%d/%s", p.Port, p.Protocol))
-			portHints = append(portHints,
-				fmt.Sprintf("to inspect: ss -tlnp | grep :%d", p.Port))
+		if p.Expected {
+			continue
+		}
+		portStr := fmt.Sprintf("%d/%s", p.Port, p.Protocol)
+		// Check if process is a known service
+		serviceName := ""
+		for proc, svc := range knownServiceProcesses {
+			if strings.Contains(strings.ToLower(p.Process), proc) {
+				serviceName = svc
+				break
+			}
+		}
+		if serviceName != "" {
+			knownPorts = append(knownPorts, portStr)
+			if !containsStr(knownServices, serviceName) {
+				knownServices = append(knownServices, serviceName)
+			}
+		} else {
+			unexpectedPorts = append(unexpectedPorts, portStr)
+			portHints = append(portHints, fmt.Sprintf("to inspect: ss -tlnp | grep :%d", p.Port))
 		}
 	}
+
+	// Known services — downgrade to INFO
+	if len(knownPorts) > 0 {
+		out = append(out, insight("INFO", "Hardening",
+			fmt.Sprintf("%d port(s) from known service(s) (%s) listening on all interfaces — consider binding to specific interfaces in production",
+				len(knownPorts), strings.Join(knownServices, ", ")),
+			[]string{
+				"to inspect: ss -tlnp",
+				"to restrict: bind service to specific interface/IP instead of 0.0.0.0",
+			},
+		))
+	}
+	// Truly unexpected ports — keep as WARN
 	if len(unexpectedPorts) > 0 {
 		out = append(out, insight("WARN", "Hardening",
 			fmt.Sprintf("%d unexpected port(s) listening on all interfaces: %s",
@@ -1816,4 +1876,14 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 	}
 
 	return out
+}
+
+// containsStr returns true if s is in the slice ss.
+func containsStr(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
