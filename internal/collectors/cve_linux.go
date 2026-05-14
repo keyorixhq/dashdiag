@@ -472,18 +472,24 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 func scanAllApt(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "apt"}
 
-	// Use apt-get --simulate upgrade filtered to security repos
-	out, err := runCmd(ctx, "apt-get", "--simulate", "upgrade", "-o",
-		"Dir::Etc::SourceList=/dev/null", "--allow-change-held-packages")
+	// apt-get --simulate upgrade lists all pending upgrades.
+	// We filter to security repos by matching the repo string in each line.
+	out, err := runCmd(ctx, "apt-get", "--simulate", "upgrade")
 	if err != nil && len(out) == 0 {
-		// Simpler fallback: just list security upgrades
 		out, _ = runCmd(ctx, "apt-get", "--simulate", "dist-upgrade")
 	}
 
 	var advisories []models.CVEAdvisory
 	for _, line := range strings.Split(out, "\n") {
-		// apt output: "Inst package [old] (new repo)"
+		// apt output: "Inst package [old] (new source/suite [arch])"
 		if !strings.HasPrefix(line, "Inst") {
+			continue
+		}
+		// Only count packages from security repositories
+		lineLower := strings.ToLower(line)
+		if !strings.Contains(lineLower, "-security") &&
+			!strings.Contains(lineLower, "security-updates") &&
+			!strings.Contains(lineLower, "debian-security") {
 			continue
 		}
 		fields := strings.Fields(line)
