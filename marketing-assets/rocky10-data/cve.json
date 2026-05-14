@@ -1,0 +1,8 @@
+
+Scanning all pending security advisories...
+{
+  "package_manager": "dnf",
+  "total": 0,
+  "fix_command": "dnf upgrade --security",
+  "status_reason": "no pending security advisories — system is up to date"
+}
