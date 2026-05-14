@@ -11672,3 +11672,89 @@ Revisit pricing at these milestones:
 - First Enterprise inquiry — validate POQ approach
 - €100K ARR — consider raising Pro tier to €12/month
 
+
+
+## 31. Viral Channel Strategy — Gaming Community & SteamOS
+
+*Written 2026-05-14. Strategic note only — no product changes required.*
+
+---
+
+### The Insight
+
+Gamers are a **distribution channel, not a revenue channel.**
+
+The conversion path:
+> r/SteamDeck post → 50K views → 2K installs → 200 are sysadmins at their day job → 20 paying customers
+
+The gamer never pays. Their employer does. This is identical to how major B2B dev tools grew virally:
+- **Homebrew** — started as a dev convenience tool, now on every Mac in every company
+- **htop** — free forever, standard on every production server globally
+- **fzf** — viral on r/unixporn, now in enterprise dotfiles everywhere
+
+DashDiag follows the same pattern: gamers find it → share it at work → ops team adopts → team buys Pro/Team license.
+
+---
+
+### Why It Works Without Any Extra Dev Work
+
+SteamOS 3.x (Steam Deck) is Arch-based Linux. `dsd health` already runs on it.
+
+What DashDiag already catches that gamers care about:
+- `dsd gpu` — GPU temperature, VRAM usage, power draw, Xid errors
+- `Thermal CRIT` — thermal throttling kills frame rates, dsd catches it
+- `dsd hardware` — drive health (load times), RAM, NVMe temps, CPU freq
+- `CPU CRIT` — load at 108% of capacity (stress test validated)
+
+The Steam Deck throttles aggressively under sustained load. A screenshot of `dsd health` showing `Thermal CRIT CPU 96°C — thermal throttling active` during a gaming session would resonate immediately with r/SteamDeck's 2M+ members.
+
+**Zero additional dev work required.** The product already does this.
+
+---
+
+### The Play
+
+One well-timed Reddit post on r/SteamDeck:
+
+> "I built a one-command system health tool for Linux. Ran it on my Deck during a Cyberpunk session — it immediately caught thermal throttling at 96°C. Here's what it showed: [screenshot]"
+
+Cost: €0. Potential reach: 50K-200K views in 48h if it resonates.
+
+Same post works on:
+- r/linux_gaming
+- r/SteamDeck
+- r/linuxmasterrace
+- Hacker News (Show HN)
+- r/sysadmin (different angle — professional)
+
+---
+
+### What NOT to Do
+
+- **Don't build gaming-specific features** — `dsd gaming` or `dsd deck` subcommands add maintenance burden for a non-paying segment
+- **Don't optimise for gamers** — they're a funnel, not a customer segment
+- **Don't promise SteamOS support** — just let it work (it already does) and let users discover it
+- **Don't delay the post** — SteamOS 3.x is the window, before Valve potentially ships native diagnostics
+
+---
+
+### SteamOS Validation (TODO before post)
+
+Before posting, verify `dsd health` runs cleanly on SteamOS 3.x:
+- Boot a Steam Deck or SteamOS VM
+- Run `dsd health --plain` — confirm no panics, sensible output
+- Run `dsd gpu` — confirm RTX/AMD GPU reading works (Steam Deck uses AMD APU)
+- Screenshot the output — this is the Reddit post
+
+AMD APU note: Steam Deck uses AMD Van Gogh APU. `dsd gpu` currently reads via `nvidia-smi` — AMD GPU support via `rocm-smi` or `/sys/class/drm/` is needed for the Deck specifically. This is the **only** gaming-specific dev work worth doing, and it doubles as general AMD GPU support for production servers.
+
+---
+
+### Priority
+
+**Low dev priority, high marketing priority.**
+
+Add SteamOS to the distro validation list when a Steam Deck or SteamOS VM is available. The AMD GPU collector (`dsd gpu` via `/sys/class/drm/`) is worth building for production AMD servers anyway — the gaming angle is a bonus.
+
+The Reddit post should happen at or shortly after public launch, not before. Timing: when the GitHub repo is public and the landing page is live.
+
