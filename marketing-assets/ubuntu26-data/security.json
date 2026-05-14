@@ -1,0 +1,27 @@
+
+SSH Configuration
+  ✅  PermitRootLogin:             no (secure)
+  ✅  PasswordAuthentication:      no (key-only)
+
+Failed Logins (last hour): 0
+
+Listening Ports (6 total)
+  ✅  22     tcp   sshd                
+  ⚠️   25000  tcp   cluster-agent        ← unexpected
+  ⚠️   16443  tcp   kubelite             ← unexpected
+  ⚠️   10259  tcp   kubelite             ← unexpected
+  ⚠️   10257  tcp   kubelite             ← unexpected
+  ✅  10250  tcp   kubelet             
+
+Sudo NOPASSWD entries:
+  ⚠️   andrei
+
+Firewall: ufw active
+  ❌  SSH accessible
+
+AppArmor mode: enforce (251 profiles loaded)
+  ⚠️  68 profile(s) in complain mode
+  ⚠️  13 denial(s) in the last hour
+
+────────────────────────────────────────────────────────
+⚠️  5 security concern(s) found in 0.1s
