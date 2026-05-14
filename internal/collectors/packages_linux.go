@@ -19,7 +19,7 @@ type PackagesCollector struct{}
 func NewPackagesCollector() *PackagesCollector { return &PackagesCollector{} }
 
 func (c *PackagesCollector) Name() string           { return "Packages" }
-func (c *PackagesCollector) Timeout() time.Duration { return 30 * time.Second }
+func (c *PackagesCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Detect package manager

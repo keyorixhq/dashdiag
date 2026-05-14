@@ -350,10 +350,8 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewThermalCollector(),
 		collectors.NewBatteryCollector(),
 		collectors.NewNVMeCollector(),
+		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
 		// GPUCollector is opt-in via --gpu flag — nvidia-smi can hang on some systems
-	}
-	if includePackages {
-		cols = append(cols, collectors.NewPackagesCollector())
 	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())
