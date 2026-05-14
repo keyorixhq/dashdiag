@@ -315,6 +315,13 @@ func collectCPU(info *models.HardwareInfo) {
 		Threads: threads,
 		FreqMHz: freq,
 	}
+
+	// Max boost frequency from cpufreq sysfs
+	if b, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil { // #nosec G304
+		if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
+			info.CPU.MaxFreqMHz = n / 1000 // kHz -> MHz
+		}
+	}
 }
 
 // ── SYSTEM IDENTITY ───────────────────────────────────────────────────────────
