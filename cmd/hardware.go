@@ -239,13 +239,19 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		fmt.Println(render.StyleBold.Render("Thermals"))
 		for _, t := range info.Thermals {
 			level := "ok"
+			note := ""
 			if t.TempC >= 95 {
 				level = "fail"
-			} else if t.TempC >= 80 {
+				note = " — throttling"
+			} else if t.TempC >= 85 {
 				level = "warn"
+				note = " — elevated"
+			} else if t.TempC >= 70 {
+				level = "warn"
+				note = " — warm"
 			}
-			fmt.Printf("  %-14s %s  %d°C  (%s)\n",
-				t.Label+":", output.StatusIcon(level, mode), t.TempC, t.Sensor)
+			fmt.Printf("  %-14s %s  %d°C%s  (%s)\n",
+				t.Label+":", output.StatusIcon(level, mode), t.TempC, note, t.Sensor)
 		}
 		fmt.Println()
 	}
