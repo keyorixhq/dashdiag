@@ -43,6 +43,10 @@ type Thresholds struct {
 	// show distro-specific fix commands in disk and other checks.
 	// Values: "dnf", "apt", "zypper", "pacman", "brew", "" (unknown)
 	PackageManager string
+
+	// CPULoadPct is detected at runtime from CPUInfo and used to
+	// contextualise thermal readings — high temp at low load = cooling issue.
+	CPULoadPct float64
 }
 
 func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
