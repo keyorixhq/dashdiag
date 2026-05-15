@@ -229,6 +229,18 @@ func detectCrashLoops(ctx context.Context) []string {
 		if !strings.Contains(unit, ".") {
 			continue
 		}
+		// Skip known LXC/cloud-init false positives
+		if cloudInitUnits[unit] {
+			continue
+		}
+		// Handle template instances e.g. container-getty@1.service
+		if at := strings.Index(unit, "@"); at >= 0 {
+			if dot := strings.LastIndex(unit, "."); dot > at {
+				if cloudInitUnits[unit[:at+1]+unit[dot:]] {
+					continue
+				}
+			}
+		}
 		// Check NRestarts via systemctl show
 		showOut, err := runCmd(ctx, "systemctl", "show", unit, "--property=NRestarts")
 		if err != nil {
