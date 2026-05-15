@@ -8,7 +8,7 @@
     "model": "AMD Ryzen 7 5800H with Radeon Graphics",
     "cores": 8,
     "threads": 16,
-    "freq_mhz": 3308.602,
+    "freq_mhz": 2989.837,
     "max_freq_mhz": 4465
   },
   "drives": [
@@ -17,7 +17,7 @@
       "model": "SKHynix_HFS001TDE9X084N",
       "type": "nvme",
       "smart_ok": true,
-      "temp_c": 48,
+      "temp_c": 44,
       "power_on_h": 7123,
       "wear_pct": 0,
       "media_errors": 0,
@@ -32,7 +32,7 @@
       "model": "SKHynix_HFS001TDE9X084N",
       "type": "nvme",
       "smart_ok": true,
-      "temp_c": 45,
+      "temp_c": 43,
       "power_on_h": 7104,
       "wear_pct": 0,
       "media_errors": 0,
@@ -47,37 +47,37 @@
     {
       "sensor": "nvme",
       "label": "Composite",
-      "temp_c": 47
+      "temp_c": 43
     },
     {
       "sensor": "nvme",
       "label": "Sensor 1",
-      "temp_c": 40
+      "temp_c": 36
     },
     {
       "sensor": "nvme",
       "label": "Sensor 2",
-      "temp_c": 39
+      "temp_c": 36
     },
     {
       "sensor": "nvme",
       "label": "Composite",
-      "temp_c": 44
+      "temp_c": 42
     },
     {
       "sensor": "nvme",
       "label": "Sensor 1",
-      "temp_c": 37
+      "temp_c": 35
     },
     {
       "sensor": "nvme",
       "label": "Sensor 2",
-      "temp_c": 38
+      "temp_c": 36
     },
     {
       "sensor": "k10temp",
       "label": "Tctl",
-      "temp_c": 63
+      "temp_c": 59
     }
   ],
   "memory": {

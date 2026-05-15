@@ -1,21 +1,85 @@
 {
   "hostname": "andrei-Legion",
-  "timestamp": "2026-05-15T01:14:19.02398458Z",
+  "timestamp": "2026-05-15T01:24:58.314023372Z",
   "version": "dev",
   "checks": [
     {
+      "name": "Clock",
+      "status": "CRIT",
+      "duration": "366.737µs",
+      "raw": {
+        "synced": false,
+        "offset_ms": 0.352608,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": "",
+        "rtc_in_local_tz": true
+      }
+    },
+    {
       "name": "Entropy",
       "status": "OK",
-      "duration": "107.137µs",
+      "duration": "101.62µs",
       "raw": {
         "entropy_available": 256,
         "pool_size": 256
       }
     },
     {
+      "name": "Memory",
+      "status": "OK",
+      "duration": "215.67µs",
+      "raw": {
+        "total_gb": 15.470531463623047,
+        "free_gb": 13.64425277709961,
+        "used_pct": 9.815049018532084,
+        "slab_mb": 272.796875,
+        "commit_limit_mb": 9968.90625,
+        "committed_as_mb": 4461.0625,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Snapshots",
+      "status": "OK",
+      "duration": "54.197µs",
+      "raw": {
+        "available": false,
+        "config_count": 0,
+        "snapshot_count": 0,
+        "oldest_days": 0,
+        "total_space_gb": 0,
+        "last_snapshot_h": 0
+      }
+    },
+    {
+      "name": "Thermal",
+      "status": "OK",
+      "duration": "600.076µs",
+      "raw": {
+        "cpu_temp_c": 42.625,
+        "core_temps": {
+          "Tctl": 42.625
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "Subscription",
+      "status": "OK",
+      "duration": "41.067µs",
+      "raw": {
+        "registered": false,
+        "expires_days": 0,
+        "status": ""
+      }
+    },
+    {
       "name": "Disk",
       "status": "OK",
-      "duration": "627.805µs",
+      "duration": "358.845µs",
       "raw": {
         "filesystems": [
           {
@@ -23,10 +87,10 @@
             "device": "/dev/nvme1n1p5",
             "fs_type": "ext4",
             "total_gb": 444.294086656,
-            "used_gb": 9.956585471999972,
-            "free_gb": 434.337501184,
-            "used_pct": 7.337636842608141,
-            "inodes_used_pct": 1.7366746425062973,
+            "used_gb": 9.956761599999993,
+            "free_gb": 434.337325056,
+            "used_pct": 7.3376764848192995,
+            "inodes_used_pct": 1.736689122970414,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -76,73 +140,9 @@
       }
     },
     {
-      "name": "Memory",
-      "status": "OK",
-      "duration": "259.322µs",
-      "raw": {
-        "total_gb": 15.470531463623047,
-        "free_gb": 13.710445404052734,
-        "used_pct": 9.387704176074656,
-        "slab_mb": 262.390625,
-        "commit_limit_mb": 9968.90625,
-        "committed_as_mb": 4461.2578125,
-        "over_committed": false,
-        "status": "",
-        "status_reason": ""
-      }
-    },
-    {
-      "name": "Snapshots",
-      "status": "OK",
-      "duration": "28.146µs",
-      "raw": {
-        "available": false,
-        "config_count": 0,
-        "snapshot_count": 0,
-        "oldest_days": 0,
-        "total_space_gb": 0,
-        "last_snapshot_h": 0
-      }
-    },
-    {
-      "name": "Clock",
-      "status": "CRIT",
-      "duration": "114.819µs",
-      "raw": {
-        "synced": false,
-        "offset_ms": 1.229823,
-        "source": "adjtimex",
-        "status": "",
-        "status_reason": "",
-        "rtc_in_local_tz": true
-      }
-    },
-    {
-      "name": "Thermal",
-      "status": "OK",
-      "duration": "532.192µs",
-      "raw": {
-        "cpu_temp_c": 47.25,
-        "core_temps": {
-          "Tctl": 47.25
-        },
-        "source": "k10temp"
-      }
-    },
-    {
-      "name": "Subscription",
-      "status": "OK",
-      "duration": "637.793µs",
-      "raw": {
-        "registered": false,
-        "expires_days": 0,
-        "status": ""
-      }
-    },
-    {
       "name": "Systemd",
       "status": "OK",
-      "duration": "6.893561ms",
+      "duration": "6.670546ms",
       "raw": {
         "available": true,
         "failed_units": [],
@@ -154,13 +154,13 @@
     {
       "name": "Sysctl",
       "status": "WARN",
-      "duration": "9.047192ms",
+      "duration": "10.877298ms",
       "raw": {
         "vm_swappiness": 60,
         "net_somaxconn": 4096,
         "fs_file_max": 9223372036854775807,
         "kernel_pid_max": 4194304,
-        "pid_count": 339,
+        "pid_count": 338,
         "net_rmem_max": 212992,
         "net_wmem_max": 212992,
         "tcp_tw_reuse": 2,
@@ -178,7 +178,7 @@
     {
       "name": "KernelSec",
       "status": "WARN",
-      "duration": "10.429843ms",
+      "duration": "10.561407ms",
       "raw": {
         "se_linux_present": false,
         "se_linux_mode": "",
@@ -194,7 +194,7 @@
     {
       "name": "Processes",
       "status": "OK",
-      "duration": "11.076226ms",
+      "duration": "11.687947ms",
       "raw": {
         "zombie_count": 0,
         "hung_count": 0,
@@ -207,7 +207,7 @@
     {
       "name": "Drives",
       "status": "OK",
-      "duration": "16.829206ms",
+      "duration": "16.365361ms",
       "raw": {
         "devices": [
           {
@@ -246,11 +246,11 @@
     {
       "name": "FDLimits",
       "status": "OK",
-      "duration": "24.394223ms",
+      "duration": "25.535388ms",
       "raw": {
-        "open_count": 8416,
+        "open_count": 8352,
         "max_count": 9223372036854775807,
-        "used_pct": 9.124645483638005e-14,
+        "used_pct": 9.055256544598933e-14,
         "hot_processes": null,
         "deleted_open_files": 20,
         "deleted_open_size_gb": 0.335588744,
@@ -261,7 +261,7 @@
     {
       "name": "Battery",
       "status": "OK",
-      "duration": "65.487187ms",
+      "duration": "65.584294ms",
       "raw": {
         "present": true,
         "status": "Full",
@@ -280,7 +280,7 @@
     {
       "name": "Hardening",
       "status": "WARN",
-      "duration": "104.817493ms",
+      "duration": "104.813123ms",
       "raw": {
         "ssh_permit_root": false,
         "ssh_password_auth": false,
@@ -319,14 +319,14 @@
     {
       "name": "CPU",
       "status": "OK",
-      "duration": "500.542448ms",
+      "duration": "501.510288ms",
       "raw": {
-        "load_avg_1": 0.19,
-        "load_avg_5": 0.12,
-        "load_avg_15": 0.04,
+        "load_avg_1": 0.24,
+        "load_avg_5": 0.22,
+        "load_avg_15": 0.12,
         "num_cpu": 16,
-        "usage_pct": 8.897243107769427,
-        "load_pct": 1.1875,
+        "usage_pct": 8.760951188986233,
+        "load_pct": 1.5,
         "status": "",
         "status_reason": ""
       }
@@ -334,7 +334,7 @@
     {
       "name": "Logs",
       "status": "OK",
-      "duration": "609.233209ms",
+      "duration": "608.739992ms",
       "raw": {
         "oom_kills": 0,
         "oom_processes": null,
@@ -350,7 +350,7 @@
     {
       "name": "Swap",
       "status": "OK",
-      "duration": "1.001220177s",
+      "duration": "1.000463546s",
       "raw": {
         "total_gb": 1.9999961853027344,
         "used_gb": 0,
@@ -366,7 +366,7 @@
     {
       "name": "IO",
       "status": "OK",
-      "duration": "1.000854068s",
+      "duration": "1.000803323s",
       "raw": {
         "devices": [
           {
@@ -401,7 +401,7 @@
     {
       "name": "Network",
       "status": "OK",
-      "duration": "1.282478901s",
+      "duration": "1.267690872s",
       "raw": {
         "interfaces": [
           {
@@ -424,8 +424,8 @@
           }
         ],
         "primary_interface": "eno1",
-        "gateway_ping_ms": 0.727818,
-        "internet_ping_ms": 6.240089,
+        "gateway_ping_ms": 0.598785,
+        "internet_ping_ms": 6.298047,
         "dns_resolves_ms": 7,
         "close_wait_count": 0,
         "nat_detected": false,
@@ -436,7 +436,7 @@
     {
       "name": "Packages",
       "status": "CRIT",
-      "duration": "3.38156137s",
+      "duration": "3.438045488s",
       "raw": {
         "security_updates": 171,
         "critical_updates": 19,
@@ -1316,8 +1316,8 @@
           "LocalRTC": "yes",
           "NTP": "yes",
           "NTPSynchronized": "yes",
-          "RTCTimeUSec": "Fri 2026-05-15 03:14:19 CEST",
-          "TimeUSec": "Fri 2026-05-15 03:14:19 CEST",
+          "RTCTimeUSec": "Fri 2026-05-15 03:24:58 CEST",
+          "TimeUSec": "Fri 2026-05-15 03:24:58 CEST",
           "Timezone": "Europe/Madrid"
         }
       }
