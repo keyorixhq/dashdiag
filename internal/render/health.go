@@ -255,7 +255,7 @@ func (r *Renderer) printHints(hints []string) {
 	for _, g := range groups {
 		if len(g.cmds) == 1 {
 			fmt.Fprintf(os.Stdout, "   %s %s: %s\n",
-				StyleDim.Render("→"), g.label, g.cmds[0])
+				StyleDim.Render("→"), g.label, StyleDim.Render(g.cmds[0]))
 		} else {
 			fmt.Fprintf(os.Stdout, "   %s %s:\n", StyleDim.Render("→"), g.label)
 			for _, cmd := range g.cmds {
