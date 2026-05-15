@@ -367,7 +367,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	if net.PrimaryInterfaceDown {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
-			[]string{fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface), "to inspect: ip link show", "to inspect: ip route"},
+			[]string{"to inspect: ip link show", "to inspect: ip route", fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
 		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs < 0 {
 		out = append(out, insight("CRIT", "Network",
@@ -435,7 +435,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	if net.TimeWaitCount > 1000 {
 		out = append(out, insight("WARN", "Network",
 			fmt.Sprintf("%d TIME_WAIT sockets — high connection churn or missing tcp_tw_reuse", net.TimeWaitCount),
-			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
+			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to inspect: ss -tan state time-wait | head -10", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
 		))
 	}
 	if net.SynRetransCount > 100 {
@@ -447,7 +447,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	if net.ListenOverflows > 0 {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("%d listen queue overflow(s) — SYN backlog saturated, connections being dropped", net.ListenOverflows),
-			[]string{"to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"},
+			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"},
 		))
 	}
 	if net.RetransFailCount > 10 {
@@ -459,7 +459,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	if net.ConntrackUsedPct >= 80 {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("conntrack table %.0f%% full — new connections will be dropped when full", net.ConntrackUsedPct),
-			[]string{"to inspect: conntrack -C", "to fix: sysctl -w net.netfilter.nf_conntrack_max=262144"},
+			[]string{"to inspect: conntrack -C", "to inspect: cat /proc/sys/net/netfilter/nf_conntrack_count", "to fix: sysctl -w net.netfilter.nf_conntrack_max=262144"},
 		))
 	} else if net.ConntrackUsedPct >= 60 {
 		out = append(out, insight("WARN", "Network",
@@ -549,12 +549,12 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 512 {
 		out = append(out, insight("CRIT", "Sysctl",
 			fmt.Sprintf("net.core.somaxconn=%d is critically low (< 512)", sysctl.NetSomaxconn),
-			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096"},
+			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
 		))
 	} else if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
 		out = append(out, insight("WARN", "Sysctl",
 			fmt.Sprintf("net.core.somaxconn=%d is low (< 1024)", sysctl.NetSomaxconn),
-			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096"},
+			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
 		))
 	}
 
@@ -576,19 +576,19 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for k8s (recommended: 524288)", sysctl.FSInotifyWatches),
-				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=524288", "to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl fs.inotify.max_user_watches", "to fix: sysctl -w fs.inotify.max_user_watches=524288", "to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{"to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -602,7 +602,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 16777216 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("net.core.rmem_max=%d is low for high-throughput web server (recommended: 16MB)", sysctl.NetRmemMax),
-				[]string{"to fix: sysctl -w net.core.rmem_max=16777216", "to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl net.core.rmem_max", "to fix: sysctl -w net.core.rmem_max=16777216", "to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -610,13 +610,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{"to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMDirtyRatio > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.dirty_ratio=%d is high for database (recommended: \u2264 10 to reduce write latency spikes)", sysctl.VMDirtyRatio),
-				[]string{"to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3", "to persist: echo 'vm.dirty_ratio=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.dirty_ratio", "to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3", "to persist: echo 'vm.dirty_ratio=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -624,13 +624,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("CRIT", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d \u2014 Elasticsearch requires \u2265 262144 or it will refuse to start", sysctl.VMMaxMapCount),
-				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMSwappiness > 1 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d \u2014 Elasticsearch recommends 1 to minimise GC pauses from swapping", sysctl.VMSwappiness),
-				[]string{"to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -638,13 +638,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for container host running JVM workloads (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{"to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 131072 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for container host (recommended: 131072+)", sysctl.FSInotifyWatches),
-				[]string{"to fix: sysctl -w fs.inotify.max_user_watches=131072", "to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl fs.inotify.max_user_watches", "to fix: sysctl -w fs.inotify.max_user_watches=131072", "to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -658,7 +658,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 4194304 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("net.core.rmem_max=%d is low (recommended: \u2265 4MB for modern network throughput)", sysctl.NetRmemMax),
-				[]string{"to fix: sysctl -w net.core.rmem_max=4194304", "to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: sysctl net.core.rmem_max", "to fix: sysctl -w net.core.rmem_max=4194304", "to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 	}
@@ -742,7 +742,7 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
 		out = append(out, insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),
-			[]string{"to inspect: journalctl --disk-usage", "to fix: journalctl --vacuum-size=1G"},
+			[]string{"to inspect: journalctl --disk-usage", "to fix: journalctl --vacuum-size=1G", "to fix: journalctl --vacuum-time=7d"},
 		))
 	}
 	if logs.OOMKills > 0 {
@@ -879,7 +879,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight {
 		if dev.UnsafeShutdowns > 100 {
 			out = append(out, insight("WARN", "NVMe",
 				fmt.Sprintf("%s has %d unsafe shutdown(s) — power cuts risk filesystem corruption", dev.Name, dev.UnsafeShutdowns),
-				[]string{"to inspect: nvme smart-log " + dev.Name, "to fix: ensure clean shutdowns, check UPS"},
+				[]string{"to inspect: nvme smart-log " + dev.Name, "to inspect: nvme list", "to fix: ensure clean shutdowns, check UPS"},
 			))
 		}
 		// Power-on hours — consumer NVMe beyond 4 years (35k hours) enters replacement window
@@ -1026,7 +1026,7 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 			msg += fmt.Sprintf(" — top sources: %s", strings.Join(sec.FailedLoginIPs[:min(3, len(sec.FailedLoginIPs))], ", "))
 		}
 		out = append(out, insight("CRIT", "Hardening", msg,
-			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20", "to fix: consider fail2ban or firewall rules"},
+			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20", "to inspect: last -f /var/log/wtmp | head -20", "to fix: consider fail2ban or firewall rules"},
 		))
 	} else if sec.FailedLogins >= 5 {
 		out = append(out, insight("WARN", "Hardening",
@@ -1162,7 +1162,7 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	if len(sec.UID0Users) > 0 {
 		out = append(out, insight("CRIT", "Hardening",
 			fmt.Sprintf("non-root user(s) with UID 0: %s", strings.Join(sec.UID0Users, ", ")),
-			[]string{"to inspect: awk -F: '$3==0' /etc/passwd", "to fix: remove or reassign UID for affected accounts"},
+			[]string{"to inspect: awk -F: '$3==0' /etc/passwd", "to inspect: getent passwd | awk -F: '$3==0'", "to fix: remove or reassign UID for affected accounts"},
 		))
 	}
 
@@ -1306,8 +1306,8 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
 			[]string{
-				fmt.Sprintf("to fix: %s", fixCmd),
 				fmt.Sprintf("to inspect: %s", inspectCmd),
+				fmt.Sprintf("to fix: %s", fixCmd),
 			},
 		))
 	} else if pkg.ImportantUpdates > 0 {
