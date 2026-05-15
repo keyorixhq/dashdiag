@@ -90,11 +90,19 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 	}
 
 	// ── CPU ───────────────────────────────────────────────────────────────────
-	if info.CPU.Model != "" {
+	if info.CPU.Model != "" || info.CPU.Threads > 0 {
 		fmt.Println(render.StyleBold.Render("CPU"))
-		fmt.Printf("  %-14s %s\n", "Model:", info.CPU.Model)
-		if info.CPU.Cores > 0 {
-			fmt.Printf("  %-14s %d cores / %d threads\n", "Topology:", info.CPU.Cores, info.CPU.Threads)
+		if info.CPU.Model != "" {
+			fmt.Printf("  %-14s %s\n", "Model:", info.CPU.Model)
+		} else {
+			fmt.Printf("  %-14s %s\n", "Model:", render.StyleDim.Render("unknown"))
+		}
+		if info.CPU.Threads > 0 {
+			if info.CPU.Cores > 0 {
+				fmt.Printf("  %-14s %d cores / %d threads\n", "Topology:", info.CPU.Cores, info.CPU.Threads)
+			} else {
+				fmt.Printf("  %-14s %d threads\n", "Topology:", info.CPU.Threads)
+			}
 		}
 		if info.CPU.FreqMHz > 0 {
 			freqStr := fmt.Sprintf("%.0f MHz", info.CPU.FreqMHz)

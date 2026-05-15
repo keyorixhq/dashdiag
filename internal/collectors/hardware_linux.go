@@ -275,43 +275,116 @@ func collectEDAC(info *models.HardwareInfo) {
 
 // ── CPU ───────────────────────────────────────────────────────────────────────
 
+// armImplementerName maps ARM CPU implementer codes to vendor names.
+func armImplementerName(code string) string {
+	switch strings.ToLower(code) {
+	case "0x41":
+		return "ARM"
+	case "0x42":
+		return "Broadcom"
+	case "0x43":
+		return "Cavium"
+	case "0x44":
+		return "DEC"
+	case "0x48":
+		return "HiSilicon"
+	case "0x49":
+		return "Infineon"
+	case "0x4d":
+		return "Motorola/Freescale"
+	case "0x4e":
+		return "NVIDIA"
+	case "0x50":
+		return "APM"
+	case "0x51":
+		return "Qualcomm"
+	case "0x53":
+		return "Samsung"
+	case "0x56":
+		return "Marvell"
+	case "0x61":
+		return "Apple"
+	case "0x66":
+		return "Faraday"
+	case "0x69":
+		return "Intel"
+	case "0x70":
+		return "Phytium"
+	case "0xc0":
+		return "Ampere"
+	default:
+		return code
+	}
+}
+
 func collectCPU(info *models.HardwareInfo) {
 	data, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return
 	}
 
-	var model string
+	var model, hardware, implementer string
 	var threads, cores int
 	var freq float64
-	seen := map[string]bool{}
+	coresSet := false
 
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "model name") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				model = strings.TrimSpace(parts[1])
-			}
-			threads++
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
 		}
-		if strings.HasPrefix(line, "cpu cores") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				if n, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && !seen["cores"] {
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+
+		switch key {
+		case "model name": // x86
+			if model == "" {
+				model = val
+			}
+			threads++ // one entry per logical CPU on x86
+		case "processor": // ARM: one entry per logical CPU
+			threads++
+		case "cpu cores": // x86
+			if !coresSet {
+				if n, err := strconv.Atoi(val); err == nil {
 					cores = n
-					seen["cores"] = true
+					coresSet = true
 				}
 			}
-		}
-		if strings.HasPrefix(line, "cpu MHz") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				if f, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil && freq == 0 {
+		case "cpu MHz": // x86
+			if freq == 0 {
+				if f, err := strconv.ParseFloat(val, 64); err == nil {
 					freq = f
 				}
 			}
+		case "Hardware": // ARM bare-metal: "Raspberry Pi 4 Model B Rev 1.4"
+			hardware = val
+		case "CPU implementer": // ARM
+			if implementer == "" {
+				implementer = val
+			}
 		}
+	}
+
+	// ARM: prefer Hardware field, then device tree, then vendor+arch description
+	if model == "" {
+		model = hardware
+	}
+	if model == "" {
+		for _, path := range []string{
+			"/sys/firmware/devicetree/base/model",
+			"/proc/device-tree/model",
+		} {
+			if b, err := os.ReadFile(path); err == nil { // #nosec G304
+				model = strings.TrimRight(string(b), "\x00\n")
+				break
+			}
+		}
+	}
+	if model == "" && implementer != "" {
+		vendor := armImplementerName(implementer)
+		model = fmt.Sprintf("%s ARM (aarch64)", vendor)
 	}
 
 	info.CPU = models.HardwareCPU{
@@ -321,10 +394,18 @@ func collectCPU(info *models.HardwareInfo) {
 		FreqMHz: freq,
 	}
 
-	// Max boost frequency from cpufreq sysfs
+	// Max boost frequency from cpufreq sysfs (kHz → MHz)
 	if b, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil { // #nosec G304
 		if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
-			info.CPU.MaxFreqMHz = n / 1000 // kHz -> MHz
+			info.CPU.MaxFreqMHz = n / 1000
+		}
+	}
+	// Current frequency from cpufreq if not in /proc/cpuinfo (common on ARM)
+	if info.CPU.FreqMHz == 0 {
+		if b, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"); err == nil { // #nosec G304
+			if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
+				info.CPU.FreqMHz = n / 1000
+			}
 		}
 	}
 }
