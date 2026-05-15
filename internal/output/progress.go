@@ -32,10 +32,11 @@ func (p *CommandProgress) Start() {
 	if p.mode == ModeHuman {
 		sysLabel := platform.SystemLabel()
 		line := fmt.Sprintf("%s — %s", p.label, sysLabel)
-		subline := fmt.Sprintf("read only checks, usually under %ds", int(p.estimate.Seconds()))
+		sublineRaw := fmt.Sprintf("read only checks, usually under %ds", int(p.estimate.Seconds()))
+		subline := fmt.Sprintf("\033[2m%s\033[0m", sublineRaw)
 		width := len(line)
-		if len(subline) > width {
-			width = len(subline)
+		if len(sublineRaw) > width {
+			width = len(sublineRaw)
 		}
 		if width < 56 {
 			width = 56
