@@ -60,6 +60,10 @@ type SecurityInfo struct {
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
 	NeedsRoot    bool   `json:"needs_root,omitempty"` // some checks require root
+
+	// Offensive/pentest distro flag — suppresses false-positive WARNs for
+	// intentionally relaxed defaults (e.g. Kali Linux root SSH, no firewall).
+	IsOffensiveDistro bool `json:"is_offensive_distro,omitempty"`
 }
 
 // PortEntry describes a listening network port.

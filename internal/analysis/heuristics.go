@@ -1048,16 +1048,32 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 
 	// SSH misconfigurations
 	if sec.SSHPermitRoot {
-		out = append(out, insight("CRIT", "Hardening",
-			"SSH permits root login",
-			[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", "to fix: systemctl restart sshd"},
-		))
+		// On offensive/pentest distros (Kali, Parrot), root SSH is intentional.
+		// Downgrade to INFO with a note rather than CRIT.
+		if sec.IsOffensiveDistro {
+			out = append(out, insight("INFO", "Hardening",
+				"SSH root login enabled — expected on offensive security distro (Kali/Parrot)",
+				nil,
+			))
+		} else {
+			out = append(out, insight("CRIT", "Hardening",
+				"SSH permits root login",
+				[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", "to fix: systemctl restart sshd"},
+			))
+		}
 	}
 	if sec.SSHPasswordAuth {
-		out = append(out, insight("WARN", "Hardening",
-			"SSH allows password authentication — key-based auth recommended",
-			[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
-		))
+		if sec.IsOffensiveDistro {
+			out = append(out, insight("INFO", "Hardening",
+				"SSH password auth enabled — expected on offensive security distro (Kali/Parrot)",
+				nil,
+			))
+		} else {
+			out = append(out, insight("WARN", "Hardening",
+				"SSH allows password authentication — key-based auth recommended",
+				[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
+			))
+		}
 	}
 
 	// Failed logins

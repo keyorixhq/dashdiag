@@ -47,6 +47,12 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseAppArmor(info)
 	parseSUSEConnect(ctx, info)
 
+	// Detect offensive/pentest distros and suppress false-positive security WARNs.
+	// Kali Linux ships with PermitRootLogin yes, password auth, and no firewall by design.
+	if isOffensiveDistro() {
+		info.IsOffensiveDistro = true
+	}
+
 	return info, nil
 }
 
@@ -913,4 +919,23 @@ func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 			}
 		}
 	}
+}
+
+// isOffensiveDistro returns true for pentest/offensive security distros
+// that ship with intentionally relaxed security defaults (root SSH, no firewall).
+// Used to suppress false-positive WARNs in dsd security.
+func isOffensiveDistro() bool {
+	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(data))
+	// Kali Linux: ID=kali, ID_LIKE=debian
+	// Parrot OS: ID=parrot
+	// BlackArch: uses Arch base but NAME contains BlackArch
+	return strings.Contains(lower, `id="kali"`) ||
+		strings.Contains(lower, "id=kali") ||
+		strings.Contains(lower, `id="parrot"`) ||
+		strings.Contains(lower, "id=parrot") ||
+		strings.Contains(lower, "blackarch")
 }
