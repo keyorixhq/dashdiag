@@ -14,13 +14,30 @@ type NVMeDevice struct {
 	UnsafeShutdowns   int64    `json:"unsafe_shutdowns"`
 	PowerOnHours      int64    `json:"power_on_hours"`
 	PowerCycles       int64    `json:"power_cycles"`
-	MountPoints       []string `json:"mount_points,omitempty"` // empty = unmounted
-	HasLinux          bool     `json:"has_linux"`              // has mounted Linux fs
+	MountPoints       []string `json:"mount_points,omitempty"`
+	HasLinux          bool     `json:"has_linux"`
 }
 
-// NVMeInfo holds health data for all NVMe drives.
+// SATADevice holds SMART health data for a SATA/SAS drive.
+type SATADevice struct {
+	Name                string   `json:"name"`
+	Model               string   `json:"model"`
+	Type                string   `json:"type"` // sata, sas
+	TempC               int      `json:"temp_c"`
+	SmartOK             bool     `json:"smart_ok"`
+	PowerOnHours        int64    `json:"power_on_hours"`
+	ReallocatedSectors  int      `json:"reallocated_sectors"`
+	PendingSectors      int      `json:"pending_sectors"`
+	UncorrectableErrors int      `json:"uncorrectable_errors"`
+	MountPoints         []string `json:"mount_points,omitempty"`
+	Error               string   `json:"error,omitempty"`
+}
+
+// NVMeInfo holds health data for all drives (NVMe + SATA/SAS).
+// Named NVMeInfo for backwards compatibility — now covers all drive types.
 type NVMeInfo struct {
 	Devices      []NVMeDevice `json:"devices"`
+	SATADevices  []SATADevice `json:"sata_devices,omitempty"`
 	Status       string       `json:"status,omitempty"`
 	StatusReason string       `json:"status_reason,omitempty"`
 }

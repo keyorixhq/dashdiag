@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,8 +20,8 @@ type NVMeCollector struct{}
 
 func NewNVMeCollector() *NVMeCollector { return &NVMeCollector{} }
 
-func (c *NVMeCollector) Name() string           { return "NVMe" }
-func (c *NVMeCollector) Timeout() time.Duration { return 5 * time.Second }
+func (c *NVMeCollector) Name() string           { return "Drives" }
+func (c *NVMeCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NVMeInfo{}
@@ -55,6 +56,9 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 
 		info.Devices = append(info.Devices, *dev)
 	}
+
+	// Also detect SATA/SAS drives via smartctl
+	collectSATADrives(ctx, info)
 
 	return info, nil
 }
@@ -184,4 +188,95 @@ func parseInt64(s string) int64 {
 	}
 	v, _ := strconv.ParseInt(fields[0], 10, 64)
 	return v
+}
+
+// collectSATADrives detects SATA/SAS drives via smartctl --scan and reads SMART data.
+// Gracefully skips if smartctl is not installed.
+func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
+	out, err := runCmd(ctx, "smartctl", "--scan-open", "--json=c")
+	if err != nil || out == "" {
+		return // smartctl not installed or no drives
+	}
+
+	var scan struct {
+		Devices []struct {
+			Name     string `json:"name"`
+			Type     string `json:"type"`
+			Protocol string `json:"protocol"`
+		} `json:"devices"`
+	}
+	if err := jsonUnmarshal([]byte(out), &scan); err != nil {
+		return
+	}
+
+	for _, d := range scan.Devices {
+		// Skip NVMe — already handled above
+		proto := strings.ToLower(d.Protocol)
+		if strings.Contains(proto, "nvme") {
+			continue
+		}
+
+		dev := models.SATADevice{Name: d.Name}
+		switch {
+		case strings.Contains(proto, "ata") || strings.Contains(proto, "sata"):
+			dev.Type = "sata"
+		case strings.Contains(proto, "scsi") || strings.Contains(proto, "sas"):
+			dev.Type = "sas"
+		default:
+			dev.Type = proto
+		}
+
+		// Read SMART data
+		smartOut, err := runCmd(ctx, "smartctl", "--json=c", "-a", d.Name)
+		if err != nil && smartOut == "" {
+			dev.Error = "smartctl failed"
+			info.SATADevices = append(info.SATADevices, dev)
+			continue
+		}
+
+		var smart struct {
+			ModelName   string `json:"model_name"`
+			SmartStatus struct {
+				Passed bool `json:"passed"`
+			} `json:"smart_status"`
+			Temperature struct {
+				Current int `json:"current"`
+			} `json:"temperature"`
+			PowerOnTime struct {
+				Hours int64 `json:"hours"`
+			} `json:"power_on_time"`
+			ATAAttributes *struct {
+				Table []struct {
+					ID  int `json:"id"`
+					Raw struct {
+						Value int64 `json:"value"`
+					} `json:"raw"`
+				} `json:"table"`
+			} `json:"ata_smart_attributes,omitempty"`
+		}
+		if err := jsonUnmarshal([]byte(smartOut), &smart); err == nil {
+			dev.Model = smart.ModelName
+			dev.SmartOK = smart.SmartStatus.Passed
+			dev.TempC = smart.Temperature.Current
+			dev.PowerOnHours = smart.PowerOnTime.Hours
+			if smart.ATAAttributes != nil {
+				for _, attr := range smart.ATAAttributes.Table {
+					switch attr.ID {
+					case 5:
+						dev.ReallocatedSectors = int(attr.Raw.Value)
+					case 197:
+						dev.PendingSectors = int(attr.Raw.Value)
+					case 198:
+						dev.UncorrectableErrors = int(attr.Raw.Value)
+					}
+				}
+			}
+		}
+		info.SATADevices = append(info.SATADevices, dev)
+	}
+}
+
+// jsonUnmarshal is a thin wrapper so we don't import encoding/json twice.
+func jsonUnmarshal(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
 }
