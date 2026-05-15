@@ -60,6 +60,15 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 			msg = ins.Message
 		}
 
+		// For CPU Load when OK, append the load % inline so the row is informative.
+		if res.Name == "CPU Load" && level == "OK" {
+			if cpu, ok := res.Data.(*models.CPUInfo); ok && cpu != nil && cpu.LoadPct >= 0 {
+				msg = fmt.Sprintf("%.0f%%", cpu.LoadPct)
+			} else if cpu, ok := res.Data.(models.CPUInfo); ok {
+				msg = fmt.Sprintf("%.0f%%", cpu.LoadPct)
+			}
+		}
+
 		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
 		name := fmt.Sprintf("%-12s", res.Name)
 

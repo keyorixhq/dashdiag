@@ -35,7 +35,7 @@ func NewCPUCollector(ctx platform.ContainerContext) *CPUCollector {
 	}
 }
 
-func (c *CPUCollector) Name() string           { return "CPU" }
+func (c *CPUCollector) Name() string           { return "CPU Load" }
 func (c *CPUCollector) Timeout() time.Duration { return 2 * time.Second }
 
 // parseLoadAvg parses /proc/loadavg format: "0.52 0.43 0.32 3/412 8932"

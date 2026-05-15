@@ -215,7 +215,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	if l == "" {
 		return nil
 	}
-	return []models.Insight{insight(l, "CPU",
+	return []models.Insight{insight(l, "CPU Load",
 		fmt.Sprintf("load average at %.0f%% of capacity (%.2f / %d CPUs)", cpu.LoadPct, cpu.LoadAvg1, cpu.NumCPU),
 		[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
 	)}
@@ -1042,13 +1042,13 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 		"to inspect: check cooling and airflow",
 	}
 	if t.CPUTempC >= 95 {
-		return []models.Insight{insight("CRIT", "Thermal",
+		return []models.Insight{insight("CRIT", "CPU Thermal",
 			fmt.Sprintf("CPU temperature %g°C — thermal throttling active", t.CPUTempC),
 			hints,
 		)}
 	}
 	if t.CPUTempC >= 85 {
-		return []models.Insight{insight("WARN", "Thermal",
+		return []models.Insight{insight("WARN", "CPU Thermal",
 			fmt.Sprintf("CPU temperature %g°C — elevated (source: %s)", t.CPUTempC, t.Source),
 			hints,
 		)}
@@ -1058,7 +1058,7 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	// rather than normal workload heat. Only warn if we actually have load data.
 	// Threshold: >60°C when CPU is under 20% load.
 	if thresh.CPULoadPct > 0 && t.CPUTempC >= 60 && thresh.CPULoadPct < 20 {
-		return []models.Insight{insight("WARN", "Thermal",
+		return []models.Insight{insight("WARN", "CPU Thermal",
 			fmt.Sprintf("CPU temperature %g°C at %.0f%% load — elevated for low CPU activity, possible cooling issue",
 				t.CPUTempC, thresh.CPULoadPct),
 			[]string{
