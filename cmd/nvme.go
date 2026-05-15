@@ -51,7 +51,7 @@ func runNVMe(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printNVMeReport(info *models.NVMeInfo, mode output.OutputMode, elapsed time.Duration) {
+func printNVMeReport(info *models.NVMeInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:funlen // flat display renderer — each drive type is a distinct section
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
