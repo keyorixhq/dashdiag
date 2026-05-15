@@ -204,6 +204,11 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 		info.StatusReason = "no security updates found — ensure security repo is configured and apt cache is current"
 	}
 
+	// Ubuntu ESM: check for security updates gated behind Ubuntu Pro subscription.
+	// These are real CVEs that standard apt cannot apply — surface them as a WARN
+	// so the admin knows they exist even if they can't act without a Pro subscription.
+	checkESMUpdates(ctx, info)
+
 	return info, nil
 }
 
@@ -256,6 +261,59 @@ func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.Pac
 		})
 	}
 	return info, nil
+}
+
+// checkESMUpdates detects Ubuntu Pro ESM security updates that cannot be
+// applied without a Pro subscription. Uses `pro security-status --format json`
+// which is available on Ubuntu 20.04+ without requiring Pro activation.
+// Populates info.ESMUpdates — the heuristic surfaces these as a WARN so the
+// admin knows real CVEs exist even if they can't apply them without Pro.
+func checkESMUpdates(ctx context.Context, info *models.PackagesInfo) {
+	out, err := runCmd(ctx, "pro", "security-status", "--format", "json")
+	if err != nil {
+		// pro not installed or not Ubuntu — silent skip
+		return
+	}
+
+	// Parse just the summary fields we need without a full JSON library
+	// to avoid import bloat — look for num_esm_*_updates in the JSON.
+	esmApps := 0
+	esmInfra := 0
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, `"num_esm_apps_updates"`) {
+			if n := parseJSONInt(line); n > 0 {
+				esmApps = n
+			}
+		}
+		if strings.Contains(line, `"num_esm_infra_updates"`) {
+			if n := parseJSONInt(line); n > 0 {
+				esmInfra = n
+			}
+		}
+	}
+	info.ESMUpdates = esmApps + esmInfra
+}
+
+// parseJSONInt extracts the integer value from a simple JSON key-value line
+// like: `"num_esm_apps_updates": 3,`
+func parseJSONInt(line string) int {
+	// Find the colon and parse the number after it
+	idx := strings.Index(line, ":")
+	if idx < 0 {
+		return 0
+	}
+	val := strings.TrimSpace(line[idx+1:])
+	val = strings.TrimRight(val, ",")
+	n := 0
+	for _, c := range val {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		} else if n > 0 {
+			break
+		}
+	}
+	return n
 }
 
 // aptHasSecurityRepo checks whether a security repository is configured
