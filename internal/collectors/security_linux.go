@@ -372,7 +372,13 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 		// Extract the user/group — first field before whitespace
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
-			info.SudoNopasswd = append(info.SudoNopasswd, fields[0])
+			user := fields[0]
+			// Skip ALL — these are system-wide NOPASSWD for specific commands
+			// (e.g. mintdrivers, mintupdate on Linux Mint) not full privilege escalation
+			if user == "ALL" {
+				continue
+			}
+			info.SudoNopasswd = append(info.SudoNopasswd, user)
 		}
 	}
 }

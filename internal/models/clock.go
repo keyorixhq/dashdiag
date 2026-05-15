@@ -6,4 +6,5 @@ type ClockInfo struct {
 	Source       string  `json:"source"`
 	Status       string  `json:"status"`
 	StatusReason string  `json:"status_reason"`
+	RTCInLocalTZ bool    `json:"rtc_in_local_tz,omitempty"` // true if RTC set to local time — causes kernel sync issues
 }

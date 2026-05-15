@@ -49,6 +49,9 @@ var cloudInitUnits = map[string]bool{
 	"cloud-config.service":     true,
 	"cloud-init.service":       true,
 	"cloud-init-local.service": true,
+	// Live ISO artifacts — fail on installed systems, not a real error
+	"casper-md5check.service": true,
+	"casper.service":          true,
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {
