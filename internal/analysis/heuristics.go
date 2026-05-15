@@ -1200,10 +1200,19 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 
 	// Sudo NOPASSWD
 	if len(sec.SudoNopasswd) > 0 {
-		out = append(out, insight("WARN", "Hardening",
-			fmt.Sprintf("NOPASSWD sudo for: %s", strings.Join(sec.SudoNopasswd, ", ")),
-			[]string{"to inspect: sudo -l", "to inspect: cat /etc/sudoers"},
-		))
+		// On offensive distros (Kali, Parrot), NOPASSWD groups like %kali-trusted
+		// and service accounts like _gvm are intentional defaults — downgrade to INFO.
+		if sec.IsOffensiveDistro {
+			out = append(out, insight("INFO", "Hardening",
+				fmt.Sprintf("NOPASSWD sudo for: %s — expected on offensive security distro", strings.Join(sec.SudoNopasswd, ", ")),
+				nil,
+			))
+		} else {
+			out = append(out, insight("WARN", "Hardening",
+				fmt.Sprintf("NOPASSWD sudo for: %s", strings.Join(sec.SudoNopasswd, ", ")),
+				[]string{"to inspect: sudo -l", "to inspect: cat /etc/sudoers"},
+			))
+		}
 	}
 
 	// Unexpected SUID binaries

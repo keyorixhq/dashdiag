@@ -113,8 +113,16 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 // CVE severity in apt package metadata. Critical packages (kernel, openssl,
 // openssh, glibc, curl) are flagged Critical; all others are Important.
 // Only packages from security repos (*-security, *-security-updates) are counted.
+// Exception: Kali Linux uses a rolling release model where the main repo IS
+// the security channel — all pending upgrades are counted.
 func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{PackageManager: "apt"}
+
+	// Kali Linux uses a rolling release — the main kali-rolling repo includes
+	// all security updates. Skip the security repo check and count all upgrades.
+	if isKali() {
+		return collectAPTKali(ctx, info)
+	}
 
 	// Check sources.list for security repos before running apt-get.
 	// If no security repo is configured, apt will never show security updates
@@ -196,6 +204,57 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 		info.StatusReason = "no security updates found — ensure security repo is configured and apt cache is current"
 	}
 
+	return info, nil
+}
+
+// collectAPTKali counts all pending upgrades on Kali Linux.
+// Kali uses a rolling release — kali-rolling IS the security channel.
+// There is no separate *-security repo, so all pending upgrades are relevant.
+func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.PackagesInfo, error) {
+	info.HasSecurityRepo = true // kali-rolling is the security channel
+
+	out, err := runCmd(ctx, "apt-get", "-s", "upgrade")
+	if err != nil {
+		info.StatusReason = "apt-get unavailable"
+		return info, nil
+	}
+
+	criticalPkgs := map[string]bool{
+		"linux-image": true, "linux-headers": true,
+		"openssl": true, "libssl": true,
+		"openssh-server": true, "openssh-client": true,
+		"libc6": true, "libc-bin": true,
+		"curl": true, "sudo": true, "bash": true,
+		"libgnutls30": true, "ca-certificates": true, "apt": true, "dpkg": true,
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pkgName := fields[1]
+		sev := "Important"
+		for critPrefix := range criticalPkgs {
+			if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
+				sev = "Critical"
+				break
+			}
+		}
+		if sev == "Critical" {
+			info.CriticalUpdates++
+		} else {
+			info.ImportantUpdates++
+		}
+		info.SecurityUpdates++
+		info.Updates = append(info.Updates, models.PackageUpdate{
+			Name:     pkgName,
+			Severity: sev,
+		})
+	}
 	return info, nil
 }
 
