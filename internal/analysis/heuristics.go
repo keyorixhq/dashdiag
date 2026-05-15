@@ -834,7 +834,7 @@ func checkProcesses(proc models.ProcessInfo) []models.Insight {
 	return out
 }
 
-func checkNVMe(n models.NVMeInfo) []models.Insight {
+func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + SATA/SAS checks — each drive type is a distinct section
 	var out []models.Insight
 
 	// NVMe drives
