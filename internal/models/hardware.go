@@ -49,6 +49,7 @@ type HardwareCPU struct {
 	Threads    int     `json:"threads"`
 	FreqMHz    float64 `json:"freq_mhz"`     // current frequency
 	MaxFreqMHz float64 `json:"max_freq_mhz"` // max boost frequency
+	LoadPct    float64 `json:"load_pct"`     // 1-min load avg as % of CPU capacity
 }
 
 // HardwareNIC holds network interface hardware info.

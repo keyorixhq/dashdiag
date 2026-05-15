@@ -246,9 +246,10 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 			} else if t.TempC >= 85 {
 				level = "warn"
 				note = " — elevated"
-			} else if t.TempC >= 70 {
+			} else if t.TempC >= 60 && info.CPU.LoadPct < 20 {
+				// High temp at low load = cooling issue (dried paste, blocked vents)
 				level = "warn"
-				note = " — warm"
+				note = fmt.Sprintf(" — high at %.0f%% load", info.CPU.LoadPct)
 			}
 			fmt.Printf("  %-14s %s  %d°C%s  (%s)\n",
 				t.Label+":", output.StatusIcon(level, mode), t.TempC, note, t.Sensor)
