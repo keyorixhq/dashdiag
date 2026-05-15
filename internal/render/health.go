@@ -223,7 +223,7 @@ func (r *Renderer) printHints(hints []string) {
 	for _, h := range hints {
 		label := ""
 		cmd := h
-		for _, prefix := range []string{"to inspect: ", "to fix: ", "to inspect:", "to fix:"} {
+		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: ", "to inspect:", "to fix:", "to persist:"} {
 			if strings.HasPrefix(h, prefix) {
 				label = strings.TrimSuffix(strings.TrimSpace(prefix), ":")
 				cmd = strings.TrimPrefix(h, prefix)
@@ -268,7 +268,7 @@ func (r *Renderer) printHintsPlain(hints []string) {
 	for _, h := range hints {
 		label := ""
 		cmd := h
-		for _, prefix := range []string{"to inspect: ", "to fix: "} {
+		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: "} {
 			if strings.HasPrefix(h, prefix) {
 				label = strings.TrimSuffix(prefix, ": ")
 				cmd = strings.TrimPrefix(h, prefix)
