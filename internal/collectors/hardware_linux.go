@@ -165,9 +165,11 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 			case 5: // Reallocated Sectors Count
 				drive.ReallocatedSectors = int(attr.Raw.Value)
 			case 173, 177: // SSD Wear Leveling / Wear Range Delta
-				// Some SSDs use attr 173 or 177 for wear %
-				if drive.WearPct == 0 && attr.Raw.Value > 0 {
-					drive.WearPct = int(attr.Raw.Value)
+				// Normalised value (0-100) = remaining life percentage.
+				// Raw value = erase cycle count — varies wildly by vendor, NOT a percentage.
+				// Use: wear% = 100 - normalised. Only set if normalised is meaningful (<= 100).
+				if drive.WearPct == 0 && attr.Value > 0 && attr.Value <= 100 {
+					drive.WearPct = 100 - attr.Value
 				}
 			case 190, 194: // Airflow/HDD Temperature (some drives use 190 vs 194)
 				if drive.TempC == 0 {
