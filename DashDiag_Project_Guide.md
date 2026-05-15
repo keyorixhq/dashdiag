@@ -12057,3 +12057,185 @@ The real opportunity is:
 
 The product is already strong enough. The question is ambition, not capability.
 
+
+
+## 34. Session Log — 2026-05-14/15 (10-Distro Sweep + Bug Fixes + UX Polish)
+
+*Session duration: ~8 hours. Focus: hardware validation, marketing assets, bug fixes, UX consistency.*
+
+---
+
+### Distros Validated This Session
+
+| Distro | IP | Status |
+|---|---|---|
+| SLES 16 | 192.168.1.150 | ✅ Full dataset, 1,240 baselines |
+| openSUSE Tumbleweed | 192.168.1.151 | ✅ |
+| Fedora 44 | 192.168.1.152 | ✅ |
+| RHEL 10.1 | 192.168.1.153 | ✅ |
+| Debian 13 | 192.168.1.154 | ✅ |
+| Rocky 10.1 | 192.168.1.155 | ✅ |
+| Ubuntu 26.04 | 192.168.1.156 | ✅ |
+| AlmaLinux 10.1 | 192.168.1.157 | ✅ |
+| CentOS Stream 10 | 192.168.1.158 | ✅ |
+| Linux Mint 22.3 | 192.168.1.145 | ✅ |
+
+---
+
+### Features Shipped
+
+- **`dsd hardware` full inventory** — System (DMI), CPU (model/cores/freq/max boost), RAM (total + per slot from dmidecode), Drives (NVMe + SATA/SAS via smartctl), Thermals, NICs (state/speed/driver/MAC/errors)
+- **Hostname + OS in banner** — every command now shows `⚡ DashDiag (dsd) dev — hostname · OS` on first line, works over SSH without TTY
+- **`NVMe` renamed to `Drives`** — covers NVMe + SATA/SAS via smartctl --scan-open
+- **CPU max boost frequency** — `Frequency: 3551 MHz (max 4465 MHz)`
+- **Known service port detection** — k8s/docker/prometheus ports downgraded from WARN to INFO with service name
+- **`done in Xs` always visible** — was missing when WARNs/CRITs present
+- **Watch mode screen clear** — was appending, now clears on refresh
+- **INFO insights in summary** — PrintSummary now renders INFO group after WARNs
+
+---
+
+### Bugs Fixed
+
+| Bug | Distro Found | Fix |
+|---|---|---|
+| UFW false positive CRIT (inactive contains "active") | Ubuntu | `strings.Contains(lower, "status: active")` |
+| apt CVE scanner misses Ubuntu `resolute-security` repos | Ubuntu | Broadened filter to `strings.Contains(line, "security")` |
+| dnf advisory deduplication — 354 rows → 101 unique | AlmaLinux | Added `seen` map by advisory ID |
+| casper-md5check.service false CRIT | Linux Mint | Added to cloudInitUnits ignore list |
+| Sudoers ALL entries shown as usernames | Linux Mint | Skip when user field == "ALL" |
+| Clock CRIT misleading on RTC local TZ | Linux Mint | Detect `/etc/adjtime LOCAL`, show explanatory message |
+| jbd2/kworker kernel threads flagged as hung | Linux Mint | Filter by ppid==2 + isKernelThread() |
+| SMART false FAILED as non-root | All | Detect exit status 2 → show "needs root" |
+| AppArmor "All profiles enforcing" shown as non-root | All | Guard on mode != "unknown" AND profiles > 0 |
+| Sudo "none" shown as non-root | All | Show "unknown (needs root)" when NeedsRoot=true |
+| Hint ordering inconsistent (fix before inspect) | All | Standardised: inspect → fix → persist throughout |
+| `to persist` not grouped in renderer | All | Added to prefix list in printHints + printHintsPlain |
+| Single-command hints white, multi-command grey | All | StyleDim applied consistently to all hint commands |
+| Subtitle "read only checks" white, "done in Xs" grey | All | ANSI dim applied to subtitle in progress.go |
+
+---
+
+### Marketing Assets
+
+**Screenshots added:**
+- `hero-thermal-cpu-crit-sles16.png` — Thermal + CPU CRIT during stress, 97°C
+- `cve-top-74-advisories-sles16.png` — 74 advisories, 2 CRITICAL (samba, cups)
+- `security-clean-sles16.png` — all green security posture
+- `gpu-vram-warn-89pct-sles16.png` — VRAM WARN 89%
+- `health-normal-sles16.png` — Subscription + Snapshots visible
+- `health-rocky10-hostname.png` — hostname+OS header feature
+- `ubuntu26-health.png` — KernelSec + k8s INFO
+- `ubuntu26-hardware.png` — full hardware inventory
+- `ubuntu26-cve-clean.png` — zero advisories, fully patched
+
+**Data folders committed:**
+- sles16-data/ (89 CRIT baselines, 25 samples, 1240 total)
+- tumbleweed-data/, fedora44-data/, rhel10-data/, debian13-data/
+- rocky10-data/, ubuntu26-data/, almalinux10-data/
+- centos-stream10-data/, mint22-data/
+
+---
+
+### Key Decisions Made
+
+- **Distro count: 10** — SLES 16, Tumbleweed, Fedora 44, RHEL 10.1, Debian 13, Rocky 10.1, Ubuntu 26.04, AlmaLinux 10.1, CentOS Stream 10, Linux Mint 22.3
+- **Drives collector** replaces NVMe — covers all drive types
+- **AppImage** is the Steam Deck packaging solution (immutable rootfs problem)
+- **SteamOS viral channel** — distribution not revenue, post after AppImage is ready
+- **MSP multiplier** — 10 MSPs × 500 hosts × €29/mo = €17M ARR potential
+- **Pricing**: Free(1 host) / Pro(€79/yr) / Team(€29/host/mo) / Enterprise(POQ)
+
+---
+
+## 35. Backlog — Updated 2026-05-15
+
+*Priority order: Sprint 2 first (revenue), then polish, then new features.*
+
+---
+
+### Sprint 2 — First Paying Customer (NOW)
+
+- [ ] Set static IP on Linux Mint 22.3 (currently DHCP at 192.168.1.145)
+- [ ] Take Linux Mint screenshots: `dsd hardware` (new full inventory), `dsd health` (clean Mint output)
+- [ ] Return Lenovo Legion 5 laptop (all data safe in GitHub)
+- [ ] Build landing page at dashdiag.sh
+- [ ] Write Show HN post with SLES 16 CVE screenshot
+- [ ] LinkedIn outreach to 5 MSPs managing SLES/RHEL
+- [ ] Set up Stripe for Pro tier (€79/year)
+- [ ] First paying customer target: 6 weeks
+
+---
+
+### Packaging (Blocks viral growth)
+
+- [ ] **AppImage** — single binary, no install, survives SteamOS updates
+  - Install command: `curl -L https://dashdiag.sh/dsd -o ~/dsd && chmod +x ~/dsd && ~/dsd health`
+  - Required for Steam Deck viral play
+- [ ] `.deb` package (Debian/Ubuntu/Mint)
+- [ ] `.rpm` package (RHEL/Fedora/SLES/Rocky/Alma/CentOS)
+- [ ] Homebrew formula (macOS)
+- [ ] `install.sh` one-liner
+
+---
+
+### Hardware Validation (Pending)
+
+- [ ] **SATA drives** — Proxmox HP ProDesk G2 (192.168.10.10, separate subnet)
+  - Mix of SATA + NVMe — first real SATA path test for `dsd hardware`
+- [ ] **Old MacBook Ubuntu** — aged Intel SSD, Ubuntu + SATA in one shot
+- [ ] **Oracle Linux 10.1** — downloaded, not yet installed
+- [ ] **SteamOS 3.x** — validate `dsd health` on immutable rootfs (VM first, Steam Deck after first paying customer)
+- [ ] **openSUSE Leap** — different from Tumbleweed (stable release, different repos)
+
+---
+
+### Drive Improvements
+
+- [ ] **`dsd health` SATA in health check** — `collectSATADrives()` appended to nvme_linux.go but the `dsd health` Drives check doesn't surface SATA findings yet — needs heuristics wiring
+- [ ] **SATA validation** — needs Proxmox or MacBook for real SATA drives
+- [ ] **USB NIC exclusion from speed checks** — `enx*` devices don't reliably report speed
+
+---
+
+### AMD GPU Support
+
+- [ ] `dsd gpu` via `/sys/class/drm/` for AMD GPUs (RDNA/RDNA2/Van Gogh)
+  - Currently only NVIDIA via `nvidia-smi`
+  - Needed for: Steam Deck (AMD Van Gogh APU), production AMD EPYC servers
+  - Also enables `dsd health` GPU check on AMD systems
+
+---
+
+### WiFi Support
+
+- [ ] `dsd hardware` WiFi section — signal (dBm), TX bitrate, band (2.4/5/6GHz)
+  - Deferred: rtw88 driver unreliable on Ubuntu 26.04
+  - Build and test on Steam Deck where WiFi works reliably
+
+---
+
+### Clock Check
+
+- [ ] Consider downgrading Clock from CRIT to WARN when RTCInLocalTZ is the only cause
+  - NTP IS working, kernel just reports unsync due to RTC mode
+  - Currently: CRIT with explanatory message — acceptable but slightly alarmist
+
+---
+
+### UX Polish
+
+- [ ] `dsd health --diff` — show only what changed since last run
+- [ ] `dsd health deep` — full deep scan (planned, not built)
+- [ ] `dsd net deep` — full network deep scan (planned, not built)
+- [ ] `--report` flag — PDF report generation
+- [ ] Gateway ping 0.0ms when TCP fallback (non-root ICMP blocked) — cosmetic fix
+
+---
+
+### Bible / Documentation
+
+- [ ] Update §27 Multi-Distro Validation matrix (now 10 distros, update table)
+- [ ] Add Oracle Linux to planned validation list
+- [ ] Document SATA drive validation plan (Proxmox + MacBook)
+
