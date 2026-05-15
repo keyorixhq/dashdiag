@@ -12,6 +12,7 @@ type PackagesInfo struct {
 	SecurityUpdates  int             `json:"security_updates"`
 	CriticalUpdates  int             `json:"critical_updates"`
 	ImportantUpdates int             `json:"important_updates"`
+	ESMUpdates       int             `json:"esm_updates,omitempty"` // Ubuntu Pro ESM-gated security updates
 	Updates          []PackageUpdate `json:"updates,omitempty"`
 	PackageManager   string          `json:"package_manager"` // dnf, apt, zypper, brew
 	HasSecurityRepo  bool            `json:"has_security_repo,omitempty"`

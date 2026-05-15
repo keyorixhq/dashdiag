@@ -1434,6 +1434,16 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	}
 
 	if pkg.SecurityUpdates == 0 {
+		// Check for ESM-only updates even when no standard security updates exist
+		if pkg.ESMUpdates > 0 {
+			return []models.Insight{insight("WARN", "Packages",
+				fmt.Sprintf("%d security update(s) require Ubuntu Pro (ESM) — not visible without subscription", pkg.ESMUpdates),
+				[]string{
+					"to inspect: pro security-status",
+					"to fix:     ubuntu.com/pro (free for up to 5 machines)",
+				},
+			)}
+		}
 		return nil
 	}
 
@@ -1468,6 +1478,19 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
 		))
 	}
+
+	// Ubuntu ESM: surface Pro-gated security updates as INFO so the admin
+	// knows real CVEs exist even without a Pro subscription.
+	if pkg.ESMUpdates > 0 {
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) require Ubuntu Pro (ESM) — not applied without subscription", pkg.ESMUpdates),
+			[]string{
+				"to inspect: pro security-status",
+				"to fix:     ubuntu.com/pro (free for up to 5 machines)",
+			},
+		))
+	}
+
 	return out
 }
 
