@@ -38,11 +38,13 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 		result = checkCVEDNF(ctx, cveID)
 	case hasCmd("apt-get"):
 		result = checkCVEApt(ctx, cveID)
+	case hasCmd("pacman"):
+		result = checkCVEPacman(ctx, cveID)
 	default:
 		result = &models.CVEResult{
 			CVE:          cveID,
 			Status:       models.CVEUnknown,
-			StatusReason: "no supported package manager found (zypper/dnf/apt)",
+			StatusReason: "no supported package manager found (zypper/dnf/apt/pacman)",
 		}
 	}
 
@@ -127,6 +129,8 @@ func fixCommand() string {
 		return "dnf upgrade --security"
 	case hasCmd("apt-get"):
 		return "apt-get upgrade"
+	case hasCmd("pacman"):
+		return "pacman -Syu"
 	}
 	return ""
 }
@@ -349,6 +353,9 @@ func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
 	}
 	if _, err := exec.LookPath("apt-get"); err == nil {
 		return scanAllApt(ctx)
+	}
+	if _, err := exec.LookPath("pacman"); err == nil {
+		return scanAllPacman(ctx)
 	}
 	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
 }
@@ -601,5 +608,166 @@ func distroKeyFor(distroID string) string {
 		return "fedora:44"
 	default:
 		return lower
+	}
+}
+
+// checkCVEPacman checks a specific CVE on Arch Linux using arch-audit.
+// arch-audit output: "package is affected by CVE-XXXX-YYYY [Severity]: description"
+// Falls back to the Arch Linux security tracker URL when arch-audit is not installed.
+func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
+	result := &models.CVEResult{CVE: cveID, PackageManager: "pacman"}
+
+	if !hasCmd("arch-audit") {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
+		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		return result
+	}
+
+	out, err := runCmd(ctx, "arch-audit", "--format", "%n %c %s")
+	if err != nil && len(out) == 0 {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		return result
+	}
+
+	// arch-audit --format "%n %c %s" output: "pkgname CVE-XXXX-YYYY,CVE-XXXX-ZZZZ severity"
+	var pkgs []models.CVEPackage
+	cveUpper := strings.ToUpper(cveID)
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToUpper(line), cveUpper) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 1 {
+			continue
+		}
+		severity := ""
+		if len(fields) >= 3 {
+			severity = archAuditSeverity(fields[len(fields)-1])
+		}
+		pkgs = append(pkgs, models.CVEPackage{
+			Name:     fields[0],
+			Severity: severity,
+		})
+	}
+
+	if len(pkgs) > 0 {
+		result.Status = models.CVEVulnerable
+		result.AffectedPackages = pkgs
+		result.FixCommand = "pacman -Syu"
+	} else {
+		result.Status = models.CVENotAffected
+		result.StatusReason = "arch-audit: no installed packages affected by " + cveID
+	}
+	return result
+}
+
+// scanAllPacman uses arch-audit to list all vulnerable packages on Arch Linux.
+// arch-audit queries the Arch Linux Security Tracker and cross-references
+// installed packages.
+func scanAllPacman(ctx context.Context) *models.CVEAllResult {
+	result := &models.CVEAllResult{PackageManager: "pacman"}
+
+	if !hasCmd("arch-audit") {
+		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
+		return result
+	}
+
+	// arch-audit default output: "pkgname is affected by CVE-XXXX [Severity]: description"
+	out, err := runCmd(ctx, "arch-audit", "-u")
+	if err != nil && len(out) == 0 {
+		result.StatusReason = "arch-audit failed: " + err.Error()
+		return result
+	}
+
+	if strings.TrimSpace(out) == "" {
+		result.StatusReason = "no vulnerable packages found — system is up to date"
+		result.FixCommand = "pacman -Syu"
+		return result
+	}
+
+	// arch-audit -u output: "pkgname is affected by CVE-XXXX, CVE-YYYY [Severity]: description"
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Extract package name (first word)
+		fields := strings.Fields(line)
+		if len(fields) < 1 {
+			continue
+		}
+		pkgName := fields[0]
+
+		// Extract severity from "[Severity]" bracket
+		severity := "unknown"
+		if start := strings.Index(line, "["); start != -1 {
+			if end := strings.Index(line[start:], "]"); end != -1 {
+				severity = archAuditSeverity(line[start+1 : start+end])
+			}
+		}
+
+		// Extract CVE IDs between "affected by" and "["
+		cves := ""
+		if idx := strings.Index(strings.ToLower(line), "affected by "); idx != -1 {
+			rest := line[idx+len("affected by "):]
+			if bracket := strings.Index(rest, "["); bracket != -1 {
+				cves = strings.TrimSpace(rest[:bracket])
+			}
+		}
+
+		// Extract description after "]:"
+		summary := pkgName
+		if idx := strings.Index(line, "]: "); idx != -1 {
+			summary = strings.TrimSpace(line[idx+3:])
+		}
+
+		advisory := models.CVEAdvisory{
+			ID:       pkgName,
+			CVEs:     cves,
+			Severity: severity,
+			Summary:  summary,
+		}
+
+		switch severity {
+		case "critical":
+			result.Critical = append(result.Critical, advisory)
+		case "important":
+			result.Important = append(result.Important, advisory)
+		case "moderate":
+			result.Moderate = append(result.Moderate, advisory)
+		default:
+			result.Low = append(result.Low, advisory)
+		}
+	}
+
+	result.Total = len(result.Critical) + len(result.Important) +
+		len(result.Moderate) + len(result.Low)
+	result.FixCommand = "pacman -Syu"
+	return result
+}
+
+// archAuditSeverity maps arch-audit severity strings to dsd standard severities.
+// arch-audit uses: Critical, High, Medium, Low
+func archAuditSeverity(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "critical":
+		return "critical"
+	case "high":
+		return "important"
+	case "medium":
+		return "moderate"
+	case "low":
+		return "low"
+	default:
+		return "low"
 	}
 }
