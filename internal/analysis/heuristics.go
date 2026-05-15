@@ -1657,9 +1657,14 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 	var out []models.Insight
 
 	if s.Error != "" {
-		out = append(out, insight("WARN", "Snapshots",
-			fmt.Sprintf("snapper error: %s", s.Error),
-			[]string{"to fix: ensure snapper is configured — snapper list-configs"},
+		// "run as root" is an expected non-root limitation — INFO not WARN
+		level := "WARN"
+		if strings.Contains(s.Error, "run as root") {
+			level = "INFO"
+		}
+		out = append(out, insight(level, "Snapshots",
+			fmt.Sprintf("snapper: %s", s.Error),
+			nil,
 		))
 		return out
 	}
