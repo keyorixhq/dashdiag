@@ -239,14 +239,15 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
 			hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
 			// /boot filling up is almost always old kernel images after upgrades.
-			// Provide RHEL-family and Debian-family specific cleanup commands.
+			// Show distro-specific cleanup commands for all supported package managers.
 			if fs.Mount == "/boot" {
 				hints = []string{
 					"to inspect: df -h /boot",
 					"to inspect: ls -lh /boot/vmlinuz* /boot/initramfs* /boot/initrd*",
-					"to inspect (RPM): rpm -q kernel",
-					"to fix (RPM):     dnf remove --oldinstallonly --setopt installonly_limit=2",
-					"to fix (DEB):     apt autoremove --purge",
+					"to fix (dnf/RPM):    dnf remove --oldinstallonly --setopt installonly_limit=2",
+					"to fix (apt/DEB):    apt autoremove --purge",
+					"to fix (zypper):     zypper packages --orphaned | grep kernel",
+					"to fix (pacman):     pacman -Q linux | head -5  # then: pacman -R <old-kernels>",
 				}
 			}
 			out = append(out, insight(l, "Disk",
