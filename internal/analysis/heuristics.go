@@ -12,6 +12,24 @@ import (
 )
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
+	// Pre-scan results to extract package manager so distro-aware checks
+	// (e.g. /boot disk hints) can show the correct fix command.
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		switch d := r.Data.(type) {
+		case models.PackagesInfo:
+			if d.PackageManager != "" {
+				thresh.PackageManager = d.PackageManager
+			}
+		case *models.PackagesInfo:
+			if d != nil && d.PackageManager != "" {
+				thresh.PackageManager = d.PackageManager
+			}
+		}
+	}
+
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
@@ -239,16 +257,41 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
 			hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
 			// /boot filling up is almost always old kernel images after upgrades.
-			// Show distro-specific cleanup commands for all supported package managers.
+			// Show distro-specific cleanup command based on detected package manager.
 			if fs.Mount == "/boot" {
-				hints = []string{
+				bootHints := []string{
 					"to inspect: df -h /boot",
 					"to inspect: ls -lh /boot/vmlinuz* /boot/initramfs* /boot/initrd*",
-					"to fix (dnf/RPM):    dnf remove --oldinstallonly --setopt installonly_limit=2",
-					"to fix (apt/DEB):    apt autoremove --purge",
-					"to fix (zypper):     zypper packages --orphaned | grep kernel",
-					"to fix (pacman):     pacman -Q linux | head -5  # then: pacman -R <old-kernels>",
 				}
+				switch thresh.PackageManager {
+				case "dnf":
+					bootHints = append(bootHints,
+						"to inspect: rpm -q kernel",
+						"to fix:     dnf remove --oldinstallonly --setopt installonly_limit=2",
+					)
+				case "apt":
+					bootHints = append(bootHints,
+						"to fix: apt autoremove --purge",
+					)
+				case "zypper":
+					bootHints = append(bootHints,
+						"to fix: zypper packages --orphaned | grep kernel",
+					)
+				case "pacman":
+					bootHints = append(bootHints,
+						"to inspect: pacman -Q linux",
+						"to fix:     pacman -R <old-kernel-packages>",
+					)
+				default:
+					// Unknown package manager — show all options
+					bootHints = append(bootHints,
+						"to fix (dnf):    dnf remove --oldinstallonly --setopt installonly_limit=2",
+						"to fix (apt):    apt autoremove --purge",
+						"to fix (zypper): zypper packages --orphaned | grep kernel",
+						"to fix (pacman): pacman -Q linux  # then pacman -R <old-kernels>",
+					)
+				}
+				hints = bootHints
 			}
 			out = append(out, insight(l, "Disk",
 				fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),

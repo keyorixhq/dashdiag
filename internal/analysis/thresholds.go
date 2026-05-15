@@ -38,6 +38,11 @@ type Thresholds struct {
 
 	SELinuxDenialsWarnPerHr int
 	SELinuxDenialsCritPerHr int
+
+	// PackageManager is detected at runtime from PackagesInfo and used to
+	// show distro-specific fix commands in disk and other checks.
+	// Values: "dnf", "apt", "zypper", "pacman", "brew", "" (unknown)
+	PackageManager string
 }
 
 func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
