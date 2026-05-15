@@ -234,9 +234,9 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		fmt.Println()
 	}
 
-	// ── Thermals ──────────────────────────────────────────────────────────────
+	// ── CPU Thermals ──────────────────────────────────────────────────────────
 	if len(info.Thermals) > 0 {
-		fmt.Println(render.StyleBold.Render("Thermals"))
+		fmt.Println(render.StyleBold.Render("CPU Thermals"))
 		for _, t := range info.Thermals {
 			level := "ok"
 			note := ""
