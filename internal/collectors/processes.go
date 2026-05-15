@@ -91,6 +91,11 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 		if err != nil || (state != "Z" && state != "D") {
 			continue
 		}
+		// Skip kernel threads — they legitimately run in D state
+		// (jbd2, kworker, kswapd, ksoftirqd, migration, etc.)
+		if ppid == 2 || isKernelThread(name) {
+			continue
+		}
 		pid := pidFromDir(dir)
 		ps := models.ProcessState{PID: pid, PPID: ppid, Name: name, State: state}
 		switch state {
@@ -161,4 +166,21 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		}
 	}
 	return info, nil
+}
+
+// isKernelThread returns true if the process name matches known kernel thread patterns.
+// These always run in D state legitimately and should not be flagged as hung.
+func isKernelThread(name string) bool {
+	kernelPrefixes := []string{
+		"jbd2/", "kworker/", "kswapd", "ksoftirqd/", "migration/",
+		"rcu_", "kthreadd", "kcompact", "kdevtmpfs", "netns",
+		"khungtaskd", "oom_reaper", "writeback", "kblockd",
+		"md", "edac-poller", "devfreq_", "watchdogd",
+	}
+	for _, prefix := range kernelPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
