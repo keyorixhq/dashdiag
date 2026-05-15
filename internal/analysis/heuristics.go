@@ -473,10 +473,17 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 func checkClock(clock models.ClockInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if !clock.Synced {
-		out = append(out, insight("CRIT", "Clock",
-			"NTP is not synchronized",
-			[]string{"to inspect: timedatectl status", "to inspect: chronyc tracking", "to inspect: systemctl status chronyd ntpd"},
-		))
+		msg := "NTP is not synchronized"
+		hints := []string{
+			"to inspect: timedatectl status",
+			"to inspect: chronyc tracking",
+			"to inspect: systemctl status chronyd ntpd",
+		}
+		if clock.RTCInLocalTZ {
+			msg = "NTP is not synchronized — RTC is set to local timezone (common on dual-boot with Windows)"
+			hints = append(hints, "to fix: timedatectl set-local-rtc 0 (switches RTC to UTC)")
+		}
+		out = append(out, insight("CRIT", "Clock", msg, hints))
 	}
 	if clock.OffsetMs != -1 {
 		abs := math.Abs(clock.OffsetMs)
