@@ -52,6 +52,11 @@ var cloudInitUnits = map[string]bool{
 	// Live ISO artifacts — fail on installed systems, not a real error
 	"casper-md5check.service": true,
 	"casper.service":          true,
+	// LXC container false positives — host kernel already mounts these;
+	// containers cannot remount them and systemd marks the units as failed.
+	"dev-mqueue.mount":              true,
+	"dev-hugepages.mount":           true,
+	"sys-fs-fuse-connections.mount": true,
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {
