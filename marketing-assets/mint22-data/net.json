@@ -1,0 +1,14 @@
+
+Interfaces (1)
+  ✅  eno1         192.168.1.145  1000 Mbps  ← primary
+
+Connectivity
+  ✅  Gateway ping:            0.6 ms
+  ✅  Internet ping:           6.4 ms
+  ✅  DNS resolution:          2.0 ms
+
+TCP States
+  ✅  ESTAB            2
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.2s
