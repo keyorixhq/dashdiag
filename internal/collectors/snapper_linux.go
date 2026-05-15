@@ -40,14 +40,11 @@ func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 		}
 	}
 
-	// List all snapshots across all configs
-	// Try with and without sudo (snapper requires root or snapper group)
+	// List all snapshots across all configs.
+	// Snapper requires root or snapper group — if it fails, degrade gracefully.
 	listOut, err := runCmd(ctx, "snapper", "list")
 	if err != nil || strings.Contains(listOut, "No permissions") {
-		listOut, err = runCmd(ctx, "sudo", "snapper", "list")
-	}
-	if err != nil {
-		info.Error = err.Error()
+		info.Error = "run as root for snapshot details"
 		return info, nil
 	}
 	return parseSnapperPlain(listOut, info), nil
