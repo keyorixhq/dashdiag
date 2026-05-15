@@ -100,6 +100,8 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		for _, entry := range info.SudoNopasswd {
 			fmt.Printf("  ⚠️   %s\n", entry)
 		}
+	} else if info.NeedsRoot {
+		fmt.Println("\nSudo NOPASSWD entries: unknown (needs root)")
 	} else {
 		fmt.Println("\nSudo NOPASSWD entries: none")
 	}
@@ -226,11 +228,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	}
 
 	// AppArmor (SLES/Ubuntu/Debian)
-	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" {
+	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" && info.AppArmorMode != "unknown" {
 		fmt.Printf("\nAppArmor mode: %s (%d profiles loaded)\n", info.AppArmorMode, info.AppArmorProfiles)
 		if info.AppArmorComplain > 0 {
 			fmt.Printf("  \u26a0\ufe0f  %d profile(s) in complain mode\n", info.AppArmorComplain)
-		} else {
+		} else if info.AppArmorProfiles > 0 {
 			fmt.Println("  \u2705  All profiles enforcing")
 		}
 		switch {
