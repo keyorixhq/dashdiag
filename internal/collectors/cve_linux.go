@@ -294,6 +294,9 @@ func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
 	// Detect distro for appropriate tracker URL
 	if isUbuntu() {
 		result.FallbackURL = "https://ubuntu.com/security/CVE/" + strings.ToLower(cveID)
+	} else if isKali() {
+		result.FallbackURL = "https://security-tracker.debian.org/tracker/" + cveID
+		result.StatusReason = "apt does not support direct CVE queries — Kali uses Debian tracker"
 	} else {
 		result.FallbackURL = "https://security-tracker.debian.org/tracker/" + cveID
 	}
@@ -337,6 +340,16 @@ func isUbuntu() bool {
 	out, _ := runCmd(context.Background(), "sh", "-c",
 		"grep -i ubuntu /etc/os-release")
 	return strings.Contains(strings.ToLower(out), "ubuntu")
+}
+
+// isKali checks /etc/os-release for Kali Linux.
+func isKali() bool {
+	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(data))
+	return strings.Contains(lower, "id=kali") || strings.Contains(lower, `id="kali"`)
 }
 
 // ScanAllCVEs scans all pending security advisories with CVE assignments.
