@@ -118,7 +118,12 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 
 	out, err := runCmd(ctx, "smartctl", "--json=c", "-a", devPath)
 	if err != nil && out == "" {
-		drive.Error = fmt.Sprintf("smartctl failed: %v", err)
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 2") || strings.Contains(errStr, "exit status 1") {
+			drive.Error = "needs root — run: sudo dsd hardware"
+		} else {
+			drive.Error = fmt.Sprintf("smartctl failed: %v", err)
+		}
 		return drive
 	}
 

@@ -148,14 +148,18 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println(render.StyleBold.Render(prefix))
 
-		// SMART status
-		smartIcon := output.StatusIcon("ok", mode)
-		smartMsg := "PASSED"
-		if !d.SmartOK {
-			smartIcon = output.StatusIcon("fail", mode)
-			smartMsg = "FAILED — back up immediately"
+		// SMART status — only show if no error (error means permission denied or tool missing)
+		if d.Error == "" {
+			smartIcon := output.StatusIcon("ok", mode)
+			smartMsg := "PASSED"
+			if !d.SmartOK {
+				smartIcon = output.StatusIcon("fail", mode)
+				smartMsg = "FAILED — back up immediately"
+			}
+			fmt.Printf("  %-14s %s  %s\n", "SMART:", smartIcon, smartMsg)
+		} else {
+			fmt.Printf("  %-14s %s  %s\n", "SMART:", output.StatusIcon("info", mode), d.Error)
 		}
-		fmt.Printf("  %-14s %s  %s\n", "SMART:", smartIcon, smartMsg)
 
 		// Temperature
 		if d.TempC > 0 {
@@ -219,9 +223,6 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 				"NVMe errors:", output.StatusIcon(errLevel, mode), d.MediaErrors, d.UnsafeShutdowns)
 		}
 
-		if d.Error != "" {
-			fmt.Printf("  %-14s %s  %s\n", "Error:", output.StatusIcon("warn", mode), d.Error)
-		}
 		fmt.Println()
 	}
 
