@@ -835,61 +835,102 @@ func checkProcesses(proc models.ProcessInfo) []models.Insight {
 }
 
 func checkNVMe(n models.NVMeInfo) []models.Insight {
-	if len(n.Devices) == 0 {
-		return nil
-	}
 	var out []models.Insight
+
+	// NVMe drives
 	for _, dev := range n.Devices {
 		if dev.CriticalWarning > 0 {
-			out = append(out, insight("CRIT", "NVMe",
+			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s critical warning flag set (0x%02x) — drive may be failing", dev.Name, dev.CriticalWarning),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
 		if dev.MediaErrors > 0 {
-			out = append(out, insight("CRIT", "NVMe",
+			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s has %d media error(s) — data integrity risk", dev.Name, dev.MediaErrors),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
 		if dev.AvailableSparePct > 0 && dev.AvailableSparePct <= dev.SpareThresholdPct {
-			out = append(out, insight("CRIT", "NVMe",
+			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s spare capacity at %d%% (threshold: %d%%) — drive near end of life", dev.Name, dev.AvailableSparePct, dev.SpareThresholdPct),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		} else if dev.AvailableSparePct > 0 && dev.AvailableSparePct < 20 {
-			out = append(out, insight("WARN", "NVMe",
+			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s spare capacity low at %d%%", dev.Name, dev.AvailableSparePct),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
 		if dev.PercentageUsed >= 90 {
-			out = append(out, insight("WARN", "NVMe",
+			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s wear at %d%% — consider replacement planning", dev.Name, dev.PercentageUsed),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
 		if dev.TempC >= 70 {
-			out = append(out, insight("WARN", "NVMe",
+			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s temperature %g°C — elevated for NVMe", dev.Name, dev.TempC),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
-		// Unsafe shutdowns — each risks filesystem corruption
 		if dev.UnsafeShutdowns > 100 {
-			out = append(out, insight("WARN", "NVMe",
+			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s has %d unsafe shutdown(s) — power cuts risk filesystem corruption", dev.Name, dev.UnsafeShutdowns),
 				[]string{"to inspect: nvme smart-log " + dev.Name, "to inspect: nvme list", "to fix: ensure clean shutdowns, check UPS"},
 			))
 		}
-		// Power-on hours — consumer NVMe beyond 4 years (35k hours) enters replacement window
 		if dev.PowerOnHours > 35000 {
-			out = append(out, insight("WARN", "NVMe",
+			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s has %d power-on hours (~%.1f years) — beyond typical consumer NVMe lifespan", dev.Name, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
 	}
+
+	// SATA/SAS drives
+	for _, dev := range n.SATADevices {
+		if dev.Error != "" {
+			continue
+		}
+		if !dev.SmartOK {
+			out = append(out, insight("CRIT", "Drives",
+				fmt.Sprintf("%s (%s) SMART check FAILED — drive may be failing", dev.Name, dev.Type),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+		if dev.ReallocatedSectors > 0 {
+			out = append(out, insight("WARN", "Drives",
+				fmt.Sprintf("%s has %d reallocated sector(s) — early sign of drive failure", dev.Name, dev.ReallocatedSectors),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+		if dev.PendingSectors > 0 {
+			out = append(out, insight("WARN", "Drives",
+				fmt.Sprintf("%s has %d pending sector(s) — unreadable sectors awaiting reallocation", dev.Name, dev.PendingSectors),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+		if dev.UncorrectableErrors > 0 {
+			out = append(out, insight("CRIT", "Drives",
+				fmt.Sprintf("%s has %d uncorrectable error(s) — data loss risk", dev.Name, dev.UncorrectableErrors),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+		if dev.TempC >= 55 {
+			out = append(out, insight("WARN", "Drives",
+				fmt.Sprintf("%s (%s) temperature %d°C — elevated for SATA drive", dev.Name, dev.Type, dev.TempC),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+		if dev.PowerOnHours > 43800 {
+			out = append(out, insight("WARN", "Drives",
+				fmt.Sprintf("%s (%s) has %d power-on hours (~%.1f years) — beyond typical HDD lifespan", dev.Name, dev.Type, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
+				[]string{"to inspect: smartctl -a " + dev.Name},
+			))
+		}
+	}
+
 	return out
 }
 

@@ -55,15 +55,16 @@ func printNVMeReport(info *models.NVMeInfo, mode output.OutputMode, elapsed time
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	if len(info.Devices) == 0 {
-		fmt.Println("\nNo NVMe drives detected.")
+	if len(info.Devices) == 0 && len(info.SATADevices) == 0 {
+		fmt.Println("\nNo drives detected.")
 		fmt.Println()
 		fmt.Println(sep)
-		fmt.Println(render.StyleInfo.Render("ℹ️  No NVMe data available"))
+		fmt.Println(render.StyleInfo.Render("ℹ️  No drive data available"))
 		return
 	}
 
-	fmt.Printf("\nNVMe Health — %d drive(s)\n", len(info.Devices))
+	totalDrives := len(info.Devices) + len(info.SATADevices)
+	fmt.Printf("\nDrive Health — %d drive(s)\n", totalDrives)
 
 	issues := 0
 	for _, dev := range info.Devices {
@@ -142,12 +143,50 @@ func printNVMeReport(info *models.NVMeInfo, mode output.OutputMode, elapsed time
 		}
 	}
 
+	// SATA/SAS drives
+	for _, dev := range info.SATADevices {
+		fmt.Printf("\n%s  %s  [%s]\n", dev.Name, dev.Model, strings.ToUpper(dev.Type))
+		if dev.Error != "" {
+			fmt.Printf("  ⚠️   Error:           %s\n", dev.Error)
+			continue
+		}
+		smartIcon := "✅"
+		if !dev.SmartOK {
+			smartIcon = "❌"
+			issues++
+		}
+		fmt.Printf("  %s  SMART:           %s\n", smartIcon, map[bool]string{true: "PASSED", false: "FAILED"}[dev.SmartOK])
+		if dev.TempC > 0 {
+			tempIcon := "✅"
+			if dev.TempC >= 55 {
+				tempIcon = "⚠️ "
+				issues++
+			}
+			fmt.Printf("  %s  Temperature:     %d°C\n", tempIcon, dev.TempC)
+		}
+		if dev.ReallocatedSectors > 0 {
+			fmt.Printf("  ⚠️   Reallocated:     %d sector(s)\n", dev.ReallocatedSectors)
+			issues++
+		}
+		if dev.PendingSectors > 0 {
+			fmt.Printf("  ⚠️   Pending:         %d sector(s)\n", dev.PendingSectors)
+			issues++
+		}
+		if dev.UncorrectableErrors > 0 {
+			fmt.Printf("  ❌  Uncorrectable:  %d error(s)\n", dev.UncorrectableErrors)
+			issues++
+		}
+		if dev.PowerOnHours > 0 {
+			fmt.Printf("  ✅  Power on:        %dh (%d days)\n", dev.PowerOnHours, dev.PowerOnHours/24)
+		}
+	}
+
 	fmt.Println()
 	fmt.Println(sep)
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ NVMe healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Drives healthy. Checks passed%s", timing)))
 	} else {
-		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌ %d NVMe issue(s) found%s", issues, timing)))
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌ %d drive issue(s) found%s", issues, timing)))
 	}
 }
