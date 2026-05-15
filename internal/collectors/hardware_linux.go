@@ -408,6 +408,16 @@ func collectCPU(info *models.HardwareInfo) {
 			}
 		}
 	}
+
+	// Load average from /proc/loadavg — used for idle thermal check in render
+	if b, err := os.ReadFile("/proc/loadavg"); err == nil { // #nosec G304
+		fields := strings.Fields(string(b))
+		if len(fields) >= 1 {
+			if load1, err := strconv.ParseFloat(fields[0], 64); err == nil && threads > 0 {
+				info.CPU.LoadPct = load1 / float64(threads) * 100
+			}
+		}
+	}
 }
 
 // ── SYSTEM IDENTITY ───────────────────────────────────────────────────────────
