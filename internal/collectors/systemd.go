@@ -52,19 +52,52 @@ var cloudInitUnits = map[string]bool{
 	// Live ISO artifacts — fail on installed systems, not a real error
 	"casper-md5check.service": true,
 	"casper.service":          true,
-	// LXC container false positives — host kernel already mounts these;
-	// containers cannot remount them and systemd marks the units as failed.
-	"dev-mqueue.mount":              true,
-	"dev-hugepages.mount":           true,
-	"sys-fs-fuse-connections.mount": true,
+	// LXC container false positives — host kernel already owns these;
+	// containers cannot set them up and systemd marks them failed.
+	"dev-mqueue.mount":                         true,
+	"dev-hugepages.mount":                      true,
+	"sys-fs-fuse-connections.mount":            true,
+	"sys-kernel-config.mount":                  true,
+	"sys-kernel-debug.mount":                   true,
+	"run-lock.mount":                           true,
+	"tmp.mount":                                true,
+	"systemd-firstboot.service":                true,
+	"systemd-sysctl.service":                   true,
+	"systemd-sysusers.service":                 true,
+	"systemd-tmpfiles-setup-dev-early.service": true,
+	"systemd-tmpfiles-setup-dev.service":       true,
+	"systemd-tmpfiles-setup.service":           true,
+	"systemd-udev-load-credentials.service":    true,
+	"systemd-journald-dev-log.socket":          true,
+	"systemd-journald.socket":                  true,
+	"systemd-networkd.socket":                  true,
+	// Proxmox-injected services in LXC templates
+	"proxmox-regenerate-snakeoil.service": true,
+	// Debian/Ubuntu LXC — journald, networkd, getty cannot run fully in containers
+	"systemd-journald.service":          true,
+	"systemd-networkd.service":          true,
+	"systemd-journal-flush.service":     true,
+	"systemd-network-generator.service": true,
+	"console-getty.service":             true,
+	"container-getty@.service":          true, // matches container-getty@1.service etc.
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {
 	out := units[:0]
 	for _, u := range units {
-		if !ignore[u] {
-			out = append(out, u)
+		if ignore[u] {
+			continue
 		}
+		// Handle template instances: container-getty@1.service matches container-getty@.service
+		if at := strings.Index(u, "@"); at >= 0 {
+			if dot := strings.LastIndex(u, "."); dot > at {
+				templateKey := u[:at+1] + u[dot:] // e.g. "container-getty@.service"
+				if ignore[templateKey] {
+					continue
+				}
+			}
+		}
+		out = append(out, u)
 	}
 	return out
 }
