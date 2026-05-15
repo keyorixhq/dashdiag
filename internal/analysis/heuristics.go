@@ -27,6 +27,12 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 			if d != nil && d.PackageManager != "" {
 				thresh.PackageManager = d.PackageManager
 			}
+		case models.CPUInfo:
+			thresh.CPULoadPct = d.LoadPct
+		case *models.CPUInfo:
+			if d != nil {
+				thresh.CPULoadPct = d.LoadPct
+			}
 		}
 	}
 
@@ -127,10 +133,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 			return checkBattery(*d)
 		}
 	case models.ThermalInfo:
-		return checkThermal(d)
+		return checkThermal(d, thresh)
 	case *models.ThermalInfo:
 		if d != nil {
-			return checkThermal(*d)
+			return checkThermal(*d, thresh)
 		}
 	case models.HealthDeepInfo:
 		return checkHealthDeep(d)
@@ -1027,20 +1033,39 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 	return out
 }
 
-func checkThermal(t models.ThermalInfo) []models.Insight {
+func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	if t.CPUTempC == 0 || t.Source == "" {
 		return nil // no thermal data available on this platform
+	}
+	hints := []string{
+		"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+		"to inspect: check cooling and airflow",
 	}
 	if t.CPUTempC >= 95 {
 		return []models.Insight{insight("CRIT", "Thermal",
 			fmt.Sprintf("CPU temperature %g°C — thermal throttling active", t.CPUTempC),
-			[]string{"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input", "to inspect: check cooling and airflow"},
+			hints,
 		)}
 	}
 	if t.CPUTempC >= 85 {
 		return []models.Insight{insight("WARN", "Thermal",
 			fmt.Sprintf("CPU temperature %g°C — elevated (source: %s)", t.CPUTempC, t.Source),
-			[]string{"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input"},
+			hints,
+		)}
+	}
+	// Load-aware idle thermal check:
+	// High temp at low CPU load suggests poor cooling (dried paste, blocked vents)
+	// rather than normal workload heat. Only warn if we actually have load data.
+	// Threshold: >60°C when CPU is under 20% load.
+	if thresh.CPULoadPct > 0 && t.CPUTempC >= 60 && thresh.CPULoadPct < 20 {
+		return []models.Insight{insight("WARN", "Thermal",
+			fmt.Sprintf("CPU temperature %g°C at %.0f%% load — elevated for low CPU activity, possible cooling issue",
+				t.CPUTempC, thresh.CPULoadPct),
+			[]string{
+				"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+				"to inspect: check for dust buildup and blocked vents",
+				"to inspect: consider reseating thermal paste on older hardware",
+			},
 		)}
 	}
 	return nil
