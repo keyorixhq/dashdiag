@@ -518,6 +518,8 @@ func collectNICs(ctx context.Context, info *models.HardwareInfo) {
 		}
 		// Skip virtual/tunnel interfaces
 		switch {
+		case name == "bonding_masters": // sysfs control file, not an interface
+			continue
 		case strings.HasPrefix(name, "veth"),
 			strings.HasPrefix(name, "docker"),
 			strings.HasPrefix(name, "br-"),
