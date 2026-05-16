@@ -358,6 +358,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewNVMeCollector(),
 		collectors.NewRAIDCollector(),
 		collectors.NewZFSCollector(),
+		collectors.NewLVMCollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
 		// GPUCollector is opt-in via --gpu flag — nvidia-smi can hang on some systems
 	}
