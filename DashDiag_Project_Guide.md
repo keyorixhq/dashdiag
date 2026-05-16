@@ -12857,3 +12857,81 @@ UnpackOps:  "Make systems observable, audible, guided, and operable."
 DashDiag:   "The operability engine that does the dirty work."
 dsd:        "One command. Every check. Every distro."
 ```
+
+---
+
+## 39d. The DashDiag Name — Dual Meaning (Brand Decision)
+
+**Date:** 2026-05-16  
+**Decision:** "Dash" carries two simultaneous meanings — both intentional.
+
+---
+
+### The double meaning
+
+**Dash as Dashboard:**
+The car dashboard analogy — everything the system knows, visible at a
+glance. Oil pressure, temperature, speed, fuel — all surfaced without
+opening the hood. The OBD port connection: OBD (On-Board Diagnostics)
+is the standard that makes cars debuggable. DashDiag is OBD for servers.
+
+**Dash as Speed:**
+A dash is a sprint. Fast. 1.8 seconds, not 74 commands.
+The name itself carries the speed promise. You don't run DashDiag and
+wait — you dash through diagnostics.
+
+Both meanings point at the same thing:  
+*Fast diagnostics at a glance.*
+
+---
+
+### Why this is stronger than one analogy
+
+Most tool names carry one meaning. DashDiag carries two:
+
+| Meaning | Maps to | dsd behaviour |
+|---------|---------|---------------|
+| Dashboard | Observable | everything surfaced at a glance, inline data on every row |
+| Dash (speed) | Operable | 1.8s, concurrent collectors, zero wait |
+
+"Diag" anchors both — this is diagnostics, not monitoring, not dashboarding.
+The name is the product promise: *fast diagnostics at a glance.*
+
+---
+
+### How to use this in copy
+
+**Short version:**
+```
+DashDiag — fast diagnostics at a glance.
+```
+
+**Expanded (when explaining the name):**
+```
+Dash — because it's fast. One command, 1.8 seconds.
+Diag — because it diagnoses, not just displays.
+Dashboard — because everything is visible at a glance.
+```
+
+**In conversations:**
+"The name means two things intentionally — a dash as in fast,
+and a dashboard as in at-a-glance. Both matter: it's useless if
+it's slow, and useless if it buries the signal."
+
+---
+
+### The `dsd` command name
+
+`dsd` is the CLI. Three letters, no OS implied, no baggage.
+Reads as "dashed" — the past tense of dash.
+*I dsd'd the server. Everything's clean.*
+
+---
+
+### What does NOT change
+
+The four pillars (Observable, Audible, Guided, Operable) still stand.
+The OS-agnostic mission still stands.
+The product hierarchy (DashDiag under UnpackOps) still stands.
+
+The name just got a second meaning that makes it stronger.
