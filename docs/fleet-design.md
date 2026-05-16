@@ -47,6 +47,48 @@ dsd fleet report --out fleet-$(date +%Y%m%d).md
 
 ---
 
+## No dashdiag.sh Server Involved
+
+`dsd fleet` requires **zero dashdiag.sh infrastructure**.
+
+The fleet coordinator is your own machine — your laptop, your jump host,
+your CI runner. It SSHs directly into your servers and gets results back.
+dashdiag.sh is not in the data path at all.
+
+```
+Your laptop (or any machine with SSH access)
+  └─ SSH → web-01 → dsd health --json → result back to your laptop
+  └─ SSH → web-02 → dsd health --json → result back to your laptop
+  └─ SSH → db-01  → dsd health --json → result back to your laptop
+
+dashdiag.sh: not involved
+```
+
+**Contrast with tools that require a management server:**
+
+```
+Agent-based tools:
+  web-01 agent ──→ management server ←── you query the server
+  web-02 agent ──→ management server
+  db-01  agent ──→ management server
+
+dsd fleet:
+  your machine ──SSH──→ web-01 (runs dsd)
+  your machine ──SSH──→ web-02 (runs dsd)
+  your machine ──SSH──→ db-01  (runs dsd)
+```
+
+This means:
+- **Air-gap compatible** — works with no internet on any host
+- **Nothing to maintain** — no management server to patch, monitor, back up
+- **No attack surface** — no persistent process, no open port, no agent credentials
+- **Your data never leaves your network** — results go laptop → your terminal only
+- **Works on day one** — if you can SSH in, dsd fleet works
+
+The only dashdiag.sh server that exists is for `--share` (opt-in,
+E2E encrypted, temporary). Fleet health, CVE scanning, and patching
+use zero dashdiag.sh infrastructure.
+
 ## How It Works
 
 No agent. No daemon. No server. Just SSH.

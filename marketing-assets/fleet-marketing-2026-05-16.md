@@ -153,6 +153,10 @@ No persistent process.
 No phone home.
 No agent to patch, monitor, or rotate credentials for.
 
+And unlike agent-based tools — dsd fleet doesn't go through
+our servers. Your laptop SSHs directly into your servers.
+Results go straight to your terminal. We never see them.
+
 When you're done, there's nothing running on your servers
 except your workloads.
 
@@ -160,6 +164,26 @@ except your workloads.
 
 #linux #security #sysadmin #devops
 ```
+
+---
+
+## The Architecture Point (important for security-conscious buyers)
+
+dsd fleet requires **zero dashdiag.sh infrastructure**.
+
+```
+Agent-based tools:       dsd fleet:
+  your servers               your machine
+  ↓ phone home               ──SSH──→ web-01
+  management server          ──SSH──→ web-02
+  ↑ you query it             ──SSH──→ db-01
+```
+
+Your data goes: your servers → your terminal. That's it.
+dashdiag.sh is not in the data path at all.
+
+Use this in sales conversations with security-conscious buyers and CISOs.
+It's a genuine differentiator — not a marketing claim.
 
 ---
 
