@@ -520,7 +520,7 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 		count int
 		want  string
 	}{
-		{"none", 0, ""},
+		{"none", 0, "INFO"}, // dontaudit suppression warning fires when enforcing + zero denials
 		{"at warn", 1, "WARN"},
 		{"above warn", 5, "WARN"},
 		{"at crit", 10, "CRIT"},
@@ -557,11 +557,12 @@ func TestSELinuxDisabled(t *testing.T) {
 }
 
 func TestKernelSecurityEnforcing(t *testing.T) {
-	// SELinux enforcing with no denials should produce no insight (healthy state).
+	// SELinux enforcing with no denials should produce INFO about dontaudit
+	// suppression — a proactive hint that hidden denials may exist.
 	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 0}
 	insights := ApplyThresholds(res(mac), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
-	if len(insights) != 0 {
-		t.Errorf("expected no insights for healthy enforcing SELinux, got %+v", insights)
+	if !hasLevel(insights, "INFO") {
+		t.Errorf("expected INFO dontaudit hint for enforcing SELinux with zero denials, got %+v", insights)
 	}
 }
 

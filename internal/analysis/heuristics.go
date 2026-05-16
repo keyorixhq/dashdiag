@@ -728,6 +728,31 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	return out
 }
 
+// extractAVCProcessNames parses comm= fields from SELinux AVC log lines.
+// Returns unique process names so we can suggest targeted boolean searches.
+// Example: type=AVC ... comm="httpd" ... → ["httpd"]
+func extractAVCProcessNames(samples []string) []string {
+	seen := map[string]bool{}
+	var procs []string
+	for _, line := range samples {
+		idx := strings.Index(line, `comm="`)
+		if idx < 0 {
+			continue
+		}
+		rest := line[idx+6:]
+		end := strings.IndexByte(rest, '"')
+		if end <= 0 {
+			continue
+		}
+		proc := rest[:end]
+		if !seen[proc] {
+			seen[proc] = true
+			procs = append(procs, proc)
+		}
+	}
+	return procs
+}
+
 func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
 	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled"
 	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled" && mac.AppArmorMode != "unknown"
@@ -773,9 +798,17 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	if !mac.SELinuxPresent {
 		return out
 	}
+	out = append(out, checkSELinuxDenials(mac, thresh)...)
+	return out
+}
+
+// checkSELinuxDenials handles SELinux AVC denial insights and dontaudit suppression warning.
+// Extracted from checkKernelSecurity to keep function length within linter limits.
+func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
+	var out []models.Insight
 	if l := func() string {
 		if mac.SELinuxDenials < 0 {
-			return "" // sentinel: data unavailable
+			return ""
 		}
 		if mac.SELinuxDenials >= thresh.SELinuxDenialsCritPerHr {
 			return "CRIT"
@@ -788,17 +821,39 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		hints := []string{
 			"to inspect: ausearch -m avc -ts recent",
 			"to inspect: sealert -a /var/log/audit/audit.log",
+		}
+		if len(mac.SELinuxAVCSamples) > 0 {
+			procs := extractAVCProcessNames(mac.SELinuxAVCSamples)
+			for _, proc := range procs {
+				hints = append(hints, fmt.Sprintf("to check booleans: getsebool -a | grep %s", proc))
+			}
+		} else {
+			hints = append(hints, "to check booleans: getsebool -a | grep <process-name>")
+		}
+		hints = append(hints,
 			"to generate fix: ausearch -m avc -ts recent | audit2allow -M mypolicy",
 			"to apply fix:    semodule -i mypolicy.pp",
-			"note: audit2allow generates a permissive policy — review before applying in production",
-		}
-		// Append AVC sample lines so admin sees exactly what was denied
+			"note: check booleans and file contexts BEFORE using audit2allow",
+			"note: audit2allow may grant broader access than needed — review .te file first",
+		)
 		for _, avc := range mac.SELinuxAVCSamples {
 			hints = append(hints, "sample AVC: "+avc)
 		}
 		out = append(out, insight(l, "KernelSec",
 			fmt.Sprintf("%d SELinux denial(s) in the last hour (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
 			hints,
+		))
+	}
+	// dontaudit suppression warning — zero denials does not mean clean.
+	// dontaudit rules silently suppress certain denials — the "invisible SELinux" problem.
+	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials == 0 {
+		out = append(out, insight("INFO", "KernelSec",
+			"SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently",
+			[]string{
+				"to expose hidden denials: semodule -DB  (disables dontaudit rules)",
+				"to re-enable dontaudit:   semodule -B   (run after debugging)",
+				"to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l",
+			},
 		))
 	}
 	return out

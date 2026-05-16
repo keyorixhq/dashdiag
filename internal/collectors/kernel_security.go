@@ -53,6 +53,31 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	return present, mode, denials
 }
 
+// ExtractAVCProcesses parses AVC sample lines and returns unique process names
+// from the comm= field. Used to suggest targeted boolean searches.
+// Example: type=AVC ... comm="httpd" ... → ["httpd"]
+func ExtractAVCProcesses(samples []string) []string {
+	seen := map[string]bool{}
+	var procs []string
+	for _, line := range samples {
+		idx := strings.Index(line, `comm="`)
+		if idx < 0 {
+			continue
+		}
+		rest := line[idx+6:]
+		end := strings.IndexByte(rest, '"')
+		if end <= 0 {
+			continue
+		}
+		proc := rest[:end]
+		if !seen[proc] {
+			seen[proc] = true
+			procs = append(procs, proc)
+		}
+	}
+	return procs
+}
+
 // countAVCsFromAuditLog reads /var/log/audit/audit.log and counts type=AVC
 // entries whose Unix timestamp falls within the last window duration.
 // Returns (count, true) on success, (0, false) if the file is unreadable.
