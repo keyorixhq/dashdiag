@@ -169,6 +169,21 @@ func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duratio
 		if strings.Contains(msgLower, "kernel panic") {
 			info.KernelPanics++
 		}
+
+		// NVMe I/O timeout: "nvme nvme0: I/O 1 (I/O Cmd) QID 3 timeout, aborting"
+		// This is the #1 NVMe failure indicator — precedes controller resets and system freezes.
+		if strings.Contains(msgLower, "nvme") && strings.Contains(msgLower, "timeout") {
+			info.NVMeTimeouts++
+		}
+
+		// NVMe controller reset/down: "nvme nvme0: controller is down; will reset: CSTS=0xffffffff"
+		// or "nvme nvme0: I/O 0 QID 3 timeout, reset controller"
+		if strings.Contains(msgLower, "nvme") &&
+			(strings.Contains(msgLower, "reset controller") ||
+				strings.Contains(msgLower, "controller is down") ||
+				strings.Contains(msgLower, "csts=0xffffffff")) {
+			info.NVMeResets++
+		}
 	}
 }
 
