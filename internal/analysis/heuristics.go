@@ -895,6 +895,38 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 			},
 		))
 	}
+	if logs.JournalUnbounded {
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("journald has no SystemMaxUse cap — journal is %.1f GB and growing unbounded", logs.JournalSizeGB),
+			[]string{
+				"to fix: echo 'SystemMaxUse=2G' >> /etc/systemd/journald.conf",
+				"to fix: systemctl restart systemd-journald",
+				"to fix: journalctl --vacuum-size=2G  (immediate cleanup)",
+			},
+		))
+	}
+	if logs.LogDiskUsedPct >= 90 {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("log volume %s is %.0f%% full — journald may stop writing logs",
+				logs.LogDiskMount, logs.LogDiskUsedPct),
+			[]string{
+				"to inspect: df -h " + logs.LogDiskMount,
+				"to inspect: journalctl --disk-usage",
+				"to fix:     journalctl --vacuum-size=500M",
+				"to fix:     journalctl --vacuum-time=7d",
+			},
+		))
+	} else if logs.LogDiskUsedPct >= 80 {
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("log volume %s is %.0f%% full — monitor to prevent log loss",
+				logs.LogDiskMount, logs.LogDiskUsedPct),
+			[]string{
+				"to inspect: df -h " + logs.LogDiskMount,
+				"to inspect: journalctl --disk-usage",
+				"to fix:     journalctl --vacuum-size=1G",
+			},
+		))
+	}
 	return out
 }
 

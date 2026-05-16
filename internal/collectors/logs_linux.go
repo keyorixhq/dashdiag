@@ -284,28 +284,119 @@ func countPstorePanics() int {
 // checkJournalHealth checks for common journald misconfigurations that cause
 // silent log loss — the most frequent complaint about systemd logging.
 func checkJournalHealth(ctx context.Context, info *models.LogsInfo) {
-	// 1. Journal integrity — journalctl --verify detects corrupted journal files.
-	//    Only run if journalctl is available and journal exists.
+	// 1. Journal integrity — only verify archived (*.journal~) files, not active
+	//    ones. journalctl --verify races with active writers and produces false
+	//    corruption reports on healthy live journals (systemd issue #35916).
 	if _, err := os.Stat(journalVarPath); err == nil {
-		out, err := runCmd(ctx, "journalctl", "--verify", "--quiet")
-		if err != nil || strings.Contains(out, "FAIL") {
+		if hasCorruptArchived(journalVarPath) {
 			info.JournalCorrupt = true
 		}
 	}
 
 	// 2. Volatile storage — logs lost on reboot.
-	//    Check Storage= in /etc/systemd/journald.conf and drop-ins.
-	//    Default "auto" only persists if /var/log/journal/ exists.
 	info.JournalVolatile = detectVolatileJournal()
 
 	// 3. Rate limiting — logs silently dropped under load.
-	//    Check if RateLimitBurst is very low (< 100) — default is 10000.
-	//    A value of 0 means unlimited (actually fine), so only warn on low non-zero.
 	info.JournalRateLimited = detectJournalRateLimit()
 
-	// 4. No text fallback — if journald is sole log store, a corruption or
-	//    binary format issue means no logs readable with standard Unix tools.
+	// 4. No text fallback.
 	info.JournalNoTextFallback = detectNoTextFallback()
+
+	// 5. Unbounded growth — no SystemMaxUse cap and journal already large.
+	info.JournalUnbounded = detectUnboundedJournal(info.JournalSizeGB)
+
+	// 6. Log disk space — check the volume where journals live.
+	mount, pct := logDiskUsage()
+	info.LogDiskMount = mount
+	info.LogDiskUsedPct = pct
+}
+
+// hasCorruptArchived checks only archived (*.journal~) files for corruption.
+// Active *.journal files are skipped — they're written live and always appear
+// "corrupt" to the verifier due to an unflushed tail segment (systemd#35916).
+func hasCorruptArchived(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			// recurse into machine-ID subdirectories
+			sub := dir + "/" + e.Name()
+			if hasCorruptArchived(sub) {
+				return true
+			}
+			continue
+		}
+		// Only check archived files (*.journal~), skip active (*.journal)
+		if !strings.HasSuffix(e.Name(), ".journal~") {
+			continue
+		}
+		// Run journalctl --verify on this specific file
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := runCmd(ctx2, "journalctl", "--verify", "--file="+dir+"/"+e.Name())
+		cancel()
+		if err != nil || strings.Contains(out, "FAIL") {
+			return true
+		}
+	}
+	return false
+}
+
+// detectUnboundedJournal returns true when no SystemMaxUse cap is configured
+// and the journal is already large enough to matter (> 1 GB).
+func detectUnboundedJournal(sizeGB float64) bool {
+	if sizeGB < 1.0 {
+		return false // small journal, not a concern yet
+	}
+	val := readJournaldConfig("SystemMaxUse")
+	return strings.TrimSpace(val) == ""
+}
+
+// logDiskUsage returns the mount point and used% of the filesystem containing
+// the journal. Falls back to /var/log, then /.
+func logDiskUsage() (mount string, usedPct float64) {
+	// Prefer the actual journal directory
+	target := journalVarPath
+	if _, err := os.Stat(target); err != nil {
+		target = "/var/log"
+	}
+
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(target, &stat); err != nil {
+		return "", 0
+	}
+	if stat.Blocks == 0 {
+		return "", 0
+	}
+	used := float64(stat.Blocks-stat.Bfree) / float64(stat.Blocks) * 100
+	// Find mount point by walking up the path
+	mp := findMountPoint(target)
+	return mp, used
+}
+
+// findMountPoint walks up from path until it finds a directory on a different
+// device (i.e. a mount point boundary).
+func findMountPoint(path string) string {
+	var prev syscall.Stat_t
+	if err := syscall.Stat(path, &prev); err != nil {
+		return path
+	}
+	for {
+		parent := filepath.Dir(path)
+		if parent == path {
+			return path // reached /
+		}
+		var pstat syscall.Stat_t
+		if err := syscall.Stat(parent, &pstat); err != nil {
+			return path
+		}
+		if pstat.Dev != prev.Dev {
+			return path // path is the mount point
+		}
+		path = parent
+		prev = pstat
+	}
 }
 
 // detectVolatileJournal returns true if journal logs will be lost on reboot.

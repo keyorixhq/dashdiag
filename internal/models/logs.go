@@ -14,10 +14,13 @@ type LogsInfo struct {
 	NeedsRoot     bool     `json:"needs_root,omitempty"`
 
 	// Journal health
-	JournalCorrupt        bool `json:"journal_corrupt,omitempty"`          // journalctl --verify failed
-	JournalVolatile       bool `json:"journal_volatile,omitempty"`         // logs lost on reboot
-	JournalRateLimited    bool `json:"journal_rate_limited,omitempty"`     // RateLimitBurst=0 disabled or very low
-	JournalNoTextFallback bool `json:"journal_no_text_fallback,omitempty"` // no rsyslog/syslog-ng
+	JournalCorrupt        bool    `json:"journal_corrupt,omitempty"`          // journalctl --verify failed
+	JournalVolatile       bool    `json:"journal_volatile,omitempty"`         // logs lost on reboot
+	JournalRateLimited    bool    `json:"journal_rate_limited,omitempty"`     // RateLimitBurst too low
+	JournalNoTextFallback bool    `json:"journal_no_text_fallback,omitempty"` // no rsyslog/syslog-ng
+	JournalUnbounded      bool    `json:"journal_unbounded,omitempty"`        // no SystemMaxUse cap
+	LogDiskUsedPct        float64 `json:"log_disk_used_pct,omitempty"`        // % used on log volume
+	LogDiskMount          string  `json:"log_disk_mount,omitempty"`           // mount point of log volume
 
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
