@@ -60,13 +60,10 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 			msg = ins.Message
 		}
 
-		// For CPU Load when OK, append the load % inline so the row is informative.
-		if res.Name == "CPU Load" && level == "OK" {
-			if cpu, ok := res.Data.(*models.CPUInfo); ok && cpu != nil && cpu.LoadPct >= 0 {
-				msg = fmt.Sprintf("%.0f%%", cpu.LoadPct)
-			} else if cpu, ok := res.Data.(models.CPUInfo); ok {
-				msg = fmt.Sprintf("%.0f%%", cpu.LoadPct)
-			}
+		// Inline data for OK rows — lets the admin judge at a glance.
+		// Only shown when the check is OK (WARN/CRIT already have a message).
+		if level == "OK" {
+			msg = inlineData(res)
 		}
 
 		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
@@ -95,6 +92,275 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 			r.renderDetails(ins.Details)
 		}
 	}
+}
+
+// inlineData returns a short summary string for a check row when status is OK.
+// Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
+func inlineData(res runner.Result) string {
+	switch res.Name {
+	case "CPU Load":
+		return inlineCPULoad(res.Data)
+	case "Memory":
+		return inlineMemory(res.Data)
+	case "Swap":
+		return inlineSwap(res.Data)
+	case "Disk":
+		return diskInline(res.Data)
+	case "Network":
+		return networkInline(res.Data)
+	case "Entropy":
+		return inlineEntropy(res.Data)
+	case "FDLimits":
+		return inlineFDLimits(res.Data)
+	case "IO":
+		return inlineIO(res.Data)
+	case "KernelSec":
+		return inlineKernelSec(res.Data)
+	case "Clock":
+		return inlineClock(res.Data)
+	case "Logs":
+		return inlineLogs(res.Data)
+	}
+	return ""
+}
+
+func inlineCPULoad(data interface{}) string {
+	cpu := asCPUInfo(data)
+	if cpu != nil && cpu.LoadPct >= 0 {
+		return fmt.Sprintf("%.0f%%", cpu.LoadPct)
+	}
+	return ""
+}
+
+func inlineMemory(data interface{}) string {
+	var r *models.MemoryInfo
+	if v, ok := data.(*models.MemoryInfo); ok {
+		r = v
+	} else if v, ok := data.(models.MemoryInfo); ok {
+		r = &v
+	}
+	if r == nil || r.TotalGB == 0 {
+		return ""
+	}
+	used := r.TotalGB * r.UsedPct / 100
+	return fmt.Sprintf("%.1f/%.0f GB (%.0f%%)", used, r.TotalGB, r.UsedPct)
+}
+
+func inlineSwap(data interface{}) string {
+	var s *models.SwapInfo
+	if v, ok := data.(*models.SwapInfo); ok {
+		s = v
+	} else if v, ok := data.(models.SwapInfo); ok {
+		s = &v
+	}
+	if s == nil {
+		return ""
+	}
+	if s.TotalGB == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%.0f MB used", s.UsedGB*1024)
+}
+
+func inlineEntropy(data interface{}) string {
+	var e *models.EntropyInfo
+	if v, ok := data.(*models.EntropyInfo); ok {
+		e = v
+	} else if v, ok := data.(models.EntropyInfo); ok {
+		e = &v
+	}
+	if e == nil || e.Available <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d bits", e.Available)
+}
+
+func inlineFDLimits(data interface{}) string {
+	var fd *models.FDInfo
+	if v, ok := data.(*models.FDInfo); ok {
+		fd = v
+	} else if v, ok := data.(models.FDInfo); ok {
+		fd = &v
+	}
+	if fd == nil || fd.MaxCount == 0 || fd.MaxCount >= 1<<40 {
+		return ""
+	}
+	return fmt.Sprintf("%.0f%% system (%s/%s open)",
+		fd.UsedPct, formatCount(fd.OpenCount), formatCount(fd.MaxCount))
+}
+
+func inlineIO(data interface{}) string {
+	var io *models.IOInfo
+	if v, ok := data.(*models.IOInfo); ok {
+		io = v
+	} else if v, ok := data.(models.IOInfo); ok {
+		io = &v
+	}
+	if io == nil || len(io.Devices) == 0 {
+		return ""
+	}
+	return ioInline(io.Devices)
+}
+
+func inlineKernelSec(data interface{}) string {
+	var k *models.KernelSecurityInfo
+	if v, ok := data.(*models.KernelSecurityInfo); ok {
+		k = v
+	} else if v, ok := data.(models.KernelSecurityInfo); ok {
+		k = &v
+	}
+	if k == nil {
+		return ""
+	}
+	return kernelSecInline(k)
+}
+
+func inlineClock(data interface{}) string {
+	var c *models.ClockInfo
+	if v, ok := data.(*models.ClockInfo); ok {
+		c = v
+	} else if v, ok := data.(models.ClockInfo); ok {
+		c = &v
+	}
+	if c == nil || !c.Synced {
+		return ""
+	}
+	if c.Source != "" {
+		return fmt.Sprintf("±%.0f ms  %s", abs(c.OffsetMs), c.Source)
+	}
+	return fmt.Sprintf("±%.0f ms", abs(c.OffsetMs))
+}
+
+func inlineLogs(data interface{}) string {
+	var l *models.LogsInfo
+	if v, ok := data.(*models.LogsInfo); ok {
+		l = v
+	} else if v, ok := data.(models.LogsInfo); ok {
+		l = &v
+	}
+	if l == nil || l.JournalSizeGB == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.0f MB journal", l.JournalSizeGB*1024)
+}
+
+// diskInline implements Option C for multiple mount points:
+// ≤2 mounts: show all → "/ 45%  /boot 12%"
+// 3+ mounts: show count + worst → "6 mounts, max 82% (/data)"
+// Any with WARN-level usage (>70%): always highlight the offending mount.
+func diskInline(data interface{}) string {
+	var fs []models.FilesystemInfo
+	if d, ok := data.(*models.DiskInfo); ok && d != nil {
+		fs = d.Filesystems
+	} else if d, ok := data.(models.DiskInfo); ok {
+		fs = d.Filesystems
+	}
+	if len(fs) == 0 {
+		return ""
+	}
+	if len(fs) <= 2 {
+		var parts []string
+		for _, f := range fs {
+			parts = append(parts, fmt.Sprintf("%s %.0f%%", f.Mount, f.UsedPct))
+		}
+		return strings.Join(parts, "  ")
+	}
+	// 3+ mounts: find worst
+	worst := fs[0]
+	for _, f := range fs[1:] {
+		if f.UsedPct > worst.UsedPct {
+			worst = f
+		}
+	}
+	return fmt.Sprintf("%d mounts, max %.0f%% (%s)", len(fs), worst.UsedPct, worst.Mount)
+}
+
+// networkInline implements Option C for multiple NICs.
+func networkInline(data interface{}) string {
+	var ifaces []models.InterfaceInfo
+	if n, ok := data.(*models.NetworkInfo); ok && n != nil {
+		ifaces = n.Interfaces
+	} else if n, ok := data.(models.NetworkInfo); ok {
+		ifaces = n.Interfaces
+	}
+	var up []models.InterfaceInfo
+	for _, iface := range ifaces {
+		if iface.Up {
+			up = append(up, iface)
+		}
+	}
+	if len(up) == 0 {
+		return ""
+	}
+	ifaceStr := func(n models.InterfaceInfo) string {
+		if n.SpeedMbps >= 1000 {
+			return fmt.Sprintf("%s %dGbps", n.Name, n.SpeedMbps/1000)
+		}
+		if n.SpeedMbps > 0 {
+			return fmt.Sprintf("%s %dMbps", n.Name, n.SpeedMbps)
+		}
+		return n.Name
+	}
+	if len(up) <= 2 {
+		var parts []string
+		for _, n := range up {
+			parts = append(parts, ifaceStr(n))
+		}
+		return strings.Join(parts, "  ")
+	}
+	return fmt.Sprintf("%d NICs, %s", len(up), ifaceStr(up[0]))
+}
+
+// ioInline picks the worst await latency across all IO devices.
+func ioInline(devices []models.IODeviceInfo) string {
+	if len(devices) == 0 {
+		return ""
+	}
+	worst := devices[0]
+	for _, d := range devices[1:] {
+		if d.AwaitMs > worst.AwaitMs {
+			worst = d
+		}
+	}
+	if len(devices) == 1 {
+		return fmt.Sprintf("%.1f ms", worst.AwaitMs)
+	}
+	return fmt.Sprintf("%.1f ms (%s)", worst.AwaitMs, worst.Name)
+}
+
+// kernelSecInline summarises the active security module.
+func kernelSecInline(k *models.KernelSecurityInfo) string {
+	if k.SELinuxPresent && k.SELinuxMode != "" {
+		return "SELinux " + k.SELinuxMode
+	}
+	if k.AppArmorPresent && k.AppArmorMode != "" {
+		return "AppArmor " + k.AppArmorMode
+	}
+	return ""
+}
+
+func asCPUInfo(data interface{}) *models.CPUInfo {
+	if cpu, ok := data.(*models.CPUInfo); ok {
+		return cpu
+	}
+	if cpu, ok := data.(models.CPUInfo); ok {
+		return &cpu
+	}
+	return nil
+}
+
+func formatCount(n uint64) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.0fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func abs(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
 }
 
 func (r *Renderer) renderDetails(d *models.Details) {
