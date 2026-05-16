@@ -1,11 +1,8 @@
 package tips
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -129,7 +126,7 @@ func MaybePrintMilestone(state *State, mode output.OutputMode) {
 	for _, m := range firedRunMilestones(state.TotalRuns, state.ShownMilestones) {
 		switch m {
 		case 10:
-			MaybeRunNPS(state, mode)
+			fmt.Fprintln(os.Stderr, "\n⚡ 10 runs — you're getting the hang of this!")
 		case 50:
 			fmt.Fprintln(os.Stderr, "\n🚀 50 runs — you're a power user!")
 		case 100:
@@ -146,40 +143,4 @@ func MaybePrintMilestone(state *State, mode output.OutputMode) {
 		fmt.Fprintln(os.Stderr, "   Run 'dsd trial start' to try free for 14 days.")
 		state.TrialOffered = true
 	}
-}
-
-func MaybeRunNPS(state *State, mode output.OutputMode) {
-	maybeRunNPSFrom(state, mode, os.Stdin)
-}
-
-func maybeRunNPSFrom(state *State, mode output.OutputMode, r io.Reader) {
-	if state.TotalRuns != 10 || state.NPSDone {
-		return
-	}
-	if mode != output.ModeHuman || output.IsPlain(false) {
-		return
-	}
-
-	scanner := bufio.NewScanner(r)
-
-	fmt.Fprint(os.Stderr, "\n📊 Quick question (you're a power user now!):\n")
-	fmt.Fprint(os.Stderr, "   On a scale of 0-10, how likely are you to recommend dsd to a colleague?\n")
-	fmt.Fprint(os.Stderr, "   Score (or Enter to skip): ")
-
-	if !scanner.Scan() {
-		return
-	}
-	score := strings.TrimSpace(scanner.Text())
-	if score == "" {
-		return
-	}
-
-	state.NPSScore = score
-	fmt.Fprint(os.Stderr, "   Thanks! What's the main reason? ")
-
-	if scanner.Scan() {
-		state.NPSReason = strings.TrimSpace(scanner.Text())
-	}
-	state.NPSDone = true
-	fmt.Fprintln(os.Stderr, "   Appreciated — it helps a lot 🙏")
 }

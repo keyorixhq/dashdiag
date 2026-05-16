@@ -80,6 +80,9 @@ var cloudInitUnits = map[string]bool{
 	"systemd-network-generator.service": true,
 	"console-getty.service":             true,
 	"container-getty@.service":          true, // matches container-getty@1.service etc.
+	// tmpfiles-clean fails in unprivileged LXC — no access to protected dirs
+	"systemd-tmpfiles-clean.service": true,
+	"systemd-tmpfiles-clean.timer":   true,
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {

@@ -4,11 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 // ── State load / save ────────────────────────────────────────────────────────
@@ -216,48 +213,6 @@ func TestDaysBetween(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("daysBetween(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
-	}
-}
-
-// ── NPS ──────────────────────────────────────────────────────────────────────
-
-func TestNPSFiresOnce(t *testing.T) {
-	input := strings.NewReader("8\nGreat tool\n")
-
-	s := &State{TotalRuns: 10, NPSDone: false}
-	maybeRunNPSFrom(s, output.ModePlain, input) // ModePlain → no-op (not human+TTY)
-	if s.NPSDone {
-		t.Error("NPS must not fire in plain mode")
-	}
-
-	// Simulate run 11 — should not fire even in human mode because TotalRuns != 10
-	s2 := &State{TotalRuns: 11, NPSDone: false}
-	input2 := strings.NewReader("9\nLove it\n")
-	maybeRunNPSFrom(s2, output.ModeHuman, input2)
-	// TotalRuns=11 so condition fails — NPSDone stays false
-	if s2.NPSDone {
-		t.Error("NPS must not fire at run 11")
-	}
-
-	// Simulate run 10 in human mode — should fire
-	// We can't test isaTTY() directly, but we can test the logic path
-	// by verifying the score/reason fields would be set if TTY check passes
-	// Just verify the TotalRuns check is correct:
-	s3 := &State{TotalRuns: 9, NPSDone: false}
-	input3 := strings.NewReader("7\nUseful\n")
-	maybeRunNPSFrom(s3, output.ModeHuman, input3)
-	if s3.NPSDone {
-		t.Error("NPS must not fire at TotalRuns=9 (not 10)")
-	}
-}
-
-func TestNPSNotFiredIfAlreadyDone(t *testing.T) {
-	s := &State{TotalRuns: 10, NPSDone: true}
-	input := strings.NewReader("8\nGreat\n")
-	maybeRunNPSFrom(s, output.ModeHuman, input)
-	// Should not overwrite existing score since NPSDone=true
-	if s.NPSScore != "" {
-		t.Error("NPS should not overwrite score when NPSDone=true")
 	}
 }
 

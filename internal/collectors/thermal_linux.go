@@ -17,15 +17,29 @@ import (
 // ThermalCollector reads CPU temperature directly from sysfs hwmon.
 // Supports k10temp (AMD), coretemp (Intel), and generic thermal_zone.
 // No external tools needed — all data is in /sys/class/hwmon/.
-type ThermalCollector struct{}
+type ThermalCollector struct {
+	InContainer bool // suppress host sensor readings inside LXC/Docker
+}
 
 func NewThermalCollector() *ThermalCollector { return &ThermalCollector{} }
+
+func NewThermalCollectorWithContext(inContainer bool) *ThermalCollector {
+	return &ThermalCollector{InContainer: inContainer}
+}
 
 func (c *ThermalCollector) Name() string           { return "CPU Thermal" }
 func (c *ThermalCollector) Timeout() time.Duration { return 1 * time.Second }
 
 func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
+
+	// Inside LXC containers, hwmon sensors read the HOST CPU temperature.
+	// This is misleading — the container has no CPU of its own.
+	// Skip thermal collection entirely in container environments.
+	if c.InContainer {
+		info.Source = "" // no source = no thermal display
+		return info, nil
+	}
 
 	// Walk /sys/class/hwmon looking for CPU temp sensors
 	hwmons, err := filepath.Glob("/sys/class/hwmon/hwmon*")
