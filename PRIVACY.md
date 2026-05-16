@@ -108,8 +108,16 @@ When implemented, the following privacy decisions are locked in:
 5. **EU data residency** — if a share backend is built, data will be
    stored in the EU (GDPR compliance).
 
-6. **Air-gap alternative** — `--report` (local file) will always remain
+6. **End-to-end encrypted** — the report is encrypted locally with
+   AES-256-GCM before upload. The decryption key lives only in the
+   URL fragment (`#key`) which is never sent to the server. dashdiag.sh
+   operators cannot read shared reports. A server breach yields only
+   encrypted blobs — no keys, no plaintext, no identity data.
+
+7. **Air-gap alternative** — `--report` (local file) will always remain
    the zero-network alternative for air-gapped environments.
+
+Full technical design: `docs/share-e2e-encryption-design.md`
 
 These decisions are final and will not be changed without a major version
 bump and changelog notice.
