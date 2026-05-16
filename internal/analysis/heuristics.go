@@ -150,6 +150,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkNVMe(*d)
 		}
+	case models.RAIDInfo:
+		return checkRAID(d)
+	case *models.RAIDInfo:
+		if d != nil {
+			return checkRAID(*d)
+		}
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
@@ -378,14 +384,26 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 
 func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
+	saturatedCount := 0
 	for _, dev := range io.Devices {
 		warnUtil, critUtil := thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD
 		warnAwait, critAwait := ioAwaitThresholds(dev.DriveType, thresh)
 
 		if l := levelPct(dev.UtilPct, warnUtil, critUtil); l != "" {
+			hints := []string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"}
+			// Item 6: 100% util with btrfs-cleaner note
+			if dev.UtilPct >= 99 {
+				hints = append(hints,
+					"note: 100% utilization on NVMe/SSD is abnormal — check for runaway process",
+					"note: if filesystem is BTRFS, btrfs-cleaner may be the cause",
+					"to check: ps aux | grep btrfs",
+					"to pause btrfs maintenance: btrfs balance cancel / && btrfs scrub cancel /",
+				)
+				saturatedCount++
+			}
 			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s utilization at %.0f%%", dev.Name, dev.UtilPct),
-				[]string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"},
+				hints,
 			))
 		}
 		if l := levelPct(dev.AwaitMs, warnAwait, critAwait); l != "" {
@@ -395,6 +413,24 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 			))
 		}
 	}
+
+	// Item 5: multiple drives showing errors → shared component hint.
+	// Research: "4 disks with identical errors — unlikely all DOA, check the HBA"
+	// When 3+ drives are saturated simultaneously, the common failure point is the
+	// controller, backplane, or cable — not the drives themselves.
+	if saturatedCount >= 3 {
+		out = append(out, insight("WARN", "IO",
+			fmt.Sprintf("%d drives at 100%% utilization simultaneously — may indicate shared component fault", saturatedCount),
+			[]string{
+				"note: multiple drives failing together often points to HBA, backplane, or cable",
+				"to inspect: lspci | grep -i storage",
+				"to inspect: dmesg | grep -E 'ata[0-9]+|scsi|hba'",
+				"to inspect: check backplane power and data cables",
+				"to inspect: smartctl -a /dev/<each drive>  (check if errors are identical)",
+			},
+		))
+	}
+
 	return out
 }
 
@@ -994,6 +1030,32 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 		))
 	}
 
+	// NVMe timeout and controller reset events — the leading cause of system freezes
+	// on NVMe hardware. Any count is worth surfacing — these don't happen normally.
+	if logs.NVMeTimeouts > 0 {
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("%d NVMe I/O timeout event(s) in the last hour — drive may be failing or entering bad power state", logs.NVMeTimeouts),
+			[]string{
+				"to inspect: dmesg | grep -i 'nvme.*timeout'",
+				"to inspect: smartctl -a /dev/nvme0  (or nvme smart-log /dev/nvme0)",
+				"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
+				"note: NVMe timeouts can freeze the entire I/O stack — monitor closely",
+			},
+		))
+	}
+	if logs.NVMeResets > 0 {
+		out = append(out, insight("CRIT", "Logs",
+			fmt.Sprintf("%d NVMe controller reset/down event(s) — drive or PCIe link is unstable", logs.NVMeResets),
+			[]string{
+				"to inspect: dmesg | grep -i 'nvme.*reset\\|controller is down\\|CSTS'",
+				"to inspect: nvme smart-log /dev/nvme0  (if nvme-cli installed)",
+				"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
+				"to mitigate: add 'pcie_aspm=off' to kernel cmdline if power-state related",
+				"note: controller resets can cause mdadm/BTRFS/ZFS to go read-only",
+			},
+		))
+	}
+
 	// Journal health — silent log loss is worse than noisy logs
 	out = append(out, checkJournalHealthInsights(logs)...)
 
@@ -1229,6 +1291,47 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 		}
 	}
 
+	return out
+}
+
+// checkRAID surfaces degraded or failed mdadm RAID arrays from /proc/mdstat.
+// A degraded array has lost redundancy — one more drive failure means data loss.
+func checkRAID(r models.RAIDInfo) []models.Insight {
+	var out []models.Insight
+	for _, arr := range r.Arrays {
+		switch arr.State {
+		case "degraded":
+			out = append(out, insight("CRIT", "RAID",
+				fmt.Sprintf("%s (%s) is DEGRADED — %d/%d drives active, failed: %s",
+					arr.Name, arr.Level, arr.Active, arr.Total, strings.Join(arr.Failed, ", ")),
+				[]string{
+					"to inspect: cat /proc/mdstat",
+					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
+					"note: replace the failed drive and run: mdadm --add /dev/<array> /dev/<new-drive>",
+					"note: data is at risk until redundancy is restored",
+				},
+			))
+		case "recovering":
+			out = append(out, insight("WARN", "RAID",
+				fmt.Sprintf("%s (%s) is REBUILDING — %.1f%% complete",
+					arr.Name, arr.Level, arr.RebuildPct),
+				[]string{
+					"to inspect: cat /proc/mdstat",
+					"note: array is degraded during rebuild — avoid further drive failures",
+					"note: rebuild progress updates every ~30s in /proc/mdstat",
+				},
+			))
+		case "failed":
+			out = append(out, insight("CRIT", "RAID",
+				fmt.Sprintf("%s is FAILED — array is not operational", arr.Name),
+				[]string{
+					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
+					"to inspect: dmesg | grep -i mdadm",
+					"note: data may be lost — check individual drive health with smartctl",
+				},
+			))
+		}
+	}
 	return out
 }
 
