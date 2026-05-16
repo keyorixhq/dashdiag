@@ -12739,3 +12739,121 @@ is most acute. The platform vision — Keyorix, RCA, Gauge — is already
 cross-platform by design.
 
 The four pillars are the brand. The OS is the starting point.
+
+---
+
+## 39c. Product Hierarchy — DashDiag within UnpackOps
+
+**Date:** 2026-05-16  
+**Decision:** DashDiag does the dirty work. UnpackOps carries the vision.
+
+---
+
+### The hierarchy
+
+```
+UnpackOps
+  (the company, the brand, the platform vision)
+  "Make systems observable, audible, guided, and operable"
+      │
+      ├── DashDiag        — operability engine (the dirty work)
+      │     dsd command   — reads /proc, parses audit logs, 
+      │                     runs 74 checks in 1.8s
+      │
+      ├── Keyorix         — secrets management
+      │
+      ├── RCA platform    — root cause analysis
+      │
+      └── Gauge           — FinOps
+```
+
+---
+
+### What "dirty work" means
+
+DashDiag does what no one else wants to do manually:
+
+- Reads `/proc`, `/sys`, `/dev/kmsg` directly
+- Parses 14+ package manager formats
+- Counts AVC denials in audit.log byte by byte
+- Walks journald binary archives
+- Runs `smartctl` and interprets SMART attributes
+- Samples IO await over 1 second
+- Detects 19+ distros and adjusts thresholds accordingly
+- Suppresses 30+ known LXC false positives
+- Correlates CPU load with thermal readings
+
+None of that is glamorous. All of it is essential.
+
+The dirty work is what makes the four pillars real on real hardware.
+UnpackOps is the promise. DashDiag is the proof.
+
+---
+
+### Why this framing works
+
+**For marketing:**
+DashDiag doesn't need to explain the whole vision —
+UnpackOps.com carries that. DashDiag just needs to work,
+and to be described as the "operability engine" or
+"system health layer" of the UnpackOps platform.
+
+**For positioning:**
+"DashDiag does the dirty work for UnpackOps" gives DashDiag
+a clear role without overloading the name. The name can stay.
+The role is defined by what it does in the hierarchy.
+
+**For the `--json` API surface:**
+DashDiag's `--json` output is not just a feature —
+it's the connective tissue of the platform. Every other
+UnpackOps product can consume DashDiag's structured output:
+- RCA platform reads dsd health --json to understand system state
+- Keyorix reads dsd health --json to know which secrets are in use
+- Gauge reads dsd health --json for resource utilization signals
+
+DashDiag does the sensing. UnpackOps does the thinking.
+
+---
+
+### How to talk about the hierarchy
+
+**With sysadmins (product-first):**
+"dsd — one command, every system check"
+Don't mention UnpackOps unless asked.
+
+**With DevOps / SRE teams (platform context):**
+"DashDiag is the operability layer of the UnpackOps platform —
+it's what gives every other product real-time system state."
+
+**With investors / partners (vision):**
+"UnpackOps is building the operability layer for modern infrastructure.
+DashDiag is the foundation — the engine that reads the system and
+surfaces what matters. Every product in the portfolio consumes it."
+
+**With enterprises (integration angle):**
+"DashDiag's --json output is the API. Build on top of it,
+pipe it into your observability stack, or use the UnpackOps
+platform to get the full picture."
+
+---
+
+### Brand rules
+
+| Context | Use |
+|---------|-----|
+| CLI / terminal | `dsd` |
+| Product name | DashDiag |
+| Platform name | UnpackOps |
+| Company name | Keyorix SL (legal entity) |
+| Vision statement | UnpackOps — make systems operable |
+| Product tagline | DashDiag — the system health engine |
+
+---
+
+### The one-liner for each layer
+
+```
+UnpackOps:  "Make systems observable, audible, guided, and operable."
+DashDiag:   "The operability engine that does the dirty work."
+dsd:        "One command. Every check. Every distro."
+```
