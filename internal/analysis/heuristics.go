@@ -168,6 +168,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkLVM(*d)
 		}
+	case models.DRBDInfo:
+		return checkDRBD(d)
+	case *models.DRBDInfo:
+		if d != nil {
+			return checkDRBD(*d)
+		}
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
@@ -1498,6 +1504,103 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 		}
 	}
 
+	return out
+}
+
+// checkDRBD surfaces DRBD replication issues: disconnection, split brain,
+// disk state degradation, and sync progress. DRBD is used in Pacemaker/
+// Corosync clusters — a split brain or disconnection means the HA layer
+// is no longer protecting against node failure.
+func checkDRBD(d models.DRBDInfo) []models.Insight {
+	var out []models.Insight
+	for _, res := range d.Resources {
+		minor := fmt.Sprintf("drbd%d", res.Minor)
+
+		// Split brain — both nodes have diverged writes. This is the worst DRBD state.
+		// Data on one or both nodes may be permanently inconsistent.
+		if res.ConnState == "SplitBrain" {
+			out = append(out, insight("CRIT", "DRBD",
+				fmt.Sprintf("%s SPLIT BRAIN detected — both nodes have diverged, manual resolution required", minor),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					"to resolve (discard secondary): drbdadm secondary <res>; drbdadm connect --discard-my-data <res>",
+					"to resolve (on primary node): drbdadm connect <res>",
+					"note: decide WHICH node has the correct data before resolving",
+					"note: the discarded node loses all writes made during split brain",
+				},
+			))
+			continue // no point reporting other states when split brain is active
+		}
+
+		// Connection state — anything not Connected means replication is broken
+		if res.ConnState != "Connected" && res.ConnState != "SyncTarget" && res.ConnState != "SyncSource" {
+			out = append(out, insight("CRIT", "DRBD",
+				fmt.Sprintf("%s connection state: %s — replication is not active", minor, res.ConnState),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					"to inspect: dmesg | grep -i drbd",
+					fmt.Sprintf("to reconnect: drbdadm connect %s", minor),
+					"note: while disconnected, the cluster has no storage redundancy",
+				},
+			))
+		}
+
+		// Local disk state — anything not UpToDate means this node's data is stale or failed
+		switch res.LocalDisk {
+		case "Failed":
+			out = append(out, insight("CRIT", "DRBD",
+				fmt.Sprintf("%s local disk state: FAILED — this node's backing device has failed", minor),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					"to inspect: dmesg | grep -i 'drbd\\|disk error'",
+					"note: the backing disk has I/O errors — replace hardware before reattaching",
+				},
+			))
+		case "Inconsistent":
+			if !res.Syncing {
+				// Inconsistent and NOT syncing — stale data, replication broken
+				out = append(out, insight("CRIT", "DRBD",
+					fmt.Sprintf("%s local disk: Inconsistent — data is stale and not syncing", minor),
+					[]string{
+						fmt.Sprintf("to inspect: drbdadm status %s", minor),
+						fmt.Sprintf("to resync: drbdadm invalidate %s", minor),
+					},
+				))
+			}
+		case "Outdated":
+			out = append(out, insight("WARN", "DRBD",
+				fmt.Sprintf("%s local disk: Outdated — node was disconnected and missed writes", minor),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					fmt.Sprintf("to resync: drbdadm connect %s  (triggers resync automatically)", minor),
+				},
+			))
+		}
+
+		// Remote disk state — remote being Inconsistent/Outdated means peer data is stale
+		if res.RemoteDisk == "Failed" {
+			out = append(out, insight("CRIT", "DRBD",
+				fmt.Sprintf("%s remote disk state: FAILED — peer node's backing device has failed", minor),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					"note: the peer node has a disk failure — the cluster is running without redundancy",
+				},
+			))
+		}
+
+		// Sync in progress — informational, but show progress so admin knows what's happening
+		if res.Syncing && res.SyncPct < 100 {
+			oosGB := float64(res.OutOfSync) / (1024 * 1024)
+			out = append(out, insight("INFO", "DRBD",
+				fmt.Sprintf("%s resyncing — %.1f%% complete (%.1f GB remaining)",
+					minor, res.SyncPct, oosGB),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", minor),
+					"note: avoid node failure during resync — no redundancy until sync completes",
+				},
+			))
+		}
+	}
 	return out
 }
 
