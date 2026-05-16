@@ -156,6 +156,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkRAID(*d)
 		}
+	case models.ZFSInfo:
+		return checkZFS(d)
+	case *models.ZFSInfo:
+		if d != nil {
+			return checkZFS(*d)
+		}
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
@@ -1289,6 +1295,119 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 				[]string{"to inspect: smartctl -a " + dev.Name},
 			))
 		}
+	}
+
+	return out
+}
+
+// checkZFS surfaces ZFS pool health issues: degraded state, capacity, errors, scrub age.
+// ZFS is used heavily by Proxmox, TrueNAS-derived systems, and enterprise Linux.
+func checkZFS(z models.ZFSInfo) []models.Insight {
+	out := make([]models.Insight, 0, len(z.Pools))
+	for _, pool := range z.Pools {
+		out = append(out, checkZFSPool(pool)...)
+	}
+	return out
+}
+
+// checkZFSPool checks a single ZFS pool — extracted to keep funlen within linter limits.
+func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // flat list of independent pool checks
+	var out []models.Insight
+
+	// Pool state — anything other than ONLINE is a problem
+	switch pool.State {
+	case "DEGRADED":
+		msg := fmt.Sprintf("ZFS pool %s is DEGRADED", pool.Name)
+		if pool.StatusMsg != "" {
+			msg += " — " + pool.StatusMsg
+		}
+		out = append(out, insight("CRIT", "ZFS", msg,
+			[]string{
+				fmt.Sprintf("to inspect: zpool status %s", pool.Name),
+				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+				"note: replace failed vdev and run: zpool replace <pool> <old> <new>",
+				"note: data is at risk — restore redundancy immediately",
+			},
+		))
+	case "FAULTED":
+		out = append(out, insight("CRIT", "ZFS",
+			fmt.Sprintf("ZFS pool %s is FAULTED — pool may be unrecoverable", pool.Name),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				"note: FAULTED means pool was taken offline due to unrecoverable error",
+				"note: import with: zpool import -F <pool>  (force recovery, may lose data)",
+			},
+		))
+	case "REMOVED", "UNAVAIL", "OFFLINE":
+		out = append(out, insight("CRIT", "ZFS",
+			fmt.Sprintf("ZFS pool %s state: %s", pool.Name, pool.State),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+			},
+		))
+	}
+
+	// Capacity — ZFS copy-on-write degrades badly above 80%, writes fail above 90%
+	if l := levelPct(pool.UsedPct, 80, 90); l != "" {
+		out = append(out, insight(l, "ZFS",
+			fmt.Sprintf("ZFS pool %s is %.0f%% full (%.1f GB free of %.1f GB)",
+				pool.Name, pool.UsedPct, pool.FreeGB, pool.SizeGB),
+			[]string{
+				fmt.Sprintf("to inspect: zfs list -r %s", pool.Name),
+				"note: ZFS performance degrades significantly above 80% capacity",
+				"note: above 90%, writes may fail — free space or expand pool",
+				"to free space: zfs destroy <snapshot>  (remove old snapshots)",
+			},
+		))
+	}
+
+	// Fragmentation
+	if pool.FragPct >= 70 {
+		out = append(out, insight("WARN", "ZFS",
+			fmt.Sprintf("ZFS pool %s fragmentation at %d%% — read/write amplification likely", pool.Name, pool.FragPct),
+			[]string{
+				fmt.Sprintf("to inspect: zpool list %s", pool.Name),
+				"note: fragmentation above 70% causes significant performance degradation",
+			},
+		))
+	} else if pool.FragPct >= 50 {
+		out = append(out, insight("INFO", "ZFS",
+			fmt.Sprintf("ZFS pool %s fragmentation at %d%%", pool.Name, pool.FragPct),
+			[]string{fmt.Sprintf("to inspect: zpool list %s", pool.Name)},
+		))
+	}
+
+	// Errors — any count is worth surfacing
+	if total := pool.ReadErrors + pool.WriteErrors + pool.CksumErrors; total > 0 {
+		out = append(out, insight("CRIT", "ZFS",
+			fmt.Sprintf("ZFS pool %s has errors: %d read, %d write, %d checksum",
+				pool.Name, pool.ReadErrors, pool.WriteErrors, pool.CksumErrors),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				"note: checksum errors indicate data corruption or bad hardware",
+				"to clear counters: zpool clear <pool>  (only after fixing root cause)",
+				"to run scrub: zpool scrub <pool>",
+			},
+		))
+	}
+
+	// Scrub age — periodic scrubs detect silent corruption
+	switch {
+	case pool.ScrubAgeDays < 0:
+		out = append(out, insight("WARN", "ZFS",
+			fmt.Sprintf("ZFS pool %s has never been scrubbed — silent corruption risk", pool.Name),
+			[]string{
+				fmt.Sprintf("to run scrub: zpool scrub %s", pool.Name),
+				"note: monthly scrubs are recommended for all ZFS pools",
+				"to automate: systemctl enable zfs-scrub.timer  (if available)",
+			},
+		))
+	case pool.ScrubAgeDays > 30:
+		out = append(out, insight("INFO", "ZFS",
+			fmt.Sprintf("ZFS pool %s last scrubbed %d days ago (recommended: monthly)", pool.Name, pool.ScrubAgeDays),
+			[]string{fmt.Sprintf("to run scrub: zpool scrub %s", pool.Name)},
+		))
 	}
 
 	return out
