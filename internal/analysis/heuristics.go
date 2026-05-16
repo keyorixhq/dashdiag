@@ -905,6 +905,16 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 			},
 		))
 	}
+	if logs.JournalSyncRisk {
+		out = append(out, insight("INFO", "Logs",
+			"journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost",
+			[]string{
+				"to fix: echo 'SyncIntervalSec=30s' >> /etc/systemd/journald.conf",
+				"to fix: systemctl restart systemd-journald",
+				"note:   lower sync interval increases disk I/O but ensures crash logs are preserved",
+			},
+		))
+	}
 	if logs.LogDiskUsedPct >= 90 {
 		out = append(out, insight("CRIT", "Logs",
 			fmt.Sprintf("log volume %s is %.0f%% full — journald may stop writing logs",
