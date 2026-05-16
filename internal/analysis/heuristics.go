@@ -162,6 +162,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkZFS(*d)
 		}
+	case models.LVMInfo:
+		return checkLVM(d)
+	case *models.LVMInfo:
+		if d != nil {
+			return checkLVM(*d)
+		}
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
@@ -1408,6 +1414,88 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 			fmt.Sprintf("ZFS pool %s last scrubbed %d days ago (recommended: monthly)", pool.Name, pool.ScrubAgeDays),
 			[]string{fmt.Sprintf("to run scrub: zpool scrub %s", pool.Name)},
 		))
+	}
+
+	return out
+}
+
+// checkLVM surfaces LVM health issues: thin pool exhaustion, VG free space,
+// snapshot overflow, and missing PVs. Thin pool exhaustion is the #1 silent
+// failure in Proxmox/KVM environments — VMs freeze with no warning.
+func checkLVM(l models.LVMInfo) []models.Insight {
+	var out []models.Insight
+
+	// Thin pool data and metadata usage — CRIT thresholds are tight because
+	// exhaustion happens fast and recovery requires unmounting everything.
+	for _, pool := range l.ThinPools {
+		// Data exhaustion: 80% WARN, 90% CRIT
+		if lv := levelPct(pool.DataPct, 80, 90); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("thin pool %s/%s data at %.0f%% (%.1f GB total)",
+					pool.VG, pool.Name, pool.DataPct, pool.SizeGB),
+				[]string{
+					fmt.Sprintf("to inspect: lvs %s/%s", pool.VG, pool.Name),
+					fmt.Sprintf("to extend:  lvextend -l +50%%FREE %s/%s", pool.VG, pool.Name),
+					"note: thin pool exhaustion silently freezes all VMs writing to it",
+					"note: set lvm.conf thin_pool_autoextend_threshold=80 to auto-extend",
+				},
+			))
+		}
+		// Metadata exhaustion: 50% WARN, 75% CRIT (much more dangerous than data)
+		// Metadata exhaustion cannot be easily recovered and requires pool deactivation.
+		if lv := levelPct(pool.MetaPct, 50, 75); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("thin pool %s/%s metadata at %.0f%% — metadata exhaustion is unrecoverable without deactivation",
+					pool.VG, pool.Name, pool.MetaPct),
+				[]string{
+					fmt.Sprintf("to inspect: lvs %s/%s", pool.VG, pool.Name),
+					fmt.Sprintf("to extend:  lvextend --poolmetadatasize +1G %s/%s", pool.VG, pool.Name),
+					"note: metadata exhaustion is worse than data exhaustion — act immediately",
+				},
+			))
+		}
+	}
+
+	// VG free space — below 10% means no room to extend LVs or create snapshots
+	for _, vg := range l.VGs {
+		if lv := levelPct(100-vg.FreePct, 90, 98); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
+					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),
+				[]string{
+					fmt.Sprintf("to inspect: vgs %s", vg.Name),
+					fmt.Sprintf("to inspect: pvs | grep %s", vg.Name),
+					"to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>",
+				},
+			))
+		}
+		// Missing PVs — a PV has been removed or failed
+		if vg.MissingPVs > 0 {
+			out = append(out, insight("CRIT", "LVM",
+				fmt.Sprintf("volume group %s has %d missing PV(s) — data at risk",
+					vg.Name, vg.MissingPVs),
+				[]string{
+					fmt.Sprintf("to inspect: pvs | grep %s", vg.Name),
+					fmt.Sprintf("to inspect: vgreduce --removemissing %s  (removes missing PVs)", vg.Name),
+					"note: missing PVs mean LVs on that device are inaccessible",
+				},
+			))
+		}
+	}
+
+	// Snapshots — COW table overflow corrupts the snapshot
+	for _, snap := range l.Snapshots {
+		if lv := levelPct(snap.DataPct, 80, 95); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("snapshot %s/%s is %.0f%% full — overflow will corrupt the snapshot",
+					snap.VG, snap.Name, snap.DataPct),
+				[]string{
+					fmt.Sprintf("to inspect: lvs %s/%s", snap.VG, snap.Name),
+					fmt.Sprintf("to extend:  lvextend -L +1G %s/%s", snap.VG, snap.Name),
+					fmt.Sprintf("to remove:  lvremove %s/%s  (if snapshot is no longer needed)", snap.VG, snap.Name),
+				},
+			))
+		}
 	}
 
 	return out
