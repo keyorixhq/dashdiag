@@ -12239,3 +12239,67 @@ The product is already strong enough. The question is ambition, not capability.
 - [ ] Add Oracle Linux to planned validation list
 - [ ] Document SATA drive validation plan (Proxmox + MacBook)
 
+
+
+---
+
+## 36. Privacy Decisions — 2026-05-16
+
+See `PRIVACY.md` in the repo root for the full policy.
+
+### Core principle
+
+**dsd reads your system. It tells you what it found. Nothing leaves the machine.**
+
+No telemetry. No cloud. No account. No network calls.
+
+### Decisions locked in
+
+| Decision | Status | Notes |
+|----------|--------|-------|
+| Zero telemetry | ✅ Permanent | No analytics, no crash reporting, no phone-home |
+| No account required | ✅ Permanent | dsd works without registration |
+| State file is local only | ✅ Permanent | `~/.config/dsd/state.json` never uploaded |
+| `--report` writes local file only | ✅ Permanent | Admin chooses if/how to share |
+| Air-gap compatible | ✅ Permanent | Works identically on disconnected networks |
+
+### `--share` — not yet implemented, privacy decisions pre-locked
+
+When built, `--share` must follow these rules (non-negotiable):
+
+1. **Explicit consent prompt** before any upload — show what will be shared
+2. **Redaction by default** — hostname, IPs, MACs stripped before upload
+   Opt-in: `--share --include-identity`
+3. **Link expiry** — 24h default, max 7 days, no permanent pastes
+4. **No account required** — anonymous upload
+5. **EU data residency** — GDPR compliant storage
+6. **`--report` always remains the zero-network alternative**
+
+Any implementation of `--share` that violates these rules must be rejected.
+
+### NPS / feedback
+
+The interactive NPS prompt was removed (2026-05-16) — no backend to receive scores,
+breaks non-interactive use, alarming on production servers.
+
+Future feedback mechanism: opt-in only via `dsd config set feedback on`.
+Never automatic. Requires a webhook/email endpoint first.
+
+### What `--report` contains (treat as sensitive)
+
+- Hostname, kernel version, distro
+- Pending CVEs and advisory IDs
+- Open ports and owning processes
+- Package versions
+- SMART drive data
+- Usernames in sudoers
+- AppArmor/SELinux profile names
+
+Admins should treat `--report` output as an attack surface map.
+Do not share publicly without reviewing contents.
+
+### Reference
+
+- Full policy: `PRIVACY.md`
+- Security model: `SECURITY.md`
+- Backlog item: `--share` implementation requires privacy review before any code is written
