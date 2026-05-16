@@ -12491,3 +12491,158 @@ ssh andrei@192.168.1.145 'sudo cp /tmp/dsd /usr/local/bin/dsd'
 - Oracle Linux is on a separate network (192.168.1.x) — accessible directly
 - All three features work without lab network — use Oracle Linux for SELinux,
   MacBook Air for boot slowness if lab is unavailable
+
+---
+
+## 39. The Operability Reframe — DashDiag Brand Positioning
+
+**Date:** 2026-05-16  
+**Origin:** Research conclusion + UnpackOps brand origin story
+
+---
+
+### The insight
+
+The research conclusion said it better than any internal brief:
+
+> *"The Linux diagnostics landscape is technically rich but experientially poor.
+> The distributions that solve this — by making security subsystems observable,
+> audible, and guided — will win enterprise adoption not because they are more
+> secure, but because they are more operable."*
+
+This is the problem DashDiag was built to solve. And it maps exactly to the
+UnpackOps origin story: ExplainOps → UnpackOps → DashDiag.
+
+---
+
+### The four pillars
+
+These are not marketing words. They are the exact capabilities dsd implements:
+
+**Observable** — you can see what's happening
+- Inline data on every OK row (memory GB, disk %, NIC speed)
+- AVC samples shown inline — no manual grep
+- Journal size, boot time, slow units surfaced automatically
+- `--diff` shows what changed since last check
+
+**Audible** — silent failures are surfaced
+- journald volatile storage WARN (logs lost on reboot — nobody told you)
+- SELinux dontaudit suppression INFO (denials hidden by design)
+- SELinux silent denial surfaced with AVC context
+- Boot slowness analysis — `systemd-analyze blame` tells you which is slow,
+  dsd tells you what to do next
+- SUSE migration risk WARN — grub2 not locked before zypper migration
+
+**Guided** — you know what to do next
+- Boolean-first SELinux fix order (booleans → context → audit2allow)
+- Fix commands on every WARN and CRIT
+- Distro-aware commands (dnf vs apt vs zypper)
+- SELinux double-layer hint when unit fails — check AVC before giving up
+- SUSE grub lock command included inline
+
+**Operable** — the system works for the admin, not against them
+- 1.8 seconds vs 74+ manual commands
+- Works on 19+ distros without reconfiguration
+- LXC container awareness — no false positives from host sensors
+- Air-gap compatible — zero network calls
+- No agent, no daemon, no account
+
+---
+
+### How this changes messaging
+
+**Before (feature-led):**
+> "74 commands vs 1"
+> "21 checks in 1.8 seconds"
+
+**After (operability-led):**
+> "Linux is technically rich but experientially poor.
+> DashDiag makes it operable."
+
+The 74 commands story stays — but as *evidence* of the operability problem,
+not the headline. The headline is the problem and the promise.
+
+---
+
+### The UnpackOps connection
+
+ExplainOps → UnpackOps → DashDiag is a straight line:
+
+- **ExplainOps** (original name): explain what the system is doing
+- **UnpackOps** (brand): unpack the opaque — make the invisible visible
+- **DashDiag** (product): the diagnostic layer that does it in practice
+
+DashDiag's `--json` output is the connective tissue of the UnpackOps platform:
+- dsd diagnoses the Linux system
+- Keyorix manages the secrets on that system
+- The RCA platform correlates what went wrong
+- Gauge (FinOps) tracks what it costs
+
+All four products share the same philosophy: systems should be observable,
+audible, guided, and operable. DashDiag is the proof of concept.
+
+---
+
+### Landing page headline options (operability-led)
+
+```
+Linux is technically rich. Operationally poor.
+DashDiag fixes the experience.
+
+---
+
+Your system knows what's wrong.
+It just doesn't tell you.
+DashDiag does.
+
+---
+
+Observable. Audible. Guided.
+One command. Every Linux distro.
+
+---
+
+Make Linux operable.
+dsd health
+```
+
+---
+
+### The positioning statement (internal)
+
+DashDiag is an operability layer for Linux — making security subsystems
+observable, surfacing silent failures as audible signals, and guiding
+administrators to the right fix without tribal knowledge.
+
+Not a monitoring tool. Not a log aggregator. Not an agent.
+A single command that makes the system explain itself.
+
+---
+
+### How to use this in conversations
+
+**With sysadmins:**
+"You know the system is doing something. dsd tells you what."
+
+**With DevOps/SRE:**
+"Observability for your application stack, operability for the Linux underneath it."
+
+**With CISOs/security buyers:**
+"SELinux is a triumph of security engineering and a failure of user experience.
+dsd fixes the UX without touching the security model."
+
+**With MSPs:**
+"Your clients' servers are opaque to them. dsd makes them readable — to you
+and to them."
+
+**With enterprises (air-gap/RHEL):**
+"The distributions that win enterprise adoption will be the ones that are
+more operable, not just more secure. dsd is that layer."
+
+---
+
+### Reference
+
+- Research quote source: Deep Research Analysis: Linux Diagnostics & Troubleshooting Pain Points
+- UnpackOps brand origin: §26 (Platform Vision)
+- DashDiag --json as platform API: §26b
