@@ -253,6 +253,9 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	}
 
 	thresh := analysis.DefaultThresholds(cloudEnv)
+	if ctrCtx.InContainer {
+		analysis.ApplyContainerThresholds(&thresh)
+	}
 	thresh = analysis.ApplyPolicy(thresh, policy)
 	insights := analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx)
 	if !terse {
