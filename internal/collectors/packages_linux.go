@@ -424,6 +424,12 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 		info.StatusReason = "no security repository configured — add openSUSE security or SLES update repo"
 	}
 
+	// SUSE pre-migration risk check — warn about packages known to cause
+	// boot failures during zypper migration between service packs.
+	// Research finding: "zypper migration can brick systems if grub2-x86_64-efi
+	// package is not locked beforehand" — this is a real and common data loss scenario.
+	info.SUSEMigrationRisks = checkSUSEMigrationRisks(ctx)
+
 	return info, nil
 }
 
@@ -467,4 +473,68 @@ func dnfHasUpdateRepo(ctx context.Context) bool {
 		}
 	}
 	return lines > 0
+}
+
+// checkSUSEMigrationRisks checks for packages known to cause boot failures
+// during zypper migration between SLES service packs. Returns a list of
+// risk descriptions with fix commands — empty if no risks detected.
+//
+// Known boot-breaking migration scenarios (from SUSE support):
+//  1. grub2-x86_64-efi — if this gets upgraded during migration on EFI systems
+//     without first locking it, grub configuration can become inconsistent.
+//  2. Unregistered system — zypper migration requires SUSEConnect registration;
+//     migrating without it leaves repos in a broken state.
+//  3. Pending reboots — migrating with unapplied kernel patches compounds risk.
+func checkSUSEMigrationRisks(ctx context.Context) []string {
+	var risks []string
+
+	// Check 1: grub2-x86_64-efi version lock
+	// If the package exists and is NOT locked, migration can overwrite grub config
+	grubOut, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+		"search", "--installed-only", "grub2-x86_64-efi")
+	if err == nil && strings.Contains(grubOut, "grub2-x86_64-efi") {
+		// Check if it's locked
+		lockOut, _ := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "locks")
+		if !strings.Contains(lockOut, "grub2-x86_64-efi") {
+			risks = append(risks,
+				"grub2-x86_64-efi is installed but NOT locked — migration may overwrite grub config and break boot",
+			)
+		}
+	}
+
+	// Check 2: SUSEConnect registration health
+	statusOut, err := runCmd(ctx, "SUSEConnect", "--status")
+	if err == nil {
+		lower := strings.ToLower(statusOut)
+		if strings.Contains(lower, "not registered") || strings.Contains(lower, "expired") {
+			risks = append(risks,
+				"system is not registered with SUSE — zypper migration requires valid registration",
+			)
+		}
+	}
+
+	// Check 3: Pending reboot (kernel update applied but not rebooted)
+	// If /boot has a newer kernel than the running one, a reboot is pending
+	runningKernel, _ := runCmd(ctx, "uname", "-r")
+	runningKernel = strings.TrimSpace(runningKernel)
+	bootOut, _ := runCmd(ctx, "ls", "/boot")
+	if runningKernel != "" && bootOut != "" {
+		newerKernelFound := false
+		for _, line := range strings.Split(bootOut, "\n") {
+			if strings.HasPrefix(line, "vmlinuz-") {
+				installedKernel := strings.TrimPrefix(line, "vmlinuz-")
+				if installedKernel != runningKernel && installedKernel > runningKernel {
+					newerKernelFound = true
+					break
+				}
+			}
+		}
+		if newerKernelFound {
+			risks = append(risks,
+				"newer kernel installed but not yet booted — reboot before running zypper migration",
+			)
+		}
+	}
+
+	return risks
 }

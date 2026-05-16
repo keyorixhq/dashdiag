@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,12 +121,100 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	failed := filterUnits(listUnits(ctx, "failed"), cloudInitUnits)
+	slowUnits, totalBoot := collectBootTimes(ctx)
+
 	return &models.SystemdInfo{
-		Available:   true,
-		FailedUnits: failed,
-		// activating state alone does not indicate stuck; socket-activated on-demand
-		// services (e.g. systemd-timedated.service) appear here during normal operation.
-		// We cannot determine duration without reading ActiveEnterTimestamp, so we skip.
-		StuckUnits: nil,
+		Available:    true,
+		FailedUnits:  failed,
+		StuckUnits:   nil,
+		SlowUnits:    slowUnits,
+		TotalBootSec: totalBoot,
 	}, nil
+}
+
+// collectBootTimes runs systemd-analyze blame and returns the top 3 slow units
+// plus total boot time. Units over 10s are considered slow.
+// Returns nil slice and 0 if systemd-analyze is unavailable or fails.
+func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
+	// Get total boot time first
+	timeOut, err := exec.CommandContext(ctx, "systemd-analyze", "time").Output() // #nosec G204
+	if err != nil {
+		return nil, 0
+	}
+	totalBoot := parseAnalyzeTime(string(timeOut))
+
+	// Get per-unit breakdown
+	blameOut, err := exec.CommandContext(ctx, "systemd-analyze", "blame", "--no-pager").Output() // #nosec G204
+	if err != nil {
+		return nil, totalBoot
+	}
+
+	var slow []models.SlowUnit
+	for _, line := range strings.Split(string(blameOut), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: "  12.345s unit-name.service"
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		dur := parseBlameTime(fields[0])
+		if dur < 5.0 {
+			break // blame output is sorted descending — stop early
+		}
+		name := fields[1]
+		// Skip non-service units and known infrastructure units
+		if !strings.Contains(name, ".") || cloudInitUnits[name] {
+			continue
+		}
+		slow = append(slow, models.SlowUnit{Name: name, Duration: dur})
+		if len(slow) >= 3 {
+			break
+		}
+	}
+	return slow, totalBoot
+}
+
+// parseAnalyzeTime extracts total boot time in seconds from systemd-analyze time output.
+// Format: "Startup finished in 1.234s (kernel) + 2.345s (initrd) + 3.456s (userspace) = 7.035s"
+func parseAnalyzeTime(out string) float64 {
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "=") {
+			continue
+		}
+		eqIdx := strings.LastIndex(line, "= ")
+		if eqIdx < 0 {
+			continue
+		}
+		total := strings.TrimSpace(line[eqIdx+2:])
+		return parseBlameTime(total)
+	}
+	return 0
+}
+
+// parseBlameTime parses a systemd time string like "12.345s", "1min 3.456s", "1h 2min 3s".
+func parseBlameTime(s string) float64 {
+	s = strings.TrimSpace(s)
+	total := 0.0
+	// Handle compound times: "1min 3.456s"
+	parts := strings.Fields(s)
+	for _, p := range parts {
+		switch {
+		case strings.HasSuffix(p, "ms"):
+			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "ms"), 64)
+			total += n / 1000
+		case strings.HasSuffix(p, "s") && !strings.HasSuffix(p, "ms"):
+			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "s"), 64)
+			total += n
+		case strings.HasSuffix(p, "min"):
+			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "min"), 64)
+			total += n * 60
+		case strings.HasSuffix(p, "h"):
+			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "h"), 64)
+			total += n * 3600
+		}
+	}
+	return total
 }

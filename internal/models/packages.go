@@ -16,6 +16,8 @@ type PackagesInfo struct {
 	Updates          []PackageUpdate `json:"updates,omitempty"`
 	PackageManager   string          `json:"package_manager"` // dnf, apt, zypper, brew
 	HasSecurityRepo  bool            `json:"has_security_repo,omitempty"`
-	Status           string          `json:"status,omitempty"`
-	StatusReason     string          `json:"status_reason,omitempty"`
+	// SUSE pre-migration risk — packages known to cause boot failures during zypper migration
+	SUSEMigrationRisks []string `json:"suse_migration_risks,omitempty"`
+	Status             string   `json:"status,omitempty"`
+	StatusReason       string   `json:"status_reason,omitempty"`
 }
