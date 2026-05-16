@@ -12646,3 +12646,96 @@ more operable, not just more secure. dsd is that layer."
 - Research quote source: Deep Research Analysis: Linux Diagnostics & Troubleshooting Pain Points
 - UnpackOps brand origin: §26 (Platform Vision)
 - DashDiag --json as platform API: §26b
+
+---
+
+## 39b. The Operability Scope — Beyond Linux
+
+**Date:** 2026-05-16  
+**Decision:** The four pillars are OS-agnostic. DashDiag's mission is to
+make *systems* observable, audible, guided, and operable — not just Linux.
+
+---
+
+### Current state
+
+| Platform | Status |
+|----------|--------|
+| Linux (19+ distros) | ✅ Production validated |
+| macOS | ✅ Validated (arm64 + Intel) |
+| Windows | 🔲 Future — not started |
+
+### Why the pillars are OS-agnostic
+
+Observable, Audible, Guided, Operable — none of these words say "Linux".
+
+Every operating system has the same fundamental problem:
+- Systems know what's wrong but don't tell you clearly
+- Diagnostic information is scattered across dozens of tools
+- Silent failures waste hours of admin time
+- Fix commands require tribal knowledge
+
+Windows has this problem. macOS has this problem.
+Linux just has it worst because it's the most complex and fragmented.
+
+DashDiag starts on Linux because that's where the pain is deepest and the
+audience is most receptive. But the mission is broader.
+
+### The positioning statement (updated)
+
+**Before:**
+"DashDiag is an operability layer for Linux"
+
+**Now:**
+"DashDiag is an operability layer for systems"
+
+The qualifier "Linux" is removed from the mission. It stays in the
+marketing copy where it's accurate (the current product is Linux-first),
+but the *vision* is OS-agnostic.
+
+### Feature evaluation rule (updated)
+
+Every future feature should be evaluated:
+> Does it make *systems* more observable, audible, guided, or operable?
+
+Not "Linux systems". Systems. This keeps the door open for:
+- Windows support (Event Viewer, WMI, Windows Defender, NTFS)
+- macOS deepening (launchd, Spotlight, macOS Security)
+- Container-native mode (no assumption of host OS)
+- Network devices (switches, routers — same four pillars apply)
+
+### Windows — when and how
+
+Windows is not a short-term priority. The audience is Linux/macOS admins.
+But the architecture supports it — the collector/analysis/render pipeline
+is OS-abstracted by design. `platform/windows.go` would follow the same
+pattern as `platform/linux.go` and `platform/macos.go`.
+
+When to start Windows:
+- After the landing page is live
+- After the first paying customers
+- After fleet management (`dsd fleet`) is production-ready on Linux
+- Signal: Windows admins asking for it
+
+### What to say publicly (now)
+
+"dsd works on Linux and macOS. Windows support is on the roadmap."
+
+Don't promise a date. Don't overstate Windows capability. Just make clear
+the vision is cross-platform and the door is open.
+
+### What this means for marketing
+
+- Replace "make Linux operable" with "make systems operable" in evergreen copy
+- Keep "Linux" in specific product claims (19+ distros, etc.)
+- In investor/partner conversations: "we start with Linux because that's
+  where the pain is deepest, but the four pillars apply to every OS"
+
+### The UnpackOps connection (reinforced)
+
+UnpackOps is not a Linux company. It's an operability company.
+DashDiag happens to start with Linux because that's where the problem
+is most acute. The platform vision — Keyorix, RCA, Gauge — is already
+cross-platform by design.
+
+The four pillars are the brand. The OS is the starting point.

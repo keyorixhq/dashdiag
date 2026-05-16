@@ -221,3 +221,80 @@ that makes Linux systems explain themselves. Every other UnpackOps product
 systems should be observable, audible, guided, and operable.
 
 DashDiag proves it works on the hardest substrate: bare Linux.
+
+---
+
+## OS-Agnostic Expansion (added 2026-05-16)
+
+### The updated positioning
+
+The four pillars — Observable, Audible, Guided, Operable — say nothing
+about Linux. They apply to every operating system.
+
+**Updated mission:**
+"DashDiag makes *systems* observable, audible, guided, and operable."
+
+Not "Linux systems". Systems.
+
+### What to say in different contexts
+
+**Landing page (honest about current state):**
+```
+Works on Linux and macOS today.
+Windows on the roadmap.
+
+Observable. Audible. Guided. Operable.
+Whatever the OS.
+```
+
+**LinkedIn / social:**
+```
+We started with Linux because that's where the pain is deepest.
+
+But systems being technically rich and experientially poor
+isn't a Linux problem. It's a systems problem.
+
+Windows admins lose hours to Event Viewer.
+macOS admins dig through Console.app.
+Linux admins grep through 74 commands.
+
+Same problem. Different syntax.
+
+DashDiag starts with Linux because that's where the tools
+are most fragmented and the community most receptive.
+But the mission is broader.
+
+Observable. Audible. Guided. Operable.
+For any system.
+
+→ dashdiag.sh
+```
+
+**Investor / partner conversations:**
+"We start with Linux because that's where the operability gap is
+largest and the audience most willing to adopt new tooling. The
+architecture is OS-agnostic by design — Windows support follows the
+same collector/analysis/render pipeline. The four pillars apply to
+every operating system."
+
+### Feature evaluation rule (OS-agnostic version)
+
+Every feature must answer:
+> Does it make **systems** more observable, audible, guided, or operable?
+
+Not "Linux systems". This keeps the roadmap open to:
+- Windows (Event Viewer, WMI, Windows Defender, PowerShell)
+- macOS deepening (launchd, Spotlight, macOS Security framework)
+- Container-native mode (OS-agnostic health checks)
+- Network devices (same four pillars, different substrate)
+
+### What NOT to say
+
+Avoid: "DashDiag is a Linux tool"
+Say: "DashDiag starts with Linux — Windows is on the roadmap"
+
+Avoid: "make Linux operable" (in evergreen copy)
+Say: "make systems operable"
+
+Keep "Linux" in: specific product claims, distro counts, validated
+hardware lists — anywhere accuracy matters more than aspiration.
