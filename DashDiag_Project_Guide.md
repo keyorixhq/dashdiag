@@ -12360,3 +12360,134 @@ single-host `dsd health`. MSPs can manage per-client fleet configs.
 - Fleet config: `~/.config/dsd/fleet.yaml`
 - Audit log: `~/.config/dsd/fleet-log.jsonl`
 - Privacy: same as single-host — zero telemetry, air-gap safe
+
+---
+
+## 38. Backlog — Demo Tasks — 2026-05-16
+
+### Feature demonstrations pending (requires lab network at 192.168.10.20)
+
+Three new features built today need real hardware validation and screenshots.
+Lab network (192.168.10.20) must be accessible.
+
+---
+
+### Task 1 — SUSE pre-migration check demo
+
+**Machine:** CT204 (openSUSE Leap 16 LXC) on Proxmox
+**Commands:**
+```bash
+ssh root@192.168.10.20
+pct exec 204 -- /usr/local/bin/dsd health
+```
+**What to look for:**
+- `Packages ⚠️ SUSE migration risk: grub2-x86_64-efi is installed but NOT locked`
+- If grub2-x86_64-efi is not installed in the LXC, the check will be clean —
+  that's also valid (LXC has no EFI). Try on a physical SUSE machine if available.
+
+**Deploy latest binary first:**
+```bash
+cd /Users/andreibeshkov/dev/dashdiag
+GOOS=linux GOARCH=amd64 go build -o dsd-linux ./cmd/dsd
+scp dsd-linux root@192.168.10.20:/tmp/dsd
+ssh root@192.168.10.20 'pct push 204 /tmp/dsd /usr/local/bin/dsd'
+```
+
+---
+
+### Task 2 — Boot slowness analysis demo
+
+**Machine:** MacBook Air 2011 (192.168.10.10) — Ubuntu 24.04, dying SSD
+**Why:** 14-year-old SSD with 794 bad sectors almost certainly has slow
+fsck/disk timeout boot units. High probability of real WARN findings.
+
+**Commands:**
+```bash
+ssh andrei@192.168.10.10         # password may have changed — check
+sudo dsd health
+```
+**What to look for:**
+- `Systemd ⚠️ slow boot unit: systemd-fsck@dev-sda1.service took XX.Xs`
+- `Systemd ⚠️ slow boot unit: dev-sda1.device took XX.Xs`
+- Or any unit > 10s shown with journalctl + systemd-analyze plot hints
+
+**Alternative:** Proxmox host (192.168.10.20) — run `dsd health` there directly.
+Proxmox hosts often have slow network-wait or storage init units.
+
+**Deploy latest binary first:**
+```bash
+scp dsd-linux andrei@192.168.10.10:/tmp/dsd
+ssh andrei@192.168.10.10 'sudo cp /tmp/dsd /usr/local/bin/dsd'
+```
+
+---
+
+### Task 3 — SELinux double-layer demo
+
+**Machine:** Oracle Linux 10.1 (192.168.1.145) — has SELinux enforcing
+**Why:** Real RHEL-family machine with SELinux enforcing by default.
+
+**Setup — create a failing service:**
+```bash
+ssh andrei@192.168.1.145
+sudo bash -c 'cat > /etc/systemd/system/dsd-demo-fail.service << EOF
+[Unit]
+Description=DashDiag SELinux demo (intentionally failing)
+
+[Service]
+ExecStart=/usr/bin/cat /etc/shadow
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target
+EOF'
+sudo systemctl daemon-reload
+sudo systemctl start dsd-demo-fail.service   # this will fail — SELinux blocks it
+```
+
+**Then run:**
+```bash
+sudo dsd health
+```
+
+**What to look for:**
+```
+❌  Systemd: unit dsd-demo-fail.service has failed
+   → to inspect: systemctl status dsd-demo-fail.service
+   → to inspect: journalctl -u dsd-demo-fail.service -n 50
+   → note: SELinux is enforcing — check AVC denials if permissions look correct
+   → to check SELinux: ausearch -m avc -ts recent -c cat
+```
+
+**Cleanup after demo:**
+```bash
+sudo systemctl disable dsd-demo-fail.service
+sudo rm /etc/systemd/system/dsd-demo-fail.service
+sudo systemctl daemon-reload
+```
+
+**Deploy latest binary first:**
+```bash
+scp dsd-linux andrei@192.168.1.145:/tmp/dsd
+ssh andrei@192.168.1.145 'sudo cp /tmp/dsd /usr/local/bin/dsd'
+```
+
+---
+
+### Screenshots needed
+
+| Feature | Machine | Expected output |
+|---------|---------|-----------------|
+| SUSE pre-migration | CT204 openSUSE LXC | `Packages ⚠️ SUSE migration risk` |
+| Boot slowness | MacBook Air / Proxmox | `Systemd ⚠️ slow boot unit: X took Xs` |
+| SELinux double-layer | Oracle Linux 192.168.1.145 | `❌ Systemd + note: SELinux enforcing` |
+
+---
+
+### Notes
+
+- Deploy commit `48686e3` binary before all demos
+- MacBook Air SSH password may have changed — may need console access
+- Oracle Linux is on a separate network (192.168.1.x) — accessible directly
+- All three features work without lab network — use Oracle Linux for SELinux,
+  MacBook Air for boot slowness if lab is unavailable
