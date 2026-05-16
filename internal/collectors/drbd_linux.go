@@ -13,9 +13,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-// DRBDCollector reads /proc/drbd to check replication state of DRBD resources.
-// Pure file read — no commands, no root required.
-// Silent no-op when /proc/drbd does not exist (DRBD not loaded).
+// DRBDCollector reads /proc/drbd to detect DRBD resource health.
+// Pure file read — no commands, no root required, zero overhead when absent.
 type DRBDCollector struct{}
 
 func NewDRBDCollector() *DRBDCollector { return &DRBDCollector{} }
@@ -28,79 +27,50 @@ func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
 
 	f, err := os.Open("/proc/drbd")
 	if err != nil {
-		// DRBD module not loaded — silent OK
+		// DRBD not loaded — silent OK
 		return info, nil
 	}
 	defer f.Close() //nolint:errcheck
 
-	info.Resources = parseDRBDProc(f)
-	return info, nil
-}
-
-// parseDRBDProc parses /proc/drbd output.
-//
-// /proc/drbd format (DRBD 8.x):
-//
-//	version: 8.4.11 (api:1/proto:86-101)
-//	GIT-hash: ...
-//
-//	 0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----
-//	    ns:0 nr:0 dw:0 dr:664 al:8 bm:0 lo:0 pe:0 ua:0 ap:0 ep:1 wo:f oos:0
-//	 1: cs:SyncTarget ro:Secondary/Primary ds:Inconsistent/UpToDate C r-----
-//	    [>..................] sync'ed:  1.4% (30652/31040)M
-//	    ns:0 nr:49152 dw:49152 dr:0 al:0 bm:0 lo:0 pe:2 ua:0 ap:0 ep:1 wo:f oos:31809536
-func parseDRBDProc(f *os.File) []models.DRBDResource {
-	var resources []models.DRBDResource
 	var current *models.DRBDResource
-
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		if trimmed == "" || strings.HasPrefix(trimmed, "version:") || strings.HasPrefix(trimmed, "GIT-hash:") {
+		// Version line: "version: 8.4.11 (api:1/proto:86-101)"
+		if strings.HasPrefix(trimmed, "version:") {
+			info.Version = strings.TrimSpace(strings.TrimPrefix(trimmed, "version:"))
 			continue
 		}
 
-		// Resource header line: " 0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----"
-		// Starts with a minor number followed by ":"
-		if len(line) > 0 && line[0] == ' ' && len(trimmed) > 2 && trimmed[1] == ':' {
+		// Resource header: " 0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----"
+		if len(trimmed) > 2 && trimmed[1] == ':' || (len(trimmed) > 3 && trimmed[2] == ':') {
 			if current != nil {
-				resources = append(resources, *current)
+				info.Resources = append(info.Resources, *current)
 			}
-			current = parseResourceHeader(trimmed)
+			current = parseDRBDResourceLine(trimmed)
 			continue
 		}
 
-		if current == nil {
-			continue
-		}
-
-		// Sync progress line: "    [>..................] sync'ed:  1.4% (30652/31040)M"
-		if strings.Contains(trimmed, "sync'ed:") {
-			current.Syncing = true
-			current.SyncPct = parseSyncPct(trimmed)
-		}
-
-		// Stats line: "    ns:0 nr:0 dw:0 ... oos:0"
-		// oos = out-of-sync kilobytes
-		if strings.Contains(trimmed, "oos:") {
-			current.OutOfSync = parseOOS(trimmed)
+		// Sync progress line: "    [=>..................] sync'ed: 12.5% (98765/102400)K"
+		if current != nil && strings.Contains(trimmed, "sync'ed:") {
+			current.SyncPct, current.SyncKBLeft = parseDRBDSyncLine(trimmed)
 		}
 	}
-
 	if current != nil {
-		resources = append(resources, *current)
+		info.Resources = append(info.Resources, *current)
 	}
-	return resources
+
+	return info, nil
 }
 
-// parseResourceHeader parses the main status line for a DRBD resource.
-// Input: "0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----"
-func parseResourceHeader(line string) *models.DRBDResource {
+// parseDRBDResourceLine parses a DRBD resource header line.
+// Format: "0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----"
+func parseDRBDResourceLine(line string) *models.DRBDResource {
 	res := &models.DRBDResource{}
 
-	// Parse minor number: "0:"
+	// Extract minor number before the first ":"
 	colonIdx := strings.IndexByte(line, ':')
 	if colonIdx > 0 {
 		res.Minor, _ = strconv.Atoi(strings.TrimSpace(line[:colonIdx]))
@@ -108,59 +78,52 @@ func parseResourceHeader(line string) *models.DRBDResource {
 
 	fields := strings.Fields(line)
 	for _, field := range fields {
-		kv := strings.SplitN(field, ":", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		key, val := kv[0], kv[1]
-		switch key {
-		case "cs":
-			res.ConnState = val
-		case "ro":
-			// "Primary/Secondary"
-			parts := strings.SplitN(val, "/", 2)
-			res.LocalRole = parts[0]
-			if len(parts) == 2 {
-				res.RemoteRole = parts[1]
+		switch {
+		case strings.HasPrefix(field, "cs:"):
+			res.ConnState = strings.TrimPrefix(field, "cs:")
+		case strings.HasPrefix(field, "ro:"):
+			roles := strings.Split(strings.TrimPrefix(field, "ro:"), "/")
+			if len(roles) >= 1 {
+				res.LocalRole = roles[0]
 			}
-		case "ds":
-			// "UpToDate/UpToDate"
-			parts := strings.SplitN(val, "/", 2)
-			res.LocalDisk = parts[0]
-			if len(parts) == 2 {
-				res.RemoteDisk = parts[1]
+		case strings.HasPrefix(field, "ds:"):
+			disks := strings.Split(strings.TrimPrefix(field, "ds:"), "/")
+			if len(disks) >= 1 {
+				res.LocalDisk = disks[0]
+			}
+			if len(disks) >= 2 {
+				res.RemoteDisk = disks[1]
 			}
 		}
 	}
 	return res
 }
 
-// parseSyncPct extracts the sync percentage from a sync progress line.
-// Input: "[>..................] sync'ed:  1.4% (30652/31040)M"
-func parseSyncPct(line string) float64 {
-	idx := strings.Index(line, "sync'ed:")
-	if idx < 0 {
-		return 0
-	}
-	rest := strings.TrimSpace(line[idx+8:])
-	pctIdx := strings.IndexByte(rest, '%')
-	if pctIdx <= 0 {
-		return 0
-	}
-	numStr := strings.TrimSpace(rest[:pctIdx])
-	pct, _ := strconv.ParseFloat(numStr, 64)
-	return pct
-}
-
-// parseOOS extracts out-of-sync kilobytes from the stats line.
-// Input: "ns:0 nr:49152 dw:49152 dr:0 ... oos:31809536"
-func parseOOS(line string) int64 {
-	for _, field := range strings.Fields(line) {
-		if strings.HasPrefix(field, "oos:") {
-			val := strings.TrimPrefix(field, "oos:")
-			n, _ := strconv.ParseInt(val, 10, 64)
-			return n
+// parseDRBDSyncLine extracts sync percentage and KB remaining from:
+// "[=>..................] sync'ed: 12.5% (98765/102400)K"
+func parseDRBDSyncLine(line string) (pct float64, kbLeft int64) {
+	// Find "sync'ed: N%"
+	syncIdx := strings.Index(line, "sync'ed:")
+	if syncIdx >= 0 {
+		rest := strings.TrimSpace(line[syncIdx+8:])
+		pctIdx := strings.Index(rest, "%")
+		if pctIdx > 0 {
+			pct, _ = strconv.ParseFloat(strings.TrimSpace(rest[:pctIdx]), 64)
 		}
 	}
-	return 0
+	// Find KB remaining in "(.../....)K" — first number is remaining
+	openParen := strings.Index(line, "(")
+	closeParen := strings.Index(line, ")")
+	if openParen >= 0 && closeParen > openParen {
+		inner := line[openParen+1 : closeParen]
+		// Remove trailing K if present
+		inner = strings.TrimSuffix(inner, "K")
+		parts := strings.Split(inner, "/")
+		if len(parts) >= 1 {
+			// Remove commas from numbers like "98,765"
+			numStr := strings.ReplaceAll(parts[0], ",", "")
+			kbLeft, _ = strconv.ParseInt(strings.TrimSpace(numStr), 10, 64)
+		}
+	}
+	return pct, kbLeft
 }

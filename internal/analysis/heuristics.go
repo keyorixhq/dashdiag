@@ -1511,96 +1511,119 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 // disk state degradation, and sync progress. DRBD is used in Pacemaker/
 // Corosync clusters — a split brain or disconnection means the HA layer
 // is no longer protecting against node failure.
+// checkDRBD surfaces DRBD resource health issues: split-brain, disconnected
+// peer, inconsistent disk, and sync progress.
+// DRBD is commonly used in Pacemaker/Corosync clusters for block device HA.
 func checkDRBD(d models.DRBDInfo) []models.Insight {
-	var out []models.Insight
+	out := make([]models.Insight, 0, len(d.Resources))
 	for _, res := range d.Resources {
-		minor := fmt.Sprintf("drbd%d", res.Minor)
-
-		// Split brain — both nodes have diverged writes. This is the worst DRBD state.
-		// Data on one or both nodes may be permanently inconsistent.
-		if res.ConnState == "SplitBrain" {
-			out = append(out, insight("CRIT", "DRBD",
-				fmt.Sprintf("%s SPLIT BRAIN detected — both nodes have diverged, manual resolution required", minor),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					"to resolve (discard secondary): drbdadm secondary <res>; drbdadm connect --discard-my-data <res>",
-					"to resolve (on primary node): drbdadm connect <res>",
-					"note: decide WHICH node has the correct data before resolving",
-					"note: the discarded node loses all writes made during split brain",
-				},
-			))
-			continue // no point reporting other states when split brain is active
-		}
-
-		// Connection state — anything not Connected means replication is broken
-		if res.ConnState != "Connected" && res.ConnState != "SyncTarget" && res.ConnState != "SyncSource" {
-			out = append(out, insight("CRIT", "DRBD",
-				fmt.Sprintf("%s connection state: %s — replication is not active", minor, res.ConnState),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					"to inspect: dmesg | grep -i drbd",
-					fmt.Sprintf("to reconnect: drbdadm connect %s", minor),
-					"note: while disconnected, the cluster has no storage redundancy",
-				},
-			))
-		}
-
-		// Local disk state — anything not UpToDate means this node's data is stale or failed
-		switch res.LocalDisk {
-		case "Failed":
-			out = append(out, insight("CRIT", "DRBD",
-				fmt.Sprintf("%s local disk state: FAILED — this node's backing device has failed", minor),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					"to inspect: dmesg | grep -i 'drbd\\|disk error'",
-					"note: the backing disk has I/O errors — replace hardware before reattaching",
-				},
-			))
-		case "Inconsistent":
-			if !res.Syncing {
-				// Inconsistent and NOT syncing — stale data, replication broken
-				out = append(out, insight("CRIT", "DRBD",
-					fmt.Sprintf("%s local disk: Inconsistent — data is stale and not syncing", minor),
-					[]string{
-						fmt.Sprintf("to inspect: drbdadm status %s", minor),
-						fmt.Sprintf("to resync: drbdadm invalidate %s", minor),
-					},
-				))
-			}
-		case "Outdated":
-			out = append(out, insight("WARN", "DRBD",
-				fmt.Sprintf("%s local disk: Outdated — node was disconnected and missed writes", minor),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					fmt.Sprintf("to resync: drbdadm connect %s  (triggers resync automatically)", minor),
-				},
-			))
-		}
-
-		// Remote disk state — remote being Inconsistent/Outdated means peer data is stale
-		if res.RemoteDisk == "Failed" {
-			out = append(out, insight("CRIT", "DRBD",
-				fmt.Sprintf("%s remote disk state: FAILED — peer node's backing device has failed", minor),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					"note: the peer node has a disk failure — the cluster is running without redundancy",
-				},
-			))
-		}
-
-		// Sync in progress — informational, but show progress so admin knows what's happening
-		if res.Syncing && res.SyncPct < 100 {
-			oosGB := float64(res.OutOfSync) / (1024 * 1024)
-			out = append(out, insight("INFO", "DRBD",
-				fmt.Sprintf("%s resyncing — %.1f%% complete (%.1f GB remaining)",
-					minor, res.SyncPct, oosGB),
-				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", minor),
-					"note: avoid node failure during resync — no redundancy until sync completes",
-				},
-			))
-		}
+		out = append(out, checkDRBDResource(res)...)
 	}
+	return out
+}
+
+// checkDRBDResource checks a single DRBD resource.
+func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funlen // flat list of independent DRBD state checks
+	var out []models.Insight
+	name := fmt.Sprintf("drbd%d", res.Minor)
+
+	// Connection state — the most critical signal
+	switch res.ConnState {
+	case "SplitBrain":
+		// Split-brain: both nodes diverged and have different data.
+		// This requires manual resolution — data loss is possible.
+		out = append(out, insight("CRIT", "DRBD",
+			fmt.Sprintf("%s: SPLIT-BRAIN detected — both nodes have diverged, manual resolution required", name),
+			[]string{
+				"note: split-brain means both nodes accepted conflicting writes",
+				"to resolve (discard secondary): drbdadm secondary <resource>",
+				"to resolve (discard secondary): drbdadm disconnect <resource>",
+				"to resolve (discard secondary): drbdadm -- --discard-my-data connect <resource>",
+				"to resolve (on primary):         drbdadm connect <resource>",
+				"warning: always decide which node has authoritative data first",
+			},
+		))
+	case "StandAlone":
+		// StandAlone: not connected to peer, operating without replication.
+		out = append(out, insight("CRIT", "DRBD",
+			fmt.Sprintf("%s: STANDALONE — not connected to peer, no replication active", name),
+			[]string{
+				"to inspect: cat /proc/drbd",
+				fmt.Sprintf("to reconnect: drbdadm connect %s", name),
+				"note: data is not being replicated — single point of failure",
+			},
+		))
+	case "WFConnection":
+		// Waiting for connection — peer may be down or network issue
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: waiting for peer connection (WFConnection) — peer may be down", name),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: ping <peer-ip>",
+				"to inspect: dmesg | grep -i drbd",
+			},
+		))
+	case "Disconnecting":
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: disconnecting from peer", name),
+			[]string{fmt.Sprintf("to inspect: drbdadm status %s", name)},
+		))
+	case "SyncSource", "SyncTarget":
+		// Syncing — degraded but recoverable. Show progress.
+		msg := fmt.Sprintf("%s: syncing (%.1f%% complete", name, res.SyncPct)
+		if res.SyncKBLeft > 0 {
+			msg += fmt.Sprintf(", %d MB remaining", res.SyncKBLeft/1024)
+		}
+		msg += ")"
+		out = append(out, insight("INFO", "DRBD", msg,
+			[]string{
+				"to monitor: watch -n2 cat /proc/drbd",
+				"note: do not restart the cluster until sync completes",
+			},
+		))
+	}
+
+	// Disk state — local disk health
+	switch res.LocalDisk {
+	case "Failed":
+		out = append(out, insight("CRIT", "DRBD",
+			fmt.Sprintf("%s: local disk state FAILED — underlying device has errors", name),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: dmesg | grep -E 'drbd|sda|sdb|nvme'",
+				"to inspect: smartctl -a /dev/<underlying-device>",
+			},
+		))
+	case "Detached":
+		out = append(out, insight("CRIT", "DRBD",
+			fmt.Sprintf("%s: local disk DETACHED — DRBD is not connected to underlying block device", name),
+			[]string{
+				fmt.Sprintf("to reattach: drbdadm attach %s", name),
+				fmt.Sprintf("to inspect:  drbdadm status %s", name),
+			},
+		))
+	case "Inconsistent":
+		// Inconsistent during sync is normal — flag only if not syncing
+		if res.ConnState != "SyncSource" && res.ConnState != "SyncTarget" {
+			out = append(out, insight("CRIT", "DRBD",
+				fmt.Sprintf("%s: local disk INCONSISTENT and not syncing", name),
+				[]string{
+					fmt.Sprintf("to inspect: drbdadm status %s", name),
+					fmt.Sprintf("to force sync: drbdadm -- --overwrite-data-of-peer primary %s", name),
+					"warning: only use --overwrite-data-of-peer if you are certain this node has correct data",
+				},
+			))
+		}
+	case "Outdated":
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: local disk OUTDATED — peer has newer data", name),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"note: disk will sync automatically when peer connection is restored",
+			},
+		))
+	}
+
 	return out
 }
 
