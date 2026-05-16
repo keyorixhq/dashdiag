@@ -353,7 +353,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewSecurityCollector(),
 		collectors.NewSnapperCollector(),
 		collectors.NewSUSEConnectCollector(),
-		collectors.NewThermalCollector(),
+		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),
 		collectors.NewBatteryCollector(),
 		collectors.NewNVMeCollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
