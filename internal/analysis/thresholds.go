@@ -100,3 +100,16 @@ func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
 
 	return t
 }
+
+// ApplyContainerThresholds raises IO thresholds for container environments
+// where storage is shared/virtualised and higher latency is expected.
+func ApplyContainerThresholds(t *Thresholds) {
+	// LXC/Docker containers on shared LVM or overlay storage typically see
+	// 1-5ms await even when healthy — same ballpark as cloud EBS.
+	if t.IOAwaitWarnMsSSD < 5 {
+		t.IOAwaitWarnMsSSD = 5
+	}
+	if t.IOAwaitCritMsSSD < 20 {
+		t.IOAwaitCritMsSSD = 20
+	}
+}

@@ -44,6 +44,24 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers 
 		cc.InContainer = true
 	}
 
+	// LXC container detection:
+	// /run/systemd/container contains "lxc" on systemd-based LXC containers.
+	// /proc/1/environ contains container=lxc on older LXC setups.
+	if !cc.InContainer {
+		if b, err := os.ReadFile("/run/systemd/container"); err == nil {
+			if strings.TrimSpace(string(b)) == "lxc" {
+				cc.InContainer = true
+			}
+		}
+	}
+	if !cc.InContainer {
+		if b, err := os.ReadFile("/proc/1/environ"); err == nil {
+			if strings.Contains(string(b), "container=lxc") {
+				cc.InContainer = true
+			}
+		}
+	}
+
 	if !cc.InContainer && cgroupMentionsContainer() {
 		cc.InContainer = true
 	}
