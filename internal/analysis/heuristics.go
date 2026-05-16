@@ -12,8 +12,9 @@ import (
 )
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
-	// Pre-scan results to extract package manager so distro-aware checks
-	// (e.g. /boot disk hints) can show the correct fix command.
+	// Pre-scan results to extract context shared across checks.
+	// SELinux enforcing state is needed by checkSystemd to add double-layer hints.
+	selinuxEnforcing := false
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -32,6 +33,29 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 		case *models.CPUInfo:
 			if d != nil {
 				thresh.CPULoadPct = d.LoadPct
+			}
+		case models.KernelSecurityInfo:
+			if d.SELinuxPresent && d.SELinuxMode == "enforcing" {
+				selinuxEnforcing = true
+			}
+		case *models.KernelSecurityInfo:
+			if d != nil && d.SELinuxPresent && d.SELinuxMode == "enforcing" {
+				selinuxEnforcing = true
+			}
+		}
+	}
+
+	// Inject SELinux enforcing state into SystemdInfo for cross-check hints
+	for i, r := range results {
+		if r.Name == "Systemd" {
+			switch d := r.Data.(type) {
+			case *models.SystemdInfo:
+				if d != nil {
+					d.SELinuxEnforcing = selinuxEnforcing
+				}
+			case models.SystemdInfo:
+				d.SELinuxEnforcing = selinuxEnforcing
+				results[i].Data = d
 			}
 		}
 	}
@@ -595,12 +619,54 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 		)}
 	}
 	out := make([]models.Insight, 0, len(sys.FailedUnits))
+	selinuxEnforcing := sys.SELinuxEnforcing // set by ApplyThresholds pre-scan
 	for _, unit := range sys.FailedUnits {
+		hints := []string{
+			fmt.Sprintf("to inspect: systemctl status %s", unit),
+			fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit),
+		}
+		// SELinux double-layer hint — the most common invisible failure cause.
+		// Permission errors from SELinux produce no output in journalctl -u;
+		// admins check standard permissions and config and find nothing wrong.
+		if selinuxEnforcing {
+			hints = append(hints,
+				"note: SELinux is enforcing — check AVC denials if permissions look correct",
+				fmt.Sprintf("to check SELinux: ausearch -m avc -ts recent -c %s", unitBaseName(unit)),
+			)
+		}
 		out = append(out, insight("CRIT", "Systemd",
 			fmt.Sprintf("unit %s has failed", unit),
-			[]string{fmt.Sprintf("to inspect: systemctl status %s", unit), fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit)},
+			hints,
 		))
 	}
+
+	// Boot slowness — surface top slow units from systemd-analyze blame.
+	// Threshold: WARN if any unit > 10s, INFO if total boot > 30s.
+	// Research: "systemd-analyze blame tells you which is slow — not why"
+	// dsd surfaces the slow units with the next diagnostic step.
+	for _, u := range sys.SlowUnits {
+		if u.Duration >= 10 {
+			out = append(out, insight("WARN", "Systemd",
+				fmt.Sprintf("slow boot unit: %s took %.1fs", u.Name, u.Duration),
+				[]string{
+					fmt.Sprintf("to inspect: systemctl status %s", u.Name),
+					fmt.Sprintf("to inspect: journalctl -u %s -b", u.Name),
+					"to analyse:  systemd-analyze blame",
+					"to plot:     systemd-analyze plot > boot.svg",
+				},
+			))
+		}
+	}
+	if sys.TotalBootSec > 30 && len(sys.SlowUnits) == 0 {
+		out = append(out, insight("INFO", "Systemd",
+			fmt.Sprintf("total boot time %.0fs — run systemd-analyze blame to find slow units", sys.TotalBootSec),
+			[]string{
+				"to analyse: systemd-analyze blame",
+				"to plot:    systemd-analyze plot > boot.svg",
+			},
+		))
+	}
+
 	return out
 }
 
@@ -726,6 +792,20 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	}
 
 	return out
+}
+
+// unitBaseName extracts the base name from a systemd unit for use in ausearch -c.
+// e.g. "nginx.service" → "nginx", "my-app@1.service" → "my-app"
+func unitBaseName(unit string) string {
+	// Strip extension
+	if dot := strings.LastIndex(unit, "."); dot > 0 {
+		unit = unit[:dot]
+	}
+	// Strip instance from template units
+	if at := strings.LastIndex(unit, "@"); at > 0 {
+		unit = unit[:at]
+	}
+	return unit
 }
 
 // extractAVCProcessNames parses comm= fields from SELinux AVC log lines.
@@ -1643,6 +1723,21 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 			[]string{
 				"to inspect: pro security-status",
 				"to fix:     ubuntu.com/pro (free for up to 5 machines)",
+			},
+		))
+	}
+
+	// SUSE pre-migration: warn about boot-breaking package risks before zypper migration.
+	// Research finding: admins regularly brick systems during SLES service pack migration
+	// because grub2-x86_64-efi is not locked, system is unregistered, or kernel not rebooted.
+	for _, risk := range pkg.SUSEMigrationRisks {
+		out = append(out, insight("WARN", "Packages",
+			"SUSE migration risk: "+risk,
+			[]string{
+				"to lock grub:   zypper addlock grub2-x86_64-efi",
+				"to check locks: zypper locks",
+				"to register:    SUSEConnect -r <registration-code>",
+				"note: resolve before running zypper migration to avoid boot failure",
 			},
 		))
 	}
