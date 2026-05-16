@@ -12303,3 +12303,60 @@ Do not share publicly without reviewing contents.
 - Full policy: `PRIVACY.md`
 - Security model: `SECURITY.md`
 - Backlog item: `--share` implementation requires privacy review before any code is written
+
+
+---
+
+## 37. dsd fleet — Fleet Management Design — 2026-05-16
+
+See full design: `docs/fleet-design.md`
+
+### The niche
+
+"Use RHEL Satellite, which might be an overkill for our environment
+with around 20/22 VMs and 5 physical hosts"
+
+This is a real, occupiable niche. Satellite is overkill. Ansible is
+complex. dsd fleet is the answer for teams managing 5–100 Linux servers
+who need visibility and basic patch management without enterprise overhead.
+
+### What it does
+
+```
+dsd fleet health     # health check across all hosts in parallel
+dsd fleet cve        # CVE status and patch priority across fleet
+dsd fleet patch      # apply security patches with confirmation
+dsd fleet report     # markdown fleet health summary
+```
+
+### Why it wins
+
+| | Satellite | dsd fleet |
+|--|-----------|-----------|
+| Agent required | Yes | No — SSH only |
+| Setup time | Days | 30 seconds |
+| Distro support | RHEL only | All 14+ validated |
+| Cost (20 hosts) | $$$$ | €79/year Pro |
+| Air-gap | Complex | Yes |
+
+### Monetization
+
+dsd fleet is the Pro/Team tier feature — the natural upgrade from free
+single-host `dsd health`. MSPs can manage per-client fleet configs.
+
+### Build order
+
+- Sprint 5: `dsd fleet health` (read-only, parallel SSH)
+- Sprint 6: `dsd fleet cve` (aggregate CVE status)
+- Sprint 7: `dsd fleet patch` (patch management with audit log)
+- Sprint 8: reports, scheduled summaries, wizard
+
+### Key technical decisions
+
+- No agent — SSH + `dsd health --json` on each host
+- Self-copy: dsd copies itself to remote hosts if not installed
+- Goroutine pool (default 10 parallel SSH connections)
+- Reuses existing `models.HealthSnapshot` — zero new data structures
+- Fleet config: `~/.config/dsd/fleet.yaml`
+- Audit log: `~/.config/dsd/fleet-log.jsonl`
+- Privacy: same as single-host — zero telemetry, air-gap safe
