@@ -785,9 +785,20 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		}
 		return ""
 	}(); l != "" {
+		hints := []string{
+			"to inspect: ausearch -m avc -ts recent",
+			"to inspect: sealert -a /var/log/audit/audit.log",
+			"to generate fix: ausearch -m avc -ts recent | audit2allow -M mypolicy",
+			"to apply fix:    semodule -i mypolicy.pp",
+			"note: audit2allow generates a permissive policy — review before applying in production",
+		}
+		// Append AVC sample lines so admin sees exactly what was denied
+		for _, avc := range mac.SELinuxAVCSamples {
+			hints = append(hints, "sample AVC: "+avc)
+		}
 		out = append(out, insight(l, "KernelSec",
-			fmt.Sprintf("%d SELinux denials (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
-			[]string{"to inspect: ausearch -m avc -ts recent", "to inspect: sealert -a /var/log/audit/audit.log"},
+			fmt.Sprintf("%d SELinux denial(s) in the last hour (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
+			hints,
 		))
 	}
 	return out
