@@ -305,7 +305,12 @@ func checkJournalHealth(ctx context.Context, info *models.LogsInfo) {
 	// 5. Unbounded growth — no SystemMaxUse cap and journal already large.
 	info.JournalUnbounded = detectUnboundedJournal(info.JournalSizeGB)
 
-	// 6. Log disk space — check the volume where journals live.
+	// 6. Sync interval risk — high SyncIntervalSec means final log lines from
+	//    a crashing process may never be flushed to disk (Quote 6/7 from research).
+	//    Default is 5 minutes — warn if > 60 seconds on a non-volatile journal.
+	info.JournalSyncRisk = detectSyncRisk(info.JournalVolatile)
+
+	// 7. Log disk space — check the volume where journals live.
 	mount, pct := logDiskUsage()
 	info.LogDiskMount = mount
 	info.LogDiskUsedPct = pct
@@ -351,6 +356,49 @@ func detectUnboundedJournal(sizeGB float64) bool {
 	}
 	val := readJournaldConfig("SystemMaxUse")
 	return strings.TrimSpace(val) == ""
+}
+
+// detectSyncRisk returns true when SyncIntervalSec is high enough that final
+// log lines from a crashing process risk being lost. The default is 5 minutes
+// (300s) — any value > 60s on a persistent journal is a risk.
+// Volatile journals are excluded — they already lose logs on reboot anyway.
+func detectSyncRisk(volatile bool) bool {
+	if volatile {
+		return false // volatile journal already loses logs on reboot
+	}
+	val := readJournaldConfig("SyncIntervalSec")
+	val = strings.TrimSpace(val)
+	if val == "" {
+		// Default is 5 minutes — always a risk for crash scenarios
+		return true
+	}
+	// Parse value — may be plain seconds or systemd time spec (e.g. "5min")
+	secs := parseSystemdTime(val)
+	return secs > 60
+}
+
+// parseSystemdTime parses a systemd time span string into seconds.
+// Supports: plain integers (seconds), "Xs", "Xmin", "Xm", "Xh".
+func parseSystemdTime(s string) int {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if strings.HasSuffix(s, "min") {
+		n, _ := strconv.Atoi(strings.TrimSuffix(s, "min"))
+		return n * 60
+	}
+	if strings.HasSuffix(s, "m") {
+		n, _ := strconv.Atoi(strings.TrimSuffix(s, "m"))
+		return n * 60
+	}
+	if strings.HasSuffix(s, "h") {
+		n, _ := strconv.Atoi(strings.TrimSuffix(s, "h"))
+		return n * 3600
+	}
+	if strings.HasSuffix(s, "s") {
+		n, _ := strconv.Atoi(strings.TrimSuffix(s, "s"))
+		return n
+	}
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // logDiskUsage returns the mount point and used% of the filesystem containing

@@ -19,6 +19,7 @@ type LogsInfo struct {
 	JournalRateLimited    bool    `json:"journal_rate_limited,omitempty"`     // RateLimitBurst too low
 	JournalNoTextFallback bool    `json:"journal_no_text_fallback,omitempty"` // no rsyslog/syslog-ng
 	JournalUnbounded      bool    `json:"journal_unbounded,omitempty"`        // no SystemMaxUse cap
+	JournalSyncRisk       bool    `json:"journal_sync_risk,omitempty"`        // SyncIntervalSec too high, final logs may be lost
 	LogDiskUsedPct        float64 `json:"log_disk_used_pct,omitempty"`        // % used on log volume
 	LogDiskMount          string  `json:"log_disk_mount,omitempty"`           // mount point of log volume
 
