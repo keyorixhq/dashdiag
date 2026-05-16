@@ -235,6 +235,10 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 	}
 
 	sePresent, seMode, seDenials := collectSELinux(ctx)
+	var seAVCSamples []string
+	if sePresent && seDenials > 0 {
+		seAVCSamples = collectAVCSamples(3)
+	}
 	aaPresent := apparmorEnabled()
 	aaMode := ""
 	aaTotal, aaEnforce, aaComplain := 0, 0, 0
@@ -246,16 +250,56 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 	}
 
 	return &models.KernelSecurityInfo{
-		SELinuxPresent:   sePresent,
-		SELinuxMode:      seMode,
-		SELinuxDenials:   seDenials,
-		AppArmorPresent:  aaPresent,
-		AppArmorMode:     aaMode,
-		AppArmorProfiles: aaTotal,
-		AppArmorEnforce:  aaEnforce,
-		AppArmorComplain: aaComplain,
-		AppArmorDenials:  aaDenials,
+		SELinuxPresent:    sePresent,
+		SELinuxMode:       seMode,
+		SELinuxDenials:    seDenials,
+		SELinuxAVCSamples: seAVCSamples,
+		AppArmorPresent:   aaPresent,
+		AppArmorMode:      aaMode,
+		AppArmorProfiles:  aaTotal,
+		AppArmorEnforce:   aaEnforce,
+		AppArmorComplain:  aaComplain,
+		AppArmorDenials:   aaDenials,
 	}, nil
+}
+
+// collectAVCSamples reads up to n recent AVC denial lines from audit.log.
+// These are shown in dsd output so the admin can see exactly what was denied
+// and generate a fix with audit2allow without manual grepping.
+func collectAVCSamples(n int) []string {
+	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	if err != nil {
+		return nil
+	}
+	defer f.Close() //nolint:errcheck
+
+	cutoff := time.Now().Add(-1 * time.Hour)
+	var samples []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "type=AVC") {
+			continue
+		}
+		// Parse timestamp to stay within 1h window
+		idx := strings.Index(line, "msg=audit(")
+		if idx >= 0 {
+			rest := line[idx+10:]
+			dotIdx := strings.IndexByte(rest, '.')
+			if dotIdx > 0 {
+				if sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64); err == nil {
+					if !time.Unix(sec, 0).After(cutoff) {
+						continue
+					}
+				}
+			}
+		}
+		samples = append(samples, line)
+		if len(samples) >= n {
+			break
+		}
+	}
+	return samples
 }
 
 // countAVCsViaAusearch uses the ausearch binary as a fallback when
