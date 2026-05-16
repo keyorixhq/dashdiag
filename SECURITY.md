@@ -26,7 +26,7 @@ DashDiag is a **read-only local CLI tool**.
 - Reads `/proc`, `/sys`, and system files on the local machine
 - Executes read-only system commands (`timedatectl`, `systemctl show`, etc.)
 - Saves state to `~/.dsd/` (usage metrics, snapshots)
-- Optionally uploads snapshots to `dashdiag.sh` (if `--share` is used)
+- Optionally uploads snapshots to `dashdiag.sh` (if `--share` is used — not yet implemented, see PRIVACY.md)
 
 ### What DashDiag never does
 - Writes to system directories (`/etc`, `/var`, `/sys`, `/proc`)
