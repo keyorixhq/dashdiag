@@ -11,7 +11,14 @@ type LogsInfo struct {
 	KernelPanics  int      `json:"kernel_panics"`  // Kernel panic events from pstore or kmsg
 	JournalSizeGB float64  `json:"journal_size_gb"`
 	CrashLoops    []string `json:"crash_loops"`
-	NeedsRoot     bool     `json:"needs_root,omitempty"` // kmsg and auth logs require root
-	Status        string   `json:"status,omitempty"`
-	StatusReason  string   `json:"status_reason,omitempty"`
+	NeedsRoot     bool     `json:"needs_root,omitempty"`
+
+	// Journal health
+	JournalCorrupt        bool `json:"journal_corrupt,omitempty"`          // journalctl --verify failed
+	JournalVolatile       bool `json:"journal_volatile,omitempty"`         // logs lost on reboot
+	JournalRateLimited    bool `json:"journal_rate_limited,omitempty"`     // RateLimitBurst=0 disabled or very low
+	JournalNoTextFallback bool `json:"journal_no_text_fallback,omitempty"` // no rsyslog/syslog-ng
+
+	Status       string `json:"status,omitempty"`
+	StatusReason string `json:"status_reason,omitempty"`
 }

@@ -847,6 +847,54 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 			[]string{"to inspect: ls /sys/fs/pstore/", "to inspect: dmesg | grep -i panic", "to inspect: check /var/crash if kdump is enabled"},
 		))
 	}
+
+	// Journal health — silent log loss is worse than noisy logs
+	out = append(out, checkJournalHealthInsights(logs)...)
+
+	return out
+}
+
+func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
+	var out []models.Insight
+	if logs.JournalCorrupt {
+		out = append(out, insight("CRIT", "Logs",
+			"journald journal corruption detected — some logs may be unreadable or missing",
+			[]string{
+				"to inspect: journalctl --verify",
+				"to fix:     journalctl --rotate && journalctl --vacuum-time=1s",
+				"to fix:     rm /var/log/journal/*/*.journal~ (corrupted files)",
+			},
+		))
+	}
+	if logs.JournalVolatile {
+		out = append(out, insight("WARN", "Logs",
+			"journald logs are volatile — all logs lost on reboot (no /var/log/journal/)",
+			[]string{
+				"to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal",
+				"to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
+			},
+		))
+	}
+	if logs.JournalRateLimited {
+		out = append(out, insight("WARN", "Logs",
+			"journald RateLimitBurst is very low — logs may be silently dropped under load",
+			[]string{
+				"to inspect: grep RateLimit /etc/systemd/journald.conf",
+				"to fix:     echo 'RateLimitBurst=10000' >> /etc/systemd/journald.conf",
+				"to fix:     systemctl restart systemd-journald",
+			},
+		))
+	}
+	if logs.JournalNoTextFallback {
+		out = append(out, insight("INFO", "Logs",
+			"no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read",
+			[]string{
+				"to fix: apt install rsyslog  OR  dnf install rsyslog",
+				"note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails",
+				"note:   standard Unix tools (grep, tail, less) cannot read binary journal files",
+			},
+		))
+	}
 	return out
 }
 
