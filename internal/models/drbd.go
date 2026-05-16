@@ -1,17 +1,14 @@
 package models
 
-// DRBDResource represents a single DRBD replicated block device from /proc/drbd.
-// DRBD is used in Pacemaker/Corosync HA clusters for storage replication.
+// DRBDResource represents a single DRBD resource from /proc/drbd.
 type DRBDResource struct {
-	Minor      int     `json:"minor"`       // device minor number (0, 1, 2...)
-	ConnState  string  `json:"conn_state"`  // Connected, StandAlone, WFConnection, SplitBrain, etc.
-	LocalRole  string  `json:"local_role"`  // Primary, Secondary
-	RemoteRole string  `json:"remote_role"` // Primary, Secondary, Unknown
-	LocalDisk  string  `json:"local_disk"`  // UpToDate, Inconsistent, Outdated, Failed, etc.
-	RemoteDisk string  `json:"remote_disk"` // UpToDate, Inconsistent, Outdated, Unknown, etc.
-	SyncPct    float64 `json:"sync_pct"`    // sync progress % (0 when not syncing)
-	Syncing    bool    `json:"syncing"`
-	OutOfSync  int64   `json:"out_of_sync_kb"` // kilobytes out of sync
+	Minor      int     `json:"minor"`                  // resource minor number (0, 1, 2...)
+	ConnState  string  `json:"conn_state"`             // cs: Connected, StandAlone, SplitBrain, WFConnection...
+	LocalRole  string  `json:"local_role"`             // ro: Primary or Secondary
+	LocalDisk  string  `json:"local_disk"`             // ds (local): UpToDate, Inconsistent, Outdated, Failed...
+	RemoteDisk string  `json:"remote_disk"`            // ds (remote): UpToDate, Inconsistent, Outdated...
+	SyncPct    float64 `json:"sync_pct,omitempty"`     // sync progress % (populated during SyncSource/SyncTarget)
+	SyncKBLeft int64   `json:"sync_kb_left,omitempty"` // KB remaining to sync
 }
 
 // DRBDInfo holds health data for all DRBD resources on the system.
