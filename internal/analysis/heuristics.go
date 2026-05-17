@@ -2201,6 +2201,106 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		}
 	}
 
+	// ── SSH config audit — additional CIS checks ──────────────────────────
+
+	// Protocol 1 is cryptographically broken (DES, 1990s-era)
+	if sec.SSHProtocol1 {
+		out = append(out, insight("CRIT", "Hardening",
+			"SSH Protocol 1 is enabled — cryptographically broken, remove from sshd_config",
+			[]string{
+				"to fix: remove or comment out 'Protocol' line in /etc/ssh/sshd_config",
+				"note: modern OpenSSH only supports Protocol 2 — this line has no effect unless very old",
+			},
+		))
+	}
+
+	// PermitEmptyPasswords — allows login with no password at all
+	if sec.SSHPermitEmptyPwd {
+		out = append(out, insight("CRIT", "Hardening",
+			"SSH allows empty passwords — any account with no password is remotely accessible",
+			[]string{
+				"to fix: set PermitEmptyPasswords no in /etc/ssh/sshd_config",
+				"to fix: systemctl restart sshd",
+				"to audit: awk -F: '($2==\"\"){print $1}' /etc/shadow",
+			},
+		))
+	}
+
+	// StrictModes disabled — sshd won't check file permissions on ~/.ssh
+	// This allows world-writable authorized_keys to be used (privilege escalation vector)
+	if !sec.SSHStrictModes {
+		out = append(out, insight("WARN", "Hardening",
+			"SSH StrictModes disabled — sshd will not check ~/.ssh file permissions",
+			[]string{
+				"to fix: set StrictModes yes in /etc/ssh/sshd_config",
+				"note: without StrictModes, world-writable authorized_keys files are accepted",
+			},
+		))
+	}
+
+	// MaxAuthTries > 6 — too many attempts before disconnect (brute force risk)
+	// CIS benchmark recommends ≤ 4; we warn at > 6 to avoid noise on defaults
+	if sec.SSHMaxAuthTries > 6 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("SSH MaxAuthTries is %d — reduce to 4 or fewer to limit brute force attempts", sec.SSHMaxAuthTries),
+			[]string{
+				"to fix: set MaxAuthTries 4 in /etc/ssh/sshd_config",
+				"to fix: systemctl restart sshd",
+			},
+		))
+	}
+
+	// LoginGraceTime > 60s — long window for unauthenticated connections (DoS risk)
+	// Default is 120s in older OpenSSH; CIS recommends ≤ 60s
+	if sec.SSHLoginGraceTime > 60 {
+		out = append(out, insight("INFO", "Hardening",
+			fmt.Sprintf("SSH LoginGraceTime is %ds — recommend ≤60s to limit unauthenticated connection window",
+				sec.SSHLoginGraceTime),
+			[]string{
+				"to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
+				"to fix: systemctl restart sshd",
+			},
+		))
+	}
+
+	// X11Forwarding — attack surface on servers, should be off
+	if sec.SSHX11Forwarding && !sec.IsOffensiveDistro {
+		out = append(out, insight("INFO", "Hardening",
+			"SSH X11Forwarding enabled — unnecessary on servers, increases attack surface",
+			[]string{
+				"to fix: set X11Forwarding no in /etc/ssh/sshd_config",
+				"note: only needed if users require GUI applications over SSH",
+			},
+		))
+	}
+
+	// AgentForwarding — allows attackers with root on a jump host to use your keys
+	if sec.SSHAgentForwarding && !sec.IsOffensiveDistro {
+		out = append(out, insight("INFO", "Hardening",
+			"SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
+			[]string{
+				"to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
+				"note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally",
+			},
+		))
+	}
+
+	// ClientAliveInterval = 0 — no idle timeout; sessions left open indefinitely
+	if sec.SSHClientAliveInterval == 0 && !sec.IsOffensiveDistro {
+		out = append(out, insight("INFO", "Hardening",
+			"SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
+			[]string{
+				"to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
+				"to fix: set ClientAliveCountMax 3 in /etc/ssh/sshd_config",
+				"note: this disconnects idle sessions after 300s × 3 = 15 minutes",
+			},
+		))
+	}
+
+	// AllowUsers / AllowGroups — informational: good hygiene if configured
+	// No WARN — absence isn't a misconfiguration, just an opportunity to note best practice
+	// (already surfaced via password auth and root login checks)
+
 	// Failed logins
 	if sec.FailedLogins >= 20 {
 		msg := fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins)
