@@ -13015,3 +13015,43 @@ ssh root@192.168.10.20 'pct exec <CTID> -- dsd health'
 2. **Proxmox ZFS + LVM** — two demos in one SSH session
 3. **MacBook Air boot slowness** — dying SSD = likely real WARN findings
 4. **openSUSE SUSE migration** — CT204 on Proxmox
+
+---
+
+## 41. Build Backlog — Status Update (2026-05-17)
+
+Items from §35 build backlog — completed today:
+
+### ✅ Completed
+
+| Item | Commit | Notes |
+|------|--------|-------|
+| SATA heuristics wiring | already wired in checkNVMe | Was already done — confirmed |
+| AMD GPU via /sys/class/drm/ | 8e3d918 | RDNA/Polaris/Vega/Van Gogh, pure sysfs |
+| dsd health deep command | 8c02a68 | `dsd health deep` subcommand |
+| dsd net deep command | 8c02a68 | `dsd net deep` subcommand |
+| CVE exposure check | already built — cmd/cve.go | 349 lines, full implementation |
+| Clock CRIT→WARN for RTCInLocalTZ | 99b8532 | Only false-alarms on dual-boot |
+| Gateway 0.0ms display | 99b8532 | Now shows `<1 ms` for TCP fallback |
+| PVE health diagnostics | 735c989 | Subscription, quorum, HA, storage, backups |
+| ZFS pool health | 5bfa03a | DEGRADED/FAULTED/errors/capacity/scrub |
+| LVM thin pool + VG + snapshots | 34e1e86 | Thin pool exhaustion = silent VM freeze |
+| DRBD split-brain + disk state | 198aa39 | Pure /proc/drbd read |
+| Storage HA: 6 disk research items | c9b707c | NVMe/RAID/IO/cross-drive/btrfs |
+| SELinux deep diagnostics | a5fe9e5 | AVC samples, audit2allow, dontaudit |
+| Boot slowness analysis | 48686e3 | systemd-analyze blame integration |
+| SUSE pre-migration check | 48686e3 | grub lock, SUSEConnect, pending reboot |
+| SELinux double-layer hint | 48686e3 | When unit fails + SELinux enforcing |
+| Proxmox VE health | 735c989 | pvesh integration |
+
+### ❌ Remaining (genuinely unbuilt)
+
+| Item | Priority | Notes |
+|------|----------|-------|
+| CIS/STIG compliance | Post-customers | Enterprise-only; needs paying customers first |
+| Landing page dashdiag.sh | 🔴 URGENT | Blocks all revenue |
+| install.sh one-liner | 🔴 URGENT | Blocks viral growth |
+| Stripe Pro tier setup | 🔴 URGENT | Blocks first paying customer |
+| .deb / .rpm packages | High | Required for enterprise trials |
+| AMD WiFi (rtw88) | Low | Deferred — driver unreliable |
+| Oracle Linux validation | Low | Hardware download pending |
