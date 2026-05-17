@@ -619,6 +619,13 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 func checkClock(clock models.ClockInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if !clock.Synced {
+		// RTCInLocalTZ alone doesn't mean NTP is truly broken — the kernel
+		// reports unsynchronized when RTC is in local time (dual-boot Windows),
+		// but NTP may be actively syncing. Downgrade to WARN in this case.
+		level := "CRIT"
+		if clock.RTCInLocalTZ {
+			level = "WARN"
+		}
 		msg := "NTP is not synchronized"
 		hints := []string{
 			"to inspect: timedatectl status",
@@ -626,10 +633,10 @@ func checkClock(clock models.ClockInfo, thresh Thresholds) []models.Insight {
 			"to inspect: systemctl status chronyd ntpd",
 		}
 		if clock.RTCInLocalTZ {
-			msg = "NTP is not synchronized — RTC is set to local timezone (common on dual-boot with Windows)"
-			hints = append(hints, "to fix: timedatectl set-local-rtc 0 (switches RTC to UTC)")
+			msg = "RTC is in local timezone — NTP reports unsync (common on dual-boot with Windows)"
+			hints = append(hints, "to fix: timedatectl set-local-rtc 0 (switches RTC to UTC, resolves the false CRIT)")
 		}
-		out = append(out, insight("CRIT", "Clock", msg, hints))
+		out = append(out, insight(level, "Clock", msg, hints))
 	}
 	if clock.OffsetMs != -1 {
 		abs := math.Abs(clock.OffsetMs)

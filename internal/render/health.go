@@ -277,14 +277,17 @@ func diskInline(data interface{}) string {
 
 // networkInline implements Option C for multiple NICs.
 func networkInline(data interface{}) string {
-	var ifaces []models.InterfaceInfo
-	if n, ok := data.(*models.NetworkInfo); ok && n != nil {
-		ifaces = n.Interfaces
-	} else if n, ok := data.(models.NetworkInfo); ok {
-		ifaces = n.Interfaces
+	var n *models.NetworkInfo
+	if v, ok := data.(*models.NetworkInfo); ok && v != nil {
+		n = v
+	} else if v, ok := data.(models.NetworkInfo); ok {
+		n = &v
+	}
+	if n == nil {
+		return ""
 	}
 	var up []models.InterfaceInfo
-	for _, iface := range ifaces {
+	for _, iface := range n.Interfaces {
 		if iface.Up {
 			up = append(up, iface)
 		}
@@ -292,23 +295,37 @@ func networkInline(data interface{}) string {
 	if len(up) == 0 {
 		return ""
 	}
-	ifaceStr := func(n models.InterfaceInfo) string {
-		if n.SpeedMbps >= 1000 {
-			return fmt.Sprintf("%s %dGbps", n.Name, n.SpeedMbps/1000)
+	ifaceStr := func(i models.InterfaceInfo) string {
+		if i.SpeedMbps >= 1000 {
+			return fmt.Sprintf("%s %dGbps", i.Name, i.SpeedMbps/1000)
 		}
-		if n.SpeedMbps > 0 {
-			return fmt.Sprintf("%s %dMbps", n.Name, n.SpeedMbps)
+		if i.SpeedMbps > 0 {
+			return fmt.Sprintf("%s %dMbps", i.Name, i.SpeedMbps)
 		}
-		return n.Name
+		return i.Name
 	}
+	ifaceSummary := ""
 	if len(up) <= 2 {
 		var parts []string
-		for _, n := range up {
-			parts = append(parts, ifaceStr(n))
+		for _, iface := range up {
+			parts = append(parts, ifaceStr(iface))
 		}
-		return strings.Join(parts, "  ")
+		ifaceSummary = strings.Join(parts, "  ")
+	} else {
+		ifaceSummary = fmt.Sprintf("%d NICs, %s", len(up), ifaceStr(up[0]))
 	}
-	return fmt.Sprintf("%d NICs, %s", len(up), ifaceStr(up[0]))
+	// Append gateway ping if available.
+	// TCP fallback can return sub-1ms — show "<1 ms" instead of "0 ms" to
+	// avoid the confusing "0.0 ms" cosmetic issue on non-root runs.
+	if n.GatewayPingMs > 0 {
+		gw := n.GatewayPingMs
+		if gw < 1 {
+			ifaceSummary += "  gw <1 ms"
+		} else {
+			ifaceSummary += fmt.Sprintf("  gw %.0f ms", gw)
+		}
+	}
+	return ifaceSummary
 }
 
 // ioInline picks the worst await latency across all IO devices.
