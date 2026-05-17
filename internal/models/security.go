@@ -85,11 +85,12 @@ type SnapperInfo struct {
 	Error         string  `json:"error,omitempty"`
 }
 
-// SUSEConnectInfo holds SUSEConnect subscription state for dsd health.
-// Separated from SecurityInfo so the Subscription collector can route
-// independently through the runner without colliding with the Hardening check.
+// SUSEConnectInfo holds subscription state for enterprise Linux systems.
+// Covers SUSE (SUSEConnect), RHEL/Oracle/Rocky (subscription-manager),
+// and Ubuntu Pro (pro status).
 type SUSEConnectInfo struct {
+	Platform    string `json:"platform"` // "suse", "rhel", "ubuntu-pro"
 	Registered  bool   `json:"registered"`
 	ExpiresDays int    `json:"expires_days"` // -1=unknown, 0=expired, >0=days remaining
-	Status      string `json:"status"`       // ACTIVE, EXPIRED, evaluation
+	Status      string `json:"status"`       // ACTIVE, EXPIRED, evaluation, attached, detached
 }

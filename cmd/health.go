@@ -364,10 +364,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	}
 	// SUSE-specific collectors — only on SUSE/openSUSE hosts
 	if collectors.IsSUSEHost() {
-		cols = append(cols,
-			collectors.NewSnapperCollector(),
-			collectors.NewSUSEConnectCollector(),
-		)
+		cols = append(cols, collectors.NewSnapperCollector())
+	}
+	// Subscription check — any enterprise Linux with a subscription manager
+	if collectors.HasSubscriptionManager() {
+		cols = append(cols, collectors.NewSUSEConnectCollector())
 	}
 	cols = append(cols,
 		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),

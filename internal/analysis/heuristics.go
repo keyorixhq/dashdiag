@@ -2791,37 +2791,84 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 // CRIT if expired or expires <=14d, WARN if <=30d, OK otherwise.
 // Silent (no insight) when SUSEConnect is not registered — non-SLES systems.
 func checkSUSEConnect(s models.SUSEConnectInfo) []models.Insight {
+	switch s.Platform {
+	case "rhel":
+		return checkRHELSubscription(s)
+	case "ubuntu-pro":
+		return checkUbuntuPro(s)
+	default: // "suse" or legacy (empty platform field)
+		return checkSUSESubscription(s)
+	}
+}
+
+func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 	if !s.Registered {
-		return nil
+		return []models.Insight{insight("WARN", "Subscription",
+			"SUSE system is not registered — security patches unavailable without SUSEConnect",
+			[]string{
+				"to fix: SUSEConnect -r <REGCODE>",
+				"to register: https://scc.suse.com",
+			},
+		)}
 	}
-
-	status := s.Status
-	if status == "" {
-		status = "ACTIVE"
-	}
-
 	switch {
 	case s.ExpiresDays == 0:
 		return []models.Insight{insight("CRIT", "Subscription",
-			"SUSEConnect subscription EXPIRED — security patches unavailable",
+			"SUSE subscription EXPIRED — security patches unavailable",
 			[]string{"to fix: renew at https://scc.suse.com"},
 		)}
 	case s.ExpiresDays > 0 && s.ExpiresDays <= 14:
 		return []models.Insight{insight("CRIT", "Subscription",
-			fmt.Sprintf("SUSEConnect expires in %d day(s) — renew immediately", s.ExpiresDays),
+			fmt.Sprintf("SUSE subscription expires in %d day(s) — renew immediately", s.ExpiresDays),
 			[]string{"to fix: renew at https://scc.suse.com"},
 		)}
 	case s.ExpiresDays > 14 && s.ExpiresDays <= 30:
 		return []models.Insight{insight("WARN", "Subscription",
-			fmt.Sprintf("SUSEConnect expires in %d day(s)", s.ExpiresDays),
+			fmt.Sprintf("SUSE subscription expires in %d day(s)", s.ExpiresDays),
 			[]string{"to fix: renew at https://scc.suse.com"},
 		)}
 	default:
-		return []models.Insight{insight("OK", "Subscription",
-			fmt.Sprintf("SUSEConnect %s — expires in %d day(s)", status, s.ExpiresDays),
-			nil,
+		return nil // OK — no insight needed
+	}
+}
+
+func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
+	switch s.Status {
+	case "unregistered":
+		return []models.Insight{insight("WARN", "Subscription",
+			"RHEL/Oracle system is not registered — security updates may be unavailable",
+			[]string{
+				"to fix: subscription-manager register --auto-attach",
+				"to inspect: subscription-manager status",
+				"note: Rocky/AlmaLinux do not require registration",
+			},
+		)}
+	case "expired":
+		return []models.Insight{insight("CRIT", "Subscription",
+			"Red Hat subscription EXPIRED — security patches unavailable",
+			[]string{
+				"to fix: renew at https://access.redhat.com",
+				"to inspect: subscription-manager list --consumed",
+			},
+		)}
+	default:
+		return nil // current — no insight needed
+	}
+}
+
+func checkUbuntuPro(s models.SUSEConnectInfo) []models.Insight {
+	if s.Status == "detached" {
+		// Ubuntu Pro is optional — INFO not WARN (Ubuntu still works without it)
+		return []models.Insight{insight("INFO", "Subscription",
+			"Ubuntu Pro not attached — ESM security patches and Livepatch unavailable",
+			[]string{
+				"to attach: pro attach <token>  (free for up to 5 personal machines)",
+				"to get token: ubuntu.com/pro",
+				"to inspect: pro status",
+			},
 		)}
 	}
+	return nil // attached — no insight needed
 }
 
 // checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
