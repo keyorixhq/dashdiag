@@ -414,6 +414,37 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.IsMultipathPresent() {
 		cols = append(cols, collectors.NewMultipathCollector())
 	}
+	// Medium priority: Ceph, Firewall, Auth, CloudMeta, Auditd
+	if collectors.IsCephPresent() {
+		cols = append(cols, collectors.NewCephCollector())
+	}
+	cols = append(cols, collectors.NewFirewallCollector())
+	cols = append(cols, collectors.NewAuthCollector())
+	if collectors.IsCloudInstance() {
+		cols = append(cols, collectors.NewCloudMetaCollector())
+	}
+	if collectors.IsAuditdPresent() {
+		cols = append(cols, collectors.NewAuditCollector())
+	}
+	// Low priority: NUMA, VLAN, iSCSI, InfiniBand, SR-IOV, Nspawn
+	if collectors.IsNUMAPresent() {
+		cols = append(cols, collectors.NewNUMACollector())
+	}
+	if collectors.IsVLANPresent() {
+		cols = append(cols, collectors.NewVLANCollector())
+	}
+	if collectors.IsISCSIPresent() {
+		cols = append(cols, collectors.NewISCSICollector())
+	}
+	if collectors.IsInfiniBandPresent() {
+		cols = append(cols, collectors.NewInfiniBandCollector())
+	}
+	if collectors.IsSRIOVPresent() {
+		cols = append(cols, collectors.NewSRIOVCollector())
+	}
+	if collectors.IsNspawnPresent() {
+		cols = append(cols, collectors.NewNspawnCollector())
+	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())
 	}

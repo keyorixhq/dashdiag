@@ -282,6 +282,72 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkMultipath(*d)
 		}
+	case models.CephInfo:
+		return checkCeph(d)
+	case *models.CephInfo:
+		if d != nil {
+			return checkCeph(*d)
+		}
+	case models.FirewallInfo:
+		return checkFirewall(d)
+	case *models.FirewallInfo:
+		if d != nil {
+			return checkFirewall(*d)
+		}
+	case models.AuthInfo:
+		return checkAuth(d)
+	case *models.AuthInfo:
+		if d != nil {
+			return checkAuth(*d)
+		}
+	case models.CloudInfo:
+		return checkCloudMeta(d)
+	case *models.CloudInfo:
+		if d != nil {
+			return checkCloudMeta(*d)
+		}
+	case models.AuditInfo:
+		return checkAuditd(d)
+	case *models.AuditInfo:
+		if d != nil {
+			return checkAuditd(*d)
+		}
+	case models.NUMAInfo:
+		return checkNUMA(d)
+	case *models.NUMAInfo:
+		if d != nil {
+			return checkNUMA(*d)
+		}
+	case models.VLANInfo:
+		return checkVLAN(d)
+	case *models.VLANInfo:
+		if d != nil {
+			return checkVLAN(*d)
+		}
+	case models.ISCSIInfo:
+		return checkISCSI(d)
+	case *models.ISCSIInfo:
+		if d != nil {
+			return checkISCSI(*d)
+		}
+	case models.InfiniBandInfo:
+		return checkInfiniBand(d)
+	case *models.InfiniBandInfo:
+		if d != nil {
+			return checkInfiniBand(*d)
+		}
+	case models.SRIOVInfo:
+		return checkSRIOV(d)
+	case *models.SRIOVInfo:
+		if d != nil {
+			return checkSRIOV(*d)
+		}
+	case models.NspawnInfo:
+		return checkNspawn(d)
+	case *models.NspawnInfo:
+		if d != nil {
+			return checkNspawn(*d)
+		}
 	}
 	return nil
 }
@@ -3331,4 +3397,237 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 		}
 	}
 	return out
+}
+
+// ── Medium priority: Ceph, Firewall, Auth, CloudMeta, Auditd ──────────────
+// ── Low priority: NUMA, VLAN, iSCSI, InfiniBand, SR-IOV, Nspawn ──────────
+
+func checkCeph(c models.CephInfo) []models.Insight {
+	if !c.Available {
+		return nil
+	}
+	switch c.Health {
+	case "HEALTH_ERR":
+		msg := "Ceph cluster health is ERROR"
+		if len(c.Summary) > 0 {
+			msg = "Ceph: " + c.Summary[0]
+		}
+		return []models.Insight{insight("CRIT", "Ceph", msg,
+			[]string{"to inspect: ceph health detail", "to inspect: ceph osd tree"})}
+	case "HEALTH_WARN":
+		msg := "Ceph cluster health is WARN"
+		if len(c.Summary) > 0 {
+			msg = "Ceph: " + c.Summary[0]
+		}
+		return []models.Insight{insight("WARN", "Ceph", msg,
+			[]string{"to inspect: ceph health detail", "to inspect: ceph osd stat"})}
+	}
+	downOSDs := c.OSDTotal - c.OSDUp
+	if downOSDs > 0 {
+		return []models.Insight{insight("WARN", "Ceph",
+			fmt.Sprintf("%d OSD(s) down (%d/%d up)", downOSDs, c.OSDUp, c.OSDTotal),
+			[]string{"to inspect: ceph osd tree", "to inspect: ceph osd stat"})}
+	}
+	return nil
+}
+
+func checkFirewall(f models.FirewallInfo) []models.Insight {
+	if !f.Available {
+		return nil
+	}
+	if !f.Active || f.TotalRules == 0 {
+		return []models.Insight{insight("WARN", "Firewall",
+			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),
+			[]string{
+				"to inspect: iptables -L -n",
+				"to inspect: nft list ruleset",
+				"note: consider enabling ufw, firewalld, or writing iptables/nft rules",
+			})}
+	}
+	return nil
+}
+
+func checkAuth(a models.AuthInfo) []models.Insight {
+	if a.FailedLast24h == 0 {
+		return nil
+	}
+	var out []models.Insight
+	if a.FailedLast24h > 1000 {
+		hints := []string{
+			"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
+			"to inspect: lastb | head -20",
+			"to fix:     consider fail2ban or sshguard",
+		}
+		if len(a.TopSources) > 0 {
+			hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
+				a.TopSources[0].Source, a.TopSources[0].Count))
+		}
+		out = append(out, insight("WARN", "Auth",
+			fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
+			hints))
+	} else if a.FailedLast24h > 100 {
+		out = append(out, insight("INFO", "Auth",
+			fmt.Sprintf("%d failed SSH login attempts in 24h", a.FailedLast24h),
+			[]string{"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep Failed"}))
+	}
+	if a.RootAttempts > 0 {
+		out = append(out, insight("WARN", "Auth",
+			fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
+			[]string{
+				"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
+				"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
+			}))
+	}
+	return out
+}
+
+func checkCloudMeta(c models.CloudInfo) []models.Insight {
+	if !c.Available {
+		return nil
+	}
+	var out []models.Insight
+	if c.SpotTermination {
+		out = append(out, insight("CRIT", "CloudMeta",
+			fmt.Sprintf("%s spot/preemptible instance scheduled for termination — save state now", c.Provider),
+			[]string{
+				"note: instance will be terminated imminently",
+				"to inspect: check instance metadata for exact termination time",
+			}))
+	}
+	if c.MaintenanceEvent {
+		out = append(out, insight("WARN", "CloudMeta",
+			fmt.Sprintf("%s maintenance event pending: %s", c.Provider, c.MaintenanceDetails),
+			[]string{"to inspect: check cloud provider console for details"}))
+	}
+	return out
+}
+
+func checkAuditd(a models.AuditInfo) []models.Insight {
+	if !a.Available {
+		return nil
+	}
+	var out []models.Insight
+	if !a.Running {
+		out = append(out, insight("WARN", "Auditd",
+			"auditd is installed but not running — compliance logging inactive",
+			[]string{
+				"to fix: systemctl enable --now auditd",
+				"note: required for CIS/STIG compliance",
+			}))
+	}
+	if a.AuditLogSizeGB > 10 {
+		out = append(out, insight("WARN", "Auditd",
+			fmt.Sprintf("audit log is %.1f GB — consider log rotation", a.AuditLogSizeGB),
+			[]string{
+				"to inspect: ls -lh /var/log/audit/",
+				"to fix:     auditctl -e 0 && truncate -s 0 /var/log/audit/audit.log && auditctl -e 1",
+			}))
+	}
+	return out
+}
+
+func checkNUMA(n models.NUMAInfo) []models.Insight {
+	if !n.Available {
+		return nil
+	}
+	if n.Imbalanced {
+		return []models.Insight{insight("WARN", "NUMA",
+			fmt.Sprintf("%d NUMA nodes with unbalanced memory — may cause performance issues", n.NodeCount),
+			[]string{
+				"to inspect: numactl --hardware",
+				"to inspect: numastat -m",
+				"note: consider NUMA-aware memory allocation for latency-sensitive workloads",
+			})}
+	}
+	return nil
+}
+
+func checkVLAN(v models.VLANInfo) []models.Insight {
+	if len(v.Interfaces) == 0 {
+		return nil
+	}
+	var down []string
+	for _, iface := range v.Interfaces {
+		if !iface.Up {
+			down = append(down, fmt.Sprintf("%s (VLAN %d)", iface.Name, iface.VLANID))
+		}
+	}
+	if len(down) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "VLAN",
+		fmt.Sprintf("%d VLAN interface(s) down: %s", len(down), strings.Join(down, ", ")),
+		[]string{
+			"to inspect: ip link show",
+			"to inspect: cat /proc/net/vlan/config",
+		})}
+}
+
+func checkISCSI(i models.ISCSIInfo) []models.Insight {
+	if !i.Available || len(i.Sessions) == 0 {
+		return nil
+	}
+	if i.FailedCount == 0 {
+		return nil
+	}
+	return []models.Insight{insight("CRIT", "iSCSI",
+		fmt.Sprintf("%d iSCSI session(s) not logged in — storage path lost", i.FailedCount),
+		[]string{
+			"to inspect: iscsiadm -m session",
+			"to fix:     iscsiadm -m node --loginall=all",
+			"to inspect: check network connectivity to iSCSI portal",
+		})}
+}
+
+func checkInfiniBand(ib models.InfiniBandInfo) []models.Insight {
+	if len(ib.Ports) == 0 {
+		return nil
+	}
+	var down []string
+	for _, p := range ib.Ports {
+		state := strings.ToUpper(p.State)
+		if state != "ACTIVE" && state != "" {
+			down = append(down, fmt.Sprintf("%s port %d (%s)", p.Device, p.Port, p.State))
+		}
+	}
+	if len(down) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "InfiniBand",
+		fmt.Sprintf("%d IB port(s) not active: %s", len(down), strings.Join(down, ", ")),
+		[]string{
+			"to inspect: ibstat",
+			"to inspect: cat /sys/class/infiniband/*/ports/*/state",
+			"note: check cable and switch port",
+		})}
+}
+
+func checkSRIOV(s models.SRIOVInfo) []models.Insight {
+	// SR-IOV doesn't have a clear failure state — surface INFO if VFs are enabled
+	if len(s.Devices) == 0 {
+		return nil
+	}
+	total := 0
+	for _, d := range s.Devices {
+		total += d.NumVFs
+	}
+	if total == 0 {
+		return nil // capable but no VFs active — expected
+	}
+	return nil // VFs active — healthy, shown in inline
+}
+
+func checkNspawn(n models.NspawnInfo) []models.Insight {
+	if !n.Available || len(n.Containers) == 0 {
+		return nil
+	}
+	if n.FailedCount == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Nspawn",
+		fmt.Sprintf("%d systemd-nspawn container(s) in failed/degraded state", n.FailedCount),
+		[]string{
+			"to inspect: machinectl list",
+			"to inspect: machinectl status <name>",
+		})}
 }
