@@ -10,6 +10,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsZFSPresent returns true when ZFS is installed and usable on this host.
+func IsZFSPresent() bool {
+	_, err := exec.LookPath("zpool")
+	return err == nil
+}
+
 // ZFSCollector reads ZFS pool health via zpool status and zpool list.
 // Works on Linux (OpenZFS) and macOS (OpenZFS via Homebrew).
 // Gracefully returns empty when zpool is not installed.

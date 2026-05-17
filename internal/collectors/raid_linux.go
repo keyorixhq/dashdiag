@@ -13,6 +13,23 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsRAIDPresent returns true when mdadm arrays exist on this host.
+// /proc/mdstat always exists on Linux, but only contains array entries
+// when md devices are configured. We check for any "md" device line.
+func IsRAIDPresent() bool {
+	data, err := os.ReadFile("/proc/mdstat")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		// Array lines start with "md" followed by a digit or name
+		if strings.HasPrefix(line, "md") && strings.Contains(line, ":") {
+			return true
+		}
+	}
+	return false
+}
+
 // RAIDCollector reads /proc/mdstat to detect degraded or failed mdadm arrays.
 // Pure file read — no external commands, no root required.
 type RAIDCollector struct{}

@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+func IsLVMPresent() bool { return false }
+
 type LVMCollector struct{}
 
 func NewLVMCollector() *LVMCollector { return &LVMCollector{} }

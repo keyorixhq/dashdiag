@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+func IsRAIDPresent() bool { return false }
+
 type RAIDCollector struct{}
 
 func NewRAIDCollector() *RAIDCollector { return &RAIDCollector{} }

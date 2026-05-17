@@ -13,6 +13,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsLVMPresent returns true when LVM tools are installed on this host.
+func IsLVMPresent() bool {
+	_, err := exec.LookPath("lvs")
+	return err == nil
+}
+
 // LVMCollector checks LVM volume group free space, thin pool usage,
 // and snapshot health. Linux-only; silent no-op when lvm2 is not installed.
 type LVMCollector struct{}
