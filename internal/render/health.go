@@ -38,6 +38,9 @@ func insightForResult(name string, insights []models.Insight) *models.Insight {
 	return worst
 }
 
+// DisplayOrder returns the canonical row order for external callers (e.g. dsd capture).
+func DisplayOrder() []string { return displayOrder }
+
 // displayOrder defines the canonical row order for dsd health output.
 // Collectors run in parallel — without this they appear in completion order.
 // Groups: identity → compute → storage → network → security → platform-specific

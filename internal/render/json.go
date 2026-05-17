@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -16,6 +17,7 @@ import (
 // JSONOutput is the stable public JSON contract for dsd health --json.
 type JSONOutput struct {
 	Hostname  string        `json:"hostname"`
+	OS        string        `json:"os"`
 	Timestamp time.Time     `json:"timestamp"`
 	Version   string        `json:"version"`
 	Checks    []JSONCheck   `json:"checks"`
@@ -25,6 +27,7 @@ type JSONOutput struct {
 type JSONCheck struct {
 	Name     string      `json:"name"`
 	Status   string      `json:"status"`
+	Inline   string      `json:"inline,omitempty"`
 	Duration string      `json:"duration,omitempty"`
 	Error    string      `json:"error,omitempty"`
 	Raw      interface{} `json:"raw,omitempty"`
@@ -34,7 +37,7 @@ type JSONInsight struct {
 	Check   string          `json:"check"`
 	Level   string          `json:"level"`
 	Message string          `json:"message"`
-	Hint    string          `json:"hint,omitempty"`
+	Hints   []string        `json:"hints,omitempty"`
 	Details *models.Details `json:"details,omitempty"`
 }
 
@@ -60,7 +63,13 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 
 	checks := make([]JSONCheck, 0, len(results))
 	for _, r := range results {
-		c := JSONCheck{Name: r.Name, Status: "OK", Duration: r.Duration.String(), Raw: r.Data}
+		c := JSONCheck{
+			Name:     r.Name,
+			Status:   "OK",
+			Duration: r.Duration.String(),
+			Raw:      r.Data,
+			Inline:   inlineData(r), // pre-rendered for dsd capture
+		}
 		if r.Err != nil {
 			c.Status = "ERROR"
 			c.Error = r.Err.Error()
@@ -83,15 +92,18 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		if ins.Level == "OK" {
 			continue
 		}
-		ji := JSONInsight{Check: ins.Check, Level: ins.Level, Message: ins.Message, Details: ins.Details}
-		if len(ins.Hints) > 0 {
-			ji.Hint = ins.Hints[0]
-		}
-		jsonInsights = append(jsonInsights, ji)
+		jsonInsights = append(jsonInsights, JSONInsight{
+			Check:   ins.Check,
+			Level:   ins.Level,
+			Message: ins.Message,
+			Hints:   ins.Hints, // all hints, not just first
+			Details: ins.Details,
+		})
 	}
 
 	return JSONOutput{
 		Hostname:  hostname,
+		OS:        platform.OSPrettyName(),
 		Timestamp: time.Now().UTC(),
 		Version:   version.Version,
 		Checks:    checks,
