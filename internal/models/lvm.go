@@ -21,11 +21,12 @@ type LVMSnapshot struct {
 
 // LVMVG represents a volume group with its free space.
 type LVMVG struct {
-	Name       string  `json:"name"`
-	SizeGB     float64 `json:"size_gb"`
-	FreeGB     float64 `json:"free_gb"`
-	FreePct    float64 `json:"free_pct"`
-	MissingPVs int     `json:"missing_pvs,omitempty"` // count of PVs in error/missing state
+	Name         string  `json:"name"`
+	SizeGB       float64 `json:"size_gb"`
+	FreeGB       float64 `json:"free_gb"`
+	FreePct      float64 `json:"free_pct"`
+	MissingPVs   int     `json:"missing_pvs,omitempty"` // count of PVs in error/missing state
+	HasMountedLV bool    `json:"has_mounted_lv"`        // false = VG has no mounted LVs (leftover/inactive)
 }
 
 // LVMInfo holds LVM health data for the system.

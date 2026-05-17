@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -30,7 +31,6 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// --- Volume groups ---
-	// vgs: name, size, free, attr
 	vgsOut, err := runCmd(ctx, "vgs", "--noheadings", "--nosuffix", "--units", "g",
 		"-o", "vg_name,vg_size,vg_free,vg_attr")
 	if err == nil {
@@ -44,18 +44,59 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// --- LVs: thin pools and snapshots ---
-	// lv_attr key: https://man7.org/linux/man-pages/man8/lvs.8.html
-	//   lv_attr[0] = type: 't' thin pool, 's' snapshot, 'V' thin volume, etc.
 	lvsOut, err := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
 		"-o", "lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size")
 	if err == nil {
 		info.ThinPools, info.Snapshots = parseLVs(lvsOut)
 	}
 
+	// --- Mark VGs with at least one mounted LV ---
+	// VGs with no mounted LVs are leftover/inactive (e.g. old OS install on
+	// a second drive). These should be INFO not CRIT when full.
+	mergeMountedLVs(info.VGs)
+
 	return info, nil
 }
 
-// parseVGs parses `vgs --noheadings --nosuffix --units g -o vg_name,vg_size,vg_free,vg_attr`.
+// mergeMountedLVs reads /proc/mounts to find which VGs have at least one
+// LV currently mounted. A VG with no mounted LVs is leftover/inactive —
+// typically a previous OS install on a different drive — and should not
+// trigger CRIT alerts just because it's full.
+func mergeMountedLVs(vgs []models.LVMVG) {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return
+	}
+	// /proc/mounts lines: "/dev/mapper/ol-root / ext4 rw,..."
+	// LVM devices appear as /dev/mapper/<vg>-<lv> or /dev/<vg>/<lv>
+	mountedVGs := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		dev := fields[0]
+		// /dev/mapper/vgname-lvname
+		if strings.HasPrefix(dev, "/dev/mapper/") {
+			name := strings.TrimPrefix(dev, "/dev/mapper/")
+			if dashIdx := strings.Index(name, "-"); dashIdx > 0 {
+				mountedVGs[name[:dashIdx]] = true
+			}
+		}
+		// /dev/vgname/lvname
+		if strings.HasPrefix(dev, "/dev/") {
+			parts := strings.SplitN(strings.TrimPrefix(dev, "/dev/"), "/", 2)
+			if len(parts) == 2 {
+				mountedVGs[parts[0]] = true
+			}
+		}
+	}
+	for i, vg := range vgs {
+		if mountedVGs[vg.Name] {
+			vgs[i].HasMountedLV = true
+		}
+	}
+}
 func parseVGs(out string) []models.LVMVG {
 	var vgs []models.LVMVG
 	for _, line := range strings.Split(out, "\n") {
