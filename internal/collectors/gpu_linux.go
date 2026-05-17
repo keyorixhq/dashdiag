@@ -32,6 +32,7 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	smiCtx, smiCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer smiCancel()
 
+	nvidiaPresent := hasNvidiaCard()
 	out, err := runCmd(smiCtx, "nvidia-smi",
 		"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version",
 		"--format=csv,noheader,nounits")
@@ -53,6 +54,11 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			}
 			info.Devices = append(info.Devices, dev)
 		}
+	} else if nvidiaPresent {
+		// NVIDIA GPU detected via sysfs but nvidia-smi unavailable.
+		// Surface as a named placeholder so checkGPU can emit an INFO hint.
+		info.Status = "nvidia-no-driver"
+		info.StatusReason = "NVIDIA GPU detected — install nvidia driver for GPU health monitoring"
 	}
 
 	// AMD — sysfs (always available, no commands needed)
@@ -132,6 +138,19 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 		MemUsedPct: memPct,
 		PowerDrawW: power,
 	}, driverVer, nil
+}
+
+// hasNvidiaCard returns true when an NVIDIA GPU is present in the system
+// via /sys/class/drm sysfs — works even without the proprietary driver loaded.
+func hasNvidiaCard() bool {
+	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
+	for _, card := range cards {
+		vendor := strings.TrimSpace(readSysfsStr(card + "/device/vendor"))
+		if strings.EqualFold(vendor, "0x10de") {
+			return true
+		}
+	}
+	return false
 }
 
 // collectAMDGPUs reads AMD GPU health from /sys/class/drm/card*/device/.
