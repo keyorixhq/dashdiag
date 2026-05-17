@@ -13157,3 +13157,86 @@ if includeTLS { ... }      // --tls flag
 if includeDeep { ... }     // --deep flag / dsd health deep
 if includeFirmware { ... } // --firmware flag
 ```
+
+---
+
+## 43. Hardware Coverage — Full Implementation (2026-05-17, session 3)
+
+All 17 hardware/system collectors implemented today. DashDiag now has complete coverage across the hardware entities that matter for real server environments.
+
+### What was implemented
+
+#### High priority (6 collectors)
+| Collector | Source | Gate | What fires |
+|-----------|--------|------|-----------|
+| **Bonding** | `/proc/net/bonding/bond*` | bond interface present | CRIT: all slaves down; WARN: partial; INFO: per slave |
+| **IPMI** | `ipmitool sdr` | `/dev/ipmi0` exists | CRIT: PSU fault / temp critical; WARN: fan fault |
+| **OOM** | `journalctl -k` / `dmesg` | always collected | WARN: any OOM kill in 24h with victim names |
+| **HBA** | `/sys/class/fc_host/` sysfs | fc_host dir exists | CRIT: port offline; WARN: link failures |
+| **Pressure** | `/proc/pressure/` PSI | kernel 4.20+ | CRIT: memory full >10% avg60; WARN: stall >20% |
+| **Multipath** | `multipathd show paths` | multipathd in PATH | CRIT: all paths dead; WARN: degraded count |
+
+#### Medium priority (5 collectors)
+| Collector | Source | Gate | What fires |
+|-----------|--------|------|-----------|
+| **Ceph** | `ceph health detail --format json` | ceph in PATH | CRIT: HEALTH_ERR; WARN: HEALTH_WARN or OSDs down |
+| **Firewall** | nft/iptables ruleset | always | WARN: no rules active (host unprotected) |
+| **Auth** | journald sshd / auth.log | always | WARN: >1000 failed logins/24h; WARN: root attempts |
+| **CloudMeta** | AWS IMDSv2 / Azure IMDS / GCP | IsCloudInstance() | CRIT: spot termination notice; WARN: maintenance event |
+| **Auditd** | `auditctl -l` + `ausearch` | auditctl in PATH | WARN: installed but not running |
+
+#### Low priority / specialist (6 collectors)
+| Collector | Source | Gate | What fires |
+|-----------|--------|------|-----------|
+| **NUMA** | `/sys/devices/system/node/` | >1 NUMA node | WARN: memory imbalance >40% between nodes |
+| **VLAN** | `/proc/net/vlan/config` | vlan config exists | WARN: VLAN interface down |
+| **iSCSI** | `iscsiadm -m session` | iscsiadm in PATH | CRIT: session not logged in |
+| **InfiniBand** | `/sys/class/infiniband/` | IB device present | WARN: port not ACTIVE |
+| **SR-IOV** | `/sys/bus/pci/devices/*/sriov_numvfs` | VF capable device | INFO: VF count shown inline |
+| **Nspawn** | `machinectl list` | machinectl in PATH | WARN: container in failed/degraded state |
+
+### Testing approach
+
+Three-track testing strategy for hardware without physical devices:
+
+**Track 1 — Unit tests (run on any Linux host):**
+```bash
+GOOS=linux GOARCH=amd64 go test -c ./internal/collectors/ -o /tmp/collectors.test
+scp /tmp/collectors.test user@host:/tmp/
+/tmp/collectors.test -test.v
+```
+Tests implemented for: Bonding, IPMI, OOM, PSI, Multipath, VLAN, iSCSI, NUMA CPU list, InfiniBand state, Nspawn, Auth log parsing, Auditd
+
+**Track 2 — Kernel simulation (on Legion or any Linux VM):**
+```bash
+sudo bash scripts/simulate-hardware.sh bond      # bond0 via dummy driver
+sudo bash scripts/simulate-hardware.sh oom       # journal OOM injection
+sudo bash scripts/simulate-hardware.sh pressure  # stress-ng memory stall
+sudo bash scripts/simulate-hardware.sh clean     # teardown
+```
+
+**Track 3 — Hardware only:**
+IPMI, HBA, Multipath, SR-IOV, InfiniBand, iSCSI — require real hardware or a VM with scsi_debug.
+
+### Validated on Legion (Linux Mint 22.3, session 3)
+
+```
+OOM          ✅
+Pressure     ✅  no pressure
+Firewall     ⚠️  nftables is installed but no rules are active — host is unprotected
+Auth         ✅
+```
+
+Firewall WARN correctly fires — Linux Mint has nftables installed but no rules configured. This is a real security finding on a machine with no firewall rules.
+
+### Commits (session 3)
+```
+ab31ec8 feat: 11 new collectors — Ceph, Firewall, Auth, CloudMeta, Auditd, NUMA, VLAN, iSCSI, InfiniBand, SR-IOV, Nspawn
+97bbdff test: unit tests for all 6 new collectors + Linux simulation script
+b3ef914 feat: 6 new hardware collectors — Bonding, IPMI, OOM, HBA, Pressure, Multipath
+```
+
+### What remains (hardware coverage)
+Nothing in the original backlog. DashDiag now covers the full stack of enterprise Linux hardware entities.
+
+**Next session:** Landing page at dashdiag.sh — this is the only thing blocking revenue.
