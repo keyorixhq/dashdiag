@@ -13055,3 +13055,105 @@ Items from §35 build backlog — completed today:
 | .deb / .rpm packages | High | Required for enterprise trials |
 | AMD WiFi (rtw88) | Low | Deferred — driver unreliable |
 | Oracle Linux validation | Low | Hardware download pending |
+
+
+---
+
+## 42. Build Backlog — Full Status Update (2026-05-17, session 2)
+
+All commits from today's session. The code backlog is now complete.
+
+### ✅ Completed today (this session)
+
+| Item | Commit | What changed |
+|------|--------|--------------|
+| Clock CRIT→WARN for RTCInLocalTZ | 99b8532 | Dual-boot false alarm downgraded. NTPSynchronized: yes shown inline. |
+| Gateway 0.0ms cosmetic fix | 99b8532 | TCP fallback now shows `<1 ms`. Network inline shows gw ping on OK rows. |
+| AMD GPU via /sys/class/drm/ | 8e3d918 | Pure sysfs. RDNA/RDNA2/RDNA3/Van Gogh/Polaris/Vega. Vendor 0x1002 filter. |
+| dsd health deep subcommand | 8c02a68 | `dsd health deep` ≡ `dsd health --deep`. TODO removed. |
+| dsd net deep subcommand | 8c02a68 | `dsd net deep` ≡ `dsd net --deep`. |
+| LVM inactive VG — CRIT→INFO | 32a4c75 | Reads /proc/mounts. VGs with no mounted LVs = INFO (leftover OS partition). Validated on Legion ol VG. |
+| Hide PVE on non-Proxmox hosts | 0823fb1 | IsPVEHost() gate. PVE row gone on Linux Mint. |
+| Hide RAID/ZFS/DRBD on absent hosts | 226a779 | IsRAIDPresent() checks /proc/mdstat for md lines. IsZFSPresent() checks zpool. IsDRBDPresent() checks /proc/drbd. |
+| Slow boot fix hints | def14f0 | slowBootFix() — gpu-manager, NetworkManager-wait-online, plymouth, fwupd, snapd, apt-daily. Each gets targeted disable command + safety note. |
+| Hide SUSE rows on non-SUSE hosts | 70c2bd9 | IsSUSEHost() — checks SUSEConnect or zypper. Snapper + SUSEConnect gated. |
+| Subscription expanded — RHEL + Ubuntu Pro | e80c70b | HasSubscriptionManager() detects all three. RHEL: subscription-manager. Ubuntu: pro status. SUSE: unchanged. Platform-aware heuristics. |
+
+### 🔴 Revenue-blocking (do these next — nothing else matters until these are done)
+
+| Item | Why it blocks | Estimated effort |
+|------|--------------|------------------|
+| **Landing page dashdiag.sh** | Nowhere to send anyone. No email capture. No install command visible. | 1–2 days |
+| **install.sh one-liner** | `curl -fsSL dashdiag.sh/install \| sh` — required for viral growth. Binary exists, just needs hosting + script. | 2–4 hours |
+| **Stripe Pro tier — €79/yr** | Feature gate exists in codebase. Just needs Stripe account + webhook. | 1 day |
+
+### 🟡 High priority (before first enterprise trial)
+
+| Item | Notes | Effort |
+|------|-------|--------|
+| GitHub release pipeline (goreleaser) | Auto-build binaries on tag push. Required for .deb/.rpm. | 2–4 hours |
+| .deb package | `apt install dashdiag` — Debian/Ubuntu/Mint/Kali | 1 day |
+| .rpm package | `dnf install dashdiag` — RHEL/Oracle/Rocky/Alma/Fedora/SUSE | 1 day |
+| Demo screenshots / GIF | Legion output is clean and ready. Need actual screenshot taken + recorded GIF for landing page. | 1 hour |
+
+### ⬜ Post-customers (do not build before paying customers exist)
+
+| Item | Notes |
+|------|-------|
+| CIS/STIG compliance | Enterprise-only. ~2 weeks. Needs customers to validate which benchmarks matter. |
+| dsd k8s deep | Fast/deep pattern applied to Kubernetes. Post-Sprint 2. |
+| AMD WiFi (rtw88) | Driver too unreliable for signal quality reads. Deferred indefinitely. |
+
+### Current commit state (latest → oldest today)
+
+```
+e80c70b feat: subscription check covers RHEL, Oracle, Ubuntu Pro + SUSE
+70c2bd9 fix: hide SUSE-specific rows on non-SUSE hosts
+def14f0 feat: service-specific fix hints for known slow-boot offenders
+226a779 fix: hide storage HA rows on hosts where they are not present
+0823fb1 fix: hide PVE row on non-Proxmox hosts
+32a4c75 fix: LVM inactive VG false positive — leftover OS partitions no longer CRIT
+da79f72 docs: build backlog status update §41 — all code items done
+8c02a68 feat: dsd health deep + dsd net deep subcommands
+8e3d918 feat: AMD GPU support via /sys/class/drm/ sysfs
+99b8532 polish: clock CRIT→WARN for RTCInLocalTZ, fix gateway 0ms display
+```
+
+### Real hardware validation today — Legion (Linux Mint 22.3, 192.168.1.145)
+
+**Hardware:** AMD Cezanne APU + NVIDIA RTX 3070 Mobile, kernel 6.14.0-37-generic
+
+| Finding | Level | Real or false positive? |
+|---------|-------|------------------------|
+| 19 apt security updates | ❌ CRIT | Real — needs `apt-get upgrade` |
+| gpu-manager.service 10.3s boot | ⚠️ WARN | Real — fix: `systemctl disable --now gpu-manager.service` |
+| eno1 at 100Mbps | ⚠️ WARN | Real — wrong cable or switch port |
+| 6 AppArmor profiles in complain mode | ⚠️ WARN | Real — LibreOffice, Transmission |
+| NOPASSWD sudo for andrei | ⚠️ WARN | Real |
+| vm.swappiness=60 | ⚠️ WARN | Real recommendation |
+| Clock RTCInLocalTZ (NTP synced) | ⚠️ WARN | Correctly downgraded from CRIT ✅ |
+| LVM ol VG 100% full | ℹ️ INFO | Correctly downgraded from CRIT ✅ (leftover Oracle Linux partition) |
+| PVE / RAID / ZFS / DRBD / Subscription / Snapshots | — | Correctly hidden ✅ |
+
+### Collector gating — full picture post-today
+
+All platform-specific collectors now gate at registration time, not inside the collector:
+
+```go
+// Storage HA
+if collectors.IsRAIDPresent() { ... }   // /proc/mdstat has md lines
+if collectors.IsZFSPresent() { ... }    // zpool in PATH
+if collectors.IsLVMPresent() { ... }    // lvs in PATH
+if collectors.IsDRBDPresent() { ... }   // /proc/drbd exists
+if collectors.IsPVEHost() { ... }       // /usr/bin/pvedaemon exists
+
+// Platform-specific
+if collectors.IsSUSEHost() { ... }                  // Snapper (SUSE-only)
+if collectors.HasSubscriptionManager() { ... }       // RHEL + Ubuntu Pro + SUSE
+
+// Opt-in
+if includeGPU { ... }      // --gpu flag
+if includeTLS { ... }      // --tls flag
+if includeDeep { ... }     // --deep flag / dsd health deep
+if includeFirmware { ... } // --firmware flag
+```
