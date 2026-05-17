@@ -15,6 +15,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsPVEHost returns true when this machine is a Proxmox VE host.
+// Fast check — just tests for the pvedaemon binary.
+func IsPVEHost() bool {
+	_, err := os.Stat("/usr/bin/pvedaemon")
+	return err == nil
+}
+
 // PVECollector checks Proxmox VE host health: subscription, cluster quorum,
 // HA fencing, storage usage, and backup job status.
 // Graceful no-op when not running on a Proxmox host.

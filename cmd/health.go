@@ -370,9 +370,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewZFSCollector(),
 		collectors.NewLVMCollector(),
 		collectors.NewDRBDCollector(),
-		collectors.NewPVECollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
-		// GPUCollector is opt-in via --gpu flag — nvidia-smi can hang on some systems
+	}
+	// PVE only on Proxmox hosts — showing it on non-PVE machines is noise
+	if collectors.IsPVEHost() {
+		cols = append(cols, collectors.NewPVECollector())
 	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())
