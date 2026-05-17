@@ -1475,8 +1475,20 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 		}
 	}
 
-	// VG free space — below 10% means no room to extend LVs or create snapshots
+	// VG free space — skip inactive VGs (no mounted LVs = leftover OS partition)
 	for _, vg := range l.VGs {
+		if !vg.HasMountedLV {
+			out = append(out, insight("INFO", "LVM",
+				fmt.Sprintf("inactive volume group %s is %.0f%% full — no LVs mounted (old OS partition?)",
+					vg.Name, 100-vg.FreePct),
+				[]string{
+					fmt.Sprintf("to inspect: vgs %s", vg.Name),
+					fmt.Sprintf("to inspect: lvs | grep %s", vg.Name),
+					"note: this VG has no mounted LVs on this OS — likely a leftover from a previous install",
+				},
+			))
+			continue
+		}
 		if lv := levelPct(100-vg.FreePct, 90, 98); lv != "" {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
