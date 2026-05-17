@@ -98,6 +98,51 @@ func levelToStatusKey(level string) string {
 	}
 }
 
+// PrintAllMock renders rows from fixture data using an external inline func.
+// Used by `dsd mock` — same styling as PrintAll, no collector data needed.
+func (r *Renderer) PrintAllMock(results []runner.Result, insights []models.Insight, inlineFn func(string) string) {
+	sorted := sortedResults(results)
+	for _, res := range sorted {
+		ins := insightForResult(res.Name, insights)
+		level := "OK"
+		msg := ""
+		if ins != nil {
+			level = ins.Level
+			msg = ins.Message
+		}
+		if level == "OK" {
+			msg = inlineFn(res.Name)
+		}
+
+		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
+		name := fmt.Sprintf("%-12s", res.Name)
+
+		var line string
+		switch r.mode {
+		case output.ModeHuman:
+			styledName := StyleBold.Render(name)
+			styledIcon := styleForStatus(level).Render(icon)
+			if msg != "" {
+				line = fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
+			} else {
+				line = fmt.Sprintf("%s %s", styledName, styledIcon)
+			}
+		default:
+			if msg != "" {
+				line = fmt.Sprintf("%s %s  %s", name, icon, msg)
+			} else {
+				line = fmt.Sprintf("%s %s", name, icon)
+			}
+		}
+		fmt.Fprintln(os.Stdout, line)
+
+		if ins != nil && ins.Details != nil {
+			r.renderDetails(ins.Details)
+		}
+	}
+}
+
+// PrintAll renders rows from real collector results.
 func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) {
 	sorted := sortedResults(results)
 	for _, res := range sorted {

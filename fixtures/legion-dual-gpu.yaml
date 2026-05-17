@@ -1,0 +1,77 @@
+# fixtures/legion-dual-gpu.yaml
+# Lenovo Legion 5 — Linux Mint 22.3, AMD + NVIDIA dual GPU
+# Use: dsd mock fixtures/legion-dual-gpu.yaml
+
+host: "andrei-Legion"
+os: "Linux Mint 22.3"
+
+rows:
+  - name: "CPU Load"
+    inline: "0%"
+  - name: "CPU Thermal"
+    inline: "37°C"
+  - name: "Memory"
+    inline: "1.2/14 GB (9%)"
+  - name: "Swap"
+    inline: "0 MB used"
+  - name: "GPU"
+    inline: "2 GPUs: NVIDIA GeForce RTX 3070 Laptop GPU 34°C · amdgpu 41°C"
+  - name: "Disk"
+    inline: "4 mounts, max 19% (/boot/efi)"
+  - name: "IO"
+    inline: "1.3 ms (nvme1n1)"
+  - name: "Drives"
+    inline: "2 drives  healthy"
+  - name: "LVM"
+    level: INFO
+    message: "inactive volume group ol is 100% full — no LVs mounted (old OS partition?)"
+    hints:
+      - "note: this VG has no mounted LVs on this OS — likely a leftover from a previous install"
+      - "to inspect: vgs ol"
+  - name: "Network"
+    level: WARN
+    message: "primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps (check cable or switch port)"
+    hints:
+      - "to inspect: ethtool eno1"
+      - "to inspect: cat /sys/class/net/eno1/speed"
+  - name: "Systemd"
+    inline: "boot 35s"
+  - name: "Processes"
+  - name: "FDLimits"
+  - name: "Entropy"
+    inline: "256 bits"
+  - name: "Clock"
+    level: WARN
+    message: "RTC is in local timezone — NTP reports unsync (common on dual-boot with Windows)"
+    hints:
+      - "to fix: timedatectl set-local-rtc 0"
+  - name: "Logs"
+    level: INFO
+    message: "journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost"
+    hints:
+      - "to fix: echo 'SyncIntervalSec=30s' >> /etc/systemd/journald.conf"
+  - name: "Sysctl"
+    level: WARN
+    message: "vm.swappiness=60 is high for a server (recommended: ≤ 30)"
+    hints:
+      - "to fix: sysctl -w vm.swappiness=10"
+      - "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"
+  - name: "KernelSec"
+    level: WARN
+    message: "6 AppArmor profile(s) in complain mode — not enforcing"
+    hints:
+      - "to enforce: aa-enforce /etc/apparmor.d/*"
+      - "to inspect: aa-status"
+  - name: "Hardening"
+    level: WARN
+    message: "NOPASSWD sudo for: andrei"
+    hints:
+      - "to inspect: sudo -l"
+  - name: "Packages"
+    level: CRIT
+    message: "14 critical security update(s) available (apt)"
+    hints:
+      - "to inspect: apt list --upgradable 2>/dev/null | grep -i security"
+      - "to fix: apt-get upgrade"
+  - name: "Battery"
+    inline: "92%  charging"
