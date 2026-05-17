@@ -344,7 +344,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector {
+func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen // registration list — each line is a presence-gated collector, splitting would harm readability
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -444,6 +444,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	}
 	if collectors.IsNspawnPresent() {
 		cols = append(cols, collectors.NewNspawnCollector())
+	}
+	// Always collected — world-readable sysfs/proc paths
+	cols = append(cols, collectors.NewHugePagesCollector())
+	if collectors.IsCPUFreqAvailable() {
+		cols = append(cols, collectors.NewCPUFreqCollector())
 	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())

@@ -61,6 +61,7 @@ var displayOrder = []string{
 	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
 	"Ceph", "Firewall", "Auth", "CloudMeta", "Auditd",
 	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
+	"HugePages", "CPUFreq",
 	// Optional
 	"TLS", "Docker", "K8s", "Hardware",
 }
@@ -196,6 +197,8 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 
 // inlineData returns a short summary string for a check row when status is OK.
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
+//
+//nolint:cyclop // flat name→function dispatch; splitting would harm readability
 func inlineData(res runner.Result) string {
 	switch res.Name {
 	case "CPU Load":
@@ -264,6 +267,10 @@ func inlineData(res runner.Result) string {
 		return inlineSRIOV(res.Data)
 	case "Nspawn":
 		return inlineNspawn(res.Data)
+	case "HugePages":
+		return inlineHugePages(res.Data)
+	case "CPUFreq":
+		return inlineCPUFreq(res.Data)
 	}
 	return ""
 }
@@ -1203,4 +1210,40 @@ func (r *Renderer) PrintCorrelations(corrs []analysis.Correlation) {
 		fmt.Fprintf(os.Stdout, "   %s\n", c.Summary)
 		fmt.Fprintf(os.Stdout, "   → %s\n", c.Action)
 	}
+}
+
+func inlineHugePages(data interface{}) string {
+	var h *models.HugePagesInfo
+	if v, ok := data.(*models.HugePagesInfo); ok {
+		h = v
+	} else if v, ok := data.(models.HugePagesInfo); ok {
+		h = &v
+	}
+	if h == nil {
+		return ""
+	}
+	if h.Configured > 0 {
+		return fmt.Sprintf("%d/%d pages used  %.1f GB reserved  THP %s",
+			h.Used, h.Configured, h.ReservedGB, h.THPMode)
+	}
+	if h.THPMode != "" {
+		return "THP " + h.THPMode
+	}
+	return ""
+}
+
+func inlineCPUFreq(data interface{}) string {
+	var f *models.CPUFreqInfo
+	if v, ok := data.(*models.CPUFreqInfo); ok {
+		f = v
+	} else if v, ok := data.(models.CPUFreqInfo); ok {
+		f = &v
+	}
+	if f == nil || f.Governor == "" {
+		return ""
+	}
+	if f.CurrentMHz > 0 && f.MaxMHz > 0 {
+		return fmt.Sprintf("%s  %d/%d MHz", f.Governor, f.CurrentMHz, f.MaxMHz)
+	}
+	return f.Governor
 }

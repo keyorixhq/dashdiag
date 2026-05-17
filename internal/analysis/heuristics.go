@@ -348,6 +348,18 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkNspawn(*d)
 		}
+	case models.HugePagesInfo:
+		return checkHugePages(d)
+	case *models.HugePagesInfo:
+		if d != nil {
+			return checkHugePages(*d)
+		}
+	case models.CPUFreqInfo:
+		return checkCPUFreq(d)
+	case *models.CPUFreqInfo:
+		if d != nil {
+			return checkCPUFreq(*d)
+		}
 	}
 	return nil
 }
@@ -3630,4 +3642,97 @@ func checkNspawn(n models.NspawnInfo) []models.Insight {
 			"to inspect: machinectl list",
 			"to inspect: machinectl status <name>",
 		})}
+}
+
+// ── HugePages and CPUFreq heuristics ────────────────────────────────────────
+
+func checkHugePages(h models.HugePagesInfo) []models.Insight {
+	if h.Configured == 0 && !h.THPEnabled {
+		return nil // not configured, not relevant
+	}
+	var out []models.Insight
+
+	// Static huge pages configured but mostly unused — wasted locked RAM
+	if h.Configured > 0 {
+		usedPct := float64(h.Used) / float64(h.Configured) * 100
+		if usedPct < 20 && h.ReservedGB >= 1 {
+			out = append(out, insight("WARN", "HugePages",
+				fmt.Sprintf("%.0f%% of huge pages unused — %.1f GB locked and wasted (used %d/%d pages)",
+					100-usedPct, h.ReservedGB, h.Used, h.Configured),
+				[]string{
+					"to inspect: grep Huge /proc/meminfo",
+					"note: static huge pages lock RAM at boot — free unused pages or reduce HugePages_Total",
+					"to fix: echo 0 > /proc/sys/vm/nr_hugepages  (releases all — requires workload restart)",
+				},
+			))
+		}
+		// All huge pages used — may want more
+		if usedPct >= 100 && h.Configured > 0 {
+			out = append(out, insight("INFO", "HugePages",
+				fmt.Sprintf("all %d huge pages in use (%.1f GB) — consider increasing if workload allows",
+					h.Configured, h.ReservedGB),
+				[]string{
+					"to inspect: grep Huge /proc/meminfo",
+					"to add more: sysctl -w vm.nr_hugepages=<N>",
+				},
+			))
+		}
+	}
+
+	// THP set to "always" on a database server — causes latency spikes
+	// THP is great for general workloads but known to cause pauses in:
+	// MySQL, PostgreSQL, Redis, MongoDB, Oracle
+	if h.THPMode == "always" {
+		out = append(out, insight("INFO", "HugePages",
+			"transparent huge pages mode is 'always' — may cause latency spikes for database workloads",
+			[]string{
+				"to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled",
+				"to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to 'madvise' or 'never'",
+				"to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled",
+				"to persist: add to /etc/rc.local or a systemd service",
+			},
+		))
+	}
+
+	return out
+}
+
+func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
+	if f.Governor == "" {
+		return nil // cpufreq not available
+	}
+	var out []models.Insight
+
+	// powersave governor on a server — leaves performance on the table
+	// schedutil/ondemand are fine (responsive). powersave caps at min freq.
+	if f.Governor == "powersave" {
+		out = append(out, insight("WARN", "CPUFreq",
+			fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
+				f.CurrentMHz, f.MaxMHz),
+			[]string{
+				"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+				"to fix: cpupower frequency-set -g performance",
+				"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+				"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+				"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
+			},
+		))
+	}
+
+	// Heavy throttling — current frequency well below max despite not being powersave
+	// Usually caused by thermal throttling or power limit
+	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 {
+		out = append(out, insight("WARN", "CPUFreq",
+			fmt.Sprintf("CPU running at %d MHz (%d%% below max %d MHz) — possible thermal or power throttle",
+				f.CurrentMHz, int(f.ThrottledPct), f.MaxMHz),
+			[]string{
+				"to inspect: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq",
+				"to inspect: sensors  (check CPU temperature)",
+				"to inspect: dmesg | grep -i 'throttl\\|thermal\\|power limit'",
+				"to inspect: turbostat --quiet --show Busy%,Avg_MHz,Bzy_MHz,PkgWatt 2>/dev/null | head -5",
+			},
+		))
+	}
+
+	return out
 }
