@@ -171,6 +171,16 @@ func inlineData(res runner.Result) string {
 		return inlineLogs(res.Data)
 	case "GPU":
 		return inlineGPU(res.Data)
+	case "CPU Thermal":
+		return inlineCPUThermal(res.Data)
+	case "Battery":
+		return inlineBattery(res.Data)
+	case "Drives":
+		return inlineDrives(res.Data)
+	case "Systemd":
+		return inlineSystemd(res.Data)
+	case "Processes":
+		return inlineProcesses(res.Data)
 	}
 	return ""
 }
@@ -293,6 +303,88 @@ func inlineLogs(data interface{}) string {
 		return ""
 	}
 	return fmt.Sprintf("%.0f MB journal", l.JournalSizeGB*1024)
+}
+
+func inlineCPUThermal(data interface{}) string {
+	var t *models.ThermalInfo
+	if v, ok := data.(*models.ThermalInfo); ok {
+		t = v
+	} else if v, ok := data.(models.ThermalInfo); ok {
+		t = &v
+	}
+	if t == nil || t.CPUTempC == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.0f°C", t.CPUTempC)
+}
+
+func inlineBattery(data interface{}) string {
+	var b *models.BatteryInfo
+	if v, ok := data.(*models.BatteryInfo); ok {
+		b = v
+	} else if v, ok := data.(models.BatteryInfo); ok {
+		b = &v
+	}
+	if b == nil || !b.Present {
+		return ""
+	}
+	s := fmt.Sprintf("%d%%", b.CapacityPct)
+	if b.Status != "" {
+		s += "  " + strings.ToLower(b.Status)
+	}
+	return s
+}
+
+func inlineDrives(data interface{}) string {
+	var n *models.NVMeInfo
+	if v, ok := data.(*models.NVMeInfo); ok {
+		n = v
+	} else if v, ok := data.(models.NVMeInfo); ok {
+		n = &v
+	}
+	if n == nil {
+		return ""
+	}
+	total := len(n.Devices) + len(n.SATADevices)
+	if total == 0 {
+		return ""
+	}
+	if total == 1 {
+		if len(n.Devices) == 1 {
+			return n.Devices[0].Name + "  healthy"
+		}
+		return n.SATADevices[0].Name + "  healthy"
+	}
+	return fmt.Sprintf("%d drives  healthy", total)
+}
+
+func inlineSystemd(data interface{}) string {
+	var s *models.SystemdInfo
+	if v, ok := data.(*models.SystemdInfo); ok {
+		s = v
+	} else if v, ok := data.(models.SystemdInfo); ok {
+		s = &v
+	}
+	if s == nil || !s.Available {
+		return ""
+	}
+	if s.TotalBootSec > 0 {
+		return fmt.Sprintf("boot %.0fs", s.TotalBootSec)
+	}
+	return ""
+}
+
+func inlineProcesses(data interface{}) string {
+	var p *models.ProcessInfo
+	if v, ok := data.(*models.ProcessInfo); ok {
+		p = v
+	} else if v, ok := data.(models.ProcessInfo); ok {
+		p = &v
+	}
+	if p == nil || (p.ZombieCount == 0 && p.HungCount == 0) {
+		return ""
+	}
+	return fmt.Sprintf("%d zombie  %d hung", p.ZombieCount, p.HungCount)
 }
 
 func inlineGPU(data interface{}) string {
