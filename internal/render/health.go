@@ -270,7 +270,19 @@ func inlineGPU(data interface{}) string {
 		}
 		return s
 	}
-	// Multiple GPUs — show count + hottest
+	// Multiple GPUs — ≤2 show both, 3+ show count + hottest
+	if len(g.Devices) == 2 {
+		var parts []string
+		for _, d := range g.Devices {
+			s := d.Name
+			if d.TempC > 0 {
+				s += fmt.Sprintf(" %d°C", d.TempC)
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, "  ")
+	}
+	// 3+ GPUs — show count + hottest
 	hottest := g.Devices[0]
 	for _, d := range g.Devices[1:] {
 		if d.TempC > hottest.TempC {
