@@ -1,0 +1,54 @@
+# fixtures/k8s-node.yaml
+# Kubernetes worker node — Ubuntu 22.04, production workload
+# Use: dsd mock fixtures/k8s-node.yaml
+
+host: "k8s-worker-03"
+os: "Ubuntu 22.04 LTS"
+
+rows:
+  - name: "CPU Load"
+    inline: "34%"
+  - name: "CPU Thermal"
+    inline: "61°C"
+  - name: "Memory"
+    inline: "18.2/32 GB (57%)"
+  - name: "Swap"
+    inline: "none"
+  - name: "Disk"
+    inline: "/ 41%  /var 78%"
+  - name: "IO"
+    inline: "4.2 ms (sda)"
+  - name: "Drives"
+    inline: "2 drives  healthy"
+  - name: "Network"
+    inline: "eth0 10Gbps  gw 0 ms"
+  - name: "Systemd"
+    inline: "boot 18s"
+  - name: "Processes"
+  - name: "FDLimits"
+  - name: "Entropy"
+    inline: "256 bits"
+  - name: "Clock"
+    inline: "±1 ms  chrony"
+  - name: "Sysctl"
+    level: WARN
+    message: "vm.swappiness=60 is high for k8s node (recommended: ≤ 10)"
+    hints:
+      - "to fix: sysctl -w vm.swappiness=10"
+      - "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"
+  - name: "KernelSec"
+    inline: "AppArmor enforce"
+  - name: "Hardening"
+  - name: "Packages"
+    level: WARN
+    message: "3 security update(s) available (apt)"
+    hints:
+      - "to fix: apt-get upgrade"
+  - name: "Docker"
+    inline: "12 containers  running"
+  - name: "K8s"
+    level: WARN
+    message: "node memory pressure detected — kubelet eviction threshold approaching"
+    hints:
+      - "to inspect: kubectl describe node k8s-worker-03"
+      - "to inspect: kubectl top pods --all-namespaces | sort -k4 -rn | head -10"

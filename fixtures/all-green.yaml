@@ -1,0 +1,38 @@
+# fixtures/all-green.yaml
+# All-green system — shows what a healthy production host looks like
+# Use: dsd mock fixtures/all-green.yaml
+
+host: "web-prod-01"
+os: "Ubuntu 22.04 LTS"
+
+rows:
+  - name: "CPU Load"
+    inline: "4%"
+  - name: "CPU Thermal"
+    inline: "42°C"
+  - name: "Memory"
+    inline: "3.1/32 GB (10%)"
+  - name: "Swap"
+    inline: "0 MB used"
+  - name: "Disk"
+    inline: "3 mounts, max 34% (/)"
+  - name: "IO"
+    inline: "0.8 ms (nvme0n1)"
+  - name: "Drives"
+    inline: "2 drives  healthy"
+  - name: "Network"
+    inline: "eth0 1Gbps  gw 0 ms"
+  - name: "Systemd"
+    inline: "boot 12s"
+  - name: "Processes"
+  - name: "FDLimits"
+  - name: "Entropy"
+    inline: "256 bits"
+  - name: "Clock"
+    inline: "±0 ms  chrony"
+  - name: "Logs"
+  - name: "Sysctl"
+  - name: "KernelSec"
+    inline: "AppArmor enforce"
+  - name: "Hardening"
+  - name: "Packages"
