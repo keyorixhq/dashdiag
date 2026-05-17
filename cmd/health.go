@@ -24,6 +24,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(healthCmd)
+	healthCmd.AddCommand(healthDeepCmd)
 	healthCmd.Flags().Duration("watch-interval", 60*time.Second, "refresh interval for --watch mode")
 	healthCmd.Flags().Bool("terse", false, "skip inline drill-down on WARN/CRIT (show minimal verdict only)")
 	healthCmd.Flags().Bool("packages", false, "include package security advisory check (may be slow on unregistered systems)")
@@ -41,10 +42,19 @@ var healthCmd = &cobra.Command{
 	RunE:  runHealth,
 }
 
-// TODO(backlog): dsd health deep — extended health check with per-core CPU breakdown,
-// per-process memory detail, extended sysctl analysis, and kernel tuning recommendations.
-// Build rule: implement only after dsd health fast variant is in production use.
-// Estimated scope: ~3 days. Add back healthDeepCmd and wire into init() when ready.
+// healthDeepCmd is `dsd health deep` — equivalent to `dsd health --deep`.
+// Runs all fast checks plus per-core CPU breakdown and top memory consumers.
+var healthDeepCmd = &cobra.Command{
+	Use:   "deep",
+	Short: "Extended health check — per-core CPU, top memory consumers (~8s)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Set --deep on the parent command and delegate to runHealth
+		if err := cmd.Parent().Flags().Set("deep", "true"); err != nil {
+			return err
+		}
+		return runHealth(cmd.Parent(), args)
+	},
+}
 
 // TODO(backlog): package security advisory collector — surface available security updates.
 // Linux: parse `dnf check-update --security` or `apt list --upgradable` (distro-detect).

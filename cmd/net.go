@@ -19,6 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(netCmd)
+	netCmd.AddCommand(netDeepCmd)
 	netCmd.Flags().Bool("deep", false, "deep scan — jitter, TCP retransmissions, TIME_WAIT, SYN backlog, conntrack")
 }
 
@@ -26,6 +27,18 @@ var netCmd = &cobra.Command{
 	Use:   "net",
 	Short: "Network health — interfaces, latency, DNS, connections",
 	RunE:  runNet,
+}
+
+// netDeepCmd is `dsd net deep` — equivalent to `dsd net --deep`.
+var netDeepCmd = &cobra.Command{
+	Use:   "deep",
+	Short: "Deep network scan — jitter, TCP counters, conntrack (~30s)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := cmd.Parent().Flags().Set("deep", "true"); err != nil {
+			return err
+		}
+		return runNet(cmd.Parent(), args)
+	},
 }
 
 func runNet(cmd *cobra.Command, _ []string) error {
