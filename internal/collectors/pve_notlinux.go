@@ -9,6 +9,9 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsPVEHost always returns false on non-Linux platforms.
+func IsPVEHost() bool { return false }
+
 type PVECollector struct{}
 
 func NewPVECollector() *PVECollector { return &PVECollector{} }
