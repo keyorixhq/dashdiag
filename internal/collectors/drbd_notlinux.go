@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+func IsDRBDPresent() bool { return false }
+
 type DRBDCollector struct{}
 
 func NewDRBDCollector() *DRBDCollector { return &DRBDCollector{} }

@@ -366,13 +366,21 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),
 		collectors.NewBatteryCollector(),
 		collectors.NewNVMeCollector(),
-		collectors.NewRAIDCollector(),
-		collectors.NewZFSCollector(),
-		collectors.NewLVMCollector(),
-		collectors.NewDRBDCollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
 	}
-	// PVE only on Proxmox hosts — showing it on non-PVE machines is noise
+	// Storage HA — only register when technology is present on this host
+	if collectors.IsRAIDPresent() {
+		cols = append(cols, collectors.NewRAIDCollector())
+	}
+	if collectors.IsZFSPresent() {
+		cols = append(cols, collectors.NewZFSCollector())
+	}
+	if collectors.IsLVMPresent() {
+		cols = append(cols, collectors.NewLVMCollector())
+	}
+	if collectors.IsDRBDPresent() {
+		cols = append(cols, collectors.NewDRBDCollector())
+	}
 	if collectors.IsPVEHost() {
 		cols = append(cols, collectors.NewPVECollector())
 	}

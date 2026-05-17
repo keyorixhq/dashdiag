@@ -13,6 +13,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// IsDRBDPresent returns true when the DRBD kernel module is loaded.
+// /proc/drbd only exists when the drbd module is active.
+func IsDRBDPresent() bool {
+	_, err := os.Stat("/proc/drbd")
+	return err == nil
+}
+
 // DRBDCollector reads /proc/drbd to detect DRBD resource health.
 // Pure file read — no commands, no root required, zero overhead when absent.
 type DRBDCollector struct{}
