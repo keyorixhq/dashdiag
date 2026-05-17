@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,6 +38,53 @@ func insightForResult(name string, insights []models.Insight) *models.Insight {
 	return worst
 }
 
+// displayOrder defines the canonical row order for dsd health output.
+// Collectors run in parallel — without this they appear in completion order.
+// Groups: identity → compute → storage → network → security → platform-specific
+var displayOrder = []string{
+	// Compute
+	"CPU Load", "CPU Thermal", "Memory", "Swap", "GPU",
+	// Storage
+	"Disk", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD",
+	// Network
+	"Network",
+	// System
+	"Systemd", "Processes", "FDLimits", "Entropy",
+	"Clock", "Logs", "Sysctl",
+	// Security
+	"KernelSec", "Hardening", "Packages",
+	// Platform-specific
+	"Subscription", "Snapshots", "Battery", "PVE",
+	// Optional
+	"TLS", "Docker", "K8s", "Hardware",
+}
+
+// sortedResults reorders runner results into the canonical display order.
+// Unknown collector names fall to the end in their original relative order.
+func sortedResults(results []runner.Result) []runner.Result {
+	pos := make(map[string]int, len(displayOrder))
+	for i, name := range displayOrder {
+		pos[name] = i
+	}
+	sorted := make([]runner.Result, len(results))
+	copy(sorted, results)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		pi, oki := pos[sorted[i].Name]
+		pj, okj := pos[sorted[j].Name]
+		if oki && okj {
+			return pi < pj
+		}
+		if oki {
+			return true
+		}
+		if okj {
+			return false
+		}
+		return false // both unknown — preserve original order
+	})
+	return sorted
+}
+
 func levelToStatusKey(level string) string {
 	switch level {
 	case "CRIT":
@@ -51,7 +99,8 @@ func levelToStatusKey(level string) string {
 }
 
 func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) {
-	for _, res := range results {
+	sorted := sortedResults(results)
+	for _, res := range sorted {
 		ins := insightForResult(res.Name, insights)
 		level := "OK"
 		msg := ""
@@ -270,7 +319,7 @@ func inlineGPU(data interface{}) string {
 		}
 		return s
 	}
-	// Multiple GPUs — ≤2 show both, 3+ show count + hottest
+	// Multiple GPUs — ≤2 show both with clear labels
 	if len(g.Devices) == 2 {
 		var parts []string
 		for _, d := range g.Devices {
@@ -280,7 +329,7 @@ func inlineGPU(data interface{}) string {
 			}
 			parts = append(parts, s)
 		}
-		return strings.Join(parts, "  ")
+		return fmt.Sprintf("2 GPUs: %s", strings.Join(parts, " · "))
 	}
 	// 3+ GPUs — show count + hottest
 	hottest := g.Devices[0]
