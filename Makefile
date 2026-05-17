@@ -40,6 +40,12 @@ release:
 	@cd dist && sha256sum $(BINARY)-* > checksums.txt
 	@echo "✅ Release binaries in dist/"
 
+.PHONY: build-linux
+build-linux:
+	@mkdir -p dist
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -trimpath -o dist/$(BINARY)-linux-amd64 ./cmd/dsd
+	@echo "✅ Built: dist/$(BINARY)-linux-amd64 ($(VERSION))"
+
 # ── CODE QUALITY ──────────────────────────────────────────────────────────────
 .PHONY: check
 check: fmt-check vet lint
