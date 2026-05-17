@@ -12935,3 +12935,83 @@ The OS-agnostic mission still stands.
 The product hierarchy (DashDiag under UnpackOps) still stands.
 
 The name just got a second meaning that makes it stronger.
+
+---
+
+## 40. Backlog — Demo Tasks — Storage HA + New Features (2026-05-17)
+
+### Features needing real-hardware demos
+
+All features below are implemented and tested but need live screenshots
+from real machines to use in marketing and product documentation.
+
+---
+
+### Demo Group 1 — Storage HA (new collectors)
+
+| Feature | What to show | Machine |
+|---------|-------------|---------|
+| ZFS degraded pool | `dsd health` on Proxmox host (zpool status shows pools) | 192.168.10.20 (lab) |
+| LVM thin pool | `dsd health` on any KVM/Proxmox VM with pve VG | 192.168.10.20 (lab) |
+| DRBD split-brain | `dsd health` on a Pacemaker node | Requires DRBD setup |
+| mdadm degraded | Remove one drive from a RAID1 array, run `dsd health` | Any spare disk pair |
+
+**Simplest ZFS demo:** Proxmox host already has ZFS pools. Deploy binary,
+run `dsd health` as root. Even a clean/healthy pool shows the ZFS row.
+
+**Simplest LVM demo:** Any Proxmox VM — `pve` VG with thin pool `data`
+is present by default. Deploy binary, run `dsd health` as root.
+
+---
+
+### Demo Group 2 — Features from 2026-05-16 session
+
+| Feature | Machine | Setup needed |
+|---------|---------|-------------|
+| SUSE pre-migration risk | CT204 openSUSE LXC (lab) | Deploy binary, run as root |
+| Boot slowness analysis | MacBook Air 192.168.10.10 | Deploy binary, run as root |
+| SELinux double-layer | Oracle Linux 192.168.1.145 | Create failing service (script in §38) |
+
+**Oracle Linux is accessible now** (192.168.1.x — no lab network needed).
+SELinux demo setup script is in §38 — copy/paste and run.
+
+---
+
+### Demo Group 3 — NVMe + RAID storage diagnostics
+
+| Feature | Machine | Setup |
+|---------|---------|-------|
+| NVMe timeout/reset | Any machine with NVMe that's had issues | Check kmsg history |
+| RAID degraded array | Any machine with mdadm | `mdadm --fail /dev/md0 /dev/sdb1` |
+| 100% IO + btrfs hint | Any BTRFS machine under load | `btrfs scrub start /` while watching |
+
+---
+
+### Binary deploy commands (copy-paste ready)
+
+```bash
+# Build Linux binary
+cd /Users/andreibeshkov/dev/dashdiag
+GOOS=linux GOARCH=amd64 go build -o dsd-linux ./cmd/dsd
+
+# Deploy to Oracle Linux (direct access)
+scp dsd-linux andrei@192.168.1.145:/tmp/dsd
+ssh andrei@192.168.1.145 'sudo cp /tmp/dsd /usr/local/bin/dsd && sudo dsd health'
+
+# Deploy to Proxmox host (lab network)
+scp dsd-linux root@192.168.10.20:/usr/local/bin/dsd
+ssh root@192.168.10.20 'dsd health'
+
+# Deploy to LXC container via Proxmox
+ssh root@192.168.10.20 'pct push <CTID> /usr/local/bin/dsd /usr/local/bin/dsd'
+ssh root@192.168.10.20 'pct exec <CTID> -- dsd health'
+```
+
+---
+
+### Priority order for demo day
+
+1. **Oracle Linux SELinux** — accessible now, highest impact, self-contained
+2. **Proxmox ZFS + LVM** — two demos in one SSH session
+3. **MacBook Air boot slowness** — dying SSD = likely real WARN findings
+4. **openSUSE SUSE migration** — CT204 on Proxmox
