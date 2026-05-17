@@ -274,18 +274,110 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 		aaDenials = countAppArmorDenials(1 * time.Hour)
 	}
 
+	// SELinux policy type validation — the Red Hat boot failure case.
+	// SELINUXTYPE= in /etc/selinux/config must name a policy whose package is installed
+	// and whose directory /etc/selinux/<type>/ exists. When this is wrong, dbus-daemon
+	// cannot load its contexts file and cascades to all dependent services at boot.
+	seType, seTypeValid, sePolicyDirOK, sePkgOK, seRelabel := validateSELinuxPolicyType()
+
 	return &models.KernelSecurityInfo{
-		SELinuxPresent:    sePresent,
-		SELinuxMode:       seMode,
-		SELinuxDenials:    seDenials,
-		SELinuxAVCSamples: seAVCSamples,
-		AppArmorPresent:   aaPresent,
-		AppArmorMode:      aaMode,
-		AppArmorProfiles:  aaTotal,
-		AppArmorEnforce:   aaEnforce,
-		AppArmorComplain:  aaComplain,
-		AppArmorDenials:   aaDenials,
+		SELinuxPresent:       sePresent,
+		SELinuxMode:          seMode,
+		SELinuxDenials:       seDenials,
+		SELinuxAVCSamples:    seAVCSamples,
+		SELinuxType:          seType,
+		SELinuxTypeValid:     seTypeValid,
+		SELinuxPolicyDirOK:   sePolicyDirOK,
+		SELinuxPolicyPkgOK:   sePkgOK,
+		SELinuxRelabelPending: seRelabel,
+		AppArmorPresent:      aaPresent,
+		AppArmorMode:         aaMode,
+		AppArmorProfiles:     aaTotal,
+		AppArmorEnforce:      aaEnforce,
+		AppArmorComplain:     aaComplain,
+		AppArmorDenials:      aaDenials,
 	}, nil
+}
+
+// validateSELinuxPolicyType reads /etc/selinux/config and validates that SELINUXTYPE=
+// references an installed, available policy. Returns (type, typeValid, dirOK, pkgOK, relabelPending).
+// All return values are zero/false when /etc/selinux/config does not exist (SELinux absent).
+func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabelPending bool) {
+	data, err := os.ReadFile("/etc/selinux/config")
+	if err != nil {
+		return "", false, false, false, false
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "SELINUXTYPE=") {
+			seType = strings.TrimPrefix(line, "SELINUXTYPE=")
+			seType = strings.TrimSpace(seType)
+			break
+		}
+	}
+
+	if seType == "" {
+		return "", false, false, false, false
+	}
+
+	// Valid policy types per the SELinux documentation.
+	validTypes := map[string]bool{"targeted": true, "minimum": true, "mls": true}
+	typeValid = validTypes[seType]
+
+	// Policy directory must exist under /etc/selinux/<type>/
+	policyDir := "/etc/selinux/" + seType
+	if _, statErr := os.Stat(policyDir); statErr == nil {
+		dirOK = true
+	}
+
+	// Policy package selinux-policy-<type> must be installed.
+	// Try rpm first (RHEL/CentOS/Fedora), then dpkg (Debian/Ubuntu).
+	pkgOK = selinuxPolicyPkgInstalled(seType)
+
+	// /.autorelabel: a reboot with relabeling requested but not yet completed.
+	if _, statErr := os.Stat("/.autorelabel"); statErr == nil {
+		relabelPending = true
+	}
+
+	return seType, typeValid, dirOK, pkgOK, relabelPending
+}
+
+// selinuxPolicyPkgInstalled returns true when selinux-policy-<policyType>
+// is installed according to rpm or dpkg. Returns true (optimistic) when
+// neither package manager is available — prevents false positives on systems
+// without a traditional package manager.
+func selinuxPolicyPkgInstalled(policyType string) bool {
+	pkgName := "selinux-policy-" + policyType
+
+	// Try rpm first — RHEL, CentOS, Fedora, openSUSE.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := runCmd(ctx, "rpm", "-q", pkgName)
+	if err == nil && !strings.Contains(out, "not installed") {
+		return true
+	}
+
+	// Try dpkg — Debian, Ubuntu.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel2()
+	out2, err2 := runCmd(ctx2, "dpkg", "-s", pkgName)
+	if err2 == nil && strings.Contains(out2, "Status: install ok installed") {
+		return true
+	}
+
+	// Neither package manager found the package installed.
+	// If neither tool exists at all, return true to avoid false positive.
+	_, rpmExists := os.Stat("/usr/bin/rpm")
+	_, dpkgExists := os.Stat("/usr/bin/dpkg")
+	if rpmExists != nil && dpkgExists != nil {
+		return true // no package manager available — can't verify
+	}
+
+	return false
 }
 
 // collectAVCSamples reads up to n recent AVC denial lines from audit.log.

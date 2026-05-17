@@ -41,6 +41,15 @@ func Correlate(insights []models.Insight) []Correlation {
 	if c, ok := ruleGPUSustainedLoad(idx); ok {
 		out = append(out, c)
 	}
+	if c, ok := ruleIODrivenLoad(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleCPUStealUnderLoad(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleDBusCascade(idx); ok {
+		out = append(out, c)
+	}
 
 	return out
 }
@@ -289,5 +298,80 @@ func ruleGPUSustainedLoad(idx map[string]indexEntry) (Correlation, bool) {
 		Summary: summary,
 		Action:  "inspect: nvidia-smi dmon -s pucvmt -d 5",
 		Checks:  checks,
+	}, true
+}
+
+// ruleIODrivenLoad fires when load average is elevated but CPU user time is low
+// while iowait is high — the classic "load is I/O driven, not CPU bound" pattern.
+// Operators frequently escalate to CPU when disk is the actual bottleneck.
+//
+// Required signals:
+//   - CPU Load WARN or CRIT (load_pct > warn threshold)
+//   - CPU/IOWait WARN or CRIT (iowait_pct > 20%)
+//   - CPU/Steal NOT firing (rules out hypervisor as the cause)
+func ruleIODrivenLoad(idx map[string]indexEntry) (Correlation, bool) {
+	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
+	iowaitElevated := atLeast(idx, "CPU/IOWait", "WARN")
+	stealElevated := atLeast(idx, "CPU/Steal", "WARN")
+
+	if !cpuLoaded || !iowaitElevated || stealElevated {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "IO-Driven Load Saturation",
+		Level:   "WARN",
+		Summary: "Load average is elevated but the CPU is mostly idle — tasks are stalled waiting for disk I/O, not running on CPU",
+		Action:  "iostat -x 1 5 && iotop -ao",
+		Checks:  []string{"CPU Load", "CPU/IOWait"},
+	}, true
+}
+
+// ruleCPUStealUnderLoad fires when the VM is both under load AND losing CPU
+// time to the hypervisor. The host is over-provisioned — application
+// latency will be unpredictable and adding more vCPUs will not help.
+//
+// Required signals:
+//   - CPU Load WARN or CRIT
+//   - CPU/Steal WARN or CRIT (steal_pct > 10%)
+func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
+	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
+	stealElevated := atLeast(idx, "CPU/Steal", "WARN")
+
+	if !cpuLoaded || !stealElevated {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "CPU Steal Under Load",
+		Level:   "CRIT",
+		Summary: "VM is under load AND losing CPU to the hypervisor — the host is over-provisioned, adding vCPUs will not help",
+		Action:  "escalate to cloud provider or migrate VM to a less-loaded host",
+		Checks:  []string{"CPU Load", "CPU/Steal"},
+	}, true
+}
+
+// ruleDBusCascade fires when D-Bus has failed and other services have also
+// failed — distinguishing a single root cause from unrelated failures.
+// D-Bus failure is the canonical example of a Tier-0 dependency failure
+// that cascades to NetworkManager, systemd-logind, and many other services.
+//
+// Required signals:
+//   - DBus CRIT (dbus.service failed)
+//   - Systemd CRIT (at least one other unit failed)
+func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
+	dbusFailed := exact(idx, "DBus", "CRIT")
+	systemdFailed := atLeast(idx, "Systemd", "CRIT")
+
+	if !dbusFailed || !systemdFailed {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "D-Bus Cascade Failure",
+		Level:   "CRIT",
+		Summary: "D-Bus system message bus has failed — all other service failures are likely downstream effects of this single root cause",
+		Action:  "systemctl status dbus.service && journalctl -u dbus.service -n 20",
+		Checks:  []string{"DBus", "Systemd"},
 	}, true
 }

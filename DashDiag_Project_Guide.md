@@ -13240,3 +13240,112 @@ b3ef914 feat: 6 new hardware collectors — Bonding, IPMI, OOM, HBA, Pressure, M
 Nothing in the original backlog. DashDiag now covers the full stack of enterprise Linux hardware entities.
 
 **Next session:** Landing page at dashdiag.sh — this is the only thing blocking revenue.
+
+---
+
+## §29 — Architecture Principles from Gap Analysis (May 2026)
+
+*Added after analysis of Red Hat SELinux/D-Bus boot failure case and Microsoft Azure VM performance troubleshooting documentation. These are locked decisions — they affect how collectors execute, how the analysis layer works, and how the JSON output is structured.*
+
+---
+
+### Principle A: Tier-0 Dependencies First
+
+Before the main parallel collector goroutines launch in `dsd health`, DashDiag checks **Tier-0 infrastructure** — services whose failure causes *other* services to fail through cascade, not because of their own workload.
+
+The canonical example: `SELINUXTYPE=` in `/etc/selinux/config` was set to `permissive` (a valid mode value, not a valid policy type). The policy directory `/etc/selinux/permissive/` did not exist. `dbus-daemon` tried to open its contexts file, failed, and exited. NetworkManager, systemd-logind, and 6 other services then cascade-failed because they all depend on D-Bus IPC.
+
+Without Tier-0 checking, `dsd health` reports 8 failed services. With it, `dsd health` reports **1 root cause + 7 downstream effects**. This is the difference between a noise report and a diagnosis.
+
+**Current Tier-0 list (checked before parallel collectors):**
+1. SELinux policy type validity (`/etc/selinux/config` SELINUXTYPE= + policy dir + package)
+2. D-Bus service status (`dbus.service`)
+
+**Implementation rule:** If any Tier-0 check fails, the `ruleDBusCascade` correlation rule annotates all other service failures with cascade context.
+
+**Expansion rule:** When evaluating a new check, ask: "Can this single failure cause other unrelated things to fail?" If yes → Tier-0 candidate.
+
+---
+
+### Principle B: Correlation Over Isolation
+
+DashDiag's highest-value output is the cross-resource diagnosis, not raw metrics. Individual metrics (CPU%, memory%, disk util%) are necessary but not sufficient. The real diagnostic value comes from correlating metrics across resources.
+
+The canonical example from Azure VM docs: **high load average + high iowait + low CPU user% = disk I/O problem, not CPU problem.** This pattern is completely invisible when metrics are reported in isolation.
+
+**Implementation:** The `analysis/correlate.go` `Correlate()` function runs after all collectors complete. Its output is the `DIAGNOSIS` block between per-collector results and the summary line.
+
+**Strategic significance:** The `DIAGNOSIS` block is the primary API surface for the **UnpackOps RCA platform**. Every new metric added to a collector should be evaluated for whether it unlocks a new correlation rule.
+
+**Full rule set (as of May 2026):**
+
+| Rule | Signals required | Diagnosis |
+|---|---|---|
+| Memory Pressure Cascade | Memory WARN + Swap CRIT + Processes/Logs CRIT | RAM exhaustion forced swap thrashing |
+| Hard OOM Event | Memory CRIT + Logs CRIT + Swap not CRIT | Hard memory wall with no buffer |
+| IO Stall Under Memory Pressure | IO CRIT + Memory WARN + Swap CRIT | Disk and swap compete for storage bandwidth |
+| Network Degraded Under Load | Network CRIT + CPU/Swap/Memory loaded | Kernel starved for interrupt cycles |
+| GPU Sustained Compute Load | GPU INFO + Thermal/Memory WARN | Explains thermal or memory elevation |
+| IO-Driven Load Saturation | CPU Load WARN + CPU/IOWait WARN + no steal | Load is I/O driven, not CPU bound |
+| CPU Steal Under Load | CPU Load WARN + CPU/Steal WARN | Host over-provisioned, escalate to provider |
+| D-Bus Cascade Failure | DBus CRIT + Systemd CRIT | Single root cause for all service failures |
+
+---
+
+## §30 — New Collectors Added (May 2026 Gap Analysis)
+
+### DBusCollector
+
+**Files:** `internal/collectors/dbus_linux.go`, `internal/collectors/dbus_notlinux.go`
+**Model:** `internal/models/dbus.go` — `DBusInfo`
+**Command home:** `dsd health` (fast)
+
+Checks `systemctl is-active dbus.service`. If failed, extracts last error line from `journalctl -u dbus.service -n 5`. The `checkDBus()` heuristic fires CRIT with cascade annotation hints pointing to SELinux policy type as the likely root cause.
+
+**One remaining step:** Add `NewDBusCollector()` to the collector list in `cmd/health.go` or the runner package, following the same pattern as every other collector.
+
+---
+
+## §31 — Collector Updates (May 2026 Gap Analysis)
+
+### CPUCollector — Steal and IOWait
+
+**Files:** `internal/collectors/cpu.go`, `internal/models/cpu.go`
+
+Added `parseCPUStatFull()` which returns a `cpuStatSample` struct extracting idle, total, steal, and iowait from `/proc/stat`. The `Collect()` method takes two 500ms-apart samples and computes percentages from the delta. `parseCPUStat()` kept as a compatibility shim for existing tests.
+
+New fields on `models.CPUInfo`:
+- `StealPct float64` — hypervisor steal. WARN greater than 10%, CRIT greater than 20%. Always 0 on bare metal.
+- `IOwaitPct float64` — CPU idle waiting for I/O. WARN greater than 20%, CRIT greater than 40%.
+
+Both fields feed `ruleIODrivenLoad` and `ruleCPUStealUnderLoad` in the correlation engine.
+
+### KernelSecurityCollector — SELinux Policy Type Validation
+
+**Files:** `internal/collectors/kernel_security.go`, `internal/models/kernel_security.go`
+
+Added `validateSELinuxPolicyType()`. Reads `/etc/selinux/config`, extracts `SELINUXTYPE=`, validates it is one of `targeted`/`minimum`/`mls`, checks the policy directory exists under `/etc/selinux/TYPE/`, checks the package `selinux-policy-TYPE` is installed (tries rpm then dpkg), and checks for `/.autorelabel`.
+
+New fields on `models.KernelSecurityInfo`:
+- `SELinuxType string` — value of SELINUXTYPE=
+- `SELinuxTypeValid bool` — is it a recognised type?
+- `SELinuxPolicyDirOK bool` — does `/etc/selinux/TYPE/` exist?
+- `SELinuxPolicyPkgOK bool` — is `selinux-policy-TYPE` installed?
+- `SELinuxRelabelPending bool` — does `/.autorelabel` exist?
+
+`checkKernelSecurity()` now fires CRIT before any denial checks when the policy type is misconfigured, with exact fix commands.
+
+---
+
+## §32 — Diagnostic Gap Analysis Reference
+
+Full analysis documented in `DashDiag_Gap_Analysis_v1.md` in the project root.
+
+Key finding from reading the actual codebase: most gaps identified from the Azure docs were already implemented — OOM, cloud metadata, HugePages, PSI pressure, NUMA, entropy, swap activity rate, D-state processes, zombies, network error/drop counters, and the correlation engine base were all present. The true gaps were narrower than the initial analysis suggested:
+
+1. CPU steal and iowait columns not extracted from `/proc/stat` — fixed
+2. SELinux policy *type* validation not performed (only denial counting existed) — fixed
+3. No explicit D-Bus health collector — fixed (runner wiring still needed)
+4. Three correlation rules missing for cloud VM diagnostic patterns — fixed
+
+Remaining roadmap items from this analysis are tracked in `BACKLOG.md` under `[V2-COLLECTOR] CPU scheduling pathology` and `[V2-COLLECTOR] Storage performance diagnostics`.
