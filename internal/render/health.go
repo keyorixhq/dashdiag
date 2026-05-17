@@ -58,6 +58,7 @@ var displayOrder = []string{
 	"KernelSec", "Hardening", "Packages",
 	// Platform-specific
 	"Subscription", "Snapshots", "Battery", "PVE",
+	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
 	// Optional
 	"TLS", "Docker", "K8s", "Hardware",
 }
@@ -229,6 +230,16 @@ func inlineData(res runner.Result) string {
 		return inlineSystemd(res.Data)
 	case "Processes":
 		return inlineProcesses(res.Data)
+	case "Bonding":
+		return inlineBonding(res.Data)
+	case "IPMI":
+		return inlineIPMI(res.Data)
+	case "HBA":
+		return inlineHBA(res.Data)
+	case "Pressure":
+		return inlinePressure(res.Data)
+	case "Multipath":
+		return inlineMultipath(res.Data)
 	}
 	return ""
 }
@@ -433,6 +444,93 @@ func inlineProcesses(data interface{}) string {
 		return ""
 	}
 	return fmt.Sprintf("%d zombie  %d hung", p.ZombieCount, p.HungCount)
+}
+
+func inlineBonding(data interface{}) string {
+	var b *models.BondingInfo
+	if v, ok := data.(*models.BondingInfo); ok {
+		b = v
+	} else if v, ok := data.(models.BondingInfo); ok {
+		b = &v
+	}
+	if b == nil || len(b.Bonds) == 0 {
+		return ""
+	}
+	total := 0
+	for _, bond := range b.Bonds {
+		total += len(bond.Slaves)
+	}
+	if len(b.Bonds) == 1 {
+		bond := b.Bonds[0]
+		return fmt.Sprintf("%s  %d/%d slaves up  %s", bond.Name, len(bond.Slaves)-bond.DownSlaves, len(bond.Slaves), bond.ModeShort)
+	}
+	return fmt.Sprintf("%d bonds  %d slaves", len(b.Bonds), total)
+}
+
+func inlineIPMI(data interface{}) string {
+	var i *models.IPMIInfo
+	if v, ok := data.(*models.IPMIInfo); ok {
+		i = v
+	} else if v, ok := data.(models.IPMIInfo); ok {
+		i = &v
+	}
+	if i == nil || !i.Available {
+		return ""
+	}
+	return fmt.Sprintf("%d sensors  ok", len(i.Sensors))
+}
+
+func inlineHBA(data interface{}) string {
+	var h *models.HBAInfo
+	if v, ok := data.(*models.HBAInfo); ok {
+		h = v
+	} else if v, ok := data.(models.HBAInfo); ok {
+		h = &v
+	}
+	if h == nil || len(h.Ports) == 0 {
+		return ""
+	}
+	online := 0
+	for _, p := range h.Ports {
+		if strings.EqualFold(p.PortState, "online") || strings.EqualFold(p.PortState, "linkup") {
+			online++
+		}
+	}
+	return fmt.Sprintf("%d/%d ports online", online, len(h.Ports))
+}
+
+func inlinePressure(data interface{}) string {
+	var p *models.PressureInfo
+	if v, ok := data.(*models.PressureInfo); ok {
+		p = v
+	} else if v, ok := data.(models.PressureInfo); ok {
+		p = &v
+	}
+	if p == nil || !p.Available {
+		return ""
+	}
+	// Show the highest pressure metric
+	if p.MemoryFull.Avg10 > 0 || p.MemorySome.Avg10 > 0 || p.CPUSome.Avg10 > 0 || p.IOSome.Avg10 > 0 {
+		return fmt.Sprintf("mem %.0f%%  cpu %.0f%%  io %.0f%%", p.MemorySome.Avg10, p.CPUSome.Avg10, p.IOSome.Avg10)
+	}
+	return "no pressure"
+}
+
+func inlineMultipath(data interface{}) string {
+	var m *models.MultipathInfo
+	if v, ok := data.(*models.MultipathInfo); ok {
+		m = v
+	} else if v, ok := data.(models.MultipathInfo); ok {
+		m = &v
+	}
+	if m == nil || !m.Available || len(m.Devices) == 0 {
+		return ""
+	}
+	totalPaths := 0
+	for _, d := range m.Devices {
+		totalPaths += d.TotalPaths
+	}
+	return fmt.Sprintf("%d devices  %d paths", len(m.Devices), totalPaths)
 }
 
 func inlineGPU(data interface{}) string {

@@ -246,6 +246,42 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkHardware(*d)
 		}
+	case models.BondingInfo:
+		return checkBonding(d)
+	case *models.BondingInfo:
+		if d != nil {
+			return checkBonding(*d)
+		}
+	case models.IPMIInfo:
+		return checkIPMI(d)
+	case *models.IPMIInfo:
+		if d != nil {
+			return checkIPMI(*d)
+		}
+	case models.OOMInfo:
+		return checkOOM(d)
+	case *models.OOMInfo:
+		if d != nil {
+			return checkOOM(*d)
+		}
+	case models.HBAInfo:
+		return checkHBA(d)
+	case *models.HBAInfo:
+		if d != nil {
+			return checkHBA(*d)
+		}
+	case models.PressureInfo:
+		return checkPressure(d)
+	case *models.PressureInfo:
+		if d != nil {
+			return checkPressure(*d)
+		}
+	case models.MultipathInfo:
+		return checkMultipath(d)
+	case *models.MultipathInfo:
+		if d != nil {
+			return checkMultipath(*d)
+		}
 	}
 	return nil
 }
@@ -3060,4 +3096,239 @@ func containsStr(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// ── New heuristics: Bonding, IPMI, OOM, HBA, Pressure, Multipath ──────────
+
+func checkBonding(b models.BondingInfo) []models.Insight {
+	if len(b.Bonds) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, bond := range b.Bonds {
+		if bond.DownSlaves == 0 {
+			continue
+		}
+		if bond.DownSlaves == len(bond.Slaves) {
+			out = append(out, insight("CRIT", "Bonding",
+				fmt.Sprintf("%s: all %d slaves down — bond is completely failed", bond.Name, bond.DownSlaves),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+				},
+			))
+		} else {
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s: %d/%d slave(s) down (%s mode) — running degraded",
+					bond.Name, bond.DownSlaves, len(bond.Slaves), bond.ModeShort),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+					"to inspect: ethtool <slave-interface>",
+				},
+			))
+		}
+		// Surface individual down slaves
+		for _, s := range bond.Slaves {
+			if s.State == "down" {
+				out = append(out, insight("INFO", "Bonding",
+					fmt.Sprintf("%s: slave %s is down (MII: %s)", bond.Name, s.Name, s.MIIStatus),
+					[]string{
+						fmt.Sprintf("to inspect: ethtool %s", s.Name),
+						fmt.Sprintf("to inspect: ip link show %s", s.Name),
+					},
+				))
+			}
+		}
+		// High link failures on any slave
+		for _, s := range bond.Slaves {
+			if s.LinkFails > 10 {
+				out = append(out, insight("WARN", "Bonding",
+					fmt.Sprintf("%s: slave %s has %d link failures — check cable or switch port",
+						bond.Name, s.Name, s.LinkFails),
+					[]string{fmt.Sprintf("to inspect: ethtool %s", s.Name)},
+				))
+			}
+		}
+	}
+	return out
+}
+
+func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
+	if !ipmi.Available {
+		return nil
+	}
+	var out []models.Insight
+	if ipmi.PSUFailed > 0 {
+		out = append(out, insight("CRIT", "IPMI",
+			fmt.Sprintf("%d PSU(s) in fault state — risk of host going offline", ipmi.PSUFailed),
+			[]string{
+				"to inspect: ipmitool sdr type 'Power Supply'",
+				"to inspect: ipmitool sel list | tail -20",
+				"note: replace failed PSU before removing redundant one",
+			},
+		))
+	}
+	if ipmi.FanFailed > 0 {
+		out = append(out, insight("WARN", "IPMI",
+			fmt.Sprintf("%d fan(s) in fault state — thermal risk", ipmi.FanFailed),
+			[]string{
+				"to inspect: ipmitool sdr type Fan",
+				"to inspect: ipmitool sel list | tail -20",
+			},
+		))
+	}
+	if ipmi.TempCritical > 0 {
+		out = append(out, insight("CRIT", "IPMI",
+			fmt.Sprintf("%d temperature sensor(s) in critical state", ipmi.TempCritical),
+			[]string{
+				"to inspect: ipmitool sdr type Temperature",
+				"to inspect: check airflow and fan operation",
+			},
+		))
+	}
+	return out
+}
+
+func checkOOM(oom models.OOMInfo) []models.Insight {
+	if oom.EventsLast24h == 0 {
+		return nil
+	}
+	var victims []string
+	seen := map[string]bool{}
+	for _, ev := range oom.RecentEvents {
+		if !seen[ev.Process] {
+			seen[ev.Process] = true
+			victims = append(victims, ev.Process)
+		}
+	}
+	msg := fmt.Sprintf("%d OOM kill event(s) in the last 24h", oom.EventsLast24h)
+	if len(victims) > 0 {
+		msg += fmt.Sprintf(" — killed: %s", strings.Join(victims, ", "))
+	}
+	return []models.Insight{insight("WARN", "OOM",
+		msg,
+		[]string{
+			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
+			"to inspect: dmesg | grep -i 'out of memory'",
+			"to inspect: free -h",
+			"to inspect: ps aux --sort=-%mem | head -10",
+			"note: OOM kills are silent — services may restart without apparent cause",
+		},
+	)}
+}
+
+func checkHBA(hba models.HBAInfo) []models.Insight {
+	if len(hba.Ports) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, p := range hba.Ports {
+		state := strings.ToLower(p.PortState)
+		if state != "online" && state != "linkup" && state != "" {
+			out = append(out, insight("CRIT", "HBA",
+				fmt.Sprintf("FC port %s is %s — storage path lost", p.Name, p.PortState),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					"to inspect: systool -c fc_host -v",
+					"note: check SFP cable, switch zoning, and target port",
+				},
+			))
+		}
+		if p.LinkFailures > 0 || p.LossOfSync > 100 {
+			out = append(out, insight("WARN", "HBA",
+				fmt.Sprintf("FC port %s: %d link failures, %d loss-of-sync — check fibre and SFP",
+					p.Name, p.LinkFailures, p.LossOfSync),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/statistics/link_failure_count",
+					"to inspect: check SFP module and fibre cable",
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkPressure(p models.PressureInfo) []models.Insight {
+	if !p.Available {
+		return nil
+	}
+	var out []models.Insight
+	// Memory full stall > 10% in last 60s is severe
+	if p.MemoryFull.Avg60 >= 10 {
+		out = append(out, insight("CRIT", "Pressure",
+			fmt.Sprintf("memory full stall %.1f%% avg60 — tasks blocked waiting for memory", p.MemoryFull.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/memory",
+				"to inspect: free -h",
+				"to inspect: ps aux --sort=-%mem | head -10",
+				"note: OOM kill may be imminent — act now",
+			},
+		))
+	} else if p.MemorySome.Avg60 >= 20 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("memory pressure %.1f%% avg60 — some tasks delayed waiting for memory", p.MemorySome.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/memory",
+				"to inspect: free -h",
+			},
+		))
+	}
+	// IO full stall > 5% in last 60s
+	if p.IOFull.Avg60 >= 5 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("IO full stall %.1f%% avg60 — all tasks blocked on disk IO", p.IOFull.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/io",
+				"to inspect: iostat -x 1 5",
+				"to inspect: iotop -ao",
+			},
+		))
+	}
+	// CPU stall > 30% in last 60s (some stall, not full — CPU is never "full" stalled)
+	if p.CPUSome.Avg60 >= 30 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("CPU pressure %.1f%% avg60 — tasks waiting for CPU time", p.CPUSome.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/cpu",
+				"to inspect: uptime",
+				"to inspect: ps aux --sort=-%cpu | head -10",
+			},
+		))
+	}
+	return out
+}
+
+func checkMultipath(m models.MultipathInfo) []models.Insight {
+	if !m.Available || len(m.Devices) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, dev := range m.Devices {
+		if dev.FailedPaths == 0 {
+			continue
+		}
+		if dev.ActivePaths == 0 {
+			out = append(out, insight("CRIT", "Multipath",
+				fmt.Sprintf("%s (%s): all paths failed — device unavailable", dev.Name, dev.DM),
+				[]string{
+					"to inspect: multipathd show paths",
+					"to inspect: multipath -l",
+					"to inspect: check SAN fabric and HBA",
+				},
+			))
+		} else {
+			out = append(out, insight("WARN", "Multipath",
+				fmt.Sprintf("%s (%s): %d/%d paths failed — running degraded",
+					dev.Name, dev.DM, dev.FailedPaths, dev.TotalPaths),
+				[]string{
+					"to inspect: multipathd show paths",
+					"to inspect: multipath -l",
+					fmt.Sprintf("to inspect: cat /sys/block/%s/dm/state", dev.DM),
+					"note: replace failed path before removing redundant one",
+				},
+			))
+		}
+	}
+	return out
 }

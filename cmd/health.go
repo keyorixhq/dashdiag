@@ -392,6 +392,28 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.IsPVEHost() {
 		cols = append(cols, collectors.NewPVECollector())
 	}
+	// Bonding / LACP
+	if collectors.IsBondingPresent() {
+		cols = append(cols, collectors.NewBondingCollector())
+	}
+	// IPMI / BMC sensors
+	if collectors.IsIPMIPresent() {
+		cols = append(cols, collectors.NewIPMICollector())
+	}
+	// OOM killer events — always collected (reads journal, never root-only)
+	cols = append(cols, collectors.NewOOMCollector())
+	// Fibre Channel HBA
+	if collectors.IsHBAPresent() {
+		cols = append(cols, collectors.NewHBACollector())
+	}
+	// cgroup v2 PSI pressure
+	if collectors.IsPSIAvailable() {
+		cols = append(cols, collectors.NewPressureCollector())
+	}
+	// DM-MPIO multipath
+	if collectors.IsMultipathPresent() {
+		cols = append(cols, collectors.NewMultipathCollector())
+	}
 	if includeGPU {
 		cols = append(cols, collectors.NewGPUCollector())
 	}
