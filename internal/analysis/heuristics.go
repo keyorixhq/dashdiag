@@ -174,6 +174,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkDRBD(*d)
 		}
+	case models.PVEInfo:
+		return checkPVE(d)
+	case *models.PVEInfo:
+		if d != nil {
+			return checkPVE(*d)
+		}
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
@@ -1514,6 +1520,170 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 // checkDRBD surfaces DRBD resource health issues: split-brain, disconnected
 // peer, inconsistent disk, and sync progress.
 // DRBD is commonly used in Pacemaker/Corosync clusters for block device HA.
+// checkPVE surfaces Proxmox VE host health issues.
+// Silent no-op on non-Proxmox hosts.
+func checkPVE(p models.PVEInfo) []models.Insight {
+	if !p.IsPVE {
+		return nil
+	}
+	if p.NeedsRoot {
+		return []models.Insight{insight("INFO", "PVE",
+			"Proxmox VE detected — run as root for full cluster/storage/backup checks",
+			[]string{"to run: sudo dsd health"},
+		)}
+	}
+	out := make([]models.Insight, 0, 8)
+	out = append(out, checkPVESubscription(p)...)
+	out = append(out, checkPVECluster(p)...)
+	out = append(out, checkPVEStorage(p)...)
+	out = append(out, checkPVEBackups(p)...)
+	return out
+}
+
+func checkPVESubscription(p models.PVEInfo) []models.Insight {
+	switch p.Subscription.Status {
+	case "notfound", "":
+		return []models.Insight{insight("WARN", "PVE",
+			"no Proxmox VE subscription — security updates require an active subscription",
+			[]string{
+				"note: without a subscription, security patches lag behind the enterprise repo",
+				"to subscribe: https://www.proxmox.com/en/proxmox-ve/pricing",
+			},
+		)}
+	case "expired":
+		return []models.Insight{insight("CRIT", "PVE",
+			"Proxmox VE subscription has EXPIRED — no access to security updates",
+			[]string{
+				"to renew: https://www.proxmox.com/en/proxmox-ve/pricing",
+				"to inspect: pvesh get /nodes/localhost/subscription",
+			},
+		)}
+	}
+	return nil
+}
+
+func checkPVECluster(p models.PVEInfo) []models.Insight {
+	out := make([]models.Insight, 0, 4)
+
+	if !p.QuorumOK {
+		out = append(out, insight("CRIT", "PVE",
+			"cluster quorum LOST — VMs cannot start or migrate until quorum is restored",
+			[]string{
+				"to inspect: pvecm status",
+				"to inspect: systemctl status corosync pve-cluster",
+				"note: do not force quorum unless certain of network partition vs node failure",
+			},
+		))
+	}
+
+	if !p.HAFencingOK {
+		out = append(out, insight("CRIT", "PVE",
+			"HA fencing device unreachable — "+p.HAFencingMsg,
+			[]string{
+				"to inspect: pvecm status",
+				"to inspect: ha-manager status",
+				"note: without fencing, HA cannot safely restart VMs from a failed node",
+			},
+		))
+	}
+
+	if len(p.Nodes) > 1 {
+		versions := map[string]bool{}
+		for _, n := range p.Nodes {
+			if n.Version != "" {
+				versions[n.Version] = true
+			}
+		}
+		if len(versions) > 1 {
+			out = append(out, insight("WARN", "PVE",
+				fmt.Sprintf("cluster has mixed PVE versions across %d nodes — live migration may fail", len(p.Nodes)),
+				[]string{
+					"to inspect: pvecm status",
+					"to fix: apt update && apt full-upgrade  (on each node, one at a time)",
+				},
+			))
+		}
+		for _, n := range p.Nodes {
+			if !n.Online {
+				out = append(out, insight("CRIT", "PVE",
+					fmt.Sprintf("cluster node %s is OFFLINE", n.Name),
+					[]string{
+						"to inspect: pvecm status",
+						fmt.Sprintf("to inspect: ssh root@%s 'systemctl status pve-cluster corosync'", n.Name),
+					},
+				))
+			}
+		}
+	}
+	return out
+}
+
+func checkPVEStorage(p models.PVEInfo) []models.Insight {
+	var out []models.Insight
+	for _, s := range p.Storages {
+		if !s.Active {
+			out = append(out, insight("CRIT", "PVE",
+				fmt.Sprintf("storage %s (%s) is INACTIVE", s.Name, s.Type),
+				[]string{
+					"to inspect: pvesm status",
+					fmt.Sprintf("to inspect: pvesh get /nodes/localhost/storage/%s/status", s.Name),
+				},
+			))
+			continue
+		}
+		if l := levelPct(s.UsedPct, 80, 90); l != "" {
+			out = append(out, insight(l, "PVE",
+				fmt.Sprintf("storage %s (%s) is %.0f%% full (%.1f GB free of %.1f GB)",
+					s.Name, s.Type, s.UsedPct, s.TotalGB-s.UsedGB, s.TotalGB),
+				[]string{
+					"to inspect: pvesm status",
+					"note: full storage prevents VM disk writes and snapshot creation",
+					"to free: remove old backups, snapshots, or ISO images",
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkPVEBackups(p models.PVEInfo) []models.Insight {
+	var out []models.Insight
+	switch {
+	case p.BackupAgeDays < 0:
+		out = append(out, insight("WARN", "PVE",
+			"no successful backup found — VMs have no recovery point",
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				"to schedule: Datacenter → Backup → Add",
+			},
+		))
+	case p.BackupAgeDays > 7:
+		out = append(out, insight("WARN", "PVE",
+			fmt.Sprintf("last successful backup was %d days ago", p.BackupAgeDays),
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				"to run now: vzdump --all --compress zstd --storage local",
+			},
+		))
+	}
+	failed := 0
+	for _, t := range p.RecentBackups {
+		if t.Status != "OK" {
+			failed++
+		}
+	}
+	if failed > 0 {
+		out = append(out, insight("WARN", "PVE",
+			fmt.Sprintf("%d backup task(s) failed in the last 7 days", failed),
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				"to inspect: ls /var/log/vzdump/",
+			},
+		))
+	}
+	return out
+}
+
 func checkDRBD(d models.DRBDInfo) []models.Insight {
 	out := make([]models.Insight, 0, len(d.Resources))
 	for _, res := range d.Resources {
