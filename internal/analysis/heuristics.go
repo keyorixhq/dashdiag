@@ -1988,10 +1988,24 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 }
 
 func checkGPU(gpu models.GPUInfo) []models.Insight {
-	if len(gpu.Devices) == 0 {
+	if len(gpu.Devices) == 0 && gpu.Status == "" {
 		return nil // no GPU or driver not loaded — skip silently
 	}
 	var out []models.Insight
+
+	// NVIDIA detected but driver/nvidia-smi not available
+	if gpu.Status == "nvidia-no-driver" {
+		out = append(out, insight("INFO", "GPU",
+			"NVIDIA GPU detected — install driver for GPU health monitoring",
+			[]string{
+				"to fix (Ubuntu/Mint): apt-get install nvidia-driver-535",
+				"to fix (RHEL/Fedora): dnf install akmod-nvidia",
+				"to inspect: lspci | grep -i nvidia",
+				"note: reboot required after driver install",
+			},
+		))
+	}
+
 	for _, dev := range gpu.Devices {
 		prefix := dev.Name
 		if len(gpu.Devices) > 1 {
