@@ -24,13 +24,11 @@ func (c *PressureCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.PressureInfo{}
 
-	// /proc/pressure/* (since Linux 5.2, always readable without root)
 	base := "/proc/pressure"
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		// Older kernels: try cgroup v2 root
 		base = "/sys/fs/cgroup"
 		if _, err := os.Stat(base + "/memory.pressure"); os.IsNotExist(err) {
-			return info, nil // PSI not available on this kernel
+			return info, nil
 		}
 	}
 
@@ -42,8 +40,8 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 			info.MemoryFull = m[1]
 		}
 	}
-	if c, err := readPSIFile(fmt.Sprintf("%s/cpu", base)); err == nil {
-		info.CPUSome = c[0]
+	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu", base)); err == nil {
+		info.CPUSome = cpu[0]
 	}
 	if io, err := readPSIFile(fmt.Sprintf("%s/io", base)); err == nil {
 		info.IOSome = io[0]
@@ -66,17 +64,18 @@ func IsPSIAvailable() bool {
 	return false
 }
 
-// readPSIFile parses a PSI pressure file.
-// Format per line: "some avg10=X avg60=X avg300=X total=N"
-//
-//	"full avg10=X avg60=X avg300=X total=N"
 func readPSIFile(path string) ([]models.PSILine, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return readPSIString(string(data))
+}
+
+// readPSIString parses PSI content from a string — exported for tests.
+func readPSIString(content string) ([]models.PSILine, error) {
 	var lines []models.PSILine
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(content), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue

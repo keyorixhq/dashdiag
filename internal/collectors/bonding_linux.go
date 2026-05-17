@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,18 +47,22 @@ func IsBondingPresent() bool {
 }
 
 func parseBondFile(path string) (models.BondInterface, error) {
-	bond := models.BondInterface{
-		Name: filepath.Base(path),
-	}
-
 	f, err := os.Open(path)
 	if err != nil {
-		return bond, err
+		return models.BondInterface{}, err
 	}
 	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return models.BondInterface{}, err
+	}
+	return parseBondFileContent(filepath.Base(path), string(data))
+}
 
+func parseBondFileContent(name, content string) (models.BondInterface, error) {
+	bond := models.BondInterface{Name: name}
 	var currentSlave *models.BondSlave
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(strings.NewReader(content))
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -127,15 +132,15 @@ func shortMode(mode string) string {
 		return "802.3ad"
 	case strings.Contains(mode, "active-backup"):
 		return "active-backup"
-	case strings.Contains(mode, "balance-rr"):
+	case strings.Contains(mode, "round-robin"):
 		return "balance-rr"
-	case strings.Contains(mode, "balance-xor"):
+	case strings.Contains(mode, "xor"):
 		return "balance-xor"
 	case strings.Contains(mode, "broadcast"):
 		return "broadcast"
-	case strings.Contains(mode, "balance-tlb"):
+	case strings.Contains(mode, "balance-tlb") || strings.Contains(mode, "transmit load balancing"):
 		return "balance-tlb"
-	case strings.Contains(mode, "balance-alb"):
+	case strings.Contains(mode, "balance-alb") || strings.Contains(mode, "adaptive load balancing"):
 		return "balance-alb"
 	default:
 		return mode
