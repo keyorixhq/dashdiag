@@ -361,13 +361,20 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewEntropyCollector(),
 		collectors.NewLogsCollector(),
 		collectors.NewSecurityCollector(),
-		collectors.NewSnapperCollector(),
-		collectors.NewSUSEConnectCollector(),
+	}
+	// SUSE-specific collectors — only on SUSE/openSUSE hosts
+	if collectors.IsSUSEHost() {
+		cols = append(cols,
+			collectors.NewSnapperCollector(),
+			collectors.NewSUSEConnectCollector(),
+		)
+	}
+	cols = append(cols,
 		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),
 		collectors.NewBatteryCollector(),
 		collectors.NewNVMeCollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
-	}
+	)
 	// Storage HA — only register when technology is present on this host
 	if collectors.IsRAIDPresent() {
 		cols = append(cols, collectors.NewRAIDCollector())
