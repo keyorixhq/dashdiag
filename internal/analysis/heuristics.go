@@ -360,6 +360,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkCPUFreq(*d)
 		}
+	case models.DBusInfo:
+		return checkDBus(d)
+	case *models.DBusInfo:
+		if d != nil {
+			return checkDBus(*d)
+		}
 	}
 	return nil
 }
@@ -379,13 +385,84 @@ func insight(level, check, message string, hints []string) models.Insight {
 }
 
 func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
-	l := levelPct(cpu.LoadPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100)
-	if l == "" {
-		return nil
+	var out []models.Insight
+
+	if l := levelPct(cpu.LoadPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
+		out = append(out, insight(l, "CPU Load",
+			fmt.Sprintf("load average at %.0f%% of capacity (%.2f / %d CPUs)", cpu.LoadPct, cpu.LoadAvg1, cpu.NumCPU),
+			[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
+		))
 	}
-	return []models.Insight{insight(l, "CPU Load",
-		fmt.Sprintf("load average at %.0f%% of capacity (%.2f / %d CPUs)", cpu.LoadPct, cpu.LoadAvg1, cpu.NumCPU),
-		[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
+
+	// CPU steal — hypervisor is withholding CPU from this VM.
+	// Only meaningful on virtual machines (bare metal always shows 0).
+	// > 10%: host is over-provisioned — neighbours are competing for physical CPUs.
+	// > 20%: severe — application latency will be unpredictable.
+	if cpu.StealPct >= 20 {
+		out = append(out, insight("CRIT", "CPU/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", cpu.StealPct),
+			[]string{
+				"to inspect: top -b -n1 | grep Cpu",
+				"to inspect: vmstat 1 5  (look at the 'st' column)",
+				"note: steal > 20%% means the host is severely over-provisioned",
+				"note: escalate to your cloud provider or migrate to a less-loaded host",
+			},
+		))
+	} else if cpu.StealPct >= 10 {
+		out = append(out, insight("WARN", "CPU/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", cpu.StealPct),
+			[]string{
+				"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
+				"to inspect: vmstat 1 5",
+				"note: steal time indicates host over-provisioning — consider VM migration",
+			},
+		))
+	}
+
+	// CPU iowait — CPU is idle but blocked waiting for I/O.
+	// High iowait with normal/low CPU usage means load is I/O-driven, not compute-driven.
+	// This is the canonical "high load average but CPU is not busy" pattern.
+	if cpu.IOwaitPct >= 40 {
+		out = append(out, insight("CRIT", "CPU/IOWait",
+			fmt.Sprintf("I/O wait at %.1f%% — CPU is stalled waiting for disk or network I/O", cpu.IOwaitPct),
+			[]string{
+				"to inspect: iostat -x 1 5",
+				"to inspect: iotop -ao",
+				"to inspect: ps aux | grep ' D '  (D-state processes blocked on I/O)",
+				"note: high iowait with normal CPU usage = disk bottleneck, not CPU",
+			},
+		))
+	} else if cpu.IOwaitPct >= 20 {
+		out = append(out, insight("WARN", "CPU/IOWait",
+			fmt.Sprintf("I/O wait at %.1f%% — load may be I/O-driven rather than CPU-bound", cpu.IOwaitPct),
+			[]string{
+				"to inspect: iostat -x 1 5",
+				"to inspect: ps aux | grep ' D '",
+			},
+		))
+	}
+
+	return out
+}
+
+// checkDBus surfaces D-Bus health. D-Bus is treated as a Tier-0 dependency —
+// its failure cascades to all services that communicate via IPC.
+func checkDBus(d models.DBusInfo) []models.Insight {
+	if d.Status == "n/a" || d.Active {
+		return nil // healthy or not applicable (non-Linux)
+	}
+	hints := []string{
+		"to inspect: systemctl status dbus.service",
+		"to inspect: journalctl -u dbus.service -n 20",
+		"note: D-Bus failure cascades — NetworkManager, systemd-logind, and other services will also fail",
+		"note: check SELinux policy type: cat /etc/selinux/config | grep SELINUXTYPE",
+	}
+	if d.LastError != "" {
+		hints = append([]string{"last error: " + d.LastError}, hints...)
+	}
+	return []models.Insight{insight("CRIT", "DBus",
+		"D-Bus system message bus has failed — all IPC-dependent services are affected",
+		hints,
 	)}
 }
 
@@ -1073,20 +1150,68 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled"
 	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled" && mac.AppArmorMode != "unknown"
 	aaIndeterminate := mac.AppArmorPresent && mac.AppArmorMode == "unknown"
+
+	var out []models.Insight
+
+	// SELinux policy type validation — surface BEFORE any denial checks.
+	// A bad SELINUXTYPE= is the root cause of cascading service failures at boot.
+	// This check fires even when SELinux mode is "permissive" because the policy
+	// directory / package mismatch still prevents dbus from loading its context file.
+	if mac.SELinuxPresent && mac.SELinuxType != "" {
+		if !mac.SELinuxTypeValid {
+			out = append(out, insight("CRIT", "KernelSec",
+				fmt.Sprintf("SELinux SELINUXTYPE=%q is not a valid policy type (must be: targeted, minimum, mls)", mac.SELinuxType),
+				[]string{
+					"to inspect: cat /etc/selinux/config",
+					"to fix:     set SELINUXTYPE=targeted in /etc/selinux/config",
+					"to fix:     touch /.autorelabel && reboot",
+					"note: invalid SELINUXTYPE causes dbus to fail, cascading to NetworkManager and systemd-logind",
+				},
+			))
+		} else if !mac.SELinuxPolicyDirOK {
+			out = append(out, insight("CRIT", "KernelSec",
+				fmt.Sprintf("SELinux SELINUXTYPE=%q policy directory /etc/selinux/%s/ does not exist", mac.SELinuxType, mac.SELinuxType),
+				[]string{
+					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
+					"to fix:     touch /.autorelabel && reboot",
+					"note: missing policy directory causes dbus to fail at boot",
+				},
+			))
+		} else if !mac.SELinuxPolicyPkgOK {
+			out = append(out, insight("CRIT", "KernelSec",
+				fmt.Sprintf("SELinux policy package selinux-policy-%s is not installed", mac.SELinuxType),
+				[]string{
+					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
+					"to fix:     touch /.autorelabel && reboot",
+				},
+			))
+		}
+		if mac.SELinuxRelabelPending {
+			out = append(out, insight("WARN", "KernelSec",
+				"SELinux filesystem relabel is pending — reboot required to complete relabeling",
+				[]string{
+					"note: /.autorelabel exists — system will relabel on next boot",
+					"to apply: reboot",
+				},
+			))
+		}
+	}
+
 	if !seActive && !aaActive {
 		if aaIndeterminate {
-			return []models.Insight{insight("INFO", "KernelSec",
+			return append(out, insight("INFO", "KernelSec",
 				"AppArmor present but mode unreadable — re-run as root",
+				nil,
+			))
+		}
+		if len(out) == 0 {
+			return []models.Insight{insight("INFO", "KernelSec",
+				"kernel security module not enforced",
 				nil,
 			)}
 		}
-		return []models.Insight{insight("INFO", "KernelSec",
-			"kernel security module not enforced",
-			nil,
-		)}
+		return out
 	}
-
-	var out []models.Insight
 
 	// AppArmor-specific checks
 	if aaActive {

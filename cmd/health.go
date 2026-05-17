@@ -356,6 +356,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewFDLimitsCollector(),
 		collectors.NewProcessesCollector(),
 		collectors.NewSystemdCollector(),
+		collectors.NewDBusCollector(), // Tier-0: D-Bus failure cascades to all IPC-dependent services
 		collectors.NewSysctlCollector(),
 		collectors.NewKernelSecurityCollector(),
 		collectors.NewEntropyCollector(),

@@ -60,9 +60,20 @@ func parseLoadAvg(r io.Reader) (load1, load5, load15 float64, err error) {
 	return load1, load5, load15, nil
 }
 
-// parseCPUStat parses the first "cpu " line from /proc/stat.
-// Returns idle (field[3]) and total (sum of all fields).
-func parseCPUStat(r io.Reader) (idle, total uint64, err error) {
+// cpuStatSample holds raw counters from one /proc/stat read.
+// Field indices (0-based after the "cpu" label):
+//
+//	0=user 1=nice 2=system 3=idle 4=iowait 5=irq 6=softirq 7=steal 8=guest 9=guest_nice
+type cpuStatSample struct {
+	idle   uint64
+	total  uint64
+	steal  uint64
+	iowait uint64
+}
+
+// parseCPUStatFull parses the aggregate "cpu " line from /proc/stat and
+// returns all counters needed for accurate CPU usage, steal, and iowait rates.
+func parseCPUStatFull(r io.Reader) (cpuStatSample, error) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -71,24 +82,37 @@ func parseCPUStat(r io.Reader) (idle, total uint64, err error) {
 		}
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
-			return 0, 0, fmt.Errorf("unexpected cpu stat line: %q", line)
+			return cpuStatSample{}, fmt.Errorf("unexpected cpu stat line: %q", line)
 		}
+		var s cpuStatSample
 		for i, f := range fields[1:] {
 			v, err := strconv.ParseUint(f, 10, 64)
 			if err != nil {
-				return 0, 0, fmt.Errorf("parsing cpu field %d: %w", i, err)
+				return cpuStatSample{}, fmt.Errorf("parsing cpu field %d: %w", i, err)
 			}
-			total += v
-			if i == 3 {
-				idle = v
+			s.total += v
+			switch i {
+			case 3:
+				s.idle = v
+			case 4:
+				s.iowait = v
+			case 7:
+				s.steal = v
 			}
 		}
-		return idle, total, nil
+		return s, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, 0, err
+		return cpuStatSample{}, err
 	}
-	return 0, 0, fmt.Errorf("no cpu line in stat")
+	return cpuStatSample{}, fmt.Errorf("no cpu line in stat")
+}
+
+// parseCPUStat is a compatibility shim used by cpu_test.go.
+// New code should use parseCPUStatFull directly.
+func parseCPUStat(r io.Reader) (idle, total uint64, err error) {
+	s, parseErr := parseCPUStatFull(r)
+	return s.idle, s.total, parseErr
 }
 
 func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
@@ -113,11 +137,13 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		return nil, fmt.Errorf("load average: %w", err)
 	}
 
-	// Two-sample /proc/stat for CPU usage
-	var usagePct float64
+	// Two-sample /proc/stat for CPU usage percentage plus steal and iowait rates.
+	// Steal is the percentage of time the hypervisor stole CPU from this VM.
+	// IOwait is the percentage of time the CPU was idle waiting for I/O completion.
+	var usagePct, stealPct, iowaitPct float64
 	r1, err1 := c.readers.statOpen()
 	if err1 == nil {
-		idle1, total1, parseErr := parseCPUStat(r1)
+		s1, parseErr := parseCPUStatFull(r1)
 		_ = r1.Close()
 
 		if parseErr == nil {
@@ -129,10 +155,18 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 
 			r2, err2 := c.readers.statOpen()
 			if err2 == nil {
-				idle2, total2, _ := parseCPUStat(r2)
+				s2, _ := parseCPUStatFull(r2)
 				_ = r2.Close()
-				if total2 > total1 && idle2 >= idle1 {
-					usagePct = (1 - float64(idle2-idle1)/float64(total2-total1)) * 100
+				delta := float64(s2.total - s1.total)
+				if delta > 0 {
+					idleDelta := float64(s2.idle - s1.idle)
+					usagePct = (1 - idleDelta/delta) * 100
+					if s2.steal >= s1.steal {
+						stealPct = float64(s2.steal-s1.steal) / delta * 100
+					}
+					if s2.iowait >= s1.iowait {
+						iowaitPct = float64(s2.iowait-s1.iowait) / delta * 100
+					}
 				}
 			}
 		}
@@ -145,6 +179,8 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		NumCPU:    numCPU,
 		UsagePct:  usagePct,
 		LoadPct:   load1 / float64(numCPU) * 100,
+		StealPct:  stealPct,
+		IOwaitPct: iowaitPct,
 	}, nil
 }
 
