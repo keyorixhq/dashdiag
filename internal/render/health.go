@@ -59,6 +59,8 @@ var displayOrder = []string{
 	// Platform-specific
 	"Subscription", "Snapshots", "Battery", "PVE",
 	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
+	"Ceph", "Firewall", "Auth", "CloudMeta", "Auditd",
+	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
 	// Optional
 	"TLS", "Docker", "K8s", "Hardware",
 }
@@ -240,6 +242,28 @@ func inlineData(res runner.Result) string {
 		return inlinePressure(res.Data)
 	case "Multipath":
 		return inlineMultipath(res.Data)
+	case "Ceph":
+		return inlineCeph(res.Data)
+	case "Firewall":
+		return inlineFirewall(res.Data)
+	case "Auth":
+		return inlineAuth(res.Data)
+	case "CloudMeta":
+		return inlineCloudMeta(res.Data)
+	case "Auditd":
+		return inlineAuditd(res.Data)
+	case "NUMA":
+		return inlineNUMA(res.Data)
+	case "VLAN":
+		return inlineVLAN(res.Data)
+	case "iSCSI":
+		return inlineISCSI(res.Data)
+	case "InfiniBand":
+		return inlineInfiniBand(res.Data)
+	case "SRIOV":
+		return inlineSRIOV(res.Data)
+	case "Nspawn":
+		return inlineNspawn(res.Data)
 	}
 	return ""
 }
@@ -531,6 +555,191 @@ func inlineMultipath(data interface{}) string {
 		totalPaths += d.TotalPaths
 	}
 	return fmt.Sprintf("%d devices  %d paths", len(m.Devices), totalPaths)
+}
+
+func inlineCeph(data interface{}) string {
+	var c *models.CephInfo
+	if v, ok := data.(*models.CephInfo); ok {
+		c = v
+	} else if v, ok := data.(models.CephInfo); ok {
+		c = &v
+	}
+	if c == nil || !c.Available {
+		return ""
+	}
+	if c.OSDTotal > 0 {
+		return fmt.Sprintf("%s  %d/%d OSDs up", c.Health, c.OSDUp, c.OSDTotal)
+	}
+	return c.Health
+}
+
+func inlineFirewall(data interface{}) string {
+	var f *models.FirewallInfo
+	if v, ok := data.(*models.FirewallInfo); ok {
+		f = v
+	} else if v, ok := data.(models.FirewallInfo); ok {
+		f = &v
+	}
+	if f == nil || !f.Available {
+		return ""
+	}
+	if !f.Active || f.TotalRules == 0 {
+		return f.Backend + "  no rules"
+	}
+	drop := ""
+	if f.DefaultDrop {
+		drop = "  INPUT drop"
+	}
+	return fmt.Sprintf("%s  %d rules%s", f.Backend, f.TotalRules, drop)
+}
+
+func inlineAuth(data interface{}) string {
+	var a *models.AuthInfo
+	if v, ok := data.(*models.AuthInfo); ok {
+		a = v
+	} else if v, ok := data.(models.AuthInfo); ok {
+		a = &v
+	}
+	if a == nil || a.FailedLast24h == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d failed logins in 24h", a.FailedLast24h)
+}
+
+func inlineCloudMeta(data interface{}) string {
+	var c *models.CloudInfo
+	if v, ok := data.(*models.CloudInfo); ok {
+		c = v
+	} else if v, ok := data.(models.CloudInfo); ok {
+		c = &v
+	}
+	if c == nil || !c.Available {
+		return ""
+	}
+	s := c.Provider
+	if c.InstanceType != "" {
+		s += "  " + c.InstanceType
+	}
+	if c.Region != "" {
+		s += "  " + c.Region
+	}
+	return s
+}
+
+func inlineAuditd(data interface{}) string {
+	var a *models.AuditInfo
+	if v, ok := data.(*models.AuditInfo); ok {
+		a = v
+	} else if v, ok := data.(models.AuditInfo); ok {
+		a = &v
+	}
+	if a == nil || !a.Available {
+		return ""
+	}
+	if !a.Running {
+		return "not running"
+	}
+	return fmt.Sprintf("%d rules  running", a.RulesLoaded)
+}
+
+func inlineNUMA(data interface{}) string {
+	var n *models.NUMAInfo
+	if v, ok := data.(*models.NUMAInfo); ok {
+		n = v
+	} else if v, ok := data.(models.NUMAInfo); ok {
+		n = &v
+	}
+	if n == nil || !n.Available {
+		return ""
+	}
+	return fmt.Sprintf("%d nodes", n.NodeCount)
+}
+
+func inlineVLAN(data interface{}) string {
+	var v *models.VLANInfo
+	if x, ok := data.(*models.VLANInfo); ok {
+		v = x
+	} else if x, ok := data.(models.VLANInfo); ok {
+		v = &x
+	}
+	if v == nil || len(v.Interfaces) == 0 {
+		return ""
+	}
+	up := 0
+	for _, i := range v.Interfaces {
+		if i.Up {
+			up++
+		}
+	}
+	return fmt.Sprintf("%d VLANs  %d/%d up", len(v.Interfaces), up, len(v.Interfaces))
+}
+
+func inlineISCSI(data interface{}) string {
+	var i *models.ISCSIInfo
+	if v, ok := data.(*models.ISCSIInfo); ok {
+		i = v
+	} else if v, ok := data.(models.ISCSIInfo); ok {
+		i = &v
+	}
+	if i == nil || !i.Available || len(i.Sessions) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d session(s)  logged in", len(i.Sessions))
+}
+
+func inlineInfiniBand(data interface{}) string {
+	var ib *models.InfiniBandInfo
+	if v, ok := data.(*models.InfiniBandInfo); ok {
+		ib = v
+	} else if v, ok := data.(models.InfiniBandInfo); ok {
+		ib = &v
+	}
+	if ib == nil || len(ib.Ports) == 0 {
+		return ""
+	}
+	active := 0
+	for _, p := range ib.Ports {
+		if strings.EqualFold(p.State, "active") {
+			active++
+		}
+	}
+	return fmt.Sprintf("%d/%d ports active", active, len(ib.Ports))
+}
+
+func inlineSRIOV(data interface{}) string {
+	var s *models.SRIOVInfo
+	if v, ok := data.(*models.SRIOVInfo); ok {
+		s = v
+	} else if v, ok := data.(models.SRIOVInfo); ok {
+		s = &v
+	}
+	if s == nil || len(s.Devices) == 0 {
+		return ""
+	}
+	totalVFs := 0
+	for _, d := range s.Devices {
+		totalVFs += d.NumVFs
+	}
+	return fmt.Sprintf("%d devices  %d VFs active", len(s.Devices), totalVFs)
+}
+
+func inlineNspawn(data interface{}) string {
+	var n *models.NspawnInfo
+	if v, ok := data.(*models.NspawnInfo); ok {
+		n = v
+	} else if v, ok := data.(models.NspawnInfo); ok {
+		n = &v
+	}
+	if n == nil || !n.Available || len(n.Containers) == 0 {
+		return ""
+	}
+	running := 0
+	for _, c := range n.Containers {
+		if c.State == "running" {
+			running++
+		}
+	}
+	return fmt.Sprintf("%d containers  %d running", len(n.Containers), running)
 }
 
 func inlineGPU(data interface{}) string {
