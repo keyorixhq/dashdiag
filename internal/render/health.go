@@ -120,6 +120,8 @@ func inlineData(res runner.Result) string {
 		return inlineClock(res.Data)
 	case "Logs":
 		return inlineLogs(res.Data)
+	case "GPU":
+		return inlineGPU(res.Data)
 	}
 	return ""
 }
@@ -242,6 +244,44 @@ func inlineLogs(data interface{}) string {
 		return ""
 	}
 	return fmt.Sprintf("%.0f MB journal", l.JournalSizeGB*1024)
+}
+
+func inlineGPU(data interface{}) string {
+	var g *models.GPUInfo
+	if v, ok := data.(*models.GPUInfo); ok {
+		g = v
+	} else if v, ok := data.(models.GPUInfo); ok {
+		g = &v
+	}
+	if g == nil || len(g.Devices) == 0 {
+		return ""
+	}
+	if len(g.Devices) == 1 {
+		d := g.Devices[0]
+		s := d.Name
+		if d.TempC > 0 {
+			s += fmt.Sprintf("  %d°C", d.TempC)
+		}
+		if d.UtilPct > 0 {
+			s += fmt.Sprintf("  %d%%", d.UtilPct)
+		}
+		if d.MemTotalMB > 0 {
+			s += fmt.Sprintf("  %d/%d MB VRAM", d.MemUsedMB, d.MemTotalMB)
+		}
+		return s
+	}
+	// Multiple GPUs — show count + hottest
+	hottest := g.Devices[0]
+	for _, d := range g.Devices[1:] {
+		if d.TempC > hottest.TempC {
+			hottest = d
+		}
+	}
+	s := fmt.Sprintf("%d GPUs", len(g.Devices))
+	if hottest.TempC > 0 {
+		s += fmt.Sprintf("  max %d°C (%s)", hottest.TempC, hottest.Name)
+	}
+	return s
 }
 
 // diskInline implements Option C for multiple mount points:
