@@ -28,17 +28,12 @@ func NewCommandProgress(label string, estimate time.Duration, mode OutputMode, t
 func (p *CommandProgress) Start() {
 	p.start = time.Now()
 	if p.mode == ModeHuman {
-		sublineRaw := fmt.Sprintf("read only checks, usually under %ds", int(p.estimate.Seconds()))
-		subline := fmt.Sprintf("\033[2m%s\033[0m", sublineRaw)
-		width := len(p.label)
-		if len(sublineRaw) > width {
-			width = len(sublineRaw)
-		}
+		line := fmt.Sprintf("%s — read only checks, usually under %ds", p.label, int(p.estimate.Seconds()))
+		width := len(line)
 		if width < 56 {
 			width = 56
 		}
-		fmt.Fprintln(os.Stderr, p.label)
-		fmt.Fprintln(os.Stderr, subline)
+		fmt.Fprintln(os.Stderr, line)
 		fmt.Fprintln(os.Stderr, strings.Repeat("─", width))
 	} else {
 		fmt.Fprintf(os.Stderr, "[INFO] %s — ~%ds\n", p.label, int(p.estimate.Seconds()))
