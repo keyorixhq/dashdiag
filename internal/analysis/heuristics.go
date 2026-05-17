@@ -713,14 +713,18 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	// dsd surfaces the slow units with the next diagnostic step.
 	for _, u := range sys.SlowUnits {
 		if u.Duration >= 10 {
+			hints := make([]string, 0, 6)
+			hints = append(hints,
+				fmt.Sprintf("to inspect: systemctl status %s", u.Name),
+				fmt.Sprintf("to inspect: journalctl -u %s -b", u.Name),
+				"to analyse:  systemd-analyze blame",
+				"to plot:     systemd-analyze plot > boot.svg",
+			)
+			// Service-specific fix hints for known slow-boot offenders
+			hints = append(hints, slowBootFix(u.Name)...)
 			out = append(out, insight("WARN", "Systemd",
 				fmt.Sprintf("slow boot unit: %s took %.1fs", u.Name, u.Duration),
-				[]string{
-					fmt.Sprintf("to inspect: systemctl status %s", u.Name),
-					fmt.Sprintf("to inspect: journalctl -u %s -b", u.Name),
-					"to analyse:  systemd-analyze blame",
-					"to plot:     systemd-analyze plot > boot.svg",
-				},
+				hints,
 			))
 		}
 	}
@@ -859,6 +863,57 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	}
 
 	return out
+}
+
+// slowBootFix returns service-specific fix hints for known slow-boot offenders.
+// These are services that are commonly slow and have a well-understood cause + fix.
+func slowBootFix(unit string) []string {
+	switch unit {
+	case "gpu-manager.service":
+		// Ubuntu/Mint GPU switching service. Slow on hybrid GPU laptops (AMD+NVIDIA)
+		// especially when the iGPU is disabled in BIOS (nothing to switch between).
+		return []string{
+			"note: gpu-manager detects GPUs for PRIME switching — slow on Optimus laptops",
+			"to fix (if not using GPU switching): systemctl disable --now gpu-manager.service",
+			"note: safe to disable if you use NVIDIA-only mode or have one GPU",
+		}
+	case "NetworkManager-wait-online.service":
+		// Waits for a network connection before continuing boot.
+		// Often blocks boot on servers where network comes up slowly.
+		return []string{
+			"note: waits for network before continuing boot — often unnecessary on servers",
+			"to fix: systemctl disable NetworkManager-wait-online.service",
+			"note: safe if nothing critical depends on network at boot time",
+		}
+	case "plymouth-quit-wait.service":
+		// Plymouth boot splash screen — slow when display detection is delayed.
+		return []string{
+			"note: plymouth boot splash — can be slow on headless or hybrid GPU systems",
+			"to fix (headless): systemctl disable plymouth-quit-wait.service",
+		}
+	case "fwupd-refresh.service":
+		// Firmware update metadata refresh — hits the network on boot.
+		return []string{
+			"note: checks for firmware updates on boot — hits the network",
+			"to fix: systemctl disable fwupd-refresh.service  (updates still work manually)",
+			"to run manually: fwupdmgr refresh",
+		}
+	case "snapd.service", "snapd.seeded.service":
+		// Snap daemon — slow initialisation especially on first boot or after updates.
+		return []string{
+			"note: snap daemon initialisation — slow on first boot or after updates",
+			"to fix (if not using snaps): systemctl disable --now snapd.service snapd.socket",
+			"note: only disable if you have no snap packages installed",
+		}
+	case "apt-daily.service", "apt-daily-upgrade.service":
+		return []string{
+			"note: apt background updates running at boot — competes with boot I/O",
+			"to fix: systemctl disable apt-daily.service apt-daily-upgrade.service",
+			"note: updates will still run from cron/timer — boot impact removed",
+		}
+	default:
+		return nil
+	}
 }
 
 // unitBaseName extracts the base name from a systemd unit for use in ausearch -c.
