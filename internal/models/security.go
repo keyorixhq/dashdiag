@@ -3,9 +3,21 @@ package models
 // SecurityInfo holds system security posture data.
 type SecurityInfo struct {
 	// SSH configuration
-	SSHPermitRoot   bool `json:"ssh_permit_root"`
-	SSHPasswordAuth bool `json:"ssh_password_auth"`
-	SSHRootLogin    bool `json:"ssh_root_login"`
+	SSHPermitRoot          bool     `json:"ssh_permit_root"`
+	SSHPasswordAuth        bool     `json:"ssh_password_auth"`
+	SSHRootLogin           bool     `json:"ssh_root_login"`
+	SSHPort                int      `json:"ssh_port,omitempty"`                   // non-standard port (0 = default 22)
+	SSHProtocol1           bool     `json:"ssh_protocol1,omitempty"`              // Protocol 1 enabled (dangerous)
+	SSHMaxAuthTries        int      `json:"ssh_max_auth_tries,omitempty"`         // 0 = not set / default
+	SSHLoginGraceTime      int      `json:"ssh_login_grace_time,omitempty"`       // seconds, 0 = not set
+	SSHAllowUsers          []string `json:"ssh_allow_users,omitempty"`            // narrowing: good
+	SSHAllowGroups         []string `json:"ssh_allow_groups,omitempty"`           // narrowing: good
+	SSHPubkeyAuth          bool     `json:"ssh_pubkey_auth"`                      // should be yes
+	SSHX11Forwarding       bool     `json:"ssh_x11_forwarding,omitempty"`         // should be no on servers
+	SSHAgentForwarding     bool     `json:"ssh_agent_forwarding,omitempty"`       // should be no on servers
+	SSHPermitEmptyPwd      bool     `json:"ssh_permit_empty_passwords,omitempty"` // must be no
+	SSHStrictModes         bool     `json:"ssh_strict_modes"`                     // should be yes (default yes)
+	SSHClientAliveInterval int      `json:"ssh_client_alive_interval,omitempty"`  // idle timeout seconds
 
 	// Authentication
 	FailedLogins   int      `json:"failed_logins"`    // failed logins in last hour

@@ -57,14 +57,53 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 // parseSSHConfig reads /etc/ssh/sshd_config directly.
+// Also reads Include directives to cover drop-in configs like sshd_config.d/*.conf
 func parseSSHConfig(info *models.SecurityInfo) {
-	f, err := os.Open("/etc/ssh/sshd_config") // #nosec G304 -- hardcoded path
+	// Default safe values
+	info.SSHPubkeyAuth = true  // on by default in modern OpenSSH
+	info.SSHStrictModes = true // on by default — sshd only flags when explicitly set to no
+
+	parseSSHFile("/etc/ssh/sshd_config", info)
+
+	// Handle Include directives (OpenSSH 7.3+)
+	// e.g. Include /etc/ssh/sshd_config.d/*.conf
+	for _, pattern := range []string{
+		"/etc/ssh/sshd_config.d/*.conf",
+		"/etc/ssh/sshd_config.d/*.cfg",
+	} {
+		if files, err := filepath.Glob(pattern); err == nil {
+			for _, f := range files {
+				parseSSHFile(f, info)
+			}
+		}
+	}
+}
+
+// parseSSHFile reads a single sshd_config file or drop-in and populates SecurityInfo.
+func parseSSHFile(path string, info *models.SecurityInfo) {
+	f, err := os.Open(path) // #nosec G304 -- only reads well-known config paths
 	if err != nil {
 		return
 	}
 	defer f.Close() //nolint:errcheck
 
-	scanner := bufio.NewScanner(f)
+	content := new(strings.Builder)
+	buf := make([]byte, 64*1024)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			content.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	parseSSHFileContent(content.String(), info)
+}
+
+// parseSSHFileContent parses sshd_config content from a string — used by tests.
+func parseSSHFileContent(content string, info *models.SecurityInfo) {
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "#") || line == "" {
@@ -76,14 +115,90 @@ func parseSSHConfig(info *models.SecurityInfo) {
 		}
 		key := strings.ToLower(fields[0])
 		val := strings.ToLower(fields[1])
+
 		switch key {
 		case "permitrootlogin":
 			info.SSHRootLogin = val == "yes"
 			info.SSHPermitRoot = val != "no" && val != "prohibit-password"
 		case "passwordauthentication":
 			info.SSHPasswordAuth = val == "yes"
+		case "pubkeyauthentication":
+			info.SSHPubkeyAuth = val == "yes"
+		case "port":
+			if p, err := strconv.Atoi(val); err == nil && p != 22 {
+				info.SSHPort = p
+			}
+		case "protocol":
+			// Protocol 1 is deprecated and cryptographically broken
+			if strings.Contains(val, "1") {
+				info.SSHProtocol1 = true
+			}
+		case "maxauthtries":
+			if n, err := strconv.Atoi(val); err == nil {
+				info.SSHMaxAuthTries = n
+			}
+		case "logingracetime":
+			// Value can be "30", "30s", "1m" etc.
+			info.SSHLoginGraceTime = parseSSHDuration(val)
+		case "allowusers":
+			// AllowUsers can be a space-separated list on one line
+			info.SSHAllowUsers = append(info.SSHAllowUsers, fields[1:]...)
+		case "allowgroups":
+			info.SSHAllowGroups = append(info.SSHAllowGroups, fields[1:]...)
+		case "x11forwarding":
+			info.SSHX11Forwarding = val == "yes"
+		case "allowagentforwarding":
+			info.SSHAgentForwarding = val == "yes"
+		case "permitemptypasswords":
+			info.SSHPermitEmptyPwd = val == "yes"
+		case "strictmodes":
+			// StrictModes defaults to yes — only flag when explicitly disabled
+			info.SSHStrictModes = val != "no"
+		case "clientaliveinterval":
+			if n, err := strconv.Atoi(val); err == nil {
+				info.SSHClientAliveInterval = n
+			}
 		}
 	}
+}
+
+// parseSSHDuration converts sshd_config time formats to seconds.
+// Handles: "30", "30s", "1m", "1m30s", "0" (disabled)
+func parseSSHDuration(s string) int {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "0" || s == "none" {
+		return 0
+	}
+	total := 0
+	num := ""
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9':
+			num += string(c)
+		case c == 's':
+			if n, err := strconv.Atoi(num); err == nil {
+				total += n
+			}
+			num = ""
+		case c == 'm':
+			if n, err := strconv.Atoi(num); err == nil {
+				total += n * 60
+			}
+			num = ""
+		case c == 'h':
+			if n, err := strconv.Atoi(num); err == nil {
+				total += n * 3600
+			}
+			num = ""
+		}
+	}
+	// bare number without unit = seconds
+	if num != "" {
+		if n, err := strconv.Atoi(num); err == nil {
+			total += n
+		}
+	}
+	return total
 }
 
 // parseFailedLogins reads /var/log/secure (RHEL) or /var/log/auth.log (Debian).
