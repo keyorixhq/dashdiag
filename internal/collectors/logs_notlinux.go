@@ -26,5 +26,5 @@ func (c *LogsCollector) Name() string           { return "Logs" }
 func (c *LogsCollector) Timeout() time.Duration { return 1 * time.Second }
 
 func (c *LogsCollector) Collect(_ context.Context) (interface{}, error) {
-	return &models.LogsInfo{}, nil
+	return &models.LogsInfo{}, nil // Available=false → row hidden on macOS
 }
