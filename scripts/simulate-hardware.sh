@@ -17,6 +17,49 @@ set -euo pipefail
 
 action="${1:-help}"
 
+simulate_launchd() {
+    if [[ "$(uname)" != "Darwin" ]]; then
+        echo "❌ launchd simulation only works on macOS"
+        exit 1
+    fi
+    PLIST=~/Library/LaunchAgents/com.dashdiag.test.plist
+    cat > "$PLIST" << 'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dashdiag.test</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>exit 1</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+PLIST_EOF
+    launchctl load "$PLIST"
+    echo ""
+    echo "✅ Failing LaunchAgent loaded — now run: dsd health"
+    echo "   Expected: Launchd ⚠️  1 launchd service(s) failed: com.dashdiag.test"
+    echo ""
+    echo "→ To clean up: bash scripts/simulate-hardware.sh clean"
+}
+
+simulate_launchd_clean() {
+    PLIST=~/Library/LaunchAgents/com.dashdiag.test.plist
+    if [[ -f "$PLIST" ]]; then
+        launchctl unload "$PLIST" 2>/dev/null || true
+        rm "$PLIST"
+        echo "✅ com.dashdiag.test removed"
+    else
+        echo "nothing to clean"
+    fi
+}
+
 simulate_bond() {
     echo "→ Loading kernel modules..."
     modprobe bonding || { echo "❌ bonding module not available"; exit 1; }
@@ -105,18 +148,20 @@ clean() {
 }
 
 case "$action" in
+    launchd)  simulate_launchd ;;
     bond)     simulate_bond ;;
     oom)      simulate_oom ;;
     pressure) simulate_pressure ;;
-    clean)    clean ;;
+    clean)    clean; simulate_launchd_clean ;;
     *)
-        echo "Usage: sudo bash scripts/simulate-hardware.sh <action>"
+        echo "Usage: bash scripts/simulate-hardware.sh <action>"
         echo ""
         echo "Actions:"
-        echo "  bond      Create bond0 with 2 dummy slave NICs"
-        echo "  oom       Inject fake OOM kill events into journal"
-        echo "  pressure  Stress memory to trigger PSI alerts"
-        echo "  clean     Tear down simulated interfaces"
+        echo "  launchd   macOS: create a failing LaunchAgent (com.dashdiag.test)"
+        echo "  bond      Linux: create bond0 with 2 dummy slave NICs"
+        echo "  oom       Linux: inject fake OOM kill events into journal"
+        echo "  pressure  Linux: stress memory to trigger PSI alerts"
+        echo "  clean     tear down all simulated hardware"
         echo ""
         echo "HBA and multipath require real hardware or a full VM with scsi_debug."
         echo "IPMI requires ipmisim or a real BMC — no easy simulation available."
