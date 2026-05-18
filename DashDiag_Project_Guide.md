@@ -13349,3 +13349,68 @@ Key finding from reading the actual codebase: most gaps identified from the Azur
 4. Three correlation rules missing for cloud VM diagnostic patterns — fixed
 
 Remaining roadmap items from this analysis are tracked in `BACKLOG.md` under `[V2-COLLECTOR] CPU scheduling pathology` and `[V2-COLLECTOR] Storage performance diagnostics`.
+
+
+---
+
+## 44. Collector Coverage — Final Audit (2026-05-17, session 4)
+
+All items from the original coverage backlog are now implemented. This is the definitive closure record.
+
+### The original list — all done
+
+| Item | Status | Commit | Notes |
+|------|--------|--------|-------|
+| IPMI / BMC sensors | ✅ | b3ef914 | ipmitool sdr; gated on /dev/ipmi0 |
+| CPU frequency scaling | ✅ | 954aae7 | Dedicated CPUFreqCollector; WARN on powersave or >40% throttle |
+| HBA / Fibre Channel | ✅ | b3ef914 | /sys/class/fc_host/ sysfs; no commands needed |
+| Ceph OSD health | ✅ | ab31ec8 | ceph health detail --format json + ceph osd stat |
+| iSCSI sessions | ✅ | ab31ec8 | iscsiadm -m session; CRIT on failed session |
+| Multipath (DM-MPIO) | ✅ | b3ef914 | multipathd show paths; CRIT/WARN on path failures |
+| Bonding / LACP | ✅ | b3ef914 | /proc/net/bonding/bond*; CRIT/WARN on slave down |
+| VLAN tagging | ✅ | ab31ec8 | /proc/net/vlan/config; WARN on interface down |
+| OOM killer events | ✅ | b3ef914 | journalctl -k; WARN any kill in 24h with victim names |
+| Huge pages | ✅ | 954aae7 | /proc/meminfo + THP sysfs; WARN on wasted reserved RAM |
+| cgroup v2 pressure | ✅ | b3ef914 | /proc/pressure/; CRIT on memory full >10% avg60 |
+| SSH config audit | ✅ | e8b7d54 | Full 10-check CIS coverage (was 2 checks) |
+| Firewall (iptables/nft) | ✅ | ab31ec8 | nft/iptables ruleset scan; WARN when no rules active |
+| Audit log (auditd) | ✅ | ab31ec8 | auditctl -l + ausearch; WARN when not running |
+| Failed logins (auth.log) | ✅ | ab31ec8 | journald sshd; WARN >1000/24h, WARN on root attempts |
+| AWS instance metadata | ✅ | ab31ec8 | IMDSv2; CRIT on spot termination notice |
+| Azure IMDS | ✅ | ab31ec8 | Azure IMDS; WARN on scheduled maintenance event |
+| GCP metadata | ✅ | ab31ec8 | GCP metadata server; CRIT on preemptible termination |
+| systemd-nspawn | ✅ | ab31ec8 | machinectl list; WARN on failed/degraded containers |
+| LVM | ✅ | (prior) | VG free space, thin pools, missing PVs, stale snapshots |
+
+### SSH config audit — from 2 checks to 10 (e8b7d54)
+
+| Check | Severity | What it catches |
+|-------|----------|-----------------|
+| Protocol 1 enabled | CRIT | Cryptographically broken |
+| PermitEmptyPasswords yes | CRIT | Any blank-password account remotely accessible |
+| PermitRootLogin yes | CRIT | Direct root SSH login |
+| StrictModes no | WARN | World-writable authorized_keys files accepted |
+| MaxAuthTries > 6 | WARN | Too many guesses before disconnect (CIS: <= 4) |
+| PasswordAuthentication yes | WARN | Password auth instead of keys |
+| LoginGraceTime > 60s | INFO | Long unauthenticated connection window (DoS risk) |
+| X11Forwarding yes | INFO | Unnecessary attack surface on servers |
+| AgentForwarding yes | INFO | Key theft via compromised jump host |
+| ClientAliveInterval 0 | INFO | Sessions never time out |
+
+Parser refactored: parseSSHFile now delegates to parseSSHFileContent(string) — fully testable without touching the filesystem. 5 test cases cover hardened config, weak config, cloud default, duration parsing, and comment handling. Validated on Legion: X11Forwarding and idle timeout both fire as INFO.
+
+### Go-to-market backlog — the only remaining work
+
+The code backlog is empty. Everything that matters now is GTM:
+
+| Priority | Item | Why it blocks revenue |
+|----------|------|----------------------|
+| URGENT | Landing page at dashdiag.sh | No signups without it |
+| URGENT | install.sh one-liner | No installs without it |
+| URGENT | Stripe Pro tier (79 EUR/yr) | No revenue without it |
+| HIGH | .deb / .rpm packages | First paying customers expect this |
+| HIGH | --share hosted report URL | Viral growth driver |
+| MEDIUM | macOS launchd collector | Completeness on macOS |
+| LOW | CIS/STIG compliance mode | Enterprise upsell feature |
+
+**Next session: landing page at dashdiag.sh.** That is the only thing separating this product from its first user.
