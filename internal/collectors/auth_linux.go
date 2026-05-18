@@ -20,7 +20,15 @@ func (c *AuthCollector) Name() string           { return "Auth" }
 func (c *AuthCollector) Timeout() time.Duration { return 6 * time.Second }
 
 func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.AuthInfo{Checked: true}
+	// Hide the row when sshd is not installed — nothing to monitor.
+	if _, err := runCmd(ctx, "pgrep", "-x", "sshd"); err != nil {
+		// Also check if the binary exists even if not running right now
+		if _, err2 := runCmd(ctx, "which", "sshd"); err2 != nil {
+			return &models.AuthInfo{}, nil // Available=false → row hidden
+		}
+	}
+
+	info := &models.AuthInfo{Available: true, Checked: true}
 
 	// journalctl is the most portable source — works on all systemd distros
 	// grep for "Failed password" and "Invalid user" from sshd
