@@ -13,19 +13,19 @@ const launchctlOutput = `PID	Status	Label
 -	127	com.example.crasher
 -	0	com.apple.security.keychain-circle-notification
 789	-	com.homebrew.mySQLd
+-	1	application.com.google.Chrome.123.456
 `
 
 func TestParseLaunchctlList(t *testing.T) {
 	total, running, failed := parseLaunchctlList(launchctlOutput)
 
-	// apple.security prefix is noise — filtered out
-	// Remaining: Spotlight (running), screensaver (idle ok), myapp (failed 1),
-	//            crasher (failed 127), mySQLd (running)
-	if total != 5 {
-		t.Errorf("total = %d, want 5 (apple.security filtered)", total)
+	// Filtered: com.apple.* (3 entries) + application.* (1 entry) = 4 noise entries
+	// Remaining: myapp (failed), crasher (failed), mySQLd (running) = 3
+	if total != 3 {
+		t.Errorf("total = %d, want 3 (apple.* and application.* filtered)", total)
 	}
-	if running != 2 {
-		t.Errorf("running = %d, want 2 (Spotlight + mySQLd)", running)
+	if running != 1 {
+		t.Errorf("running = %d, want 1 (mySQLd only)", running)
 	}
 	if len(failed) != 2 {
 		t.Errorf("failed = %d, want 2 (myapp + crasher)", len(failed))
@@ -42,15 +42,26 @@ func TestParseLaunchctlList(t *testing.T) {
 }
 
 func TestIsLaunchdNoise(t *testing.T) {
+	// Everything Apple-prefixed is noise — all variants
 	noisy := []string{
 		"com.apple.security.keychain-circle-notification",
 		"com.apple.xpc.launchd.oneshot",
 		"com.apple.system.logger",
+		"com.apple.Spotlight",
+		"com.apple.cloudphotod",
+		"com.apple.knowledgeconstructiond",
+		"com.apple.progressd",
+		"application.com.google.Chrome.123.456",
+		"application.com.anthropic.claudefordesktop.70000441.70000447",
 	}
+	// Third-party daemons are signal — not noise
 	signal := []string{
 		"com.example.myapp",
 		"com.homebrew.postgresql",
 		"org.nginx.nginx",
+		"com.docker.docker",
+		"io.tailscale.ipn.macos",
+		"com.microsoft.teams2.agent",
 	}
 	for _, label := range noisy {
 		if !isLaunchdNoise(label) {

@@ -86,26 +86,34 @@ func parseLaunchctlList(out string) (total, running int, failed []models.Launchd
 	return total, running, failed
 }
 
-// isLaunchdNoise filters out low-signal kernel/OS services that
-// are never meaningful to report as failed.
+// isLaunchdNoise returns true for services that are safe to ignore when "failed".
+//
+// On macOS, hundreds of com.apple.* daemons are demand-launched: they start,
+// do their job, exit (often with a non-zero code), and get relaunched next time
+// they're needed. launchctl reports them as "failed" but macOS considers this
+// normal. They are never actionable — we can't fix them and they don't indicate
+// a real problem.
+//
+// The rule: suppress ALL com.apple.* failures. The only failures worth surfacing
+// are third-party services the user or an admin explicitly installed:
+//   - com.docker.*, com.homebrew.*, com.microsoft.*, com.google.*
+//   - org.* (Homebrew, open source daemons)
+//   - io.* (many popular macOS tools)
+//   - application.* entries with no PID are running apps that have quit — ignore
 func isLaunchdNoise(label string) bool {
-	noisePrefixes := []string{
-		"com.apple.security",
-		"com.apple.xpc",
-		"com.apple.launchd",
-		"com.apple.private",
-		"com.apple.system",
-		"com.apple.WindowServer",
-		"com.apple.CoreBrightness",
-		"com.apple.audio",
-		"com.apple.hiservices",
-		"com.apple.ATS",
-	}
 	lower := strings.ToLower(label)
-	for _, prefix := range noisePrefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
-			return true
-		}
+
+	// All Apple built-in daemons — always noise when "failed".
+	// Apple's on-demand daemons exit after completing their task; launchctl
+	// reports a non-zero exit as "failed" but macOS considers it normal.
+	if strings.HasPrefix(lower, "com.apple.") {
+		return true
 	}
+
+	// GUI app labels (e.g. application.com.google.Chrome.123.456) — not daemons
+	if strings.HasPrefix(lower, "application.") {
+		return true
+	}
+
 	return false
 }
