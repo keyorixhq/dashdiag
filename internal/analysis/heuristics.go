@@ -2726,12 +2726,21 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	fixCmd := "apt-get upgrade"
 	inspectCmd := "apt list --upgradable 2>/dev/null | grep -i security"
 	switch pkg.PackageManager {
+	case "brew":
+		fixCmd = "brew upgrade"
+		inspectCmd = "brew outdated"
 	case "dnf":
 		fixCmd = "dnf upgrade --security"
 		inspectCmd = "dnf updateinfo list security"
 	case "zypper":
 		fixCmd = "zypper patch --category security"
 		inspectCmd = "zypper list-patches --category security"
+	case "pacman":
+		fixCmd = "pacman -Syu"
+		inspectCmd = "checkupdates"
+	case "yum":
+		fixCmd = "yum update --security"
+		inspectCmd = "yum updateinfo list security"
 	}
 
 	if pkg.CriticalUpdates > 0 {
