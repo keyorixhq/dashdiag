@@ -701,8 +701,14 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			if driver == "" {
 				driver = "USB NIC"
 			}
+			speedInfo := ""
+			if iface.SpeedMbps >= 1000 {
+				speedInfo = fmt.Sprintf(" @ %dGbps", iface.SpeedMbps/1000)
+			} else if iface.SpeedMbps > 0 {
+				speedInfo = fmt.Sprintf(" @ %dMbps", iface.SpeedMbps)
+			}
 			out = append(out, insight("WARN", "Network",
-				fmt.Sprintf("primary interface %s is USB-attached (%s) — susceptible to disconnect/reset, not recommended for production", iface.Name, driver),
+				fmt.Sprintf("primary interface %s is USB-attached (%s%s) — susceptible to disconnect/reset, not recommended for production", iface.Name, driver, speedInfo),
 				[]string{
 					"to inspect: dmesg | grep -i usb",
 					"to inspect: lsusb",
