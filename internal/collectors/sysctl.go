@@ -99,18 +99,6 @@ func detectWorkload() string {
 	}
 }
 
-func readSysctlInt(ctx context.Context, key string) int {
-	out, err := runCmd(ctx, "sysctl", "-n", key) // #nosec G204 -- command is hardcoded "sysctl"; key is from internal constant list, not user input
-	if err != nil {
-		return 0
-	}
-	v, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		return 0
-	}
-	return v
-}
-
 func (c *SysctlCollector) collectDarwin(_ context.Context) (*models.SysctlInfo, error) {
 	// macOS sysctl parameters are defaults and rarely misconfigured.
 	// No actionable checks to surface — hide the row.
