@@ -10,14 +10,13 @@ import (
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
 // covering SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
-//
-//nolint:funlen // rule registry — each entry is a self-contained check, splitting would harm readability
 var CISRules []Rule
 
 func init() {
 	CISRules = buildRules()
 }
 
+//nolint:cyclop,funlen // rule registry — each entry is a self-contained check, splitting would harm readability
 func buildRules() []Rule {
 	return []Rule{
 
