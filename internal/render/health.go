@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -153,6 +154,12 @@ func (r *Renderer) PrintAllMock(results []runner.Result, insights []models.Insig
 func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) {
 	sorted := sortedResults(results)
 	for _, res := range sorted {
+		// Hide rows where the collector signals it has nothing to show on
+		// this platform (e.g. Systemd on macOS, KernelSec without SELinux/AppArmor).
+		if shouldHideRow(res, insights) {
+			continue
+		}
+
 		ins := insightForResult(res.Name, insights)
 		level := "OK"
 		msg := ""
@@ -195,7 +202,51 @@ func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) 
 	}
 }
 
-// inlineData returns a short summary string for a check row when status is OK.
+// shouldHideRow returns true when a collector has nothing meaningful to show.
+// This happens when a technology isn't present on the current platform
+// (e.g. Systemd on macOS, KernelSec on macOS, Battery on a desktop without one).
+// The rule: hide when Available=false AND no insights AND inline data is empty.
+func shouldHideRow(res runner.Result, insights []models.Insight) bool {
+	// Must have no insights for this collector
+	if insightForResult(res.Name, insights) != nil {
+		return false
+	}
+	// Must produce no inline data
+	if inlineData(res) != "" {
+		return false
+	}
+	// Check if the collector signals unavailability via an Available field
+	return !isAvailable(res.Data)
+}
+
+// isAvailable returns false when the data struct has an Available field set to false.
+// Collectors that are not applicable on the current platform set Available=false.
+func isAvailable(data interface{}) bool {
+	if data == nil {
+		return false
+	}
+	type availabler interface{ IsAvailable() bool }
+	if a, ok := data.(availabler); ok {
+		return a.IsAvailable()
+	}
+	// Use reflection to check common Available bool field
+	v := reflect.ValueOf(data)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return true // unknown type — show by default
+	}
+	f := v.FieldByName("Available")
+	if !f.IsValid() || f.Kind() != reflect.Bool {
+		return true // no Available field or wrong type — always show
+	}
+	return f.Bool()
+}
+
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
 //
 //nolint:cyclop // flat name→function dispatch; splitting would harm readability

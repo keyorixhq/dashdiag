@@ -5,6 +5,8 @@ package models
 // inter-process communication cascade-fail (NetworkManager, systemd-logind,
 // and many others). It is checked before the main collector goroutines run.
 type DBusInfo struct {
+	// Available is false on platforms where D-Bus is not present (macOS).
+	Available bool `json:"available"`
 	// Active is true when dbus.service is running.
 	Active bool `json:"active"`
 	// Status is the raw systemctl is-active output: "active", "failed", "inactive".

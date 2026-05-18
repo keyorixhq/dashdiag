@@ -28,7 +28,7 @@ var (
 )
 
 func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.OOMInfo{}
+	info := &models.OOMInfo{Available: true}
 
 	// Use journalctl to search kernel messages for OOM events.
 	// --since "24 hours ago" scopes to recent events.

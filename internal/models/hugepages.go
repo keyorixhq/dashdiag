@@ -2,6 +2,7 @@ package models
 
 // HugePagesInfo holds huge page configuration and usage from /proc/meminfo.
 type HugePagesInfo struct {
+	Available    bool    `json:"available"`
 	Configured   int     `json:"configured"`   // HugePages_Total
 	Free         int     `json:"free"`         // HugePages_Free
 	Used         int     `json:"used"`         // Configured - Free

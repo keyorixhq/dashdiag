@@ -281,6 +281,7 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 	seType, seTypeValid, sePolicyDirOK, sePkgOK, seRelabel := validateSELinuxPolicyType()
 
 	return &models.KernelSecurityInfo{
+		Available:             true,
 		SELinuxPresent:        sePresent,
 		SELinuxMode:           seMode,
 		SELinuxDenials:        seDenials,

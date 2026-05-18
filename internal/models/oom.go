@@ -12,6 +12,7 @@ type OOMEvent struct {
 
 // OOMInfo holds OOM killer activity parsed from journal/dmesg.
 type OOMInfo struct {
+	Available     bool       `json:"available"`
 	EventsLast24h int        `json:"events_last_24h"`
 	RecentEvents  []OOMEvent `json:"recent_events,omitempty"` // up to 5 most recent
 	Status        string     `json:"status,omitempty"`

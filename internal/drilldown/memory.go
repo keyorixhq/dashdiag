@@ -112,9 +112,10 @@ func topProcessesByRSSMac(ctx context.Context, n int) (*models.Details, error) {
 		if len(fields) < 4 {
 			continue
 		}
-		pid, mem, cmd := fields[0], fields[1]+"%", strings.Join(fields[3:], " ")
+		pid, mem := fields[0], fields[1]+"%"
 		rssBytes, _ := strconv.ParseInt(fields[2], 10, 64)
 		rss := formatBytes(rssBytes * 1024)
+		cmd := shortenProcessName(strings.Join(fields[3:], " "))
 		rows = append(rows, []string{pid, mem, rss, cmd})
 	}
 
@@ -145,4 +146,51 @@ func systemTotalMemKB() int64 {
 		}
 	}
 	return 0
+}
+
+// shortenProcessName converts a full binary path to a readable short name.
+//
+// macOS ps -comm returns full paths like:
+//
+//	/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+//	/System/Library/Frameworks/CoreServices.framework/.../mds_stores
+//
+// Rules:
+//  1. For .app bundles: extract the app name + executable leaf
+//     "/Applications/Foo.app/.../Foo Helper" → "Foo Helper (Foo.app)"
+//  2. For system frameworks: just use the basename
+//  3. Truncate anything over 40 chars
+func shortenProcessName(cmd string) string {
+	if cmd == "" {
+		return cmd
+	}
+
+	// Find if path contains a .app bundle
+	if i := strings.Index(cmd, ".app/"); i >= 0 {
+		// Get the app name (last path component before .app)
+		appPath := cmd[:i]
+		appName := filepath.Base(appPath) // e.g. "Google Chrome"
+
+		// Get the executable leaf after the .app/
+		rest := cmd[i+5:]           // after ".app/"
+		leaf := filepath.Base(rest) // e.g. "Google Chrome Helper (Renderer)"
+
+		// If leaf == appName, just show the app name
+		if leaf == appName {
+			return truncate40(appName)
+		}
+		// Otherwise show "Leaf (App.app)"
+		return truncate40(leaf + " (" + appName + ".app)")
+	}
+
+	// No .app bundle — just use the basename
+	return truncate40(filepath.Base(cmd))
+}
+
+func truncate40(s string) string {
+	const max = 40
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
 }
