@@ -172,6 +172,15 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
+	// On macOS /proc/stat is not available — read CPU usage from top instead.
+	// 'top -l 2 -s 1 -n 0' takes two 1-second samples and reports the delta,
+	// which matches what Activity Monitor shows.
+	if runtime.GOOS == "darwin" && usagePct == 0 {
+		if u := cpuUsageDarwin(ctx); u > 0 {
+			usagePct = u
+		}
+	}
+
 	return &models.CPUInfo{
 		LoadAvg1:  load1,
 		LoadAvg5:  load5,
@@ -208,4 +217,48 @@ func loadAvgDarwin(ctx context.Context) (float64, float64, float64, error) {
 	s = strings.TrimSuffix(s, "}")
 	s = strings.ReplaceAll(s, ",", ".") // normalize locale decimal separator
 	return parseLoadAvg(strings.NewReader(strings.TrimSpace(s)))
+}
+
+// cpuUsageDarwin reads real CPU utilisation on macOS via top.
+// Uses two samples separated by 1 second so the delta matches what Activity Monitor shows.
+// Parses: "CPU usage: 8.97% user, 4.77% sys, 86.25% idle"
+func cpuUsageDarwin(ctx context.Context) float64 {
+	// -l 2: two log samples, -s 1: 1-second interval, -n 0: no process rows
+	out, err := runCmd(ctx, "top", "-l", "2", "-s", "1", "-n", "0")
+	if err != nil || out == "" {
+		return 0
+	}
+	// Take the last "CPU usage:" line (from the second sample)
+	var lastLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "CPU usage:") {
+			lastLine = line
+		}
+	}
+	if lastLine == "" {
+		return 0
+	}
+	// Parse user% + sys% from "CPU usage: 8.97% user, 4.77% sys, 86.25% idle"
+	var user, sys float64
+	for _, part := range strings.Split(lastLine, ",") {
+		part = strings.TrimSpace(part)
+		fields := strings.Fields(part)
+		if len(fields) < 2 {
+			continue
+		}
+		val, err := strconv.ParseFloat(strings.TrimSuffix(fields[0], "%"), 64)
+		if err != nil {
+			continue
+		}
+		switch fields[1] {
+		case "user":
+			user = val
+		case "sys":
+			sys = val
+		}
+	}
+	if user+sys > 0 {
+		return user + sys
+	}
+	return 0
 }
