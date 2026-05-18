@@ -9,6 +9,7 @@ type PackageUpdate struct {
 
 // PackagesInfo holds package security advisory data.
 type PackagesInfo struct {
+	Checked          bool            `json:"checked"` // true when package manager was queried successfully
 	SecurityUpdates  int             `json:"security_updates"`
 	CriticalUpdates  int             `json:"critical_updates"`
 	ImportantUpdates int             `json:"important_updates"`

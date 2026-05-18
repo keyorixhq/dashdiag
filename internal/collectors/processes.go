@@ -79,6 +79,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 	}
 
 	info := &models.ProcessInfo{
+		Total:       len(dirs),
 		ZombieProcs: make([]models.ProcessState, 0),
 		HungProcs:   make([]models.ProcessState, 0),
 	}
@@ -119,11 +120,12 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 	if err != nil {
 		return &models.ProcessInfo{}, nil
 	}
+	lines := strings.Split(string(out), "\n")
 	info := &models.ProcessInfo{
+		Total:       len(lines) - 1, // subtract header line
 		ZombieProcs: make([]models.ProcessState, 0),
 		HungProcs:   make([]models.ProcessState, 0),
 	}
-	lines := strings.Split(string(out), "\n")
 
 	// Build pid→name map so we can resolve parent names.
 	pidName := make(map[int]string, len(lines))
