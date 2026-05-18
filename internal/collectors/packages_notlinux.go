@@ -20,7 +20,7 @@ func (c *PackagesCollector) Name() string           { return "Packages" }
 func (c *PackagesCollector) Timeout() time.Duration { return 30 * time.Second }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.PackagesInfo{PackageManager: "brew"}
+	info := &models.PackagesInfo{Checked: true, PackageManager: "brew"}
 
 	out, err := runCmd(ctx, "brew", "outdated", "--quiet")
 	if err != nil {

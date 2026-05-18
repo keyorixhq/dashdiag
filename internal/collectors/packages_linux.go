@@ -39,7 +39,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 // DNF4 (RHEL/Rocky): dnf updateinfo list security
 // DNF5 (Fedora 41+): dnf advisory list --security
 func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
-	info := &models.PackagesInfo{PackageManager: "dnf"}
+	info := &models.PackagesInfo{Checked: true, PackageManager: "dnf"}
 
 	// Check repos
 	if reposOk := dnfHasUpdateRepo(ctx); !reposOk {
@@ -116,7 +116,7 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 // Exception: Kali Linux uses a rolling release model where the main repo IS
 // the security channel — all pending upgrades are counted.
 func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
-	info := &models.PackagesInfo{PackageManager: "apt"}
+	info := &models.PackagesInfo{Checked: true, PackageManager: "apt"}
 
 	// Kali Linux uses a rolling release — the main kali-rolling repo includes
 	// all security updates. Skip the security repo check and count all upgrades.
@@ -360,7 +360,7 @@ func aptHasSecurityRepo() bool {
 // zypper list-patches exits 0 whether or not patches are available.
 // Security patches are identified by category "security" in the output.
 func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
-	info := &models.PackagesInfo{PackageManager: "zypper"}
+	info := &models.PackagesInfo{Checked: true, PackageManager: "zypper"}
 
 	// Check for security patches
 	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",

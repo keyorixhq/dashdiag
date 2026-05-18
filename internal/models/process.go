@@ -12,6 +12,7 @@ type ProcessState struct {
 }
 
 type ProcessInfo struct {
+	Total        int            `json:"total"` // total running processes
 	ZombieCount  int            `json:"zombie_count"`
 	HungCount    int            `json:"hung_count"`
 	ZombieProcs  []ProcessState `json:"zombie_procs"`

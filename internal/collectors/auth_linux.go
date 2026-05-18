@@ -20,7 +20,7 @@ func (c *AuthCollector) Name() string           { return "Auth" }
 func (c *AuthCollector) Timeout() time.Duration { return 6 * time.Second }
 
 func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.AuthInfo{}
+	info := &models.AuthInfo{Checked: true}
 
 	// journalctl is the most portable source — works on all systemd distros
 	// grep for "Failed password" and "Invalid user" from sshd

@@ -282,6 +282,8 @@ func inlineData(res runner.Result) string {
 		return inlineBattery(res.Data)
 	case "Launchd":
 		return inlineLaunchd(res.Data)
+	case "Packages":
+		return inlinePackages(res.Data)
 	case "Drives":
 		return inlineDrives(res.Data)
 	case "Systemd":
@@ -524,10 +526,16 @@ func inlineProcesses(data interface{}) string {
 	} else if v, ok := data.(models.ProcessInfo); ok {
 		p = &v
 	}
-	if p == nil || (p.ZombieCount == 0 && p.HungCount == 0) {
+	if p == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d zombie  %d hung", p.ZombieCount, p.HungCount)
+	if p.ZombieCount > 0 || p.HungCount > 0 {
+		return fmt.Sprintf("%d zombie  %d hung", p.ZombieCount, p.HungCount)
+	}
+	if p.Total > 0 {
+		return fmt.Sprintf("%d running", p.Total)
+	}
+	return ""
 }
 
 func inlineBonding(data interface{}) string {
@@ -660,10 +668,16 @@ func inlineAuth(data interface{}) string {
 	} else if v, ok := data.(models.AuthInfo); ok {
 		a = &v
 	}
-	if a == nil || a.FailedLast24h == 0 {
+	if a == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d failed logins in 24h", a.FailedLast24h)
+	if a.FailedLast24h > 0 {
+		return fmt.Sprintf("%d failed logins in 24h", a.FailedLast24h)
+	}
+	if a.Checked {
+		return "0 failed logins"
+	}
+	return ""
 }
 
 func inlineCloudMeta(data interface{}) string {
@@ -1307,4 +1321,23 @@ func inlineLaunchd(data interface{}) string {
 		return fmt.Sprintf("%d running  %d failed", l.Running, len(l.Failed))
 	}
 	return fmt.Sprintf("%d running", l.Running)
+}
+
+func inlinePackages(data interface{}) string {
+	var p *models.PackagesInfo
+	if v, ok := data.(*models.PackagesInfo); ok {
+		p = v
+	} else if v, ok := data.(models.PackagesInfo); ok {
+		p = &v
+	}
+	if p == nil {
+		return ""
+	}
+	if p.SecurityUpdates > 0 || p.CriticalUpdates > 0 || p.ImportantUpdates > 0 {
+		return "" // heuristic already shows the warning message
+	}
+	if p.Checked {
+		return "up to date"
+	}
+	return ""
 }
