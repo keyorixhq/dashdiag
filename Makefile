@@ -46,6 +46,13 @@ build-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -trimpath -o dist/$(BINARY)-linux-amd64 ./cmd/dsd
 	@echo "✅ Built: dist/$(BINARY)-linux-amd64 ($(VERSION))"
 
+.PHONY: deploy
+LEGION_HOST ?= andrei@192.168.1.145
+deploy: build-linux
+	scp dist/$(BINARY)-linux-amd64 $(LEGION_HOST):/tmp/dsd
+	ssh $(LEGION_HOST) 'sudo cp /tmp/dsd /usr/local/bin/dsd && dsd --version'
+	@echo "✅ Deployed to $(LEGION_HOST)"
+
 # ── CODE QUALITY ──────────────────────────────────────────────────────────────
 .PHONY: check
 check: fmt-check vet lint
