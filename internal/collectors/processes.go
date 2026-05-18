@@ -139,6 +139,8 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		pidName[pid] = fields[3]
 	}
 
+	selfPID := os.Getpid()
+
 	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
@@ -148,6 +150,12 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		ppid, _ := strconv.Atoi(fields[1])
 		stat := fields[2]
 		if !strings.HasPrefix(stat, "Z") && !strings.HasPrefix(stat, "D") {
+			continue
+		}
+		// Skip zombies that are direct children of dsd itself — these are
+		// subprocesses (ps, brew, etc.) that dsd spawned and hasn't reaped yet.
+		// They are not real zombies; they disappear within milliseconds.
+		if ppid == selfPID {
 			continue
 		}
 		ps := models.ProcessState{
