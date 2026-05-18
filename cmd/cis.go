@@ -21,6 +21,7 @@ var cisCmd = &cobra.Command{
 	Use:   "cis",
 	Short: "CIS/STIG compliance benchmark",
 	Long: `Evaluate this host against the CIS Ubuntu 22.04 LTS Benchmark (Level 1 by default).
+Use --stig to run DISA STIG checks instead (DISA STIG Ubuntu 20.04 LTS V1R11).
 
 Checks SSH configuration, network parameters, audit logging, file permissions,
 and user account settings. Reuses the same data as dsd health — no additional
@@ -29,6 +30,7 @@ tools or network access required.
 Examples:
   dsd cis                  Run CIS Level 1 checks
   dsd cis --level 2        Run Level 1 + Level 2 checks
+  dsd cis --stig           Run DISA STIG checks (V-238xxx IDs)
   dsd cis --json           Machine-readable output
   dsd cis --fail-only      Show only failing checks`,
 	RunE: runCIS,
@@ -39,14 +41,16 @@ var (
 	cisJSON     bool
 	cisFailOnly bool
 	cisPlain    bool
+	cisStig     bool
 )
 
 func init() {
 	rootCmd.AddCommand(cisCmd)
-	cisCmd.Flags().IntVar(&cisLevel, "level", 1, "CIS benchmark level (1 or 2)")
-	cisCmd.Flags().BoolVar(&cisJSON, "json", false, "Output JSON")
-	cisCmd.Flags().BoolVar(&cisFailOnly, "fail-only", false, "Show only FAIL results")
-	cisCmd.Flags().BoolVar(&cisPlain, "plain", false, "Plain text output (no colour)")
+	cisCmd.Flags().IntVar(&cisLevel, "level", 1, "benchmark level (1 or 2)")
+	cisCmd.Flags().BoolVar(&cisJSON, "json", false, "output JSON")
+	cisCmd.Flags().BoolVar(&cisFailOnly, "fail-only", false, "show only FAIL results")
+	cisCmd.Flags().BoolVar(&cisPlain, "plain", false, "plain text output (no colour)")
+	cisCmd.Flags().BoolVar(&cisStig, "stig", false, "run DISA STIG checks instead of CIS")
 }
 
 func runCIS(_ *cobra.Command, _ []string) error {
@@ -74,9 +78,13 @@ func runCIS(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	report := cis.Evaluate(sec, ks, cisLevel, "CIS")
+	report := cis.Evaluate(sec, ks, cisLevel, cisStig)
 	report.Hostname, _ = os.Hostname()
-	report.Profile = fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", cisLevel)
+	if cisStig {
+		report.Profile = fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", cisLevel)
+	} else {
+		report.Profile = fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", cisLevel)
+	}
 
 	if cisJSON {
 		enc := json.NewEncoder(os.Stdout)
@@ -143,7 +151,11 @@ func printCISReport(report models.CISReport, failOnly bool, mode output.OutputMo
 	}
 	fmt.Println()
 	if report.Fail > 0 {
-		fmt.Printf("\n  Tip: %sdsd cis --fail-only%s to see only failures.\n", bold(colour), resetColour(colour))
+		fmt.Printf("\n  Tip: %sdsd cis --fail-only%s to see only failures.", bold(colour), resetColour(colour))
+		if !cisStig {
+			fmt.Printf("  %sdsd cis --stig%s for DISA STIG IDs.", bold(colour), resetColour(colour))
+		}
+		fmt.Println()
 	}
 	fmt.Println()
 }
