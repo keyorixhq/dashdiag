@@ -98,6 +98,11 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 			continue
 		}
 		pid := pidFromDir(dir)
+		parentName := readComm(ppid)
+		// Skip shell-parented zombies — transient, always self-healing
+		if isShell(parentName) {
+			continue
+		}
 		ps := models.ProcessState{PID: pid, PPID: ppid, Name: name, State: state}
 		switch state {
 		case "Z":
@@ -156,8 +161,13 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		}
 		// Skip zombies that are direct children of dsd itself — these are
 		// subprocesses (ps, brew, etc.) that dsd spawned and hasn't reaped yet.
-		// They are not real zombies; they disappear within milliseconds.
 		if ppid == selfPID {
+			continue
+		}
+		// Skip zombies whose parent is an interactive shell.
+		// Shells create brief zombies between fork() and wait() for every command
+		// they run — these are transient and always self-healing.
+		if isShell(pidName[ppid]) {
 			continue
 		}
 		ps := models.ProcessState{
@@ -191,6 +201,17 @@ func isKernelThread(name string) bool {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
+	}
+	return false
+}
+
+// isShell returns true for common interactive shells.
+// Shells routinely create transient zombie children between fork() and wait().
+// These self-heal within milliseconds and are never actionable.
+func isShell(name string) bool {
+	switch name {
+	case "bash", "sh", "zsh", "fish", "tcsh", "csh", "dash", "ksh", "ash":
+		return true
 	}
 	return false
 }
