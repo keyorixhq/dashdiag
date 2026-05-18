@@ -231,7 +231,7 @@ func isAvailable(data interface{}) bool {
 	}
 	// Use reflection to check common Available bool field
 	v := reflect.ValueOf(data)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return false
 		}
