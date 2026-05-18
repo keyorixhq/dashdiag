@@ -619,3 +619,175 @@ This file is the reference for:
 - Marketing screenshots
 - Demo content
 - Customer conversations ("here's what one night of monitoring looks like")
+
+
+---
+
+## dsd cis — CIS Compliance Audit Story
+
+### The one-line pitch
+
+> Your server's CIS compliance score in under 5 seconds — with the exact command to fix every failure.
+
+### The problem this solves
+
+Running a CIS audit used to mean one of three things:
+- A $10,000/year compliance tool (Qualys, Nessus, CIS-CAT Pro)
+- A consultant who shows up, runs a script, and hands you a PDF
+- A 200-page CIS PDF and an afternoon with grep
+
+The result is that most Linux servers sit in production for months or years without anyone checking whether they pass even the most basic Level 1 benchmarks. A default Linux Mint install fails 12 out of 28 checks before the sysadmin has touched anything.
+
+DashDiag makes this a 5-second command.
+
+### The demo (real output from a default Linux Mint 22.3 install)
+
+```
+$ dsd cis
+
+CIS Ubuntu 22.04 LTS Level 1 — andrei-Legion
+
+  ── SSH
+  ❌ 5.2.1     Ensure permissions on /etc/ssh/sshd_config are configured (0600)
+           finding: sshd_config mode 644
+           to fix:  chmod 600 /etc/ssh/sshd_config
+  ❌ 5.2.6     Ensure SSH X11 forwarding is disabled
+           finding: X11Forwarding yes
+           to fix:  set X11Forwarding no in /etc/ssh/sshd_config
+  ❌ 5.2.7     Ensure SSH MaxAuthTries is 4 or less
+           finding: MaxAuthTries is 6
+           to fix:  set MaxAuthTries 4 in /etc/ssh/sshd_config
+  ❌ 5.2.13    Ensure SSH idle timeout is configured (ClientAliveInterval > 0)
+           finding: ClientAliveInterval not set — sessions never time out
+           to fix:  set ClientAliveInterval 300 and ClientAliveCountMax 3
+  ✅ 5.2.10    Ensure SSH root login is disabled
+  ✅ 5.2.11    Ensure SSH PermitEmptyPasswords is disabled
+  ── NETWORK
+  ✅ 3.1.1     Ensure IP forwarding is disabled
+  ❌ 3.2.2     Ensure ICMP redirects are not accepted
+           finding: accept_redirects is 1 — ICMP redirects accepted
+           to fix:  sysctl -w net.ipv4.conf.all.accept_redirects=0
+  ── AUDIT
+  ❌ 4.1.1     Ensure auditd is installed and running
+           finding: auditd not installed or not running
+           to fix:  apt install auditd && systemctl enable --now auditd
+  ── AUTH
+  ❌ 5.4.1     Ensure password expiration is 365 days or less
+           finding: PASS_MAX_DAYS is 99999
+           to fix:  set PASS_MAX_DAYS 365 in /etc/login.defs
+  ── FILES
+  ✅ 6.1.1     Ensure /etc/passwd permissions are 644 or stricter
+  ✅ 6.1.2     Ensure /etc/shadow permissions are 000 or 640
+
+  28 rules — 15 pass  12 fail  1 skipped
+
+  Tip: dsd cis --fail-only to see only failures.
+```
+
+### Why this output is the marketing
+
+The terminal output IS the pitch. No dashboard to set up. No agent to install. No cloud account. Anyone who reads it understands the product in 5 seconds.
+
+Every failure line follows the same pattern:
+1. The CIS rule ID — traceable to the benchmark document
+2. What was found (concrete, specific)
+3. The exact command to fix it
+
+That third point is the differentiator. Most compliance tools tell you what's wrong. DashDiag tells you what to type.
+
+### The numbers that matter
+
+- 28 CIS Level 1 checks in a single command
+- 12 failures on a default Linux Mint install (zero hardening applied)
+- 5 seconds to run (no network, no cloud, no agent)
+- 0 dependencies beyond the dsd binary
+
+### What gets checked
+
+| Section | Count | Examples |
+|---------|-------|---------|
+| SSH configuration | 17 | sshd_config permissions, AllowUsers, X11Forwarding, MaxAuthTries, idle timeout, banner |
+| Network parameters | 4 | IP forwarding, source routing, ICMP redirects, martian logging |
+| Audit logging | 2 | auditd installed and running, rules configured |
+| Password policy | 1 | PASS_MAX_DAYS <= 365 |
+| File permissions | 3 | /etc/passwd, /etc/shadow, /etc/group |
+| User accounts | 2 | No NIS legacy entries, root is only UID 0 |
+
+### Commands to feature in copy
+
+```bash
+dsd cis                  # Level 1 — full output
+dsd cis --fail-only      # only the failures + their fix commands
+dsd cis --level 2        # Level 1 + Level 2 checks
+dsd cis --json           # machine-readable output for CI/CD pipelines
+```
+
+### Positioning
+
+**Against Qualys / Nessus / CIS-CAT Pro:** Those are $10k/yr SaaS tools with agents, dashboards, and account setup. dsd cis runs in 5 seconds, touches nothing outside the local machine, and requires zero setup. For a sysadmin who wants to spot-check a server before handing it to a client, or a startup that needs to pass a vendor security questionnaire, dsd cis is the answer. The enterprise tools are for compliance programs. dsd cis is for engineers.
+
+**Against Lynis:** Lynis is the closest open-source equivalent. It runs hundreds of checks and produces a long scrolling report. dsd cis is opinionated — 28 Level 1 checks, mapped to CIS IDs, with exact remediation per finding. Less comprehensive than Lynis, but faster to act on.
+
+**The key phrase:** "No consultant required."
+
+### Pro tier angle
+
+The free tier runs `dsd cis` with full Level 1 output. Pro gates:
+- `--level 2` (advanced checks)
+- `--json` (CI/CD integration)
+- STIG ID mapping (`--stig`)
+
+The JSON output is the enterprise unlock: pipe it into your own reporting, Slack alerts, or a compliance dashboard. That's a $79/yr justification on its own for any team that needs to demonstrate CIS compliance to a customer or auditor.
+
+### Social angles
+
+**Reddit / HN:**
+> Title: I ran CIS Level 1 against my server and found 12 failures in 5 seconds
+>
+> Body:
+> Just added a `dsd cis` command to DashDiag.
+>
+> Ran it against a default Linux Mint install (no hardening applied):
+> 15 pass, 12 fail, 1 skipped.
+>
+> Every failure shows the CIS rule ID, what was found, and the exact command to fix it.
+> Takes under 5 seconds, no root required, nothing leaves the machine.
+>
+> The 12 failures on a default install surprised me: sshd_config was 644 (should be 600),
+> X11Forwarding was on, no idle timeout, PASS_MAX_DAYS was 99999, auditd not installed.
+> These are the defaults on most distros. Nobody fixes them because nobody checks.
+>
+> [link to GitHub]
+
+**LinkedIn:**
+> Most servers in production have never been audited against CIS benchmarks.
+>
+> Not because sysadmins don't care. Because the tools are expensive, slow, or require an agent.
+>
+> I added a `dsd cis` command to DashDiag. 28 CIS Level 1 checks. Under 5 seconds.
+> Every failure shows the exact command to fix it.
+>
+> A default Linux Mint install fails 12 checks before you've touched anything.
+> That's the baseline most production servers start from.
+
+**Twitter/X:**
+> ran `dsd cis` on a fresh Linux Mint install
+> 12 CIS Level 1 failures before touching anything
+> every one includes the exact fix command
+> takes 5 seconds, no root, nothing leaves the machine
+
+### Demo scenarios for landing page
+
+1. **The spot-check** — sysadmin SSHes into a new server before handing it to a client: `dsd cis --fail-only`
+2. **The CI gate** — `dsd cis --json | jq '.fail == 0'` in a pipeline
+3. **The before/after** — run dsd cis, apply fixes, run again, 0 failures
+4. **The vendor questionnaire** — "we need to demonstrate CIS compliance" → `dsd cis --json > cis-audit-2026-05.json`
+
+### Strategic note — gating decision
+
+Before the landing page goes live, decide: is `dsd cis` free or Pro?
+
+Current build: everything free.
+
+Recommended: make the core output free, gate `--level 2` and `--json` behind Pro.
+Reason: the free output builds trust and demonstrates value. The JSON output (CI/CD integration) and Level 2 (advanced checks) are the things a paying customer actually needs. This gives a clear free → Pro upgrade path without removing value from the free tier.
