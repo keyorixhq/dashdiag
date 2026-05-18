@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	gopsutildisk "github.com/shirou/gopsutil/v3/disk"
-
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -161,19 +159,45 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func (c *IOCollector) collectDarwin(ctx context.Context) (*models.IOInfo, error) {
-	counters, err := gopsutildisk.IOCountersWithContext(ctx)
-	if err != nil {
+	// iostat -d -c 2 -w 1: two samples, 1-second interval, disk-only.
+	// First row = since-boot average (skip). Second row = last-second rate.
+	// Format: KB/t  tps  MB/s  (per device, space-separated)
+	out, err := runCmd(ctx, "iostat", "-d", "-c", "2", "-w", "1")
+	if err != nil || out == "" {
 		return &models.IOInfo{}, nil
 	}
-	result := &models.IOInfo{Devices: make([]models.IODeviceInfo, 0, len(counters))}
-	for name, cnt := range counters {
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	// lines[0] = device headers (disk0  disk1 ...)
+	// lines[1] = column headers (KB/t  tps  MB/s ...)
+	// lines[2] = first sample (since boot)
+	// lines[3] = second sample (last second) ← we want this
+	if len(lines) < 4 {
+		return &models.IOInfo{}, nil
+	}
+
+	// Parse device names from header line
+	devNames := strings.Fields(lines[0])
+	// Parse second-sample values
+	values := strings.Fields(lines[3])
+	// Each device has 3 columns: KB/t, tps, MB/s
+	result := &models.IOInfo{Devices: make([]models.IODeviceInfo, 0, len(devNames))}
+	for i, name := range devNames {
+		base := i * 3
+		if base+2 >= len(values) {
+			break
+		}
+		mbps := parseFloat(values[base+2])
 		result.Devices = append(result.Devices, models.IODeviceInfo{
-			Name:  name,
-			IsSSD: true,
-			// gopsutil returns cumulative bytes; rates unavailable without two-sample
-			ReadMBps:  float64(cnt.ReadBytes) / 1e6,
-			WriteMBps: float64(cnt.WriteBytes) / 1e6,
+			Name:     name,
+			IsSSD:    true,
+			ReadMBps: mbps, // iostat total MB/s (read+write combined)
 		})
 	}
 	return result, nil
+}
+
+func parseFloat(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
 }
