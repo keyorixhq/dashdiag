@@ -360,6 +360,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkCPUFreq(*d)
 		}
+	case models.LaunchdInfo:
+		return checkLaunchd(d)
+	case *models.LaunchdInfo:
+		if d != nil {
+			return checkLaunchd(*d)
+		}
 	case models.DBusInfo:
 		return checkDBus(d)
 	case *models.DBusInfo:
@@ -3960,4 +3966,30 @@ func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
 	}
 
 	return out
+}
+
+func checkLaunchd(l models.LaunchdInfo) []models.Insight {
+	if len(l.Failed) == 0 {
+		return nil
+	}
+	var names []string
+	for _, svc := range l.Failed {
+		names = append(names, svc.Label)
+	}
+	// Show at most 3 names inline to keep message readable
+	shown := names
+	suffix := ""
+	if len(shown) > 3 {
+		shown = shown[:3]
+		suffix = fmt.Sprintf(" (+%d more)", len(names)-3)
+	}
+	return []models.Insight{insight("WARN", "Launchd",
+		fmt.Sprintf("%d launchd service(s) failed: %s%s",
+			len(l.Failed), strings.Join(shown, ", "), suffix),
+		[]string{
+			"to inspect: launchctl list | awk '$2 != 0 && $2 != \"-\"'",
+			"to inspect: log show --predicate 'subsystem == \"com.apple.launchd\"' --last 1h",
+			"to fix:     launchctl kickstart system/<label>",
+		},
+	)}
 }

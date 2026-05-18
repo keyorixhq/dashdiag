@@ -18,6 +18,18 @@ type SecurityInfo struct {
 	SSHPermitEmptyPwd      bool     `json:"ssh_permit_empty_passwords,omitempty"` // must be no
 	SSHStrictModes         bool     `json:"ssh_strict_modes"`                     // should be yes (default yes)
 	SSHClientAliveInterval int      `json:"ssh_client_alive_interval,omitempty"`  // idle timeout seconds
+	// Additional CIS/STIG fields
+	SSHIgnoreRhosts  bool   `json:"ssh_ignore_rhosts"`             // should be yes (default yes)
+	SSHHostbasedAuth bool   `json:"ssh_hostbased_auth,omitempty"`  // should be no
+	SSHPermitUserEnv bool   `json:"ssh_permit_user_env,omitempty"` // should be no
+	SSHTCPForwarding bool   `json:"ssh_tcp_forwarding,omitempty"`  // should be no on servers
+	SSHLogLevel      string `json:"ssh_log_level,omitempty"`       // INFO or VERBOSE
+	SSHBanner        string `json:"ssh_banner,omitempty"`          // /etc/issue.net recommended
+	SSHMaxSessions   int    `json:"ssh_max_sessions,omitempty"`    // CIS: <= 10
+	SSHMaxStartups   string `json:"ssh_max_startups,omitempty"`    // CIS: 10:30:60
+	SSHCiphers       string `json:"ssh_ciphers,omitempty"`
+	SSHMACs          string `json:"ssh_macs,omitempty"`
+	SSHKexAlgorithms string `json:"ssh_kex_algorithms,omitempty"`
 
 	// Authentication
 	FailedLogins   int      `json:"failed_logins"`    // failed logins in last hour

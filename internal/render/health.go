@@ -57,7 +57,7 @@ var displayOrder = []string{
 	// Security
 	"KernelSec", "Hardening", "Packages",
 	// Platform-specific
-	"Subscription", "Snapshots", "Battery", "PVE",
+	"Subscription", "Snapshots", "Battery", "Launchd", "PVE",
 	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
 	"Ceph", "Firewall", "Auth", "CloudMeta", "Auditd",
 	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
@@ -229,6 +229,8 @@ func inlineData(res runner.Result) string {
 		return inlineCPUThermal(res.Data)
 	case "Battery":
 		return inlineBattery(res.Data)
+	case "Launchd":
+		return inlineLaunchd(res.Data)
 	case "Drives":
 		return inlineDrives(res.Data)
 	case "Systemd":
@@ -1238,4 +1240,20 @@ func inlineCPUFreq(data interface{}) string {
 		return fmt.Sprintf("%s  %d/%d MHz", f.Governor, f.CurrentMHz, f.MaxMHz)
 	}
 	return f.Governor
+}
+
+func inlineLaunchd(data interface{}) string {
+	var l *models.LaunchdInfo
+	if v, ok := data.(*models.LaunchdInfo); ok {
+		l = v
+	} else if v, ok := data.(models.LaunchdInfo); ok {
+		l = &v
+	}
+	if l == nil || l.Total == 0 {
+		return ""
+	}
+	if len(l.Failed) > 0 {
+		return fmt.Sprintf("%d running  %d failed", l.Running, len(l.Failed))
+	}
+	return fmt.Sprintf("%d running", l.Running)
 }
