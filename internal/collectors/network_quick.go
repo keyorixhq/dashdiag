@@ -456,9 +456,14 @@ func detectGatewayDarwin(ctx context.Context) routeInfo {
 	return info
 }
 
-// readIfaceSpeed reads the link speed for a network interface from sysfs.
+// readIfaceSpeed reads the link speed for a network interface.
+// On Linux: reads from /sys/class/net/<name>/speed.
+// On macOS: parses 'networksetup -getmedia <name>' output.
 // Returns 0 when unavailable (loopback, tunnel, wifi with driver quirks).
 func readIfaceSpeed(name string) int {
+	if runtime.GOOS == "darwin" {
+		return readIfaceSpeedDarwin(name)
+	}
 	data, err := os.ReadFile("/sys/class/net/" + name + "/speed") // #nosec G304
 	if err != nil {
 		return 0
@@ -473,6 +478,36 @@ func readIfaceSpeed(name string) int {
 		return 0
 	}
 	return speed
+}
+
+// readIfaceSpeedDarwin reads link speed on macOS via networksetup -getmedia.
+// Output: "Current: autoselect\nActive: 1000baseT <full-duplex>"
+func readIfaceSpeedDarwin(name string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runCmd(ctx, "networksetup", "-getmedia", name)
+	if err != nil || out == "" {
+		return 0
+	}
+	// Parse "Active: 1000baseT", "Active: 100baseTX", "Active: autoselect" etc.
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "Active:") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "Active:")
+		line = strings.TrimSpace(line)
+		// Extract leading number: "1000baseT" -> 1000, "100baseTX" -> 100, "2500baseT" -> 2500
+		for i, ch := range line {
+			if ch < '0' || ch > '9' {
+				if i > 0 {
+					speed, _ := strconv.Atoi(line[:i])
+					return speed
+				}
+				break
+			}
+		}
+	}
+	return 0
 }
 
 // readIfaceUSB returns true when the network interface is USB-attached.
