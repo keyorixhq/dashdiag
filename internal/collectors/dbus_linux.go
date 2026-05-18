@@ -18,7 +18,7 @@ import (
 // annotated onto all other failed-service insights.
 type DBusCollector struct{}
 
-func NewDBusCollector() *DBusCollector           { return &DBusCollector{} }
+func NewDBusCollector() *DBusCollector          { return &DBusCollector{} }
 func (c *DBusCollector) Name() string           { return "DBus" }
 func (c *DBusCollector) Timeout() time.Duration { return 3 * time.Second }
 
