@@ -877,10 +877,7 @@ func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 }
 func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	if !sys.Available {
-		return []models.Insight{insight("INFO", "Systemd",
-			"systemd not present",
-			nil,
-		)}
+		return nil // not present on this platform — hide the row entirely
 	}
 	out := make([]models.Insight, 0, len(sys.FailedUnits))
 	selinuxEnforcing := sys.SELinuxEnforcing // set by ApplyThresholds pre-scan
@@ -1209,6 +1206,11 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				"AppArmor present but mode unreadable — re-run as root",
 				nil,
 			))
+		}
+		// On non-Linux platforms (macOS, etc.) neither SELinux nor AppArmor
+		// is applicable — hide the row rather than showing a misleading INFO.
+		if runtime.GOOS != "linux" {
+			return nil
 		}
 		if len(out) == 0 {
 			return []models.Insight{insight("INFO", "KernelSec",

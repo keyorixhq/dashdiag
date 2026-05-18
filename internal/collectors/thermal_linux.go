@@ -31,7 +31,7 @@ func (c *ThermalCollector) Name() string           { return "CPU Thermal" }
 func (c *ThermalCollector) Timeout() time.Duration { return 1 * time.Second }
 
 func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
-	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
+	info := &models.ThermalInfo{Available: true, CoreTemps: make(map[string]float64)}
 
 	// Inside LXC containers, hwmon sensors read the HOST CPU temperature.
 	// This is misleading — the container has no CPU of its own.

@@ -22,7 +22,7 @@ func (c *HugePagesCollector) Name() string           { return "HugePages" }
 func (c *HugePagesCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
-	info := &models.HugePagesInfo{}
+	info := &models.HugePagesInfo{Available: true}
 
 	// Read /proc/meminfo for huge page stats
 	data, err := os.ReadFile("/proc/meminfo")

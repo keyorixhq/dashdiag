@@ -23,7 +23,7 @@ func (c *DBusCollector) Name() string           { return "DBus" }
 func (c *DBusCollector) Timeout() time.Duration { return 3 * time.Second }
 
 func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.DBusInfo{}
+	info := &models.DBusInfo{Available: true}
 
 	out, err := exec.CommandContext(ctx, "systemctl", "is-active", "dbus.service").Output() // #nosec G204
 	status := strings.TrimSpace(string(out))

@@ -1,6 +1,9 @@
 package models
 
 type KernelSecurityInfo struct {
+	// Available is false on platforms where kernel security modules don't apply (macOS).
+	Available bool `json:"available"`
+
 	SELinuxPresent    bool     `json:"se_linux_present"`
 	SELinuxMode       string   `json:"se_linux_mode"`
 	SELinuxDenials    int      `json:"se_linux_denials"`
