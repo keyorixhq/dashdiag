@@ -46,7 +46,7 @@ func (c *SysctlCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
-	info := &models.SysctlInfo{}
+	info := &models.SysctlInfo{Available: true}
 	// Best-effort reads — partial data is still useful
 	info.VMSwappiness, _ = readIntFile("/proc/sys/vm/swappiness")
 	info.NetSomaxconn, _ = readIntFile("/proc/sys/net/core/somaxconn")
@@ -113,6 +113,7 @@ func readSysctlInt(ctx context.Context, key string) int {
 
 func (c *SysctlCollector) collectDarwin(ctx context.Context) (*models.SysctlInfo, error) {
 	info := &models.SysctlInfo{
+		Available:    true,
 		KernelPIDMax: readSysctlInt(ctx, "kern.maxproc"),
 		FSFileMax:    readSysctlInt(ctx, "kern.maxfiles"),
 		VMSwappiness: -1,

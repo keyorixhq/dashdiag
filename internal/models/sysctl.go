@@ -1,6 +1,7 @@
 package models
 
 type SysctlInfo struct {
+	Available bool `json:"available"` // false on non-Linux
 	// Core
 	VMSwappiness int `json:"vm_swappiness"`
 	NetSomaxconn int `json:"net_somaxconn"`

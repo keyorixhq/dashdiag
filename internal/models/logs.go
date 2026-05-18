@@ -2,6 +2,7 @@ package models
 
 // LogsInfo holds system log health data.
 type LogsInfo struct {
+	Available     bool     `json:"available"`               // false on non-Linux
 	OOMKills      int      `json:"oom_kills"`               // OOM kills in last hour from /dev/kmsg
 	OOMProcesses  []string `json:"oom_processes"`           // Names of killed processes
 	Segfaults     int      `json:"segfaults"`               // Segfaults in last hour from /dev/kmsg

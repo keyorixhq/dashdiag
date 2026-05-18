@@ -38,7 +38,7 @@ func (c *LogsCollector) Name() string           { return "Logs" }
 func (c *LogsCollector) Timeout() time.Duration { return 10 * time.Second }
 
 func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.LogsInfo{}
+	info := &models.LogsInfo{Available: true}
 
 	if os.Getuid() != 0 {
 		info.NeedsRoot = true
