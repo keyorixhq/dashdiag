@@ -56,37 +56,15 @@ var healthDeepCmd = &cobra.Command{
 	},
 }
 
-// TODO(backlog): package security advisory collector — surface available security updates.
-// Linux: parse `dnf check-update --security` or `apt list --upgradable` (distro-detect).
-// macOS: `brew outdated --greedy` for Homebrew packages.
-// Show count of security updates available; WARN if > 0 critical CVE updates pending.
-// Estimated scope: ~1 day. Note: this is the only collector that shells out intentionally
-// (no kernel interface for package state); follow existing macOS pgrep pattern.
-
-// TODO(backlog): kernel tuning recommendations (sysctl advisor) — compare live sysctl
-// values against known-good profiles for common workloads (web server, database, k8s node).
-// Extend SysctlCollector to flag suboptimal values with specific recommended settings.
-// Examples: vm.swappiness > 10 on SSD, net.core.rmem_max < 16MB on high-throughput host.
-// Workload profile auto-detected from running processes (nginx, postgres, kubelet etc).
-// Estimated scope: ~2 days.
-
 // TODO(backlog): CVE exposure check — cross-reference installed packages against a local
-// advisory feed. On RHEL/CentOS: parse /var/cache/dnf or query OVAL data from
-// https://access.redhat.com/security/data/oval/. On Ubuntu: parse /var/lib/apt/lists/.
-// No cloud registration required — advisory data downloaded and cached locally (~weekly).
-// WARN: any CVE with CVSS >= 7.0. CRIT: any CVE with CVSS >= 9.0 or known exploited.
-// Estimated scope: ~1 week (advisory feed parsing is the bulk of the work).
-
-// TODO(backlog): configuration drift detection — compare current sysctl/kernel params
-// against a user-defined or auto-generated "known good" baseline profile, not just the
-// previous run. Use case: after a kernel upgrade or sysctl change, show what drifted
-// from the last blessed state. Extends existing baseline infrastructure.
-// Estimated scope: ~1 day.
+// advisory feed. On RHEL/CentOS: parse /var/cache/dnf or OVAL from access.redhat.com.
+// On Ubuntu: parse /var/lib/apt/lists/. Cache locally (~weekly). No cloud registration.
+// WARN: CVSS >= 7.0. CRIT: CVSS >= 9.0 or known exploited.
+// Estimated scope: ~1 week (advisory feed parsing is the bulk). See BACKLOG.md.
 
 // TODO(backlog): CIS/STIG compliance checks — compare system config against CIS Benchmark
-// or STIG profiles. Enterprise-only feature, implement after core health checks are stable
-// and paying customers exist. Requires mapping CIS rules to kernel/sysctl/file checks.
-// Estimated scope: ~2 weeks.
+// or STIG profiles. Enterprise-only. Implement after core product is stable and paying
+// customers exist. Estimated scope: ~2 weeks. See BACKLOG.md.
 
 func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch/loadPolicyIfSet
 	ctx := context.Background()

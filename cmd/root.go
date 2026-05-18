@@ -34,13 +34,10 @@ var rootCmd = &cobra.Command{
 // Embeds in GitHub README. Viral — visible to every repo visitor.
 // Requires dashdiag.sh backend. Estimated scope: ~2 hours CLI + backend. See BACKLOG.md.
 
-// TODO(backlog): dsd policy — YAML policy file defines health thresholds for CI gates.
-// Free tier feature that drives paid cloud management upsell.
-// Estimated scope: ~3 days. See BACKLOG.md.
-
 // TODO(backlog): team workspace MVP — shared snapshot history across a team.
 // First paid product. Requires dashdiag.sh backend, auth, billing.
-// Estimated scope: ~10 days. See BACKLOG.md.
+// Design session required before implementation. See BACKLOG.md §Strategic Discussions.
+// Estimated scope: ~10 days.
 
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
