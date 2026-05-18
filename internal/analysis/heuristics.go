@@ -393,9 +393,23 @@ func insight(level, check, message string, hints []string) models.Insight {
 func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 
-	if l := levelPct(cpu.LoadPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
+	// Choose the right metric for the threshold:
+	// - UsagePct (real user+sys%) is accurate on Linux (/proc/stat) and macOS (top).
+	//   Use it when available — it matches what htop/Activity Monitor show.
+	// - LoadPct (load_avg_1 / num_cpus) is a proxy. On macOS it fires false alarms
+	//   because many tiny short-lived threads inflate the queue without consuming CPU.
+	checkPct := cpu.LoadPct
+	if cpu.UsagePct > 0 {
+		checkPct = cpu.UsagePct
+	}
+
+	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
+		msg := fmt.Sprintf("%.0f%% CPU (user+sys)", cpu.UsagePct)
+		if cpu.LoadAvg1 > 0 {
+			msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)
+		}
 		out = append(out, insight(l, "CPU Load",
-			fmt.Sprintf("load avg %.2f across %d CPUs (%.0f%% — sustained run queue pressure)", cpu.LoadAvg1, cpu.NumCPU, cpu.LoadPct),
+			msg,
 			[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
 		))
 	}
