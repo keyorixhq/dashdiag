@@ -363,6 +363,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	cols = append(cols,
 		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),
 		collectors.NewBatteryCollector(),
+		collectors.NewLaunchdCollector(),
 		collectors.NewNVMeCollector(),
 		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
 	)

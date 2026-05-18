@@ -60,8 +60,9 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 // Also reads Include directives to cover drop-in configs like sshd_config.d/*.conf
 func parseSSHConfig(info *models.SecurityInfo) {
 	// Default safe values
-	info.SSHPubkeyAuth = true  // on by default in modern OpenSSH
-	info.SSHStrictModes = true // on by default — sshd only flags when explicitly set to no
+	info.SSHPubkeyAuth = true   // on by default in modern OpenSSH
+	info.SSHStrictModes = true  // on by default
+	info.SSHIgnoreRhosts = true // on by default in modern OpenSSH
 
 	parseSSHFile("/etc/ssh/sshd_config", info)
 
@@ -158,6 +159,30 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) {
 			if n, err := strconv.Atoi(val); err == nil {
 				info.SSHClientAliveInterval = n
 			}
+		case "ignorerhosts":
+			info.SSHIgnoreRhosts = val != "no"
+		case "hostbasedauthentication":
+			info.SSHHostbasedAuth = val == "yes"
+		case "permituserenvironment":
+			info.SSHPermitUserEnv = val == "yes"
+		case "allowtcpforwarding":
+			info.SSHTCPForwarding = val == "yes"
+		case "loglevel":
+			info.SSHLogLevel = strings.ToUpper(val)
+		case "banner":
+			info.SSHBanner = fields[1] // preserve original case for path
+		case "maxsessions":
+			if n, err := strconv.Atoi(val); err == nil {
+				info.SSHMaxSessions = n
+			}
+		case "maxstartups":
+			info.SSHMaxStartups = fields[1]
+		case "ciphers":
+			info.SSHCiphers = fields[1]
+		case "macs":
+			info.SSHMACs = fields[1]
+		case "kexalgorithms":
+			info.SSHKexAlgorithms = fields[1]
 		}
 	}
 }
