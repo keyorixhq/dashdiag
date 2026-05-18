@@ -332,7 +332,17 @@ func inlineData(res runner.Result) string {
 
 func inlineCPULoad(data interface{}) string {
 	cpu := asCPUInfo(data)
-	if cpu != nil && cpu.LoadPct >= 0 {
+	if cpu == nil {
+		return ""
+	}
+	// Prefer real CPU utilisation (user+sys) over load average ratio.
+	// UsagePct is populated on Linux (/proc/stat) and macOS (top).
+	// LoadPct is load_avg_1 / num_cpus — useful for server context but
+	// does not match what Activity Monitor or htop show as "CPU %".
+	if cpu.UsagePct > 0 {
+		return fmt.Sprintf("%.0f%%", cpu.UsagePct)
+	}
+	if cpu.LoadPct >= 0 {
 		return fmt.Sprintf("%.0f%%", cpu.LoadPct)
 	}
 	return ""

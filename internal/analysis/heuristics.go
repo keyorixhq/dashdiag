@@ -395,7 +395,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 
 	if l := levelPct(cpu.LoadPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
 		out = append(out, insight(l, "CPU Load",
-			fmt.Sprintf("load average at %.0f%% of capacity (%.2f / %d CPUs)", cpu.LoadPct, cpu.LoadAvg1, cpu.NumCPU),
+			fmt.Sprintf("load avg %.2f across %d CPUs (%.0f%% — sustained run queue pressure)", cpu.LoadAvg1, cpu.NumCPU, cpu.LoadPct),
 			[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
 		))
 	}
