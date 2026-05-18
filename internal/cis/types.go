@@ -24,31 +24,14 @@ func pass(r Rule) models.CISResult {
 		Section: r.Section, Description: r.Description, Status: models.CISPass}
 }
 
-func passAs(r Rule, id, desc string) models.CISResult {
-	return models.CISResult{ID: id, Framework: r.Framework, Level: r.Level,
-		Section: r.Section, Description: desc, Status: models.CISPass}
-}
-
 func failr(r Rule, finding, fix string) models.CISResult {
 	return models.CISResult{ID: r.ID, Framework: r.Framework, Level: r.Level,
 		Section: r.Section, Description: r.Description,
 		Status: models.CISFail, Finding: finding, Remediation: fix}
 }
 
-func failAs(r Rule, id, desc, finding, fix string) models.CISResult {
-	return models.CISResult{ID: id, Framework: r.Framework, Level: r.Level,
-		Section: r.Section, Description: desc,
-		Status: models.CISFail, Finding: finding, Remediation: fix}
-}
-
 func skipr(r Rule, reason string) models.CISResult {
 	return models.CISResult{ID: r.ID, Framework: r.Framework, Level: r.Level,
 		Section: r.Section, Description: r.Description,
-		Status: models.CISSkipped, Finding: reason}
-}
-
-func skipAs(r Rule, id, desc, reason string) models.CISResult {
-	return models.CISResult{ID: id, Framework: r.Framework, Level: r.Level,
-		Section: r.Section, Description: desc,
 		Status: models.CISSkipped, Finding: reason}
 }
