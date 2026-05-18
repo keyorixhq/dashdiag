@@ -783,6 +783,77 @@ The JSON output is the enterprise unlock: pipe it into your own reporting, Slack
 3. **The before/after** — run dsd cis, apply fixes, run again, 0 failures
 4. **The vendor questionnaire** — "we need to demonstrate CIS compliance" → `dsd cis --json > cis-audit-2026-05.json`
 
+
+### STIG mode — the government contractor angle
+
+Running `dsd cis --stig` switches from CIS IDs to DISA STIG IDs (V-238xxx format). The underlying checks are largely the same. The output is not.
+
+```
+$ dsd cis --stig
+
+DISA STIG Ubuntu 20.04 LTS Level 1 — my-server
+
+  ── SSH
+  ❌ V-238201  The SSH daemon configuration file must have mode 0600 or less permissive
+           finding: sshd_config mode 644
+           to fix:  chmod 600 /etc/ssh/sshd_config
+  ❌ V-238213  The SSH daemon must use FIPS-approved ciphers
+           finding: Ciphers not explicitly configured — defaults may include weak ciphers
+           to fix:  set Ciphers aes128-ctr,aes192-ctr,aes256-ctr,...
+  ❌ V-238214  The SSH daemon must use FIPS-approved MACs
+           finding: MACs not explicitly configured
+  ✅ V-238210  The SSH daemon must not allow root logins
+  ✅ V-238211  The SSH daemon must not allow empty passwords
+
+  36 rules — 17 pass  17 fail  1 manual  1 skipped
+```
+
+**Why this matters for a different audience:**
+
+CIS is a best-practice standard — any sysadmin can choose to follow it.
+STIG is a US Department of Defense requirement. If you work on a government contract, handle federal data, or sell software to DoD or civilian agencies, you are not choosing whether to comply — you are required to. Non-compliance is a contract risk, not a recommendation.
+
+The tools that produce STIG-format output are expensive:
+- **CIS-CAT Pro** — the official CIS tool, $2,000-$10,000/yr, Windows-first
+- **SCAP Workbench / OpenSCAP** — open source but requires SCAP content files, XML profiles, and meaningful setup time
+- **Nessus / Qualys** — $10,000+/yr, agent-based, SaaS
+
+`dsd cis --stig` is, as far as we know, the only free CLI tool that outputs DISA STIG IDs with exact remediation commands in a single binary with zero setup.
+
+**The STIG-specific checks that CIS doesn't cover:**
+- Ciphers must be explicitly FIPS-approved (no arcfour, blowfish, 3des)
+- MACs must be explicitly FIPS-approved (no md5, sha1, umac-64)
+- KexAlgorithms — no SHA-1 based group exchanges
+- PASS_MAX_DAYS must be ≤ 60 (stricter than CIS Level 1 which allows 365)
+- PASS_MIN_DAYS must be ≥ 1 (minimum password age — STIG only)
+- PASS_WARN_AGE must be ≥ 7 (7-day warning — STIG only)
+- ClientAliveCountMax must be 0 (STIG is stricter than CIS on idle sessions)
+
+**The search terms this audience uses:**
+They don't search "CIS benchmark tool". They search:
+- "DISA STIG Ubuntu scanner"
+- "V-238217 check automated"
+- "Ubuntu STIG compliance tool free"
+- "FedRAMP SSH hardening script"
+- "DoD STIG audit CLI"
+
+These are high-intent searches from people with a real compliance deadline.
+
+**The pitch to this audience in one line:**
+> DISA STIG compliance audit. One binary. No setup. Every failure with an exact fix.
+
+**Social angle (LinkedIn, government/contractor audience):**
+> If you're working on a government contract and need STIG compliance,
+> you know the options: CIS-CAT Pro ($$$), OpenSCAP (complex setup),
+> or a consultant with a spreadsheet.
+>
+> I added `dsd cis --stig` to DashDiag.
+> DISA STIG Ubuntu 20.04 LTS V1R11 checks. V-238xxx IDs.
+> One binary. Under 5 seconds. Every failure with the exact remediation command.
+>
+> A default Ubuntu install fails 17 STIG checks out of the box.
+> `dsd cis --stig --fail-only` shows you exactly what to fix.
+
 ### Strategic note — gating decision
 
 Before the landing page goes live, decide: is `dsd cis` free or Pro?
