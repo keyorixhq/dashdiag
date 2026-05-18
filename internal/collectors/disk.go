@@ -157,6 +157,11 @@ func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, er
 				break
 			}
 		}
+		// Skip read-only volumes — disk images (DMG), installer mounts, etc.
+		// A full read-only volume can never be cleaned up; alerting on it is noise.
+		if ro {
+			continue
+		}
 		result.Filesystems = append(result.Filesystems, models.FilesystemInfo{
 			Device:        p.Device,
 			Mount:         p.Mountpoint,
