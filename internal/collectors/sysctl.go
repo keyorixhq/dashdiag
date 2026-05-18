@@ -111,19 +111,8 @@ func readSysctlInt(ctx context.Context, key string) int {
 	return v
 }
 
-func (c *SysctlCollector) collectDarwin(ctx context.Context) (*models.SysctlInfo, error) {
-	info := &models.SysctlInfo{
-		Available:    true,
-		KernelPIDMax: readSysctlInt(ctx, "kern.maxproc"),
-		FSFileMax:    readSysctlInt(ctx, "kern.maxfiles"),
-		VMSwappiness: -1,
-	}
-	out, err := runCmd(ctx, "ps", "-A")
-	if err == nil {
-		lines := strings.Count(out, "\n")
-		if lines > 1 {
-			info.PIDCount = lines - 1
-		}
-	}
-	return info, nil
+func (c *SysctlCollector) collectDarwin(_ context.Context) (*models.SysctlInfo, error) {
+	// macOS sysctl parameters are defaults and rarely misconfigured.
+	// No actionable checks to surface — hide the row.
+	return &models.SysctlInfo{Available: false}, nil
 }
