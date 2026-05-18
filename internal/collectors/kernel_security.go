@@ -330,7 +330,7 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 
 	// Policy directory must exist under /etc/selinux/<type>/
 	policyDir := "/etc/selinux/" + seType
-	if _, statErr := os.Stat(policyDir); statErr == nil {
+	if _, statErr := os.Stat(policyDir); statErr == nil { //nolint:gosec // policyDir built from seType validated against fixed allowlist above
 		dirOK = true
 	}
 
