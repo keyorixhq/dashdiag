@@ -35,8 +35,13 @@ func NewCPUCollector(ctx platform.ContainerContext) *CPUCollector {
 	}
 }
 
-func (c *CPUCollector) Name() string           { return "CPU Load" }
-func (c *CPUCollector) Timeout() time.Duration { return 2 * time.Second }
+func (c *CPUCollector) Name() string { return "CPU Load" }
+func (c *CPUCollector) Timeout() time.Duration {
+	if runtime.GOOS == "darwin" {
+		return 4 * time.Second // top -l 2 -s 1 needs ~1.5s to complete
+	}
+	return 2 * time.Second
+}
 
 // parseLoadAvg parses /proc/loadavg format: "0.52 0.43 0.32 3/412 8932"
 func parseLoadAvg(r io.Reader) (load1, load5, load15 float64, err error) {
