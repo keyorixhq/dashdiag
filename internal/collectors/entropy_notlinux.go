@@ -19,5 +19,5 @@ func (c *EntropyCollector) Name() string           { return "Entropy" }
 func (c *EntropyCollector) Timeout() time.Duration { return 1 * time.Second }
 
 func (c *EntropyCollector) Collect(_ context.Context) (interface{}, error) {
-	return &models.EntropyInfo{Available: -1, PoolSize: -1}, nil
+	return &models.EntropyInfo{}, nil // Available=false → row hidden
 }

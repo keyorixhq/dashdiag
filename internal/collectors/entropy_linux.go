@@ -30,8 +30,9 @@ func (c *EntropyCollector) Collect(_ context.Context) (interface{}, error) {
 	}
 	poolSize, _ := readProcInt("/proc/sys/kernel/random/poolsize")
 	return &models.EntropyInfo{
-		Available: avail,
-		PoolSize:  poolSize,
+		Available:   true,
+		EntropyBits: avail,
+		PoolSize:    poolSize,
 	}, nil
 }
 
