@@ -40,12 +40,12 @@ func MaybePrintTip(state *State, mode output.OutputMode) {
 	tip := tips[idx]
 	n := idx + 1
 
-	fmt.Fprintf(os.Stderr, "\n💡 Tip: %s\n", tip.Message)
-	fmt.Fprintf(os.Stderr, "   Try: %s\n", tip.Command)
+	fmt.Fprintf(os.Stdout, "\n💡 Tip: %s\n", tip.Message)
+	fmt.Fprintf(os.Stdout, "   Try: %s\n", tip.Command)
 	if tip.Tier != "" {
-		fmt.Fprintf(os.Stderr, "   %s\n", output.ProLabel(tip.Tier, mode))
+		fmt.Fprintf(os.Stdout, "   %s\n", output.ProLabel(tip.Tier, mode))
 	}
-	fmt.Fprintf(os.Stderr, "   Tip %d of %d  |  dsd tips (see all)  |  dsd config set tips off\n",
+	fmt.Fprintf(os.Stdout, "   Tip %d of %d  |  dsd tips (see all)  |  dsd config set tips off\n",
 		n, len(tips))
 
 	state.LastTipDate = today

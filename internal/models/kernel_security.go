@@ -10,13 +10,13 @@ type KernelSecurityInfo struct {
 	// SELINUXTYPE= in /etc/selinux/config must name an installed policy package.
 	// When it references a non-existent policy (e.g. "permissive" instead of "targeted"),
 	// dbus-daemon fails to load its contexts file and cascades to all dependent services.
-	SELinuxType         string `json:"se_linux_type,omitempty"`          // value of SELINUXTYPE= (e.g. "targeted")
-	SELinuxTypeValid    bool   `json:"se_linux_type_valid,omitempty"`    // true when type is targeted/minimum/mls
-	SELinuxPolicyDirOK  bool   `json:"se_linux_policy_dir_ok,omitempty"` // true when /etc/selinux/<type>/ exists
-	SELinuxPolicyPkgOK  bool   `json:"se_linux_policy_pkg_ok,omitempty"` // true when selinux-policy-<type> is installed
-	SELinuxRelabelPending bool  `json:"se_linux_relabel_pending,omitempty"` // true when /.autorelabel exists
+	SELinuxType           string `json:"se_linux_type,omitempty"`            // value of SELINUXTYPE= (e.g. "targeted")
+	SELinuxTypeValid      bool   `json:"se_linux_type_valid,omitempty"`      // true when type is targeted/minimum/mls
+	SELinuxPolicyDirOK    bool   `json:"se_linux_policy_dir_ok,omitempty"`   // true when /etc/selinux/<type>/ exists
+	SELinuxPolicyPkgOK    bool   `json:"se_linux_policy_pkg_ok,omitempty"`   // true when selinux-policy-<type> is installed
+	SELinuxRelabelPending bool   `json:"se_linux_relabel_pending,omitempty"` // true when /.autorelabel exists
 
-	AppArmorPresent bool `json:"app_armor_present"`
+	AppArmorPresent bool   `json:"app_armor_present"`
 	AppArmorMode    string `json:"app_armor_mode"`
 	// AppArmor detail (SLES/Ubuntu/Debian)
 	AppArmorProfiles int `json:"app_armor_profiles"` // total loaded profiles

@@ -1040,14 +1040,6 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 	r.printInsightGroup(warns)
 	r.printInsightGroup(infos)
 
-	// Always print timing at the end
-	if elapsed > 0 {
-		if r.mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
-		} else {
-			fmt.Fprintf(os.Stdout, "done in %.1fs\n", elapsed.Seconds())
-		}
-	}
 	return exitCodeFromInsights(insights)
 }
 

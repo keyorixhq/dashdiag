@@ -78,7 +78,7 @@ func MaybePrintReengagement(state *State, mode output.OutputMode, ver string) {
 	today := time.Now().Format("2006-01-02")
 	gap := daysBetween(state.LastRunDate, today)
 	if gap >= 7 {
-		fmt.Fprintf(os.Stderr, "\n👋 Welcome back! %d days since your last check.\n", gap)
+		fmt.Fprintf(os.Stdout, "\n👋 Welcome back! %d days since your last check.\n", gap)
 	}
 }
 
@@ -88,7 +88,7 @@ func MaybePrintChangelog(state *State, mode output.OutputMode, ver string) {
 		return
 	}
 	if state.LastVersion != "" && state.LastVersion != ver {
-		fmt.Fprintf(os.Stderr, "   What's new in %s? Run dsd --changelog\n", ver)
+		fmt.Fprintf(os.Stdout, "   What's new in %s? Run dsd --changelog\n", ver)
 	}
 }
 
@@ -115,9 +115,9 @@ func MaybePrintMilestone(state *State, mode output.OutputMode) {
 	for _, days := range firedStreakMilestones(state.CurrentStreak, state) {
 		switch days {
 		case 7:
-			fmt.Fprintln(os.Stderr, "\n⚡ 7-day streak — consistency is key!")
+			fmt.Fprintln(os.Stdout, "\n⚡ 7-day streak — consistency is key!")
 		case 30:
-			fmt.Fprintln(os.Stderr, "\n🔥 30-day streak — you're a DashDiag pro!")
+			fmt.Fprintln(os.Stdout, "\n🔥 30-day streak — you're a DashDiag pro!")
 		}
 		state.MarkStreak(days)
 	}
@@ -126,21 +126,21 @@ func MaybePrintMilestone(state *State, mode output.OutputMode) {
 	for _, m := range firedRunMilestones(state.TotalRuns, state.ShownMilestones) {
 		switch m {
 		case 10:
-			fmt.Fprintln(os.Stderr, "\n⚡ 10 runs — you're getting the hang of this!")
+			fmt.Fprintln(os.Stdout, "\n⚡ 10 runs — you're getting the hang of this!")
 		case 50:
-			fmt.Fprintln(os.Stderr, "\n🚀 50 runs — you're a power user!")
+			fmt.Fprintln(os.Stdout, "\n🚀 50 runs — you're a power user!")
 		case 100:
-			fmt.Fprintln(os.Stderr, "\n🎯 100 runs — seriously impressive!")
+			fmt.Fprintln(os.Stdout, "\n🎯 100 runs — seriously impressive!")
 		case 500:
-			fmt.Fprintln(os.Stderr, "\n💎 500 runs — legendary.")
+			fmt.Fprintln(os.Stdout, "\n💎 500 runs — legendary.")
 		}
 		state.MarkMilestone(m)
 	}
 
 	// Pro trial offer
 	if state.TotalRuns >= 10 && state.CurrentStreak >= 5 && !state.TrialOffered {
-		fmt.Fprintln(os.Stderr, "\n✨ Based on your usage, you'd love DashDiag Pro.")
-		fmt.Fprintln(os.Stderr, "   Run 'dsd trial start' to try free for 14 days.")
+		fmt.Fprintln(os.Stdout, "\n✨ Based on your usage, you'd love DashDiag Pro.")
+		fmt.Fprintln(os.Stdout, "   Run 'dsd trial start' to try free for 14 days.")
 		state.TrialOffered = true
 	}
 }

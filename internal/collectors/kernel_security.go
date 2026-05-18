@@ -281,21 +281,21 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 	seType, seTypeValid, sePolicyDirOK, sePkgOK, seRelabel := validateSELinuxPolicyType()
 
 	return &models.KernelSecurityInfo{
-		SELinuxPresent:       sePresent,
-		SELinuxMode:          seMode,
-		SELinuxDenials:       seDenials,
-		SELinuxAVCSamples:    seAVCSamples,
-		SELinuxType:          seType,
-		SELinuxTypeValid:     seTypeValid,
-		SELinuxPolicyDirOK:   sePolicyDirOK,
-		SELinuxPolicyPkgOK:   sePkgOK,
+		SELinuxPresent:        sePresent,
+		SELinuxMode:           seMode,
+		SELinuxDenials:        seDenials,
+		SELinuxAVCSamples:     seAVCSamples,
+		SELinuxType:           seType,
+		SELinuxTypeValid:      seTypeValid,
+		SELinuxPolicyDirOK:    sePolicyDirOK,
+		SELinuxPolicyPkgOK:    sePkgOK,
 		SELinuxRelabelPending: seRelabel,
-		AppArmorPresent:      aaPresent,
-		AppArmorMode:         aaMode,
-		AppArmorProfiles:     aaTotal,
-		AppArmorEnforce:      aaEnforce,
-		AppArmorComplain:     aaComplain,
-		AppArmorDenials:      aaDenials,
+		AppArmorPresent:       aaPresent,
+		AppArmorMode:          aaMode,
+		AppArmorProfiles:      aaTotal,
+		AppArmorEnforce:       aaEnforce,
+		AppArmorComplain:      aaComplain,
+		AppArmorDenials:       aaDenials,
 	}, nil
 }
 

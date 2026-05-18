@@ -244,6 +244,17 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		_ = state.Save()
 	}
 
+	// Print timing last — after tips so it is always the final line the operator sees.
+	// Plain mode also prints here; JSON/YAML have timing embedded in their payload.
+	if elapsed > 0 {
+		switch mode {
+		case output.ModeHuman:
+			fmt.Fprintln(os.Stdout, render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
+		case output.ModePlain:
+			fmt.Fprintf(os.Stdout, "done in %.1fs\n", elapsed.Seconds())
+		}
+	}
+
 	if exitCode > 0 {
 		os.Exit(exitCode)
 	}
