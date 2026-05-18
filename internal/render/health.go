@@ -385,10 +385,13 @@ func inlineEntropy(data interface{}) string {
 	} else if v, ok := data.(models.EntropyInfo); ok {
 		e = &v
 	}
-	if e == nil || e.Available <= 0 {
+	if e == nil || !e.Available || e.EntropyBits <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d bits", e.Available)
+	if e.PoolSize > 0 {
+		return fmt.Sprintf("%d/%d bits", e.EntropyBits, e.PoolSize)
+	}
+	return fmt.Sprintf("%d bits", e.EntropyBits)
 }
 
 func inlineFDLimits(data interface{}) string {
