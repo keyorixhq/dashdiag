@@ -960,21 +960,48 @@ func networkInline(data interface{}) string {
 	return ifaceSummary
 }
 
-// ioInline picks the worst await latency across all IO devices.
+// ioInline picks the most meaningful IO metric across all devices.
+// On Linux: worst await latency (ms). On macOS: current throughput (MB/s).
 func ioInline(devices []models.IODeviceInfo) string {
 	if len(devices) == 0 {
 		return ""
 	}
+
+	// Prefer await latency when available (Linux)
 	worst := devices[0]
 	for _, d := range devices[1:] {
 		if d.AwaitMs > worst.AwaitMs {
 			worst = d
 		}
 	}
-	if len(devices) == 1 {
-		return fmt.Sprintf("%.1f ms", worst.AwaitMs)
+	if worst.AwaitMs > 0 {
+		if len(devices) == 1 {
+			return fmt.Sprintf("%.1f ms", worst.AwaitMs)
+		}
+		return fmt.Sprintf("%.1f ms (%s)", worst.AwaitMs, worst.Name)
 	}
-	return fmt.Sprintf("%.1f ms (%s)", worst.AwaitMs, worst.Name)
+
+	// Fallback: show throughput when latency unavailable (macOS)
+	// On macOS, ReadMBps holds total throughput (iostat doesn't split read/write)
+	var total float64
+	for _, d := range devices {
+		total += d.ReadMBps + d.WriteMBps
+	}
+	if total > 0 {
+		return formatMBps(total) + "/s"
+	}
+	return ""
+}
+
+// formatMBps formats bytes-per-second with appropriate unit.
+func formatMBps(mbps float64) string {
+	if mbps >= 1000 {
+		return fmt.Sprintf("%.1f GB", mbps/1024)
+	}
+	if mbps >= 1 {
+		return fmt.Sprintf("%.1f MB", mbps)
+	}
+	return fmt.Sprintf("%.0f KB", mbps*1024)
 }
 
 // kernelSecInline summarises the active security module.
