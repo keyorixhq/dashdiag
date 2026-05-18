@@ -19,11 +19,7 @@ import (
 // Returns nil on macOS where per-process swap attribution is not available.
 func TopProcessesBySwap(ctx context.Context, n int) (*models.Details, error) {
 	if runtime.GOOS == "darwin" {
-		return &models.Details{
-			Type:  "kv_table",
-			Title: "Per-process swap attribution",
-			Note:  "macOS does not expose per-process swap attribution. Use top RSS consumers as a proxy.",
-		}, nil
+		return nil, nil
 	}
 	return topProcessesBySwapLinux(ctx, n)
 }
