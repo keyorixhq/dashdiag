@@ -67,7 +67,14 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 	case "IO":
 		d, err = TopProcessesByIO(dctx, 5)
 	case "Network":
-		d, err = TCPStateAttribution(dctx, results)
+		// TCP state summary is only useful for TCP-level problems.
+		// Skip it for physical interface warnings (USB, WiFi, etc.)
+		if !strings.Contains(ins.Message, "USB") &&
+			!strings.Contains(ins.Message, "Wi-Fi") &&
+			!strings.Contains(ins.Message, "wireless") &&
+			!strings.Contains(ins.Message, "not responding") {
+			d, err = TCPStateAttribution(dctx, results)
+		}
 	case "Processes":
 		if strings.Contains(ins.Message, "hung") || strings.Contains(ins.Message, "uninterruptible") {
 			d = hungProcessesFromResults(results)
