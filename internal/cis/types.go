@@ -24,12 +24,6 @@ func failr(r Rule, finding, fix string) models.CISResult {
 		Status: models.CISFail, Finding: finding, Remediation: fix}
 }
 
-func manualr(r Rule, note string) models.CISResult { //nolint:deadcode,unused
-	return models.CISResult{ID: r.ID, Framework: r.Framework, Level: r.Level,
-		Section: r.Section, Description: r.Description,
-		Status: models.CISManual, Finding: note}
-}
-
 func skipr(r Rule, reason string) models.CISResult {
 	return models.CISResult{ID: r.ID, Framework: r.Framework, Level: r.Level,
 		Section: r.Section, Description: r.Description,
