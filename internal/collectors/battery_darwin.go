@@ -46,6 +46,10 @@ func (c *BatteryCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Status = "Charging"
 	case kv["FullyCharged"] == "Yes":
 		info.Status = "Full"
+	case kv["ExternalConnected"] == "Yes":
+		// Connected to power but not actively charging — macOS Optimized Battery
+		// Charging holds charge at ~80% when plugged in for extended periods.
+		info.Status = "AC (not charging)"
 	default:
 		info.Status = "Discharging"
 	}
