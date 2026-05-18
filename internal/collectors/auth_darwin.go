@@ -48,8 +48,12 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// sshdRunningDarwin checks whether the SSH daemon is running.
+// sshdRunningDarwin checks whether SSH is accepting connections on macOS.
+// macOS uses on-demand socket activation: no persistent sshd process exists
+// when idle, even with Remote Login enabled. pgrep -x sshd therefore finds nothing.
+// Checking port 22 is the reliable non-root indicator.
 func sshdRunningDarwin(ctx context.Context) bool {
-	out, err := runCmd(ctx, "pgrep", "-x", "sshd")
-	return err == nil && strings.TrimSpace(out) != ""
+	// nc -z exits 0 when port is open, non-zero when closed/refused.
+	_, err := runCmd(ctx, "nc", "-z", "-w1", "127.0.0.1", "22")
+	return err == nil
 }
