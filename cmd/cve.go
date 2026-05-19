@@ -231,6 +231,10 @@ func printAllCVEs(r *models.CVEAllResult) {
 	if r.FixCommand != "" {
 		fmt.Printf("to fix all:  %s\n", r.FixCommand)
 	}
+	if r.SubscriptionNote != "" {
+		fmt.Println()
+		fmt.Println(r.SubscriptionNote)
+	}
 	fmt.Println()
 }
 

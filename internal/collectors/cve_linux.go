@@ -366,7 +366,7 @@ func isKali() bool {
 // ScanAllCVEs scans all pending security advisories with CVE assignments.
 // This is the "fresh install" use case — shows everything vulnerable at once.
 func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second) // 120s: list + CVE enrichment both need time
 	defer cancel()
 
 	if _, err := exec.LookPath("zypper"); err == nil {
@@ -531,6 +531,7 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 
 	out, err := runCmd(eCtx, "dnf", "updateinfo", "info", "--security", "--quiet")
 	if err != nil || len(out) == 0 {
+		result.SubscriptionNote = rhSubscriptionNote()
 		return
 	}
 
@@ -553,6 +554,7 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 		}
 	}
 	if len(cveMap) == 0 {
+		result.SubscriptionNote = rhSubscriptionNote()
 		return
 	}
 
@@ -577,6 +579,47 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 			result.Low[i].CVEs = cves
 		}
 	}
+}
+
+// rhSubscriptionNote returns an appropriate hint when CVE enrichment fails
+// on a RHEL-family system. Distinguishes: not root, not registered, expired.
+func rhSubscriptionNote() string {
+	distro := strings.ToLower(ReadDistroID())
+	rhFamily := strings.Contains(distro, "rhel") ||
+		strings.Contains(distro, "red hat") ||
+		strings.Contains(distro, "rocky") ||
+		strings.Contains(distro, "alma") ||
+		strings.Contains(distro, "centos") ||
+		strings.Contains(distro, "fedora")
+	if !rhFamily {
+		return ""
+	}
+	// Non-root: subscription-manager needs root to refresh repo metadata
+	if os.Getuid() != 0 {
+		return "ℹ️  CVE IDs require root access on RHEL — run: sudo dsd cve --all"
+	}
+	// Root: check for entitlement certificates — present when registered
+	entries, err := os.ReadDir("/etc/pki/entitlement")
+	if err != nil || len(entries) == 0 {
+		return "⚠️  System not registered with Red Hat — CVE IDs unavailable\n" +
+			"   → to register: subscription-manager register --username=<user> --password=<pass>\n" +
+			"   → or activate: subscription-manager attach --auto"
+	}
+	// Has certs but no CVE data — may be expired or repos not synced
+	hasPEM := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".pem") && !strings.HasSuffix(e.Name(), "-key.pem") {
+			hasPEM = true
+			break
+		}
+	}
+	if !hasPEM {
+		return "⚠️  No entitlement certificates found — subscription may have expired\n" +
+			"   → to check:  subscription-manager status\n" +
+			"   → to renew:  subscription-manager attach --auto"
+	}
+	// Certs present but dnf returned no info — repos may need refresh
+	return "ℹ️  Subscription active but CVE data unavailable — try: dnf makecache --refresh"
 }
 
 // scanAllApt uses apt-get to list security updates.
