@@ -4,11 +4,11 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-19 — Sessions 1–10 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
+**Last updated: 2026-05-19 — Sessions 1–11 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
 
 ---
 
-## ✅ Recently Completed (Sessions 1–10, May 2026)
+## ✅ Recently Completed (Sessions 1–11, May 2026)
 
 | Item | Session | Commit |
 |---|---|---|
@@ -45,6 +45,15 @@ Build order rule: **never build deep before fast is in production use.**
 | `dsd security` permission disambiguation — booleans, AppArmor groups, autorelabel, PAM (Spec 6) | S10 | 1e99158 |
 | `dsd disk` LVM RAID/mirror health — degraded CRIT, resyncing INFO (Spec 21) | S10 | fbb170d |
 | `dsd timeline` — unified incident timeline, dedup, journal+dmesg+load | S10 | 67ff3a7 |
+| Correlation engine: Container OOM Cascade — kernel OOM + Podman die+137, 5-min window | S11 | eaec50a |
+| Docker 7g: DNS trap — host resolv.conf loopback breaks container DNS | S11 | 57754c2 |
+| Docker 7h: socket permission diagnosis (group membership, session refresh) | S11 | 57754c2 |
+| Docker 7i: image architecture mismatch — arm64 image on amd64 host | S11 | 57754c2 |
+| CVE: fix dnf severity parser — `Critical/Sec.` format, Important bucket bug | S11 | 8f04e08 |
+| `dsd timeline` hint system — 18 kernel/systemd patterns, explain/inspect/fix/persist | S11 | 65dd20c |
+| `dsd cve --oval-scan` — CVSS-scored OVAL package scan (RHEL 9 OVAL, 1,772 findings) | S11 | 247f6e5 |
+| CVE: RHSA→CVE ID enrichment from subscribed RHEL `dnf updateinfo info` | S11 | 2638fda |
+| CVE: subscription detection — not-root / not-registered / expired hints | S11 | 0c42bb6 |
 
 ---
 
