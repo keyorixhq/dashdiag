@@ -188,11 +188,26 @@ type OVALCVSSResult struct {
 	Installed  []string // subset of Components actually installed on this system
 }
 
-// ScanOVALPackages parses a Red Hat OVAL file, cross-references with installed
-// RPM packages, and returns CVE findings bucketed by CVSS score.
-// Only returns CVEs where at least one affected component is installed and
-// resolution state is "Affected" (skips "Will not fix" and "Fix deferred").
+// ScanOVALPackages parses an OVAL file and cross-references with installed
+// packages. Automatically detects whether to use the RHEL or Ubuntu/Debian
+// parser based on the OVAL file path or content.
 func ScanOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
+	if isUbuntuOVAL(ovalPath) {
+		return ScanUbuntuOVALPackages(ctx, ovalPath)
+	}
+	return scanRHELOVALPackages(ctx, ovalPath)
+}
+
+// isUbuntuOVAL returns true when the OVAL file path indicates Ubuntu/Debian origin.
+func isUbuntuOVAL(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "ubuntu") ||
+		strings.Contains(lower, "debian") ||
+		strings.Contains(lower, "canonical")
+}
+
+// scanRHELOVALPackages is the original RHEL/Rocky/AlmaLinux OVAL scanner.
+func scanRHELOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
 	// Parse OVAL
 	cveMap, err := ParseRHELOVAL(ovalPath)
 	if err != nil {

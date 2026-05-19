@@ -462,6 +462,10 @@ func printOVALScanResults(results []cvedata.OVALCVSSResult) {
 		fmt.Println()
 	}
 	fmt.Println(sep)
-	fmt.Println("to fix: dnf upgrade --security")
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		fmt.Println("to fix: apt-get upgrade")
+	} else {
+		fmt.Println("to fix: dnf upgrade --security")
+	}
 	fmt.Println("note:   OVAL shows ALL known CVEs including 'Will not fix' exclusions filtered out above")
 }
