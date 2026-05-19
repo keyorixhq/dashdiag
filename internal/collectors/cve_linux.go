@@ -456,13 +456,14 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 		return result
 	}
 
-	// DNF advisory output: "RHSA-2025:1234   security   critical   package-1.2.3"
-	// or:                  "CVE-2025-1234    cve        important  package-1.2.3"
-	// dnf returns one row per affected package — deduplicate by advisory ID.
+	// DNF output format varies by version and distro:
+	//   DNF4/RHEL: "RHSA-2026:7383  Critical/Sec.  cockpit-344.x86_64"  (3 fields)
+	//   DNF5:      "RHSA-2025:1234  security  critical  package-1.2.3"   (4 fields)
+	// Both formats deduplicated by advisory ID.
 	seen := map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 3 {
+		if len(fields) < 2 {
 			continue
 		}
 		id := fields[0]
@@ -470,14 +471,24 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 			continue
 		}
 		seen[id] = true
+
+		// Extract severity: try fields[1] first (RHEL dnf4: "Critical/Sec."),
+		// then fields[2] (dnf5: "security" "critical" "package").
+		rawSev := fields[1]
+		if strings.EqualFold(rawSev, "security") && len(fields) >= 3 {
+			rawSev = fields[2]
+		}
+		// Strip "/Sec." suffix from RHEL dnf4 output
+		rawSev = strings.TrimSuffix(rawSev, "/Sec.")
+
 		advisory := models.CVEAdvisory{
 			ID:       id,
-			Severity: fields[2],
+			Severity: rawSev,
 		}
-		if len(fields) >= 4 {
-			advisory.Summary = strings.Join(fields[3:], " ")
+		if len(fields) >= 3 {
+			advisory.Summary = strings.Join(fields[2:], " ")
 		}
-		switch strings.ToLower(advisory.Severity) {
+		switch strings.ToLower(rawSev) {
 		case "critical":
 			result.Critical = append(result.Critical, advisory)
 		case "important":
