@@ -189,13 +189,24 @@ type OVALCVSSResult struct {
 }
 
 // ScanOVALPackages parses an OVAL file and cross-references with installed
-// packages. Automatically detects whether to use the RHEL or Ubuntu/Debian
-// parser based on the OVAL file path or content.
+// packages. Automatically detects whether to use the RHEL, Ubuntu/Debian,
+// or SUSE parser based on the OVAL file path.
 func ScanOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
 	if isUbuntuOVAL(ovalPath) {
 		return ScanUbuntuOVALPackages(ctx, ovalPath)
 	}
+	if isSUSEOVAL(ovalPath) {
+		return ScanSUSEOVALPackages(ctx, ovalPath)
+	}
 	return scanRHELOVALPackages(ctx, ovalPath)
+}
+
+// isSUSEOVAL returns true when the OVAL file path indicates SUSE/openSUSE origin.
+func isSUSEOVAL(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "suse") ||
+		strings.Contains(lower, "opensuse") ||
+		strings.Contains(lower, "sles")
 }
 
 // isUbuntuOVAL returns true when the OVAL file path indicates Ubuntu/Debian origin.
