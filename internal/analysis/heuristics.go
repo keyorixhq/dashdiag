@@ -1658,7 +1658,7 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 		out = append(out, insight("INFO", "Logs",
 			"no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read",
 			[]string{
-				"to fix: apt install rsyslog  OR  dnf install rsyslog",
+				"to fix: apt install rsyslog  OR  dnf install rsyslog  OR  zypper install rsyslog",
 				"note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails",
 				"note:   standard Unix tools (grep, tail, less) cannot read binary journal files",
 			},
