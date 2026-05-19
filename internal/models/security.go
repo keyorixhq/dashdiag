@@ -63,8 +63,9 @@ type SecurityInfo struct {
 	AppArmorDenials  int    `json:"apparmor_denials,omitempty"`  // denials in last hour
 
 	// SELinux
-	SELinuxDenials int    `json:"se_linux_denials"` // denials in last hour
-	SELinuxMode    string `json:"se_linux_mode"`
+	SELinuxDenials   int               `json:"se_linux_denials"` // denials in last hour
+	SELinuxMode      string            `json:"se_linux_mode"`
+	SELinuxAVCGroups []SELinuxAVCGroup `json:"se_linux_avc_groups,omitempty"` // grouped denials
 
 	// RHEL/Rocky-specific security
 	FIPSEnabled     bool   `json:"fips_enabled"`            // /proc/sys/crypto/fips_enabled
@@ -100,6 +101,18 @@ type PortEntry struct {
 	Protocol string `json:"protocol"`
 	Process  string `json:"process"`
 	Expected bool   `json:"expected"`
+}
+
+// SELinuxAVCGroup is a deduplicated group of AVC denials sharing the same
+// source context, target context, and class — the unit an admin acts on.
+type SELinuxAVCGroup struct {
+	Scontext   string   `json:"scontext"`              // source context (e.g. init_t)
+	Tcontext   string   `json:"tcontext"`              // target context (e.g. container_runtime_t)
+	Tclass     string   `json:"tclass"`                // object class (e.g. bpf, file, port)
+	Perms      []string `json:"perms"`                 // denied permissions (e.g. prog_run, read, write)
+	Count      int      `json:"count"`                 // number of denials in window
+	BooleanFix string   `json:"boolean_fix,omitempty"` // getsebool name to toggle, if any
+	FixCmd     string   `json:"fix_cmd,omitempty"`     // recommended fix command
 }
 
 // SnapperInfo holds Btrfs/Snapper snapshot health for SLES/openSUSE.

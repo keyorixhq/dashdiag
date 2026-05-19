@@ -2644,10 +2644,25 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 
 	// SELinux denials — skip sentinel value (-1 = data unavailable)
 	if sec.SELinuxDenials >= 10 {
-		out = append(out, insight("WARN", "Hardening",
-			fmt.Sprintf("%d SELinux denials in the last hour (mode: %s)", sec.SELinuxDenials, sec.SELinuxMode),
-			[]string{"to inspect: ausearch -m avc -ts recent", "to inspect: sealert -a /var/log/audit/audit.log"},
-		))
+		msg := fmt.Sprintf("%d SELinux denials in the last hour (mode: %s)", sec.SELinuxDenials, sec.SELinuxMode)
+		hints := []string{
+			"to inspect: ausearch -m avc -ts recent",
+			"to inspect: sealert -a /var/log/audit/audit.log",
+		}
+		// Surface grouped AVC findings with fix commands
+		for _, g := range sec.SELinuxAVCGroups {
+			if g.Count < 3 {
+				continue // skip rare one-offs
+			}
+			summary := fmt.Sprintf("  %s → %s [%s] ×%d", g.Scontext, g.Tcontext, g.Tclass, g.Count)
+			if g.BooleanFix != "" {
+				summary += fmt.Sprintf("  fix: setsebool -P %s on", g.BooleanFix)
+			} else if g.FixCmd != "" {
+				summary += fmt.Sprintf("  fix: %s", truncateSELinux(g.FixCmd, 80))
+			}
+			hints = append(hints, summary)
+		}
+		out = append(out, insight("WARN", "Hardening", msg, hints))
 	}
 
 	// RHEL/Rocky: crypto-policies — LEGACY is a security risk
@@ -3001,6 +3016,20 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
 			[]string{"to fix: docker volume prune"},
+		))
+	}
+
+	// MTU mismatch — container MTU > host MTU causes silent fragmentation
+	if d.MTUMismatch {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("container network MTU (%d) > host interface MTU (%d) — silent packet fragmentation",
+				d.ContainerMTU, d.HostMTU),
+			[]string{
+				fmt.Sprintf("to fix: set MTU %d in container network config to match host", d.HostMTU),
+				"to inspect (docker): docker network inspect bridge | grep mtu",
+				"to inspect (podman): podman network inspect podman | grep mtu",
+				"note: MTU mismatch causes connection timeouts for large payloads (HTTP, TLS handshakes)",
+			},
 		))
 	}
 
@@ -4590,4 +4619,12 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 	}
 
 	return out
+}
+
+// truncateSELinux truncates a string for inline hint display.
+func truncateSELinux(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

@@ -575,6 +575,11 @@ func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 		info.SELinuxDenials = -1 // sentinel: unknown
 	}
 
+	// Structured AVC grouping (root only — requires audit.log access)
+	if os.Getuid() == 0 && n > 0 {
+		info.SELinuxAVCGroups = parseAVCGroups(ctx, 1*time.Hour)
+	}
+
 	_ = ctx // reserved for future timeout use
 }
 
@@ -1174,4 +1179,217 @@ func parseWorldWritable(info *models.SecurityInfo) {
 			info.WorldWritableDirs = append(info.WorldWritableDirs, dir)
 		}
 	}
+}
+
+// ── SELinux AVC disambiguation ────────────────────────────────────────────────
+
+// parseAVCGroups reads /var/log/audit/audit.log and groups AVC denials by
+// (scontext_type, tcontext_type, tclass) — the unit an admin acts on.
+// For each group it attempts to find a getsebool fix or semanage/chcon command.
+func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxAVCGroup {
+	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304 -- hardcoded audit log path
+	if err != nil {
+		return nil
+	}
+	defer f.Close() //nolint:errcheck
+
+	type groupKey struct{ stype, ttype, tclass string }
+	type groupData struct {
+		perms map[string]bool
+		count int
+	}
+	groups := map[groupKey]*groupData{}
+	cutoff := time.Now().Add(-window)
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "type=AVC") {
+			continue
+		}
+		// Timestamp check
+		if idx := strings.Index(line, "msg=audit("); idx >= 0 {
+			rest := line[idx+10:]
+			if dot := strings.IndexByte(rest, '.'); dot > 0 {
+				if sec, err := strconv.ParseInt(rest[:dot], 10, 64); err == nil {
+					if !time.Unix(sec, 0).After(cutoff) {
+						continue
+					}
+				}
+			}
+		}
+
+		stype := avcField(line, "scontext=")
+		ttype := avcField(line, "tcontext=")
+		tclass := avcField(line, "tclass=")
+		perms := avcPerms(line)
+
+		if stype == "" || ttype == "" || tclass == "" {
+			continue
+		}
+		// Keep only the type component (last part of user:role:type:level)
+		stype = lastPart(stype, ":")
+		ttype = lastPart(ttype, ":")
+
+		key := groupKey{stype, ttype, tclass}
+		if _, ok := groups[key]; !ok {
+			groups[key] = &groupData{perms: map[string]bool{}}
+		}
+		for _, p := range perms {
+			groups[key].perms[p] = true
+		}
+		groups[key].count++
+	}
+
+	if len(groups) == 0 {
+		return nil
+	}
+
+	// Build result slice, sorted by count descending
+	var result []models.SELinuxAVCGroup
+	for key, data := range groups {
+		perms := make([]string, 0, len(data.perms))
+		for p := range data.perms {
+			perms = append(perms, p)
+		}
+		g := models.SELinuxAVCGroup{
+			Scontext: key.stype,
+			Tcontext: key.ttype,
+			Tclass:   key.tclass,
+			Perms:    perms,
+			Count:    data.count,
+		}
+		// Try to find a boolean fix or semanage command
+		g.BooleanFix, g.FixCmd = suggestSELinuxFix(ctx, key.stype, key.ttype, key.tclass, perms)
+		result = append(result, g)
+	}
+	// Sort by count descending (most frequent first)
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0 && result[j].Count > result[j-1].Count; j-- {
+			result[j], result[j-1] = result[j-1], result[j]
+		}
+	}
+	// Cap at top 10 groups
+	if len(result) > 10 {
+		result = result[:10]
+	}
+	return result
+}
+
+// avcField extracts a field value from an AVC log line.
+// e.g. avcField(line, "scontext=") returns "system_u:system_r:init_t:s0"
+func avcField(line, key string) string {
+	idx := strings.Index(line, key)
+	if idx < 0 {
+		return ""
+	}
+	rest := line[idx+len(key):]
+	// Value ends at next space
+	if end := strings.IndexByte(rest, ' '); end > 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// avcPerms extracts the list of denied permissions from an AVC line.
+// Format: "{ read write open }" or "{ prog_run }"
+func avcPerms(line string) []string {
+	start := strings.Index(line, "{ ")
+	end := strings.Index(line, " }")
+	if start < 0 || end < 0 || end <= start {
+		return nil
+	}
+	inner := line[start+2 : end]
+	return strings.Fields(inner)
+}
+
+// lastPart returns the last colon-delimited component of an SELinux context.
+// "system_u:system_r:init_t:s0" → "init_t"
+func lastPart(s, sep string) string {
+	// Strip MCS level: "init_t:s0" → "init_t"
+	parts := strings.Split(s, sep)
+	if len(parts) == 0 {
+		return s
+	}
+	// Return second-to-last (type) if we have user:role:type:level
+	if len(parts) >= 4 {
+		return parts[2]
+	}
+	if len(parts) >= 3 {
+		return parts[2]
+	}
+	return parts[len(parts)-1]
+}
+
+// suggestSELinuxFix attempts to find the best remediation for an AVC denial.
+// Priority order (per SELinux admin best practice):
+//  1. Boolean fix (getsebool) — least invasive, covers most container cases
+//  2. semanage fcontext — persistent file context fix
+//  3. semanage port — port labeling fix
+//  4. audit2allow guidance — last resort
+func suggestSELinuxFix(ctx context.Context, stype, ttype, tclass string, perms []string) (boolName, fixCmd string) {
+	// Well-known boolean mappings for common denial patterns
+	// (stype_prefix, ttype_prefix, tclass) → boolean name
+	type booleanRule struct{ sPrefix, tPrefix, tclass, boolName string }
+	knownBooleans := []booleanRule{
+		// Container/Podman patterns
+		{"container", "", "bpf", "container_use_devices"},
+		{"container", "", "file", "container_file_lock"},
+		{"container", "httpd", "", "httpd_can_network_connect"},
+		{"httpd", "db", "", "httpd_can_network_connect_db"},
+		{"httpd", "", "port", "httpd_can_network_relay"},
+		// SSH / network patterns
+		{"sshd", "", "port", "selinuxuser_tcp_server"},
+		{"ssh", "", "port", "ssh_use_tcpd"},
+		// NFS / file patterns
+		{"nfsd", "", "file", "nfs_export_all_rw"},
+		{"smbd", "", "file", "samba_export_all_rw"},
+		// Cron patterns
+		{"crond", "", "file", "cron_can_relabel"},
+	}
+
+	stypeLower := strings.ToLower(stype)
+	ttypeLower := strings.ToLower(ttype)
+	tclassLower := strings.ToLower(tclass)
+
+	for _, rule := range knownBooleans {
+		sMatch := rule.sPrefix == "" || strings.Contains(stypeLower, rule.sPrefix)
+		tMatch := rule.tPrefix == "" || strings.Contains(ttypeLower, rule.tPrefix)
+		cMatch := rule.tclass == "" || strings.Contains(tclassLower, rule.tclass)
+		if sMatch && tMatch && cMatch {
+			// Verify the boolean actually exists on this system
+			if boolExists(ctx, rule.boolName) {
+				return rule.boolName,
+					fmt.Sprintf("setsebool -P %s on", rule.boolName)
+			}
+		}
+	}
+
+	// Port labeling — semanage port
+	if tclass == "tcp_socket" || tclass == "udp_socket" {
+		fixCmd = fmt.Sprintf("semanage port -a -t %s_port_t -p tcp <PORT>", stype)
+		return "", fixCmd
+	}
+
+	// File context — semanage fcontext
+	if tclass == "file" || tclass == "dir" {
+		for _, perm := range perms {
+			if perm == "read" || perm == "write" || perm == "open" || perm == "create" {
+				fixCmd = fmt.Sprintf("semanage fcontext -a -t %s_t '/path/to/file'  && restorecon -v /path/to/file", ttype)
+				return "", fixCmd
+			}
+		}
+	}
+
+	// Fallback: audit2allow
+	fixCmd = fmt.Sprintf(
+		"ausearch -m avc -ts recent | audit2allow -M my_%s && semodule -i my_%s.pp",
+		stype, stype)
+	return "", fixCmd
+}
+
+// boolExists returns true if an SELinux boolean with the given name is available.
+func boolExists(ctx context.Context, name string) bool {
+	out, err := runCmd(ctx, "getsebool", name)
+	return err == nil && strings.Contains(out, name)
 }
