@@ -1,0 +1,30 @@
+$ sudo dsd disk --plain
+
+Physical Drives — 2 found
+  nvme1n1      1TB    NVMe  not mounted (Windows/other OS)  [SKHynix_HFS001TDE9X084N]
+  nvme0n1      1TB    NVMe  nvme0n1p2→/boot  nvme0n1p1→/boot/efi  [SKHynix_HFS001TDE9X084N]
+             ✅ SMART: PASSED  wear:0%  spare:100%  temp:53°C
+
+Filesystems (17)
+  ✅  /                      xfs    9.2G / 75.1G  (12%)
+  ✅  /boot                  xfs    0.4G / 1.0G  (44%)
+  ✅  /home                  xfs    19.0G / 939.6G  (2%)
+  ✅  /boot/efi              vfat   0.0G / 0.6G  (1%)
+  ✅  /mnt/nfs_test          nfs4   9.2G / 75.1G  (12%)
+  ✅  /mnt/thin_test         ext4   25.2G / 31.5G  (80%)
+
+LVM (2 VG(s))
+  ✅  dsd_test             953.9GB total  793.7GB free  (83%)
+  ❌  rhel                 952.3GB total  0.0GB free  (0%)  ← CRIT: VG almost full
+
+  Thin pools (1):
+  ✅  dsd_test/thin_pool   Data: 29%  Meta: 20%
+
+  Snapshots (1):
+  ✅  dsd_test/snap_thin   → thin_vol              Snap%: 0%
+
+  RAID/mirror LVs (1):
+  ✅  dsd_test/mirror_test  mirror  in sync
+
+────────────────────────────────────────────────────────
+⚠️  1 disk concern(s) found in 0.2s

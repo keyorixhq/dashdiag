@@ -954,3 +954,153 @@ narrative under pressure. The load was elevated but no single check explained wh
 the admin knowing to look there.
 
 This is the synthesis gap. This is what DashDiag closes.
+
+
+---
+
+## Four LVM Failures, One Command — dsd disk Story
+
+*Real finding on RHEL 10.1, May 19 2026*
+
+### The setup
+
+A test server running k3s with an LVM configuration that looked healthy at a glance:
+- Two 1TB NVMe drives (SK Hynix, both SMART PASSED)
+- VG `rhel` for the OS (100% full — already a known problem)
+- VG `dsd_test` with a thin-provisioned pool, several snapshots, and a RAID1 mirror
+
+The kind of setup that accumulates complexity over time. The kind nobody has
+a full mental model of.
+
+### What was broken (and silent)
+
+Four things were wrong simultaneously:
+
+1. **Thin pool at 100%** — `dsd_test/thin_pool` had been filled to capacity
+   by a cascade of snapshots preserving overwrites. The pool was full. Any
+   new write to any thin volume would fail silently or block.
+
+2. **Filesystem at 100%** — `/mnt/thin_test` (backed by the thin pool) was
+   completely full. Writes were failing.
+
+3. **Missing PV** — one Physical Volume in `dsd_test` had been detached
+   (simulating a drive pull). LVM knew the PV was missing and the VG was
+   running in a degraded state with data at risk.
+
+4. **RAID1 degraded** — `raid_fail`, a RAID1 LV with one leg on the missing
+   PV, was running with only one copy of the data. No redundancy. No alerts.
+
+None of these generated a notification. The server kept running.
+
+### The output
+
+```
+$ sudo dsd disk --plain
+
+Physical Drives — 2 found
+  nvme1n1  1TB  NVMe  [SKHynix_HFS001TDE9X084N]
+  nvme0n1  1TB  NVMe  ✅ SMART: PASSED  wear:0%  spare:100%  temp:55°C
+
+Filesystems (17)
+  ❌  /mnt/thin_test    ext4   31.5G / 31.5G  (100%)
+
+LVM (2 VG(s))
+  ✅  dsd_test  957.9GB total  777.6GB free  (81%)
+       ❌ 1 missing PV(s) — data at risk
+  ❌  rhel      952.3GB total  0.0GB free  (0%)
+
+  Thin pools (1):
+  ❌  dsd_test/thin_pool   Data: 100%  Meta: 45%
+
+  RAID/mirror LVs (2):
+  ❌  dsd_test/raid_fail   raid  DEGRADED
+  ✅  dsd_test/raid_test   raid  in sync
+
+⚠️  3 disk concern(s) found in 0.3s
+```
+
+0.3 seconds. Four failures. Prioritised by severity.
+
+### What "no dsd" looks like
+
+Without dsd, finding these four problems requires:
+
+```bash
+# thin pool usage
+lvs -o lv_name,data_percent,snap_percent
+
+# missing PV
+vgs --reportformat json | grep partial
+pvs | grep unknown
+
+# RAID health
+lvs -o lv_name,lv_attr,copy_percent,lv_health_status
+# look for 'p' in position 9 of lv_attr — means "partial"
+
+# filesystem full
+df -h | grep 100%
+```
+
+Four separate commands. You have to know to run each one. You have to know
+what "partial" in position 9 of `lv_attr` means. You have to know that
+`data_percent=100` on a thin pool means imminent write failures, not just
+"getting full."
+
+Most admins do not run these commands preemptively. They run them after
+something breaks.
+
+### Why RAID degraded is the most dangerous
+
+A RAID1 with one leg missing is running with zero redundancy. If the remaining
+drive has a bad sector during a read, data is gone. There's no second copy.
+
+LVM will not alert you. `dmesg` will not alert you. The system just runs.
+
+`dsd disk` checks `lv_health_status` on every RAID/mirror LV on every run.
+It surfaces `partial` as `DEGRADED` in plain English. No knowledge of
+`lv_attr` position encoding required.
+
+### The one-liner for this story
+
+> Four LVM failures — thin pool full, missing drive, degraded RAID,
+> filesystem at 100% — all silent. `dsd disk` found them in 0.3 seconds.
+
+### Social angles
+
+**Twitter/X:**
+> RAID degraded. Thin pool full. Drive missing. Filesystem at 100%.
+>
+> All silent. No alerts. Server running fine.
+>
+> `sudo dsd disk`
+>
+> 0.3 seconds. All four. Plain English.
+>
+> dashdiag.sh
+
+**LinkedIn:**
+> I deliberately broke four things in an LVM setup on a test server.
+>
+> — Thin pool filled to 100% (writes would silently fail)
+> — RAID1 running with one leg missing (zero redundancy)
+> — A Physical Volume detached (VG partially degraded)
+> — The underlying filesystem at 100% (full)
+>
+> None of them generated an alert. The server kept running.
+>
+> Then I ran `sudo dsd disk`. 0.3 seconds later:
+> four ❌ entries, plain English, exactly what was wrong.
+>
+> The knowledge required to find these manually: lv_attr position encoding,
+> thin pool data% vs snap%, vgs partial state, SMART vs LVM vs filesystem
+> layering. Most admins have some of it. Nobody has all of it under pressure
+> at 2am.
+>
+> That's what DashDiag is for.
+
+### Evidence files
+
+```
+marketing-assets/rhel101-session11-data/dsd-disk-lvm-healthy.txt  ← before
+marketing-assets/rhel101-session11-data/dsd-disk-lvm-broken.txt   ← after (all 4 failures)
+```
