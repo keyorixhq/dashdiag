@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,25 +15,41 @@ import (
 // PackagesCollector checks for available security updates.
 // This collector intentionally shells out — there is no kernel interface
 // for package state. Distro detection happens at collection time.
-type PackagesCollector struct{}
+type PackagesCollector struct {
+	Deep bool
+}
 
-func NewPackagesCollector() *PackagesCollector { return &PackagesCollector{} }
+func NewPackagesCollector() *PackagesCollector     { return &PackagesCollector{} }
+func NewPackagesDeepCollector() *PackagesCollector { return &PackagesCollector{Deep: true} }
 
 func (c *PackagesCollector) Name() string           { return "Packages" }
 func (c *PackagesCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
+	var info *models.PackagesInfo
+	var err error
+
 	// Detect package manager
-	if _, err := runCmd(ctx, "zypper", "--version"); err == nil {
-		return collectZypper(ctx)
+	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
+		info, err = collectZypper(ctx)
+	} else if _, e := runCmd(ctx, "dnf", "--version"); e == nil {
+		info, err = collectDNF(ctx)
+	} else if _, e := runCmd(ctx, "apt-get", "--version"); e == nil {
+		info, err = collectAPT(ctx)
+	} else {
+		return &models.PackagesInfo{PackageManager: "unknown"}, nil
 	}
-	if _, err := runCmd(ctx, "dnf", "--version"); err == nil {
-		return collectDNF(ctx)
+
+	if err != nil || info == nil {
+		return info, err
 	}
-	if _, err := runCmd(ctx, "apt-get", "--version"); err == nil {
-		return collectAPT(ctx)
+
+	// Deep mode: run integrity checks (slower operations gated here)
+	if c.Deep {
+		info.Integrity = collectPackageIntegrity(ctx, info.PackageManager)
 	}
-	return &models.PackagesInfo{PackageManager: "unknown"}, nil
+
+	return info, nil
 }
 
 // collectDNF parses security advisories for RHEL/Rocky/Fedora/CentOS.
@@ -537,4 +554,140 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	}
 
 	return risks
+}
+
+// ── Package integrity checks (deep mode) ─────────────────────────────────────
+
+// collectPackageIntegrity runs dependency and shared-library integrity checks.
+// All operations are capped with context timeouts to avoid blocking dsd health deep.
+func collectPackageIntegrity(ctx context.Context, pm string) *models.PackageIntegrity {
+	pi := &models.PackageIntegrity{}
+
+	switch pm {
+	case "dnf":
+		pkgIntegrityDNF(ctx, pi)
+	case "apt":
+		pkgIntegrityAPT(ctx, pi)
+	case "zypper":
+		pkgIntegrityZypper(ctx, pi)
+	}
+
+	// ldconfig — cross-distro, fast (~0.1s)
+	pkgIntegrityLdconfig(ctx, pi)
+
+	// ldd on canary binaries — detect missing .so files
+	pkgIntegrityLdd(ctx, pi)
+
+	return pi
+}
+
+// pkgIntegrityDNF checks RHEL/Fedora package consistency.
+func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
+	// dnf check — fast dependency consistency check
+	dnfCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	out, err := runCmd(dnfCtx, "dnf", "check", "--quiet")
+	if err == nil && strings.TrimSpace(out) != "" {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			if line = strings.TrimSpace(line); line != "" &&
+				!strings.HasPrefix(line, "Updating Subscription") &&
+				!strings.HasPrefix(line, "Last metadata") {
+				pi.BrokenPackages = append(pi.BrokenPackages, line)
+				if len(pi.BrokenPackages) >= 10 {
+					break
+				}
+			}
+		}
+	}
+
+	// rpm --verify on critical packages only (capped at 5s)
+	rpmCtx, rpmCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer rpmCancel()
+	canary := []string{"bash", "coreutils", "systemd", "glibc", "openssl-libs"}
+	rpmOut, rpmErr := runCmd(rpmCtx, "rpm", append([]string{"--verify"}, canary...)...)
+	if rpmCtx.Err() != nil {
+		pi.VerifyTimedOut = true
+	} else if rpmErr == nil && strings.TrimSpace(rpmOut) != "" {
+		for _, line := range strings.Split(strings.TrimSpace(rpmOut), "\n") {
+			line = strings.TrimSpace(line)
+			// Skip config file modifications (expected) — lines with 'c' at position 9
+			if len(line) >= 10 && line[9] == 'c' {
+				continue
+			}
+			if line != "" {
+				pi.RPMVerifyFailed = append(pi.RPMVerifyFailed, line)
+			}
+		}
+	}
+}
+
+// pkgIntegrityAPT checks Debian/Ubuntu package consistency.
+func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
+	// dpkg --audit — immediate, < 0.5s
+	aptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, _ := runCmd(aptCtx, "dpkg", "--audit")
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			pi.BrokenPackages = append(pi.BrokenPackages, line)
+		}
+	}
+
+	// apt-get check — detects unmet dependencies
+	checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer checkCancel()
+	checkOut, _ := runCmd(checkCtx, "apt-get", "check")
+	for _, line := range strings.Split(checkOut, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "unmet dep") || strings.Contains(lower, "broken package") {
+			pi.UnmetDeps = append(pi.UnmetDeps, strings.TrimSpace(line))
+		}
+	}
+}
+
+// pkgIntegrityZypper checks SUSE/openSUSE package consistency.
+func pkgIntegrityZypper(ctx context.Context, pi *models.PackageIntegrity) {
+	// zypper verify (exit 1 = problems found)
+	zCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	out, _ := runCmd(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "broken") || strings.Contains(lower, "missing") {
+			if line = strings.TrimSpace(line); line != "" {
+				pi.BrokenPackages = append(pi.BrokenPackages, line)
+			}
+		}
+	}
+}
+
+// pkgIntegrityLdconfig verifies the shared library cache is consistent.
+func pkgIntegrityLdconfig(ctx context.Context, pi *models.PackageIntegrity) {
+	ldCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := runCmd(ldCtx, "ldconfig", "-p")
+	pi.LdconfigOK = err == nil
+}
+
+// pkgIntegrityLdd checks canary binaries for missing shared libraries.
+func pkgIntegrityLdd(ctx context.Context, pi *models.PackageIntegrity) {
+	canaries := []string{"/bin/ls", "/usr/bin/ssh", "/usr/bin/python3"}
+	for _, bin := range canaries {
+		if _, err := os.Stat(bin); err != nil {
+			continue
+		}
+		lddCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		out, err := runCmd(lddCtx, "ldd", bin)
+		cancel()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if strings.Contains(line, "not found") {
+				lib := strings.TrimSpace(strings.Split(line, "=>")[0])
+				pi.MissingLibs = append(pi.MissingLibs,
+					lib+" (required by "+filepath.Base(bin)+")")
+			}
+		}
+	}
 }
