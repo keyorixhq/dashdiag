@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,7 +60,56 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	// a second drive). These should be INFO not CRIT when full.
 	mergeMountedLVs(info.VGs)
 
+	// RAID/mirror LV health — copy_percent and lv_attr sync/degraded flags
+	raidOut, _ := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
+		"-o", "lv_name,vg_name,lv_attr,lv_size,copy_percent")
+	if raidOut != "" {
+		info.RaidLVs = parseLVMRaid(raidOut)
+	}
+
 	return info, nil
+}
+
+// parseLVMRaid extracts mirror/RAID LVs from lvs output.
+// lv_attr[0]: 'm'=mirror, 'r'=raid; lv_attr[8]: 'p'=partial (degraded); lv_attr[9]: 'r'=resyncing
+func parseLVMRaid(out string) []models.LVMRaidLV {
+	var result []models.LVMRaidLV
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		name, vg, attr := fields[0], fields[1], fields[2]
+		if len(attr) < 10 {
+			continue
+		}
+		lvType := attr[0]
+		if lvType != 'm' && lvType != 'r' {
+			continue
+		}
+		sizeGB, _ := strconv.ParseFloat(fields[3], 64)
+		syncPct := 100.0 // default: fully synced
+		if len(fields) > 4 && fields[4] != "" {
+			if v, err := strconv.ParseFloat(fields[4], 64); err == nil {
+				syncPct = v
+			}
+		}
+		lv := models.LVMRaidLV{
+			Name:      name,
+			VG:        vg,
+			SizeGB:    sizeGB,
+			SyncPct:   syncPct,
+			Degraded:  len(attr) > 8 && attr[8] == 'p',
+			Resyncing: len(attr) > 9 && attr[9] == 'r',
+		}
+		if lvType == 'm' {
+			lv.Type = "mirror"
+		} else {
+			lv.Type = "raid"
+		}
+		result = append(result, lv)
+	}
+	return result
 }
 
 // mergeMountedLVs reads /proc/mounts to find which VGs have at least one
