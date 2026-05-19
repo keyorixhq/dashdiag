@@ -60,6 +60,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	cols := []runner.Collector{col}
 	if deepFlag {
 		cols = append(cols, collectors.NewNFSCollector())
+		cols = append(cols, collectors.NewBINDCollector())
 	}
 
 	p := output.NewCommandProgress(label, 30*time.Second, mode, len(cols))
@@ -68,6 +69,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 
 	var netResult runner.Result
 	var nfsInfo *models.NFSInfo
+	var bindInfo *models.BINDInfo
 	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
 		switch v := r.Data.(type) {
@@ -75,6 +77,8 @@ func runNet(cmd *cobra.Command, _ []string) error {
 			netResult = r
 		case *models.NFSInfo:
 			nfsInfo = v
+		case *models.BINDInfo:
+			bindInfo = v
 		}
 	}
 
@@ -88,6 +92,9 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	printNetReport(info, mode, elapsed, ctrCtx)
 	if nfsInfo != nil {
 		printNFSReport(nfsInfo, mode)
+	}
+	if bindInfo != nil && bindInfo.Detected {
+		printBINDReport(bindInfo)
 	}
 	return nil
 }
@@ -461,4 +468,74 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 		}
 	}
 	_ = mode
+}
+
+// printBINDReport renders the BIND/named section appended to dsd net deep output.
+func printBINDReport(info *models.BINDInfo) {
+	verStr := ""
+	if info.Version != "" {
+		verStr = fmt.Sprintf("  [BIND %s", info.Version)
+		if info.Uptime != "" {
+			verStr += ", up " + info.Uptime
+		}
+		verStr += "]"
+	}
+	fmt.Printf("\n[DNS server (BIND)]%s\n", verStr)
+
+	// Service
+	svcIcon := map[bool]string{true: "✅", false: "❌"}[info.ServiceActive]
+	fmt.Printf("  %s named: %s\n", svcIcon,
+		map[bool]string{true: "active", false: "inactive"}[info.ServiceActive])
+
+	// Port 53
+	portIcon := "✅"
+	portStr := "listening (TCP + UDP)"
+	if !info.Port53TCP || !info.Port53UDP {
+		portIcon = "⚠️ "
+		if !info.Port53TCP && !info.Port53UDP {
+			portStr = "NOT listening on port 53"
+		} else if !info.Port53TCP {
+			portStr = "UDP only (TCP not listening)"
+		} else {
+			portStr = "TCP only (UDP not listening)"
+		}
+	}
+	fmt.Printf("  %s Port 53: %s\n", portIcon, portStr)
+
+	// Config check
+	cfgIcon := map[bool]string{true: "✅", false: "❌"}[info.ConfigOK]
+	cfgStatus := "no syntax errors"
+	if !info.ConfigOK {
+		cfgStatus = info.ConfigError
+	}
+	fmt.Printf("  %s named-checkconf: %s\n", cfgIcon, cfgStatus)
+
+	// Zone validation
+	if len(info.Zones) > 0 {
+		for _, z := range info.Zones {
+			if z.OK {
+				fmt.Printf("  ✅ Zone %-30s OK\n", z.Name)
+			} else {
+				fmt.Printf("  ❌ Zone %-30s FAILED\n", z.Name)
+				if z.Error != "" {
+					fmt.Printf("       Error: %s\n", z.Error)
+				}
+				fmt.Printf("     → named-checkzone %s %s\n", z.Name, z.File)
+				fmt.Printf("     → rndc reload %s  (after fixing)\n", z.Name)
+			}
+		}
+	}
+
+	// DNS query test
+	queryIcon := map[bool]string{true: "✅", false: "❌"}[info.QueryOK]
+	queryStr := fmt.Sprintf("localhost resolves in %dms", info.QueryLatencyMs)
+	if !info.QueryOK {
+		queryStr = "FAILED — named running but not answering queries"
+	}
+	fmt.Printf("  %s DNS query test: %s\n", queryIcon, queryStr)
+
+	// Query stats from rndc
+	if info.QueryCount > 0 {
+		fmt.Printf("     Queries served: %d\n", info.QueryCount)
+	}
 }

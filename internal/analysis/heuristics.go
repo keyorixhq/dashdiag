@@ -103,6 +103,10 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 		return checkNFS(d)
 	case *models.NFSInfo:
 		return checkNFS(*d)
+	case models.BINDInfo:
+		return checkBIND(d)
+	case *models.BINDInfo:
+		return checkBIND(*d)
 	case models.ClockInfo:
 		return checkClock(d, thresh)
 	case *models.ClockInfo:
@@ -811,6 +815,67 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			"rpcbind inactive with NFS mounts present — NFS client operations may fail",
 			[]string{
 				"to fix: systemctl enable --now rpcbind",
+			},
+		))
+	}
+	return out
+}
+
+func checkBIND(b models.BINDInfo) []models.Insight {
+	var out []models.Insight
+	if !b.Detected {
+		return out
+	}
+	if !b.ServiceActive {
+		out = append(out, insight("CRIT", "BIND",
+			"named service is not active — DNS server not running",
+			[]string{
+				"to start: systemctl start named",
+				"to inspect: journalctl -u named -n 50 --no-pager",
+			},
+		))
+		return out
+	}
+	if !b.Port53TCP || !b.Port53UDP {
+		out = append(out, insight("WARN", "BIND",
+			"named is running but not listening on port 53 — config error or firewall",
+			[]string{
+				"to inspect: ss -tulpn | grep :53",
+				"to inspect: journalctl -u named -n 20 --no-pager",
+			},
+		))
+	}
+	if !b.ConfigOK {
+		out = append(out, insight("CRIT", "BIND",
+			fmt.Sprintf("named-checkconf error: %s", b.ConfigError),
+			[]string{
+				fmt.Sprintf("to fix: named-checkconf %s", b.ConfigFile),
+				"to reload after fix: rndc reload",
+			},
+		))
+	}
+	if b.ZonesFailed > 0 {
+		var failed []string
+		for _, z := range b.Zones {
+			if !z.OK {
+				failed = append(failed, z.Name)
+			}
+		}
+		out = append(out, insight("CRIT", "BIND",
+			fmt.Sprintf("%d zone file(s) failed validation: %s",
+				b.ZonesFailed, strings.Join(firstN(failed, 3), ", ")),
+			[]string{
+				"to inspect: named-checkzone <zone> <file>",
+				"to reload after fix: rndc reload <zone>",
+			},
+		))
+	}
+	if !b.QueryOK {
+		out = append(out, insight("CRIT", "BIND",
+			"named is running but not answering DNS queries on 127.0.0.1:53",
+			[]string{
+				"to test: dig @127.0.0.1 localhost A +time=2 +tries=1",
+				"to inspect: journalctl -u named -n 50 --no-pager",
 			},
 		))
 	}
