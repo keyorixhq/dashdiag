@@ -56,7 +56,29 @@ type DiskInfo struct {
 	Filesystems  []FilesystemInfo `json:"filesystems"`
 	Drives       []PhysicalDrive  `json:"drives,omitempty"`
 	ZFSPools     []ZFSPool        `json:"zfs_pools,omitempty"` // from models/zfs.go
-	IOStats      []DiskIOStat     `json:"io_stats,omitempty"`  // deep only
+	BtrfsVolumes []BtrfsVolume    `json:"btrfs_volumes,omitempty"`
+	IOStats      []DiskIOStat     `json:"io_stats,omitempty"` // deep only
 	Status       string           `json:"status"`
 	StatusReason string           `json:"status_reason"`
+}
+
+// BtrfsVolume holds health data for a mounted btrfs filesystem.
+type BtrfsVolume struct {
+	UUID         string     `json:"uuid"`
+	MountPoint   string     `json:"mount_point"`
+	TotalDevices int        `json:"total_devices"`
+	MissingDevs  int        `json:"missing_devices"`
+	Devices      []BtrfsDev `json:"devices"`
+	Status       string     `json:"status"` // "healthy", "degraded", "missing"
+	StatusReason string     `json:"status_reason,omitempty"`
+}
+
+// BtrfsDev is one device in a btrfs filesystem.
+type BtrfsDev struct {
+	DevID       int    `json:"devid"`
+	Path        string `json:"path"` // "<missing disk>" when absent
+	Missing     bool   `json:"missing"`
+	ReadErrs    int64  `json:"read_errs"`
+	WriteErrs   int64  `json:"write_errs"`
+	CorruptErrs int64  `json:"corrupt_errs"`
 }
