@@ -67,6 +67,9 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Network backend + MTU checks
 	collectNetworkHealth(ctx, client, info)
 
+	// Recent events (die, oom, kill in last 1h)
+	collectDockerEvents(ctx, client, info)
+
 	// On RHEL/Rocky 10+ with zero images and containers, daemon likely failed
 	// to start due to missing iptables-legacy — add actionable hint.
 	if info.TotalContainers == 0 && info.ImagesCount == 0 && isRHEL10Plus() {
@@ -184,8 +187,8 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			info.Stopped++
 		}
 
-		// Fetch detailed inspect for health status and restart count
-		health, restarts := containerDetail(ctx, client, c.ID[:12])
+		// Fetch detailed inspect for health status, restart count, exit code, secrets
+		health, restarts, exitCode, secrets := containerDetail(ctx, client, c.ID[:12])
 		if health == "unhealthy" {
 			info.UnhealthyCount++
 			info.Unhealthy = append(info.Unhealthy, name)
@@ -194,43 +197,158 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			info.CrashLoopCount++
 			info.CrashLooping = append(info.CrashLooping, name)
 		}
+		if len(secrets) > 0 {
+			info.ContainersWithSecrets++
+		}
 
-		info.Containers = append(info.Containers, models.ContainerInfo{
-			ID:      c.ID[:12],
-			Name:    name,
-			Image:   c.Image,
-			State:   state,
-			Health:  health,
-			Restart: restarts,
-		})
+		ci := models.ContainerInfo{
+			ID:               c.ID[:12],
+			Name:             name,
+			Image:            c.Image,
+			State:            state,
+			Health:           health,
+			Restart:          restarts,
+			PlaintextSecrets: secrets,
+		}
+		if state != "running" && exitCode != 0 {
+			ci.ExitCode = exitCode
+			ci.ExitLabel = dockerExitLabel(exitCode)
+		}
+		info.Containers = append(info.Containers, ci)
 	}
 	return nil
 }
 
-func containerDetail(ctx context.Context, client *http.Client, id string) (health string, restarts int) {
+func containerDetail(ctx context.Context, client *http.Client, id string) (health string, restarts int, exitCode int, secrets []string) {
 	data, err := apiGet(ctx, client, "/containers/"+id+"/json")
 	if err != nil {
-		return "none", 0
+		return "none", 0, 0, nil
 	}
-	// RestartCount is at the top level in both Docker and Podman.
-	// Health is nested under State.Health.Status.
 	var detail struct {
 		RestartCount int `json:"RestartCount"`
 		State        struct {
-			Health struct {
+			ExitCode int `json:"ExitCode"`
+			Health   struct {
 				Status string `json:"Status"`
 			} `json:"Health"`
 		} `json:"State"`
+		Config struct {
+			Env []string `json:"Env"`
+		} `json:"Config"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
-		return "none", 0
+		return "none", 0, 0, nil
 	}
 	h := detail.State.Health.Status
 	if h == "" {
 		h = "none"
 	}
-	return h, detail.RestartCount
+	secrets = detectPlaintextSecrets(detail.Config.Env)
+	return h, detail.RestartCount, detail.State.ExitCode, secrets
 }
+
+// dockerExitLabel returns a human-readable label for common container exit codes.
+func dockerExitLabel(code int) string {
+	labels := map[int]string{
+		0:   "clean exit",
+		1:   "application error",
+		125: "Docker daemon error",
+		126: "command not executable",
+		127: "command not found in image",
+		130: "SIGINT (Ctrl+C)",
+		137: "OOM kill (SIGKILL)",
+		139: "segfault (SIGSEGV)",
+		143: "graceful shutdown (SIGTERM)",
+	}
+	if l, ok := labels[code]; ok {
+		return l
+	}
+	return ""
+}
+
+// secretPatterns are case-insensitive substrings matched against env var names.
+// Only the variable name is checked — values are never logged.
+var secretPatterns = []string{
+	"PASSWORD", "PASSWD", "PWD",
+	"SECRET", "TOKEN", "APIKEY", "API_KEY",
+	"PRIVATE_KEY", "SIGNING_KEY", "ENCRYPTION_KEY",
+	"CREDENTIALS", "ACCESS_KEY", "AUTH_TOKEN",
+	"DATABASE_URL",
+}
+
+// detectPlaintextSecrets scans env var names (not values) for secret patterns.
+// Returns a list of variable names that match — never the values.
+func detectPlaintextSecrets(env []string) []string {
+	var found []string
+	trivial := map[string]bool{"true": true, "false": true, "0": true, "1": true, "": true}
+	for _, kv := range env {
+		idx := strings.Index(kv, "=")
+		if idx < 0 {
+			continue
+		}
+		name := strings.ToUpper(kv[:idx])
+		val := kv[idx+1:]
+		// Skip obviously non-secret values
+		if trivial[strings.ToLower(val)] || strings.HasPrefix(val, "/") {
+			continue
+		}
+		for _, pat := range secretPatterns {
+			if strings.Contains(name, pat) {
+				found = append(found, kv[:idx]) // name only
+				break
+			}
+		}
+	}
+	return found
+}
+
+// collectDockerEvents fetches die/oom/kill events from the last hour.
+// Uses /events?filters= with since/until time window.
+func collectDockerEvents(ctx context.Context, client *http.Client, info *models.DockerInfo) {
+	since := fmt.Sprintf("%d", timeNow().Add(-1*time.Hour).Unix())
+	until := fmt.Sprintf("%d", timeNow().Unix())
+	path := fmt.Sprintf("/events?since=%s&until=%s&filters=%s",
+		since, until,
+		`{"type":["container"],"event":["die","oom","kill"]}`)
+	data, err := apiGet(ctx, client, path)
+	if err != nil {
+		return
+	}
+	// Events are newline-delimited JSON objects (not an array)
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var ev struct {
+			Action string `json:"Action"`
+			Actor  struct {
+				Attributes map[string]string `json:"Attributes"`
+			} `json:"Actor"`
+			Time int64 `json:"time"`
+		}
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		name := ev.Actor.Attributes["name"]
+		if name == "" {
+			name = ev.Actor.Attributes["containerName"]
+		}
+		info.RecentEvents = append(info.RecentEvents, models.DockerEvent{
+			Action:   ev.Action,
+			Actor:    name,
+			TimeUnix: ev.Time,
+		})
+		if ev.Action == "oom" {
+			info.OOMEvents++
+		}
+		if len(info.RecentEvents) >= 10 {
+			break
+		}
+	}
+}
+
+// timeNow is a variable so tests can override it.
+var timeNow = func() time.Time { return time.Now() }
 
 func collectDiskUsage(ctx context.Context, client *http.Client, info *models.DockerInfo) {
 	data, err := apiGet(ctx, client, "/system/df")

@@ -3349,7 +3349,14 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		return out
 	}
 
-	// Crash looping containers — always CRIT
+	out = append(out, checkDockerContainers(d)...)
+	out = append(out, checkDockerResources(d)...)
+	out = append(out, checkDockerSecurity(d)...)
+	return out
+}
+
+func checkDockerContainers(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
 	for _, name := range d.CrashLooping {
 		out = append(out, insight("CRIT", "Docker",
 			fmt.Sprintf("container %q is crash looping (restarted >5 times)", name),
@@ -3359,8 +3366,6 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
-
-	// Unhealthy containers
 	for _, name := range d.Unhealthy {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("container %q health check failing", name),
@@ -3370,16 +3375,27 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
-
-	// Stopped containers — informational, not always bad
 	if d.Stopped > 5 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d stopped containers accumulating — consider pruning", d.Stopped),
 			[]string{"to fix: docker container prune"},
 		))
 	}
+	if d.OOMEvents > 0 {
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("%d container OOM kill(s) in the last hour — containers are out of memory", d.OOMEvents),
+			[]string{
+				"to inspect: docker events --filter event=oom",
+				"to fix: set memory limits in container config",
+				"to inspect: docker stats --no-stream",
+			},
+		))
+	}
+	return out
+}
 
-	// Dangling images eating disk
+func checkDockerResources(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
 	if d.DanglingImagesMB >= 1024 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),
@@ -3391,16 +3407,12 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 			[]string{"to fix: docker image prune"},
 		))
 	}
-
-	// Orphaned volumes
 	if d.OrphanedVolumes > 3 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
 			[]string{"to fix: docker volume prune"},
 		))
 	}
-
-	// MTU mismatch — container MTU > host MTU causes silent fragmentation
 	if d.MTUMismatch {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("container network MTU (%d) > host interface MTU (%d) — silent packet fragmentation",
@@ -3413,7 +3425,28 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
+	return out
+}
 
+func checkDockerSecurity(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
+	if d.ContainersWithSecrets > 0 {
+		var names []string
+		for _, c := range d.Containers {
+			if len(c.PlaintextSecrets) > 0 {
+				names = append(names, c.Name)
+			}
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container(s) have plaintext secrets in env vars: %s",
+				d.ContainersWithSecrets, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: docker inspect <name> | grep -i 'env\\|secret\\|password'",
+				"to fix: use Docker secrets, a vault, or environment variable files",
+				"note: env vars are visible in docker inspect and container logs",
+			},
+		))
+	}
 	return out
 }
 

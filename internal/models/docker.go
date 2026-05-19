@@ -2,12 +2,23 @@ package models
 
 // ContainerInfo holds health data for a single Docker/Podman container.
 type ContainerInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Image   string `json:"image"`
-	State   string `json:"state"`  // running, exited, paused, dead, etc.
-	Health  string `json:"health"` // healthy, unhealthy, starting, none
-	Restart int    `json:"restart"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Image            string   `json:"image"`
+	State            string   `json:"state"`  // running, exited, paused, dead, etc.
+	Health           string   `json:"health"` // healthy, unhealthy, starting, none
+	Restart          int      `json:"restart"`
+	ExitCode         int      `json:"exit_code,omitempty"`
+	ExitLabel        string   `json:"exit_label,omitempty"`        // "OOM kill", "segfault", etc.
+	PlaintextSecrets []string `json:"plaintext_secrets,omitempty"` // env var names only — no values
+}
+
+// DockerEvent is a recent system event from the Docker/Podman daemon.
+type DockerEvent struct {
+	Action   string `json:"action"` // die, oom, kill, start, stop
+	Actor    string `json:"actor"`  // container name or ID
+	Status   string `json:"status,omitempty"`
+	TimeUnix int64  `json:"time"`
 }
 
 // DockerInfo holds Docker/Podman daemon health data.
@@ -34,6 +45,11 @@ type DockerInfo struct {
 	MTUMismatch    bool   `json:"mtu_mismatch"`              // container network MTU ≠ host interface MTU
 	HostMTU        int    `json:"host_mtu,omitempty"`
 	ContainerMTU   int    `json:"container_mtu,omitempty"`
-	Status         string `json:"status,omitempty"`
-	StatusReason   string `json:"status_reason,omitempty"`
+	// Security
+	ContainersWithSecrets int `json:"containers_with_secrets,omitempty"` // count with plaintext env secrets
+	// Recent events (die, oom, kill in last 1h)
+	RecentEvents []DockerEvent `json:"recent_events,omitempty"`
+	OOMEvents    int           `json:"oom_events,omitempty"`
+	Status       string        `json:"status,omitempty"`
+	StatusReason string        `json:"status_reason,omitempty"`
 }

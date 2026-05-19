@@ -70,74 +70,17 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	}
 
 	fmt.Printf("\nRuntime: %s\n", info.Runtime)
+	printDockerContainers(info)
+	printDockerSecurity(info)
+	printDockerEvents(info)
+	printDockerResources(info)
 
-	// Container summary
-	fmt.Printf("\nContainers (%d total)\n", info.TotalContainers)
-	if info.TotalContainers == 0 {
-		fmt.Println("  ✅  no containers")
-	} else {
-		runIcon := "✅"
-		if info.RunningCount == 0 {
-			runIcon = "⚠️ "
-		}
-		fmt.Printf("  %s  running:   %d\n", runIcon, info.RunningCount)
-		if info.StoppedCount > 0 {
-			fmt.Printf("  ⚠️   stopped:   %d\n", info.StoppedCount)
-		}
-		if info.UnhealthyCount > 0 {
-			fmt.Printf("  ❌  unhealthy: %d\n", info.UnhealthyCount)
-		}
-		if info.CrashLoopCount > 0 {
-			fmt.Printf("  ❌  crash loop: %d\n", info.CrashLoopCount)
-		}
-	}
-
-	// Container list
-	if len(info.Containers) > 0 {
-		fmt.Println()
-		for _, c := range info.Containers {
-			icon := "✅"
-			if c.State != "running" {
-				icon = "⚠️ "
-			}
-			if c.Health == "unhealthy" || c.Restart >= crashLoopRestartThreshold {
-				icon = "❌"
-			}
-			health := ""
-			if c.Health != "" && c.Health != "none" {
-				health = fmt.Sprintf(" [%s]", c.Health)
-			}
-			restarts := ""
-			if c.Restart > 0 {
-				restarts = fmt.Sprintf(" restarts:%d", c.Restart)
-			}
-			fmt.Printf("  %s  %-20s %-12s %s%s%s\n",
-				icon, c.Name, c.State, c.Image, health, restarts)
-		}
-	}
-
-	// Images & volumes
-	fmt.Printf("\nImages: %d", info.ImagesCount)
-	if info.DanglingImages > 0 {
-		fmt.Printf("  ⚠️  %d dangling", info.DanglingImages)
-	}
-	fmt.Println()
-
-	if info.VolumesCount > 0 {
-		fmt.Printf("Volumes: %d\n", info.VolumesCount)
-	}
-
-	if info.DiskUsageGB > 0 {
-		diskIcon := "✅"
-		if info.DiskUsageGB > 20 {
-			diskIcon = "⚠️ "
-		}
-		fmt.Printf("Disk usage: %s %.1f GB\n", diskIcon, info.DiskUsageGB)
-	}
-
-	// Summary
 	issues := info.UnhealthyCount + info.CrashLoopCount
 	if info.StoppedCount > 0 && info.RunningCount == 0 {
+		issues++
+	}
+	issues += info.OOMEvents
+	if info.ContainersWithSecrets > 0 {
 		issues++
 	}
 
@@ -147,5 +90,107 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Docker healthy. Checks passed%s", timing)))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d container concern(s) found%s", issues, timing)))
+	}
+}
+
+func printDockerContainers(info *models.DockerInfo) {
+	fmt.Printf("\nContainers (%d total)\n", info.TotalContainers)
+	if info.TotalContainers == 0 {
+		fmt.Println("  ✅  no containers")
+		return
+	}
+	runIcon := "✅"
+	if info.RunningCount == 0 {
+		runIcon = "⚠️ "
+	}
+	fmt.Printf("  %s  running:   %d\n", runIcon, info.RunningCount)
+	if info.StoppedCount > 0 {
+		fmt.Printf("  ⚠️   stopped:   %d\n", info.StoppedCount)
+	}
+	if info.UnhealthyCount > 0 {
+		fmt.Printf("  ❌  unhealthy: %d\n", info.UnhealthyCount)
+	}
+	if info.CrashLoopCount > 0 {
+		fmt.Printf("  ❌  crash loop: %d\n", info.CrashLoopCount)
+	}
+	if len(info.Containers) == 0 {
+		return
+	}
+	fmt.Println()
+	for _, c := range info.Containers {
+		icon := "✅"
+		if c.State != "running" {
+			icon = "⚠️ "
+		}
+		if c.Health == "unhealthy" || c.Restart >= crashLoopRestartThreshold {
+			icon = "❌"
+		}
+		health := ""
+		if c.Health != "" && c.Health != "none" {
+			health = fmt.Sprintf(" [%s]", c.Health)
+		}
+		restarts := ""
+		if c.Restart > 0 {
+			restarts = fmt.Sprintf(" restarts:%d", c.Restart)
+		}
+		exitStr := ""
+		if c.ExitCode != 0 {
+			exitStr = fmt.Sprintf(" exit:%d", c.ExitCode)
+			if c.ExitLabel != "" {
+				exitStr = fmt.Sprintf(" exit:%d (%s)", c.ExitCode, c.ExitLabel)
+			}
+		}
+		fmt.Printf("  %s  %-20s %-12s %s%s%s%s\n",
+			icon, c.Name, c.State, c.Image, health, restarts, exitStr)
+	}
+}
+
+func printDockerSecurity(info *models.DockerInfo) {
+	if info.ContainersWithSecrets == 0 {
+		return
+	}
+	fmt.Printf("\n[Security]\n")
+	for _, c := range info.Containers {
+		if len(c.PlaintextSecrets) > 0 {
+			fmt.Printf("  ⚠️   %-20s plaintext secrets in env: %s\n",
+				c.Name, strings.Join(c.PlaintextSecrets, ", "))
+		}
+	}
+	fmt.Println("     Env vars are visible in 'docker inspect' and container logs.")
+	fmt.Println("     → Use Docker secrets or a vault instead of plain env vars.")
+}
+
+func printDockerEvents(info *models.DockerInfo) {
+	if len(info.RecentEvents) == 0 {
+		return
+	}
+	fmt.Printf("\n[Recent events — last 1h]\n")
+	for _, ev := range info.RecentEvents {
+		evIcon := "⚠️ "
+		if ev.Action == "oom" {
+			evIcon = "❌"
+		}
+		fmt.Printf("  %s  %-8s  %s\n", evIcon, ev.Action, ev.Actor)
+	}
+	if info.OOMEvents > 0 {
+		fmt.Printf("  → %d OOM kill(s) — check container memory limits\n", info.OOMEvents)
+	}
+}
+
+func printDockerResources(info *models.DockerInfo) {
+	fmt.Printf("\nImages: %d", info.ImagesCount)
+	if info.DanglingImages > 0 {
+		fmt.Printf("  ⚠️  %d dangling", info.DanglingImages)
+	}
+	fmt.Println()
+	if info.VolumesCount > 0 {
+		fmt.Printf("Volumes: %d\n", info.VolumesCount)
+	}
+	if info.DiskUsageGB > 0 {
+		diskIcon := "✅"
+		if info.DiskUsageGB > 20 {
+			diskIcon = "⚠️ "
+		}
+		fmt.Printf("Disk usage: %s %.1f GB\n", diskIcon, info.DiskUsageGB)
 	}
 }
