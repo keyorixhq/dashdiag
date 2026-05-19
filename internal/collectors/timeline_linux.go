@@ -70,6 +70,9 @@ func (c *TimelineCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Deduplicate: same unit+message within the same minute → collapse to one entry
 	info.Events = deduplicateEvents(info.Events)
 
+	// Annotate known patterns with inspect/fix hints
+	info.Events = annotateHints(info.Events)
+
 	// Cap at 200 events — show the most significant
 	if len(info.Events) > 200 {
 		info.Events = filterTopEvents(info.Events, 200)

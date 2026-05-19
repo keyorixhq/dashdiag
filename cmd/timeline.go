@@ -139,5 +139,21 @@ func printTimelineEvents(events []models.TimelineEvent) {
 		}
 		fmt.Printf("  %s  %-8s  %-4s  %-16s  %s%s\n",
 			icon, e.TimeStr, src, unit, msg, countStr)
+
+		// Print hint block if present — same contract as dsd health hints
+		if h := e.Hint; h != nil {
+			if h.Explain != "" {
+				fmt.Printf("     → %s\n", h.Explain)
+			}
+			if h.Inspect != "" {
+				fmt.Printf("     → to inspect: %s\n", h.Inspect)
+			}
+			if h.Fix != "" {
+				fmt.Printf("     → to fix:     %s\n", h.Fix)
+			}
+			if h.Persist != "" {
+				fmt.Printf("     → to persist: %s\n", h.Persist)
+			}
+		}
 	}
 }

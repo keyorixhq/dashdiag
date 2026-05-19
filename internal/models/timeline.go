@@ -1,14 +1,24 @@
 package models
 
+// TimelineHint is a structured hint block for a known event pattern.
+// Mirrors the dsd health hint contract: explain → inspect → fix → persist.
+type TimelineHint struct {
+	Explain string `json:"explain,omitempty"` // what the message means
+	Inspect string `json:"inspect,omitempty"` // command to diagnose further
+	Fix     string `json:"fix,omitempty"`     // command to remediate
+	Persist string `json:"persist,omitempty"` // command to make fix permanent
+}
+
 // TimelineEvent is a single event in the unified incident timeline.
 type TimelineEvent struct {
-	TimestampUnix int64  `json:"timestamp_unix"`
-	TimeStr       string `json:"time_str"`       // human-readable
-	Source        string `json:"source"`         // "journal", "dmesg", "kernel"
-	Level         string `json:"level"`          // "CRIT", "WARN", "INFO"
-	Unit          string `json:"unit,omitempty"` // systemd unit or kernel subsystem
-	Message       string `json:"message"`
-	Count         int    `json:"count,omitempty"` // deduplicated repeat count
+	TimestampUnix int64         `json:"timestamp_unix"`
+	TimeStr       string        `json:"time_str"`       // human-readable
+	Source        string        `json:"source"`         // "journal", "dmesg", "kernel"
+	Level         string        `json:"level"`          // "CRIT", "WARN", "INFO"
+	Unit          string        `json:"unit,omitempty"` // systemd unit or kernel subsystem
+	Message       string        `json:"message"`
+	Count         int           `json:"count,omitempty"` // deduplicated repeat count
+	Hint          *TimelineHint `json:"hint,omitempty"`  // structured fix hint
 }
 
 // TimelineInfo holds merged system events for dsd timeline.
