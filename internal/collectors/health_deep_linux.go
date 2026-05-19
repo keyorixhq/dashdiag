@@ -199,10 +199,11 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 			pct = float64(rssKB) / float64(totalKB) * 100
 		}
 		procs = append(procs, models.ProcessMemStat{
-			PID:    pid,
-			Name:   name,
-			RSSMB:  float64(rssKB) / 1024,
-			MemPct: pct,
+			PID:         pid,
+			Name:        name,
+			RSSMB:       float64(rssKB) / 1024,
+			MemPct:      pct,
+			CgroupScope: cgroupScope(pid),
 		})
 		totalRSSKB += rssKB
 	}
@@ -389,4 +390,108 @@ func readCgroupOOMKills(path string) int {
 		}
 	}
 	return 0
+}
+
+// cgroupScope reads /proc/<pid>/cgroup and returns a human-readable scope label.
+// Format: "system:<service>", "container:<id-prefix>", "user:<uid>", "kernel", "init", or "unknown".
+func cgroupScope(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid)) // #nosec G304
+	if err != nil {
+		return ""
+	}
+	// cgroup v2: single line "0::/<path>"
+	// cgroup v1: multiple lines "N:<subsystem>:<path>"
+	// We want the v2 unified hierarchy path (line starting with "0::")
+	cgPath := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.HasPrefix(line, "0::") {
+			cgPath = strings.TrimPrefix(line, "0::")
+			break
+		}
+	}
+	if cgPath == "" {
+		// cgroup v1 fallback — use cpu subsystem path
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			if strings.Contains(line, ":cpu:") || strings.Contains(line, ":cpu,") {
+				parts := strings.SplitN(line, ":", 3)
+				if len(parts) == 3 {
+					cgPath = parts[2]
+					break
+				}
+			}
+		}
+	}
+	return parseCgroupPath(cgPath)
+}
+
+// parseCgroupPath converts a raw cgroup path to a human-readable scope label.
+func parseCgroupPath(path string) string {
+	path = strings.TrimSpace(path)
+	switch {
+	case path == "" || path == "/":
+		return "kernel"
+	case path == "/init.scope":
+		return "init"
+	case strings.Contains(path, "/docker/") || strings.Contains(path, "docker-"):
+		// Extract container ID prefix: /docker/<64-char-id>
+		parts := strings.Split(path, "/docker/")
+		if len(parts) >= 2 {
+			id := strings.TrimSuffix(parts[1], ".scope")
+			if len(id) >= 12 {
+				return "container:" + id[:12]
+			}
+			return "container:" + id
+		}
+		return "container"
+	case strings.Contains(path, "libpod-") || strings.Contains(path, "machine.slice"):
+		// Podman: machine.slice/libpod-<id>.scope
+		if idx := strings.Index(path, "libpod-"); idx >= 0 {
+			id := strings.TrimPrefix(path[idx:], "libpod-")
+			id = strings.TrimSuffix(id, ".scope")
+			if len(id) >= 12 {
+				return "container:" + id[:12]
+			}
+			return "container:" + id
+		}
+		if idx := strings.Index(path, "libpod_pod"); idx >= 0 {
+			return "pod:podman"
+		}
+		return "container"
+	case strings.Contains(path, "/kubepods/") || strings.Contains(path, "kubepods"):
+		// Kubernetes pod
+		parts := strings.Split(path, "/")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if strings.HasPrefix(parts[i], "pod") {
+				podID := strings.TrimPrefix(parts[i], "pod")
+				if len(podID) > 8 {
+					return "k8s-pod:" + podID[:8]
+				}
+				return "k8s-pod:" + podID
+			}
+		}
+		return "k8s"
+	case strings.HasPrefix(path, "/system.slice/"):
+		svc := strings.TrimPrefix(path, "/system.slice/")
+		// Strip nested path: "k3s.service/..." → "k3s.service"
+		if idx := strings.Index(svc, "/"); idx > 0 {
+			svc = svc[:idx]
+		}
+		return "system:" + svc
+	case strings.HasPrefix(path, "/user.slice/"):
+		uid := path
+		if idx := strings.Index(path, "user-"); idx >= 0 {
+			rest := path[idx+5:]
+			if dot := strings.Index(rest, "."); dot > 0 {
+				uid = rest[:dot]
+			}
+		}
+		return "user:" + uid
+	default:
+		// Generic: return last path segment
+		parts := strings.Split(strings.TrimRight(path, "/"), "/")
+		if len(parts) > 0 && parts[len(parts)-1] != "" {
+			return parts[len(parts)-1]
+		}
+		return "unknown"
+	}
 }

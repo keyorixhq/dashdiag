@@ -163,6 +163,10 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	default:
 		renderer.PrintAll(results, insights)
 		renderer.PrintCorrelations(correlations)
+		// Deep mode: show top processes with cgroup scope
+		if deepFlag {
+			printTopProcsWithCgroup(results, mode)
+		}
 	}
 
 	diffFlag, _ := cmd.Flags().GetBool("diff")
@@ -481,4 +485,34 @@ func toRunnerCols(cols []collectors.Collector) []runner.Collector {
 		out[i] = c
 	}
 	return out
+}
+
+// printTopProcsWithCgroup shows top memory consumers with cgroup scope labels
+// in dsd health deep output.
+func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
+	for _, r := range results {
+		deep, ok := r.Data.(*models.HealthDeepInfo)
+		if !ok || deep == nil || len(deep.TopProcs) == 0 {
+			continue
+		}
+		fmt.Printf("\n[Top processes — cgroup context]\n")
+		fmt.Printf("  %-6s  %-5s  %-20s  %s\n", "PID", "MEM%", "NAME", "SCOPE")
+		for _, p := range deep.TopProcs {
+			scope := p.CgroupScope
+			if scope == "" {
+				scope = "unknown"
+			}
+			fmt.Printf("  %-6d  %4.1f%%  %-20s  %s\n",
+				p.PID, p.MemPct, truncateStr(p.Name, 20), scope)
+		}
+		return
+	}
+}
+
+// truncateStr truncates a string to n characters with ellipsis.
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
