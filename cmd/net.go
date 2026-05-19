@@ -57,24 +57,38 @@ func runNet(cmd *cobra.Command, _ []string) error {
 		col = collectors.NewNetworkDeepCollector()
 	}
 
-	p := output.NewCommandProgress(label, 30*time.Second, mode, 1)
+	cols := []runner.Collector{col}
+	if deepFlag {
+		cols = append(cols, collectors.NewNFSCollector())
+	}
+
+	p := output.NewCommandProgress(label, 30*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
 
-	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
+	var netResult runner.Result
+	var nfsInfo *models.NFSInfo
+	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
-		result = r
+		switch v := r.Data.(type) {
+		case *models.NetworkInfo:
+			netResult = r
+		case *models.NFSInfo:
+			nfsInfo = v
+		}
 	}
 
 	elapsed := p.Elapsed()
 
-	info, ok := result.Data.(*models.NetworkInfo)
+	info, ok := netResult.Data.(*models.NetworkInfo)
 	if !ok || info == nil {
-		return result.Err
+		return netResult.Err
 	}
 
 	printNetReport(info, mode, elapsed, ctrCtx)
+	if nfsInfo != nil {
+		printNFSReport(nfsInfo, mode)
+	}
 	return nil
 }
 
@@ -389,4 +403,62 @@ func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
 	if info.PublicFallback {
 		printLine(mode, "info", "Public DNS", "8.8.8.8/1.1.1.1 in resolver list")
 	}
+}
+
+// printNFSReport renders the NFS mounts section appended to dsd net deep output.
+func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
+	if len(info.Mounts) == 0 {
+		return
+	}
+	fmt.Printf("\n[NFS mounts] — %d found\n", len(info.Mounts))
+	for _, m := range info.Mounts {
+		icon := "✅"
+		status := fmt.Sprintf("healthy (%dms)", m.LatencyMs)
+		if m.Stale {
+			icon = "❌"
+			status = "STALE (timeout after 2s)"
+		} else if !m.Healthy {
+			icon = "⚠️ "
+			status = "error"
+		}
+		fmt.Printf("  %s %-22s  %s:%s  %s\n",
+			icon, m.Mount, m.Server, m.Export, status)
+		if m.Stale {
+			srvIcon := "❌"
+			if m.ServerReachable {
+				srvIcon = "✅"
+			}
+			fmt.Printf("       %s server %s: %s\n", srvIcon, m.Server,
+				map[bool]string{true: "reachable", false: "unreachable (ping timeout)"}[m.ServerReachable])
+			portIcon := map[bool]string{true: "✅", false: "❌"}[m.NFSPortOpen]
+			fmt.Printf("       %s NFS port 2049: %s\n", portIcon,
+				map[bool]string{true: "open", false: "unreachable"}[m.NFSPortOpen])
+		}
+		for _, warn := range m.OptionsWarnings {
+			fmt.Printf("       ⚠️   mount option: %s\n", warn)
+		}
+	}
+
+	fmt.Printf("\n  [rpcbind] ")
+	if info.RpcbindActive {
+		fmt.Println("✅ active")
+	} else {
+		fmt.Println("⚠️  inactive — NFS client operations may fail")
+	}
+
+	if info.RetransPerMin > 0 || info.ReadOpsPerMin > 0 {
+		fmt.Printf("\n  [NFS stats]\n")
+		if info.RetransPerMin > 0 {
+			icon := "✅"
+			if info.RetransPerMin > 100 {
+				icon = "⚠️ "
+			}
+			fmt.Printf("  %s Retransmissions:  %.0f\n", icon, info.RetransPerMin)
+		}
+		if info.ReadOpsPerMin > 0 || info.WriteOpsPerMin > 0 {
+			fmt.Printf("     Read ops:        %.0f\n", info.ReadOpsPerMin)
+			fmt.Printf("     Write ops:       %.0f\n", info.WriteOpsPerMin)
+		}
+	}
+	_ = mode
 }

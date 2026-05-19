@@ -99,6 +99,10 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 		return checkNetwork(d)
 	case *models.NetworkInfo:
 		return checkNetwork(*d)
+	case models.NFSInfo:
+		return checkNFS(d)
+	case *models.NFSInfo:
+		return checkNFS(*d)
 	case models.ClockInfo:
 		return checkClock(d, thresh)
 	case *models.ClockInfo:
@@ -769,6 +773,50 @@ func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64)
 		return thresh.IOAwaitWarnMsSSD, thresh.IOAwaitCritMsSSD
 	}
 }
+
+func checkNFS(nfs models.NFSInfo) []models.Insight {
+	var out []models.Insight
+	for _, m := range nfs.Mounts {
+		if m.Stale {
+			hints := []string{
+				fmt.Sprintf("to unmount (safe): umount -l %s", m.Mount),
+				fmt.Sprintf("to remount after recovery: mount -o remount %s", m.Mount),
+			}
+			if !m.ServerReachable {
+				hints = append(hints,
+					fmt.Sprintf("server %s unreachable — check network/firewall", m.Server))
+			}
+			out = append(out, insight("CRIT", "NFS",
+				fmt.Sprintf("mount %s is STALE — processes accessing it will hang in D-state", m.Mount),
+				hints))
+		}
+		for _, warn := range m.OptionsWarnings {
+			out = append(out, insight("WARN", "NFS",
+				fmt.Sprintf("%s: %s", m.Mount, warn),
+				[]string{"to fix: remount with correct options in /etc/fstab"},
+			))
+		}
+	}
+	if nfs.StaleMounts == 0 && nfs.RetransPerMin > 100 {
+		out = append(out, insight("WARN", "NFS",
+			fmt.Sprintf("elevated NFS retransmissions (%.0f) — NFS transport may be unreliable", nfs.RetransPerMin),
+			[]string{
+				"to inspect: nfsstat -rc",
+				"to inspect: cat /proc/net/rpc/nfs",
+			},
+		))
+	}
+	if !nfs.RpcbindActive && len(nfs.Mounts) > 0 {
+		out = append(out, insight("WARN", "NFS",
+			"rpcbind inactive with NFS mounts present — NFS client operations may fail",
+			[]string{
+				"to fix: systemctl enable --now rpcbind",
+			},
+		))
+	}
+	return out
+}
+
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
