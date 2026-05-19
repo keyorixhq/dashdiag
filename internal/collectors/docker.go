@@ -187,42 +187,61 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			info.Stopped++
 		}
 
-		// Fetch detailed inspect for health status, restart count, exit code, secrets
-		health, restarts, exitCode, secrets := containerDetail(ctx, client, c.ID[:12])
-		if health == "unhealthy" {
+		// Fetch detailed inspect — one API call for all security + health data
+		det := containerDetail(ctx, client, c.ID[:12])
+		if det.health == "unhealthy" {
 			info.UnhealthyCount++
 			info.Unhealthy = append(info.Unhealthy, name)
 		}
-		if restarts >= crashLoopRestartThreshold {
+		if det.restarts >= crashLoopRestartThreshold {
 			info.CrashLoopCount++
 			info.CrashLooping = append(info.CrashLooping, name)
 		}
-		if len(secrets) > 0 {
+		if len(det.secrets) > 0 {
 			info.ContainersWithSecrets++
+		}
+		if det.socketMounted {
+			info.SocketMountedCount++
+		}
+		if det.runsAsRoot && state == "running" {
+			info.RunningAsRootCount++
 		}
 
 		ci := models.ContainerInfo{
-			ID:               c.ID[:12],
-			Name:             name,
-			Image:            c.Image,
-			State:            state,
-			Health:           health,
-			Restart:          restarts,
-			PlaintextSecrets: secrets,
+			ID:                  c.ID[:12],
+			Name:                name,
+			Image:               c.Image,
+			State:               state,
+			Health:              det.health,
+			Restart:             det.restarts,
+			PlaintextSecrets:    det.secrets,
+			RunsAsRoot:          det.runsAsRoot,
+			User:                det.user,
+			DockerSocketMounted: det.socketMounted,
 		}
-		if state != "running" && exitCode != 0 {
-			ci.ExitCode = exitCode
-			ci.ExitLabel = dockerExitLabel(exitCode)
+		if state != "running" && det.exitCode != 0 {
+			ci.ExitCode = det.exitCode
+			ci.ExitLabel = dockerExitLabel(det.exitCode)
 		}
 		info.Containers = append(info.Containers, ci)
 	}
 	return nil
 }
 
-func containerDetail(ctx context.Context, client *http.Client, id string) (health string, restarts int, exitCode int, secrets []string) {
+type containerDetailResult struct {
+	health        string
+	restarts      int
+	exitCode      int
+	secrets       []string
+	runsAsRoot    bool
+	user          string
+	socketMounted bool
+}
+
+func containerDetail(ctx context.Context, client *http.Client, id string) containerDetailResult {
 	data, err := apiGet(ctx, client, "/containers/"+id+"/json")
 	if err != nil {
-		return "none", 0, 0, nil
+		return containerDetailResult{health: "none"}
 	}
 	var detail struct {
 		RestartCount int `json:"RestartCount"`
@@ -233,18 +252,38 @@ func containerDetail(ctx context.Context, client *http.Client, id string) (healt
 			} `json:"Health"`
 		} `json:"State"`
 		Config struct {
-			Env []string `json:"Env"`
+			Env  []string `json:"Env"`
+			User string   `json:"User"`
 		} `json:"Config"`
+		HostConfig struct {
+			Binds []string `json:"Binds"`
+		} `json:"HostConfig"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
-		return "none", 0, 0, nil
+		return containerDetailResult{health: "none"}
 	}
 	h := detail.State.Health.Status
 	if h == "" {
 		h = "none"
 	}
-	secrets = detectPlaintextSecrets(detail.Config.Env)
-	return h, detail.RestartCount, detail.State.ExitCode, secrets
+	u := strings.ToLower(strings.TrimSpace(detail.Config.User))
+	runsAsRoot := u == "" || u == "0" || u == "root" || u == "root:root"
+	socketMounted := false
+	for _, bind := range detail.HostConfig.Binds {
+		if strings.Contains(bind, "docker.sock") {
+			socketMounted = true
+			break
+		}
+	}
+	return containerDetailResult{
+		health:        h,
+		restarts:      detail.RestartCount,
+		exitCode:      detail.State.ExitCode,
+		secrets:       detectPlaintextSecrets(detail.Config.Env),
+		runsAsRoot:    runsAsRoot,
+		user:          detail.Config.User,
+		socketMounted: socketMounted,
+	}
 }
 
 // dockerExitLabel returns a human-readable label for common container exit codes.

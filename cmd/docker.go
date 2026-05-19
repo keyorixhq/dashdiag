@@ -83,6 +83,9 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	if info.ContainersWithSecrets > 0 {
 		issues++
 	}
+	if info.SocketMountedCount > 0 {
+		issues++
+	}
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -146,18 +149,44 @@ func printDockerContainers(info *models.DockerInfo) {
 }
 
 func printDockerSecurity(info *models.DockerInfo) {
-	if info.ContainersWithSecrets == 0 {
+	hasIssues := info.ContainersWithSecrets > 0 || info.SocketMountedCount > 0 || info.RunningAsRootCount > 0
+	if !hasIssues {
 		return
 	}
 	fmt.Printf("\n[Security]\n")
+
+	// Plaintext secrets
 	for _, c := range info.Containers {
 		if len(c.PlaintextSecrets) > 0 {
 			fmt.Printf("  ⚠️   %-20s plaintext secrets in env: %s\n",
 				c.Name, strings.Join(c.PlaintextSecrets, ", "))
 		}
 	}
-	fmt.Println("     Env vars are visible in 'docker inspect' and container logs.")
-	fmt.Println("     → Use Docker secrets or a vault instead of plain env vars.")
+	if info.ContainersWithSecrets > 0 {
+		fmt.Println("     Env vars visible in 'docker inspect' — use Docker secrets or a vault.")
+	}
+
+	// Docker socket mounted
+	for _, c := range info.Containers {
+		if c.DockerSocketMounted {
+			fmt.Printf("  ❌  %-20s docker socket mounted — grants root access to host\n", c.Name)
+		}
+	}
+	if info.SocketMountedCount > 0 {
+		fmt.Println("     → Remove socket mount unless this is an intentional CI/Docker agent.")
+	}
+
+	// Running as root
+	rootCount := 0
+	for _, c := range info.Containers {
+		if c.RunsAsRoot && c.State == "running" {
+			rootCount++
+		}
+	}
+	if rootCount > 0 {
+		fmt.Printf("  ⚠️   %d running container(s) using root user\n", rootCount)
+		fmt.Println("     → Add USER directive to Dockerfile or use --user flag.")
+	}
 }
 
 func printDockerEvents(info *models.DockerInfo) {
