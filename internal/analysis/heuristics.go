@@ -2532,8 +2532,8 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 		out = append(out, insight("INFO", "GPU",
 			"NVIDIA GPU detected — install driver for GPU health monitoring",
 			[]string{
-				"to fix (Ubuntu/Mint): apt-get install nvidia-driver-535",
-				"to fix (RHEL/Fedora): dnf install akmod-nvidia",
+				"to fix (Debian/Ubuntu): apt-get install nvidia-driver",
+				"to fix (RHEL/Fedora):   dnf install akmod-nvidia  (RPM Fusion required)",
 				"to inspect: lspci | grep -i nvidia",
 				"note: reboot required after driver install",
 			},
