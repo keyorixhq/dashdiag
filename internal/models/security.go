@@ -57,15 +57,20 @@ type SecurityInfo struct {
 	WorldWritableDirs     []string `json:"world_writable_dirs,omitempty"`     // world-writable dirs missing sticky bit
 
 	// AppArmor (SLES/Ubuntu/Debian)
-	AppArmorMode     string `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled
-	AppArmorProfiles int    `json:"apparmor_profiles,omitempty"` // total loaded profiles
-	AppArmorComplain int    `json:"apparmor_complain,omitempty"` // profiles in complain mode
-	AppArmorDenials  int    `json:"apparmor_denials,omitempty"`  // denials in last hour
+	AppArmorMode     string           `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled
+	AppArmorProfiles int              `json:"apparmor_profiles,omitempty"` // total loaded profiles
+	AppArmorComplain int              `json:"apparmor_complain,omitempty"` // profiles in complain mode
+	AppArmorDenials  int              `json:"apparmor_denials,omitempty"`  // denials in last hour
+	AppArmorGroups   []AppArmorDenial `json:"apparmor_groups,omitempty"`   // grouped AppArmor denials
 
 	// SELinux
-	SELinuxDenials   int               `json:"se_linux_denials"` // denials in last hour
-	SELinuxMode      string            `json:"se_linux_mode"`
-	SELinuxAVCGroups []SELinuxAVCGroup `json:"se_linux_avc_groups,omitempty"` // grouped denials
+	SELinuxDenials     int               `json:"se_linux_denials"` // denials in last hour
+	SELinuxMode        string            `json:"se_linux_mode"`
+	SELinuxAVCGroups   []SELinuxAVCGroup `json:"se_linux_avc_groups,omitempty"`   // grouped denials
+	SELinuxBooleans    []SELinuxBoolean  `json:"se_linux_booleans,omitempty"`     // relevant off booleans
+	SELinuxAutoRelabel bool              `json:"se_linux_auto_relabel,omitempty"` // /.autorelabel present
+	// PAM
+	PAMLockedAccounts []string `json:"pam_locked_accounts,omitempty"` // accounts locked by pam_faillock
 
 	// RHEL/Rocky-specific security
 	FIPSEnabled     bool   `json:"fips_enabled"`            // /proc/sys/crypto/fips_enabled
@@ -113,6 +118,21 @@ type SELinuxAVCGroup struct {
 	Count      int      `json:"count"`                 // number of denials in window
 	BooleanFix string   `json:"boolean_fix,omitempty"` // getsebool name to toggle, if any
 	FixCmd     string   `json:"fix_cmd,omitempty"`     // recommended fix command
+}
+
+// AppArmorDenial is a grouped AppArmor denial entry.
+type AppArmorDenial struct {
+	Profile   string `json:"profile"`
+	Operation string `json:"operation,omitempty"` // read, write, exec, etc.
+	Path      string `json:"path,omitempty"`
+	Count     int    `json:"count"`
+}
+
+// SELinuxBoolean holds the state of a relevant SELinux boolean.
+type SELinuxBoolean struct {
+	Name   string `json:"name"`
+	Active bool   `json:"active"`  // current value
+	SetCmd string `json:"set_cmd"` // exact setsebool command to enable
 }
 
 // SnapperInfo holds Btrfs/Snapper snapshot health for SLES/openSUSE.

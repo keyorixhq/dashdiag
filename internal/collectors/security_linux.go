@@ -49,6 +49,8 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	// User account hardening (Spec 14)
 	parsePasswordAging(info)
 	parseWorldWritable(info)
+	// Spec 6: SELinux booleans, AppArmor groups, autorelabel, PAM lockout
+	parseSELinuxExtras(ctx, info)
 
 	// Detect offensive/pentest distros and suppress false-positive security WARNs.
 	// Kali Linux ships with PermitRootLogin yes, password auth, and no firewall by design.
@@ -613,10 +615,168 @@ func findUnexpectedSUIDs(info *models.SecurityInfo) {
 	}
 }
 
+// parseSELinuxExtras adds booleans, AppArmor groups, autorelabel, and PAM lockout.
+func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
+	// /.autorelabel — full filesystem relabel queued
+	if _, err := os.Stat("/.autorelabel"); err == nil {
+		info.SELinuxAutoRelabel = true
+	}
+
+	// Relevant off booleans for denied scontexts
+	if len(info.SELinuxAVCGroups) > 0 {
+		info.SELinuxBooleans = collectRelevantBooleans(ctx, info.SELinuxAVCGroups)
+	}
+
+	// AppArmor denial grouping (Debian/Ubuntu/SUSE)
+	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" {
+		info.AppArmorGroups = collectAppArmorDenials(ctx)
+		info.AppArmorDenials = 0
+		for _, g := range info.AppArmorGroups {
+			info.AppArmorDenials += g.Count
+		}
+	}
+
+	// PAM locked accounts via faillock
+	info.PAMLockedAccounts = collectPAMLockedAccounts(ctx)
+}
+
+// collectRelevantBooleans runs getsebool -a and filters to booleans related to
+// the denied scontexts that are currently OFF.
+func collectRelevantBooleans(ctx context.Context, groups []models.SELinuxAVCGroup) []models.SELinuxBoolean {
+	out, err := runCmdTimeout(5*time.Second, "getsebool", "-a")
+	if err != nil {
+		return nil
+	}
+
+	// Build set of scontext prefixes to search for (e.g. "httpd" from "httpd_t")
+	keywords := make(map[string]bool)
+	for _, g := range groups {
+		// "httpd_t" → "httpd"; "container_runtime_t" → "container"
+		stype := strings.TrimSuffix(g.Scontext, "_t")
+		if idx := strings.LastIndex(stype, ":"); idx >= 0 {
+			stype = stype[idx+1:]
+		}
+		if stype != "" {
+			keywords[stype] = true
+		}
+	}
+	_ = ctx
+
+	var booleans []models.SELinuxBoolean
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(out, "\n") {
+		// Format: "httpd_can_network_connect --> off"
+		parts := strings.SplitN(line, " --> ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if value == "on" || seen[name] {
+			continue // only surface currently-off booleans
+		}
+		// Check if name contains any denied scontext keyword
+		nameLower := strings.ToLower(name)
+		for kw := range keywords {
+			if strings.Contains(nameLower, kw) {
+				seen[name] = true
+				booleans = append(booleans, models.SELinuxBoolean{
+					Name:   name,
+					Active: false,
+					SetCmd: fmt.Sprintf("setsebool -P %s on", name),
+				})
+				break
+			}
+		}
+		if len(booleans) >= 10 {
+			break
+		}
+	}
+	return booleans
+}
+
+// collectAppArmorDenials parses journalctl for AppArmor DENIED entries in last 24h.
+func collectAppArmorDenials(ctx context.Context) []models.AppArmorDenial {
+	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(jCtx, "journalctl", "-t", "kernel", "-g", `apparmor="DENIED"`,
+		"--no-pager", "--since", "24 hours ago", "-o", "short")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return nil
+	}
+
+	type key struct{ profile, op, path string }
+	counts := make(map[key]int)
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, `apparmor="DENIED"`) {
+			continue
+		}
+		k := key{
+			profile: extractAAField(line, "profile="),
+			op:      extractAAField(line, "requested_mask="),
+			path:    extractAAField(line, "name="),
+		}
+		counts[k]++
+	}
+
+	var groups []models.AppArmorDenial
+	for k, c := range counts {
+		groups = append(groups, models.AppArmorDenial{
+			Profile:   k.profile,
+			Operation: k.op,
+			Path:      k.path,
+			Count:     c,
+		})
+	}
+	return groups
+}
+
+// extractAAField extracts a quoted or unquoted value for key= from an AppArmor log line.
+func extractAAField(line, key string) string {
+	idx := strings.Index(line, key)
+	if idx < 0 {
+		return ""
+	}
+	rest := line[idx+len(key):]
+	if strings.HasPrefix(rest, `"`) {
+		end := strings.Index(rest[1:], `"`)
+		if end >= 0 {
+			return rest[1 : end+1]
+		}
+	}
+	// Unquoted — ends at space
+	fields := strings.Fields(rest)
+	if len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
+}
+
+// collectPAMLockedAccounts checks for accounts locked by pam_faillock.
+func collectPAMLockedAccounts(ctx context.Context) []string {
+	fCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(fCtx, "faillock", "--user", "")
+	if err != nil {
+		return nil
+	}
+	var locked []string
+	for _, line := range strings.Split(out, "\n") {
+		// Lines with [Locked] marker
+		if strings.Contains(line, "[Locked]") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				locked = append(locked, fields[0])
+			}
+		}
+	}
+	return locked
+}
+
 // parseUID0Users scans /etc/passwd for non-root accounts with UID 0.
 // Only root should have UID 0. Any other UID-0 account is a critical finding.
 func parseUID0Users(info *models.SecurityInfo) {
-	data, err := os.ReadFile("/etc/passwd") // #nosec G304 -- hardcoded system file
+	data, err := os.ReadFile("/etc/passwd") // #nosec G304
 	if err != nil {
 		return
 	}
