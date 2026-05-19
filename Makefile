@@ -50,7 +50,7 @@ build-linux:
 LEGION_HOST ?= andrei@192.168.1.145
 deploy: build-linux
 	scp dist/$(BINARY)-linux-amd64 $(LEGION_HOST):/tmp/dsd
-	ssh $(LEGION_HOST) 'sudo -n install -m 755 /tmp/dsd /usr/bin/dsd && dsd --version'
+	ssh $(LEGION_HOST) 'sudo -n install -m 755 /tmp/dsd /usr/bin/dsd && sudo -n install -m 755 /tmp/dsd /usr/local/bin/dsd && dsd --version'
 	@echo "✅ Deployed to $(LEGION_HOST)"
 
 # Run dsd as root on Legion — needed for checks that require elevated access:

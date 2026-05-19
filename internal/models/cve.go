@@ -37,14 +37,15 @@ type CVEResult struct {
 
 // CVEAllResult holds the full security advisory scan from a package manager.
 type CVEAllResult struct {
-	PackageManager string        `json:"package_manager"`
-	Total          int           `json:"total"`
-	Critical       []CVEAdvisory `json:"critical,omitempty"`
-	Important      []CVEAdvisory `json:"important,omitempty"`
-	Moderate       []CVEAdvisory `json:"moderate,omitempty"`
-	Low            []CVEAdvisory `json:"low,omitempty"`
-	FixCommand     string        `json:"fix_command,omitempty"`
-	StatusReason   string        `json:"status_reason,omitempty"`
+	PackageManager   string        `json:"package_manager"`
+	Total            int           `json:"total"`
+	Critical         []CVEAdvisory `json:"critical,omitempty"`
+	Important        []CVEAdvisory `json:"important,omitempty"`
+	Moderate         []CVEAdvisory `json:"moderate,omitempty"`
+	Low              []CVEAdvisory `json:"low,omitempty"`
+	FixCommand       string        `json:"fix_command,omitempty"`
+	StatusReason     string        `json:"status_reason,omitempty"`
+	SubscriptionNote string        `json:"subscription_note,omitempty"` // RHEL registration hint
 }
 
 // CVEAdvisory is one pending security advisory from a full scan.
