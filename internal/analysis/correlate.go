@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"strings"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
@@ -374,4 +375,92 @@ func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
 		Action:  "systemctl status dbus.service && journalctl -u dbus.service -n 20",
 		Checks:  []string{"DBus", "Systemd"},
 	}, true
+}
+
+// ── Deep correlations (time-aware, require raw collector data) ────────────────
+
+// CorrelateDeep extends Correlate with time-aware cross-signal rules that need
+// access to raw collector output (OOM events, Docker events) rather than just the
+// distilled insights slice.  Call this instead of Correlate when deep data is
+// available (i.e. from dsd health --deep or dsd health deep).
+func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *models.DockerInfo) []Correlation {
+	out := Correlate(insights)
+	if c, ok := ruleDockerOOMCascade(oom, docker); ok {
+		out = append(out, c)
+	}
+	return out
+}
+
+// ruleDockerOOMCascade fires when the kernel OOM killer and a Docker/Podman
+// container OOM exit co-occurred within a 5-minute window.  This is the
+// "20:00 overnight cluster" canonical rule from the 2026-05-11 RHEL 10.1 stress
+// run where traefik, coredns, and stress containers were OOM-killed while the
+// kernel simultaneously recorded OOM kills.
+//
+// Time-aware path (preferred):
+//   - OOMInfo.RecentEvents contains an event with a parsed Timestamp
+//   - DockerInfo.RecentEvents contains an "oom" or "die" event within 5 min of it
+//
+// Fallback (co-occurrence without timestamps):
+//   - OOMInfo.EventsLast24h > 0 AND DockerInfo.OOMEvents > 0
+//   - Fires CRIT with a weaker summary — still actionable
+func ruleDockerOOMCascade(oom *models.OOMInfo, docker *models.DockerInfo) (Correlation, bool) {
+	if oom == nil || docker == nil {
+		return Correlation{}, false
+	}
+	if !oom.Available || oom.EventsLast24h == 0 {
+		return Correlation{}, false
+	}
+	if !docker.Available || docker.OOMEvents == 0 {
+		return Correlation{}, false
+	}
+
+	// Time-aware: look for a docker "oom"/"die" event within 5 min of a kernel OOM kill.
+	if actor, ok := findTimedDockerOOM(oom, docker); ok {
+		action := "docker stats --no-stream"
+		if actor != "" {
+			action = "docker inspect " + actor + " && docker logs --tail=50 " + actor
+		}
+		return Correlation{
+			Name:    "Container OOM Cascade",
+			Level:   "CRIT",
+			Summary: "kernel OOM killer and Docker container OOM exit confirmed within 5 minutes — memory pressure killed a container",
+			Action:  action,
+			Checks:  []string{"OOM", "Docker"},
+		}, true
+	}
+
+	// Fallback: both signals present but no parseable timestamps.
+	return Correlation{
+		Name:    "Container OOM Cascade",
+		Level:   "CRIT",
+		Summary: "kernel OOM kills and Docker container OOM events co-occurred — containers are being killed by memory pressure",
+		Action:  "docker stats --no-stream && docker events --filter type=container --filter event=oom",
+		Checks:  []string{"OOM", "Docker"},
+	}, true
+}
+
+// findTimedDockerOOM returns the Docker actor name (container ID/name) when a
+// docker "oom" or "die" event occurred within 5 minutes of a kernel OOM kill.
+func findTimedDockerOOM(oom *models.OOMInfo, docker *models.DockerInfo) (actor string, found bool) {
+	const window = 5 * time.Minute
+	for _, de := range docker.RecentEvents {
+		if de.Action != "oom" && de.Action != "die" {
+			continue
+		}
+		deTime := time.Unix(de.TimeUnix, 0)
+		for _, ke := range oom.RecentEvents {
+			if ke.Timestamp.IsZero() {
+				continue
+			}
+			diff := deTime.Sub(ke.Timestamp)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= window {
+				return de.Actor, true
+			}
+		}
+	}
+	return "", false
 }

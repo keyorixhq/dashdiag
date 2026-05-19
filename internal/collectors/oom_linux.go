@@ -53,13 +53,44 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
+// oomTimestampLayouts covers journalctl short-iso ("2006-01-02T15:04:05+0700")
+// and the rare short-iso-precise variant that includes fractional seconds.
+var oomTimestampLayouts = []string{
+	"2006-01-02T15:04:05-0700",
+	"2006-01-02T15:04:05Z",
+}
+
+// parseOOMTimestamp tries to extract a timestamp from the first field of a
+// journalctl short-iso line.  Returns zero time on failure (graceful degradation:
+// the rule engine falls back to co-occurrence detection when timestamps are absent).
+func parseOOMTimestamp(line string) time.Time {
+	if len(line) < 19 {
+		return time.Time{}
+	}
+	// First whitespace-delimited token is the timestamp
+	end := strings.IndexByte(line, ' ')
+	if end < 0 {
+		end = len(line)
+	}
+	token := line[:end]
+	for _, layout := range oomTimestampLayouts {
+		if len(token) != len(layout) {
+			continue
+		}
+		if ts, err := time.Parse(layout, token); err == nil {
+			return ts
+		}
+	}
+	return time.Time{}
+}
+
 func parseOOMEvents(out string) []models.OOMEvent {
 	var events []models.OOMEvent
 	seen := map[string]bool{} // deduplicate by pid+process
 	scanner := bufio.NewScanner(strings.NewReader(out))
 	for scanner.Scan() {
 		line := scanner.Text()
-		ev := models.OOMEvent{}
+		ev := models.OOMEvent{Timestamp: parseOOMTimestamp(line)}
 
 		if m := oomKillRe.FindStringSubmatch(line); len(m) == 3 {
 			pid, _ := strconv.Atoi(m[1])
