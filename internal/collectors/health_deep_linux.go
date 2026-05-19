@@ -62,6 +62,9 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	// Extended memory breakdown
 	collectMemDetail(info)
 
+	// cgroup v2 slice summary
+	info.Cgroup = collectCgroupV2()
+
 	return info, nil
 }
 
@@ -246,4 +249,144 @@ func fmtMB(mb float64) string {
 		return fmt.Sprintf("%.1fGB", mb/1024)
 	}
 	return fmt.Sprintf("%.0fMB", mb)
+}
+
+// ── cgroup v2 slice summary ───────────────────────────────────────────────────
+
+const cgroupRoot = "/sys/fs/cgroup"
+
+// collectCgroupV2 reads cgroup v2 top-level slices and surfaces
+// CPU throttling, memory pressure, and I/O stats.
+// Works on any kernel ≥ 4.15 with unified hierarchy mounted.
+func collectCgroupV2() *models.CgroupV2Info {
+	// Verify cgroup v2 is mounted (unified hierarchy)
+	if _, err := os.Stat(cgroupRoot + "/cgroup.controllers"); err != nil {
+		return nil
+	}
+
+	cg := &models.CgroupV2Info{Available: true}
+
+	// Controllers available at root
+	if data, err := os.ReadFile(cgroupRoot + "/cgroup.controllers"); err == nil { // #nosec G304
+		cg.Controllers = strings.Fields(strings.TrimSpace(string(data)))
+	}
+
+	// Slices: system.slice, user.slice, machine.slice, init.scope
+	sliceDirs, _ := filepath.Glob(cgroupRoot + "/*.slice")
+	scopeDirs, _ := filepath.Glob(cgroupRoot + "/*.scope")
+	sliceDirs = append(sliceDirs, scopeDirs...)
+
+	for _, dir := range sliceDirs {
+		name := filepath.Base(dir)
+		s := readCgroupSlice(dir, name)
+		cg.Slices = append(cg.Slices, s)
+		if s.ThrottledPct > 5 {
+			cg.ThrottledSlices = append(cg.ThrottledSlices, name)
+		}
+	}
+
+	// OOM kills from root memory.events
+	cg.OOMKills = readCgroupOOMKills(cgroupRoot + "/memory.events")
+
+	return cg
+}
+
+// readCgroupSlice reads metrics for one cgroup v2 slice directory.
+func readCgroupSlice(dir, name string) models.CgroupSlice {
+	s := models.CgroupSlice{Name: name, MemLimitMB: -1}
+
+	// CPU: cpu.stat — throttled_usec / usage_usec
+	if data, err := os.ReadFile(dir + "/cpu.stat"); err == nil { // #nosec G304
+		var usageUSec, throttledUSec int64
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			val, _ := strconv.ParseInt(fields[1], 10, 64)
+			switch fields[0] {
+			case "usage_usec":
+				usageUSec = val
+			case "throttled_usec":
+				throttledUSec = val
+			}
+		}
+		if usageUSec > 0 {
+			s.ThrottledPct = float64(throttledUSec) / float64(usageUSec) * 100
+		}
+	}
+
+	// CPU limit: cpu.max "quota period" — "max 100000" means no limit
+	if data, err := os.ReadFile(dir + "/cpu.max"); err == nil { // #nosec G304
+		fields := strings.Fields(strings.TrimSpace(string(data)))
+		if len(fields) >= 1 && fields[0] != "max" {
+			s.HasCPULimit = true
+		}
+	}
+
+	// Memory: memory.current (bytes)
+	if data, err := os.ReadFile(dir + "/memory.current"); err == nil { // #nosec G304
+		if n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil {
+			s.MemCurrentMB = float64(n) / (1024 * 1024)
+		}
+	}
+
+	// Memory limit: memory.max
+	if data, err := os.ReadFile(dir + "/memory.max"); err == nil { // #nosec G304
+		val := strings.TrimSpace(string(data))
+		if val != "max" {
+			if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+				s.MemLimitMB = float64(n) / (1024 * 1024)
+				s.HasMemLimit = true
+				if s.MemLimitMB > 0 {
+					s.MemUsedPct = s.MemCurrentMB / s.MemLimitMB * 100
+				}
+			}
+		}
+	}
+
+	// I/O: io.stat — sum across all block devices
+	if data, err := os.ReadFile(dir + "/io.stat"); err == nil { // #nosec G304
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			// Format: "253:0 rbytes=N wbytes=N rios=N wios=N ..."
+			// Some lines may have only the device with no stats — skip them
+			if len(fields) < 2 {
+				continue
+			}
+			for _, f := range fields[1:] {
+				kv := strings.SplitN(f, "=", 2)
+				if len(kv) != 2 {
+					continue
+				}
+				n, _ := strconv.ParseInt(kv[1], 10, 64)
+				switch kv[0] {
+				case "rbytes":
+					s.IOReadMBs += float64(n) / (1024 * 1024)
+				case "wbytes":
+					s.IOWriteMBs += float64(n) / (1024 * 1024)
+				}
+			}
+		}
+	}
+
+	return s
+}
+
+// readCgroupOOMKills reads the oom_kill counter from a memory.events file.
+func readCgroupOOMKills(path string) int {
+	data, err := os.ReadFile(path) // #nosec G304
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "oom_kill ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				n, _ := strconv.Atoi(fields[1])
+				return n
+			}
+		}
+	}
+	return 0
 }

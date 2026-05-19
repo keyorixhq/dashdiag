@@ -5,8 +5,6 @@ package collectors
 import (
 	"context"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +13,7 @@ import (
 
 // IsLVMPresent returns true when LVM tools are installed on this host.
 func IsLVMPresent() bool {
-	_, err := exec.LookPath("lvs")
+	_, err := runCmd(context.Background(), "lvs", "--version")
 	return err == nil
 }
 
@@ -32,7 +30,7 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.LVMInfo{}
 
 	// lvm2 not installed — silent OK
-	if _, err := exec.LookPath("lvs"); err != nil {
+	if !IsLVMPresent() {
 		return info, nil
 	}
 
@@ -102,91 +100,4 @@ func mergeMountedLVs(vgs []models.LVMVG) {
 			vgs[i].HasMountedLV = true
 		}
 	}
-}
-func parseVGs(out string) []models.LVMVG {
-	var vgs []models.LVMVG
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		vg := models.LVMVG{Name: fields[0]}
-		vg.SizeGB, _ = strconv.ParseFloat(fields[1], 64)
-		vg.FreeGB, _ = strconv.ParseFloat(fields[2], 64)
-		if vg.SizeGB > 0 {
-			vg.FreePct = vg.FreeGB / vg.SizeGB * 100
-		}
-		vgs = append(vgs, vg)
-	}
-	return vgs
-}
-
-// mergeMissingPVs counts PVs with 'm' (missing) flag in pv_attr and updates VG counts.
-// pv_attr[2] == 'm' means the PV is missing from the system.
-func mergeMissingPVs(out string, vgs []models.LVMVG) {
-	missing := map[string]int{}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		vgName := fields[0]
-		attr := fields[1]
-		// pv_attr is a string like "a--" — char 2 is 'm' if missing
-		if len(attr) > 2 && attr[2] == 'm' {
-			missing[vgName]++
-		}
-	}
-	for i, vg := range vgs {
-		if n, ok := missing[vg.Name]; ok {
-			vgs[i].MissingPVs = n
-		}
-	}
-}
-
-// parseLVs parses `lvs` output and separates thin pools from snapshots.
-// lv_attr[0] values: 't' = thin pool, 's' = snapshot, 'S' = merging snapshot
-func parseLVs(out string) (thinPools []models.LVMThinPool, snapshots []models.LVMSnapshot) {
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			continue
-		}
-		lvName := fields[0]
-		vgName := fields[1]
-		attr := fields[2]
-		dataPct, _ := strconv.ParseFloat(fields[3], 64)
-		metaPct, _ := strconv.ParseFloat(fields[4], 64)
-
-		if len(attr) == 0 {
-			continue
-		}
-
-		switch attr[0] {
-		case 't': // thin pool
-			sizeGB := 0.0
-			if len(fields) >= 7 {
-				sizeGB, _ = strconv.ParseFloat(fields[6], 64)
-			}
-			thinPools = append(thinPools, models.LVMThinPool{
-				Name:    lvName,
-				VG:      vgName,
-				DataPct: dataPct,
-				MetaPct: metaPct,
-				SizeGB:  sizeGB,
-			})
-		case 's', 'S': // snapshot or merging snapshot
-			origin := ""
-			if len(fields) >= 6 {
-				origin = fields[5]
-			}
-			snapshots = append(snapshots, models.LVMSnapshot{
-				Name:    lvName,
-				VG:      vgName,
-				Origin:  origin,
-				DataPct: dataPct,
-			})
-		}
-	}
-	return thinPools, snapshots
 }

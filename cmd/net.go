@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -20,6 +21,7 @@ import (
 func init() {
 	rootCmd.AddCommand(netCmd)
 	netCmd.AddCommand(netDeepCmd)
+	netCmd.AddCommand(netDNSCmd)
 	netCmd.Flags().Bool("deep", false, "deep scan — jitter, TCP retransmissions, TIME_WAIT, SYN backlog, conntrack")
 }
 
@@ -268,4 +270,123 @@ func netReadTCPStates() map[string]int {
 		}
 	}
 	return states
+}
+
+// ── dsd net dns ───────────────────────────────────────────────────────────────
+
+var netDNSCmd = &cobra.Command{
+	Use:   "dns",
+	Short: "DNS resolver audit — config source, nameservers, resolution test, quality checks",
+	RunE:  runNetDNS,
+}
+
+func runNetDNS(cmd *cobra.Command, _ []string) error {
+	ctx := context.Background()
+	plain, _ := cmd.Parent().Flags().GetBool("plain")
+	jsonOut, _ := cmd.Parent().Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
+
+	p := output.NewCommandProgress("DNS resolver audit", 8*time.Second, mode, 1)
+	p.Start()
+	defer p.Done()
+
+	var result runner.Result
+	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewDNSCollector()}) {
+		p.Step(r.Name)
+		result = r
+	}
+
+	info, ok := result.Data.(*models.DNSResolverInfo)
+	if !ok || info == nil {
+		return result.Err
+	}
+
+	if mode == output.ModeJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(info)
+		return nil
+	}
+
+	printDNS(info, mode)
+	return nil
+}
+
+func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
+	human := mode == output.ModeHuman
+	if human {
+		fmt.Fprintln(os.Stdout, "\n🔍  DNS resolver audit")
+	}
+
+	// Manager + config source
+	printLine(mode, "info", "Manager", info.Manager)
+	if info.ConfigFile != "" && info.ConfigFile != "/etc/resolv.conf" {
+		printLine(mode, "info", "resolv.conf →", info.ConfigFile)
+	}
+	if info.StubMode {
+		printLine(mode, "ok", "Stub mode", "systemd-resolved stub (127.0.0.53)")
+	}
+
+	// Nameservers
+	if len(info.Nameservers) > 0 {
+		printLine(mode, "info", "Nameservers",
+			strings.Join(info.Nameservers, "  "))
+	} else {
+		printLine(mode, "warn", "Nameservers", "none configured")
+	}
+
+	// Search domains
+	if len(info.SearchDomains) > 0 {
+		printLine(mode, "info", "Search domains",
+			strings.Join(info.SearchDomains, "  "))
+	}
+
+	// Options
+	if len(info.Options) > 0 {
+		printLine(mode, "info", "Options", strings.Join(info.Options, "  "))
+	}
+
+	// Resolution test
+	if info.ExternalResolvesOK {
+		printLine(mode, "ok", "External resolution",
+			fmt.Sprintf("ok  %dms", info.ExternalLatencyMs))
+	} else {
+		printLine(mode, "fail", "External resolution", "FAILED")
+		if info.ResolvTestError != "" {
+			fmt.Printf("     → %s\n", info.ResolvTestError)
+		}
+	}
+
+	if info.InternalResolvesOK {
+		printLine(mode, "ok", "Internal (hostname)", "ok")
+	} else {
+		printLine(mode, "warn", "Internal (hostname)", "could not resolve own hostname")
+	}
+
+	// Quality flags
+	if info.TooManyNameservers {
+		printLine(mode, "warn", "Nameserver count",
+			fmt.Sprintf("%d — libc silently ignores >3", len(info.Nameservers)))
+	}
+	if info.HasLoopback {
+		printLine(mode, "warn", "Loopback NS", "127.x present but stub not active")
+	}
+	if info.NdotsHigh > 0 {
+		printLine(mode, "warn", "ndots",
+			fmt.Sprintf("%d — high, may cause excessive lookups", info.NdotsHigh))
+	}
+	if info.IPv6Only {
+		printLine(mode, "warn", "IPv6-only", "no IPv4 fallback resolver")
+	}
+	if len(info.DuplicateNameserver) > 0 {
+		printLine(mode, "info", "Duplicates",
+			strings.Join(info.DuplicateNameserver, ", "))
+	}
+	if info.PublicFallback {
+		printLine(mode, "info", "Public DNS", "8.8.8.8/1.1.1.1 in resolver list")
+	}
 }

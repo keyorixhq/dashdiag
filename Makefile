@@ -50,8 +50,22 @@ build-linux:
 LEGION_HOST ?= andrei@192.168.1.145
 deploy: build-linux
 	scp dist/$(BINARY)-linux-amd64 $(LEGION_HOST):/tmp/dsd
-	ssh $(LEGION_HOST) 'sudo cp /tmp/dsd /usr/local/bin/dsd && dsd --version'
+	ssh $(LEGION_HOST) 'sudo -n cp /tmp/dsd /usr/local/bin/dsd && dsd --version'
 	@echo "✅ Deployed to $(LEGION_HOST)"
+
+# Run dsd as root on Legion — needed for checks that require elevated access:
+# /etc/shadow (user audit), IPMI sensors, auditd AVC log, hardware SMART writes.
+.PHONY: run-root
+run-root:
+	ssh $(LEGION_HOST) 'sudo -n /usr/local/bin/dsd $(ARGS)'
+
+# Run the full Linux test suite on Legion as root.
+# Some collectors only produce full output under root (IPMI, auditd, /etc/shadow).
+.PHONY: test-linux-root
+test-linux-root:
+	@echo "→ Syncing source to $(LEGION_HOST):/tmp/dashdiag-test"
+	rsync -a --exclude='.git' --exclude='dist/' . $(LEGION_HOST):/tmp/dashdiag-test/
+	ssh $(LEGION_HOST) 'cd /tmp/dashdiag-test && sudo -n env GOROOT=/home/andrei/go GOPATH=/home/andrei/gopath /home/andrei/go/bin/go test ./internal/collectors/ -v -count=1 -timeout 60s 2>&1'
 
 # ── CODE QUALITY ──────────────────────────────────────────────────────────────
 .PHONY: check
@@ -104,6 +118,15 @@ test-fuzz:
 .PHONY: test-contract
 test-contract:
 	go test -tags contract -count=1 ./test/contract/... 2>/dev/null || echo "⚠️  No contract tests yet"
+
+.PHONY: test-linux
+## Run Linux-only collector tests on the Legion box via SSH.
+## Uses the same LEGION_HOST as `make deploy` (default: andrei@192.168.1.145).
+## Requires Go installed on the remote host.
+test-linux:
+	@echo "→ Syncing source to $(LEGION_HOST):/tmp/dashdiag-test"
+	rsync -a --exclude='.git' --exclude='dist/' . $(LEGION_HOST):/tmp/dashdiag-test/
+	ssh $(LEGION_HOST) 'cd /tmp/dashdiag-test && GOROOT=/home/andrei/go GOPATH=/home/andrei/gopath /home/andrei/go/bin/go test ./internal/collectors/ -run "TestParseVGs|TestParseLVs|TestMergeMissingPVs" -v'
 
 .PHONY: test-all
 test-all: test test-integration test-contract
@@ -168,6 +191,10 @@ help:
 	@echo "  make test         → unit tests with race detector"
 	@echo "  make cover        → unit tests + coverage.html"
 	@echo "  make test-all     → unit + integration + contract"
+	@echo "  make deploy       → build linux + deploy to Legion via SSH"
+	@echo "  make run-root     → run dsd as root on Legion (ARGS='health --json')"
+	@echo "  make test-linux   → Linux-only collector tests via SSH to Legion"
+	@echo "  make test-linux-root → full collector tests as root on Legion"
 	@echo "  make golden-update→ update golden files"
 	@echo "  make smoke        → smoke test (requires dsd in PATH)"
 	@echo "  make vuln         → govulncheck"

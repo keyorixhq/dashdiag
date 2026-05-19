@@ -715,3 +715,124 @@ func contains(s, substr string) bool {
 			return false
 		})())
 }
+
+// ── LVM ──────────────────────────────────────────────────────────────────────
+
+func TestCheckLVMThinPools(t *testing.T) {
+	pool := func(dataPct, metaPct float64) models.LVMInfo {
+		return models.LVMInfo{
+			ThinPools: []models.LVMThinPool{
+				{Name: "data", VG: "pve", DataPct: dataPct, MetaPct: metaPct, SizeGB: 100},
+			},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		dataPct   float64
+		metaPct   float64
+		wantLevel string
+	}{
+		{"healthy — no insight", 50, 10, ""},
+		{"data at WARN threshold (80%)", 80, 10, "WARN"},
+		{"data at CRIT threshold (91%)", 91, 10, "CRIT"},
+		{"meta at WARN threshold (50%)", 40, 50, "WARN"},
+		{"meta at CRIT threshold (76%)", 40, 76, "CRIT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			insights := checkLVM(pool(tc.dataPct, tc.metaPct))
+			assertLevel(t, insights, tc.wantLevel)
+		})
+	}
+}
+
+func TestCheckLVMVGFreeSpace(t *testing.T) {
+	vg := func(sizeGB, freeGB float64, mounted bool) models.LVMInfo {
+		freePct := 0.0
+		if sizeGB > 0 {
+			freePct = freeGB / sizeGB * 100
+		}
+		return models.LVMInfo{
+			VGs: []models.LVMVG{
+				{Name: "myvg", SizeGB: sizeGB, FreeGB: freeGB, FreePct: freePct, HasMountedLV: mounted},
+			},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		sizeGB    float64
+		freeGB    float64
+		mounted   bool
+		wantLevel string
+	}{
+		{"healthy — plenty free", 100, 40, true, ""},
+		{"WARN — 91% used (9% free)", 100, 9, true, "WARN"},
+		{"CRIT — 99% used (1% free)", 100, 1, true, "CRIT"},
+		{"no mounted LVs — inactive VG — always INFO", 100, 1, false, "INFO"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			insights := checkLVM(vg(tc.sizeGB, tc.freeGB, tc.mounted))
+			assertLevel(t, insights, tc.wantLevel)
+		})
+	}
+}
+
+func TestCheckLVMMissingPVs(t *testing.T) {
+	vgWithMissing := models.LVMInfo{
+		VGs: []models.LVMVG{
+			{Name: "myvg", SizeGB: 100, FreeGB: 50, FreePct: 50, HasMountedLV: true, MissingPVs: 1},
+		},
+	}
+	vgHealthy := models.LVMInfo{
+		VGs: []models.LVMVG{
+			{Name: "myvg", SizeGB: 100, FreeGB: 50, FreePct: 50, HasMountedLV: true, MissingPVs: 0},
+		},
+	}
+
+	t.Run("missing PV triggers CRIT", func(t *testing.T) {
+		insights := checkLVM(vgWithMissing)
+		assertLevel(t, insights, "CRIT")
+	})
+
+	t.Run("no missing PVs — no insight", func(t *testing.T) {
+		insights := checkLVM(vgHealthy)
+		assertLevel(t, insights, "")
+	})
+}
+
+func TestCheckLVMSnapshots(t *testing.T) {
+	snap := func(dataPct float64) models.LVMInfo {
+		return models.LVMInfo{
+			Snapshots: []models.LVMSnapshot{
+				{Name: "snap0", VG: "pve", Origin: "vm-100-disk-0", DataPct: dataPct},
+			},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		dataPct   float64
+		wantLevel string
+	}{
+		{"healthy snapshot — no insight", 50, ""},
+		{"snapshot at WARN (80%)", 80, "WARN"},
+		{"snapshot at CRIT (95%)", 95, "CRIT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			insights := checkLVM(snap(tc.dataPct))
+			assertLevel(t, insights, tc.wantLevel)
+		})
+	}
+}
+
+func TestCheckLVMEmpty(t *testing.T) {
+	// No LVM configured — should produce no insights
+	insights := checkLVM(models.LVMInfo{})
+	if len(insights) != 0 {
+		t.Errorf("expected no insights for empty LVMInfo, got %d: %+v", len(insights), insights)
+	}
+}

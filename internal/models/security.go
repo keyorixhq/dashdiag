@@ -30,6 +30,7 @@ type SecurityInfo struct {
 	SSHCiphers       string `json:"ssh_ciphers,omitempty"`
 	SSHMACs          string `json:"ssh_macs,omitempty"`
 	SSHKexAlgorithms string `json:"ssh_kex_algorithms,omitempty"`
+	SSHAuditSource   string `json:"ssh_audit_source,omitempty"` // "sshd -T" or "file"
 
 	// Authentication
 	FailedLogins   int      `json:"failed_logins"`    // failed logins in last hour
@@ -47,10 +48,13 @@ type SecurityInfo struct {
 	SSHAllowed       bool     `json:"ssh_allowed"`                 // SSH reachable through firewall
 
 	// Privilege escalation
-	SudoNopasswd []string `json:"sudo_nopasswd,omitempty"` // users/groups with NOPASSWD
-	SUIDBinaries []string `json:"suid_binaries,omitempty"` // unexpected SUID binaries
-	UID0Users    []string `json:"uid0_users,omitempty"`    // non-root users with UID 0
-	SuspectCrons []string `json:"suspect_crons,omitempty"` // cron jobs writing to sensitive paths
+	SudoNopasswd          []string `json:"sudo_nopasswd,omitempty"`           // users/groups with NOPASSWD
+	SUIDBinaries          []string `json:"suid_binaries,omitempty"`           // unexpected SUID binaries
+	UID0Users             []string `json:"uid0_users,omitempty"`              // non-root users with UID 0
+	SuspectCrons          []string `json:"suspect_crons,omitempty"`           // cron jobs writing to sensitive paths
+	EmptyPasswordAccounts []string `json:"empty_password_accounts,omitempty"` // accounts with empty password field (CRIT)
+	StalePasswordAccounts []string `json:"stale_password_accounts,omitempty"` // human UIDs with no password expiry (WARN)
+	WorldWritableDirs     []string `json:"world_writable_dirs,omitempty"`     // world-writable dirs missing sticky bit
 
 	// AppArmor (SLES/Ubuntu/Debian)
 	AppArmorMode     string `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled

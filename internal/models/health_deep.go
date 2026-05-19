@@ -14,6 +14,29 @@ type ProcessMemStat struct {
 	MemPct float64 `json:"mem_pct"`
 }
 
+// CgroupSlice is a top-level cgroup v2 slice with aggregated resource usage.
+type CgroupSlice struct {
+	Name         string  `json:"name"`           // "system.slice", "user.slice" etc.
+	CPUUsagePct  float64 `json:"cpu_usage_pct"`  // throttled fraction (0–100)
+	ThrottledPct float64 `json:"throttled_pct"`  // cpu.stat throttled_usec / total
+	MemCurrentMB float64 `json:"mem_current_mb"` // memory.current bytes → MB
+	MemLimitMB   float64 `json:"mem_limit_mb"`   // memory.max (−1 = unlimited)
+	MemUsedPct   float64 `json:"mem_used_pct"`   // 0 when unlimited
+	IOReadMBs    float64 `json:"io_read_mbs"`    // cumulative read MB (io.stat)
+	IOWriteMBs   float64 `json:"io_write_mbs"`   // cumulative write MB
+	HasCPULimit  bool    `json:"has_cpu_limit"`  // cpu.max ≠ "max 100000"
+	HasMemLimit  bool    `json:"has_mem_limit"`  // memory.max ≠ "max"
+}
+
+// CgroupV2Info is the cgroup v2 summary added to HealthDeepInfo.
+type CgroupV2Info struct {
+	Available       bool          `json:"available"`
+	Controllers     []string      `json:"controllers,omitempty"`
+	Slices          []CgroupSlice `json:"slices,omitempty"`
+	ThrottledSlices []string      `json:"throttled_slices,omitempty"` // slices with >5% throttle
+	OOMKills        int           `json:"oom_kills"`                  // recent OOM kills from memory.events
+}
+
 // HealthDeepInfo holds extended system health data collected by HealthDeepCollector.
 type HealthDeepInfo struct {
 	// Per-core CPU usage (populated from /proc/stat delta)
@@ -31,6 +54,9 @@ type HealthDeepInfo struct {
 	BuffersMB   float64 `json:"buffers_mb"`
 	DirtyMB     float64 `json:"dirty_mb"`
 	AnonPagesMB float64 `json:"anon_pages_mb"`
+
+	// cgroup v2 slice summary
+	Cgroup *CgroupV2Info `json:"cgroup,omitempty"`
 
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`

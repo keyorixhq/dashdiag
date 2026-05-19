@@ -438,6 +438,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
+	cols = append(cols, collectors.NewSessionsCollector())
 	if collectors.IsCPUFreqAvailable() {
 		cols = append(cols, collectors.NewCPUFreqCollector())
 	}

@@ -46,6 +46,9 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseSupportconfig(info)
 	parseAppArmor(info)
 	parseSUSEConnect(ctx, info)
+	// User account hardening (Spec 14)
+	parsePasswordAging(info)
+	parseWorldWritable(info)
 
 	// Detect offensive/pentest distros and suppress false-positive security WARNs.
 	// Kali Linux ships with PermitRootLogin yes, password auth, and no firewall by design.
@@ -56,18 +59,33 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// parseSSHConfig reads /etc/ssh/sshd_config directly.
-// Also reads Include directives to cover drop-in configs like sshd_config.d/*.conf
+// parseSSHConfig reads the effective SSH daemon configuration.
+// Strategy (in order):
+//  1. `sshd -T` — reads the fully merged effective config including all drop-ins.
+//     Requires root on RHEL/Rocky (sshd_config is 600). Falls through if unavailable.
+//  2. Direct file parse of /etc/ssh/sshd_config + Include drop-ins.
+//
+// Both paths feed the same parseSSHFileContent parser since sshd -T output
+// uses the same "key value" format as sshd_config.
 func parseSSHConfig(info *models.SecurityInfo) {
-	// Default safe values
+	// Default safe values (OpenSSH modern defaults)
 	info.SSHPubkeyAuth = true   // on by default in modern OpenSSH
 	info.SSHStrictModes = true  // on by default
 	info.SSHIgnoreRhosts = true // on by default in modern OpenSSH
 
-	parseSSHFile("/etc/ssh/sshd_config", info)
+	// Try sshd -T first — gives the fully merged effective configuration.
+	// On RHEL 10 this requires root; non-root exits 0 but prints "Permission denied".
+	if out, err := exec.Command("sshd", "-T").Output(); err == nil {
+		outStr := string(out)
+		if !strings.Contains(outStr, "Permission denied") && len(strings.TrimSpace(outStr)) > 0 {
+			parseSSHFileContent(outStr, info)
+			info.SSHAuditSource = "sshd -T"
+			return
+		}
+	}
 
-	// Handle Include directives (OpenSSH 7.3+)
-	// e.g. Include /etc/ssh/sshd_config.d/*.conf
+	// Fall back to file parsing (works without root, may miss drop-ins on some distros)
+	parseSSHFile("/etc/ssh/sshd_config", info)
 	for _, pattern := range []string{
 		"/etc/ssh/sshd_config.d/*.conf",
 		"/etc/ssh/sshd_config.d/*.cfg",
@@ -120,7 +138,10 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) {
 		switch key {
 		case "permitrootlogin":
 			info.SSHRootLogin = val == "yes"
-			info.SSHPermitRoot = val != "no" && val != "prohibit-password"
+			// "without-password" is an alias for "prohibit-password" in older OpenSSH.
+			// Both mean: key-based root login allowed, but not password-based.
+			// This is a weaker restriction than "no" but not as bad as "yes".
+			info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
 		case "passwordauthentication":
 			info.SSHPasswordAuth = val == "yes"
 		case "pubkeyauthentication":
@@ -1078,4 +1099,79 @@ func isOffensiveDistro() bool {
 		strings.Contains(lower, `id="parrot"`) ||
 		strings.Contains(lower, "id=parrot") ||
 		strings.Contains(lower, "blackarch")
+}
+
+// parsePasswordAging reads /etc/shadow (root only) to detect:
+// 1. Accounts with an empty password field (no password set) — CRIT
+// 2. Human accounts (UID ≥ 1000) with Maximum_days=99999 (password never expires) — WARN
+//
+// /etc/shadow format: user:password:lastchg:min:max:warn:inactive:expire:reserved
+// password="" → empty password
+// max field = 99999 or 0 → password never expires
+func parsePasswordAging(info *models.SecurityInfo) {
+	shadow, err := os.ReadFile("/etc/shadow") // #nosec G304 -- hardcoded system file, root only
+	if err != nil {
+		return // requires root — silent skip
+	}
+
+	// Build UID lookup from /etc/passwd to filter human accounts
+	humanAccounts := map[string]bool{}
+	if passwd, err := os.ReadFile("/etc/passwd"); err == nil { // #nosec G304
+		for _, line := range strings.Split(string(passwd), "\n") {
+			fields := strings.SplitN(line, ":", 4)
+			if len(fields) < 4 {
+				continue
+			}
+			uid, _ := strconv.Atoi(fields[2])
+			if uid >= 1000 && uid < 65534 {
+				humanAccounts[fields[0]] = true
+			}
+		}
+	}
+
+	for _, line := range strings.Split(string(shadow), "\n") {
+		fields := strings.SplitN(line, ":", 9)
+		if len(fields) < 3 {
+			continue
+		}
+		user := fields[0]
+		pwField := fields[1]
+		if user == "" {
+			continue
+		}
+
+		// Empty password — account has no password protection
+		if pwField == "" {
+			info.EmptyPasswordAccounts = append(info.EmptyPasswordAccounts, user)
+		}
+
+		// Password expiry check — only for human accounts
+		if humanAccounts[user] && len(fields) >= 5 {
+			maxDays := fields[4]
+			if maxDays == "99999" || maxDays == "0" {
+				info.StalePasswordAccounts = append(info.StalePasswordAccounts, user)
+			}
+		}
+	}
+}
+
+// parseWorldWritable checks /tmp, /var/tmp, and /dev/shm for missing sticky bits.
+// World-writable directories without sticky bit allow any user to delete others' files —
+// a classic privilege escalation vector (e.g. tmp symlink attacks).
+func parseWorldWritable(info *models.SecurityInfo) {
+	dirs := []string{"/tmp", "/var/tmp", "/dev/shm"}
+	for _, dir := range dirs {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			continue
+		}
+		mode := fi.Mode()
+		// World-writable = mode has o+w set (0002)
+		// Sticky bit = mode has sticky bit (01000 in octal)
+		worldWritable := mode&0002 != 0
+		stickyBit := mode&os.ModeSticky != 0
+		if worldWritable && !stickyBit {
+			info.WorldWritableDirs = append(info.WorldWritableDirs, dir)
+		}
+	}
 }
