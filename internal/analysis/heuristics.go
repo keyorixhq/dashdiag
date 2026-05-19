@@ -3430,6 +3430,38 @@ func checkDockerResources(d models.DockerInfo) []models.Insight {
 
 func checkDockerSecurity(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
+
+	// Docker socket mounted — CRIT: root-equivalent host access
+	if d.SocketMountedCount > 0 {
+		var names []string
+		for _, c := range d.Containers {
+			if c.DockerSocketMounted {
+				names = append(names, c.Name)
+			}
+		}
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("%d container(s) have docker.sock mounted — grants root-equivalent host access: %s",
+				d.SocketMountedCount, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: docker inspect <name> | grep docker.sock",
+				"to fix: remove HostConfig.Binds entry for docker.sock",
+				"note: any process inside can escape to host via Docker API",
+			},
+		))
+	}
+
+	// Running as root
+	if d.RunningAsRootCount > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d running container(s) using root user — reduces container isolation", d.RunningAsRootCount),
+			[]string{
+				"to fix: add 'USER <non-root>' directive to Dockerfile",
+				"to fix: use --user flag: docker run --user 1000:1000 ...",
+			},
+		))
+	}
+
+	// Plaintext secrets
 	if d.ContainersWithSecrets > 0 {
 		var names []string
 		for _, c := range d.Containers {
@@ -3447,6 +3479,7 @@ func checkDockerSecurity(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
+
 	return out
 }
 
