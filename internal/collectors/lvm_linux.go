@@ -112,7 +112,36 @@ func parseLVMRaid(out string) []models.LVMRaidLV {
 	return result
 }
 
-// mergeMountedLVs reads /proc/mounts to find which VGs have at least one
+// dmNameToVGName recovers the VG name from a device-mapper name.
+// LVM encodes dashes in VG and LV names as double-dashes in dm paths:
+//
+//	VG "debian-vg" + LV "root"  → dm name "debian--vg-root"
+//	VG "ol"        + LV "root"  → dm name "ol-root"
+//
+// The separator between VG and LV is the first single dash (not preceded/followed
+// by another dash). We scan left-to-right, decoding "--" as "-" and treating
+// an isolated "-" as the VG/LV boundary.
+func dmNameToVGName(dmName string) string {
+	var vg []byte
+	i := 0
+	for i < len(dmName) {
+		if dmName[i] == '-' {
+			if i+1 < len(dmName) && dmName[i+1] == '-' {
+				// double dash → literal dash in VG name
+				vg = append(vg, '-')
+				i += 2
+			} else {
+				// single dash → VG/LV boundary
+				return string(vg)
+			}
+		} else {
+			vg = append(vg, dmName[i])
+			i++
+		}
+	}
+	return "" // no boundary found — not a VG-LV pattern
+}
+
 // LV currently mounted. A VG with no mounted LVs is leftover/inactive —
 // typically a previous OS install on a different drive — and should not
 // trigger CRIT alerts just because it's full.
@@ -131,10 +160,14 @@ func mergeMountedLVs(vgs []models.LVMVG) {
 		}
 		dev := fields[0]
 		// /dev/mapper/vgname-lvname
+		// LVM encodes dashes in VG/LV names as double-dashes in the dm path:
+		// VG "debian-vg" + LV "root" → "debian--vg-root"
+		// Split on single dash (not double) to recover the VG name.
 		if strings.HasPrefix(dev, "/dev/mapper/") {
 			name := strings.TrimPrefix(dev, "/dev/mapper/")
-			if dashIdx := strings.Index(name, "-"); dashIdx > 0 {
-				mountedVGs[name[:dashIdx]] = true
+			vgName := dmNameToVGName(name)
+			if vgName != "" {
+				mountedVGs[vgName] = true
 			}
 		}
 		// /dev/vgname/lvname
