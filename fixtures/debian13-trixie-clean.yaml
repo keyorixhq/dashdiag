@@ -1,0 +1,172 @@
+# fixture captured from debian (Debian GNU/Linux 13 (trixie))
+# replay with: dsd mock <this-file>
+
+host: debian
+os: Debian GNU/Linux 13 (trixie)
+version: v0.5.1-44-gc2cd6c6-dirty
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 10%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: ""
+      inline: 48°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 1.2/14 GB (9%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 3 mounts, max 34% (/boot)
+      message: ""
+      hints: []
+    - name: IO
+      level: ""
+      inline: 1.8 ms (nvme1n1)
+      message: ""
+      hints: []
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: WARN
+      inline: ""
+      message: volume group debian-vg is 98% full (20.6 GB free of 952.0 GB)
+      hints:
+        - 'to inspect: vgs debian-vg'
+        - 'to inspect: pvs | grep debian-vg'
+        - 'to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>'
+    - name: Network
+      level: ""
+      inline: eno1 1Gbps  wlp4s0  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: ""
+      inline: boot 39s
+      message: ""
+      hints: []
+    - name: Processes
+      level: ""
+      inline: 323 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±19 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read
+      hints:
+        - 'to fix: apt install rsyslog  OR  dnf install rsyslog'
+        - 'note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails'
+        - 'note:   standard Unix tools (grep, tail, less) cannot read binary journal files'
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)'
+      hints:
+        - 'to inspect: cat /proc/sys/vm/swappiness'
+        - 'to fix: sysctl -w vm.swappiness=10'
+        - 'to persist: echo ''vm.swappiness=10'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: WARN
+      inline: ""
+      message: 25 AppArmor profile(s) in complain mode — not enforcing
+      hints:
+        - 'to inspect: aa-status'
+        - 'to enforce: aa-enforce /etc/apparmor.d/*'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: no pressure
+      message: ""
+      hints: []
+    - name: Firewall
+      level: WARN
+      inline: ""
+      message: nftables is installed but no rules are active — host is unprotected
+      hints:
+        - 'to inspect: iptables -L -n'
+        - 'to inspect: nft list ruleset'
+        - 'note: consider enabling ufw, firewalld, or writing iptables/nft rules'
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: HugePages
+      level: INFO
+      inline: ""
+      message: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+      hints:
+        - 'to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to ''madvise'' or ''never'''
+        - 'to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to persist: add to /etc/rc.local or a systemd service'
+    - name: CPUFreq
+      level: WARN
+      inline: ""
+      message: CPU governor is 'powersave' — CPU running at 4272 MHz (max 4463 MHz), performance limited
+      hints:
+        - 'to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to fix: cpupower frequency-set -g performance'
+        - 'to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to persist: add to /etc/rc.local or use tuned profile ''throughput-performance'''
+        - 'note: ''schedutil'' or ''ondemand'' are also acceptable for variable workloads'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: INFO
+      inline: ""
+      message: '2 session(s) from 2 unique IP(s): 192.168.1.145, 192.168.1.147'
+      hints:
+        - 'to inspect: w'
