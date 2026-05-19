@@ -514,7 +514,69 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	result.Total = len(result.Critical) + len(result.Important) +
 		len(result.Moderate) + len(result.Low)
 	result.FixCommand = "dnf upgrade --security"
+
+	// On subscribed RHEL, enrich advisories with CVE IDs from `dnf updateinfo info`.
+	// This is a best-effort pass — falls through silently if not subscribed.
+	enrichDNFAdvisoryWithCVEs(ctx, result)
+
 	return result
+}
+
+// enrichDNFAdvisoryWithCVEs runs `dnf updateinfo info --security` to extract
+// the CVE ID(s) for each advisory and populates advisory.CVEs.
+// Only works on subscribed RHEL/Rocky — fails silently on unregistered systems.
+func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult) {
+	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	out, err := runCmd(eCtx, "dnf", "updateinfo", "info", "--security", "--quiet")
+	if err != nil || len(out) == 0 {
+		return
+	}
+
+	// Parse: lines are "       CVEs: CVE-XXXX-YYYY" after an "  Update ID: RHSA-..." block
+	cveMap := make(map[string]string) // advisory ID → CVE ID(s)
+	currentID := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Update ID:") {
+			currentID = strings.TrimSpace(strings.TrimPrefix(line, "Update ID:"))
+		} else if strings.HasPrefix(line, "CVEs:") && currentID != "" {
+			cve := strings.TrimSpace(strings.TrimPrefix(line, "CVEs:"))
+			if cve != "" {
+				if existing := cveMap[currentID]; existing != "" {
+					cveMap[currentID] = existing + ", " + cve
+				} else {
+					cveMap[currentID] = cve
+				}
+			}
+		}
+	}
+	if len(cveMap) == 0 {
+		return
+	}
+
+	// Populate CVEs field on each advisory
+	for i := range result.Critical {
+		if cves, ok := cveMap[result.Critical[i].ID]; ok {
+			result.Critical[i].CVEs = cves
+		}
+	}
+	for i := range result.Important {
+		if cves, ok := cveMap[result.Important[i].ID]; ok {
+			result.Important[i].CVEs = cves
+		}
+	}
+	for i := range result.Moderate {
+		if cves, ok := cveMap[result.Moderate[i].ID]; ok {
+			result.Moderate[i].CVEs = cves
+		}
+	}
+	for i := range result.Low {
+		if cves, ok := cveMap[result.Low[i].ID]; ok {
+			result.Low[i].CVEs = cves
+		}
+	}
 }
 
 // scanAllApt uses apt-get to list security updates.

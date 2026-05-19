@@ -240,9 +240,10 @@ func printAdvisoryGroup(label string, advisories []models.CVEAdvisory) {
 	}
 	fmt.Printf("%s (%d)\n", label, len(advisories))
 	for _, a := range advisories {
-		line := fmt.Sprintf("  %-40s", a.ID)
-		if a.Summary != "" {
-			// Truncate long summaries
+		line := fmt.Sprintf("  %-28s", a.ID)
+		if a.CVEs != "" {
+			line += "  " + a.CVEs
+		} else if a.Summary != "" {
 			summary := a.Summary
 			if len(summary) > 50 {
 				summary = summary[:47] + "..."
