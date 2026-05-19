@@ -333,7 +333,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen // registration list — each line is a presence-gated collector, splitting would harm readability
+func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -360,12 +360,15 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.HasSubscriptionManager() {
 		cols = append(cols, collectors.NewSUSEConnectCollector())
 	}
+	if includePackages && !includeDeep {
+		// Fast package check — security advisory summary (no integrity scan)
+		cols = append(cols, collectors.NewPackagesCollector())
+	}
 	cols = append(cols,
 		collectors.NewThermalCollectorWithContext(ctrCtx.InContainer),
 		collectors.NewBatteryCollector(),
 		collectors.NewLaunchdCollector(),
 		collectors.NewNVMeCollector(),
-		collectors.NewPackagesCollector(), // security advisory summary — uses local package metadata, no network
 	)
 	// Storage HA — only register when technology is present on this host
 	if collectors.IsRAIDPresent() {
@@ -462,6 +465,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	}
 	if includeDeep {
 		cols = append(cols, collectors.NewHealthDeepCollector())
+		// Package integrity always included in deep mode (Spec 12):
+		// dpkg --audit, dnf check, missing shared libs
+		cols = append(cols, collectors.NewPackagesDeepCollector())
 	}
 	if includeFirmware {
 		cols = append(cols, collectors.NewFirmwareCollector())
