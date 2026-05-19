@@ -72,10 +72,14 @@ type DockerInfo struct {
 	VolumesCount     int             `json:"volumes_count"`
 	OrphanedVolumes  int             `json:"orphaned_volumes"`
 	// Network health
-	NetworkBackend string `json:"network_backend,omitempty"` // "netavark" (nftables), "cni" (iptables), "unknown"
-	MTUMismatch    bool   `json:"mtu_mismatch"`              // container network MTU ≠ host interface MTU
-	HostMTU        int    `json:"host_mtu,omitempty"`
-	ContainerMTU   int    `json:"container_mtu,omitempty"`
+	NetworkBackend    string `json:"network_backend,omitempty"` // "netavark", "cni", "iptables"
+	MTUMismatch       bool   `json:"mtu_mismatch"`
+	HostMTU           int    `json:"host_mtu,omitempty"`
+	ContainerMTU      int    `json:"container_mtu,omitempty"`
+	IPForwardEnabled  bool   `json:"ip_forward_enabled"` // /proc/sys/net/ipv4/ip_forward
+	FirewalldActive   bool   `json:"firewalld_active,omitempty"`
+	FirewalldBackend  string `json:"firewalld_backend,omitempty"` // "nftables" or "iptables"
+	DockerZoneTrusted bool   `json:"docker_zone_trusted,omitempty"`
 	// Security
 	ContainersWithSecrets int `json:"containers_with_secrets,omitempty"` // count with plaintext env secrets
 	RunningAsRootCount    int `json:"running_as_root_count,omitempty"`   // running containers with root user

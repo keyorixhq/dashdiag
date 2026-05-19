@@ -3466,6 +3466,27 @@ func checkDockerResources(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
+	// IP forwarding disabled — all container outbound traffic fails
+	if !d.IPForwardEnabled && d.Available {
+		out = append(out, insight("CRIT", "Docker",
+			"IP forwarding disabled (net.ipv4.ip_forward=0) — container outbound traffic will fail",
+			[]string{
+				"to fix:    sysctl -w net.ipv4.ip_forward=1",
+				"to persist: echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-docker.conf && sysctl -p",
+				"note: Docker sets this on start, but systemd-networkd restart can reset it",
+			},
+		))
+	}
+	// firewalld with nftables backend — silently drops Docker iptables rules
+	if d.FirewalldActive && d.FirewalldBackend == "nftables" {
+		out = append(out, insight("WARN", "Docker",
+			"firewalld is active with nftables backend — Docker iptables rules are silently ignored",
+			[]string{
+				"fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf && systemctl restart firewalld docker",
+				"fix B (trust docker0): firewall-cmd --permanent --zone=trusted --add-interface=docker0 && firewall-cmd --reload",
+			},
+		))
+	}
 	return out
 }
 
