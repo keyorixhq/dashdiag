@@ -676,10 +676,50 @@ func collectNetworkHealth(ctx context.Context, client *http.Client, info *models
 	if containerMTU > hostMTU {
 		info.MTUMismatch = true
 	}
+	// IP forwarding — required for container outbound traffic
+	collectIPForwarding(info)
+
+	// firewalld nftables backend — breaks Docker iptables rules silently
+	collectFirewalldCheck(ctx, info)
 }
 
-// detectNetworkBackend checks whether the container runtime uses
-// netavark (nftables) or CNI (iptables) for network management.
+// collectIPForwarding checks /proc/sys/net/ipv4/ip_forward.
+func collectIPForwarding(info *models.DockerInfo) {
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward") // #nosec G304
+	if err != nil {
+		return // not Linux or not readable
+	}
+	info.IPForwardEnabled = strings.TrimSpace(string(data)) == "1"
+}
+
+// collectFirewalldCheck checks firewalld backend and docker zone trust.
+// Only runs when firewalld is active.
+func collectFirewalldCheck(ctx context.Context, info *models.DockerInfo) {
+	out, err := runCmd(ctx, "systemctl", "is-active", "firewalld")
+	if err != nil || strings.TrimSpace(out) != "active" {
+		return // firewalld not running — skip
+	}
+	info.FirewalldActive = true
+
+	// Read backend from /etc/firewalld/firewalld.conf
+	data, err := os.ReadFile("/etc/firewalld/firewalld.conf") // #nosec G304
+	if err == nil {
+		info.FirewalldBackend = "nftables" // default on modern systems
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "FirewallBackend=") {
+				info.FirewalldBackend = strings.TrimPrefix(line, "FirewallBackend=")
+				info.FirewalldBackend = strings.TrimSpace(info.FirewalldBackend)
+				break
+			}
+		}
+	}
+
+	// Check if docker0 is in any firewalld zone
+	zonesOut, _ := runCmd(ctx, "firewall-cmd", "--get-active-zones")
+	info.DockerZoneTrusted = strings.Contains(zonesOut, "docker0") ||
+		strings.Contains(zonesOut, "docker")
+}
+
 func detectNetworkBackend(runtime string) string {
 	// Netavark creates an 'inet netavark' nftables table
 	if data, err := os.ReadFile("/proc/net/nf_conntrack_stat"); err == nil {
