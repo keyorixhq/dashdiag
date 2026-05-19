@@ -5,8 +5,6 @@ package collectors
 import (
 	"context"
 	"time"
-
-	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 type LaunchdCollector struct{}
@@ -16,5 +14,5 @@ func (c *LaunchdCollector) Name() string           { return "Launchd" }
 func (c *LaunchdCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *LaunchdCollector) Collect(_ context.Context) (interface{}, error) {
-	return &models.LaunchdInfo{}, nil
+	return nil, nil // Launchd is macOS-only — skip on Linux/other
 }
