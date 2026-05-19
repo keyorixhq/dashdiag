@@ -31,8 +31,8 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.DockerInfo{}
 
 	// Try Docker socket first, then Podman
-	socket, runtime := detectContainerSocket()
-	if socket == "" {
+	socket, runtime, permDenied := detectContainerSocket()
+	if socket == "" && !permDenied {
 		info.Status = "unavailable"
 		info.StatusReason = "no Docker or Podman socket found"
 		// Check if Docker is installed but daemon not running
@@ -42,6 +42,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 				info.StatusReason = "Docker installed but daemon not running — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
 			}
 		}
+		return info, nil
+	}
+	// 7h: socket exists but permission denied
+	if permDenied {
+		info.SocketPermDenied = true
+		info.Status = "unavailable"
+		info.StatusReason = collectSocketPermReason(socket, runtime)
 		return info, nil
 	}
 	info.Available = true
@@ -71,8 +78,17 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Network backend + MTU checks
 	collectNetworkHealth(ctx, client, info)
 
+	// 7g: DNS trap — host loopback in resolv.conf breaks container DNS
+	collectDNSTrap(ctx, client, info)
+
 	// Recent events (die, oom, kill in last 1h)
 	collectDockerEvents(ctx, client, info)
+
+	// 7i: image architecture mismatch — detect amd64 image on arm64 host (or vice versa)
+	if info.Daemon != nil && info.Daemon.Architecture != "" {
+		info.HostArch = info.Daemon.Architecture
+		collectArchMismatch(ctx, client, info)
+	}
 
 	// Deep: log driver config + container log file sizes (Docker only)
 	if c.Deep && info.Runtime == "docker" {
@@ -92,11 +108,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 // and its runtime name ("docker" or "podman"). Exported so cmd/health.go
 // can gate inclusion without importing the whole collector on non-Linux.
 func DetectContainerSocket() (string, string) {
-	return detectContainerSocket()
+	path, runtime, _ := detectContainerSocket()
+	return path, runtime
 }
 
 // detectContainerSocket returns the first available socket and its runtime name.
-func detectContainerSocket() (string, string) {
+// Returns ("", "", true) when a socket file exists but connection is permission-denied.
+func detectContainerSocket() (path, runtime string, permDenied bool) {
 	candidates := []struct{ path, runtime string }{
 		{"/var/run/docker.sock", "docker"},
 		{"/run/docker.sock", "docker"},
@@ -112,13 +130,20 @@ func detectContainerSocket() (string, string) {
 	}
 
 	for _, c := range candidates {
+		// Check if socket file exists before attempting connection (7h)
+		if _, statErr := os.Stat(c.path); statErr != nil {
+			continue // file doesn't exist — try next
+		}
 		conn, err := net.DialTimeout("unix", c.path, 500*time.Millisecond)
 		if err == nil {
 			conn.Close() //nolint:errcheck
-			return c.path, c.runtime
+			return c.path, c.runtime, false
+		}
+		if strings.Contains(err.Error(), "permission denied") {
+			return c.path, c.runtime, true
 		}
 	}
-	return "", ""
+	return "", "", false
 }
 
 // socketClient creates an HTTP client that communicates over a Unix socket.
@@ -404,6 +429,80 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 // timeNow is a variable so tests can override it.
 var timeNow = func() time.Time { return time.Now() }
 
+// collectDNSTrap checks /etc/resolv.conf for loopback nameservers (127.x or ::1).
+// Containers inherit the host resolv.conf but cannot reach the host loopback —
+// Docker silently falls back to 8.8.8.8 which is often blocked by corporate firewalls.
+// Spec 7g.
+func collectDNSTrap(ctx context.Context, client *http.Client, info *models.DockerInfo) {
+	data, err := os.ReadFile("/etc/resolv.conf") // #nosec G304
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "nameserver ") {
+			continue
+		}
+		ns := strings.TrimSpace(strings.TrimPrefix(line, "nameserver "))
+		if strings.HasPrefix(ns, "127.") || ns == "::1" {
+			info.DNSTrap = true
+			if info.DNSTrapServer == "" {
+				info.DNSTrapServer = ns
+			}
+		}
+	}
+	if !info.DNSTrap {
+		return
+	}
+	// Read daemon DNS from /info to see if an explicit fallback is configured.
+	infoData, err := apiGet(ctx, client, "/info")
+	if err != nil {
+		return
+	}
+	var infoResp struct {
+		DNS []string `json:"DNS"`
+	}
+	if json.Unmarshal(infoData, &infoResp) == nil && len(infoResp.DNS) > 0 {
+		info.DaemonDNSServers = infoResp.DNS
+		info.DaemonDNSConfigured = true
+	}
+}
+
+// normalizeArch maps kernel arch names to OCI arch names.
+// x86_64 → amd64, aarch64 → arm64, armv7l → arm.
+var archNorm = map[string]string{
+	"x86_64":  "amd64",
+	"aarch64": "arm64",
+	"armv7l":  "arm",
+	"armv6l":  "arm",
+	"s390x":   "s390x",
+	"ppc64le": "ppc64le",
+}
+
+func normalizeArch(arch string) string {
+	if n, ok := archNorm[arch]; ok {
+		return n
+	}
+	return strings.ToLower(arch)
+}
+
+// collectImageArch fetches the architecture of an image by name/ID.
+// Returns empty string on error or if the image has no architecture field.
+// Spec 7i.
+func collectImageArch(ctx context.Context, client *http.Client, imageName string) string {
+	data, err := apiGet(ctx, client, "/images/"+imageName+"/json")
+	if err != nil {
+		return ""
+	}
+	var img struct {
+		Architecture string `json:"Architecture"`
+	}
+	if err := json.Unmarshal(data, &img); err != nil {
+		return ""
+	}
+	return normalizeArch(img.Architecture)
+}
+
 // collectLogDriverHealth checks /etc/docker/daemon.json and scans container log file sizes.
 // Only called for Docker runtime in deep mode.
 func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo {
@@ -483,18 +582,20 @@ func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerL
 func collectDaemonHealth(ctx context.Context, client *http.Client, runtime string) *models.DockerDaemon {
 	d := &models.DockerDaemon{Responding: true}
 
-	// GET /info — storage driver, swarm state
+	// GET /info — storage driver, swarm state, architecture
 	infoData, err := apiGet(ctx, client, "/info")
 	if err == nil {
 		var info struct {
-			Driver string `json:"Driver"`
-			Swarm  struct {
+			Driver       string `json:"Driver"`
+			Architecture string `json:"Architecture"`
+			Swarm        struct {
 				LocalNodeState string `json:"LocalNodeState"`
 			} `json:"Swarm"`
 		}
 		if json.Unmarshal(infoData, &info) == nil {
 			d.StorageDriver = info.Driver
 			d.SwarmState = info.Swarm.LocalNodeState
+			d.Architecture = normalizeArch(info.Architecture)
 		}
 	}
 
@@ -651,6 +752,55 @@ func isRHEL10Plus() bool {
 		}
 	}
 	return false
+}
+
+// collectSocketPermReason builds the human-readable status reason for 7h.
+// Checks if the current user is in the socket's group.
+func collectSocketPermReason(socketPath, runtime string) string {
+	fi, err := os.Stat(socketPath)
+	if err != nil {
+		return fmt.Sprintf("%s socket found at %s but permission denied", runtime, socketPath)
+	}
+	gidStr := ""
+	if stat, ok := fi.Sys().(interface{ Gid() uint32 }); ok {
+		gidStr = fmt.Sprintf(" (GID %d)", stat.Gid())
+		socketGID := int(stat.Gid())
+		if groups, gErr := os.Getgroups(); gErr == nil {
+			for _, gid := range groups {
+				if gid == socketGID {
+					return fmt.Sprintf(
+						"%s socket found at %s — group membership present but session not refreshed%s — log out and reconnect",
+						runtime, socketPath, gidStr)
+				}
+			}
+		}
+	}
+	return fmt.Sprintf(
+		"%s socket found at %s but user not in socket group%s — run: sudo usermod -aG %s $USER then log out and reconnect",
+		runtime, socketPath, gidStr, runtime)
+}
+
+// collectArchMismatch checks each container's image architecture against the host. Spec 7i.
+// Uses a per-image cache to avoid duplicate API calls.
+func collectArchMismatch(ctx context.Context, client *http.Client, info *models.DockerInfo) {
+	hostArch := info.HostArch
+	cache := make(map[string]string) // image name → normalized arch
+	for i, c := range info.Containers {
+		if c.Image == "" {
+			continue
+		}
+		imgArch, seen := cache[c.Image]
+		if !seen {
+			imgArch = collectImageArch(ctx, client, c.Image)
+			cache[c.Image] = imgArch
+		}
+		if imgArch == "" || imgArch == hostArch {
+			continue
+		}
+		info.Containers[i].ImageArch = imgArch
+		info.Containers[i].ArchMismatch = true
+		info.ArchMismatchCount++
+	}
 }
 
 // collectNetworkHealth detects the container network backend and checks for

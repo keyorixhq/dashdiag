@@ -6,7 +6,8 @@ type DockerDaemon struct {
 	Version         string `json:"version,omitempty"`
 	APIVersion      string `json:"api_version,omitempty"`
 	StorageDriver   string `json:"storage_driver,omitempty"`
-	SwarmState      string `json:"swarm_state,omitempty"` // inactive, active, pending
+	SwarmState      string `json:"swarm_state,omitempty"`  // inactive, active, pending
+	Architecture    string `json:"architecture,omitempty"` // host arch from GET /info (7i)
 	RecentErrors    int    `json:"recent_errors,omitempty"`
 	LastDaemonError string `json:"last_daemon_error,omitempty"`
 }
@@ -25,6 +26,8 @@ type ContainerInfo struct {
 	RunsAsRoot          bool     `json:"runs_as_root,omitempty"`      // Config.User == "" or "0" or "root"
 	User                string   `json:"user,omitempty"`
 	DockerSocketMounted bool     `json:"docker_socket_mounted,omitempty"` // docker.sock in HostConfig.Binds
+	ImageArch           string   `json:"image_arch,omitempty"`            // 7i: image architecture
+	ArchMismatch        bool     `json:"arch_mismatch,omitempty"`         // 7i: image arch != host arch
 }
 
 // DockerContainerLogFile holds per-container log file size info.
@@ -88,7 +91,17 @@ type DockerInfo struct {
 	RecentEvents []DockerEvent `json:"recent_events,omitempty"`
 	OOMEvents    int           `json:"oom_events,omitempty"`
 	// Deep only — log driver + container log sizes (Docker only)
-	LogDriver    *DockerLogDriverInfo `json:"log_driver,omitempty"`
-	Status       string               `json:"status,omitempty"`
-	StatusReason string               `json:"status_reason,omitempty"`
+	LogDriver *DockerLogDriverInfo `json:"log_driver,omitempty"`
+	// 7g: DNS trap — host resolv.conf uses loopback address
+	DNSTrap             bool     `json:"dns_trap,omitempty"`
+	DNSTrapServer       string   `json:"dns_trap_server,omitempty"`
+	DaemonDNSServers    []string `json:"daemon_dns_servers,omitempty"`
+	DaemonDNSConfigured bool     `json:"daemon_dns_configured,omitempty"`
+	// 7h: socket permission diagnosis
+	SocketPermDenied bool `json:"socket_perm_denied,omitempty"`
+	// 7i: image architecture mismatch
+	HostArch          string `json:"host_arch,omitempty"`
+	ArchMismatchCount int    `json:"arch_mismatch_count,omitempty"`
+	Status            string `json:"status,omitempty"`
+	StatusReason      string `json:"status_reason,omitempty"`
 }
