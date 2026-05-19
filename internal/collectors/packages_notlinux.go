@@ -15,7 +15,8 @@ import (
 // brew outdated is an acceptable wrapper — no kernel interface for package state.
 type PackagesCollector struct{}
 
-func NewPackagesCollector() *PackagesCollector { return &PackagesCollector{} }
+func NewPackagesCollector() *PackagesCollector     { return &PackagesCollector{} }
+func NewPackagesDeepCollector() *PackagesCollector { return &PackagesCollector{} }
 
 func (c *PackagesCollector) Name() string           { return "Packages" }
 func (c *PackagesCollector) Timeout() time.Duration { return 30 * time.Second }
