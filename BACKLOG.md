@@ -4,11 +4,11 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-19 — Sessions 1–6 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
+**Last updated: 2026-05-19 — Sessions 1–8 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
 
 ---
 
-## ✅ Recently Completed (Sessions 1–6, May 2026)
+## ✅ Recently Completed (Sessions 1–8, May 2026)
 
 | Item | Session | Commit |
 |---|---|---|
@@ -32,6 +32,10 @@ Build order rule: **never build deep before fast is in production use.**
 | `dsd logs` — severity summary, crash file detection, log source (Spec 3) | S6 | 9822a57 |
 | `dsd disk` — SMART (Linux+macOS), ZFS pools, I/O rate, physical drives model | S6 | 9822a57 |
 | macOS SMART via `diskutil` — no external tools, `disk_darwin.go` | S6 | f1a8296 |
+| `dsd kvm` — VM/network/pool/disk error diagnostics (Spec 15) | S7 | 2e05b0e |
+| Package integrity in `dsd health deep` — `NewPackagesDeepCollector` wired (Spec 12) | S7 | aa14092 |
+| NFS mount health in `dsd net deep` — non-blocking stale detection (Spec 11) | S7 | 3bef93a |
+| BIND/named health in `dsd net deep` — config/zone/query/rndc checks (Spec 16) | S8 | d8351a9 |
 
 ---
 
@@ -144,41 +148,61 @@ Live: k3s — 322 FDs, 518 MB Private_Dirty, 244 sockets. Commit: a248bd0.
 
 ---
 
-### [GAP-SPEC] dsd net deep — NFS Mount Health
-**Sprint 7. Full spec in DashDiag_Gap_Specs.md § Spec 11.**
-Non-blocking stale mount detection (goroutine + 2s `Statfs()` timeout).
-Server reachability, rpcbind, NFS retransmission stats, mount option audit.
-Estimated scope: ~1.5d.
+### ~~[GAP-SPEC] dsd net deep — NFS Mount Health~~ ✅ DONE (Session 7)
+**Spec 11. Commit: 3bef93a.**
+Non-blocking stale detection: `syscall.Statfs` in goroutine + 2s timeout — no D-state hang.
+Server reachability via TCP probe (port 111/2049, no ICMP required).
+Mount option audit: soft-without-timeo, nolock, vers=2/3, `_netdev` missing from fstab.
+rpcbind status + `/proc/net/rpc/nfs` stats.
+`nfs_linux.go` + `nfs_notlinux.go` stub. `models/nfs.go`: `NFSMount` + `NFSInfo`.
+Live: `STALE (timeout after 2s)` fires in 2.36s — no hang validated.
 
 ---
 
-### [GAP-SPEC] dsd net deep — BIND/named server health
-**Sprint 7. Full spec in DashDiag_Gap_Specs.md § Spec 16.**
-Only shown when `named`/`bind9` process is running.
-`named-checkconf`, `named-checkzone`, live dig test, `rndc status`.
-Estimated scope: ~1d.
+### ~~[GAP-SPEC] dsd net deep — BIND/named server health~~ ✅ DONE (Session 8)
+**Spec 16. Commit: d8351a9.**
+Gate: `pgrep named` or `systemctl is-active named` — section absent when BIND not running.
+Config file auto-detected: `/etc/named.conf` (RHEL) or `/etc/bind/named.conf` (Debian).
+`named-checkconf` validation. `include` directives followed (depth-limited to 5).
+Zone file parsing: skips `hint`/`forward`/`stub` types, resolves relative paths.
+`named-checkzone` per primary zone (3s timeout each, cap 20 zones).
+Port 53 check: TCP + UDP separately via `ss -tulpn`.
+Live DNS query test: `dig @127.0.0.1 localhost A +time=2 +tries=1`.
+`rndc status`: version, uptime, query count (graceful if not configured).
+Heuristics: service inactive CRIT, port 53 WARN, config error CRIT, zone failures CRIT.
+Live BIND 9.18.33: 5 zones pass, hint zone excluded, includes followed.
 
 ---
 
-### [GAP-SPEC] dsd pve — Proxmox VE Node Diagnostics
-**Sprint 7 (needs Proxmox hardware). Full spec in DashDiag_Gap_Specs.md § Spec 24.**
+### ~~[GAP-SPEC] dsd pve — Proxmox VE Node Diagnostics~~ ⏳ BLOCKED (needs Proxmox hardware)
+**Sprint 9. Full spec in DashDiag_Gap_Specs.md § Spec 24.**
 Fast: node overview, VM/CT status, storage pool health, recent task errors, cluster quorum.
 Deep: PVEPerf benchmark, VM resource over-commitment, backup audit, network bridge health.
 Estimated scope: ~4d.
 
 ---
 
-### [GAP-SPEC] dsd kvm — KVM/libvirt diagnostics
-**Sprint 7. Full spec in DashDiag_Gap_Specs.md § Spec 15.**
-VM status, log errors, network health, storage pool capacity, disk I/O errors.
-Estimated scope: ~3d.
+### ~~[GAP-SPEC] dsd kvm — KVM/libvirt diagnostics~~ ✅ DONE (Session 7)
+**Spec 15. Commit: 2e05b0e.**
+Gate: `virsh version --daemon` (libvirtd reachable). `KVMAvailable()` exported for `dsd health`.
+VM status: running/paused/shut-off/crashed via `virsh dominfo`. `domblkerror` for disk I/O errors.
+`/var/log/libvirt/qemu/<name>.log` scanned for last error line.
+Network: `virsh net-list --all` + virbr* bridge link state via `ip link show`.
+Storage pools: `virsh pool-info` capacity/available → `UsedPct`.
+Heuristics: crashed CRIT, paused WARN, down+autostart WARN, I/O errors CRIT,
+  inactive networks WARN, pools >85% WARN.
+Wired into `dsd health` via `KVMAvailable()`. `KVMVMState` typed constants.
+`domblkerror` false positive fix: `"No errors found"` correctly excluded.
+Live: libvirt 11.10.0 / QEMU 10.1.0, test-vm running, virbr0 up.
 
 ---
 
-### [GAP-SPEC] Package dependency integrity
-**Sprint 7. Full spec in DashDiag_Gap_Specs.md § Spec 12.**
-`dpkg --audit` + `apt-get check` (Debian). `dnf check` + `rpm --verify` (RHEL, deep-only).
-Estimated scope: ~0.5d.
+### ~~[GAP-SPEC] Package dependency integrity~~ ✅ DONE (Session 7)
+**Spec 12. Commit: aa14092.**
+`NewPackagesDeepCollector` was built but never wired — now included automatically in
+`dsd health deep` (no `--packages` flag needed). Fast path unchanged.
+Covers: `dnf check`, `dpkg --audit`, missing `.so` lib detection on canary binaries.
+Live RHEL 10.1: shows 7 critical security updates, clean integrity (no broken deps).
 
 ---
 
@@ -272,7 +296,7 @@ Lower priority. Defer until macOS user demand exists.
 ## [TESTBEDS] Hardware Validation
 
 ### RHEL 10 Laptop (192.168.1.145) — active Linux testbed
-**Sessions 1–6 validated:**
+**Sessions 1–8 validated:**
 - `dsd services deep` ✅ | `dsd health` sessions ✅ | SSH hardening ✅
 - User account audit ✅ | `dsd cron` ✅ | `dsd net dns` ✅
 - `dsd gpu` AMD + NVIDIA nouveau ✅ | cgroup v2 ✅ | LVM thin snapshots ✅
@@ -282,6 +306,10 @@ Lower priority. Defer until macOS user demand exists.
 - `dsd logs` — 38k errors (SELinux/Podman), journald+syslog ✅
 - `dsd disk` — SK Hynix NVMe SMART PASSED, wear:0%, spare:100%, temp:51°C ✅
 - `dsd disk --deep` — nvme0n1 1.5 MB/s write I/O rate ✅
+- `dsd kvm` — libvirt 11.10.0 / QEMU 10.1.0, test-vm healthy ✅
+- `dsd health deep` package integrity — 7 critical security updates surfaced ✅
+- `dsd net deep` NFS — healthy mount (1ms) + stale detection (2.36s, no hang) ✅
+- `dsd net deep` BIND — BIND 9.18.33, 5 zones OK, includes followed ✅
 
 **Still to test on Legion:**
 - Suspend/resume cycle | Battery vs AC transitions | GPU power state transitions
@@ -305,6 +333,10 @@ Lower priority. Defer until macOS user demand exists.
 | AMD GPU (amdgpu) | ✅ | depends | N/A | N/A |
 | NVIDIA (nouveau) | ✅ | depends | depends | N/A |
 | k3s / k8s | ✅ | depends | TODO | N/A |
+| KVM / libvirt | ✅ | ✅ likely | TODO | N/A |
+| NFS stale detection | ✅ | TODO | TODO | N/A |
+| BIND/named health | ✅ | TODO | TODO | N/A |
+| Package integrity (deep) | ✅ | TODO | TODO | N/A |
 | dsd proc smaps_rollup | ✅ | ✅ likely | ✅ | N/A |
 | Docker/Podman | ✅ | depends | TODO | TODO |
 | cgroup v2 | ✅ | ✅ likely | ✅ | N/A |

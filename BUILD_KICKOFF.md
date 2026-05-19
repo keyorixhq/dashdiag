@@ -1,5 +1,5 @@
 # DashDiag — Build Kickoff Summary
-**Last updated: May 2026 | Sessions 1–6 complete**
+**Last updated: May 2026 | Sessions 1–8 complete**
 **Research: COMPLETE (~80 sources, saturated)**
 
 This document is your single-page reference before each Claude Code session.
@@ -16,13 +16,14 @@ Keep it open alongside DashDiag_Gap_Specs.md when building.
 
 ---
 
-## What Ships (commits through f1a8296, Session 6)
+## What Ships (commits through d8351a9, Session 8)
 
 | Command | Status | Notes |
 |---|---|---|
-| `dsd health` | ✅ fast+deep | k8s+docker+sessions wired in |
-| `dsd health deep` | ✅ | cgroup v2, smaps, top procs |
+| `dsd health` | ✅ fast+deep | k8s+docker+kvm+sessions wired in |
+| `dsd health deep` | ✅ | cgroup v2, smaps, pkg integrity |
 | `dsd net` | ✅ fast+deep+dns | |
+| `dsd net deep` | ✅ | + NFS health + BIND/named health |
 | `dsd logs` | ✅ | severity summary, crash files, log source |
 | `dsd services` | ✅ fast+deep | failed units, boot offenders |
 | `dsd docker` | ✅ | crash-loop fixed, MTU, netavark |
@@ -32,13 +33,16 @@ Keep it open alongside DashDiag_Gap_Specs.md when building.
 | `dsd gpu` | ✅ | AMD sysfs + NVIDIA nouveau |
 | `dsd security` | ✅ | sshd-T, AVC, user audit |
 | `dsd disk` | ✅ + deep | SMART Linux+macOS, ZFS, I/O rate |
+| `dsd kvm` | ✅ | VM/network/pool, libvirt/QEMU |
 | 20+ collectors | ✅ | all shipped |
 
 ---
 
-## Session 7 Build Plan (needs Proxmox hardware)
+## Session 9 Build Plan
 
-### 1. `dsd pve` — Proxmox VE (~4d)
+### Option A — Proxmox (BLOCKED, needs hardware)
+
+#### 1. `dsd pve` — Proxmox VE (~4d)
 Gate: `/usr/share/pve-manager` exists.
 All data via `pvesh` REST API (10s timeout per call).
 **Spec:** DashDiag_Gap_Specs.md § Spec 24
@@ -49,53 +53,50 @@ internal/collectors/pve_linux.go
 internal/models/pve.go
 ```
 
-**Key checks:**
-- Node status: CPU, RAM, load, uptime via `pvesh get /nodes/localhost/status`
-- VM/CT list: state, CPU/RAM allocation via `pvesh get /nodes/localhost/qemu` + `/lxc`
-- Storage pools: used%, state via `pvesh get /nodes/localhost/storage`
-- Recent task errors: `pvesh get /nodes/localhost/tasks --errors 1`
-- Cluster quorum: `pvesh get /cluster/status` (if cluster)
+### Option B — Unblocked alternatives
 
-### 2. `dsd kvm` — KVM/libvirt (~3d)
-Gate: `virsh version` exits 0.
-**Spec:** DashDiag_Gap_Specs.md § Spec 15
-**Files:**
-```
-cmd/kvm.go
-internal/collectors/kvm_linux.go
-internal/models/kvm.go
-```
+#### 2. `dsd ssh` — SSH connection doctor (~1.5d)
+Tests SSH connectivity, key auth, banner, latency per host.
+**Spec:** DashDiag_Gap_Specs.md § Spec 13
+**Files:** `cmd/ssh.go`, `internal/collectors/ssh_linux.go`, `internal/models/ssh_doctor.go`
 
----
+#### 3. `dsd timeline` — unified incident timeline (~3d)
+Merges journalctl, dmesg, sar, load avg into single timeline.
+The "20:00 overnight cluster" canonical scenario target.
+**Spec:** DashDiag_Gap_Specs.md § Spec 22
 
-## Session 8 Build Plan
-
-### 3. `dsd net deep` — NFS mount health (~1.5d)
-Non-blocking stale mount detection (goroutine + 2s `Statfs()` timeout).
-**Spec:** DashDiag_Gap_Specs.md § Spec 11
-
-### 4. `dsd net deep` — BIND/named health (~1d)
-Gate: named/bind9 process running. `named-checkconf`, `rndc status`.
-**Spec:** DashDiag_Gap_Specs.md § Spec 16
-
----
-
-## Session 9 Build Plan
-
-### 5. Package dependency integrity (~0.5d)
-`dpkg --audit` (Debian) + `dnf check` / `rpm --verify` (RHEL, deep-only 10s cap).
-**Spec:** DashDiag_Gap_Specs.md § Spec 12
+#### 4. CVE exposure check (~1 week)
+OVAL feed integration, WARN CVSS ≥ 7.0, CRIT CVSS ≥ 9.0.
 
 ---
 
 ## Key Patterns
 
-### New collector — Linux+macOS template
+### New section in dsd net deep (NFS/BIND pattern)
+```go
+// 1. collector returns nil when gate fails (service not present)
+func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
+    if !bindDetect() { return nil, nil }
+    // ... collect ...
+}
+
+// 2. cmd/net.go adds to cols slice
+if deepFlag { cols = append(cols, collectors.NewBINDCollector()) }
+
+// 3. type-switch on result
+case *models.BINDInfo: bindInfo = v
+
+// 4. render after network section
+if bindInfo != nil && bindInfo.Detected { printBINDReport(bindInfo) }
 ```
-internal/collectors/foo_linux.go      //go:build linux
-internal/collectors/foo_darwin.go     //go:build darwin   (if macOS variant)
-internal/collectors/foo_darwin_stub.go //go:build darwin  (no-op Linux methods)
-internal/collectors/foo_notlinux.go   //go:build !linux && !darwin
+
+### NFS non-blocking stale detection
+```go
+go func() { err := syscall.Statfs(mount, &st); ch <- err }()
+select {
+case <-ch:        // healthy — got response within timeout
+case <-time.After(2 * time.Second): // STALE — never blocks caller
+}
 ```
 
 ### Deploy to Legion
@@ -103,37 +104,11 @@ internal/collectors/foo_notlinux.go   //go:build !linux && !darwin
 SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
 ```
 
-### SMART parser — NVMe field format
-```go
-// smartctl -A output: "Percentage Used:  0%"
-colonIdx := strings.Index(line, ":")
-val := strings.TrimSpace(line[colonIdx+1:])
-valFields := strings.Fields(val)
-if len(valFields) == 0 { continue }
-val = strings.TrimSuffix(valFields[0], "%")
+### Build both platforms (cross-compile check)
+```bash
+go build ./...                                         # macOS
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ...    # Linux
 ```
-
-### macOS SMART — diskutil (no smartctl)
-```go
-// diskutil info /dev/disk0 → "SMART Status: Verified"
-// No external tool needed — diskutil ships with every macOS
-```
-
-### ZFS gate — zero overhead
-```go
-// Only runs when: zpool binary exists AND /proc/mounts has zfs entry
-// parseZFSSize() lives in collectors/zfs.go — never redeclare
-```
-
-### k3s sudo PATH fix
-```go
-// WRONG: exec.LookPath("k3s") — sudo strips /usr/local/bin
-// RIGHT: os.Stat("/usr/local/bin/k3s")
-```
-
-### funlen = 90 statements
-Split renderers into: Identity / State / Resources / Files / Connections sections.
-Split heuristics into: checkXxxNodes, checkXxxPodHealth, checkXxxExtras etc.
 
 ---
 

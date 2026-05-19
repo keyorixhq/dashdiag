@@ -6,7 +6,7 @@
 
 ---
 
-## Current Phase: IMPLEMENTATION (Sessions 1–6 complete)
+## Current Phase: IMPLEMENTATION (Sessions 1–8 complete)
 
 Research is complete. ~80 sources processed. Gap spec is saturated.
 **DashDiag_Gap_Specs.md** is the single source of truth for what to build.
@@ -14,13 +14,15 @@ Research is complete. ~80 sources processed. Gap spec is saturated.
 
 ---
 
-## What Ships (as of Session 6, commits 9822a57 + f1a8296)
+## What Ships (as of Session 8, commit d8351a9)
 
 ```
-dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker wired in)
-dsd health deep  ✅ per-core CPU, top procs, smaps_rollup, cgroup v2 slices
+dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)
+dsd health deep  ✅ per-core CPU, top procs, smaps_rollup, cgroup v2 slices,
+                    package integrity (dpkg/dnf check, missing libs)
 dsd net          ✅ fast + deep + dns subcommand
 dsd net dns      ✅ resolv.conf audit, NM/resolved, live resolution test
+dsd net deep     ✅ + NFS mount health + BIND/named server health
 dsd logs         ✅ severity summary, crash files, log source detection
 dsd services     ✅ fast + deep (failed units, boot offenders, journal health)
 dsd docker       ✅ crash-loop fixed, MTU check, netavark detection
@@ -30,6 +32,7 @@ dsd cron         ✅ daemon, failures, quality, anacron staleness
 dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection
 dsd security     ✅ sshd -T, AVC grouping, user audit, world-writable
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives
+dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
@@ -38,63 +41,63 @@ dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives
 
 ## What Gets Built Next (Priority Order)
 
-### Session 7 — Virtualisation (needs Proxmox hardware)
-1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d)
-2. `dsd kvm` — KVM/libvirt diagnostics (Spec 15, ~3d)
+### Session 9 — Proxmox (needs hardware)
+1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d) — **BLOCKED on Proxmox hardware**
 
-### Session 8 — Networking deep
-3. `dsd net deep` — NFS mount health (Spec 11, ~1.5d)
-4. `dsd net deep` — BIND/named server health (Spec 16, ~1d)
-
-### Session 9 — Package integrity
-5. Package dependency integrity (Spec 12, ~0.5d)
+### Unblocked alternatives
+2. `dsd ssh` — SSH connection doctor (Spec 13, ~1.5d) — testable on Legion
+3. `dsd timeline` — unified incident timeline (Spec 22, ~3d) — capstone feature
+4. CVE exposure check — OVAL feed integration (~1 week)
 
 ---
 
 ## Key Implementation Notes
 
-### Deploy pattern
+### Deploy pattern (use this every time)
 ```bash
 SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
 ```
 Binary goes to `/usr/local/bin/dsd` on 192.168.1.145 (RHEL 10.1 Legion).
 
-### SMART parsing — NVMe field format
-`smartctl -A` on NVMe outputs `"Temperature:  51 Celsius"` (with spaces, colon).
-Parser uses `strings.Index(line, ":")` + `strings.Fields(val)[0]` to extract the
-first token. Guard with `len(valFields) == 0` before indexing.
-
-### macOS SMART — no smartctl needed
-`diskutil info /dev/diskN` gives `SMART Status: Verified` for every internal disk.
-`disk_darwin.go` uses this. No Homebrew dependency.
-
 ### k3s binary not in sudo PATH
-k3s is at `/usr/local/bin/k3s`. `exec.LookPath("k3s")` fails under `sudo -n`.
-Fix: `os.Stat("/usr/local/bin/k3s")` directly (done in k8s.go `K8sAvailable()`).
-
-### ZFS gate — zero overhead on non-ZFS systems
 ```go
-// Gate 1: zpool binary exists
-// Gate 2: /proc/mounts has a "zfs" fstype entry
-// Only runs collectZFSPools() when both true
-```
-`parseZFSSize()` lives in `internal/collectors/zfs.go` — don't redeclare in disk_linux.go.
-
-### Build tag pattern for platform-specific collectors
-```
-disk_linux.go       → //go:build linux
-disk_darwin.go      → //go:build darwin
-disk_darwin_stub.go → //go:build darwin       (no-op for Linux-only methods)
-disk_notlinux.go    → //go:build !linux && !darwin
+// WRONG: exec.LookPath("k3s") — sudo strips /usr/local/bin from PATH
+// RIGHT: os.Stat("/usr/local/bin/k3s") — absolute path check
 ```
 
-### Docker socket detection under sudo
-`DetectContainerSocket()` exported from `internal/collectors/docker.go`.
-Checks `/run/podman/podman.sock` and `/var/run/docker.sock` directly.
+### Gate pattern (dsd kvm, dsd k8s, docker)
+```go
+// Export a cheap binary-check function, call from cmd/health.go
+func KVMAvailable() bool { /* virsh version --daemon exit 0 */ }
+func K8sAvailable() bool { /* os.Stat("/usr/local/bin/k3s") */ }
+```
 
-### funlen limit = 90 statements
-Split at logical section boundaries. Renderers: extract sub-functions per section.
-Heuristics: extract `checkXxxNodes`, `checkXxxPodHealth` etc.
+### dsd net deep — multi-collector pattern
+```go
+// cmd/net.go runs NFSCollector + BINDCollector alongside NetworkDeepCollector
+// Type-switch on result: *models.NFSInfo, *models.BINDInfo, *models.NetworkInfo
+// nil return from collector = section absent (gate pattern)
+```
+
+### NFS non-blocking stale detection
+```go
+// NEVER: syscall.Statfs(mount) directly — hangs indefinitely on stale mount
+// ALWAYS: goroutine + time.After(2s) select
+go func() { err := syscall.Statfs(mount, &st); ch <- err }()
+select { case <-ch: /* healthy */ case <-time.After(2s): /* STALE */ }
+```
+
+### BIND zone parser — skip hint/forward zones
+```go
+// hint and forward zones are not checkable with named-checkzone
+// Watch for "type hint;" / "type forward;" inside zone block
+// Follow "include" directives (depth-limited to 5 levels)
+```
+
+### funlen limit = 90 statements, cyclop = 30 branches
+Renderers: split into Identity/State/Resources/Files/Connections sections.
+Heuristics: split into sub-checks (checkK8sNodes, checkK8sPodHealth, etc).
+`buildHealthCollectors` uses `//nolint:funlen,cyclop` — justified as flat registry.
 
 ---
 
@@ -106,32 +109,14 @@ Heuristics: extract `checkXxxNodes`, `checkXxxPodHealth` etc.
 | OS | RHEL 10.1 (Coughlan), kernel 6.12 |
 | CPU | AMD Ryzen 7 5800H, 8c/16t |
 | RAM | 16 GB DDR4 |
-| Storage | 2× SK Hynix 1TB NVMe (nvme0n1, nvme1n1) |
+| Storage | 2× SK Hynix 1TB NVMe |
 | GPU | AMD Radeon (amdgpu) + NVIDIA RTX 3070 (nouveau) |
 | k3s | v1.35.4 at `/usr/local/bin/k3s` |
 | Podman | 5.6.0 at `/run/podman/podman.sock` |
 | Go | 1.24.3 at `/home/andrei/go/bin/go` |
-| smartctl | 7.4 at `/usr/sbin/smartctl` |
-
-**MacBook (dev machine):**
-- Apple M-series arm64, macOS, disk0 APPLE SSD AP0512R 500GB
-- `diskutil info` → SMART: Verified, Protocol: Apple Fabric
-
----
-
-## New Files Needed (Sessions 7–9)
-
-```
-cmd/pve.go                           Session 7
-internal/collectors/pve_linux.go     Session 7
-internal/models/pve.go               Session 7
-cmd/kvm.go                           Session 7
-internal/collectors/kvm_linux.go     Session 7
-internal/models/kvm.go               Session 7
-```
-
-Follow the pattern of `disk_linux.go` + `disk_darwin.go` + `disk_notlinux.go`
-when creating new platform-specific collectors.
+| libvirt | 11.10.0, QEMU 10.1.0, test-vm running |
+| BIND | 9.18.33 at `/usr/sbin/named`, 5 zones |
+| NFS | `/mnt/nfs_test` → `127.0.0.1:/tmp/nfs_export` |
 
 ---
 
@@ -141,3 +126,19 @@ when creating new platform-specific collectors.
 DashDiag_Gap_Specs.md    ← 51 spec items, ~58d total, RESEARCH COMPLETE
 BACKLOG.md               ← Full feature backlog (sprint-ordered, ✅ for done)
 ```
+
+---
+
+## New Files Needed (Session 9+)
+
+```
+cmd/pve.go                           Session 9 (blocked)
+internal/collectors/pve_linux.go     Session 9 (blocked)
+internal/models/pve.go               Session 9 (blocked)
+cmd/ssh.go                           Session 9 alternative
+internal/collectors/ssh_linux.go     Session 9 alternative
+internal/models/ssh_doctor.go        Session 9 alternative
+```
+
+Follow the pattern of `nfs_linux.go` + `nfs_notlinux.go` for new Linux-only
+collectors that add sections to `dsd net deep` or similar commands.
