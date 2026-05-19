@@ -3040,10 +3040,22 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	var out []models.Insight
 
 	if !k.Detected {
-		return out // k8s not present — not an error
+		return out
 	}
 
-	// Nodes not ready — always CRIT
+	out = append(out, checkK8sNodes(k)...)
+	out = append(out, checkK8sPodHealth(k)...)
+	out = append(out, checkK8sWorkloadsAndEvents(k)...)
+
+	if k.OSLayer != nil {
+		out = append(out, checkK8sOSLayer(*k.OSLayer)...)
+	}
+
+	return out
+}
+
+func checkK8sNodes(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
 	if k.NodesNotReady > 0 {
 		out = append(out, insight("CRIT", "K8s",
 			fmt.Sprintf("%d node(s) not Ready — cluster may be degraded", k.NodesNotReady),
@@ -3053,19 +3065,39 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 			},
 		))
 	}
-
-	// Crash looping pods — always CRIT
-	if k.CrashLooping > 0 {
-		out = append(out, insight("CRIT", "K8s",
-			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping),
-			[]string{
-				"to inspect: kubectl get pods -A | grep -v Running",
-				"to inspect: kubectl logs <pod> -n <ns> --previous",
-			},
-		))
+	for _, node := range k.Nodes {
+		for cond, status := range node.Conditions {
+			if cond == "Ready" || status != "True" {
+				continue
+			}
+			out = append(out, insight("CRIT", "K8s",
+				fmt.Sprintf("node %s: %s condition True — workloads may be evicted", node.Name, cond),
+				[]string{
+					fmt.Sprintf("to inspect: kubectl describe node %s | grep -A5 Conditions", node.Name),
+				},
+			))
+		}
 	}
+	return out
+}
 
-	// Pods not ready (container 0/1 in Running state)
+func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+	if k.CrashLooping > 0 {
+		hints := []string{"to inspect: kubectl get pods -A | grep -v Running"}
+		for _, p := range k.Pods {
+			if strings.Contains(p.Status, "CrashLoop") && p.PreviousLogs != "" {
+				hints = append(hints, fmt.Sprintf("  %s/%s last log: %s",
+					p.Namespace, p.Name, k8sFirstLine(p.PreviousLogs)))
+			}
+			if p.TerminationMsg != "" {
+				hints = append(hints, fmt.Sprintf("  %s/%s exit msg: %s",
+					p.Namespace, p.Name, k8sFirstLine(p.TerminationMsg)))
+			}
+		}
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping), hints))
+	}
 	if k.PodsNotReady > 0 {
 		out = append(out, insight("WARN", "K8s",
 			fmt.Sprintf("%d pod(s) running but containers not ready", k.PodsNotReady),
@@ -3075,30 +3107,179 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 			},
 		))
 	}
-
-	// Pending pods — may indicate resource pressure
 	if k.Pending > 0 {
 		out = append(out, insight("WARN", "K8s",
-			fmt.Sprintf("%d pod(s) stuck in Pending — check node resources or PVC availability", k.Pending),
+			fmt.Sprintf("%d pod(s) stuck in Pending — check node resources or PVC availability",
+				k.Pending),
 			[]string{
 				"to inspect: kubectl get pods -A | grep Pending",
 				"to inspect: kubectl describe pod <name> -n <ns> | grep -A5 Events",
 			},
 		))
 	}
-
-	// High restart count
 	if k.HighRestarts > 0 {
 		out = append(out, insight("WARN", "K8s",
-			fmt.Sprintf("%d pod(s) with ≥ 10 restarts — instability detected", k.HighRestarts),
+			fmt.Sprintf("%d pod(s) with ≥10 restarts — instability detected", k.HighRestarts),
 			[]string{
 				"to inspect: kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'",
 				"to inspect: kubectl logs <pod> -n <ns> --previous",
 			},
 		))
 	}
+	if k.Terminating > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck Terminating — finalizer or webhook blocking deletion",
+				k.Terminating),
+			[]string{
+				"to inspect: kubectl get pods -A | grep Terminating",
+				"to force: kubectl delete pod <name> -n <ns> --grace-period=0 --force",
+			},
+		))
+	}
+	return out
+}
+
+func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+	if k.PVCsNotBound > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d PVC(s) not Bound — pods waiting for storage may stay Pending",
+				k.PVCsNotBound),
+			[]string{
+				"to inspect: kubectl get pvc -A | grep -v Bound",
+				"to inspect: kubectl describe pvc <name> -n <ns>",
+			},
+		))
+	}
+	if k.WorkloadsDown > 0 {
+		var names []string
+		for _, w := range k.Workloads {
+			if w.Ready < w.Desired {
+				names = append(names, fmt.Sprintf("%s/%s (%d/%d)",
+					w.Namespace, w.Name, w.Ready, w.Desired))
+			}
+		}
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d workload(s) degraded: %s",
+				k.WorkloadsDown, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: kubectl get deploy,statefulset -A | grep -v '1/1'",
+				"to inspect: kubectl rollout status deployment/<name> -n <ns>",
+			},
+		))
+	}
+	if len(k.Events) > 0 {
+		reasons := map[string]int{}
+		for _, e := range k.Events {
+			reasons[e.Reason]++
+		}
+		var summary []string
+		for reason, count := range reasons {
+			summary = append(summary, fmt.Sprintf("%s×%d", reason, count))
+			if len(summary) >= 4 {
+				break
+			}
+		}
+		hints := []string{"to inspect: kubectl get events -A --field-selector type=Warning"}
+		for _, e := range k.Events {
+			if strings.Contains(e.Message, "subnet.env") {
+				hints = append(hints,
+					"CRIT: flannel subnet.env missing — CNI network plugin not ready",
+					"to fix: sudo systemctl restart k3s  (regenerates subnet.env)")
+				break
+			}
+		}
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d Warning event(s): %s", len(k.Events), strings.Join(summary, ", ")),
+			hints))
+	}
+	return out
+}
+
+// checkK8sOSLayer emits insights for OS-level k8s node health.
+func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
+	var out []models.Insight
+
+	if !l.IPForwardEnabled {
+		out = append(out, insight("CRIT", "K8s",
+			"IP forwarding disabled — pod-to-pod networking will fail",
+			[]string{
+				"to fix (persistent): echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.d/99-k8s.conf && sysctl -p",
+				"to fix (immediate): sysctl -w net.ipv4.ip_forward=1",
+			},
+		))
+	}
+
+	if !l.FlannelSubnetOK {
+		out = append(out, insight("CRIT", "K8s",
+			"/run/flannel/subnet.env missing — CNI network plugin cannot configure pod networking",
+			[]string{
+				"to fix (k3s): sudo systemctl restart k3s",
+				"to inspect: sudo journalctl -u k3s -n 50 | grep -i flannel",
+			},
+		))
+	}
+
+	if !l.CNIBinsOK {
+		out = append(out, insight("CRIT", "K8s",
+			"/opt/cni/bin/ is empty — CNI plugins not installed, networking will fail",
+			[]string{
+				"to fix (k3s): sudo systemctl restart k3s",
+				"to fix (kubeadm): reinstall kubeadm network plugin",
+			},
+		))
+	}
+
+	if !l.KubeForwardChain {
+		out = append(out, insight("WARN", "K8s",
+			"KUBE-FORWARD chain not found in iptables/nftables — kube-proxy may not be running",
+			[]string{
+				"to inspect: sudo iptables -L KUBE-FORWARD -n 2>/dev/null || sudo nft list tables",
+				"to inspect: kubectl get pods -n kube-system | grep kube-proxy",
+			},
+		))
+	}
+
+	if len(l.CertExpiredNames) > 0 {
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("k8s certificate(s) EXPIRED: %s — API server will reject requests",
+				strings.Join(l.CertExpiredNames, ", ")),
+			[]string{
+				"to fix (kubeadm): kubeadm certs renew all",
+				"to fix (k3s): sudo systemctl restart k3s  (auto-renews certs)",
+			},
+		))
+	} else if l.CertExpirySoonDays > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("k8s certificate(s) expire in %d day(s) — renew before expiry",
+				l.CertExpirySoonDays),
+			[]string{
+				"to fix (kubeadm): kubeadm certs renew all",
+				"to fix (k3s): sudo systemctl restart k3s",
+			},
+		))
+	}
+
+	if len(l.KubeletErrors) > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("kubelet errors in journal: %s", l.KubeletErrors[0]),
+			append([]string{"to inspect: journalctl -u kubelet -u k3s -n 50 --no-pager"},
+				l.KubeletErrors[1:]...),
+		))
+	}
 
 	return out
+}
+
+// k8sFirstLine returns the first non-empty line of a multi-line string.
+func k8sFirstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return s
 }
 
 func checkFirmware(f models.FirmwareInfo) []models.Insight {

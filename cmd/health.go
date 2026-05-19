@@ -440,6 +440,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if sock, _ := collectors.DetectContainerSocket(); sock != "" {
 		cols = append(cols, collectors.NewDockerCollector())
 	}
+	// Kubernetes — gate on kubectl/k3s availability
+	if collectors.K8sAvailable() {
+		cols = append(cols, collectors.NewK8sCollector())
+	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
 	cols = append(cols, collectors.NewSessionsCollector())
