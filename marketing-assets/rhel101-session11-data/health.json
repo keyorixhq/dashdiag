@@ -1,0 +1,3472 @@
+{
+  "hostname": "localhost.localdomain",
+  "os": "Red Hat Enterprise Linux 10.1 (Coughlan)",
+  "timestamp": "2026-05-19T19:20:12.355346996Z",
+  "version": "v0.5.1-28-g8f04e08",
+  "checks": [
+    {
+      "name": "Memory",
+      "status": "CRIT",
+      "inline": "7.9/13 GB (60%)",
+      "duration": "114.889µs",
+      "raw": {
+        "total_gb": 13.246158599853516,
+        "free_gb": 4.749717712402344,
+        "used_pct": 59.73771462454941,
+        "slab_mb": 788.34765625,
+        "commit_limit_mb": 13758.02734375,
+        "committed_as_mb": 14209.84375,
+        "over_committed": true,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "inline": "±0 ms  adjtimex",
+      "duration": "5.92416ms",
+      "raw": {
+        "synced": true,
+        "offset_ms": 0,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": "",
+        "rtc_in_local_tz": true
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "inline": "256/256 bits",
+      "duration": "5.094793ms",
+      "raw": {
+        "available": true,
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "HugePages",
+      "status": "INFO",
+      "inline": "THP always",
+      "duration": "114.819µs",
+      "raw": {
+        "available": true,
+        "configured": 0,
+        "free": 0,
+        "used": 0,
+        "page_size_kb": 2048,
+        "reserved_gb": 0,
+        "thp_enabled": true,
+        "thp_mode": "always"
+      }
+    },
+    {
+      "name": "Launchd",
+      "status": "OK",
+      "duration": "2.863µs",
+      "raw": {
+        "total": 0,
+        "running": 0
+      }
+    },
+    {
+      "name": "CPUFreq",
+      "status": "WARN",
+      "inline": "powersave  4191/4465 MHz",
+      "duration": "172.229µs",
+      "raw": {
+        "governor": "powersave",
+        "current_mhz": 4191,
+        "max_mhz": 4465,
+        "min_mhz": 403,
+        "throttled_pct": 6.136618141097425,
+        "cpu_count": 16
+      }
+    },
+    {
+      "name": "CPU Thermal",
+      "status": "OK",
+      "inline": "78°C",
+      "duration": "10.093414ms",
+      "raw": {
+        "available": true,
+        "cpu_temp_c": 77.5,
+        "core_temps": {
+          "Tctl": 77.5
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "iSCSI",
+      "status": "OK",
+      "duration": "10.401276ms",
+      "raw": {
+        "available": true
+      }
+    },
+    {
+      "name": "DBus",
+      "status": "OK",
+      "duration": "30.739869ms",
+      "raw": {
+        "available": true,
+        "active": true,
+        "status": "active"
+      }
+    },
+    {
+      "name": "Nspawn",
+      "status": "OK",
+      "inline": "1 containers  0 running",
+      "duration": "17.505406ms",
+      "raw": {
+        "available": true,
+        "containers": [
+          {
+            "name": "qemu-1-test-vm",
+            "state": "-"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Multipath",
+      "status": "OK",
+      "duration": "32.312908ms",
+      "raw": {
+        "available": true,
+        "status": "error",
+        "status_reason": "multipathd running but paths unreadable"
+      }
+    },
+    {
+      "name": "Auditd",
+      "status": "OK",
+      "inline": "0 rules  running",
+      "duration": "36.300435ms",
+      "raw": {
+        "available": true,
+        "running": true,
+        "audit_log_size_gb": 0.00550092663615942
+      }
+    },
+    {
+      "name": "Firewall",
+      "status": "OK",
+      "inline": "nftables  554 rules",
+      "duration": "51.16325ms",
+      "raw": {
+        "available": true,
+        "backend": "nftables",
+        "active": true,
+        "chains": [
+          {
+            "table": "netavark",
+            "name": "INPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "NETAVARK-HOSTPORT-DNAT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "NETAVARK-HOSTPORT-SETMARK",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "NETAVARK-ISOLATION-1",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "NETAVARK-ISOLATION-2",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "NETAVARK-ISOLATION-3",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "netavark",
+            "name": "nv_2f259bab_10_88_0_0_nm16",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-IPTABLES-HINT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-IPTABLES-HINT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "mangle",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-NODEPORTS",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-MARK-MASQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-NPX46M4PTMTKRN6Y",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-KOO4O54FWOPIZO3E",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "FLANNEL-POSTRTG",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "CNI-HOSTPORT-SETMARK",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "CNI-HOSTPORT-MASQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "CNI-HOSTPORT-DNAT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "CNI-DN-8015a88ec7da88de39b05",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-JD5MR3NA4I4DYORP",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-OWVYFKC6LI5UONET",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-TCOU7JCQXEZGVUNU",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-J5U7JDFDTOWHXPVR",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-ERIFXISQEP7F7OF4",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-K5XXJLQU5KR42YSX",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-EXT-CVG3OEGEH7H5P3HQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-CVG3OEGEH7H5P3HQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-MYQ5ZTRJQYQJPUAK",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-EXT-UQMCRMJZLI3FTLDP",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SVC-UQMCRMJZLI3FTLDP",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SEP-TO6DGEX6YA4F3F65",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-NODEPORTS",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "nat",
+            "name": "KUBE-MARK-MASQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-EXTERNAL-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "INPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-NODEPORTS",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-PROXY-FIREWALL",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-FIREWALL",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PREROUTING_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PREROUTING_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POSTROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POSTROUTING_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUTPUT_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_PREROUTING",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_INPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_INPUT_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FORWARD_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUTPUT_POLICIES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_public_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_policy_allow-host-ipv6_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_policy_allow-host-ipv6_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_policy_allow-host-ipv6_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_trusted_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_IN_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_OUT_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_OUT_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_POST_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "filter_FWD_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "nat_PRE_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt_pre",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt_log",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt_deny",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt_allow",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "firewalld",
+            "name": "mangle_PRE_libvirt_post",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "forward",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_output",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_input",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_cross",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_nat",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "forward",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_output",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_input",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_cross",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "libvirt_network",
+            "name": "guest_nat",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "INPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "FLANNEL-FWD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-EXTERNAL-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-FIREWALL",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-KUBELET-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-NODEPORTS",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-NWPLCY-COMMON",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-NWPLCY-DEFAULT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-PROXY-CANARY",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-PROXY-FIREWALL",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-ROUTER-FORWARD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-ROUTER-INPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-ROUTER-OUTPUT",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-SERVICES",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-POD-FW-ODHOUM7H4JFVXKAD",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-POD-FW-B5ZQJP457D57IHO5",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-POD-FW-CBQTZ7WKL3AGLYPF",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-POD-FW-AICMWIHHWLZOVFWQ",
+            "policy": "",
+            "rules": 0
+          },
+          {
+            "table": "filter",
+            "name": "KUBE-POD-FW-IM4IS3B6AQYQY4DG",
+            "policy": "",
+            "rules": 0
+          }
+        ],
+        "total_rules": 554,
+        "default_drop": false
+      }
+    },
+    {
+      "name": "Drives",
+      "status": "OK",
+      "inline": "2 drives  healthy",
+      "duration": "52.254872ms",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 52.85000000000002,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 85,
+            "power_on_hours": 7170,
+            "power_cycles": 4670,
+            "mount_points": [
+              "/boot",
+              "/boot/efi"
+            ],
+            "has_linux": true
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 42.85000000000002,
+            "available_spare_pct": 100,
+            "spare_threshold_pct": 10,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 84,
+            "power_on_hours": 7186,
+            "power_cycles": 4668,
+            "has_linux": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "OK",
+      "inline": "592 running",
+      "duration": "61.758126ms",
+      "raw": {
+        "total": 592,
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "62.63268ms",
+      "raw": {
+        "available": true,
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 589,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 1024,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 1,
+        "fs_inotify_watches": 106141,
+        "workload": "k8s",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "inline": "100%  full",
+      "duration": "65.78197ms",
+      "raw": {
+        "present": true,
+        "status": "Full",
+        "capacity_pct": 100,
+        "health_pct": 84.51666666666667,
+        "energy_now_uwh": 50710000,
+        "energy_full_uwh": 50710000,
+        "energy_design_uwh": 60000000,
+        "cycle_count": 150,
+        "voltage_uv": 17005000,
+        "power_now_uw": 0,
+        "manufacturer": "Sunwoda",
+        "model_name": "L20D4PC0"
+      }
+    },
+    {
+      "name": "Auth",
+      "status": "OK",
+      "inline": "0 failed logins",
+      "duration": "75.860159ms",
+      "raw": {
+        "available": true,
+        "checked": true,
+        "failed_last_24h": 0
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "CRIT",
+      "inline": "SELinux enforcing",
+      "duration": "77.105362ms",
+      "raw": {
+        "available": true,
+        "se_linux_present": true,
+        "se_linux_mode": "enforcing",
+        "se_linux_denials": 1527,
+        "se_linux_avc_samples": [
+          "type=AVC msg=audit(1779218207.108:1660729): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0",
+          "type=AVC msg=audit(1779218207.249:1660735): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0",
+          "type=AVC msg=audit(1779218207.396:1660741): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0"
+        ],
+        "se_linux_type": "targeted",
+        "se_linux_type_valid": true,
+        "se_linux_policy_dir_ok": true,
+        "se_linux_policy_pkg_ok": true,
+        "app_armor_present": false,
+        "app_armor_mode": "",
+        "app_armor_profiles": 0,
+        "app_armor_enforce": 0,
+        "app_armor_complain": 0,
+        "app_armor_denials": 0
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "OK",
+      "inline": "16 mounts, max 44% (/boot)",
+      "duration": "77.950374ms",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/mapper/rhel-root",
+            "fs_type": "xfs",
+            "total_gb": 75.05686528,
+            "used_gb": 9.073418239999995,
+            "free_gb": 65.98344704,
+            "used_pct": 12.088725270035683,
+            "inodes_used_pct": 0.44695717947823566,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot",
+            "device": "/dev/nvme0n1p2",
+            "fs_type": "xfs",
+            "total_gb": 0.981655552,
+            "used_gb": 0.42815078399999995,
+            "free_gb": 0.553504768,
+            "used_pct": 43.61517470437533,
+            "inodes_used_pct": 0.00438690185546875,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/home",
+            "device": "/dev/mapper/rhel-home",
+            "fs_type": "xfs",
+            "total_gb": 939.56841472,
+            "used_gb": 19.027066880000007,
+            "free_gb": 920.54134784,
+            "used_pct": 2.0250858353588086,
+            "inodes_used_pct": 0.008328580949934494,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme0n1p1",
+            "fs_type": "vfat",
+            "total_gb": 0.627900416,
+            "used_gb": 0.009101311999999973,
+            "free_gb": 0.618799104,
+            "used_pct": 1.449483352468428,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/gvfs",
+            "device": "gvfsd-fuse",
+            "fs_type": "fuse.gvfsd-fuse",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/doc",
+            "device": "portal",
+            "fs_type": "fuse.portal",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/var/lib/containers/storage/overlay",
+            "device": "/dev/mapper/rhel-root",
+            "fs_type": "xfs",
+            "total_gb": 75.05686528,
+            "used_gb": 9.073418239999995,
+            "free_gb": 65.98344704,
+            "used_pct": 12.088725270035683,
+            "inodes_used_pct": 0.44695717947823566,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-878198ac-345f-ed0c-ee39-6bb9e1463b58",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-cd6af959-06f3-7b8c-b180-000673b4e6d5",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-7576b858-45d7-8916-b648-6725c97de715",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-32ffa4af-8ecc-be23-9460-68d3736009cc",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/cni-ef239e44-84b8-6d7b-db50-b5df7f19680b",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/var/lib/nfs/rpc_pipefs",
+            "device": "sunrpc",
+            "fs_type": "rpc_pipefs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/mnt/nfs_test",
+            "device": "127.0.0.1:/tmp/nfs_export",
+            "fs_type": "nfs4",
+            "total_gb": 75.05707008,
+            "used_gb": 9.073328128,
+            "free_gb": 65.983741952,
+            "used_pct": 12.088572226879013,
+            "inodes_used_pct": 0.44695717947823566,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/netns-966665a5-61fe-98a2-e51d-05107892a0e8",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/netns/netns-eddc4edc-3818-152c-d61a-bc65755f66e8",
+            "device": "nsfs",
+            "fs_type": "nsfs",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "drives": [
+          {
+            "name": "nvme1n1",
+            "size_gb": 1024.209543168,
+            "type": "NVMe",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "mounts": [
+              "not mounted (Windows/other OS)"
+            ]
+          },
+          {
+            "name": "nvme0n1",
+            "size_gb": 1024.209543168,
+            "type": "NVMe",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "mounts": [
+              "nvme0n1p2→/boot",
+              "nvme0n1p1→/boot/efi"
+            ],
+            "smart": {
+              "device": "/dev/nvme0n1",
+              "healthy": true,
+              "percent_used": 0,
+              "available_spare": 100,
+              "temperature_c": 53,
+              "media_errors": 0
+            }
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "duration": "114.914022ms",
+      "raw": {
+        "open_count": 10496,
+        "max_count": 9223372036854775807,
+        "used_pct": 1.1379786002407855e-13,
+        "hot_processes": null,
+        "deleted_open_files": 43,
+        "deleted_open_size_gb": 0.16061728600000008,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "KVM",
+      "status": "OK",
+      "duration": "190.674587ms",
+      "raw": {
+        "detected": true,
+        "libvirt_ver": "11.10.0",
+        "qemu_ver": "10.1.0",
+        "vms": [
+          {
+            "name": "test-vm",
+            "id": 1,
+            "state": "running",
+            "autostart": false,
+            "vcpu": 1,
+            "max_mem_mb": 512,
+            "used_mem_mb": 512,
+            "disk_io_error": false
+          }
+        ],
+        "networks": [
+          {
+            "name": "default",
+            "state": "active",
+            "autostart": true,
+            "bridge_up": true,
+            "bridge": "virbr0"
+          }
+        ],
+        "storage_pools": [
+          {
+            "name": "boot",
+            "state": "active",
+            "capacity_gb": 69.9,
+            "available_gb": 61.63,
+            "used_pct": 11.831187410586557
+          },
+          {
+            "name": "default",
+            "state": "active",
+            "capacity_gb": 69.9,
+            "available_gb": 61.63,
+            "used_pct": 11.831187410586557
+          }
+        ],
+        "vms_running": 1,
+        "vms_paused": 0,
+        "vms_crashed": 0,
+        "vms_down_autostart": 0,
+        "networks_inactive": 0,
+        "pools_inactive": 0,
+        "pools_near_full": 0,
+        "disk_io_errors": 0
+      }
+    },
+    {
+      "name": "LVM",
+      "status": "CRIT",
+      "duration": "202.321694ms",
+      "raw": {
+        "vgs": [
+          {
+            "name": "dsd_test",
+            "size_gb": 953.86,
+            "free_gb": 793.67,
+            "free_pct": 83.2061308787453,
+            "has_mounted_lv": false
+          },
+          {
+            "name": "rhel",
+            "size_gb": 952.28,
+            "free_gb": 0,
+            "free_pct": 0,
+            "has_mounted_lv": true
+          }
+        ],
+        "thin_pools": [
+          {
+            "name": "thin_pool",
+            "vg": "dsd_test",
+            "data_pct": 0,
+            "meta_pct": 10.43,
+            "size_gb": 100
+          }
+        ],
+        "snapshots": [
+          {
+            "name": "snap_thin",
+            "vg": "dsd_test",
+            "origin": "thin_vol",
+            "data_pct": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "Sessions",
+      "status": "WARN",
+      "duration": "324.613276ms",
+      "raw": {
+        "sessions": [
+          {
+            "user": "andrei",
+            "tty": "tty2",
+            "login_at": "00:16",
+            "idle": "23:04m",
+            "idle_sec": 83040,
+            "command": "/usr/libexec/gnome-session-binary"
+          },
+          {
+            "user": "andrei",
+            "tty": "00:16",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "14:09",
+            "idle_sec": 849,
+            "command": "--deserialize=12"
+          },
+          {
+            "user": "andrei",
+            "tty": "01:04",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.02s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "17:26",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.02s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "19:51",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "19:51",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "19:52",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "19:54",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "20:00",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "20:09",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "20:43",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "20:58",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "21:20",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "0.01s",
+            "idle_sec": 0,
+            "command": "[priv]"
+          }
+        ],
+        "total_count": 13,
+        "remote_count": 12,
+        "unique_ips": [
+          "0.00s"
+        ],
+        "root_ssh": false,
+        "long_idle": [
+          "andrei"
+        ]
+      }
+    },
+    {
+      "name": "OOM",
+      "status": "OK",
+      "duration": "441.952123ms",
+      "raw": {
+        "available": true,
+        "events_last_24h": 0
+      }
+    },
+    {
+      "name": "CPU Load",
+      "status": "OK",
+      "inline": "66%",
+      "duration": "500.576045ms",
+      "raw": {
+        "load_avg_1": 6.35,
+        "load_avg_5": 5.76,
+        "load_avg_15": 5.47,
+        "num_cpu": 16,
+        "usage_pct": 65.98465473145781,
+        "load_pct": 39.6875,
+        "steal_pct": 0,
+        "iowait_pct": 0.1278772378516624,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "WARN",
+      "duration": "806.148312ms",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": true,
+        "ssh_root_login": false,
+        "ssh_max_auth_tries": 6,
+        "ssh_login_grace_time": 120,
+        "ssh_pubkey_auth": true,
+        "ssh_x11_forwarding": true,
+        "ssh_agent_forwarding": true,
+        "ssh_strict_modes": true,
+        "ssh_ignore_rhosts": true,
+        "ssh_tcp_forwarding": true,
+        "ssh_log_level": "INFO",
+        "ssh_banner": "none",
+        "ssh_max_sessions": 10,
+        "ssh_max_startups": "10:30:100",
+        "ssh_ciphers": "aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes128-gcm@openssh.com,aes128-ctr",
+        "ssh_macs": "hmac-sha2-256-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha1,umac-128@openssh.com,hmac-sha2-512",
+        "ssh_kex_algorithms": "mlkem768x25519-sha256,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512",
+        "ssh_audit_source": "sshd -T",
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 55105,
+            "protocol": "tcp",
+            "process": "rpc.statd",
+            "expected": false
+          },
+          {
+            "port": 34409,
+            "protocol": "tcp",
+            "process": "",
+            "expected": false
+          },
+          {
+            "port": 111,
+            "protocol": "tcp",
+            "process": "systemd",
+            "expected": false
+          },
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "sshd",
+            "expected": true
+          },
+          {
+            "port": 20048,
+            "protocol": "tcp",
+            "process": "rpc.mountd",
+            "expected": false
+          },
+          {
+            "port": 2049,
+            "protocol": "tcp",
+            "process": "",
+            "expected": false
+          },
+          {
+            "port": 6443,
+            "protocol": "tcp",
+            "process": "k3s-server",
+            "expected": true
+          },
+          {
+            "port": 42289,
+            "protocol": "tcp",
+            "process": "",
+            "expected": false
+          },
+          {
+            "port": 9090,
+            "protocol": "tcp",
+            "process": "cockpit",
+            "expected": true
+          },
+          {
+            "port": 41655,
+            "protocol": "tcp",
+            "process": "rpc.statd",
+            "expected": false
+          },
+          {
+            "port": 10250,
+            "protocol": "tcp",
+            "process": "k3s-server",
+            "expected": true
+          }
+        ],
+        "firewall_active": true,
+        "firewall_type": "firewalld",
+        "firewall_zone": "public",
+        "firewall_services": [
+          "cockpit",
+          "dhcpv6-client",
+          "ssh"
+        ],
+        "ssh_allowed": true,
+        "sudo_nopasswd": [
+          "andrei"
+        ],
+        "stale_password_accounts": [
+          "andrei"
+        ],
+        "se_linux_denials": 1528,
+        "se_linux_mode": "enforcing",
+        "se_linux_avc_groups": [
+          {
+            "scontext": "init_t",
+            "tcontext": "container_runtime_t",
+            "tclass": "bpf",
+            "perms": [
+              "prog_run"
+            ],
+            "count": 1528,
+            "fix_cmd": "ausearch -m avc -ts recent | audit2allow -M my_init_t \u0026\u0026 semodule -i my_init_t.pp"
+          }
+        ],
+        "fips_enabled": false,
+        "crypto_policy": "DEFAULT",
+        "usb_guard_active": false,
+        "aide_installed": false,
+        "aide_db_exists": false,
+        "aide_last_run_days": 0,
+        "audit_rules": 0,
+        "supportconfig_available": false,
+        "supportconfig_last_run_days": 0
+      }
+    },
+    {
+      "name": "K8s",
+      "status": "WARN",
+      "duration": "917.340763ms",
+      "raw": {
+        "nodes": [
+          {
+            "name": "localhost.localdomain",
+            "status": "Ready",
+            "roles": "worker",
+            "age": "",
+            "version": "v1.35.4+k3s1",
+            "conditions": {
+              "DiskPressure": "False",
+              "MemoryPressure": "False",
+              "PIDPressure": "False",
+              "Ready": "True"
+            }
+          }
+        ],
+        "pods": [
+          {
+            "namespace": "kube-system",
+            "name": "coredns-c4dbffb5f-gpkp2",
+            "ready": "1/1",
+            "status": "Running",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/mirrored-coredns-coredns:1.14.2"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "helm-install-traefik-blhjv",
+            "ready": "0/1",
+            "status": "Succeeded",
+            "restarts": 1,
+            "age": "",
+            "image": "rancher/klipper-helm:v0.9.17-build20260422"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "helm-install-traefik-crd-9hknd",
+            "ready": "0/1",
+            "status": "Succeeded",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/klipper-helm:v0.9.17-build20260422"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "local-path-provisioner-5c4dc5d66d-gz24q",
+            "ready": "1/1",
+            "status": "Running",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/local-path-provisioner:v0.0.35"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "metrics-server-786d997795-dzrtf",
+            "ready": "0/1",
+            "status": "Running",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/mirrored-metrics-server:v0.8.1"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "svclb-traefik-6b0512f4-f7kzj",
+            "ready": "2/2",
+            "status": "Running",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/klipper-lb:v0.4.15"
+          },
+          {
+            "namespace": "kube-system",
+            "name": "traefik-9bcdbbd9-vcdvq",
+            "ready": "1/1",
+            "status": "Running",
+            "restarts": 0,
+            "age": "",
+            "image": "rancher/mirrored-library-traefik:3.6.13"
+          }
+        ],
+        "events": [
+          {
+            "namespace": "kube-system",
+            "name": "metrics-server-786d997795-dzrtf",
+            "reason": "Unhealthy",
+            "message": "Readiness probe failed: HTTP probe failed with statuscode: 500",
+            "age": "3m57s"
+          }
+        ],
+        "workloads": [
+          {
+            "namespace": "kube-system",
+            "name": "coredns",
+            "kind": "Deploy",
+            "ready": 1,
+            "desired": 1
+          },
+          {
+            "namespace": "kube-system",
+            "name": "local-path-provisioner",
+            "kind": "Deploy",
+            "ready": 1,
+            "desired": 1
+          },
+          {
+            "namespace": "kube-system",
+            "name": "metrics-server",
+            "kind": "Deploy",
+            "ready": 0,
+            "desired": 1
+          },
+          {
+            "namespace": "kube-system",
+            "name": "traefik",
+            "kind": "Deploy",
+            "ready": 1,
+            "desired": 1
+          }
+        ],
+        "nodes_not_ready": 0,
+        "pods_not_ready": 1,
+        "crash_looping": 0,
+        "pending": 0,
+        "high_restarts": 0,
+        "pvcs_not_bound": 0,
+        "workloads_down": 1,
+        "terminating": 0,
+        "detected": true,
+        "kube_bin": "/usr/local/bin/k3s kubectl"
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "inline": "2.0 ms (nvme1n1)",
+      "duration": "1.000395009s",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 1.5,
+            "await_ms": 2,
+            "read_mbps": 1.572864,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 6,
+            "await_ms": 0.13125,
+            "read_mbps": 1.4336,
+            "write_mbps": 2.095616,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "inline": "0 MB used",
+      "duration": "1.00031099s",
+      "raw": {
+        "total_gb": 6.812496185302734,
+        "used_gb": 0.000244140625,
+        "used_pct": 0.0035837176030528795,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "WARN",
+      "inline": "boot 44s",
+      "duration": "1.300634742s",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "slow_units": [
+          {
+            "name": "dnf-makecache.service",
+            "duration_sec": 13.638
+          },
+          {
+            "name": "kdump.service",
+            "duration_sec": 11.08
+          },
+          {
+            "name": "NetworkManager-wait-online.service",
+            "duration_sec": 7.235
+          }
+        ],
+        "total_boot_sec": 44.481,
+        "selinux_enforcing": true,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "WARN",
+      "inline": "6 NICs, eno1 100Mbps  gw \u003c1 ms",
+      "duration": "1.33553765s",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.145",
+            "up": true,
+            "rx_drops": 24,
+            "tx_drops": 4,
+            "tx_errors": 2,
+            "speed_mbps": 100,
+            "driver": "r8169"
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 0,
+            "driver": "rtw_8822ce"
+          },
+          {
+            "name": "flannel.1",
+            "ip": "10.42.0.0",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 29,
+            "speed_mbps": 100
+          },
+          {
+            "name": "cni0",
+            "ip": "10.42.0.1",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 10000
+          },
+          {
+            "name": "vnet0",
+            "ip": "",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 12053,
+            "speed_mbps": 10000
+          },
+          {
+            "name": "podman0",
+            "ip": "10.88.0.1",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 10000
+          }
+        ],
+        "primary_interface": "eno1",
+        "gateway_ping_ms": 0.685215,
+        "internet_ping_ms": 7.191643,
+        "dns_resolves_ms": 21,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "WARN",
+      "inline": "344 MB journal",
+      "duration": "1.376431416s",
+      "raw": {
+        "available": true,
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.3359375,
+        "crash_loops": null,
+        "log_disk_used_pct": 12.088725270035685,
+        "log_disk_mount": "/",
+        "error_count": 38070,
+        "warning_count": 19041,
+        "top_errors": [
+          "×19036 localhost.localdomain systemd[1]: libpod-a8c3fac2693331771e914708a7e4411a3126a97",
+          "×19033 localhost.localdomain setroubleshoot[27155]: SELinux is preventing systemd from ",
+          "localhost.localdomain systemd[1]: libpod-451648cc341be4095914aab4addd8b774660544"
+        ],
+        "core_dump_count": 0,
+        "log_source": "journald+syslog"
+      }
+    },
+    {
+      "name": "Docker",
+      "status": "CRIT",
+      "duration": "2.193174114s",
+      "raw": {
+        "available": true,
+        "runtime": "podman",
+        "daemon": {
+          "responding": true,
+          "version": "5.6.0",
+          "api_version": "1.41",
+          "storage_driver": "overlay",
+          "swarm_state": "inactive",
+          "architecture": "amd64"
+        },
+        "total_containers": 2,
+        "running_count": 1,
+        "stopped_count": 1,
+        "stopped": 1,
+        "unhealthy_count": 0,
+        "crash_loop_count": 2,
+        "crash_looping": [
+          "test-healthy",
+          "test-crashloop"
+        ],
+        "containers": [
+          {
+            "id": "451648cc341b",
+            "name": "test-healthy",
+            "image": "docker.io/library/alpine:latest",
+            "state": "running",
+            "health": "none",
+            "restart": 11,
+            "runs_as_root": true
+          },
+          {
+            "id": "a8c3fac26933",
+            "name": "test-crashloop",
+            "image": "docker.io/library/alpine:latest",
+            "state": "stopped",
+            "health": "none",
+            "restart": 276231,
+            "exit_code": 1,
+            "exit_label": "application error",
+            "runs_as_root": true
+          }
+        ],
+        "disk_usage_gb": 0.008143515326082706,
+        "images_count": 1,
+        "dangling_images": 0,
+        "dangling_images_mb": 0,
+        "volumes_count": 0,
+        "orphaned_volumes": 0,
+        "network_backend": "netavark",
+        "mtu_mismatch": false,
+        "host_mtu": 1500,
+        "container_mtu": 1500,
+        "ip_forward_enabled": true,
+        "firewalld_active": true,
+        "firewalld_backend": "nftables",
+        "running_as_root_count": 1,
+        "recent_events": [
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215903
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215904
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215904
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215904
+          },
+          {
+            "action": "die",
+            "actor": "test-crashloop",
+            "time": 1779215904
+          }
+        ],
+        "host_arch": "amd64"
+      }
+    }
+  ],
+  "insights": [
+    {
+      "check": "Memory",
+      "level": "CRIT",
+      "message": "memory overcommitted — OOM kill risk",
+      "hints": [
+        "to inspect: cat /proc/meminfo | grep -E 'CommitLimit|Committed_AS'",
+        "to inspect: sysctl vm.overcommit_memory"
+      ],
+      "details": {
+        "type": "process_table",
+        "title": "Top processes by memory (RSS)",
+        "columns": [
+          "PID",
+          "MEM%",
+          "RSS",
+          "COMMAND"
+        ],
+        "rows": [
+          [
+            "1499964",
+            "24.4%",
+            "3.2GB",
+            "python3"
+          ],
+          [
+            "1447",
+            "5.3%",
+            "722.2MB",
+            "polkitd"
+          ],
+          [
+            "27253",
+            "5.0%",
+            "683.9MB",
+            "SetroubleshootP"
+          ],
+          [
+            "544814",
+            "5.0%",
+            "682.9MB",
+            "k3s-server"
+          ],
+          [
+            "6985",
+            "1.7%",
+            "230.1MB",
+            "gnome-shell"
+          ],
+          [
+            "545358",
+            "1.4%",
+            "195.0MB",
+            "containerd"
+          ],
+          [
+            "7151",
+            "1.0%",
+            "141.3MB",
+            "gnome-software"
+          ],
+          [
+            "556567",
+            "0.8%",
+            "114.7MB",
+            "traefik"
+          ],
+          [
+            "2112916",
+            "0.8%",
+            "105.0MB",
+            "packagekitd"
+          ],
+          [
+            "659264",
+            "0.8%",
+            "104.8MB",
+            "python3"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "HugePages",
+      "level": "INFO",
+      "message": "transparent huge pages mode is 'always' — may cause latency spikes for database workloads",
+      "hints": [
+        "to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled",
+        "to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to 'madvise' or 'never'",
+        "to fix:     echo madvise \u003e /sys/kernel/mm/transparent_hugepage/enabled",
+        "to persist: add to /etc/rc.local or a systemd service"
+      ]
+    },
+    {
+      "check": "CPUFreq",
+      "level": "WARN",
+      "message": "CPU governor is 'powersave' — CPU running at 4191 MHz (max 4465 MHz), performance limited",
+      "hints": [
+        "to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+        "to fix: cpupower frequency-set -g performance",
+        "to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+        "to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+        "note: 'schedutil' or 'ondemand' are also acceptable for variable workloads"
+      ]
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "fs.inotify.max_user_watches=106141 is low for k8s (recommended: 524288)",
+      "hints": [
+        "to inspect: sysctl fs.inotify.max_user_watches",
+        "to fix: sysctl -w fs.inotify.max_user_watches=524288",
+        "to persist: echo 'fs.inotify.max_user_watches=524288' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+      ],
+      "details": {
+        "type": "sysctl_table",
+        "title": "Sysctl: current vs recommended",
+        "columns": [
+          "SYSCTL",
+          "CURRENT",
+          "RECOMMENDED",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "fs.inotify.max_user_watches",
+            "106141",
+            "524288",
+            "required for k8s file watchers"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "vm.swappiness=60 is high for k8s node (recommended: ≤ 10)",
+      "hints": [
+        "to inspect: sysctl vm.swappiness",
+        "to fix: sysctl -w vm.swappiness=10",
+        "to persist: echo 'vm.swappiness=10' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+      ],
+      "details": {
+        "type": "sysctl_table",
+        "title": "Sysctl: current vs recommended",
+        "columns": [
+          "SYSCTL",
+          "CURRENT",
+          "RECOMMENDED",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "vm.swappiness",
+            "60",
+            "10",
+            "lower for k8s/database; 60 for general workloads"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "KernelSec",
+      "level": "CRIT",
+      "message": "1527 SELinux denial(s) in the last hour (mode: enforcing)",
+      "hints": [
+        "to inspect: ausearch -m avc -ts recent",
+        "to inspect: sealert -a /var/log/audit/audit.log",
+        "to check booleans: getsebool -a | grep systemd",
+        "to generate fix: ausearch -m avc -ts recent | audit2allow -M mypolicy",
+        "to apply fix:    semodule -i mypolicy.pp",
+        "note: check booleans and file contexts BEFORE using audit2allow",
+        "note: audit2allow may grant broader access than needed — review .te file first",
+        "sample AVC: type=AVC msg=audit(1779218207.108:1660729): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0",
+        "sample AVC: type=AVC msg=audit(1779218207.249:1660735): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0",
+        "sample AVC: type=AVC msg=audit(1779218207.396:1660741): avc:  denied  { prog_run } for  pid=1 comm=\"systemd\" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0"
+      ],
+      "details": {
+        "type": "policy_table",
+        "title": "Security policies not in enforcing mode",
+        "columns": [
+          "POLICY",
+          "MODE",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "abrt_handle_event",
+            "on",
+            "SELinux policy relaxed"
+          ],
+          [
+            "abrt_upload_watch_anon_write",
+            "on",
+            "SELinux policy relaxed"
+          ],
+          [
+            "auditadm_exec_content",
+            "on",
+            "SELinux policy relaxed"
+          ],
+          [
+            "container_use_dri_devices",
+            "on",
+            "SELinux policy relaxed"
+          ],
+          [
+            "container_user_exec_content",
+            "on",
+            "SELinux policy relaxed"
+          ]
+        ],
+        "note": "... and 55 more — run: aa-status | grep complain"
+      }
+    },
+    {
+      "check": "LVM",
+      "level": "INFO",
+      "message": "inactive volume group dsd_test is 17% full — no LVs mounted (old OS partition?)",
+      "hints": [
+        "to inspect: vgs dsd_test",
+        "to inspect: lvs | grep dsd_test",
+        "note: this VG has no mounted LVs on this OS — likely a leftover from a previous install"
+      ]
+    },
+    {
+      "check": "LVM",
+      "level": "CRIT",
+      "message": "volume group rhel is 100% full (0.0 GB free of 952.3 GB)",
+      "hints": [
+        "to inspect: vgs rhel",
+        "to inspect: pvs | grep rhel",
+        "to add PV:  pvcreate /dev/\u003cnew-disk\u003e \u0026\u0026 vgextend \u003cvg\u003e /dev/\u003cnew-disk\u003e"
+      ]
+    },
+    {
+      "check": "Sessions",
+      "level": "WARN",
+      "message": "1 session(s) idle \u003e 8h: andrei — unattended terminal risk",
+      "hints": [
+        "to inspect: w",
+        "to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect"
+      ]
+    },
+    {
+      "check": "Sessions",
+      "level": "WARN",
+      "message": "13 concurrent sessions active — unusually high for a single server",
+      "hints": [
+        "to inspect: w",
+        "to inspect: last | head -20"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH allows password authentication — key-based auth recommended",
+      "hints": [
+        "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window",
+      "hints": [
+        "to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
+        "to fix: systemctl restart sshd"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH X11Forwarding enabled — unnecessary on servers, increases attack surface",
+      "hints": [
+        "to fix: set X11Forwarding no in /etc/ssh/sshd_config",
+        "note: only needed if users require GUI applications over SSH"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
+      "hints": [
+        "to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
+        "note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
+      "hints": [
+        "to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
+        "to fix: set ClientAliveCountMax 3 in /etc/ssh/sshd_config",
+        "note: this disconnects idle sessions after 300s × 3 = 15 minutes"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH weak MAC(s) enabled (sshd -T (effective config)): hmac-sha1",
+      "hints": [
+        "to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config",
+        "note: hmac-sha1 uses SHA-1 which is cryptographically broken",
+        "to verify: sshd -T | grep '^macs'"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "7 unexpected port(s) listening on all interfaces: 55105/tcp, 34409/tcp, 111/tcp, 20048/tcp, 2049/tcp, 42289/tcp, 41655/tcp",
+      "hints": [
+        "to inspect: ss -tlnp",
+        "to inspect: ss -tlnp | grep :55105",
+        "to inspect: ss -tlnp | grep :34409",
+        "to inspect: ss -tlnp | grep :111",
+        "to inspect: ss -tlnp | grep :20048",
+        "to inspect: ss -tlnp | grep :2049",
+        "to inspect: ss -tlnp | grep :42289",
+        "to inspect: ss -tlnp | grep :41655"
+      ],
+      "details": {
+        "type": "process_table",
+        "title": "Unexpected ports listening on all interfaces",
+        "columns": [
+          "PORT",
+          "PROTO",
+          "PROCESS"
+        ],
+        "rows": [
+          [
+            "55105",
+            "tcp",
+            "rpc.statd"
+          ],
+          [
+            "34409",
+            "tcp",
+            ""
+          ],
+          [
+            "111",
+            "tcp",
+            "systemd"
+          ],
+          [
+            "20048",
+            "tcp",
+            "rpc.mountd"
+          ],
+          [
+            "2049",
+            "tcp",
+            ""
+          ],
+          [
+            "42289",
+            "tcp",
+            ""
+          ],
+          [
+            "41655",
+            "tcp",
+            "rpc.statd"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
+      "hints": [
+        "to inspect: systemctl status cockpit",
+        "to restrict: configure AllowUnencrypted=false in /etc/cockpit/cockpit.conf",
+        "to restrict: limit access with firewall-cmd --add-rich-rule"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "NOPASSWD sudo for: andrei",
+      "hints": [
+        "to inspect: sudo -l",
+        "to inspect: cat /etc/sudoers"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "1528 SELinux denials in the last hour (mode: enforcing)",
+      "hints": [
+        "to inspect: ausearch -m avc -ts recent",
+        "to inspect: sealert -a /var/log/audit/audit.log",
+        "  init_t → container_runtime_t [bpf] ×1528  fix: ausearch -m avc -ts recent | audit2allow -M my_init_t \u0026\u0026 semodule -i my_init_t.p…"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "auditd is running but has no active rules — system calls and file access are not being audited",
+      "hints": [
+        "to inspect: auditctl -l",
+        "to fix: augenrules --load or add rules to /etc/audit/rules.d/"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "password never expires for human account(s): andrei",
+      "hints": [
+        "to inspect: sudo chage -l \u003cusername\u003e",
+        "to fix:     chage -M 90 \u003cusername\u003e  (expire after 90 days)",
+        "to fix all: awk -F: '($3\u003e=1000 \u0026\u0026 $3\u003c65534){print $1}' /etc/passwd | xargs -I{} chage -M 90 {}",
+        "note: CIS benchmark recommends maximum password age ≤ 365 days"
+      ]
+    },
+    {
+      "check": "K8s",
+      "level": "WARN",
+      "message": "1 pod(s) running but containers not ready",
+      "hints": [
+        "to inspect: kubectl get pods -A | grep '0/'",
+        "to inspect: kubectl describe pod \u003cname\u003e -n \u003cns\u003e"
+      ]
+    },
+    {
+      "check": "K8s",
+      "level": "WARN",
+      "message": "1 workload(s) degraded: kube-system/metrics-server (0/1)",
+      "hints": [
+        "to inspect: kubectl get deploy,statefulset -A | grep -v '1/1'",
+        "to inspect: kubectl rollout status deployment/\u003cname\u003e -n \u003cns\u003e"
+      ]
+    },
+    {
+      "check": "K8s",
+      "level": "WARN",
+      "message": "1 Warning event(s): Unhealthy×1",
+      "hints": [
+        "to inspect: kubectl get events -A --field-selector type=Warning"
+      ]
+    },
+    {
+      "check": "Systemd",
+      "level": "WARN",
+      "message": "slow boot unit: dnf-makecache.service took 13.6s",
+      "hints": [
+        "to inspect: systemctl status dnf-makecache.service",
+        "to inspect: journalctl -u dnf-makecache.service -b",
+        "to analyse:  systemd-analyze blame",
+        "to plot:     systemd-analyze plot \u003e boot.svg"
+      ]
+    },
+    {
+      "check": "Systemd",
+      "level": "WARN",
+      "message": "slow boot unit: kdump.service took 11.1s",
+      "hints": [
+        "to inspect: systemctl status kdump.service",
+        "to inspect: journalctl -u kdump.service -b",
+        "to analyse:  systemd-analyze blame",
+        "to plot:     systemd-analyze plot \u003e boot.svg"
+      ]
+    },
+    {
+      "check": "Network",
+      "level": "WARN",
+      "message": "primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps (check cable or switch port)",
+      "hints": [
+        "to inspect: ethtool eno1",
+        "to inspect: cat /sys/class/net/eno1/speed"
+      ],
+      "details": {
+        "type": "tcp_states",
+        "title": "TCP connection state summary",
+        "columns": [
+          "PROCESS",
+          "STATE",
+          "COUNT"
+        ],
+        "kv": {
+          "ESTAB": "45",
+          "SYN-SENT": "2"
+        }
+      }
+    },
+    {
+      "check": "Logs",
+      "level": "WARN",
+      "message": "38070 error(s) logged in the last hour",
+      "hints": [
+        "to inspect: journalctl -p err --since '1 hour ago' --no-pager | tail -30",
+        "×19036 localhost.localdomain systemd[1]: libpod-a8c3fac2693331771e914708a7e4411a3126a97",
+        "×19033 localhost.localdomain setroubleshoot[27155]: SELinux is preventing systemd from ",
+        "localhost.localdomain systemd[1]: libpod-451648cc341be4095914aab4addd8b774660544"
+      ]
+    },
+    {
+      "check": "Docker",
+      "level": "CRIT",
+      "message": "container \"test-healthy\" is crash looping (restarted \u003e5 times)",
+      "hints": [
+        "to inspect: docker logs test-healthy --tail 50",
+        "to inspect: docker inspect test-healthy | grep -A5 RestartCount"
+      ]
+    },
+    {
+      "check": "Docker",
+      "level": "CRIT",
+      "message": "container \"test-crashloop\" is crash looping (restarted \u003e5 times)",
+      "hints": [
+        "to inspect: docker logs test-crashloop --tail 50",
+        "to inspect: docker inspect test-crashloop | grep -A5 RestartCount"
+      ]
+    },
+    {
+      "check": "Docker",
+      "level": "WARN",
+      "message": "firewalld is active with nftables backend — Docker iptables rules are silently ignored",
+      "hints": [
+        "fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf \u0026\u0026 systemctl restart firewalld docker",
+        "fix B (trust docker0): firewall-cmd --permanent --zone=trusted --add-interface=docker0 \u0026\u0026 firewall-cmd --reload"
+      ]
+    },
+    {
+      "check": "Docker",
+      "level": "WARN",
+      "message": "1 running container(s) using root user — reduces container isolation",
+      "hints": [
+        "to fix: add 'USER \u003cnon-root\u003e' directive to Dockerfile",
+        "to fix: use --user flag: docker run --user 1000:1000 ..."
+      ]
+    }
+  ]
+}

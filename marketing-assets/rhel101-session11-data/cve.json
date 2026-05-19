@@ -1,0 +1,999 @@
+
+Scanning all pending security advisories...
+{
+  "package_manager": "dnf",
+  "total": 164,
+  "critical": [
+    {
+      "id": "RHSA-2026:7383",
+      "cves": "",
+      "severity": "Critical",
+      "summary": "cockpit-344-3.el10_1.x86_64"
+    }
+  ],
+  "important": [
+    {
+      "id": "RHSA-2026:19141",
+      "cves": "",
+      "severity": "Important",
+      "summary": "PackageKit-1.2.8-8.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:22012",
+      "cves": "",
+      "severity": "Important",
+      "summary": "buildah-2:1.41.6-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0436",
+      "cves": "",
+      "severity": "Important",
+      "summary": "buildah-2:1.41.8-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3297",
+      "cves": "",
+      "severity": "Important",
+      "summary": "buildah-2:1.41.8-2.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19032",
+      "cves": "",
+      "severity": "Important",
+      "summary": "buildah-2:1.43.1-1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19158",
+      "cves": "",
+      "severity": "Important",
+      "summary": "dnsmasq-2.90-7.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21030",
+      "cves": "",
+      "severity": "Important",
+      "summary": "expat-2.7.1-1.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:10767",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.10.0-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19041",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.10.0-1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19157",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.10.1-1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19160",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.10.2-1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:18154",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.4.0-3.el10_0.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21281",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.5.0-2.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23035",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.6.0-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2271",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.7.0-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3361",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.8.0-2.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5931",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.9.0-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7672",
+      "cves": "",
+      "severity": "Important",
+      "summary": "firefox-140.9.1-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19033",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-12.el10_2.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2222",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3068",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5939",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6799",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.5.x86_64"
+    },
+    {
+      "id": "RHSA-2026:8458",
+      "cves": "",
+      "severity": "Important",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.6.x86_64"
+    },
+    {
+      "id": "RHSA-2026:10707",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gdk-pixbuf2-2.42.12-4.el10_1.5.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19127",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gdk-pixbuf2-2.42.12-4.el10_2.5.x86_64"
+    },
+    {
+      "id": "RHSA-2026:8858",
+      "cves": "",
+      "severity": "Important",
+      "summary": "giflib-5.2.1-22.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19154",
+      "cves": "",
+      "severity": "Important",
+      "summary": "giflib-5.2.1-24.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0697",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gnupg2-2.4.5-3.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2719",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gnupg2-2.4.5-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:8184",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gstreamer1-plugins-bad-free-1.24.11-2.el10_0.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6259",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gstreamer1-plugins-bad-free-1.24.11-3.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19024",
+      "cves": "",
+      "severity": "Important",
+      "summary": "gstreamer1-plugins-bad-free-1.26.7-2.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1715",
+      "cves": "",
+      "severity": "Important",
+      "summary": "ipp-usb-0.9.27-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7992",
+      "cves": "",
+      "severity": "Important",
+      "summary": "ipp-usb-0.9.27-5.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3092",
+      "cves": "",
+      "severity": "Important",
+      "summary": "ipp-usb-0.9.27-5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19049",
+      "cves": "",
+      "severity": "Important",
+      "summary": "ipp-usb-0.9.27-6.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19144",
+      "cves": "",
+      "severity": "Important",
+      "summary": "ipp-usb-0.9.27-7.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:16692",
+      "cves": "",
+      "severity": "Important",
+      "summary": "jq-1.7.1-11.el10_1.0.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19151",
+      "cves": "",
+      "severity": "Important",
+      "summary": "jq-1.7.1-11.el10_2.2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23279",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.21.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0453",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.27.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0786",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.28.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1690",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.31.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:9264",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.52.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:13566",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.55.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:16062",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-124.56.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19074",
+      "cves": "",
+      "severity": "Important",
+      "summary": "kernel-6.12.0-211.7.3.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19145",
+      "cves": "",
+      "severity": "Important",
+      "summary": "krb5-libs-1.21.3-10.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5063",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libarchive-3.7.7-5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:8492",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libarchive-3.7.7-8.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0845",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libbrotli-1.1.0-7.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:12423",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libcap-2.69-7.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19130",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libcap-2.69-7.el10_2.1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21020",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libipa_hbac-2.11.1-2.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7666",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libnghttp2-1.64.0-2.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0237",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libpng-2:1.6.40-8.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3551",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libpng-2:1.6.40-8.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:18183",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libsoup3-3.6.5-3.el10_0.7.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2410",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libsoup3-3.6.5-3.el10_1.10.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21032",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libsoup3-3.6.5-3.el10_1.6.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0423",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libsoup3-3.6.5-3.el10_1.8.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2182",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libsoup3-3.6.5-3.el10_1.9.x86_64"
+    },
+    {
+      "id": "RHSA-2025:19156",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libtiff-4.6.0-6.el10_0.1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:20998",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libtiff-4.6.0-6.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:12265",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libtiff-4.6.0-6.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19150",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libtiff-4.6.0-8.el10_2.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3476",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libudisks2-2.10.90-6.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4629",
+      "cves": "",
+      "severity": "Important",
+      "summary": "libvpx-1.14.1-6.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0668",
+      "cves": "",
+      "severity": "Important",
+      "summary": "net-snmp-libs-1:5.9.4-15.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6463",
+      "cves": "",
+      "severity": "Important",
+      "summary": "openssh-9.9p1-13.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:13380",
+      "cves": "",
+      "severity": "Important",
+      "summary": "openssh-9.9p1-14.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19069",
+      "cves": "",
+      "severity": "Important",
+      "summary": "openssh-9.9p1-23.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1472",
+      "cves": "",
+      "severity": "Important",
+      "summary": "openssl-1:3.5.1-7.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18289",
+      "cves": "",
+      "severity": "Important",
+      "summary": "podman-7:5.8.0-2.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19017",
+      "cves": "",
+      "severity": "Important",
+      "summary": "podman-7:5.8.2-1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6256",
+      "cves": "",
+      "severity": "Important",
+      "summary": "python-unversioned-command-3.12.12-3.el10_1.2.noarch"
+    },
+    {
+      "id": "RHSA-2026:10711",
+      "cves": "",
+      "severity": "Important",
+      "summary": "python-unversioned-command-3.12.12-3.el10_1.3.noarch"
+    },
+    {
+      "id": "RHSA-2026:19064",
+      "cves": "",
+      "severity": "Important",
+      "summary": "python-unversioned-command-3.12.13-2.el10_2.noarch"
+    },
+    {
+      "id": "RHSA-2026:1086",
+      "cves": "",
+      "severity": "Important",
+      "summary": "python3-urllib3-1.26.19-2.el10_1.1.noarch"
+    },
+    {
+      "id": "RHSA-2026:18479",
+      "cves": "",
+      "severity": "Important",
+      "summary": "qemu-guest-agent-18:10.1.0-16.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4892",
+      "cves": "",
+      "severity": "Important",
+      "summary": "rhc-1:0.3.4-2.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7669",
+      "cves": "",
+      "severity": "Important",
+      "summary": "rhc-1:0.3.4-3.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19055",
+      "cves": "",
+      "severity": "Important",
+      "summary": "rhc-1:0.3.8-3.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19156",
+      "cves": "",
+      "severity": "Important",
+      "summary": "rhc-1:0.3.8-4.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19152",
+      "cves": "",
+      "severity": "Important",
+      "summary": "rsync-3.4.1-6.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:10758",
+      "cves": "",
+      "severity": "Important",
+      "summary": "sudo-1.9.15-10.p5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19067",
+      "cves": "",
+      "severity": "Important",
+      "summary": "sudo-1.9.17-4.p2.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7711",
+      "cves": "",
+      "severity": "Important",
+      "summary": "vim-common-2:9.1.083-6.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:11389",
+      "cves": "",
+      "severity": "Important",
+      "summary": "vim-common-2:9.1.083-6.el10_1.4.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19073",
+      "cves": "",
+      "severity": "Important",
+      "summary": "vim-common-2:9.1.083-9.el10_2.2.x86_64"
+    },
+    {
+      "id": "RHSA-2025:9304",
+      "cves": "",
+      "severity": "Important",
+      "summary": "xorg-x11-server-Xwayland-24.1.5-4.el10_0.x86_64"
+    },
+    {
+      "id": "RHSA-2026:11352",
+      "cves": "",
+      "severity": "Important",
+      "summary": "xorg-x11-server-Xwayland-24.1.5-6.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19125",
+      "cves": "",
+      "severity": "Important",
+      "summary": "xorg-x11-server-Xwayland-24.1.9-4.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5146",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-0.4.8-3.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:11413",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-0.4.8-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:17075",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-0.4.8-5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19126",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-0.4.9-4.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5145",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-worker-package-manager-0.2.3-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:11412",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-worker-package-manager-0.2.3-5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19128",
+      "cves": "",
+      "severity": "Important",
+      "summary": "yggdrasil-worker-package-manager-0.2.3-6.el10_2.x86_64"
+    }
+  ],
+  "moderate": [
+    {
+      "id": "RHSA-2025:23306",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "binutils-2.41-58.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6622",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "crun-1.27-1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19020",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "crun-1.27-2.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0464",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "cups-1:2.4.10-12.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1825",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "curl-8.12.1-2.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19142",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "freerdp-libs-2:3.10.3-12.el10_2.5.x86_64"
+    },
+    {
+      "id": "RHSA-2026:16014",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "freerdp-libs-2:3.10.3-5.el10_1.8.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0975",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glib2-2.80.4-10.el10_1.12.x86_64"
+    },
+    {
+      "id": "RHSA-2026:15969",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glib2-2.80.4-10.el10_1.13.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19148",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glib2-2.80.4-12.el10_2.13.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18139",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glibc-2.39-113.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19061",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glibc-2.39-121.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1334",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "glibc-2.39-58.el10_1.7.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3477",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "gnutls-3.8.10-3.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4649",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "grub2-common-1:2.12-29.el10_1.2.noarch"
+    },
+    {
+      "id": "RHSA-2026:18162",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "iputils-20240905-5.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21463",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.11.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21931",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.13.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:22395",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.16.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:22854",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.20.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1178",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.29.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2282",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.35.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:2721",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.38.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:3275",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.39.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4012",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.43.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4723",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.45.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6053",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.47.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6632",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.49.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21118",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-124.9.1.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18134",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "kernel-6.12.0-211.7.1.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:1696",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libblkid-2.40.2-15.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18421",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libluksmeta-10-1.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:14790",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libpng-2:1.6.40-8.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18064",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libpng-2:1.6.40-8.el10_1.4.x86_64"
+    },
+    {
+      "id": "RHSA-2026:15968",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libsoup3-3.6.5-3.el10_1.11.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23139",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libsoup3-3.6.5-3.el10_1.7.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19143",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libsoup3-3.6.5-3.el10_2.11.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21013",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libssh-0.11.1-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23484",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libssh-0.11.1-5.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18160",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libssh-0.12.0-2.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:7081",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "libtiff-4.6.0-6.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:5913",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "ncurses-6.4-15.20240127.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23479",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "openssh-9.9p1-12.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21248",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "openssl-1:3.5.1-4.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19066",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "openssl-1:3.5.5-2.el10_2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18143",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "p11-kit-0.26.2-1.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0128",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "poppler-24.02.0-7.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:23940",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "python-unversioned-command-3.12.12-1.el10_1.noarch"
+    },
+    {
+      "id": "RHSA-2026:4713",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "python-unversioned-command-3.12.12-3.el10_1.1.noarch"
+    },
+    {
+      "id": "RHSA-2026:1828",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "python-unversioned-command-3.12.12-3.el10_1.noarch"
+    },
+    {
+      "id": "RHSA-2026:1831",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "qemu-guest-agent-18:10.0.0-14.el10_1.5.x86_64"
+    },
+    {
+      "id": "RHSA-2026:6825",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "rsync-3.4.1-2.el10_1.2.x86_64"
+    },
+    {
+      "id": "RHSA-2026:13651",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "systemd-257-13.el10_1.3.x86_64"
+    },
+    {
+      "id": "RHSA-2026:18153",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "systemd-257-23.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2026:19068",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "systemd-257-23.el10_2.1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:0002",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "tar-2:1.35-9.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2026:4715",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "vim-common-2:9.1.083-6.el10_1.1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21015",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "vim-common-2:9.1.083-6.el10_1.x86_64"
+    },
+    {
+      "id": "RHSA-2025:19435",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "xorg-x11-server-Xwayland-24.1.5-5.el10_0.x86_64"
+    },
+    {
+      "id": "RHSA-2025:21035",
+      "cves": "",
+      "severity": "Moderate",
+      "summary": "xorg-x11-server-Xwayland-24.1.5-5.el10_1.x86_64"
+    }
+  ],
+  "low": [
+    {
+      "id": "RHSA-2026:18142",
+      "cves": "",
+      "severity": "Low",
+      "summary": "NetworkManager-1:1.56.0-1.el10.x86_64"
+    },
+    {
+      "id": "RHSA-2025:19720",
+      "cves": "",
+      "severity": "Low",
+      "summary": "libsoup3-3.6.5-3.el10_0.9.x86_64"
+    }
+  ],
+  "fix_command": "dnf upgrade --security"
+}
