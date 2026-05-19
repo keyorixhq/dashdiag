@@ -70,6 +70,7 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	}
 
 	fmt.Printf("\nRuntime: %s\n", info.Runtime)
+	printDockerDaemon(info)
 	printDockerContainers(info)
 	printDockerSecurity(info)
 	printDockerEvents(info)
@@ -93,6 +94,37 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Docker healthy. Checks passed%s", timing)))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d container concern(s) found%s", issues, timing)))
+	}
+}
+
+func printDockerDaemon(info *models.DockerInfo) {
+	d := info.Daemon
+	if d == nil {
+		return
+	}
+	verStr := ""
+	if d.Version != "" {
+		verStr = d.Version
+		if d.APIVersion != "" {
+			verStr += fmt.Sprintf(" (API %s)", d.APIVersion)
+		}
+	}
+	driverStr := ""
+	if d.StorageDriver != "" {
+		icon := "✅"
+		if d.StorageDriver == "devicemapper" {
+			icon = "⚠️ "
+		}
+		driverStr = fmt.Sprintf("  %s Storage: %s", icon, d.StorageDriver)
+	}
+	fmt.Printf("\n[Daemon]  version: %s%s\n", verStr, driverStr)
+	if d.RecentErrors > 0 {
+		fmt.Printf("  ⚠️   %d error(s) in last 10m", d.RecentErrors)
+		if d.LastDaemonError != "" {
+			fmt.Printf(": %s", d.LastDaemonError)
+		}
+		fmt.Println()
+		fmt.Println("     → journalctl -u docker -n 50 --no-pager")
 	}
 }
 

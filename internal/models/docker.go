@@ -1,5 +1,16 @@
 package models
 
+// DockerDaemon holds daemon-level health data from /info and /version.
+type DockerDaemon struct {
+	Responding      bool   `json:"responding"`
+	Version         string `json:"version,omitempty"`
+	APIVersion      string `json:"api_version,omitempty"`
+	StorageDriver   string `json:"storage_driver,omitempty"`
+	SwarmState      string `json:"swarm_state,omitempty"` // inactive, active, pending
+	RecentErrors    int    `json:"recent_errors,omitempty"`
+	LastDaemonError string `json:"last_daemon_error,omitempty"`
+}
+
 // ContainerInfo holds health data for a single Docker/Podman container.
 type ContainerInfo struct {
 	ID                  string   `json:"id"`
@@ -28,6 +39,7 @@ type DockerEvent struct {
 type DockerInfo struct {
 	Available        bool            `json:"available"` // Docker/Podman daemon reachable
 	Runtime          string          `json:"runtime"`   // "docker" or "podman"
+	Daemon           *DockerDaemon   `json:"daemon,omitempty"`
 	TotalContainers  int             `json:"total_containers"`
 	RunningCount     int             `json:"running_count"`
 	StoppedCount     int             `json:"stopped_count"`
