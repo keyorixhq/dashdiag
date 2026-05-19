@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -50,6 +51,7 @@ type ovalCriteria struct {
 
 type ovalCriterion struct {
 	TestRef string `xml:"test_ref,attr"`
+	Comment string `xml:"comment,attr"` // e.g. "go1.25-1.25.5-1.1 is installed"
 }
 
 type ovalRPMTest struct {
@@ -211,4 +213,157 @@ func loadOVAL(path string) (*ovalDefinitions, error) {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
 	return &oval, nil
+}
+
+// suSeverityToCVSS maps SUSE/openSUSE severity strings to pseudo-CVSS3 scores.
+var suSeverityToCVSS = map[string]float64{
+	"critical":  9.5,
+	"important": 8.0,
+	"moderate":  5.0,
+	"low":       2.0,
+}
+
+// suSeverityRe matches the trailing severity label in a SUSE patch title:
+// "Security update for go1.25 (Important)" → "important"
+var suSeverityRe = regexp.MustCompile(`\((\w+)\)\s*$`)
+
+// suPkgFromCommentRe extracts the package name from a criterion comment:
+// "go1.25-1.25.5-160000.1.1 is installed" → "go1.25"
+var suPkgFromCommentRe = regexp.MustCompile(`^([\w.+:-]+?)-\d`)
+
+// ScanSUSEOVALPackages parses a SUSE/openSUSE patch OVAL file and
+// cross-references with installed RPM packages.
+func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
+	oval, err := loadOVAL(ovalPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build object lookup: object_id → package name
+	objName := make(map[string]string, len(oval.Objects))
+	for _, o := range oval.Objects {
+		objName[o.ID] = o.Name
+	}
+	// Build test lookup: test_id → object_id
+	testObj := make(map[string]string, len(oval.Tests))
+	for _, t := range oval.Tests {
+		testObj[t.ID] = t.ObjectRef()
+	}
+
+	// Get installed RPM packages
+	pkgs, err := QueryInstalledRPM(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("querying installed packages: %w", err)
+	}
+	installed := make(map[string]bool, len(pkgs))
+	for _, p := range pkgs {
+		installed[strings.ToLower(p.Name)] = true
+	}
+
+	var results []OVALCVSSResult
+	for _, def := range oval.Definitions {
+		if def.Class != "patch" {
+			continue
+		}
+
+		// Extract CVE IDs
+		var cveIDs []string
+		for _, ref := range def.Metadata.References {
+			if strings.EqualFold(ref.Source, "CVE") && strings.HasPrefix(ref.RefID, "CVE-") {
+				cveIDs = append(cveIDs, strings.ToUpper(ref.RefID))
+			}
+		}
+		if len(cveIDs) == 0 {
+			continue
+		}
+
+		// Extract severity from title: "Security update for X (Important)"
+		severity := "Unknown"
+		cvss := 0.0
+		if m := suSeverityRe.FindStringSubmatch(def.Metadata.Title); m != nil {
+			sev := strings.ToLower(m[1])
+			severity = strings.ToUpper(sev[:1]) + sev[1:]
+			cvss = suSeverityToCVSS[sev]
+		}
+
+		// Collect package names from criteria (via test→object map or comment)
+		pkgSet := map[string]bool{}
+		collectSUSEPkgs(def.Criteria, testObj, objName, pkgSet)
+
+		// Cross-reference with installed packages
+		var installedMatches []string
+		for pkg := range pkgSet {
+			// Skip OS-version marker packages — they're in every SUSE patch definition
+			// as a "platform is installed" criterion, not as actual affected packages.
+			if isSUSEPlatformMarker(pkg) {
+				continue
+			}
+			if installed[strings.ToLower(pkg)] {
+				installedMatches = append(installedMatches, pkg)
+			}
+		}
+		if len(installedMatches) == 0 {
+			continue
+		}
+
+		// One result per CVE ID
+		for _, cveID := range cveIDs {
+			results = append(results, OVALCVSSResult{
+				CVEID:      cveID,
+				CVSS3:      cvss,
+				Severity:   severity,
+				State:      "Affected",
+				Components: keys(pkgSet),
+				Installed:  installedMatches,
+			})
+		}
+	}
+
+	sortOVALResults(results)
+	return results, nil
+}
+
+// collectSUSEPkgs walks the criteria tree and collects package names.
+func collectSUSEPkgs(c ovalCriteria, testObj, objName map[string]string, out map[string]bool) {
+	for _, criterion := range c.Criterion {
+		// Try via test→object map
+		if objID, ok := testObj[criterion.TestRef]; ok {
+			if name, ok := objName[objID]; ok && name != "" {
+				out[name] = true
+				continue
+			}
+		}
+		// Fallback: extract package name from comment
+		if m := suPkgFromCommentRe.FindStringSubmatch(criterion.Comment); m != nil {
+			out[m[1]] = true
+		}
+	}
+	for _, sub := range c.Criteria {
+		collectSUSEPkgs(sub, testObj, objName, out)
+	}
+}
+
+// keys returns the keys of a map[string]bool as a sorted slice.
+func keys(m map[string]bool) []string {
+	result := make([]string, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
+}
+
+// isSUSEPlatformMarker returns true for SUSE OS-version sentinel packages
+// that appear in every patch definition to assert the platform version.
+// These are not actual vulnerable packages.
+func isSUSEPlatformMarker(pkg string) bool {
+	markers := []string{
+		"Leap-release", "openSUSE-release", "SLES-release",
+		"sles-release", "leap-release", "opensuse-release",
+	}
+	for _, m := range markers {
+		if strings.EqualFold(pkg, m) {
+			return true
+		}
+	}
+	return false
 }
