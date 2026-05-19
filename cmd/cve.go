@@ -23,6 +23,7 @@ func init() {
 	cveCmd.Flags().Bool("json", false, "JSON output")
 	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
 	cveCmd.Flags().String("oval", "", "path to OVAL file for air-gapped CVE check (e.g. /mnt/usb/sles16.oval.xml.bz2)")
+	cveCmd.Flags().Bool("oval-scan", false, "scan all installed packages against OVAL feed for CVSS-scored findings")
 	cveCmd.AddCommand(cveInfoCmd)
 }
 
@@ -46,9 +47,15 @@ func runCVE(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	allFlag, _ := cmd.Flags().GetBool("all")
 	ovalPath, _ := cmd.Flags().GetString("oval")
+	ovalScan, _ := cmd.Flags().GetBool("oval-scan")
 	ctx := context.Background()
 
-	// --oval: air-gapped OVAL file check
+	// --oval-scan: CVSS-scored package scan against OVAL feed
+	if ovalScan {
+		return runOVALScan(ctx, ovalPath, jsonOut)
+	}
+
+	// --oval: air-gapped single-CVE check
 	if ovalPath != "" {
 		if len(args) == 0 {
 			return fmt.Errorf("specify at least one CVE ID with --oval")
@@ -124,6 +131,21 @@ func printCVEResult(r *models.CVEResult) {
 	sep := strings.Repeat("─", 56)
 	fmt.Println()
 	fmt.Printf("CVE: %s   (via %s)\n", r.CVE, r.PackageManager)
+	// Print CVSS enrichment line if available
+	if r.CVSS3Score != "" {
+		sev := r.ThreatSev
+		if sev == "" {
+			sev = "unknown severity"
+		}
+		fmt.Printf("CVSS3: %s  (%s)\n", r.CVSS3Score, sev)
+	}
+	if r.FixState != "" {
+		pkg := ""
+		if r.AffectedPkg != "" {
+			pkg = " — package: " + r.AffectedPkg
+		}
+		fmt.Printf("Red Hat fix state: %s%s\n", r.FixState, pkg)
+	}
 	fmt.Println(sep)
 
 	switch r.Status {
@@ -346,4 +368,95 @@ Examples:
   dsd cve info`,
 	Args: cobra.NoArgs,
 	Run:  func(_ *cobra.Command, _ []string) { runCVEInfo() },
+}
+
+// runOVALScan performs a CVSS-scored scan of installed packages against an OVAL feed.
+// OVAL file is auto-detected from standard paths if not specified via --oval.
+func runOVALScan(ctx context.Context, ovalPath string, jsonOut bool) error {
+	// Auto-detect OVAL file if not specified
+	if ovalPath == "" {
+		distroID := cvedata.DetectDistroID()
+		ovalPath = cvedata.FindOVALFile(distroID)
+		if ovalPath == "" {
+			fmt.Fprintf(os.Stderr, "No OVAL file found. Download one to a standard path:\n")
+			for _, p := range cvedata.StandardOVALPaths() {
+				fmt.Fprintf(os.Stderr, "  %s/\n", p)
+			}
+			fmt.Fprintf(os.Stderr, "\nRHEL/Rocky: curl -sL https://www.redhat.com/security/data/oval/v2/RHEL9/rhel-9-including-unpatched.oval.xml.bz2 -o /var/lib/dsd/oval/rhel-9.oval.xml.bz2\n")
+			return fmt.Errorf("no OVAL file found — specify with --oval or download to a standard path")
+		}
+	}
+
+	fmt.Printf("\n🔍 OVAL scan — %s\n", ovalPath)
+	fmt.Printf("   Parsing OVAL feed and cross-referencing with installed packages...\n\n")
+
+	results, err := cvedata.ScanOVALPackages(ctx, ovalPath)
+	if err != nil {
+		return fmt.Errorf("OVAL scan: %w", err)
+	}
+
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(results)
+	}
+
+	printOVALScanResults(results)
+	return nil
+}
+
+// printOVALScanResults renders OVAL scan output bucketed by CVSS level.
+func printOVALScanResults(results []cvedata.OVALCVSSResult) {
+	if len(results) == 0 {
+		fmt.Println("✅  No vulnerable packages found in OVAL feed")
+		return
+	}
+
+	// Bucket by CVSS level
+	type bucket struct {
+		label   string
+		icon    string
+		entries []cvedata.OVALCVSSResult
+	}
+	buckets := []*bucket{
+		{"Critical (CVSS ≥9.0)", "🔴", nil},
+		{"High (CVSS ≥7.0)", "⚠️ ", nil},
+		{"Medium (CVSS ≥4.0)", "ℹ️ ", nil},
+		{"Low (CVSS <4.0)", "   ", nil},
+	}
+	for _, r := range results {
+		switch {
+		case r.CVSS3 >= 9.0:
+			buckets[0].entries = append(buckets[0].entries, r)
+		case r.CVSS3 >= 7.0:
+			buckets[1].entries = append(buckets[1].entries, r)
+		case r.CVSS3 >= 4.0:
+			buckets[2].entries = append(buckets[2].entries, r)
+		default:
+			buckets[3].entries = append(buckets[3].entries, r)
+		}
+	}
+
+	sep := strings.Repeat("─", 64)
+	fmt.Println(sep)
+	fmt.Printf("OVAL CVE scan — %d finding(s)\n\n", len(results))
+
+	for _, b := range buckets {
+		if len(b.entries) == 0 {
+			continue
+		}
+		fmt.Printf("%s %s (%d)\n", b.icon, b.label, len(b.entries))
+		for _, r := range b.entries {
+			pkgs := strings.Join(r.Installed, ", ")
+			if len(pkgs) > 50 {
+				pkgs = pkgs[:48] + "…"
+			}
+			fmt.Printf("  %-20s  CVSS %4.1f  %-12s  %s\n",
+				r.CVEID, r.CVSS3, r.Severity, pkgs)
+		}
+		fmt.Println()
+	}
+	fmt.Println(sep)
+	fmt.Println("to fix: dnf upgrade --security")
+	fmt.Println("note:   OVAL shows ALL known CVEs including 'Will not fix' exclusions filtered out above")
 }

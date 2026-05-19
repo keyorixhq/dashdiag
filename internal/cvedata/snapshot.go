@@ -12,6 +12,21 @@ import (
 	"time"
 )
 
+// DetectDistroID reads the distro ID from /etc/os-release.
+// Returns "" on non-Linux or when the file is absent.
+func DetectDistroID() string {
+	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			return strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+		}
+	}
+	return ""
+}
+
 // StandardOVALPaths returns the candidate locations dsd looks for OVAL files,
 // in priority order. Admins place OVAL files here; dsd discovers them automatically.
 //

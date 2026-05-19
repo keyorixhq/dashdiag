@@ -25,6 +25,14 @@ type CVEResult struct {
 	FallbackURL string `json:"fallback_url,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
+
+	// CVSS enrichment — populated from Red Hat Security Data API (RHEL/Rocky/Fedora)
+	// or NVD when the package manager cannot provide this data.
+	CVSS3Score  string `json:"cvss3_score,omitempty"`      // e.g. "10.0"
+	CVSS3Vector string `json:"cvss3_vector,omitempty"`     // e.g. "CVSS:3.1/AV:N/..."
+	ThreatSev   string `json:"threat_severity,omitempty"`  // Critical/Important/Moderate/Low
+	FixState    string `json:"fix_state,omitempty"`        // Not affected/Affected/Will not fix/Fix deferred
+	AffectedPkg string `json:"affected_package,omitempty"` // package name from advisory
 }
 
 // CVEAllResult holds the full security advisory scan from a package manager.
