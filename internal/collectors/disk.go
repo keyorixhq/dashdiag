@@ -31,14 +31,24 @@ type mountEntry struct {
 
 type DiskCollector struct {
 	mountsPath string
+	Deep       bool
 }
 
 func NewDiskCollector() *DiskCollector {
 	return &DiskCollector{mountsPath: "/proc/mounts"}
 }
 
-func (c *DiskCollector) Name() string           { return "Disk" }
-func (c *DiskCollector) Timeout() time.Duration { return 1 * time.Second }
+func NewDiskDeepCollector() *DiskCollector {
+	return &DiskCollector{mountsPath: "/proc/mounts", Deep: true}
+}
+
+func (c *DiskCollector) Name() string { return "Disk" }
+func (c *DiskCollector) Timeout() time.Duration {
+	if c.Deep {
+		return 12 * time.Second // extra time for smartctl + I/O sample
+	}
+	return 5 * time.Second
+}
 
 func readMounts(r io.Reader) ([]mountEntry, error) {
 	var entries []mountEntry
@@ -115,6 +125,11 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 		result.Filesystems = append(result.Filesystems, fs)
 	}
+
+	if runtime.GOOS == "linux" {
+		c.collectLinuxExtras(result)
+	}
+
 	return result, nil
 }
 

@@ -594,6 +594,73 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 			))
 		}
 	}
+	out = append(out, checkDiskExtras(disk)...)
+	return out
+}
+
+func checkDiskExtras(disk models.DiskInfo) []models.Insight {
+	var out []models.Insight
+	// SMART health
+	for _, d := range disk.Drives {
+		if d.SMART == nil || d.SMART.Error != "" {
+			continue
+		}
+		if !d.SMART.Healthy {
+			out = append(out, insight("CRIT", "Disk",
+				fmt.Sprintf("%s SMART health FAILED — drive may be failing, back up immediately", d.Name),
+				[]string{
+					fmt.Sprintf("to inspect: smartctl -a /dev/%s", d.Name),
+					"to inspect: dmesg | grep -i 'error\\|failed\\|reset'",
+				},
+			))
+		} else if d.SMART.PercentUsed >= 90 {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("%s NVMe wear at %d%% — drive approaching end of life", d.Name, d.SMART.PercentUsed),
+				[]string{fmt.Sprintf("to inspect: smartctl -A /dev/%s", d.Name)},
+			))
+		} else if d.SMART.MediaErrors > 0 {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("%s has %d media error(s) — monitor closely", d.Name, d.SMART.MediaErrors),
+				[]string{fmt.Sprintf("to inspect: smartctl -a /dev/%s", d.Name)},
+			))
+		}
+	}
+	// ZFS pool health
+	for _, p := range disk.ZFSPools {
+		switch p.State {
+		case "DEGRADED":
+			out = append(out, insight("CRIT", "Disk",
+				fmt.Sprintf("ZFS pool %s is DEGRADED — data protection compromised", p.Name),
+				[]string{
+					fmt.Sprintf("to inspect: zpool status %s", p.Name),
+					fmt.Sprintf("to fix:     zpool online %s <device>  (if device is available)", p.Name),
+				},
+			))
+		case "FAULTED", "OFFLINE":
+			out = append(out, insight("CRIT", "Disk",
+				fmt.Sprintf("ZFS pool %s is %s — pool may be inaccessible", p.Name, p.State),
+				[]string{fmt.Sprintf("to inspect: zpool status %s", p.Name)},
+			))
+		}
+		if p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("ZFS pool %s has vdev errors (R:%d W:%d C:%d) — run scrub",
+					p.Name, p.ReadErrors, p.WriteErrors, p.CksumErrors),
+				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
+			))
+		}
+		if p.ScrubAgeDays < 0 {
+			out = append(out, insight("INFO", "Disk",
+				fmt.Sprintf("ZFS pool %s has never been scrubbed — schedule regular scrubs", p.Name),
+				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
+			))
+		} else if p.ScrubAgeDays > 30 {
+			out = append(out, insight("INFO", "Disk",
+				fmt.Sprintf("ZFS pool %s last scrubbed %d days ago — consider running scrub", p.Name, p.ScrubAgeDays),
+				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
+			))
+		}
+	}
 	return out
 }
 
@@ -1434,6 +1501,12 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 }
 
 func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
+	out := checkJournalConfig(logs)
+	out = append(out, checkJournalActivity(logs)...)
+	return out
+}
+
+func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 	var out []models.Insight
 	if logs.JournalCorrupt {
 		out = append(out, insight("CRIT", "Logs",
@@ -1514,6 +1587,36 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 				"to inspect: journalctl --disk-usage",
 				"to fix:     journalctl --vacuum-size=1G",
 			},
+		))
+	}
+	return out
+}
+
+func checkJournalActivity(logs models.LogsInfo) []models.Insight {
+	var out []models.Insight
+	if logs.CoreDumpCount > 0 {
+		paths := make([]string, 0, len(logs.CrashFiles))
+		for _, cf := range logs.CrashFiles {
+			paths = append(paths, fmt.Sprintf("%s (%.1fMB, %dd ago)", cf.Path, cf.SizeMB, cf.AgeDays))
+		}
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("%d crash dump(s)/panic record(s) found in the last 30 days", logs.CoreDumpCount),
+			append([]string{
+				"to inspect: ls -lh /var/crash/ /var/lib/systemd/coredump/ /sys/fs/pstore/",
+				"to analyse: journalctl -k -b -1 | tail -50  (previous boot kernel log)",
+			}, paths...),
+		))
+	}
+	if logs.ErrorCount > 50 {
+		hints := make([]string, 0, 1+len(logs.TopErrors))
+		hints = append(hints, "to inspect: journalctl -p err --since '1 hour ago' --no-pager | tail -30")
+		hints = append(hints, logs.TopErrors...)
+		out = append(out, insight("WARN", "Logs",
+			fmt.Sprintf("%d error(s) logged in the last hour", logs.ErrorCount), hints))
+	} else if logs.ErrorCount > 10 {
+		out = append(out, insight("INFO", "Logs",
+			fmt.Sprintf("%d error(s) logged in the last hour — check if expected", logs.ErrorCount),
+			[]string{"to inspect: journalctl -p err --since '1 hour ago' --no-pager"},
 		))
 	}
 	return out

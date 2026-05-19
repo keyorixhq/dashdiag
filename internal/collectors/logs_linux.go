@@ -69,6 +69,15 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Journal health checks
 	checkJournalHealth(ctx, info)
 
+	// Severity summary from journal (Spec 3)
+	collectSeveritySummary(ctx, info)
+
+	// Crash file detection (Spec 3)
+	collectCrashFiles(info)
+
+	// Log source detection
+	info.LogSource = detectLogSource()
+
 	return info, nil
 }
 
@@ -550,4 +559,186 @@ func isServiceActive(name string) bool {
 	defer cancel()
 	out, err := runCmd(ctx, "systemctl", "is-active", name)
 	return err == nil && strings.TrimSpace(out) == "active"
+}
+
+// ── Severity summary (Spec 3) ─────────────────────────────────────────────────
+
+// collectSeveritySummary reads error and warning counts from the journal
+// for the last hour using journalctl priority filters.
+// Priority levels: 0=emerg 1=alert 2=crit 3=err 4=warning
+func collectSeveritySummary(ctx context.Context, info *models.LogsInfo) {
+	summaryCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	// Error count: emerg(0) through err(3)
+	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", "1 hour ago",
+		"--no-pager", "-q", "--output=short")
+	if err == nil {
+		lines := strings.Split(strings.TrimSpace(errOut), "\n")
+		msgCounts := make(map[string]int)
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			info.ErrorCount++
+			// Extract message part (after host and unit) for deduplication
+			key := logMessageKey(line)
+			msgCounts[key]++
+		}
+		// Top 5 most frequent errors
+		info.TopErrors = topMessages(msgCounts, 5)
+	}
+
+	// Warning count
+	warnOut, err := runCmd(summaryCtx, "journalctl", "-p", "warning", "--since", "1 hour ago",
+		"--no-pager", "-q", "--output=short")
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(warnOut), "\n") {
+			if line != "" {
+				info.WarningCount++
+			}
+		}
+		// Subtract errors from warning count (journalctl -p warning includes everything <= warning)
+		info.WarningCount -= info.ErrorCount
+		if info.WarningCount < 0 {
+			info.WarningCount = 0
+		}
+	}
+}
+
+// logMessageKey extracts a short deduplicated key from a journal log line.
+// Format: "May 19 10:00:00 hostname unit[pid]: message"
+// We keep the unit + first 60 chars of message.
+func logMessageKey(line string) string {
+	fields := strings.Fields(line)
+	// Skip date(0) time(1) host(2), take from field 3 onward
+	if len(fields) > 3 {
+		msg := strings.Join(fields[3:], " ")
+		if len(msg) > 80 {
+			msg = msg[:80]
+		}
+		return msg
+	}
+	return line
+}
+
+// topMessages returns the top N most frequent message keys.
+func topMessages(counts map[string]int, n int) []string {
+	type kv struct {
+		key   string
+		count int
+	}
+	var sorted []kv
+	for k, v := range counts {
+		sorted = append(sorted, kv{k, v})
+	}
+	// Simple insertion sort — message map is small
+	for i := 1; i < len(sorted); i++ {
+		for j := i; j > 0 && sorted[j].count > sorted[j-1].count; j-- {
+			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+		}
+	}
+	var result []string
+	for i := 0; i < len(sorted) && i < n; i++ {
+		if sorted[i].count > 1 {
+			result = append(result, fmt.Sprintf("×%d %s", sorted[i].count, sorted[i].key))
+		} else {
+			result = append(result, sorted[i].key)
+		}
+	}
+	return result
+}
+
+// ── Crash file detection (Spec 3) ────────────────────────────────────────────
+
+// collectCrashFiles scans known crash dump locations for core files and
+// crash reports. Sets CrashFiles and CoreDumpCount on the info struct.
+//
+// Locations checked:
+//   - /var/crash/       — kernel crash dumps (kdump), some distros' apport output
+//   - /var/lib/systemd/coredump/ — systemd-coredump managed core files
+//   - /sys/fs/pstore/   — pstore panic records (read-only, from previous boot)
+func collectCrashFiles(info *models.LogsInfo) {
+	dirs := []string{
+		"/var/crash",
+		"/var/lib/systemd/coredump",
+	}
+	now := time.Now()
+
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			fi, err := e.Info()
+			if err != nil {
+				continue
+			}
+			// Only flag files from the last 30 days
+			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
+			if ageDays > 30 {
+				continue
+			}
+			cf := models.CrashFile{
+				Path:    filepath.Join(dir, e.Name()),
+				SizeMB:  float64(fi.Size()) / (1024 * 1024),
+				AgeDays: ageDays,
+			}
+			info.CrashFiles = append(info.CrashFiles, cf)
+			info.CoreDumpCount++
+		}
+	}
+
+	// pstore — count panic records (each file is one event, filenames contain type)
+	pstoreEntries, _ := os.ReadDir("/sys/fs/pstore")
+	for _, e := range pstoreEntries {
+		name := e.Name()
+		if strings.Contains(name, "panic") || strings.Contains(name, "oops") ||
+			strings.Contains(name, "dmesg") {
+			fi, err := e.Info()
+			if err != nil {
+				continue
+			}
+			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
+			info.CrashFiles = append(info.CrashFiles, models.CrashFile{
+				Path:    "/sys/fs/pstore/" + name,
+				SizeMB:  float64(fi.Size()) / (1024 * 1024),
+				AgeDays: ageDays,
+			})
+			info.CoreDumpCount++
+		}
+	}
+}
+
+// ── Log source detection ──────────────────────────────────────────────────────
+
+// detectLogSource identifies what log infrastructure is active.
+// Returns "journald", "journald+syslog", or "syslog".
+func detectLogSource() string {
+	hasJournald := false
+	if _, err := os.Stat("/run/systemd/journal/socket"); err == nil {
+		hasJournald = true
+	}
+	// Check for syslog text files (common co-existence on Ubuntu/RHEL)
+	hasSyslog := false
+	for _, p := range []string{"/var/log/syslog", "/var/log/messages"} {
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			hasSyslog = true
+			break
+		}
+	}
+	switch {
+	case hasJournald && hasSyslog:
+		return "journald+syslog"
+	case hasJournald:
+		return "journald"
+	case hasSyslog:
+		return "syslog"
+	default:
+		return "unknown"
+	}
 }

@@ -1,5 +1,12 @@
 package models
 
+// CrashFile is a crash dump or core file found on disk.
+type CrashFile struct {
+	Path    string  `json:"path"`
+	SizeMB  float64 `json:"size_mb"`
+	AgeDays int     `json:"age_days"`
+}
+
 // LogsInfo holds system log health data.
 type LogsInfo struct {
 	Available     bool     `json:"available"`               // false on non-Linux
@@ -17,14 +24,26 @@ type LogsInfo struct {
 	NeedsRoot     bool     `json:"needs_root,omitempty"`
 
 	// Journal health
-	JournalCorrupt        bool    `json:"journal_corrupt,omitempty"`          // journalctl --verify failed
-	JournalVolatile       bool    `json:"journal_volatile,omitempty"`         // logs lost on reboot
-	JournalRateLimited    bool    `json:"journal_rate_limited,omitempty"`     // RateLimitBurst too low
-	JournalNoTextFallback bool    `json:"journal_no_text_fallback,omitempty"` // no rsyslog/syslog-ng
-	JournalUnbounded      bool    `json:"journal_unbounded,omitempty"`        // no SystemMaxUse cap
-	JournalSyncRisk       bool    `json:"journal_sync_risk,omitempty"`        // SyncIntervalSec too high, final logs may be lost
-	LogDiskUsedPct        float64 `json:"log_disk_used_pct,omitempty"`        // % used on log volume
-	LogDiskMount          string  `json:"log_disk_mount,omitempty"`           // mount point of log volume
+	JournalCorrupt        bool    `json:"journal_corrupt,omitempty"`
+	JournalVolatile       bool    `json:"journal_volatile,omitempty"`
+	JournalRateLimited    bool    `json:"journal_rate_limited,omitempty"`
+	JournalNoTextFallback bool    `json:"journal_no_text_fallback,omitempty"`
+	JournalUnbounded      bool    `json:"journal_unbounded,omitempty"`
+	JournalSyncRisk       bool    `json:"journal_sync_risk,omitempty"`
+	LogDiskUsedPct        float64 `json:"log_disk_used_pct,omitempty"`
+	LogDiskMount          string  `json:"log_disk_mount,omitempty"`
+
+	// Severity summary (Spec 3 addition)
+	ErrorCount   int      `json:"error_count"`          // ERR + CRIT + ALERT + EMERG in last hour
+	WarningCount int      `json:"warning_count"`        // WARNING in last hour
+	TopErrors    []string `json:"top_errors,omitempty"` // deduplicated top error messages
+
+	// Crash files on disk (Spec 3 addition)
+	CrashFiles    []CrashFile `json:"crash_files,omitempty"` // core dumps, crash reports
+	CoreDumpCount int         `json:"core_dump_count"`       // total coredumps found
+
+	// Log source used for this run
+	LogSource string `json:"log_source,omitempty"` // "journald", "journald+syslog", "syslog"
 
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
