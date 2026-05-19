@@ -8,10 +8,11 @@ type CoreStat struct {
 
 // ProcessMemStat holds memory usage for a single process.
 type ProcessMemStat struct {
-	PID    int     `json:"pid"`
-	Name   string  `json:"name"`
-	RSSMB  float64 `json:"rss_mb"`
-	MemPct float64 `json:"mem_pct"`
+	PID         int     `json:"pid"`
+	Name        string  `json:"name"`
+	RSSMB       float64 `json:"rss_mb"`
+	MemPct      float64 `json:"mem_pct"`
+	CgroupScope string  `json:"cgroup_scope,omitempty"` // "system:k3s.service", "container:abc", "kernel", etc.
 }
 
 // CgroupSlice is a top-level cgroup v2 slice with aggregated resource usage.
