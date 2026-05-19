@@ -29,9 +29,21 @@ type LVMVG struct {
 	HasMountedLV bool    `json:"has_mounted_lv"`        // false = VG has no mounted LVs (leftover/inactive)
 }
 
+// LVMRaidLV represents a mirror or RAID logical volume.
+type LVMRaidLV struct {
+	Name      string  `json:"name"`
+	VG        string  `json:"vg"`
+	Type      string  `json:"type"`      // "mirror", "raid1", "raid5", etc.
+	Degraded  bool    `json:"degraded"`  // one or more PVs failed
+	Resyncing bool    `json:"resyncing"` // sync in progress
+	SyncPct   float64 `json:"sync_pct"`  // 0–100
+	SizeGB    float64 `json:"size_gb"`
+}
+
 // LVMInfo holds LVM health data for the system.
 type LVMInfo struct {
 	VGs       []LVMVG       `json:"vgs,omitempty"`
 	ThinPools []LVMThinPool `json:"thin_pools,omitempty"`
 	Snapshots []LVMSnapshot `json:"snapshots,omitempty"`
+	RaidLVs   []LVMRaidLV   `json:"raid_lvs,omitempty"` // mirror/RAID LVs
 }

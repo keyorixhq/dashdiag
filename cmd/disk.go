@@ -40,31 +40,42 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 		col = collectors.NewDiskDeepCollector()
 	}
 
-	p := output.NewCommandProgress("Disk health", 12*time.Second, mode, 1)
+	cols := []runner.Collector{col}
+	if collectors.IsLVMPresent() {
+		cols = append(cols, collectors.NewLVMCollector())
+	}
+
+	p := output.NewCommandProgress("Disk health", 12*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
 
-	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
+	var diskResult runner.Result
+	var lvmInfo *models.LVMInfo
+	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
-		result = r
+		switch v := r.Data.(type) {
+		case *models.DiskInfo:
+			diskResult = r
+		case *models.LVMInfo:
+			lvmInfo = v
+		}
 	}
 
 	elapsed := p.Elapsed()
-	info, ok := result.Data.(*models.DiskInfo)
+	info, ok := diskResult.Data.(*models.DiskInfo)
 	if !ok || info == nil {
-		return result.Err
+		return diskResult.Err
 	}
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printDiskReport(info, mode, elapsed)
+	printDiskReport(info, lvmInfo, mode, elapsed)
 	return nil
 }
 
-func printDiskReport(info *models.DiskInfo, mode output.OutputMode, elapsed time.Duration) {
+func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -72,6 +83,7 @@ func printDiskReport(info *models.DiskInfo, mode output.OutputMode, elapsed time
 	printDiskZFS(info)
 	printDiskFilesystems(info)
 	printDiskIO(info)
+	printDiskLVM(lvmInfo)
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -236,4 +248,80 @@ func outputJSON(w io.Writer, v interface{}) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func printDiskLVM(lvm *models.LVMInfo) {
+	if lvm == nil || (len(lvm.VGs) == 0 && len(lvm.ThinPools) == 0 && len(lvm.Snapshots) == 0 && len(lvm.RaidLVs) == 0) {
+		return
+	}
+
+	fmt.Printf("\nLVM (%d VG(s))\n", len(lvm.VGs))
+
+	// Volume groups
+	for _, vg := range lvm.VGs {
+		icon := "✅"
+		note := ""
+		if vg.FreePct < 5 {
+			icon = "❌"
+			note = "  ← CRIT: VG almost full"
+		} else if vg.FreePct < 15 {
+			icon = "⚠️ "
+			note = "  ← low on space"
+		}
+		fmt.Printf("  %s  %-20s %.1fGB total  %.1fGB free  (%.0f%%)%s\n",
+			icon, vg.Name, vg.SizeGB, vg.FreeGB, vg.FreePct, note)
+		if vg.MissingPVs > 0 {
+			fmt.Printf("       ❌ %d missing PV(s) — data at risk\n", vg.MissingPVs)
+		}
+	}
+
+	// Thin pools
+	if len(lvm.ThinPools) > 0 {
+		fmt.Printf("\n  Thin pools (%d):\n", len(lvm.ThinPools))
+		for _, p := range lvm.ThinPools {
+			dIcon := "✅"
+			if p.DataPct >= 90 {
+				dIcon = "❌"
+			} else if p.DataPct >= 70 {
+				dIcon = "⚠️ "
+			}
+			fmt.Printf("  %s  %-20s Data: %.0f%%  Meta: %.0f%%\n",
+				dIcon, fmt.Sprintf("%s/%s", p.VG, p.Name), p.DataPct, p.MetaPct)
+		}
+	}
+
+	// Snapshots
+	if len(lvm.Snapshots) > 0 {
+		fmt.Printf("\n  Snapshots (%d):\n", len(lvm.Snapshots))
+		for _, s := range lvm.Snapshots {
+			sIcon := "✅"
+			if s.DataPct >= 90 {
+				sIcon = "❌"
+			} else if s.DataPct >= 70 {
+				sIcon = "⚠️ "
+			}
+			fmt.Printf("  %s  %-20s → %-20s  Snap%%: %.0f%%\n",
+				sIcon, fmt.Sprintf("%s/%s", s.VG, s.Name), s.Origin, s.DataPct)
+		}
+	}
+
+	// RAID/mirror LVs
+	if len(lvm.RaidLVs) > 0 {
+		fmt.Printf("\n  RAID/mirror LVs (%d):\n", len(lvm.RaidLVs))
+		for _, r := range lvm.RaidLVs {
+			rIcon := "✅"
+			status := fmt.Sprintf("sync: %.0f%%", r.SyncPct)
+			if r.Degraded {
+				rIcon = "❌"
+				status = "DEGRADED"
+			} else if r.Resyncing {
+				rIcon = "⚠️ "
+				status = fmt.Sprintf("resyncing %.0f%%", r.SyncPct)
+			} else if r.SyncPct >= 100 {
+				status = "in sync"
+			}
+			fmt.Printf("  %s  %-20s  %s  %s\n",
+				rIcon, fmt.Sprintf("%s/%s", r.VG, r.Name), r.Type, status)
+		}
+	}
 }

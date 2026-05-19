@@ -2089,6 +2089,35 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 		}
 	}
 
+	out = append(out, checkLVMRaid(l)...)
+	return out
+}
+
+func checkLVMRaid(l models.LVMInfo) []models.Insight {
+	var out []models.Insight
+	// RAID/mirror LV health
+	for _, r := range l.RaidLVs {
+		if r.Degraded {
+			out = append(out, insight("CRIT", "LVM",
+				fmt.Sprintf("%s LV %s/%s is DEGRADED — one or more PVs failed", r.Type, r.VG, r.Name),
+				[]string{
+					fmt.Sprintf("to inspect: lvs -a -o name,vg_name,lv_attr,devices %s/%s", r.VG, r.Name),
+					"to inspect: pvs  (identify failed PV)",
+					"to recover: lvconvert --repair " + r.VG + "/" + r.Name,
+				},
+			))
+		} else if r.Resyncing {
+			out = append(out, insight("INFO", "LVM",
+				fmt.Sprintf("%s LV %s/%s is resyncing (%.1f%% complete) — degraded protection until complete",
+					r.Type, r.VG, r.Name, r.SyncPct),
+				[]string{
+					fmt.Sprintf("to watch:  lvs -a %s/%s  (monitor sync%%)", r.VG, r.Name),
+					"note: do not remove any PV while resync is in progress",
+				},
+			))
+		}
+	}
+
 	return out
 }
 
