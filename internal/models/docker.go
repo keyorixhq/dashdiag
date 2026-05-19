@@ -27,6 +27,22 @@ type ContainerInfo struct {
 	DockerSocketMounted bool     `json:"docker_socket_mounted,omitempty"` // docker.sock in HostConfig.Binds
 }
 
+// DockerContainerLogFile holds per-container log file size info.
+type DockerContainerLogFile struct {
+	Name   string  `json:"name"`
+	SizeMB float64 `json:"size_mb"`
+}
+
+// DockerLogDriverInfo holds log driver config and per-container log sizes.
+type DockerLogDriverInfo struct {
+	Driver           string                   `json:"driver"`       // json-file, journald, local, none
+	MaxSizeSet       bool                     `json:"max_size_set"` // log-opts.max-size present
+	MaxFileSet       bool                     `json:"max_file_set"` // log-opts.max-file present
+	DaemonJSONExists bool                     `json:"daemon_json_exists"`
+	ContainerLogs    []DockerContainerLogFile `json:"container_logs,omitempty"`
+	LargeLogCount    int                      `json:"large_log_count,omitempty"` // >500MB
+}
+
 // DockerEvent is a recent system event from the Docker/Podman daemon.
 type DockerEvent struct {
 	Action   string `json:"action"` // die, oom, kill, start, stop
@@ -67,6 +83,8 @@ type DockerInfo struct {
 	// Recent events (die, oom, kill in last 1h)
 	RecentEvents []DockerEvent `json:"recent_events,omitempty"`
 	OOMEvents    int           `json:"oom_events,omitempty"`
-	Status       string        `json:"status,omitempty"`
-	StatusReason string        `json:"status_reason,omitempty"`
+	// Deep only — log driver + container log sizes (Docker only)
+	LogDriver    *DockerLogDriverInfo `json:"log_driver,omitempty"`
+	Status       string               `json:"status,omitempty"`
+	StatusReason string               `json:"status_reason,omitempty"`
 }

@@ -19,6 +19,7 @@ const crashLoopRestartThreshold = 5
 
 func init() {
 	rootCmd.AddCommand(dockerCmd)
+	dockerCmd.Flags().Bool("deep", false, "deep mode: log driver config + container log file sizes")
 }
 
 var dockerCmd = &cobra.Command{
@@ -30,14 +31,20 @@ var dockerCmd = &cobra.Command{
 func runDocker(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
+	deep, _ := cmd.Flags().GetBool("deep")
 	mode := output.DetectMode(plain, false, "")
+
+	col := collectors.Collector(collectors.NewDockerCollector())
+	if deep {
+		col = collectors.NewDockerDeepCollector()
+	}
 
 	p := output.NewCommandProgress("Docker health", 10*time.Second, mode, 1)
 	p.Start()
 	defer p.Done()
 
 	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewDockerCollector()}) {
+	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		p.Step(r.Name)
 		result = r
 	}
@@ -75,6 +82,9 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	printDockerSecurity(info)
 	printDockerEvents(info)
 	printDockerResources(info)
+	if info.LogDriver != nil {
+		printDockerLogDriver(info.LogDriver)
+	}
 
 	issues := info.UnhealthyCount + info.CrashLoopCount
 	if info.StoppedCount > 0 && info.RunningCount == 0 {
@@ -253,5 +263,44 @@ func printDockerResources(info *models.DockerInfo) {
 			diskIcon = "⚠️ "
 		}
 		fmt.Printf("Disk usage: %s %.1f GB\n", diskIcon, info.DiskUsageGB)
+	}
+}
+
+func printDockerLogDriver(ld *models.DockerLogDriverInfo) {
+	if ld.Driver == "journald" || ld.Driver == "local" {
+		fmt.Printf("\n[Log driver]  %s (managed/bounded) ✅\n", ld.Driver)
+		return
+	}
+	// json-file — check if bounded
+	icon := "⚠️ "
+	status := "json-file — no max-size (logs grow unbounded)"
+	if ld.MaxSizeSet && ld.MaxFileSet {
+		icon = "✅"
+		status = "json-file (max-size and max-file set)"
+	} else if ld.MaxSizeSet {
+		icon = "✅"
+		status = "json-file (max-size set, max-file not set)"
+	}
+	fmt.Printf("\n[Log driver]  %s %s\n", icon, status)
+	if !ld.MaxSizeSet {
+		fmt.Println(`  → Add to /etc/docker/daemon.json:`)
+		fmt.Println(`    {"log-driver":"json-file","log-opts":{"max-size":"100m","max-file":"3"}}`)
+		fmt.Println("  → systemctl restart docker")
+	}
+
+	// Container log file sizes
+	hasLarge := false
+	for _, cl := range ld.ContainerLogs {
+		if cl.SizeMB >= 500 {
+			hasLarge = true
+			icon := "⚠️ "
+			if cl.SizeMB >= 1024 {
+				icon = "❌"
+			}
+			fmt.Printf("  %s %-20s  %.0f MB\n", icon, cl.Name, cl.SizeMB)
+		}
+	}
+	if hasLarge {
+		fmt.Println("  → truncate large log: truncate -s 0 /var/lib/docker/containers/<id>/<id>-json.log")
 	}
 }
