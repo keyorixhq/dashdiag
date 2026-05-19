@@ -386,7 +386,13 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 			Actor:    name,
 			TimeUnix: ev.Time,
 		})
-		if ev.Action == "oom" {
+		// Docker emits a separate "oom" event; Podman encodes OOM as "die"
+		// with exitCode=137 in Actor.Attributes (confirmed on Podman 5.6 / RHEL 10.1).
+		exitCode := ev.Actor.Attributes["exitCode"]
+		if exitCode == "" {
+			exitCode = ev.Actor.Attributes["containerExitCode"]
+		}
+		if ev.Action == "oom" || (ev.Action == "die" && exitCode == "137") {
 			info.OOMEvents++
 		}
 		if len(info.RecentEvents) >= 10 {
