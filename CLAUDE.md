@@ -6,7 +6,7 @@
 
 ---
 
-## Current Phase: IMPLEMENTATION (Sessions 1–8 complete)
+## Current Phase: IMPLEMENTATION (Sessions 1–10 complete)
 
 Research is complete. ~80 sources processed. Gap spec is saturated.
 **DashDiag_Gap_Specs.md** is the single source of truth for what to build.
@@ -14,25 +14,29 @@ Research is complete. ~80 sources processed. Gap spec is saturated.
 
 ---
 
-## What Ships (as of Session 8, commit d8351a9)
+## What Ships (as of Session 10, commit 67ff3a7)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)
-dsd health deep  ✅ per-core CPU, top procs, smaps_rollup, cgroup v2 slices,
-                    package integrity (dpkg/dnf check, missing libs)
+dsd health deep  ✅ per-core CPU, top procs with cgroup scope labels,
+                    smaps_rollup, cgroup v2 slices, package integrity
 dsd net          ✅ fast + deep + dns subcommand
 dsd net dns      ✅ resolv.conf audit, NM/resolved, live resolution test
 dsd net deep     ✅ + NFS mount health + BIND/named server health
 dsd logs         ✅ severity summary, crash files, log source detection
 dsd services     ✅ fast + deep (failed units, boot offenders, journal health)
-dsd docker       ✅ crash-loop fixed, MTU check, netavark detection
+dsd docker       ✅ exit code labels, events, secrets, root user, socket mount,
+                    daemon health, log driver (--deep), IP forward, firewalld nftables
 dsd k8s          ✅ JSON API, events, OS-layer deep, wired into dsd health
 dsd proc         ✅ smaps_rollup, FD map, socket conns, D-state guide
-dsd cron         ✅ daemon, failures, quality, anacron staleness
+dsd cron         ✅ daemon, quality, anacron staleness
 dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection
-dsd security     ✅ sshd -T, AVC grouping, user audit, world-writable
-dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives
+dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
+                    /.autorelabel detection, PAM lockout
+dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
+                    LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
+dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
@@ -41,13 +45,18 @@ dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 
 ## What Gets Built Next (Priority Order)
 
-### Session 9 — Proxmox (needs hardware)
-1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d) — **BLOCKED on Proxmox hardware**
+### Session 11 — First Paying Customer Path
+1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d) — **BLOCKED: needs Proxmox hardware**
+2. **Correlation engine v1** — wire the "20:00 overnight cluster" memory-pressure cascade rule
+   Link: `dsd timeline` + `dsd health deep` OOM kills + `dsd docker` container stops
+3. **CVE exposure check** — OVAL feed integration, CVSS ≥7.0 WARN, ≥9.0 CRIT (~1 week)
+4. **Hetzner Debian validation** — apt vs dnf, AppArmor denials, no SELinux
 
-### Unblocked alternatives
-2. `dsd ssh` — SSH connection doctor (Spec 13, ~1.5d) — testable on Legion
-3. `dsd timeline` — unified incident timeline (Spec 22, ~3d) — capstone feature
-4. CVE exposure check — OVAL feed integration (~1 week)
+### Remaining docker addendums (minor)
+- Spec 7g — DNS trap: container DNS points to host systemd-resolved loop
+- Spec 7h — Docker socket file permissions (should be 660, not 666)
+- Spec 7i — Architecture mismatch: ARM image on x86 host (or vice versa)
+- Spec 7j — Swarm mode node health
 
 ---
 
@@ -57,46 +66,57 @@ dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 ```bash
 SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
 ```
-Binary goes to `/usr/local/bin/dsd` on 192.168.1.145 (RHEL 10.1 Legion).
+Binary: `/usr/local/bin/dsd` on 192.168.1.145 (RHEL 10.1 Legion).
 
-### k3s binary not in sudo PATH
-```go
-// WRONG: exec.LookPath("k3s") — sudo strips /usr/local/bin from PATH
-// RIGHT: os.Stat("/usr/local/bin/k3s") — absolute path check
+### Critical cross-compile pattern
+```bash
+go build ./...                                         # macOS arm64 (native)
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ...   # Linux amd64
+# make deploy does both — always fix both platforms
 ```
+File stubs required for Linux-only features: `foo_notlinux.go` (`//go:build !linux`)
+Also need darwin stubs if macOS build calls Linux functions: `foo_linux_darwin_stub.go`
 
-### Gate pattern (dsd kvm, dsd k8s, docker)
+### Gate pattern (KVM, K8s, Docker, BIND, NFS)
 ```go
-// Export a cheap binary-check function, call from cmd/health.go
+// Export cheap binary-check, call from cmd/health.go or cmd/net.go
 func KVMAvailable() bool { /* virsh version --daemon exit 0 */ }
 func K8sAvailable() bool { /* os.Stat("/usr/local/bin/k3s") */ }
 ```
+Nil return from collector = section absent (zero noise on non-relevant hosts).
 
-### dsd net deep — multi-collector pattern
+### dsd net deep multi-collector pattern
 ```go
-// cmd/net.go runs NFSCollector + BINDCollector alongside NetworkDeepCollector
-// Type-switch on result: *models.NFSInfo, *models.BINDInfo, *models.NetworkInfo
-// nil return from collector = section absent (gate pattern)
+// NFSCollector + BINDCollector alongside NetworkDeepCollector
+// type-switch on result: *models.NFSInfo, *models.BINDInfo, *models.NetworkInfo
+// nil = section absent (gate pattern — service not running)
 ```
 
-### NFS non-blocking stale detection
+### NFS non-blocking stale detection (MUST USE THIS PATTERN)
 ```go
-// NEVER: syscall.Statfs(mount) directly — hangs indefinitely on stale mount
-// ALWAYS: goroutine + time.After(2s) select
 go func() { err := syscall.Statfs(mount, &st); ch <- err }()
-select { case <-ch: /* healthy */ case <-time.After(2s): /* STALE */ }
+select {
+case <-ch:                     // healthy
+case <-time.After(2*time.Second): // STALE — never blocks caller
+}
 ```
 
-### BIND zone parser — skip hint/forward zones
+### Timeline deduplication
 ```go
-// hint and forward zones are not checkable with named-checkzone
-// Watch for "type hint;" / "type forward;" inside zone block
-// Follow "include" directives (depth-limited to 5 levels)
+// Same unit + level + msg[:40] within same 60-second window → Count++
+// filterTopEvents: keep all CRITs first, then most recent WARNs to fill cap
+```
+
+### cgroup scope labels
+```go
+// cgroupScope(pid): reads /proc/<pid>/cgroup, calls parseCgroupPath()
+// parseCgroupPath: "0::/system.slice/k3s.service" → "system:k3s"
+// libpod-<id>.scope → "container:<id12>"; /kubepods/ → "k8s"; / → "kernel"
 ```
 
 ### funlen limit = 90 statements, cyclop = 30 branches
 Renderers: split into Identity/State/Resources/Files/Connections sections.
-Heuristics: split into sub-checks (checkK8sNodes, checkK8sPodHealth, etc).
+Heuristics: split into sub-checks (checkDockerContainers/Resources/Security etc).
 `buildHealthCollectors` uses `//nolint:funlen,cyclop` — justified as flat registry.
 
 ---
@@ -126,19 +146,3 @@ Heuristics: split into sub-checks (checkK8sNodes, checkK8sPodHealth, etc).
 DashDiag_Gap_Specs.md    ← 51 spec items, ~58d total, RESEARCH COMPLETE
 BACKLOG.md               ← Full feature backlog (sprint-ordered, ✅ for done)
 ```
-
----
-
-## New Files Needed (Session 9+)
-
-```
-cmd/pve.go                           Session 9 (blocked)
-internal/collectors/pve_linux.go     Session 9 (blocked)
-internal/models/pve.go               Session 9 (blocked)
-cmd/ssh.go                           Session 9 alternative
-internal/collectors/ssh_linux.go     Session 9 alternative
-internal/models/ssh_doctor.go        Session 9 alternative
-```
-
-Follow the pattern of `nfs_linux.go` + `nfs_notlinux.go` for new Linux-only
-collectors that add sections to `dsd net deep` or similar commands.

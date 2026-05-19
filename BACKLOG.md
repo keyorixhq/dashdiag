@@ -4,11 +4,11 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-19 — Sessions 1–8 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
+**Last updated: 2026-05-19 — Sessions 1–10 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
 
 ---
 
-## ✅ Recently Completed (Sessions 1–8, May 2026)
+## ✅ Recently Completed (Sessions 1–10, May 2026)
 
 | Item | Session | Commit |
 |---|---|---|
@@ -36,6 +36,15 @@ Build order rule: **never build deep before fast is in production use.**
 | Package integrity in `dsd health deep` — `NewPackagesDeepCollector` wired (Spec 12) | S7 | aa14092 |
 | NFS mount health in `dsd net deep` — non-blocking stale detection (Spec 11) | S7 | 3bef93a |
 | BIND/named health in `dsd net deep` — config/zone/query/rndc checks (Spec 16) | S8 | d8351a9 |
+| `dsd docker` exit code labels (7a), events (7e), plaintext secrets (7o) | S9 | b6bc7e0 |
+| `dsd docker` root user detection (7m), socket mount detection (7n) | S9 | e39382f |
+| `dsd docker` daemon health — version, storage driver, journal errors (7c) | S9 | 01401f0 |
+| `dsd docker --deep` log driver + json-file size check (7b) | S9 | d8b99d7 |
+| `dsd docker` IP forwarding check (7f), firewalld nftables backend (7k) | S9 | 6a5109f |
+| `dsd health deep` cgroup scope labels — `system:k3s`, `container:<id>`, `k8s` (Spec 5) | S10 | 4ed11b8 |
+| `dsd security` permission disambiguation — booleans, AppArmor groups, autorelabel, PAM (Spec 6) | S10 | 1e99158 |
+| `dsd disk` LVM RAID/mirror health — degraded CRIT, resyncing INFO (Spec 21) | S10 | fbb170d |
+| `dsd timeline` — unified incident timeline, dedup, journal+dmesg+load | S10 | 67ff3a7 |
 
 ---
 
@@ -296,7 +305,7 @@ Lower priority. Defer until macOS user demand exists.
 ## [TESTBEDS] Hardware Validation
 
 ### RHEL 10 Laptop (192.168.1.145) — active Linux testbed
-**Sessions 1–8 validated:**
+**Sessions 1–10 validated:**
 - `dsd services deep` ✅ | `dsd health` sessions ✅ | SSH hardening ✅
 - User account audit ✅ | `dsd cron` ✅ | `dsd net dns` ✅
 - `dsd gpu` AMD + NVIDIA nouveau ✅ | cgroup v2 ✅ | LVM thin snapshots ✅
@@ -310,6 +319,13 @@ Lower priority. Defer until macOS user demand exists.
 - `dsd health deep` package integrity — 7 critical security updates surfaced ✅
 - `dsd net deep` NFS — healthy mount (1ms) + stale detection (2.36s, no hang) ✅
 - `dsd net deep` BIND — BIND 9.18.33, 5 zones OK, includes followed ✅
+- `dsd docker` — exit:137 (OOM kill), socket mount ❌, root user ⚠️, secrets ⚠️ ✅
+- `dsd docker` daemon — version: 5.6.0 (API 1.41) ✅ Storage: overlay ✅
+- `dsd docker` firewalld nftables WARN fires in `dsd health` ✅
+- `dsd health deep` cgroup scopes — `system:k3s.service`, `k8s`, `user:1000` ✅
+- `dsd security` SELinux booleans, AVC groups (init_t → container_runtime_t) ✅
+- `dsd disk` LVM — 2 VGs, thin pool, snapshot, RAID API tested ✅
+- `dsd timeline` — veth0 failure ×402 deduplicated, load avg shown ✅
 
 **Still to test on Legion:**
 - Suspend/resume cycle | Battery vs AC transitions | GPU power state transitions
