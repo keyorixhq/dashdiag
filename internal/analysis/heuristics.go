@@ -2948,6 +2948,17 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 		))
 	}
 
+	// Package integrity (deep mode only — populated by PackagesDeepCollector)
+	if pkg.Integrity != nil {
+		out = append(out, checkPackageIntegrity(*pkg.Integrity)...)
+	}
+
+	out = append(out, checkPackageExtras(pkg)...)
+	return out
+}
+
+func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
+	out := make([]models.Insight, 0, len(pkg.SUSEMigrationRisks))
 	// SUSE pre-migration: warn about boot-breaking package risks before zypper migration.
 	// Research finding: admins regularly brick systems during SLES service pack migration
 	// because grub2-x86_64-efi is not locked, system is unregistered, or kernel not rebooted.
@@ -2960,6 +2971,64 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 				"to register:    SUSEConnect -r <registration-code>",
 				"note: resolve before running zypper migration to avoid boot failure",
 			},
+		))
+	}
+	return out
+}
+
+func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
+	var out []models.Insight
+
+	if len(pi.BrokenPackages) > 0 {
+		out = append(out, insight("CRIT", "Packages",
+			fmt.Sprintf("%d broken/inconsistent package(s) detected", len(pi.BrokenPackages)),
+			append([]string{
+				"to inspect (dnf):  dnf check",
+				"to inspect (dpkg): dpkg --audit",
+				"to fix (dnf):      dnf distro-sync",
+				"to fix (apt):      apt --fix-broken install",
+			}, pi.BrokenPackages[:min(3, len(pi.BrokenPackages))]...),
+		))
+	}
+
+	if len(pi.UnmetDeps) > 0 {
+		out = append(out, insight("CRIT", "Packages",
+			fmt.Sprintf("%d unmet dependency/dependencies detected", len(pi.UnmetDeps)),
+			append([]string{"to fix: apt --fix-broken install"}, pi.UnmetDeps...),
+		))
+	}
+
+	if len(pi.RPMVerifyFailed) > 0 {
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d system file(s) modified from package baseline (rpm --verify)", len(pi.RPMVerifyFailed)),
+			append([]string{
+				"to inspect: rpm --verify --all | grep -v '^..........  c '",
+				"note:       modifications to non-config files may indicate tampering or a broken update",
+			}, pi.RPMVerifyFailed[:min(3, len(pi.RPMVerifyFailed))]...),
+		))
+	}
+
+	if pi.VerifyTimedOut {
+		out = append(out, insight("WARN", "Packages",
+			"rpm --verify timed out — system may be under heavy load or have many packages",
+			[]string{"to run manually: rpm --verify --all 2>/dev/null | grep -v '^..........  c '"},
+		))
+	}
+
+	if len(pi.MissingLibs) > 0 {
+		out = append(out, insight("CRIT", "Packages",
+			fmt.Sprintf("%d missing shared library/libraries detected", len(pi.MissingLibs)),
+			append([]string{
+				"to inspect: ldd /bin/ls /usr/bin/ssh /usr/bin/python3",
+				"to fix:     reinstall the package providing the missing .so file",
+			}, pi.MissingLibs...),
+		))
+	}
+
+	if !pi.LdconfigOK {
+		out = append(out, insight("WARN", "Packages",
+			"ldconfig failed — shared library cache may be stale or corrupted",
+			[]string{"to fix: sudo ldconfig", "to inspect: ldconfig -p | head -20"},
 		))
 	}
 
