@@ -87,7 +87,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 
 	fmt.Println()
 	fmt.Println(sep)
-	issues := countDiskIssues(info)
+	issues := countDiskIssues(info, lvmInfo)
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Disk healthy. Checks passed%s", timing)))
 	} else {
@@ -182,7 +182,7 @@ func printDiskIO(info *models.DiskInfo) {
 	}
 }
 
-func countDiskIssues(info *models.DiskInfo) int {
+func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 	n := 0
 	for _, fs := range info.Filesystems {
 		if fs.UsedPct >= 85 || fs.InodesUsedPct >= 85 {
@@ -197,6 +197,19 @@ func countDiskIssues(info *models.DiskInfo) int {
 	for _, d := range info.Drives {
 		if d.SMART != nil && !d.SMART.Healthy {
 			n++
+		}
+	}
+	// LVM: full VGs (≤5% free = CRIT) or degraded RAID
+	if lvmInfo != nil {
+		for _, vg := range lvmInfo.VGs {
+			if vg.FreePct <= 5 {
+				n++
+			}
+		}
+		for _, r := range lvmInfo.RaidLVs {
+			if r.Degraded {
+				n++
+			}
 		}
 	}
 	return n
