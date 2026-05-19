@@ -12,6 +12,17 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// collectDarwin overrides the base implementation to add physical drive + SMART data.
+func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, error) {
+	result, err := c.collectDarwinBase(ctx)
+	if err != nil {
+		return result, err
+	}
+	// Physical drives + SMART via diskutil (no external tools needed)
+	result.Drives = collectDarwinDrives(ctx)
+	return result, nil
+}
+
 // collectDarwinDrives enumerates physical disks on macOS via diskutil list
 // and enriches each with SMART status from diskutil info.
 // No external tools required — diskutil ships with every macOS.
