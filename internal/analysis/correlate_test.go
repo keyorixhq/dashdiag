@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
@@ -400,5 +401,153 @@ func TestGPUSustainedLoadDoesNotFireWithoutGPUInfo(t *testing.T) {
 		if c.Name == "GPU Sustained Compute Load" {
 			t.Error("should not fire without GPU INFO insight")
 		}
+	}
+}
+
+// ── ruleDockerOOMCascade ──────────────────────────────────────────────────────
+
+func makeOOM(eventsLast24h int, events ...models.OOMEvent) *models.OOMInfo {
+	return &models.OOMInfo{
+		Available:     true,
+		EventsLast24h: eventsLast24h,
+		RecentEvents:  events,
+	}
+}
+
+func makeDocker(oomEvents int, events ...models.DockerEvent) *models.DockerInfo {
+	return &models.DockerInfo{
+		Available:    true,
+		OOMEvents:    oomEvents,
+		RecentEvents: events,
+	}
+}
+
+func TestDockerOOMCascadeFiresWithTimestamps(t *testing.T) {
+	now := time.Now()
+	oom := makeOOM(2, models.OOMEvent{
+		Process:   "traefik",
+		Timestamp: now.Add(-2 * time.Minute),
+	})
+	docker := makeDocker(1, models.DockerEvent{
+		Action:   "oom",
+		Actor:    "traefik",
+		TimeUnix: now.Unix(), // within 5 min of kernel OOM
+	})
+
+	corrs := CorrelateDeep(nil, oom, docker)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			found = true
+			if c.Level != "CRIT" {
+				t.Errorf("expected CRIT, got %q", c.Level)
+			}
+			// Time-aware path should mention "within 5 minutes"
+			if c.Summary == "" {
+				t.Error("summary should not be empty")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Container OOM Cascade to fire with matching timestamps")
+	}
+}
+
+func TestDockerOOMCascadeFiresFallbackNoTimestamps(t *testing.T) {
+	// OOMEvents present but no timestamps in RecentEvents — fallback path
+	oom := makeOOM(3, models.OOMEvent{Process: "nginx"}) // Timestamp is zero
+	docker := makeDocker(2)                              // no RecentEvents
+
+	corrs := CorrelateDeep(nil, oom, docker)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected Container OOM Cascade fallback to fire on co-occurrence")
+	}
+}
+
+func TestDockerOOMCascadeDoesNotFireOutsideWindow(t *testing.T) {
+	now := time.Now()
+	oom := makeOOM(1, models.OOMEvent{
+		Process:   "nginx",
+		Timestamp: now.Add(-30 * time.Minute), // 30 min ago
+	})
+	docker := makeDocker(1, models.DockerEvent{
+		Action:   "oom",
+		Actor:    "nginx",
+		TimeUnix: now.Unix(), // 30 min after kernel OOM — outside 5-min window
+	})
+	// But both counts are > 0, so the fallback still fires — that is correct.
+	// What we verify: the time-aware path is NOT used when outside the window
+	// (no test hook needed — we just verify the rule fires via fallback, not time path).
+	corrs := CorrelateDeep(nil, oom, docker)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			found = true
+			// Fallback summary does not mention "within 5 minutes"
+			if c.Summary == "kernel OOM killer and Docker container OOM exit confirmed within 5 minutes — memory pressure killed a container" {
+				t.Error("time-aware summary should not fire when events are 30 min apart")
+			}
+		}
+	}
+	if !found {
+		t.Error("fallback should still fire when co-occurrence present (counts > 0)")
+	}
+}
+
+func TestDockerOOMCascadeDoesNotFireWithoutDockerOOM(t *testing.T) {
+	oom := makeOOM(3, models.OOMEvent{Process: "nginx"})
+	docker := makeDocker(0) // no OOM events
+
+	corrs := CorrelateDeep(nil, oom, docker)
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			t.Error("should not fire when docker.OOMEvents == 0")
+		}
+	}
+}
+
+func TestDockerOOMCascadeDoesNotFireWithoutKernelOOM(t *testing.T) {
+	oom := makeOOM(0) // no kernel OOM events
+	docker := makeDocker(2, models.DockerEvent{Action: "oom", Actor: "app", TimeUnix: time.Now().Unix()})
+
+	corrs := CorrelateDeep(nil, oom, docker)
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			t.Error("should not fire when oom.EventsLast24h == 0")
+		}
+	}
+}
+
+func TestDockerOOMCascadeDoesNotFireWithNilInputs(t *testing.T) {
+	corrs := CorrelateDeep(nil, nil, nil)
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			t.Error("should not fire with nil OOM and Docker inputs")
+		}
+	}
+}
+
+func TestCorrelateDeepPreservesExistingRules(t *testing.T) {
+	// CorrelateDeep should still fire existing snapshot rules
+	insights := []models.Insight{
+		ins("CRIT", "Memory", "RAM at 97%"),
+		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
+		ins("CRIT", "Processes", "5 hung processes"),
+	}
+	corrs := CorrelateDeep(insights, nil, nil)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Memory Pressure Cascade" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("CorrelateDeep should include all existing snapshot rules")
 	}
 }

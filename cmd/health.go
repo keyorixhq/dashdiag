@@ -148,7 +148,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
-	correlations := analysis.Correlate(insights)
+	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results))
 	switch mode {
 	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
@@ -515,4 +515,29 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// extractOOM type-asserts *models.OOMInfo from a runner results slice.
+// Returns nil when the OOM collector was not included or returned an error.
+func extractOOM(results []runner.Result) *models.OOMInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.OOMInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// extractDocker type-asserts *models.DockerInfo from a runner results slice.
+func extractDocker(results []runner.Result) *models.DockerInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.DockerInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
 }
