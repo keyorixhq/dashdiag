@@ -4,11 +4,11 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-19 — Sessions 1–4 complete on Lenovo Legion (RHEL 10.1)**
+**Last updated: 2026-05-19 — Sessions 1–5 complete on Lenovo Legion (RHEL 10.1)**
 
 ---
 
-## ✅ Recently Completed (Sessions 1–4, May 2026)
+## ✅ Recently Completed (Sessions 1–5, May 2026)
 
 | Item | Session | Commit |
 |---|---|---|
@@ -27,6 +27,9 @@ Build order rule: **never build deep before fast is in production use.**
 | Container network backend detection (netavark vs CNI) + MTU mismatch check | S4 | 0b53299 |
 | SELinux AVC grouping — `parseAVCGroups()`, boolean-first fix suggestion | S4 | 0b53299 |
 | Podman 5.6.0 installed on Legion (`/run/podman/podman.sock`) | S4 | infra |
+| `dsd k8s` — JSON API, events, PVCs, workloads, OS-layer deep (Spec 23) | S5 | a248bd0 |
+| `dsd proc <PID>` — smaps_rollup, FD map, socket conns, D-state (Spec 10) | S5 | a248bd0 |
+| k3s v1.35.4 installed on Legion, wired into `dsd health` | S5 | infra |
 
 ---
 
@@ -107,54 +110,38 @@ Commit: 0b53299.
 
 ---
 
-### [GAP-SPEC] dsd k8s — Kubernetes Cluster + OS-Layer Diagnosis
-**Session 5. Full spec in DashDiag_Gap_Specs.md § Spec 23 + addendums 23a–23g.**
-**Setup required: `curl -sfL https://get.k3s.io | sudo sh -` on Legion.**
-
-What already exists: `k8s.go` collector, `K8sInfo` model, `cmd/k8s.go` renderer.
-
-**Fast additions (extend existing code):**
-- Node conditions: MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable
-- Recent Warning events: OOMKilling, BackOff, FailedScheduling top 10
-- PVC health: Bound/Pending/Lost counts
-- Deployment/StatefulSet ready < desired
-- Services without endpoints
-- ImagePullBackOff: surface image name
-- Single `kubectl get pods -A -o json` call (covers 23a–23c, 23f in one round trip)
-- Previous container logs for CrashLoopBackOff pods (23g)
-
-**Deep — OS-layer moat (Linux only, must run on k8s node):**
-- kubelet health: `systemctl status kubelet` + last 30 journal lines
-- containerd/CRI: socket check + `crictl info`
-- CNI readiness: `/etc/cni/net.d/`, `/opt/cni/bin/`, subnet env
-- IP forwarding: `/proc/sys/net/ipv4/ip_forward` CRIT if 0
-- iptables KUBE-FORWARD chain (nft fallback)
-- firewalld masquerade: Flannel requires it; nftables backend WARN on RHEL
-- SELinux AVCs filtered to containerd/kubelet/flannel
-- Certificate expiry: `/etc/kubernetes/pki/*.crt`
-- KUBE-SERVICES nat table chain check (23e)
-
-**Testbed:** k3s on RHEL 10.1 Legion. nftables masquerade issues on kernel 6.12 are
-the primary target for deep checks 5+6.
-Estimated scope: ~5d fast + ~5d deep = ~10d total.
+### ~~[GAP-SPEC] dsd k8s — Kubernetes Cluster + OS-Layer Diagnosis~~ ✅ DONE (Session 5)
+Full rewrite using JSON API (`-o json`) — single call for all pod data.
+- Node conditions: MemoryPressure, DiskPressure, PIDPressure from JSON
+- Warning events: reason×count, flannel subnet.env detection + fix hint
+- PVC health: Bound/Pending/Lost counts via `K8sPVCInfo`
+- Deployments + StatefulSets: `WorkloadsDown` via `K8sWorkloadInfo`
+- Pod enrichment: termination msg (23c), init errors (23b), previous logs (23g)
+- Stuck Terminating pods detection (23a)
+- OS-layer deep: kubelet journal, IP forwarding, CNI bins, flannel subnet.env,
+  KUBE-FORWARD chain (iptables/nft), firewalld masquerade, cert expiry
+- Wired into `dsd health` via `K8sAvailable()` — absolute path detection for sudo
+- Heuristics: `checkK8sNodes`, `checkK8sPodHealth`, `checkK8sWorkloadsAndEvents`,
+  `checkK8sOSLayer` (each ≤90 statements)
+- Live on Legion k3s v1.35.4: `FailedCreatePodSandBox×3, Unhealthy×1` with
+  flannel subnet.env CRIT + `sudo systemctl restart k3s` fix hint
+Commit: a248bd0.
 
 ---
 
-### [GAP-SPEC] dsd proc \<PID\> — /proc-based Process Inspector
-**Session 5. Full spec in DashDiag_Gap_Specs.md § Spec 10 + Spec 10a.**
-
-Key checks:
-- Identity: name, cmdline, user, parent, uptime, cgroup scope
-- State + wchan: D-state detection (kernel function blocking)
-- Resources: CPU time, RSS/swap, thread count, FD count vs limit
-- Open files: categorized, socket inode-to-connection resolution
-- Deleted libraries: process using old `.so` after package update
-- pmap via `/proc/<PID>/smaps_rollup`: Private_Dirty WARN if >80% free RAM
-  Fallback to `/proc/<PID>/smaps` sum if kernel <4.14
-
-`dsd proc` without PID → top CPU list.
-Legion has `smaps_rollup` (kernel 6.12). Perfect testbed.
-Estimated scope: ~2.5d.
+### ~~[GAP-SPEC] dsd proc \<PID\> — /proc-based Process Inspector~~ ✅ DONE (Session 5)
+Zero-impact: reads `/proc` only, no ptrace/strace.
+- Identity: PID, PPID, user (from `/etc/passwd`), cgroup scope, cmdline, uptime
+- State + wchan: D-state detection with blocking kernel function + D-state guide
+- Resources: CPU time (jiffies), RSS, swap, threads, FD count vs limit
+- smaps_rollup: `Private_Dirty` (true unique footprint), `Shared_Clean` (libraries)
+  Fallback to `/proc/<PID>/smaps` sum on kernel < 4.14
+- Open files: socket/file/pipe counts, deleted `.so` detection (post-update restart hint)
+- Socket inode → `/proc/net/tcp[6]` connection resolution with state decoding
+- Top-list mode (no PID): 15 processes by RSS with MEM%
+- Renderer split into 6 helper functions (≤80 statements each)
+- Live: k3s PID — 322 FDs, 518 MB `Private_Dirty`, 244 sockets, all API ports
+Commit: a248bd0.
 
 ---
 
@@ -333,7 +320,7 @@ Lower priority. Defer until macOS user demand exists.
 ## [TESTBEDS] Hardware Validation
 
 ### RHEL 10 Laptop (192.168.1.145) — active testbed
-**Session 1–4 validated:**
+**Session 1–5 validated:**
 - `dsd services deep` — systemd on RHEL 10.1 ✅
 - `dsd health` active sessions ✅
 - SSH hardening via `sshd -T` — hmac-sha1 correctly flagged ✅
@@ -346,13 +333,14 @@ Lower priority. Defer until macOS user demand exists.
 - LVM thin snapshot — `dsd_test` VG with thin pool + `snap_thin` (Vwi---tz-k) ✅
 - Docker/Podman — crash-loop container (`test-crashloop`, 2514 restarts) ✅
 - SELinux AVC — `init_t → container_runtime_t [bpf] ×1981` ✅
+- k3s v1.35.4 — `dsd k8s` detects flannel subnet.env CRIT, workloads degraded ✅
+- `dsd proc 1` (systemd) — 30 MB RSS, 301 FDs, ep_poll wchan ✅
+- `dsd proc <k3s>` — 518 MB Private_Dirty, 244 sockets, all API ports ✅
 
 **Still to test on Legion:**
-- k3s install + `dsd k8s` fast + deep (Session 5)
-- `dsd proc <PID>` with smaps_rollup (Session 5)
-- Suspend/resume cycle
+- Suspend/resume cycle (laptop-only behavior)
 - Battery vs AC power transitions
-- GPU power state transitions
+- GPU power state transitions (gpu_burn → idle → burn)
 
 ### Test Coverage Matrix
 
@@ -365,7 +353,8 @@ Lower priority. Defer until macOS user demand exists.
 | LVM thin pool + snapshots | ✅ | TODO | TODO | N/A |
 | AMD GPU (amdgpu) | ✅ | depends | N/A | N/A |
 | NVIDIA (nouveau) | ✅ | depends | depends | N/A |
-| k3s / k8s | ✅ (Session 5) | depends | TODO | N/A |
+| k3s / k8s | ✅ | depends | TODO | N/A |
+| dsd proc smaps_rollup | ✅ | ✅ likely | ✅ | N/A |
 | Docker/Podman | ✅ | depends | TODO | TODO |
 | cgroup v2 | ✅ | ✅ likely | ✅ | N/A |
 | SELinux enforcing | ✅ | depends | N/A | N/A |

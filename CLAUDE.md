@@ -6,24 +6,29 @@
 
 ---
 
-## Current Phase: IMPLEMENTATION (Sprint 1)
+## Current Phase: IMPLEMENTATION (Sessions 1–5 complete)
 
 Research is complete. ~80 sources processed. Gap spec is saturated.
 **DashDiag_Gap_Specs.md** is the single source of truth for what to build.
-**BUILD_KICKOFF.md** is the sprint plan with effort estimates and file targets.
+**BACKLOG.md** has the full sprint-ordered backlog with ✅ markers for completed items.
 
 ---
 
-## What Already Ships
+## What Ships (as of Session 5, commit a248bd0)
 
 ```
-dsd health       ✅ fast + deep
-dsd net          ✅ fast + deep
+dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker wired in)
+dsd health deep  ✅ per-core CPU, top procs, smaps_rollup, cgroup v2 slices
+dsd net          ✅ fast + deep + dns subcommand
+dsd net dns      ✅ resolv.conf audit, NM/resolved, live resolution test
 dsd logs         ✅ fast + deep
-dsd services     ✅ fast only  ← deep spec in Gap_Specs § Spec 1
-dsd proc         ✅ fast + deep
-dsd docker       ✅ fast only  ← 15 addendums (7a–7o) in Gap_Specs
-dsd k8s          ✅ fast only  ← Spec 23 + 23a–23g extensions in Gap_Specs
+dsd services     ✅ fast + deep (services deep: failed units, boot, journal)
+dsd docker       ✅ crash-loop fixed, MTU check, netavark detection
+dsd k8s          ✅ JSON API, events, PVCs, workloads, OS-layer deep
+dsd proc         ✅ smaps_rollup, FD map, socket conns, D-state guide
+dsd cron         ✅ daemon, failures, quality, anacron staleness
+dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection
+dsd security     ✅ sshd -T, AVC grouping, user audit, world-writable
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
@@ -32,52 +37,32 @@ dsd k8s          ✅ fast only  ← Spec 23 + 23a–23g extensions in Gap_Specs
 
 ## What Gets Built Next (Priority Order)
 
-### Sprint 1 — Extend Existing
-1. `dsd services deep` — systemd failure diagnosis (Gap_Specs § Spec 1, ~2d)
-2. `dsd health` — active session list via `w -h` (Gap_Specs § Spec H1, ~0.5d)
-3. `dsd net deep` — DNS resolver audit (Gap_Specs § Spec 2, ~1d)
-4. `dsd logs` — severity summary + crash files (Gap_Specs § Spec 3, ~1.5d)
+### Session 6 — Logs + Disk
+1. `dsd logs` — severity summary, crash files, /var/log/* scan (Spec 3, ~1.5d)
+2. `dsd disk` — standalone: mounts, SMART, ZFS, fuser, LVM (Spec 4+4a+4b, ~2d)
 
-### Sprint 2 — New Commands
-5. `dsd disk` fast+deep — filesystems, SMART, ZFS, LVM (Gap_Specs § Spec 4, 4a, 4b)
-6. `dsd security` fast — SSH config, sudo, SUID, open ports (Gap_Specs § Spec 13)
+### Session 7 — Virtualisation
+3. `dsd pve` — Proxmox VE diagnostics (Spec 24, ~4d) — needs Proxmox hardware
+4. `dsd kvm` — KVM/libvirt diagnostics (Spec 15, ~3d)
 
-### Sprint 3 — Docker + k8s Full Build
-7. `dsd docker` addendums 7a–7o (15 new checks via Docker socket API)
-8. `dsd k8s` Spec 23 fast extensions + addendums 23a–23g
-
-### Sprint 4 — Virtualisation
-9. `dsd pve` — Proxmox VE diagnostics (Gap_Specs § Spec 24)
-10. `dsd kvm` — KVM/libvirt diagnostics (Gap_Specs § Spec 15)
-11. `dsd disk deep` extensions
-
----
-
-## How to Use the Spec
-
-Every item in `DashDiag_Gap_Specs.md` has:
-- **Pain source** — why admins need this
-- **What to add** — exact commands, /proc paths, data sources
-- **Output example** — copy this as your target UX
-- **JSON schema** — what `--json` must include
-- **Acceptance criteria** — checklist, tick off before marking done
+### Session 8 — Networking deep
+5. `dsd net deep` — NFS mount health (Spec 11, ~1.5d)
+6. `dsd net deep` — BIND/named server health (Spec 16, ~1d)
 
 ---
 
 ## Key Implementation Notes
 
-### k8s addendums 23a–23g — one shared JSON call
-Replace the existing `--no-headers` pod call with one JSON call.
-All 4 fast addendums (23a, 23b, 23c, 23f) parse the same response.
-```go
-out, err := k8sRun(ctx, bin, "get", "pods", "-A", "-o", "json")
-// Parse: deletionTimestamp (23a), initContainerStatuses (23b),
-//        lastState.terminated.message (23c), ownerReferences (23f)
+### Deploy pattern (use this every time)
+```bash
+SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
 ```
+Binary goes to `/usr/local/bin/dsd` on 192.168.1.145 (RHEL 10.1 Legion).
 
-### dsd docker addendums — socket API only, no docker CLI
-All checks via HTTP to the Docker socket. No dependency on docker binary.
-Podman socket supported via the same API surface.
+### k3s binary not in sudo PATH
+k3s is at `/usr/local/bin/k3s`. `exec.LookPath("k3s")` fails under `sudo -n`
+because sudo strips PATH to a secure subset that excludes `/usr/local/bin`.
+Fix: use `os.Stat("/usr/local/bin/k3s")` directly (already done in k8s.go).
 
 ### dsd pve — pvesh with timeout
 ```go
@@ -91,29 +76,29 @@ cmd := exec.CommandContext(ctx, "pvesh", "get",
 ```go
 // Gate 1: zpool binary exists
 // Gate 2: /proc/mounts has a zfs entry
-// If gate passes: zpool status -x first (empty = all healthy, no parsing)
 // Only parse full zpool status when -x produces output
 ```
 
-### Bridge STP detection (dsd pve deep)
-```go
-// /sys/class/net/<bridge>/bridge/stp_state
-// 1 = STP enabled → WARN (causes ~30s boot delay)
-// 0 = STP disabled → OK
-```
+### Docker socket detection under sudo
+`DetectContainerSocket()` exported from `internal/collectors/docker.go`.
+Checks `/run/podman/podman.sock` and `/var/run/docker.sock` directly.
+Use this pattern for any container-gated check.
 
 ---
 
-## Test Machines
+## Test Machine
 
-| Command | Primary | Key scenarios |
-|---|---|---|
-| `dsd services deep` | RHEL laptop | Mask a unit, NeedsDaemonReload |
-| `dsd disk` | Proxmox host | ZFS pools, LVM, HDD+SSD+NVMe mix |
-| `dsd docker` | RHEL laptop | OOM-kill container, check 7a/7e |
-| `dsd k8s` | RHEL laptop (k3s) | CrashLoop pod, PVC Pending |
-| `dsd pve` | Proxmox host | Run pveperf, stop a VM, backup audit |
-| `dsd kvm` | RHEL laptop | Paused VM, missing disk image path |
+| Fact | Value |
+|---|---|
+| IP | 192.168.1.145 |
+| OS | RHEL 10.1 (Coughlan), kernel 6.12 |
+| CPU | AMD Ryzen 7 5800H, 8c/16t |
+| RAM | 16 GB DDR4 |
+| Storage | 2× SK Hynix 1TB NVMe |
+| GPU | AMD Radeon (amdgpu) + NVIDIA RTX 3070 (nouveau) |
+| k3s | v1.35.4 at `/usr/local/bin/k3s` |
+| Podman | 5.6.0 at `/run/podman/podman.sock` |
+| Go | 1.24.3 at `/home/andrei/go/bin/go` |
 
 ---
 
@@ -121,31 +106,25 @@ cmd := exec.CommandContext(ctx, "pvesh", "get",
 
 ```
 DashDiag_Gap_Specs.md    ← 51 spec items, ~58d total, RESEARCH COMPLETE
-BUILD_KICKOFF.md         ← Sprint plan with effort estimates
-BACKLOG.md               ← Full feature backlog (sprint-ordered)
+BACKLOG.md               ← Full feature backlog (sprint-ordered, ✅ for done)
 ```
 
 ---
 
-## New Files to Create
+## New Files Needed (Sessions 6–8)
 
 ```
-cmd/disk.go                          Sprint 2
-cmd/security.go                      Sprint 2
-cmd/pve.go                           Sprint 4
-cmd/kvm.go                           Sprint 4
-internal/collectors/disk.go          Sprint 2
-internal/collectors/disk_linux.go    Sprint 2
-internal/collectors/security.go      Sprint 2
-internal/collectors/security_linux.go Sprint 2
-internal/collectors/pve.go           Sprint 4
-internal/collectors/kvm.go           Sprint 4
-internal/collectors/kvm_linux.go     Sprint 4
-internal/models/disk.go              Sprint 2
-internal/models/security.go          Sprint 2
-internal/models/pve.go               Sprint 4
-internal/models/kvm.go               Sprint 4
+cmd/disk.go                          Session 6
+internal/collectors/disk_linux.go    Session 6
+internal/collectors/disk_notlinux.go Session 6
+internal/models/disk.go              Session 6
+cmd/pve.go                           Session 7
+internal/collectors/pve_linux.go     Session 7
+internal/models/pve.go               Session 7
+cmd/kvm.go                           Session 7
+internal/collectors/kvm_linux.go     Session 7
+internal/models/kvm.go               Session 7
 ```
 
-Follow the pattern of `internal/collectors/docker.go` and
-`internal/models/docker.go` exactly when creating new collectors.
+Follow the pattern of `internal/collectors/proc_linux.go` + `proc_notlinux.go`
+when creating new Linux-only collectors with cross-platform stubs.
