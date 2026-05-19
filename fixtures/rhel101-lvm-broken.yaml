@@ -1,0 +1,99 @@
+# fixture: RHEL 10.1 — LVM break scenario (May 19 2026)
+# Captured state: thin pool at 100%, missing PV, RAID degraded, filesystem full
+# replay with: dsd mock fixtures/rhel101-lvm-broken.yaml
+#
+# How it was created:
+#   sudo lvcreate --type raid1 -m1 -n raid_fail -L 3G dsd_test /dev/nvme1n1p1 /dev/loop0
+#   sudo losetup -d /dev/loop0  ← simulated drive pull
+#   (thin pool filled via 3 snapshots + overwrite cascade to 100%)
+#   sudo dsd disk output: 4 simultaneous failures in 0.3s
+
+host: localhost.localdomain
+os: Red Hat Enterprise Linux 10.1 (Coughlan)
+version: v0.5.1-38-g0c42bb6
+rows:
+  - name: CPU Load
+    inline: 72% (load avg 6.36 across 16 CPUs)
+  - name: CPU Thermal
+    inline: 78°C
+  - name: Memory
+    level: CRIT
+    message: memory overcommitted — OOM kill risk
+    hints:
+      - "top process: python3 — 8.4 GB (63.6%)"
+      - "to inspect: cat /proc/meminfo | grep -E 'CommitLimit|Committed_AS'"
+      - "to inspect: sysctl vm.overcommit_memory"
+  - name: Swap
+    level: CRIT
+    message: swap usage at 81% (5.5 GB used)
+    hints:
+      - "to inspect: swapon -s"
+      - "to fix: identify and reduce memory usage of top processes"
+  - name: Disk
+    level: CRIT
+    message: /mnt/thin_test is 100% full (31.5 GB / 31.5 GB)
+    hints:
+      - "to inspect: df -h /mnt/thin_test"
+      - "to fix: remove files or expand the thin volume"
+  - name: IO
+    inline: 1.8 ms (nvme1n1)
+  - name: Drives
+    inline: 2 drives  healthy
+  - name: LVM
+    level: CRIT
+    message: "volume group rhel is 100% full (0.0 GB free of 952.3 GB)"
+    hints:
+      - "thin pool dsd_test/thin_pool: Data 100% — writes will fail"
+      - "volume group dsd_test: 1 missing PV — data at risk"
+      - "RAID1 dsd_test/raid_fail: DEGRADED (1 leg missing)"
+      - "to inspect: lvs -o lv_name,lv_attr,data_percent,lv_health_status"
+      - "to inspect: vgs --reportformat json | grep partial"
+      - "to fix RAID: lvconvert --repair dsd_test/raid_fail"
+      - "to fix thin pool: lvextend -l +100%FREE dsd_test/thin_pool"
+      - "to add PV: pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>"
+  - name: Network
+    level: WARN
+    message: "primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps"
+    hints:
+      - "to inspect: ethtool eno1"
+  - name: Systemd
+    level: WARN
+    message: slow boot unit — dnf-makecache.service took 13.6s
+  - name: Processes
+    inline: 590 running
+  - name: KernelSec
+    level: CRIT
+    message: 1364 SELinux denial(s) in the last hour (mode enforcing)
+    hints:
+      - "to check booleans: getsebool -a | grep systemd"
+      - "to generate fix: ausearch -m avc -ts recent | audit2allow -M mypolicy"
+  - name: Hardening
+    level: WARN
+    message: SSH allows password authentication — key-based auth recommended
+    hints:
+      - "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+  - name: Docker
+    level: CRIT
+    message: container "test-crashloop" is crash looping (restarted >5 times)
+    hints:
+      - "to inspect: docker logs test-crashloop --tail 50"
+  - name: K8s
+    level: WARN
+    message: 1 pod(s) running but containers not ready
+  - name: CPUFreq
+    level: WARN
+    message: "CPU governor is 'powersave' — CPU running at 4366 MHz (max 4465 MHz)"
+    hints:
+      - "to fix: echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+  - name: Sysctl
+    level: WARN
+    message: fs.inotify.max_user_watches=106141 is low for k8s (recommended 524288)
+    hints:
+      - "to fix: sysctl -w fs.inotify.max_user_watches=524288"
+      - "to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf"
+  - name: Battery
+    inline: 100% full
+  - name: Firewall
+    inline: nftables  554 rules
+  - name: Entropy
+    inline: 256/256 bits

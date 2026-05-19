@@ -1,0 +1,231 @@
+# fixture captured from localhost.localdomain (Red Hat Enterprise Linux 10.1 (Coughlan))
+# replay with: dsd mock <this-file>
+
+host: localhost.localdomain
+os: Red Hat Enterprise Linux 10.1 (Coughlan)
+version: v0.5.1-38-g2638fda-dirty
+rows:
+    - name: CPU Load
+      level: WARN
+      inline: ""
+      message: 75% CPU (user+sys) — load avg 8.42 across 16 CPUs
+      hints:
+        - 'to inspect: uptime'
+        - 'to inspect: ps aux --sort=-%cpu | head -10'
+        - 'to inspect: top -b -n1 | head -25'
+    - name: CPU Thermal
+      level: ""
+      inline: 76°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: CRIT
+      inline: ""
+      message: RAM usage at 96% (0.1 GB free of 13.2 GB total)
+      hints:
+        - 'to inspect: free -h'
+        - 'to inspect: ps aux --sort=-%mem | head -10'
+    - name: Swap
+      level: CRIT
+      inline: ""
+      message: swap usage at 100% (6.8 GB used)
+      hints:
+        - 'to inspect: free -h'
+        - 'to inspect: vmstat 1 5'
+    - name: Disk
+      level: ""
+      inline: 16 mounts, max 44% (/boot)
+      message: ""
+      hints: []
+    - name: IO
+      level: WARN
+      inline: ""
+      message: disk nvme0n1 utilization at 63%
+      hints:
+        - 'to inspect: iostat -x 1 5'
+        - 'to inspect: iotop -ao'
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: CRIT
+      inline: ""
+      message: volume group rhel is 100% full (0.0 GB free of 952.3 GB)
+      hints:
+        - 'to inspect: vgs rhel'
+        - 'to inspect: pvs | grep rhel'
+        - 'to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>'
+    - name: Network
+      level: WARN
+      inline: ""
+      message: primary interface eno1 linked at 100 Mbps — expected 1000+ Mbps (check cable or switch port)
+      hints:
+        - 'to inspect: ethtool eno1'
+        - 'to inspect: cat /sys/class/net/eno1/speed'
+    - name: Systemd
+      level: WARN
+      inline: ""
+      message: 'slow boot unit: kdump.service took 11.1s'
+      hints:
+        - 'to inspect: systemctl status kdump.service'
+        - 'to inspect: journalctl -u kdump.service -b'
+        - 'to analyse:  systemd-analyze blame'
+        - 'to plot:     systemd-analyze plot > boot.svg'
+    - name: Processes
+      level: WARN
+      inline: ""
+      message: 1 hung (uninterruptible) process(es)
+      hints:
+        - 'to inspect: ps aux | grep '' D '''
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: WARN
+      inline: ""
+      message: 39292 error(s) logged in the last hour
+      hints:
+        - 'to inspect: journalctl -p err --since ''1 hour ago'' --no-pager | tail -30'
+        - '×19640 localhost.localdomain systemd[1]: libpod-a8c3fac2693331771e914708a7e4411a3126a97'
+        - '×16719 localhost.localdomain setroubleshoot[27155]: SELinux is preventing systemd from '
+        - '×2931 localhost.localdomain setroubleshoot[304165]: SELinux is preventing systemd from'
+        - 'localhost.localdomain kernel: Buffer I/O error on dev dm-12, logical block 78641'
+        - 'localhost.localdomain kernel: device-mapper: raid: Failed to read superblock of '
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'fs.inotify.max_user_watches=106141 is low for k8s (recommended: 524288)'
+      hints:
+        - 'to inspect: sysctl fs.inotify.max_user_watches'
+        - 'to fix: sysctl -w fs.inotify.max_user_watches=524288'
+        - 'to persist: echo ''fs.inotify.max_user_watches=524288'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: CRIT
+      inline: ""
+      message: '1227 SELinux denial(s) in the last hour (mode: enforcing)'
+      hints:
+        - 'to inspect: ausearch -m avc -ts recent'
+        - 'to inspect: sealert -a /var/log/audit/audit.log'
+        - 'to check booleans: getsebool -a | grep systemd'
+        - 'to generate fix: ausearch -m avc -ts recent | audit2allow -M mypolicy'
+        - 'to apply fix:    semodule -i mypolicy.pp'
+        - 'note: check booleans and file contexts BEFORE using audit2allow'
+        - 'note: audit2allow may grant broader access than needed — review .te file first'
+        - 'sample AVC: type=AVC msg=audit(1779226885.713:2044582): avc:  denied  { prog_run } for  pid=1 comm="systemd" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0'
+        - 'sample AVC: type=AVC msg=audit(1779226885.851:2044588): avc:  denied  { prog_run } for  pid=1 comm="systemd" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0'
+        - 'sample AVC: type=AVC msg=audit(1779226885.980:2044594): avc:  denied  { prog_run } for  pid=1 comm="systemd" scontext=system_u:system_r:init_t:s0 tcontext=unconfined_u:unconfined_r:container_runtime_t:s0 tclass=bpf permissive=0'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Multipath
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  554 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: Auditd
+      level: ""
+      inline: 0 rules  running
+      message: ""
+      hints: []
+    - name: iSCSI
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Nspawn
+      level: ""
+      inline: 1 containers  0 running
+      message: ""
+      hints: []
+    - name: HugePages
+      level: INFO
+      inline: ""
+      message: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+      hints:
+        - 'to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to ''madvise'' or ''never'''
+        - 'to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to persist: add to /etc/rc.local or a systemd service'
+    - name: CPUFreq
+      level: WARN
+      inline: ""
+      message: CPU governor is 'powersave' — CPU running at 4391 MHz (max 4465 MHz), performance limited
+      hints:
+        - 'to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to fix: cpupower frequency-set -g performance'
+        - 'to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to persist: add to /etc/rc.local or use tuned profile ''throughput-performance'''
+        - 'note: ''schedutil'' or ''ondemand'' are also acceptable for variable workloads'
+    - name: Docker
+      level: CRIT
+      inline: ""
+      message: container "test-healthy" is crash looping (restarted >5 times)
+      hints:
+        - 'to inspect: docker logs test-healthy --tail 50'
+        - 'to inspect: docker inspect test-healthy | grep -A5 RestartCount'
+    - name: K8s
+      level: WARN
+      inline: ""
+      message: 1 pod(s) running but containers not ready
+      hints:
+        - 'to inspect: kubectl get pods -A | grep ''0/'''
+        - 'to inspect: kubectl describe pod <name> -n <ns>'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: WARN
+      inline: ""
+      message: '1 session(s) idle > 8h: andrei — unattended terminal risk'
+      hints:
+        - 'to inspect: w'
+        - 'to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect'
+    - name: KVM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
