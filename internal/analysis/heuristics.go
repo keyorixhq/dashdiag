@@ -3418,6 +3418,25 @@ func checkDockerResources(d models.DockerInfo) []models.Insight {
 			hints,
 		))
 	}
+	// Log driver unbounded (deep mode only)
+	if d.LogDriver != nil && d.LogDriver.Driver == "json-file" && !d.LogDriver.MaxSizeSet {
+		out = append(out, insight("WARN", "Docker",
+			"log driver is json-file with no max-size — container logs grow unbounded",
+			[]string{
+				"to fix: add to /etc/docker/daemon.json: {\"log-opts\":{\"max-size\":\"100m\",\"max-file\":\"3\"}}",
+				"to fix: systemctl restart docker",
+			},
+		))
+	}
+	if d.LogDriver != nil && d.LogDriver.LargeLogCount > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container log file(s) >500MB — disk usage risk", d.LogDriver.LargeLogCount),
+			[]string{
+				"to inspect: ls -lh /var/lib/docker/containers/*/*-json.log",
+				"to fix: truncate -s 0 /var/lib/docker/containers/<id>/<id>-json.log",
+			},
+		))
+	}
 	if d.DanglingImagesMB >= 1024 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),

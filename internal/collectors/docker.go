@@ -19,9 +19,10 @@ const crashLoopRestartThreshold = 5
 
 // DockerCollector reads container health from the Docker or Podman socket.
 // Uses direct Unix socket HTTP — no Docker SDK dependency.
-type DockerCollector struct{}
+type DockerCollector struct{ Deep bool }
 
-func NewDockerCollector() *DockerCollector { return &DockerCollector{} }
+func NewDockerCollector() *DockerCollector     { return &DockerCollector{} }
+func NewDockerDeepCollector() *DockerCollector { return &DockerCollector{Deep: true} }
 
 func (c *DockerCollector) Name() string           { return "Docker" }
 func (c *DockerCollector) Timeout() time.Duration { return 10 * time.Second }
@@ -72,6 +73,11 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// Recent events (die, oom, kill in last 1h)
 	collectDockerEvents(ctx, client, info)
+
+	// Deep: log driver config + container log file sizes (Docker only)
+	if c.Deep && info.Runtime == "docker" {
+		info.LogDriver = collectLogDriverHealth(info)
+	}
 
 	// On RHEL/Rocky 10+ with zero images and containers, daemon likely failed
 	// to start due to missing iptables-legacy — add actionable hint.
@@ -391,6 +397,81 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 
 // timeNow is a variable so tests can override it.
 var timeNow = func() time.Time { return time.Now() }
+
+// collectLogDriverHealth checks /etc/docker/daemon.json and scans container log file sizes.
+// Only called for Docker runtime in deep mode.
+func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo {
+	ld := &models.DockerLogDriverInfo{}
+
+	// Read daemon.json
+	data, err := os.ReadFile("/etc/docker/daemon.json") // #nosec G304
+	if err == nil {
+		ld.DaemonJSONExists = true
+		var cfg struct {
+			LogDriver string            `json:"log-driver"`
+			LogOpts   map[string]string `json:"log-opts"`
+		}
+		if json.Unmarshal(data, &cfg) == nil {
+			ld.Driver = cfg.LogDriver
+			if ld.Driver == "" {
+				ld.Driver = "json-file" // default when not set
+			}
+			_, ld.MaxSizeSet = cfg.LogOpts["max-size"]
+			_, ld.MaxFileSet = cfg.LogOpts["max-file"]
+		}
+	} else {
+		// No daemon.json → all defaults → json-file, unbounded
+		ld.Driver = "json-file"
+	}
+
+	// Scan container log files under /var/lib/docker/containers/*/
+	if ld.Driver == "json-file" {
+		ld.ContainerLogs = collectContainerLogSizes(info)
+		for _, cl := range ld.ContainerLogs {
+			if cl.SizeMB >= 500 {
+				ld.LargeLogCount++
+			}
+		}
+	}
+
+	return ld
+}
+
+// collectContainerLogSizes scans /var/lib/docker/containers/ for *-json.log files.
+// Maps container ID prefix to name using already-fetched container list.
+func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerLogFile {
+	// Build id→name map from collected containers
+	idToName := make(map[string]string, len(info.Containers))
+	for _, c := range info.Containers {
+		idToName[c.ID] = c.Name
+	}
+
+	entries, err := os.ReadDir("/var/lib/docker/containers") // #nosec G304
+	if err != nil {
+		return nil
+	}
+
+	var logs []models.DockerContainerLogFile
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		logPath := "/var/lib/docker/containers/" + e.Name() + "/" + e.Name() + "-json.log"
+		fi, err := os.Stat(logPath) // #nosec G304
+		if err != nil {
+			continue
+		}
+		name := idToName[e.Name()[:12]]
+		if name == "" {
+			name = e.Name()[:12]
+		}
+		logs = append(logs, models.DockerContainerLogFile{
+			Name:   name,
+			SizeMB: float64(fi.Size()) / (1024 * 1024),
+		})
+	}
+	return logs
+}
 
 // collectDaemonHealth fetches /info and /version for daemon-level health.
 func collectDaemonHealth(ctx context.Context, client *http.Client, runtime string) *models.DockerDaemon {
