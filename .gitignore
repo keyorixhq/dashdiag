@@ -18,3 +18,5 @@ PRODUCT_IDEAS.md
 CONTENT_*.md
 dsd
 .dsd/oval/
+marketing-assets/**/*.oval.xml.bz2
+marketing-assets/**/baselines/
