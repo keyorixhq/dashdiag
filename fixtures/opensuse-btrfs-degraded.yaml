@@ -1,0 +1,181 @@
+# fixture captured from localhost.localdomain (openSUSE Leap 16.0)
+# replay with: dsd mock <this-file>
+
+host: localhost.localdomain
+os: openSUSE Leap 16.0
+version: v0.5.1-54-gce85170-dirty
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 21%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: ""
+      inline: 55°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.4/13 GB (3%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: CRIT
+      inline: ""
+      message: disk usage at 100% on /mnt/btrfs_test (/dev/loop0)
+      hints:
+        - 'to inspect: df -h'
+        - 'to inspect: du -sh /mnt/btrfs_test/* 2>/dev/null | sort -h | tail -20'
+    - name: IO
+      level: ""
+      inline: 1.5 ms (nvme0n1)
+      message: ""
+      hints: []
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: INFO
+      inline: ""
+      message: inactive volume group debian-vg is 98% full — no LVs mounted (old OS partition?)
+      hints:
+        - 'to inspect: vgs debian-vg'
+        - 'to inspect: lvs | grep debian-vg'
+        - 'note: this VG has no mounted LVs on this OS — likely a leftover from a previous install'
+    - name: Network
+      level: ""
+      inline: eno1 1Gbps  wlp4s0  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: ""
+      inline: boot 28s
+      message: ""
+      hints: []
+    - name: Processes
+      level: ""
+      inline: 265 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read
+      hints:
+        - 'to fix: apt install rsyslog  OR  dnf install rsyslog  OR  zypper install rsyslog'
+        - 'note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails'
+        - 'note:   standard Unix tools (grep, tail, less) cannot read binary journal files'
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)'
+      hints:
+        - 'to inspect: cat /proc/sys/vm/swappiness'
+        - 'to fix: sysctl -w vm.swappiness=10'
+        - 'to persist: echo ''vm.swappiness=10'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: INFO
+      inline: ""
+      message: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+      hints:
+        - 'to expose hidden denials: semodule -DB  (disables dontaudit rules)'
+        - 'to re-enable dontaudit:   semodule -B   (run after debugging)'
+        - 'to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Snapshots
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Multipath
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  199 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: Auditd
+      level: ""
+      inline: 1 rules  running
+      message: ""
+      hints: []
+    - name: HugePages
+      level: INFO
+      inline: ""
+      message: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+      hints:
+        - 'to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to ''madvise'' or ''never'''
+        - 'to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to persist: add to /etc/rc.local or a systemd service'
+    - name: CPUFreq
+      level: WARN
+      inline: ""
+      message: CPU governor is 'powersave' — CPU running at 1102 MHz (max 4465 MHz), performance limited
+      hints:
+        - 'to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to fix: cpupower frequency-set -g performance'
+        - 'to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to persist: add to /etc/rc.local or use tuned profile ''throughput-performance'''
+        - 'note: ''schedutil'' or ''ondemand'' are also acceptable for variable workloads'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: ""
+      message: ""
+      hints: []

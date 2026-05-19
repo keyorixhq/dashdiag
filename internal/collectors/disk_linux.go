@@ -420,6 +420,9 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 		result.ZFSPools = collectZFSPools()
 	}
 
+	// btrfs — check mounted btrfs filesystems for missing devices and errors
+	result.BtrfsVolumes = collectBtrfsVolumes(result.Filesystems)
+
 	// I/O stats — deep mode only (requires 1s sleep)
 	if c.Deep {
 		result.IOStats = collectDiskIO(result.Drives)

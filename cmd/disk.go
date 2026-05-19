@@ -82,6 +82,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	printDiskDrives(info)
 	printDiskZFS(info)
 	printDiskFilesystems(info)
+	printDiskBtrfs(info)
 	printDiskIO(info)
 	printDiskLVM(lvmInfo)
 
@@ -111,6 +112,42 @@ func printDiskDrives(info *models.DiskInfo) {
 			d.Name, sizeStr, string(d.Type), mountStr, modelStr)
 		if d.SMART != nil {
 			printSMARTLine(d.SMART)
+		}
+	}
+}
+
+func printDiskBtrfs(info *models.DiskInfo) {
+	if len(info.BtrfsVolumes) == 0 {
+		return
+	}
+	fmt.Printf("\nBtrfs volumes (%d)\n", len(info.BtrfsVolumes))
+	for _, v := range info.BtrfsVolumes {
+		icon := "✅"
+		statusStr := ""
+		if v.Status == "degraded" || v.MissingDevs > 0 {
+			icon = "❌"
+			statusStr = fmt.Sprintf("  DEGRADED — %d missing device(s)", v.MissingDevs)
+		} else if v.Status == "errors" {
+			icon = "⚠️ "
+			statusStr = "  device errors detected"
+		}
+		devStr := fmt.Sprintf("%d device(s)", v.TotalDevices)
+		if v.MissingDevs > 0 {
+			devStr = fmt.Sprintf("%d/%d device(s)", v.TotalDevices-v.MissingDevs, v.TotalDevices)
+		}
+		fmt.Printf("  %s  %-30s  %s%s\n", icon, v.MountPoint, devStr, statusStr)
+		for _, d := range v.Devices {
+			devIcon := "  "
+			label := d.Path
+			if d.Missing {
+				devIcon = "  ❌"
+				label = "<missing disk>"
+			}
+			errStr := ""
+			if d.ReadErrs+d.WriteErrs+d.CorruptErrs > 0 {
+				errStr = fmt.Sprintf("  read:%d write:%d corrupt:%d", d.ReadErrs, d.WriteErrs, d.CorruptErrs)
+			}
+			fmt.Printf("    %s  devid %d  %s%s\n", devIcon, d.DevID, label, errStr)
 		}
 	}
 }
@@ -186,6 +223,11 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 	n := 0
 	for _, fs := range info.Filesystems {
 		if fs.UsedPct >= 85 || fs.InodesUsedPct >= 85 {
+			n++
+		}
+	}
+	for _, v := range info.BtrfsVolumes {
+		if v.Status != "healthy" {
 			n++
 		}
 	}
