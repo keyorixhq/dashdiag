@@ -436,6 +436,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.IsNspawnPresent() {
 		cols = append(cols, collectors.NewNspawnCollector())
 	}
+	// Docker/Podman — gate on socket availability (no root required for detection)
+	if sock, _ := collectors.DetectContainerSocket(); sock != "" {
+		cols = append(cols, collectors.NewDockerCollector())
+	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
 	cols = append(cols, collectors.NewSessionsCollector())

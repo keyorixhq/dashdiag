@@ -64,6 +64,9 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Volumes
 	collectVolumes(ctx, client, info)
 
+	// Network backend + MTU checks
+	collectNetworkHealth(ctx, client, info)
+
 	// On RHEL/Rocky 10+ with zero images and containers, daemon likely failed
 	// to start due to missing iptables-legacy — add actionable hint.
 	if info.TotalContainers == 0 && info.ImagesCount == 0 && isRHEL10Plus() {
@@ -71,6 +74,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	return info, nil
+}
+
+// DetectContainerSocket returns the first available container runtime socket
+// and its runtime name ("docker" or "podman"). Exported so cmd/health.go
+// can gate inclusion without importing the whole collector on non-Linux.
+func DetectContainerSocket() (string, string) {
+	return detectContainerSocket()
 }
 
 // detectContainerSocket returns the first available socket and its runtime name.
@@ -202,12 +212,14 @@ func containerDetail(ctx context.Context, client *http.Client, id string) (healt
 	if err != nil {
 		return "none", 0
 	}
+	// RestartCount is at the top level in both Docker and Podman.
+	// Health is nested under State.Health.Status.
 	var detail struct {
-		State struct {
+		RestartCount int `json:"RestartCount"`
+		State        struct {
 			Health struct {
 				Status string `json:"Status"`
 			} `json:"Health"`
-			RestartCount int `json:"RestartCount"`
 		} `json:"State"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
@@ -217,7 +229,7 @@ func containerDetail(ctx context.Context, client *http.Client, id string) (healt
 	if h == "" {
 		h = "none"
 	}
-	return h, detail.State.RestartCount
+	return h, detail.RestartCount
 }
 
 func collectDiskUsage(ctx context.Context, client *http.Client, info *models.DockerInfo) {
@@ -315,4 +327,126 @@ func isRHEL10Plus() bool {
 		}
 	}
 	return false
+}
+
+// collectNetworkHealth detects the container network backend and checks for
+// MTU mismatches between container networks and the host interface.
+//
+// Netavark (nftables-based, default in Podman 4+, RHEL 9+) vs CNI (iptables).
+// MTU mismatch (container=1500, host=9000 for jumbo frames) causes silent
+// packet fragmentation and connection issues that are very hard to diagnose.
+func collectNetworkHealth(ctx context.Context, client *http.Client, info *models.DockerInfo) {
+	// Detect backend: check for netavark nft table (podman) or iptables chains (docker)
+	info.NetworkBackend = detectNetworkBackend(info.Runtime)
+
+	// Get container network MTU via API
+	containerMTU := getContainerNetworkMTU(ctx, client)
+	if containerMTU == 0 {
+		return
+	}
+	info.ContainerMTU = containerMTU
+
+	// Get host interface MTU (first non-loopback, non-virtual interface)
+	hostMTU := getHostMTU()
+	if hostMTU == 0 {
+		return
+	}
+	info.HostMTU = hostMTU
+
+	// Mismatch: container MTU > host MTU causes fragmentation
+	// Mismatch: container MTU < host MTU is wasteful but not harmful
+	if containerMTU > hostMTU {
+		info.MTUMismatch = true
+	}
+}
+
+// detectNetworkBackend checks whether the container runtime uses
+// netavark (nftables) or CNI (iptables) for network management.
+func detectNetworkBackend(runtime string) string {
+	// Netavark creates an 'inet netavark' nftables table
+	if data, err := os.ReadFile("/proc/net/nf_conntrack_stat"); err == nil {
+		_ = data // nftables is loaded
+	}
+	// Check for netavark nft table via /run/netavark or nft list tables
+	if _, err := os.Stat("/usr/libexec/podman/netavark"); err == nil {
+		return "netavark"
+	}
+	if _, err := os.Stat("/usr/bin/netavark"); err == nil {
+		return "netavark"
+	}
+	if runtime == "podman" {
+		// Podman 4+ defaults to netavark; older uses CNI
+		if _, err := os.Stat("/etc/cni/net.d"); err == nil {
+			return "cni"
+		}
+		return "netavark"
+	}
+	// Docker always uses iptables/nftables via dockerd
+	return "iptables"
+}
+
+// getContainerNetworkMTU reads the MTU of the default container network
+// from the Docker/Podman API (/networks/bridge or /networks/podman).
+func getContainerNetworkMTU(ctx context.Context, client *http.Client) int {
+	data, err := apiGet(ctx, client, "/networks")
+	if err != nil {
+		return 0
+	}
+	var networks []struct {
+		Name    string `json:"Name"`
+		Options struct {
+			MTU string `json:"com.docker.network.driver.mtu"`
+		} `json:"Options"`
+		IPAM struct {
+			Config []struct{} `json:"Config"`
+		} `json:"IPAM"`
+	}
+	if err := json.Unmarshal(data, &networks); err != nil {
+		return 0
+	}
+	for _, n := range networks {
+		if n.Name == "bridge" || n.Name == "podman" {
+			if n.Options.MTU != "" {
+				mtu := 0
+				if _, err := fmt.Sscanf(n.Options.MTU, "%d", &mtu); err == nil {
+					return mtu
+				}
+			}
+			// Default MTU when not explicitly set
+			return 1500
+		}
+	}
+	return 0
+}
+
+// getHostMTU returns the MTU of the first physical network interface.
+// Reads /sys/class/net/*/mtu — skips lo, virtual, container interfaces.
+func getHostMTU() int {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return 0
+	}
+	skipPrefixes := []string{"lo", "docker", "podman", "cni", "veth", "virbr", "br-", "tunl", "tun", "tap"}
+	for _, e := range entries {
+		name := e.Name()
+		skip := false
+		for _, pfx := range skipPrefixes {
+			if strings.HasPrefix(name, pfx) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		mtuData, err := os.ReadFile("/sys/class/net/" + name + "/mtu") // #nosec G304
+		if err != nil {
+			continue
+		}
+		mtu := 0
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(mtuData)), "%d", &mtu); err == nil && mtu > 0 {
+			return mtu
+		}
+	}
+	return 0
 }

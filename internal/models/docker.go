@@ -29,6 +29,11 @@ type DockerInfo struct {
 	DanglingImagesMB float64         `json:"dangling_images_mb"`
 	VolumesCount     int             `json:"volumes_count"`
 	OrphanedVolumes  int             `json:"orphaned_volumes"`
-	Status           string          `json:"status,omitempty"`
-	StatusReason     string          `json:"status_reason,omitempty"`
+	// Network health
+	NetworkBackend string `json:"network_backend,omitempty"` // "netavark" (nftables), "cni" (iptables), "unknown"
+	MTUMismatch    bool   `json:"mtu_mismatch"`              // container network MTU ≠ host interface MTU
+	HostMTU        int    `json:"host_mtu,omitempty"`
+	ContainerMTU   int    `json:"container_mtu,omitempty"`
+	Status         string `json:"status,omitempty"`
+	StatusReason   string `json:"status_reason,omitempty"`
 }
