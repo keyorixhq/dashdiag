@@ -50,14 +50,14 @@ build-linux:
 LEGION_HOST ?= andrei@192.168.1.145
 deploy: build-linux
 	scp dist/$(BINARY)-linux-amd64 $(LEGION_HOST):/tmp/dsd
-	ssh $(LEGION_HOST) 'sudo -n cp /tmp/dsd /usr/local/bin/dsd && dsd --version'
+	ssh $(LEGION_HOST) 'sudo -n install -m 755 /tmp/dsd /usr/bin/dsd && dsd --version'
 	@echo "✅ Deployed to $(LEGION_HOST)"
 
 # Run dsd as root on Legion — needed for checks that require elevated access:
 # /etc/shadow (user audit), IPMI sensors, auditd AVC log, hardware SMART writes.
 .PHONY: run-root
 run-root:
-	ssh $(LEGION_HOST) 'sudo -n /usr/local/bin/dsd $(ARGS)'
+	ssh $(LEGION_HOST) 'sudo -n /usr/bin/dsd $(ARGS)'
 
 # Run the full Linux test suite on Legion as root.
 # Some collectors only produce full output under root (IPMI, auditd, /etc/shadow).
