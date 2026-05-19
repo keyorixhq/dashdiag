@@ -3396,6 +3396,28 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 
 func checkDockerResources(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
+	// Deprecated storage driver
+	if d.Daemon != nil && d.Daemon.StorageDriver == "devicemapper" {
+		out = append(out, insight("WARN", "Docker",
+			"storage driver is devicemapper (deprecated) — known performance and stability issues",
+			[]string{
+				"to fix: migrate to overlay2 (requires re-creating all containers and images)",
+				"to inspect: docker info | grep 'Storage Driver'",
+				"note: devicemapper in loop mode has known data corruption risks",
+			},
+		))
+	}
+	// Recent daemon errors
+	if d.Daemon != nil && d.Daemon.RecentErrors > 0 {
+		hints := []string{"to inspect: journalctl -u docker -n 50 --no-pager"}
+		if d.Daemon.LastDaemonError != "" {
+			hints = append([]string{"last error: " + d.Daemon.LastDaemonError}, hints...)
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d Docker daemon error(s) in the last 10 minutes", d.Daemon.RecentErrors),
+			hints,
+		))
+	}
 	if d.DanglingImagesMB >= 1024 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),

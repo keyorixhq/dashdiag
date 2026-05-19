@@ -48,6 +48,9 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	client := socketClient(socket)
 
+	// Daemon health — version, storage driver, recent errors
+	info.Daemon = collectDaemonHealth(ctx, client, info.Runtime)
+
 	// Containers list
 	if err := collectContainers(ctx, client, info); err != nil {
 		info.Status = "error"
@@ -388,6 +391,83 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 
 // timeNow is a variable so tests can override it.
 var timeNow = func() time.Time { return time.Now() }
+
+// collectDaemonHealth fetches /info and /version for daemon-level health.
+func collectDaemonHealth(ctx context.Context, client *http.Client, runtime string) *models.DockerDaemon {
+	d := &models.DockerDaemon{Responding: true}
+
+	// GET /info — storage driver, swarm state
+	infoData, err := apiGet(ctx, client, "/info")
+	if err == nil {
+		var info struct {
+			Driver string `json:"Driver"`
+			Swarm  struct {
+				LocalNodeState string `json:"LocalNodeState"`
+			} `json:"Swarm"`
+		}
+		if json.Unmarshal(infoData, &info) == nil {
+			d.StorageDriver = info.Driver
+			d.SwarmState = info.Swarm.LocalNodeState
+		}
+	}
+
+	// GET /version — server version + API version
+	verData, err := apiGet(ctx, client, "/version")
+	if err == nil {
+		var ver struct {
+			Version    string `json:"Version"`
+			APIVersion string `json:"ApiVersion"`
+		}
+		if json.Unmarshal(verData, &ver) == nil {
+			d.Version = ver.Version
+			d.APIVersion = ver.APIVersion
+		}
+	}
+
+	// Daemon journal errors (last 10 minutes) — Docker only, not Podman
+	if runtime == "docker" {
+		collectDaemonJournalErrors(ctx, d)
+	}
+
+	return d
+}
+
+// collectDaemonJournalErrors reads recent error/warning lines from docker service journal.
+func collectDaemonJournalErrors(ctx context.Context, d *models.DockerDaemon) {
+	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(jCtx, "journalctl", "-u", "docker",
+		"-n", "30", "--no-pager", "--since", "10 minutes ago", "--output=short")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "level=error") || strings.Contains(lower, "level=warning") ||
+			(strings.Contains(lower, "error") && strings.Contains(lower, "docker")) {
+			d.RecentErrors++
+			// Keep last meaningful error message (truncated)
+			msg := extractJournalMessage(line)
+			if msg != "" {
+				d.LastDaemonError = msg
+			}
+		}
+	}
+}
+
+// extractJournalMessage strips the timestamp prefix from a journalctl line.
+func extractJournalMessage(line string) string {
+	// journalctl short format: "May 19 14:05:46 hostname docker[pid]: message"
+	parts := strings.SplitN(line, ": ", 2)
+	if len(parts) == 2 {
+		msg := strings.TrimSpace(parts[1])
+		if len(msg) > 120 {
+			return msg[:120] + "…"
+		}
+		return msg
+	}
+	return ""
+}
 
 func collectDiskUsage(ctx context.Context, client *http.Client, info *models.DockerInfo) {
 	data, err := apiGet(ctx, client, "/system/df")
