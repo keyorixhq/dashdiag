@@ -3445,7 +3445,7 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 	return out
 }
 
-func checkDockerResources(d models.DockerInfo) []models.Insight {
+func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funlen
 	var out []models.Insight
 	// Deprecated storage driver
 	if d.Daemon != nil && d.Daemon.StorageDriver == "devicemapper" {
