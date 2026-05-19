@@ -3375,6 +3375,10 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 				[]string{"to inspect: systemctl status docker"},
 			))
 		}
+		// 7h: socket found but permission denied — surface specific fix
+		if d.SocketPermDenied {
+			return out
+		}
 		return out
 	}
 
@@ -3417,6 +3421,24 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 				"to inspect: docker events --filter event=oom",
 				"to fix: set memory limits in container config",
 				"to inspect: docker stats --no-stream",
+			},
+		))
+	}
+	// 7i: image architecture mismatch
+	if d.ArchMismatchCount > 0 {
+		var mismatched []string
+		for _, c := range d.Containers {
+			if c.ArchMismatch {
+				mismatched = append(mismatched, fmt.Sprintf("%s (image: %s, host: %s)", c.Name, c.ImageArch, d.HostArch))
+			}
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container(s) have image architecture mismatch — will fail with 'exec format error': %s",
+				d.ArchMismatchCount, strings.Join(firstN(mismatched, 3), ", ")),
+			[]string{
+				fmt.Sprintf("note: host is %s — pull or rebuild images for the correct platform", d.HostArch),
+				"to fix: docker buildx build --platform linux/" + d.HostArch + " -t <image> .",
+				"to fix: docker pull --platform linux/" + d.HostArch + " <image>",
 			},
 		))
 	}
@@ -3513,6 +3535,22 @@ func checkDockerResources(d models.DockerInfo) []models.Insight {
 			[]string{
 				"fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf && systemctl restart firewalld docker",
 				"fix B (trust docker0): firewall-cmd --permanent --zone=trusted --add-interface=docker0 && firewall-cmd --reload",
+			},
+		))
+	}
+	// 7g: DNS trap — host resolv.conf uses loopback; containers fall back to 8.8.8.8
+	if d.DNSTrap {
+		daemonNote := "daemon DNS override: not configured (containers fall back to 8.8.8.8)"
+		if d.DaemonDNSConfigured && len(d.DaemonDNSServers) > 0 {
+			daemonNote = "daemon DNS configured: " + strings.Join(d.DaemonDNSServers, ", ")
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("host resolv.conf uses %s (loopback) — containers cannot reach this address", d.DNSTrapServer),
+			[]string{
+				daemonNote,
+				"note: if 8.8.8.8 is blocked by corporate firewall, container DNS fails silently",
+				"to fix: add to /etc/docker/daemon.json: {\"dns\": [\"1.1.1.1\", \"8.8.8.8\"]}",
+				"to fix: systemctl restart docker",
 			},
 		))
 	}
