@@ -45,7 +45,6 @@ func runLogs(cmd *cobra.Command, _ []string) error {
 	}
 
 	elapsed := p.Elapsed()
-
 	info, ok := result.Data.(*models.LogsInfo)
 	if !ok || info == nil {
 		return result.Err
@@ -56,7 +55,6 @@ func runLogs(cmd *cobra.Command, _ []string) error {
 }
 
 // parseSinceDuration parses durations like "1h", "24h", "7d", "30d".
-// Supports "d" suffix for days which Go's time.ParseDuration doesn't.
 func parseSinceDuration(s string) time.Duration {
 	if strings.HasSuffix(s, "d") {
 		days, err := time.ParseDuration(strings.TrimSuffix(s, "d") + "h")
@@ -66,68 +64,23 @@ func parseSinceDuration(s string) time.Duration {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return time.Hour // default
+		return time.Hour
 	}
 	return d
 }
 
-func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time.Duration, since time.Duration) {
+func printLogsReport(info *models.LogsInfo, _ output.OutputMode, elapsed time.Duration, since time.Duration) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
-	sinceStr := formatDuration(since)
 
-	fmt.Printf("\nLog health — last %s\n", sinceStr)
+	fmt.Printf("\nLog health — last %s\n", formatDuration(since))
+	printLogsSeverity(info)
+	printLogsOOM(info)
+	printLogsSegfaults(info)
+	printLogsCrashLoops(info)
+	printLogsCrashFiles(info)
+	printLogsJournalSize(info)
 
-	// OOM kills
-	fmt.Printf("\nOOM Kills: ")
-	if info.OOMKills == 0 {
-		fmt.Println("none")
-	} else {
-		fmt.Printf("%d\n", info.OOMKills)
-		fmt.Println("  Processes killed:")
-		for _, p := range info.OOMProcesses {
-			fmt.Printf("    ❌  %s\n", p)
-		}
-		fmt.Println("  → to inspect: dmesg | grep -i 'out of memory'")
-	}
-
-	// Segfaults
-	fmt.Printf("\nSegfaults: ")
-	if info.Segfaults == 0 {
-		fmt.Println("none")
-	} else {
-		fmt.Printf("%d\n", info.Segfaults)
-		fmt.Println("  Processes:")
-		for _, p := range info.SegfaultProcs {
-			fmt.Printf("    ⚠️   %s\n", p)
-		}
-		fmt.Println("  → to inspect: dmesg | grep segfault")
-	}
-
-	// Crash loops
-	fmt.Printf("\nCrash loops: ")
-	if len(info.CrashLoops) == 0 {
-		fmt.Println("none")
-	} else {
-		fmt.Println()
-		for _, u := range info.CrashLoops {
-			unit := strings.Fields(u)[0]
-			fmt.Printf("    ❌  %s\n", u)
-			fmt.Printf("       → journalctl -u %s -n 20\n", unit)
-		}
-	}
-
-	// Journal disk usage
-	fmt.Printf("\nJournal size: ")
-	if info.JournalSizeGB < 0.001 {
-		fmt.Println("< 1 MB")
-	} else if info.JournalSizeGB < 1.0 {
-		fmt.Printf("%.0f MB\n", info.JournalSizeGB*1024)
-	} else {
-		fmt.Printf("%.1f GB\n", info.JournalSizeGB)
-	}
-
-	// Summary
 	fmt.Println()
 	fmt.Println(sep)
 	issues := 0
@@ -138,11 +91,96 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 		issues++
 	}
 	issues += len(info.CrashLoops)
-
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Logs healthy. Checks passed%s", timing)))
 	} else {
 		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌ %d log issue(s) found%s", issues, timing)))
+	}
+}
+
+func printLogsSeverity(info *models.LogsInfo) {
+	if info.ErrorCount == 0 && info.WarningCount == 0 {
+		return
+	}
+	fmt.Printf("\nSeverity summary:\n")
+	if info.ErrorCount > 0 {
+		fmt.Printf("  ❌  Errors:   %d\n", info.ErrorCount)
+		for _, e := range info.TopErrors {
+			fmt.Printf("       %s\n", e)
+		}
+	}
+	if info.WarningCount > 0 {
+		fmt.Printf("  ⚠️   Warnings: %d\n", info.WarningCount)
+	}
+}
+
+func printLogsOOM(info *models.LogsInfo) {
+	fmt.Printf("\nOOM Kills: ")
+	if info.OOMKills == 0 {
+		fmt.Println("none")
+		return
+	}
+	fmt.Printf("%d\n", info.OOMKills)
+	for _, p := range info.OOMProcesses {
+		fmt.Printf("    ❌  %s\n", p)
+	}
+	fmt.Println("  → to inspect: dmesg | grep -i 'out of memory'")
+}
+
+func printLogsSegfaults(info *models.LogsInfo) {
+	fmt.Printf("\nSegfaults: ")
+	if info.Segfaults == 0 {
+		fmt.Println("none")
+		return
+	}
+	fmt.Printf("%d\n", info.Segfaults)
+	for _, p := range info.SegfaultProcs {
+		fmt.Printf("    ⚠️   %s\n", p)
+	}
+	fmt.Println("  → to inspect: dmesg | grep segfault")
+}
+
+func printLogsCrashLoops(info *models.LogsInfo) {
+	fmt.Printf("\nCrash loops: ")
+	if len(info.CrashLoops) == 0 {
+		fmt.Println("none")
+		return
+	}
+	fmt.Println()
+	for _, u := range info.CrashLoops {
+		unit := strings.Fields(u)[0]
+		fmt.Printf("    ❌  %s\n", u)
+		fmt.Printf("       → journalctl -u %s -n 20\n", unit)
+	}
+}
+
+func printLogsCrashFiles(info *models.LogsInfo) {
+	if info.CoreDumpCount == 0 {
+		return
+	}
+	fmt.Printf("\nCrash dumps (%d found):\n", info.CoreDumpCount)
+	for _, cf := range info.CrashFiles {
+		ago := "today"
+		if cf.AgeDays > 0 {
+			ago = fmt.Sprintf("%dd ago", cf.AgeDays)
+		}
+		fmt.Printf("    ⚠️   %-50s %6.1fMB  %s\n", cf.Path, cf.SizeMB, ago)
+	}
+	fmt.Println("  → to analyse: journalctl -k -b -1 | tail -50")
+}
+
+func printLogsJournalSize(info *models.LogsInfo) {
+	fmt.Printf("\nJournal size: ")
+	switch {
+	case info.JournalSizeGB < 0.001:
+		fmt.Println("< 1 MB")
+	case info.JournalSizeGB < 1.0:
+		fmt.Printf("%.0f MB\n", info.JournalSizeGB*1024)
+	default:
+		fmt.Printf("%.1f GB\n", info.JournalSizeGB)
+	}
+	if info.LogSource != "" && info.LogSource != "journald" {
+		fmt.Printf("Log source:   %s\n", info.LogSource)
 	}
 }
 

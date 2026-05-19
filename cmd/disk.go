@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,34 +20,44 @@ import (
 
 func init() {
 	rootCmd.AddCommand(diskCmd)
+	diskCmd.Flags().Bool("deep", false, "deep mode: I/O rate sampling (adds ~2s)")
 }
 
 var diskCmd = &cobra.Command{
 	Use:   "disk",
-	Short: "Disk health — physical drives, mount status, filesystem usage",
+	Short: "Disk health — physical drives, SMART, filesystems, ZFS pools",
 	RunE:  runDisk,
 }
 
 func runDisk(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
+	deep, _ := cmd.Flags().GetBool("deep")
 	mode := output.DetectMode(plain, false, "")
 
-	p := output.NewCommandProgress("Disk health", 5*time.Second, mode, 1)
+	col := collectors.NewDiskCollector()
+	if deep {
+		col = collectors.NewDiskDeepCollector()
+	}
+
+	p := output.NewCommandProgress("Disk health", 12*time.Second, mode, 1)
 	p.Start()
 	defer p.Done()
 
 	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewDiskCollector()}) {
+	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		p.Step(r.Name)
 		result = r
 	}
 
 	elapsed := p.Elapsed()
-
 	info, ok := result.Data.(*models.DiskInfo)
 	if !ok || info == nil {
 		return result.Err
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, info)
 	}
 
 	printDiskReport(info, mode, elapsed)
@@ -58,51 +68,14 @@ func printDiskReport(info *models.DiskInfo, mode output.OutputMode, elapsed time
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	// Physical drives
-	drives := diskEnumeratePhysical()
-	fmt.Printf("\nPhysical Drives — %d found\n", len(drives))
-	for _, d := range drives {
-		driveType := diskDriveType(d.name)
-		mountStr := "not mounted"
-		if len(d.mounts) > 0 {
-			mountStr = strings.Join(d.mounts, "  ")
-		} else if d.hasWindows {
-			mountStr = "not mounted (Windows/other OS)"
-		}
-		fmt.Printf("  %-12s %-6s %-6s %s\n",
-			filepath.Base(d.name), diskSizeStr(d.name), driveType, mountStr)
-	}
-
-	// Filesystem usage
-	fmt.Printf("\nFilesystems (%d)\n", len(info.Filesystems))
-	issues := 0
-	for _, fs := range info.Filesystems {
-		// Skip virtual/pseudo filesystems
-		if fs.TotalGB == 0 {
-			continue
-		}
-		icon := "✅"
-		if fs.UsedPct >= 95 {
-			icon = "❌"
-			issues++
-		} else if fs.UsedPct >= 85 {
-			icon = "⚠️ "
-			issues++
-		}
-		roNote := ""
-		if fs.ReadOnly {
-			roNote = " [ro]"
-		}
-		fmt.Printf("  %s  %-20s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
-			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
-		if fs.InodesUsedPct >= 85 {
-			fmt.Printf("       ⚠️   inodes at %.0f%%\n", fs.InodesUsedPct)
-			issues++
-		}
-	}
+	printDiskDrives(info)
+	printDiskZFS(info)
+	printDiskFilesystems(info)
+	printDiskIO(info)
 
 	fmt.Println()
 	fmt.Println(sep)
+	issues := countDiskIssues(info)
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Disk healthy. Checks passed%s", timing)))
 	} else {
@@ -110,138 +83,157 @@ func printDiskReport(info *models.DiskInfo, mode output.OutputMode, elapsed time
 	}
 }
 
-type physicalDrive struct {
-	name       string
-	mounts     []string
-	hasWindows bool
+func printDiskDrives(info *models.DiskInfo) {
+	if len(info.Drives) == 0 {
+		return
+	}
+	fmt.Printf("\nPhysical Drives — %d found\n", len(info.Drives))
+	for _, d := range info.Drives {
+		mountStr := strings.Join(d.Mounts, "  ")
+		sizeStr := diskFmtGB(d.SizeGB)
+		modelStr := ""
+		if d.Model != "" {
+			modelStr = "  [" + d.Model + "]"
+		}
+		fmt.Printf("  %-12s %-6s %-5s %s%s\n",
+			d.Name, sizeStr, string(d.Type), mountStr, modelStr)
+		if d.SMART != nil {
+			printSMARTLine(d.SMART)
+		}
+	}
 }
 
-// diskEnumeratePhysical lists physical drives from /proc/partitions
-// and cross-references /proc/mounts for mount status.
-func diskEnumeratePhysical() []physicalDrive {
-	// Read all mounts once: dev → []mountpoints
-	mountsByDev := make(map[string][]string)
-	fstypeByDev := make(map[string]string)
-	if data, err := os.ReadFile("/proc/mounts"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 3 {
-				continue
-			}
-			dev := filepath.Base(fields[0])
-			mount := fields[1]
-			fstype := fields[2]
-			if mount != "none" && !strings.HasPrefix(mount, "/run/netns") {
-				mountsByDev[dev] = append(mountsByDev[dev], mount)
-				fstypeByDev[dev] = fstype
-			}
-		}
+func printDiskZFS(info *models.DiskInfo) {
+	if len(info.ZFSPools) == 0 {
+		return
 	}
-
-	windowsFS := map[string]bool{"ntfs": true}
-	linuxFS := map[string]bool{
-		"xfs": true, "ext4": true, "ext3": true, "ext2": true,
-		"btrfs": true, "f2fs": true, "swap": true,
+	fmt.Printf("\nZFS Pools (%d)\n", len(info.ZFSPools))
+	for _, p := range info.ZFSPools {
+		icon := "✅"
+		switch p.State {
+		case "DEGRADED", "FAULTED", "OFFLINE":
+			icon = "❌"
+		case "ONLINE":
+			if p.UsedPct >= 95 {
+				icon = "❌"
+			} else if p.UsedPct >= 85 {
+				icon = "⚠️ "
+			}
+		}
+		errStr := ""
+		if p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
+			errStr = fmt.Sprintf("  ⚠️  R:%d W:%d C:%d", p.ReadErrors, p.WriteErrors, p.CksumErrors)
+		}
+		scrubStr := ""
+		if p.ScrubAgeDays > 30 {
+			scrubStr = fmt.Sprintf("  ⚠️  last scrub %dd ago", p.ScrubAgeDays)
+		} else if p.ScrubAgeDays < 0 {
+			scrubStr = "  ⚠️  never scrubbed"
+		}
+		fmt.Printf("  %s  %-20s %s  %.0f%%  %.1fGB%s%s\n",
+			icon, p.Name, p.State, p.UsedPct, p.SizeGB, errStr, scrubStr)
 	}
-
-	f, err := os.Open("/proc/partitions")
-	if err != nil {
-		return nil
-	}
-	defer f.Close() //nolint:errcheck
-
-	seen := make(map[string]bool)
-	var drives []physicalDrive
-
-	scanner := bufio.NewScanner(f)
-	scanner.Scan() // header
-	scanner.Scan() // blank
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) < 4 {
-			continue
-		}
-		name := fields[3]
-
-		// NVMe namespace: nvme0n1 (has 'n', no 'p')
-		// SCSI disk: sda, sdb (3 chars, starts with sd)
-		// Virtio disk: vda, vdb
-		isNVMe := strings.HasPrefix(name, "nvme") && strings.Contains(name, "n") && !strings.Contains(name, "p")
-		isSCSI := len(name) == 3 && strings.HasPrefix(name, "sd")
-		isVirt := len(name) == 3 && strings.HasPrefix(name, "vd")
-		if !isNVMe && !isSCSI && !isVirt {
-			continue
-		}
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-
-		// Find mounted partitions of this drive
-		var mounts []string
-		hasWindows := false
-		hasLinux := false
-
-		for dev, devMounts := range mountsByDev {
-			if !strings.HasPrefix(dev, name) {
-				continue
-			}
-			for _, m := range devMounts {
-				mounts = append(mounts, fmt.Sprintf("%s→%s", dev, m))
-			}
-			fs := fstypeByDev[dev]
-			if windowsFS[fs] {
-				hasWindows = true
-			}
-			if linuxFS[fs] {
-				hasLinux = true
-			}
-		}
-
-		// Heuristic: unmounted NVMe on dual-boot → likely Windows
-		if len(mounts) == 0 && !hasLinux && isNVMe {
-			hasWindows = true
-		}
-
-		drives = append(drives, physicalDrive{
-			name:       "/dev/" + name,
-			mounts:     mounts,
-			hasWindows: hasWindows && !hasLinux,
-		})
-	}
-	return drives
 }
 
-// diskDriveType returns "NVMe", "SSD", or "HDD".
-func diskDriveType(devPath string) string {
-	dev := filepath.Base(devPath)
-	if strings.HasPrefix(dev, "nvme") {
-		return "NVMe"
+func printDiskFilesystems(info *models.DiskInfo) {
+	fmt.Printf("\nFilesystems (%d)\n", len(info.Filesystems))
+	for _, fs := range info.Filesystems {
+		if fs.TotalGB == 0 {
+			continue
+		}
+		icon := "✅"
+		if fs.UsedPct >= 95 {
+			icon = "❌"
+		} else if fs.UsedPct >= 85 {
+			icon = "⚠️ "
+		}
+		roNote := ""
+		if fs.ReadOnly {
+			roNote = " [ro]"
+		}
+		fmt.Printf("  %s  %-22s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
+			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
+		if fs.InodesUsedPct >= 85 {
+			fmt.Printf("       ⚠️   inodes at %.0f%%\n", fs.InodesUsedPct)
+		}
 	}
-	data, err := os.ReadFile(filepath.Join("/sys/block", dev, "queue/rotational")) // #nosec G304
-	if err != nil {
-		return "disk"
-	}
-	if strings.TrimSpace(string(data)) == "1" {
-		return "HDD"
-	}
-	return "SSD"
 }
 
-// diskSizeStr returns a human-readable size for a block device from sysfs.
-func diskSizeStr(devPath string) string {
-	dev := filepath.Base(devPath)
-	data, err := os.ReadFile(filepath.Join("/sys/block", dev, "size")) // #nosec G304
-	if err != nil {
-		return "?"
+func printDiskIO(info *models.DiskInfo) {
+	if len(info.IOStats) == 0 {
+		return
 	}
-	var sectors int64
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &sectors); err != nil || sectors == 0 {
-		return "?"
+	fmt.Printf("\nI/O rates (1s sample)\n")
+	for _, io := range info.IOStats {
+		fmt.Printf("  %-12s  read: %6.1f MB/s  write: %6.1f MB/s\n",
+			io.Device, io.ReadMBs, io.WriteMBs)
 	}
-	gb := float64(sectors) * 512 / 1e9
+}
+
+func countDiskIssues(info *models.DiskInfo) int {
+	n := 0
+	for _, fs := range info.Filesystems {
+		if fs.UsedPct >= 85 || fs.InodesUsedPct >= 85 {
+			n++
+		}
+	}
+	for _, p := range info.ZFSPools {
+		if p.State != "ONLINE" || p.UsedPct >= 85 || p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
+			n++
+		}
+	}
+	for _, d := range info.Drives {
+		if d.SMART != nil && !d.SMART.Healthy {
+			n++
+		}
+	}
+	return n
+}
+
+// printSMARTLine renders a compact SMART summary line indented under the drive.
+func printSMARTLine(s *models.SMARTInfo) {
+	if s.Error != "" {
+		fmt.Printf("             SMART: %s\n", s.Error)
+		return
+	}
+	icon := "✅"
+	if !s.Healthy {
+		icon = "❌"
+	} else if s.PercentUsed >= 90 {
+		icon = "⚠️ "
+	} else if s.MediaErrors > 0 {
+		icon = "⚠️ "
+	}
+	health := "PASSED"
+	if !s.Healthy {
+		health = "FAILED"
+	}
+	details := ""
+	if s.PercentUsed > 0 || s.AvailableSpare > 0 {
+		details = fmt.Sprintf("  wear:%d%%  spare:%d%%", s.PercentUsed, s.AvailableSpare)
+	}
+	tempStr := ""
+	if s.Temperature > 0 {
+		tempStr = fmt.Sprintf("  temp:%d°C", s.Temperature)
+	}
+	errStr := ""
+	if s.MediaErrors > 0 {
+		errStr = fmt.Sprintf("  errors:%d", s.MediaErrors)
+	}
+	fmt.Printf("             %s SMART: %s%s%s%s\n", icon, health, details, tempStr, errStr)
+}
+
+// diskFmtGB formats a float64 GB value into a compact string.
+func diskFmtGB(gb float64) string {
 	if gb >= 1000 {
 		return fmt.Sprintf("%.0fTB", gb/1000)
 	}
 	return fmt.Sprintf("%.0fGB", gb)
+}
+
+// outputJSON writes v as indented JSON to w.
+func outputJSON(w io.Writer, v interface{}) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
