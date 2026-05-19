@@ -115,6 +115,19 @@ SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
 SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make run-root ARGS="health deep --plain"
 ```
 
+### Capture broken state BEFORE cleaning up (mandatory)
+```bash
+# On the broken machine — run this BEFORE fixing or cleaning up:
+sudo dsd health --json | dsd capture > fixtures/HOSTNAME-SCENARIO-DATE.yaml
+
+# Verify it replays:
+dsd mock fixtures/HOSTNAME-SCENARIO-DATE.yaml
+
+# Also save raw disk/LVM state:
+sudo dsd disk --json > marketing-assets/HOSTNAME-data/disk-SCENARIO.json
+```
+The fixture is replayable forever, on any machine, no hardware needed.
+
 ---
 
 ## Gap Spec Locations

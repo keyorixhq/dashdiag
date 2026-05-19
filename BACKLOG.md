@@ -57,6 +57,28 @@ Build order rule: **never build deep before fast is in production use.**
 
 ---
 
+## Tooling
+
+### [CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline
+
+**Current state:** `dsd capture` only reads `dsd health --json`. The detailed LVM state
+(thin pool %, RAID health, missing PV) lives in `dsd disk --json` and is not captured.
+
+**Gap found:** During the Session 11 LVM break test (4 simultaneous failures), we cleaned
+up before running `dsd capture`. The health fixture is now hand-crafted. The `dsd disk`
+detail was never captured.
+
+**What to build:**
+- `dsd capture --disk` — reads `dsd disk --json` from stdin, appends disk insights into the fixture
+- OR: `dsd capture --all` — runs all collectors internally, writes a multi-section fixture
+- The fixture format already handles arbitrary checks — just need ingestion paths for other commands
+
+**Priority:** Medium. Do before first public demo so every session produces a replayable artifact.
+
+**Estimated:** ~0.5d
+
+---
+
 ## Commands
 
 ### ~~[GAP-SPEC] dsd services deep~~ ✅ DONE (Session 1)
