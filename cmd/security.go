@@ -225,6 +225,35 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		default:
 			fmt.Printf("  ✅  No denials in the last hour\n")
 		}
+		// SELinux booleans — show off booleans relevant to denied types
+		if len(info.SELinuxBooleans) > 0 {
+			fmt.Printf("\n  [SELinux booleans — check first]\n")
+			for _, b := range info.SELinuxBooleans {
+				fmt.Printf("  ⚠️   %-45s = off\n", b.Name)
+				fmt.Printf("       → %s\n", b.SetCmd)
+			}
+		}
+		// AVC groups — show top 5
+		if len(info.SELinuxAVCGroups) > 0 {
+			fmt.Printf("\n  [AVC denials — last hour]\n")
+			for i, g := range info.SELinuxAVCGroups {
+				if i >= 5 {
+					fmt.Printf("  ... and %d more group(s)\n", len(info.SELinuxAVCGroups)-5)
+					break
+				}
+				perms := strings.Join(g.Perms, ",")
+				fmt.Printf("  ⚠️   ×%-4d  %-20s → %-20s  [%s] %s\n",
+					g.Count, g.Scontext, g.Tcontext, g.Tclass, perms)
+				if g.BooleanFix != "" {
+					fmt.Printf("       → setsebool -P %s on\n", g.BooleanFix)
+				} else if g.FixCmd != "" {
+					fmt.Printf("       → %s\n", g.FixCmd)
+				}
+			}
+		}
+		if info.SELinuxAutoRelabel {
+			fmt.Println("\n  ⚠️  /.autorelabel present — full filesystem relabel queued on next reboot (~15 min)")
+		}
 	}
 
 	// AppArmor (SLES/Ubuntu/Debian)
@@ -236,11 +265,29 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Println("  \u2705  All profiles enforcing")
 		}
 		switch {
+		case len(info.AppArmorGroups) > 0:
+			fmt.Printf("  ⚠️   %d denial group(s) in last 24h:\n", len(info.AppArmorGroups))
+			for i, g := range info.AppArmorGroups {
+				if i >= 3 {
+					break
+				}
+				fmt.Printf("    ×%-3d  %-30s  %s\n", g.Count, g.Profile, g.Path)
+			}
+			fmt.Println("  → aa-logprof  (auto-suggest profile updates)")
 		case info.AppArmorDenials > 0:
 			fmt.Printf("  \u26a0\ufe0f  %d denial(s) in the last hour\n", info.AppArmorDenials)
 		default:
-			fmt.Println("  \u2705  No denials in the last hour")
+			fmt.Println("  \u2705  No denials in the last 24h")
 		}
+	}
+
+	// PAM locked accounts
+	if len(info.PAMLockedAccounts) > 0 {
+		fmt.Printf("\nPAM locked accounts:\n")
+		for _, a := range info.PAMLockedAccounts {
+			fmt.Printf("  ❌  %s\n", a)
+		}
+		fmt.Println("  → faillock --reset --user <name>  (to unlock)")
 	}
 
 	// SUID binaries
