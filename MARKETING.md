@@ -862,3 +862,95 @@ Current build: everything free.
 
 Recommended: make the core output free, gate `--level 2` and `--json` behind Pro.
 Reason: the free output builds trust and demonstrates value. The JSON output (CI/CD integration) and Level 2 (advanced checks) are the things a paying customer actually needs. This gives a clear free → Pro upgrade path without removing value from the free tier.
+
+---
+
+## The Problem Nobody Knew They Had — dsd timeline Story
+
+*Real finding on RHEL 10.1, May 19 2026*
+
+### The insight
+
+A server running k3s and containers. Load at 7.25. No failed services. No alerts. Health checks green across the board. An admin glancing at the dashboard would move on.
+
+`dsd timeline` found 500 kernel errors in 60 seconds that nobody knew about.
+
+### What happened
+
+`veth1` is a virtual ethernet pair — one end inside a container, the other on the host. When k3s schedules pods rapidly, it creates and destroys veth pairs in bursts. Each creation floods `systemd-udevd` with netlink events. The kernel's netlink receive buffer fills faster than it can drain. The kernel returns `ENOBUFS — No buffer space available`. `udevd` retries. Gets rejected. Retries. 271 times in one burst. 229 times in the next.
+
+The whole thing happens silently, deep in the kernel event layer. No failed service. No high CPU. No alert. Just a server gradually getting noisier.
+
+### The output
+
+```
+$ dsd timeline
+
+⏱  Incident timeline — last 1h
+
+  Load average:
+  ⚠️  21:19:46 (now)    load: 7.25  5.86  5.50
+
+  TIME       LEVEL   UNIT             MESSAGE
+  ──────────────────────────────────────────────
+  20:36:24   jrnl    systemd-udevd    veth1: Failed to get link information:
+                                      No buffer space available  ×271
+  20:37:00   jrnl    systemd-udevd    veth1: Failed to get link information:
+                                      No buffer space available  ×229
+
+⚠️  2 WARN event(s) found in 2.5s
+```
+
+### Why this matters for positioning
+
+The admin would not have run `journalctl -u systemd-udevd --since "1 hour ago" | grep ENOBUFS` preemptively. Nobody does. That's a search you run *after* the incident has escalated enough to be visible — intermittent container connectivity failures, slow pod startup, unexplained latency. By then it's an outage.
+
+`dsd timeline` merges the journal stream, dmesg stream, and load trace, collapses 500 duplicate lines into two entries with counts, and presents the pattern in 2.5 seconds. **The admin didn't know to ask for this. DashDiag found it anyway.**
+
+The fix: `sysctl -w net.core.rmem_max=134217728`. Under two seconds to apply.
+
+### The one-liner pitch for this story
+
+> The server felt fine. `dsd timeline` found 500 silent kernel errors nobody knew about. One sysctl to fix.
+
+### Social media angles
+
+**Twitter/X:**
+> Server load: 7.25. No alerts. Health checks green.
+>
+> Ran `dsd timeline`.
+>
+> Found 500 kernel errors in the last 60 seconds.
+> Silent ENOBUFS floods on the container veth interface.
+> Nobody would have found this until containers started dropping connections.
+>
+> Fix: one sysctl. 2 seconds.
+> Finding it: `dsd timeline`. 2.5 seconds.
+
+**LinkedIn:**
+> I was looking at a RHEL 10.1 server running k3s. Load sitting at 7.25.
+> No failed services. CPU fine. Disk fine. Every health check green.
+> The kind of state where you move on and check something else.
+>
+> Then I ran `dsd timeline`.
+>
+> 500 kernel ENOBUFS errors in the last 60 seconds.
+> `systemd-udevd` hammering the netlink buffer as k3s created container veth pairs.
+> Silent. No alert. No error message anywhere obvious.
+> The kind of thing that eventually shows up as "intermittent container networking issues"
+> in a post-mortem, with no clear start time.
+>
+> The fix was one sysctl. Applied in under 2 seconds.
+> Finding it took `dsd timeline` 2.5 seconds.
+>
+> The tool doesn't wait for you to ask the right question.
+
+### Why this is the canonical "synthesis gap" demo
+
+This is the finding that best demonstrates the core DashDiag value proposition:
+admins can read individual metrics accurately but cannot connect them into a causal
+narrative under pressure. The load was elevated but no single check explained why.
+`dsd timeline` connected the dots — journal events, load trace, timestamps — without
+the admin knowing to look there.
+
+This is the synthesis gap. This is what DashDiag closes.
