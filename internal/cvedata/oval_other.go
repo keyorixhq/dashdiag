@@ -41,6 +41,18 @@ func ParseRHELOVAL(_ string) (map[string]RHELCVERecord, error) {
 	return nil, fmt.Errorf("RHEL OVAL parsing only supported on Linux")
 }
 
+func ParseUbuntuOVAL(_ string) (map[string]RHELCVERecord, error) {
+	return nil, fmt.Errorf("Ubuntu OVAL parsing only supported on Linux")
+}
+
 func ScanOVALPackages(_ context.Context, _ string) ([]OVALCVSSResult, error) {
 	return nil, fmt.Errorf("OVAL package scan only supported on Linux")
+}
+
+func ScanUbuntuOVALPackages(_ context.Context, _ string) ([]OVALCVSSResult, error) {
+	return nil, fmt.Errorf("Ubuntu OVAL package scan only supported on Linux")
+}
+
+func QueryInstalledDPKG(_ context.Context) ([]InstalledPackage, error) {
+	return nil, fmt.Errorf("dpkg queries only supported on Linux")
 }

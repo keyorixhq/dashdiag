@@ -95,6 +95,18 @@ func ovalFileCandidates(distroID string) []string {
 		return []string{"rocky-linux-10.oval.xml.bz2", "rocky-linux-9.oval.xml.bz2"}
 	case strings.Contains(lower, "fedora"):
 		return []string{"fedora.xml.bz2"}
+	case strings.Contains(lower, "ubuntu"):
+		return []string{
+			"ubuntu-noble.oval.xml.bz2", // 24.04 LTS
+			"ubuntu-jammy.oval.xml.bz2", // 22.04 LTS
+			"ubuntu-focal.oval.xml.bz2", // 20.04 LTS
+		}
+	case strings.Contains(lower, "debian"):
+		return []string{
+			"debian-trixie.oval.xml.bz2",   // 13
+			"debian-bookworm.oval.xml.bz2", // 12
+			"ubuntu-noble.oval.xml.bz2",    // fallback to ubuntu oval
+		}
 	default:
 		return nil
 	}
