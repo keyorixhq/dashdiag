@@ -208,6 +208,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkK8s(d)
 	case *models.K8sInfo:
 		return checkK8s(*d)
+	case models.KVMInfo:
+		return checkKVM(d)
+	case *models.KVMInfo:
+		return checkKVM(*d)
 	case models.TLSInfo:
 		return checkTLS(d)
 	case *models.TLSInfo:
@@ -3055,6 +3059,98 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 		out = append(out, checkCgroupV2(*d.Cgroup)...)
 	}
 
+	return out
+}
+
+func checkKVM(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
+	if !kvm.Detected {
+		return out
+	}
+	// Crashed VMs — always CRIT
+	for _, vm := range kvm.VMs {
+		if vm.State == models.KVMCrashed {
+			hints := []string{
+				fmt.Sprintf("to inspect: virsh console %s", vm.Name),
+				fmt.Sprintf("to inspect: cat /var/log/libvirt/qemu/%s.log | tail -50", vm.Name),
+				fmt.Sprintf("to restart: virsh start %s", vm.Name),
+			}
+			if vm.LastLogError != "" {
+				hints = append([]string{"last log: " + vm.LastLogError}, hints...)
+			}
+			out = append(out, insight("CRIT", "KVM",
+				fmt.Sprintf("VM %s is in CRASHED state", vm.Name), hints))
+		}
+	}
+	// Paused VMs — WARN
+	if kvm.VMsPaused > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) paused — may indicate a problem or forgotten snapshot", kvm.VMsPaused),
+			[]string{
+				"to inspect: virsh list --all | grep paused",
+				"to resume:  virsh resume <name>",
+			},
+		))
+	}
+	// Shut-off VMs with autostart=yes — WARN
+	if kvm.VMsDownAutostart > 0 {
+		var names []string
+		for _, vm := range kvm.VMs {
+			if (vm.State == models.KVMShutOff || vm.State == models.KVMShutDown) && vm.AutoStart {
+				names = append(names, vm.Name)
+			}
+		}
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) shut off with autostart=yes: %s",
+				kvm.VMsDownAutostart, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to start:   virsh start <name>",
+				"to inspect: virsh dominfo <name>",
+			},
+		))
+	}
+	// Disk I/O errors — CRIT
+	if kvm.DiskIOErrors > 0 {
+		out = append(out, insight("CRIT", "KVM",
+			fmt.Sprintf("%d VM(s) have recorded disk I/O errors", kvm.DiskIOErrors),
+			[]string{
+				"to inspect: virsh domblkerror <name>",
+				"to inspect: dmesg | grep -i 'error\\|failed'",
+				"note:       disk I/O errors persist across VM reboots until cleared",
+			},
+		))
+	}
+	// Inactive networks — WARN
+	if kvm.NetworksInactive > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d virtual network(s) inactive — VMs may lose connectivity", kvm.NetworksInactive),
+			[]string{
+				"to inspect: virsh net-list --all",
+				"to start:   virsh net-start <name>",
+				"to autostart: virsh net-autostart <name>",
+			},
+		))
+	}
+	// Inactive storage pools — WARN
+	if kvm.PoolsInactive > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d storage pool(s) inactive — disk images may be inaccessible", kvm.PoolsInactive),
+			[]string{
+				"to inspect: virsh pool-list --all",
+				"to start:   virsh pool-start <name>",
+			},
+		))
+	}
+	// Full storage pools — WARN/CRIT
+	if kvm.PoolsNearFull > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d storage pool(s) >85%% full — VMs may fail to write disk", kvm.PoolsNearFull),
+			[]string{
+				"to inspect: virsh pool-info <name>",
+				"to inspect: du -sh /var/lib/libvirt/images/*",
+			},
+		))
+	}
 	return out
 }
 

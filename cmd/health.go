@@ -444,6 +444,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.K8sAvailable() {
 		cols = append(cols, collectors.NewK8sCollector())
 	}
+	// KVM/libvirt — gate on virsh availability
+	if collectors.KVMAvailable() {
+		cols = append(cols, collectors.NewKVMCollector())
+	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
 	cols = append(cols, collectors.NewSessionsCollector())

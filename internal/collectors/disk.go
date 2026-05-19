@@ -151,7 +151,7 @@ func skipMacOSMount(fstype, mountpoint string) bool {
 	return false
 }
 
-func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, error) {
+func (c *DiskCollector) collectDarwinBase(ctx context.Context) (*models.DiskInfo, error) {
 	parts, err := gopsutildisk.PartitionsWithContext(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("disk partitions: %w", err)
@@ -187,7 +187,5 @@ func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, er
 			InodesUsedPct: usage.InodesUsedPercent,
 		})
 	}
-	// Physical drives + SMART via diskutil (no external tools needed)
-	result.Drives = collectDarwinDrives(ctx)
 	return result, nil
 }
