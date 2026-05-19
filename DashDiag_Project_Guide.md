@@ -32,14 +32,39 @@ DashDiag (`dsd`) is a lightweight, modular CLI tool for DevOps engineers, SREs, 
 ```
 dsd              # runs dsd health (zero-config default)
 dsd health       # Core health check: CPU, memory, disk, swap, IO, network, clock,
-                 #   FD limits, systemd units, processes, sysctl, SELinux (~5s)
+                 #   FD limits, systemd units, processes, sysctl, SELinux,
+                 #   active session list (who is logged in, from where, idle time)  (~5s)
 dsd health deep  # Everything in dsd health + extended checks: per-core CPU, jitter,
-                 #   slab/overcommit memory, journal size, bond health (~8s)
+                 #   slab/overcommit memory, journal size, bond health, cgroup tree
+                 #   with container attribution, iowait culprit, package integrity  (~8s)
 dsd net          # Network snapshot: interfaces, gateway, DNS, TCP states (~3s)
 dsd net deep     # Full network analysis: jitter, bonds, ethtool, wireless,
-                 #   conditional traceroute (~30s)
-dsd docker       # Container runtime status (Docker / Podman / CRI-O)
+                 #   conditional traceroute, DNS resolver audit (systemd-resolved,
+                 #   DNSSEC, VPN DNS), NFS stale mount detection, BIND server health
+                 #   (named-checkconf, named-checkzone, live query test)  (~30s)
+dsd docker       # Container runtime status: health, restarts, resource pressure,
+                 #   volume/network issues (Docker / Podman / CRI-O)  [Sprint 3]
 dsd services     # Service port health: SSH, HTTP, DB, custom endpoints
+dsd services deep # Systemd failure diagnosis: failed units, boot offenders,
+                 #   journal health, daemon-reload detection  [Sprint 1]
+dsd disk         # Standalone disk + I/O diagnostics: filesystem usage, inode pressure,
+                 #   physical disk types, SMART summary, fuser busy-check on WARN/CRIT
+                 #   filesystems  [Sprint 2]
+dsd disk deep    # Full disk analysis: I/O rate per device, top I/O processes,
+                 #   large directory finder, extended SMART  [Sprint 2]
+dsd cron         # Cron health: daemon status, recent failures, crontab quality
+                 #   (no MAILTO, missing commands, PATH issues)  [Sprint 2]
+dsd proc <PID>   # Per-process deep dive via /proc — state, wchan, FDs, sockets,
+                 #   deleted libraries, pmap private/shared memory breakdown.
+                 #   Zero performance impact on target  [Sprint 3]
+dsd kvm          # KVM/libvirt VM health: status, log errors, network, storage pools,
+                 #   disk I/O errors  [Sprint 4]
+dsd steamos      # SteamOS-specific health: RAUC A/B slot status, gamescope session,
+                 #   steamos-readonly, /var usage (256MB limit), update server DNS,
+                 #   Wi-Fi backend  [Sprint 3 | only on SteamOS]
+dsd gpu          # GPU/APU health: temperature (edge+junction), TDP vs limit,
+                 #   VRAM usage, clock speeds, utilization. AMD sysfs + nvidia-smi
+                 #   fallback  [Sprint 3]
 dsd k8s          # Kubernetes cluster health snapshot
 dsd k8s deep     # Full K8s audit: all failure modes + resource hygiene
 dsd pve          # Proxmox VE: cluster, ZFS, VMs, LXC (roadmap)
@@ -47,8 +72,15 @@ dsd compare <h1> <h2> ...  # Side-by-side health comparison across servers via S
                            #   outlier detection: flags the server that differs from peers
 dsd compare <h1> <h2>  # Side-by-side health comparison across servers via SSH,
                        #   outlier detection flags the server differing from peers
-dsd logs         # Log error aggregation + journal size
-dsd security     # Security posture: SSH config, ports, sudo, SELinux
+dsd logs         # Log error aggregation + journal size + severity-ranked cross-source
+                 #   triage (/var/log/* + journald), crash file detection, corruption
+                 #   resilience with fallback to syslog  [Sprint 2 enhancements]
+dsd security     # Security posture: SSH config audit (sshd -T), listening ports,
+                 #   sudo config, SELinux boolean-first diagnosis, AVC denial grouping,
+                 #   port context check, chcon vs semanage detection, autorelabel warn,
+                 #   AppArmor denial grouping, PAM module failures, permission root-cause
+                 #   disambiguation (file vs MAC vs PAM), SSH crypto hardening,
+                 #   empty-password accounts, UID=0 accounts, unexpected SUID binaries
 dsd full         # All modules combined
 dsd examples     # Show real-world usage workflows (incident triage, pre-deploy, CI gate)
 dsd trial start  # Start free 14-day Team plan trial (no card needed)
@@ -184,12 +216,21 @@ Per-command estimates (printed at startup, before any collector runs):
 | `dsd health deep` | `~8s` | + CPUDetail 100ms per-core sample |
 | `dsd net` | `~3s` | 3 concurrent pings |
 | `dsd net deep` | `~30s` | Traceroute can add up to 15s |
+| `dsd disk` | `~3s` | statvfs + /proc/diskstats fast read |
+| `dsd disk deep` | `~15s` | 1s I/O sample + SMART |
+| `dsd cron` | `~4s` | log scan + crontab parse |
+| `dsd proc <PID>` | `~2s` | /proc only, no external calls |
+| `dsd kvm` | `~5s` | virsh list + log scan |
+| `dsd steamos` | `~5s` | rauc status + systemctl checks |
+| `dsd gpu` | `~2s` | sysfs hwmon + 1s utilization sample |
 | `dsd k8s` | `~10s` | API server latency variable |
 | `dsd k8s deep` | `~15s` | More list calls |
 | `dsd docker` | `~5s` | Docker socket response |
-| `dsd security` | `~10s` | `find /etc` is the slow step |
+| `dsd services` | `~3s` | TCP connect checks |
+| `dsd services deep` | `~8s` | journalctl per failed unit |
+| `dsd security` | `~12s` | SUID scan (capped 10s) + sshd -T + getsebool |
 | `dsd logs` | `~8s` | journalctl window |
-| `dsd full` | `~45s` | All modules |
+| `dsd full` | `~50s` | All modules |
 
 ---
 

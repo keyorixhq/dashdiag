@@ -46,6 +46,7 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			if err != nil {
 				continue
 			}
+			dev.Vendor = "nvidia"
 			if driverVer != "" && info.DriverVersion == "" {
 				info.DriverVersion = driverVer
 			}
@@ -55,10 +56,16 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			info.Devices = append(info.Devices, dev)
 		}
 	} else if nvidiaPresent {
-		// NVIDIA GPU detected via sysfs but nvidia-smi unavailable.
-		// Surface as a named placeholder so checkGPU can emit an INFO hint.
-		info.Status = "nvidia-no-driver"
-		info.StatusReason = "NVIDIA GPU detected — install nvidia driver for GPU health monitoring"
+		// NVIDIA GPU detected but nvidia-smi unavailable.
+		// Determine why: nouveau (open-source, no power/memory metrics) vs truly no driver.
+		nvidiaCards := detectNvidiaWithoutSMI()
+		info.NoDriver = append(info.NoDriver, nvidiaCards...)
+		if len(info.NoDriver) > 0 {
+			info.Status = "nvidia-no-driver"
+			info.StatusReason = fmt.Sprintf(
+				"%d NVIDIA GPU(s) found without proprietary driver — nvidia-smi unavailable",
+				len(info.NoDriver))
+		}
 	}
 
 	// AMD — sysfs (always available, no commands needed)
@@ -181,8 +188,9 @@ func collectAMDGPUs() []models.GPUDevice {
 		}
 
 		dev := models.GPUDevice{
-			Index: idx,
-			Name:  amdGPUName(devPath),
+			Index:  idx,
+			Name:   amdGPUName(devPath),
+			Vendor: "amd",
 		}
 
 		// Temperature — hwmon/hwmon*/temp1_input in millidegrees
@@ -223,6 +231,111 @@ func collectAMDGPUs() []models.GPUDevice {
 		devices = append(devices, dev)
 	}
 	return devices
+}
+
+// detectNoDriverCards returns GPUDetected entries for cards matching
+// the given vendor ID that have no kernel driver loaded.
+// vendor examples: "0x10de" (NVIDIA), "0x1002" (AMD).
+func detectNoDriverCards(vendorID, vendorName string) []models.GPUDetected {
+	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
+	var found []models.GPUDetected
+	for _, card := range cards {
+		devPath := card + "/device"
+		v := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
+		if !strings.EqualFold(v, vendorID) {
+			continue
+		}
+		// Check if a driver is bound
+		driver := strings.TrimSpace(readSysfsStr(devPath + "/driver/module/version"))
+		if driver != "" {
+			continue // driver loaded
+		}
+		// Also check via driver symlink
+		if _, err := os.Lstat(devPath + "/driver"); err == nil {
+			continue // driver bound
+		}
+		name := vendorName + " GPU"
+		// Try to get PCI ID for a more specific name
+		uevent := readSysfsStr(devPath + "/uevent")
+		for _, line := range strings.Split(uevent, "\n") {
+			if strings.HasPrefix(line, "PCI_ID=") {
+				parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+				if len(parts) == 2 {
+					name = fmt.Sprintf("%s GPU (%s)", strings.ToUpper(vendorName), parts[1])
+				}
+				break
+			}
+		}
+		// PCI address from DEVPATH
+		pciAddr := ""
+		for _, line := range strings.Split(uevent, "\n") {
+			if strings.HasPrefix(line, "PCI_SLOT_NAME=") {
+				pciAddr = strings.TrimPrefix(line, "PCI_SLOT_NAME=")
+				break
+			}
+		}
+		found = append(found, models.GPUDetected{
+			Name:    name,
+			Vendor:  vendorName,
+			PCIAddr: pciAddr,
+		})
+	}
+	return found
+}
+
+// detectNvidiaWithoutSMI finds NVIDIA GPUs whose driver is not the
+// proprietary nvidia module (i.e. nvidia-smi won't work).
+// Returns entries for: nouveau-bound, no-driver-at-all, or vfio-bound.
+func detectNvidiaWithoutSMI() []models.GPUDetected {
+	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
+	var found []models.GPUDetected
+	for _, card := range cards {
+		devPath := card + "/device"
+		v := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
+		if !strings.EqualFold(v, "0x10de") {
+			continue
+		}
+		uevent := readSysfsStr(devPath + "/uevent")
+		// Check bound driver from uevent DRIVER= field
+		driverName := ""
+		for _, line := range strings.Split(uevent, "\n") {
+			if strings.HasPrefix(line, "DRIVER=") {
+				driverName = strings.TrimPrefix(line, "DRIVER=")
+				driverName = strings.TrimSpace(driverName)
+				break
+			}
+		}
+		// Skip if proprietary nvidia driver is bound (shouldn't happen — smi would work)
+		if driverName == "nvidia" {
+			continue
+		}
+
+		name := "NVIDIA GPU"
+		pciAddr := ""
+		for _, line := range strings.Split(uevent, "\n") {
+			switch {
+			case strings.HasPrefix(line, "PCI_ID="):
+				parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+				if len(parts) == 2 {
+					name = "NVIDIA GPU (" + parts[1] + ")"
+				}
+			case strings.HasPrefix(line, "PCI_SLOT_NAME="):
+				pciAddr = strings.TrimPrefix(line, "PCI_SLOT_NAME=")
+			}
+		}
+
+		// Annotate with actual driver name so user knows what's bound
+		if driverName != "" && driverName != "nvidia" {
+			name += " [" + driverName + "]"
+		}
+
+		found = append(found, models.GPUDetected{
+			Name:    name,
+			Vendor:  "nvidia",
+			PCIAddr: strings.TrimSpace(pciAddr),
+		})
+	}
+	return found
 }
 
 // amdGPUName returns a human-readable name for an AMD GPU.

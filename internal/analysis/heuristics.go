@@ -372,6 +372,24 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkDBus(*d)
 		}
+	case models.SessionsInfo:
+		return checkSessions(d)
+	case *models.SessionsInfo:
+		if d != nil {
+			return checkSessions(*d)
+		}
+	case models.CronInfo:
+		return checkCron(d)
+	case *models.CronInfo:
+		if d != nil {
+			return checkCron(*d)
+		}
+	case models.DNSResolverInfo:
+		return checkDNS(d)
+	case *models.DNSResolverInfo:
+		if d != nil {
+			return checkDNS(*d)
+		}
 	}
 	return nil
 }
@@ -2454,6 +2472,12 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	// No WARN — absence isn't a misconfiguration, just an opportunity to note best practice
 	// (already surfaced via password auth and root login checks)
 
+	// ── Weak SSH algorithms (sshd -T or file parse) ───────────────────────────
+	// Check only when we have algorithm data (non-empty strings from sshd -T or config).
+	out = append(out, checkSSHWeakCiphers(sec)...)
+	out = append(out, checkSSHWeakMACs(sec)...)
+	out = append(out, checkSSHWeakKEX(sec)...)
+
 	// Failed logins
 	if sec.FailedLogins >= 20 {
 		msg := fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins)
@@ -2706,6 +2730,11 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		}
 	}
 
+	// User account hardening (Spec 14)
+	out = append(out, checkEmptyPasswords(sec)...)
+	out = append(out, checkStalePasswords(sec)...)
+	out = append(out, checkWorldWritable(sec)...)
+
 	return out
 }
 
@@ -2901,6 +2930,11 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 				"to inspect: iostat -x 1 5",
 			},
 		))
+	}
+
+	// cgroup v2 slice health
+	if d.Cgroup != nil {
+		out = append(out, checkCgroupV2(*d.Cgroup)...)
 	}
 
 	return out
@@ -4023,4 +4057,537 @@ func checkLaunchd(l models.LaunchdInfo) []models.Insight {
 			"to fix:     launchctl kickstart system/<label>",
 		},
 	)}
+}
+
+// checkSessions surfaces active session anomalies (Spec H1):
+// root login via SSH, sessions idle > 8h, unusual concurrent session count.
+// Silent when only the current user is logged in normally.
+func checkSessions(s models.SessionsInfo) []models.Insight {
+	if s.TotalCount == 0 {
+		return nil // w not available or no sessions — skip silently
+	}
+	var out []models.Insight
+
+	// Root logged in via SSH — always CRIT
+	if s.RootSSH {
+		out = append(out, insight("CRIT", "Sessions",
+			"root is logged in via SSH — direct root SSH access is a security risk",
+			[]string{
+				"to inspect: w",
+				"to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
+				"to fix: use sudo or su instead of direct root SSH",
+			},
+		))
+	}
+
+	// Sessions idle > 8 hours — unattended terminals
+	if len(s.LongIdle) > 0 {
+		users := strings.Join(unique(s.LongIdle), ", ")
+		out = append(out, insight("WARN", "Sessions",
+			fmt.Sprintf("%d session(s) idle > 8h: %s — unattended terminal risk",
+				len(s.LongIdle), users),
+			[]string{
+				"to inspect: w",
+				"to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect",
+			},
+		))
+	}
+
+	// Unusual number of concurrent sessions (> 5 is worth noting on a typical server)
+	if s.TotalCount > 5 {
+		out = append(out, insight("WARN", "Sessions",
+			fmt.Sprintf("%d concurrent sessions active — unusually high for a single server",
+				s.TotalCount),
+			[]string{"to inspect: w", "to inspect: last | head -20"},
+		))
+	}
+
+	// Informational: unique remote IPs when > 1 different source
+	if len(s.UniqueIPs) > 1 {
+		out = append(out, insight("INFO", "Sessions",
+			fmt.Sprintf("%d session(s) from %d unique IP(s): %s",
+				s.RemoteCount, len(s.UniqueIPs),
+				strings.Join(s.UniqueIPs, ", ")),
+			[]string{"to inspect: w"},
+		))
+	}
+
+	return out
+}
+
+// unique returns a deduplicated copy of a string slice, preserving order.
+func unique(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// firstN returns at most the first n elements of ss.
+func firstN(ss []string, n int) []string {
+	if len(ss) <= n {
+		return ss
+	}
+	return ss[:n]
+}
+
+// ── SSH weak algorithm checks (Spec 13) ──────────────────────────────────────
+
+// checkSSHWeakCiphers flags CBC-mode and arcfour ciphers.
+// CBC-mode ciphers are vulnerable to BEAST and Lucky13 attacks.
+// Data source: sshd -T (preferred, root) or sshd_config file parse.
+func checkSSHWeakCiphers(sec models.SecurityInfo) []models.Insight {
+	if sec.SSHCiphers == "" {
+		return nil
+	}
+	weakPatterns := []string{"cbc", "arcfour", "3des-cbc", "blowfish-cbc", "cast128-cbc"}
+	var found []string
+	for _, c := range strings.Split(sec.SSHCiphers, ",") {
+		c = strings.TrimSpace(strings.ToLower(c))
+		for _, weak := range weakPatterns {
+			if strings.Contains(c, weak) {
+				found = append(found, c)
+				break
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	source := "sshd_config"
+	if sec.SSHAuditSource == "sshd -T" {
+		source = "sshd -T (effective config)"
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("SSH weak cipher(s) enabled (%s): %s", source, strings.Join(found, ", ")),
+		[]string{
+			"to fix: set Ciphers aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes128-gcm@openssh.com,aes128-ctr in /etc/ssh/sshd_config",
+			"note: CBC-mode ciphers are vulnerable to BEAST/Lucky13",
+			"to verify: sshd -T | grep ciphers",
+		},
+	)}
+}
+
+// checkSSHWeakMACs flags legacy MAC algorithms.
+// hmac-sha1 and hmac-md5 use broken hash functions. umac-64 has insufficient tag length.
+// The *-etm variants of hmac-sha1 are marginally safer but still not recommended.
+func checkSSHWeakMACs(sec models.SecurityInfo) []models.Insight {
+	if sec.SSHMACs == "" {
+		return nil
+	}
+	// Flag non-ETM weak MACs; ETM variants are accepted as borderline acceptable
+	strictWeak := []string{"hmac-md5", "hmac-sha1,", "hmac-sha1 ", "umac-64@", "hmac-ripemd160"}
+	// hmac-sha1 (non-ETM) — check as standalone token
+	var found []string
+	for _, m := range strings.Split(sec.SSHMACs, ",") {
+		m = strings.TrimSpace(strings.ToLower(m))
+		for _, weak := range strictWeak {
+			// Match exact token or token followed by nothing (avoid matching hmac-sha1-etm)
+			if m == strings.TrimRight(weak, ", ") ||
+				strings.HasPrefix(m, "hmac-md5") ||
+				strings.HasPrefix(m, "hmac-ripemd160") ||
+				(strings.HasPrefix(m, "umac-64@") && !strings.Contains(m, "etm")) ||
+				m == "hmac-sha1" {
+				found = append(found, m)
+				break
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	source := "sshd_config"
+	if sec.SSHAuditSource == "sshd -T" {
+		source = "sshd -T (effective config)"
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("SSH weak MAC(s) enabled (%s): %s", source, strings.Join(found, ", ")),
+		[]string{
+			"to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config",
+			"note: hmac-sha1 uses SHA-1 which is cryptographically broken",
+			"to verify: sshd -T | grep '^macs'",
+		},
+	)}
+}
+
+// checkSSHWeakKEX flags broken Diffie-Hellman key exchange algorithms.
+// group1-sha1 uses 1024-bit DH (Logjam attack). group14-sha1 uses SHA-1.
+func checkSSHWeakKEX(sec models.SecurityInfo) []models.Insight {
+	if sec.SSHKexAlgorithms == "" {
+		return nil
+	}
+	weakKEX := []string{
+		"diffie-hellman-group1-sha1",
+		"diffie-hellman-group14-sha1",
+		"diffie-hellman-group-exchange-sha1",
+	}
+	var found []string
+	for _, k := range strings.Split(sec.SSHKexAlgorithms, ",") {
+		k = strings.TrimSpace(strings.ToLower(k))
+		for _, weak := range weakKEX {
+			if k == weak {
+				found = append(found, k)
+				break
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	source := "sshd_config"
+	if sec.SSHAuditSource == "sshd -T" {
+		source = "sshd -T (effective config)"
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("SSH weak KEX algorithm(s) enabled (%s): %s", source, strings.Join(found, ", ")),
+		[]string{
+			"to fix: set KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256 in /etc/ssh/sshd_config",
+			"note: diffie-hellman-group1-sha1 is vulnerable to the Logjam attack (1024-bit DH)",
+			"to verify: sshd -T | grep kexalgorithms",
+		},
+	)}
+}
+
+// ── User account hardening checks (Spec 14) ──────────────────────────────────
+
+// These checks are appended to checkSecurity via calls inside that function.
+// Keeping them as standalone functions makes them independently testable.
+
+func checkEmptyPasswords(sec models.SecurityInfo) []models.Insight {
+	if len(sec.EmptyPasswordAccounts) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("CRIT", "Hardening",
+		fmt.Sprintf("account(s) with no password set: %s — any user can log in without a password",
+			strings.Join(sec.EmptyPasswordAccounts, ", ")),
+		[]string{
+			"to inspect: sudo awk -F: '($2==\"\"){print $1}' /etc/shadow",
+			"to fix:     passwd <username>  (set a password)",
+			"to lock:    passwd -l <username>  (lock until password is set)",
+		},
+	)}
+}
+
+func checkStalePasswords(sec models.SecurityInfo) []models.Insight {
+	if len(sec.StalePasswordAccounts) == 0 {
+		return nil
+	}
+	shown := sec.StalePasswordAccounts
+	suffix := ""
+	if len(shown) > 3 {
+		shown = shown[:3]
+		suffix = fmt.Sprintf(" (+%d more)", len(sec.StalePasswordAccounts)-3)
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("password never expires for human account(s): %s%s",
+			strings.Join(shown, ", "), suffix),
+		[]string{
+			"to inspect: sudo chage -l <username>",
+			"to fix:     chage -M 90 <username>  (expire after 90 days)",
+			"to fix all: awk -F: '($3>=1000 && $3<65534){print $1}' /etc/passwd | xargs -I{} chage -M 90 {}",
+			"note: CIS benchmark recommends maximum password age ≤ 365 days",
+		},
+	)}
+}
+
+func checkWorldWritable(sec models.SecurityInfo) []models.Insight {
+	if len(sec.WorldWritableDirs) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("CRIT", "Hardening",
+		fmt.Sprintf("world-writable director(y/ies) missing sticky bit: %s — any user can delete others' files",
+			strings.Join(sec.WorldWritableDirs, ", ")),
+		[]string{
+			"to fix: chmod +t /tmp /var/tmp /dev/shm",
+			"to verify: ls -ld /tmp /var/tmp /dev/shm",
+			"note: sticky bit (t) prevents users from deleting files they don't own",
+		},
+	)}
+}
+
+// ── Cron heuristics (Spec 9) ─────────────────────────────────────────────────
+
+func checkCron(c models.CronInfo) []models.Insight {
+	var out []models.Insight
+
+	if !c.DaemonActive && c.AnacronPresent {
+		out = append(out, insight("INFO", "Cron",
+			"no persistent cron daemon — anacron only (jobs run when machine is up, not on exact schedule)",
+			[]string{
+				"to install persistent cron: dnf install cronie  (RHEL/Fedora)",
+				"to install persistent cron: apt install cron    (Debian/Ubuntu)",
+			},
+		))
+	} else if !c.DaemonActive && !c.AnacronPresent {
+		if c.SystemdTimers > 0 {
+			out = append(out, insight("INFO", "Cron",
+				fmt.Sprintf("no cron daemon installed — %d systemd timer(s) active instead", c.SystemdTimers),
+				[]string{"to inspect: systemctl list-timers"},
+			))
+		} else {
+			out = append(out, insight("WARN", "Cron",
+				"no cron daemon and no anacron — scheduled jobs will not run",
+				[]string{
+					"to install: dnf install cronie  (RHEL/Fedora)",
+					"to install: apt install cron    (Debian/Ubuntu)",
+				},
+			))
+		}
+		return out
+	}
+
+	if len(c.Failures) > 0 {
+		names := make([]string, 0, len(c.Failures))
+		for _, f := range c.Failures {
+			names = append(names, f.Job)
+		}
+		out = append(out, insight("WARN", "Cron",
+			fmt.Sprintf("%d cron job failure(s) in the last 24h: %s",
+				len(c.Failures), strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: journalctl -u crond --since '24 hours ago' | grep -i failed",
+				"to inspect: grep FAILED /var/log/cron",
+			},
+		))
+	}
+
+	out = append(out, checkCronQuality(c.QualityIssues)...)
+	out = append(out, checkAnacronSchedules(c.AnacronJobs)...)
+
+	return out
+}
+
+func checkCronQuality(issues []models.CronJob) []models.Insight {
+	if len(issues) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	var missingCmds, noPATH []string
+	for _, j := range issues {
+		for _, issue := range j.Issues {
+			if strings.Contains(issue, "not found") {
+				missingCmds = append(missingCmds, j.Source)
+			} else if strings.Contains(issue, "PATH") {
+				noPATH = append(noPATH, j.Source)
+			}
+		}
+	}
+	if len(missingCmds) > 0 {
+		out = append(out, insight("WARN", "Cron",
+			fmt.Sprintf("crontab references missing command(s) in: %s",
+				strings.Join(firstN(missingCmds, 3), ", ")),
+			[]string{
+				"to inspect: grep -n '' /etc/cron.d/* /var/spool/cron/crontabs/* 2>/dev/null",
+				"note: missing binaries cause silent failures — cron sends no warning",
+			},
+		))
+	}
+	if len(noPATH) > 0 {
+		out = append(out, insight("INFO", "Cron",
+			fmt.Sprintf("%d crontab file(s) use relative paths without PATH= set — jobs may fail with 'command not found'",
+				len(noPATH)),
+			[]string{
+				"to fix: add PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin at the top of the crontab",
+			},
+		))
+	}
+	return out
+}
+
+func checkAnacronSchedules(jobs []models.AnacronJob) []models.Insight {
+	var out []models.Insight
+	for _, j := range jobs {
+		if j.LastRunH < 0 {
+			out = append(out, insight("INFO", "Cron",
+				fmt.Sprintf("anacron cron.%s has never run — machine may not have been on at scheduled time", j.Name),
+				[]string{fmt.Sprintf("to run now: anacron -f -n cron.%s", j.Name)},
+			))
+		} else if j.OverdueH > 0 {
+			out = append(out, insight("WARN", "Cron",
+				fmt.Sprintf("anacron cron.%s is %dh overdue (last run: %dh ago)", j.Name, j.OverdueH, j.LastRunH),
+				[]string{
+					fmt.Sprintf("to run now: anacron -f -n cron.%s", j.Name),
+					"note: machine was likely off during scheduled window",
+				},
+			))
+		}
+	}
+	return out
+}
+
+// ── DNS resolver heuristics (Spec 15) ────────────────────────────────────────
+
+func checkDNS(d models.DNSResolverInfo) []models.Insight {
+	var out []models.Insight
+
+	if !d.ExternalResolvesOK && d.Manager != "none" {
+		msg := "DNS resolution failing — cannot resolve external hostnames"
+		if d.ResolvTestError != "" {
+			msg += ": " + d.ResolvTestError
+		}
+		out = append(out, insight("CRIT", "DNS", msg,
+			[]string{
+				"to inspect: cat /etc/resolv.conf",
+				"to inspect: dig google.com",
+				"to inspect: systemctl status NetworkManager systemd-resolved",
+			},
+		))
+		return out
+	}
+
+	out = append(out, checkDNSQuality(d)...)
+
+	if d.ExternalResolvesOK && d.ExternalLatencyMs > 500 {
+		out = append(out, insight("WARN", "DNS",
+			fmt.Sprintf("DNS resolution is slow (%dms) — may affect application startup and health checks",
+				d.ExternalLatencyMs),
+			[]string{
+				"to inspect: dig +stats google.com",
+				"to fix: consider a local caching resolver (systemd-resolved, unbound)",
+				fmt.Sprintf("current nameservers: %s", strings.Join(d.Nameservers, ", ")),
+			},
+		))
+	} else if d.ExternalResolvesOK && d.ExternalLatencyMs > 200 {
+		out = append(out, insight("INFO", "DNS",
+			fmt.Sprintf("DNS latency %dms — acceptable but consider local caching", d.ExternalLatencyMs),
+			[]string{"to inspect: dig +stats google.com"},
+		))
+	}
+
+	if d.PublicFallback {
+		out = append(out, insight("INFO", "DNS",
+			"public DNS resolver (8.8.8.8/1.1.1.1) configured — DNS queries leave your network",
+			[]string{
+				"note: on servers this may expose internal hostname lookups to public resolvers",
+				"to fix: use your organisation's internal DNS resolver instead",
+			},
+		))
+	}
+
+	return out
+}
+
+func checkDNSQuality(d models.DNSResolverInfo) []models.Insight {
+	var out []models.Insight
+
+	if d.TooManyNameservers {
+		out = append(out, insight("WARN", "DNS",
+			fmt.Sprintf("/etc/resolv.conf has %d nameservers — libc silently ignores all beyond 3",
+				len(d.Nameservers)),
+			[]string{
+				"to fix: remove extra nameservers from /etc/resolv.conf",
+				"note: if managed by NetworkManager, adjust connection DNS settings",
+			},
+		))
+	}
+	if d.HasLoopback {
+		out = append(out, insight("WARN", "DNS",
+			"loopback nameserver (127.x.x.x) in /etc/resolv.conf but systemd-resolved is not active — DNS may fail",
+			[]string{
+				"to fix: sudo systemctl enable --now systemd-resolved",
+				"to fix: or replace 127.0.0.1 with a real nameserver IP",
+			},
+		))
+	}
+	if d.NdotsHigh > 3 {
+		out = append(out, insight("WARN", "DNS",
+			fmt.Sprintf("ndots:%d set — every short hostname is tried as FQDN first, causing %d extra DNS lookups per query",
+				d.NdotsHigh, d.NdotsHigh),
+			[]string{
+				"note: ndots >3 is set by Kubernetes (ndots:5) and may leak internal hostnames",
+				"to inspect: grep ndots /etc/resolv.conf",
+				"to fix: reduce to ndots:2 unless Kubernetes service discovery requires it",
+			},
+		))
+	}
+	if d.IPv6Only {
+		out = append(out, insight("WARN", "DNS",
+			"all configured nameservers are IPv6 — applications without IPv6 support may fail to resolve",
+			[]string{
+				"to fix: add at least one IPv4 nameserver to /etc/resolv.conf",
+				fmt.Sprintf("current: %s", strings.Join(d.Nameservers, ", ")),
+			},
+		))
+	}
+	if len(d.DuplicateNameserver) > 0 {
+		out = append(out, insight("INFO", "DNS",
+			fmt.Sprintf("duplicate nameserver entries: %s", strings.Join(d.DuplicateNameserver, ", ")),
+			[]string{"to fix: remove duplicate entries from /etc/resolv.conf"},
+		))
+	}
+	return out
+}
+
+// ── cgroup v2 heuristics ─────────────────────────────────────────────────────
+// Integrated into checkHealthDeep (HealthDeepInfo) below.
+
+func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
+	if !cg.Available {
+		return nil
+	}
+	var out []models.Insight
+
+	// OOM kills at root scope
+	if cg.OOMKills > 0 {
+		out = append(out, insight("CRIT", "Cgroup",
+			fmt.Sprintf("cgroup OOM kill counter = %d — processes are being killed due to memory limits",
+				cg.OOMKills),
+			[]string{
+				"to inspect: cat /sys/fs/cgroup/memory.events",
+				"to inspect: journalctl -k | grep -i oom",
+				"to identify: dmesg | grep -i 'oom_kill\\|out of memory'",
+			},
+		))
+	}
+
+	// CPU throttled slices
+	for _, s := range cg.Slices {
+		if s.ThrottledPct > 20 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% — workloads are hitting cpu.max limits",
+					s.Name, s.ThrottledPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
+					fmt.Sprintf("to fix: increase or remove cpu.max in /sys/fs/cgroup/%s/cpu.max", s.Name),
+					"note: throttling causes latency spikes even when overall CPU is idle",
+				},
+			))
+		} else if s.ThrottledPct > 5 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%%",
+					s.Name, s.ThrottledPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
+				},
+			))
+		}
+
+		// Memory usage near limit
+		if s.HasMemLimit && s.MemUsedPct > 90 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s memory %.0f%% of limit (%.0f/%.0f MB)",
+					s.Name, s.MemUsedPct, s.MemCurrentMB, s.MemLimitMB),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.events", s.Name),
+					"note: at 100% the kernel will OOM-kill processes in this slice",
+				},
+			))
+		} else if s.HasMemLimit && s.MemUsedPct > 75 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s memory at %.0f%% of limit",
+					s.Name, s.MemUsedPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
+				},
+			))
+		}
+	}
+
+	return out
 }
