@@ -59,6 +59,11 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 			return snapResult
 		}
 	}
+
+	// Enrich with CVSS score and per-product fix state from Red Hat Security API.
+	// Best-effort, 5s timeout, silent on failure. Only runs on RH-family distros.
+	cvedata.EnrichFromRHAPI(ctx, cveID, result)
+
 	return result
 }
 
@@ -109,6 +114,12 @@ func tryOVALFallback(ctx context.Context, cveID string) *models.CVEResult {
 }
 
 func readDistroID() string {
+	return ReadDistroID()
+}
+
+// ReadDistroID returns the distro ID from /etc/os-release (e.g. "rhel", "ubuntu").
+// Exported for use by cmd layer.
+func ReadDistroID() string {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return ""
