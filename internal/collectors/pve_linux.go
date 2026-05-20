@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +64,17 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// Backup tasks — last 7 days
 	info.RecentBackups, info.BackupAgeDays = collectPVEBackups(ctx)
+
+	// VMs and LXC containers
+	info.Guests, info.RunningCount, info.StoppedCount, info.PausedCount = collectPVEGuests(ctx)
+
+	// Resource overcommit
+	info.TotalVCPUs, info.TotalMemGB = collectPVEResourceUsage(info.Guests)
+	info.PhysicalCores = collectPhysicalCores()
+	info.HostMemGB = collectHostMemGB()
+
+	// Recent task errors (last 24h)
+	info.TaskErrors = collectPVETaskErrors(ctx)
 
 	return info, nil
 }
@@ -282,4 +294,192 @@ func collectPVEBackupAgeFromLogs() int {
 		return -1
 	}
 	return int(time.Since(newest).Hours() / 24)
+}
+
+// collectPVEGuests fetches VMs (qemu) and LXC containers from pvesh.
+func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, stopped, paused int) {
+	type guestRaw struct {
+		VMID   int     `json:"vmid"`
+		Name   string  `json:"name"`
+		Status string  `json:"status"`
+		OnBoot int     `json:"onboot"`
+		CPUs   int     `json:"cpus"`
+		MaxMem float64 `json:"maxmem"` // bytes
+	}
+	for _, gtype := range []string{"qemu", "lxc"} {
+		out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/"+gtype, "--output-format", "json")
+		if err != nil {
+			continue
+		}
+		var raw []guestRaw
+		if err := json.Unmarshal([]byte(out), &raw); err != nil {
+			continue
+		}
+		for _, r := range raw {
+			g := models.PVEGuest{
+				VMID:     r.VMID,
+				Name:     r.Name,
+				Type:     gtype,
+				Status:   r.Status,
+				OnBoot:   r.OnBoot == 1,
+				CPUs:     r.CPUs,
+				MaxMemGB: r.MaxMem / 1024 / 1024 / 1024,
+			}
+			guests = append(guests, g)
+			switch r.Status {
+			case "running":
+				running++
+			case "paused":
+				paused++
+			default:
+				stopped++
+			}
+		}
+	}
+	return
+}
+
+// collectPVEResourceUsage sums vCPUs and memory assigned to running guests.
+func collectPVEResourceUsage(guests []models.PVEGuest) (vcpus int, memGB float64) {
+	for _, g := range guests {
+		if g.Status != "running" {
+			continue
+		}
+		vcpus += g.CPUs
+		memGB += g.MaxMemGB
+	}
+	return
+}
+
+// collectPhysicalCores reads the number of physical CPU cores from /proc/cpuinfo.
+func collectPhysicalCores() int {
+	data, err := os.ReadFile("/proc/cpuinfo") // #nosec G304
+	if err != nil {
+		return 0
+	}
+	coreSet := map[string]bool{}
+	var physID, coreID string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "physical id") {
+			physID = strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
+		} else if strings.HasPrefix(line, "core id") {
+			coreID = strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
+			coreSet[physID+":"+coreID] = true
+		}
+	}
+	if len(coreSet) == 0 {
+		return runtime.NumCPU()
+	}
+	return len(coreSet)
+}
+
+// collectHostMemGB reads total physical RAM from /proc/meminfo.
+func collectHostMemGB() float64 {
+	data, err := os.ReadFile("/proc/meminfo") // #nosec G304
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				kb, _ := strconv.ParseFloat(fields[1], 64)
+				return kb / 1024 / 1024
+			}
+		}
+	}
+	return 0
+}
+
+// collectPVETaskErrors reads the last 100 tasks and returns errors from the last 24h.
+func collectPVETaskErrors(ctx context.Context) []models.PVETaskError {
+	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
+		"--limit", "100", "--output-format", "json")
+	if err != nil {
+		return nil
+	}
+	var raw []struct {
+		Type       string  `json:"type"`
+		ID         string  `json:"id"`
+		ExitStatus string  `json:"exitstatus"`
+		Status     string  `json:"status"`
+		StartTime  float64 `json:"starttime"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil
+	}
+	cutoff := float64(time.Now().Add(-24 * time.Hour).Unix())
+	var errs []models.PVETaskError
+	for _, t := range raw {
+		if t.StartTime < cutoff {
+			continue
+		}
+		exitOK := t.ExitStatus == "" || t.ExitStatus == "OK" || t.Status == "running"
+		if exitOK {
+			continue
+		}
+		startAt := ""
+		if t.StartTime > 0 {
+			startAt = time.Unix(int64(t.StartTime), 0).Format("15:04")
+		}
+		errs = append(errs, models.PVETaskError{
+			Type:    t.Type,
+			VMID:    t.ID,
+			StartAt: startAt,
+			Msg:     t.ExitStatus,
+		})
+	}
+	return errs
+}
+
+// CollectPVEPerf runs pveperf and parses the results. Exported for cmd/pve.go.
+func CollectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
+	return collectPVEPerf(ctx, path)
+}
+
+// collectPVEPerf runs pveperf and parses the results.
+func collectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
+	perf := &models.PVEPerf{Path: path}
+	if _, err := os.Stat("/usr/bin/pveperf"); err != nil {
+		return perf // not available
+	}
+	perf.Available = true
+	out, err := runCmd(ctx, "pveperf", path)
+	if err != nil && strings.TrimSpace(out) == "" {
+		return perf
+	}
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// strip units: "469.31 MB/sec" → "469.31"
+		numStr := strings.Fields(val)
+		if len(numStr) == 0 {
+			continue
+		}
+		num, err := strconv.ParseFloat(numStr[0], 64)
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(key, "CPU BOGOMIPS"):
+			perf.CPUBogomips = num
+		case strings.HasPrefix(key, "REGEX/SECOND"):
+			perf.RegexPerSec = num
+		case strings.HasPrefix(key, "BUFFERED READS"):
+			perf.BufferedReadMB = num
+		case strings.HasPrefix(key, "AVERAGE SEEK"):
+			perf.AvgSeekMs = num
+		case strings.HasPrefix(key, "FSYNCS/SECOND"):
+			perf.FsyncsPerSec = num
+		case strings.HasPrefix(key, "DNS EXT"):
+			perf.DNSExtMs = num
+		case strings.HasPrefix(key, "DNS INT"):
+			perf.DNSIntMs = num
+		}
+	}
+	return perf
 }
