@@ -927,6 +927,15 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 					"to fix:     check physical NIC and cable for failed slave(s)",
 				},
 			))
+		} else if len(b.Slaves) < 2 {
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("bond %s has only 1 slave — no redundancy (second NIC missing or disconnected)", b.Name),
+				[]string{
+					"to inspect: cat /proc/net/bonding/" + b.Name,
+					"to inspect: ip link show",
+					"note:       bonding provides no benefit with a single slave",
+				},
+			))
 		}
 	}
 
