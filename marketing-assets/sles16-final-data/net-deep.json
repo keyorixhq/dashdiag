@@ -1,0 +1,26 @@
+
+Interfaces (1)
+  ✅  bond0        192.168.1.147  1000 Mbps  ← primary
+
+Bond interfaces (1)
+  ✅  bond0         active-backup
+      ✅  enp6s0f3u1      MII:up    1000 Mbps  [USB]  ← active
+      ✅  eno1            MII:up    1000 Mbps
+
+Connectivity
+  ✅  Gateway ping:            1.0 ms
+  ✅  Internet ping:           6.1 ms
+  ✅  DNS resolution:          2.0 ms
+  ✅  Jitter:                  0.0 ms
+
+TCP States
+  ✅  TIME-WAIT        5
+  ✅  ESTAB            2
+
+TCP Kernel Counters
+  ✅  SYN retransmissions:     14
+  ✅  TIME_WAIT sockets:       5
+  ✅  Conntrack used:          0.0 %
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 2.4s
