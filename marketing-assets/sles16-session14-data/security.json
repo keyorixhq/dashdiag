@@ -24,7 +24,7 @@ SUSE supportconfig
   ℹ️  never run — run before contacting SUSE support
 
 SUSEConnect subscription
-  🔴  EXPIRED (unknown)
+  ✅  active — expires in 53 day(s) (ACTIVE)
 
 Btrfs snapshots (snapper)
   ✅  3 snapshot(s) — last: < 1h ago
@@ -33,4 +33,4 @@ SELinux mode: enforcing
   ✅  No denials in the last hour
 
 ────────────────────────────────────────────────────────
-⚠️  2 security concern(s) found in 0.6s
+⚠️  2 security concern(s) found in 0.7s
