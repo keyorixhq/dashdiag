@@ -1,0 +1,14 @@
+
+Interfaces (1)
+  ✅  vmbr0        192.168.10.20  10000 Mbps  drops rx:6830 tx:4  ← primary
+
+Connectivity
+  ✅  Gateway ping:            0.5 ms
+  ✅  Internet ping:           6.6 ms
+  ✅  DNS resolution:          19.0 ms
+
+TCP States
+  ✅  ESTAB            1
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.1s
