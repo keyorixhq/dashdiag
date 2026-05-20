@@ -922,8 +922,15 @@ func networkInline(data interface{}) string {
 		return ""
 	}
 	var up []models.InterfaceInfo
+	// Build set of bond slave interface names — slaves shouldn't be shown as independent NICs
+	bondSlaves := map[string]bool{}
+	for _, b := range n.Bonds {
+		for _, s := range b.Slaves {
+			bondSlaves[s.Name] = true
+		}
+	}
 	for _, iface := range n.Interfaces {
-		if iface.Up {
+		if iface.Up && !bondSlaves[iface.Name] {
 			up = append(up, iface)
 		}
 	}
