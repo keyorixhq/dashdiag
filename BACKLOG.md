@@ -4,11 +4,11 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-19 — Sessions 1–11 complete on Legion (RHEL 10.1) + MacBook (macOS arm64)**
+**Last updated: 2026-05-20 — Sessions 1–12 complete on Legion (RHEL 10.1 → Debian 13 → openSUSE Leap 16.0) + MacBook (macOS arm64)**
 
 ---
 
-## ✅ Recently Completed (Sessions 1–11, May 2026)
+## ✅ Recently Completed (Sessions 1–12, May 2026)
 
 | Item | Session | Commit |
 |---|---|---|
@@ -54,6 +54,13 @@ Build order rule: **never build deep before fast is in production use.**
 | `dsd cve --oval-scan` — CVSS-scored OVAL package scan (RHEL 9 OVAL, 1,772 findings) | S11 | 247f6e5 |
 | CVE: RHSA→CVE ID enrichment from subscribed RHEL `dnf updateinfo info` | S11 | 2638fda |
 | CVE: subscription detection — not-root / not-registered / expired hints | S11 | 0c42bb6 |
+| Fix: LVM `debian-vg` → `debian--vg` dm path — VG falsely inactive on Debian/Ubuntu | S12 | 1c7b64d |
+| Fix: `Launchd ✅` row showing on all Linux — macOS-only, return nil on non-Darwin | S12 | 10dd73f |
+| Fix: rsyslog hint now includes `zypper install rsyslog` for openSUSE | S12 | 79e0361 |
+| Fix: NVIDIA install hint — Debian/Ubuntu first, RHEL/Fedora second | S12 | d83281c |
+| Ubuntu/Debian OVAL parser — `oval_debian.go`, dpkg, priority→CVSS mapping | S12 | 1c8688e |
+| SUSE/openSUSE OVAL parser — patch class, RPM, title severity, platform marker filter | S12 | ce85170 |
+| btrfs device health — `btrfs_linux.go`, missing devices + I/O errors, DEGRADED CRIT | S12 | 0f16b76 |
 
 ---
 
@@ -63,6 +70,24 @@ Build order rule: **never build deep before fast is in production use.**
 
 **Current state:** `dsd capture` only reads `dsd health --json`. The detailed LVM state
 (thin pool %, RAID health, missing PV) lives in `dsd disk --json` and is not captured.
+
+**Priority:** Medium. Do before first public demo.
+
+---
+
+### [BTRFS-HEALTH] Wire btrfs volume health into dsd health
+
+**Current state:** `dsd disk` shows btrfs DEGRADED via `BtrfsVolumes`. But `dsd health`
+Disk check only uses filesystem usage — btrfs missing devices don't surface in health.
+
+**What to add:** In `heuristics.go` checkDisk(), walk `info.BtrfsVolumes` and emit
+CRIT insight for degraded/missing devices, WARN for device errors.
+
+**Priority:** High — silent failure mode, same severity as degraded RAID in LVM.
+
+**Estimated:** ~1h
+
+---
 
 **Gap found:** During the Session 11 LVM break test (4 simultaneous failures), we cleaned
 up before running `dsd capture`. The health fixture is now hand-crafted. The `dsd disk`
