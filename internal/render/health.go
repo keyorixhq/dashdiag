@@ -250,7 +250,7 @@ func isAvailable(data interface{}) bool {
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
 //
 //nolint:cyclop // flat name→function dispatch; splitting would harm readability
-func inlineData(res runner.Result) string {
+func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch table; splitting would not improve readability
 	switch res.Name {
 	case "CPU Load":
 		return inlineCPULoad(res.Data)
@@ -292,6 +292,12 @@ func inlineData(res runner.Result) string {
 		return inlineProcesses(res.Data)
 	case "Bonding":
 		return inlineBonding(res.Data)
+	case "OOM":
+		return inlineOOM(res.Data)
+	case "LVM":
+		return inlineLVM(res.Data)
+	case "Sessions":
+		return inlineSessions(res.Data)
 	case "IPMI":
 		return inlineIPMI(res.Data)
 	case "HBA":
@@ -401,11 +407,23 @@ func inlineFDLimits(data interface{}) string {
 	} else if v, ok := data.(models.FDInfo); ok {
 		fd = &v
 	}
-	if fd == nil || fd.MaxCount == 0 || fd.MaxCount >= 1<<40 {
+	if fd == nil {
 		return ""
 	}
-	return fmt.Sprintf("%.0f%% system (%s/%s open)",
-		fd.UsedPct, formatCount(fd.OpenCount), formatCount(fd.MaxCount))
+	// When system limit is effectively unlimited (Linux default ~9.2e18),
+	// just show open count + any deleted-but-open files
+	if fd.MaxCount == 0 || fd.MaxCount >= 1<<40 {
+		s := fmt.Sprintf("%s open", formatCount(fd.OpenCount))
+		if fd.DeletedOpenFiles > 0 {
+			s += fmt.Sprintf("  %d deleted", fd.DeletedOpenFiles)
+		}
+		return s
+	}
+	s := fmt.Sprintf("%.0f%% (%s/%s open)", fd.UsedPct, formatCount(fd.OpenCount), formatCount(fd.MaxCount))
+	if fd.DeletedOpenFiles > 0 {
+		s += fmt.Sprintf("  %d deleted", fd.DeletedOpenFiles)
+	}
+	return s
 }
 
 func inlineIO(data interface{}) string {
@@ -570,6 +588,70 @@ func inlineBonding(data interface{}) string {
 		return fmt.Sprintf("%s  %d/%d slaves up  %s", bond.Name, len(bond.Slaves)-bond.DownSlaves, len(bond.Slaves), bond.ModeShort)
 	}
 	return fmt.Sprintf("%d bonds  %d slaves", len(b.Bonds), total)
+}
+
+func inlineOOM(data interface{}) string {
+	var o *models.OOMInfo
+	if v, ok := data.(*models.OOMInfo); ok {
+		o = v
+	} else if v, ok := data.(models.OOMInfo); ok {
+		o = &v
+	}
+	if o == nil || !o.Available {
+		return ""
+	}
+	if o.EventsLast24h == 0 {
+		return "0 events"
+	}
+	return fmt.Sprintf("%d event(s) in 24h", o.EventsLast24h)
+}
+
+func inlineLVM(data interface{}) string {
+	var l *models.LVMInfo
+	if v, ok := data.(*models.LVMInfo); ok {
+		l = v
+	} else if v, ok := data.(models.LVMInfo); ok {
+		l = &v
+	}
+	if l == nil || len(l.VGs) == 0 {
+		return ""
+	}
+	// Count only active VGs (with mounted LVs)
+	active := 0
+	for _, vg := range l.VGs {
+		if vg.HasMountedLV {
+			active++
+		}
+	}
+	if active == 0 {
+		return fmt.Sprintf("%d VG(s)", len(l.VGs))
+	}
+	if active == 1 {
+		return fmt.Sprintf("%d VG", len(l.VGs))
+	}
+	return fmt.Sprintf("%d VG(s)  %d active", len(l.VGs), active)
+}
+
+func inlineSessions(data interface{}) string {
+	var s *models.SessionsInfo
+	if v, ok := data.(*models.SessionsInfo); ok {
+		s = v
+	} else if v, ok := data.(models.SessionsInfo); ok {
+		s = &v
+	}
+	if s == nil {
+		return ""
+	}
+	if s.TotalCount == 0 {
+		return "no active sessions"
+	}
+	if s.TotalCount == 1 && len(s.Sessions) > 0 {
+		return fmt.Sprintf("1 session (%s)", s.Sessions[0].User)
+	}
+	if s.RemoteCount > 0 {
+		return fmt.Sprintf("%d sessions  %d remote", s.TotalCount, s.RemoteCount)
+	}
+	return fmt.Sprintf("%d sessions", s.TotalCount)
 }
 
 func inlineIPMI(data interface{}) string {
