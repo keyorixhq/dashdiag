@@ -139,6 +139,31 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		if iface.RxErrors > 0 || iface.TxErrors > 0 {
 			details += fmt.Sprintf("  errors rx:%d tx:%d", iface.RxErrors, iface.TxErrors)
 		}
+		// WiFi: show signal + SSID instead of speed
+		if iface.WiFi != nil {
+			wifiDetails := ""
+			if iface.WiFi.RateMbps > 0 {
+				wifiDetails += fmt.Sprintf("  %d Mbps", iface.WiFi.RateMbps)
+			}
+			if iface.WiFi.FreqGHz > 0 {
+				wifiDetails += fmt.Sprintf("  %.2fGHz", iface.WiFi.FreqGHz)
+			} else if iface.WiFi.Band != "" {
+				wifiDetails += fmt.Sprintf("  %s", iface.WiFi.Band)
+			}
+			if iface.WiFi.SignalDBm != 0 {
+				sigIcon := "✅"
+				if iface.WiFi.SignalDBm < -70 {
+					sigIcon = "❌"
+				} else if iface.WiFi.SignalDBm < -60 {
+					sigIcon = "⚠️ "
+				}
+				wifiDetails += fmt.Sprintf("  %s signal:%ddBm", sigIcon, iface.WiFi.SignalDBm)
+			}
+			if iface.WiFi.SSID != "" {
+				wifiDetails += fmt.Sprintf("  \"%s\"", iface.WiFi.SSID)
+			}
+			details += wifiDetails
+		}
 		primary := ""
 		if iface.Name == info.PrimaryInterface {
 			primary = "  ← primary"

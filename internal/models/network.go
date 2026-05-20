@@ -1,16 +1,30 @@
 package models
 
+// WiFiInfo holds wireless interface health data.
+type WiFiInfo struct {
+	SSID      string  `json:"ssid,omitempty"`
+	BSSID     string  `json:"bssid,omitempty"`
+	SignalDBm int     `json:"signal_dbm,omitempty"` // e.g. -30 (higher = better; >-50 excellent)
+	SignalPct int     `json:"signal_pct,omitempty"` // 0-100 from nmcli
+	RateMbps  int     `json:"rate_mbps,omitempty"`  // current tx rate
+	Channel   int     `json:"channel,omitempty"`
+	FreqGHz   float64 `json:"freq_ghz,omitempty"`
+	Band      string  `json:"band,omitempty"` // "2.4GHz" or "5GHz"
+	Driver    string  `json:"driver,omitempty"`
+}
+
 type InterfaceInfo struct {
-	Name      string `json:"name"`
-	IP        string `json:"ip"`
-	Up        bool   `json:"up"`
-	RxDrops   uint64 `json:"rx_drops"`
-	TxDrops   uint64 `json:"tx_drops"`
-	RxErrors  uint64 `json:"rx_errors,omitempty"` // hardware errors (CRC, frame, overrun)
-	TxErrors  uint64 `json:"tx_errors,omitempty"`
-	SpeedMbps int    `json:"speed_mbps"`
-	IsUSB     bool   `json:"is_usb,omitempty"` // USB-attached NIC (unreliable for production)
-	Driver    string `json:"driver,omitempty"` // kernel driver (r8152, ax88179, cdc_ether...)
+	Name      string    `json:"name"`
+	IP        string    `json:"ip"`
+	Up        bool      `json:"up"`
+	RxDrops   uint64    `json:"rx_drops"`
+	TxDrops   uint64    `json:"tx_drops"`
+	RxErrors  uint64    `json:"rx_errors,omitempty"`
+	TxErrors  uint64    `json:"tx_errors,omitempty"`
+	SpeedMbps int       `json:"speed_mbps"`
+	IsUSB     bool      `json:"is_usb,omitempty"`
+	Driver    string    `json:"driver,omitempty"`
+	WiFi      *WiFiInfo `json:"wifi,omitempty"` // non-nil for wireless interfaces
 }
 
 type NetworkInfo struct {
