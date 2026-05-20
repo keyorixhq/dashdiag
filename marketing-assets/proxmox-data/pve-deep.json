@@ -1,0 +1,40 @@
+
+────────────────────────────────────────────────────────
+
+[Proxmox Node]
+  Cores:    4 physical
+  Memory:   31.2 GB
+  License:  ℹ️  no subscription (community edition)
+
+[VMs & Containers]  (6 total: 5 running, 1 stopped)
+  ℹ️   VM  100   linuxtst              stopped  [autostart OFF]
+  ✅  CT  201   debian13-lxc          running
+  ✅  CT  200   almalinux-lxc         running
+  ✅  CT  203   rocky10-lxc           running
+  ✅  CT  204   opensuse16-lxc        running
+  ✅  CT  202   ubuntu24-lxc          running
+
+  ❌  vCPU ratio: 40 vCPUs / 4 cores (10.0:1)
+  ✅  Memory assigned: 2.5 GB / 31.2 GB RAM (8%)
+
+[Storage]
+  ✅  local-lvm        lvmthin     7 / 54 GB  (14%)
+  ✅  local            dir         4 / 39 GB  (11%)
+  ✅  local-hdd        dir         6 / 1833 GB  (0%)
+
+[Cluster]  
+  ✅  Quorate: yes
+  ✅  pve01  online
+
+[Backups]
+  ❌  No successful backup found
+
+[Storage Performance (pveperf /var/lib/vz)]
+  ✅  Buffered reads:  469 MB/s
+  ⚠️   Fsyncs/sec:      296  (expected: > 500 for good VM stability)
+  ✅  Avg seek time:   0.06 ms
+  ✅  CPU bogomips:    54398
+  ✅  DNS ext:         41 ms
+
+────────────────────────────────────────────────────────
+⚠️  2 concern(s) found in 8.0s
