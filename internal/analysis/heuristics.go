@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 
@@ -4291,7 +4292,31 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 	}
 	var out []models.Insight
 	for _, bond := range b.Bonds {
+		// Single-slave bond — no redundancy
+		if len(bond.Slaves) < 2 {
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s has only 1 slave — no redundancy (second NIC missing or disconnected)", bond.Name),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+					"note:       bonding provides no benefit with a single slave",
+				},
+			))
+		}
 		if bond.DownSlaves == 0 {
+			// Healthy — check for USB slaves as a reliability advisory
+			for _, s := range bond.Slaves {
+				if isUSBNetworkInterface(s.Name) {
+					out = append(out, insight("INFO", "Bonding",
+						fmt.Sprintf("%s: slave %s is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)",
+							bond.Name, s.Name),
+						[]string{
+							"note: consider replacing with a PCIe or onboard NIC for production HA",
+							fmt.Sprintf("to inspect: readlink /sys/class/net/%s/device/subsystem", s.Name),
+						},
+					))
+				}
+			}
 			continue
 		}
 		if bond.DownSlaves == len(bond.Slaves) {
@@ -4337,6 +4362,16 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 		}
 	}
 	return out
+}
+
+// isUSBNetworkInterface returns true if the network interface is USB-based.
+// Checks /sys/class/net/<iface>/device/subsystem symlink for "usb".
+func isUSBNetworkInterface(iface string) bool {
+	subsystem, err := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(subsystem), "usb")
 }
 
 func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
