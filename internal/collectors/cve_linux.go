@@ -626,6 +626,86 @@ func rhSubscriptionNote() string {
 }
 
 // scanAllApt uses apt-get to list security updates.
+// based on the package name. Ubuntu/Debian don't expose CVSS in apt metadata,
+// so we use a known-critical package list as a heuristic.
+func aptPackageSeverity(pkg string) string {
+	// Strip architecture suffix: libssl3t64:amd64 → libssl3t64
+	if idx := strings.Index(pkg, ":"); idx > 0 {
+		pkg = pkg[:idx]
+	}
+	// Strip version suffix: libssl3t64=3.0.13 → libssl3t64
+	if idx := strings.Index(pkg, "="); idx > 0 {
+		pkg = pkg[:idx]
+	}
+	pkgLower := strings.ToLower(pkg)
+
+	// CRITICAL: kernel, libc, privilege escalation, code execution vectors
+	criticalPrefixes := []string{
+		"linux-image", "linux-kernel",
+	}
+	criticalContains := []string{
+		"libc6", "libc-bin", "libc-dev",
+		"pkexec", "polkit",
+		"sudo",
+		"openssh", "openssl", "libssl",
+	}
+	for _, p := range criticalPrefixes {
+		if strings.HasPrefix(pkgLower, p) {
+			return "CRITICAL"
+		}
+	}
+	for _, c := range criticalContains {
+		if strings.Contains(pkgLower, c) {
+			return "CRITICAL"
+		}
+	}
+
+	// HIGH: network-facing, crypto, browser engine, container runtime
+	highContains := []string{
+		"curl", "libcurl",
+		"wget",
+		"webkit", "javascript",
+		"firefox", "chromium",
+		"docker", "containerd", "runc",
+		"libssh", "openssh",
+		"nss", "libnss",
+		"gnutls", "libgnutls",
+		"krb5", "libkrb5",
+		"bind9", "named",
+		"nginx", "apache2",
+		"python3", "perl", "ruby",
+		"libxml2", "libexpat",
+		"policykit", "libpolkit",
+		"dbus", "libdbus",
+	}
+	for _, c := range highContains {
+		if strings.Contains(pkgLower, c) {
+			return "IMPORTANT"
+		}
+	}
+
+	// MODERATE: system utilities with known CVE patterns
+	moderateContains := []string{
+		"util-linux", "bsdutils", "mount",
+		"glib", "libglib",
+		"freetype", "libfreetype",
+		"tiff", "libtiff",
+		"png", "libpng",
+		"jpeg", "libjpeg",
+		"avahi",
+		"ntfs-3g",
+		"kmod",
+		"vim",
+	}
+	for _, c := range moderateContains {
+		if strings.Contains(pkgLower, c) {
+			return "MODERATE"
+		}
+	}
+
+	return "LOW"
+}
+
 func scanAllApt(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "apt"}
 
@@ -652,15 +732,28 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 		if len(fields) < 2 {
 			continue
 		}
+		pkg := fields[1]
 		advisories = append(advisories, models.CVEAdvisory{
-			ID:       fields[1],
-			Severity: "unknown",
+			ID:       pkg,
+			Severity: aptPackageSeverity(pkg),
 			Summary:  strings.Join(fields[2:], " "),
 		})
 	}
 
-	result.Low = advisories
+	// Bucket by severity
 	result.Total = len(advisories)
+	for _, a := range advisories {
+		switch a.Severity {
+		case "CRITICAL":
+			result.Critical = append(result.Critical, a)
+		case "HIGH", "IMPORTANT":
+			result.Important = append(result.Important, a)
+		case "MODERATE":
+			result.Moderate = append(result.Moderate, a)
+		default:
+			result.Low = append(result.Low, a)
+		}
+	}
 	result.FixCommand = "apt-get upgrade"
 	if result.Total == 0 {
 		result.StatusReason = "no pending upgrades found"
