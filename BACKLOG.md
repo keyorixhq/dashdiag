@@ -68,6 +68,55 @@ Build order rule: **never build deep before fast is in production use.**
 
 ---
 
+## Container Runtimes
+
+### [CONTAINER-CRIO] Add CRI-O socket detection to dsd docker collector
+
+**Current state:** `dsd docker` auto-detects Docker and Podman sockets. CRI-O is not detected.
+CRI-O is the default runtime on OpenShift and RHEL-based Kubernetes clusters.
+
+**What to add:** One line in `collectors/docker.go` socket candidate list:
+```go
+{"/var/run/crio/crio.sock", "crio"},
+```
+
+**Priority:** Low-medium. Quick win (~1h). Do before first OpenShift/RHEL k8s customer.
+
+---
+
+### [CONTAINER-PODMAN-SYSTEMD] Detect systemd-managed Podman containers (quadlets)
+
+**Current state:** Podman socket detection works. But RHEL admins increasingly use Podman
+via systemd unit files (`podman generate systemd`, quadlets in `/etc/containers/systemd/`).
+These containers are not visible via the Podman socket — they're managed as systemd services.
+
+**What to add:**
+- Scan `/etc/containers/systemd/` and `~/.config/containers/systemd/` for `.container` / `.pod` files
+- Cross-reference with `systemctl list-units --type=service` for units named `podman-*`
+- Surface stopped/failed quadlet containers as WARN in `dsd docker` output
+
+**Priority:** Medium. Relevant on RHEL 9/10, Rocky, AlmaLinux. ~4h.
+
+---
+
+### [CONTAINER-CONTAINERD] Standalone containerd health check
+
+**Current state:** `dsd k8s` OS layer checks `containerd.service` status when kubelet is
+present. But containerd running standalone (k3s, Rancher, non-k8s) is not checked.
+
+**What to add:**
+- Socket detection: `/run/containerd/containerd.sock`
+- Query `ctr namespaces list` + `ctr -n k8s.io containers list` for running containers
+- Surface containerd service failures in `dsd health`
+
+**Priority:** Low. k3s users already get coverage via `dsd k8s`. Only needed when
+containerd is used without any k8s layer. ~1d.
+
+**Skip for now:** Low-level runtimes (runc, crun, gVisor, Kata) — not admin-facing,
+zero diagnostic value for DashDiag's target audience.
+
+---
+
 ## Tooling
 
 ### [CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline
