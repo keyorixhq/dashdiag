@@ -203,6 +203,7 @@ func parseSMARTAttributes(out string, s *models.SMARTInfo) {
 		val = valFields[0] // take first token (strips units)
 		val = strings.TrimSuffix(val, "%")
 		val = strings.TrimSuffix(val, ",")
+		val = strings.ReplaceAll(val, ",", "") // strip thousand-separators e.g. "7,183"
 		switch {
 		case strings.Contains(lower, "percentage used"):
 			s.PercentUsed, _ = strconv.Atoi(val)
@@ -216,6 +217,12 @@ func parseSMARTAttributes(out string, s *models.SMARTInfo) {
 			}
 		case strings.Contains(lower, "media and data integrity errors"):
 			s.MediaErrors, _ = strconv.ParseInt(val, 10, 64)
+		case strings.Contains(lower, "power on hours"):
+			s.PowerOnHours, _ = strconv.ParseInt(val, 10, 64)
+		case strings.Contains(lower, "unsafe shutdowns"):
+			s.UnsafeShutdowns, _ = strconv.ParseInt(val, 10, 64)
+		case strings.Contains(lower, "power cycles"):
+			s.PowerCycles, _ = strconv.ParseInt(val, 10, 64)
 		case strings.Contains(lower, "reallocated_sector_ct") && len(strings.Fields(line)) >= 10:
 			// SATA attribute 5 — raw value in last column
 			fields := strings.Fields(line)

@@ -20,9 +20,10 @@ func init() {
 }
 
 var nvmeCmd = &cobra.Command{
-	Use:   "nvme",
-	Short: "NVMe drive health — SMART data, wear, temperature, mount status",
-	RunE:  runNVMe,
+	Use:    "nvme",
+	Short:  "Deprecated: use 'dsd disk' instead (NVMe SMART is now included)",
+	Hidden: true, // removed from help — use dsd disk
+	RunE:   runNVMe,
 }
 
 func runNVMe(cmd *cobra.Command, _ []string) error {
