@@ -1,0 +1,149 @@
+[INFO] System health — ~5s
+[INFO] step 1/30
+[INFO] step 2/30
+[INFO] step 3/30
+[INFO] step 4/30
+[INFO] step 5/30
+[INFO] step 6/30
+[INFO] step 7/30
+[INFO] step 8/30
+[INFO] step 9/30
+[INFO] step 10/30
+[INFO] step 11/30
+[INFO] step 12/30
+[INFO] step 13/30
+[INFO] step 14/30
+[INFO] step 15/30
+[INFO] step 16/30
+[INFO] step 17/30
+[INFO] step 18/30
+[INFO] step 19/30
+[INFO] step 20/30
+[INFO] step 21/30
+[INFO] step 22/30
+[INFO] step 23/30
+[INFO] step 24/30
+[INFO] step 25/30
+[INFO] step 26/30
+[INFO] step 27/30
+[INFO] step 28/30
+[INFO] step 29/30
+[INFO] step 30/30
+[INFO] done in 1.3s
+CPU Load     OK  21%
+CPU Thermal  OK  47°C
+Memory       OK  0.5/13 GB (4%)
+Swap         OK  0 MB used
+Disk         OK  4 mounts, max 28% (/boot)
+IO           OK  1.1 ms (nvme0n1)
+Drives       OK  2 drives  healthy
+LVM          CRIT  volume group rl is 100% full (0.0 GB free of 952.3 GB)
+Network      INFO  bond bond0: slave enp6s0f3u1 is a USB NIC — less reliable than PCIe for production bonding
+Systemd      OK  boot 30s
+Processes    OK  282 running
+FDLimits     OK  1k open  1 deleted
+Entropy      OK  256/256 bits
+Clock        OK  ±0 ms  adjtimex
+Logs         WARN  journald logs are volatile — all logs lost on reboot (no /var/log/journal/)
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   Sysctl: current vs recommended:
+   SYSCTL         CURRENT  RECOMMENDED  NOTE                                            
+   vm.swappiness  60       10           lower for k8s/database; 60 for general workloads
+KernelSec    INFO  SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+Hardening    WARN  SSH allows password authentication — key-based auth recommended
+Packages     WARN  63 important security update(s) available (dnf)
+Battery      OK  100%  full
+Bonding      INFO  bond0: slave enp6s0f3u1 is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)
+OOM          OK  0 events
+Firewall     OK  nftables  210 rules
+Auth         OK  0 failed logins
+HugePages    INFO  transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+CPUFreq      OK  performance  3603/4465 MHz
+DBus         OK
+Sessions     INFO  3 session(s) from 2 unique IP(s): 1.00s, 0.00s
+CPUDeep      OK
+
+[Top processes — cgroup context]
+  PID     MEM%   NAME                  SCOPE
+  1172     0.3%  firewalld             system:firewalld.service
+  1        0.3%  systemd               init
+  4445     0.3%  fwupd                 system:fwupd.service
+  10727    0.3%  dnf                   user:1000
+  10672    0.2%  dsd                   user:1000
+  1252     0.1%  NetworkManager        system:NetworkManager.service
+  1824     0.1%  systemd               user:1000
+  973      0.1%  systemd-udevd         system:systemd-udevd.service
+  922      0.1%  systemd-journal       system:systemd-journald.service
+  10608    0.1%  sshd-session          user:1000
+────────────────────────────────────────────────────────
+CRIT: LVM: volume group rl is 100% full (0.0 GB free of 952.3 GB)
+   -> to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>
+   -> to inspect:
+      vgs rl
+      pvs | grep rl
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to inspect: sysctl net.core.rmem_max
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+WARN: Hardening: SSH allows password authentication — key-based auth recommended
+   -> to fix: set PasswordAuthentication no in /etc/ssh/sshd_config
+WARN: Hardening: SSH weak MAC(s) enabled (sshd -T (effective config)): hmac-sha1
+   -> note: hmac-sha1 uses SHA-1 which is cryptographically broken
+   -> to verify: sshd -T | grep '^macs'
+   -> to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Hardening: password never expires for human account(s): andrei
+   -> to fix all: awk -F: '($3>=1000 && $3<65534){print $1}' /etc/passwd | xargs -I{} chage -M 90 {}
+   -> note: CIS benchmark recommends maximum password age ≤ 365 days
+   -> to inspect: sudo chage -l <username>
+   -> to fix:     chage -M 90 <username>  (expire after 90 days)
+WARN: Logs: journald logs are volatile — all logs lost on reboot (no /var/log/journal/)
+   -> to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal
+   -> to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald
+WARN: Packages: 63 important security update(s) available (dnf)
+   -> to fix: dnf upgrade --security
+INFO: HugePages: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+   -> to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to 'madvise' or 'never'
+   -> to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled
+   -> to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+   -> to persist: add to /etc/rc.local or a systemd service
+INFO: Bonding: bond0: slave enp6s0f3u1 is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)
+   -> note: consider replacing with a PCIe or onboard NIC for production HA
+   -> to inspect: readlink /sys/class/net/enp6s0f3u1/device/subsystem
+INFO: Sessions: 3 session(s) from 2 unique IP(s): 1.00s, 0.00s
+   -> to inspect: w
+INFO: KernelSec: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+   -> to expose hidden denials: semodule -DB  (disables dontaudit rules)
+   -> to re-enable dontaudit:   semodule -B   (run after debugging)
+   -> to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l
+INFO: LVM: inactive volume group ubuntu-vg is 11% full — no LVs mounted (old OS partition?)
+   -> note: this VG has no mounted LVs on this OS — likely a leftover from a previous install
+   -> to inspect:
+      vgs ubuntu-vg
+      lvs | grep ubuntu-vg
+INFO: Hardening: SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window
+   -> to fix:
+      set LoginGraceTime 60 in /etc/ssh/sshd_config
+      systemctl restart sshd
+INFO: Hardening: SSH X11Forwarding enabled — unnecessary on servers, increases attack surface
+   -> note: only needed if users require GUI applications over SSH
+   -> to fix: set X11Forwarding no in /etc/ssh/sshd_config
+INFO: Hardening: SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen
+   -> note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally
+   -> to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config
+INFO: Hardening: SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)
+   -> note: this disconnects idle sessions after 300s × 3 = 15 minutes
+   -> to fix:
+      set ClientAliveInterval 300 in /etc/ssh/sshd_config
+      set ClientAliveCountMax 3 in /etc/ssh/sshd_config
+INFO: Network: bond bond0: slave enp6s0f3u1 is a USB NIC — less reliable than PCIe for production bonding
+   -> note: USB adapters can be accidentally unplugged; USB bus is a single point of failure
+   -> note: consider replacing with a PCIe or onboard NIC for production HA
+done in 1.3s

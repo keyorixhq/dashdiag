@@ -1,0 +1,22 @@
+[INFO] Network health — ~30s
+[INFO] step 1/1
+
+Interfaces (1)
+  ✅  bond0        192.168.1.145  1000 Mbps  drops rx:30 tx:1  ← primary
+
+Bond interfaces (1)
+  ✅  bond0         active-backup
+      ✅  eno1            MII:up    1000 Mbps  18 link failures
+      ✅  enp6s0f3u1      MII:up    1000 Mbps  [USB]  1 link failures  ← active
+
+Connectivity
+  ✅  Gateway ping:            1.0 ms
+  ✅  Internet ping:           6.4 ms
+  ✅  DNS resolution:          2.0 ms
+
+TCP States
+  ✅  ESTAB            2
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.3s
+[INFO] done in 1.3s
