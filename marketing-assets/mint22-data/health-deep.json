@@ -1,0 +1,2158 @@
+{
+  "hostname": "andrei-mint-legion",
+  "os": "Linux Mint 22.3",
+  "timestamp": "2026-05-20T11:25:45.71845045Z",
+  "version": "v0.6.0-10-g30ad739",
+  "checks": [
+    {
+      "name": "CPU Thermal",
+      "status": "OK",
+      "inline": "49°C",
+      "duration": "473.898µs",
+      "raw": {
+        "available": true,
+        "cpu_temp_c": 49.125,
+        "core_temps": {
+          "Tctl": 49.125
+        },
+        "source": "k10temp"
+      }
+    },
+    {
+      "name": "Launchd",
+      "status": "OK",
+      "duration": "1.816µs"
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "inline": "256/256 bits",
+      "duration": "86.399µs",
+      "raw": {
+        "available": true,
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "Disk",
+      "status": "CRIT",
+      "inline": "5 mounts, max 100% (/run/timeshift/2218/backup)",
+      "duration": "895.273µs",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/mapper/vgmint-root",
+            "fs_type": "ext4",
+            "total_gb": 981.132795904,
+            "used_gb": 7.9344107519999625,
+            "free_gb": 973.198385152,
+            "used_pct": 5.896115770006349,
+            "inodes_used_pct": 0.7980699626395249,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/boot/efi",
+            "device": "/dev/nvme1n1p1",
+            "fs_type": "vfat",
+            "total_gb": 0.535805952,
+            "used_gb": 0.011694080000000051,
+            "free_gb": 0.524111872,
+            "used_pct": 2.182521481209676,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/gvfs",
+            "device": "gvfsd-fuse",
+            "fs_type": "fuse.gvfsd-fuse",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/user/1000/doc",
+            "device": "portal",
+            "fs_type": "fuse.portal",
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "used_pct": 0,
+            "inodes_used_pct": 0,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "mount": "/run/timeshift/2218/backup",
+            "device": "/dev/nvme0n1p2",
+            "fs_type": "ext4",
+            "total_gb": 2.040373248,
+            "used_gb": 2.023596032,
+            "free_gb": 0.016777216,
+            "used_pct": 100,
+            "inodes_used_pct": 18.640899658203125,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "drives": [
+          {
+            "name": "nvme0n1",
+            "size_gb": 1024.209543168,
+            "type": "NVMe",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "mounts": [
+              "nvme0n1p2→/run/timeshift/2218/backup"
+            ],
+            "smart": {
+              "device": "/dev/nvme0n1",
+              "healthy": false,
+              "percent_used": 0,
+              "available_spare": 0,
+              "temperature_c": 0,
+              "media_errors": 0,
+              "error": "smartctl not installed"
+            }
+          },
+          {
+            "name": "nvme1n1",
+            "size_gb": 1024.209543168,
+            "type": "NVMe",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "mounts": [
+              "nvme1n1p1→/boot/efi"
+            ],
+            "smart": {
+              "device": "/dev/nvme1n1",
+              "healthy": false,
+              "percent_used": 0,
+              "available_spare": 0,
+              "temperature_c": 0,
+              "media_errors": 0,
+              "error": "smartctl not installed"
+            }
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "inline": "±0 ms  adjtimex",
+      "duration": "516.853µs",
+      "raw": {
+        "synced": true,
+        "offset_ms": -0.345156,
+        "source": "adjtimex",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Memory",
+      "status": "OK",
+      "inline": "1.9/14 GB (14%)",
+      "duration": "807.548µs",
+      "raw": {
+        "total_gb": 13.501724243164062,
+        "free_gb": 11.27566909790039,
+        "used_pct": 14.063614243786226,
+        "slab_mb": 1138.98046875,
+        "commit_limit_mb": 8864.87890625,
+        "committed_as_mb": 5259.84375,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Pressure",
+      "status": "OK",
+      "inline": "no pressure",
+      "duration": "1.855432ms",
+      "raw": {
+        "available": true,
+        "memory_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "memory_full": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "cpu_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0.12
+        },
+        "io_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0.06
+        },
+        "io_full": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0.06
+        }
+      }
+    },
+    {
+      "name": "Drives",
+      "status": "OK",
+      "inline": "2 drives  healthy",
+      "duration": "2.010977ms",
+      "raw": {
+        "devices": [
+          {
+            "name": "/dev/nvme0",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          },
+          {
+            "name": "/dev/nvme1",
+            "model": "SKHynix_HFS001TDE9X084N",
+            "state": "live",
+            "temp_c": 0,
+            "available_spare_pct": 0,
+            "spare_threshold_pct": 0,
+            "percentage_used": 0,
+            "critical_warning": 0,
+            "media_errors": 0,
+            "unsafe_shutdowns": 0,
+            "power_on_hours": 0,
+            "power_cycles": 0,
+            "has_linux": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "HugePages",
+      "status": "OK",
+      "inline": "THP madvise",
+      "duration": "2.02299ms",
+      "raw": {
+        "available": true,
+        "configured": 0,
+        "free": 0,
+        "used": 0,
+        "page_size_kb": 2048,
+        "reserved_gb": 0,
+        "thp_enabled": true,
+        "thp_mode": "madvise"
+      }
+    },
+    {
+      "name": "CPUFreq",
+      "status": "WARN",
+      "inline": "powersave  2894/4465 MHz",
+      "duration": "2.017752ms",
+      "raw": {
+        "governor": "powersave",
+        "current_mhz": 2894,
+        "max_mhz": 4465,
+        "min_mhz": 400,
+        "throttled_pct": 35.184770436730126,
+        "cpu_count": 16
+      }
+    },
+    {
+      "name": "Firewall",
+      "status": "WARN",
+      "inline": "nftables  no rules",
+      "duration": "4.129795ms",
+      "raw": {
+        "available": true,
+        "backend": "nftables",
+        "active": true,
+        "total_rules": 0,
+        "default_drop": false
+      }
+    },
+    {
+      "name": "DBus",
+      "status": "OK",
+      "duration": "10.058238ms",
+      "raw": {
+        "available": true,
+        "active": true,
+        "status": "active"
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "WARN",
+      "inline": "AppArmor complain",
+      "duration": "12.085979ms",
+      "raw": {
+        "available": true,
+        "se_linux_present": false,
+        "se_linux_mode": "",
+        "se_linux_denials": 0,
+        "app_armor_present": true,
+        "app_armor_mode": "complain",
+        "app_armor_profiles": 123,
+        "app_armor_enforce": 25,
+        "app_armor_complain": 6,
+        "app_armor_denials": 1
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "12.825008ms",
+      "raw": {
+        "available": true,
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 370,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 1024,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 0,
+        "fs_inotify_watches": 108469,
+        "workload": "default",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "OK",
+      "inline": "375 running",
+      "duration": "12.879348ms",
+      "raw": {
+        "total": 375,
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "OOM",
+      "status": "OK",
+      "inline": "0 events",
+      "duration": "22.258693ms",
+      "raw": {
+        "available": true,
+        "events_last_24h": 0
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "inline": "9k open  29 deleted",
+      "duration": "26.87859ms",
+      "raw": {
+        "open_count": 8800,
+        "max_count": 9223372036854775807,
+        "used_pct": 9.540979117872439e-14,
+        "hot_processes": null,
+        "deleted_open_files": 29,
+        "deleted_open_size_gb": 0.27247282,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sessions",
+      "status": "OK",
+      "inline": "2 sessions",
+      "duration": "28.385706ms",
+      "raw": {
+        "sessions": [
+          {
+            "user": "andrei",
+            "tty": "192.168.1.146",
+            "login_at": "07:25",
+            "idle": "7:34",
+            "idle_sec": 454,
+            "command": "sshd: andrei [priv]"
+          },
+          {
+            "user": "andrei",
+            "tty": "-",
+            "login_at": "07:18",
+            "idle": "7:34",
+            "idle_sec": 454,
+            "command": "lightdm --session-child 13 20"
+          }
+        ],
+        "total_count": 2,
+        "remote_count": 0,
+        "root_ssh": false
+      }
+    },
+    {
+      "name": "Auth",
+      "status": "OK",
+      "inline": "3 failed logins in 24h",
+      "duration": "34.103986ms",
+      "raw": {
+        "available": true,
+        "checked": true,
+        "failed_last_24h": 3
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "inline": "100%  full",
+      "duration": "65.636977ms",
+      "raw": {
+        "present": true,
+        "status": "Full",
+        "capacity_pct": 100,
+        "health_pct": 84.51666666666667,
+        "energy_now_uwh": 50710000,
+        "energy_full_uwh": 50710000,
+        "energy_design_uwh": 60000000,
+        "cycle_count": 150,
+        "voltage_uv": 16983000,
+        "power_now_uw": 0,
+        "manufacturer": "Sunwoda",
+        "model_name": "L20D4PC0"
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "WARN",
+      "duration": "125.690196ms",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": true,
+        "ssh_root_login": false,
+        "ssh_max_auth_tries": 6,
+        "ssh_login_grace_time": 120,
+        "ssh_pubkey_auth": true,
+        "ssh_x11_forwarding": true,
+        "ssh_agent_forwarding": true,
+        "ssh_strict_modes": true,
+        "ssh_ignore_rhosts": true,
+        "ssh_tcp_forwarding": true,
+        "ssh_log_level": "INFO",
+        "ssh_banner": "none",
+        "ssh_max_sessions": 10,
+        "ssh_max_startups": "10:30:100",
+        "ssh_ciphers": "chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com",
+        "ssh_macs": "umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1",
+        "ssh_kex_algorithms": "sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256",
+        "ssh_audit_source": "sshd -T",
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "systemd",
+            "expected": true
+          }
+        ],
+        "firewall_active": true,
+        "firewall_type": "nftables",
+        "ssh_allowed": true,
+        "sudo_nopasswd": [
+          "andrei"
+        ],
+        "stale_password_accounts": [
+          "andrei"
+        ],
+        "apparmor_mode": "complain",
+        "apparmor_profiles": 123,
+        "apparmor_complain": 6,
+        "apparmor_denials": 1,
+        "apparmor_groups": [
+          {
+            "profile": "/usr/sbin/cupsd",
+            "path": "net_admin",
+            "count": 1
+          }
+        ],
+        "se_linux_denials": 0,
+        "se_linux_mode": "",
+        "fips_enabled": false,
+        "usb_guard_active": false,
+        "aide_installed": false,
+        "aide_db_exists": false,
+        "aide_last_run_days": 0,
+        "audit_rules": -1,
+        "supportconfig_available": false,
+        "supportconfig_last_run_days": 0
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "WARN",
+      "inline": "boot 53s",
+      "duration": "192.673226ms",
+      "raw": {
+        "available": true,
+        "failed_units": [],
+        "stuck_units": null,
+        "slow_units": [
+          {
+            "name": "gpu-manager.service",
+            "duration_sec": 11.48
+          },
+          {
+            "name": "plymouth-quit-wait.service",
+            "duration_sec": 10.766
+          },
+          {
+            "name": "NetworkManager-wait-online.service",
+            "duration_sec": 8.797
+          }
+        ],
+        "total_boot_sec": 52.884,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "LVM",
+      "status": "WARN",
+      "inline": "2 VG",
+      "duration": "196.053585ms",
+      "raw": {
+        "vgs": [
+          {
+            "name": "ubuntu-vg",
+            "size_gb": 950.82,
+            "free_gb": 850.82,
+            "free_pct": 89.48276224732336,
+            "has_mounted_lv": false
+          },
+          {
+            "name": "vgmint",
+            "size_gb": 953.37,
+            "free_gb": 22.05,
+            "free_pct": 2.3128481072406304,
+            "has_mounted_lv": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "CPU Load",
+      "status": "OK",
+      "inline": "14%",
+      "duration": "500.774676ms",
+      "raw": {
+        "load_avg_1": 0.06,
+        "load_avg_5": 0.27,
+        "load_avg_15": 0.17,
+        "num_cpu": 16,
+        "usage_pct": 13.819095477386934,
+        "load_pct": 0.375,
+        "steal_pct": 0,
+        "iowait_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "CPUDeep",
+      "status": "WARN",
+      "duration": "511.383643ms",
+      "raw": {
+        "cores": [
+          {
+            "core": 0,
+            "usage_pct": 6.122448979591836
+          },
+          {
+            "core": 1,
+            "usage_pct": 7.8431372549019605
+          },
+          {
+            "core": 2,
+            "usage_pct": 19.607843137254903
+          },
+          {
+            "core": 3,
+            "usage_pct": 25
+          },
+          {
+            "core": 4,
+            "usage_pct": 8
+          },
+          {
+            "core": 5,
+            "usage_pct": 2
+          },
+          {
+            "core": 6,
+            "usage_pct": 18
+          },
+          {
+            "core": 7,
+            "usage_pct": 0
+          },
+          {
+            "core": 8,
+            "usage_pct": 6
+          },
+          {
+            "core": 9,
+            "usage_pct": 4
+          },
+          {
+            "core": 10,
+            "usage_pct": 6.122448979591836
+          },
+          {
+            "core": 11,
+            "usage_pct": 4
+          },
+          {
+            "core": 12,
+            "usage_pct": 4.081632653061225
+          },
+          {
+            "core": 13,
+            "usage_pct": 7.8431372549019605
+          },
+          {
+            "core": 14,
+            "usage_pct": 80.3921568627451
+          },
+          {
+            "core": 15,
+            "usage_pct": 20
+          }
+        ],
+        "max_core_pct": 80.3921568627451,
+        "min_core_pct": 0,
+        "core_imbalance": 80.3921568627451,
+        "top_procs": [
+          {
+            "pid": 2751,
+            "name": "mintinstall",
+            "rss_mb": 559.953125,
+            "mem_pct": 4.05006955989101,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 1864,
+            "name": "cinnamon",
+            "rss_mb": 218.07421875,
+            "mem_pct": 1.57730302006331,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 2336,
+            "name": "mintdrivers.py",
+            "rss_mb": 185.98828125,
+            "mem_pct": 1.3452295250376052,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 1221,
+            "name": "Xorg",
+            "rss_mb": 150.1484375,
+            "mem_pct": 1.0860045047234046,
+            "cgroup_scope": "system:lightdm.service"
+          },
+          {
+            "pid": 2171,
+            "name": "mintUpdate",
+            "rss_mb": 96.62890625,
+            "mem_pct": 0.6989045588569349,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 4102,
+            "name": "apt-get",
+            "rss_mb": 90.71875,
+            "mem_pct": 0.6561571522372743,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 1959,
+            "name": "mintwelcome.py",
+            "rss_mb": 74.25390625,
+            "mem_pct": 0.5370690366378896,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 1937,
+            "name": "nemo-desktop",
+            "rss_mb": 65.34375,
+            "mem_pct": 0.4726230125139995,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 2229,
+            "name": "mintreport-tray",
+            "rss_mb": 61.53515625,
+            "mem_pct": 0.4450759395105832,
+            "cgroup_scope": "user:1000"
+          },
+          {
+            "pid": 1944,
+            "name": "evolution-alarm",
+            "rss_mb": 61.27734375,
+            "mem_pct": 0.44321121456881346,
+            "cgroup_scope": "user:1000"
+          }
+        ],
+        "total_procs_mb": 3233.41015625,
+        "cached_mb": 4798.53125,
+        "buffers_mb": 281.81640625,
+        "dirty_mb": 29.93359375,
+        "anon_pages_mb": 1343.6875,
+        "cgroup": {
+          "available": true,
+          "controllers": [
+            "cpuset",
+            "cpu",
+            "io",
+            "memory",
+            "hugetlb",
+            "pids",
+            "rdma",
+            "misc",
+            "dmem"
+          ],
+          "slices": [
+            {
+              "name": "system.slice",
+              "cpu_usage_pct": 0,
+              "throttled_pct": 0,
+              "mem_current_mb": 693.4765625,
+              "mem_limit_mb": -1,
+              "mem_used_pct": 0,
+              "io_read_mbs": 0,
+              "io_write_mbs": 0,
+              "has_cpu_limit": false,
+              "has_mem_limit": false
+            },
+            {
+              "name": "user.slice",
+              "cpu_usage_pct": 0,
+              "throttled_pct": 0,
+              "mem_current_mb": 6507.5703125,
+              "mem_limit_mb": -1,
+              "mem_used_pct": 0,
+              "io_read_mbs": 0,
+              "io_write_mbs": 0,
+              "has_cpu_limit": false,
+              "has_mem_limit": false
+            },
+            {
+              "name": "init.scope",
+              "cpu_usage_pct": 0,
+              "throttled_pct": 0,
+              "mem_current_mb": 7.78125,
+              "mem_limit_mb": -1,
+              "mem_used_pct": 0,
+              "io_read_mbs": 0,
+              "io_write_mbs": 0,
+              "has_cpu_limit": false,
+              "has_mem_limit": false
+            }
+          ],
+          "oom_kills": 0
+        }
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "INFO",
+      "inline": "16 MB journal",
+      "duration": "612.152034ms",
+      "raw": {
+        "available": true,
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.015625,
+        "crash_loops": null,
+        "journal_sync_risk": true,
+        "log_disk_used_pct": 0.8086989635984353,
+        "log_disk_mount": "/",
+        "error_count": 10,
+        "warning_count": 104,
+        "top_errors": [
+          "andrei-mint-legion bluetoothd[841]: Failed to set mode: Failed (0x03)",
+          "andrei-mint-legion lightdm[1410]: gkr-pam: unable to locate daemon control file",
+          "andrei-mint-legion kernel: ACPI Error: AE_NOT_FOUND, During name lookup/catalog ",
+          "andrei-mint-legion kernel: integrity: Problem loading X.509 certificate -65",
+          "andrei-mint-legion kernel: lenovo_wmi_hotkey_utilities CE6C0974-0407-4F50-88BA-4"
+        ],
+        "core_dump_count": 0,
+        "log_source": "journald+syslog"
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "inline": "0 MB used",
+      "duration": "1.000806939s",
+      "raw": {
+        "total_gb": 1.9062461853027344,
+        "used_gb": 0,
+        "used_pct": 0,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "inline": "1.0 ms (nvme0n1)",
+      "duration": "1.000420695s",
+      "raw": {
+        "devices": [
+          {
+            "name": "nvme1n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0.3,
+            "await_ms": 0.375,
+            "read_mbps": 1.048576,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "nvme0n1",
+            "is_ssd": true,
+            "drive_type": "nvme",
+            "util_pct": 0.9,
+            "await_ms": 1,
+            "read_mbps": 1.048576,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "OK",
+      "inline": "3 NICs, eno1 1Gbps  gw \u003c1 ms",
+      "duration": "1.239283767s",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eno1",
+            "ip": "192.168.1.145",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 1000,
+            "driver": "r8169"
+          },
+          {
+            "name": "enx00e04c680074",
+            "ip": "192.168.1.147",
+            "up": true,
+            "rx_drops": 6,
+            "tx_drops": 0,
+            "speed_mbps": 1000,
+            "driver": "r8152"
+          },
+          {
+            "name": "wlp4s0",
+            "ip": "192.168.1.135",
+            "up": true,
+            "rx_drops": 9,
+            "tx_drops": 0,
+            "speed_mbps": 0,
+            "driver": "rtw_8822ce"
+          }
+        ],
+        "primary_interface": "enx00e04c680074",
+        "gateway_ping_ms": 0.790367,
+        "internet_ping_ms": 6.128026,
+        "dns_resolves_ms": 4,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Packages",
+      "status": "CRIT",
+      "duration": "4.105878442s",
+      "raw": {
+        "checked": true,
+        "security_updates": 172,
+        "critical_updates": 20,
+        "important_updates": 152,
+        "updates": [
+          {
+            "name": "bsdutils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "dpkg",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "sed",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "util-linux",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libc6-dev",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libc-dev-bin",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "linux-libc-dev",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libc6-dbg",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libasan8",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libubsan1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libstdc++-13-dev",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gcc-13",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "g++-13",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "g++-13-x86-64-linux-gnu",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gcc-13-x86-64-linux-gnu",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "cpp-13-x86-64-linux-gnu",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "cpp-13",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gcc-13-base",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgcc-13-dev",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libtsan2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libquadmath0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "liblsan0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libitm1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libhwasan0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgomp1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgfortran5",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gcc-14-base",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgcc-s1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libcc1-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libatomic1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libstdc++6",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libc6",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libc-bin",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "mount",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libexpat1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpython3.12t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libssl3t64",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "python3.12",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpython3.12-stdlib",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "python3.12-minimal",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpython3.12-minimal",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "tzdata",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "tzdata-legacy",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libtasn1-6",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgnutls30t64",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "ntfs-3g",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libntfs-3g89t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libsmartcols1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libuuid1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "uuid-runtime",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "kmod",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libkmod2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libblkid1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libcap2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libmount1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "eject",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libglib2.0-data",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libglib2.0-bin",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-glib-2.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libglib2.0-0t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpam-cap",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libcap2-bin",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libfdisk1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "klibc-utils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libklibc",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libxml2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "openssl",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "sudo",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "vim-tiny",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "vim-common",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "xxd",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgdk-pixbuf2.0-common",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpng16-16t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libtiff6",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgdk-pixbuf-2.0-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libnghttp2-14",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "bind9-dnsutils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "bind9-host",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "bind9-libs",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "bsdextrautils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "inetutils-telnet",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "telnet",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libatopology2t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libasound2t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libasound2-data",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "avahi-autoipd",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libavahi-glib1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "avahi-utils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "avahi-daemon",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libavahi-core7",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libavahi-client3",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libavahi-common3",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libavahi-common-data",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "liblcms2-2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libnss3",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-polkit-1.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "pkexec",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "polkitd",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpolkit-agent-1-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libpolkit-gobject-1-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libsoup-3.0-common",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-soup-3.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libsoup-3.0-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libebackend-1.2-11t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libebook-contacts-1.2-4t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libedata-book-1.2-27t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libebook-1.2-21t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libecal-2.0-3",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libedata-cal-2.0-2t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-webkit2-4.1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-javascriptcoregtk-4.1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libwebkit2gtk-4.1-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libjavascriptcoregtk-4.1-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgstreamer-plugins-base1.0-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-plugins-base",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-plugins-good",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgstreamer-plugins-good1.0-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libvpx9",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "xdg-dbus-proxy",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libfreetype6",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgstreamer-gl1.0-0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "evolution-data-server-common",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libedataserverui-1.2-4t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "evolution-data-server",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libcamel-1.2-64t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libedataserver-1.2-27t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-ecal-2.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-edataserver-1.2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-camel-1.2",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-gdkpixbuf-2.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libssh-4",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libcurl3t64-gnutls",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "policykit-1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "curl",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libcurl4t64",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "dnsmasq-base",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "dpkg-dev",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "libdpkg-perl",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "fdisk",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libarchive13t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gir1.2-gst-plugins-base-1.0",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libdjvulibre-text",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libdjvulibre21",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-alsa",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-gl",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-gtk3",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-plugins-base-apps",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gstreamer1.0-x",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs-backends",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs-fuse",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs-daemons",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs-libs",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "gvfs-common",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libwebkitgtk-6.0-4",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libjavascriptcoregtk-6.0-1",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libedataserverui4-1.0-0t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libexiv2-27",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libgdk-pixbuf2.0-bin",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "liblcms2-utils",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libprotobuf32t64",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libsodium23",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libssh-gcrypt-4",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libxml-parser-perl",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "python3-cryptography",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "python3-jwt",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "python3-mako",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "python3-urllib3",
+            "severity": "Critical",
+            "advisory": ""
+          },
+          {
+            "name": "rfkill",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "wireless-regdb",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "intel-microcode",
+            "severity": "Important",
+            "advisory": ""
+          },
+          {
+            "name": "libopenjp2-7",
+            "severity": "Important",
+            "advisory": ""
+          }
+        ],
+        "package_manager": "apt",
+        "integrity": {
+          "ldconfig_ok": true
+        }
+      }
+    }
+  ],
+  "insights": [
+    {
+      "check": "Disk",
+      "level": "CRIT",
+      "message": "disk usage at 100% on /run/timeshift/2218/backup (/dev/nvme0n1p2)",
+      "hints": [
+        "to inspect: df -h",
+        "to inspect: du -sh /run/timeshift/2218/backup/* 2\u003e/dev/null | sort -h | tail -20"
+      ],
+      "details": {
+        "type": "directory_sizes",
+        "title": "Largest directories under /run/timeshift/2218/backup",
+        "columns": [
+          "SIZE",
+          "PATH"
+        ],
+        "rows": [
+          [
+            "1.8G",
+            "/run/timeshift/2218/backup/timeshift"
+          ],
+          [
+            "63M",
+            "/run/timeshift/2218/backup/initrd.img-7.0.0-15-generic"
+          ],
+          [
+            "61M",
+            "/run/timeshift/2218/backup/initrd.img-7.0.0-14-generic"
+          ],
+          [
+            "17M",
+            "/run/timeshift/2218/backup/vmlinuz-7.0.0-15-generic"
+          ],
+          [
+            "17M",
+            "/run/timeshift/2218/backup/vmlinuz-7.0.0-14-generic"
+          ],
+          [
+            "11M",
+            "/run/timeshift/2218/backup/System.map-7.0.0-15-generic"
+          ],
+          [
+            "11M",
+            "/run/timeshift/2218/backup/System.map-7.0.0-14-generic"
+          ],
+          [
+            "8.8M",
+            "/run/timeshift/2218/backup/grub"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "CPUFreq",
+      "level": "WARN",
+      "message": "CPU governor is 'powersave' — CPU running at 2894 MHz (max 4465 MHz), performance limited",
+      "hints": [
+        "to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+        "to fix: cpupower frequency-set -g performance",
+        "to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+        "to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+        "note: 'schedutil' or 'ondemand' are also acceptable for variable workloads"
+      ]
+    },
+    {
+      "check": "Firewall",
+      "level": "WARN",
+      "message": "nftables is installed but no rules are active — host is unprotected",
+      "hints": [
+        "to inspect: iptables -L -n",
+        "to inspect: nft list ruleset",
+        "note: consider enabling ufw, firewalld, or writing iptables/nft rules"
+      ]
+    },
+    {
+      "check": "KernelSec",
+      "level": "WARN",
+      "message": "6 AppArmor profile(s) in complain mode — not enforcing",
+      "hints": [
+        "to inspect: aa-status",
+        "to enforce: aa-enforce /etc/apparmor.d/*"
+      ],
+      "details": {
+        "type": "policy_table",
+        "title": "Security policies not in enforcing mode",
+        "columns": [
+          "POLICY",
+          "MODE",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "\"libreoffice-oosplash\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"libreoffice-soffice\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-cli\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-daemon\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-gtk\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ]
+        ],
+        "note": "... and 1 more — run: aa-status | grep complain"
+      }
+    },
+    {
+      "check": "KernelSec",
+      "level": "WARN",
+      "message": "1 AppArmor denial(s) in the last hour",
+      "hints": [
+        "to inspect: dmesg | grep -i apparmor",
+        "to inspect: journalctl -k | grep apparmor"
+      ],
+      "details": {
+        "type": "policy_table",
+        "title": "Security policies not in enforcing mode",
+        "columns": [
+          "POLICY",
+          "MODE",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "\"libreoffice-oosplash\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"libreoffice-soffice\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-cli\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-daemon\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ],
+          [
+            "\"transmission-gtk\":\t\"complain\",",
+            "complain",
+            "AppArmor profile not enforcing"
+          ]
+        ],
+        "note": "... and 1 more — run: aa-status | grep complain"
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)",
+      "hints": [
+        "to inspect: cat /proc/sys/vm/swappiness",
+        "to fix: sysctl -w vm.swappiness=10",
+        "to persist: echo 'vm.swappiness=10' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+      ],
+      "details": {
+        "type": "sysctl_table",
+        "title": "Sysctl: current vs recommended",
+        "columns": [
+          "SYSCTL",
+          "CURRENT",
+          "RECOMMENDED",
+          "NOTE"
+        ],
+        "rows": [
+          [
+            "vm.swappiness",
+            "60",
+            "10",
+            "lower for k8s/database; 60 for general workloads"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)",
+      "hints": [
+        "to inspect: sysctl net.core.rmem_max",
+        "to fix: sysctl -w net.core.rmem_max=4194304",
+        "to persist: echo 'net.core.rmem_max=4194304' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH allows password authentication — key-based auth recommended",
+      "hints": [
+        "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window",
+      "hints": [
+        "to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
+        "to fix: systemctl restart sshd"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH X11Forwarding enabled — unnecessary on servers, increases attack surface",
+      "hints": [
+        "to fix: set X11Forwarding no in /etc/ssh/sshd_config",
+        "note: only needed if users require GUI applications over SSH"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
+      "hints": [
+        "to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
+        "note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
+      "hints": [
+        "to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
+        "to fix: set ClientAliveCountMax 3 in /etc/ssh/sshd_config",
+        "note: this disconnects idle sessions after 300s × 3 = 15 minutes"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH weak MAC(s) enabled (sshd -T (effective config)): umac-64@openssh.com, hmac-sha1",
+      "hints": [
+        "to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config",
+        "note: hmac-sha1 uses SHA-1 which is cryptographically broken",
+        "to verify: sshd -T | grep '^macs'"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "NOPASSWD sudo for: andrei",
+      "hints": [
+        "to inspect: sudo -l",
+        "to inspect: cat /etc/sudoers"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "password never expires for human account(s): andrei",
+      "hints": [
+        "to inspect: sudo chage -l \u003cusername\u003e",
+        "to fix:     chage -M 90 \u003cusername\u003e  (expire after 90 days)",
+        "to fix all: awk -F: '($3\u003e=1000 \u0026\u0026 $3\u003c65534){print $1}' /etc/passwd | xargs -I{} chage -M 90 {}",
+        "note: CIS benchmark recommends maximum password age ≤ 365 days"
+      ]
+    },
+    {
+      "check": "Systemd",
+      "level": "WARN",
+      "message": "slow boot unit: gpu-manager.service took 11.5s",
+      "hints": [
+        "to inspect: systemctl status gpu-manager.service",
+        "to inspect: journalctl -u gpu-manager.service -b",
+        "to analyse:  systemd-analyze blame",
+        "to plot:     systemd-analyze plot \u003e boot.svg",
+        "note: gpu-manager detects GPUs for PRIME switching — slow on Optimus laptops",
+        "to fix (if not using GPU switching): systemctl disable --now gpu-manager.service",
+        "note: safe to disable if you use NVIDIA-only mode or have one GPU"
+      ]
+    },
+    {
+      "check": "Systemd",
+      "level": "WARN",
+      "message": "slow boot unit: plymouth-quit-wait.service took 10.8s",
+      "hints": [
+        "to inspect: systemctl status plymouth-quit-wait.service",
+        "to inspect: journalctl -u plymouth-quit-wait.service -b",
+        "to analyse:  systemd-analyze blame",
+        "to plot:     systemd-analyze plot \u003e boot.svg",
+        "note: plymouth boot splash — can be slow on headless or hybrid GPU systems",
+        "to fix (headless): systemctl disable plymouth-quit-wait.service"
+      ]
+    },
+    {
+      "check": "LVM",
+      "level": "INFO",
+      "message": "inactive volume group ubuntu-vg is 11% full — no LVs mounted (old OS partition?)",
+      "hints": [
+        "to inspect: vgs ubuntu-vg",
+        "to inspect: lvs | grep ubuntu-vg",
+        "note: this VG has no mounted LVs on this OS — likely a leftover from a previous install"
+      ]
+    },
+    {
+      "check": "LVM",
+      "level": "WARN",
+      "message": "volume group vgmint is 98% full (22.1 GB free of 953.4 GB)",
+      "hints": [
+        "to inspect: vgs vgmint",
+        "to inspect: pvs | grep vgmint",
+        "to add PV:  pvcreate /dev/\u003cnew-disk\u003e \u0026\u0026 vgextend \u003cvg\u003e /dev/\u003cnew-disk\u003e"
+      ]
+    },
+    {
+      "check": "CPUDeep",
+      "level": "WARN",
+      "message": "CPU core imbalance: core14 at 80% while others average 0% — single-threaded bottleneck",
+      "hints": [
+        "to inspect: mpstat -P ALL 1 3",
+        "to inspect: ps aux --sort=-%cpu | head -10"
+      ]
+    },
+    {
+      "check": "Logs",
+      "level": "INFO",
+      "message": "journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost",
+      "hints": [
+        "to fix: echo 'SyncIntervalSec=30s' \u003e\u003e /etc/systemd/journald.conf",
+        "to fix: systemctl restart systemd-journald",
+        "note:   lower sync interval increases disk I/O but ensures crash logs are preserved"
+      ]
+    },
+    {
+      "check": "Packages",
+      "level": "CRIT",
+      "message": "20 critical security update(s) available (apt)",
+      "hints": [
+        "to inspect: apt list --upgradable 2\u003e/dev/null | grep -i security",
+        "to fix: apt-get upgrade"
+      ]
+    }
+  ]
+}

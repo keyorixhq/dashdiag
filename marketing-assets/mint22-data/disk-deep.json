@@ -1,0 +1,22 @@
+
+Physical Drives — 2 found
+  nvme0n1      1TB    NVMe  nvme0n1p2→/run/timeshift/2218/backup  [SKHynix_HFS001TDE9X084N]
+             SMART: smartctl not installed
+  nvme1n1      1TB    NVMe  nvme1n1p1→/boot/efi  [SKHynix_HFS001TDE9X084N]
+             SMART: smartctl not installed
+
+Filesystems (5)
+  ✅  /                      ext4   7.9G / 981.1G  (6%)
+  ✅  /boot/efi              vfat   0.0G / 0.5G  (2%)
+  ❌  /run/timeshift/2218/backup ext4   2.0G / 2.0G  (100%)
+
+I/O rates (1s sample)
+  nvme0n1       read:    1.0 MB/s  write:    0.0 MB/s
+  nvme1n1       read:    1.0 MB/s  write:   13.8 MB/s
+
+LVM (2 VG(s))
+  ✅  ubuntu-vg            950.8GB total  850.8GB free  (89%)
+  ❌  vgmint               953.4GB total  22.1GB free  (2%)  ← CRIT: VG almost full
+
+────────────────────────────────────────────────────────
+⚠️  4 disk concern(s) found in 1.0s

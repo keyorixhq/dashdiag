@@ -1,0 +1,117 @@
+{
+  "daemon_active": true,
+  "daemon_name": "cron",
+  "anacron_present": true,
+  "quality_issues": [
+    {
+      "source": "/etc/cron.d/.placeholder",
+      "line": "",
+      "issues": [
+        "no MAILTO set — errors go to local mailbox unread"
+      ]
+    },
+    {
+      "source": "/etc/cron.d/anacron",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently",
+        "no MAILTO set — errors go to local mailbox unread"
+      ]
+    },
+    {
+      "source": "/etc/cron.d/e2scrub_all",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently",
+        "no MAILTO set — errors go to local mailbox unread"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/0anacron",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/apt-compat",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/aptitude",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/dpkg",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/logrotate",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/man-db",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.daily/plocate",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.weekly/0anacron",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.weekly/man-db",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    },
+    {
+      "source": "/etc/cron.monthly/0anacron",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    }
+  ],
+  "anacron_jobs": [
+    {
+      "name": "daily",
+      "last_run_h": 11,
+      "overdue_h": 0
+    },
+    {
+      "name": "weekly",
+      "last_run_h": -1,
+      "overdue_h": 0
+    },
+    {
+      "name": "monthly",
+      "last_run_h": -1,
+      "overdue_h": 0
+    }
+  ]
+}

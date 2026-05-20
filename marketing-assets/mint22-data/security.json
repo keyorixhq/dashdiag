@@ -1,7 +1,7 @@
 
 SSH Configuration
   ✅  PermitRootLogin:             no (secure)
-  ✅  PasswordAuthentication:      no (key-only)
+  ⚠️   PasswordAuthentication:      yes (weaker)
 
 Failed Logins (last hour): 0
 
@@ -16,7 +16,9 @@ Firewall: nftables active
 
 AppArmor mode: complain (123 profiles loaded)
   ⚠️  6 profile(s) in complain mode
-  ✅  No denials in the last hour
+  ⚠️   1 denial group(s) in last 24h:
+    ×1    /usr/sbin/cupsd                 net_admin
+  → aa-logprof  (auto-suggest profile updates)
 
 ────────────────────────────────────────────────────────
-⚠️  1 security concern(s) found in 0.1s
+⚠️  2 security concern(s) found in 0.1s

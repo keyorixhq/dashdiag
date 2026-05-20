@@ -5,13 +5,17 @@ Interfaces (3)
   ✅  wlp4s0       192.168.1.135  drops rx:9 tx:0
 
 Connectivity
-  ✅  Gateway ping:            0.8 ms
+  ✅  Gateway ping:            2.5 ms
   ✅  Internet ping:           6.2 ms
   ✅  DNS resolution:          4.0 ms
+  ✅  Jitter:                  0.2 ms
 
 TCP States
-  ✅  LAST-ACK         2
   ✅  ESTAB            2
+  ✅  LAST-ACK         2
+
+TCP Kernel Counters
+  ✅  SYN retransmissions:     14
 
 ────────────────────────────────────────────────────────
-✅ Network healthy. Checks passed in 1.3s
+✅ Network healthy. Checks passed in 2.3s

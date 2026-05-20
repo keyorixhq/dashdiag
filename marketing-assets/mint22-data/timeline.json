@@ -1,0 +1,115 @@
+
+⏱  Incident timeline — last 1h
+
+  Load average:
+  ✅  07:25:40 (now)    load: 0.06  0.27  0.17  (1m/5m/15m)
+
+  TIME      LEVEL     UNIT                MESSAGE
+  ────────────────────────────────────────────────────────────
+  ── May 20 ─────────────────────────────────────────────
+  ⚠️   07:17:51  jrnl  kernel            TSC synchronization [CPU#0 -> CPU#2]:
+  ⚠️   07:17:51  jrnl  kernel            Measured 7194139428 cycles TSC warp between CPUs, turn…
+  ⚠️   07:17:51  jrnl  kernel              #1  #3  #5  #7  #9 #11 #13 #15
+  ❌  07:17:51  jrnl  kernel            ACPI BIOS Error (bug): Could not resolve symbol [\_SB.…
+  ❌  07:17:51  jrnl  kernel            ACPI Error: AE_NOT_FOUND, During name lookup/catalog (…
+  ⚠️   07:17:51  jrnl  kernel            i2c_designware AMDI0010:01: [Firmware Bug]: DSDT uses …
+  ⚠️   07:17:51  jrnl  kernel            tpm tpm0: tpm_read_log_acpi: Failed to map ACPI memory
+  ⚠️   07:17:51  jrnl  kernel            i8042: PNP: PS/2 appears to have AUX port disabled, if…
+  ⚠️   07:17:51  jrnl  kernel            device-mapper: core: CONFIG_IMA_DISABLE_HTABLE is disa…
+  ❌  07:17:51  jrnl  kernel            integrity: Problem loading X.509 certificate -65
+  ⚠️   07:17:51  jrnl  kernel            Unstable clock detected, switching default tracing clo…
+  ⚠️   07:17:51  jrnl  kernel            usb: port power management may be unreliable
+  ⚠️   07:17:51  jrnl  systemd-udevd     PV /dev/nvme1n1p2 online, VG vgmint is complete.
+  ⚠️   07:17:51  jrnl  systemd-udevd     VG vgmint finished
+  ⚠️   07:17:51  jrnl  systemd-udevd     PV /dev/nvme0n1p3 online, VG ubuntu-vg is complete.
+  ⚠️   07:17:51  jrnl  systemd-udevd     VG ubuntu-vg finished
+  ⚠️   07:17:51  jrnl  kernel            ideapad_acpi VPC2004:00: Unknown keyboard type: 1
+  ❌  07:17:52  jrnl  kernel            lenovo_wmi_hotkey_utilities CE6C0974-0407-4F50-88BA-4F…
+  ⚠️   07:17:54  jrnl  systemd-udevd     controlC0: Process '/usr/sbin/alsactl -E HOME=/run/als…
+  ⚠️   07:17:54  jrnl  systemd-udevd     controlC1: Process '/usr/sbin/alsactl -E HOME=/run/als…
+  ⚠️   07:17:54  jrnl  bluetooth         bluetooth.service: ConfigurationDirectory 'bluetooth' …
+  ⚠️   07:17:54  jrnl  cron              cron.service: Referenced but unset environment variabl…
+  ⚠️   07:17:54  jrnl  irqbalance        irqbalance.service: Referenced but unset environment v…
+  ⚠️   07:17:55  jrnl  bluetooth         src/plugin.c:plugin_init() System does not support csi… ×6
+  ⚠️   07:17:55  jrnl  bluetooth         profiles/audio/micp.c:micp_init() D-Bus experimental n…
+  ❌  07:17:55  jrnl  bluetooth         profiles/sap/server.c:sap_server_register() Sap driver…
+  ❌  07:17:55  jrnl  bluetooth         sap-server: Operation not permitted (1)
+  ❌  07:17:55  jrnl  bluetooth         Failed to set mode: Failed (0x03)
+  ⚠️   07:17:55  jrnl  kernel            nvme nvme0: using unchecked data buffer
+  ⚠️   07:17:55  jrnl  NetworkManager    Permissions for /etc/netplan/01-network-manager-all.ya…
+  ⚠️   07:18:04  jrnl  init              kerneloops.service: Found left-over process 1194 (kern…
+  ⚠️   07:18:04  jrnl  init              kerneloops.service: This usually indicates unclean ter…
+  ⚠️   07:18:04  jrnl  kerneloops        kerneloops.service: Referenced but unset environment v…
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 83 affinity: No such file or directo…
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 83 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 91 affinity: No such file or directo…
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 91 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 88 affinity: No such file or directo…
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 88 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 78 affinity: No such file or directo…
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 78 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 86 affinity: No such file or directo…
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 86 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 94 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 94 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 84 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 84 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 92 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 92 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 82 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 82 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 90 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 90 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 80 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 80 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 89 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 89 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 87 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 87 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 95 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 95 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 85 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 85 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 93 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 93 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 73 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 73 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 63 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 63 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 81 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 81 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 71 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 71 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 68 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 68 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 66 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 66 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 74 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 74 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 64 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 64 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 72 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 72 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 79 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 79 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 69 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 69 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 77 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 77 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 67 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 67 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 75 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 75 affinity is now unmanaged
+  ⚠️   07:18:04  jrnl  irqbalance        Cannot change IRQ 65 affinity: Permission denied
+  ⚠️   07:18:04  jrnl  irqbalance        IRQ 65 affinity is now unmanaged
+  ⚠️   07:18:06  jrnl  init              casper-md5check.service: Failed with result 'exit-code…
+  ❌  07:18:06  jrnl  init              Failed to start casper-md5check.service - casper-md5ch…
+  ❌  07:18:08  jrnl  lightdm           gkr-pam: couldn't unlock the login keyring.
+  ⚠️   07:18:08  jrnl  user@113          mod.jackdbus-detect: Failed to receive jackdbus reply:…
+  ⚠️   07:18:08  jrnl  user@113          Failed to get percentage from UPower: org.freedesktop.…
+  ❌  07:18:28  jrnl  lightdm           gkr-pam: unable to locate daemon control file
+  ⚠️   07:18:29  jrnl  user@1000         mod.jackdbus-detect: Failed to receive jackdbus reply:…
+  ⚠️   07:18:29  jrnl  session-c2        discover_other_daemon: 1 ×3
+
+────────────────────────────────────────────────────────────────
+⚠️  10 CRIT, 93 WARN event(s) found in 0.0s
