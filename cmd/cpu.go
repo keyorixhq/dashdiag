@@ -85,7 +85,7 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, _ output.OutputMode, elapsed time.Duration) { //nolint:funlen // flat display renderer — each section is independent
+func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, _ output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // flat display renderer — each section is independent
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -133,8 +133,11 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		if freq.MaxMHz > 0 {
 			fmt.Printf("       Max (boost):      %d MHz\n", freq.MaxMHz)
 		}
-		if freq.ThrottledPct > 5 {
-			fmt.Printf("  %s  Throttled:        %.1f%%\n", cpuIcon(freq.ThrottledPct, 20, 50), freq.ThrottledPct)
+		// Throttling is only a concern under load — at low usage it's normal power management.
+		// Only warn when CPU is actually busy (> 30% usage) AND throttled significantly.
+		underLoad := cpu != nil && cpu.UsagePct > 30
+		if freq.ThrottledPct > 5 && underLoad {
+			fmt.Printf("  %s  Throttled:        %.1f%%  <- CPU throttled under load\n", cpuIcon(freq.ThrottledPct, 20, 50), freq.ThrottledPct)
 		} else {
 			fmt.Printf("  ✅  Throttled:        %.1f%%\n", freq.ThrottledPct)
 		}
