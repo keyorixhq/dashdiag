@@ -637,6 +637,27 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 			))
 		}
 	}
+	// btrfs volume health — missing devices are a silent CRIT
+	for _, v := range disk.BtrfsVolumes {
+		if v.MissingDevs > 0 {
+			out = append(out, insight("CRIT", "Disk",
+				fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
+				[]string{
+					fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
+					fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+					"to fix:     reattach missing device and run: btrfs device scan",
+				},
+			))
+		} else if v.Status == "errors" {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("btrfs %s has device I/O or corruption errors", v.MountPoint),
+				[]string{
+					fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+					fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
+				},
+			))
+		}
+	}
 	// ZFS pool health
 	for _, p := range disk.ZFSPools {
 		switch p.State {
