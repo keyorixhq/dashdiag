@@ -490,10 +490,15 @@ func k8sDetectBin() string {
 		{"/usr/bin/k3s", "k3s"},
 		{"/usr/local/bin/kubectl", "kubectl"},
 		{"/usr/bin/kubectl", "kubectl"},
+		{"/snap/bin/microk8s", "microk8s"},
+		{"/usr/bin/microk8s", "microk8s"},
 	}
 	for _, p := range directPaths {
 		if _, err := os.Stat(p.bin); err == nil {
 			if p.bin2 == "k3s" {
+				return p.bin + " kubectl"
+			}
+			if p.bin2 == "microk8s" {
 				return p.bin + " kubectl"
 			}
 			return p.bin
@@ -502,6 +507,9 @@ func k8sDetectBin() string {
 	// Fall back to PATH lookup
 	if _, err := exec.LookPath("k3s"); err == nil {
 		return "k3s kubectl"
+	}
+	if _, err := exec.LookPath("microk8s"); err == nil {
+		return "microk8s kubectl"
 	}
 	if _, err := exec.LookPath("kubectl"); err == nil {
 		return "kubectl"

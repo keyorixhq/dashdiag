@@ -1,0 +1,190 @@
+# fixture captured from ubuntu (Ubuntu 26.04 LTS)
+# replay with: dsd mock <this-file>
+
+host: ubuntu
+os: Ubuntu 26.04 LTS
+version: v0.5.1-59-g2e6278a-dirty
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 23%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: ""
+      inline: 47°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 1.4/13 GB (11%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 5 mounts, max 19% (/)
+      message: ""
+      hints: []
+    - name: IO
+      level: ""
+      inline: 1.1 ms (nvme1n1)
+      message: ""
+      hints: []
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: CRIT
+      inline: ""
+      message: raid LV dsd_test/mirror_vol is DEGRADED — one or more PVs failed
+      hints:
+        - 'to inspect: lvs -a -o name,vg_name,lv_attr,devices dsd_test/mirror_vol'
+        - 'to inspect: pvs  (identify failed PV)'
+        - 'to recover: lvconvert --repair dsd_test/mirror_vol'
+    - name: Network
+      level: ""
+      inline: 4 NICs, eno1 1Gbps  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: WARN
+      inline: ""
+      message: 'slow boot unit: 1.620s took 60.0s'
+      hints:
+        - 'to inspect: systemctl status 1.620s'
+        - 'to inspect: journalctl -u 1.620s -b'
+        - 'to analyse:  systemd-analyze blame'
+        - 'to plot:     systemd-analyze plot > boot.svg'
+    - name: Processes
+      level: ""
+      inline: 330 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: WARN
+      inline: ""
+      message: 2 crash dump(s)/panic record(s) found in the last 30 days
+      hints:
+        - 'to inspect: ls -lh /var/crash/ /var/lib/systemd/coredump/ /sys/fs/pstore/'
+        - 'to analyse: journalctl -k -b -1 | tail -50  (previous boot kernel log)'
+        - /var/crash/kdump_lock (0.0MB, 0d ago)
+        - /var/crash/kexec_cmd (0.0MB, 0d ago)
+    - name: Sysctl
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: KernelSec
+      level: WARN
+      inline: ""
+      message: 67 AppArmor profile(s) in complain mode — not enforcing
+      hints:
+        - 'to inspect: aa-status'
+        - 'to enforce: aa-enforce /etc/apparmor.d/*'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Subscription
+      level: INFO
+      inline: ""
+      message: Ubuntu Pro not attached — ESM security patches and Livepatch unavailable
+      hints:
+        - 'to attach: pro attach <token>  (free for up to 5 personal machines)'
+        - 'to get token: ubuntu.com/pro'
+        - 'to inspect: pro status'
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: mem 0%  cpu 0%  io 0%
+      message: ""
+      hints: []
+    - name: Multipath
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  5 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: iSCSI
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: HugePages
+      level: ""
+      inline: THP madvise
+      message: ""
+      hints: []
+    - name: CPUFreq
+      level: WARN
+      inline: ""
+      message: CPU governor is 'powersave' — CPU running at 2439 MHz (max 4465 MHz), performance limited
+      hints:
+        - 'to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to fix: cpupower frequency-set -g performance'
+        - 'to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to persist: add to /etc/rc.local or use tuned profile ''throughput-performance'''
+        - 'note: ''schedutil'' or ''ondemand'' are also acceptable for variable workloads'
+    - name: K8s
+      level: WARN
+      inline: ""
+      message: '2 Warning event(s): DNSConfigForming×2'
+      hints:
+        - 'to inspect: kubectl get events -A --field-selector type=Warning'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
