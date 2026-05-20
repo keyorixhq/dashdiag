@@ -27,7 +27,7 @@ type NetworkCollector struct{}
 func NewNetworkCollector() *NetworkCollector { return &NetworkCollector{} }
 
 func (c *NetworkCollector) Name() string           { return "Network" }
-func (c *NetworkCollector) Timeout() time.Duration { return 3 * time.Second }
+func (c *NetworkCollector) Timeout() time.Duration { return 15 * time.Second }
 
 var skipIfaceExact = map[string]bool{"lo": true, "docker0": true}
 var skipIfacePrefixes = []string{"veth", "br-", "virbr"}
@@ -116,7 +116,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
-	probeConnectivity(ctx, route.GatewayIP, result)
+	probeConnectivity(ctx, route.GatewayIP, route.SrcIP, result)
 
 	conns, _ := gopsutilnet.ConnectionsWithContext(ctx, "tcp")
 	for _, conn := range conns {
@@ -127,7 +127,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	return result, nil
 }
 
-func probeConnectivity(ctx context.Context, gatewayIP string, result *models.NetworkInfo) {
+func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *models.NetworkInfo) {
 	var gwMs, gwLoss, internetMs, internetLoss, dnsMs float64
 	var dnsFailed, gwICMPBlocked, inetICMPBlocked bool
 	var wg sync.WaitGroup
@@ -135,14 +135,14 @@ func probeConnectivity(ctx context.Context, gatewayIP string, result *models.Net
 	go func() {
 		defer wg.Done()
 		if gatewayIP != "" {
-			gwMs, gwLoss, gwICMPBlocked = pingRTT(ctx, gatewayIP)
+			gwMs, gwLoss, gwICMPBlocked = pingRTT(ctx, gatewayIP, srcIP)
 		} else {
 			gwMs, gwLoss = -1, 100
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		internetMs, internetLoss, inetICMPBlocked = pingRTT(ctx, "8.8.8.8")
+		internetMs, internetLoss, inetICMPBlocked = pingRTT(ctx, "8.8.8.8", "")
 	}()
 	go func() {
 		defer wg.Done()
@@ -196,7 +196,15 @@ func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
 // ICMP attempts entirely. This avoids producing two EPERM syscalls per
 // host per run — important for systems with auditd or SOC log monitoring
 // that would otherwise see denied raw-socket attempts on every cron run.
-func pingRTT(ctx context.Context, host string) (ms, lossPct float64, icmpBlocked bool) {
+func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmpBlocked bool) {
+	// On Linux, prefer system ping binary — reliable across all configurations
+	// (bonds, VMs, containers, multiple default routes) without raw socket quirks.
+	if runtime.GOOS == "linux" {
+		if ms, loss, ok := sysPing(ctx, host, srcIP); ok {
+			return ms, loss, false
+		}
+		// sysPing failed (no ping binary?) — fall through to go-ping
+	}
 	if !icmpAvailable() {
 		debug.Log(ctx, "Network", "ICMP unavailable for this process — skipping to TCP", "host", host)
 		if ms, ok := tcpProbe(ctx, host); ok {
@@ -209,7 +217,7 @@ func pingRTT(ctx context.Context, host string) (ms, lossPct float64, icmpBlocked
 		if ctx.Err() != nil {
 			return -1, 100, false
 		}
-		if ms, loss, ok := tryOnePing(ctx, host, privileged); ok {
+		if ms, loss, ok := tryOnePing(ctx, host, srcIP, privileged); ok {
 			return ms, loss, false
 		}
 	}
@@ -330,6 +338,53 @@ func parsePingGroupRange(s string) (low, high int, ok bool) {
 	return l, h, true
 }
 
+// sysPing runs the system /bin/ping with a specific source IP.
+// Used when go-ping Source binding is unreliable (multi-route scenarios).
+func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok bool) {
+	pCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	args := []string{"-c", "2", "-W", "1"}
+	if srcIP != "" {
+		args = append(args, "-I", srcIP)
+	}
+	args = append(args, host)
+	// Use exec directly — ping exits 1 on 100% loss but still writes
+	// parseable output to stdout. runCmd discards output on non-zero exit.
+	cmd := exec.CommandContext(pCtx, "ping", args...) // #nosec G204
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	raw, _ := cmd.Output() // ignore exit code intentionally
+	out := string(raw)
+	if strings.TrimSpace(out) == "" {
+		return -1, 100, false
+	}
+	lossPct = 100 // pessimistic default
+	for _, line := range strings.Split(out, "\n") {
+		// "3 packets transmitted, 3 received, 0% packet loss"
+		if strings.Contains(line, "packet loss") {
+			for _, f := range strings.Fields(line) {
+				if strings.HasSuffix(f, "%") {
+					if v, err := strconv.ParseFloat(strings.TrimSuffix(f, "%"), 64); err == nil {
+						lossPct = v
+					}
+				}
+			}
+		}
+		// "rtt min/avg/max/mdev = 0.585/0.660/0.806/0.102 ms"
+		if strings.Contains(line, "min/avg/max") {
+			if idx := strings.Index(line, "="); idx >= 0 {
+				rtts := strings.Split(strings.TrimSpace(line[idx+1:]), "/")
+				if len(rtts) >= 2 {
+					if v, err := strconv.ParseFloat(strings.TrimSpace(rtts[1]), 64); err == nil {
+						ms = v
+					}
+				}
+			}
+		}
+	}
+	ok = lossPct < 100
+	return
+}
+
 // tcpProbe dials host on common ports (53, 80) to check L3 reachability
 // without ICMP privileges. Both a successful connection AND a "connection
 // refused" response prove the host is reachable — the packet made a round
@@ -355,12 +410,23 @@ func tcpProbe(ctx context.Context, host string) (ms float64, ok bool) {
 	return -1, false
 }
 
-func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct float64, ok bool) {
+func tryOnePing(ctx context.Context, host, srcIP string, privileged bool) (ms, lossPct float64, ok bool) {
 	mode := "unprivileged"
 	if privileged {
 		mode = "privileged"
 	}
-	debug.Log(ctx, "Network", "ping attempt", "host", host, "mode", mode)
+	debug.Log(ctx, "Network", "ping attempt", "host", host, "mode", mode, "src", srcIP)
+
+	// When a source IP is specified (multi-route host), use system ping directly.
+	// go-ping's Source binding is unreliable with privileged raw sockets on some kernels.
+	// Also use sysPing for all Linux privileged probes — more reliable than raw ICMP sockets
+	// on systems where the kernel's raw socket behaviour is inconsistent (bonds, VMs, containers).
+	if privileged && runtime.GOOS == "linux" {
+		if ms, loss, ok := sysPing(ctx, host, srcIP); ok || loss == 0 {
+			return ms, loss, ok
+		}
+		// sysPing failed — fall through to go-ping
+	}
 
 	p, err := goping.NewPinger(host)
 	if err != nil {
@@ -368,8 +434,16 @@ func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct 
 		return -1, 100, false
 	}
 	p.Count = 3
-	p.Timeout = 1200 * time.Millisecond
+	p.Interval = 300 * time.Millisecond
+	p.Timeout = 2000 * time.Millisecond
 	p.SetPrivileged(privileged)
+	// Bind to source IP when provided — prevents false negatives on hosts
+	// with multiple default routes (e.g. bond + WiFi simultaneously).
+	// Note: use Source only for privileged raw sockets; unprivileged UDP
+	// ping ignores Source on some kernels and may fail to bind.
+	if srcIP != "" && privileged {
+		p.Source = srcIP
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- p.Run() }()
@@ -398,13 +472,20 @@ func tryOnePing(ctx context.Context, host string, privileged bool) (ms, lossPct 
 type routeInfo struct {
 	GatewayIP string
 	Iface     string
+	SrcIP     string // source IP the kernel would use (from 'ip route get')
 }
 
 func detectDefaultGateway(ctx context.Context) routeInfo {
 	if runtime.GOOS == "darwin" {
 		return detectGatewayDarwin(ctx)
 	}
-	return detectGatewayLinux()
+	r := detectGatewayLinux()
+	// Enrich with the exact source IP via 'ip route get <gw>'
+	// This avoids false negatives when multiple default routes exist.
+	if r.GatewayIP != "" {
+		r.SrcIP = detectRouteSrcIP(ctx, r.GatewayIP)
+	}
+	return r
 }
 
 // parseGatewayLinux finds the default route in /proc/net/route format.
@@ -430,12 +511,32 @@ func parseGatewayLinux(r io.Reader) routeInfo {
 }
 
 func detectGatewayLinux() routeInfo {
-	f, err := os.Open("/proc/net/route")
+	f, err := os.Open("/proc/net/route") // #nosec G304
 	if err != nil {
 		return routeInfo{}
 	}
 	defer f.Close()
 	return parseGatewayLinux(f)
+}
+
+// detectRouteSrcIP uses 'ip route get <ip>' to find the exact source address
+// the kernel would use. Returns empty string if unavailable (no 'ip' tool).
+// Example output: "192.168.1.1 dev bond0 src 192.168.1.147 uid 1000"
+func detectRouteSrcIP(ctx context.Context, dest string) string {
+	rCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	out, err := runCmd(rCtx, "ip", "route", "get", dest)
+	if err != nil {
+		return ""
+	}
+	// Parse "src <IP>" from output
+	fields := strings.Fields(out)
+	for i, f := range fields {
+		if f == "src" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
 }
 
 func detectGatewayDarwin(ctx context.Context) routeInfo {
