@@ -1178,3 +1178,55 @@ marketing-assets/mint22-data/disk.json      ← disk collector showing the full 
 > 
 > dsd found it in 2 seconds.
 
+
+
+---
+
+## Story 7 — Addendum: What Timeshift Actually Does (It's Worse)
+
+After publishing the story we checked the actual logs. Timeshift doesn't say "backup complete" — **it says nothing at all to the system.**
+
+### What Timeshift logged
+
+```
+[07:19:54] E: Error creating directory .../snapshots-boot:     No space left on device
+[07:19:54] E: Error creating directory .../snapshots-hourly:   No space left on device
+[07:19:54] E: Error creating directory .../snapshots-daily:    No space left on device
+[07:19:54] E: Error creating directory .../snapshots-weekly:   No space left on device
+[07:19:54] E: Error creating directory .../snapshots-monthly:  No space left on device
+[07:19:54] E: Error creating directory .../snapshots-ondemand: No space left on device
+```
+
+Six errors in its own private log file at `/var/log/timeshift/*.log`. Then:
+
+```
+[07:19:55] Status: NO_SNAPSHOTS_HAS_SPACE
+```
+
+It concluded it has space and zero snapshots — reporting the device is available while simultaneously failing to write to it.
+
+### How the failure was communicated to the user
+
+```
+pkexec: notify-send -t 10000 -u low -i gtk-dialog-info TimeShift "Failed to create snapshot"
+```
+
+A desktop notification. **10 seconds. Low urgency. Gone.**
+
+- `journalctl -u timeshift` → no entries
+- `/var/log/syslog` → nothing
+- `dmesg` → nothing
+- `dsd logs` → nothing
+
+The only persistent evidence was Timeshift's own private log file, which no monitoring tool reads, and the 100% full partition that dsd found.
+
+### The corrected story
+
+> Fresh Mint install. Timeshift silently failed — 6 errors, no snapshots created.
+> The only notification: a desktop popup that vanished after 10 seconds.
+> No journal entry. No syslog. No alert.
+>
+> `dsd health` found the evidence Timeshift left behind:
+> ❌ disk usage at 100% on /run/timeshift/2218/backup
+>
+> The backup was broken from day one. The system had no idea.
