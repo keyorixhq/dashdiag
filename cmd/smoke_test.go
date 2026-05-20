@@ -36,6 +36,9 @@ func TestVersion(t *testing.T) {
 }
 
 func TestHealthPlainExitCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
 	_, code := run(t, "health", "--plain")
 	if code > 2 {
 		t.Errorf("health --plain returned unexpected exit code %d (want 0, 1, or 2)", code)
@@ -43,6 +46,9 @@ func TestHealthPlainExitCode(t *testing.T) {
 }
 
 func TestHealthJSONValid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
 	out, code := run(t, "health", "--json")
 	if code > 2 {
 		t.Fatalf("health --json returned unexpected exit code %d", code)
@@ -57,6 +63,9 @@ func TestHealthJSONValid(t *testing.T) {
 }
 
 func TestHealthOutputContainsCollectors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
 	out, code := run(t, "health", "--json")
 	if code > 2 {
 		t.Fatalf("health --json returned unexpected exit code %d", code)

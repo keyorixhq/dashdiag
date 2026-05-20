@@ -1,0 +1,19 @@
+
+Physical Drives — 3 found
+  nvme1n1      1TB    NVMe  not mounted (Windows/other OS)  [SKHynix_HFS001TDE9X084N]
+  nvme0n1      1TB    NVMe  nvme0n1p2→/boot  nvme0n1p1→/boot/efi  [SKHynix_HFS001TDE9X084N]
+             ✅ SMART: PASSED  wear:0%  spare:100%  temp:45°C
+  sda          16GB   HDD   not mounted  [Transcend 16GB]
+             SMART: smartctl: exit status 1
+
+Filesystems (4)
+  ✅  /                      xfs    2.4G / 16.0G  (15%)
+  ✅  /boot                  xfs    0.5G / 2.1G  (26%)
+  ✅  /boot/efi              vfat   0.0G / 0.6G  (1%)
+
+LVM (2 VG(s))
+  ✅  fedora               951.3GB total  936.3GB free  (98%)
+  ✅  ubuntu-vg            950.8GB total  850.8GB free  (89%)
+
+────────────────────────────────────────────────────────
+⚠️  1 disk concern(s) found in 0.2s

@@ -585,12 +585,15 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 // on a RHEL-family system. Distinguishes: not root, not registered, expired.
 func rhSubscriptionNote() string {
 	distro := strings.ToLower(ReadDistroID())
+	// Fedora is free — never uses subscription-manager, skip entirely
+	if strings.Contains(distro, "fedora") {
+		return ""
+	}
 	rhFamily := strings.Contains(distro, "rhel") ||
 		strings.Contains(distro, "red hat") ||
 		strings.Contains(distro, "rocky") ||
 		strings.Contains(distro, "alma") ||
-		strings.Contains(distro, "centos") ||
-		strings.Contains(distro, "fedora")
+		strings.Contains(distro, "centos")
 	if !rhFamily {
 		return ""
 	}
