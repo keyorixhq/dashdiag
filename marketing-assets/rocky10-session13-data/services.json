@@ -1,0 +1,10 @@
+ℹ️  No services configured yet.
+    Add to ~/.dsd.yaml:
+
+    services:
+      - name: nginx
+        host: localhost
+        port: 80
+        protocol: http
+
+    Or run: dsd init  to configure automatically.

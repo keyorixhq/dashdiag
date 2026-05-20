@@ -1,0 +1,31 @@
+{
+  "daemon_active": true,
+  "daemon_name": "crond",
+  "anacron_present": true,
+  "quality_issues": [
+    {
+      "source": "/etc/cron.hourly/0anacron",
+      "line": "",
+      "issues": [
+        "no PATH set and command uses relative path — may fail silently"
+      ]
+    }
+  ],
+  "anacron_jobs": [
+    {
+      "name": "daily",
+      "last_run_h": 7,
+      "overdue_h": 0
+    },
+    {
+      "name": "weekly",
+      "last_run_h": 7,
+      "overdue_h": 0
+    },
+    {
+      "name": "monthly",
+      "last_run_h": 7,
+      "overdue_h": 0
+    }
+  ]
+}

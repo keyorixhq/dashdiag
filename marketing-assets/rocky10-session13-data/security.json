@@ -3,7 +3,7 @@ SSH Configuration
   ✅  PermitRootLogin:             no (secure)
   ⚠️   PasswordAuthentication:      yes (weaker)
 
-Failed Logins (last hour): 2
+Failed Logins (last hour): 0
 
 Listening Ports (1 total)
   ✅  22     tcp   sshd                

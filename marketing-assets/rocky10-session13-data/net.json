@@ -1,0 +1,20 @@
+
+Interfaces (1)
+  ✅  bond0        192.168.1.145  1000 Mbps  drops rx:30 tx:1  ← primary
+
+Bond interfaces (1)
+  ✅  bond0         active-backup
+      ✅  eno1            MII:up    1000 Mbps  18 link failures
+      ✅  enp6s0f3u1      MII:up    1000 Mbps  [USB]  1 link failures  ← active
+
+Connectivity
+  ✅  Gateway ping:            0.7 ms
+  ✅  Internet ping:           5.8 ms
+  ✅  DNS resolution:          3.0 ms
+
+TCP States
+  ✅  ESTAB            3
+  ✅  SYN-SENT         2
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.3s

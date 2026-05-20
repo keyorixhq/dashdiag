@@ -1,8 +1,8 @@
 
 Physical Drives — 2 found
-  nvme0n1      1TB    NVMe  not mounted (Windows/other OS)  [SKHynix_HFS001TDE9X084N]
-  nvme1n1      1TB    NVMe  nvme1n1p1→/boot/efi  nvme1n1p2→/boot  [SKHynix_HFS001TDE9X084N]
-             ✅ SMART: PASSED  wear:0%  spare:100%  temp:44°C
+  nvme0n1      1TB    NVMe  nvme0n1p2→/boot  nvme0n1p1→/boot/efi  [SKHynix_HFS001TDE9X084N]
+             ✅ SMART: PASSED  wear:0%  spare:100%  temp:42°C
+  nvme1n1      1TB    NVMe  not mounted (Windows/other OS)  [SKHynix_HFS001TDE9X084N]
 
 Filesystems (4)
   ✅  /                      xfs    2.7G / 75.1G  (4%)

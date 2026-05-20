@@ -1,0 +1,23 @@
+{
+  "total_runs": 21,
+  "shown_milestones": [
+    10
+  ],
+  "last_tip_date": "2026-05-20",
+  "tip_index": 1,
+  "tips_enabled": true,
+  "nps_done": false,
+  "nps_score": "",
+  "nps_reason": "",
+  "hook_installed": false,
+  "current_streak": 1,
+  "longest_streak": 1,
+  "last_run_date": "2026-05-20",
+  "last_version": "v0.5.1-75-gea8ad9b-dirty",
+  "trial_offered": false,
+  "piped_runs": 0,
+  "command_counts": {
+    "health": 21
+  },
+  "error_exits": 0
+}
