@@ -92,6 +92,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 			SpeedMbps: speedMbps,
 			IsUSB:     isUSB,
 			Driver:    driver,
+			WiFi:      collectWiFiInfo(iface.Name),
 		})
 	}
 
@@ -565,4 +566,193 @@ func darwinUSBInterfaces(ctx context.Context) map[string]string {
 		}
 	}
 	return result
+}
+
+// collectWiFiInfo returns WiFi details for a wireless interface, or nil for wired.
+// Sources (in priority order, no root required):
+//  1. /sys/class/net/<iface>/wireless — existence check (is it wireless?)
+//  2. /proc/net/wireless — signal dBm, link quality
+//  3. nmcli dev wifi list — SSID, signal %, rate, channel (when NM active)
+func collectWiFiInfo(iface string) *models.WiFiInfo {
+	// Check if this is a wireless interface via sysfs
+	if _, err := os.Stat("/sys/class/net/" + iface + "/wireless"); err != nil {
+		return nil // not wireless
+	}
+
+	w := &models.WiFiInfo{}
+
+	// Read driver from uevent
+	if data, err := os.ReadFile("/sys/class/net/" + iface + "/device/uevent"); err == nil { // #nosec G304
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "DRIVER=") {
+				w.Driver = strings.TrimPrefix(line, "DRIVER=")
+				break
+			}
+		}
+	}
+
+	// /proc/net/wireless — signal dBm, link quality (no root, always available)
+	if data, err := os.ReadFile("/proc/net/wireless"); err == nil { // #nosec G304
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(line), iface) {
+				continue
+			}
+			// Format: "wlp4s0: 0000   70.  -30.  -256 ..."
+			// fields after split: [iface:, status, link, level, noise, ...]
+			fields := strings.Fields(line)
+			if len(fields) >= 4 {
+				// link quality (e.g. "70.")
+				linkStr := strings.TrimSuffix(fields[2], ".")
+				if v, err := strconv.Atoi(linkStr); err == nil {
+					w.SignalPct = v * 100 / 70 // /proc/net/wireless uses 0-70 scale
+					if w.SignalPct > 100 {
+						w.SignalPct = 100
+					}
+				}
+				// signal level dBm (e.g. "-30.")
+				dbmStr := strings.TrimSuffix(fields[3], ".")
+				if v, err := strconv.Atoi(dbmStr); err == nil && v < 0 {
+					w.SignalDBm = v
+				}
+			}
+		}
+	}
+
+	// nmcli dev wifi list — SSID, rate, channel (requires nmcli, no root)
+	collectWiFiNmcli(iface, w)
+
+	// iwconfig — ESSID, bit rate, frequency (no D-Bus, no root, always works)
+	collectWiFiIwconfig(iface, w)
+
+	return w
+}
+
+// collectWiFiIwconfig parses iwconfig output for ESSID, bit rate, frequency.
+// No D-Bus, no root — works in all contexts including sudo.
+// Takes priority over nmcli for SSID/rate/freq since it has no session dependency.
+func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runCmd(ctx, "iwconfig", iface)
+	if err != nil || strings.TrimSpace(out) == "" {
+		return
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+
+		// ESSID:"name"
+		if idx := strings.Index(line, `ESSID:"`); idx >= 0 {
+			rest := line[idx+7:]
+			if end := strings.Index(rest, `"`); end >= 0 {
+				if ssid := rest[:end]; ssid != "off/any" {
+					w.SSID = ssid
+				}
+			}
+		}
+
+		// Bit Rate=866.7 Mb/s
+		if idx := strings.Index(line, "Bit Rate="); idx >= 0 {
+			rest := line[idx+9:]
+			fields := strings.Fields(rest)
+			if len(fields) >= 2 {
+				// parse "866.7" — round to int
+				if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
+					w.RateMbps = int(v)
+				}
+			}
+		}
+
+		// Frequency:5.32 GHz  or  Frequency:2.437 GHz
+		if idx := strings.Index(line, "Frequency:"); idx >= 0 {
+			rest := line[idx+10:]
+			fields := strings.Fields(rest)
+			if len(fields) >= 2 {
+				if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
+					w.FreqGHz = v
+					if v < 3.0 {
+						w.Band = "2.4GHz"
+					} else if v < 6.0 {
+						w.Band = "5GHz"
+					} else {
+						w.Band = "6GHz"
+					}
+				}
+			}
+		}
+
+		// Access Point: 7C:7D:21:86:E7:A5
+		if idx := strings.Index(line, "Access Point: "); idx >= 0 {
+			ap := strings.TrimSpace(line[idx+14:])
+			fields := strings.Fields(ap)
+			if len(fields) > 0 && fields[0] != "Not-Associated" {
+				w.BSSID = fields[0]
+			}
+		}
+
+		// Signal level=-30 dBm (also in /proc/net/wireless but this is cleaner)
+		if idx := strings.Index(line, "Signal level="); idx >= 0 {
+			rest := line[idx+13:]
+			fields := strings.Fields(rest)
+			if len(fields) >= 1 {
+				if v, err := strconv.Atoi(fields[0]); err == nil && v < 0 {
+					w.SignalDBm = v
+				}
+			}
+		}
+	}
+}
+
+// collectWiFiNmcli enriches WiFiInfo with data from nmcli.
+func collectWiFiNmcli(iface string, w *models.WiFiInfo) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	// Don't filter by ifname — nmcli may not have D-Bus session under sudo.
+	// Scan all APs and find the active one.
+	out, err := runCmd(ctx, "nmcli", "-t",
+		"-f", "ACTIVE,SSID,SIGNAL,RATE,CHAN,BSSID",
+		"dev", "wifi", "list")
+	if err != nil || strings.TrimSpace(out) == "" {
+		// Fallback: try with ifname (works for user sessions)
+		out, err = runCmd(ctx, "nmcli", "-t",
+			"-f", "ACTIVE,SSID,SIGNAL,RATE,CHAN,BSSID",
+			"dev", "wifi", "list", "ifname", iface)
+		if err != nil {
+			return
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(line, "yes:") {
+			continue
+		}
+		// Format: yes:SSID:signal:rate:chan:bssid
+		// BSSID contains escaped colons (7C\:7D\:...) — don't split naively.
+		// Strategy: split into first 5 fields, rest is BSSID.
+		parts := strings.SplitN(line, ":", 6)
+		if len(parts) < 5 {
+			continue
+		}
+		w.SSID = parts[1]
+		if v, err := strconv.Atoi(parts[2]); err == nil {
+			w.SignalPct = v
+		}
+		// rate: "270 Mbit/s" → 270
+		rateStr := strings.Fields(parts[3])
+		if len(rateStr) > 0 {
+			if v, err := strconv.Atoi(rateStr[0]); err == nil {
+				w.RateMbps = v
+			}
+		}
+		if v, err := strconv.Atoi(parts[4]); err == nil {
+			w.Channel = v
+			if v <= 14 {
+				w.Band = "2.4GHz"
+			} else {
+				w.Band = "5GHz"
+			}
+		}
+		if len(parts) > 5 {
+			w.BSSID = strings.ReplaceAll(parts[5], "\\:", ":")
+		}
+		break
+	}
 }
