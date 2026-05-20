@@ -1379,3 +1379,86 @@ This is the whole point of DashDiag. Not finding fires. Finding the kindling.
 marketing-assets/mint22-data/health.json     ← full JSON output
 marketing-assets/mint22-data/timeshift-failure.log  ← Timeshift's own error log
 ```
+
+
+---
+
+## Story 9 — The Update Manager That Wouldn't Tell You (Linux Mint 22.3)
+
+**Platform:** Linux Mint 22.3 (Zena), fresh install  
+**Time to find:** 2 seconds  
+**What the built-in tool showed:** "A new version of Update Manager is available"  
+
+### What happened
+
+Fresh Mint install. The Update Manager icon appeared in the system tray. We opened it.
+
+It showed one item:
+
+> **mint-upgrade-info 1.3.0**  
+> "A new version of Update Manager is available"
+
+That's it. The only thing the Update Manager wanted to tell us was that it needed to update itself first. No security advisories. No CVE list. No severity. Just: update me before I can help you.
+
+We ran `dsd cve --all` instead.
+
+```
+Found 151 pending security advisory(ies)
+
+🔴 CRITICAL (9)
+  libc6           [2.39-0ubuntu8.6]  →  2.39-0ubuntu8.7
+  libc-bin        [2.39-0ubuntu8.6]  →  2.39-0ubuntu8.7
+  libssl3t64      [3.0.13-0ubuntu3.6]  →  3.0.13-0ubuntu3.9
+  openssl         [3.0.13-0ubuntu3.6]  →  3.0.13-0ubuntu3.9
+  sudo            [1.9.15p5-3ubuntu5.24.04.1]  →  patched
+  pkexec          [124-2ubuntu1.24.04.2]  →  patched
+  polkitd         [124-2ubuntu1.24.04.2]  →  patched
+  libpolkit-*     [124-2ubuntu1.24.04.2]  →  patched
+
+⚠️  IMPORTANT (29)
+  python3.12, libcurl4, libexpat1, webkit2gtk, bind9-libs,
+  libxml2, libssh-4, gnutls, avahi...
+
+→ to fix all: apt-get upgrade
+```
+
+### The problem
+
+Linux Mint's Update Manager has a bootstrap problem: it shows you a meta-update about itself before it will show you anything useful. Until you update the Update Manager, you don't see the security advisories. You just see the prompt to update the tool.
+
+The machine had:
+- **glibc** pending patch (CVE-class: memory safety)
+- **OpenSSL** with 2 confirmed CVEs in the changelog
+- **sudo** — privilege escalation tool with a pending security patch
+- **polkit/pkexec** — the tool used to run GUI applications as root
+- **WebKit** — browser engine (remote code execution class)
+
+None of this was visible in the Update Manager. The admin would see "no updates" until they first clicked through the meta-update.
+
+### Why this matters
+
+The Update Manager's job is to tell you what's wrong. When its first message is "update me before I can tell you what's wrong," it's not doing its job. A freshly installed machine with 9 CRITICAL security updates pending looked clean to the Update Manager.
+
+`dsd cve --all` found all 151 in 2 seconds without any prerequisites.
+
+### Social post angle
+
+> Fresh Mint install. Opened the Update Manager.
+>
+> It said: "A new version of Update Manager is available."
+> That's all. No security info. Just: update me first.
+>
+> Ran `dsd cve --all` instead:
+>
+> 🔴 CRITICAL (9): glibc, OpenSSL, sudo, polkit, pkexec
+> ⚠️  IMPORTANT (29): Python, curl, WebKit, libxml2, bind9...
+>
+> 151 pending security updates.
+> The built-in tool showed zero of them.
+
+### Evidence files
+
+```
+marketing-assets/mint22-data/cve.json        ← full cve output
+marketing-assets/mint22-data/cve-all.json    ← all 172 advisories
+```
