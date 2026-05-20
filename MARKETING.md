@@ -1230,3 +1230,152 @@ The only persistent evidence was Timeshift's own private log file, which no moni
 > ❌ disk usage at 100% on /run/timeshift/2218/backup
 >
 > The backup was broken from day one. The system had no idea.
+
+
+---
+
+## Story 8 — Fresh Desktop OS, First Run, 15 Problems (Linux Mint 22.3)
+
+**Platform:** Linux Mint 22.3 (Zena), kernel 6.14, fresh install  
+**Time to find everything:** 1.3 seconds  
+**How many issues the admin knew about:** 0  
+
+### Setup
+
+New Linux Mint install on a developer laptop. The installer finished, Timeshift ran, the desktop came up. Everything looked fine. This is day one.
+
+We ran one command:
+
+```
+sudo dsd health
+```
+
+1.3 seconds later:
+
+---
+
+### Finding 1: The backup was already broken
+
+```
+❌ Disk: disk usage at 100% on /run/timeshift/2218/backup (/dev/nvme0n1p2)
+```
+
+Timeshift had silently picked the wrong partition — a 2GB leftover from the previous OS on a second drive. Six "No space left on device" errors in its own private log. No journal entry. No syslog. A 10-second desktop popup that had already vanished.
+
+The backup was broken from the first boot. The admin had no idea.
+
+---
+
+### Finding 2: No firewall
+
+```
+⚠️ Firewall: nftables is installed but no rules are active — host is unprotected
+```
+
+Mint ships with nftables installed but no rules active and ufw disabled. The machine was completely open the moment it got a network connection. No port blocking, no connection filtering, nothing.
+
+This is the default. Most Mint users never touch it.
+
+---
+
+### Finding 3: 22 seconds wasted on every boot
+
+```
+⚠️ Systemd: slow boot unit: gpu-manager.service took 11.5s
+⚠️ Systemd: slow boot unit: plymouth-quit-wait.service took 10.8s
+```
+
+Two services adding over 22 seconds to every boot:
+
+- **gpu-manager** — scans for NVIDIA/AMD GPUs for PRIME switching on Optimus laptops. On a laptop with a single active GPU, it runs anyway and takes 11.5 seconds doing nothing useful.
+- **plymouth-quit-wait** — the boot splash screen, waiting for something that never signals fast enough on hybrid GPU systems.
+
+Fix for both is one command each. Neither is on by default, neither has any visible impact if disabled on a single-GPU system. dsd identifies both, explains why, and gives the exact fix command.
+
+---
+
+### Finding 4: AppArmor security policies not enforcing
+
+```
+⚠️ KernelSec: 6 AppArmor profile(s) in complain mode — not enforcing
+⚠️ KernelSec: 1 AppArmor denial(s) in the last hour
+```
+
+LibreOffice, Transmission, and four related profiles were all in complain mode — logging policy violations but not blocking them. One denial had already happened in the last hour. On a fresh install, before any user software was run.
+
+Complain mode is fine for development. For a machine where you actually use the software, you want enforce mode.
+
+---
+
+### Finding 5: Disk almost full despite 953GB drive
+
+```
+⚠️ LVM: volume group vgmint is 98% full (22.1 GB free of 953.4 GB)
+ℹ️ LVM: inactive volume group ubuntu-vg is 11% full — no LVs mounted (old OS partition?)
+```
+
+Two separate LVM problems:
+
+1. The root VG (`vgmint`) has 953GB total but only 22GB free — 98% full. The default Mint installer only allocated 929GB to the root LV, leaving the rest unallocated.
+2. The old `ubuntu-vg` from the previous OS is still sitting there, consuming 100GB of the second disk, doing nothing.
+
+Neither shows up in `df -h` the way a normal admin would check.
+
+---
+
+### Finding 6: SSH hardening — 4 issues, all defaults
+
+```
+⚠️ SSH allows password authentication
+⚠️ SSH weak MAC(s): umac-64@openssh.com, hmac-sha1
+ℹ️ LoginGraceTime is 120s (recommend ≤60s)
+ℹ️ X11Forwarding enabled
+ℹ️ AgentForwarding enabled
+ℹ️ SSH idle timeout not set
+```
+
+Six SSH findings, all from Mint's default sshd config. None of these were misconfigured — they're the defaults shipped with the OS. hmac-sha1 has been broken for years. Password auth on a developer machine is a credential leak waiting to happen.
+
+---
+
+### The full picture
+
+On a fresh desktop OS install, before the user had done anything:
+
+| Category | Issues found |
+|---|---|
+| Backup | ❌ Broken from day one, silent failure |
+| Firewall | ⚠️ No rules active |
+| Boot speed | ⚠️ 22s wasted on every boot |
+| Security policy | ⚠️ AppArmor not enforcing, 1 denial already |
+| Disk | ⚠️ Root VG 98% full, 100GB orphan |
+| SSH | ⚠️ 6 hardening issues, all defaults |
+| Kernel tuning | ⚠️ swappiness, rmem_max wrong |
+
+**Total time: 1.3 seconds.**
+
+None of these would surface a ticket. None would cause an immediate failure. All of them would eventually cause a problem — the backup when you actually need it, the firewall when someone scans your IP, the boot time every morning, the AppArmor denial when an application gets exploited.
+
+This is the whole point of DashDiag. Not finding fires. Finding the kindling.
+
+### Social post angle
+
+> Fresh Linux Mint install. Ran `dsd health`.
+> 1.3 seconds later:
+>
+> ❌ Timeshift backup broken (full partition, no alert)
+> ⚠️ No firewall rules active
+> ⚠️ 22 seconds wasted on every boot (gpu-manager + plymouth)
+> ⚠️ AppArmor: 6 profiles not enforcing, 1 denial already
+> ⚠️ LVM root VG 98% full
+> ⚠️ SSH: password auth, hmac-sha1, no idle timeout
+>
+> The OS installed fine. Everything looked normal.
+> That's the problem dsd solves.
+
+### Evidence files
+
+```
+marketing-assets/mint22-data/health.json     ← full JSON output
+marketing-assets/mint22-data/timeshift-failure.log  ← Timeshift's own error log
+```
