@@ -1,0 +1,162 @@
+# fixture captured from localhost.localdomain (Rocky Linux 10.1 (Red Quartz))
+# replay with: dsd mock <this-file>
+
+host: localhost.localdomain
+os: Rocky Linux 10.1 (Red Quartz)
+version: v0.5.1-66-ge1c4af9
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 15%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: ""
+      inline: 43°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.4/13 GB (3%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 4 mounts, max 28% (/boot)
+      message: ""
+      hints: []
+    - name: IO
+      level: ""
+      inline: 1.2 ms (nvme1n1)
+      message: ""
+      hints: []
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: CRIT
+      inline: ""
+      message: volume group rl is 100% full (0.0 GB free of 952.3 GB)
+      hints:
+        - 'to inspect: vgs rl'
+        - 'to inspect: pvs | grep rl'
+        - 'to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>'
+    - name: Network
+      level: ""
+      inline: eno1 1Gbps  gw 3 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: WARN
+      inline: ""
+      message: 'slow boot unit: kdump.service took 10.1s'
+      hints:
+        - 'to inspect: systemctl status kdump.service'
+        - 'to inspect: journalctl -u kdump.service -b'
+        - 'to analyse:  systemd-analyze blame'
+        - 'to plot:     systemd-analyze plot > boot.svg'
+    - name: Processes
+      level: ""
+      inline: 310 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: WARN
+      inline: ""
+      message: journald logs are volatile — all logs lost on reboot (no /var/log/journal/)
+      hints:
+        - 'to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal'
+        - 'to persist: echo ''Storage=persistent'' >> /etc/systemd/journald.conf && systemctl restart systemd-journald'
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)'
+      hints:
+        - 'to inspect: cat /proc/sys/vm/swappiness'
+        - 'to fix: sysctl -w vm.swappiness=10'
+        - 'to persist: echo ''vm.swappiness=10'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: INFO
+      inline: ""
+      message: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+      hints:
+        - 'to expose hidden denials: semodule -DB  (disables dontaudit rules)'
+        - 'to re-enable dontaudit:   semodule -B   (run after debugging)'
+        - 'to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  134 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: HugePages
+      level: INFO
+      inline: ""
+      message: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+      hints:
+        - 'to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to ''madvise'' or ''never'''
+        - 'to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to persist: add to /etc/rc.local or a systemd service'
+    - name: CPUFreq
+      level: ""
+      inline: performance  4441/4465 MHz
+      message: ""
+      hints: []
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: ""
+      message: ""
+      hints: []

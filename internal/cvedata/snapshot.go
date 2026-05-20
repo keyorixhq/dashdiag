@@ -92,7 +92,12 @@ func ovalFileCandidates(distroID string) []string {
 	case strings.Contains(lower, "rhel") || strings.Contains(lower, "red hat"):
 		return []string{"rhel-10.oval.xml.bz2", "rhel-9.oval.xml.bz2"}
 	case strings.Contains(lower, "rocky"):
-		return []string{"rocky-linux-10.oval.xml.bz2", "rocky-linux-9.oval.xml.bz2"}
+		// Rocky 10 OVAL not yet publicly available — fall back to rhel-9 OVAL
+		// (package names compatible, versions differ so few matches expected)
+		return []string{
+			"rocky-linux-10.oval.xml.bz2", "rocky-linux-9.oval.xml.bz2",
+			"almalinux-10.oval.xml.bz2", "rhel-9.oval.xml.bz2",
+		}
 	case strings.Contains(lower, "fedora"):
 		return []string{"fedora.xml.bz2"}
 	case strings.Contains(lower, "ubuntu"):
