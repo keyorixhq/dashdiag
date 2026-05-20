@@ -288,6 +288,12 @@ func printSMARTLine(s *models.SMARTInfo) {
 		errStr = fmt.Sprintf("  errors:%d", s.MediaErrors)
 	}
 	fmt.Printf("             %s SMART: %s%s%s%s\n", icon, health, details, tempStr, errStr)
+	// Deep detail: power-on hours, unsafe shutdowns, power cycles
+	if s.PowerOnHours > 0 {
+		days := s.PowerOnHours / 24
+		fmt.Printf("               power-on: %dh (%d days)  shutdowns: %d  cycles: %d\n",
+			s.PowerOnHours, days, s.UnsafeShutdowns, s.PowerCycles)
+	}
 }
 
 // diskFmtGB formats a float64 GB value into a compact string.

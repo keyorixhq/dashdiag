@@ -11,13 +11,16 @@ const (
 
 // SMARTInfo holds S.M.A.R.T. health summary for a physical disk.
 type SMARTInfo struct {
-	Device         string `json:"device"`
-	Healthy        bool   `json:"healthy"`         // SMART overall PASSED
-	PercentUsed    int    `json:"percent_used"`    // NVMe wear: 0–100%
-	AvailableSpare int    `json:"available_spare"` // NVMe spare %
-	Temperature    int    `json:"temperature_c"`   // celsius
-	MediaErrors    int64  `json:"media_errors"`    // NVMe media/data integrity errors
-	Error          string `json:"error,omitempty"` // if smartctl unavailable
+	Device          string `json:"device"`
+	Healthy         bool   `json:"healthy"`         // SMART overall PASSED
+	PercentUsed     int    `json:"percent_used"`    // NVMe wear: 0–100%
+	AvailableSpare  int    `json:"available_spare"` // NVMe spare %
+	Temperature     int    `json:"temperature_c"`   // celsius
+	MediaErrors     int64  `json:"media_errors"`    // NVMe media/data integrity errors
+	PowerOnHours    int64  `json:"power_on_hours,omitempty"`
+	UnsafeShutdowns int64  `json:"unsafe_shutdowns,omitempty"`
+	PowerCycles     int64  `json:"power_cycles,omitempty"`
+	Error           string `json:"error,omitempty"` // if smartctl unavailable
 }
 
 // PhysicalDrive is a block device detected on the system.
