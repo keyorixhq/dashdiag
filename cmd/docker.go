@@ -125,7 +125,12 @@ func printDockerDaemon(info *models.DockerInfo) {
 		if d.StorageDriver == "devicemapper" {
 			icon = "⚠️ "
 		}
-		driverStr = fmt.Sprintf("  %s Storage: %s", icon, d.StorageDriver)
+		// normalise: "overlayfs" → "overlay2" display
+		driver := d.StorageDriver
+		if driver == "overlayfs" {
+			driver = "overlay"
+		}
+		driverStr = fmt.Sprintf("  %s Storage: %s", icon, driver)
 	}
 	fmt.Printf("\n[Daemon]  version: %s%s\n", verStr, driverStr)
 	if d.RecentErrors > 0 {

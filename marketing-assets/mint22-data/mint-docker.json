@@ -1,0 +1,41 @@
+
+Runtime: docker
+
+[Daemon]  version: 29.1.3 (API 1.52)  ✅ Storage: overlayfs
+
+Containers (5 total)
+  ✅  running:   4
+  ⚠️   stopped:   1
+  ❌  crash loop: 1
+
+  ✅  test-socket          running      alpine:latest
+  ✅  test-root            running      alpine:latest
+  ✅  test-secrets         running      alpine:latest
+  ❌  test-crashloop       restarting   alpine:latest restarts:13 exit:1 (application error)
+  ✅  test-healthy         running      alpine:latest
+
+[Security]
+  ⚠️   test-secrets         plaintext secrets in env: DB_PASSWORD, API_KEY
+     Env vars visible in 'docker inspect' — use Docker secrets or a vault.
+  ❌  test-socket          docker socket mounted — grants root access to host
+     → Remove socket mount unless this is an intentional CI/Docker agent.
+  ⚠️   4 running container(s) using root user
+     → Add USER directive to Dockerfile or use --user flag.
+
+[Recent events — last 1h]
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+  ⚠️   die       test-crashloop
+
+Images: 1
+Disk usage: ✅ 0.0 GB
+
+────────────────────────────────────────────────────────
+⚠️  3 container concern(s) found in 0.1s

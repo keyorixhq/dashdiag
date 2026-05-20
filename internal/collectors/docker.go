@@ -161,7 +161,7 @@ func socketClient(socket string) *http.Client {
 // apiGet makes a GET request to the Docker/Podman API.
 func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://localhost/v1.41"+path, nil)
+		"http://localhost"+path, nil)
 	if err != nil {
 		return nil, err
 	}

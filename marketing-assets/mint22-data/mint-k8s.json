@@ -1,0 +1,21 @@
+
+Kubernetes Health  (via /usr/local/bin/k3s kubectl)
+
+Nodes (1)
+  ✅  andrei-mint-legion                  Ready          worker               v1.35.4+k3s1
+
+Pods (7 total, 7 healthy)
+  ✅  All pods healthy
+
+All Pods:
+  NAMESPACE            NAME                                       READY    STATUS                 RESTARTS AGE
+  kube-system          coredns-c4dbffb5f-kgxrh                    1/1      Running                0      
+  kube-system          helm-install-traefik-crd-ct22g             0/1      Succeeded              0      
+  kube-system          helm-install-traefik-tl9xr                 0/1      Succeeded              1      
+  kube-system          local-path-provisioner-5c4dc5d66d-7c755    1/1      Running                0      
+  kube-system          metrics-server-786d997795-l4jhv            1/1      Running                0      
+  kube-system          svclb-traefik-8e3a88cd-mfphn               2/2      Running                0      
+  kube-system          traefik-9bcdbbd9-nw8kk                     1/1      Running                0      
+
+────────────────────────────────────────────────────────
+✅ Cluster healthy. Checks passed in 0.4s
