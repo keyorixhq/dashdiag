@@ -1462,3 +1462,40 @@ The Update Manager's job is to tell you what's wrong. When its first message is 
 marketing-assets/mint22-data/cve.json        ← full cve output
 marketing-assets/mint22-data/cve-all.json    ← all 172 advisories
 ```
+
+
+---
+
+## Story 9 — Addendum: After the 1.2GB Update, Still Not Done
+
+After updating through the Update Manager (1.2GB downloaded, ~150 packages), we ran `dsd cve --all` again.
+
+```
+Found 3 pending security advisory(ies)
+
+⚠️  IMPORTANT (1)
+  libgnutls30t64   [3.8.3-1.1ubuntu3.5]  →  3.8.3-1.1ubuntu3.6
+
+   LOW (2)
+  rsync            [3.2.7-1ubuntu1.2]    →  3.2.7-1ubuntu1.4
+  openvpn          [2.6.19-0ubuntu0.24.04.1]  →  2.6.19-0ubuntu0.24.04.2
+```
+
+Three packages with real CVEs still unpatched after the "full" update.
+
+**What was in them:**
+- `libgnutls30t64` — CVE-2026-33846, CVE-2026-42009 (DTLS buffer issues)
+- `rsync` — CVE-2025-10158, CVE-2026-29518, CVE-2026-41035, CVE-2026-43617
+- `openvpn` — CVE-2026-35058, CVE-2026-40215
+
+**Why they were skipped:**  
+The Update Manager uses `apt-get upgrade` which skips packages that require installing or removing additional dependencies. openvpn depends on the updated libgnutls — the resolver deferred all three rather than resolve the chain.
+
+The fix is `apt-get dist-upgrade` (or `apt full-upgrade`). The Update Manager doesn't run that by default.
+
+**Three layers of the same problem:**
+1. Update Manager said "update me first" — hid 151 advisories
+2. After the 1.2GB update — 3 packages with 8 CVEs left behind by `apt upgrade`
+3. `dsd cve --all` found them both times, immediately
+
+After running `sudo apt-get dist-upgrade`, `dsd cve --all` returned clean.
