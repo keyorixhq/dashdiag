@@ -122,53 +122,65 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		if !iface.Up {
 			statusIcon = "❌"
 		}
-		details := iface.IP
-		if iface.SpeedMbps > 0 {
-			details += fmt.Sprintf("  %d Mbps", iface.SpeedMbps)
-		}
-		if iface.IsUSB {
-			if iface.Driver != "" {
-				details += fmt.Sprintf("  [USB:%s]", iface.Driver)
-			} else {
-				details += "  [USB]"
-			}
-		}
-		if iface.RxDrops > 0 || iface.TxDrops > 0 {
-			details += fmt.Sprintf("  drops rx:%d tx:%d", iface.RxDrops, iface.TxDrops)
-		}
-		if iface.RxErrors > 0 || iface.TxErrors > 0 {
-			details += fmt.Sprintf("  errors rx:%d tx:%d", iface.RxErrors, iface.TxErrors)
-		}
-		// WiFi: show signal + SSID instead of speed
-		if iface.WiFi != nil {
-			wifiDetails := ""
-			if iface.WiFi.RateMbps > 0 {
-				wifiDetails += fmt.Sprintf("  %d Mbps", iface.WiFi.RateMbps)
-			}
-			if iface.WiFi.FreqGHz > 0 {
-				wifiDetails += fmt.Sprintf("  %.2fGHz", iface.WiFi.FreqGHz)
-			} else if iface.WiFi.Band != "" {
-				wifiDetails += fmt.Sprintf("  %s", iface.WiFi.Band)
-			}
-			if iface.WiFi.SignalDBm != 0 {
-				sigIcon := "✅"
-				if iface.WiFi.SignalDBm < -70 {
-					sigIcon = "❌"
-				} else if iface.WiFi.SignalDBm < -60 {
-					sigIcon = "⚠️ "
-				}
-				wifiDetails += fmt.Sprintf("  %s signal:%ddBm", sigIcon, iface.WiFi.SignalDBm)
-			}
-			if iface.WiFi.SSID != "" {
-				wifiDetails += fmt.Sprintf("  \"%s\"", iface.WiFi.SSID)
-			}
-			details += wifiDetails
-		}
+
 		primary := ""
 		if iface.Name == info.PrimaryInterface {
 			primary = "  ← primary"
 		}
-		fmt.Printf("  %s  %-12s %s%s\n", statusIcon, iface.Name, details, primary)
+
+		if iface.WiFi != nil {
+			// WiFi interface: IP  "SSID"  band  speed  signal
+			details := iface.IP
+			if iface.WiFi.SSID != "" {
+				details += fmt.Sprintf("  \"%s\"", iface.WiFi.SSID)
+			}
+			if iface.WiFi.Band != "" {
+				details += fmt.Sprintf("  %s", iface.WiFi.Band)
+			} else if iface.WiFi.FreqGHz > 0 {
+				details += fmt.Sprintf("  %.2fGHz", iface.WiFi.FreqGHz)
+			}
+			if iface.WiFi.RateMbps > 0 {
+				details += fmt.Sprintf("  %d Mbps", iface.WiFi.RateMbps)
+			}
+			if iface.WiFi.SignalDBm != 0 {
+				var sigIcon string
+				switch {
+				case iface.WiFi.SignalDBm >= -60:
+					sigIcon = "▲▲▲"
+				case iface.WiFi.SignalDBm >= -70:
+					sigIcon = "▲▲ "
+				case iface.WiFi.SignalDBm >= -80:
+					sigIcon = "▲  "
+				default:
+					sigIcon = "!  "
+				}
+				details += fmt.Sprintf("  %s %ddBm", sigIcon, iface.WiFi.SignalDBm)
+			}
+			if iface.RxDrops > 0 {
+				details += fmt.Sprintf("  drops:%d", iface.RxDrops)
+			}
+			fmt.Printf("  %s  %-12s %s%s\n", statusIcon, iface.Name, details, primary)
+		} else {
+			// Wired interface: IP  speed  [USB]  drops  errors
+			details := iface.IP
+			if iface.SpeedMbps > 0 {
+				details += fmt.Sprintf("  %d Mbps", iface.SpeedMbps)
+			}
+			if iface.IsUSB {
+				if iface.Driver != "" {
+					details += fmt.Sprintf("  [USB:%s]", iface.Driver)
+				} else {
+					details += "  [USB]"
+				}
+			}
+			if iface.RxDrops > 0 || iface.TxDrops > 0 {
+				details += fmt.Sprintf("  drops rx:%d tx:%d", iface.RxDrops, iface.TxDrops)
+			}
+			if iface.RxErrors > 0 || iface.TxErrors > 0 {
+				details += fmt.Sprintf("  errors rx:%d tx:%d", iface.RxErrors, iface.TxErrors)
+			}
+			fmt.Printf("  %s  %-12s %s%s\n", statusIcon, iface.Name, details, primary)
+		}
 	}
 
 	// Bond interfaces
