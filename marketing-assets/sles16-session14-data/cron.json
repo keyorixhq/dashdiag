@@ -1,0 +1,6 @@
+{
+  "daemon_active": false,
+  "daemon_name": "",
+  "anacron_present": false,
+  "systemd_timers": 15
+}

@@ -1,0 +1,28 @@
+
+Physical Drives — 2 found
+  nvme0n1      1TB    NVMe  nvme0n1p1→/boot/efi  nvme0n1p2→/  nvme0n1p2→/.snapshots  nvme0n1p2→/root  nvme0n1p2→/srv  nvme0n1p2→/boot/grub2/i386-pc  nvme0n1p2→/opt  nvme0n1p2→/home  nvme0n1p2→/usr/local  nvme0n1p2→/boot/grub2/x86_64-efi  nvme0n1p2→/var  [SKHynix_HFS001TDE9X084N]
+             ✅ SMART: PASSED  wear:0%  spare:100%  temp:49°C
+  nvme1n1      1TB    NVMe  not mounted (Windows/other OS)  [SKHynix_HFS001TDE9X084N]
+
+Filesystems (11)
+  ✅  /                      btrfs  2.6G / 1021.5G  (0%)
+  ✅  /.snapshots            btrfs  2.6G / 1021.5G  (0%)
+  ✅  /root                  btrfs  2.6G / 1021.5G  (0%)
+  ✅  /srv                   btrfs  2.6G / 1021.5G  (0%)
+  ✅  /boot/grub2/i386-pc    btrfs  2.6G / 1021.5G  (0%)
+  ✅  /opt                   btrfs  2.6G / 1021.5G  (0%)
+  ✅  /home                  btrfs  2.6G / 1021.5G  (0%)
+  ✅  /usr/local             btrfs  2.6G / 1021.5G  (0%)
+  ✅  /boot/grub2/x86_64-efi btrfs  2.6G / 1021.5G  (0%)
+  ✅  /var                   btrfs  2.6G / 1021.5G  (0%)
+  ✅  /boot/efi              vfat   0.0G / 0.5G  (1%)
+
+Btrfs volumes (1)
+  ✅  /                               1 device(s)
+        devid 1  /dev/nvme0n1p2
+
+LVM (1 VG(s))
+  ✅  ubuntu-vg            950.8GB total  850.8GB free  (89%)
+
+────────────────────────────────────────────────────────
+✅ Disk healthy. Checks passed in 0.2s

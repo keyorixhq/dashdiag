@@ -1,0 +1,27 @@
+
+Drive Health — 2 drive(s)
+
+/dev/nvme0  SKHynix_HFS001TDE9X084N
+  ✅  Mounted:         /, /.snapshots, /root, /srv, /boot/grub2/i386-pc, /opt, /home, /usr/local, /boot/grub2/x86_64-efi, /var, /boot/efi
+  ✅  State:           live
+  ✅  Temperature:     49°C
+  ✅  Available spare: 100% (threshold: 10%)
+  ✅  Wear:            0%
+  ✅  Media errors:    0
+  ✅  Power on:        7183h (299 days)
+  ℹ️   Unsafe shutdowns: 96
+  ℹ️   Power cycles:    4683
+
+/dev/nvme1  SKHynix_HFS001TDE9X084N
+  ℹ️   Mounted:         not mounted (likely Windows/other OS)
+  ✅  State:           live
+  ✅  Temperature:     51°C
+  ✅  Available spare: 100% (threshold: 10%)
+  ✅  Wear:            0%
+  ✅  Media errors:    0
+  ✅  Power on:        7200h (300 days)
+  ℹ️   Unsafe shutdowns: 95
+  ℹ️   Power cycles:    4681
+
+────────────────────────────────────────────────────────
+✅ Drives healthy. Checks passed in 0.0s
