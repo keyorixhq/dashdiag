@@ -960,6 +960,15 @@ func networkInline(data interface{}) string {
 			ifaceSummary += fmt.Sprintf("  gw %.0f ms", gw)
 		}
 	}
+	// Append bond health summary if any bonds exist
+	for _, b := range n.Bonds {
+		if b.AllDown {
+			ifaceSummary += fmt.Sprintf("  ❌ %s DOWN", b.Name)
+		} else if b.Degraded {
+			upCount := len(b.Slaves) - b.DownSlaves
+			ifaceSummary += fmt.Sprintf("  ⚠️  %s %d/%d slaves", b.Name, upCount, len(b.Slaves))
+		}
+	}
 	return ifaceSummary
 }
 

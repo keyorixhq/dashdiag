@@ -28,11 +28,12 @@ type NetworkInfo struct {
 	NATDetected           bool            `json:"nat_detected"`
 	ICMPBlocked           bool            `json:"icmp_blocked,omitempty"` // ICMP unavailable (e.g. no CAP_NET_RAW); TCP fallback used
 	// Deep metrics (populated by NetworkDeepCollector)
-	TimeWaitCount    int     `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
-	SynRetransCount  int     `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
-	ListenOverflows  int     `json:"listen_overflows,omitempty"`   // ListenOverflows — SYN backlog saturation
-	RetransFailCount int     `json:"retrans_fail_count,omitempty"` // TCPRetransFail — persistent retransmit failures
-	ConntrackUsedPct float64 `json:"conntrack_used_pct,omitempty"` // nf_conntrack fill %
-	Status           string  `json:"status"`
-	StatusReason     string  `json:"status_reason"`
+	TimeWaitCount    int             `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
+	SynRetransCount  int             `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
+	ListenOverflows  int             `json:"listen_overflows,omitempty"`   // ListenOverflows — SYN backlog saturation
+	RetransFailCount int             `json:"retrans_fail_count,omitempty"` // TCPRetransFail — persistent retransmit failures
+	ConntrackUsedPct float64         `json:"conntrack_used_pct,omitempty"` // nf_conntrack fill %
+	Status           string          `json:"status"`
+	StatusReason     string          `json:"status_reason"`
+	Bonds            []BondInterface `json:"bonds,omitempty"`
 }

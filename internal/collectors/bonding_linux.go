@@ -46,6 +46,25 @@ func IsBondingPresent() bool {
 	return len(files) > 0
 }
 
+// collectBonds returns bond health for all bond interfaces — used by NetworkCollector.
+func collectBonds() []models.BondInterface {
+	files, err := filepath.Glob("/proc/net/bonding/bond*")
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+	var bonds []models.BondInterface
+	for _, path := range files {
+		b, err := parseBondFile(path)
+		if err != nil {
+			continue
+		}
+		b.Degraded = b.DownSlaves > 0
+		b.AllDown = b.DownSlaves > 0 && b.DownSlaves == len(b.Slaves)
+		bonds = append(bonds, b)
+	}
+	return bonds
+}
+
 func parseBondFile(path string) (models.BondInterface, error) {
 	f, err := os.Open(path)
 	if err != nil {
