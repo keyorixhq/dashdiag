@@ -1104,3 +1104,77 @@ It surfaces `partial` as `DEGRADED` in plain English. No knowledge of
 marketing-assets/rhel101-session11-data/dsd-disk-lvm-healthy.txt  ← before
 marketing-assets/rhel101-session11-data/dsd-disk-lvm-broken.txt   ← after (all 4 failures)
 ```
+
+
+---
+
+## Story 7: The Backup That Was Quietly Broken From Day One (Linux Mint 22.3)
+
+**Platform:** Linux Mint 22.3 (Zena), fresh install, multi-boot machine  
+**Time to find:** 2 seconds  
+**How it would normally be found:** When the next backup fails, or when the system can't write to /boot  
+
+### What happened
+
+Fresh Mint 22.3 install on a machine that previously had Ubuntu on a separate NVMe disk. During setup, Mint's installer created the usual LVM layout on the second drive. Timeshift — Mint's built-in backup tool — ran automatically on first boot and configured itself without prompting.
+
+Everything looked normal. Timeshift showed "backup complete." The desktop was clean. `df -h` showed the root filesystem at 1%.
+
+Then we ran `dsd health`:
+
+```
+CRIT: Disk: disk usage at 100% on /run/timeshift/2218/backup (/dev/nvme0n1p2)
+   Largest directories:
+   1.8G  /run/timeshift/2218/backup/timeshift
+    63M  /run/timeshift/2218/backup/initrd.img-7.0.0-15-generic
+    61M  /run/timeshift/2218/backup/initrd.img-7.0.0-14-generic
+```
+
+### What was actually wrong
+
+Timeshift had auto-detected the old Ubuntu disk's 2GB boot partition (`nvme0n1p2`) — a separate ext4 partition from the previous OS — and silently selected it as the backup target. It was already completely full.
+
+The backup appeared to succeed because Timeshift wrote what it could and didn't surface the overflow as an error in its GUI. The backup was incomplete and the 2GB partition was 100% full.
+
+What an admin sees without dsd:
+- Timeshift: ✅ Last backup: today
+- Disk usage (`df -h /`): 1% used
+- Nothing in system logs
+
+What dsd found in 2 seconds on first run:
+- `/dev/nvme0n1p2` at 100% full
+- Exact path: `/run/timeshift/2218/backup`
+- Largest files listed — immediately actionable
+
+### Why this matters
+
+This is the canonical "problem you didn't know to ask about." The admin didn't misconfigure anything — Timeshift made a reasonable-looking automatic choice that happened to be wrong. The backup looked fine. The system ran fine. Without dsd, this would have been discovered when:
+
+1. A future backup failed with a cryptic error about disk space
+2. The system couldn't update the bootloader (also lives on that partition)
+3. Something worse
+
+The knowledge required to find this manually: know that Timeshift mounts its backup target at `/run/timeshift/<pid>/backup`, know to run `df -h` specifically on that mountpoint, know to correlate it with the `/dev/nvme0n1p2` device from the previous OS install. Most admins would never connect these dots on a machine that "seems fine."
+
+That's what DashDiag is for.
+
+### Evidence files
+
+```
+marketing-assets/mint22-data/health.json    ← full health output with CRIT
+marketing-assets/mint22-data/disk.json      ← disk collector showing the full partition
+```
+
+### Social post angle
+
+> Fresh Linux Mint install. Timeshift said "backup complete."
+> 
+> I ran `dsd health`. First result:
+> 
+> ❌ disk usage at 100% on /run/timeshift/2218/backup
+> 
+> Timeshift had silently picked the wrong partition — a 2GB leftover from the previous OS.
+> The backup was broken from day one. Everything looked fine.
+> 
+> dsd found it in 2 seconds.
+
