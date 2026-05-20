@@ -94,6 +94,14 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		numCPU = cpu.NumCPU
 	}
 
+	// cpuLine prints a labelled metric row with consistent column alignment:
+	//   <icon>  <label>         <value>
+	// icon: "✅", "⚠️ ", "❌", or "   " (3-char placeholder when no icon)
+	cpuLine := func(icon, label, value string) {
+		fmt.Printf("  %s  %-20s %s\n", icon, label, value)
+	}
+	noIcon := "   "
+
 	// Identity
 	fmt.Println()
 	if hw != nil && hw.CPU.Model != "" {
@@ -113,43 +121,41 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 	fmt.Println("\nLoad")
 	if cpu != nil {
 		load1Pct := cpu.LoadAvg1 / float64(numCPU) * 100
-		fmt.Printf("  %s  Usage:            %4.1f%%\n", cpuIcon(cpu.UsagePct, 70, 90), cpu.UsagePct)
-		fmt.Printf("  %s  Load avg 1m:      %.2f  (%d%% of capacity)\n", cpuIcon(load1Pct, 70, 90), cpu.LoadAvg1, int(load1Pct))
-		fmt.Printf("       Load avg 5m:      %.2f\n", cpu.LoadAvg5)
-		fmt.Printf("       Load avg 15m:     %.2f\n", cpu.LoadAvg15)
+		cpuLine(cpuIcon(cpu.UsagePct, 70, 90), "Usage:", fmt.Sprintf("%.1f%%", cpu.UsagePct))
+		cpuLine(cpuIcon(load1Pct, 70, 90), "Load avg 1m:", fmt.Sprintf("%.2f  (%d%% of capacity)", cpu.LoadAvg1, int(load1Pct)))
+		cpuLine(noIcon, "Load avg 5m:", fmt.Sprintf("%.2f", cpu.LoadAvg5))
+		cpuLine(noIcon, "Load avg 15m:", fmt.Sprintf("%.2f", cpu.LoadAvg15))
 		if cpu.IOwaitPct > 0.5 {
-			fmt.Printf("  %s  IOWait:           %4.1f%%\n", cpuIcon(cpu.IOwaitPct, 10, 25), cpu.IOwaitPct)
+			cpuLine(cpuIcon(cpu.IOwaitPct, 10, 25), "IOWait:", fmt.Sprintf("%.1f%%", cpu.IOwaitPct))
 		}
 		if cpu.StealPct > 0.1 {
-			fmt.Printf("  %s  Steal:            %4.1f%%  <- hypervisor over-provisioned?\n", cpuIcon(cpu.StealPct, 5, 15), cpu.StealPct)
+			cpuLine(cpuIcon(cpu.StealPct, 5, 15), "Steal:", fmt.Sprintf("%.1f%%  <- hypervisor over-provisioned?", cpu.StealPct))
 		}
 	}
 
 	// Frequency
 	if freq != nil {
 		fmt.Println("\nFrequency")
-		fmt.Printf("       Governor:         %s\n", freq.Governor)
-		fmt.Printf("       Current:          %d MHz\n", freq.CurrentMHz)
+		cpuLine(noIcon, "Governor:", freq.Governor)
+		cpuLine(noIcon, "Current:", fmt.Sprintf("%d MHz", freq.CurrentMHz))
 		if freq.MaxMHz > 0 {
-			fmt.Printf("       Max (boost):      %d MHz\n", freq.MaxMHz)
+			cpuLine(noIcon, "Max (boost):", fmt.Sprintf("%d MHz", freq.MaxMHz))
 		}
-		// Throttling is only a concern under load — at low usage it's normal power management.
-		// Only warn when CPU is actually busy (> 30% usage) AND throttled significantly.
 		underLoad := cpu != nil && cpu.UsagePct > 30
 		if freq.ThrottledPct > 5 && underLoad {
-			fmt.Printf("  %s  Throttled:        %.1f%%  <- CPU throttled under load\n", cpuIcon(freq.ThrottledPct, 20, 50), freq.ThrottledPct)
+			cpuLine(cpuIcon(freq.ThrottledPct, 20, 50), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
 		} else {
-			fmt.Printf("  ✅  Throttled:        %.1f%%\n", freq.ThrottledPct)
+			cpuLine("✅", "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
 		}
 	}
 
 	// Thermal
 	if thermal != nil && thermal.Available {
 		fmt.Println("\nThermal")
-		fmt.Printf("  %s  CPU temp:         %.1f°C\n", cpuIcon(thermal.CPUTempC, 80, 95), thermal.CPUTempC)
+		cpuLine(cpuIcon(thermal.CPUTempC, 80, 95), "CPU temp:", fmt.Sprintf("%.1f°C", thermal.CPUTempC))
 		if len(thermal.CoreTemps) > 1 {
 			for name, temp := range thermal.CoreTemps {
-				fmt.Printf("  %s    %-18s  %.1f°C\n", cpuIcon(temp, 80, 95), name, temp)
+				cpuLine(cpuIcon(temp, 80, 95), name+":", fmt.Sprintf("%.1f°C", temp))
 			}
 		}
 	}
@@ -160,10 +166,10 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		if len(d.Rows) == 0 {
 			fmt.Println("  (all processes idle)")
 		} else {
-			fmt.Printf("  %-7s %-6s %s\n", "PID", "CPU%", "COMMAND")
+			fmt.Printf("  %-8s %-6s %s\n", "PID", "CPU%", "COMMAND")
 			for _, row := range d.Rows {
 				if len(row) >= 3 {
-					fmt.Printf("  %-7s %-6s %s\n", row[0], row[1], row[2])
+					fmt.Printf("  %-8s %-6s %s\n", row[0], row[1], row[2])
 				}
 			}
 		}
