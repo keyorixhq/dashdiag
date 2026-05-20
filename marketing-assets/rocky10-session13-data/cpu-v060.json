@@ -1,0 +1,30 @@
+{
+  "cpu": {
+    "load_avg_1": 0,
+    "load_avg_5": 0,
+    "load_avg_15": 0,
+    "num_cpu": 16,
+    "usage_pct": 0,
+    "load_pct": 0,
+    "steal_pct": 0,
+    "iowait_pct": 0,
+    "status": "",
+    "status_reason": ""
+  },
+  "freq": {
+    "governor": "performance",
+    "current_mhz": 3168,
+    "max_mhz": 4465,
+    "min_mhz": 403,
+    "throttled_pct": 29.0481522956327,
+    "cpu_count": 16
+  },
+  "thermal": {
+    "available": true,
+    "cpu_temp_c": 41,
+    "core_temps": {
+      "Tctl": 41
+    },
+    "source": "k10temp"
+  }
+}
