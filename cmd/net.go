@@ -146,6 +146,9 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		fmt.Printf("  %s  %-12s %s%s\n", statusIcon, iface.Name, details, primary)
 	}
 
+	// Bond interfaces
+	printNetBonds(info)
+
 	// Connectivity
 	fmt.Println("\nConnectivity")
 	printNetMetric("Gateway ping", info.GatewayPingMs, "ms", 50, 200)
@@ -335,6 +338,65 @@ func runNetDNS(cmd *cobra.Command, _ []string) error {
 
 	printDNS(info, mode)
 	return nil
+}
+
+func printNetBonds(info *models.NetworkInfo) {
+	if len(info.Bonds) == 0 {
+		return
+	}
+	fmt.Printf("\nBond interfaces (%d)\n", len(info.Bonds))
+	for _, b := range info.Bonds {
+		icon := "✅"
+		statusStr := ""
+		if b.AllDown {
+			icon = "❌"
+			statusStr = "  ALL SLAVES DOWN"
+		} else if b.Degraded {
+			icon = "⚠️ "
+			statusStr = fmt.Sprintf("  DEGRADED — %d/%d slaves up", len(b.Slaves)-b.DownSlaves, len(b.Slaves))
+		} else if len(b.Slaves) < 2 {
+			icon = "⚠️ "
+			statusStr = "  only 1 slave — no redundancy"
+		}
+		modeStr := b.ModeShort
+		if modeStr == "" {
+			modeStr = b.Mode
+		}
+		fmt.Printf("  %s  %-12s  %s%s\n", icon, b.Name, modeStr, statusStr)
+		for _, s := range b.Slaves {
+			slaveIcon := "  ✅"
+			if s.MIIStatus != "up" {
+				slaveIcon = "  ❌"
+			}
+			speedStr := ""
+			if s.SpeedMbps > 0 {
+				speedStr = fmt.Sprintf("  %d Mbps", s.SpeedMbps)
+			}
+			usbStr := ""
+			if isUSBSlave(s.Name) {
+				usbStr = "  [USB]"
+			}
+			linkFails := ""
+			if s.LinkFails > 0 {
+				linkFails = fmt.Sprintf("  %d link failures", s.LinkFails)
+			}
+			activeStr := ""
+			if b.ActiveSlave == s.Name {
+				activeStr = "  ← active"
+			}
+			fmt.Printf("    %s  %-14s  MII:%-4s%s%s%s%s\n",
+				slaveIcon, s.Name, s.MIIStatus, speedStr, usbStr, linkFails, activeStr)
+		}
+	}
+}
+
+// isUSBSlave checks if a network interface is USB-based via sysfs.
+func isUSBSlave(iface string) bool {
+	link, err := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(link), "usb")
 }
 
 func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
