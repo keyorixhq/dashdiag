@@ -1,0 +1,8 @@
+
+Scanning all pending security advisories...
+{
+  "package_manager": "apt",
+  "total": 0,
+  "fix_command": "apt-get upgrade",
+  "status_reason": "no pending upgrades found"
+}

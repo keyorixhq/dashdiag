@@ -1,0 +1,17 @@
+
+Kubernetes Health  (via /snap/bin/microk8s kubectl)
+
+Nodes (1)
+  ✅  ubuntu                              Ready          worker               v1.34.5
+
+Pods (3 total, 3 healthy)
+  ✅  All pods healthy
+
+All Pods:
+  NAMESPACE            NAME                                       READY    STATUS                 RESTARTS AGE
+  kube-system          calico-kube-controllers-6d7fffdff7-hw6rt   1/1      Running                0      
+  kube-system          calico-node-gtwrj                          1/1      Running                0      
+  kube-system          coredns-66ffc85ffb-svb7s                   1/1      Running                0      
+
+────────────────────────────────────────────────────────
+✅ Cluster healthy. Checks passed in 1.2s
