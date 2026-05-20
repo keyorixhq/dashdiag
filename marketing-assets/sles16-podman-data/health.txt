@@ -1,0 +1,135 @@
+CPU Load     OK  31%
+CPU Thermal  WARN  CPU temperature 69.75°C at 3% load — elevated for low CPU activity, possible cooling issue
+Memory       OK  0.6/13 GB (4%)
+Swap         OK  0 MB used
+Disk         OK  17 mounts, max 1% (/boot/efi)
+IO           OK  1.0 ms (nvme1n1)
+Drives       OK  2 drives  healthy
+LVM          INFO  inactive volume group ubuntu-vg is 11% full — no LVs mounted (old OS partition?)
+Network      INFO  bond bond0: slave enp6s0f3u1 is a USB NIC — less reliable than PCIe for production bonding
+Systemd      OK  boot 31s
+Processes    OK  330 running
+FDLimits     OK  2k open  3 deleted
+Entropy      OK  256/256 bits
+Clock        OK  ±0 ms  adjtimex
+Logs         INFO  journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost
+Sysctl       WARN  vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   Sysctl: current vs recommended:
+   SYSCTL         CURRENT  RECOMMENDED  NOTE                                            
+   vm.swappiness  60       10           lower for k8s/database; 60 for general workloads
+KernelSec    INFO  SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+Hardening    WARN  SSH allows password authentication — key-based auth recommended
+Subscription OK
+Snapshots    OK
+Battery      OK  100%  full
+Bonding      INFO  bond0: slave enp6s0f3u1 is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)
+OOM          OK  0 events
+Multipath    OK
+Firewall     OK  nftables  427 rules
+Auth         OK  0 failed logins
+Auditd       OK  1 rules  running
+HugePages    INFO  transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+CPUFreq      WARN  CPU governor is 'powersave' — CPU running at 1102 MHz (max 4465 MHz), performance limited
+Docker       CRIT  container "test-crashloop" is crash looping (restarted >5 times)
+DBus         OK
+Sessions     OK  3 sessions  1 remote
+────────────────────────────────────────────────────────
+CRIT: Docker: container "test-crashloop" is crash looping (restarted >5 times)
+   -> to inspect:
+      docker logs test-crashloop --tail 50
+      docker inspect test-crashloop | grep -A5 RestartCount
+CRIT: Docker: 1 container(s) have docker.sock mounted — grants root-equivalent host access: test-socket
+   -> note: any process inside can escape to host via Docker API
+   -> to inspect: docker inspect <name> | grep docker.sock
+   -> to fix: remove HostConfig.Binds entry for docker.sock
+WARN: CPU Thermal: CPU temperature 69.75°C at 3% load — elevated for low CPU activity, possible cooling issue
+   -> to inspect:
+      cat /sys/class/hwmon/hwmon*/temp*_input
+      check for dust buildup and blocked vents
+      consider reseating thermal paste on older hardware
+WARN: CPUFreq: CPU governor is 'powersave' — CPU running at 1102 MHz (max 4465 MHz), performance limited
+   -> to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   -> note: 'schedutil' or 'ondemand' are also acceptable for variable workloads
+   -> to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   -> to fix: cpupower frequency-set -g performance
+   -> to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'
+WARN: Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+   -> to inspect: cat /proc/sys/vm/swappiness
+   -> to fix: sysctl -w vm.swappiness=10
+   -> to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf
+WARN: Sysctl: net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)
+   -> to inspect: sysctl net.core.rmem_max
+   -> to fix: sysctl -w net.core.rmem_max=4194304
+   -> to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf
+WARN: Hardening: SSH allows password authentication — key-based auth recommended
+   -> to fix: set PasswordAuthentication no in /etc/ssh/sshd_config
+WARN: Hardening: SSH weak MAC(s) enabled (sshd -T (effective config)): hmac-sha1
+   -> note: hmac-sha1 uses SHA-1 which is cryptographically broken
+   -> to verify: sshd -T | grep '^macs'
+   -> to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config
+WARN: Hardening: NOPASSWD sudo for: andrei
+   -> to inspect:
+      sudo -l
+      cat /etc/sudoers
+WARN: Hardening: password never expires for human account(s): andrei
+   -> to fix all: awk -F: '($3>=1000 && $3<65534){print $1}' /etc/passwd | xargs -I{} chage -M 90 {}
+   -> note: CIS benchmark recommends maximum password age ≤ 365 days
+   -> to inspect: sudo chage -l <username>
+   -> to fix:     chage -M 90 <username>  (expire after 90 days)
+WARN: Docker: firewalld is active with nftables backend — Docker iptables rules are silently ignored
+   -> fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf && systemctl restart firewalld docker
+   -> fix B (trust docker0): firewall-cmd --permanent --zone=trusted --add-interface=docker0 && firewall-cmd --reload
+WARN: Docker: 4 running container(s) using root user — reduces container isolation
+   -> to fix:
+      add 'USER <non-root>' directive to Dockerfile
+      use --user flag: docker run --user 1000:1000 ...
+WARN: Docker: 1 container(s) have plaintext secrets in env vars: test-secrets
+   -> note: env vars are visible in docker inspect and container logs
+   -> to inspect: docker inspect <name> | grep -i 'env\|secret\|password'
+   -> to fix: use Docker secrets, a vault, or environment variable files
+INFO: HugePages: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+   -> to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to 'madvise' or 'never'
+   -> to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled
+   -> to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+   -> to persist: add to /etc/rc.local or a systemd service
+INFO: Bonding: bond0: slave enp6s0f3u1 is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)
+   -> note: consider replacing with a PCIe or onboard NIC for production HA
+   -> to inspect: readlink /sys/class/net/enp6s0f3u1/device/subsystem
+INFO: KernelSec: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+   -> to expose hidden denials: semodule -DB  (disables dontaudit rules)
+   -> to re-enable dontaudit:   semodule -B   (run after debugging)
+   -> to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l
+INFO: LVM: inactive volume group ubuntu-vg is 11% full — no LVs mounted (old OS partition?)
+   -> note: this VG has no mounted LVs on this OS — likely a leftover from a previous install
+   -> to inspect:
+      vgs ubuntu-vg
+      lvs | grep ubuntu-vg
+INFO: Logs: journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost
+   -> note:   lower sync interval increases disk I/O but ensures crash logs are preserved
+   -> to fix:
+      echo 'SyncIntervalSec=30s' >> /etc/systemd/journald.conf
+      systemctl restart systemd-journald
+INFO: Logs: 16 error(s) logged in the last hour — check if expected
+   -> to inspect: journalctl -p err --since '1 hour ago' --no-pager
+INFO: Hardening: SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window
+   -> to fix:
+      set LoginGraceTime 60 in /etc/ssh/sshd_config
+      systemctl restart sshd
+INFO: Hardening: SSH X11Forwarding enabled — unnecessary on servers, increases attack surface
+   -> note: only needed if users require GUI applications over SSH
+   -> to fix: set X11Forwarding no in /etc/ssh/sshd_config
+INFO: Hardening: SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen
+   -> note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally
+   -> to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config
+INFO: Hardening: SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)
+   -> note: this disconnects idle sessions after 300s × 3 = 15 minutes
+   -> to fix:
+      set ClientAliveInterval 300 in /etc/ssh/sshd_config
+      set ClientAliveCountMax 3 in /etc/ssh/sshd_config
+INFO: Hardening: supportconfig available but never run — collect before opening SUSE support ticket
+   -> to run: supportconfig
+   -> archives saved to /var/log/scc_*.txz
+INFO: Network: bond bond0: slave enp6s0f3u1 is a USB NIC — less reliable than PCIe for production bonding
+   -> note: USB adapters can be accidentally unplugged; USB bus is a single point of failure
+   -> note: consider replacing with a PCIe or onboard NIC for production HA
+done in 1.3s

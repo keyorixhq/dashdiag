@@ -1,0 +1,212 @@
+
+⏱  Incident timeline — last 1h
+
+  Load average:
+  ✅  11:58:34 (now)    load: 0.54  0.29  0.15  (1m/5m/15m)
+
+  TIME      LEVEL     UNIT                MESSAGE
+  ────────────────────────────────────────────────────────────
+  ── May 20 ─────────────────────────────────────────────
+  ❌  11:00:53  jrnl  kernel            ACPI BIOS Error (bug): Could not resolve symbol [\_SB.…
+  ❌  11:00:53  jrnl  kernel            ACPI Error: AE_NOT_FOUND, During name lookup/catalog (…
+  ❌  11:00:53  jrnl  kernel            integrity: Problem loading X.509 certificate -65
+  ⚠️   11:00:53  jrnl  kernel            tpm tpm0: tpm_read_log_acpi: Failed to map ACPI memory
+  ⚠️   11:00:53  jrnl  kernel            i8042: PNP: PS/2 appears to have AUX port disabled, if…
+  ⚠️   11:00:53  jrnl  kernel            Unstable clock detected, switching default tracing clo…
+  ⚠️   11:00:53  jrnl  systemd           /usr/lib/systemd/system/plymouth-start.service:15: Uni…
+  ⚠️   11:00:57  jrnl  kernel            usb: port power management may be unreliable
+  ⚠️   11:01:01  jrnl  systemd           /usr/lib/systemd/system/plymouth-start.service:15: Uni…
+  ⚠️   11:01:02  jrnl  kernel            i2c_designware AMDI0010:01: [Firmware Bug]: DSDT uses …
+  ⚠️   11:01:02  jrnl  systemd-udevd     PV /dev/nvme1n1p3 online, VG ubuntu-vg is complete.
+  ⚠️   11:01:02  jrnl  kernel            platform regulatory.0: Direct firmware load for regula…
+  ⚠️   11:01:07  jrnl  kernel            nvme nvme0: using unchecked data buffer
+  ⚠️   11:01:07  jrnl  irqbalance        thermal: failed to receive messages.
+  ⚠️   11:01:07  jrnl  irqbalance        Failed to initialize thermal events.
+  ⚠️   11:01:13  jrnl  kernel            sched: DL replenish lagged too much
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 88 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 84 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 60 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 83 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 83 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 73 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 73 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 63 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 63 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 91 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 91 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 81 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 81 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 71 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 71 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 89 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 89 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 79 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 79 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 69 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 69 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 87 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 87 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 77 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 77 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 67 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 67 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 85 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 85 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 75 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 75 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 65 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 65 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 88 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 60 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 68 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 68 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 76 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 76 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 66 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 66 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 70 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 84 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 74 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 74 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 64 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 64 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 82 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 82 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 72 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 72 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 62 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 62 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 90 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 90 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 80 affinity: Permission denied
+  ⚠️   11:01:16  jrnl  irqbalance        IRQ 80 affinity is now unmanaged
+  ⚠️   11:01:16  jrnl  irqbalance        Cannot change IRQ 70 affinity: Permission denied
+  ⚠️   11:04:09  jrnl  init              /usr/lib/systemd/system/plymouth-start.service:15: Uni…
+  ❌  11:10:03  jrnl  kernel            operation not supported error, dev loop0, sector 2048 …
+  ⚠️   11:10:03  jrnl  systemd-udevd     PV /dev/loop0 not used.
+  ⚠️   11:10:03  jrnl  systemd-udevd     PV /dev/loop1 not used.
+  ⚠️   11:10:03  jrnl  systemd-udevd     PV /dev/loop1 online, VG dsd_test_vg incomplete (need …
+  ⚠️   11:10:03  jrnl  systemd-udevd     PV /dev/loop0 online, VG dsd_test_vg is complete. ×6
+  ⚠️   11:10:03  jrnl  systemd-udevd     VG dsd_test_vg finished ×10
+  ⚠️   11:10:03  jrnl  systemd-udevd     PV /dev/loop1 online, VG dsd_test_vg is complete. ×5
+  ❌  11:10:23  jrnl  kernel            device-mapper: snapshots: Invalidating snapshot: Unabl…
+  ⚠️   11:10:23  jrnl  dm-event          WARNING: Snapshot dsd_test_vg-snap_vol changed state t…
+  ⚠️   11:11:31  jrnl  systemd-udevd     bond0: Could not generate persistent MAC address: No d…
+  ❌  11:13:50  jrnl  session-37        error: mm_reap: preauth child terminated by signal 15
+  ❌  11:13:50  jrnl  session-22        error: mm_reap: preauth child terminated by signal 15
+  ❌  11:13:52  jrnl  dbus-broker       Activation request for 'org.freedesktop.nm_dispatcher'…
+  ❌  11:14:10  jrnl  kernel            ACPI BIOS Error (bug): Could not resolve symbol [\_SB.…
+  ❌  11:14:10  jrnl  kernel            ACPI Error: AE_NOT_FOUND, During name lookup/catalog (…
+  ❌  11:14:10  jrnl  kernel            integrity: Problem loading X.509 certificate -65
+  ⚠️   11:14:10  jrnl  kernel            Booted with the nomodeset parameter. Only the system f…
+  ⚠️   11:14:10  jrnl  kernel            TSC synchronization [CPU#0 -> CPU#2]:
+  ⚠️   11:14:10  jrnl  kernel            Measured 6577880900 cycles TSC warp between CPUs, turn…
+  ⚠️   11:14:10  jrnl  kernel              #1  #3  #5  #7  #9 #11 #13 #15
+  ⚠️   11:14:10  jrnl  kernel            tpm tpm0: tpm_read_log_acpi: Failed to map ACPI memory
+  ⚠️   11:14:10  jrnl  kernel            i8042: PNP: PS/2 appears to have AUX port disabled, if…
+  ⚠️   11:14:10  jrnl  kernel            Unstable clock detected, switching default tracing clo…
+  ⚠️   11:14:10  jrnl  systemd           /usr/lib/systemd/system/plymouth-start.service:15: Uni… ×2
+  ⚠️   11:14:12  jrnl  kernel            usb: port power management may be unreliable
+  ⚠️   11:14:15  jrnl  kernel            sched: DL replenish lagged too much
+  ⚠️   11:14:16  jrnl  kernel            i2c_designware AMDI0010:01: [Firmware Bug]: DSDT uses …
+  ⚠️   11:14:16  jrnl  systemd-udevd     PV /dev/nvme0n1p3 online, VG ubuntu-vg is complete.
+  ⚠️   11:14:16  jrnl  kernel            platform regulatory.0: Direct firmware load for regula…
+  ⚠️   11:14:21  jrnl  kernel            nvme nvme0: using unchecked data buffer
+  ⚠️   11:14:21  jrnl  irqbalance        thermal: failed to receive messages.
+  ⚠️   11:14:21  jrnl  irqbalance        Failed to initialize thermal events.
+  ⚠️   11:14:23  jrnl  systemd-udevd     bond0: Could not generate persistent MAC address: No d…
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 83 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 83 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 73 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 73 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 63 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 63 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 91 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 91 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 81 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 81 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 71 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 71 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 88 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 88 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 90 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 90 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 79 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 79 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 69 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 69 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 77 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 77 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 67 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 67 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 85 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 85 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 75 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 75 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 65 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 65 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 78 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 78 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 68 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 68 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 86 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 86 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 76 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 76 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 66 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 66 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 84 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 84 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 74 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 74 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 64 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 64 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 82 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 82 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 72 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 72 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 62 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 62 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 80 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 80 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 70 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 70 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 60 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 60 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 89 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 89 affinity is now unmanaged
+  ⚠️   11:14:31  jrnl  irqbalance        Cannot change IRQ 87 affinity: Permission denied
+  ⚠️   11:14:31  jrnl  irqbalance        IRQ 87 affinity is now unmanaged
+  ⚠️   11:55:00  jrnl  init              /usr/lib/systemd/system/plymouth-start.service:15: Uni… ×2
+  ❌  11:55:01  jrnl  session-48        pam_wtmpdb(login:session): Cannot create/open database…
+  ⚠️   11:55:27  jrnl  systemd-udevd     podman0: Could not generate persistent MAC address: No…
+  ⚠️   11:55:27  jrnl  systemd-udevd     veth0: Could not generate persistent MAC address: No d…
+  ⚠️   11:55:27  jrnl  systemd-udevd     veth1: Could not generate persistent MAC address: No d… ×3
+  ⚠️   11:55:28  jrnl  systemd-udevd     veth2: Could not generate persistent MAC address: No d…
+  ⚠️   11:55:28  jrnl  systemd-udevd     veth3: Could not generate persistent MAC address: No d… ×102
+  ⚠️   11:55:28  jrnl  systemd-udevd     veth4: Could not generate persistent MAC address: No d…
+  ⚠️   11:57:52  jrnl  systemd-udevd     veth0: Could not generate persistent MAC address: No d…
+  ⚠️   11:57:52  jrnl  systemd-udevd     veth1: Could not generate persistent MAC address: No d… ×27
+  ⚠️   11:57:52  jrnl  systemd-udevd     veth2: Could not generate persistent MAC address: No d…
+  ⚠️   11:57:52  jrnl  systemd-udevd     veth3: Could not generate persistent MAC address: No d…
+  ⚠️   11:57:53  jrnl  systemd-udevd     veth4: Could not generate persistent MAC address: No d…
+  ⚠️   11:58:00  jrnl  systemd-udevd     veth1: Could not generate persistent MAC address: No d… ×117
+  ⚠️   11:14:09  dmesg  kernel            [      T0] Booted with the nomodeset parameter. Only t…
+  ❌  11:14:10  dmesg  kernel            [      T1] ACPI BIOS Error (bug): Could not resolve sy…
+  ❌  11:14:10  dmesg  kernel            [      T1] ACPI Error: AE_NOT_FOUND, During name looku…
+  ❌  11:14:10  dmesg  kernel            [      T1] tpm tpm0: tpm_read_log_acpi: Failed to map …
+  ⚠️   11:14:10  dmesg  kernel            [      T0] TSC synchronization [CPU#0 -> CPU#2]:
+  ⚠️   11:14:10  dmesg  kernel            [      T0] Measured 6577880900 cycles TSC warp between…
+  ⚠️   11:14:10  dmesg  kernel            [      T1]   #1  #3  #5  #7  #9 #11 #13 #15
+  ⚠️   11:14:10  dmesg  kernel            [      T1] i8042: PNP: PS/2 appears to have AUX port d…
+  ⚠️   11:14:10  dmesg  kernel            [      T1] integrity: Problem loading X.509 certificat…
+  ⚠️   11:14:10  dmesg  kernel            [      T1] Unstable clock detected, switching default …
+  ⚠️   11:14:10  dmesg  kernel            [      T1] systemd[1]: /usr/lib/systemd/system/plymout… ×2
+  ⚠️   11:14:12  dmesg  kernel            [     T28] usb: port power management may be unreliable
+  ⚠️   11:14:15  dmesg  kernel            [     C15] sched: DL replenish lagged too much
+  ❌  11:14:16  dmesg  kernel            [     T46] platform regulatory.0: Direct firmware load…
+  ⚠️   11:14:16  dmesg  kernel            [    T797] i2c_designware AMDI0010:01: [Firmware Bug]:…
+  ⚠️   11:14:21  dmesg  kernel            [   T1101] nvme nvme0: using unchecked data buffer
+
+────────────────────────────────────────────────────────────────
+⚠️  16 CRIT, 184 WARN event(s) found in 0.0s

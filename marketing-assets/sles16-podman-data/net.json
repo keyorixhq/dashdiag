@@ -1,0 +1,21 @@
+
+Interfaces (2)
+  ✅  bond0        192.168.1.147  1000 Mbps  ← primary
+  ✅  podman0      10.88.0.1  10000 Mbps
+
+Bond interfaces (1)
+  ✅  bond0         active-backup
+      ✅  enp6s0f3u1      MII:up    1000 Mbps  [USB]  ← active
+      ✅  eno1            MII:up    1000 Mbps
+
+Connectivity
+  ✅  Gateway ping:            0.6 ms
+  ✅  Internet ping:           6.0 ms
+  ✅  DNS resolution:          3.0 ms
+
+TCP States
+  ✅  TIME-WAIT        7
+  ✅  ESTAB            2
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.3s
