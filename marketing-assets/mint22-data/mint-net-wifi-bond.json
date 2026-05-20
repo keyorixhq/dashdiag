@@ -1,0 +1,22 @@
+
+Interfaces (2)
+  ✅  wlp4s0       192.168.1.135  drops rx:28 tx:0
+  ✅  bond0        192.168.1.147  1000 Mbps  ← primary
+
+Bond interfaces (1)
+  ✅  bond0         active-backup
+      ✅  enx00e04c680074  MII:up    1000 Mbps  [USB]  ← active
+      ✅  eno1            MII:up    1000 Mbps
+
+Connectivity
+  ✅  Gateway ping:            0.6 ms
+  ✅  Internet ping:           6.0 ms
+  ✅  DNS resolution:          3.0 ms
+
+TCP States
+  ✅  ESTAB            2
+  ✅  LAST-ACK         1
+  ✅  CLOSE-WAIT       1
+
+────────────────────────────────────────────────────────
+✅ Network healthy. Checks passed in 1.3s

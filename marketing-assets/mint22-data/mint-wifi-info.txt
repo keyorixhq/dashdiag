@@ -1,0 +1,9 @@
+wlp4s0    IEEE 802.11  ESSID:"DIGIFIBRA-PLUS-23zy"  
+          Mode:Managed  Frequency:5.32 GHz  Access Point: 7C:7D:21:86:E7:A5   
+          Bit Rate=866.7 Mb/s   Tx-Power=20 dBm   
+          Retry short limit:7   RTS thr:off   Fragment thr:off
+          Power Management:on
+          Link Quality=70/70  Signal level=-32 dBm  
+          Rx invalid nwid:0  Rx invalid crypt:0  Rx invalid frag:0
+          Tx excessive retries:0  Invalid misc:2   Missed beacon:0
+
