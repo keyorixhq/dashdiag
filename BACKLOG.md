@@ -4,7 +4,7 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-20 — Sessions 1–12 complete on Legion (RHEL 10.1 → Debian 13 → openSUSE Leap 16.0) + MacBook (macOS arm64)**
+**Last updated: 2026-05-20 — Sessions 1–12 complete on Legion (RHEL 10.1 → Debian 13 → openSUSE Leap 16.0 → Ubuntu 26.04) + MacBook (macOS arm64)**
 
 ---
 
@@ -61,6 +61,10 @@ Build order rule: **never build deep before fast is in production use.**
 | Ubuntu/Debian OVAL parser — `oval_debian.go`, dpkg, priority→CVSS mapping | S12 | 1c8688e |
 | SUSE/openSUSE OVAL parser — patch class, RPM, title severity, platform marker filter | S12 | ce85170 |
 | btrfs device health — `btrfs_linux.go`, missing devices + I/O errors, DEGRADED CRIT | S12 | 0f16b76 |
+| microk8s detection — `/snap/bin/microk8s kubectl` added to k8sDetectBin() | S12 | 7bd0a63 |
+| btrfs DEGRADED now surfaces in `dsd health` heuristics (not just `dsd disk`) | S12 | a580f34 |
+| Ubuntu 26.04 LTS (Resolute Raccoon) validation — all paths clean, 0 bugs | S12 | 2e6278a |
+| Ubuntu LVM break test — `ubuntu-vg` dash-name fix confirmed, RAID1 DEGRADED detected | S12 | 7bd0a63 |
 
 ---
 

@@ -66,21 +66,29 @@ Keep it open alongside DashDiag_Gap_Specs.md when building.
 ### Validated distros (Session 12)
 - Debian 13 (Trixie), kernel 6.12.88+deb13-amd64
 - openSUSE Leap 16.0, kernel 6.12.0-160000.5-default
+- Ubuntu 26.04 LTS (Resolute Raccoon), kernel 7.0.0-15-generic
 
 ---
 
 ## Session 13 Build Plan
 
-### In progress
-**Ubuntu 24.04 LTS validation** (~30 min)
-- `ubuntu-vg` LVM naming (dash-in-name fix already in place — verify)
-- ufw firewall detection
-- Ubuntu OVAL auto-detection live run
-- snapd detection (if present)
+### Distro validation (in progress)
+**Ubuntu 26.04 LTS** ✅ COMPLETE — microk8s detected, LVM confirmed, OVAL 98 findings
+
+**Rocky Linux 9** — next hardware target
+- Validates RHEL 9 OVAL on real hardware (had RHEL 10 before, no subscription)
+- Most common enterprise RHEL replacement — high customer relevance
+- Confirms dnf path, SELinux, SMART all working on RHEL-compatible distro
+- ~30 min smoke test
+
+**Fedora 42** — after Rocky
+- DNF5 (different from DNF4 on RHEL/Rocky) — separate code path
+- Cutting-edge kernel, fast validation
+- ~20 min
 
 ### Unblocked — next code work
 
-**1. First paying customer prep** (highest priority)
+**1. First paying customer prep** (highest priority after validation)
 - Landing page copy from MARKETING.md stories
 - `dsd trial start` command (14-day team trial, no card)
 - Pricing page: Free / Pro / Enterprise
