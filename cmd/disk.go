@@ -71,15 +71,15 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printDiskReport(info, lvmInfo, mode, elapsed)
+	printDiskReport(info, lvmInfo, mode, elapsed, deep)
 	return nil
 }
 
-func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration) {
+func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, deep bool) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	printDiskDrives(info)
+	printDiskDrives(info, deep)
 	printDiskZFS(info)
 	printDiskFilesystems(info)
 	printDiskBtrfs(info)
@@ -96,7 +96,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	}
 }
 
-func printDiskDrives(info *models.DiskInfo) {
+func printDiskDrives(info *models.DiskInfo, deep bool) {
 	if len(info.Drives) == 0 {
 		return
 	}
@@ -111,7 +111,7 @@ func printDiskDrives(info *models.DiskInfo) {
 		fmt.Printf("  %-12s %-6s %-5s %s%s\n",
 			d.Name, sizeStr, string(d.Type), mountStr, modelStr)
 		if d.SMART != nil {
-			printSMARTLine(d.SMART)
+			printSMARTLine(d.SMART, deep)
 		}
 	}
 }
@@ -258,7 +258,7 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 }
 
 // printSMARTLine renders a compact SMART summary line indented under the drive.
-func printSMARTLine(s *models.SMARTInfo) {
+func printSMARTLine(s *models.SMARTInfo, deep bool) {
 	if s.Error != "" {
 		fmt.Printf("             SMART: %s\n", s.Error)
 		return
@@ -288,8 +288,8 @@ func printSMARTLine(s *models.SMARTInfo) {
 		errStr = fmt.Sprintf("  errors:%d", s.MediaErrors)
 	}
 	fmt.Printf("             %s SMART: %s%s%s%s\n", icon, health, details, tempStr, errStr)
-	// Deep detail: power-on hours, unsafe shutdowns, power cycles
-	if s.PowerOnHours > 0 {
+	// Deep only: power-on hours, unsafe shutdowns, power cycles
+	if deep && s.PowerOnHours > 0 {
 		days := s.PowerOnHours / 24
 		fmt.Printf("               power-on: %dh (%d days)  shutdowns: %d  cycles: %d\n",
 			s.PowerOnHours, days, s.UnsafeShutdowns, s.PowerCycles)
