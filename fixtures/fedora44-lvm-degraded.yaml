@@ -1,0 +1,188 @@
+# fixture captured from 192.168.1.145 (Fedora Linux 44 (Server Edition))
+# replay with: dsd mock <this-file>
+
+host: 192.168.1.145
+os: Fedora Linux 44 (Server Edition)
+version: v0.5.1-63-g9d42c8e-dirty
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 22%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: ""
+      inline: 39°C
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.9/13 GB (7%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 4 mounts, max 69% (/)
+      message: ""
+      hints: []
+    - name: IO
+      level: ""
+      inline: 1.0 ms (nvme1n1)
+      message: ""
+      hints: []
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+    - name: LVM
+      level: CRIT
+      inline: ""
+      message: raid LV dsd_test/mirror_vol is DEGRADED — one or more PVs failed
+      hints:
+        - 'to inspect: lvs -a -o name,vg_name,lv_attr,devices dsd_test/mirror_vol'
+        - 'to inspect: pvs  (identify failed PV)'
+        - 'to recover: lvconvert --repair dsd_test/mirror_vol'
+    - name: Network
+      level: ""
+      inline: eno1 1Gbps  wlp4s0  gw 2 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: ""
+      inline: boot 37s
+      message: ""
+      hints: []
+    - name: Processes
+      level: ""
+      inline: 325 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost
+      hints:
+        - 'to fix: echo ''SyncIntervalSec=30s'' >> /etc/systemd/journald.conf'
+        - 'to fix: systemctl restart systemd-journald'
+        - 'note:   lower sync interval increases disk I/O but ensures crash logs are preserved'
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)'
+      hints:
+        - 'to inspect: cat /proc/sys/vm/swappiness'
+        - 'to fix: sysctl -w vm.swappiness=10'
+        - 'to persist: echo ''vm.swappiness=10'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: INFO
+      inline: ""
+      message: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+      hints:
+        - 'to expose hidden denials: semodule -DB  (disables dontaudit rules)'
+        - 'to re-enable dontaudit:   semodule -B   (run after debugging)'
+        - 'to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Battery
+      level: ""
+      inline: 100%  full
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: mem 0%  cpu 0%  io 1%
+      message: ""
+      hints: []
+    - name: Multipath
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  138 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: Auditd
+      level: ""
+      inline: 1 rules  running
+      message: ""
+      hints: []
+    - name: iSCSI
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: HugePages
+      level: ""
+      inline: THP madvise
+      message: ""
+      hints: []
+    - name: CPUFreq
+      level: WARN
+      inline: ""
+      message: CPU governor is 'powersave' — CPU running at 2894 MHz (max 4465 MHz), performance limited
+      hints:
+        - 'to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to fix: cpupower frequency-set -g performance'
+        - 'to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        - 'to persist: add to /etc/rc.local or use tuned profile ''throughput-performance'''
+        - 'note: ''schedutil'' or ''ondemand'' are also acceptable for variable workloads'
+    - name: Docker
+      level: CRIT
+      inline: ""
+      message: IP forwarding disabled (net.ipv4.ip_forward=0) — container outbound traffic will fail
+      hints:
+        - 'to fix:    sysctl -w net.ipv4.ip_forward=1'
+        - 'to persist: echo ''net.ipv4.ip_forward=1'' > /etc/sysctl.d/99-docker.conf && sysctl -p'
+        - 'note: Docker sets this on start, but systemd-networkd restart can reset it'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
