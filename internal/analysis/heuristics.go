@@ -906,6 +906,30 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
+	// Bond health — check before interface loop so degraded bonds surface first
+	for _, b := range net.Bonds {
+		if b.AllDown {
+			out = append(out, insight("CRIT", "Network",
+				fmt.Sprintf("bond %s is completely down — all %d slave(s) have failed", b.Name, len(b.Slaves)),
+				[]string{
+					"to inspect: cat /proc/net/bonding/" + b.Name,
+					"to inspect: ip link show " + b.Name,
+					"to inspect: journalctl -k | grep -i bond",
+				},
+			))
+		} else if b.Degraded {
+			upCount := len(b.Slaves) - b.DownSlaves
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("bond %s is degraded — %d/%d slave(s) up, redundancy reduced", b.Name, upCount, len(b.Slaves)),
+				[]string{
+					"to inspect: cat /proc/net/bonding/" + b.Name,
+					"to inspect: ip link show",
+					"to fix:     check physical NIC and cable for failed slave(s)",
+				},
+			))
+		}
+	}
+
 	// Link speed check — 100Mbps on a server primary interface suggests wrong
 	// cable (Cat5 instead of Cat5e/Cat6) or switch port misconfiguration.
 	for _, iface := range net.Interfaces {

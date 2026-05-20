@@ -169,6 +169,9 @@ func probeConnectivity(ctx context.Context, gatewayIP string, result *models.Net
 	result.DNSFailed = dnsFailed
 	// Mark ICMP as blocked if either probe fell back to TCP.
 	result.ICMPBlocked = gwICMPBlocked || inetICMPBlocked
+
+	// Bond health — reads /proc/net/bonding/* (no-op if no bonds)
+	result.Bonds = collectBonds()
 }
 
 func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {

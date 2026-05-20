@@ -20,3 +20,5 @@ func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 }
 
 func IsBondingPresent() bool { return false }
+
+func collectBonds() []models.BondInterface { return nil }
