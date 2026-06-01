@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -136,9 +137,16 @@ func printGPUNoDriver(noDriver []models.GPUDetected) {
 		fmt.Printf("  ⚠️   proprietary driver not loaded — power/VRAM metrics unavailable\n")
 		switch nd.Vendor {
 		case "nvidia":
+			nixos := isNixOS(cvedata.DetectDistroID())
 			if strings.Contains(nd.Name, "nouveau") {
 				fmt.Printf("  → nouveau is bound; for full metrics install: nvidia proprietary driver\n")
-				fmt.Printf("  → RHEL/Fedora: dnf install akmod-nvidia (RPM Fusion required)\n")
+				if nixos {
+					fmt.Printf("  → NixOS: set services.xserver.videoDrivers = [ \"nvidia\" ]; in configuration.nix, then nixos-rebuild switch\n")
+				} else {
+					fmt.Printf("  → RHEL/Fedora: dnf install akmod-nvidia (RPM Fusion required)\n")
+				}
+			} else if nixos {
+				fmt.Printf("  → NixOS: set services.xserver.videoDrivers = [ \"nvidia\" ]; in configuration.nix, then nixos-rebuild switch\n")
 			} else {
 				fmt.Printf("  → install: dnf install akmod-nvidia  (Fedora/RHEL via RPM Fusion)\n")
 				fmt.Printf("  → install: apt-get install nvidia-driver  (Debian/Ubuntu)\n")

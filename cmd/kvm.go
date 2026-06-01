@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -78,9 +79,16 @@ func printKVMReport(info *models.KVMInfo, elapsed time.Duration) {
 	if !info.Detected {
 		fmt.Println()
 		fmt.Println(render.StyleInfo.Render("ℹ️  libvirt not found — is KVM/libvirt installed and running?"))
-		fmt.Println("   to install (RHEL/Fedora): dnf install qemu-kvm libvirt libvirt-client")
-		fmt.Println("   to install (Debian/Ubuntu): apt install qemu-kvm libvirt-daemon-system")
-		fmt.Println("   to start:   systemctl enable --now libvirtd")
+		if isNixOS(cvedata.DetectDistroID()) {
+			// NixOS installs and enables libvirtd declaratively; the rebuild
+			// also starts the service, so no separate systemctl step.
+			fmt.Println("   to install: set in configuration.nix: virtualisation.libvirtd.enable = true;")
+			fmt.Println("   then apply:  sudo nixos-rebuild switch")
+		} else {
+			fmt.Println("   to install (RHEL/Fedora): dnf install qemu-kvm libvirt libvirt-client")
+			fmt.Println("   to install (Debian/Ubuntu): apt install qemu-kvm libvirt-daemon-system")
+			fmt.Println("   to start:   systemctl enable --now libvirtd")
+		}
 		fmt.Println()
 		fmt.Println(sep)
 		fmt.Println(render.StyleInfo.Render("ℹ️  KVM not detected" + timing))

@@ -297,6 +297,12 @@ func printOVALResult(r *cvedata.OVALResult) {
 	fmt.Println(sep)
 }
 
+// isNixOS reports whether the given /etc/os-release ID identifies NixOS, which
+// uses configuration.nix and vulnix rather than apt/dnf/zypper and OVAL feeds.
+func isNixOS(distroID string) bool {
+	return strings.Contains(strings.ToLower(distroID), "nixos")
+}
+
 func runCVEInfo() {
 	sep := strings.Repeat("─", 56)
 	fmt.Println("\nCVE data sources on this system")
@@ -336,9 +342,19 @@ func runCVEInfo() {
 	if !foundOVAL {
 		fmt.Println("  ─   none found")
 		fmt.Println()
-		fmt.Println("  Download from SUSE:")
-		fmt.Println("    curl -O https://ftp.suse.com/pub/projects/security/oval/suse.linux.enterprise.server.16.xml.bz2")
-		fmt.Println("    mkdir -p /var/lib/dsd/oval && mv *.xml.bz2 /var/lib/dsd/oval/")
+		if isNixOS(cvedata.DetectDistroID()) {
+			// NixOS has no OVAL feed — CVE scanning is done with vulnix against
+			// the Nix store, cross-referenced with NVD and the nixpkgs tracker.
+			fmt.Println("  NixOS uses vulnix, not OVAL feeds:")
+			fmt.Println("    nix-shell -p vulnix --run 'vulnix --system'")
+			fmt.Println("  Advisory sources:")
+			fmt.Println("    nixpkgs security tracking: https://github.com/NixOS/nixpkgs/issues?q=label:9.needs:security")
+			fmt.Println("    per-package CVE status:    https://search.nixos.org/packages")
+		} else {
+			fmt.Println("  Download from SUSE:")
+			fmt.Println("    curl -O https://ftp.suse.com/pub/projects/security/oval/suse.linux.enterprise.server.16.xml.bz2")
+			fmt.Println("    mkdir -p /var/lib/dsd/oval && mv *.xml.bz2 /var/lib/dsd/oval/")
+		}
 	}
 
 	// Pre-converted snapshot
@@ -462,9 +478,13 @@ func printOVALScanResults(results []cvedata.OVALCVSSResult) {
 		fmt.Println()
 	}
 	fmt.Println(sep)
-	if _, err := exec.LookPath("apt-get"); err == nil {
+	_, aptErr := exec.LookPath("apt-get")
+	switch {
+	case isNixOS(cvedata.DetectDistroID()):
+		fmt.Println("to fix: update nixpkgs, then: sudo nixos-rebuild switch --upgrade")
+	case aptErr == nil:
 		fmt.Println("to fix: apt-get upgrade")
-	} else {
+	default:
 		fmt.Println("to fix: dnf upgrade --security")
 	}
 	fmt.Println("note:   OVAL shows ALL known CVEs including 'Will not fix' exclusions filtered out above")
