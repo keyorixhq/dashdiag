@@ -91,6 +91,7 @@ var (
 	reNixSSHRestart    = regexp.MustCompile(`^to fix: systemctl restart sshd$`)
 	reNixSSHProtocol   = regexp.MustCompile(`^to fix: remove or comment out 'Protocol' line in /etc/ssh/sshd_config$`)
 	reNixRsyslog       = regexp.MustCompile(`^to fix: apt install rsyslog\s+OR\s+dnf install rsyslog\s+OR\s+zypper install rsyslog$`)
+	reNixJournald      = regexp.MustCompile(`^to (?:fix|persist):\s+echo '([^']+)' >> /etc/systemd/journald\.conf(?: && systemctl restart systemd-journald)?$`)
 )
 
 // hostIsNixOS reports whether the running host is NixOS, per /etc/os-release.
@@ -138,6 +139,9 @@ func nixosFixHint(hint string) (string, bool) {
 	}
 	if reNixRsyslog.MatchString(hint) {
 		return "to fix (NixOS): services.rsyslogd.enable = true; in configuration.nix, then nixos-rebuild switch", false
+	}
+	if m := reNixJournald.FindStringSubmatch(hint); m != nil {
+		return fmt.Sprintf("to fix (NixOS): services.journald.extraConfig = %q; in configuration.nix, then nixos-rebuild switch", m[1]), false
 	}
 	return hint, false
 }
