@@ -1,0 +1,12 @@
+⚡ DashDiag (dsd) v0.6.0-31-g37b24a7 — nixos-2505 · NixOS 25.05 (Warbler)
+[INFO] KVM health — ~15s
+[INFO] step 1/1
+
+ℹ️  libvirt not found — is KVM/libvirt installed and running?
+   to install (RHEL/Fedora): dnf install qemu-kvm libvirt libvirt-client
+   to install (Debian/Ubuntu): apt install qemu-kvm libvirt-daemon-system
+   to start:   systemctl enable --now libvirtd
+
+────────────────────────────────────────────────────────
+ℹ️  KVM not detected in 0.0s
+[INFO] done in 0.0s

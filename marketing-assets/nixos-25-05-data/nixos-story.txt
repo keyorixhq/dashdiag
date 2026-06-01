@@ -1,0 +1,13 @@
+⚡ DashDiag (dsd) v0.6.0-31-g37b24a7 — nixos-2505 · NixOS 25.05 (Warbler)
+System health — 4 snapshots — 18:03 01.06.2026 to 18:09 01.06.2026 on nixos-2505
+────────────────────────────────────────────────────────
+
+Events:
+  18:04 01.06.2026  Processes ↑ OK
+  18:06 01.06.2026  Sessions ↑ OK
+  18:09 01.06.2026  Sessions ↓ CRIT — root is logged in via SSH — direct root SSH access is a security risk
+
+Current issues:
+  Sysctl: vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)
+  Sessions: root is logged in via SSH — direct root SSH access is a security risk
+  Hardening: SSH permits root login
