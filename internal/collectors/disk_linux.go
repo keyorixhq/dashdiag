@@ -155,6 +155,29 @@ func diskModel(name string) string {
 
 // ── SMART collection ──────────────────────────────────────────────────────────
 
+// isVirtualDisk reports whether a drive is a hypervisor-backed virtual disk
+// (virtio/QEMU/VMware/Hyper-V/VirtualBox/Xen). These do not expose real SMART
+// data — smartctl against them errors or returns meaningless output — so SMART
+// collection is skipped for them to avoid a false health warning.
+//
+// Detection uses two signals confirmed on real systems: the kernel device name
+// (virtio-blk is vdX, Xen is xvdX) and the emulated-controller model string
+// (e.g. "QEMU HARDDISK", "VMware Virtual S", "Msft Virtual Disk", "VBOX
+// HARDDISK"). Bare-metal models (e.g. "Samsung SSD 980", "WDC WD2003FYYS",
+// "LITEONIT LCS-128") match none of these and keep SMART collection.
+func isVirtualDisk(d models.PhysicalDrive) bool {
+	if strings.HasPrefix(d.Name, "vd") || strings.HasPrefix(d.Name, "xvd") {
+		return true
+	}
+	model := strings.ToLower(d.Model)
+	for _, tok := range []string{"qemu", "virtio", "vmware", "vbox", "virtual"} {
+		if strings.Contains(model, tok) {
+			return true
+		}
+	}
+	return false
+}
+
 // collectSMART runs smartctl -H and -A for a device and parses the result.
 // Requires smartctl to be installed and root/sudo access.
 func collectSMART(devName string) *models.SMARTInfo {
@@ -417,6 +440,13 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 	for i := range result.Drives {
 		d := &result.Drives[i]
 		if len(d.Mounts) == 1 && strings.Contains(d.Mounts[0], "Windows") {
+			continue
+		}
+		// Virtual disks (virtio/QEMU/VMware/etc.) expose no real SMART data —
+		// smartctl errors or returns meaningless output, producing a false
+		// warning. Leave d.SMART nil so no SMART line, issue count, or insight
+		// is surfaced for them.
+		if isVirtualDisk(*d) {
 			continue
 		}
 		d.SMART = collectSMART(d.Name)
