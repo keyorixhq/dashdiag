@@ -476,3 +476,4 @@ Lower priority. Defer until macOS user demand exists.
 
 ---
 
+BUG: dsd spawns unreapped zombie subprocess during health run - parent 48436 child 48451 - investigate runCmd callers in collectors
