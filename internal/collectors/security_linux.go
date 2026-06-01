@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -879,11 +880,11 @@ func parseFirewall(ctx context.Context, info *models.SecurityInfo) {
 		return
 	}
 	// nftables — bare nftables without a management daemon
-	if detectNFTables(info) {
+	if detectNFTables(ctx, info) {
 		return
 	}
 	// iptables — legacy, common on older systems
-	if detectIPTables(info) {
+	if detectIPTables(ctx, info) {
 		return
 	}
 	// No firewall detected — not an error, just record it
@@ -948,16 +949,29 @@ func detectUFW(ctx context.Context, info *models.SecurityInfo) bool {
 	return true
 }
 
-func detectNFTables(info *models.SecurityInfo) bool {
-	data, err := os.ReadFile("/proc/net/nf_conntrack_stat") // #nosec G304
-	if err != nil {
-		// Try listing nft tables instead
-		if _, err2 := os.Stat("/proc/sys/net/netfilter"); err2 != nil {
-			return false
+// detectNFTables reports whether an active nftables ruleset is present.
+//
+// It queries the LIVE ruleset via `nft list ruleset` (reusing the health
+// collector's parser so the two commands agree on what counts as a rule).
+// This is what catches systems like NixOS, where the firewall is generated
+// into transient rules and never written to /etc/nftables.conf. The on-disk
+// config-file probe remains only as a fallback for when the nft binary is
+// unavailable on PATH.
+func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
+	if _, err := exec.LookPath("nft"); err == nil {
+		if out, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
+			fw := &models.FirewallInfo{}
+			parseNFTRuleset(out, fw)
+			if fw.TotalRules > 0 {
+				info.FirewallActive = true
+				info.FirewallType = "nftables"
+				info.SSHAllowed = sshAllowedNFT(out, sshPort(info))
+				return true
+			}
 		}
 	}
-	_ = data
-	// Check if nftables has any rules
+	// Fallback: nft binary missing — infer from on-disk config. We can't read
+	// the ruleset here, so leave SSH reachability conservatively "allowed".
 	entries, _ := filepath.Glob("/etc/nftables.conf")
 	if len(entries) == 0 {
 		entries, _ = filepath.Glob("/etc/nftables.d/*.nft")
@@ -965,25 +979,130 @@ func detectNFTables(info *models.SecurityInfo) bool {
 	if len(entries) > 0 {
 		info.FirewallActive = true
 		info.FirewallType = "nftables"
-		info.SSHAllowed = true // conservative — assume SSH ok unless we parse rules
+		info.SSHAllowed = true // conservative — config present but rules unread
 		return true
 	}
 	return false
 }
 
-func detectIPTables(info *models.SecurityInfo) bool {
-	// Check if iptables has non-trivial rules (INPUT chain has entries)
-	data, err := os.ReadFile("/proc/net/ip_tables_names") // #nosec G304
+// detectIPTables reports whether iptables has a non-trivial ruleset.
+//
+// It runs `iptables -L` via the health collector's parser rather than reading
+// /proc/net/ip_tables_names. On nftables-backend systems (NixOS, modern
+// distros) the legacy ip_tables kernel module is never loaded, so that proc
+// file is absent even though the iptables-nft wrapper can list a full ruleset.
+func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
+	if _, err := exec.LookPath("iptables"); err != nil {
+		return false
+	}
+	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
 	if err != nil {
 		return false
 	}
-	if strings.Contains(string(data), "filter") {
+	fw := &models.FirewallInfo{}
+	parseIPTList(out, fw)
+	if fw.TotalRules > 0 {
 		info.FirewallActive = true
 		info.FirewallType = "iptables"
-		info.SSHAllowed = true // conservative default
+		info.SSHAllowed = sshAllowedIPT(out, sshPort(info))
 		return true
 	}
 	return false
+}
+
+// sshPort returns the SSH port to look for in firewall rules: the configured
+// non-standard port if known, else the default 22.
+func sshPort(info *models.SecurityInfo) int {
+	if info.SSHPort > 0 {
+		return info.SSHPort
+	}
+	return 22
+}
+
+// sshAllowedNFT decides whether an nftables ruleset admits NEW inbound SSH on
+// the given port. It is a heuristic matching the coarseness of the
+// firewalld/ufw service checks, and biases toward "allowed": it reports blocked
+// only when the input hook defaults to drop with no matching accept, or no
+// accept exists and the port is explicitly dropped/rejected. Stateful and
+// interface rules (ct state, iifname lo) don't admit new SSH and are ignored.
+func sshAllowedNFT(out string, port int) bool {
+	portWord := regexp.MustCompile(fmt.Sprintf(`\b%d\b`, port))
+	var inputPolicyDrop, acceptSSH, blockSSH bool
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		low := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if strings.Contains(low, "hook input") && strings.Contains(low, "policy drop") {
+			inputPolicyDrop = true
+		}
+		if !strings.Contains(low, "dport") {
+			continue
+		}
+		if !portWord.MatchString(low) && !strings.Contains(low, "ssh") {
+			continue
+		}
+		switch {
+		case strings.Contains(low, "accept"):
+			acceptSSH = true
+		case strings.Contains(low, "drop"), strings.Contains(low, "reject"):
+			blockSSH = true
+		}
+	}
+	return decideSSHAllowed(acceptSSH, blockSSH, inputPolicyDrop)
+}
+
+// sshAllowedIPT decides whether the iptables ruleset admits new inbound SSH.
+// Operates on `iptables -L -n --line-numbers` output (the --line-numbers prefix
+// is stripped via field parsing). Same heuristic and bias as sshAllowedNFT.
+func sshAllowedIPT(out string, port int) bool {
+	portWord := regexp.MustCompile(fmt.Sprintf(`\b%d\b`, port))
+	var inputPolicyDrop, acceptSSH, blockSSH bool
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "Chain INPUT") && strings.Contains(line, "policy DROP") {
+			inputPolicyDrop = true
+			continue
+		}
+		if strings.HasPrefix(line, "Chain ") {
+			continue
+		}
+		low := strings.ToLower(line)
+		if !strings.Contains(low, "dpt:") && !strings.Contains(low, "dpts:") && !strings.Contains(low, "dports") {
+			continue
+		}
+		if !portWord.MatchString(low) && !strings.Contains(low, ":ssh") {
+			continue
+		}
+		fields := strings.Fields(line)
+		target := fields[0]
+		if _, err := strconv.Atoi(fields[0]); err == nil && len(fields) > 1 {
+			target = fields[1] // strip leading --line-numbers column
+		}
+		switch target {
+		case "ACCEPT":
+			acceptSSH = true
+		case "DROP", "REJECT":
+			blockSSH = true
+		}
+	}
+	return decideSSHAllowed(acceptSSH, blockSSH, inputPolicyDrop)
+}
+
+// decideSSHAllowed applies the shared decision, biased toward "allowed": an
+// explicit accept anywhere wins (covers accept-from-subnet); otherwise an
+// explicit block or a default-drop input policy means blocked; absent any
+// filtering signal, assume reachable.
+func decideSSHAllowed(acceptSSH, blockSSH, inputPolicyDrop bool) bool {
+	switch {
+	case acceptSSH:
+		return true
+	case blockSSH:
+		return false
+	case inputPolicyDrop:
+		return false
+	default:
+		return true
+	}
 }
 
 // parseRHELSecurity collects security state specific to RHEL/Rocky/Fedora:

@@ -36,6 +36,14 @@ func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 	if err != nil {
 		return info, nil
 	}
+	parseNFTRuleset(out, info)
+	return info, nil
+}
+
+// parseNFTRuleset parses `nft list ruleset` output into a FirewallInfo. Split
+// out from collectNFTables so the security collector can reuse the exact same
+// rule-counting logic (keeping `dsd health` and `dsd security` in agreement).
+func parseNFTRuleset(out string, info *models.FirewallInfo) {
 	info.Available = true
 	info.Backend = "nftables"
 	info.Active = true
@@ -69,7 +77,6 @@ func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 			info.TotalRules++
 		}
 	}
-	return info, nil
 }
 
 func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {
@@ -77,6 +84,14 @@ func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 	if err != nil {
 		return info, nil
 	}
+	parseIPTList(out, info)
+	return info, nil
+}
+
+// parseIPTList parses `iptables -L -n --line-numbers` output into a
+// FirewallInfo. Split out from collectIPTables so the security collector can
+// reuse the same rule-counting logic.
+func parseIPTList(out string, info *models.FirewallInfo) {
 	info.Available = true
 	info.Backend = "iptables"
 
@@ -113,5 +128,4 @@ func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 	if info.TotalRules > 0 {
 		info.Active = true
 	}
-	return info, nil
 }
