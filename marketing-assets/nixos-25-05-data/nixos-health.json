@@ -1,45 +1,46 @@
-[INFO] System health — ~5s
-[INFO] step 1/29
-[INFO] step 2/29
-[INFO] step 3/29
-[INFO] step 4/29
-[INFO] step 5/29
-[INFO] step 6/29
-[INFO] step 7/29
-[INFO] step 8/29
-[INFO] step 9/29
-[INFO] step 10/29
-[INFO] step 11/29
-[INFO] step 12/29
-[INFO] step 13/29
-[INFO] step 14/29
-[INFO] step 15/29
-[INFO] step 16/29
-[INFO] step 17/29
-[INFO] step 18/29
-[INFO] step 19/29
-[INFO] step 20/29
-[INFO] step 21/29
-[INFO] step 22/29
-[INFO] step 23/29
-[INFO] step 24/29
-[INFO] step 25/29
-[INFO] step 26/29
-[INFO] step 27/29
-[INFO] step 28/29
-[INFO] step 29/29
-[INFO] done in 1.1s
 {
   "hostname": "nixos-2505",
   "os": "NixOS 25.05 (Warbler)",
-  "timestamp": "2026-06-01T16:16:11.093396313Z",
-  "version": "v0.6.0-31-g37b24a7",
+  "timestamp": "2026-06-01T20:03:46.521333786Z",
+  "version": "v0.6.0-38-g04fea7b",
   "checks": [
+    {
+      "name": "Processes",
+      "status": "OK",
+      "inline": "96 running",
+      "duration": "2.014405ms",
+      "raw": {
+        "total": 96,
+        "zombie_count": 0,
+        "hung_count": 0,
+        "zombie_procs": [],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Memory",
+      "status": "OK",
+      "inline": "0.1/2 GB (5%)",
+      "duration": "136.704µs",
+      "raw": {
+        "total_gb": 1.9249305725097656,
+        "free_gb": 1.6860618591308594,
+        "used_pct": 5.259319592000936,
+        "slab_mb": 46.109375,
+        "commit_limit_mb": 985.5625,
+        "committed_as_mb": 171.9296875,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
     {
       "name": "Disk",
       "status": "OK",
       "inline": "4 mounts, max 19% (/)",
-      "duration": "503.255µs",
+      "duration": "287.493µs",
       "raw": {
         "filesystems": [
           {
@@ -60,10 +61,10 @@
             "device": "/dev/disk/by-uuid/dfe098e6-fd1d-4b32-af97-0ac5b3ac3d55",
             "fs_type": "ext4",
             "total_gb": 16.297357312,
-            "used_gb": 2.235568127999999,
-            "free_gb": 14.061789184,
-            "used_pct": 18.93405300580796,
-            "inodes_used_pct": 15.519449901768168,
+            "used_gb": 2.250231807999999,
+            "free_gb": 14.047125504,
+            "used_pct": 19.024028820409534,
+            "inodes_used_pct": 15.521807465618863,
             "read_only": false,
             "status": "",
             "status_reason": ""
@@ -73,10 +74,10 @@
             "device": "/dev/disk/by-uuid/dfe098e6-fd1d-4b32-af97-0ac5b3ac3d55",
             "fs_type": "ext4",
             "total_gb": 16.297357312,
-            "used_gb": 2.235568127999999,
-            "free_gb": 14.061789184,
-            "used_pct": 18.93405300580796,
-            "inodes_used_pct": 15.519449901768168,
+            "used_gb": 2.250231807999999,
+            "free_gb": 14.047125504,
+            "used_pct": 19.024028820409534,
+            "inodes_used_pct": 15.521807465618863,
             "read_only": true,
             "status": "",
             "status_reason": ""
@@ -103,16 +104,7 @@
             "model": "QEMU HARDDISK",
             "mounts": [
               "sda1→/boot"
-            ],
-            "smart": {
-              "device": "/dev/sda",
-              "healthy": false,
-              "percent_used": 0,
-              "available_spare": 0,
-              "temperature_c": 0,
-              "media_errors": 0,
-              "error": "smartctl not installed"
-            }
+            ]
           }
         ],
         "status": "",
@@ -120,74 +112,27 @@
       }
     },
     {
-      "name": "Memory",
-      "status": "OK",
-      "inline": "0.1/2 GB (5%)",
-      "duration": "150.447µs",
-      "raw": {
-        "total_gb": 1.9249305725097656,
-        "free_gb": 1.6970176696777344,
-        "used_pct": 4.716721263394033,
-        "slab_mb": 43.88671875,
-        "commit_limit_mb": 985.5625,
-        "committed_as_mb": 158.55859375,
-        "over_committed": false,
-        "status": "",
-        "status_reason": ""
-      }
-    },
-    {
-      "name": "Battery",
-      "status": "OK",
-      "duration": "31.525µs",
-      "raw": {
-        "present": false,
-        "status": "",
-        "capacity_pct": 0,
-        "health_pct": 0,
-        "energy_now_uwh": 0,
-        "energy_full_uwh": 0,
-        "energy_design_uwh": 0,
-        "cycle_count": 0,
-        "voltage_uv": 0,
-        "power_now_uw": 0
-      }
-    },
-    {
       "name": "Clock",
       "status": "OK",
-      "inline": "±11 ms  adjtimex",
-      "duration": "98.59µs",
+      "inline": "±1 ms  adjtimex",
+      "duration": "72.836µs",
       "raw": {
         "synced": true,
-        "offset_ms": -10.628229,
+        "offset_ms": -0.744616,
         "source": "adjtimex",
         "status": "",
         "status_reason": ""
       }
     },
     {
-      "name": "Launchd",
-      "status": "OK",
-      "duration": "69ns"
-    },
-    {
-      "name": "Drives",
-      "status": "OK",
-      "duration": "43.317µs",
-      "raw": {
-        "devices": null
-      }
-    },
-    {
       "name": "FDLimits",
       "status": "OK",
-      "inline": "800 open",
-      "duration": "8.250707ms",
+      "inline": "928 open",
+      "duration": "6.172481ms",
       "raw": {
-        "open_count": 800,
+        "open_count": 928,
         "max_count": 9223372036854775807,
-        "used_pct": 8.673617379884035e-15,
+        "used_pct": 1.0061396160665481e-14,
         "hot_processes": null,
         "deleted_open_files": 0,
         "deleted_open_size_gb": 0,
@@ -196,74 +141,34 @@
       }
     },
     {
-      "name": "Processes",
-      "status": "OK",
-      "inline": "92 running",
-      "duration": "2.48993ms",
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "2.593764ms",
       "raw": {
-        "total": 92,
-        "zombie_count": 0,
-        "hung_count": 0,
-        "zombie_procs": [],
-        "hung_procs": [],
+        "available": true,
+        "vm_swappiness": 60,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 96,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 128,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 0,
+        "fs_inotify_watches": 15609,
+        "workload": "default",
         "status": "",
         "status_reason": ""
       }
     },
     {
-      "name": "Pressure",
-      "status": "OK",
-      "inline": "no pressure",
-      "duration": "129.66µs",
-      "raw": {
-        "available": true,
-        "memory_some": {
-          "avg10": 0,
-          "avg60": 0,
-          "avg300": 0
-        },
-        "memory_full": {
-          "avg10": 0,
-          "avg60": 0,
-          "avg300": 0
-        },
-        "cpu_some": {
-          "avg10": 0,
-          "avg60": 0.01,
-          "avg300": 0.01
-        },
-        "io_some": {
-          "avg10": 0,
-          "avg60": 0,
-          "avg300": 0
-        },
-        "io_full": {
-          "avg10": 0,
-          "avg60": 0,
-          "avg300": 0
-        }
-      }
-    },
-    {
-      "name": "HugePages",
-      "status": "OK",
-      "inline": "THP madvise",
-      "duration": "107.471µs",
-      "raw": {
-        "available": true,
-        "configured": 0,
-        "free": 0,
-        "used": 0,
-        "page_size_kb": 2048,
-        "reserved_gb": 0,
-        "thp_enabled": true,
-        "thp_mode": "madvise"
-      }
-    },
-    {
       "name": "KernelSec",
       "status": "INFO",
-      "duration": "79.917µs",
+      "duration": "63.726µs",
       "raw": {
         "available": true,
         "se_linux_present": false,
@@ -281,7 +186,7 @@
       "name": "Entropy",
       "status": "OK",
       "inline": "256/256 bits",
-      "duration": "46.428µs",
+      "duration": "38.272µs",
       "raw": {
         "available": true,
         "entropy_available": 256,
@@ -289,10 +194,116 @@
       }
     },
     {
+      "name": "CPU Thermal",
+      "status": "OK",
+      "duration": "27.643µs",
+      "raw": {
+        "available": true,
+        "cpu_temp_c": 0,
+        "source": ""
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "duration": "24.919µs",
+      "raw": {
+        "present": false,
+        "status": "",
+        "capacity_pct": 0,
+        "health_pct": 0,
+        "energy_now_uwh": 0,
+        "energy_full_uwh": 0,
+        "energy_design_uwh": 0,
+        "cycle_count": 0,
+        "voltage_uv": 0,
+        "power_now_uw": 0
+      }
+    },
+    {
+      "name": "Launchd",
+      "status": "OK",
+      "duration": "44ns"
+    },
+    {
+      "name": "Drives",
+      "status": "OK",
+      "duration": "30.346µs",
+      "raw": {
+        "devices": null
+      }
+    },
+    {
+      "name": "DBus",
+      "status": "OK",
+      "duration": "26.746086ms",
+      "raw": {
+        "available": true,
+        "active": true,
+        "status": "active"
+      }
+    },
+    {
+      "name": "Pressure",
+      "status": "OK",
+      "inline": "mem 0%  cpu 1%  io 0%",
+      "duration": "3.171024ms",
+      "raw": {
+        "available": true,
+        "memory_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "memory_full": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "cpu_some": {
+          "avg10": 0.74,
+          "avg60": 0.22,
+          "avg300": 0.11
+        },
+        "io_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "io_full": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        }
+      }
+    },
+    {
+      "name": "HugePages",
+      "status": "OK",
+      "inline": "THP madvise",
+      "duration": "96.232µs",
+      "raw": {
+        "available": true,
+        "configured": 0,
+        "free": 0,
+        "used": 0,
+        "page_size_kb": 2048,
+        "reserved_gb": 0,
+        "thp_enabled": true,
+        "thp_mode": "madvise"
+      }
+    },
+    {
+      "name": "VLAN",
+      "status": "OK",
+      "duration": "42.511µs",
+      "raw": {}
+    },
+    {
       "name": "Firewall",
       "status": "OK",
       "inline": "iptables  11 rules",
-      "duration": "16.971332ms",
+      "duration": "4.109591ms",
       "raw": {
         "available": true,
         "backend": "iptables",
@@ -346,69 +357,28 @@
       }
     },
     {
-      "name": "CPU Thermal",
-      "status": "OK",
-      "duration": "43.479µs",
-      "raw": {
-        "available": true,
-        "cpu_temp_c": 0,
-        "source": ""
-      }
-    },
-    {
-      "name": "VLAN",
-      "status": "OK",
-      "duration": "19.509294ms",
-      "raw": {}
-    },
-    {
-      "name": "DBus",
-      "status": "OK",
-      "duration": "27.126269ms",
-      "raw": {
-        "available": true,
-        "active": true,
-        "status": "active"
-      }
-    },
-    {
       "name": "Nspawn",
       "status": "OK",
-      "duration": "22.079403ms",
+      "duration": "15.362229ms",
       "raw": {
         "available": false
       }
     },
     {
-      "name": "Sysctl",
-      "status": "WARN",
-      "duration": "27.958773ms",
+      "name": "OOM",
+      "status": "OK",
+      "inline": "0 events",
+      "duration": "25.256328ms",
       "raw": {
         "available": true,
-        "vm_swappiness": 60,
-        "net_somaxconn": 4096,
-        "fs_file_max": 9223372036854775807,
-        "kernel_pid_max": 4194304,
-        "pid_count": 96,
-        "net_rmem_max": 212992,
-        "net_wmem_max": 212992,
-        "tcp_tw_reuse": 2,
-        "tcp_syn_backlog": 128,
-        "vm_max_map_count": 1048576,
-        "vm_dirty_ratio": 20,
-        "vm_dirty_background_ratio": 10,
-        "vm_overcommit": 0,
-        "fs_inotify_watches": 15609,
-        "workload": "default",
-        "status": "",
-        "status_reason": ""
+        "events_last_24h": 0
       }
     },
     {
       "name": "Auth",
       "status": "OK",
       "inline": "0 failed logins",
-      "duration": "38.926237ms",
+      "duration": "31.366284ms",
       "raw": {
         "available": true,
         "checked": true,
@@ -418,10 +388,28 @@
     {
       "name": "Sessions",
       "status": "CRIT",
-      "inline": "2 sessions  2 remote",
-      "duration": "43.511874ms",
+      "inline": "4 sessions  4 remote",
+      "duration": "55.517745ms",
       "raw": {
         "sessions": [
+          {
+            "user": "root",
+            "tty": "22:03",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "?",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
+          {
+            "user": "root",
+            "tty": "19:25",
+            "from": "0.00s",
+            "login_at": "0.00s",
+            "idle": "?",
+            "idle_sec": 0,
+            "command": "[priv]"
+          },
           {
             "user": "root",
             "tty": "18:15",
@@ -436,12 +424,12 @@
             "tty": "18:15",
             "from": "0.00s",
             "login_at": "0.00s",
-            "idle": "0.24s",
+            "idle": "0.25s",
             "idle_sec": 0
           }
         ],
-        "total_count": 2,
-        "remote_count": 2,
+        "total_count": 4,
+        "remote_count": 4,
         "unique_ips": [
           "0.00s"
         ],
@@ -449,19 +437,9 @@
       }
     },
     {
-      "name": "OOM",
-      "status": "OK",
-      "inline": "0 events",
-      "duration": "53.924998ms",
-      "raw": {
-        "available": true,
-        "events_last_24h": 0
-      }
-    },
-    {
       "name": "Hardening",
       "status": "CRIT",
-      "duration": "76.44503ms",
+      "duration": "75.417264ms",
       "raw": {
         "ssh_permit_root": true,
         "ssh_password_auth": true,
@@ -491,7 +469,8 @@
             "expected": true
           }
         ],
-        "firewall_active": false,
+        "firewall_active": true,
+        "firewall_type": "iptables",
         "ssh_allowed": true,
         "se_linux_denials": 0,
         "se_linux_mode": "",
@@ -508,21 +487,21 @@
     {
       "name": "LVM",
       "status": "OK",
-      "duration": "111.345344ms",
+      "duration": "84.919573ms",
       "raw": {}
     },
     {
       "name": "CPU Load",
       "status": "OK",
-      "inline": "60%",
-      "duration": "501.002142ms",
+      "inline": "58%",
+      "duration": "501.136748ms",
       "raw": {
-        "load_avg_1": 0,
-        "load_avg_5": 0,
+        "load_avg_1": 0.02,
+        "load_avg_5": 0.03,
         "load_avg_15": 0,
         "num_cpu": 2,
-        "usage_pct": 60,
-        "load_pct": 0,
+        "usage_pct": 57.57575757575757,
+        "load_pct": 1,
         "steal_pct": 0,
         "iowait_pct": 0,
         "status": "",
@@ -533,7 +512,7 @@
       "name": "Systemd",
       "status": "OK",
       "inline": "boot 12s",
-      "duration": "547.422053ms",
+      "duration": "505.472411ms",
       "raw": {
         "available": true,
         "failed_units": null,
@@ -553,7 +532,7 @@
       "name": "Logs",
       "status": "INFO",
       "inline": "16 MB journal",
-      "duration": "639.483316ms",
+      "duration": "628.267075ms",
       "raw": {
         "available": true,
         "oom_kills": 0,
@@ -567,12 +546,12 @@
         "crash_loops": null,
         "journal_no_text_fallback": true,
         "journal_sync_risk": true,
-        "log_disk_used_pct": 13.717365860009192,
+        "log_disk_used_pct": 13.80734167461076,
         "log_disk_mount": "/",
         "error_count": 1,
-        "warning_count": 6,
+        "warning_count": 0,
         "top_errors": [
-          "nixos-2505 sshd-session[914]: error: PAM: Authentication failure for root from 1"
+          "nixos-2505 sshd-session[2112]: error: PAM: Authentication failure for root from "
         ],
         "core_dump_count": 0,
         "log_source": "journald"
@@ -581,16 +560,16 @@
     {
       "name": "IO",
       "status": "OK",
-      "inline": "0.9 ms",
-      "duration": "1.000247428s",
+      "inline": "0.8 ms",
+      "duration": "1.000421311s",
       "raw": {
         "devices": [
           {
             "name": "sda",
             "is_ssd": false,
             "drive_type": "hdd",
-            "util_pct": 0.6,
-            "await_ms": 0.9166666666666666,
+            "util_pct": 0.5,
+            "await_ms": 0.75,
             "read_mbps": 1.572864,
             "write_mbps": 0,
             "queue_depth": 0,
@@ -606,7 +585,7 @@
       "name": "Swap",
       "status": "OK",
       "inline": "none",
-      "duration": "1.000434278s",
+      "duration": "1.000501898s",
       "raw": {
         "total_gb": 0,
         "used_gb": 0,
@@ -623,7 +602,7 @@
       "name": "Network",
       "status": "OK",
       "inline": "ens18  gw \u003c1 ms",
-      "duration": "1.060075939s",
+      "duration": "1.041429245s",
       "raw": {
         "interfaces": [
           {
@@ -637,9 +616,9 @@
           }
         ],
         "primary_interface": "ens18",
-        "gateway_ping_ms": 0.464,
-        "internet_ping_ms": 6.583,
-        "dns_resolves_ms": 14,
+        "gateway_ping_ms": 0.772,
+        "internet_ping_ms": 6.841,
+        "dns_resolves_ms": 23,
         "close_wait_count": 0,
         "nat_detected": false,
         "status": "",
@@ -649,18 +628,13 @@
   ],
   "insights": [
     {
-      "check": "KernelSec",
-      "level": "INFO",
-      "message": "kernel security module not enforced"
-    },
-    {
       "check": "Sysctl",
       "level": "WARN",
       "message": "vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)",
       "hints": [
         "to inspect: cat /proc/sys/vm/swappiness",
         "to fix: sysctl -w vm.swappiness=10",
-        "to persist: echo 'vm.swappiness=10' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+        "to persist (NixOS): boot.kernel.sysctl = { \"vm.swappiness\" = 10; }; in configuration.nix, then nixos-rebuild switch"
       ],
       "details": {
         "type": "sysctl_table",
@@ -688,8 +662,13 @@
       "hints": [
         "to inspect: sysctl net.core.rmem_max",
         "to fix: sysctl -w net.core.rmem_max=4194304",
-        "to persist: echo 'net.core.rmem_max=4194304' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+        "to persist (NixOS): boot.kernel.sysctl = { \"net.core.rmem_max\" = 4194304; }; in configuration.nix, then nixos-rebuild switch"
       ]
+    },
+    {
+      "check": "KernelSec",
+      "level": "INFO",
+      "message": "kernel security module not enforced"
     },
     {
       "check": "Sessions",
@@ -697,7 +676,7 @@
       "message": "root is logged in via SSH — direct root SSH access is a security risk",
       "hints": [
         "to inspect: w",
-        "to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
+        "to fix (NixOS): services.openssh.settings.PermitRootLogin = \"no\"; in configuration.nix, then nixos-rebuild switch",
         "to fix: use sudo or su instead of direct root SSH"
       ]
     },
@@ -706,8 +685,7 @@
       "level": "CRIT",
       "message": "SSH permits root login",
       "hints": [
-        "to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
-        "to fix: systemctl restart sshd"
+        "to fix (NixOS): services.openssh.settings.PermitRootLogin = \"no\"; in configuration.nix, then nixos-rebuild switch"
       ]
     },
     {
@@ -715,7 +693,7 @@
       "level": "WARN",
       "message": "SSH allows password authentication — key-based auth recommended",
       "hints": [
-        "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+        "to fix (NixOS): services.openssh.settings.PasswordAuthentication = \"no\"; in configuration.nix, then nixos-rebuild switch"
       ]
     },
     {
@@ -723,8 +701,7 @@
       "level": "INFO",
       "message": "SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window",
       "hints": [
-        "to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
-        "to fix: systemctl restart sshd"
+        "to fix (NixOS): services.openssh.settings.LoginGraceTime = \"60\"; in configuration.nix, then nixos-rebuild switch"
       ]
     },
     {
@@ -732,7 +709,7 @@
       "level": "INFO",
       "message": "SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
       "hints": [
-        "to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
+        "to fix (NixOS): services.openssh.settings.AllowAgentForwarding = \"no\"; in configuration.nix, then nixos-rebuild switch",
         "note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally"
       ]
     },
@@ -741,8 +718,8 @@
       "level": "INFO",
       "message": "SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
       "hints": [
-        "to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
-        "to fix: set ClientAliveCountMax 3 in /etc/ssh/sshd_config",
+        "to fix (NixOS): services.openssh.settings.ClientAliveInterval = \"300\"; in configuration.nix, then nixos-rebuild switch",
+        "to fix (NixOS): services.openssh.settings.ClientAliveCountMax = \"3\"; in configuration.nix, then nixos-rebuild switch",
         "note: this disconnects idle sessions after 300s × 3 = 15 minutes"
       ]
     },
@@ -751,7 +728,7 @@
       "level": "INFO",
       "message": "no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read",
       "hints": [
-        "to fix: apt install rsyslog  OR  dnf install rsyslog  OR  zypper install rsyslog",
+        "to fix (NixOS): services.rsyslogd.enable = true; in configuration.nix, then nixos-rebuild switch",
         "note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails",
         "note:   standard Unix tools (grep, tail, less) cannot read binary journal files"
       ]
@@ -761,7 +738,7 @@
       "level": "INFO",
       "message": "journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost",
       "hints": [
-        "to fix: echo 'SyncIntervalSec=30s' \u003e\u003e /etc/systemd/journald.conf",
+        "to fix (NixOS): services.journald.extraConfig = \"SyncIntervalSec=30s\"; in configuration.nix, then nixos-rebuild switch",
         "to fix: systemctl restart systemd-journald",
         "note:   lower sync interval increases disk I/O but ensures crash logs are preserved"
       ]
