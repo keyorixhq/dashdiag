@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
@@ -70,7 +72,74 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 		}
 		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
 	}
+	// On NixOS the imperative fix hints (/etc/sysctl.d, /etc/ssh/sshd_config,
+	// apt/dnf/zypper) don't apply — rewrite them to the configuration.nix form.
+	if hostIsNixOS() {
+		insights = nixosifyHints(insights)
+	}
 	return insights
+}
+
+// NixOS configures the system declaratively via configuration.nix + nixos-rebuild,
+// not the imperative /etc/sysctl.d, /etc/ssh/sshd_config, and apt/dnf/zypper
+// commands the generic fix hints assume. The patterns below are anchored so
+// they only rewrite the intended hints; everything else passes through.
+var (
+	reNixSysctlPersist = regexp.MustCompile(`^to persist: echo '([^'=]+)=(.+)' >> /etc/sysctl\.d/99-dsd\.conf$`)
+	reNixSSHDSet       = regexp.MustCompile(`^to fix: set (\S+) (.+) in /etc/ssh/sshd_config$`)
+	reNixSSHDEchoSet   = regexp.MustCompile(`^to fix:\s+echo '(\S+) (.+)' >> /etc/ssh/sshd_config && systemctl restart sshd$`)
+	reNixSSHRestart    = regexp.MustCompile(`^to fix: systemctl restart sshd$`)
+	reNixSSHProtocol   = regexp.MustCompile(`^to fix: remove or comment out 'Protocol' line in /etc/ssh/sshd_config$`)
+	reNixRsyslog       = regexp.MustCompile(`^to fix: apt install rsyslog\s+OR\s+dnf install rsyslog\s+OR\s+zypper install rsyslog$`)
+)
+
+// hostIsNixOS reports whether the running host is NixOS, per /etc/os-release.
+func hostIsNixOS() bool {
+	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "nixos")
+}
+
+// nixosifyHints rewrites every insight's fix hints into their configuration.nix
+// equivalents. Hints that match no known pattern are left untouched.
+func nixosifyHints(insights []models.Insight) []models.Insight {
+	for i := range insights {
+		if len(insights[i].Hints) == 0 {
+			continue
+		}
+		rewritten := make([]string, 0, len(insights[i].Hints))
+		for _, h := range insights[i].Hints {
+			if nh, drop := nixosFixHint(h); !drop {
+				rewritten = append(rewritten, nh)
+			}
+		}
+		insights[i].Hints = rewritten
+	}
+	return insights
+}
+
+// nixosFixHint rewrites a single generic fix hint to its NixOS form. The bool
+// return is true when the hint should be dropped on NixOS (a standalone sshd
+// restart that the rebuild already covers); otherwise it returns the rewritten
+// hint, or the hint unchanged when no NixOS rewrite applies.
+func nixosFixHint(hint string) (string, bool) {
+	if m := reNixSysctlPersist.FindStringSubmatch(hint); m != nil {
+		return fmt.Sprintf("to persist (NixOS): boot.kernel.sysctl = { %q = %s; }; in configuration.nix, then nixos-rebuild switch", m[1], m[2]), false
+	}
+	if m := reNixSSHDSet.FindStringSubmatch(hint); m != nil {
+		return fmt.Sprintf("to fix (NixOS): services.openssh.settings.%s = %q; in configuration.nix, then nixos-rebuild switch", m[1], m[2]), false
+	}
+	if m := reNixSSHDEchoSet.FindStringSubmatch(hint); m != nil {
+		return fmt.Sprintf("to fix (NixOS): services.openssh.settings.%s = %q; in configuration.nix, then nixos-rebuild switch", m[1], m[2]), false
+	}
+	if reNixSSHRestart.MatchString(hint) {
+		return "", true // configuration.nix rebuild already restarts sshd
+	}
+	if reNixSSHProtocol.MatchString(hint) {
+		return "to fix (NixOS): remove any 'Protocol' line from services.openssh.extraConfig, then nixos-rebuild switch", false
+	}
+	if reNixRsyslog.MatchString(hint) {
+		return "to fix (NixOS): services.rsyslogd.enable = true; in configuration.nix, then nixos-rebuild switch", false
+	}
+	return hint, false
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
