@@ -49,14 +49,11 @@ scp dist/dsd-linux-amd64 root@<host>:/tmp/dsd
 ```
 
 **Deploy pattern (Mac → Legion, legacy):**
-```bash
-SSH_AUTH_SOCK=$(launchctl getenv SSH_AUTH_SOCK) make deploy
-# or: SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
-```
+Legion wiped and given away (June 2026) — this pattern is obsolete.
 
 ---
 
-## What Ships (as of v0.6.0-38, commit d2356fe)
+## What Ships (as of v0.6.1, commit 9724e23)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)
@@ -64,7 +61,7 @@ dsd health deep  ✅ per-core CPU, top procs with cgroup scope labels,
                     smaps_rollup, cgroup v2 slices, package integrity
 dsd net          ✅ fast + deep + dns subcommand
 dsd net dns      ✅ resolv.conf audit, NM/resolved, live resolution test
-dsd net deep     ✅ + NFS mount health + BIND/named server health
+dsd net deep     ✅ + NFS mount health + BIND/named server health + DNS resolver audit
 dsd logs         ✅ severity summary, crash files, log source detection
 dsd services     ✅ fast + deep (failed units, boot offenders, journal health)
 dsd docker       ✅ exit code labels, events, secrets, root user, socket mount,
@@ -170,22 +167,25 @@ touching PVE code.
 
 ---
 
-## Test Machine
+## Test Matrix
 
-| Fact | Value |
-|---|---|
-| IP | 192.168.1.145 |
-| OS | RHEL 10.1 (Coughlan), kernel 6.12 |
-| CPU | AMD Ryzen 7 5800H, 8c/16t |
-| RAM | 16 GB DDR4 |
-| Storage | 2× SK Hynix 1TB NVMe |
-| GPU | AMD Radeon (amdgpu) + NVIDIA RTX 3070 (nouveau) |
-| k3s | v1.35.4 at `/usr/local/bin/k3s` |
-| Podman | 5.6.0 at `/run/podman/podman.sock` |
-| Go | 1.24.3 at `/home/andrei/go/bin/go` |
-| libvirt | 11.10.0, QEMU 10.1.0, test-vm running |
-| BIND | 9.18.33 at `/usr/sbin/named`, 5 zones |
-| NFS | `/mnt/nfs_test` → `127.0.0.1:/tmp/nfs_export` |
+**Legion (RHEL 10.1) — wiped and given away June 2026. Replaced by AlmaLinux LXC.**
+
+| CT/VM | Hostname | IP | OS | Status |
+|---|---|---|---|---|
+| CT 202 | ubuntu24-lxc | 192.168.10.10 | Ubuntu 24.04 LTS | running |
+| CT 213 | almalinux9-lxc | 192.168.10.8 | AlmaLinux 9.4 (RHEL family) | running |
+| VM 212 | nixos-25-05 | 192.168.10.11 | NixOS 25.05 (Warbler) | running |
+| PVE base | pve01 | 192.168.10.20 | Debian 13 / PVE 9.1.1 | always on |
+
+**Stopped (start with `pct start <id>` on pve01):**
+CT 200 almalinux-lxc, CT 201 debian13-lxc, CT 203 rocky10-lxc, CT 204 opensuse16-lxc, VM 100 ubuntu24-min-vm
+
+**Deploy to any guest:**
+```bash
+scp dist/dsd-linux-amd64 root@<ip>:/tmp/dsd
+ssh root@<ip> '/tmp/dsd health'
+```
 
 ---
 
