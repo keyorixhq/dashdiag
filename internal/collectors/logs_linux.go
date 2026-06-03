@@ -70,7 +70,7 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	checkJournalHealth(ctx, info)
 
 	// Severity summary from journal (Spec 3)
-	collectSeveritySummary(ctx, info)
+	collectSeveritySummary(ctx, info, c.Lookback)
 
 	// Crash file detection (Spec 3)
 	collectCrashFiles(info)
@@ -567,19 +567,32 @@ func isServiceActive(name string) bool {
 	return err == nil && strings.TrimSpace(out) == "active"
 }
 
+// lookbackToSince converts a time.Duration to a journalctl --since string.
+// journalctl accepts "X hours ago", "X minutes ago", "X days ago".
+func lookbackToSince(d time.Duration) string {
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	case d >= time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	}
+}
+
 // ── Severity summary (Spec 3) ─────────────────────────────────────────────────
 
 // collectSeveritySummary reads error and warning counts from the journal
 // for the last hour using journalctl priority filters.
 // Priority levels: 0=emerg 1=alert 2=crit 3=err 4=warning
-func collectSeveritySummary(ctx context.Context, info *models.LogsInfo) {
+func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback time.Duration) {
 	summaryCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
+	since := lookbackToSince(lookback)
+
 	// Error count: emerg(0) through err(3).
-	// short-iso gives a parseable timestamp (with year) at the line start so we
-	// can compute per-error age for the structured TopCritical entries.
-	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", "1 hour ago",
+	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", since,
 		"--no-pager", "-q", "--output=short-iso")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(errOut), "\n")
@@ -605,7 +618,7 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo) {
 	}
 
 	// Warning count
-	warnOut, err := runCmd(summaryCtx, "journalctl", "-p", "warning", "--since", "1 hour ago",
+	warnOut, err := runCmd(summaryCtx, "journalctl", "-p", "warning", "--since", since,
 		"--no-pager", "-q", "--output=short")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(warnOut), "\n") {
