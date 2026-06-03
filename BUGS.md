@@ -288,7 +288,7 @@ non-PVE behaviour is unchanged.
   `if isVirtualDisk(*d) || c.ContainerCtx.InContainer { continue }`, so SMART is
   skipped entirely inside a container. isVirtualDisk() is unchanged; non-container,
   non-virtual hosts behave exactly as before.
-**Commit:** BUG-020 fix
+**Commit:** d89324f
 
 ---
 
