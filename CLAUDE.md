@@ -67,6 +67,7 @@ dsd services     ✅ fast + deep (failed units, boot offenders, journal health)
 dsd docker       ✅ exit code labels, events, secrets, root user, socket mount,
                     daemon health, log driver (--deep), IP forward, firewalld nftables
 dsd k8s          ✅ JSON API, events, OS-layer deep, wired into dsd health
+dsd containerd   ✅ standalone containerd: socket, service state, version, namespace/container counts
 dsd proc         ✅ smaps_rollup, FD map, socket conns, D-state guide
 dsd cron         ✅ daemon, quality, anacron staleness
 dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection

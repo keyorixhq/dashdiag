@@ -171,21 +171,13 @@ These containers are not visible via the Podman socket — they're managed as sy
 
 ---
 
-### [CONTAINER-CONTAINERD] Standalone containerd health check
+### ~~[CONTAINER-CONTAINERD] Standalone containerd health check~~ ✅ DONE (June 4, commit ded30f4)
 
-**Current state:** `dsd k8s` OS layer checks `containerd.service` status when kubelet is
-present. But containerd running standalone (k3s, Rancher, non-k8s) is not checked.
-
-**What to add:**
-- Socket detection: `/run/containerd/containerd.sock`
-- Query `ctr namespaces list` + `ctr -n k8s.io containers list` for running containers
-- Surface containerd service failures in `dsd health`
-
-**Priority:** Low. k3s users already get coverage via `dsd k8s`. Only needed when
-containerd is used without any k8s layer. ~1d.
-
-**Skip for now:** Low-level runtimes (runc, crun, gVisor, Kata) — not admin-facing,
-zero diagnostic value for DashDiag's target audience.
+**Completed June 4:** Socket detection, service state via systemctl, version + namespace/
+container counts via `ctr`/`containerd-ctr` (multi-binary probe handles openSUSE, Debian,
+k3s). Gate: `ContainerdAvailable() && !K8sAvailable()` — no double-counting with `dsd k8s`.
+Inline: `v1.7.27  default:1`. CRIT when socket present but service non-active (crashed).
+Verified live on VM 214 (openSUSE Leap 16, containerd 1.7.27) with alpine container.
 
 ---
 
