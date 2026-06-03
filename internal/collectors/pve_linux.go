@@ -291,19 +291,52 @@ func collectPVEStorages(ctx context.Context) []models.PVEStorage {
 // collectPVEBackups reads recent backup tasks from pvesh and determines both
 // the global age of the last successful backup and a per-VM/CT backup audit.
 // Templates are skipped silently from the per-VM audit.
+//
+// The per-VM audit is driven by scanning the vzdump dump directories, because
+// `vzdump --all` produces a single bulk task with no per-VM id field — the only
+// place the VMID appears is the archive filename. pvesh task records are used
+// only as a fallback (e.g. single-guest backups when no archive is on disk).
 func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 	tasks []models.PVEBackupTask, ageDays int, statuses []models.PVEBackupStatus,
 ) {
+	dumpByVM := scanBackupDumpDir() // authoritative per-VM source
+
 	// 200 tasks gives enough history to age backups older than 30 days.
 	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
 		"--output-format", "json",
 		"--typefilter", "vzdump",
 		"--limit", "200")
 	if err != nil {
-		// Fallback: scan backup log files (per-VM audit unavailable)
-		return nil, collectPVEBackupAgeFromLogs(), nil
+		// pvesh unavailable — derive everything from the dump dir + log scan.
+		ageDays = collectPVEBackupAgeFromLogs()
+		if ageDays < 0 {
+			if newest := newestBackupTime(dumpByVM); !newest.IsZero() {
+				ageDays = int(time.Since(newest).Hours() / 24)
+			}
+		}
+		return nil, ageDays, backupAudit(guests, dumpByVM)
 	}
 
+	tasks, ageDays, pveshByVM := parsePVEBackupTasks(out)
+
+	// Per-VM: dump-dir scan wins; fall back to per-VM task records.
+	perVM := dumpByVM
+	if len(perVM) == 0 {
+		perVM = pveshByVM
+	}
+	// Global age: if tasks gave nothing, derive from the newest archive on disk.
+	if ageDays < 0 {
+		if newest := newestBackupTime(perVM); !newest.IsZero() {
+			ageDays = int(time.Since(newest).Hours() / 24)
+		}
+	}
+	return tasks, ageDays, backupAudit(guests, perVM)
+}
+
+// parsePVEBackupTasks parses the vzdump task list JSON into recent tasks (last
+// 7 days), the global age in days of the last successful backup (-1 = none),
+// and the most recent successful backup time per VMID.
+func parsePVEBackupTasks(out string) (tasks []models.PVEBackupTask, ageDays int, byVM map[int]time.Time) {
 	var items []struct {
 		VMID    string  `json:"id"`
 		Status  string  `json:"status"`
@@ -316,7 +349,7 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 	ageDays = -1 // -1 = never
 	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	lastSuccess := time.Time{}
-	lastOKByVM := make(map[int]time.Time) // most recent successful backup per VMID
+	byVM = make(map[int]time.Time)
 
 	for _, item := range items {
 		end := time.Unix(int64(item.EndTime), 0)
@@ -335,8 +368,8 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 			if end.After(lastSuccess) {
 				lastSuccess = end
 			}
-			if end.After(lastOKByVM[vmid]) {
-				lastOKByVM[vmid] = end
+			if end.After(byVM[vmid]) {
+				byVM[vmid] = end
 			}
 		}
 	}
@@ -344,8 +377,88 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 	if !lastSuccess.IsZero() {
 		ageDays = int(time.Since(lastSuccess).Hours() / 24)
 	}
-	statuses = backupAudit(guests, lastOKByVM)
-	return tasks, ageDays, statuses
+	return tasks, ageDays, byVM
+}
+
+// backupDumpDirs are the candidate vzdump output directories, in priority order.
+var backupDumpDirs = []string{
+	"/mnt/data/dump",          // primary (local-hdd on the test node)
+	"/var/lib/vz/dump",        // default local storage
+	"/var/lib/pve/local/dump", // alternate
+}
+
+// vzdumpArchiveExts are the compression suffixes vzdump archives can carry.
+var vzdumpArchiveExts = []string{
+	"vma.zst", "tar.zst", "vma.lzo", "tar.lzo", "vma.gz", "tar.gz",
+}
+
+// scanBackupDumpDir scans the known vzdump output directories for backup
+// archives and returns the most recent backup time per VMID. This is reliable
+// even for `vzdump --all`, since the VMID is embedded in each archive filename.
+// File mtime is used as the backup time (robust regardless of filename format).
+func scanBackupDumpDir() map[int]time.Time {
+	return scanBackupDumpDirs(backupDumpDirs)
+}
+
+// scanBackupDumpDirs is the testable core of scanBackupDumpDir.
+func scanBackupDumpDirs(dirs []string) map[int]time.Time {
+	result := make(map[int]time.Time)
+	for _, dir := range dirs {
+		for _, ext := range vzdumpArchiveExts {
+			matches, err := filepath.Glob(filepath.Join(dir, "vzdump-*."+ext))
+			if err != nil {
+				continue
+			}
+			for _, path := range matches {
+				vmid, ok := parseVzdumpVMID(filepath.Base(path))
+				if !ok {
+					continue
+				}
+				fi, err := os.Stat(path)
+				if err != nil {
+					continue
+				}
+				if mt := fi.ModTime(); mt.After(result[vmid]) {
+					result[vmid] = mt
+				}
+			}
+		}
+	}
+	return result
+}
+
+// parseVzdumpVMID extracts the VMID from a vzdump archive filename.
+// Format: vzdump-<qemu|lxc>-<vmid>-<date>-<time>.<ext>
+//
+//	e.g. "vzdump-qemu-100-2024_06_03-19_16_09.vma.zst" → 100
+func parseVzdumpVMID(name string) (int, bool) {
+	if !strings.HasPrefix(name, "vzdump-") {
+		return 0, false
+	}
+	parts := strings.Split(name, "-")
+	// parts: ["vzdump", "qemu"|"lxc", "<vmid>", "<date>", "<time>.<ext>"]
+	if len(parts) < 4 {
+		return 0, false
+	}
+	if parts[1] != "qemu" && parts[1] != "lxc" {
+		return 0, false
+	}
+	vmid, err := strconv.Atoi(parts[2])
+	if err != nil || vmid <= 0 {
+		return 0, false
+	}
+	return vmid, true
+}
+
+// newestBackupTime returns the most recent time across a per-VM backup map.
+func newestBackupTime(byVM map[int]time.Time) time.Time {
+	var newest time.Time
+	for _, t := range byVM {
+		if t.After(newest) {
+			newest = t
+		}
+	}
+	return newest
 }
 
 // backupAudit produces a per-VM/CT backup status from the last-successful-backup
