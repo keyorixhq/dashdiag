@@ -256,3 +256,35 @@ func TestInsightDetailsOmitEmpty(t *testing.T) {
 		t.Error("Details should be nil when not set")
 	}
 }
+
+func TestResolverAuditInfo(t *testing.T) {
+	integrated := true
+	in := ResolverAuditInfo{
+		ResolverType:         "systemd-resolved",
+		ResolverActive:       true,
+		ResolvConfMode:       "stub",
+		ResolvConfTarget:     "/run/systemd/resolve/stub-resolv.conf",
+		DNSSECConfigured:     "yes",
+		DNSSECActive:         "no/unsupported",
+		DNSSECDegraded:       true,
+		DNSSECDegradedReason: "upstream DNS 1.2.3.4 does not support DNSSEC validation (on eth0)",
+		DoTStatus:            "opportunistic",
+		LinkDNS:              []ResolverLinkDNS{{Link: "eth0", Servers: []string{"1.2.3.4"}, DNSSEC: "no/unsupported"}},
+		DNSSECTestRan:        true,
+		DNSSECTestPassed:     true,
+		VPNInterface:         "wg0",
+		VPNDNSIntegrated:     &integrated,
+	}
+	var out ResolverAuditInfo
+	roundTrip(t, &in, &out)
+	if out.ResolverType != in.ResolverType || out.ResolvConfMode != in.ResolvConfMode ||
+		out.DNSSECDegraded != in.DNSSECDegraded || out.DoTStatus != in.DoTStatus {
+		t.Errorf("round-trip mismatch: got %+v", out)
+	}
+	if out.VPNDNSIntegrated == nil || *out.VPNDNSIntegrated != true {
+		t.Errorf("VPNDNSIntegrated round-trip failed: %v", out.VPNDNSIntegrated)
+	}
+	if len(out.LinkDNS) != 1 || out.LinkDNS[0].Link != "eth0" {
+		t.Errorf("LinkDNS round-trip failed: %v", out.LinkDNS)
+	}
+}
