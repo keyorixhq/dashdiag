@@ -55,6 +55,19 @@ type DockerEvent struct {
 	TimeUnix int64  `json:"time"`
 }
 
+// PodmanQuadlet holds the state of a systemd-managed Podman container or pod
+// defined as a .container/.pod file under /etc/containers/systemd/ (or the
+// root user's ~/.config/containers/systemd/). These are not visible via the
+// Podman socket — systemd generates a service unit for each quadlet file.
+type PodmanQuadlet struct {
+	Name        string `json:"name"`
+	UnitFile    string `json:"unit_file"`
+	ServiceUnit string `json:"service_unit"`
+	Active      bool   `json:"active"`
+	Failed      bool   `json:"failed"`
+	State       string `json:"state"`
+}
+
 // DockerInfo holds Docker/Podman daemon health data.
 type DockerInfo struct {
 	Available        bool            `json:"available"` // Docker/Podman daemon reachable
@@ -69,6 +82,7 @@ type DockerInfo struct {
 	CrashLoopCount   int             `json:"crash_loop_count"`
 	CrashLooping     []string        `json:"crash_looping,omitempty"` // names of crash-looping containers
 	Containers       []ContainerInfo `json:"containers,omitempty"`
+	PodmanQuadlets   []PodmanQuadlet `json:"podman_quadlets,omitempty"`
 	DiskUsageGB      float64         `json:"disk_usage_gb"`
 	ImagesCount      int             `json:"images_count"`
 	DanglingImages   int             `json:"dangling_images"`

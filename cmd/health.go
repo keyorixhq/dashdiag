@@ -443,8 +443,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if collectors.IsNspawnPresent() {
 		cols = append(cols, collectors.NewNspawnCollector())
 	}
-	// Docker/Podman — gate on socket availability (no root required for detection)
-	if sock, _ := collectors.DetectContainerSocket(); sock != "" {
+	// Docker/Podman — gate on socket availability (no root required for detection).
+	// Also include when Podman quadlets are present: those are systemd-managed and
+	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
+	if sock, _ := collectors.DetectContainerSocket(); sock != "" || collectors.PodmanQuadletsPresent() {
 		cols = append(cols, collectors.NewDockerCollector())
 	}
 	// Kubernetes — gate on kubectl/k3s availability

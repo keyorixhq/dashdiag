@@ -3568,7 +3568,30 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	out = append(out, checkDockerContainers(d)...)
 	out = append(out, checkDockerResources(d)...)
 	out = append(out, checkDockerSecurity(d)...)
+	out = append(out, checkPodmanQuadlets(d)...)
 	return out
+}
+
+// checkPodmanQuadlets warns when any systemd-managed Podman quadlet has failed.
+// Zero failed quadlets → no insight (no noise).
+func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
+	var failed []string
+	var firstUnit string
+	for _, q := range d.PodmanQuadlets {
+		if q.Failed {
+			failed = append(failed, q.Name)
+			if firstUnit == "" {
+				firstUnit = q.ServiceUnit
+			}
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Docker",
+		fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
+		[]string{fmt.Sprintf("to inspect: systemctl status %s", firstUnit)},
+	)}
 }
 
 func checkDockerContainers(d models.DockerInfo) []models.Insight {

@@ -9,6 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -33,6 +36,17 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Try Docker socket first, then Podman
 	socket, runtime, permDenied := detectContainerSocket()
 	if socket == "" && !permDenied {
+		// No API socket — but Podman may still manage containers via systemd
+		// quadlets, which are invisible to the socket. Surface them before
+		// declaring the runtime unavailable.
+		if podmanInstalled() {
+			if quads := collectPodmanQuadlets(ctx); len(quads) > 0 {
+				info.Available = true
+				info.Runtime = "podman"
+				info.PodmanQuadlets = quads
+				return info, nil
+			}
+		}
 		info.Status = "unavailable"
 		info.StatusReason = "no Docker or Podman socket found"
 		// Check if Docker is installed but daemon not running
@@ -64,6 +78,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Status = "error"
 		info.StatusReason = fmt.Sprintf("failed to list containers: %v", err)
 		return info, nil
+	}
+
+	// Podman quadlets — systemd-managed containers/pods defined as .container/.pod
+	// files. These are NOT visible via the Podman socket, so scan whenever Podman
+	// is installed (not just when the active runtime is Podman).
+	if info.Runtime == "podman" || podmanInstalled() {
+		info.PodmanQuadlets = collectPodmanQuadlets(ctx)
 	}
 
 	// System disk usage
@@ -731,6 +752,41 @@ func dockerInstalled() bool {
 	return err == nil
 }
 
+// podmanInstalled returns true if the podman binary is present on PATH.
+// Used to scan quadlets even when the Podman API socket is inactive.
+func podmanInstalled() bool {
+	_, err := exec.LookPath("podman")
+	return err == nil
+}
+
+// PodmanQuadletsPresent reports whether any Podman quadlet files exist in the
+// system quadlet directory (/etc/containers/systemd). It is a fast file-existence
+// check — no systemctl, no subprocess — so the health collector build path can
+// cheaply decide whether to run the Docker collector on a socket-inactive
+// Podman host. Exported for cmd/health.go.
+func PodmanQuadletsPresent() bool {
+	return quadletFilesPresent("/etc/containers/systemd")
+}
+
+// quadletFilesPresent returns true if dir holds at least one .container or .pod
+// file. A missing or unreadable directory yields false (not an error).
+func quadletFilesPresent(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if strings.HasSuffix(n, ".container") || strings.HasSuffix(n, ".pod") {
+			return true
+		}
+	}
+	return false
+}
+
 // isRHEL10Plus returns true when running on RHEL, Rocky, AlmaLinux or
 // compatible distro at major version 10 or above.
 // Reads /etc/os-release which is present on all modern Linux distros.
@@ -811,6 +867,109 @@ func collectArchMismatch(ctx context.Context, client *http.Client, info *models.
 		info.Containers[i].ArchMismatch = true
 		info.ArchMismatchCount++
 	}
+}
+
+// quadletDirs are the directories scanned for Podman quadlet files.
+// System quadlets live in /etc/containers/systemd; the root user's quadlets
+// live in /root/.config/containers/systemd.
+var quadletDirs = []string{
+	"/etc/containers/systemd",
+	"/root/.config/containers/systemd",
+}
+
+// quadletFile is a discovered quadlet file (base name + full path).
+type quadletFile struct {
+	name string // e.g. "test-nginx.container"
+	path string // e.g. "/etc/containers/systemd/test-nginx.container"
+}
+
+// collectPodmanQuadlets scans the quadlet directories for .container/.pod files
+// and reports the systemd unit state for each. Linux-only — systemd quadlets
+// don't exist elsewhere. Returns nil when no quadlet files are found.
+func collectPodmanQuadlets(ctx context.Context) []models.PodmanQuadlet {
+	if goruntime.GOOS != "linux" {
+		return nil
+	}
+	files := scanQuadletFiles(quadletDirs)
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]models.PodmanQuadlet, 0, len(files))
+	for _, f := range files {
+		unit := quadletServiceUnit(f.name)
+		active, failed, state := quadletUnitState(ctx, unit)
+		out = append(out, models.PodmanQuadlet{
+			Name:        quadletBaseName(f.name),
+			UnitFile:    f.path,
+			ServiceUnit: unit,
+			Active:      active,
+			Failed:      failed,
+			State:       state,
+		})
+	}
+	return out
+}
+
+// scanQuadletFiles returns every .container/.pod file in the given directories.
+// Directories that don't exist are skipped silently.
+func scanQuadletFiles(dirs []string) []quadletFile {
+	var out []quadletFile
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue // directory absent or unreadable — skip
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			n := e.Name()
+			if strings.HasSuffix(n, ".container") || strings.HasSuffix(n, ".pod") {
+				out = append(out, quadletFile{name: n, path: filepath.Join(dir, n)})
+			}
+		}
+	}
+	return out
+}
+
+// quadletBaseName strips the .container/.pod extension from a quadlet filename.
+// "test-nginx.container" → "test-nginx"; "myapp.pod" → "myapp".
+func quadletBaseName(filename string) string {
+	base := filepath.Base(filename)
+	base = strings.TrimSuffix(base, ".container")
+	base = strings.TrimSuffix(base, ".pod")
+	return base
+}
+
+// quadletServiceUnit derives the generated systemd service unit name from a
+// quadlet filename. Strip the extension only, then append .service.
+// "test-nginx.container" → "test-nginx.service"; "myapp.pod" → "myapp.service".
+func quadletServiceUnit(filename string) string {
+	return quadletBaseName(filename) + ".service"
+}
+
+// quadletUnitState queries systemd for a unit's state via systemctl show.
+// Returns (false, false, "") when systemctl is unavailable or errors.
+func quadletUnitState(ctx context.Context, unit string) (active, failed bool, state string) {
+	sCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(sCtx, "systemctl", "show", unit,
+		"--property=ActiveState,SubState,LoadState")
+	if err != nil {
+		return false, false, ""
+	}
+	return parseQuadletState(out)
+}
+
+// parseQuadletState parses `systemctl show --property=ActiveState,...` output.
+// Only ActiveState drives active/failed; the raw value is returned as state.
+func parseQuadletState(output string) (active, failed bool, state string) {
+	for _, line := range strings.Split(output, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "ActiveState="); ok {
+			state = strings.TrimSpace(v)
+		}
+	}
+	return state == "active", state == "failed", state
 }
 
 // collectNetworkHealth detects the container network backend and checks for
