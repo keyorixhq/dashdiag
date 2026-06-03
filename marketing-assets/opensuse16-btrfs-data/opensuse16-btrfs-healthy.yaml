@@ -1,0 +1,296 @@
+# fixture captured from opensuse16-btrfs (openSUSE Leap 16.0)
+# replay with: dsd mock <this-file>
+
+host: opensuse16-btrfs
+os: openSUSE Leap 16.0
+version: v0.6.1-39-g6c6f17e
+rows:
+    - name: CPU Load
+      level: CRIT
+      inline: ""
+      message: 100% CPU (user+sys) — load avg 0.11 across 1 CPUs
+      hints:
+        - 'to inspect: uptime'
+        - 'to inspect: ps aux --sort=-%cpu | head -10'
+        - 'to inspect: top -b -n1 | head -25'
+    - name: CPU Thermal
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.2/1 GB (20%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: none
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 3 mounts, max 14% (/)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "filesystems": [
+                  {
+                    "mount": "/",
+                    "device": "/dev/sda3",
+                    "fs_type": "xfs",
+                    "total_gb": 7.982788608,
+                    "used_gb": 1.1281940480000001,
+                    "free_gb": 6.85459456,
+                    "used_pct": 14.132831312473604,
+                    "inodes_used_pct": 0.6824727265326014,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/boot/efi",
+                    "device": "/dev/sda2",
+                    "fs_type": "vfat",
+                    "total_gb": 0.536576,
+                    "used_gb": 0.0043008000000001045,
+                    "free_gb": 0.5322752,
+                    "used_pct": 0.8015267175572549,
+                    "inodes_used_pct": 0,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/mnt/btrfs-test",
+                    "device": "/dev/sdb",
+                    "fs_type": "btrfs",
+                    "total_gb": 4.294967296,
+                    "used_gb": 0.006062080000000414,
+                    "free_gb": 4.288905216,
+                    "used_pct": 12.9150390625,
+                    "inodes_used_pct": 0,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "drives": [
+                  {
+                    "name": "sda",
+                    "size_gb": 8.589934592,
+                    "type": "HDD",
+                    "model": "QEMU HARDDISK",
+                    "mounts": [
+                      "sda3→/",
+                      "sda2→/boot/efi"
+                    ]
+                  },
+                  {
+                    "name": "sdb",
+                    "size_gb": 4.294967296,
+                    "type": "HDD",
+                    "model": "QEMU HARDDISK",
+                    "mounts": [
+                      "sdb→/mnt/btrfs-test"
+                    ]
+                  }
+                ],
+                "btrfs_volumes": [
+                  {
+                    "uuid": "d8859017-3fba-4ff3-9234-d7d3f5acfc2d",
+                    "mount_point": "/mnt/btrfs-test",
+                    "total_devices": 1,
+                    "missing_devices": 0,
+                    "devices": [
+                      {
+                        "devid": 1,
+                        "path": "/dev/sdb",
+                        "missing": false,
+                        "read_errs": 0,
+                        "write_errs": 0,
+                        "corrupt_errs": 0
+                      }
+                    ],
+                    "status": "healthy"
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: IO
+      level: ""
+      inline: 1.2 ms (sdb)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": [
+                  {
+                    "name": "sda",
+                    "is_ssd": false,
+                    "drive_type": "hdd",
+                    "util_pct": 1.2,
+                    "await_ms": 0.14354066985645933,
+                    "read_mbps": 12.304896,
+                    "write_mbps": 0,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "name": "sdb",
+                    "is_ssd": false,
+                    "drive_type": "hdd",
+                    "util_pct": 0.5,
+                    "await_ms": 1.25,
+                    "read_mbps": 0.524288,
+                    "write_mbps": 0,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: Drives
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": null
+              }
+    - name: LVM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+      raw: '{}'
+    - name: Network
+      level: ""
+      inline: eth0  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: WARN
+      inline: ""
+      message: 'slow boot unit: 52.470s took 60.0s'
+      hints:
+        - 'to inspect: systemctl status 52.470s'
+        - 'to inspect: journalctl -u 52.470s -b'
+        - 'to analyse:  systemd-analyze blame'
+        - 'to plot:     systemd-analyze plot > boot.svg'
+    - name: Processes
+      level: ""
+      inline: 108 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: 672 open  1 deleted
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read
+      hints:
+        - 'to fix: apt install rsyslog  OR  dnf install rsyslog  OR  zypper install rsyslog'
+        - 'note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails'
+        - 'note:   standard Unix tools (grep, tail, less) cannot read binary journal files'
+    - name: Sysctl
+      level: WARN
+      inline: ""
+      message: 'vm.swappiness=60 is high for a server (recommended: ≤ 30; production servers typically use 10)'
+      hints:
+        - 'to inspect: cat /proc/sys/vm/swappiness'
+        - 'to fix: sysctl -w vm.swappiness=10'
+        - 'to persist: echo ''vm.swappiness=10'' >> /etc/sysctl.d/99-dsd.conf'
+    - name: KernelSec
+      level: INFO
+      inline: ""
+      message: SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently
+      hints:
+        - 'to expose hidden denials: semodule -DB  (disables dontaudit rules)'
+        - 'to re-enable dontaudit:   semodule -B   (run after debugging)'
+        - 'to check for suppressed:  ausearch -m avc -ts recent --raw | wc -l'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Subscription
+      level: CRIT
+      inline: ""
+      message: SUSE subscription EXPIRED — security patches unavailable
+      hints:
+        - 'to fix: renew at https://scc.suse.com'
+    - name: Snapshots
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Battery
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Launchd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: OOM
+      level: ""
+      inline: 0 events
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: Auditd
+      level: ""
+      inline: 1 rules  running
+      message: ""
+      hints: []
+    - name: HugePages
+      level: INFO
+      inline: ""
+      message: transparent huge pages mode is 'always' — may cause latency spikes for database workloads
+      hints:
+        - 'to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to ''madvise'' or ''never'''
+        - 'to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+        - 'to persist: add to /etc/rc.local or a systemd service'
+    - name: Sessions
+      level: ""
+      inline: 1 session (root)
+      message: ""
+      hints: []
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
