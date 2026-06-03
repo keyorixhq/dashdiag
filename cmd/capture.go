@@ -21,6 +21,7 @@ package cmd
 //   ssh user@host 'sudo dsd health --gpu --json' | dsd capture > fixtures/my-host.yaml
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/render"
 )
 
@@ -59,6 +61,8 @@ Workflow:
 
 func init() {
 	rootCmd.AddCommand(captureCmd)
+	captureCmd.Flags().String("cve", "", "fold in a `dsd cve --all --json` report from FILE")
+	captureCmd.Flags().String("timeline", "", "fold in a `dsd timeline --json` report from FILE")
 }
 
 // captureInsight mirrors the JSON insight structure for unmarshalling.
@@ -154,6 +158,28 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		Rows:    rows,
 	}
 
+	// Optionally fold in standalone report sections from other commands.
+	// Each is validated against its real model type so a malformed or
+	// wrong-command file fails loudly at capture time, not silently at replay.
+	if cvePath, _ := cmd.Flags().GetString("cve"); cvePath != "" {
+		j, err := readReportJSON(cvePath, func(b []byte) error {
+			return strictUnmarshal(b, &models.CVEAllResult{})
+		})
+		if err != nil {
+			return fmt.Errorf("--cve %s: %w (expected output of: dsd cve --all --json)", cvePath, err)
+		}
+		fix.CVEJSON = j
+	}
+	if tlPath, _ := cmd.Flags().GetString("timeline"); tlPath != "" {
+		j, err := readReportJSON(tlPath, func(b []byte) error {
+			return strictUnmarshal(b, &models.TimelineInfo{})
+		})
+		if err != nil {
+			return fmt.Errorf("--timeline %s: %w (expected output of: dsd timeline --json)", tlPath, err)
+		}
+		fix.TimelineJSON = j
+	}
+
 	out, err := yaml.Marshal(fix)
 	if err != nil {
 		return fmt.Errorf("marshalling fixture: %w", err)
@@ -220,4 +246,34 @@ func severityRank(level string) int {
 	default:
 		return 0
 	}
+}
+
+// readReportJSON reads a JSON report file, validates it against the supplied
+// decoder (which unmarshals into the expected model type), and returns the raw
+// JSON string for embedding into the fixture. Validation at capture time means
+// a wrong or malformed file is rejected here rather than failing silently when
+// the fixture is later replayed with dsd mock.
+func readReportJSON(path string, validate func([]byte) error) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading file: %w", err)
+	}
+	if len(b) == 0 {
+		return "", fmt.Errorf("file is empty")
+	}
+	if err := validate(b); err != nil {
+		return "", fmt.Errorf("invalid JSON: %w", err)
+	}
+	return string(b), nil
+}
+
+// strictUnmarshal decodes JSON into dest, rejecting unknown fields. This makes
+// the section validators discriminating: a timeline report fed to --cve (or
+// vice versa) is rejected because its keys don't match the target model, rather
+// than silently unmarshalling into a zero-value struct. The top-level model
+// structs share no field names, so cross-feeding always trips an unknown field.
+func strictUnmarshal(b []byte, dest interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	return dec.Decode(dest)
 }

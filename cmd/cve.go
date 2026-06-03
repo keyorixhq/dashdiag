@@ -60,9 +60,13 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("specify at least one CVE ID with --oval")
 		}
-		fmt.Printf("\nUsing OVAL file: %s\n", ovalPath)
+		if !jsonOut {
+			fmt.Printf("\nUsing OVAL file: %s\n", ovalPath)
+		}
 		for _, cveID := range args {
-			fmt.Printf("Checking %s ...\n", strings.ToUpper(cveID))
+			if !jsonOut {
+				fmt.Printf("Checking %s ...\n", strings.ToUpper(cveID))
+			}
 			r, err := cvedata.CheckCVEFromOVAL(ctx, ovalPath, cveID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "oval error: %v\n", err)
@@ -80,7 +84,9 @@ func runCVE(cmd *cobra.Command, args []string) error {
 	}
 
 	if allFlag {
-		fmt.Println("\nScanning all pending security advisories...")
+		if !jsonOut {
+			fmt.Println("\nScanning all pending security advisories...")
+		}
 		r := collectors.ScanAllCVEs(ctx)
 		if jsonOut {
 			enc := json.NewEncoder(os.Stdout)
@@ -97,7 +103,9 @@ func runCVE(cmd *cobra.Command, args []string) error {
 
 	results := make([]*models.CVEResult, 0, len(args))
 	for _, cveID := range args {
-		fmt.Printf("\nChecking %s ...\n", strings.ToUpper(cveID))
+		if !jsonOut {
+			fmt.Printf("\nChecking %s ...\n", strings.ToUpper(cveID))
+		}
 		r := collectors.CheckCVE(ctx, cveID)
 		results = append(results, r)
 	}

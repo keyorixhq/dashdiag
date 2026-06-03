@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 func init() {
 	rootCmd.AddCommand(timelineCmd)
 	timelineCmd.Flags().Int("hours", 1, "how many hours back to look (1, 6, 24)")
+	timelineCmd.Flags().Bool("json", false, "output raw JSON (for dsd capture / scripting)")
 }
 
 var timelineCmd = &cobra.Command{
@@ -30,7 +33,23 @@ func runTimeline(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	hours, _ := cmd.Flags().GetInt("hours")
+	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, "")
+
+	// JSON mode: run silently (no progress spinner) and emit raw JSON.
+	if jsonOut {
+		var result runner.Result
+		for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewTimelineCollector(hours)}) {
+			result = r
+		}
+		info, ok := result.Data.(*models.TimelineInfo)
+		if !ok || info == nil {
+			return result.Err
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(info)
+	}
 
 	p := output.NewCommandProgress("Timeline", 20*time.Second, mode, 1)
 	p.Start()
