@@ -28,6 +28,7 @@ package cmd
 //	      - "to fix: apt-get upgrade"
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -58,6 +59,7 @@ type MockRow struct {
 	Inline  string   `yaml:"inline"`  // shown on OK rows
 	Message string   `yaml:"message"` // shown on WARN/CRIT/INFO rows
 	Hints   []string `yaml:"hints"`   // action hints shown in summary
+	RawJSON string   `yaml:"raw,omitempty"` // raw disk JSON (SMART/LVM/ZFS/IO) for hardware-free replay
 }
 
 var mockCmd = &cobra.Command{
@@ -133,10 +135,17 @@ func runMock(cmd *cobra.Command, args []string) error {
 			level = "OK"
 		}
 
-		// runner.Result — carries the name for ordering
+		// runner.Result — carries the name for ordering.
+		// If the row preserved raw disk data, decode it back to the real model
+		// type so the renderer sees exactly what a live collector would return.
+		// Falls back to the text-only stub when raw is absent or fails to decode.
+		var data interface{} = &mockData{inline: row.Inline}
+		if d := mockRawData(row.Name, row.RawJSON); d != nil {
+			data = d
+		}
 		results = append(results, runner.Result{
 			Name: row.Name,
-			Data: &mockData{inline: row.Inline},
+			Data: data,
 		})
 
 		// Only emit an insight for non-OK rows
@@ -158,6 +167,34 @@ func runMock(cmd *cobra.Command, args []string) error {
 	r.PrintSummary(insights, time.Since(start))
 
 	return nil
+}
+
+// mockRawData decodes preserved raw disk JSON back into the concrete model type
+// the live collector returns, keyed by check name. Returns nil when there is no
+// raw data or it fails to decode — the caller then falls back to the text-only
+// stub, so fixtures without raw data (and malformed raw) replay unchanged.
+func mockRawData(name, raw string) interface{} {
+	if raw == "" {
+		return nil
+	}
+	var dest interface{}
+	switch name {
+	case "Disk":
+		dest = &models.DiskInfo{}
+	case "LVM":
+		dest = &models.LVMInfo{}
+	case "ZFS":
+		dest = &models.ZFSInfo{}
+	case "IO":
+		dest = &models.IOInfo{}
+	default:
+		// "Drives" is already covered by DiskInfo; other names have no model mapping.
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw), dest); err != nil {
+		return nil // fall back to text-only replay — no regression
+	}
+	return dest
 }
 
 // mockData is a stub collector result so the renderer has something to type-switch on.
