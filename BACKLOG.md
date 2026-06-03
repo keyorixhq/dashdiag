@@ -4,7 +4,7 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 bug fixes + landing page + MacBook Air setup**
+**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-3 (Sprint 1+2+3 + PVE deep + bugs)**
 
 ---
 
@@ -87,6 +87,23 @@ Build order rule: **never build deep before fast is in production use.**
 | `landing/` moved to separate repo `keyorixhq/dashdiag-landing` (Netlify deploy pending) | — |
 | Branch protection ruleset deleted (solo founder, no contributors yet) | — |
 | BUG-015–019 fixed and verified on live PVE hardware | 4f5e668 |
+
+## ✅ Recently Completed (June 3, 2026 — Session 3: Sprint 1+2+3 + PVE deep)
+
+| Item | Commit |
+|---|---|
+| BUG-020: SMART suppressed inside LXC containers — `NewDiskCollector(ctrCtx)` gate | d89324f |
+| Ubuntu 24.04 LXC validation — clean run, 0 bugs, marketing assets captured | d89324f |
+| AlmaLinux 9 LXC (CT 213, 192.168.10.8) added to test matrix — replaces Legion | 9724e23 |
+| Spec 2: DNS resolver audit block for `dsd net deep` — resolved/NM/stub/DNSSEC/VPN | 9724e23 |
+| Spec 2 verified: Ubuntu 24.04 (resolved path) + AlmaLinux 9 (NM fallback path) | 9724e23 |
+| Spec 3: `dsd logs` — `--json` flag, `TopCritical` with source+age, `/var/log` fallback | 9a25127 |
+| Fix: RFC3339 timestamp parse in `TopCritical` (`age_min` was always -1) | 9a25127 |
+| Fix: `/var/log` fallback now sets `LogSource` even on clean system (observability) | 9a25127 |
+| Fix: `--since` flag now reaches journalctl error/warning calls (`lookbackToSince`) | 2cf65f4 |
+| Spec 24: `dsd pve` complete — node overview, task errors, per-VM backup audit, bridges, `--json` | ae9c4c4 |
+| Spec 24 verified live on pve01: all 5 new sections, fast + deep + json | ae9c4c4 |
+| CLAUDE.md updated — Legion retired, AlmaLinux LXC test matrix, v0.6.1 ref | cfdcb9d |
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
