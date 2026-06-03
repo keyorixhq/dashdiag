@@ -7,6 +7,14 @@ type CrashFile struct {
 	AgeDays int     `json:"age_days"`
 }
 
+// TopError is a single ranked error entry with its source and age.
+// AgeMin is -1 when the timestamp could not be parsed.
+type TopError struct {
+	Message string `json:"message"`
+	Source  string `json:"source"`  // unit or process name (e.g. "kernel", "nginx")
+	AgeMin  int    `json:"age_min"` // minutes since the event; -1 if unknown
+}
+
 // LogsInfo holds system log health data.
 type LogsInfo struct {
 	Available     bool     `json:"available"`               // false on non-Linux
@@ -34,9 +42,10 @@ type LogsInfo struct {
 	LogDiskMount          string  `json:"log_disk_mount,omitempty"`
 
 	// Severity summary (Spec 3 addition)
-	ErrorCount   int      `json:"error_count"`          // ERR + CRIT + ALERT + EMERG in last hour
-	WarningCount int      `json:"warning_count"`        // WARNING in last hour
-	TopErrors    []string `json:"top_errors,omitempty"` // deduplicated top error messages
+	ErrorCount   int        `json:"error_count"`            // ERR + CRIT + ALERT + EMERG in last hour
+	WarningCount int        `json:"warning_count"`          // WARNING in last hour
+	TopErrors    []string   `json:"top_errors,omitempty"`   // deduplicated top error messages (legacy)
+	TopCritical  []TopError `json:"top_critical,omitempty"` // structured top errors with source + age
 
 	// Crash files on disk (Spec 3 addition)
 	CrashFiles    []CrashFile `json:"crash_files,omitempty"` // core dumps, crash reports

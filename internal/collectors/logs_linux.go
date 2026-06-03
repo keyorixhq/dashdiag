@@ -78,6 +78,12 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Log source detection
 	info.LogSource = detectLogSource()
 
+	// /var/log fallback: when the journal is volatile (lost on reboot) and gave
+	// us no errors, pull the severity summary from /var/log instead (Spec 3).
+	if info.ErrorCount == 0 && info.JournalVolatile {
+		collectVarLogErrors(info)
+	}
+
 	return info, nil
 }
 
@@ -570,12 +576,16 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo) {
 	summaryCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
-	// Error count: emerg(0) through err(3)
+	// Error count: emerg(0) through err(3).
+	// short-iso gives a parseable timestamp (with year) at the line start so we
+	// can compute per-error age for the structured TopCritical entries.
 	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", "1 hour ago",
-		"--no-pager", "-q", "--output=short")
+		"--no-pager", "-q", "--output=short-iso")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(errOut), "\n")
 		msgCounts := make(map[string]int)
+		entries := make([]models.TopError, 0, len(lines))
+		now := time.Now()
 		for _, line := range lines {
 			if line == "" {
 				continue
@@ -584,9 +594,14 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo) {
 			// Extract message part (after host and unit) for deduplication
 			key := logMessageKey(line)
 			msgCounts[key]++
+			if e, ok := parseJournalTopError(line, now); ok {
+				entries = append(entries, e)
+			}
 		}
-		// Top 5 most frequent errors
+		// Top 5 most frequent errors (legacy string form)
 		info.TopErrors = topMessages(msgCounts, 5)
+		// Top 5 most recent errors with source + age (structured form)
+		info.TopCritical = topErrorEntries(entries, 5)
 	}
 
 	// Warning count
@@ -647,6 +662,92 @@ func topMessages(counts map[string]int, n int) []string {
 		}
 	}
 	return result
+}
+
+const topErrorMsgCap = 120 // truncate long messages in structured top-error entries
+
+// parseJournalTopError parses one `journalctl --output=short-iso` line into a
+// structured TopError. Format: "2026-06-03T19:16:09+00:00 host unit[pid]: message".
+// The timestamp is RFC3339 (offset carries a colon, e.g. "+00:00").
+func parseJournalTopError(line string, now time.Time) (models.TopError, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 4 {
+		return models.TopError{}, false
+	}
+	// short-iso fields: [0]=timestamp [1]=host [2]=source [3:]=message
+	source, msg := sourceAndMessage(fields, 3)
+	if msg == "" {
+		return models.TopError{}, false
+	}
+	age := -1
+	if t, err := time.Parse(time.RFC3339, fields[0]); err == nil {
+		age = ageMinutes(now, t)
+	}
+	return models.TopError{Message: msg, Source: source, AgeMin: age}, true
+}
+
+// parseSyslogTopError parses one traditional /var/log line into a TopError.
+// Format: "Jun  3 10:30:00 host process[pid]: message" (no year in the stamp).
+func parseSyslogTopError(line string, now time.Time) (models.TopError, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 6 {
+		return models.TopError{}, false
+	}
+	// syslog fields: [0]=month [1]=day [2]=time [3]=host [4]=source [5:]=message
+	source, msg := sourceAndMessage(fields, 5)
+	if msg == "" {
+		return models.TopError{}, false
+	}
+	age := -1
+	stamp := strings.Join(fields[0:3], " ") // "Jun 3 10:30:00"
+	if t, err := time.Parse("Jan 2 15:04:05", stamp); err == nil {
+		t = t.AddDate(now.Year(), 0, 0) // syslog stamp has no year — assume current
+		age = ageMinutes(now, t)
+	}
+	return models.TopError{Message: msg, Source: source, AgeMin: age}, true
+}
+
+// sourceAndMessage extracts the source (the token before the message, stripped
+// of "[pid]" and trailing ":") and the joined message starting at msgStart.
+func sourceAndMessage(fields []string, msgStart int) (source, message string) {
+	if msgStart >= len(fields) {
+		return "", ""
+	}
+	source = strings.TrimSuffix(fields[msgStart-1], ":")
+	if i := strings.IndexByte(source, '['); i >= 0 {
+		source = source[:i]
+	}
+	message = strings.Join(fields[msgStart:], " ")
+	if len(message) > topErrorMsgCap {
+		message = message[:topErrorMsgCap]
+	}
+	return source, message
+}
+
+// ageMinutes returns whole minutes between t and now, clamped at 0.
+func ageMinutes(now, t time.Time) int {
+	m := int(now.Sub(t).Minutes())
+	if m < 0 {
+		return 0
+	}
+	return m
+}
+
+// topErrorEntries deduplicates by message keeping the most recent occurrence,
+// and returns up to n entries newest-first. journalctl/syslog emit oldest-first,
+// so iterating in reverse yields newest-first naturally.
+func topErrorEntries(entries []models.TopError, n int) []models.TopError {
+	seen := make(map[string]bool, len(entries))
+	out := make([]models.TopError, 0, n)
+	for i := len(entries) - 1; i >= 0 && len(out) < n; i-- {
+		e := entries[i]
+		if seen[e.Message] {
+			continue
+		}
+		seen[e.Message] = true
+		out = append(out, e)
+	}
+	return out
 }
 
 // ── Crash file detection (Spec 3) ────────────────────────────────────────────
@@ -741,4 +842,89 @@ func detectLogSource() string {
 	default:
 		return "unknown"
 	}
+}
+
+// ── /var/log error aggregation fallback (Spec 3) ─────────────────────────────
+
+// varLogTailLines is how many trailing lines of /var/log we scan.
+const varLogTailLines = 500
+
+// collectVarLogErrors reads the last lines of /var/log/syslog or
+// /var/log/messages and populates ErrorCount/TopErrors/TopCritical from them.
+// Only called when journald is volatile and produced no errors, so it never
+// duplicates journald output. Updates LogSource to the file used.
+func collectVarLogErrors(info *models.LogsInfo) {
+	collectVarLogErrorsFrom(info, []string{"/var/log/syslog", "/var/log/messages"})
+}
+
+// collectVarLogErrorsFrom is the testable core: it scans the first non-empty
+// file in candidates. Production passes the two hardcoded system log paths.
+func collectVarLogErrorsFrom(info *models.LogsInfo, candidates []string) {
+	path, source := "", ""
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			path = p
+			source = filepath.Base(p) // "syslog" or "messages"
+			break
+		}
+	}
+	if path == "" {
+		return
+	}
+
+	data, err := os.ReadFile(path) // #nosec G304 -- path comes from a controlled candidate list
+	if err != nil {
+		return
+	}
+
+	count, top, crit := scanVarLog(string(data), time.Now())
+	// Record that we consulted /var/log even when it yields zero errors — this
+	// is how the fallback is confirmable on a clean system (LogSource flips to
+	// "messages"/"syslog"). The caller's ErrorCount==0 guard already prevents
+	// this from running when journald produced its own errors.
+	info.LogSource = source
+	info.ErrorCount = count
+	info.TopErrors = top
+	info.TopCritical = crit
+}
+
+// varLogSeverityKeywords are the case-insensitive substrings that mark a line
+// as an error/critical entry in traditional syslog text.
+var varLogSeverityKeywords = []string{"error", "crit", "alert", "emerg", "err"}
+
+// scanVarLog counts error lines in the last varLogTailLines lines of content
+// and returns the count plus the top error messages (legacy + structured).
+func scanVarLog(content string, now time.Time) (count int, top []string, crit []models.TopError) {
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	if len(lines) > varLogTailLines {
+		lines = lines[len(lines)-varLogTailLines:]
+	}
+
+	msgCounts := make(map[string]int)
+	entries := make([]models.TopError, 0, len(lines))
+	for _, line := range lines {
+		if !lineHasSeverity(line) {
+			continue
+		}
+		count++
+		msgCounts[logMessageKey(line)]++
+		if e, ok := parseSyslogTopError(line, now); ok {
+			entries = append(entries, e)
+		}
+	}
+	if count == 0 {
+		return 0, nil, nil
+	}
+	return count, topMessages(msgCounts, 5), topErrorEntries(entries, 5)
+}
+
+// lineHasSeverity reports whether a syslog line matches any severity keyword.
+func lineHasSeverity(line string) bool {
+	low := strings.ToLower(line)
+	for _, kw := range varLogSeverityKeywords {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	return false
 }
