@@ -176,6 +176,7 @@ touching PVE code.
 | CT 202 | ubuntu24-lxc | 192.168.10.10 | Ubuntu 24.04 LTS | running |
 | CT 213 | almalinux9-lxc | 192.168.10.8 | AlmaLinux 9.4 (RHEL family) | running |
 | VM 212 | nixos-25-05 | 192.168.10.11 | NixOS 25.05 (Warbler) | running |
+| VM 214 | opensuse16-btrfs | 192.168.10.56 | openSUSE Leap 16 — XFS root + 4GB btrfs /dev/sdb at /mnt/btrfs-test | running |
 | PVE base | pve01 | 192.168.10.20 | Debian 13 / PVE 9.1.1 | always on |
 
 **Stopped (start with `pct start <id>` on pve01):**
