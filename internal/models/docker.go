@@ -7,6 +7,7 @@ type DockerDaemon struct {
 	APIVersion      string `json:"api_version,omitempty"`
 	StorageDriver   string `json:"storage_driver,omitempty"`
 	SwarmState      string `json:"swarm_state,omitempty"`  // inactive, active, pending
+	SwarmRole       string `json:"swarm_role,omitempty"`   // manager, worker
 	Architecture    string `json:"architecture,omitempty"` // host arch from GET /info (7i)
 	RecentErrors    int    `json:"recent_errors,omitempty"`
 	LastDaemonError string `json:"last_daemon_error,omitempty"`

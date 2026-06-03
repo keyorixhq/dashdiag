@@ -589,13 +589,21 @@ func collectDaemonHealth(ctx context.Context, client *http.Client, runtime strin
 			Driver       string `json:"Driver"`
 			Architecture string `json:"Architecture"`
 			Swarm        struct {
-				LocalNodeState string `json:"LocalNodeState"`
+				LocalNodeState   string `json:"LocalNodeState"`
+				ControlAvailable bool   `json:"ControlAvailable"`
 			} `json:"Swarm"`
 		}
 		if json.Unmarshal(infoData, &info) == nil {
 			d.StorageDriver = info.Driver
 			d.SwarmState = info.Swarm.LocalNodeState
 			d.Architecture = normalizeArch(info.Architecture)
+			if info.Swarm.LocalNodeState == "active" {
+				if info.Swarm.ControlAvailable {
+					d.SwarmRole = "manager"
+				} else {
+					d.SwarmRole = "worker"
+				}
+			}
 		}
 	}
 

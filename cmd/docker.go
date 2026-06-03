@@ -141,6 +141,17 @@ func printDockerDaemon(info *models.DockerInfo) {
 		fmt.Println()
 		fmt.Println("     → journalctl -u docker -n 50 --no-pager")
 	}
+	// Swarm mode (Spec 7j) — INFO only when active, silent otherwise
+	if d.SwarmState == "active" {
+		role := d.SwarmRole
+		if role == "" {
+			role = "node"
+		}
+		fmt.Printf("  ℹ️   Swarm mode: active (role: %s)\n", role)
+		fmt.Println("     Container restarts and placement may be controlled by the Swarm scheduler.")
+		fmt.Println("     → docker node ls")
+		fmt.Println("     → docker service ps <svc>")
+	}
 }
 
 func printDockerContainers(info *models.DockerInfo) {
