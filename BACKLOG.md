@@ -191,12 +191,14 @@ zero diagnostic value for DashDiag's target audience.
 
 ## Tooling
 
-### ~~[CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline~~ ✅ DONE (disk, June 3, commit 4e0b943)
+### ~~[CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline~~ ✅ DONE (disk: June 3 commit 4e0b943; cve+timeline: June 4 commit 83e17e6)
 
-**Current state:** `dsd capture` only reads `dsd health --json`. The detailed LVM state
-(thin pool %, RAID health, missing PV) lives in `dsd disk --json` and is not captured.
-
-**Priority:** Medium. Do before first public demo.
+**Completed June 4:** `dsd capture --cve <file>` / `--timeline <file>` fold standalone
+report JSON into the fixture. `dsd mock` replays both sections via real print functions,
+output byte-identical to a live run. `dsd timeline --json` added as prerequisite.
+Strict validation (`DisallowUnknownFields`) rejects cross-fed/garbage files at capture time.
+Bonus fix: `dsd cve --all --json` stdout banner pollution (broke piping) fixed in same commit.
+9 unit tests in `cmd/capture_sections_test.go`.
 
 ---
 
