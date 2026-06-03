@@ -120,6 +120,8 @@ func detectContainerSocket() (path, runtime string, permDenied bool) {
 		{"/run/docker.sock", "docker"},
 		{"/run/podman/podman.sock", "podman"},
 		{"/var/run/podman/podman.sock", "podman"},
+		{"/var/run/crio/crio.sock", "crio"},
+		{"/run/crio/crio.sock", "crio"},
 	}
 
 	// Also check user-mode Podman socket (rootless, XDG_RUNTIME_DIR)
