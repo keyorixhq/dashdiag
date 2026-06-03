@@ -16,6 +16,10 @@ type FirewallInfo struct {
 	Chains       []FirewallChain `json:"chains,omitempty"`
 	TotalRules   int             `json:"total_rules"`
 	DefaultDrop  bool            `json:"default_drop"` // INPUT policy is DROP/REJECT
-	Status       string          `json:"status,omitempty"`
-	StatusReason string          `json:"status_reason,omitempty"`
+	// PVEFirewallActive is true on Proxmox VE hosts where the pve-firewall
+	// service is the active firewall manager. pve-firewall loads its rules
+	// dynamically, so an empty base ruleset is not "unprotected".
+	PVEFirewallActive bool   `json:"pve_firewall_active,omitempty"`
+	Status            string `json:"status,omitempty"`
+	StatusReason      string `json:"status_reason,omitempty"`
 }

@@ -59,6 +59,10 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.IsOffensiveDistro = true
 	}
 
+	// Proxmox VE hosts mandate ports 8006/3128/111 and root SSH login —
+	// flag the host so the analysis layer suppresses those false positives.
+	info.IsPVE = IsPVEHost()
+
 	return info, nil
 }
 

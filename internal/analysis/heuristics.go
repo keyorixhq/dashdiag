@@ -2405,7 +2405,9 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 	var out []models.Insight
 	switch {
 	case p.BackupAgeDays < 0:
-		out = append(out, insight("WARN", "PVE",
+		// No backup at all is CRIT, not WARN — VMs have no recovery point.
+		// This must bubble into the PVE summary row to match `dsd pve` (BUG-019).
+		out = append(out, insight("CRIT", "PVE",
 			"no successful backup found — VMs have no recovery point",
 			[]string{
 				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
@@ -2728,6 +2730,16 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 	return out
 }
 
+// isPVEServicePort reports whether a port is a mandatory Proxmox VE service
+// port: 8006 (web UI), 3128 (spiceproxy), or 111 (rpcbind/portmapper).
+func isPVEServicePort(port int) bool {
+	switch port {
+	case 8006, 3128, 111:
+		return true
+	}
+	return false
+}
+
 func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,cyclop // security checks are a flat list of independent conditions; splitting would harm readability
 	var out []models.Insight
 
@@ -2740,14 +2752,22 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 
 	// SSH misconfigurations
 	if sec.SSHPermitRoot {
-		// On offensive/pentest distros (Kali, Parrot), root SSH is intentional.
-		// Downgrade to INFO with a note rather than CRIT.
-		if sec.IsOffensiveDistro {
+		switch {
+		case sec.IsOffensiveDistro:
+			// On offensive/pentest distros (Kali, Parrot), root SSH is intentional.
+			// Downgrade to INFO with a note rather than CRIT.
 			out = append(out, insight("INFO", "Hardening",
 				"SSH root login enabled — expected on offensive security distro (Kali/Parrot)",
 				nil,
 			))
-		} else {
+		case sec.IsPVE:
+			// Proxmox VE requires root SSH for cluster management — not a
+			// misconfiguration. Downgrade to INFO (see BUG-018).
+			out = append(out, insight("INFO", "Hardening",
+				"Root SSH login enabled — required for PVE management. Restrict to key-based auth if not already done.",
+				[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
+			))
+		default:
 			out = append(out, insight("CRIT", "Hardening",
 				"SSH permits root login",
 				[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", "to fix: systemctl restart sshd"},
@@ -2923,6 +2943,7 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	var unexpectedPorts []string
 	var knownPorts []string
 	var knownServices []string
+	var pvePorts []string
 	var portHints []string
 	portHints = append(portHints, "to inspect: ss -tlnp")
 
@@ -2931,6 +2952,12 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 			continue
 		}
 		portStr := fmt.Sprintf("%d/%s", p.Port, p.Protocol)
+		// Proxmox VE service ports (web UI 8006, spiceproxy 3128, rpcbind 111)
+		// are mandatory on PVE — surface as INFO, never WARN (see BUG-016).
+		if sec.IsPVE && isPVEServicePort(p.Port) {
+			pvePorts = append(pvePorts, portStr)
+			continue
+		}
 		// Check if process is a known service
 		serviceName := ""
 		for proc, svc := range knownServiceProcesses {
@@ -2948,6 +2975,15 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 			unexpectedPorts = append(unexpectedPorts, portStr)
 			portHints = append(portHints, fmt.Sprintf("to inspect: ss -tlnp | grep :%d", p.Port))
 		}
+	}
+
+	// PVE service ports — informational only (expected on Proxmox VE)
+	if len(pvePorts) > 0 {
+		out = append(out, insight("INFO", "Hardening",
+			fmt.Sprintf("%d PVE service port(s) listening (expected): %s — Proxmox web UI, spiceproxy, and rpcbind",
+				len(pvePorts), strings.Join(pvePorts, ", ")),
+			nil,
+		))
 	}
 
 	// Known services — downgrade to INFO
@@ -4711,6 +4747,14 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 		return nil
 	}
 	if !f.Active || f.TotalRules == 0 {
+		// On Proxmox VE, pve-firewall manages the host firewall and loads its
+		// rules dynamically — an empty base ruleset is expected (see BUG-017).
+		if f.PVEFirewallActive {
+			return []models.Insight{insight("INFO", "Firewall",
+				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox",
+				[]string{"to inspect: pve-firewall status", "to inspect: cat /etc/pve/firewall/cluster.fw"},
+			)}
+		}
 		return []models.Insight{insight("WARN", "Firewall",
 			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),
 			[]string{

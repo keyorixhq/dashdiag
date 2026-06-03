@@ -82,6 +82,12 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			icon = "⚠️ "
 			tag = " ← unexpected"
 		}
+		// Proxmox VE mandates 8006 (web UI), 3128 (spiceproxy), 111 (rpcbind) —
+		// expected on PVE, never flag as unexpected (BUG-016).
+		if info.IsPVE && isPVEServicePort(p.Port) {
+			icon = "✅"
+			tag = " ← PVE service port (expected)"
+		}
 		proc := p.Process
 		if proc == "" {
 			proc = "unknown"
@@ -329,7 +335,7 @@ func countSecurityIssues(info *models.SecurityInfo) int {
 		n++
 	}
 	for _, p := range info.ListeningPorts {
-		if !p.Expected {
+		if !p.Expected && !(info.IsPVE && isPVEServicePort(p.Port)) {
 			n++
 		}
 	}
@@ -339,6 +345,16 @@ func countSecurityIssues(info *models.SecurityInfo) int {
 		n++
 	}
 	return n
+}
+
+// isPVEServicePort reports whether a port is a mandatory Proxmox VE service
+// port: 8006 (web UI), 3128 (spiceproxy), or 111 (rpcbind/portmapper).
+func isPVEServicePort(port int) bool {
+	switch port {
+	case 8006, 3128, 111:
+		return true
+	}
+	return false
 }
 
 // wellKnownPort maps common port numbers to service names.
