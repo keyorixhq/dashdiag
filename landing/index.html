@@ -504,30 +504,30 @@
 
 <section class="install wrap" id="install">
   <div class="section-eyebrow">Install</div>
-  <h2 class="section-title">Drop in a binary. That's the whole setup.</h2>
-  <p class="section-sub">No daemon, no config, no dependencies. Packaged installers are on the way — early access gets them first.</p>
+  <h2 class="section-title">One command. Nothing else required.</h2>
+  <p class="section-sub">No daemon, no config, no dependencies. Works on Linux and macOS. Installs a single static binary to <span style="font-family:var(--mono);font-size:0.92em">/usr/local/bin</span>.</p>
 
   <div class="install-box">
     <div class="install-row">
-      <span class="install-soon">● Coming soon</span>
-      <span class="prompt">$</span> <span>brew install keyorix/tap/dashdiag</span>
+      <span class="prompt">$</span>
+      <span>curl -fsSL https://dashdiag.sh/install.sh | sh</span>
     </div>
-    <div class="install-row" style="margin-top:14px">
-      <span class="install-soon">● Coming soon</span>
-      <span class="prompt">$</span> <span>sudo dnf install dashdiag</span>
-    </div>
-    <p class="install-note">
-      // Homebrew &amp; RPM ship at launch. Want the binary today?
-      <a href="#" id="releasesLink">Grab it from GitHub releases →</a>
-      <span style="color:var(--term-dim)">(swap this href for your real releases URL)</span>
+    <p class="install-note" style="margin-top:18px">
+      // Linux &amp; macOS · x86_64 &amp; arm64 · checksum verified · requires curl or wget
+    </p>
+    <p class="install-note" style="margin-top:10px">
+      // pin a version: <span style="color:var(--term-text)">curl -fsSL https://dashdiag.sh/install.sh | sh -s -- v0.6.0</span>
+    </p>
+    <p class="install-note" style="margin-top:10px">
+      // or grab the binary directly: <a href="https://github.com/keyorixhq/dashdiag/releases">github.com/keyorixhq/dashdiag/releases →</a>
     </p>
   </div>
 </section>
 
 <section class="signup wrap" id="access">
   <div class="signup-card">
-    <h2>Be first to run it.</h2>
-    <p>DashDiag is in active development across 18+ distros. Leave your email and we'll send the install the moment Homebrew and RPM go live.</p>
+    <h2>Stay in the loop.</h2>
+    <p>DashDiag is in active development across 18+ distros. Leave your email for release notes, new platform support, and early access to Pro features.</p>
     <div class="form-row">
       <input type="email" id="emailInput" placeholder="you@yourcompany.com" autocomplete="email">
       <button id="signupBtn">Notify me</button>
