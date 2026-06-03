@@ -200,17 +200,13 @@ zero diagnostic value for DashDiag's target audience.
 
 ---
 
-### [BTRFS-HEALTH] Wire btrfs volume health into dsd health
+### ~~[BTRFS-HEALTH] Wire btrfs volume health into dsd health~~ ✅ DONE (Session 12, commit a580f34)
 
-**Current state:** `dsd disk` shows btrfs DEGRADED via `BtrfsVolumes`. But `dsd health`
-Disk check only uses filesystem usage — btrfs missing devices don't surface in health.
-
-**What to add:** In `heuristics.go` checkDisk(), walk `info.BtrfsVolumes` and emit
-CRIT insight for degraded/missing devices, WARN for device errors.
-
-**Priority:** High — silent failure mode, same severity as degraded RAID in LVM.
-
-**Estimated:** ~1h
+**Verified June 3:** `checkDisk()` → `checkDiskExtras()` walks `disk.BtrfsVolumes` —
+`MissingDevs > 0` emits CRIT (DEGRADED, data at risk), `Status == "errors"` emits WARN
+(device I/O / corruption). Runs in the health heuristics dispatch path
+(`heuristics.go:161,163` → `checkDisk` → `checkDiskExtras` → btrfs loop at L715),
+so it surfaces in `dsd health`, not just `dsd disk`. Backlog checkbox was stale.
 
 ---
 

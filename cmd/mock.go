@@ -50,15 +50,20 @@ type MockFixture struct {
 	OS      string    `yaml:"os"`
 	Version string    `yaml:"version"`
 	Rows    []MockRow `yaml:"rows"`
+	// Optional standalone report sections captured from other commands.
+	// Stored as raw JSON so mock can decode them back into the exact model
+	// types the live collectors return and replay via the real print funcs.
+	CVEJSON      string `yaml:"cve,omitempty"`      // dsd cve --all --json
+	TimelineJSON string `yaml:"timeline,omitempty"` // dsd timeline --json
 }
 
 // MockRow defines one output row.
 type MockRow struct {
 	Name    string   `yaml:"name"`
-	Level   string   `yaml:"level"`   // OK (default), WARN, CRIT, INFO
-	Inline  string   `yaml:"inline"`  // shown on OK rows
-	Message string   `yaml:"message"` // shown on WARN/CRIT/INFO rows
-	Hints   []string `yaml:"hints"`   // action hints shown in summary
+	Level   string   `yaml:"level"`         // OK (default), WARN, CRIT, INFO
+	Inline  string   `yaml:"inline"`        // shown on OK rows
+	Message string   `yaml:"message"`       // shown on WARN/CRIT/INFO rows
+	Hints   []string `yaml:"hints"`         // action hints shown in summary
 	RawJSON string   `yaml:"raw,omitempty"` // raw disk JSON (SMART/LVM/ZFS/IO) for hardware-free replay
 }
 
@@ -166,6 +171,44 @@ func runMock(cmd *cobra.Command, args []string) error {
 	start := time.Now().Add(-3 * time.Second) // simulate 3s run
 	r.PrintSummary(insights, time.Since(start))
 
+	// Replay optional standalone report sections through the real print
+	// functions, so mocked CVE / timeline output is byte-identical to a
+	// live run. Each is gated on presence and decoded back to its model type.
+	if err := mockReplayCVE(fix.CVEJSON); err != nil {
+		return err
+	}
+	if err := mockReplayTimeline(fix.TimelineJSON); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// mockReplayCVE decodes a captured `dsd cve --all --json` report and renders it
+// via the real printAllCVEs, so the mocked output matches a live scan exactly.
+func mockReplayCVE(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	var r models.CVEAllResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return fmt.Errorf("decoding captured cve section: %w", err)
+	}
+	printAllCVEs(&r)
+	return nil
+}
+
+// mockReplayTimeline decodes a captured `dsd timeline --json` report and renders
+// it via the real printTimeline with a simulated elapsed, matching a live run.
+func mockReplayTimeline(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	var info models.TimelineInfo
+	if err := json.Unmarshal([]byte(raw), &info); err != nil {
+		return fmt.Errorf("decoding captured timeline section: %w", err)
+	}
+	printTimeline(&info, 3*time.Second) // simulate 3s run
 	return nil
 }
 
