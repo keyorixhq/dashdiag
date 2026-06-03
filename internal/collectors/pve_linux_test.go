@@ -3,6 +3,8 @@
 package collectors
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -76,6 +78,74 @@ func TestBackupAudit_NoGuests(t *testing.T) {
 	t.Parallel()
 	if got := backupAudit(nil, map[int]time.Time{}); len(got) != 0 {
 		t.Errorf("expected empty audit, got %d entries", len(got))
+	}
+}
+
+func TestParseVzdumpVMID(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		wantID int
+		wantOK bool
+	}{
+		{"vzdump-qemu-100-2024_06_03-19_16_09.vma.zst", 100, true},
+		{"vzdump-lxc-213-2024_06_03-05_42_00.tar.zst", 213, true},
+		{"vzdump-qemu-100-2024_06_03-19_16_09.vma.lzo", 100, true},
+		{"vzdump-lxc-9-2020_01_01-00_00_00.tar.gz", 9, true},
+		{"vzdump-qemu-100.log", 0, false}, // no date/time fields — not an archive form
+		{"random-file.txt", 0, false},
+		{"vzdump-qemu-notanumber-x.vma.zst", 0, false},
+		{"vzdump-foo-100-x.vma.zst", 0, false}, // type must be qemu|lxc
+		{"vzdump-qemu", 0, false},              // too few parts
+	}
+	for _, c := range cases {
+		id, ok := parseVzdumpVMID(c.name)
+		if id != c.wantID || ok != c.wantOK {
+			t.Errorf("parseVzdumpVMID(%q) = (%d,%v), want (%d,%v)", c.name, id, ok, c.wantID, c.wantOK)
+		}
+	}
+}
+
+func TestScanBackupDumpDirs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Two backups for VMID 100 (keep the newer), one for 213, plus noise.
+	writeBackupFile(t, dir, "vzdump-qemu-100-2024_06_01-01_00_00.vma.zst", -10*24*time.Hour)
+	writeBackupFile(t, dir, "vzdump-qemu-100-2024_06_03-01_00_00.vma.zst", -2*24*time.Hour) // newer
+	writeBackupFile(t, dir, "vzdump-lxc-213-2024_06_03-05_42_00.tar.zst", -1*24*time.Hour)
+	writeBackupFile(t, dir, "notes.txt", -1*time.Hour) // ignored
+
+	got := scanBackupDumpDirs([]string{dir, "/nonexistent/dump"})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 VMIDs, got %d: %v", len(got), got)
+	}
+	// VMID 100 must reflect the *newer* of its two archives (~2 days old).
+	age100 := int(time.Since(got[100]).Hours() / 24)
+	if age100 != 2 {
+		t.Errorf("VMID 100 age = %d days, want 2 (newest archive)", age100)
+	}
+	if _, ok := got[213]; !ok {
+		t.Error("VMID 213 missing from scan")
+	}
+}
+
+func TestScanBackupDumpDirs_Empty(t *testing.T) {
+	t.Parallel()
+	if got := scanBackupDumpDirs([]string{t.TempDir()}); len(got) != 0 {
+		t.Errorf("empty dir → %d entries, want 0", len(got))
+	}
+}
+
+// writeBackupFile creates a fake backup archive with a specific mtime offset.
+func writeBackupFile(t *testing.T, dir, name string, ageOffset time.Duration) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	mt := time.Now().Add(ageOffset)
+	if err := os.Chtimes(path, mt, mt); err != nil {
+		t.Fatalf("chtimes %s: %v", name, err)
 	}
 }
 
