@@ -449,6 +449,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	if sock, _ := collectors.DetectContainerSocket(); sock != "" || collectors.PodmanQuadletsPresent() {
 		cols = append(cols, collectors.NewDockerCollector())
 	}
+	// Containerd standalone — only when containerd socket is present AND no k8s layer.
+	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
+	if collectors.ContainerdAvailable() && !collectors.K8sAvailable() {
+		cols = append(cols, collectors.NewContainerdCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability
 	if collectors.K8sAvailable() {
 		cols = append(cols, collectors.NewK8sCollector())

@@ -64,7 +64,7 @@ var displayOrder = []string{
 	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
 	"HugePages", "CPUFreq",
 	// Optional
-	"TLS", "Docker", "K8s", "Hardware",
+	"TLS", "Docker", "Containerd", "K8s", "Hardware",
 }
 
 // sortedResults reorders runner results into the canonical display order.
@@ -332,6 +332,8 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 		return inlineHugePages(res.Data)
 	case "CPUFreq":
 		return inlineCPUFreq(res.Data)
+	case "Containerd":
+		return inlineContainerd(res.Data)
 	}
 	return ""
 }
@@ -1478,4 +1480,35 @@ func inlinePackages(data interface{}) string {
 		return "up to date"
 	}
 	return ""
+}
+
+// inlineContainerd returns a one-line summary for a standalone containerd runtime.
+// Shows version + namespace/container counts when available.
+func inlineContainerd(data interface{}) string {
+	d, ok := data.(*models.ContainerdInfo)
+	if !ok {
+		if v, ok2 := data.(models.ContainerdInfo); ok2 {
+			d = &v
+		}
+	}
+	if d == nil || !d.Available {
+		return ""
+	}
+	var parts []string
+	if d.Version != "" {
+		parts = append(parts, d.Version)
+	}
+	if len(d.Namespaces) > 0 {
+		var nsParts []string
+		for _, ns := range d.Namespaces {
+			nsParts = append(nsParts, fmt.Sprintf("%s:%d", ns.Name, ns.ContainerCount))
+		}
+		parts = append(parts, strings.Join(nsParts, " "))
+	} else if d.TotalContainers > 0 {
+		parts = append(parts, fmt.Sprintf("%d container(s)", d.TotalContainers))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("socket %s", d.SocketPath)
+	}
+	return strings.Join(parts, "  ")
 }

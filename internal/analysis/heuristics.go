@@ -286,6 +286,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkDocker(d)
 	case *models.DockerInfo:
 		return checkDocker(*d)
+	case models.ContainerdInfo:
+		return checkContainerd(d)
+	case *models.ContainerdInfo:
+		return checkContainerd(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
@@ -3569,6 +3573,39 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	out = append(out, checkDockerResources(d)...)
 	out = append(out, checkDockerSecurity(d)...)
 	out = append(out, checkPodmanQuadlets(d)...)
+	return out
+}
+
+// checkContainerd surfaces health issues for a standalone containerd runtime
+// (running without a Kubernetes layer). Only called when ContainerdAvailable()
+// is true and K8sAvailable() is false — avoids double-counting with dsd k8s.
+func checkContainerd(d models.ContainerdInfo) []models.Insight {
+	var out []models.Insight
+
+	if !d.Available {
+		// Socket not found but service might be installed — give actionable hint
+		out = append(out, insight("WARN", "Containerd",
+			d.StatusReason,
+			[]string{
+				"to inspect: systemctl status containerd",
+				"to inspect: ls /run/containerd/containerd.sock",
+			},
+		))
+		return out
+	}
+
+	// Service not active despite socket being reachable — transient state
+	if d.ServiceState != "" && d.ServiceState != "active" && d.ServiceState != "unknown" {
+		out = append(out, insight("CRIT", "Containerd",
+			fmt.Sprintf("containerd.service is %s — runtime may be unstable", d.ServiceState),
+			[]string{
+				"to inspect: systemctl status containerd",
+				"to fix:     systemctl restart containerd",
+				"to inspect: journalctl -u containerd -n 50 --no-pager",
+			},
+		))
+	}
+
 	return out
 }
 
