@@ -1,0 +1,628 @@
+{
+  "hostname": "almalinux9-lxc",
+  "os": "AlmaLinux 9.4 (Seafoam Ocelot)",
+  "timestamp": "2026-06-03T19:54:24.05596562Z",
+  "version": "dev",
+  "checks": [
+    {
+      "name": "Disk",
+      "status": "OK",
+      "inline": "/ 11%",
+      "duration": "748.288µs",
+      "raw": {
+        "filesystems": [
+          {
+            "mount": "/",
+            "device": "/dev/mapper/pve-vm--213--disk--0",
+            "fs_type": "ext4",
+            "total_gb": 8.350298112,
+            "used_gb": 0.5081047040000009,
+            "free_gb": 7.842193408,
+            "used_pct": 11.429246946626858,
+            "inodes_used_pct": 3.1381607055664062,
+            "read_only": false,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "drives": [
+          {
+            "name": "sda",
+            "size_gb": 128.03567616,
+            "type": "SSD",
+            "model": "LITEONIT LCS-128",
+            "mounts": [
+              "not mounted"
+            ]
+          },
+          {
+            "name": "sdb",
+            "size_gb": 2000.398934016,
+            "type": "HDD",
+            "model": "WDC WD2003FYYS-0",
+            "mounts": [
+              "not mounted"
+            ]
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "CPU Thermal",
+      "status": "OK",
+      "duration": "482ns",
+      "raw": {
+        "available": true,
+        "cpu_temp_c": 0,
+        "source": ""
+      }
+    },
+    {
+      "name": "Battery",
+      "status": "OK",
+      "duration": "50.998µs",
+      "raw": {
+        "present": false,
+        "status": "",
+        "capacity_pct": 0,
+        "health_pct": 0,
+        "energy_now_uwh": 0,
+        "energy_full_uwh": 0,
+        "energy_design_uwh": 0,
+        "cycle_count": 0,
+        "voltage_uv": 0,
+        "power_now_uw": 0
+      }
+    },
+    {
+      "name": "Launchd",
+      "status": "OK",
+      "duration": "76ns"
+    },
+    {
+      "name": "Drives",
+      "status": "OK",
+      "duration": "35.106µs",
+      "raw": {
+        "devices": null
+      }
+    },
+    {
+      "name": "Clock",
+      "status": "OK",
+      "inline": "±1 ms  host",
+      "duration": "122.508µs",
+      "raw": {
+        "synced": true,
+        "offset_ms": -1,
+        "source": "host",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Processes",
+      "status": "WARN",
+      "inline": "1 zombie  0 hung",
+      "duration": "840.705µs",
+      "raw": {
+        "total": 23,
+        "zombie_count": 1,
+        "hung_count": 0,
+        "zombie_procs": [
+          {
+            "pid": 772,
+            "ppid": 764,
+            "name": "ip",
+            "parent_name": "dsd",
+            "state": "Z",
+            "cpu": 0,
+            "mem_mb": 0
+          }
+        ],
+        "hung_procs": [],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Pressure",
+      "status": "OK",
+      "inline": "mem 0%  cpu 0%  io 0%",
+      "duration": "104.751µs",
+      "raw": {
+        "available": true,
+        "memory_some": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "memory_full": {
+          "avg10": 0,
+          "avg60": 0,
+          "avg300": 0
+        },
+        "cpu_some": {
+          "avg10": 0.31,
+          "avg60": 0.18,
+          "avg300": 0.09
+        },
+        "io_some": {
+          "avg10": 0,
+          "avg60": 0.06,
+          "avg300": 0.15
+        },
+        "io_full": {
+          "avg10": 0,
+          "avg60": 0.06,
+          "avg300": 0.15
+        }
+      }
+    },
+    {
+      "name": "Firewall",
+      "status": "OK",
+      "duration": "40.438µs",
+      "raw": {
+        "available": false,
+        "backend": "",
+        "active": false,
+        "total_rules": 0,
+        "default_drop": false
+      }
+    },
+    {
+      "name": "FDLimits",
+      "status": "OK",
+      "inline": "11k open  1 deleted",
+      "duration": "9.435485ms",
+      "raw": {
+        "open_count": 10614,
+        "max_count": 9223372036854775807,
+        "used_pct": 1.1507721858761144e-13,
+        "hot_processes": null,
+        "deleted_open_files": 1,
+        "deleted_open_size_gb": 0.002097152,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Sysctl",
+      "status": "WARN",
+      "duration": "1.117046ms",
+      "raw": {
+        "available": true,
+        "vm_swappiness": 10,
+        "net_somaxconn": 4096,
+        "fs_file_max": 9223372036854775807,
+        "kernel_pid_max": 4194304,
+        "pid_count": 27,
+        "net_rmem_max": 212992,
+        "net_wmem_max": 212992,
+        "tcp_tw_reuse": 2,
+        "tcp_syn_backlog": 2048,
+        "vm_max_map_count": 1048576,
+        "vm_dirty_ratio": 20,
+        "vm_dirty_background_ratio": 10,
+        "vm_overcommit": 0,
+        "fs_inotify_watches": 4194304,
+        "workload": "default",
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Entropy",
+      "status": "OK",
+      "inline": "256/256 bits",
+      "duration": "87.492µs",
+      "raw": {
+        "available": true,
+        "entropy_available": 256,
+        "pool_size": 256
+      }
+    },
+    {
+      "name": "Sessions",
+      "status": "OK",
+      "inline": "no active sessions",
+      "duration": "20.168898ms",
+      "raw": {
+        "sessions": null,
+        "total_count": 0,
+        "remote_count": 0,
+        "root_ssh": false
+      }
+    },
+    {
+      "name": "Memory",
+      "status": "OK",
+      "inline": "0.0/1 GB (3%)",
+      "duration": "30.203162ms",
+      "raw": {
+        "total_gb": 1,
+        "free_gb": 0.9634609222412109,
+        "used_pct": 2.8608322143554688,
+        "slab_mb": 9.6767578125,
+        "commit_limit_mb": 24180.2578125,
+        "committed_as_mb": 12789.34375,
+        "over_committed": false,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "HugePages",
+      "status": "OK",
+      "inline": "THP madvise",
+      "duration": "21.386197ms",
+      "raw": {
+        "available": true,
+        "configured": 0,
+        "free": 0,
+        "used": 0,
+        "page_size_kb": 2048,
+        "reserved_gb": 0,
+        "thp_enabled": true,
+        "thp_mode": "madvise"
+      }
+    },
+    {
+      "name": "OOM",
+      "status": "OK",
+      "inline": "0 events",
+      "duration": "27.392344ms",
+      "raw": {
+        "available": true,
+        "events_last_24h": 0
+      }
+    },
+    {
+      "name": "CPUFreq",
+      "status": "OK",
+      "inline": "performance  3991/4000 MHz",
+      "duration": "23.245996ms",
+      "raw": {
+        "governor": "performance",
+        "current_mhz": 3991,
+        "max_mhz": 4000,
+        "min_mhz": 800,
+        "throttled_pct": 0.22499999999999998,
+        "cpu_count": 8
+      }
+    },
+    {
+      "name": "KernelSec",
+      "status": "INFO",
+      "inline": "SELinux disabled",
+      "duration": "19.268765ms",
+      "raw": {
+        "available": true,
+        "se_linux_present": true,
+        "se_linux_mode": "disabled",
+        "se_linux_denials": 0,
+        "app_armor_present": true,
+        "app_armor_mode": "disabled",
+        "app_armor_profiles": 0,
+        "app_armor_enforce": 0,
+        "app_armor_complain": 0,
+        "app_armor_denials": -1
+      }
+    },
+    {
+      "name": "Auth",
+      "status": "OK",
+      "inline": "0 failed logins",
+      "duration": "39.28493ms",
+      "raw": {
+        "available": true,
+        "checked": true,
+        "failed_last_24h": 0
+      }
+    },
+    {
+      "name": "DBus",
+      "status": "OK",
+      "duration": "41.191572ms",
+      "raw": {
+        "available": true,
+        "active": true,
+        "status": "active"
+      }
+    },
+    {
+      "name": "Logs",
+      "status": "WARN",
+      "inline": "8 MB journal",
+      "duration": "56.067962ms",
+      "raw": {
+        "available": true,
+        "oom_kills": 0,
+        "oom_processes": null,
+        "segfaults": 0,
+        "segfault_procs": null,
+        "soft_lockups": 0,
+        "hard_lockups": 0,
+        "kernel_panics": 0,
+        "journal_size_gb": 0.0078125,
+        "crash_loops": null,
+        "journal_volatile": true,
+        "log_disk_used_pct": 6.084869033236259,
+        "log_disk_mount": "/",
+        "error_count": 0,
+        "warning_count": 0,
+        "core_dump_count": 0,
+        "log_source": "journald+syslog"
+      }
+    },
+    {
+      "name": "Hardening",
+      "status": "WARN",
+      "duration": "64.410351ms",
+      "raw": {
+        "ssh_permit_root": false,
+        "ssh_password_auth": true,
+        "ssh_root_login": false,
+        "ssh_max_auth_tries": 6,
+        "ssh_login_grace_time": 120,
+        "ssh_pubkey_auth": true,
+        "ssh_x11_forwarding": true,
+        "ssh_agent_forwarding": true,
+        "ssh_strict_modes": true,
+        "ssh_ignore_rhosts": true,
+        "ssh_tcp_forwarding": true,
+        "ssh_log_level": "INFO",
+        "ssh_banner": "none",
+        "ssh_max_sessions": 10,
+        "ssh_max_startups": "10:30:100",
+        "ssh_ciphers": "aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes128-gcm@openssh.com,aes128-ctr",
+        "ssh_macs": "hmac-sha2-256-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha1,umac-128@openssh.com,hmac-sha2-512",
+        "ssh_kex_algorithms": "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512",
+        "ssh_audit_source": "sshd -T",
+        "failed_logins": 0,
+        "failed_login_ips": null,
+        "listening_ports": [
+          {
+            "port": 22,
+            "protocol": "tcp",
+            "process": "sshd",
+            "expected": true
+          }
+        ],
+        "firewall_active": false,
+        "ssh_allowed": true,
+        "apparmor_mode": "disabled",
+        "apparmor_denials": -1,
+        "se_linux_denials": 0,
+        "se_linux_mode": "",
+        "se_linux_auto_relabel": true,
+        "fips_enabled": false,
+        "crypto_policy": "DEFAULT",
+        "usb_guard_active": false,
+        "aide_installed": false,
+        "aide_db_exists": false,
+        "aide_last_run_days": 0,
+        "audit_rules": -1,
+        "supportconfig_available": false,
+        "supportconfig_last_run_days": 0
+      }
+    },
+    {
+      "name": "Systemd",
+      "status": "OK",
+      "duration": "197.960935ms",
+      "raw": {
+        "available": true,
+        "failed_units": null,
+        "stuck_units": null,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "CPU Load",
+      "status": "OK",
+      "inline": "24%",
+      "duration": "527.328225ms",
+      "raw": {
+        "load_avg_1": 0.26,
+        "load_avg_5": 0.66,
+        "load_avg_15": 0.7,
+        "num_cpu": 2,
+        "usage_pct": 24.03846153846154,
+        "load_pct": 13,
+        "steal_pct": 0,
+        "iowait_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Swap",
+      "status": "OK",
+      "inline": "0 MB used",
+      "duration": "1.001577656s",
+      "raw": {
+        "total_gb": 0.5,
+        "used_gb": 0,
+        "used_pct": 0,
+        "pages_in_per_sec": 0,
+        "pages_out_per_sec": 0,
+        "zram_devices": 0,
+        "zram_used_pct": 0,
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "IO",
+      "status": "OK",
+      "inline": "0.4 ms (sda)",
+      "duration": "1.004500261s",
+      "raw": {
+        "devices": [
+          {
+            "name": "sda",
+            "is_ssd": true,
+            "drive_type": "ssd",
+            "util_pct": 0.3,
+            "await_ms": 0.41025641025641024,
+            "read_mbps": 0,
+            "write_mbps": 0.73728,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          },
+          {
+            "name": "sdb",
+            "is_ssd": false,
+            "drive_type": "hdd",
+            "util_pct": 0,
+            "await_ms": 0,
+            "read_mbps": 0,
+            "write_mbps": 0,
+            "queue_depth": 0,
+            "status": "",
+            "status_reason": ""
+          }
+        ],
+        "status": "",
+        "status_reason": ""
+      }
+    },
+    {
+      "name": "Network",
+      "status": "OK",
+      "inline": "eth0 10Gbps  gw \u003c1 ms",
+      "duration": "1.040147191s",
+      "raw": {
+        "interfaces": [
+          {
+            "name": "eth0",
+            "ip": "192.168.10.8",
+            "up": true,
+            "rx_drops": 0,
+            "tx_drops": 0,
+            "speed_mbps": 10000
+          }
+        ],
+        "primary_interface": "eth0",
+        "gateway_ping_ms": 0.516,
+        "internet_ping_ms": 6.424,
+        "dns_resolves_ms": 34,
+        "close_wait_count": 0,
+        "nat_detected": false,
+        "status": "",
+        "status_reason": ""
+      }
+    }
+  ],
+  "insights": [
+    {
+      "check": "Processes",
+      "level": "WARN",
+      "message": "1 zombie process(es) detected",
+      "hints": [
+        "to inspect: ps aux | grep Z"
+      ],
+      "details": {
+        "type": "process_table",
+        "title": "Zombie processes (parent is the reaping offender)",
+        "columns": [
+          "ZOMBIE_PID",
+          "PARENT_PID",
+          "PARENT_NAME"
+        ],
+        "rows": [
+          [
+            "772",
+            "764",
+            "dsd"
+          ]
+        ]
+      }
+    },
+    {
+      "check": "Sysctl",
+      "level": "WARN",
+      "message": "net.core.rmem_max=212992 is low (recommended: ≥ 4MB for modern network throughput)",
+      "hints": [
+        "to inspect: sysctl net.core.rmem_max",
+        "to fix: sysctl -w net.core.rmem_max=4194304",
+        "to persist: echo 'net.core.rmem_max=4194304' \u003e\u003e /etc/sysctl.d/99-dsd.conf"
+      ]
+    },
+    {
+      "check": "KernelSec",
+      "level": "INFO",
+      "message": "kernel security module not enforced"
+    },
+    {
+      "check": "Logs",
+      "level": "WARN",
+      "message": "journald logs are volatile — all logs lost on reboot (no /var/log/journal/)",
+      "hints": [
+        "to fix:     mkdir -p /var/log/journal \u0026\u0026 systemd-tmpfiles --create --prefix /var/log/journal",
+        "to persist: echo 'Storage=persistent' \u003e\u003e /etc/systemd/journald.conf \u0026\u0026 systemctl restart systemd-journald"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH allows password authentication — key-based auth recommended",
+      "hints": [
+        "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH LoginGraceTime is 120s — recommend ≤60s to limit unauthenticated connection window",
+      "hints": [
+        "to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
+        "to fix: systemctl restart sshd"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH X11Forwarding enabled — unnecessary on servers, increases attack surface",
+      "hints": [
+        "to fix: set X11Forwarding no in /etc/ssh/sshd_config",
+        "note: only needed if users require GUI applications over SSH"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
+      "hints": [
+        "to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
+        "note: use ssh -A explicitly when you need forwarding, rather than leaving it on globally"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "INFO",
+      "message": "SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
+      "hints": [
+        "to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
+        "to fix: set ClientAliveCountMax 3 in /etc/ssh/sshd_config",
+        "note: this disconnects idle sessions after 300s × 3 = 15 minutes"
+      ]
+    },
+    {
+      "check": "Hardening",
+      "level": "WARN",
+      "message": "SSH weak MAC(s) enabled (sshd -T (effective config)): hmac-sha1",
+      "hints": [
+        "to fix: set MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com in /etc/ssh/sshd_config",
+        "note: hmac-sha1 uses SHA-1 which is cryptographically broken",
+        "to verify: sshd -T | grep '^macs'"
+      ]
+    }
+  ]
+}

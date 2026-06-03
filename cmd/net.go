@@ -61,6 +61,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	if deepFlag {
 		cols = append(cols, collectors.NewNFSCollector())
 		cols = append(cols, collectors.NewBINDCollector())
+		cols = append(cols, collectors.NewDNSResolverCollector())
 	}
 
 	p := output.NewCommandProgress(label, 30*time.Second, mode, len(cols))
@@ -70,6 +71,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	var netResult runner.Result
 	var nfsInfo *models.NFSInfo
 	var bindInfo *models.BINDInfo
+	var resolverInfo *models.ResolverAuditInfo
 	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
 		switch v := r.Data.(type) {
@@ -79,6 +81,8 @@ func runNet(cmd *cobra.Command, _ []string) error {
 			nfsInfo = v
 		case *models.BINDInfo:
 			bindInfo = v
+		case *models.ResolverAuditInfo:
+			resolverInfo = v
 		}
 	}
 
@@ -95,6 +99,9 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	}
 	if bindInfo != nil && bindInfo.Detected {
 		printBINDReport(bindInfo)
+	}
+	if resolverInfo != nil && resolverInfo.Detected {
+		printResolverAudit(resolverInfo)
 	}
 	return nil
 }
@@ -637,4 +644,115 @@ func printBINDReport(info *models.BINDInfo) {
 	if info.QueryCount > 0 {
 		fmt.Printf("     Queries served: %d\n", info.QueryCount)
 	}
+}
+
+// printResolverAudit renders the [DNS Resolver] section appended to dsd net deep.
+func printResolverAudit(info *models.ResolverAuditInfo) {
+	fmt.Println("\n[DNS Resolver]")
+	printResolverIdentity(info)
+
+	if info.ResolverType == "systemd-resolved" && info.ResolverActive {
+		printResolverDNSSEC(info)
+		printResolverDoT(info)
+		printResolverDNSSECTest(info)
+	} else if info.FallbackNote != "" {
+		fmt.Printf("  ℹ️  %s\n", info.FallbackNote)
+		if len(info.NMNameservers) > 0 {
+			fmt.Printf("  ✅ DNS servers: %s\n", strings.Join(info.NMNameservers, "  "))
+		}
+	}
+
+	printResolverVPN(info)
+	printResolverNext(info)
+}
+
+// printResolverIdentity renders the resolver type and resolv.conf mode lines.
+func printResolverIdentity(info *models.ResolverAuditInfo) {
+	if info.ResolverActive {
+		fmt.Printf("  ✅ Resolver: %s (active)\n", info.ResolverType)
+	} else {
+		// Not having systemd-resolved is not an error — INFO, never WARN.
+		fmt.Printf("  ℹ️  Resolver: %s\n", info.ResolverType)
+	}
+
+	switch info.ResolvConfMode {
+	case "stub":
+		fmt.Printf("  ✅ resolv.conf: stub mode (correct — %s)\n", info.ResolvConfTarget)
+	case "uplink":
+		fmt.Printf("  ⚠️  resolv.conf: uplink mode (bypasses stub — loses split-DNS)\n")
+	default:
+		if info.ResolverType == "systemd-resolved" && info.ResolverActive {
+			fmt.Println("  ⚠️  resolv.conf: custom file — systemd-resolved is not managing it")
+		} else {
+			fmt.Println("  ℹ️  resolv.conf: custom/unmanaged file")
+		}
+	}
+}
+
+// printResolverDNSSEC renders the DNSSEC configured/effective line.
+func printResolverDNSSEC(info *models.ResolverAuditInfo) {
+	if info.DNSSECDegraded {
+		fmt.Printf("  ⚠️  DNSSEC: configured %s, but degraded in practice\n", info.DNSSECConfigured)
+		if info.DNSSECDegradedReason != "" {
+			fmt.Printf("     Reason: %s\n", info.DNSSECDegradedReason)
+		}
+		return
+	}
+	state := info.DNSSECActive
+	if state == "" {
+		state = info.DNSSECConfigured
+	}
+	fmt.Printf("  ✅ DNSSEC: %s\n", state)
+}
+
+// printResolverDoT renders the DNS-over-TLS line when known.
+func printResolverDoT(info *models.ResolverAuditInfo) {
+	switch info.DoTStatus {
+	case "", "no":
+		fmt.Println("  ℹ️  DNS-over-TLS: off")
+	case "opportunistic":
+		fmt.Println("  ✅ DNS-over-TLS: opportunistic")
+	default:
+		fmt.Printf("  ✅ DNS-over-TLS: %s\n", info.DoTStatus)
+	}
+}
+
+// printResolverDNSSECTest renders the live DNSSEC validation test result.
+func printResolverDNSSECTest(info *models.ResolverAuditInfo) {
+	if !info.DNSSECTestRan {
+		return
+	}
+	if info.DNSSECTestPassed {
+		fmt.Println("  ✅ DNSSEC validation test: passed (sigok.verteiltesysteme.net)")
+		return
+	}
+	if strings.HasPrefix(info.DNSSECTestError, "timeout") {
+		fmt.Printf("  ℹ️  DNSSEC validation test: skipped — %s\n", info.DNSSECTestError)
+		return
+	}
+	fmt.Printf("  ⚠️  DNSSEC validation test: %s\n", info.DNSSECTestError)
+}
+
+// printResolverVPN renders the VPN DNS routing line.
+func printResolverVPN(info *models.ResolverAuditInfo) {
+	switch {
+	case info.VPNInterface == "":
+		fmt.Println("  ✅ VPN DNS routing: not applicable (no VPN interface detected)")
+	case info.VPNDNSIntegrated == nil:
+		fmt.Printf("  ℹ️  VPN DNS routing: %s up — cannot verify without systemd-resolved\n", info.VPNInterface)
+	case *info.VPNDNSIntegrated:
+		fmt.Printf("  ✅ VPN DNS routing: DNS routed through %s\n", info.VPNInterface)
+	default:
+		fmt.Printf("  ⚠️  VPN DNS routing: %s is up but DNS is not routed through it\n", info.VPNInterface)
+	}
+}
+
+// printResolverNext prints the investigation commands.
+func printResolverNext(info *models.ResolverAuditInfo) {
+	if info.ResolverType != "systemd-resolved" || !info.ResolverActive {
+		return
+	}
+	fmt.Println("\nNext:")
+	fmt.Println("  → resolvectl status")
+	fmt.Println("  → resolvectl query sigok.verteiltesysteme.net")
 }
