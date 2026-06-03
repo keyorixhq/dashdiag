@@ -341,7 +341,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
-		collectors.NewDiskCollector(),
+		collectors.NewDiskCollector(ctrCtx),
 		collectors.NewSwapCollector(ctrCtx),
 		collectors.NewIOCollector(),
 		collectors.NewNetworkCollector(),

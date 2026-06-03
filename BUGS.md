@@ -270,6 +270,28 @@ non-PVE behaviour is unchanged.
 
 ---
 
+## Ubuntu 24.04 LXC
+
+### BUG-020 — dsd disk false "smartctl not installed" inside LXC containers
+**Found:** Ubuntu 24.04 LXC validation
+**Symptom:** `dsd disk` (and the Disk section of `dsd health`) surfaced
+  "smartctl not installed" concerns inside an LXC container, where SMART is
+  irrelevant — the container has no real block devices and smartctl is absent.
+**Root cause:** The SMART gate in collectLinuxExtras() only skipped hypervisor
+  virtual disks via isVirtualDisk(). It had no awareness of containers, so for
+  each enumerated drive it called collectSMART(), which reported
+  "smartctl not installed" as an Error and produced a false concern.
+**Affected:** DiskCollector.collectLinuxExtras(), SMART collection, `dsd disk`
+  and `dsd health` Disk section — any LXC/Docker container without smartctl
+**Fix:** DiskCollector gained a ContainerCtx field (constructor signature now
+  matches NewMemoryCollector). The SMART gate is extended to
+  `if isVirtualDisk(*d) || c.ContainerCtx.InContainer { continue }`, so SMART is
+  skipped entirely inside a container. isVirtualDisk() is unchanged; non-container,
+  non-virtual hosts behave exactly as before.
+**Commit:** BUG-020 fix
+
+---
+
 ## Summary — Bugs by Category
 
 | Category | Count | Notes |

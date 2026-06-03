@@ -14,6 +14,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
@@ -35,9 +36,11 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 	deep, _ := cmd.Flags().GetBool("deep")
 	mode := output.DetectMode(plain, false, "")
 
-	col := collectors.NewDiskCollector()
+	ctrCtx := platform.DetectContainerContext()
+	col := collectors.NewDiskCollector(ctrCtx)
 	if deep {
 		col = collectors.NewDiskDeepCollector()
+		col.ContainerCtx = ctrCtx
 	}
 
 	cols := []runner.Collector{col}
