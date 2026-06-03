@@ -79,6 +79,7 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	fmt.Printf("\nRuntime: %s\n", info.Runtime)
 	printDockerDaemon(info)
 	printDockerContainers(info)
+	printPodmanQuadlets(info)
 	printDockerSecurity(info)
 	printDockerEvents(info)
 	printDockerResources(info)
@@ -91,6 +92,11 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 		issues++
 	}
 	issues += info.OOMEvents
+	for _, q := range info.PodmanQuadlets {
+		if q.Failed {
+			issues++
+		}
+	}
 	if info.ContainersWithSecrets > 0 {
 		issues++
 	}
@@ -203,6 +209,48 @@ func printDockerContainers(info *models.DockerInfo) {
 		}
 		fmt.Printf("  %s  %-20s %-12s %s%s%s%s\n",
 			icon, c.Name, c.State, c.Image, health, restarts, exitStr)
+	}
+}
+
+// printPodmanQuadlets renders systemd-managed Podman containers/pods.
+// Only shown when quadlet files were found (Podman hosts). Zero output on
+// Docker hosts or when no quadlet files exist.
+func printPodmanQuadlets(info *models.DockerInfo) {
+	if len(info.PodmanQuadlets) == 0 {
+		return
+	}
+	fmt.Printf("\n[Podman quadlets]\n")
+
+	// All active → single summary line, no noise.
+	allActive := true
+	for _, q := range info.PodmanQuadlets {
+		if !q.Active {
+			allActive = false
+			break
+		}
+	}
+	if allActive {
+		fmt.Printf("  ✅ %d quadlet(s) active\n", len(info.PodmanQuadlets))
+		return
+	}
+
+	for _, q := range info.PodmanQuadlets {
+		icon := "✅"
+		if !q.Active {
+			icon = "⚠️ "
+		}
+		if q.Failed {
+			icon = "❌"
+		}
+		state := q.State
+		if state == "" {
+			state = "unknown"
+		}
+		fmt.Printf("  %s  %-14s %-9s %s\n", icon, q.Name, state, q.ServiceUnit)
+		if q.Failed {
+			fmt.Printf("     → systemctl status %s\n", q.ServiceUnit)
+			fmt.Printf("     → journalctl -u %s -n 20\n", q.ServiceUnit)
+		}
 	}
 }
 
