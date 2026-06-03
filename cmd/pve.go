@@ -35,11 +35,16 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 
 	deep, _ := cmd.Flags().GetBool("deep")
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
-	timeout := 10 * time.Second
+	timeout := 18 * time.Second
 	if deep {
-		timeout = 30 * time.Second
+		timeout = 40 * time.Second
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -70,11 +75,16 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 			defer perfCancel()
 			info.Perf = collectors.CollectPVEPerf(perfCtx, "/var/lib/vz")
 		}
-		return outputJSON(os.Stdout, info)
+		return printPVEJSON(info)
 	}
 
 	printPVEReport(info, deep, elapsed)
 	return nil
+}
+
+// printPVEJSON marshals the full PVE report as indented JSON to stdout.
+func printPVEJSON(info *models.PVEInfo) error {
+	return outputJSON(os.Stdout, info)
 }
 
 func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
@@ -98,6 +108,9 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
 
 	// Cluster
 	printPVECluster(info)
+
+	// Network bridges
+	printPVEBridges(info)
 
 	// Backup
 	printPVEBackup(info)
@@ -123,11 +136,41 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
 
 func printPVENode(info *models.PVEInfo) {
 	fmt.Printf("\n[Proxmox Node]\n")
+
+	// Host line: hostname + PVE version / kernel
+	if info.PVEVersion != "" || info.KernelVersion != "" {
+		host, _ := os.Hostname()
+		verStr := ""
+		if info.PVEVersion != "" {
+			verStr = "PVE " + info.PVEVersion
+		}
+		if info.KernelVersion != "" {
+			if verStr != "" {
+				verStr += " / "
+			}
+			verStr += "kernel " + info.KernelVersion
+		}
+		fmt.Printf("  Host:     %-12s %s\n", host, verStr)
+	}
+
+	// CPU usage % — shown whenever node status was fetched (UptimeSec>0),
+	// since an idle node legitimately reports 0% CPU.
+	if info.UptimeSec > 0 {
+		coresStr := ""
+		if info.PhysicalCores > 0 {
+			coresStr = fmt.Sprintf(" (%d cores)", info.PhysicalCores)
+		}
+		fmt.Printf("  CPU:      %.0f%% used%s\n", info.CPUPct, coresStr)
+	}
+
 	if info.PhysicalCores > 0 {
 		fmt.Printf("  Cores:    %d physical\n", info.PhysicalCores)
 	}
 	if info.HostMemGB > 0 {
 		fmt.Printf("  Memory:   %.1f GB\n", info.HostMemGB)
+	}
+	if info.UptimeSec > 0 {
+		fmt.Printf("  Uptime:   %s\n", formatPVEUptime(info.UptimeSec))
 	}
 	// Subscription
 	sub := info.Subscription
@@ -240,16 +283,29 @@ func printPVEStorage(info *models.PVEInfo) {
 }
 
 func printPVETaskErrors(info *models.PVEInfo) {
+	fmt.Printf("\n[Recent Tasks]  (last 24h)\n")
 	if len(info.TaskErrors) == 0 {
+		fmt.Println("  ✅  No task errors")
 		return
 	}
-	fmt.Printf("\n[Recent Task Errors — last 24h]\n")
+
+	// Types with 3+ errors are CRIT.
+	critTypes := pveTaskErrorCritTypes(info.TaskErrors)
+
 	for _, e := range info.TaskErrors {
-		msg := e.Msg
-		if len(msg) > 60 {
-			msg = msg[:57] + "..."
+		icon := "⚠️ "
+		if critTypes[e.Type] {
+			icon = "❌"
 		}
-		fmt.Printf("  ⚠️   %-12s  %s  %s  %s\n", e.Type, e.StartAt, e.VMID, msg)
+		msg := e.Msg
+		if len(msg) > 80 {
+			msg = msg[:77] + "..."
+		}
+		vmid := e.VMID
+		if vmid == "" {
+			vmid = "-"
+		}
+		fmt.Printf("  %s  %-10s %-6s %s  \"%s\"\n", icon, e.Type, vmid, e.StartAt, msg)
 	}
 }
 
@@ -278,6 +334,16 @@ func printPVECluster(info *models.PVEInfo) {
 
 func printPVEBackup(info *models.PVEInfo) {
 	fmt.Printf("\n[Backups]\n")
+
+	// Per-VM/CT audit when available (templates already excluded by the collector).
+	if len(info.BackupStatuses) > 0 {
+		for _, b := range info.BackupStatuses {
+			icon, ageStr := pveBackupIconAge(b.LastBackupDays)
+			fmt.Printf("  %s  %-5d %-20s last backup: %s\n", icon, b.VMID, b.Name, ageStr)
+		}
+		return
+	}
+
 	switch {
 	case info.BackupAgeDays < 0:
 		fmt.Println("  ❌  No successful backup found")
@@ -291,6 +357,25 @@ func printPVEBackup(info *models.PVEInfo) {
 		fmt.Printf("  ⚠️   Last successful backup: %d days ago\n", info.BackupAgeDays)
 	default:
 		fmt.Printf("  ❌  Last successful backup: %d days ago\n", info.BackupAgeDays)
+	}
+}
+
+// pveBackupIconAge maps backup age (days; -1 = never) to an icon and label.
+// > 30 days or never → CRIT, > 7 days → WARN, otherwise OK.
+func pveBackupIconAge(days int) (icon, ageStr string) {
+	switch {
+	case days < 0:
+		return "❌", "never"
+	case days == 0:
+		return "✅", "today"
+	case days == 1:
+		return "✅", "1 day ago"
+	case days <= 7:
+		return "✅", fmt.Sprintf("%d days ago", days)
+	case days <= 30:
+		return "⚠️ ", fmt.Sprintf("%d days ago", days)
+	default:
+		return "❌", fmt.Sprintf("%d days ago", days)
 	}
 }
 
@@ -343,6 +428,68 @@ func printPVEPerf(perf *models.PVEPerf) {
 	}
 }
 
+func printPVEBridges(info *models.PVEInfo) {
+	if len(info.Bridges) == 0 {
+		return
+	}
+	fmt.Printf("\n[Network]\n")
+	for _, b := range info.Bridges {
+		switch {
+		case !b.Active:
+			fmt.Printf("  ❌  %-8s DOWN  — VMs on this bridge lose network\n", b.Name)
+			continue
+		case !b.HasUplink:
+			fmt.Printf("  ⚠️   %-8s UP   ← no uplink interface attached\n", b.Name)
+			fmt.Println("       This bridge has no physical NIC — VMs on it are isolated.")
+			continue
+		}
+
+		stp := "off"
+		if b.STPEnabled {
+			stp = "ON"
+		}
+		icon := "✅"
+		if b.STPEnabled {
+			icon = "⚠️ "
+		}
+		fmt.Printf("  %s  %-8s UP   ← %s  STP: %s", icon, b.Name, b.Ports, stp)
+		if b.STPEnabled {
+			fmt.Print("  (may cause ~30s boot delay)")
+		}
+		fmt.Println()
+		if b.STPEnabled {
+			fmt.Printf("       → nmcli connection modify %s bridge.stp no\n", b.Name)
+		}
+	}
+}
+
+// pveTaskErrorCritTypes returns the set of task types with 3+ errors (CRIT).
+func pveTaskErrorCritTypes(errs []models.PVETaskError) map[string]bool {
+	byType := make(map[string]int)
+	for _, e := range errs {
+		byType[e.Type]++
+	}
+	crit := make(map[string]bool)
+	for typ, n := range byType {
+		if n >= 3 {
+			crit[typ] = true
+		}
+	}
+	return crit
+}
+
+// formatPVEUptime renders a node uptime (seconds) as days/hours/minutes.
+func formatPVEUptime(sec int64) string {
+	switch {
+	case sec >= 86400:
+		return fmt.Sprintf("%d days", sec/86400)
+	case sec >= 3600:
+		return fmt.Sprintf("%d hours", sec/3600)
+	default:
+		return fmt.Sprintf("%d minutes", sec/60)
+	}
+}
+
 func countPVEIssues(info *models.PVEInfo) int {
 	n := 0
 	for _, s := range info.Storages {
@@ -360,7 +507,14 @@ func countPVEIssues(info *models.PVEInfo) int {
 	if !info.QuorumOK && info.ClusterName != "" {
 		n++
 	}
-	if info.BackupAgeDays > 7 || info.BackupAgeDays < 0 {
+	// Backups: prefer the per-VM audit when present, else the global age.
+	if len(info.BackupStatuses) > 0 {
+		for _, b := range info.BackupStatuses {
+			if b.LastBackupDays > 7 || b.LastBackupDays < 0 {
+				n++
+			}
+		}
+	} else if info.BackupAgeDays > 7 || info.BackupAgeDays < 0 {
 		n++
 	}
 	n += len(info.TaskErrors)
@@ -369,6 +523,12 @@ func countPVEIssues(info *models.PVEInfo) int {
 	}
 	if info.HostMemGB > 0 && info.TotalMemGB/info.HostMemGB > 1.0 {
 		n++
+	}
+	// Network bridges: down, no uplink, or STP enabled.
+	for _, b := range info.Bridges {
+		if !b.Active || !b.HasUplink || b.STPEnabled {
+			n++
+		}
 	}
 	return n
 }
