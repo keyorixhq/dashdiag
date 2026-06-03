@@ -14,6 +14,7 @@ import (
 	gopsutildisk "github.com/shirou/gopsutil/v3/disk"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 var skipFSTypes = map[string]bool{
@@ -30,12 +31,13 @@ type mountEntry struct {
 }
 
 type DiskCollector struct {
-	mountsPath string
-	Deep       bool
+	mountsPath   string
+	Deep         bool
+	ContainerCtx platform.ContainerContext
 }
 
-func NewDiskCollector() *DiskCollector {
-	return &DiskCollector{mountsPath: "/proc/mounts"}
+func NewDiskCollector(ctx platform.ContainerContext) *DiskCollector {
+	return &DiskCollector{mountsPath: "/proc/mounts", ContainerCtx: ctx}
 }
 
 func NewDiskDeepCollector() *DiskCollector {

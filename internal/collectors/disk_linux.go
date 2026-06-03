@@ -444,9 +444,11 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 		}
 		// Virtual disks (virtio/QEMU/VMware/etc.) expose no real SMART data —
 		// smartctl errors or returns meaningless output, producing a false
-		// warning. Leave d.SMART nil so no SMART line, issue count, or insight
-		// is surfaced for them.
-		if isVirtualDisk(*d) {
+		// warning. Inside a container (LXC/Docker) SMART is equally irrelevant:
+		// smartctl is typically absent and the host owns the physical disks.
+		// Leave d.SMART nil so no SMART line, issue count, or insight is
+		// surfaced for them.
+		if isVirtualDisk(*d) || c.ContainerCtx.InContainer {
 			continue
 		}
 		d.SMART = collectSMART(d.Name)
