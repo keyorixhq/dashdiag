@@ -13,12 +13,17 @@ Sessions 1–12 complete. Bug fixes and NixOS validation complete.
 Do NOT start new collectors or the distro-aware fix suggestions sprint until
 the landing page is deployed and collecting emails.
 
+**June 3 (session 2) status:** repo is **public** (`github.com/keyorixhq/dashdiag`),
+**v0.6.1 released** (4 binaries + `checksums.txt`), and the `install.sh` one-liner
+is **live and verified working**. Remaining GTM: register dashdiag.sh, deploy the
+landing page (now its own repo `keyorixhq/dashdiag-landing`), wire email capture.
+
 **GTM checklist (do in order):**
 1. Register `dashdiag.sh` (~$35/yr, Namecheap, confirmed available)
-2. Make repo public (`github.com/keyorixhq/dashdiag`)
-3. Create GitHub release — run `make release`, upload 4 binaries + `checksums.txt`
-4. Wire email capture — search `STUB` in `landing/index.html`, swap for Formspree/Tally endpoint
-5. Deploy `landing/index.html` — Cloudflare Pages or GitHub Pages, DNS → dashdiag.sh
+2. ✅ DONE — repo public (`github.com/keyorixhq/dashdiag`)
+3. ✅ DONE — GitHub release v0.6.1 (4 binaries + `checksums.txt`, install one-liner verified)
+4. Wire email capture — search `STUB` in `index.html` (now in repo `keyorixhq/dashdiag-landing`), swap for Formspree/Tally endpoint
+5. Deploy landing page — repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), DNS → dashdiag.sh
 
 ---
 
@@ -35,6 +40,7 @@ the landing page is deployed and collecting emails.
 **Secondary machine: Proxmox host pve01 (192.168.10.20)**
 - Repo: `/root/proj/dashdiag`
 - Used for: scp deploy to LXC/VM test matrix, `dsd pve` development
+- SSH key-based auth configured for `root@192.168.10.20` — no password needed for scp/ssh
 
 **Deploy pattern (Mac → Linux guest):**
 ```bash
@@ -154,6 +160,13 @@ case <-time.After(2*time.Second): // STALE — never blocks caller
 Renderers: split into Identity/State/Resources/Files/Connections sections.
 Heuristics: split into sub-checks (checkDockerContainers/Resources/Security etc).
 `buildHealthCollectors` uses `//nolint:funlen,cyclop` — justified as flat registry.
+
+### Known duplicate to clean up: PVE service port list
+The PVE service port list `{8006, 3128, 111}` is duplicated across 3 places:
+`internal/analysis/heuristics.go` (`isPVEServicePort`), `cmd/security.go`
+(`isPVEServicePort` helper), and `internal/collectors` (security_linux.go
+references the same ports). Consolidate into a single exported helper when next
+touching PVE code.
 
 ---
 

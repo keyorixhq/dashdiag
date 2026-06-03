@@ -76,13 +76,25 @@ Build order rule: **never build deep before fast is in production use.**
 | Landing page built — `landing/index.html`, "DashDiag by Keyorix", animated terminal proof | 48e5826 |
 | Landing page updated — real `install.sh` one-liner, removed "Coming soon" stubs | d2356fe |
 
+## ✅ Recently Completed (June 3, 2026 — Session 2: CI green + repo public + PVE hardware validation)
+
+| Item | Commit |
+|---|---|
+| fix(ci): `TestSELinuxAbsent` skip on Linux — CI green after 2 days red | — |
+| All 7 Dependabot PRs merged (actions/checkout v6, actions/setup-go v6, action-gh-release v3, gopsutil 3.24.5, viper 1.21.0, cobra 1.10.2, go-ping 1.2.0) | — |
+| Repo made public (`github.com/keyorixhq/dashdiag`) | — |
+| v0.6.1 released — 4 binaries + `checksums.txt`, install one-liner verified working | — |
+| `landing/` moved to separate repo `keyorixhq/dashdiag-landing` (Netlify deploy pending) | — |
+| Branch protection ruleset deleted (solo founder, no contributors yet) | — |
+| BUG-015–019 fixed and verified on live PVE hardware | 4f5e668 |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
 |---|---|---|
 | Register `dashdiag.sh` | **PENDING** | ~$35/yr, confirmed available at Namecheap. Card ready. |
-| Make repo public | **PENDING** | Required for `install.sh` curl to work unauthenticated |
-| Create GitHub release | **PENDING** | `install.sh` hits releases API for `latest` — needs published release with 4 binaries + `checksums.txt` |
+| Make repo public | **✅ DONE** | Public at `github.com/keyorixhq/dashdiag` (June 3) |
+| Create GitHub release | **✅ DONE** | v0.6.1 published — 4 binaries + `checksums.txt`, install one-liner verified |
 | Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `landing/index.html` — one-line swap |
 | Deploy landing page | **PENDING** | Static single file, no build step. Cloudflare Pages or GitHub Pages. DNS swap after domain. |
 
