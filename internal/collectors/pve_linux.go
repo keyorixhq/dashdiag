@@ -30,8 +30,12 @@ type PVECollector struct{}
 
 func NewPVECollector() *PVECollector { return &PVECollector{} }
 
-func (c *PVECollector) Name() string           { return "PVE" }
-func (c *PVECollector) Timeout() time.Duration { return 8 * time.Second }
+func (c *PVECollector) Name() string { return "PVE" }
+
+// Timeout covers ~11 sequential pvesh calls at ~0.8s each (pvesh spawns a Perl
+// API client per call). Collectors cannot parallelize (the runner owns
+// concurrency), so the budget must accommodate the full sequence.
+func (c *PVECollector) Timeout() time.Duration { return 15 * time.Second }
 
 func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.PVEInfo{}
@@ -42,6 +46,10 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info.IsPVE = true
 
+	// Node identity — these work without root.
+	info.PVEVersion = collectPVEVersion(ctx)
+	info.KernelVersion = collectKernelVersion()
+
 	// Root check — pvesh requires root
 	if os.Getuid() != 0 {
 		info.NeedsRoot = true
@@ -49,6 +57,9 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Subscription = collectPVESubscriptionFile()
 		return info, nil
 	}
+
+	// Node status — CPU% + uptime via pvesh
+	info.CPUPct, info.UptimeSec = collectPVENodeStatus(ctx)
 
 	// Subscription status
 	info.Subscription = collectPVESubscription(ctx)
@@ -62,11 +73,11 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	// Storage usage
 	info.Storages = collectPVEStorages(ctx)
 
-	// Backup tasks — last 7 days
-	info.RecentBackups, info.BackupAgeDays = collectPVEBackups(ctx)
-
-	// VMs and LXC containers
+	// VMs and LXC containers (collected before backups so the audit can map per-VM)
 	info.Guests, info.RunningCount, info.StoppedCount, info.PausedCount = collectPVEGuests(ctx)
+
+	// Backup tasks — global age + per-VM audit
+	info.RecentBackups, info.BackupAgeDays, info.BackupStatuses = collectPVEBackups(ctx, info.Guests)
 
 	// Resource overcommit
 	info.TotalVCPUs, info.TotalMemGB = collectPVEResourceUsage(info.Guests)
@@ -76,7 +87,75 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	// Recent task errors (last 24h)
 	info.TaskErrors = collectPVETaskErrors(ctx)
 
+	// Network bridges
+	info.Bridges = collectPVEBridges(ctx)
+
 	return info, nil
+}
+
+// collectPVEVersion parses `pveversion -v` and extracts the pve-manager version.
+// Output lines look like "pve-manager: 8.2.2 (running version: 8.2.2/...)" or,
+// for plain `pveversion`, "pve-manager/8.2.2/<hash> (running kernel: ...)".
+func collectPVEVersion(ctx context.Context) string {
+	out, err := runCmd(ctx, "pveversion", "-v")
+	if err != nil || strings.TrimSpace(out) == "" {
+		// Fallback to plain pveversion (single line, slash-delimited)
+		out, err = runCmd(ctx, "pveversion")
+		if err != nil {
+			return ""
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "pve-manager") {
+			continue
+		}
+		return parsePVEManagerVersion(line)
+	}
+	return ""
+}
+
+// parsePVEManagerVersion extracts the version token from a pve-manager line,
+// handling both "pve-manager: 8.2.2 (...)" and "pve-manager/8.2.2/<hash> (...)".
+func parsePVEManagerVersion(line string) string {
+	rest := strings.TrimPrefix(line, "pve-manager")
+	switch {
+	case strings.HasPrefix(rest, ":"):
+		rest = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+	case strings.HasPrefix(rest, "/"):
+		rest = strings.TrimPrefix(rest, "/")
+	}
+	fields := strings.FieldsFunc(rest, func(r rune) bool { return r == ' ' || r == '/' })
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// collectKernelVersion reads the running kernel release (uname -r equivalent).
+func collectKernelVersion() string {
+	data, err := os.ReadFile("/proc/sys/kernel/osrelease") // #nosec G304 -- hardcoded /proc path
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// collectPVENodeStatus reads CPU usage and uptime from the node status endpoint.
+// The "cpu" field is a 0..1 fraction; multiply by 100 for a percentage.
+func collectPVENodeStatus(ctx context.Context) (cpuPct float64, uptimeSec int64) {
+	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/status", "--output-format", "json")
+	if err != nil {
+		return 0, 0
+	}
+	var result struct {
+		CPU    float64 `json:"cpu"`
+		Uptime int64   `json:"uptime"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return 0, 0
+	}
+	return result.CPU * 100, result.Uptime
 }
 
 // collectPVESubscription runs pvesh to get subscription status.
@@ -209,17 +288,20 @@ func collectPVEStorages(ctx context.Context) []models.PVEStorage {
 	return storages
 }
 
-// collectPVEBackups reads recent backup tasks from pvesh and determines
-// the age of the last successful backup in days.
-func collectPVEBackups(ctx context.Context) (tasks []models.PVEBackupTask, ageDays int) {
-	// First try pvesh task list
+// collectPVEBackups reads recent backup tasks from pvesh and determines both
+// the global age of the last successful backup and a per-VM/CT backup audit.
+// Templates are skipped silently from the per-VM audit.
+func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
+	tasks []models.PVEBackupTask, ageDays int, statuses []models.PVEBackupStatus,
+) {
+	// 200 tasks gives enough history to age backups older than 30 days.
 	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
 		"--output-format", "json",
 		"--typefilter", "vzdump",
-		"--limit", "50")
+		"--limit", "200")
 	if err != nil {
-		// Fallback: scan backup log files
-		return nil, collectPVEBackupAgeFromLogs()
+		// Fallback: scan backup log files (per-VM audit unavailable)
+		return nil, collectPVEBackupAgeFromLogs(), nil
 	}
 
 	var items []struct {
@@ -228,12 +310,13 @@ func collectPVEBackups(ctx context.Context) (tasks []models.PVEBackupTask, ageDa
 		EndTime float64 `json:"endtime"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return nil, -1
+		return nil, -1, nil
 	}
 
 	ageDays = -1 // -1 = never
 	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	lastSuccess := time.Time{}
+	lastOKByVM := make(map[int]time.Time) // most recent successful backup per VMID
 
 	for _, item := range items {
 		end := time.Unix(int64(item.EndTime), 0)
@@ -248,15 +331,42 @@ func collectPVEBackups(ctx context.Context) (tasks []models.PVEBackupTask, ageDa
 				EndTime: int64(item.EndTime),
 			})
 		}
-		if item.Status == "OK" && end.After(lastSuccess) {
-			lastSuccess = end
+		if item.Status == "OK" {
+			if end.After(lastSuccess) {
+				lastSuccess = end
+			}
+			if end.After(lastOKByVM[vmid]) {
+				lastOKByVM[vmid] = end
+			}
 		}
 	}
 
 	if !lastSuccess.IsZero() {
 		ageDays = int(time.Since(lastSuccess).Hours() / 24)
 	}
-	return tasks, ageDays
+	statuses = backupAudit(guests, lastOKByVM)
+	return tasks, ageDays, statuses
+}
+
+// backupAudit produces a per-VM/CT backup status from the last-successful-backup
+// map. Templates are skipped silently. LastBackupDays is -1 when never backed up.
+func backupAudit(guests []models.PVEGuest, lastOKByVM map[int]time.Time) []models.PVEBackupStatus {
+	statuses := make([]models.PVEBackupStatus, 0, len(guests))
+	for _, g := range guests {
+		if g.IsTemplate {
+			continue // templates are not expected to have backups
+		}
+		days := -1
+		if t, ok := lastOKByVM[g.VMID]; ok && !t.IsZero() {
+			days = int(time.Since(t).Hours() / 24)
+		}
+		statuses = append(statuses, models.PVEBackupStatus{
+			VMID:           g.VMID,
+			Name:           g.Name,
+			LastBackupDays: days,
+		})
+	}
+	return statuses
 }
 
 // collectPVEBackupAgeFromLogs scans /var/log/vzdump/ for recent backup logs.
@@ -299,12 +409,13 @@ func collectPVEBackupAgeFromLogs() int {
 // collectPVEGuests fetches VMs (qemu) and LXC containers from pvesh.
 func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, stopped, paused int) {
 	type guestRaw struct {
-		VMID   int     `json:"vmid"`
-		Name   string  `json:"name"`
-		Status string  `json:"status"`
-		OnBoot int     `json:"onboot"`
-		CPUs   int     `json:"cpus"`
-		MaxMem float64 `json:"maxmem"` // bytes
+		VMID     int     `json:"vmid"`
+		Name     string  `json:"name"`
+		Status   string  `json:"status"`
+		OnBoot   int     `json:"onboot"`
+		CPUs     int     `json:"cpus"`
+		MaxMem   float64 `json:"maxmem"`   // bytes
+		Template int     `json:"template"` // 1 = template
 	}
 	for _, gtype := range []string{"qemu", "lxc"} {
 		out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/"+gtype, "--output-format", "json")
@@ -317,13 +428,14 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 		}
 		for _, r := range raw {
 			g := models.PVEGuest{
-				VMID:     r.VMID,
-				Name:     r.Name,
-				Type:     gtype,
-				Status:   r.Status,
-				OnBoot:   r.OnBoot == 1,
-				CPUs:     r.CPUs,
-				MaxMemGB: r.MaxMem / 1024 / 1024 / 1024,
+				VMID:       r.VMID,
+				Name:       r.Name,
+				Type:       gtype,
+				Status:     r.Status,
+				OnBoot:     r.OnBoot == 1,
+				CPUs:       r.CPUs,
+				MaxMemGB:   r.MaxMem / 1024 / 1024 / 1024,
+				IsTemplate: r.Template == 1,
 			}
 			guests = append(guests, g)
 			switch r.Status {
@@ -430,6 +542,55 @@ func collectPVETaskErrors(ctx context.Context) []models.PVETaskError {
 		})
 	}
 	return errs
+}
+
+// collectPVEBridges reads the node network config and returns one entry per
+// bridge interface, with active/uplink/STP state for misconfiguration checks.
+func collectPVEBridges(ctx context.Context) []models.PVEBridge {
+	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/network", "--output-format", "json")
+	if err != nil {
+		return nil
+	}
+	var items []struct {
+		Iface       string `json:"iface"`
+		Type        string `json:"type"`
+		Active      int    `json:"active"`
+		BridgePorts string `json:"bridge_ports"`
+	}
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		return nil
+	}
+	var bridges []models.PVEBridge
+	for _, item := range items {
+		if item.Type != "bridge" {
+			continue
+		}
+		ports := strings.TrimSpace(item.BridgePorts)
+		bridges = append(bridges, models.PVEBridge{
+			Name:       item.Iface,
+			Active:     item.Active == 1,
+			HasUplink:  ports != "",
+			Ports:      ports,
+			STPEnabled: bridgeSTPEnabled(item.Iface),
+		})
+	}
+	return bridges
+}
+
+// bridgeSTPEnabled reads /sys/class/net/<bridge>/bridge/stp_state (1=on, 0=off).
+func bridgeSTPEnabled(name string) bool {
+	clean := filepath.Base(name)                                              // defend against any path tricks in the iface name
+	data, err := os.ReadFile("/sys/class/net/" + clean + "/bridge/stp_state") // #nosec G304 -- sysfs, name sanitised
+	if err != nil {
+		return false
+	}
+	return parseSTPState(string(data))
+}
+
+// parseSTPState reports whether a bridge stp_state value means STP is enabled.
+// The sysfs file contains "1" (enabled) or "0" (disabled).
+func parseSTPState(s string) bool {
+	return strings.TrimSpace(s) == "1"
 }
 
 // CollectPVEPerf runs pveperf and parses the results. Exported for cmd/pve.go.

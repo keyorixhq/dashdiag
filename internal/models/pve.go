@@ -33,13 +33,31 @@ type PVENode struct {
 
 // PVEGuest represents a VM or LXC container.
 type PVEGuest struct {
-	VMID     int     `json:"vmid"`
-	Name     string  `json:"name"`
-	Type     string  `json:"type"`   // "qemu" or "lxc"
-	Status   string  `json:"status"` // "running", "stopped", "paused"
-	OnBoot   bool    `json:"onboot"`
-	CPUs     int     `json:"cpus,omitempty"`
-	MaxMemGB float64 `json:"max_mem_gb,omitempty"`
+	VMID       int     `json:"vmid"`
+	Name       string  `json:"name"`
+	Type       string  `json:"type"`   // "qemu" or "lxc"
+	Status     string  `json:"status"` // "running", "stopped", "paused"
+	OnBoot     bool    `json:"onboot"`
+	CPUs       int     `json:"cpus,omitempty"`
+	MaxMemGB   float64 `json:"max_mem_gb,omitempty"`
+	IsTemplate bool    `json:"is_template,omitempty"` // template=1 — excluded from backup audit
+}
+
+// PVEBackupStatus is the per-VM/CT backup audit result.
+type PVEBackupStatus struct {
+	VMID           int    `json:"vmid"`
+	Name           string `json:"name,omitempty"`
+	LastBackupDays int    `json:"last_backup_days"`      // -1 = never backed up
+	IsTemplate     bool   `json:"is_template,omitempty"` // templates are skipped, kept for completeness
+}
+
+// PVEBridge represents a Proxmox network bridge.
+type PVEBridge struct {
+	Name       string `json:"name"`            // e.g. "vmbr0"
+	Active     bool   `json:"active"`          // UP/DOWN
+	HasUplink  bool   `json:"has_uplink"`      // a physical NIC is attached
+	Ports      string `json:"ports,omitempty"` // bridge_ports field
+	STPEnabled bool   `json:"stp_enabled"`     // spanning-tree on (causes ~30s VM boot delay)
 }
 
 // PVETaskError represents a recent failed task.
@@ -73,10 +91,19 @@ type PVEInfo struct {
 	HAFencingMsg string    `json:"ha_fencing_msg,omitempty"`
 
 	// This node
-	Subscription  PVESubscription `json:"subscription"`
-	Storages      []PVEStorage    `json:"storages,omitempty"`
-	RecentBackups []PVEBackupTask `json:"recent_backups,omitempty"`
-	BackupAgeDays int             `json:"backup_age_days"` // days since last successful backup (-1 = never)
+	PVEVersion    string  `json:"pve_version,omitempty"`    // pve-manager version, e.g. "8.2.2"
+	KernelVersion string  `json:"kernel_version,omitempty"` // e.g. "6.8.4-3-pve"
+	CPUPct        float64 `json:"cpu_pct"`                  // aggregate CPU usage %
+	UptimeSec     int64   `json:"uptime_sec"`               // node uptime in seconds
+
+	Subscription   PVESubscription   `json:"subscription"`
+	Storages       []PVEStorage      `json:"storages,omitempty"`
+	RecentBackups  []PVEBackupTask   `json:"recent_backups,omitempty"`
+	BackupAgeDays  int               `json:"backup_age_days"`           // days since last successful backup (-1 = never)
+	BackupStatuses []PVEBackupStatus `json:"backup_statuses,omitempty"` // per-VM/CT backup audit
+
+	// Network bridges
+	Bridges []PVEBridge `json:"bridges,omitempty"`
 
 	// Guests
 	Guests       []PVEGuest `json:"guests,omitempty"`
