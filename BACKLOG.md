@@ -4,7 +4,7 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-3 (Sprint 1+2+3 + PVE deep + bugs + Sprint 4 items)**
+**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-5 (full day)**
 
 ---
 
@@ -115,6 +115,19 @@ Build order rule: **never build deep before fast is in production use.**
 | Spec 7j: Docker Swarm INFO in daemon section — role (manager/worker) from ControlAvailable | b0d5c28 |
 | CRI-O socket detection — `/var/run/crio/crio.sock` added to candidate list (OpenShift/RHEL k8s) | 9476109 |
 
+## ✅ Recently Completed (June 3, 2026 — Session 5: Podman quadlets + marketing + capture)
+
+| Item | Commit |
+|---|---|
+| Podman quadlet detection — `dsd docker` + `dsd health`, socket-active and socket-inactive | ac26dd8 |
+| `podmanInstalled()` fallback — quadlets surface even when socket down | ac26dd8 |
+| `PodmanQuadletsPresent()` fast file-existence gate — `dsd health` includes docker collector on quadlet hosts | ac26dd8 |
+| Verified live: AlmaLinux 9 LXC, socket inactive, test-nginx.container → WARN in both commands | ac26dd8 |
+| Marketing Story 10: Podman quadlet blind spot — socket assumption, social media angles, evidence | 032a488 |
+| `dsd capture` preserves disk raw data — Disk/Drives/LVM/ZFS/IO raw JSON in fixture YAML | 4e0b943 |
+| `dsd mock` replays disk raw data via model type map (DiskInfo/LVMInfo/ZFSInfo/IOInfo) | 4e0b943 |
+| Backward compat: old fixtures without raw replay via text-only stub unchanged | 4e0b943 |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
@@ -143,7 +156,7 @@ CRI-O is the default runtime on OpenShift and RHEL-based Kubernetes clusters.
 
 ---
 
-### [CONTAINER-PODMAN-SYSTEMD] Detect systemd-managed Podman containers (quadlets)
+### ~~[CONTAINER-PODMAN-SYSTEMD] Detect systemd-managed Podman containers (quadlets)~~ ✅ DONE (June 3, commit ac26dd8)
 
 **Current state:** Podman socket detection works. But RHEL admins increasingly use Podman
 via systemd unit files (`podman generate systemd`, quadlets in `/etc/containers/systemd/`).
@@ -178,7 +191,7 @@ zero diagnostic value for DashDiag's target audience.
 
 ## Tooling
 
-### [CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline
+### ~~[CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline~~ ✅ DONE (disk, June 3, commit 4e0b943)
 
 **Current state:** `dsd capture` only reads `dsd health --json`. The detailed LVM state
 (thin pool %, RAID health, missing PV) lives in `dsd disk --json` and is not captured.
