@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/go-ping/ping v1.1.0
+	github.com/go-ping/ping v1.2.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
