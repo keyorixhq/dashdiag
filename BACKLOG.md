@@ -212,6 +212,30 @@ so it surfaces in `dsd health`, not just `dsd disk`. Backlog checkbox was stale.
 
 ---
 
+### [BTRFS-TEST-INFRA] Proper reproducible btrfs RAID1 DEGRADED test on VM 214
+
+**Current state (June 4):** VM 214 (`opensuse16-btrfs`, 192.168.10.56) has a single-device
+btrfs volume at `/mnt/btrfs-test`. DEGRADED path was validated manually using a loop
+device + RAID1 conversion + `losetup -d`. Setup is ephemeral (loop file in `/tmp`,
+dies on reboot) and requires manual steps each session.
+
+**What to build:**
+- Add a second persistent virtual disk to VM 214 via `qm set 214 --scsi2 local-lvm:4`
+- Format both `/dev/sdb` + `/dev/sdc` as btrfs RAID1 at provision time
+- Update `/etc/fstab` to mount the RAID1 array
+- DEGRADED trigger: `qm set 214 --delete scsi2` from PVE → VM boots with genuine
+  missing device, btrfs auto-mounts degraded, `dsd health` fires CRIT — no manual setup
+- Device error path: `dd if=/dev/urandom of=/dev/sdc bs=4K count=1000` before detach
+  to seed non-zero `btrfs device stats` counters, validating the WARN path too
+
+**Why deferred:** Collector logic already validated and fixtures captured. Only matters
+when test reproducibility is needed for contributors or CI. No code change required.
+
+**Priority:** Low. Test infra only. ~30min when ready.
+**Blocked on:** Nothing — VM 214 is running, just needs a second scsi disk added.
+
+---
+
 **Gap found:** During the Session 11 LVM break test (4 simultaneous failures), we cleaned
 up before running `dsd capture`. The health fixture is now hand-crafted. The `dsd disk`
 detail was never captured.
