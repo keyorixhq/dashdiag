@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -539,7 +540,10 @@ func TestSELinuxDenialsThresholds(t *testing.T) {
 }
 
 func TestSELinuxAbsent(t *testing.T) {
-	// On macOS (where this test runs) neither SELinux nor AppArmor is applicable.
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux without SELinux/AppArmor correctly emits INFO; validated in integration tests")
+	}
+	// On macOS neither SELinux nor AppArmor is applicable.
 	// KernelSec row should be hidden — no insights emitted.
 	// On Linux without any security module, an INFO would be shown, but that
 	// is exercised in integration tests on Linux, not here.
