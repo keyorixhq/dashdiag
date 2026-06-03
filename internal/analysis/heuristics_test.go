@@ -840,3 +840,91 @@ func TestCheckLVMEmpty(t *testing.T) {
 		t.Errorf("expected no insights for empty LVMInfo, got %d: %+v", len(insights), insights)
 	}
 }
+
+// ── Proxmox VE false-positive suppression (BUG-016 … BUG-019) ────────────────
+
+// hasInsight reports whether any insight matches the given level and a substring
+// of its message — used to assert PVE-specific downgrades precisely.
+func hasInsight(insights []models.Insight, level, msgSubstr string) bool {
+	for _, ins := range insights {
+		if ins.Level == level && strings.Contains(ins.Message, msgSubstr) {
+			return true
+		}
+	}
+	return false
+}
+
+// BUG-016: PVE service ports 8006/3128/111 must surface as INFO, never WARN.
+func TestPVEServicePortsSuppressed(t *testing.T) {
+	ports := []models.PortEntry{
+		{Port: 8006, Protocol: "tcp", Process: "pvedaemon"},
+		{Port: 3128, Protocol: "tcp", Process: "spiceproxy"},
+		{Port: 111, Protocol: "tcp", Process: "rpcbind"},
+	}
+
+	// On PVE: no WARN about these ports, and an INFO "PVE service port" line.
+	pve := models.SecurityInfo{IsPVE: true, ListeningPorts: ports}
+	got := ApplyThresholds(res(pve), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if hasInsight(got, "WARN", "unexpected port") {
+		t.Errorf("PVE host should not WARN on 8006/3128/111, got %+v", got)
+	}
+	if !hasInsight(got, "INFO", "PVE service port") {
+		t.Errorf("expected INFO PVE service port line, got %+v", got)
+	}
+
+	// Non-PVE control: the same ports remain a WARN.
+	nonPVE := models.SecurityInfo{IsPVE: false, ListeningPorts: ports}
+	gotNon := ApplyThresholds(res(nonPVE), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if !hasInsight(gotNon, "WARN", "unexpected port") {
+		t.Errorf("non-PVE host should WARN on 8006/3128/111, got %+v", gotNon)
+	}
+}
+
+// BUG-017: an empty ruleset with pve-firewall active is INFO, not WARN.
+func TestPVEFirewallNoFalsePositive(t *testing.T) {
+	pve := models.FirewallInfo{Available: true, Backend: "nftables", Active: false, PVEFirewallActive: true}
+	got := checkFirewall(pve)
+	if hasLevel(got, "WARN") {
+		t.Errorf("pve-firewall active should suppress the unprotected WARN, got %+v", got)
+	}
+	if !hasInsight(got, "INFO", "pve-firewall") {
+		t.Errorf("expected INFO mentioning pve-firewall, got %+v", got)
+	}
+
+	// Control: same empty ruleset without pve-firewall stays a WARN.
+	plain := models.FirewallInfo{Available: true, Backend: "nftables", Active: false}
+	if !hasLevel(checkFirewall(plain), "WARN") {
+		t.Errorf("empty ruleset without pve-firewall should WARN, got %+v", checkFirewall(plain))
+	}
+}
+
+// BUG-018: PermitRootLogin=yes is INFO on PVE (required), CRIT elsewhere.
+func TestPVESSHRootLoginDowngraded(t *testing.T) {
+	pve := models.SecurityInfo{IsPVE: true, SSHPermitRoot: true}
+	got := ApplyThresholds(res(pve), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if hasInsight(got, "CRIT", "root login") || hasInsight(got, "CRIT", "permits root") {
+		t.Errorf("PVE host should not CRIT on root SSH, got %+v", got)
+	}
+	if !hasInsight(got, "INFO", "required for PVE management") {
+		t.Errorf("expected INFO about PVE-required root SSH, got %+v", got)
+	}
+
+	// Non-PVE control: still CRIT.
+	nonPVE := models.SecurityInfo{IsPVE: false, SSHPermitRoot: true}
+	gotNon := ApplyThresholds(res(nonPVE), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if !hasInsight(gotNon, "CRIT", "root login") {
+		t.Errorf("non-PVE host should CRIT on root SSH, got %+v", gotNon)
+	}
+}
+
+// BUG-019: no backup must be CRIT (not WARN) so it bubbles into the PVE summary.
+func TestPVENoBackupIsCrit(t *testing.T) {
+	p := models.PVEInfo{IsPVE: true, QuorumOK: true, BackupAgeDays: -1}
+	got := checkPVE(p)
+	if !hasInsight(got, "CRIT", "no successful backup") {
+		t.Errorf("no backup on PVE must be CRIT, got %+v", got)
+	}
+	if hasInsight(got, "WARN", "no successful backup") {
+		t.Errorf("no-backup finding must not remain WARN, got %+v", got)
+	}
+}

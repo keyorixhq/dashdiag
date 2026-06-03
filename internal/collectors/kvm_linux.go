@@ -27,13 +27,22 @@ func NewKVMDeepCollector() *KVMCollector { return &KVMCollector{Deep: true} }
 func (c *KVMCollector) Name() string           { return "KVM" }
 func (c *KVMCollector) Timeout() time.Duration { return 15 * time.Second }
 
+// pveQEMUDir holds one <vmid>.pid file per running Proxmox VE QEMU guest.
+// Proxmox manages QEMU directly (no libvirt), so virsh sees nothing.
+const pveQEMUDir = "/var/run/qemu-server"
+
 func (c *KVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.KVMInfo{}
 
 	// Gate: virsh version proves libvirtd is reachable
 	verOut, err := runCmd(ctx, "virsh", "version", "--daemon")
 	if err != nil {
-		// libvirt not installed or daemon not running — return empty (not an error)
+		// libvirt not installed or daemon not running. On Proxmox VE, QEMU is
+		// managed directly via /var/run/qemu-server/*.pid — enumerate from there
+		// instead of returning empty (see BUG-015).
+		if IsPVEHost() {
+			kvmCollectPVEFromDir(pveQEMUDir, info)
+		}
 		return info, nil
 	}
 	info.Detected = true
@@ -321,7 +330,67 @@ func kvmParseBytes(s string) float64 {
 
 // KVMAvailable returns true when virsh is found, indicating libvirt is installed.
 // The actual daemon check happens in Collect() — this is a cheap binary check.
+// Fallback: Proxmox VE does not use libvirt — it manages QEMU directly, leaving
+// a pid file per running VM in /var/run/qemu-server/ (see BUG-015).
 func KVMAvailable() bool {
-	_, err := runCmdTimeout(2*time.Second, "virsh", "version", "--daemon")
-	return err == nil
+	if _, err := runCmdTimeout(2*time.Second, "virsh", "version", "--daemon"); err == nil {
+		return true
+	}
+	return pveHasRunningQEMU()
+}
+
+// pveHasRunningQEMU reports whether any Proxmox VE QEMU guest is running, by
+// the presence of at least one <vmid>.pid file in /var/run/qemu-server/.
+func pveHasRunningQEMU() bool {
+	matches, _ := filepath.Glob(filepath.Join(pveQEMUDir, "*.pid"))
+	return len(matches) > 0
+}
+
+// kvmCollectPVEFromDir enumerates Proxmox VE QEMU guests from the per-VM pid
+// files Proxmox writes to dir (normally /var/run/qemu-server/<vmid>.pid).
+// A guest counts as running when its pid file points to a live "kvm" process.
+func kvmCollectPVEFromDir(dir string, info *models.KVMInfo) {
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.pid"))
+	if len(matches) == 0 {
+		return
+	}
+	info.Detected = true
+	for _, pidFile := range matches {
+		vmid := strings.TrimSuffix(filepath.Base(pidFile), ".pid")
+		vm := models.KVMVM{Name: "VM " + vmid, ID: -1, State: models.KVMShutOff}
+		if pid, ok := readPVEVMPid(pidFile); ok && pveKVMProcessAlive(pid) {
+			vm.ID = pid
+			vm.State = models.KVMRunning
+		}
+		updateKVMCounts(info, &vm)
+		info.VMs = append(info.VMs, vm)
+	}
+}
+
+// readPVEVMPid reads a Proxmox <vmid>.pid file and returns the contained pid.
+func readPVEVMPid(path string) (int, bool) {
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed /var/run/qemu-server path
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+// pveKVMProcessAlive confirms pid maps to a live process whose name is "kvm",
+// guarding against stale pid files and pid reuse.
+func pveKVMProcessAlive(pid int) bool {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status")) // #nosec G304
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "Name:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "Name:")) == "kvm"
+		}
+	}
+	return false
 }

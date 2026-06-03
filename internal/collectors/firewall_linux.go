@@ -21,14 +21,36 @@ func (c *FirewallCollector) Timeout() time.Duration { return 5 * time.Second }
 func (c *FirewallCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.FirewallInfo{}
 
-	// Prefer nftables (modern), fall back to iptables
-	if _, err := exec.LookPath("nft"); err == nil {
-		return collectNFTables(ctx, info)
+	// Prefer nftables (modern), fall back to iptables. Both helpers mutate
+	// info in place; their (info, nil) return is kept only for the callers
+	// in the security collector that reuse the same parsing.
+	switch {
+	case lookPathOK("nft"):
+		_, _ = collectNFTables(ctx, info)
+	case lookPathOK("iptables"):
+		_, _ = collectIPTables(ctx, info)
 	}
-	if _, err := exec.LookPath("iptables"); err == nil {
-		return collectIPTables(ctx, info)
+
+	// On Proxmox VE the host firewall is managed by pve-firewall, which loads
+	// its nftables/iptables rules dynamically. An empty base ruleset is not
+	// "unprotected" when pve-firewall is the active manager (see BUG-017).
+	if IsPVEHost() && pveFirewallActive(ctx) {
+		info.PVEFirewallActive = true
 	}
 	return info, nil
+}
+
+// lookPathOK reports whether a binary is found on PATH.
+func lookPathOK(bin string) bool {
+	_, err := exec.LookPath(bin)
+	return err == nil
+}
+
+// pveFirewallActive reports whether the Proxmox pve-firewall service is active.
+// `systemctl is-active` exits 0 and prints "active" only when the unit is running.
+func pveFirewallActive(ctx context.Context) bool {
+	out, err := runCmd(ctx, "systemctl", "is-active", "pve-firewall")
+	return err == nil && strings.TrimSpace(out) == "active"
 }
 
 func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {

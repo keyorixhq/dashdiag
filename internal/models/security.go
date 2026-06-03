@@ -98,6 +98,11 @@ type SecurityInfo struct {
 	// Offensive/pentest distro flag — suppresses false-positive WARNs for
 	// intentionally relaxed defaults (e.g. Kali Linux root SSH, no firewall).
 	IsOffensiveDistro bool `json:"is_offensive_distro,omitempty"`
+
+	// Proxmox VE host flag — suppresses false-positive WARNs for ports and SSH
+	// settings that are mandatory on PVE (web UI 8006, spiceproxy 3128,
+	// rpcbind 111, and root SSH login required for cluster management).
+	IsPVE bool `json:"is_pve,omitempty"`
 }
 
 // PortEntry describes a listening network port.

@@ -191,6 +191,85 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
 
 ---
 
+## Proxmox VE 9.1.1 (Debian base, i7-6700)
+
+Five false positives found running `dsd` directly on the PVE base system.
+PVE diverges from a generic Debian host in ways that tripped distro-blind
+heuristics: it manages QEMU without libvirt, ships its own firewall and
+web-management ports, and mandates root SSH. Each fix is PVE-conditional —
+non-PVE behaviour is unchanged.
+
+### BUG-015 — dsd kvm returns false on PVE host
+**Found:** Proxmox host validation
+**Symptom:** `dsd kvm` reported no VMs despite active QEMU guests running.
+**Root cause:** KVMAvailable() and KVMCollector only probe libvirt (virsh /
+  libvirtd). Proxmox does not use libvirt — it manages QEMU directly, leaving
+  one /var/run/qemu-server/<vmid>.pid file per running VM. With no libvirt,
+  virsh exits non-zero and the collector returned an empty, undetected result.
+**Affected:** KVMCollector, KVMAvailable() gate, `dsd kvm`, `dsd health` KVM row
+**Fix:** KVMAvailable() falls back to globbing /var/run/qemu-server/*.pid when
+  the virsh probe fails. KVMCollector gained a PVE path (kvmCollectPVEFromDir)
+  that enumerates guests from the pid files, reading each pid and confirming a
+  live "kvm" process via /proc/<pid>/status. The libvirt path is untouched for
+  non-PVE hosts.
+**Commit:** PVE validation session (this change)
+
+### BUG-016 — false-positive port warnings for PVE ports 8006, 3128, 111
+**Found:** Proxmox host validation
+**Symptom:** `dsd security` and `dsd health` WARNed on ports 8006 (PVE web UI),
+  3128 (spiceproxy), and 111 (rpcbind) — all legitimate PVE services.
+**Root cause:** The port heuristic had no PVE awareness: these ports are not in
+  the universally-expected list and their processes (pvedaemon, spiceproxy,
+  rpcbind) are not known-service processes, so they fell through to "unexpected
+  port" WARN.
+**Affected:** checkSecurity port analysis, `dsd security`, `dsd health` Hardening
+**Fix:** SecurityCollector sets SecurityInfo.IsPVE (via IsPVEHost()). When set,
+  checkSecurity routes ports 8006/3128/111 to an INFO "PVE service port
+  (expected)" line instead of the unexpected-port WARN. Non-PVE hosts still WARN.
+**Commit:** PVE validation session (this change)
+
+### BUG-017 — incorrect nftables warning on PVE
+**Found:** Proxmox host validation
+**Symptom:** `dsd health` WARNed "nftables installed but no rules active — host
+  is unprotected" even though pve-firewall protects the host.
+**Root cause:** checkFirewall flagged an empty base ruleset as unprotected with
+  no knowledge that pve-firewall is the active manager (it loads rules
+  dynamically, so the base ruleset is legitimately sparse).
+**Affected:** FirewallCollector, checkFirewall, `dsd health` Firewall row
+**Fix:** FirewallCollector sets FirewallInfo.PVEFirewallActive when IsPVEHost()
+  and `systemctl is-active pve-firewall` reports active (the single subprocess
+  lives in the collector layer, not analysis). checkFirewall then emits INFO
+  "PVE firewall active (pve-firewall)" instead of the unprotected WARN.
+**Commit:** PVE validation session (this change)
+
+### BUG-018 — SSH root login flagged as CRIT on PVE
+**Found:** Proxmox host validation
+**Symptom:** `dsd health` emitted CRIT for PermitRootLogin=yes. Root SSH is
+  required for PVE cluster management — not a misconfiguration.
+**Root cause:** The SSH hardening check treated PermitRootLogin=yes as CRIT on
+  every host except offensive distros, with no PVE awareness.
+**Affected:** checkSecurity SSH hardening, `dsd security`, `dsd health` Hardening
+**Fix:** When SecurityInfo.IsPVE is set, PermitRootLogin=yes is downgraded to
+  INFO "Root SSH login enabled — required for PVE management. Restrict to
+  key-based auth if not already done." Non-PVE hosts still CRIT.
+**Commit:** PVE validation session (this change)
+
+### BUG-019 — "no backup" CRIT not surfaced in dsd health PVE summary
+**Found:** Proxmox host validation
+**Symptom:** `dsd pve` correctly flagged "no successful backup found" (❌), but
+  `dsd health`'s PVE row only surfaced it as WARN — under-reporting the worst
+  finding relative to `dsd pve`.
+**Root cause:** checkPVEBackups emitted WARN for BackupAgeDays < 0, while
+  `dsd pve` renders the same condition as a ❌ (CRIT-equivalent). The severity
+  was inconsistent between the two commands, so the health summary understated it.
+**Affected:** checkPVEBackups, `dsd health` PVE summary row
+**Fix:** Promote the no-backup finding (BackupAgeDays < 0) from WARN to CRIT in
+  checkPVEBackups. It is aggregated by checkPVE, so the CRIT now bubbles into the
+  PVE summary row, matching `dsd pve`. Only affects PVE hosts (gated by IsPVE).
+**Commit:** PVE validation session (this change)
+
+---
+
 ## Summary — Bugs by Category
 
 | Category | Count | Notes |
