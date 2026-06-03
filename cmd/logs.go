@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -29,7 +30,12 @@ var logsCmd = &cobra.Command{
 func runLogs(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	sinceStr, _ := cmd.Flags().GetString("since")
 	since := parseSinceDuration(sinceStr)
@@ -69,7 +75,12 @@ func parseSinceDuration(s string) time.Duration {
 	return d
 }
 
-func printLogsReport(info *models.LogsInfo, _ output.OutputMode, elapsed time.Duration, since time.Duration) {
+func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time.Duration, since time.Duration) {
+	if mode == output.ModeJSON {
+		printLogsJSON(info)
+		return
+	}
+
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -105,12 +116,42 @@ func printLogsSeverity(info *models.LogsInfo) {
 	fmt.Printf("\nSeverity summary:\n")
 	if info.ErrorCount > 0 {
 		fmt.Printf("  ❌  Errors:   %d\n", info.ErrorCount)
-		for _, e := range info.TopErrors {
-			fmt.Printf("       %s\n", e)
+		if len(info.TopCritical) > 0 {
+			for _, e := range info.TopCritical {
+				if age := formatAgeMin(e.AgeMin); age != "" {
+					fmt.Printf("       %s: %s — %s\n", e.Source, e.Message, age)
+				} else {
+					fmt.Printf("       %s: %s\n", e.Source, e.Message)
+				}
+			}
+		} else {
+			for _, e := range info.TopErrors {
+				fmt.Printf("       %s\n", e)
+			}
 		}
 	}
 	if info.WarningCount > 0 {
 		fmt.Printf("  ⚠️   Warnings: %d\n", info.WarningCount)
+	}
+}
+
+// printLogsJSON marshals the full logs report as indented JSON to stdout.
+func printLogsJSON(info *models.LogsInfo) {
+	_ = outputJSON(os.Stdout, info)
+}
+
+// formatAgeMin renders minutes as "Xm ago" (<60m), "Xh ago" (<24h), or
+// "Xd ago" (>=24h). Returns "" when the age is unknown (negative).
+func formatAgeMin(min int) string {
+	switch {
+	case min < 0:
+		return ""
+	case min < 60:
+		return fmt.Sprintf("%dm ago", min)
+	case min < 1440:
+		return fmt.Sprintf("%dh ago", min/60)
+	default:
+		return fmt.Sprintf("%dd ago", min/1440)
 	}
 }
 

@@ -288,3 +288,31 @@ func TestResolverAuditInfo(t *testing.T) {
 		t.Errorf("LinkDNS round-trip failed: %v", out.LinkDNS)
 	}
 }
+
+func TestLogsInfoTopCritical(t *testing.T) {
+	in := LogsInfo{
+		Available:    true,
+		ErrorCount:   2,
+		WarningCount: 5,
+		TopErrors:    []string{"disk error"},
+		TopCritical: []TopError{
+			{Message: "Out of memory: Kill process 8823", Source: "kernel", AgeMin: 180},
+			{Message: "connection refused", Source: "nginx", AgeMin: -1},
+		},
+		LogSource: "syslog",
+	}
+	var out LogsInfo
+	roundTrip(t, &in, &out)
+	if out.ErrorCount != in.ErrorCount || out.LogSource != in.LogSource {
+		t.Errorf("scalar round-trip mismatch: got %+v", out)
+	}
+	if len(out.TopCritical) != 2 {
+		t.Fatalf("TopCritical round-trip failed: %v", out.TopCritical)
+	}
+	if out.TopCritical[0].Source != "kernel" || out.TopCritical[0].AgeMin != 180 {
+		t.Errorf("TopCritical[0] = %+v", out.TopCritical[0])
+	}
+	if out.TopCritical[1].AgeMin != -1 {
+		t.Errorf("unknown-age entry should round-trip as -1, got %d", out.TopCritical[1].AgeMin)
+	}
+}
