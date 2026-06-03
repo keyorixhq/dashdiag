@@ -6,15 +6,51 @@
 
 ---
 
-## Current Phase: IMPLEMENTATION (Sessions 1–10 complete)
+## Current Phase: GTM UNBLOCKING (June 2026)
 
-Research is complete. ~80 sources processed. Gap spec is saturated.
-**DashDiag_Gap_Specs.md** is the single source of truth for what to build.
-**BACKLOG.md** has the full sprint-ordered backlog with ✅ markers for completed items.
+Sessions 1–12 complete. Bug fixes and NixOS validation complete.
+**Next priority: landing page live at dashdiag.sh → first paying customer.**
+Do NOT start new collectors or the distro-aware fix suggestions sprint until
+the landing page is deployed and collecting emails.
+
+**GTM checklist (do in order):**
+1. Register `dashdiag.sh` (~$35/yr, Namecheap, confirmed available)
+2. Make repo public (`github.com/keyorixhq/dashdiag`)
+3. Create GitHub release — run `make release`, upload 4 binaries + `checksums.txt`
+4. Wire email capture — search `STUB` in `landing/index.html`, swap for Formspree/Tally endpoint
+5. Deploy `landing/index.html` — Cloudflare Pages or GitHub Pages, DNS → dashdiag.sh
 
 ---
 
-## What Ships (as of Session 10, commit 67ff3a7)
+## Dev Environment (June 2026)
+
+**Primary machine: MacBook Air 15" (M3/M4, 24GB RAM)**
+- Repo: `~/proj/dashdiag`
+- Go: 1.26.4 arm64 (native Apple Silicon)
+- SSH key: `~/.ssh/id_ed25519` with passphrase, stored in macOS Keychain
+- Git identity: `Andrei Beshkov <andrey.beshkov@gmail.com>`
+- Docker: OrbStack (not Colima, not Docker Desktop)
+- Claude Code: v2.1.161
+
+**Secondary machine: Proxmox host pve01 (192.168.10.20)**
+- Repo: `/root/proj/dashdiag`
+- Used for: scp deploy to LXC/VM test matrix, `dsd pve` development
+
+**Deploy pattern (Mac → Linux guest):**
+```bash
+make release
+scp dist/dsd-linux-amd64 root@<host>:/tmp/dsd
+```
+
+**Deploy pattern (Mac → Legion, legacy):**
+```bash
+SSH_AUTH_SOCK=$(launchctl getenv SSH_AUTH_SOCK) make deploy
+# or: SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
+```
+
+---
+
+## What Ships (as of v0.6.0-38, commit d2356fe)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)

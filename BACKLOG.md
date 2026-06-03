@@ -4,7 +4,7 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-05-20 — Sessions 1–12 complete on Legion (RHEL 10.1 → Debian 13 → openSUSE Leap 16.0 → Ubuntu 26.04) + MacBook (macOS arm64)**
+**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 bug fixes + landing page + MacBook Air setup**
 
 ---
 
@@ -65,6 +65,26 @@ Build order rule: **never build deep before fast is in production use.**
 | btrfs DEGRADED now surfaces in `dsd health` heuristics (not just `dsd disk`) | S12 | a580f34 |
 | Ubuntu 26.04 LTS (Resolute Raccoon) validation — all paths clean, 0 bugs | S12 | 2e6278a |
 | Ubuntu LVM break test — `ubuntu-vg` dash-name fix confirmed, RAID1 DEGRADED detected | S12 | 7bd0a63 |
+
+## ✅ Recently Completed (June 3, 2026 — Bug fixes + GTM unblocking)
+
+| Item | Commit |
+|---|---|
+| Fix: journald `SyncIntervalSec` fix hint NixOS-aware → `services.journald.extraConfig` | 04fea7b |
+| Fix: SMART false positive on virtual disks (QEMU/virtio/VMware) — gate via `isVirtualDisk()` | 04fea7b |
+| NixOS 25.05 marketing assets re-captured clean at v0.6.0-38 | bb872b2 |
+| Landing page built — `landing/index.html`, "DashDiag by Keyorix", animated terminal proof | 48e5826 |
+| Landing page updated — real `install.sh` one-liner, removed "Coming soon" stubs | d2356fe |
+
+## 🚨 GTM Blockers (revenue-blocking, do these first)
+
+| Item | Status | Notes |
+|---|---|---|
+| Register `dashdiag.sh` | **PENDING** | ~$35/yr, confirmed available at Namecheap. Card ready. |
+| Make repo public | **PENDING** | Required for `install.sh` curl to work unauthenticated |
+| Create GitHub release | **PENDING** | `install.sh` hits releases API for `latest` — needs published release with 4 binaries + `checksums.txt` |
+| Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `landing/index.html` — one-line swap |
+| Deploy landing page | **PENDING** | Static single file, no build step. Cloudflare Pages or GitHub Pages. DNS swap after domain. |
 
 ---
 
