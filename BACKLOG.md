@@ -4,7 +4,7 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-3 (Sprint 1+2+3 + PVE deep + bugs)**
+**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-3 (Sprint 1+2+3 + PVE deep + bugs + Sprint 4 items)**
 
 ---
 
@@ -105,6 +105,16 @@ Build order rule: **never build deep before fast is in production use.**
 | Spec 24 verified live on pve01: all 5 new sections, fast + deep + json | ae9c4c4 |
 | CLAUDE.md updated — Legion retired, AlmaLinux LXC test matrix, v0.6.1 ref | cfdcb9d |
 
+## ✅ Recently Completed (June 3, 2026 — Session 4: Sprint 4 items + PVE backup fix)
+
+| Item | Commit |
+|---|---|
+| fix(pve): backup audit scans dump dir filenames — vzdump --all bulk task had no VMID | 21963e4 |
+| pve01: full backup of all 9 VMs/CTs — `dsd pve` now shows ✅ healthy | 21963e4 |
+| Spec H1: active session list verified already implemented — `w -h`, root SSH CRIT, idle WARN | 9476109 |
+| Spec 7j: Docker Swarm INFO in daemon section — role (manager/worker) from ControlAvailable | b0d5c28 |
+| CRI-O socket detection — `/var/run/crio/crio.sock` added to candidate list (OpenShift/RHEL k8s) | 9476109 |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
@@ -119,7 +129,7 @@ Build order rule: **never build deep before fast is in production use.**
 
 ## Container Runtimes
 
-### [CONTAINER-CRIO] Add CRI-O socket detection to dsd docker collector
+### ~~[CONTAINER-CRIO] Add CRI-O socket detection to dsd docker collector~~ ✅ DONE (June 3, commit 9476109)
 
 **Current state:** `dsd docker` auto-detects Docker and Podman sockets. CRI-O is not detected.
 CRI-O is the default runtime on OpenShift and RHEL-based Kubernetes clusters.
