@@ -47,6 +47,10 @@ Workflow:
   # Or capture locally:
   sudo dsd health --json | dsd capture > fixtures/local.yaml
 
+  # Capture with disk details:
+  sudo dsd health --json | dsd capture > fixtures/my-host.yaml
+  # (disk raw data — SMART, LVM, ZFS, drives — is automatically included)
+
   # Replay anywhere:
   dsd mock fixtures/my-host.yaml`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {}, // suppress brand header
@@ -67,9 +71,21 @@ type captureInsight struct {
 
 // captureCheck mirrors the JSON check structure for unmarshalling.
 type captureCheck struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Inline string `json:"inline"`
+	Name   string          `json:"name"`
+	Status string          `json:"status"`
+	Inline string          `json:"inline"`
+	Raw    json.RawMessage `json:"raw,omitempty"`
+}
+
+// diskRawChecks names the checks whose raw struct is preserved into the fixture
+// so dsd mock can replay disk findings (SMART, LVM, btrfs, drives) without hardware.
+var diskRawChecks = map[string]bool{
+	"Disk":   true,
+	"Drives": true,
+	"LVM":    true,
+	"ZFS":    true,
+	"IO":     true,
+	"Btrfs":  true,
 }
 
 // captureInput is the full JSON structure from dsd health --json.
@@ -157,6 +173,12 @@ func buildFixtureRow(c captureCheck, insightMap map[string]captureInsight) MockR
 	}
 
 	row := MockRow{Name: c.Name}
+
+	// Preserve raw disk data so dsd mock can replay disk findings without hardware.
+	// Stored regardless of level — OK disk rows carry useful detail for replay too.
+	if diskRawChecks[c.Name] && len(c.Raw) > 0 {
+		row.RawJSON = string(c.Raw)
+	}
 
 	if level == "OK" {
 		row.Inline = c.Inline
