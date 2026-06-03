@@ -1499,3 +1499,196 @@ The fix is `apt-get dist-upgrade` (or `apt full-upgrade`). The Update Manager do
 3. `dsd cve --all` found them both times, immediately
 
 After running `sudo apt-get dist-upgrade`, `dsd cve --all` returned clean.
+
+## Story 10 — The Containers Your Monitoring Doesn't Know Exist
+
+### What We Found
+
+While validating DashDiag on AlmaLinux 9, we set up a Podman container managed
+as a systemd service using the modern quadlet format — a `.container` file in
+`/etc/containers/systemd/`. The container failed to start (image pull failed
+inside an LXC). Then we ran every standard container monitoring tool available.
+
+None of them saw it.
+
+`docker ps` — not applicable, no Docker installed.
+`podman ps` — empty. Zero containers listed.
+`podman ps -a` — empty. The container never fully started.
+Socket-based monitoring (Prometheus Podman exporter, any tool using the Podman API) — empty.
+
+Then we ran `dsd docker`:
+
+```
+Runtime: podman
+
+Containers (0 total)
+  ✅  no containers
+
+[Podman quadlets]
+  ❌  test-nginx     failed    test-nginx.service
+     → systemctl status test-nginx.service
+     → journalctl -u test-nginx.service -n 20
+```
+
+And `dsd health`:
+
+```
+WARN: Docker: 1 Podman quadlet(s) failed: test-nginx
+```
+
+The container was failing. It had been failing since boot. Every standard
+monitoring tool returned clean. DashDiag found it in under a second.
+
+---
+
+### Why It Happened — The Socket Assumption
+
+Every container monitoring tool in existence is built around one assumption:
+containers are visible via the container runtime socket.
+
+Docker socket: `/var/run/docker.sock`
+Podman socket: `/run/podman/podman.sock`
+
+Query the socket, get the containers. That's the model.
+
+Quadlets break this model completely.
+
+Podman quadlets are containers defined as systemd unit files. When you create
+`/etc/containers/systemd/nginx.container`, systemd generates `nginx.service`
+automatically and manages the container lifecycle directly — no socket involved.
+The container is started, stopped, and restarted by systemd, not by Podman
+daemon commands.
+
+The consequence: **a quadlet container that fails to start never appears in
+`podman ps`, never appears in `podman ps -a`, and is completely invisible to
+any monitoring tool that queries the Podman socket.** The socket doesn't know
+it exists because the socket was never involved.
+
+The only place this failure is visible is in the systemd unit state and the
+journal. Which is where DashDiag looks.
+
+---
+
+### Who This Affects
+
+Quadlets are the recommended way to run containers on RHEL 9+, AlmaLinux 9+,
+Rocky Linux 9+, and any RHEL-based system following Red Hat's current guidance.
+Red Hat has been pushing quadlets as the production-ready replacement for
+`podman generate systemd` since Podman 4.4 (2022). On any modern RHEL-family
+server, quadlets are the right answer.
+
+The affected monitoring approach is:
+
+```bash
+# These all return empty on a quadlet-only host with a failed container:
+podman ps -a
+curl --unix-socket /run/podman/podman.sock http://localhost/containers/json
+# Prometheus Podman exporter: /metrics shows 0 containers
+# Datadog agent: reports no containers
+# Any tool using the Podman REST API: empty container list
+```
+
+This affects:
+- Prometheus Podman exporter (queries socket)
+- Datadog agent container monitoring (queries socket)
+- Netdata container module (queries socket)
+- Any custom healthcheck script using `podman ps`
+- Any monitoring tool built on the Docker/Podman REST API
+
+None of these tools will report a failed quadlet container. The monitoring
+returns clean. The container is broken.
+
+---
+
+### What DashDiag Does Differently
+
+DashDiag doesn't trust the socket as the single source of truth.
+
+`dsd docker` scans `/etc/containers/systemd/` directly for `.container` and
+`.pod` files — no socket required. For each quadlet file found, it derives
+the corresponding systemd service unit name and checks its state via systemctl.
+
+Critically, this works even when the Podman socket is completely inactive.
+`dsd health` uses a fast file-existence check (`PodmanQuadletsPresent()`) to
+decide whether to include the container collector — so a pure-quadlet host
+with no socket running still gets full container health coverage.
+
+The check is:
+1. Does `/etc/containers/systemd/` contain any `.container` or `.pod` files?
+2. If yes: check each derived service unit state via systemctl
+3. Any failed unit → WARN in `dsd health`, details in `dsd docker`
+
+Three lines of logic. Surfaces what every other tool misses.
+
+---
+
+### The Positioning
+
+This is the same class of finding as the SELinux/auditd blind spot (Story 3):
+the architecture changed, the tools didn't.
+
+Quadlets became the RHEL standard in 2022. Monitoring tools built around the
+socket assumption haven't caught up. The gap between "what's actually running"
+and "what monitoring reports" is invisible until something breaks.
+
+DashDiag finds the gap.
+
+**One-liner:** Your containers can be failing right now and every monitoring
+tool you have reports clean. DashDiag checks where the failure actually is.
+
+---
+
+### Social Media Angles
+
+**Technical (Mastodon/LinkedIn):**
+> A Podman quadlet container failing silently.
+>
+> `podman ps -a` — empty.
+> Prometheus Podman exporter — 0 containers.
+> Datadog — nothing.
+>
+> `dsd docker`:
+> ```
+> [Podman quadlets]
+>   ❌  nginx    failed    nginx.service
+> ```
+>
+> Quadlets are managed by systemd, not the socket. Every tool that queries
+> the socket misses them. dsd checks where the failure actually is.
+
+**Short hook:**
+> Your container monitoring is blind to quadlets.
+> podman ps returns empty. The container is failing.
+> One architectural assumption. Total blind spot.
+> dsd docker finds it anyway.
+
+**Founder voice (LinkedIn):**
+> I built DashDiag to find problems that other tools miss.
+>
+> Today's finding: Podman quadlets — the modern RHEL way to run containers —
+> are completely invisible to every monitoring tool that uses the Podman socket.
+> Including Prometheus. Including Datadog. Including `podman ps -a`.
+>
+> Because quadlets are managed by systemd, not the socket. When the container
+> fails, the socket doesn't know. Only systemd knows.
+>
+> `dsd docker` scans `/etc/containers/systemd/` directly. No socket needed.
+> Found a failed nginx container on the first run. Everything else reported clean.
+>
+> Same class of blind spot as the SELinux/auditd issue I wrote about last month.
+> The architecture changed. The tools didn't.
+>
+> → dashdiag.sh
+
+---
+
+### Evidence
+
+- Test environment: AlmaLinux 9.4 LXC (CT 213, pve01)
+- Podman version: 5.8.2
+- Quadlet file: `/etc/containers/systemd/test-nginx.container`
+- Service unit: `test-nginx.service` (failed — image pull failed in LXC network)
+- Podman socket: **inactive** during verification
+- `dsd docker` output: ❌ test-nginx failed with fix hints
+- `dsd health` output: `WARN: Docker: 1 Podman quadlet(s) failed: test-nginx`
+- Commit: ac26dd8
