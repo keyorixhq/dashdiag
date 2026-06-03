@@ -212,7 +212,7 @@ non-PVE behaviour is unchanged.
   that enumerates guests from the pid files, reading each pid and confirming a
   live "kvm" process via /proc/<pid>/status. The libvirt path is untouched for
   non-PVE hosts.
-**Commit:** PVE validation session (this change)
+**Commit:** 4f5e668
 
 ### BUG-016 — false-positive port warnings for PVE ports 8006, 3128, 111
 **Found:** Proxmox host validation
@@ -226,7 +226,7 @@ non-PVE behaviour is unchanged.
 **Fix:** SecurityCollector sets SecurityInfo.IsPVE (via IsPVEHost()). When set,
   checkSecurity routes ports 8006/3128/111 to an INFO "PVE service port
   (expected)" line instead of the unexpected-port WARN. Non-PVE hosts still WARN.
-**Commit:** PVE validation session (this change)
+**Commit:** 4f5e668
 
 ### BUG-017 — incorrect nftables warning on PVE
 **Found:** Proxmox host validation
@@ -240,7 +240,7 @@ non-PVE behaviour is unchanged.
   and `systemctl is-active pve-firewall` reports active (the single subprocess
   lives in the collector layer, not analysis). checkFirewall then emits INFO
   "PVE firewall active (pve-firewall)" instead of the unprotected WARN.
-**Commit:** PVE validation session (this change)
+**Commit:** 4f5e668
 
 ### BUG-018 — SSH root login flagged as CRIT on PVE
 **Found:** Proxmox host validation
@@ -252,7 +252,7 @@ non-PVE behaviour is unchanged.
 **Fix:** When SecurityInfo.IsPVE is set, PermitRootLogin=yes is downgraded to
   INFO "Root SSH login enabled — required for PVE management. Restrict to
   key-based auth if not already done." Non-PVE hosts still CRIT.
-**Commit:** PVE validation session (this change)
+**Commit:** 4f5e668
 
 ### BUG-019 — "no backup" CRIT not surfaced in dsd health PVE summary
 **Found:** Proxmox host validation
@@ -266,7 +266,7 @@ non-PVE behaviour is unchanged.
 **Fix:** Promote the no-backup finding (BackupAgeDays < 0) from WARN to CRIT in
   checkPVEBackups. It is aggregated by checkPVE, so the CRIT now bubbles into the
   PVE summary row, matching `dsd pve`. Only affects PVE hosts (gated by IsPVE).
-**Commit:** PVE validation session (this change)
+**Commit:** 4f5e668
 
 ---
 
