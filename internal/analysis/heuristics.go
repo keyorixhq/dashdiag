@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -3247,6 +3248,68 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	out = append(out, checkEmptyPasswords(sec)...)
 	out = append(out, checkStalePasswords(sec)...)
 	out = append(out, checkWorldWritable(sec)...)
+
+	return out
+}
+
+// CheckSecurityDrift is the exported entry point for the `dsd security --drift`
+// path. It is deliberately NOT part of ApplyThresholds / `dsd health`.
+func CheckSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
+	return checkSecurityDrift(diff)
+}
+
+// checkSecurityDrift turns a security baseline diff into insights. Used by the
+// `dsd security --drift` path only — it is NOT wired into `dsd health`, which
+// stays fast and baseline-free.
+func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
+	var out []models.Insight
+	if diff == nil || !diff.HasChanges() {
+		return out
+	}
+
+	// New SUID binary = CRIT — privilege escalation vector, the most serious drift.
+	if len(diff.NewSUIDs) > 0 {
+		out = append(out, insight("CRIT", "Hardening",
+			fmt.Sprintf("%d new SUID binary(ies) since last security baseline", len(diff.NewSUIDs)),
+			[]string{
+				"to investigate: ls -la <path> && file <path>",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
+
+	// Changed SSH config = WARN
+	if len(diff.ChangedSSHFiles) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d SSH config file(s) changed since last security baseline", len(diff.ChangedSSHFiles)),
+			[]string{
+				"to review: inspect changes to sshd_config and restart sshd if intentional",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
+
+	// New sudo NOPASSWD = WARN
+	if len(diff.NewSudoEntries) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d new sudoers NOPASSWD entry(ies) since last security baseline", len(diff.NewSudoEntries)),
+			[]string{
+				"to review: visudo and confirm each NOPASSWD grant is intentional",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
+
+	// New suspect cron = WARN
+	if len(diff.NewCronEntries) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d new suspect cron entry(ies) since last security baseline", len(diff.NewCronEntries)),
+			[]string{
+				"to review: inspect cron entries writing to sensitive paths",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
 
 	return out
 }
