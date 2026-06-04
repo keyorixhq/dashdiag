@@ -65,6 +65,9 @@ type SteamOSInfo struct {
 	UpdateServerKnown     bool   `json:"update_server_known"` // reachability test actually ran
 	UpdateServerLatencyMs int    `json:"update_server_latency_ms,omitempty"`
 
+	// ── Remote Play (Spec 22 Part A) ────────────────────────────────────
+	RemotePlay *SteamOSRemotePlay `json:"remote_play,omitempty"`
+
 	// ── Deep mode only ──────────────────────────────────────────────────
 	Deep              bool     `json:"-"`
 	GamescopeErrors   []string `json:"gamescope_errors,omitempty"`
@@ -75,4 +78,27 @@ type SteamOSInfo struct {
 	FlatpakAppCount   int      `json:"flatpak_app_count,omitempty"`
 	FlatpakDataGB     float64  `json:"flatpak_data_gb,omitempty"`
 	BIOSVersion       string   `json:"bios_version,omitempty"`
+}
+
+// RemotePlayPort is one Steam Remote Play port and its binding state.
+type RemotePlayPort struct {
+	Protocol string `json:"protocol"` // "udp" / "tcp"
+	Port     int    `json:"port"`
+	Bound    bool   `json:"bound"`
+	Process  string `json:"process,omitempty"`
+	PID      int    `json:"pid,omitempty"`
+	Optional bool   `json:"optional,omitempty"` // VR ports — INFO when unbound, never WARN
+}
+
+// SteamOSRemotePlay holds Steam Remote Play readiness (Spec 22 Part A): whether
+// the discovery/streaming ports are bound, whether the firewall blocks them, and
+// an inference about router AP client isolation (which silently breaks LAN
+// discovery). AP isolation is inferential — surfaced as WARN, never CRIT.
+type SteamOSRemotePlay struct {
+	Ports                []RemotePlayPort `json:"ports"`
+	FirewallKnown        bool             `json:"-"` // false when nft/iptables couldn't be read
+	FirewallBlocking     bool             `json:"firewall_blocking"`
+	ARPChecked           bool             `json:"-"` // false when uptime < 120s or no gateway
+	LANPeersVisible      int              `json:"lan_peers_visible"`
+	APIsolationSuspected bool             `json:"ap_isolation_suspected"`
 }

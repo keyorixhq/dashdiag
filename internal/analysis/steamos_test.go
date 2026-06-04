@@ -125,6 +125,68 @@ func TestCheckSteamOSSecureBootEnabledIsWarn(t *testing.T) {
 	}
 }
 
+func TestCheckSteamOSRemotePlayUnboundPortsWarn(t *testing.T) {
+	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
+		Ports: []models.RemotePlayPort{
+			{Protocol: "udp", Port: 27031, Bound: false},
+			{Protocol: "tcp", Port: 27036, Bound: false},
+		},
+	}}
+	if steamLevels(checkSteamOS(info))["WARN"] == 0 {
+		t.Error("unbound primary Remote Play ports should WARN")
+	}
+}
+
+func TestCheckSteamOSRemotePlayVRUnboundIsQuiet(t *testing.T) {
+	// All primary bound, only optional VR ports unbound → no WARN.
+	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
+		Ports: []models.RemotePlayPort{
+			{Protocol: "udp", Port: 27031, Bound: true},
+			{Protocol: "udp", Port: 27036, Bound: true},
+			{Protocol: "tcp", Port: 27036, Bound: true},
+			{Protocol: "tcp", Port: 27037, Bound: true},
+			{Protocol: "udp", Port: 10400, Optional: true, Bound: false},
+		},
+		FirewallKnown: true,
+	}}
+	if got := checkSteamOS(info); len(got) != 0 {
+		t.Errorf("all primary bound + only VR unbound should be quiet, got %v", got)
+	}
+}
+
+func TestCheckSteamOSRemotePlayAPIsolationWarn(t *testing.T) {
+	allBound := []models.RemotePlayPort{
+		{Protocol: "udp", Port: 27031, Bound: true},
+		{Protocol: "udp", Port: 27036, Bound: true},
+		{Protocol: "tcp", Port: 27036, Bound: true},
+		{Protocol: "tcp", Port: 27037, Bound: true},
+	}
+	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
+		Ports: allBound, FirewallKnown: true, ARPChecked: true, APIsolationSuspected: true,
+	}}
+	if steamLevels(checkSteamOS(info))["WARN"] == 0 {
+		t.Error("suspected AP isolation should WARN")
+	}
+}
+
+func TestCheckSteamOSRemotePlayNotCheckedQuiet(t *testing.T) {
+	// ARPChecked=false (recent boot) must not produce an isolation warning.
+	allBound := []models.RemotePlayPort{
+		{Protocol: "udp", Port: 27031, Bound: true},
+		{Protocol: "udp", Port: 27036, Bound: true},
+		{Protocol: "tcp", Port: 27036, Bound: true},
+		{Protocol: "tcp", Port: 27037, Bound: true},
+	}
+	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
+		Ports: allBound, FirewallKnown: true, ARPChecked: false, APIsolationSuspected: true,
+	}}
+	for _, i := range checkSteamOS(info) {
+		if strings.Contains(i.Message, "isolation") {
+			t.Errorf("must not warn on isolation when ARPChecked=false: %q", i.Message)
+		}
+	}
+}
+
 func TestCheckSteamOSSecureBootSuppressedOnDeck(t *testing.T) {
 	// Steam Deck: SecureBootApplicable=false → never warn even if a stray value is set.
 	enabled := true

@@ -3855,7 +3855,53 @@ func checkSteamOS(s models.SteamOSInfo) []models.Insight {
 	out = append(out, checkSteamOSSession(s)...)
 	out = append(out, checkSteamOSStorage(s)...)
 	out = append(out, checkSteamOSNetwork(s)...)
+	out = append(out, checkSteamOSRemotePlay(s)...)
 	out = append(out, checkSteamOSDeep(s)...)
+	return out
+}
+
+// checkSteamOSRemotePlay covers Steam Remote Play readiness (Spec 22 Part A):
+// unbound primary ports, a blocking firewall rule, and suspected AP client
+// isolation. VR ports (Optional) never warn. AP isolation is inferential → WARN.
+func checkSteamOSRemotePlay(s models.SteamOSInfo) []models.Insight {
+	rp := s.RemotePlay
+	if rp == nil {
+		return nil
+	}
+	var out []models.Insight
+
+	var unbound []string
+	for _, p := range rp.Ports {
+		if !p.Optional && !p.Bound {
+			unbound = append(unbound, fmt.Sprintf("%s/%d", p.Protocol, p.Port))
+		}
+	}
+	if len(unbound) > 0 {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("Remote Play port(s) not bound: %s — Steam may not be running or Remote Play is disabled", strings.Join(unbound, ", ")),
+			[]string{
+				"to fix: launch Steam, then enable Steam → Settings → Remote Play",
+				"to inspect: ss -tulpn | grep -E '27031|27036|27037'",
+			},
+		))
+	}
+
+	if rp.FirewallBlocking {
+		out = append(out, insight("WARN", "SteamOS",
+			"a firewall rule appears to block a Remote Play port",
+			[]string{"to inspect: nft list ruleset   (or: iptables -L INPUT -n)"},
+		))
+	}
+
+	if rp.ARPChecked && rp.APIsolationSuspected {
+		out = append(out, insight("WARN", "SteamOS",
+			"no LAN peers visible in the ARP cache — router AP client isolation may be blocking Remote Play discovery (inferential)",
+			[]string{
+				"to fix: disable 'AP isolation' / 'client isolation' in your router settings",
+				"note: this is an inference, not a certainty — clients can't see each other under AP isolation even with internet access",
+			},
+		))
+	}
 	return out
 }
 

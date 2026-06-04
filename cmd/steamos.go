@@ -90,6 +90,7 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration) {
 	printSteamOSSession(info)
 	printSteamOSStorage(info)
 	printSteamOSNetwork(info)
+	printSteamOSRemotePlay(info)
 	if info.Deep {
 		printSteamOSDeep(info)
 	}
@@ -220,6 +221,51 @@ func printSteamOSNetwork(info *models.SteamOSInfo) {
 	}
 }
 
+// printSteamOSRemotePlay renders the [Remote Play] section (Spec 22 Part A).
+func printSteamOSRemotePlay(info *models.SteamOSInfo) {
+	rp := info.RemotePlay
+	if rp == nil {
+		return
+	}
+	fmt.Println("\n[Remote Play]")
+	fmt.Println("  Ports bound:")
+	for _, p := range rp.Ports {
+		label := fmt.Sprintf("%s %d", strings.ToUpper(p.Protocol), p.Port)
+		switch {
+		case p.Bound:
+			who := p.Process
+			if who == "" {
+				who = "bound"
+			} else if p.PID > 0 {
+				who = fmt.Sprintf("%s (PID %d)", p.Process, p.PID)
+			}
+			fmt.Printf("  ✅ %-10s %s\n", label, who)
+		case p.Optional:
+			fmt.Printf("  ℹ️  %-10s not bound (VR — optional)\n", label)
+		default:
+			fmt.Printf("  ❌ %-10s not bound\n", label)
+		}
+	}
+
+	switch {
+	case !rp.FirewallKnown:
+		fmt.Println("  Firewall: not readable (need root for nft/iptables)")
+	case rp.FirewallBlocking:
+		fmt.Println("  ⚠️  Firewall: a rule may block a Remote Play port — run: nft list ruleset")
+	default:
+		fmt.Println("  ✅ Firewall: no blocking rules found")
+	}
+
+	switch {
+	case !rp.ARPChecked:
+		fmt.Println("  ℹ️  LAN peer visibility: not checked (recent boot or no gateway)")
+	case rp.APIsolationSuspected:
+		fmt.Println("  ⚠️  LAN peer visibility: 0 peers — AP client isolation may be active")
+	default:
+		fmt.Printf("  ✅ LAN peer visibility: %d peer(s) in ARP cache\n", rp.LANPeersVisible)
+	}
+}
+
 func printSteamOSDeep(info *models.SteamOSInfo) {
 	fmt.Println("\n[Deep]")
 	if info.ProtonPrefixCount > 0 || info.CompatDataGB > 0 {
@@ -286,6 +332,20 @@ func steamOSConcernCount(info *models.SteamOSInfo) int {
 	}
 	if info.FlatpakDataGB > 20 {
 		n++
+	}
+	if rp := info.RemotePlay; rp != nil {
+		for _, p := range rp.Ports {
+			if !p.Optional && !p.Bound {
+				n++
+				break
+			}
+		}
+		if rp.FirewallBlocking {
+			n++
+		}
+		if rp.ARPChecked && rp.APIsolationSuspected {
+			n++
+		}
 	}
 	return n
 }

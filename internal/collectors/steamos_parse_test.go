@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -152,4 +153,74 @@ func TestFilterGamescopeErrorsCaps(t *testing.T) {
 	if len(hits) != 3 {
 		t.Errorf("expected cap of 3, got %d", len(hits))
 	}
+}
+
+func TestParseSSSocketsAndResolve(t *testing.T) {
+	out := `Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process
+udp   UNCONN 0      0            0.0.0.0:27031      0.0.0.0:*    users:(("steam",pid=1842,fd=50))
+tcp   LISTEN 0      128             [::]:27036         [::]:*    users:(("steam",pid=1842,fd=51))
+tcp   LISTEN 0      128          0.0.0.0:22           0.0.0.0:*    users:(("sshd",pid=900,fd=3))`
+	socks := parseSSSockets(out)
+	resolved := resolveRemotePlayPorts(remotePlayWantedPorts(), socks)
+
+	byKey := map[string]models.RemotePlayPort{}
+	for _, p := range resolved {
+		byKey[p.Protocol+"/"+itoaPort(p.Port)] = p
+	}
+	if u := byKey["udp/27031"]; !u.Bound || u.Process != "steam" || u.PID != 1842 {
+		t.Errorf("udp/27031 should be bound to steam/1842, got %+v", u)
+	}
+	if u := byKey["tcp/27036"]; !u.Bound { // parsed from [::]:27036
+		t.Errorf("tcp/27036 should be bound, got %+v", u)
+	}
+	if u := byKey["tcp/27037"]; u.Bound {
+		t.Errorf("tcp/27037 should be unbound, got %+v", u)
+	}
+	if u := byKey["udp/10400"]; !u.Optional {
+		t.Errorf("udp/10400 should be flagged optional (VR)")
+	}
+}
+
+func TestParseDefaultGateway(t *testing.T) {
+	out := "default via 192.168.10.1 dev wlan0 proto dhcp metric 600"
+	if gw := parseDefaultGateway(out); gw != "192.168.10.1" {
+		t.Errorf("got %q, want 192.168.10.1", gw)
+	}
+	if gw := parseDefaultGateway("no default route here"); gw != "" {
+		t.Errorf("expected empty gateway, got %q", gw)
+	}
+}
+
+func TestParseARPPeers(t *testing.T) {
+	out := `192.168.10.1 dev wlan0 lladdr aa:bb:cc:dd:ee:01 REACHABLE
+192.168.10.50 dev wlan0 lladdr aa:bb:cc:dd:ee:02 STALE
+192.168.10.99 dev wlan0 FAILED
+192.168.10.77 dev wlan0  INCOMPLETE`
+	// gateway .1 excluded; .50 counts; .99 FAILED and .77 INCOMPLETE excluded.
+	if n := parseARPPeers(out, "192.168.10.1"); n != 1 {
+		t.Errorf("expected 1 peer, got %d", n)
+	}
+	// Empty ARP table → 0 peers (AP isolation signal).
+	if n := parseARPPeers("192.168.10.1 dev wlan0 lladdr aa:bb:cc:dd:ee:01 REACHABLE", "192.168.10.1"); n != 0 {
+		t.Errorf("gateway-only table should be 0 peers, got %d", n)
+	}
+}
+
+func TestFirewallBlocksPorts(t *testing.T) {
+	blocking := "chain input { udp dport 27031 drop }"
+	if !firewallBlocksPorts(blocking, remotePlayPrimaryPorts) {
+		t.Error("drop rule on 27031 should be detected as blocking")
+	}
+	allow := "chain input { udp dport 27031 accept }"
+	if firewallBlocksPorts(allow, remotePlayPrimaryPorts) {
+		t.Error("accept rule must not count as blocking")
+	}
+	// Whole-number match: 270319 must not match 27031.
+	if firewallBlocksPorts("udp dport 270319 drop", remotePlayPrimaryPorts) {
+		t.Error("270319 should not match port 27031")
+	}
+}
+
+func itoaPort(p int) string {
+	return strconv.Itoa(p)
 }

@@ -63,11 +63,62 @@ func (c *SteamOSCollector) Collect(ctx context.Context) (interface{}, error) {
 	c.collectSession(ctx, info)
 	c.collectStorage(info)
 	c.collectNetwork(ctx, info)
+	c.collectRemotePlay(ctx, info)
 
 	if c.Deep {
 		c.collectDeep(ctx, info)
 	}
 	return info, nil
+}
+
+// ── Remote Play (Spec 22 Part A) ───────────────────────────────────────────
+
+func (c *SteamOSCollector) collectRemotePlay(ctx context.Context, info *models.SteamOSInfo) {
+	rp := &models.SteamOSRemotePlay{}
+
+	if out, err := runCmd(ctx, "ss", "-tulpn"); err == nil {
+		rp.Ports = resolveRemotePlayPorts(remotePlayWantedPorts(), parseSSSockets(out))
+	} else {
+		rp.Ports = remotePlayWantedPorts() // ss unavailable — all unbound
+	}
+
+	// Firewall: SteamOS uses nftables; fall back to iptables. A missing binary /
+	// empty ruleset is the normal stock state — treat as "not blocking".
+	if rule, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
+		rp.FirewallKnown = true
+		rp.FirewallBlocking = firewallBlocksPorts(rule, remotePlayPrimaryPorts)
+	} else if rule, err := runCmd(ctx, "iptables", "-L", "INPUT", "-n"); err == nil {
+		rp.FirewallKnown = true
+		rp.FirewallBlocking = firewallBlocksPorts(rule, remotePlayPrimaryPorts)
+	}
+
+	// AP client isolation inference — guarded on uptime (ARP table may be empty
+	// right after boot) and on having a gateway to compare against.
+	if steamHostUptimeSeconds() >= 120 {
+		gwOut, _ := runCmd(ctx, "ip", "route", "show", "default")
+		if gw := parseDefaultGateway(gwOut); gw != "" {
+			rp.ARPChecked = true
+			neighOut, _ := runCmd(ctx, "ip", "neigh", "show")
+			rp.LANPeersVisible = parseARPPeers(neighOut, gw)
+			rp.APIsolationSuspected = rp.LANPeersVisible == 0
+		}
+	}
+
+	info.RemotePlay = rp
+}
+
+// steamHostUptimeSeconds returns system uptime from /proc/uptime (0 on error).
+func steamHostUptimeSeconds() float64 {
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(fields[0], 64)
+	return v
 }
 
 // secureBootEfivar holds the UEFI Secure Boot state (world-readable when

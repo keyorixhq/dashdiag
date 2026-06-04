@@ -2,6 +2,8 @@ package collectors
 
 import (
 	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -183,4 +185,158 @@ func filterGamescopeErrors(out string, maxLines int) []string {
 		hits = hits[len(hits)-maxLines:] // most recent
 	}
 	return hits
+}
+
+// ── Remote Play parsers (Spec 22 Part A) ───────────────────────────────────
+
+// remotePlayWantedPorts is the Steam Remote Play port set (Valve docs): UDP
+// 27031/27036 + TCP 27036/27037 are primary; UDP 10400/10401 are optional VR.
+func remotePlayWantedPorts() []models.RemotePlayPort {
+	return []models.RemotePlayPort{
+		{Protocol: "udp", Port: 27031},
+		{Protocol: "udp", Port: 27036},
+		{Protocol: "tcp", Port: 27036},
+		{Protocol: "tcp", Port: 27037},
+		{Protocol: "udp", Port: 10400, Optional: true},
+		{Protocol: "udp", Port: 10401, Optional: true},
+	}
+}
+
+// remotePlayPrimaryPorts are the non-optional ports a blocking firewall rule
+// would matter for.
+var remotePlayPrimaryPorts = []int{27031, 27036, 27037}
+
+// ssSocket is one listening socket parsed from `ss -tulpn`.
+type ssSocket struct {
+	Proto   string // udp / tcp
+	Port    int
+	Process string
+	PID     int
+}
+
+var reSSUsers = regexp.MustCompile(`"([^"]+)",pid=(\d+)`)
+
+// parseSSSockets parses `ss -tulpn` output into listening sockets. ss columns:
+// Netid State Recv-Q Send-Q Local-Address:Port Peer-Address:Port Process. The
+// port is the segment after the last ':' of the local address (handles
+// 0.0.0.0:N, *:N, and [::]:N). The process/pid come from the users:(("p",pid=N))
+// field. Lines without a recognisable proto or port are skipped.
+func parseSSSockets(out string) []ssSocket {
+	var socks []ssSocket
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		proto := fields[0]
+		switch proto {
+		case "udp", "udp6":
+			proto = "udp"
+		case "tcp", "tcp6":
+			proto = "tcp"
+		default:
+			continue // header line ("Netid") or unrelated
+		}
+		local := fields[4]
+		idx := strings.LastIndex(local, ":")
+		if idx < 0 {
+			continue
+		}
+		port, err := strconv.Atoi(local[idx+1:])
+		if err != nil {
+			continue
+		}
+		s := ssSocket{Proto: proto, Port: port}
+		if m := reSSUsers.FindStringSubmatch(line); m != nil {
+			s.Process = m[1]
+			s.PID, _ = strconv.Atoi(m[2])
+		}
+		socks = append(socks, s)
+	}
+	return socks
+}
+
+// resolveRemotePlayPorts marks each wanted port bound/unbound against the parsed
+// sockets, filling process/pid for bound ones. wanted preserves declared order
+// (and the Optional flag for VR ports).
+func resolveRemotePlayPorts(wanted []models.RemotePlayPort, socks []ssSocket) []models.RemotePlayPort {
+	out := make([]models.RemotePlayPort, len(wanted))
+	copy(out, wanted)
+	for i := range out {
+		for _, s := range socks {
+			if s.Proto == out[i].Protocol && s.Port == out[i].Port {
+				out[i].Bound = true
+				out[i].Process = s.Process
+				out[i].PID = s.PID
+				break
+			}
+		}
+	}
+	return out
+}
+
+// parseDefaultGateway extracts the gateway IP from `ip route show default`
+// ("default via 192.168.1.1 dev wlan0 ...").
+func parseDefaultGateway(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		for i := 0; i+1 < len(fields); i++ {
+			if fields[i] == "via" {
+				return fields[i+1]
+			}
+		}
+	}
+	return ""
+}
+
+// parseARPPeers counts resolved neighbours (entries with an lladdr, not in a
+// FAILED/INCOMPLETE state) excluding the gateway, from `ip neigh show`. A
+// non-zero count means other LAN devices are visible → AP client isolation is
+// not in effect.
+func parseARPPeers(out, gateway string) int {
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == gateway || !strings.Contains(line, "lladdr") {
+			continue
+		}
+		if strings.Contains(line, "FAILED") || strings.Contains(line, "INCOMPLETE") {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// firewallBlocksPorts reports whether a drop/reject rule in the ruleset/iptables
+// text references any of the given ports. Inferential and conservative: only a
+// line containing both a drop/reject action and a target port counts.
+func firewallBlocksPorts(ruleset string, ports []int) bool {
+	for _, line := range strings.Split(ruleset, "\n") {
+		low := strings.ToLower(line)
+		if !strings.Contains(low, "drop") && !strings.Contains(low, "reject") {
+			continue
+		}
+		for _, p := range ports {
+			if lineMentionsPort(line, p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lineMentionsPort reports whether line references port p as a whole number
+// (avoids 27031 matching inside 270319).
+func lineMentionsPort(line string, p int) bool {
+	ps := strconv.Itoa(p)
+	for _, tok := range strings.FieldsFunc(line, func(r rune) bool { return r < '0' || r > '9' }) {
+		if tok == ps {
+			return true
+		}
+	}
+	return false
 }
