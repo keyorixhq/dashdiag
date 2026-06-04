@@ -513,13 +513,21 @@ Still pending (next batch / `spec-closeout-prompt.md`):
 - Multiple OOM kills + same service → memory leak in specific service (`ruleServiceMemoryLeak`)
 
 ### [V2-COLLECTOR] Kernel instability extensions
-Soft/hard lockups, kernel panic history, watchdog resets.
+~~Soft/hard lockups, kernel panic history, watchdog resets.~~
+**Already implemented:** `logs_linux.go` detects soft lockup, hard lockup, kernel
+panic in dmesg/journal. `timeline_hints.go` has MCE hints. Backlog entry was stale.
 
 ### [V2-COLLECTOR] Network deep diagnostics
-TCP retransmissions, SYN backlog, connection tracking table.
+~~TCP retransmissions, SYN backlog, connection tracking table.~~
+**Already implemented:** `network_deep.go` collects TCPSynRetrans, ListenOverflows,
+TCPRetransFail from `/proc/net/netstat`, conntrack from `/proc/sys/net/netfilter/`.
+Backlog entry was stale.
 
 ### [V2-COLLECTOR] CPU scheduling pathology
-Run queue saturation, context switch spikes, iowait vs steal.
+~~Run queue saturation, context switch spikes, iowait vs steal.~~
+**Already implemented:** `cpu.go` samples iowait% and steal% via two-sample
+`/proc/stat`. Correlation rules `ruleIODrivenLoad` and `ruleCPUStealUnderLoad`
+surface them. Backlog entry was stale.
 
 ### [V2-COLLECTOR] Storage performance diagnostics
 Write amplification, queue depth, fsync latency (eBPF — v3).
