@@ -905,14 +905,26 @@ at zero cost. Method:
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/dsd-linux-arm64 ./cmd/dsd
 docker run --rm --platform linux/arm64 -v "$PWD/dist/dsd-linux-arm64:/dsd:ro" debian:13 /dsd health
 ```
-**First run (Jun 4, aarch64 / kernel 7.0.5-orbstack):** binary runs; arch detected as
-`Apple ARM (aarch64)`; core /proc collectors all parsed (CPU, memory, load, run-queue,
-processes, FD, entropy, clock, sysctl, cpufreq 2000/2000 MHz, network 10Gbps); `disk --json`
-valid; exit codes propagate (health=2 with DBus CRIT, cpu=0 clean — BUG-022 fix not
-x86-specific). DBus CRIT is a true reading of a bare container (no init), not an arm bug.
-**NOT covered (container + virtualization limits):** arm64 hardware paths — SMART, thermal
-sensors, IPMI, GPU — and real ARM *server* kernels (Graviton/Ampere). Those stay deferred
-(see ARM64 cloud-guest plan in the candidate-features section).
+Two tiers run on the Mac, both native aarch64 (Apple Virtualization.framework, not emulation):
+
+**Tier 1 — bare container** (`docker run --platform linux/arm64 debian:13`): binary runs;
+arch detected `Apple ARM (aarch64)`; core /proc collectors all parsed (CPU, memory, load,
+run-queue, processes, FD, entropy, clock, sysctl, cpufreq, network); `disk --json` valid;
+exit codes propagate (health=2 w/ DBus CRIT, cpu=0 clean — BUG-022 fix not x86-specific).
+The DBus CRIT is a true reading of a bare container (no init), not an arm bug.
+
+**Tier 2 — OrbStack machine** (`orb create debian dsd-arm`, Debian 12 bookworm, **systemd
+running as PID 1**): the systemd/userland-dependent collectors that the bare container
+couldn't exercise now read correctly on aarch64 — **Systemd OK, DBus OK, Sessions OK**,
+journald config detection, hardening (NOPASSWD-sudo WARN). Confirms the container's DBus
+CRIT was a container artifact, and that the systemd-path collectors are not x86-specific.
+Method: `orb push -m dsd-arm dist/dsd-linux-arm64 /tmp/dsd && orb run -m dsd-arm sudo /tmp/dsd health`.
+
+**Tier 3 — real ARM server (STILL OPEN):** arm64 *hardware* paths — SMART, thermal sensors,
+IPMI, GPU, real CPU-feature detection — none of which any Mac-hosted VM/container exposes
+(Disk shows the `/mnt/mac` passthrough, no real block devices). Needs a real aarch64 server:
+**Oracle Cloud always-free Ampere ($0)** or a Raspberry Pi. Graviton not required — Ampere/Pi
+exercise the same hardware paths. This is the remaining ARM gap; see candidate-features plan.
 
 ### MacBook (arm64 macOS) — active macOS testbed
 **Sessions 1–6 validated:**
@@ -924,7 +936,7 @@ sensors, IPMI, GPU — and real ARM *server* kernels (Graviton/Ampere). Those st
 | Scenario | RHEL Laptop | Proxmox Host | Debian 13 VM (101) | macOS arm64 |
 |---|---|---|---|---|
 | 20+ collectors | ✅ | ✅ (pve01, Jun 4) | ✅ (VM 101, Jun 4) | ✅ |
-| ARM64 Linux (aarch64 /proc collectors) | N/A | N/A | N/A | ✅ OrbStack arm64 (Jun 4): runs, /proc collectors parse, exit codes OK; HW paths + real ARM server still TODO |
+| ARM64 Linux (aarch64) | N/A | N/A | N/A | ✅ OrbStack (Jun 4): /proc collectors + systemd/journald/DBus/sessions parse (container + machine); HW paths (SMART/thermal/IPMI/GPU) need real ARM server — TODO |
 | SATA SSD SMART (Linux) | ✅ | ✅ LITEONIT 128GB | N/A | N/A |
 | NVMe SMART (macOS diskutil) | N/A | N/A | N/A | ✅ |
 | HDD detection | N/A | ✅ WD 2TB SMART PASS | N/A | N/A |
