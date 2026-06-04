@@ -1006,3 +1006,24 @@ func TestRunQueueHintsIncludeContext(t *testing.T) {
 		t.Errorf("expected blocked-task hint, got %v", hints)
 	}
 }
+
+// Single-core hosts must read "1 CPU", not "1 CPUs".
+func TestRunQueueSingleCPUGrammar(t *testing.T) {
+	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 4} // 4 >= 4*1 → CRIT
+	got := checkCPU(cpu, defaultThresh)
+	var msg string
+	for _, ins := range got {
+		if ins.Check == "CPU/RunQueue" {
+			msg = ins.Message
+		}
+	}
+	if msg == "" {
+		t.Fatal("expected a CPU/RunQueue insight")
+	}
+	if strings.Contains(msg, "1 CPUs") {
+		t.Errorf("bad pluralization on single-core host: %q", msg)
+	}
+	if !strings.Contains(msg, "1 CPU ") {
+		t.Errorf("expected 'on 1 CPU', got: %q", msg)
+	}
+}
