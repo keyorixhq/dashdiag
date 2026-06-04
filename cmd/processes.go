@@ -19,7 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(processesCmd)
-	processesCmd.Flags().Duration("watch-interval", 5*time.Second, "refresh interval for --watch mode")
+	processesCmd.Flags().Duration("watch-interval", 5*time.Second, "refresh interval for --watch mode (default 5s; health uses 60s)")
 }
 
 var processesCmd = &cobra.Command{

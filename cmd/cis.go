@@ -36,24 +36,20 @@ Examples:
 	RunE: runCIS,
 }
 
-var (
-	cisLevel    int
-	cisJSON     bool
-	cisFailOnly bool
-	cisPlain    bool
-	cisStig     bool
-)
-
 func init() {
 	rootCmd.AddCommand(cisCmd)
-	cisCmd.Flags().IntVar(&cisLevel, "level", 1, "benchmark level (1 or 2)")
-	cisCmd.Flags().BoolVar(&cisJSON, "json", false, "output JSON")
-	cisCmd.Flags().BoolVar(&cisFailOnly, "fail-only", false, "show only FAIL results")
-	cisCmd.Flags().BoolVar(&cisPlain, "plain", false, "plain text output (no colour)")
-	cisCmd.Flags().BoolVar(&cisStig, "stig", false, "run DISA STIG checks instead of CIS")
+	cisCmd.Flags().Int("level", 1, "benchmark level (1 or 2)")
+	cisCmd.Flags().Bool("fail-only", false, "show only FAIL results")
+	cisCmd.Flags().Bool("stig", false, "run DISA STIG checks instead of CIS")
+	// --plain and --json: global, no local declaration needed
 }
 
-func runCIS(_ *cobra.Command, _ []string) error {
+func runCIS(cmd *cobra.Command, _ []string) error {
+	plain, _ := cmd.Flags().GetBool("plain")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	stig, _ := cmd.Flags().GetBool("stig")
+	failOnly, _ := cmd.Flags().GetBool("fail-only")
+	level, _ := cmd.Flags().GetInt("level")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -78,26 +74,26 @@ func runCIS(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	report := cis.Evaluate(sec, ks, cisLevel, cisStig)
+	report := cis.Evaluate(sec, ks, level, stig)
 	report.Hostname, _ = os.Hostname()
-	if cisStig {
-		report.Profile = fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", cisLevel)
+	if stig {
+		report.Profile = fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", level)
 	} else {
-		report.Profile = fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", cisLevel)
+		report.Profile = fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", level)
 	}
 
-	if cisJSON {
+	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(report)
 	}
 
-	mode := output.DetectMode(cisPlain, false, "")
-	printCISReport(report, cisFailOnly, mode)
+	mode := output.DetectMode(plain, false, "")
+	printCISReport(report, failOnly, stig, mode)
 	return nil
 }
 
-func printCISReport(report models.CISReport, failOnly bool, mode output.OutputMode) {
+func printCISReport(report models.CISReport, failOnly, stig bool, mode output.OutputMode) {
 	colour := mode == output.ModeHuman
 
 	hostname := report.Hostname
@@ -152,7 +148,7 @@ func printCISReport(report models.CISReport, failOnly bool, mode output.OutputMo
 	fmt.Println()
 	if report.Fail > 0 {
 		fmt.Printf("\n  Tip: %sdsd cis --fail-only%s to see only failures.", bold(colour), resetColour(colour))
-		if !cisStig {
+		if !stig {
 			fmt.Printf("  %sdsd cis --stig%s for DISA STIG IDs.", bold(colour), resetColour(colour))
 		}
 		fmt.Println()

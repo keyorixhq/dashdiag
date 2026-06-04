@@ -17,7 +17,6 @@ import (
 )
 
 func init() {
-	cpuCmd.Flags().Bool("plain", false, "plain text output (no colour, machine-friendly)")
 	rootCmd.AddCommand(cpuCmd)
 }
 

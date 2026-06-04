@@ -17,11 +17,11 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		plain, _ := cmd.Flags().GetBool("plain")
 		jsonOut, _ := cmd.Flags().GetBool("json")
-		if !plain && !jsonOut {
+		outPath, _ := cmd.Flags().GetString("out")
+		if !plain && !jsonOut && outPath == "" {
 			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s — %s\n", version.Version, platform.SystemLabel())
 		}
 		// --out: redirect stdout to file for any command
-		outPath, _ := cmd.Flags().GetString("out")
 		if outPath != "" {
 			f, err := os.Create(outPath) // #nosec G304
 			if err != nil {
@@ -57,21 +57,12 @@ func init() {
 	})
 
 	f := rootCmd.PersistentFlags()
-	f.Bool("plain", false, "plain text output")
-	f.Bool("json", false, "JSON output")
-	f.Bool("yaml", false, "YAML output")
-	f.Bool("report", false, "generate full report")
+	f.Bool("plain", false, "plain text output (no colour, machine-friendly)")
+	f.Bool("json", false, "JSON output (machine-readable)")
 	f.String("out", "", "write output to file")
-	f.Bool("debug", false, "enable debug logging")
-	f.Bool("compact", false, "compact output")
-	f.Bool("diff", false, "show diff from previous run")
-	f.Bool("since-deploy", false, "show metrics since last deploy")
 	f.Bool("watch", false, "watch mode — refresh periodically")
-	f.String("post-mortem", "", "generate post-mortem for given incident ID")
 	f.Bool("share", false, "share report via URL")
 	f.Bool("qr", false, "display share URL as QR code")
-	f.Bool("story", false, "human-readable narrative of current state")
-	f.Bool("weekly", false, "show weekly usage report")
 
 	// Hide --share and --qr from --help until the share backend ships.
 	// Flags remain valid (no breaking change) but don't appear in help text

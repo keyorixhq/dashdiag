@@ -43,7 +43,6 @@ func init() {
 	tlsCmd.Flags().Bool("all", false, "show all certs including healthy ones")
 	tlsCmd.Flags().StringArray("endpoint", nil, "remote TLS endpoint to check (host:port)")
 	tlsCmd.Flags().String("endpoints-file", "", "file with newline-separated host:port endpoints")
-	tlsCmd.Flags().Bool("json", false, "JSON output")
 }
 
 type certResult struct {
