@@ -343,3 +343,28 @@ BUG-014 required a fresh Debian install without post-install hardening.
 | RHEL 10.1 | 7 | SELinux/auditd blind spot (the big one) |
 | Debian 13.4 | 4 | journald-only auth, OpenSSH 9 format, missing security repo |
 | Ubuntu 24.04 | TBD | next testbed |
+
+---
+
+## BUG-021 — Zombie subprocess during dsd health run (unconfirmed, needs investigation)
+
+**Found:** PVE01 host, observed in process table during health run
+**Symptom:** `dsd health` spawns a zombie subprocess — `parent 48436 child 48451`
+  visible as `<defunct>` in `ps aux` output during the run
+**Root cause:** Unknown. `runCmd` in `internal/collectors/collector.go` uses
+  `cmd.Run()` which calls `Wait()` internally — should not leave zombies. Possible
+  causes: (a) a goroutine starting a subprocess but not calling `cmd.Wait()` on
+  a non-zero exit path, (b) a collector using `cmd.Start()` + `cmd.Stdout.Read()`
+  without `cmd.Wait()`, (c) race between context cancellation and process cleanup
+**Affected:** Unknown — may only affect PVE01 (Debian PVE base) or may be broader
+**Status:** OPEN — needs reproduction and root cause identification
+**Investigate:**
+```bash
+# On PVE01 during a health run:
+watch -n0.5 'ps aux | grep defunct'
+# Also check which collector spawns the zombie:
+strace -ff -p $(pgrep dsd) 2>&1 | grep clone
+```
+**Look for:** any collector using `exec.Command` without going through `runCmd()`,
+  or any goroutine that starts a process inside a goroutine where context
+  cancellation could skip the `cmd.Wait()` call (e.g. early return on error)
