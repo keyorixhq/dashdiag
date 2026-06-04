@@ -3763,6 +3763,28 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			},
 		))
 	}
+	// Spec 7d: Compose version
+	if d.Daemon != nil {
+		if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin != "" {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("both docker-compose v1 (%s) and docker compose v2 (%s) installed — scripts may use the wrong one",
+					d.Daemon.ComposeStandalone, d.Daemon.ComposePlugin),
+				[]string{
+					"to fix: remove docker-compose (v1) and use docker compose (v2) plugin only",
+					"to inspect: which docker-compose && docker compose version",
+				},
+			))
+		} else if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin == "" {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("docker-compose v1 (%s) installed — standalone is deprecated, migrate to docker compose plugin",
+					d.Daemon.ComposeStandalone),
+				[]string{
+					"to fix: apt install docker-compose-plugin  OR  dnf install docker-compose-plugin",
+					"to migrate: replace 'docker-compose' with 'docker compose' in scripts",
+				},
+			))
+		}
+	}
 	// Recent daemon errors
 	if d.Daemon != nil && d.Daemon.RecentErrors > 0 {
 		hints := []string{"to inspect: journalctl -u docker -n 50 --no-pager"}

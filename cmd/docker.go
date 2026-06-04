@@ -139,6 +139,18 @@ func printDockerDaemon(info *models.DockerInfo) {
 		driverStr = fmt.Sprintf("  %s Storage: %s", icon, driver)
 	}
 	fmt.Printf("\n[Daemon]  version: %s%s\n", verStr, driverStr)
+	// Compose (Spec 7d)
+	switch {
+	case d.ComposePlugin != "" && d.ComposeStandalone != "":
+		fmt.Printf("  ⚠️   Compose: v%s (plugin) + v%s (standalone) — both present\n",
+			d.ComposePlugin, d.ComposeStandalone)
+	case d.ComposePlugin != "":
+		fmt.Printf("  ✅  Compose: v%s (plugin)\n", d.ComposePlugin)
+	case d.ComposeStandalone != "":
+		fmt.Printf("  ⚠️   Compose: v%s (standalone — deprecated)\n", d.ComposeStandalone)
+	default:
+		fmt.Printf("  ℹ️   Compose: not installed\n")
+	}
 	if d.RecentErrors > 0 {
 		fmt.Printf("  ⚠️   %d error(s) in last 10m", d.RecentErrors)
 		if d.LastDaemonError != "" {

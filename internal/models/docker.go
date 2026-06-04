@@ -11,6 +11,9 @@ type DockerDaemon struct {
 	Architecture    string `json:"architecture,omitempty"` // host arch from GET /info (7i)
 	RecentErrors    int    `json:"recent_errors,omitempty"`
 	LastDaemonError string `json:"last_daemon_error,omitempty"`
+	// Compose detection (Spec 7d)
+	ComposePlugin     string `json:"compose_plugin,omitempty"`     // "2.29.1" if docker compose plugin found
+	ComposeStandalone string `json:"compose_standalone,omitempty"` // "1.29.2" if docker-compose standalone found
 }
 
 // ContainerInfo holds health data for a single Docker/Podman container.

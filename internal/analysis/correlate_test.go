@@ -727,3 +727,64 @@ func TestCorrelateDeepPreservesExistingRulesWithNewParams(t *testing.T) {
 		t.Error("CorrelateDeep must still fire existing rules after signature change")
 	}
 }
+
+// ── ruleServiceMemoryLeak ─────────────────────────────────────────────────
+
+func TestServiceMemoryLeakFires(t *testing.T) {
+	oom := makeOOM(3,
+		models.OOMEvent{Process: "nginx"},
+		models.OOMEvent{Process: "nginx"},
+		models.OOMEvent{Process: "redis-server"},
+	)
+	// nginx killed twice — should fire
+	c, ok := ruleServiceMemoryLeak(oom)
+	if !ok {
+		t.Fatal("expected rule to fire when same process killed 2+ times")
+	}
+	if c.Level != "WARN" {
+		t.Errorf("expected WARN, got %q", c.Level)
+	}
+	if !strings.Contains(c.Summary, "nginx") {
+		t.Errorf("summary should name the leaking process, got: %q", c.Summary)
+	}
+	if !strings.Contains(c.Summary, "2 times") {
+		t.Errorf("summary should state kill count, got: %q", c.Summary)
+	}
+}
+
+func TestServiceMemoryLeakDoesNotFireWhenAllDifferent(t *testing.T) {
+	oom := makeOOM(3,
+		models.OOMEvent{Process: "nginx"},
+		models.OOMEvent{Process: "redis-server"},
+		models.OOMEvent{Process: "postgres"},
+	)
+	// All different — general pressure, not a leak
+	if _, ok := ruleServiceMemoryLeak(oom); ok {
+		t.Error("should not fire when all OOM kills are different processes")
+	}
+}
+
+func TestServiceMemoryLeakDoesNotFireWithOnlyOneEvent(t *testing.T) {
+	oom := makeOOM(1, models.OOMEvent{Process: "nginx"})
+	if _, ok := ruleServiceMemoryLeak(oom); ok {
+		t.Error("should not fire with only one OOM event")
+	}
+}
+
+func TestServiceMemoryLeakDoesNotFireWithNilOOM(t *testing.T) {
+	if _, ok := ruleServiceMemoryLeak(nil); ok {
+		t.Error("should not fire with nil OOMInfo")
+	}
+}
+
+func TestServiceMemoryLeakDoesNotFireWithNoNamedProcesses(t *testing.T) {
+	// Events with empty process names should be ignored
+	oom := makeOOM(3,
+		models.OOMEvent{Process: ""},
+		models.OOMEvent{Process: ""},
+		models.OOMEvent{Process: ""},
+	)
+	if _, ok := ruleServiceMemoryLeak(oom); ok {
+		t.Error("should not fire when process names are all empty")
+	}
+}
