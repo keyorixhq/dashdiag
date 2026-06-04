@@ -475,7 +475,7 @@ func countSecurityIssues(info *models.SecurityInfo) int {
 		n++
 	}
 	for _, p := range info.ListeningPorts {
-		if !p.Expected && !(info.IsPVE && isPVEServicePort(p.Port)) {
+		if !p.Expected && (!info.IsPVE || !isPVEServicePort(p.Port)) {
 			n++
 		}
 	}
