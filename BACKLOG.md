@@ -597,14 +597,16 @@ zypper, btrfs, YaST, AppArmor enforcing.
 
 Do NOT start before first paying customer is acquired.
 
-### [V2-CORRELATION] Symptom correlation engine
+### ~~[V2-CORRELATION] Symptom correlation engine~~ ✅ DONE (v1 complete — all 8 rules shipped)
 **v0 SHIPPED (commit dc729d4)** — 4 hardcoded rules + GPU context rule live.
 **June 4 (commit 04638ec)** — 3 more rules shipped:
 - ✅ Entropy low + TLS signals → crypto bootstrapping failure (`ruleEntropyTLSFailure`)
 - ✅ IO CRIT on one device + other OK → single drive degradation (`ruleIOSingleDeviceDegradation`)
 - ✅ Sysctl drift + recent reboot → parameter not persisted (`ruleSysctlNotPersisted`)
-Still pending (next batch / `spec-closeout-prompt.md`):
-- Multiple OOM kills + same service → memory leak in specific service (`ruleServiceMemoryLeak`)
+**June 4 (commit 6058936)** — final v1 rule shipped:
+- ✅ Multiple OOM kills + same service → memory leak in specific service (`ruleServiceMemoryLeak`)
+  Wired into `CorrelateDeep` → `dsd health --deep`; 5 unit tests in `correlate_test.go`.
+Correlation engine v1 is complete. Next batch (v2, history-aware across snapshots) deferred post-customer.
 
 ### ~~[V2-COLLECTOR] Kernel instability extensions~~ ✅ DONE (shipped across multiple sessions)
 
