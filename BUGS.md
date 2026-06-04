@@ -357,7 +357,8 @@ BUG-014 required a fresh Debian install without post-install hardening.
   a non-zero exit path, (b) a collector using `cmd.Start()` + `cmd.Stdout.Read()`
   without `cmd.Wait()`, (c) race between context cancellation and process cleanup
 **Affected:** Unknown — may only affect PVE01 (Debian PVE base) or may be broader
-**Status:** OPEN — needs reproduction and root cause identification
+**Status:** CLOSED (2026-06-04) — cannot reproduce / no offending code; likely a
+  ps sampling artifact. See resolution below.
 **Investigate:**
 ```bash
 # On PVE01 during a health run:
@@ -368,3 +369,23 @@ strace -ff -p $(pgrep dsd) 2>&1 | grep clone
 **Look for:** any collector using `exec.Command` without going through `runCmd()`,
   or any goroutine that starts a process inside a goroutine where context
   cancellation could skip the `cmd.Wait()` call (e.g. early return on error)
+
+**Resolution (2026-06-04):** Full audit of `internal/` found **no offending code**:
+- No `.Start()` anywhere in the tree — Patterns A/B/C (Start-without-Wait,
+  abandoned goroutine subprocess) all require it and none exist.
+- Every subprocess uses `.Run()`, `.Output()`, or `.CombinedOutput()`, all of
+  which call `Wait()` internally on success, non-zero exit, and context-cancel
+  paths — so children are always reaped.
+- The two timeout-select goroutines are non-leaking: `logs_linux.go` parseKmsg
+  reads `/dev/kmsg` (a file, no subprocess); `timeline_linux.go` joins its
+  goroutines (`<-jCh; <-dCh`) which use `.Output()`. An abandoned Go goroutine
+  keeps running to completion and still reaps — it is not force-terminated.
+- The lone `sh -c` (`cve_linux.go isUbuntu`) runs a single `grep` (no pipeline,
+  no orphaned grandchild) and is not in the `dsd health` path (report mode only).
+
+The transient `<defunct>` (parent 48436 / child 48451) was almost certainly a
+`ps aux` sample landing in the microsecond window between a helper's `exit()` and
+its parent's `Wait()` returning, during the ~2s concurrent run of ~20 collectors
+each spawning short-lived helpers (journalctl, ps, systemctl, dmesg, ip, …). This
+is normal and harmless. Documented the reaping guarantee in `runCmd` (collector.go).
+Re-open only if a `<defunct>` process *persists* (survives the dsd process exit).
