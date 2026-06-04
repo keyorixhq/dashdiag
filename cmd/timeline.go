@@ -20,7 +20,6 @@ import (
 func init() {
 	rootCmd.AddCommand(timelineCmd)
 	timelineCmd.Flags().String("since", "1h", "how far back to look (e.g. 1h, 6h, 24h)")
-	timelineCmd.Flags().Bool("json", false, "output raw JSON (for dsd capture / scripting)")
 }
 
 var timelineCmd = &cobra.Command{

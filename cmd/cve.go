@@ -20,7 +20,6 @@ import (
 
 func init() {
 	rootCmd.AddCommand(cveCmd)
-	cveCmd.Flags().Bool("json", false, "JSON output")
 	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
 	cveCmd.Flags().String("oval", "", "path to OVAL file for air-gapped CVE check (e.g. /mnt/usb/sles16.oval.xml.bz2)")
 	cveCmd.Flags().Bool("oval-scan", false, "scan all installed packages against OVAL feed for CVSS-scored findings")

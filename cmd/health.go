@@ -34,6 +34,13 @@ func init() {
 	healthCmd.Flags().Bool("firmware", false, "check for pending firmware upgrades via fwupd")
 	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
+	healthCmd.Flags().Bool("debug", false, "enable debug logging")
+	healthCmd.Flags().Bool("diff", false, "show diff from previous run")
+	healthCmd.Flags().Bool("since-deploy", false, "show metrics since last deploy")
+	healthCmd.Flags().Bool("story", false, "human-readable narrative of current state")
+	healthCmd.Flags().Bool("weekly", false, "show weekly usage report")
+	healthCmd.Flags().Bool("yaml", false, "YAML output")
+	healthCmd.Flags().String("post-mortem", "", "generate post-mortem for given incident ID")
 }
 
 var healthCmd = &cobra.Command{
