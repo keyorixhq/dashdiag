@@ -123,3 +123,29 @@ When they say "on-prem," do they mean **(Tier 1)** "feed our existing internal
 dashboards via `--json`" — or **(Tier 2)** "give us your dashboard to run
 ourselves"? The answer decides whether this segment costs you nothing new or
 becomes a separate product line. Ask before assuming Tier 2.
+
+**Founder's lean (2026-06-04): Tier 1, but unconfirmed.** Reasoning: people tend
+to use the tools they already have, and a provider running air-gapped at scale
+*necessarily already runs internal aggregation* (Zabbix etc.) — you cannot
+operate an air-gapped fleet without it. So they are not missing a dashboard; they
+are missing a diagnostician to feed the one they have. That is the
+diagnostician-not-monitor positioning, and it points at Tier 1 as the
+lower-friction entry. **This is a lean with a reason, not a decision** — and the
+founder explicitly flagged "I am not sure," which is the correct posture.
+
+**Why it stays genuinely open (the counter-scenario):** the Tier-1 lean assumes
+the buyer wants the raw diagnostic *data* inside their existing tool. The opposite
+is plausible — they keep Zabbix for *metrics-over-time* and want DashDiag's
+*point-in-time root-cause-with-fix view* as a **separate** surface, precisely
+because a Zabbix dashboard renders metrics, not "here is the diagnosis and the fix
+steps." In that world they want Tier 2's dashboard *because* Zabbix structurally
+can't show what `dsd` produces. First principles cannot distinguish these two
+worlds; the provider can, in one sentence.
+
+**Sharpened question for the actual conversation:** not "do you want on-prem"
+(too coarse) but — *"when `dsd` finds a root cause with fix steps, do you want
+that piped into Zabbix as data, or do you want a separate view that shows the
+diagnosis itself? Would your existing dashboards render a root-cause verdict
+usefully, or is that a different kind of thing for you?"* The answer to **that**
+decides Tier 1 vs Tier 2 — and it is free to ask, expensive to guess. Do not
+build either dashboard surface until it is answered by a real buyer.
