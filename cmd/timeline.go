@@ -19,7 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(timelineCmd)
-	timelineCmd.Flags().Int("hours", 1, "how many hours back to look (1, 6, 24)")
+	timelineCmd.Flags().String("since", "1h", "how far back to look (e.g. 1h, 6h, 24h)")
 	timelineCmd.Flags().Bool("json", false, "output raw JSON (for dsd capture / scripting)")
 }
 
@@ -32,7 +32,12 @@ var timelineCmd = &cobra.Command{
 func runTimeline(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	hours, _ := cmd.Flags().GetInt("hours")
+	sinceStr, _ := cmd.Flags().GetString("since")
+	since := parseSinceDuration(sinceStr)
+	hours := int(since.Hours())
+	if hours < 1 {
+		hours = 1
+	}
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, "")
 

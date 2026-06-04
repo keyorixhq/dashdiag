@@ -19,6 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(processesCmd)
+	processesCmd.Flags().Duration("watch-interval", 5*time.Second, "refresh interval for --watch mode")
 }
 
 var processesCmd = &cobra.Command{
@@ -36,6 +37,12 @@ func runProcesses(cmd *cobra.Command, _ []string) error {
 		outputFmt = "json"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
+
+	watchFlag, _ := cmd.Flags().GetBool("watch")
+	if watchFlag {
+		interval, _ := cmd.Flags().GetDuration("watch-interval")
+		return watchProcesses(ctx, interval, mode)
+	}
 
 	p := output.NewCommandProgress("Process health", 5*time.Second, mode, 2)
 	p.Start()
@@ -69,6 +76,37 @@ func runProcesses(cmd *cobra.Command, _ []string) error {
 
 	printProcessesReport(ctx, procInfo, mode, elapsed)
 	return nil
+}
+
+func watchProcesses(ctx context.Context, interval time.Duration, mode output.OutputMode) error {
+	run := func() {
+		if mode == output.ModeHuman {
+			fmt.Print("\033[H\033[2J") // clear screen
+		}
+		var procInfo *models.ProcessInfo
+		for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewProcessesCollector()}) {
+			if info, ok := r.Data.(*models.ProcessInfo); ok {
+				procInfo = info
+			}
+		}
+		if procInfo == nil {
+			return
+		}
+		fmt.Printf("\n── %s ──\n", time.Now().Format("15:04:05"))
+		printProcessesReport(ctx, procInfo, mode, 0)
+	}
+
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func printProcessesReport(ctx context.Context, info *models.ProcessInfo, mode output.OutputMode, elapsed time.Duration) {

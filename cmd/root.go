@@ -20,6 +20,17 @@ var rootCmd = &cobra.Command{
 		if !plain && !jsonOut {
 			fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s — %s\n", version.Version, platform.SystemLabel())
 		}
+		// --out: redirect stdout to file for any command
+		outPath, _ := cmd.Flags().GetString("out")
+		if outPath != "" {
+			f, err := os.Create(outPath) // #nosec G304
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "dsd: --out: %v\n", err)
+				os.Exit(1)
+			}
+			// intentionally not closing f — process exits after command completes
+			os.Stdout = f
+		}
 	},
 	RunE: runHealth,
 	Version: fmt.Sprintf("%s (commit %s, built %s)",

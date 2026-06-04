@@ -18,6 +18,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(k8sCmd)
+	k8sCmd.Flags().Bool("deep", false, "deep mode: OS-layer checks (kubelet, CNI, iptables, certs)")
 }
 
 var k8sCmd = &cobra.Command{
@@ -40,8 +41,13 @@ func runK8s(cmd *cobra.Command, _ []string) error {
 	p.Start()
 	defer p.Done()
 
+	deepFlag, _ := cmd.Flags().GetBool("deep")
+	col := collectors.Collector(collectors.NewK8sCollector())
+	if deepFlag {
+		col = collectors.NewK8sDeepCollector()
+	}
 	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewK8sCollector()}) {
+	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		p.Step(r.Name)
 		result = r
 	}

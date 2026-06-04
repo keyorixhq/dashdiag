@@ -20,7 +20,9 @@ import (
 
 func init() {
 	rootCmd.AddCommand(securityCmd)
-	securityCmd.Flags().Bool("suid", false, "include SUID binary scan (slow on large filesystems)")
+	securityCmd.Flags().Bool("deep", false, "deep mode: include SUID binary scan (slow on large filesystems)")
+	securityCmd.Flags().Bool("suid", false, "alias for --deep (deprecated)")
+	_ = securityCmd.Flags().MarkHidden("suid")
 	securityCmd.Flags().Bool("save-baseline", false, "save current security state as drift baseline")
 	securityCmd.Flags().Bool("drift", false, "compare current security state against saved baseline")
 }
@@ -60,7 +62,9 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 
 	saveBaseline, _ := cmd.Flags().GetBool("save-baseline")
 	drift, _ := cmd.Flags().GetBool("drift")
-	if saveBaseline || drift {
+	deepFlag, _ := cmd.Flags().GetBool("deep")
+	suidAlias, _ := cmd.Flags().GetBool("suid")
+	if saveBaseline || drift || deepFlag || suidAlias {
 		// The SUID scan is skipped by Collect() to keep `dsd health` fast; the
 		// drift baseline needs it, so run it explicitly here.
 		collectors.ScanSUIDBinaries(info)
