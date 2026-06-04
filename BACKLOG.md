@@ -237,6 +237,61 @@ ZFS pool or any reliably-CRIT condition.
 
 ---
 
+### BUG-023 — AppArmor profile names mangled on Debian (JSON parsed as text)
+
+**Found:** 2026-06-04, first `dsd health` run on a Debian 13 (Trixie) VM (VM 101, pve01).
+
+**Symptom:** the KernelSec "complain mode" drilldown lists profile names with raw
+JSON punctuation attached:
+```
+"Xorg":    "complain",
+"plasmashell":    "complain",
+"sbuild":    "complain",
+```
+instead of clean names (`Xorg`, `plasmashell`, `sbuild`).
+
+**Root cause:** `internal/drilldown/kernelsec.go` `policiesLinux()` runs
+`aa-status --pretty-json` (JSON), then parses the output **line-by-line looking for
+the substring `complain`** and takes the whole trimmed line as the profile name. On
+JSON output that line is `"Xorg": "complain",` — so the JSON quotes/colon/comma get
+captured verbatim. The plain-text fallback (`aa-status` with no flag) would parse
+cleaner with this line logic, but `--pretty-json` succeeds on Debian so the fallback
+never runs.
+
+**Why it surfaced on Debian and not RHEL/Ubuntu:** RHEL family uses SELinux (this
+path isn't hit). Ubuntu has AppArmor but the prior validation evidently didn't
+exercise the complain-mode drilldown with a profile set like Debian's. Debian 13
+ships 106 profiles, 23 in complain mode (desktop profiles like Xorg/plasmashell are
+part of Debian's default apparmor-profiles package — not a sign of a non-minimal
+image).
+
+**Fix sketch:** either (a) parse the `--pretty-json` output as actual JSON
+(`profiles` is a map of name→mode; filter `mode == "complain"`), or (b) drop the
+`--pretty-json` flag and parse the plain `aa-status` text, which is already cleanly
+sectioned ("23 profiles are in complain mode." followed by one indented name per
+line — track which section you're in). Option (a) is more robust. Cosmetic severity
+(the count and detection are correct; only the displayed names are mangled).
+
+**Priority:** Low-medium. Cosmetic but visibly wrong in output a user would see.
+Verify on the Debian 13 VM (VM 101).
+
+---
+
+### Debian-family note from the same run (not a bug — logic gap to consider)
+
+The `ruleSysctlNotPersisted` correlation rule fired on the fresh Debian VM:
+"system rebooted 3 minutes ago and sysctl parameters are still at non-recommended
+values — the previous fix was applied with sysctl -w but not written." But nothing
+was applied — these are the **stock defaults** (`vm.swappiness=60`). The rule infers
+"someone's `sysctl -w` didn't persist" from (non-recommended value + recent reboot),
+which a fresh boot satisfies trivially. Consider gating the rule so default values
+don't trigger the "not persisted" narrative (e.g. only fire if a prior snapshot
+showed the recommended value, which is genuinely the history-aware v2 territory).
+Low priority — the underlying swappiness WARN is still correct and useful; only the
+"previously applied" narrative is misleading.
+
+---
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 > **Validation method:** `docs/GTM_VALIDATION.md` (instrumented landing page —
@@ -743,6 +798,22 @@ Lower priority. Defer until macOS user demand exists.
 **Still to test on Legion:**
 - Suspend/resume cycle | Battery vs AC transitions | GPU power state transitions
 
+### Debian 13 VM (VM 101 on pve01) — reusable Debian testbed (NEW Jun 4)
+
+Persistent cloud-image VM for Debian-family validation. Reachable from the Proxmox
+host (internal subnet); relay via the host for Mac access.
+- **VMID:** 101 (`debian13-vm`), 2 vCPU / 2 GB / 20 GB on `local-hdd`, cloud-init.
+- **IP:** 192.168.10.69 (DHCP). **User:** `debian` (sudo, host SSH key authorised).
+- **Reach:** `ssh root@192.168.10.20 'ssh debian@192.168.10.69 "..."'`
+- **Image:** debian-13-genericcloud-amd64 (kernel 6.12, Trixie). Minimal — `smartctl`,
+  `zfsutils`, etc. not installed (useful for testing graceful "tool absent" paths).
+- **First run (Jun 4):** 26 collectors clean; correctly caught swappiness/rmem sysctl
+  WARNs, SSH weak-MAC + X11/agent-forwarding hardening, no-firewall-rules WARN,
+  NOPASSWD-sudo + never-expire-password for `debian`. Found BUG-023 (AppArmor name
+  mangling) and the sysctl-default false-positive note (both logged above).
+- **Reusability:** `qm clone 101 <newid>` for a fresh identical Debian box, or
+  `qm stop/start 101`. Not destroyed.
+
 ### MacBook (arm64 macOS) — active macOS testbed
 **Sessions 1–6 validated:**
 - `dsd disk` — disk0 500GB NVMe [APPLE SSD AP0512R] SMART: PASSED ✅
@@ -750,14 +821,14 @@ Lower priority. Defer until macOS user demand exists.
 
 ### Test Coverage Matrix
 
-| Scenario | RHEL Laptop | Proxmox Host | Hetzner Debian | macOS arm64 |
+| Scenario | RHEL Laptop | Proxmox Host | Debian 13 VM (101) | macOS arm64 |
 |---|---|---|---|---|
-| 20+ collectors | ✅ | ✅ (pve01, Jun 4) | TODO | ✅ |
+| 20+ collectors | ✅ | ✅ (pve01, Jun 4) | ✅ (VM 101, Jun 4) | ✅ |
 | SATA SSD SMART (Linux) | ✅ | ✅ LITEONIT 128GB | N/A | N/A |
 | NVMe SMART (macOS diskutil) | N/A | N/A | N/A | ✅ |
 | HDD detection | N/A | ✅ WD 2TB SMART PASS | N/A | N/A |
 | ZFS pool health | N/A | ✅ file-backed pool (Jun 4): ONLINE + DEGRADED both caught, health CRIT | TODO | N/A |
-| Disk I/O rate (deep) | ✅ | ✅ sda/sdb idle 0.0 MB/s | TODO | N/A |
+| Disk I/O rate (deep) | ✅ | ✅ sda/sdb idle 0.0 MB/s | ✅ 4.8ms | N/A |
 | LVM thin pool + snapshots | ✅ | ✅ pve/data 23%, low-space WARN | TODO | N/A |
 | Run-queue saturation (CPU/RunQueue) | ✅ AlmaLinux 9 LXC (RHEL fam) | ✅ pve01 host + openSUSE KVM | TODO | N/A |
 | AMD GPU (amdgpu) | ✅ | depends | N/A | N/A |
@@ -777,4 +848,4 @@ Lower priority. Defer until macOS user demand exists.
 | Crash file detection | ✅ | TODO | TODO | N/A |
 | Suspend/resume | TODO | N/A | N/A | TODO |
 | Multi-socket / NUMA | N/A | depends | N/A | N/A |
-| apt vs dnf | dnf only | apt likely | apt | brew |
+| apt vs dnf | dnf only | apt likely | ✅ apt (Debian 13) | brew |
