@@ -227,6 +227,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkPackages(*d)
 		}
+	case models.CVEAllResult:
+		return checkCVEHealth(d)
+	case *models.CVEAllResult:
+		if d != nil {
+			return checkCVEHealth(*d)
+		}
 	case models.NVMeInfo:
 		return checkNVMe(d)
 	case *models.NVMeInfo:
@@ -3459,6 +3465,55 @@ func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
 		))
 	}
 	return out
+}
+
+// checkCVEHealth turns a CVE security-advisory scan (from CVEHealthCollector,
+// i.e. `dsd health --cve`) into health insights. Severity buckets map to dsd
+// levels per the documented thresholds:
+//
+//   - any CISA KEV match  → CRIT (actively exploited in the wild, urgent)
+//   - Critical advisories → CRIT (CVSS >= 9.0)
+//   - Important/High      → WARN (CVSS >= 7.0)
+//
+// Moderate and Low advisories do not fire — they fall below the WARN threshold
+// and would only add noise to the health summary.
+func checkCVEHealth(r models.CVEAllResult) []models.Insight {
+	withFix := func(hints []string) []string {
+		if r.FixCommand != "" {
+			hints = append(hints, "to fix: "+r.FixCommand)
+		}
+		return hints
+	}
+
+	// KEV takes precedence — actively-exploited CVEs are the most urgent signal,
+	// regardless of the package manager's own severity label.
+	if r.KEVCount > 0 {
+		hints := []string{"these CVEs are in the CISA Known Exploited Vulnerabilities catalog — patch immediately"}
+		if len(r.KEVCVEs) > 0 {
+			hints = append(hints, "affected: "+strings.Join(r.KEVCVEs, ", "))
+		}
+		return []models.Insight{insight("CRIT", "CVE",
+			fmt.Sprintf("%d actively-exploited CVE(s) present (CISA KEV)", r.KEVCount),
+			withFix(hints),
+		)}
+	}
+
+	if len(r.Critical) > 0 {
+		return []models.Insight{insight("CRIT", "CVE",
+			fmt.Sprintf("%d critical security advisory(ies) — CVSS >= 9.0 (%s)", len(r.Critical), r.PackageManager),
+			withFix(nil),
+		)}
+	}
+
+	if len(r.Important) > 0 {
+		return []models.Insight{insight("WARN", "CVE",
+			fmt.Sprintf("%d high-severity security advisory(ies) — CVSS >= 7.0 (%s)", len(r.Important), r.PackageManager),
+			withFix(nil),
+		)}
+	}
+
+	// Moderate/Low only, or clean — stays quiet (below the WARN threshold).
+	return nil
 }
 
 func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {

@@ -284,6 +284,8 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 		return inlineLaunchd(res.Data)
 	case "Packages":
 		return inlinePackages(res.Data)
+	case "CVE":
+		return inlineCVE(res.Data)
 	case "Drives":
 		return inlineDrives(res.Data)
 	case "Systemd":
@@ -1480,6 +1482,28 @@ func inlinePackages(data interface{}) string {
 		return "up to date"
 	}
 	return ""
+}
+
+// inlineCVE returns a one-line summary for the CVE row when it is OK (no
+// high-severity or actively-exploited CVEs — those already surface as insights).
+func inlineCVE(data interface{}) string {
+	var r *models.CVEAllResult
+	if v, ok := data.(*models.CVEAllResult); ok {
+		r = v
+	} else if v, ok := data.(models.CVEAllResult); ok {
+		r = &v
+	}
+	if r == nil {
+		return ""
+	}
+	if r.Total == 0 {
+		if r.StatusReason != "" {
+			return r.StatusReason
+		}
+		return "no pending security advisories"
+	}
+	// Has advisories but none high-severity (else an insight set the row WARN/CRIT).
+	return fmt.Sprintf("%d advisory(ies), none high-severity", r.Total)
 }
 
 // inlineContainerd returns a one-line summary for a standalone containerd runtime.

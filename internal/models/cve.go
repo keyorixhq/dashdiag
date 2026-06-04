@@ -33,6 +33,13 @@ type CVEResult struct {
 	ThreatSev   string `json:"threat_severity,omitempty"`  // Critical/Important/Moderate/Low
 	FixState    string `json:"fix_state,omitempty"`        // Not affected/Affected/Will not fix/Fix deferred
 	AffectedPkg string `json:"affected_package,omitempty"` // package name from advisory
+
+	// CISA KEV enrichment — set when the CVE is in the CISA Known Exploited
+	// Vulnerabilities catalog. A KEV-listed CVE is actively exploited in the wild
+	// and warrants CRIT treatment regardless of CVSS score.
+	KnownExploited bool   `json:"known_exploited,omitempty"`
+	KEVDateAdded   string `json:"kev_date_added,omitempty"` // when CISA added it
+	KEVRansomware  bool   `json:"kev_ransomware,omitempty"` // tied to a ransomware campaign
 }
 
 // CVEAllResult holds the full security advisory scan from a package manager.
@@ -46,6 +53,12 @@ type CVEAllResult struct {
 	FixCommand       string        `json:"fix_command,omitempty"`
 	StatusReason     string        `json:"status_reason,omitempty"`
 	SubscriptionNote string        `json:"subscription_note,omitempty"` // RHEL registration hint
+
+	// CISA KEV enrichment — populated when a KEV catalog is available locally.
+	// KEVCount is the number of pending advisories whose CVE IDs appear in the
+	// CISA Known Exploited Vulnerabilities catalog. KEVCVEs lists those CVE IDs.
+	KEVCount int      `json:"kev_count,omitempty"`
+	KEVCVEs  []string `json:"kev_cves,omitempty"`
 }
 
 // CVEAdvisory is one pending security advisory from a full scan.
