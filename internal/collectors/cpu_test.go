@@ -129,6 +129,106 @@ func TestParseCPUStat(t *testing.T) {
 	}
 }
 
+func TestParseCPUStatFullAuxLines(t *testing.T) {
+	t.Parallel()
+	// Realistic /proc/stat: cpu aggregate, per-cpu lines, then ctxt/procs_* lines.
+	input := "cpu  100 20 30 800 10 0 5 0 0 0\n" +
+		"cpu0 50 10 15 400 5 0 2 0 0 0\n" +
+		"cpu1 50 10 15 400 5 0 3 0 0 0\n" +
+		"intr 123456 0 0\n" +
+		"ctxt 987654\n" +
+		"btime 1700000000\n" +
+		"processes 4321\n" +
+		"procs_running 7\n" +
+		"procs_blocked 3\n" +
+		"softirq 555 1 2 3\n"
+
+	s, err := parseCPUStatFull(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.idle != 800 || s.total != 965 {
+		t.Errorf("idle/total: got %d/%d, want 800/965", s.idle, s.total)
+	}
+	if s.ctxt != 987654 {
+		t.Errorf("ctxt: got %d, want 987654", s.ctxt)
+	}
+	if s.procsRunning != 7 {
+		t.Errorf("procsRunning: got %d, want 7", s.procsRunning)
+	}
+	if s.procsBlocked != 3 {
+		t.Errorf("procsBlocked: got %d, want 3", s.procsBlocked)
+	}
+}
+
+func TestParseStatUint(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		line string
+		want uint64
+	}{
+		{"ctxt 123456", 123456},
+		{"procs_running 2", 2},
+		{"procs_blocked 0", 0},
+		{"ctxt", 0},            // no value
+		{"ctxt notanumber", 0}, // unparseable
+		{"", 0},
+	}
+	for _, tc := range cases {
+		if got := parseStatUint(tc.line); got != tc.want {
+			t.Errorf("parseStatUint(%q): got %d, want %d", tc.line, got, tc.want)
+		}
+	}
+}
+
+func TestCPUCollector_Collect_RunQueueFields(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
+
+	loadAvgContent := "1.50 1.20 0.90 7/412 8932"
+	stat1 := "cpu  100 20 30 400 10 0 5 0 0 0\nctxt 1000\nprocs_running 1\nprocs_blocked 0\n"
+	stat2 := "cpu  200 20 30 500 10 0 5 0 0 0\nctxt 1500\nprocs_running 9\nprocs_blocked 2\n"
+
+	callCount := 0
+	c := &CPUCollector{
+		ContainerCtx: platform.ContainerContext{},
+		readers: cpuReaders{
+			loadAvgOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(loadAvgContent)), nil
+			},
+			statOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader(stat1)), nil
+				}
+				return io.NopCloser(strings.NewReader(stat2)), nil
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info := result.(*models.CPUInfo) //nolint:errcheck // type asserted in sibling test
+	// RunQueue/ProcsBlocked come from the most recent (second) sample.
+	if info.RunQueue != 9 {
+		t.Errorf("RunQueue: got %d, want 9", info.RunQueue)
+	}
+	if info.ProcsBlocked != 2 {
+		t.Errorf("ProcsBlocked: got %d, want 2", info.ProcsBlocked)
+	}
+	// ctxt delta 500 over ~0.5s → positive rate.
+	if info.ContextSwitchRate <= 0 {
+		t.Errorf("ContextSwitchRate: got %v, want > 0", info.ContextSwitchRate)
+	}
+}
+
 func TestCPUCollector_Collect_InjectableReaders(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

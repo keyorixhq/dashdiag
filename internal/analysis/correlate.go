@@ -49,6 +49,9 @@ func Correlate(insights []models.Insight) []Correlation {
 	if c, ok := ruleCPUStealUnderLoad(idx); ok {
 		out = append(out, c)
 	}
+	if c, ok := ruleRunQueueSaturation(idx); ok {
+		out = append(out, c)
+	}
 	if c, ok := ruleDBusCascade(idx); ok {
 		out = append(out, c)
 	}
@@ -353,6 +356,35 @@ func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
 		Summary: "VM is under load AND losing CPU to the hypervisor — the host is over-provisioned, adding vCPUs will not help",
 		Action:  "escalate to cloud provider or migrate VM to a less-loaded host",
 		Checks:  []string{"CPU Load", "CPU/Steal"},
+	}, true
+}
+
+// ruleRunQueueSaturation fires when the run queue is saturated (more runnable
+// tasks than cores) while neither iowait nor steal explains it — the load is
+// genuinely CPU-bound: too many threads competing for too few cores. This
+// distinguishes a true CPU shortage from I/O-driven load (ruleIODrivenLoad) and
+// hypervisor theft (ruleCPUStealUnderLoad); the remediation differs (add cores
+// or reduce concurrency, vs fix disk, vs migrate VM).
+//
+// Required signals:
+//   - CPU/RunQueue WARN or CRIT (runnable tasks ≥ 2× cores)
+//   - CPU/IOWait NOT firing (rules out I/O-driven load)
+//   - CPU/Steal NOT firing (rules out hypervisor steal)
+func ruleRunQueueSaturation(idx map[string]indexEntry) (Correlation, bool) {
+	rqSaturated := atLeast(idx, "CPU/RunQueue", "WARN")
+	iowaitElevated := atLeast(idx, "CPU/IOWait", "WARN")
+	stealElevated := atLeast(idx, "CPU/Steal", "WARN")
+
+	if !rqSaturated || iowaitElevated || stealElevated {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "CPU-Bound Run Queue Saturation",
+		Level:   "WARN",
+		Summary: "more tasks are runnable than the CPU can execute, and it is not I/O wait or hypervisor steal — the workload is genuinely CPU-bound",
+		Action:  "find the busy threads: top -H -b -n1 | head -20 — then add cores or reduce concurrency",
+		Checks:  []string{"CPU/RunQueue"},
 	}, true
 }
 

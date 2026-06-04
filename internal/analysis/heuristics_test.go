@@ -941,3 +941,68 @@ func TestIsPVEServicePort(t *testing.T) {
 		}
 	}
 }
+
+// Run-queue saturation: WARN at ≥2× cores, CRIT at ≥4× cores, silent below.
+func TestCheckCPURunQueueSaturation(t *testing.T) {
+	cases := []struct {
+		name      string
+		runQueue  int
+		numCPU    int
+		wantLevel string // "" = no run-queue insight expected
+	}{
+		{"healthy single runnable", 1, 4, ""},
+		{"at core count", 4, 4, ""},
+		{"just below warn", 7, 4, ""},
+		{"warn at 2x", 8, 4, "WARN"},
+		{"warn band", 12, 4, "WARN"},
+		{"crit at 4x", 16, 4, "CRIT"},
+		{"zero runqueue (non-linux)", 0, 4, ""},
+		{"zero cpu guarded", 8, 0, ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cpu := models.CPUInfo{NumCPU: tc.numCPU, RunQueue: tc.runQueue}
+			got := checkCPU(cpu, defaultThresh)
+			has := func(level string) bool {
+				for _, ins := range got {
+					if ins.Check == "CPU/RunQueue" && ins.Level == level {
+						return true
+					}
+				}
+				return false
+			}
+			if tc.wantLevel == "" {
+				if has("WARN") || has("CRIT") {
+					t.Errorf("%s: expected no CPU/RunQueue insight, got %+v", tc.name, got)
+				}
+				return
+			}
+			if !has(tc.wantLevel) {
+				t.Errorf("%s: expected CPU/RunQueue %s, got %+v", tc.name, tc.wantLevel, got)
+			}
+		})
+	}
+}
+
+// Context-switch rate and blocked count surface as supporting hints, not their own threshold.
+func TestRunQueueHintsIncludeContext(t *testing.T) {
+	cpu := models.CPUInfo{NumCPU: 2, RunQueue: 8, ContextSwitchRate: 42000, ProcsBlocked: 3}
+	got := checkCPU(cpu, defaultThresh)
+	var hints []string
+	for _, ins := range got {
+		if ins.Check == "CPU/RunQueue" {
+			hints = ins.Hints
+		}
+	}
+	if len(hints) == 0 {
+		t.Fatal("expected CPU/RunQueue insight with hints")
+	}
+	joined := strings.Join(hints, "\n")
+	if !strings.Contains(joined, "context switches/s") {
+		t.Errorf("expected context-switch hint, got %v", hints)
+	}
+	if !strings.Contains(joined, "blocked on I/O") {
+		t.Errorf("expected blocked-task hint, got %v", hints)
+	}
+}

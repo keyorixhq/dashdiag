@@ -577,7 +577,47 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 		))
 	}
 
+	// Run-queue saturation — more runnable tasks than the CPU can execute at once.
+	// procs_running counts processes ready to run (including those on-CPU); sustained
+	// values above the core count mean tasks are queued for CPU time. This is distinct
+	// from CPU% (how busy cores are) and load avg (which also counts D-state tasks).
+	// Context-switch rate is shown as supporting context — reliable spike detection
+	// needs the history-aware engine (v2), so it is not thresholded on its own.
+	if cpu.NumCPU > 0 && cpu.RunQueue > 0 {
+		switch {
+		case cpu.RunQueue >= 4*cpu.NumCPU:
+			out = append(out, insight("CRIT", "CPU/RunQueue",
+				fmt.Sprintf("%d runnable tasks on %d CPUs — run queue is ~%d× saturated, tasks are waiting for CPU",
+					cpu.RunQueue, cpu.NumCPU, cpu.RunQueue/cpu.NumCPU),
+				runQueueHints(cpu),
+			))
+		case cpu.RunQueue >= 2*cpu.NumCPU:
+			out = append(out, insight("WARN", "CPU/RunQueue",
+				fmt.Sprintf("%d runnable tasks on %d CPUs — more tasks ready to run than cores available",
+					cpu.RunQueue, cpu.NumCPU),
+				runQueueHints(cpu),
+			))
+		}
+	}
+
 	return out
+}
+
+// runQueueHints builds the inspection hints for a run-queue saturation insight,
+// folding in context-switch rate and blocked-task count when present.
+func runQueueHints(cpu models.CPUInfo) []string {
+	hints := []string{
+		"to inspect: vmstat 1 5  (the 'r' column is the run queue length)",
+		"to inspect: top -H -b -n1 | head -20  (per-thread, find the busy threads)",
+	}
+	if cpu.ContextSwitchRate > 0 {
+		hints = append(hints, fmt.Sprintf("context: ~%.0f context switches/s during sampling", cpu.ContextSwitchRate))
+	}
+	if cpu.ProcsBlocked > 0 {
+		hints = append(hints, fmt.Sprintf("context: %d task(s) blocked on I/O (D state) — see CPU/IOWait", cpu.ProcsBlocked))
+	}
+	hints = append(hints, "note: persistent run-queue saturation = under-provisioned CPU or a runaway thread spawner")
+	return hints
 }
 
 // checkDBus surfaces D-Bus health. D-Bus is treated as a Tier-0 dependency —
