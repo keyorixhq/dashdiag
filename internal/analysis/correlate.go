@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -49,6 +50,9 @@ func Correlate(insights []models.Insight) []Correlation {
 		out = append(out, c)
 	}
 	if c, ok := ruleDBusCascade(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleEntropyTLSFailure(idx); ok {
 		out = append(out, c)
 	}
 
@@ -377,18 +381,117 @@ func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
 	}, true
 }
 
+// ruleEntropyTLSFailure fires when the entropy pool is dangerously low while
+// TLS certificates are active on the system. Low entropy causes SSL handshakes
+// and key-generation operations to stall waiting for randomness — the symptom
+// is connection timeouts, not certificate errors, making this hard to diagnose
+// without the correlation.
+//
+// Required signals:
+//   - Entropy WARN or CRIT  (pool below 256 bits)
+//   - TLS    WARN or CRIT   (expired or expiring-soon certs present)
+func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
+	entropyLow := atLeast(idx, "Entropy", "WARN")
+	tlsFired := atLeast(idx, "TLS", "WARN")
+
+	if !entropyLow || !tlsFired {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "Entropy Starvation with TLS Active",
+		Level:   "CRIT",
+		Summary: "entropy pool is critically low while TLS certificates are in use — SSL handshakes and key operations will stall or time out waiting for randomness",
+		Action:  "apt install haveged OR dnf install rng-tools && systemctl enable --now rngd",
+		Checks:  []string{"Entropy", "TLS"},
+	}, true
+}
+
 // ── Deep correlations (time-aware, require raw collector data) ────────────────
 
 // CorrelateDeep extends Correlate with time-aware cross-signal rules that need
 // access to raw collector output (OOM events, Docker events) rather than just the
 // distilled insights slice.  Call this instead of Correlate when deep data is
 // available (i.e. from dsd health --deep or dsd health deep).
-func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *models.DockerInfo) []Correlation {
+func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *models.DockerInfo, io *models.IOInfo, sysctl *models.SysctlInfo) []Correlation {
 	out := Correlate(insights)
 	if c, ok := ruleDockerOOMCascade(oom, docker); ok {
 		out = append(out, c)
 	}
+	if c, ok := ruleIOSingleDeviceDegradation(io); ok {
+		out = append(out, c)
+	}
+	idx := buildIndex(insights)
+	if c, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
+		out = append(out, c)
+	}
 	return out
+}
+
+// ruleIOSingleDeviceDegradation fires when one device has critically high
+// latency while peer devices on the same system are healthy. This pattern
+// points to a single failing or contended drive rather than a storage
+// subsystem overload — the remediation differs (replace drive vs reduce load).
+//
+// Required signals (raw IOInfo, not insights):
+//   - At least 2 devices in io.Devices
+//   - Exactly 1 device with AwaitMs > 20.0 OR UtilPct > 85.0
+//   - At least 1 peer device with AwaitMs < 5.0 AND UtilPct < 60.0
+func ruleIOSingleDeviceDegradation(io *models.IOInfo) (Correlation, bool) {
+	if io == nil || len(io.Devices) < 2 {
+		return Correlation{}, false
+	}
+
+	var degraded []models.IODeviceInfo
+	var healthy []models.IODeviceInfo
+	for _, d := range io.Devices {
+		if d.AwaitMs > 20.0 || d.UtilPct > 85.0 {
+			degraded = append(degraded, d)
+		} else if d.AwaitMs < 5.0 && d.UtilPct < 60.0 {
+			healthy = append(healthy, d)
+		}
+	}
+
+	if len(degraded) != 1 || len(healthy) == 0 {
+		return Correlation{}, false
+	}
+
+	dev := degraded[0]
+	return Correlation{
+		Name:  "Single Device IO Degradation",
+		Level: "CRIT",
+		Summary: fmt.Sprintf("%s has critically high IO latency (%.0fms await, %.0f%% util) while %d peer device(s) are healthy — likely a failing or heavily contended drive",
+			dev.Name, dev.AwaitMs, dev.UtilPct, len(healthy)),
+		Action: fmt.Sprintf("smartctl -a /dev/%s && iostat -x 1 5", dev.Name),
+		Checks: []string{"IO"},
+	}, true
+}
+
+// ruleSysctlNotPersisted fires when sysctl parameters are at non-recommended
+// values AND the system rebooted recently (uptime < 1 hour). This combination
+// indicates the operator applied a fix with `sysctl -w` but did not persist it
+// to /etc/sysctl.d/ — the fix was lost on reboot.
+//
+// Required signals:
+//   - Sysctl WARN or CRIT   (some parameter is misconfigured)
+//   - sysctl.UptimeSeconds > 0 AND < 3600   (rebooted in the last hour)
+func ruleSysctlNotPersisted(sysctl *models.SysctlInfo, idx map[string]indexEntry) (Correlation, bool) {
+	if sysctl == nil || sysctl.UptimeSeconds <= 0 || sysctl.UptimeSeconds >= 3600 {
+		return Correlation{}, false
+	}
+	if !atLeast(idx, "Sysctl", "WARN") {
+		return Correlation{}, false
+	}
+
+	uptimeMin := sysctl.UptimeSeconds / 60
+	return Correlation{
+		Name:  "Sysctl Parameter Not Persisted",
+		Level: "WARN",
+		Summary: fmt.Sprintf("system rebooted %d minute(s) ago and sysctl parameters are still at non-recommended values — the previous fix was applied with sysctl -w but not written to /etc/sysctl.d/",
+			uptimeMin),
+		Action: "echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf && sysctl -p /etc/sysctl.d/99-dsd.conf",
+		Checks: []string{"Sysctl"},
+	}, true
 }
 
 // ruleDockerOOMCascade fires when the kernel OOM killer and a Docker/Podman

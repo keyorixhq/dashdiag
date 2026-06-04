@@ -150,7 +150,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
-	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results))
+	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results))
 	switch mode {
 	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
@@ -544,6 +544,32 @@ func extractDocker(results []runner.Result) *models.DockerInfo {
 	for _, r := range results {
 		if r.Err == nil {
 			if v, ok := r.Data.(*models.DockerInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// extractIO type-asserts *models.IOInfo from a runner results slice.
+// Returns nil when the IO collector was not included or returned an error.
+func extractIO(results []runner.Result) *models.IOInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.IOInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// extractSysctl type-asserts *models.SysctlInfo from a runner results slice.
+// Returns nil when the Sysctl collector was not included or returned an error.
+func extractSysctl(results []runner.Result) *models.SysctlInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.SysctlInfo); ok {
 				return v
 			}
 		}

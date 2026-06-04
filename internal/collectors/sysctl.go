@@ -65,6 +65,15 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info.VMOvercommit, _ = readIntFile("/proc/sys/vm/overcommit_memory")
 	info.FSInotifyWatches, _ = readIntFile("/proc/sys/fs/inotify/max_user_watches")
 
+	// Uptime — used by correlation engine for sysctl-drift-after-reboot detection.
+	if data, err := os.ReadFile("/proc/uptime"); err == nil {
+		if fields := strings.Fields(string(data)); len(fields) >= 1 {
+			if f, err := strconv.ParseFloat(fields[0], 64); err == nil {
+				info.UptimeSeconds = int64(f)
+			}
+		}
+	}
+
 	// Detect workload from running process names
 	info.Workload = detectWorkload()
 

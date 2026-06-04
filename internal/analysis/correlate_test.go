@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -434,7 +435,7 @@ func TestDockerOOMCascadeFiresWithTimestamps(t *testing.T) {
 		TimeUnix: now.Unix(), // within 5 min of kernel OOM
 	})
 
-	corrs := CorrelateDeep(nil, oom, docker)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -458,7 +459,7 @@ func TestDockerOOMCascadeFiresFallbackNoTimestamps(t *testing.T) {
 	oom := makeOOM(3, models.OOMEvent{Process: "nginx"}) // Timestamp is zero
 	docker := makeDocker(2)                              // no RecentEvents
 
-	corrs := CorrelateDeep(nil, oom, docker)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -484,7 +485,7 @@ func TestDockerOOMCascadeDoesNotFireOutsideWindow(t *testing.T) {
 	// But both counts are > 0, so the fallback still fires — that is correct.
 	// What we verify: the time-aware path is NOT used when outside the window
 	// (no test hook needed — we just verify the rule fires via fallback, not time path).
-	corrs := CorrelateDeep(nil, oom, docker)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -504,7 +505,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutDockerOOM(t *testing.T) {
 	oom := makeOOM(3, models.OOMEvent{Process: "nginx"})
 	docker := makeDocker(0) // no OOM events
 
-	corrs := CorrelateDeep(nil, oom, docker)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire when docker.OOMEvents == 0")
@@ -516,7 +517,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutKernelOOM(t *testing.T) {
 	oom := makeOOM(0) // no kernel OOM events
 	docker := makeDocker(2, models.DockerEvent{Action: "oom", Actor: "app", TimeUnix: time.Now().Unix()})
 
-	corrs := CorrelateDeep(nil, oom, docker)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire when oom.EventsLast24h == 0")
@@ -525,7 +526,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutKernelOOM(t *testing.T) {
 }
 
 func TestDockerOOMCascadeDoesNotFireWithNilInputs(t *testing.T) {
-	corrs := CorrelateDeep(nil, nil, nil)
+	corrs := CorrelateDeep(nil, nil, nil, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire with nil OOM and Docker inputs")
@@ -540,7 +541,7 @@ func TestCorrelateDeepPreservesExistingRules(t *testing.T) {
 		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
 		ins("CRIT", "Processes", "5 hung processes"),
 	}
-	corrs := CorrelateDeep(insights, nil, nil)
+	corrs := CorrelateDeep(insights, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Memory Pressure Cascade" {
@@ -549,5 +550,180 @@ func TestCorrelateDeepPreservesExistingRules(t *testing.T) {
 	}
 	if !found {
 		t.Error("CorrelateDeep should include all existing snapshot rules")
+	}
+}
+
+func makeIO(devices ...models.IODeviceInfo) *models.IOInfo {
+	return &models.IOInfo{Devices: devices}
+}
+
+func makeSysctl(uptimeSec int64, swappiness int) *models.SysctlInfo {
+	return &models.SysctlInfo{
+		Available:     true,
+		UptimeSeconds: uptimeSec,
+		VMSwappiness:  swappiness,
+	}
+}
+
+// ── ruleEntropyTLSFailure ─────────────────────────────────────────────────
+
+func TestEntropyTLSFailureFires(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Entropy", "entropy pool critically low (32 bits)"),
+		ins("WARN", "TLS", "2 certificate(s) expiring within 30 days"),
+	}
+	corrs := Correlate(insights)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Entropy Starvation with TLS Active" {
+			found = true
+			if c.Level != "CRIT" {
+				t.Errorf("expected CRIT, got %q", c.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Entropy Starvation with TLS Active to fire")
+	}
+}
+
+func TestEntropyTLSFailureDoesNotFireWithoutTLS(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Entropy", "entropy pool critically low"),
+		// no TLS insight
+	}
+	for _, c := range Correlate(insights) {
+		if c.Name == "Entropy Starvation with TLS Active" {
+			t.Error("should not fire without TLS signal")
+		}
+	}
+}
+
+func TestEntropyTLSFailureDoesNotFireWithoutEntropy(t *testing.T) {
+	insights := []models.Insight{
+		ins("WARN", "TLS", "1 certificate expiring"),
+		// no Entropy insight
+	}
+	for _, c := range Correlate(insights) {
+		if c.Name == "Entropy Starvation with TLS Active" {
+			t.Error("should not fire without Entropy signal")
+		}
+	}
+}
+
+// ── ruleIOSingleDeviceDegradation ────────────────────────────────────────
+
+func TestIOSingleDeviceDegradationFires(t *testing.T) {
+	io := makeIO(
+		models.IODeviceInfo{Name: "sda", AwaitMs: 45.0, UtilPct: 92.0}, // degraded
+		models.IODeviceInfo{Name: "sdb", AwaitMs: 1.2, UtilPct: 15.0},  // healthy peer
+	)
+	c, ok := ruleIOSingleDeviceDegradation(io)
+	if !ok {
+		t.Fatal("expected rule to fire")
+	}
+	if c.Level != "CRIT" {
+		t.Errorf("expected CRIT, got %q", c.Level)
+	}
+	if !strings.Contains(c.Summary, "sda") {
+		t.Errorf("summary should name the degraded device, got: %q", c.Summary)
+	}
+}
+
+func TestIOSingleDeviceDegradationDoesNotFireWithOnlyOneDevice(t *testing.T) {
+	io := makeIO(
+		models.IODeviceInfo{Name: "sda", AwaitMs: 50.0, UtilPct: 95.0},
+	)
+	if _, ok := ruleIOSingleDeviceDegradation(io); ok {
+		t.Error("should not fire with only one device")
+	}
+}
+
+func TestIOSingleDeviceDegradationDoesNotFireWhenBothDegraded(t *testing.T) {
+	io := makeIO(
+		models.IODeviceInfo{Name: "sda", AwaitMs: 45.0, UtilPct: 92.0},
+		models.IODeviceInfo{Name: "sdb", AwaitMs: 30.0, UtilPct: 88.0}, // both degraded
+	)
+	if _, ok := ruleIOSingleDeviceDegradation(io); ok {
+		t.Error("should not fire when both devices are degraded (subsystem overload, not single drive)")
+	}
+}
+
+func TestIOSingleDeviceDegradationDoesNotFireWithNilIO(t *testing.T) {
+	if _, ok := ruleIOSingleDeviceDegradation(nil); ok {
+		t.Error("should not fire with nil IOInfo")
+	}
+}
+
+// ── ruleSysctlNotPersisted ────────────────────────────────────────────────
+
+func TestSysctlNotPersistedFires(t *testing.T) {
+	sysctl := makeSysctl(1800, 100) // 30 min uptime, swappiness=100 (bad)
+	insights := []models.Insight{
+		ins("WARN", "Sysctl", "vm.swappiness=100 is high for a server"),
+	}
+	idx := buildIndex(insights)
+	c, ok := ruleSysctlNotPersisted(sysctl, idx)
+	if !ok {
+		t.Fatal("expected rule to fire")
+	}
+	if c.Level != "WARN" {
+		t.Errorf("expected WARN, got %q", c.Level)
+	}
+	if !strings.Contains(c.Summary, "30 minute") {
+		t.Errorf("summary should include uptime in minutes, got: %q", c.Summary)
+	}
+}
+
+func TestSysctlNotPersistedDoesNotFireAfterOneHour(t *testing.T) {
+	sysctl := makeSysctl(7200, 100) // 2 hours uptime
+	insights := []models.Insight{
+		ins("WARN", "Sysctl", "vm.swappiness=100 is high"),
+	}
+	idx := buildIndex(insights)
+	if _, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
+		t.Error("should not fire when uptime >= 1 hour (not a recent reboot)")
+	}
+}
+
+func TestSysctlNotPersistedDoesNotFireWhenSysctlOK(t *testing.T) {
+	sysctl := makeSysctl(300, 10) // 5 min uptime, but sysctl is fine
+	idx := buildIndex(nil)        // no sysctl insights
+	if _, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
+		t.Error("should not fire when sysctl has no WARN/CRIT")
+	}
+}
+
+func TestSysctlNotPersistedDoesNotFireWithNilSysctl(t *testing.T) {
+	insights := []models.Insight{ins("WARN", "Sysctl", "bad param")}
+	idx := buildIndex(insights)
+	if _, ok := ruleSysctlNotPersisted(nil, idx); ok {
+		t.Error("should not fire with nil SysctlInfo")
+	}
+}
+
+// ── CorrelateDeep nil-safety for new params ──────────────────────────────
+
+func TestCorrelateDeepNewParamsNilSafe(t *testing.T) {
+	// Must not panic with nil for the new parameters
+	corrs := CorrelateDeep(nil, nil, nil, nil, nil)
+	_ = corrs // any result is fine, just must not panic
+}
+
+func TestCorrelateDeepPreservesExistingRulesWithNewParams(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Memory", "RAM at 97%"),
+		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
+		ins("CRIT", "Processes", "5 hung processes"),
+	}
+	corrs := CorrelateDeep(insights, nil, nil, nil, nil)
+	found := false
+	for _, c := range corrs {
+		if c.Name == "Memory Pressure Cascade" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("CorrelateDeep must still fire existing rules after signature change")
 	}
 }
