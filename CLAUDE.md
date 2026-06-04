@@ -81,10 +81,16 @@ dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
-dsd steamos      🟡 Steam Deck/SteamOS: RAUC A/B slots, steamos-readonly, gamescope session,
-                    /var+/home, Wi-Fi backend, update-server reach; --deep (proton/shader/flatpak/bios).
-                    Code + heuristics + tests complete (Spec 17); gated on platform.IsSteamOS, wired
-                    into dsd health. LIVE VALIDATION PENDING — no Steam Deck hardware yet.
+dsd steamos      🟡 Steam Deck/SteamOS: device identity + Secure Boot (17a), RAUC A/B slots,
+                    steamos-readonly, gamescope session, /var+/home, Wi-Fi, update-server reach,
+                    Remote Play ports/firewall/AP-isolation (22A); --deep (proton/shader/flatpak/bios).
+                    Specs 17+17a+22A. Gated on platform.IsSteamOS, wired into dsd health.
+dsd disk         🟡 +SteamOS partition layout (Spec 19): btrfs root stats, shader cache, offload
+                    bind mounts, /var+/home — SteamOS-only section, gated.
+dsd net          🟡 +SteamOS Wi-Fi (Spec 20+22B): backend, dual-band SSID conflict, Steam CDN DNS,
+                    Remote Play link quality (band/channel/width/signal) — SteamOS-only section, gated.
+                    ⚠️ All SteamOS work (17/17a/19/20/22) is on branch `steamos`, LIVE VALIDATION
+                    PENDING — no Steam Deck hardware. See BACKLOG [STEAMOS-VALIDATION].
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
 dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
                     --endpoints-file, --json); InsecureSkipVerify to read expired certs
