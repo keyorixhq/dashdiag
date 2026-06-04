@@ -305,6 +305,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkKVM(d)
 	case *models.KVMInfo:
 		return checkKVM(*d)
+	case models.SteamOSInfo:
+		return checkSteamOS(d)
+	case *models.SteamOSInfo:
+		return checkSteamOS(*d)
 	case models.TLSInfo:
 		return checkTLS(d)
 	case *models.TLSInfo:
@@ -3835,6 +3839,147 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	out = append(out, checkDockerResources(d)...)
 	out = append(out, checkDockerSecurity(d)...)
 	out = append(out, checkPodmanQuadlets(d)...)
+	return out
+}
+
+// checkSteamOS turns SteamOS / Steam Deck state into insights. Only fires when
+// Detected (gated on platform.IsSteamOS upstream). The single most important
+// signal is a "bad" RAUC boot slot — a bad booted slot blocks updates outright
+// (CRIT), a bad inactive slot removes the rollback safety net (WARN).
+func checkSteamOS(s models.SteamOSInfo) []models.Insight {
+	if !s.Detected {
+		return nil
+	}
+	out := checkSteamOSUpdate(s)
+	out = append(out, checkSteamOSSession(s)...)
+	out = append(out, checkSteamOSStorage(s)...)
+	out = append(out, checkSteamOSNetwork(s)...)
+	out = append(out, checkSteamOSDeep(s)...)
+	return out
+}
+
+// checkSteamOSUpdate covers the RAUC slots, read-only rootfs, and update channel.
+func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
+	var out []models.Insight
+
+	// RAUC booted slot bad — updates will fail to install.
+	if s.RAUCAvailable && strings.EqualFold(s.RAUCBootedStatus, "bad") {
+		out = append(out, insight("CRIT", "SteamOS",
+			fmt.Sprintf("booted RAUC slot %s has boot status 'bad' — system updates will not install", s.RAUCBootedSlot),
+			[]string{
+				"to fix: sudo rauc status mark-active booted",
+				"to inspect: rauc status",
+			},
+		))
+	}
+	// RAUC inactive slot bad — no rollback safety net.
+	if s.RAUCAvailable && strings.EqualFold(s.RAUCInactiveStatus, "bad") {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("inactive RAUC slot %s has boot status 'bad' — no rollback available if the next update fails", s.RAUCInactiveSlot),
+			[]string{
+				fmt.Sprintf("to fix: sudo rauc status mark-good %s", s.RAUCInactiveSlot),
+				"or: re-image to restore the slot",
+			},
+		))
+	}
+
+	// Read-only rootfs disabled — next update overwrites manual changes.
+	if s.ReadonlyKnown && !s.ReadonlyEnabled {
+		out = append(out, insight("CRIT", "SteamOS",
+			"steamos-readonly is DISABLED — rootfs is writable; the next update will overwrite manual changes and may break the system",
+			[]string{
+				"to fix: sudo steamos-readonly enable",
+				"note: a writable rootfs is the #1 cause of 'an update broke my packages'",
+			},
+		))
+	}
+
+	// Update channel / config.
+	if s.ChannelConfigMissing {
+		out = append(out, insight("WARN", "SteamOS",
+			"/etc/steamos-atomupd/client.conf is missing — the updater cannot determine its channel",
+			[]string{"to fix: reinstall steamos-atomupd-client or restore the config"},
+		))
+	} else if s.Channel != "" && s.Channel != "stable" {
+		out = append(out, insight("INFO", "SteamOS",
+			fmt.Sprintf("update channel is '%s' (not stable) — expected on a dev/test device, unusual otherwise", s.Channel),
+			[]string{"to switch: use Settings → System → Update Channel, or steamos-select-branch"},
+		))
+	}
+	return out
+}
+
+// checkSteamOSSession covers a stuck Gamescope session.
+func checkSteamOSSession(s models.SteamOSInfo) []models.Insight {
+	if s.SessionMode == "gamemode" && !s.GamescopeActive {
+		return []models.Insight{insight("CRIT", "SteamOS",
+			"in Game Mode but gamescope-session is not active — the session has likely crashed (device stuck)",
+			[]string{
+				"to inspect: systemctl status gamescope-session",
+				"to recover: sudo systemctl restart gamescope-session",
+			},
+		)}
+	}
+	return nil
+}
+
+// checkSteamOSStorage flags the tiny /var (256 MB) and /home.
+func checkSteamOSStorage(s models.SteamOSInfo) []models.Insight {
+	var out []models.Insight
+	if l := levelPct(s.VarUsedPct, 70, 85); l != "" {
+		out = append(out, insight(l, "SteamOS",
+			fmt.Sprintf("/var at %.0f%% (%.0f / %.0f MB) — fills with journal, update temp files, logs", s.VarUsedPct, s.VarUsedMB, s.VarTotalMB),
+			[]string{
+				"to fix: sudo journalctl --vacuum-size=50M",
+				"to inspect: sudo du -sh /var/* | sort -h | tail",
+			},
+		))
+	}
+	if l := levelPct(s.HomeUsedPct, 85, 95); l != "" {
+		out = append(out, insight(l, "SteamOS",
+			fmt.Sprintf("/home at %.0f%% (%.0f / %.0f GB) — Proton prefixes, shader cache, game saves, flatpaks", s.HomeUsedPct, s.HomeUsedGB, s.HomeTotalGB),
+			[]string{"to inspect: du -sh ~/.steam/steam/steamapps/compatdata ~/.steam/steam/shadercache"},
+		))
+	}
+	return out
+}
+
+// checkSteamOSNetwork covers Wi-Fi backend and update-server reachability.
+func checkSteamOSNetwork(s models.SteamOSInfo) []models.Insight {
+	var out []models.Insight
+	if s.WifiDevMode {
+		out = append(out, insight("INFO", "SteamOS",
+			"Wi-Fi is managed by wpa_supplicant (dev-mode workaround), not the default iwd — expected only if you applied the 3.7.x Wi-Fi fix",
+			[]string{"note: revert to iwd once the regression is resolved upstream"},
+		))
+	}
+	if s.UpdateServerKnown && !s.UpdateServerReachable {
+		out = append(out, insight("WARN", "SteamOS",
+			"SteamOS update server (steamdeck-atomupd.steamos.cloud) is unreachable — updates cannot be fetched",
+			[]string{
+				"to inspect: ping steamdeck-atomupd.steamos.cloud",
+				"to inspect: check Wi-Fi / DNS / VPN",
+			},
+		))
+	}
+	return out
+}
+
+// checkSteamOSDeep covers the deep-only growth checks (shader cache, flatpak).
+func checkSteamOSDeep(s models.SteamOSInfo) []models.Insight {
+	var out []models.Insight
+	if s.ShaderCacheGB > 10 {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("shader cache is %.1f GB — a common cause of /home filling up", s.ShaderCacheGB),
+			[]string{"to clear: Steam → Settings → Storage, or remove ~/.steam/steam/shadercache/*"},
+		))
+	}
+	if s.FlatpakDataGB > 20 {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("flatpak data is %.1f GB", s.FlatpakDataGB),
+			[]string{"to reclaim: flatpak uninstall --unused"},
+		))
+	}
 	return out
 }
 
