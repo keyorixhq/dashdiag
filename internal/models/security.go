@@ -103,6 +103,12 @@ type SecurityInfo struct {
 	// settings that are mandatory on PVE (web UI 8006, spiceproxy 3128,
 	// rpcbind 111, and root SSH login required for cluster management).
 	IsPVE bool `json:"is_pve,omitempty"`
+
+	// macOS-specific security checks (omitempty — absent in Linux JSON output)
+	FileVaultEnabled  bool `json:"filevault_enabled,omitempty"`  // disk encryption on
+	SIPEnabled        bool `json:"sip_enabled,omitempty"`        // System Integrity Protection
+	GatekeeperEnabled bool `json:"gatekeeper_enabled,omitempty"` // Gatekeeper app validation
+	IsDarwin          bool `json:"is_darwin,omitempty"`          // set by darwin collector to gate macOS heuristics
 }
 
 // PortEntry describes a listening network port.
