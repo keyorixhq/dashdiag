@@ -373,3 +373,182 @@ domain.
 network-broken VM today, do they already use Proxmox/vCenter guest-exec to get
 inside it? If that is already their habit, dropping `dsd` into that existing
 workflow is near-zero-friction — a strong fit signal.
+
+### Adjacent candidate — CMDB inventory feed (see BACKLOG.md)
+
+DashDiag's already-collected hardware inventory could feed a provider's existing CMDB —
+which is chronically starved of fresh, accurate data because it relies on manual entry.
+Same diagnostician-not-monitor logic applied to inventory: feed the system of record,
+don't compete with it. Feeds technical-facts columns only (model/serial/specs/installed
+software), not the administrative layer (owner/asset-tag/warranty/location/licence).
+Additive, cheap (data already collected), demand-unvalidated per Principle 3 — gated on a
+real request. Origin: co-founder Yuri (ex-MS IT manager who built a homemade Access CMDB).
+Full entry in BACKLOG.md.
+
+### Candidate environment — edge computing / carrier base stations (2026-06-04, one declaration)
+
+A mobile-carrier contact declared a direction: cellular base stations and antennas going
+cloud-connected and cloud-managed, running client workloads in Docker on the base station
+itself — compute pushed to the edge, closer to clients, including rural regions where
+on-site support and remote diagnostics are hard.
+
+**Status: hypothesis from one directional declaration — NOT validated demand, and weaker
+than the two D6 provider contacts (who described their own daily pain; this contact
+described an industry trend).**
+
+**Why the technical fit is strong — arguably the strongest in the strategy:**
+
+- Base stations are general-purpose Linux boxes running Docker workloads — `dsd health` +
+  `dsd docker` core competency, not a new collector.
+- Physically scattered, often rural, no one on-site, hard remote access — the canonical
+  "OBD for your server" case at its extreme: a box you cannot reach that must tell you
+  what is wrong in one shot.
+- Heterogeneous, aging, constrained hardware — the same distro-matrix muscle already built.
+- The static single binary with no runtime deps is ideal for constrained edge nodes
+  (cannot assume a package manager, fat runtime, or reliable bandwidth).
+- The broken/intermittent-network deployment chain already reasoned through in this
+  Decision is *the* edge connectivity condition. That work transfers directly.
+
+**Why it is NOT a near-term wedge (the counterweight):**
+
+- **Hardest buyer in the strategy.** Telecom/carrier procurement is brutally slow: long
+  cycles, heavy security/compliance/certification review, entrenched network-equipment
+  incumbents (the same Cisco/Huawei/Ericsson/Nokia world ruled out earlier). A solo founder
+  on short runway selling into carriers is a multi-year motion. Excellent technical fit does
+  not shorten that cycle. The opposite of the low-friction support-offload wedge.
+- **Crowded with platform plays.** Hyperscaler edge (Outposts/Wavelength, Azure Edge),
+  carrier-cloud initiatives, KubeEdge, k3s-at-the-edge. The trap is drifting toward building
+  an edge *fleet-management platform* — the multi-tenant backend again, now competing with
+  hyperscalers and the carriers' own management stacks.
+- **Positioning discipline (same as the rest of D6):** DashDiag is the *diagnostician on the
+  node*, feeding whatever edge-management plane the carrier already runs — NEVER the
+  management plane itself. Node-level diagnostic emitting clean data into their existing
+  orchestration = coherent. Trying to be the edge platform = dead on arrival. Do not drift.
+
+**What this means in practice:** the EXISTING product (Linux + Docker diagnosis, static
+binary, local-first) pointed at a new environment it already fits — so validating it costs
+almost nothing, there is nothing new to build to *try* it. Per Principle 3: hot trend +
+excellent technical fit + one contact's directional declaration = a strong hypothesis, not
+validated demand. "The fit is obvious" is not "the buyer will adopt."
+
+**Zero-build validation step (one conversation):** ask the carrier contact whether their
+edge / base-station ops people struggle to diagnose those remote Docker-running boxes
+*today*, and whether they would drop a static binary on a handful of them. If yes → a third
+validation thread at zero build cost. If only "we are moving to edge eventually" → a trend
+to revisit later, not a thing to build toward now.
+
+### Three connected signals from one contact — infra, personal pain, distribution (2026-06-04)
+
+The Decision 6 solutions-sales contact produced three distinct signals in one conversation.
+They matter as a connected engine, not three scattered notes — one well-placed person who
+can test, who has the pain, and who would distribute. Relationship context: the founder was
+his manager at a large telecom and helped him repeatedly; he is loyal and helping in return.
+He is a social connector in his org and the account person clients call FIRST when something
+breaks.
+
+**Signal 1 — Free test infrastructure (GOODWILL, not demand).** He is using his position to
+give free access to VMware infrastructure (a one-MONTH trial of VMs, available immediately)
+and bare-metal servers (~10 days out) to test dsd. This is a favor from a loyal former
+report, NOT a trial in the evaluative sense and NOT a procurement process. What it validates:
+nothing commercial. What it gives: a real, zero-cost place to test dsd on genuine VMware +
+server hardware (IPMI/BMC, ECC, physical disks, RAID) that the existing Proxmox/LXC/NixOS
+matrix cannot provide. Take it fully; hold zero commercial expectation; let any management
+interest emerge only if the tool earns it. Risk to manage: a favor-driven test is warm, so
+feedback may be too kind to be informative — treat as TECHNICAL validation, not commercial.
+
+**Signal 2 — His own support-triage pain (FIRST REAL WEDGE VALIDATION).** Clients call him
+first when something breaks; his clients' wellbeing — and his own standing — depends on how
+fast triage / troubleshooting / fixing happen. Faster diagnosis makes HIM look good to HIS
+clients. This is not "observes a pain" or "a trend" — a named person with the pain
+personally, tied to his own performance, i.e. self-interest, the most reliable signal. It
+lands exactly on the support-offload wedge this Decision already called the more interesting
+one. First genuine validation that the wedge's PAIN is real and located in a real user.
+Principle 3 caveat: validates the pain and the wedge — does NOT yet validate that his ORG
+would buy, nor that the pain monetises. Those remain open.
+
+**Signal 3 — Willingness to distribute to his clients (FIRST DISTRIBUTION-CHANNEL
+VALIDATION).** He wants to recommend dsd to his clients so they can troubleshoot their own
+on-prem infrastructure. His incentive is durable and aligned: his method for winning client
+loyalty (and beating competitors long-term) is being generally useful, even when he earns
+nothing short-term on a given recommendation. This puts a real face on the "support-offload
+doubles as distribution" hypothesis: not "providers will hand it out" in the abstract, but a
+connector-type account person distributing it as part of his trusted-advisor method —
+self-sustaining as long as the tool stays good and makes him look good. More specific and
+credible than the Decision previously stated. Principle 3 caveats: validates that a
+well-placed person WOULD recommend it and WHY (durable, real) — does NOT validate that his
+clients would ADOPT on his recommendation, and a connector recommending a free OSS tool
+generates USAGE not revenue (and individual on-prem operators are the hardest population to
+monetise, per Decision 1 / ADR-0001). The channel is real; the business model THROUGH the
+channel is still open.
+
+**Why the three connect (the engine):** test on his infra (1) → make dsd genuinely good and
+nail HIS own triage scenario (2) → which earns his willingness to stake his client-credibility
+on recommending it (3). Signal 3 is gated on the tool being solid — connectors are careful
+with their credibility and won't recommend something rough. Sequence: use the free infra to
+make dsd impressive on VMware + bare metal first; the personal-pain win and the distribution
+both follow from the tool actually being good. The most complete real-world thread in the
+strategy — and it is all from ONE person, which is also its limit. Breadth (does this
+replicate beyond him) is still the landing-page / multi-contact job.
+
+**Near-term action (no build):** use the infra to make dsd demonstrably faster than his
+current process for the "client reports a broken VM → cause + fix" loop. A management-facing
+slide deck is worth making ONLY AFTER testing produces real "dsd caught this on your
+infrastructure" moments — build the deck FROM what the testing shows, not from hypotheticals.
+Deck-to-management is goodwill carriage, not procurement; keep expectations there at zero.
+
+### Trial scoping — VMware (1 month, now) + bare metal (~10 days) resource asks (2026-06-04)
+
+Resources to request from the contact, chosen to let dsd *trigger the conditions it is meant
+to catch* (not just run clean). The trial is TECHNICAL validation — make dsd genuinely good
+on real VMware + server hardware; demand stays a separate, open question.
+
+**VMware VMs (1-month access, now):**
+- 3–4 small Linux guests: 2 vCPU / 4 GB RAM / 40 GB disk each (dsd is light; testing
+  diagnosis, not workloads).
+- Distro variety matching the existing matrix: e.g. Ubuntu 24.04, AlmaLinux/Rocky 9, Debian
+  — tests `platform.Profile` under VMware.
+- At least 2 guests on the same port group (needed to test cross-vSwitch network behaviour /
+  blame-attribution path-trace).
+- Console or vCenter access to deliberately misconfigure virtual networking (change MTU,
+  detach vNIC, wrong port group) — the highest-value item: lets you create the "VM network is
+  broken, who's to blame" condition and verify guest-side directional evidence.
+- VMware Tools / open-vm-tools installed (usually default) — relevant to out-of-band install.
+- GPU: not needed on VMs.
+
+**Bare metal (~10 days):**
+- 1–2 real servers — feature-complete beats powerful.
+- IPMI/BMC (iDRAC/iLO/Supermicro) — tests the IPMI collector + hardware sensors (impossible on a VM).
+- ECC memory — dsd reads EDAC/ECC counters, a flagship aging-hardware signal (real server RAM only).
+- Mixed physical disks (SATA/SAS + NVMe if possible) — SMART/NVMe collectors are central;
+  older boxes with some drive history are MORE useful than pristine ones.
+- Hardware RAID controller (PERC/MegaRAID) if available — tests the RAID collector.
+- Distro variety or a multi-boot/reinstallable box.
+- Moderate CPU/RAM is fine (8–16 cores, 32–64 GB) — reading sensors/subsystems, not running load.
+- GPU optional — only if a box happens to have one (tests the GPU collector on real hw).
+
+**For both:** ask whether you can deliberately create fault conditions (fill a disk, saturate
+IO, misconfigure network, stress CPU). A clean run proves nothing; a correctly-diagnosed
+*induced* fault is the demo that makes the contact a believer and becomes a deck slide.
+
+### Trial discipline — one month is for doing it well, not over-building (2026-06-04)
+
+A month of VMware access removes the rush; it is NOT a licence to build a VMware product.
+Sequence:
+- **Week 1 — deploy and observe, build nothing.** Run the full check suite on VMware guests;
+  watch what fires and especially what it gets WRONG on VMware (false positives reveal
+  themselves only on real hardware, as with the macOS work). Structured observation first.
+- **Week 1–2 — fix what's wrong before adding what's new.** A demo where dsd says something
+  *wrong* about his infrastructure is worse than one that says less but is right. Ops
+  credibility is fragile.
+- **Week 2–3 — add small VMware-specific sharpening, informed by observation:** verify steal
+  time fires with a clear message (the headline VMware signal — host overcommit, exonerates
+  the guest); VMware Tools / open-vm-tools status check; paravirtual-vs-emulated driver
+  detection (VMXNET3/PVSCSI vs E1000/LSI — silent perf killer); hypervisor platform detection
+  so heuristics can be VMware-aware. Add only the gaps real observation reveals.
+- **Week 3–4 — deliberately induce fault scenarios and capture the wins** as an evidence
+  library for the eventual deck.
+
+Deliverable: dsd catching 3–5 genuinely VMware-relevant things correctly and impressively,
+plus an evidence library — NOT a VMware product. Resist the more-time-means-more-features
+pull. The no-new-features-before-paying-customer rule still applies; trial-scoped sharpening
+is the only justified exception, and only after Week-1 observation says what's actually needed.

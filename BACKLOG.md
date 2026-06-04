@@ -207,6 +207,38 @@ Build order rule: **never build deep before fast is in production use.**
 
 ---
 
+## Candidate features (gated on a real request — do NOT build speculatively)
+
+Recorded so they aren't lost; explicitly NOT committed work. Each is demand-unvalidated
+per COMPANY_PRINCIPLES.md Principle 3 — build only when a real user/buyer asks.
+
+### `--export` / CMDB inventory feed (candidate — gated on a real request)
+
+DashDiag already collects hardware inventory (disk model/serial/capacity, CPU, DIMM
+layout, installed software, etc.) as a byproduct of diagnosis — on every run, on every
+box — then discards it. An export flag could emit this already-collected inventory in a
+format an external CMDB can ingest.
+
+- **Additive integration, not a CMDB product.** Feeds the *technical-facts* columns of a
+  CMDB record only (model / serial / specs / installed software). Does NOT supply the
+  administrative layer (owner, asset tag, purchase/warranty date, physical location,
+  licence entitlements) — none of that is visible from the box. It populates part of a
+  record; the CMDB still sources the admin layer elsewhere.
+- **Cheap.** The data is already collected — a serialisation/format question, not new
+  collection. Consistent with the `--json`-as-platform-API direction.
+- **Why it matters.** CMDBs are chronically starved of fresh, accurate data because they
+  rely on manual entry (exactly why Yuri built his Access tool). A tool already running on
+  every box emitting current ground-truth hardware facts solves the CMDB's worst problem:
+  staleness. Strengthens the provider/infra-team value prop (ADR-0002 Decision 6).
+- **Origin:** co-founder Yuri (ex-Microsoft IT manager, CIS subsidiaries; built a homemade
+  MS Access CMDB because even Microsoft's inventory tooling was a nightmare). Spotted the
+  connection from a DashDiag demo.
+- **Status: demand-unvalidated (Principle 3).** A smart connection from a co-founder is a
+  hypothesis, not a confirmed request — and a homemade-tool builder is a harder sell, not
+  an easier one. **Do not build until a real user/buyer asks.**
+
+---
+
 ## Container Runtimes
 
 ### ~~[CONTAINER-CRIO] Add CRI-O socket detection to dsd docker collector~~ ✅ DONE (June 3, commit 9476109)
