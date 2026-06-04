@@ -53,7 +53,7 @@ func TestScanQuadletFiles(t *testing.T) {
 	// Include a nonexistent directory — it must be skipped silently.
 	files := scanQuadletFiles([]string{dir, filepath.Join(dir, "does-not-exist")})
 
-	var names []string
+	names := make([]string, 0, len(files))
 	for _, f := range files {
 		names = append(names, f.name)
 		if f.path != filepath.Join(dir, f.name) {

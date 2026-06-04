@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	goping "github.com/go-ping/ping"
+	goping "github.com/prometheus-community/pro-bing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )

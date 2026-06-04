@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	goping "github.com/go-ping/ping"
+	goping "github.com/prometheus-community/pro-bing"
 	gopsutilnet "github.com/shirou/gopsutil/v3/net"
 
 	"github.com/keyorixhq/dashdiag/internal/debug"
@@ -203,7 +203,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok {
 			return ms, loss, false
 		}
-		// sysPing failed (no ping binary?) — fall through to go-ping
+		// sysPing failed (no ping binary?) — fall through to pro-bing
 	}
 	if !icmpAvailable() {
 		debug.Log(ctx, "Network", "ICMP unavailable for this process — skipping to TCP", "host", host)
@@ -242,7 +242,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 //     /proc/sys/net/ipv4/ping_group_range (unprivileged ICMP via UDP).
 //
 // On non-Linux platforms (macOS), ICMP semantics differ; return true
-// and let the existing privileged/unprivileged go-ping fallback handle it.
+// and let the existing privileged/unprivileged pro-bing fallback handle it.
 var (
 	icmpAvailableOnce  sync.Once
 	icmpAvailableValue bool
@@ -339,7 +339,7 @@ func parsePingGroupRange(s string) (low, high int, ok bool) {
 }
 
 // sysPing runs the system /bin/ping with a specific source IP.
-// Used when go-ping Source binding is unreliable (multi-route scenarios).
+// Used when pro-bing Source binding is unreliable (multi-route scenarios).
 func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok bool) {
 	pCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
@@ -418,14 +418,14 @@ func tryOnePing(ctx context.Context, host, srcIP string, privileged bool) (ms, l
 	debug.Log(ctx, "Network", "ping attempt", "host", host, "mode", mode, "src", srcIP)
 
 	// When a source IP is specified (multi-route host), use system ping directly.
-	// go-ping's Source binding is unreliable with privileged raw sockets on some kernels.
+	// pro-bing's Source binding is unreliable with privileged raw sockets on some kernels.
 	// Also use sysPing for all Linux privileged probes — more reliable than raw ICMP sockets
 	// on systems where the kernel's raw socket behaviour is inconsistent (bonds, VMs, containers).
 	if privileged && runtime.GOOS == "linux" {
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok || loss == 0 {
 			return ms, loss, ok
 		}
-		// sysPing failed — fall through to go-ping
+		// sysPing failed — fall through to pro-bing
 	}
 
 	p, err := goping.NewPinger(host)
