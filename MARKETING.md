@@ -1692,3 +1692,165 @@ tool you have reports clean. DashDiag checks where the failure actually is.
 - `dsd docker` output: ❌ test-nginx failed with fix hints
 - `dsd health` output: `WARN: Docker: 1 Podman quadlet(s) failed: test-nginx`
 - Commit: ac26dd8
+
+---
+
+## Load Average Lied. Run-Queue Didn't. — dsd CPU/RunQueue Story
+
+*Real finding on a Proxmox VE host (pve01), 8 logical CPUs, June 4 2026*
+
+### The insight
+
+Load average is the number everyone trusts. It's the first thing you look at
+when a box feels slow — `uptime`, `top`, every dashboard, every alert rule.
+
+It's also a *moving average*. The 1-minute figure is an exponentially-decayed
+average over the last 60 seconds. On a short saturation spike — the kind that
+makes a box stutter for ten seconds and then recover — load average hasn't
+caught up yet. It's still reporting the calm from a minute ago.
+
+The instantaneous run-queue depth — how many processes are runnable *right now*,
+straight from `/proc/stat procs_running` — has no lag. It's a snapshot, not an
+average.
+
+On pve01, under a load burst, the two numbers disagreed completely.
+
+### What happened
+
+A Proxmox host, 8 logical CPUs, healthy and idle. We ran the standard
+validation pass, then put it under a short, sharp load burst and ran
+`dsd health` mid-spike.
+
+**Load average read 0.92.** By that number, the machine was nearly idle —
+nothing any threshold would ever fire on. An alert rule waiting for load > 8
+would sleep right through it. A dashboard would show a flat green line.
+
+**Run-queue read 24.** Twenty-four processes runnable on eight cores —
+three times oversubscribed. The CPUs were saturated *that instant*, and every
+runnable process was waiting its turn behind two others.
+
+Same machine. Same moment. One number said "idle." The other said "3× over capacity."
+
+### The output
+
+```
+$ sudo dsd health
+
+  CPU            ⚠️  WARN   run-queue 24 runnable on 8 CPUs (3.0× oversubscribed)
+                          load avg 0.92 — not yet reflecting the spike
+                          → instantaneous saturation; load average lags short bursts
+```
+
+Silent when idle (run-queue 1, no noise). WARN at 2× cores. CRIT at 4× cores.
+The heuristic only speaks when the run-queue is genuinely deep — and on this
+spike, it spoke while load average was still asleep.
+
+### Why this matters for positioning
+
+This is the same shape as the SELinux blind spot, applied to the single most
+universally-trusted performance metric on Linux. Everyone reads load average.
+Almost nobody knows it's a *lagging* indicator that smooths away exactly the
+short bursts most likely to make a service stutter under load — a slow request,
+a dropped health check, a timeout — and then recover before the average ever
+moves.
+
+A monitoring rule built on load average will not fire on these. The spike is
+over before the average climbs. The post-mortem says "load looked fine."
+
+DashDiag reads `procs_running` directly — the raw run-queue depth the kernel
+exposes — and compares it to the core count. No averaging, no lag. If the CPUs
+are oversubscribed *now*, it says so *now*. And it shows the load-average number
+right next to it, so you can see the disagreement and understand why the box
+felt slow when the dashboard said it wasn't.
+
+This is technically verifiable in two minutes: put any box under a brief load
+burst, run `uptime` and `dsd health` at the same instant, watch load average
+trail behind the run-queue. It's not a claim — it's a demonstration.
+
+### The one-liner pitch
+
+> Load average said 0.92. The run-queue said 24 on 8 cores. Same box, same
+> instant. One of them was lying — and it's the one on every dashboard.
+
+### The numbers that matter
+
+- **0.92** — load average mid-spike (looks idle)
+- **24** — runnable processes at the same instant
+- **8** — logical CPUs (so 3× oversubscribed)
+- **0** — averaging delay on the run-queue read (it's a snapshot)
+- **WARN ≥ 2× cores, CRIT ≥ 4× cores** — the heuristic thresholds
+
+### Social media angles
+
+**Twitter/X (short, punchy):**
+> Load average: 0.92. Looks idle.
+> Run-queue at the same instant: 24 runnable on 8 cores.
+> 3× oversubscribed. The CPUs were pinned.
+>
+> Load average is a 60-second moving average. It lags short spikes —
+> the exact ones that make a service stutter and recover before any
+> alert fires.
+>
+> `dsd health` reads the run-queue directly. No lag.
+
+**LinkedIn (technical):**
+> Load average is the most trusted number in Linux ops. It's also a moving
+> average — and that's a problem nobody talks about.
+>
+> On a Proxmox host this week, mid-spike:
+> load average read 0.92. Looked idle. No alert rule on earth fires on 0.92.
+>
+> At the same instant, the run-queue — processes runnable right now, from
+> /proc/stat — read 24. On 8 cores. Three times oversubscribed. The CPUs
+> were completely saturated.
+>
+> Same machine. Same second. One number said idle, the other said pinned.
+>
+> The difference: load average is decayed over 60 seconds. A 10-second
+> saturation burst — the kind that drops a health check or times out a
+> request, then recovers — barely moves it. By the time load climbs, the
+> incident is over and the post-mortem says "load looked fine."
+>
+> dsd health reads procs_running directly and compares it to core count.
+> No averaging. If you're oversubscribed now, it tells you now — and shows
+> the load-average number beside it so you can see the lie.
+>
+> This only matters because short bursts are real and load average hides them.
+
+**HN / Reddit angle:**
+> Title: Load average is a lagging indicator and it hides your worst spikes
+>
+> Was validating a diagnostic tool on a Proxmox host. Put it under a short
+> load burst and checked two numbers at the same instant:
+> - load average: 0.92 (looks idle)
+> - run-queue (procs_running from /proc/stat): 24 on 8 cores
+>
+> Load average is an exponentially-decayed 60s average. Short saturation
+> spikes — the ones that make a service stutter then recover — barely register
+> before they're over. The instantaneous run-queue catches them immediately.
+>
+> Most monitoring alerts are built on load average. They sleep through exactly
+> the spikes most likely to cause a user-visible blip. Worth reading the
+> run-queue depth alongside it.
+
+### Why this is a strong asset
+
+It attacks a metric every single person in the target audience uses daily and
+believes they understand. The hook is one disagreement between two numbers on
+the same box at the same instant — instantly graspable, instantly reproducible,
+and slightly unsettling in the way the best technical-differentiator stories
+are. Like the SELinux story, it's not "our tool has more features" — it's
+"the thing you already trust is quietly wrong, and here's the proof."
+
+### Evidence
+
+Live finding on pve01 (8 logical CPUs), recorded in BACKLOG.md under the
+Session 11 run-queue collector entry: *"silent at run-queue 1, fired WARN at
+24 runnable on 8 CPUs under load — while load avg still read 0.92, proving run
+queue catches saturation that load avg lags on."*
+
+Collector: two-sample `/proc/stat` read capturing `procs_running` (run-queue),
+`procs_blocked` (D-state), and `ctxt` (context-switch rate).
+Heuristic: `CPU/RunQueue` — WARN ≥ 2× cores, CRIT ≥ 4× cores.
+Correlation rule: `ruleRunQueueSaturation` — flags genuinely CPU-bound load
+(run-queue saturated while iowait and steal both clear).
