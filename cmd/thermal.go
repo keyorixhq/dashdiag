@@ -19,6 +19,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(thermalCmd)
+	thermalCmd.Flags().Duration("watch-interval", 5*time.Second, "refresh interval for --watch mode")
 }
 
 var thermalCmd = &cobra.Command{
@@ -36,6 +37,12 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 		outputFmt = "json"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
+
+	watchFlag, _ := cmd.Flags().GetBool("watch")
+	if watchFlag {
+		interval, _ := cmd.Flags().GetDuration("watch-interval")
+		return watchThermal(ctx, interval, mode)
+	}
 
 	p := output.NewCommandProgress("Thermal health", 3*time.Second, mode, 1)
 	p.Start()
@@ -60,6 +67,36 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 
 	printThermalReport(info, mode, elapsed)
 	return nil
+}
+
+func watchThermal(ctx context.Context, interval time.Duration, mode output.OutputMode) error {
+	run := func() {
+		if mode == output.ModeHuman {
+			fmt.Print("\033[H\033[2J") // clear screen
+		}
+		var result runner.Result
+		for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewThermalCollector()}) {
+			result = r
+		}
+		info, ok := result.Data.(*models.ThermalInfo)
+		if !ok || info == nil {
+			return
+		}
+		fmt.Printf("\n── %s ──\n", time.Now().Format("15:04:05"))
+		printThermalReport(info, mode, 0)
+	}
+
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapsed time.Duration) {
