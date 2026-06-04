@@ -169,6 +169,16 @@ Build order rule: **never build deep before fast is in production use.**
 | `ScanSUIDBinaries()` called on --save-baseline/--drift paths only (no impact to `dsd health` speed) | 7e3fb6b |
 | Live verified: PVE01 + AlmaLinux 9 — baseline save ✅, no-drift ✅, SUID injection CRIT ✅, SSH change WARN ✅ | 7e3fb6b |
 
+## ✅ Recently Completed (June 4, 2026 — Session 9: --json flag fix + flag design)
+
+| Item | Commit |
+|---|---|
+| Fix: `--json` now works in `disk`, `docker`, `k8s`, `security`, `thermal`, `processes` | 17656b8 |
+| Pattern: read global flag → pass to `DetectMode` as `outputFmt` → `ModeJSON` branch | 17656b8 |
+| Deviation: reused `outputJSON()` helper from `disk.go` instead of repeating encoder boilerplate | 17656b8 |
+| Deviation: `processes.go` used `*models.ProcessInfo` / `procInfo` not `ProcessesInfo` / `info` | 17656b8 |
+| `FLAG_DESIGN.md`: full flag audit — current state, problems, target matrix, prioritised fix list | 5ae0da0 |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
