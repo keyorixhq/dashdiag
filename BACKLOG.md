@@ -192,6 +192,11 @@ Build order rule: **never build deep before fast is in production use.**
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
+> **Validation method:** `docs/GTM_VALIDATION.md` (instrumented landing page —
+> single email field, UTM-tagged links, fake-door priced button off the capture
+> path). **Decisions:** `docs/adr/0002-monetisation-paths-and-landing-page-validation.md`
+> and `docs/adr/0001-persistence-is-the-platform-foundation.md`.
+
 | Item | Status | Notes |
 |---|---|---|
 | Register `dashdiag.sh` | **PENDING** | ~$35/yr, confirmed available at Namecheap. Card ready. |

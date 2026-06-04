@@ -50,6 +50,26 @@ into uselessness.
 | RCA platform (future) | Individual incident investigation     | Team incident management, on-call integration         |
 | FinOps tool (future)  | Personal cloud-account viewing        | Multi-account aggregation, team budget governance     |
 
+### Refinement (2026-06-04) — "individual" is two populations, not one
+
+A strategy session refined the free/paid framing. "Individual use" conflates
+two groups that behave very differently:
+
+- **Hobbyists managing their own single machine** — genuinely hard to monetise
+  and intentionally free forever. Propagation and goodwill capital.
+- **Professionals who manage servers for a living but aren't on a
+  software-buying team** (solo consultants, MSPs, indie operators) — a large
+  monetisable group whose paid value still lives in *backend infrastructure*,
+  consistent with this principle: a white-label shareable report, hosted
+  history, and hosted alerting all require the same hosted platform that costs
+  us money to run.
+
+So the free/paid line still follows the cost line. What changed is the
+recognition that the paid side has individual professionals on it, not only
+teams. Teams remain the first revenue wedge on runway maths; the consultant
+report is the strongest individual path. Full reasoning and the validation
+method are in `docs/adr/0002-monetisation-paths-and-landing-page-validation.md`.
+
 ### Why this principle
 
 - Aged-infrastructure operators, public sector, students, hobbyists,
