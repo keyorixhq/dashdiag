@@ -21,12 +21,17 @@ What we learn, and how:
 | Signal | Method | Cost to conversion |
 |---|---|---|
 | Audience type (hobbyist / professional / consultant) | UTM-tagged per-channel links + server-side `Referer` | Zero — observed |
-| Willingness to pay | Fake-door priced button next to the free download | Zero — off the capture path |
-| Which feature opens the wallet | Optional post-submit question | Zero — after email is captured |
-| *Why* they'd pay + actual use case | ~10 conversations with people who clicked the priced button | The real work |
+| Willingness to pay, *typed by population* | Un-priced "See Pro plans" button → three-tier plans page; which tier they engage = the signal | Zero — off the capture path |
+| Which feature opens the wallet | Per-tier engagement on the plans page + optional post-submit question | Zero — off / after capture |
+| *Why* they'd pay + actual use case | ~10 conversations with people who engaged a tier | The real work |
 
-Raw signup counts decide nothing. The decision comes from priced-button
-click-through + the conversations.
+Raw signup counts decide nothing. The decision comes from which-tier-engaged
+(joined to source community) + the conversations.
+
+> **Why not a single "Pro — €79/yr" button?** It can't separate the three
+> populations, and €79/yr is a team-shaped price — an individual consultant
+> assumes it isn't for them and doesn't click, so a single button would report a
+> *false* "individuals won't pay." Full reasoning: ADR-0002 Decision 5.
 
 ---
 
@@ -42,10 +47,17 @@ click-through + the conversations.
 
 ### Landing-page changes (small HTML, no backend) — do once domain is live
 
-4. **Add the fake-door priced button.** A "Pro — €79/yr" button next to the
-   free download/install. It links to an early-access capture page — it does NOT
-   gate the free email field. Clicking it is itself the willingness-to-pay
-   signal. People who only want the free CLI never see friction.
+4. **Add an un-priced "See Pro plans" button → a three-tier plans page.** One
+   clean button next to the free download (keeps the single-CTA discipline). It
+   does NOT gate the free email field. The page behind it lists three
+   population-shaped tiers, each with a "notify me" capture:
+   - **Shareable client reports — ~€15/mo** (consultant / MSP)
+   - **Hosted history & alerts — ~€5/mo** (small operator)
+   - **Team fleet dashboard — €79/yr** (team)
+   *Which tier a visitor engages* is the typed willingness-to-pay signal; per-tier
+   engagement also tells you whether each price is roughly right. Prices are
+   placeholders for signal, not commitments. (A single €79 button would suppress
+   the individual signal — see ADR-0002 Decision 5.)
 5. **Add the optional post-submit question** on the confirmation page:
    "We're planning a Pro tier — which would you actually pay for?"
    Options: hosted history / fleet view / shareable reports. A non-answer costs
@@ -65,12 +77,11 @@ click-through + the conversations.
 
 ### Decision — after a few weeks of data
 
-7. **Read the segments + priced-button click-through**, then **email ~10 people
-   who clicked the priced button** for 15-minute calls. The conversations decide
-   the path:
-   - List skews consultant + report-button clicks → build the shareable report.
-   - List skews company/team → build the fleet dashboard.
-   - List skews small operators + history interest → build hosted history/alerting.
+7. **Read the per-tier engagement + source segments**, then **email ~10 people
+   who engaged a tier** for 15-minute calls. The conversations decide the path:
+   - Consultant-source + reports-tier engagement → build the shareable report.
+   - Company/team-source + fleet-tier engagement → build the fleet dashboard.
+   - Operator-source + history-tier engagement → build hosted history/alerting.
 
 ---
 
@@ -83,7 +94,8 @@ the cheapest possible test; the backend waits until the page has spoken.
 
 ## The honesty cost to weigh
 
-The fake-door priced button advertises a tier that doesn't exist yet. Some
-founders are uncomfortable with this. It's the one part of the method with a real
-honesty cost — worth a deliberate decision rather than defaulting into it. An
-"early access — coming soon" framing on the click-through page mitigates it.
+The three-tier plans page advertises tiers that don't exist yet — a fake door.
+Some founders are uncomfortable with this, and it's the one part of the method
+with a real honesty cost, worth a deliberate decision rather than defaulting into
+it. An "early access — coming soon, leave your email" framing on each tier
+mitigates it: the visitor is told plainly the tier is planned, not live.

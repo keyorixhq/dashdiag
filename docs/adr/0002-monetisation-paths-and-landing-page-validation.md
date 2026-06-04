@@ -64,11 +64,11 @@ added field costs a 2–10× conversion drop). The resolution:
   the server-side `Referer` header map each signup to its source community at
   zero conversion cost. r/homelab skews hobbyist; r/sysadmin + HN skew
   professional/team; MSP forums skew consultant.
-- **Willingness-to-pay is observed off the capture path.** A fake-door priced
-  button ("Pro — €79/yr") sits next to the free download, not in the email flow.
-  Click-through on a *priced* button is the closest pre-backend willingness-to-pay
-  signal, and people who click it are a distinct, higher-value list. (Founder
-  to weigh the honesty cost of advertising a tier that doesn't exist yet.)
+- **Willingness-to-pay is observed off the capture path** — see Decision 5 for
+  the corrected design. A single priced button cannot separate the three
+  populations, so the willingness-to-pay surface is an *un-priced* "See Pro plans"
+  button leading to a three-tier plans page, with the click joined to the
+  visitor's source community.
 - **An optional post-submit question** ("which would you pay for: hosted history /
   fleet view / shareable reports?") lives *after* email capture, where a
   non-answer costs nothing; answers come from the highest-intent subset.
@@ -76,22 +76,61 @@ added field costs a 2–10× conversion drop). The resolution:
 ## Decision 4 — The actual decision comes from conversations, not counts
 
 The instrumented page produces a segmented list at zero acquisition cost. The
-monetisation path is then chosen from: priced-button click-through rate + ~10
-direct conversations with the people who clicked. The list makes those
-conversations possible; it does not replace them. Raw signup counts decide
-nothing.
+monetisation path is then chosen from: which-tier-engaged (Decision 5) + source
+community + ~10 direct conversations with the people who engaged a tier. The list
+makes those conversations possible; it does not replace them. Raw signup counts
+decide nothing.
+
+## Decision 5 — One €79 button can't measure individual monetisation (correction, 2026-06-04)
+
+The earlier draft of Decision 3 used a single fake-door "Pro — €79/yr" button.
+That is wrong, and the flaw is worth recording so it isn't reintroduced.
+
+**Why one button fails.** A single button collapses three different questions
+("would a consultant pay for reports?", "would an operator pay for history?",
+"would a team pay for a dashboard?") into one undifferentiated click. Worse,
+€79/yr is a *team-shaped* price: an individual consultant who would happily pay
+~€15/mo for white-label reports looks at "Pro — €79/yr" framed as one
+enterprise-y tier and assumes it is not for them, so they do not click. The
+single team-priced button therefore *suppresses* the individual signal and would
+produce a false negative — "individuals won't pay" as a measurement artifact, not
+a finding.
+
+**The corrected design.** Two mechanisms, both still off the email-capture path:
+
+1. **Source attribution does the population-typing for free** (already in
+   Decision 3). A click from `utm_source=msp_forum` is a consultant
+   willingness-to-pay signal; from `reddit_homelab`, an operator/hobbyist signal.
+   So separating populations does not require multiple buttons — it requires
+   *joining the click to its source*.
+
+2. **A single un-priced "See Pro plans" button → a three-tier plans page.** The
+   landing page keeps one clean, un-priced button (respects the single-CTA
+   conversion discipline). The page behind it shows three differently-priced,
+   population-shaped tiers:
+   - Shareable client reports — ~€15/mo (consultant)
+   - Hosted history & alerts — ~€5/mo (operator)
+   - Team fleet dashboard — €79/yr (team)
+   *Which tier the visitor engages* (expands / clicks "notify me") is the typed
+   willingness-to-pay signal, and per-tier engagement also sanity-checks whether
+   each *price* is roughly right. Friction here is cheap because intent is already
+   earned by the time they reach the plans page.
+
+Prices are placeholders for signal, not commitments. The explicit per-tier
+framing is what makes the individual paths measurable — without it, the plan
+could only ever validate the team tier.
 
 ## Consequences / sequencing (the part that protects runway)
 
 - **Ship the instrumented landing page before building the backend.** The page
   is the cheapest test of every assumption in this ADR and in ADR-0001.
 - Do not open the backend design doc on the strength of reasoning alone, however
-  clean. Let a few weeks of segmented signups + priced-button clicks +
-  conversations pick the direction.
+  clean. Let a few weeks of segmented signups + per-tier engagement on the plans
+  page + conversations pick the direction.
 - **Current blocker (only the founder can clear it):** register `dashdiag.sh`,
   wire the Formspree endpoint (replace `REPLACE_WITH_FORM_ID` in the landing
   repo), then post UTM-tagged links to the target communities. Everything in this
   ADR sits behind those two manual steps.
-- Landing-page changes still needed once the domain is live: add the fake-door
-  priced button (off the capture path) and the UTM link structure. Small HTML
-  change, no backend required.
+- Landing-page changes still needed once the domain is live: add the un-priced
+  "See Pro plans" button (off the capture path) → three-tier plans page, and the
+  UTM link structure. Small HTML change, no backend required.
