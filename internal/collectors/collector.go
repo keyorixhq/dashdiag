@@ -24,6 +24,10 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
 	var out bytes.Buffer
 	cmd.Stdout = &out
+	// cmd.Run() calls Wait() internally on every path (success, non-zero exit, and
+	// context cancel + WaitDelay force-kill), so the child is always reaped — no
+	// zombie can leak here. See BUG-021: investigation found no Start()-without-Wait()
+	// anywhere in the tree; transient <defunct> in ps is a sampling artifact.
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
