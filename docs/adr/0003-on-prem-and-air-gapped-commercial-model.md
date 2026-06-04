@@ -133,6 +133,15 @@ diagnostician-not-monitor positioning, and it points at Tier 1 as the
 lower-friction entry. **This is a lean with a reason, not a decision** — and the
 founder explicitly flagged "I am not sure," which is the correct posture.
 
+> **Guarded by COMPANY_PRINCIPLES.md Principle 3 (don't presume; tooling-state
+> doesn't predict buying behaviour).** The Tier-1 lean must not harden into a
+> decision on the strength of "their existing aggregation is capable" — capable
+> tooling does not preclude wanting a separate diagnosis view, and (the
+> counter-evidence) sophisticated orgs tolerate bad tooling for years (Microsoft
+> clients running IPAM in Excel indefinitely). Tooling quality, good or bad,
+> predicts nothing about adoption. Only the buyer's stated adoption behaviour
+> resolves this.
+
 **Why it stays genuinely open (the counter-scenario):** the Tier-1 lean assumes
 the buyer wants the raw diagnostic *data* inside their existing tool. The opposite
 is plausible — they keep Zabbix for *metrics-over-time* and want DashDiag's

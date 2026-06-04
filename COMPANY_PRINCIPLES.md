@@ -235,6 +235,53 @@ The lesson is **not** "avoid i18n." The lesson is:
 
 ---
 
+## Principle 3 — Don't presume; tooling-state doesn't predict buying behaviour
+
+A discipline principle, drawn from the founder's experience (security program
+management at Microsoft) and reinforced across the 2026-06-04 strategy session.
+
+**The core rule: do not invent or assume facts you are not sure about.**
+Presumption leads directly to the two most expensive mistakes a small company
+makes — *building things nobody asked for*, and *not building things people would
+have paid for*. When unsure, the honest answer ("I don't know yet") is worth more
+than a confident guess, because a guess gets built on.
+
+**The specific trap this guards against: reading demand from tooling-state.**
+The existence of a tool — however good or however bad — tells you almost nothing
+about what a buyer will adopt:
+
+- **Bad tooling does not create demand for replacement.** Sophisticated, wealthy
+  organisations run genuinely inefficient processes for years and are fine with
+  it. (Observed first-hand: large Microsoft clients managing all their IP
+  addresses in piles of Excel files, indefinitely, with no appetite to change.)
+  So "their current tool is bad" is *not* a reason to assume they want yours.
+- **Good tooling does not preclude bolting something on.** Teams keep Zabbix and
+  add to it; "they already have a tool" is not "they are satisfied" — it is often
+  "they have stopped questioning it."
+
+Therefore: **you cannot derive what to build from how good or bad the
+incumbent tooling is.** Tooling quality does not predict buying behaviour.
+Adoption is a question of habit, switching cost, and "good enough" — and the
+better-designed thing frequently *loses* to the entrenched bad one. The founder
+has watched it lose.
+
+**What this forbids in practice:**
+
+- Inferring "build the replacement, theirs is bad" from a messy incumbent stack.
+- Inferring "just feed their existing tool, theirs is good" from a capable stack.
+- Any roadmap commitment justified primarily by *our* judgement of the buyer's
+  current tooling rather than the buyer's stated adoption behaviour.
+
+**What it requires instead:** the buyer tells you, in their words, what they
+would actually *put into real use* — not what is better, not what fits their
+stack on paper. That is a behavioural question, answerable only by the buyer, and
+it is cheap to ask and expensive to guess. This is the backbone of the
+validation-before-building discipline in ADR-0002 and ADR-0003 — and it is why
+ADR-0003's Tier 1 vs Tier 2 question is recorded as *open*, with a founder lean
+explicitly marked "not a decision," rather than resolved from first principles.
+
+---
+
 ## What these principles imply, in concrete decisions
 
 When making a product decision, these principles should constrain it:
