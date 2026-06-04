@@ -4,7 +4,8 @@
 **Date:** 2026-06-04
 **Deciders:** Andrei Beshkov (founder)
 **Context source:** Strategy session 2026-06-04. Refines `COMPANY_PRINCIPLES.md`
-Principle 1.
+Principle 1. Decision 6 added the same day from two conversations with insiders
+at one mid-size cloud/datacenter provider (head of networking + solutions sales).
 
 ---
 
@@ -134,3 +135,61 @@ could only ever validate the team tier.
 - Landing-page changes still needed once the domain is live: add the un-priced
   "See Pro plans" button (off the capture path) → three-tier plans page, and the
   UTM link structure. Small HTML change, no backend required.
+
+## Decision 6 — Provider-shaped segments + diagnostician-not-monitor positioning (2026-06-04, from two conversations)
+
+Two people at one mid-size cloud/datacenter provider independently described the
+same pain from different functions. This sharpens "teams" (Decision 1) into named,
+findable segments and surfaces a distribution channel. **Status: corroborated
+pain hypothesis from two informed insiders — NOT validated demand. Neither has yet
+committed to pilot, pay, or champion.** Treat as the strongest pre-launch signal
+to date, not as confirmation.
+
+### The two segments
+
+| Segment | Source role | The pain (their angle) |
+|---|---|---|
+| Infra teams managing aging, heterogeneous fleets | Head of networking dept | Herds of disparate, aging hardware across mixed distros; no single diagnostician — only a "zoo" of monitoring tools |
+| Provider support / NOC orgs | Solutions sales | Customers complain "my box is broken"; support either SSHes in or sends a wall of commands. "Run one line, send the link" offloads diagnosis to the customer |
+
+The support-offload angle is the more interesting *wedge*: it is **additive, not
+rip-and-replace** (slots into the support runbook; nobody must abandon a tool or
+admit their internal tooling is bad), it has a daily-felt metric a support manager
+will pay against (diagnostic round-trips per ticket), and it doubles as
+**distribution** — every customer handed the one-liner becomes a new end user,
+feeding exactly the consultant/operator individual populations from Decision 1.
+It also leans on infrastructure already designed (`--share`, the e2e-encryption
+design) where "the provider only sees what the customer chooses to share" may be a
+deal-closing feature, not a nice-to-have.
+
+### Diagnostician, not monitor (positioning that survives the "zoo")
+
+The target buyer already owns monitoring — Zabbix, vendor dashboards, self-written
+scripts, "a real zoo." The naive "replace your monitoring" pitch is dead on
+arrival; nobody rips out Zabbix. But every tool in that zoo is **continuous
+monitoring** (watch metrics, alert on thresholds, graph over time). DashDiag is
+**point-in-time diagnosis** ("everything wrong with *this* box right now, with the
+fix"). The zoo is full of monitors and has no diagnostician. The self-written
+scripts are the tell — they exist precisely because the monitoring left a
+diagnostic gap someone had to plaster over by hand.
+
+Positioning, therefore: **DashDiag is not another animal in the zoo. It is the
+diagnostician you run when Zabbix says a box is sick and you need to know *why* in
+one command.** The `--json` surface, exporters, and the push backend let it *feed*
+the zoo (make existing alerts actionable) rather than compete with it. "Has
+internal tooling" / "has a monitoring zoo" is a **pain signal, not a
+disqualifier** — the real barrier at larger orgs is procurement and security
+review (which the open-source CLI clears trivially), not market saturation.
+
+### The open commitment questions (the difference between signal and validation)
+
+- **Head of networking → would he pilot it on his own fleet?** Even informal
+  ("deploy across our test racks, tell me in two weeks"). A yes makes him the
+  first design partner — worth more than the entire reasoning chain in this ADR.
+- **Solutions sales → would he point one real, mid-complaint customer at the
+  one-liner?** Near-zero-cost test of the support-offload distribution flywheel
+  with a real end user.
+
+Until one of those converts to action, this stays a hypothesis. It should add two
+UTM channels / outreach targets to the validation plan (infra-team communities;
+provider support/NOC communities) — not start backend work.

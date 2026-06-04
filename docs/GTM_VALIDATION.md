@@ -39,6 +39,17 @@ Raw signup counts decide nothing. The decision comes from which-tier-engaged
 
 ### Blocked on founder — only Andrei can do these
 
+0. **Pursue the two warm provider contacts (highest-value action available).**
+   Two insiders at one mid-size cloud/datacenter provider described the same pain
+   from different functions (ADR-0002 Decision 6). Convert opinion → action:
+   - Ask the **head of networking** to pilot `dsd` on his own fleet, even
+     informally ("deploy across the test racks, tell me in two weeks"). A yes =
+     first design partner.
+   - Ask the **solutions-sales** contact to point one real, mid-complaint
+     customer at the install one-liner. Tests the support-offload flywheel with a
+     real end user at near-zero cost.
+   These do not depend on the domain or landing page — they can happen now.
+
 1. **Register `dashdiag.sh`** (~€35/yr, Namecheap, confirmed available).
 2. **Wire the email capture** — replace `REPLACE_WITH_FORM_ID` in the landing
    repo (`keyorixhq/dashdiag-landing`, `index.html`) with the real Formspree
@@ -71,9 +82,13 @@ Raw signup counts decide nothing. The decision comes from which-tier-engaged
    - `?utm_source=reddit_homelab`
    - `?utm_source=hn`
    - `?utm_source=msp_forum` (specific MSP/consultant community)
+   - `?utm_source=infra_team` (datacenter/cloud infra-team communities — e.g.
+     r/networking, r/datacenter, lobste.rs, infra-focused Slacks/Discords)
+   - `?utm_source=support_noc` (provider support/NOC communities — the
+     support-offload angle, ADR-0002 Decision 6)
    The referrer + UTM maps each signup to its source community automatically.
    r/homelab → hobbyist; r/sysadmin + HN → professional/team; MSP forum →
-   consultant.
+   consultant; infra-team + support/NOC → provider segments (ADR-0002 Decision 6).
 
 ### Decision — after a few weeks of data
 
