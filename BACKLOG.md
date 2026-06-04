@@ -146,6 +146,18 @@ Build order rule: **never build deep before fast is in production use.**
 | models/sysctl.go: UptimeSeconds; CorrelateDeep +IOInfo +SysctlInfo params; 13 new tests | 04638ec |
 | Live verified: AlmaLinux CT 213 — DIAGNOSIS "Sysctl Parameter Not Persisted" fires after reboot | 04638ec |
 
+## ✅ Recently Completed (June 4, 2026 — Session 7: Spec close-out + BUG-021)
+
+| Item | Commit |
+|---|---|
+| Spec 7d: Docker Compose v1/v2 detection — ComposePlugin/Standalone fields, daemon section output | 6058936 |
+| `dsd tls` remote endpoint expiry — `--endpoint host:port`, `--endpoints-file`, `--json` | 6058936 |
+| `collectors/tls_remote.go`: TLS dial + InsecureSkipVerify to read expired certs, 5s timeout | 6058936 |
+| `ruleServiceMemoryLeak`: same process OOM-killed 2+ times → memory leak, not pressure | 6058936 |
+| BUG-021 zombie subprocess: investigated, no offending code found — likely ps sampling artifact | eca49bf |
+| `deploy.sh` gitignored (local internal tool) | a073503 |
+| V2 backlog audit: kernel instability ✅, network deep ✅, CPU scheduling partial (steal+iowait done) | 3f46283 |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |

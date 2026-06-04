@@ -65,7 +65,8 @@ dsd net deep     ✅ + NFS mount health + BIND/named server health + DNS resolve
 dsd logs         ✅ severity summary, crash files, log source detection
 dsd services     ✅ fast + deep (failed units, boot offenders, journal health)
 dsd docker       ✅ exit code labels, events, secrets, root user, socket mount,
-                    daemon health, log driver (--deep), IP forward, firewalld nftables
+                    daemon health, log driver (--deep), IP forward, firewalld nftables,
+                    Compose v1/v2 detection (Spec 7d)
 dsd k8s          ✅ JSON API, events, OS-layer deep, wired into dsd health
 dsd containerd   ✅ standalone containerd: socket, service state, version, namespace/container counts
 platform.Profile ✅ distro normalization layer — Detect(), IsSteamOS, NetworkStack, SELinuxMode,
@@ -80,6 +81,8 @@ dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N
+dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
+                    --endpoints-file, --json); InsecureSkipVerify to read expired certs
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
