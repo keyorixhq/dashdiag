@@ -158,6 +158,17 @@ Build order rule: **never build deep before fast is in production use.**
 | `deploy.sh` gitignored (local internal tool) | a073503 |
 | V2 backlog audit: kernel instability ✅, network deep ✅, CPU scheduling partial (steal+iowait done) | 3f46283 |
 
+## ✅ Recently Completed (June 4, 2026 — Session 8: Security drift)
+
+| Item | Commit |
+|---|---|
+| `dsd security --save-baseline`: SHA-256 hashes SSH configs, records known SUIDs/sudo/crons | 7e3fb6b |
+| `dsd security --drift`: compares current state vs baseline; new SUID=CRIT, SSH/sudo/cron change=WARN | 7e3fb6b |
+| `internal/baseline/security_baseline.go`: SecurityBaseline, SecurityDiff, atomic JSON store in `~/.dsd/` | 7e3fb6b |
+| Fix: `findUnexpectedSUIDs` was dead code (never called) — added exported `ScanSUIDBinaries()` | 7e3fb6b |
+| `ScanSUIDBinaries()` called on --save-baseline/--drift paths only (no impact to `dsd health` speed) | 7e3fb6b |
+| Live verified: PVE01 + AlmaLinux 9 — baseline save ✅, no-drift ✅, SUID injection CRIT ✅, SSH change WARN ✅ | 7e3fb6b |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
@@ -555,11 +566,19 @@ These were speculative V2 items, not from the pain-source research. Defer post-c
 ### [V2-COLLECTOR] Storage performance diagnostics
 Write amplification, queue depth, fsync latency (eBPF — v3).
 
-### [V2-COLLECTOR] TLS / certificate health
-`dsd tls`: expired cert detection, remote endpoint expiry, system trust store drift.
+### ~~[V2-COLLECTOR] TLS / certificate health~~ ✅ DONE (June 4, commit 6058936)
 
-### [V2-COLLECTOR] Security drift detection
-SSH config drift, sudoers changes, new SUID binaries, cron injection.
+`dsd tls`: local cert file scan (pre-existing) + remote endpoint expiry
+(`--endpoint host:port`, `--endpoints-file`, `--json`). `collectors/tls_remote.go`
+dials with InsecureSkipVerify to read expired certs. Verified: github.com:443 + PVE01:8006.
+
+### ~~[V2-COLLECTOR] Security drift detection~~ ✅ DONE (June 4, commit 7e3fb6b)
+
+`dsd security --save-baseline` + `--drift`. SHA-256 SSH config hashes, known SUID list,
+sudoers NOPASSWD entries, suspect cron entries. New SUID=CRIT, SSH/sudo/cron change=WARN.
+`internal/baseline/security_baseline.go` — atomic JSON in `~/.dsd/security-baseline.json`.
+Fix: `findUnexpectedSUIDs()` was dead code; `ScanSUIDBinaries()` added for drift path only.
+Live verified: PVE01 + AlmaLinux 9 LXC.
 
 ### [V2-COLLECTOR] Process-to-network anomaly mapping
 Unknown processes on ports, reverse shell heuristics.

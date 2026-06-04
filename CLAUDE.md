@@ -76,7 +76,8 @@ dsd cron         ✅ daemon, quality, anacron staleness
 dsd gpu          ✅ AMD amdgpu sysfs (TDP/VRAM/clocks/util/Mesa, --deep), Intel i915 temp,
                     NVIDIA nvidia-smi fallback, --json; AMD path unit-tested, i915 live-verified
 dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
-                    /.autorelabel detection, PAM lockout
+                    /.autorelabel detection, PAM lockout;
+                    --save-baseline + --drift: SUID/SSH/sudo/cron change detection
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
