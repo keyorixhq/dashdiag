@@ -17,6 +17,7 @@ PRODUCT_IDEAS.md
 # Content drafts — release coordinated with launch
 CONTENT_*.md
 dsd
+deploy.sh
 .dsd/oval/
 marketing-assets/**/*.oval.xml.bz2
 marketing-assets/**/baselines/
