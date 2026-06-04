@@ -3249,6 +3249,37 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	out = append(out, checkStalePasswords(sec)...)
 	out = append(out, checkWorldWritable(sec)...)
 
+	// macOS-specific checks — gated on IsDarwin so these never fire on Linux
+	// (where FileVault/SIP/Gatekeeper fields are always zero-value false).
+	if sec.IsDarwin {
+		if !sec.FileVaultEnabled {
+			out = append(out, insight("WARN", "Hardening",
+				"FileVault disk encryption is off — data is readable if the disk is removed",
+				[]string{
+					"to fix: System Settings → Privacy & Security → FileVault → Turn On",
+				},
+			))
+		}
+		if !sec.SIPEnabled {
+			out = append(out, insight("CRIT", "Hardening",
+				"System Integrity Protection (SIP) is disabled — system files are unprotected",
+				[]string{
+					"to fix: boot to Recovery, open Terminal, run: csrutil enable",
+					"note: SIP disabled is required for some development tools — verify intentional",
+				},
+			))
+		}
+		if !sec.GatekeeperEnabled {
+			out = append(out, insight("WARN", "Hardening",
+				"Gatekeeper is disabled — unsigned apps can run without quarantine",
+				[]string{
+					"to fix: System Settings → Privacy & Security → set to App Store and identified developers",
+					"or: sudo spctl --master-enable",
+				},
+			))
+		}
+	}
+
 	return out
 }
 

@@ -263,6 +263,14 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		fmt.Println("\nFirewall: none detected")
 	}
 
+	// macOS Security — FileVault, SIP, Gatekeeper (darwin only)
+	if info.IsDarwin {
+		fmt.Println("\nmacOS Security")
+		printSecItem("FileVault", info.FileVaultEnabled, "on (disk encrypted)", "off (disk not encrypted)")
+		printSecItem("SIP", info.SIPEnabled, "enabled", "DISABLED")
+		printSecItem("Gatekeeper", info.GatekeeperEnabled, "enabled", "disabled")
+	}
+
 	// RHEL/Rocky security
 	if info.CryptoPolicy != "" || info.FIPSEnabled || info.AIDEInstalled || info.USBGuardActive || info.AuditRules >= 0 {
 		fmt.Println("\nSystem Security")
