@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -32,7 +33,12 @@ func runDocker(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	deep, _ := cmd.Flags().GetBool("deep")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	col := collectors.Collector(collectors.NewDockerCollector())
 	if deep {
@@ -54,6 +60,10 @@ func runDocker(cmd *cobra.Command, _ []string) error {
 	info, ok := result.Data.(*models.DockerInfo)
 	if !ok || info == nil {
 		return result.Err
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, info)
 	}
 
 	printDockerReport(info, mode, elapsed)
