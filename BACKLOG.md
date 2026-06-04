@@ -190,6 +190,15 @@ Build order rule: **never build deep before fast is in production use.**
 | `thermal --watch` (5s default, `--watch-interval` override) — clear-screen refresh loop | 0a464ca |
 | `processes --watch` (same pattern) | 0a464ca |
 
+## ✅ Recently Completed (June 4, 2026 — Session 11: PVE port dedup)
+
+| Item | Commit |
+|---|---|
+| Consolidated `{8006, 3128, 111}` PVE service-port set — exported `analysis.IsPVEServicePort` as single source | — |
+| Removed duplicate `isPVEServicePort` from `cmd/security.go`; both call sites now use `analysis.IsPVEServicePort` | — |
+| Moved `TestIsPVEServicePort` to `internal/analysis/heuristics_test.go` (follows the function); cmd renderer test kept | — |
+| Resolves CLAUDE.md "Known duplicate to clean up" note — flagged for next time PVE code was touched | — |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 > **Validation method:** `docs/GTM_VALIDATION.md` (instrumented landing page —

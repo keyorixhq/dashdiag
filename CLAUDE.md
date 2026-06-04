@@ -170,12 +170,11 @@ Renderers: split into Identity/State/Resources/Files/Connections sections.
 Heuristics: split into sub-checks (checkDockerContainers/Resources/Security etc).
 `buildHealthCollectors` uses `//nolint:funlen,cyclop` — justified as flat registry.
 
-### Known duplicate to clean up: PVE service port list
-The PVE service port list `{8006, 3128, 111}` is duplicated across 3 places:
-`internal/analysis/heuristics.go` (`isPVEServicePort`), `cmd/security.go`
-(`isPVEServicePort` helper), and `internal/collectors` (security_linux.go
-references the same ports). Consolidate into a single exported helper when next
-touching PVE code.
+### PVE service port list — single source of truth
+The PVE service port set `{8006, 3128, 111}` lives in one place:
+`analysis.IsPVEServicePort` (`internal/analysis/heuristics.go`). `cmd/security.go`
+consumes it; `security_linux.go` only flags the host via `IsPVEHost()`. Do not
+re-inline the port set — extend the exported helper instead.
 
 ---
 

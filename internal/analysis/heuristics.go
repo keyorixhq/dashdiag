@@ -2803,9 +2803,11 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 	return out
 }
 
-// isPVEServicePort reports whether a port is a mandatory Proxmox VE service
+// IsPVEServicePort reports whether a port is a mandatory Proxmox VE service
 // port: 8006 (web UI), 3128 (spiceproxy), or 111 (rpcbind/portmapper).
-func isPVEServicePort(port int) bool {
+// Exported as the single source of truth — cmd/security.go consumes it so the
+// {8006, 3128, 111} set is not duplicated across packages.
+func IsPVEServicePort(port int) bool {
 	switch port {
 	case 8006, 3128, 111:
 		return true
@@ -3027,7 +3029,7 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		portStr := fmt.Sprintf("%d/%s", p.Port, p.Protocol)
 		// Proxmox VE service ports (web UI 8006, spiceproxy 3128, rpcbind 111)
 		// are mandatory on PVE — surface as INFO, never WARN (see BUG-016).
-		if sec.IsPVE && isPVEServicePort(p.Port) {
+		if sec.IsPVE && IsPVEServicePort(p.Port) {
 			pvePorts = append(pvePorts, portStr)
 			continue
 		}
