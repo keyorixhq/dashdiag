@@ -750,6 +750,9 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 
 func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	var out []models.Insight
+	if disk.SteamOS != nil {
+		out = append(out, checkSteamOSDisk(disk.SteamOS)...)
+	}
 	// SMART health
 	for _, d := range disk.Drives {
 		if d.SMART == nil || d.SMART.Error != "" {
@@ -4049,6 +4052,57 @@ func checkSteamOSDeep(s models.SteamOSInfo) []models.Insight {
 			fmt.Sprintf("flatpak data is %.1f GB", s.FlatpakDataGB),
 			[]string{"to reclaim: flatpak uninstall --unused"},
 		))
+	}
+	return out
+}
+
+// checkSteamOSDisk covers the SteamOS-only disk section (Spec 19): btrfs root
+// I/O errors (CRIT) vs other counters (WARN), shader-cache growth, broken
+// offload bind mounts. Called from checkDiskExtras when disk.SteamOS is set.
+func checkSteamOSDisk(d *models.SteamOSDisk) []models.Insight {
+	var out []models.Insight
+
+	if d.BtrfsRootChecked {
+		if d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 {
+			out = append(out, insight("CRIT", "SteamOS",
+				fmt.Sprintf("btrfs root I/O errors (read: %d, write: %d) — failing storage or cabling", d.BtrfsReadErrs, d.BtrfsWriteErrs),
+				[]string{
+					"to inspect: btrfs device stats /",
+					"to inspect: dmesg | grep -i btrfs",
+					"note: back up /home before the device degrades further",
+				},
+			))
+		} else if d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0 {
+			out = append(out, insight("WARN", "SteamOS",
+				fmt.Sprintf("btrfs root non-zero error counters (corruption: %d, generation: %d, flush: %d)", d.BtrfsCorruptionErrs, d.BtrfsGenerationErrs, d.BtrfsFlushErrs),
+				[]string{
+					"to inspect: btrfs device stats /",
+					"to reset after investigating: btrfs device stats -z /",
+				},
+			))
+		}
+	}
+
+	switch {
+	case d.ShaderCacheGB > 30:
+		out = append(out, insight("CRIT", "SteamOS",
+			fmt.Sprintf("shader cache is %.1f GB — consuming /home aggressively", d.ShaderCacheGB),
+			[]string{"to clear: Steam → Settings → Storage", "or per-game: rm -rf ~/.steam/steam/shadercache/<AppID>"},
+		))
+	case d.ShaderCacheGB > 10:
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("shader cache is %.1f GB — consider cleanup", d.ShaderCacheGB),
+			[]string{"to clear: Steam → Settings → Storage"},
+		))
+	}
+
+	for _, bm := range d.BindMounts {
+		if !bm.OK {
+			out = append(out, insight("WARN", "SteamOS",
+				fmt.Sprintf("offload bind mount for %s looks broken (expected → %s) — may indicate /home filesystem issues", bm.Path, bm.Target),
+				[]string{fmt.Sprintf("to inspect: mount | grep %s", bm.Path), "to inspect: ls -la " + bm.Target},
+			))
+		}
 	}
 	return out
 }

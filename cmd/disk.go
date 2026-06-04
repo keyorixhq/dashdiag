@@ -99,6 +99,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	printDiskBtrfs(info)
 	printDiskIO(info)
 	printDiskLVM(lvmInfo)
+	printDiskSteamOS(info)
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -268,7 +269,83 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 			}
 		}
 	}
+	n += countSteamOSDiskIssues(info.SteamOS)
 	return n
+}
+
+// countSteamOSDiskIssues counts SteamOS partition-layout concerns (Spec 19) for
+// the disk summary line.
+func countSteamOSDiskIssues(d *models.SteamOSDisk) int {
+	if d == nil {
+		return 0
+	}
+	n := 0
+	if d.BtrfsRootChecked && (d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 ||
+		d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0) {
+		n++
+	}
+	if d.ShaderCacheGB > 10 {
+		n++
+	}
+	if d.VarUsedPct >= 70 {
+		n++
+	}
+	if d.HomeUsedPct >= 85 {
+		n++
+	}
+	for _, bm := range d.BindMounts {
+		if !bm.OK {
+			n++
+		}
+	}
+	return n
+}
+
+// printDiskSteamOS renders the SteamOS-only partition layout section (Spec 19).
+func printDiskSteamOS(info *models.DiskInfo) {
+	d := info.SteamOS
+	if d == nil {
+		return
+	}
+	fmt.Printf("\n[SteamOS partition layout]\n")
+
+	if d.BtrfsRootChecked {
+		icon := "✅"
+		if d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 {
+			icon = "❌"
+		} else if d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0 {
+			icon = "⚠️ "
+		}
+		fmt.Printf("  %s Root (btrfs): read errors: %d, write errors: %d, corruption: %d\n",
+			icon, d.BtrfsReadErrs, d.BtrfsWriteErrs, d.BtrfsCorruptionErrs)
+	}
+
+	if d.VarTotalMB > 0 {
+		fmt.Printf("  %s /var:  %.0f / %.0f MB  (%.0f%%)  ← 256MB partition; see dsd steamos for cleanup\n",
+			usageIcon(d.VarUsedPct, 70, 85), d.VarUsedMB, d.VarTotalMB, d.VarUsedPct)
+	}
+	if d.HomeTotalGB > 0 {
+		fmt.Printf("  %s /home: %.0f / %.0f GB  (%.0f%%)\n",
+			usageIcon(d.HomeUsedPct, 85, 95), d.HomeUsedGB, d.HomeTotalGB, d.HomeUsedPct)
+	}
+
+	if d.ShaderCacheGB > 0 {
+		icon := "✅"
+		if d.ShaderCacheGB > 30 {
+			icon = "❌"
+		} else if d.ShaderCacheGB > 10 {
+			icon = "⚠️ "
+		}
+		fmt.Printf("  %s Shader cache: %.1f GB at ~/.steam/steam/shadercache/\n", icon, d.ShaderCacheGB)
+	}
+
+	for _, bm := range d.BindMounts {
+		if bm.OK {
+			fmt.Printf("  ✅ Bind mount %s → %s — intact\n", bm.Path, bm.Target)
+		} else {
+			fmt.Printf("  ⚠️  Bind mount %s → %s — broken\n", bm.Path, bm.Target)
+		}
+	}
 }
 
 // printSMARTLine renders a compact SMART summary line indented under the drive.

@@ -197,3 +197,52 @@ func TestCheckSteamOSSecureBootSuppressedOnDeck(t *testing.T) {
 		}
 	}
 }
+
+// ── checkSteamOSDisk (Spec 19) ────────────────────────────────────────────
+
+func TestCheckSteamOSDiskBtrfsIOErrorsCrit(t *testing.T) {
+	d := &models.SteamOSDisk{BtrfsRootChecked: true, BtrfsWriteErrs: 3}
+	if steamLevels(checkSteamOSDisk(d))["CRIT"] == 0 {
+		t.Error("btrfs write I/O errors should be CRIT")
+	}
+}
+
+func TestCheckSteamOSDiskBtrfsCorruptionWarn(t *testing.T) {
+	d := &models.SteamOSDisk{BtrfsRootChecked: true, BtrfsCorruptionErrs: 1}
+	lv := steamLevels(checkSteamOSDisk(d))
+	if lv["WARN"] == 0 || lv["CRIT"] != 0 {
+		t.Errorf("corruption-only should be WARN, not CRIT: %v", lv)
+	}
+}
+
+func TestCheckSteamOSDiskShaderCacheThresholds(t *testing.T) {
+	if steamLevels(checkSteamOSDisk(&models.SteamOSDisk{ShaderCacheGB: 14}))["WARN"] == 0 {
+		t.Error("14GB shader cache should WARN")
+	}
+	if steamLevels(checkSteamOSDisk(&models.SteamOSDisk{ShaderCacheGB: 35}))["CRIT"] == 0 {
+		t.Error("35GB shader cache should CRIT")
+	}
+}
+
+func TestCheckSteamOSDiskBrokenBindMountWarn(t *testing.T) {
+	d := &models.SteamOSDisk{BindMounts: []models.SteamOSBindMount{
+		{Path: "/opt", Target: "/home/.steamos/offload/opt", OK: true},
+		{Path: "/root", Target: "/home/.steamos/offload/root", OK: false},
+	}}
+	if steamLevels(checkSteamOSDisk(d))["WARN"] == 0 {
+		t.Error("broken bind mount should WARN")
+	}
+}
+
+func TestCheckSteamOSDiskHealthyQuiet(t *testing.T) {
+	d := &models.SteamOSDisk{
+		BtrfsRootChecked: true,
+		ShaderCacheGB:    3,
+		BindMounts: []models.SteamOSBindMount{
+			{Path: "/opt", OK: true}, {Path: "/root", OK: true},
+		},
+	}
+	if got := checkSteamOSDisk(d); len(got) != 0 {
+		t.Errorf("healthy SteamOS disk should be quiet, got %v", got)
+	}
+}

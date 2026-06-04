@@ -107,6 +107,57 @@ func (c *SteamOSCollector) collectRemotePlay(ctx context.Context, info *models.S
 	info.RemotePlay = rp
 }
 
+// collectSteamOSDisk gathers the SteamOS-only disk section (Spec 19): btrfs root
+// error counters, shader-cache size, offload bind-mount integrity, and /var +
+// /home usage. Called by the disk collector's collectLinuxExtras (gated on
+// SteamOSAvailable). It owns its timeout since collectLinuxExtras has no context.
+// Individual checks degrade to zero/false when a tool or path is absent.
+func collectSteamOSDisk() *models.SteamOSDisk {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	d := &models.SteamOSDisk{}
+
+	// btrfs root error counters (live, mounted, zero perf impact).
+	if out, err := runCmd(ctx, "btrfs", "device", "stats", "/"); err == nil {
+		d.BtrfsRootChecked = true
+		s := parseBtrfsDeviceStats(out)
+		d.BtrfsReadErrs, d.BtrfsWriteErrs = s.Read, s.Write
+		d.BtrfsFlushErrs, d.BtrfsCorruptionErrs, d.BtrfsGenerationErrs = s.Flush, s.Corruption, s.Generation
+	}
+
+	// Shader cache size (silently fills /home).
+	home := steamUserHome()
+	if shader := filepath.Join(home, ".steam/steam/shadercache"); dirExists(shader) {
+		d.ShaderCacheGB = duGB(ctx, shader)
+	}
+
+	// Offload bind mounts: target dir must exist AND the path must be a mount.
+	mounts := map[string]bool{}
+	if data, err := os.ReadFile("/proc/mounts"); err == nil {
+		mounts = parseMountPointSet(string(data))
+	}
+	for _, bm := range []models.SteamOSBindMount{
+		{Path: "/opt", Target: "/home/.steamos/offload/opt"},
+		{Path: "/root", Target: "/home/.steamos/offload/root"},
+	} {
+		bm.OK = dirExists(bm.Target) && mounts[bm.Path]
+		d.BindMounts = append(d.BindMounts, bm)
+	}
+
+	if total, used, pct, ok := statfsUsage("/var"); ok {
+		d.VarTotalMB, d.VarUsedMB, d.VarUsedPct = total/1e6, used/1e6, pct
+	}
+	if total, used, pct, ok := statfsUsage("/home"); ok {
+		d.HomeTotalGB, d.HomeUsedGB, d.HomeUsedPct = total/1e9, used/1e9, pct
+	}
+	return d
+}
+
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // steamHostUptimeSeconds returns system uptime from /proc/uptime (0 on error).
 func steamHostUptimeSeconds() float64 {
 	data, err := os.ReadFile("/proc/uptime")

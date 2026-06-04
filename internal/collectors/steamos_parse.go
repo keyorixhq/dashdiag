@@ -340,3 +340,53 @@ func lineMentionsPort(line string, p int) bool {
 	}
 	return false
 }
+
+// ── Disk parsers (Spec 19) ─────────────────────────────────────────────────
+
+// btrfsDeviceStats holds summed error counters from `btrfs device stats`.
+type btrfsDeviceStats struct {
+	Read, Write, Flush, Corruption, Generation int
+}
+
+// parseBtrfsDeviceStats sums each error counter across devices from `btrfs
+// device stats <mount>` output. Each line is "[/dev/xxx].<counter>  <n>".
+func parseBtrfsDeviceStats(out string) btrfsDeviceStats {
+	var s btrfsDeviceStats
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		val, err := strconv.Atoi(fields[len(fields)-1])
+		if err != nil {
+			continue
+		}
+		key := fields[0]
+		switch {
+		case strings.HasSuffix(key, ".read_io_errs"):
+			s.Read += val
+		case strings.HasSuffix(key, ".write_io_errs"):
+			s.Write += val
+		case strings.HasSuffix(key, ".flush_io_errs"):
+			s.Flush += val
+		case strings.HasSuffix(key, ".corruption_errs"):
+			s.Corruption += val
+		case strings.HasSuffix(key, ".generation_errs"):
+			s.Generation += val
+		}
+	}
+	return s
+}
+
+// parseMountPointSet returns the set of mount points from /proc/mounts content
+// (mount point is the second whitespace-separated field of each line).
+func parseMountPointSet(procMounts string) map[string]bool {
+	set := map[string]bool{}
+	for _, line := range strings.Split(procMounts, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			set[fields[1]] = true
+		}
+	}
+	return set
+}

@@ -80,6 +80,36 @@ type SteamOSInfo struct {
 	BIOSVersion       string   `json:"bios_version,omitempty"`
 }
 
+// SteamOSDisk is the SteamOS-only partition section of `dsd disk` (Spec 19):
+// btrfs root error counters, shader-cache growth, the offload bind mounts, and
+// the architecturally-critical /var (256 MB) + /home sizes. Attached to
+// DiskInfo only when running on SteamOS.
+type SteamOSDisk struct {
+	BtrfsRootChecked    bool `json:"-"` // false when `btrfs device stats /` could not run
+	BtrfsReadErrs       int  `json:"btrfs_read_io_errs"`
+	BtrfsWriteErrs      int  `json:"btrfs_write_io_errs"`
+	BtrfsFlushErrs      int  `json:"btrfs_flush_io_errs"`
+	BtrfsCorruptionErrs int  `json:"btrfs_corruption_errs"`
+	BtrfsGenerationErrs int  `json:"btrfs_generation_errs"`
+
+	ShaderCacheGB float64            `json:"shader_cache_gb,omitempty"`
+	BindMounts    []SteamOSBindMount `json:"bind_mounts,omitempty"`
+
+	VarUsedPct  float64 `json:"var_used_pct"`
+	VarUsedMB   float64 `json:"var_used_mb"`
+	VarTotalMB  float64 `json:"var_total_mb"`
+	HomeUsedPct float64 `json:"home_used_pct"`
+	HomeUsedGB  float64 `json:"home_used_gb"`
+	HomeTotalGB float64 `json:"home_total_gb"`
+}
+
+// SteamOSBindMount is a SteamOS offload bind mount (/opt, /root → /home/.steamos/offload/*).
+type SteamOSBindMount struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
+	OK     bool   `json:"ok"`
+}
+
 // RemotePlayPort is one Steam Remote Play port and its binding state.
 type RemotePlayPort struct {
 	Protocol string `json:"protocol"` // "udp" / "tcp"

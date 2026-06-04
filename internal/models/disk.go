@@ -61,6 +61,7 @@ type DiskInfo struct {
 	ZFSPools     []ZFSPool        `json:"zfs_pools,omitempty"` // from models/zfs.go
 	BtrfsVolumes []BtrfsVolume    `json:"btrfs_volumes,omitempty"`
 	IOStats      []DiskIOStat     `json:"io_stats,omitempty"` // deep only
+	SteamOS      *SteamOSDisk     `json:"steamos,omitempty"`  // SteamOS-only partition layout (Spec 19)
 	Status       string           `json:"status"`
 	StatusReason string           `json:"status_reason"`
 }
