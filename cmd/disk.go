@@ -34,7 +34,12 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	deep, _ := cmd.Flags().GetBool("deep")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	ctrCtx := platform.DetectContainerContext()
 	col := collectors.NewDiskCollector(ctrCtx)

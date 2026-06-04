@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,12 @@ var thermalCmd = &cobra.Command{
 func runThermal(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	p := output.NewCommandProgress("Thermal health", 3*time.Second, mode, 1)
 	p.Start()
@@ -46,6 +52,10 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 	info, ok := result.Data.(*models.ThermalInfo)
 	if !ok || info == nil {
 		return result.Err
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, info)
 	}
 
 	printThermalReport(info, mode, elapsed)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -29,7 +30,12 @@ var processesCmd = &cobra.Command{
 func runProcesses(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	p := output.NewCommandProgress("Process health", 5*time.Second, mode, 2)
 	p.Start()
@@ -55,6 +61,10 @@ func runProcesses(cmd *cobra.Command, _ []string) error {
 
 	if procInfo == nil {
 		return nil
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, procInfo)
 	}
 
 	printProcessesReport(ctx, procInfo, mode, elapsed)

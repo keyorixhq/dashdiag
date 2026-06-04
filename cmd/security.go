@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -33,7 +34,12 @@ var securityCmd = &cobra.Command{
 func runSecurity(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	p := output.NewCommandProgress("Security health", 10*time.Second, mode, 1)
 	p.Start()
@@ -64,6 +70,10 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 		return runSaveBaseline(info)
 	case drift:
 		return runDrift(info)
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, info)
 	}
 
 	// Snapper runs in parallel (requires root; silently skipped if unavailable)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -28,7 +29,12 @@ var k8sCmd = &cobra.Command{
 func runK8s(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	p := output.NewCommandProgress("Kubernetes health", 15*time.Second, mode, 1)
 	p.Start()
@@ -45,6 +51,10 @@ func runK8s(cmd *cobra.Command, _ []string) error {
 	info, ok := result.Data.(*models.K8sInfo)
 	if !ok || info == nil {
 		return result.Err
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, info)
 	}
 
 	printK8sReport(info, mode, elapsed)
