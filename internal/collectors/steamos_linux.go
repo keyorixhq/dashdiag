@@ -57,6 +57,7 @@ func (c *SteamOSCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.Detected = true
 	info.Version = prof.DistroVersion
 
+	c.collectDevice(info)
 	c.collectSystem(ctx, info)
 	c.collectRAUC(ctx, info)
 	c.collectSession(ctx, info)
@@ -67,6 +68,34 @@ func (c *SteamOSCollector) Collect(ctx context.Context) (interface{}, error) {
 		c.collectDeep(ctx, info)
 	}
 	return info, nil
+}
+
+// secureBootEfivar holds the UEFI Secure Boot state (world-readable when
+// efivarfs is mounted, which it is by default on SteamOS).
+const secureBootEfivar = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+
+// ── Device identity (Spec 17a) ─────────────────────────────────────────────
+
+func (c *SteamOSCollector) collectDevice(info *models.SteamOSInfo) {
+	if data, err := os.ReadFile("/sys/class/dmi/id/product_name"); err == nil {
+		info.DeviceProductRaw = strings.TrimSpace(string(data))
+	}
+	name, recognised, isDeck := mapSteamOSDevice(info.DeviceProductRaw)
+	info.DeviceName = name
+	info.DeviceRecognised = recognised
+
+	// Steam Deck firmware does not enforce Secure Boot — skip the check there.
+	if isDeck {
+		info.SecureBootApplicable = false
+		return
+	}
+	info.SecureBootApplicable = true
+	if data, err := os.ReadFile(secureBootEfivar); err == nil { // #nosec G304 — fixed path
+		if enabled, ok := parseSecureBootVar(data); ok {
+			info.SecureBootEnabled = &enabled
+		}
+	}
+	// SecureBootEnabled stays nil when efivars is absent (non-UEFI).
 }
 
 // ── System / channel / readonly ──────────────────────────────────────────

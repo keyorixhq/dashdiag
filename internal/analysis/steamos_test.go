@@ -105,3 +105,33 @@ func TestCheckSteamOSUpdateServerUnreachableIsWarn(t *testing.T) {
 		t.Error("unreachable update server should WARN")
 	}
 }
+
+func TestCheckSteamOSUnrecognisedDeviceIsInfo(t *testing.T) {
+	info := models.SteamOSInfo{Detected: true, DeviceProductRaw: "OEMDEVICE", DeviceRecognised: false}
+	lv := steamLevels(checkSteamOS(info))
+	if lv["INFO"] == 0 || lv["WARN"] != 0 || lv["CRIT"] != 0 {
+		t.Errorf("unrecognised device should be INFO only, got %v", lv)
+	}
+}
+
+func TestCheckSteamOSSecureBootEnabledIsWarn(t *testing.T) {
+	enabled := true
+	info := models.SteamOSInfo{
+		Detected: true, DeviceProductRaw: "ROG Ally RC71L", DeviceRecognised: true,
+		SecureBootApplicable: true, SecureBootEnabled: &enabled,
+	}
+	if steamLevels(checkSteamOS(info))["WARN"] == 0 {
+		t.Error("Secure Boot enabled on non-Deck should WARN")
+	}
+}
+
+func TestCheckSteamOSSecureBootSuppressedOnDeck(t *testing.T) {
+	// Steam Deck: SecureBootApplicable=false → never warn even if a stray value is set.
+	enabled := true
+	info := models.SteamOSInfo{Detected: true, SecureBootApplicable: false, SecureBootEnabled: &enabled}
+	for _, i := range checkSteamOS(info) {
+		if strings.Contains(i.Message, "Secure Boot") {
+			t.Errorf("Secure Boot must be suppressed on Steam Deck, got %q", i.Message)
+		}
+	}
+}

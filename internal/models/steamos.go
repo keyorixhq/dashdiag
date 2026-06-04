@@ -13,6 +13,18 @@ package models
 type SteamOSInfo struct {
 	Detected bool `json:"detected"`
 
+	// ── Device identity (Spec 17a) ──────────────────────────────────────
+	// SteamOS 3.7+ runs on more than the Steam Deck (Legion Go S, ROG Ally,
+	// …). Device model drives correct /var-size, thermal, and partition
+	// assumptions. SecureBootEnabled is a tri-state: nil = not readable
+	// (non-UEFI / efivars absent). SecureBootApplicable is false on Steam Deck
+	// (its firmware does not enforce Secure Boot for SteamOS).
+	DeviceProductRaw     string `json:"device_product_raw,omitempty"` // /sys/class/dmi/id/product_name
+	DeviceName           string `json:"device_name,omitempty"`        // canonical, e.g. "Steam Deck OLED"
+	DeviceRecognised     bool   `json:"device_recognised"`
+	SecureBootApplicable bool   `json:"secure_boot_applicable"`
+	SecureBootEnabled    *bool  `json:"secure_boot_enabled"`
+
 	// ── System / update channel ─────────────────────────────────────────
 	Version              string `json:"version,omitempty"`  // os-release VERSION_ID, e.g. "3.7.13"
 	BuildID              string `json:"build_id,omitempty"` // os-release BUILD_ID

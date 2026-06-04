@@ -93,6 +93,45 @@ x [rootfs.1] (/dev/nvme0n1p5, ext4, inactive)
 	}
 }
 
+func TestMapSteamOSDevice(t *testing.T) {
+	cases := []struct {
+		raw            string
+		wantName       string
+		wantRecognised bool
+		wantDeck       bool
+	}{
+		{"Jupiter", "Steam Deck LCD", true, true},
+		{"Galileo", "Steam Deck OLED", true, true},
+		{"ROG Ally RC71L", "ASUS ROG Ally", true, false},
+		{"ROG Ally X RC72LA", "ASUS ROG Ally X", true, false}, // X must win over plain Ally
+		{"83E1", "Lenovo Legion Go S", true, false},
+		{"OEMDEVICE", "Unknown AMD handheld", false, false},
+		{"", "", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			name, rec, deck := mapSteamOSDevice(tc.raw)
+			if name != tc.wantName || rec != tc.wantRecognised || deck != tc.wantDeck {
+				t.Errorf("got (%q,%v,%v), want (%q,%v,%v)", name, rec, deck, tc.wantName, tc.wantRecognised, tc.wantDeck)
+			}
+		})
+	}
+}
+
+func TestParseSecureBootVar(t *testing.T) {
+	enabled, ok := parseSecureBootVar([]byte{0x06, 0x00, 0x00, 0x00, 0x01})
+	if !ok || !enabled {
+		t.Errorf("byte 4 = 0x01 should be enabled+ok, got enabled=%v ok=%v", enabled, ok)
+	}
+	disabled, ok := parseSecureBootVar([]byte{0x06, 0x00, 0x00, 0x00, 0x00})
+	if !ok || disabled {
+		t.Errorf("byte 4 = 0x00 should be disabled+ok, got enabled=%v ok=%v", disabled, ok)
+	}
+	if _, ok := parseSecureBootVar([]byte{0x06, 0x00}); ok {
+		t.Error("too-short var should return ok=false")
+	}
+}
+
 func TestFilterGamescopeErrors(t *testing.T) {
 	out := `May 01 10:00:00 deck gamescope[1]: starting up
 May 01 10:00:01 deck gamescope[1]: drm failed to set mode

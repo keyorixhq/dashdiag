@@ -105,6 +105,7 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration) {
 
 func printSteamOSSystem(info *models.SteamOSInfo) {
 	fmt.Println("\n[System]")
+	printSteamOSDevice(info)
 	ver := info.Version
 	if ver == "" {
 		ver = "unknown"
@@ -131,6 +132,33 @@ func printSteamOSSystem(info *models.SteamOSInfo) {
 		fmt.Println("  ✅ steamos-readonly: enabled (rootfs protected)")
 	default:
 		fmt.Println("  ❌ steamos-readonly: DISABLED (rootfs writable — next update will overwrite changes)")
+	}
+}
+
+// printSteamOSDevice renders the device-identity + Secure Boot lines (Spec 17a).
+func printSteamOSDevice(info *models.SteamOSInfo) {
+	if info.DeviceProductRaw == "" && info.DeviceName == "" {
+		return
+	}
+	switch {
+	case info.DeviceName == "":
+		// no DMI read
+	case !info.DeviceRecognised:
+		fmt.Printf("  ℹ️  Device: %s (DMI: %q) — unrecognised; thresholds may not be accurate\n",
+			info.DeviceName, info.DeviceProductRaw)
+	default:
+		fmt.Printf("  ✅ Device: %s (%s)\n", info.DeviceName, info.DeviceProductRaw)
+	}
+
+	switch {
+	case !info.SecureBootApplicable:
+		fmt.Println("  ✅ Secure Boot: n/a (Steam Deck firmware)")
+	case info.SecureBootEnabled == nil:
+		fmt.Println("  ℹ️  Secure Boot: EFI not available")
+	case *info.SecureBootEnabled:
+		fmt.Println("  ⚠️  Secure Boot: ENABLED — USB recovery requires a BIOS change first")
+	default:
+		fmt.Println("  ✅ Secure Boot: disabled")
 	}
 }
 
@@ -239,6 +267,9 @@ func steamOSConcernCount(info *models.SteamOSInfo) int {
 		n++
 	}
 	if info.SessionMode == "gamemode" && !info.GamescopeActive {
+		n++
+	}
+	if info.SecureBootApplicable && info.SecureBootEnabled != nil && *info.SecureBootEnabled {
 		n++
 	}
 	if info.VarUsedPct >= 70 {

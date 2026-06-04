@@ -3850,11 +3850,35 @@ func checkSteamOS(s models.SteamOSInfo) []models.Insight {
 	if !s.Detected {
 		return nil
 	}
-	out := checkSteamOSUpdate(s)
+	out := checkSteamOSDevice(s)
+	out = append(out, checkSteamOSUpdate(s)...)
 	out = append(out, checkSteamOSSession(s)...)
 	out = append(out, checkSteamOSStorage(s)...)
 	out = append(out, checkSteamOSNetwork(s)...)
 	out = append(out, checkSteamOSDeep(s)...)
+	return out
+}
+
+// checkSteamOSDevice covers device identity (Spec 17a): an unrecognised model
+// means the hardware thresholds may be wrong, and Secure Boot enabled on a
+// non-Steam-Deck device blocks USB recovery until disabled in BIOS.
+func checkSteamOSDevice(s models.SteamOSInfo) []models.Insight {
+	var out []models.Insight
+	if s.DeviceProductRaw != "" && !s.DeviceRecognised {
+		out = append(out, insight("INFO", "SteamOS",
+			fmt.Sprintf("unrecognised SteamOS device (DMI: %q) — hardware thresholds may not be accurate", s.DeviceProductRaw),
+			nil,
+		))
+	}
+	if s.SecureBootApplicable && s.SecureBootEnabled != nil && *s.SecureBootEnabled {
+		out = append(out, insight("WARN", "SteamOS",
+			"Secure Boot is enabled — USB recovery requires disabling it in BIOS first",
+			[]string{
+				"to fix: enter BIOS at boot (device-specific key) → Security → Secure Boot → Disabled",
+				"note: Steam Deck firmware does not enforce Secure Boot; this applies to other handhelds",
+			},
+		))
+	}
 	return out
 }
 

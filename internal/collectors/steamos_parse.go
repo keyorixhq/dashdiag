@@ -58,6 +58,40 @@ func mapSteamOSChannel(raw string) string {
 	}
 }
 
+// mapSteamOSDevice maps a DMI product_name to a canonical SteamOS device name.
+// Returns whether the model is recognised and whether it is a Steam Deck (whose
+// firmware does not enforce Secure Boot, so that check is suppressed). Uses
+// substring matching because DMI names sometimes carry revision suffixes.
+func mapSteamOSDevice(raw string) (name string, recognised, isDeck bool) {
+	r := strings.TrimSpace(raw)
+	switch {
+	case r == "Jupiter":
+		return "Steam Deck LCD", true, true
+	case r == "Galileo":
+		return "Steam Deck OLED", true, true
+	case strings.Contains(r, "ROG Ally X"):
+		return "ASUS ROG Ally X", true, false
+	case strings.Contains(r, "ROG Ally"):
+		return "ASUS ROG Ally", true, false
+	case strings.Contains(r, "Legion Go S") || strings.Contains(r, "83E1"):
+		return "Lenovo Legion Go S", true, false
+	case r == "":
+		return "", false, false
+	default:
+		return "Unknown AMD handheld", false, false
+	}
+}
+
+// parseSecureBootVar reads the Secure Boot state from the raw efivar bytes. The
+// first 4 bytes are EFI variable attributes; byte 4 is the state (0x01 =
+// enabled). ok is false when the variable is too short to be valid.
+func parseSecureBootVar(data []byte) (enabled, ok bool) {
+	if len(data) < 5 {
+		return false, false
+	}
+	return data[4] == 0x01, true
+}
+
 // raucSlotJSON is a single slot's fields in `rauc status --output-format=json`.
 type raucSlotJSON struct {
 	State      string `json:"state"`       // booted / inactive / active
