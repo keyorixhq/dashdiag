@@ -285,3 +285,91 @@ vSwitch") is what actually gets his team off the hook. If yes, this is the first
 concrete feature to scope for that use case. If he needs an actual vSwitch/fabric
 read, this does not close his gap and should not be built for him. Validate before
 building.
+
+### Deployment & commercial container — golden-image distribution, out-of-band install, per-org account (2026-06-04)
+
+A chain of follow-up questions worked the support-offload wedge down to its
+operational reality. Recording the chain because each link is sound and the
+*cumulative* result is much larger than the wedge — the discipline is staging it,
+not building it all now.
+
+**The dependency chain that was uncovered:**
+
+1. **Share needs the network.** "Run `dsd`, send the link" requires the VM to
+   reach `dashdiag.sh` — but the customer is complaining *because* the network is
+   broken. Resolution: local-artifact-first, network-optional. `dsd` writes the
+   full report to a local file (`--out`, already built) and can emit a compact
+   copy-pasteable encoded blob to the terminal; upload is a convenience on top,
+   never a prerequisite. The customer's own support channel (browser/laptop, not
+   the broken VM) carries the blob.
+2. **Install needs the network too — and earlier.** `curl …/install.sh | sh`
+   can't run on a network-broken VM. This is the harder dependency: you can't even
+   reach the point of sharing. Resolution: **pre-position the static binary.**
+3. **Pre-position via golden image.** If the provider bakes the single static
+   `dsd-linux-amd64` into their VM templates, the binary is present on every VM
+   from first boot, no install step, no network. Trivial for them given the
+   no-runtime-deps static binary. Turns provider into distributor (one
+   integration → tool on thousands of VMs).
+4. **Out-of-band install/run via the hypervisor management plane.** Even on a
+   *fully* network-isolated VM, Proxmox (`qm guest exec` / file-write via
+   `qemu-guest-agent`) and vSphere/vCloud (Guest Operations via VMware Tools) can
+   push the binary in and pull the report out *through the hypervisor*, not the
+   guest network. Best operated by the **provider's own support team** — no
+   customer action, guest network irrelevant. Requires the guest agent / VMware
+   Tools present (usually true on provider templates; reinforces golden-image
+   pre-positioning). **Requires nothing new in the CLI** — just a static binary
+   that writes to a file, which exists. This is a runbook/deployment pattern, not
+   a feature.
+
+**The commercial container — per-organisation corporate account on the share
+backend.** Once `dsd` is in a provider's golden image, every provisioned VM can
+push diagnostics, and the only coherent destination is **one org-scoped tenant
+for that provider** (not local-only = wastes the platform; not individual
+accounts = incoherent for the provider's own fleet). The org account is the
+"team workspace / shared state" paid tier from `COMPANY_PRINCIPLES.md`, made
+multi-tenant. It unlocks: provider-scoped fleet view, pre-provisioned identity
+(golden image carries an org-scoped enrolment token → VMs auto-register on boot),
+and one billing relationship (per-node/seat against one account — far better unit
+economics than chasing individual subs).
+
+**What this introduces (do not under-price the complexity):**
+
+- **Multi-tenancy is a trust problem, not just code.** A provider's tenant holds
+  *their customers'* VM diagnostics — other people's data. Needs an explicit
+  consent/visibility model: does the VM owner know it reports to the provider?
+  What does the provider see by default vs. what stays customer-private? The
+  e2e-encryption design (`share-e2e-encryption-design.md`) is in tension with an
+  org account that auto-ingests everything, and that tension must be resolved
+  before a provider signs.
+- **Enrolment-token-in-the-image is a credential-management problem.** A token
+  baked into every VM leaks the moment a customer inspects the image. Must be
+  narrowly scoped (push-only, to tenant X), rotatable, ideally per-VM-derivable.
+- **Tenant isolation becomes security-critical** — one provider's data must never
+  leak to another's. Table stakes for the provider's security review.
+- **This is the heaviest build in the portfolio:** multi-tenant SaaS + tenant
+  isolation + enrolment + per-tenant billing + a customer-data consent model. The
+  *right* eventual shape, and the furthest thing from six-month-runway reality.
+
+**Staging (the discipline) — expansion tier, explicitly NOT the wedge:**
+
+1. **Wedge (validate first):** support runs/sends `dsd` on a partially-broken VM
+   (the common case — some path out exists), finds it useful. Proves value, costs
+   nothing new to build.
+2. **Expansion:** golden-image pre-positioning + out-of-band guest-exec — "works
+   everywhere, including fully-isolated VMs." Sold *after* the support team is
+   hooked.
+3. **Commercial container:** per-org corporate account + multi-tenancy — built as
+   the container for (2), *after* a provider has said "put it everywhere" and is
+   willing to be the design partner for the data-boundary questions.
+
+Each stage funds and de-risks the next. Building the org account now — before a
+provider has confirmed the wedge — would commit the entire remaining runway to
+the heaviest possible bet on two friends' enthusiasm. **Recorded here precisely
+because it is seductive:** writing down "yes, and it is stage 3, not stage 1" is
+what stops it from quietly becoming next week's build instead of registering the
+domain.
+
+**Question to take back to the contact:** when support troubleshoots a
+network-broken VM today, do they already use Proxmox/vCenter guest-exec to get
+inside it? If that is already their habit, dropping `dsd` into that existing
+workflow is near-zero-friction — a strong fit signal.
