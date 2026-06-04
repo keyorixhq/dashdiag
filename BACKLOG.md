@@ -679,9 +679,15 @@ Heuristic `CPU/RunQueue`: WARN ≥2× cores, CRIT ≥4× cores. Correlation rule
 iowait + steal both clear). Context-switch rate surfaces as a supporting hint, not
 a standalone threshold — reliable *spike* detection needs the history-aware v2.
 Used `/proc/stat procs_running` rather than `/proc/schedstat nr_running` (simpler,
-version-stable, and the read was already happening). Live-verified on pve01:
-silent at run-queue 1, fired WARN at 24 runnable on 8 CPUs under load — while load
-avg still read 0.92, proving run queue catches saturation that load avg lags on.
+version-stable, and the read was already happening). Live-verified across 3 hosts:
+- **pve01** (8-core Debian host): silent at run-queue 1, WARN at 24 runnable while
+  load avg still read 0.92 — proving run queue catches saturation load avg lags on.
+- **AlmaLinux 9 LXC** (RHEL family, 2-core limit): CRIT at 13 runnable. Crucially
+  reported "on 2 CPUs" (the container limit via `ContainerCtx.CPULimitCores`), not
+  the host's 8 — lxcfs virtualizes `/proc/stat procs_running` to container scope, so
+  the heuristic is container-aware and does **not** false-positive against host cores.
+- **openSUSE Leap 16 KVM** (1-core, real kernel): CRIT at 13 runnable on 1 CPU.
+Single-core grammar fix: "1 CPU" not "1 CPUs" (`pluralize` helper).
 
 ### [V2-COLLECTOR] Storage performance diagnostics
 Write amplification, queue depth, fsync latency (eBPF — v3).

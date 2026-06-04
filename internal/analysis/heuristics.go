@@ -584,23 +584,32 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// Context-switch rate is shown as supporting context — reliable spike detection
 	// needs the history-aware engine (v2), so it is not thresholded on its own.
 	if cpu.NumCPU > 0 && cpu.RunQueue > 0 {
+		cpuLabel := pluralize(cpu.NumCPU, "CPU", "CPUs")
 		switch {
 		case cpu.RunQueue >= 4*cpu.NumCPU:
 			out = append(out, insight("CRIT", "CPU/RunQueue",
-				fmt.Sprintf("%d runnable tasks on %d CPUs — run queue is ~%d× saturated, tasks are waiting for CPU",
-					cpu.RunQueue, cpu.NumCPU, cpu.RunQueue/cpu.NumCPU),
+				fmt.Sprintf("%d runnable tasks on %s — run queue is ~%d× saturated, tasks are waiting for CPU",
+					cpu.RunQueue, cpuLabel, cpu.RunQueue/cpu.NumCPU),
 				runQueueHints(cpu),
 			))
 		case cpu.RunQueue >= 2*cpu.NumCPU:
 			out = append(out, insight("WARN", "CPU/RunQueue",
-				fmt.Sprintf("%d runnable tasks on %d CPUs — more tasks ready to run than cores available",
-					cpu.RunQueue, cpu.NumCPU),
+				fmt.Sprintf("%d runnable tasks on %s — more tasks ready to run than cores available",
+					cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
 			))
 		}
 	}
 
 	return out
+}
+
+// pluralize returns "<n> <singular>" when n == 1, otherwise "<n> <plural>".
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 // runQueueHints builds the inspection hints for a run-queue saturation insight,
