@@ -82,13 +82,16 @@ dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 dsd steamos      🟡 Steam Deck/SteamOS: device identity + Secure Boot (17a), RAUC A/B slots,
-                    steamos-readonly, gamescope session, /var+/home, Wi-Fi, update-server reach,
-                    Remote Play ports/firewall/AP-isolation (22A); --deep (proton/shader/flatpak/bios).
+                    steamos-readonly, gamescope session, /var+/home, atomic-update-server reach,
+                    Remote Play ports/firewall/AP-isolation (22A); --deep (proton/flatpak/bios).
                     Specs 17+17a+22A. Gated on platform.IsSteamOS, wired into dsd health.
-dsd disk         🟡 +SteamOS partition layout (Spec 19): btrfs root stats, shader cache, offload
-                    bind mounts, /var+/home — SteamOS-only section, gated.
-dsd net          🟡 +SteamOS Wi-Fi (Spec 20+22B): backend, dual-band SSID conflict, Steam CDN DNS,
-                    Remote Play link quality (band/channel/width/signal) — SteamOS-only section, gated.
+dsd disk         🟡 +[SteamOS storage] (Spec 19): shader cache + offload bind mounts (gated).
+                    btrfs root errors come from the generic btrfs collector; /var+/home from the
+                    generic Filesystems list — not duplicated here.
+dsd net          🟡 +SteamOS Wi-Fi (Spec 20+22B): backend (sole home), dual-band SSID conflict,
+                    Steam CDN DNS, Remote Play link quality (band/channel/width/signal) — gated.
+                    Note: SteamOS checks are consolidated to one home each (Wi-Fi→net, shader→disk,
+                    btrfs→generic, update-server→steamos) — no duplicate insights in dsd health.
                     ⚠️ All SteamOS work (17/17a/19/20/22) is on branch `steamos`, LIVE VALIDATION
                     PENDING — no Steam Deck hardware. See BACKLOG [STEAMOS-VALIDATION].
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
