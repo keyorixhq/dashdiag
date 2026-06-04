@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 
 type LogsCollector struct {
 	Lookback time.Duration
+	profile  platform.Profile
 }
 
 func NewLogsCollector() *LogsCollector {
@@ -32,6 +34,12 @@ func NewLogsCollector() *LogsCollector {
 
 func NewLogsCollectorWithLookback(d time.Duration) *LogsCollector {
 	return &LogsCollector{Lookback: d}
+}
+
+// NewLogsCollectorWithProfile builds a collector that uses the platform Profile
+// to skip text-syslog probes on journald-only distros (NixOS, SteamOS).
+func NewLogsCollectorWithProfile(p platform.Profile) *LogsCollector {
+	return &LogsCollector{Lookback: 1 * time.Hour, profile: p}
 }
 
 func (c *LogsCollector) Name() string           { return "Logs" }
@@ -67,7 +75,7 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.KernelPanics += countPstorePanics()
 
 	// Journal health checks
-	checkJournalHealth(ctx, info)
+	checkJournalHealth(ctx, info, c.profile)
 
 	// Severity summary from journal (Spec 3)
 	collectSeveritySummary(ctx, info, c.Lookback)
@@ -76,7 +84,7 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	collectCrashFiles(info)
 
 	// Log source detection
-	info.LogSource = detectLogSource()
+	info.LogSource = detectLogSource(c.profile)
 
 	// /var/log fallback: when the journal is volatile (lost on reboot) and gave
 	// us no errors, pull the severity summary from /var/log instead (Spec 3).
@@ -313,7 +321,7 @@ func countPstorePanics() int {
 
 // checkJournalHealth checks for common journald misconfigurations that cause
 // silent log loss — the most frequent complaint about systemd logging.
-func checkJournalHealth(ctx context.Context, info *models.LogsInfo) {
+func checkJournalHealth(ctx context.Context, info *models.LogsInfo, profile platform.Profile) {
 	// 1. Journal integrity — only verify archived (*.journal~) files, not active
 	//    ones. journalctl --verify races with active writers and produces false
 	//    corruption reports on healthy live journals (systemd issue #35916).
@@ -330,7 +338,7 @@ func checkJournalHealth(ctx context.Context, info *models.LogsInfo) {
 	info.JournalRateLimited = detectJournalRateLimit()
 
 	// 4. No text fallback.
-	info.JournalNoTextFallback = detectNoTextFallback()
+	info.JournalNoTextFallback = detectNoTextFallback(profile)
 
 	// 5. Unbounded growth — no SystemMaxUse cap and journal already large.
 	info.JournalUnbounded = detectUnboundedJournal(info.JournalSizeGB)
@@ -512,7 +520,13 @@ func detectJournalRateLimit() bool {
 
 // detectNoTextFallback returns true when journald is the sole log sink —
 // no rsyslog, syslog-ng, or /var/log/syslog text file present.
-func detectNoTextFallback() bool {
+func detectNoTextFallback(profile platform.Profile) bool {
+	// NixOS and SteamOS are journald-only by design — there is no text
+	// fallback to find, and probing /var/log is pure noise. Treat as no-fallback
+	// directly without the filesystem/service checks below.
+	if profile.Distro == "nixos" || profile.Distro == "steamos" {
+		return true
+	}
 	// If a text syslog file exists, there is a fallback.
 	for _, f := range []string{"/var/log/syslog", "/var/log/messages", "/var/log/auth.log"} {
 		if _, err := os.Stat(f); err == nil {
@@ -832,10 +846,17 @@ func collectCrashFiles(info *models.LogsInfo) {
 
 // detectLogSource identifies what log infrastructure is active.
 // Returns "journald", "journald+syslog", or "syslog".
-func detectLogSource() string {
+func detectLogSource(profile platform.Profile) string {
 	hasJournald := false
 	if _, err := os.Stat("/run/systemd/journal/socket"); err == nil {
 		hasJournald = true
+	}
+	// NixOS and SteamOS are journald-only — skip the text-syslog probe entirely.
+	if profile.Distro == "nixos" || profile.Distro == "steamos" {
+		if hasJournald {
+			return "journald"
+		}
+		return "unknown"
 	}
 	// Check for syslog text files (common co-existence on Ubuntu/RHEL)
 	hasSyslog := false

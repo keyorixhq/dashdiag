@@ -85,11 +85,13 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
+	profile := platform.Detect()
+	debug.Logf(ctx, "Platform", "%s", profile.DebugLine())
 
 	watchFlag, _ := cmd.Flags().GetBool("watch")
 	if watchFlag {
 		interval, _ := cmd.Flags().GetDuration("watch-interval")
-		return runWatch(ctx, interval, ctrCtx, cloudEnv, mode)
+		return runWatch(ctx, interval, ctrCtx, cloudEnv, profile, mode)
 	}
 
 	state, _ := tips.LoadState()
@@ -120,7 +122,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		return err
 	}
 
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, policy)
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, policy)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -243,8 +245,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, includePackages, includeGPU, includeTLS, includeDeep, includeFirmware)
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+	cols := buildHealthCollectors(ctrCtx, profile, includePackages, includeGPU, includeTLS, includeDeep, includeFirmware)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -268,7 +270,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	return results, insights, snap, p.Elapsed()
 }
 
-func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, mode output.OutputMode) error {
+func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -298,7 +300,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 		if mode == output.ModeHuman {
 			fmt.Print("\033[H\033[2J") // clear screen + move cursor to top
 		}
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, mode, false, false, false, false, false, false, nil)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, false, false, false, false, false, false, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
@@ -337,7 +339,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
+func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -353,8 +355,8 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 		collectors.NewSysctlCollector(),
 		collectors.NewKernelSecurityCollector(),
 		collectors.NewEntropyCollector(),
-		collectors.NewLogsCollector(),
-		collectors.NewSecurityCollector(),
+		collectors.NewLogsCollectorWithProfile(profile),
+		collectors.NewSecurityCollectorWithProfile(profile),
 	}
 	// SUSE-specific collectors — only on SUSE/openSUSE hosts
 	if collectors.IsSUSEHost() {
@@ -447,7 +449,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, includePackages boo
 	// Also include when Podman quadlets are present: those are systemd-managed and
 	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
 	if sock, _ := collectors.DetectContainerSocket(); sock != "" || collectors.PodmanQuadletsPresent() {
-		cols = append(cols, collectors.NewDockerCollector())
+		cols = append(cols, collectors.NewDockerCollectorWithProfile(profile))
 	}
 	// Containerd standalone — only when containerd socket is present AND no k8s layer.
 	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
