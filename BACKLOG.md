@@ -207,7 +207,20 @@ Build order rule: **never build deep before fast is in production use.**
 
 ## 🐞 Known Bugs
 
-### BUG-022 — standalone subcommands don't set exit code from worst insight
+### ~~BUG-022 — standalone subcommands don't set exit code from worst insight~~ ✅ FIXED (2026-06-04)
+
+**Fix:** centralised in `cmd/exitcode.go` — `pendingExitCode` + `recordResultSeverity()`
+runs collected results through the same `analysis.ApplyThresholds` heuristics `dsd health`
+uses, records the worst level (CRIT→2, WARN→1), and `Execute()` applies it *after* the
+command returns (so progress/`--out` defers still run — unlike a mid-command `os.Exit`).
+Wired into `disk`, `security` (report + `--drift`), `docker`, `k8s`, and `cve` (all four
+paths: `--all`, single-CVE, `--oval`, `--oval-scan`). Applies in JSON mode too. Standalone
+exit codes now agree with `dsd health`. Unit tests in `cmd/exitcode_test.go`.
+**Note uncovered during fix:** on macOS the docker collector reads the Linux
+`/proc/.../ip_forward` path (absent on Darwin) and falsely reports "IP forwarding disabled"
+as CRIT — so `dsd docker` *and* `dsd health` both exit 2 on a Mac with OrbStack. Pre-existing,
+Linux-concept-on-macOS heuristic bug, unrelated to the exit-code wiring (the wiring correctly
+propagated it). macOS support is low-priority (defer-until-demand); logged here, not fixed.
 
 **Found:** 2026-06-04, during ZFS pool-health validation on pve01 (file-backed DEGRADED mirror).
 
@@ -237,7 +250,13 @@ ZFS pool or any reliably-CRIT condition.
 
 ---
 
-### BUG-023 — AppArmor profile names mangled on Debian (JSON parsed as text)
+### ~~BUG-023 — AppArmor profile names mangled on Debian (JSON parsed as text)~~ ✅ FIXED (2026-06-04)
+
+**Fix:** `internal/drilldown/kernelsec.go` now parses `aa-status --pretty-json` as real
+JSON (`profiles` map → filter `mode == "complain"`) via `parseAAStatusJSON`, with a clean
+sectioned plain-text fallback (`parseAAStatusText`) for releases without `--pretty-json`.
+Names come back clean (`Xorg`, not `"Xorg":`). Unit tests in `kernelsec_test.go`.
+Verify on the Debian 13 VM (VM 101).
 
 **Found:** 2026-06-04, first `dsd health` run on a Debian 13 (Trixie) VM (VM 101, pve01).
 
@@ -277,18 +296,23 @@ Verify on the Debian 13 VM (VM 101).
 
 ---
 
-### Debian-family note from the same run (not a bug — logic gap to consider)
+### ~~Debian-family note — ruleSysctlNotPersisted false positive on stock defaults~~ ✅ FIXED (2026-06-04)
 
 The `ruleSysctlNotPersisted` correlation rule fired on the fresh Debian VM:
 "system rebooted 3 minutes ago and sysctl parameters are still at non-recommended
 values — the previous fix was applied with sysctl -w but not written." But nothing
-was applied — these are the **stock defaults** (`vm.swappiness=60`). The rule infers
-"someone's `sysctl -w` didn't persist" from (non-recommended value + recent reboot),
-which a fresh boot satisfies trivially. Consider gating the rule so default values
-don't trigger the "not persisted" narrative (e.g. only fire if a prior snapshot
-showed the recommended value, which is genuinely the history-aware v2 territory).
-Low priority — the underlying swappiness WARN is still correct and useful; only the
-"previously applied" narrative is misleading.
+was applied — these are the **stock defaults** (`vm.swappiness=60`).
+
+**Fix (`internal/analysis/correlate.go`):** two changes. (1) The summary is now
+*conditional* — "if a fix was applied last boot with `sysctl -w` it did not survive the
+reboot" — instead of asserting a past action that can't be proven from current state
+(a lost `sysctl -w` reverts to the same default a never-touched box shows). (2) Added
+`sysctlAllAtStockDefaults()`: the rule is suppressed when the flagged values are at
+version-stable kernel defaults (swappiness=60, dirty_ratio=20) — the "nobody tuned this"
+signal. Deliberately excludes version-dependent defaults (somaxconn, tcp_tw_reuse) where a
+"still at default" test would misfire. The underlying Sysctl WARN is untouched and still
+fires. A fully reliable verdict still needs the history-aware v2 (compare vs a prior
+snapshot). Regression test: `TestSysctlNotPersistedDoesNotFireOnStockDefaults`.
 
 ---
 
@@ -628,11 +652,12 @@ Live BIND 9.18.33: 5 zones pass, hint zone excluded, includes followed.
 
 ---
 
-### ~~[GAP-SPEC] dsd pve — Proxmox VE Node Diagnostics~~ ⏳ BLOCKED (needs Proxmox hardware)
+### ~~[GAP-SPEC] dsd pve — Proxmox VE Node Diagnostics~~ ✅ DONE (June 3, commit ae9c4c4)
 **Sprint 9. Full spec in DashDiag_Gap_Specs.md § Spec 24.**
 Fast: node overview, VM/CT status, storage pool health, recent task errors, cluster quorum.
 Deep: PVEPerf benchmark, VM resource over-commitment, backup audit, network bridge health.
-Estimated scope: ~4d.
+Verified live on pve01 (Debian 13 / PVE 9.1.1): all 5 sections, fast + deep + `--json`.
+Backup-audit dump-dir filename fix in commit 21963e4.
 
 ---
 

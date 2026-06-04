@@ -96,18 +96,20 @@ health --cve     ✅ folds CVE scan into health as live WARN(≥7.0)/CRIT(≥9.0
 ## What Gets Built Next (Priority Order)
 
 ### Session 11 — First Paying Customer Path
-1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d) — **BLOCKED: needs Proxmox hardware**
-2. **Correlation engine v1** — wire the "20:00 overnight cluster" memory-pressure cascade rule
-   Link: `dsd timeline` + `dsd health deep` OOM kills + `dsd docker` container stops
+1. ✅ DONE — `dsd pve` — Proxmox VE node diagnostics (Spec 24, commit ae9c4c4).
+   Verified live on pve01: node overview, task errors, per-VM backup audit, bridges, `--json`.
+2. ✅ DONE — **Correlation engine v1** — all 8 rules shipped (commits eaec50a, 04638ec, 6058936).
+   `dsd timeline` + `dsd health deep` OOM kills + `dsd docker` container stops are wired.
 3. ✅ DONE — **CVE exposure check** — `dsd health --cve` (CVSS ≥7.0 WARN, ≥9.0 CRIT) +
    CISA KEV escalation (sidecar catalog, no cloud registration)
-4. **Hetzner Debian validation** — apt vs dnf, AppArmor denials, no SELinux
+4. **Hetzner Debian validation** — apt vs dnf, AppArmor denials, no SELinux.
+   Largely covered by the reusable Debian 13 VM (VM 101 on pve01, validated Jun 4).
 
-### Remaining docker addendums (minor)
-- Spec 7g — DNS trap: container DNS points to host systemd-resolved loop
-- Spec 7h — Docker socket file permissions (should be 660, not 666)
-- Spec 7i — Architecture mismatch: ARM image on x86 host (or vice versa)
-- Spec 7j — Swarm mode node health
+### Remaining docker addendums — ✅ ALL DONE
+- ✅ Spec 7g — DNS trap: container DNS points to host systemd-resolved loop (commit 57754c2)
+- ✅ Spec 7h — Docker socket file permissions / group membership diagnosis (commit 57754c2)
+- ✅ Spec 7i — Architecture mismatch: ARM image on x86 host (commit 57754c2)
+- ✅ Spec 7j — Swarm mode node health (commit b0d5c28)
 
 ---
 

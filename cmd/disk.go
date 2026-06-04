@@ -57,10 +57,12 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 	p.Start()
 	defer p.Done()
 
+	var results []runner.Result
 	var diskResult runner.Result
 	var lvmInfo *models.LVMInfo
 	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
+		results = append(results, r)
 		switch v := r.Data.(type) {
 		case *models.DiskInfo:
 			diskResult = r
@@ -74,6 +76,10 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return diskResult.Err
 	}
+
+	// Propagate worst severity to the process exit code (BUG-022) — applies in
+	// both human and JSON modes so CI gates on `dsd disk` / `dsd disk --json`.
+	recordResultSeverity(results)
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)

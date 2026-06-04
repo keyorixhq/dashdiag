@@ -75,4 +75,12 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+	// Apply the worst-severity exit code recorded by standalone subcommands
+	// (BUG-022). Done after Execute() returns so command defers (progress
+	// cleanup, --out file) have already run. health/tls exit directly and never
+	// reach here; for everything else pendingExitCode is 0 unless severity was
+	// recorded, so this is a no-op for clean runs.
+	if pendingExitCode != 0 {
+		os.Exit(pendingExitCode)
+	}
 }
