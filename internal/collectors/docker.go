@@ -16,16 +16,26 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 const crashLoopRestartThreshold = 5
 
 // DockerCollector reads container health from the Docker or Podman socket.
 // Uses direct Unix socket HTTP — no Docker SDK dependency.
-type DockerCollector struct{ Deep bool }
+type DockerCollector struct {
+	Deep    bool
+	profile platform.Profile
+}
 
 func NewDockerCollector() *DockerCollector     { return &DockerCollector{} }
 func NewDockerDeepCollector() *DockerCollector { return &DockerCollector{Deep: true} }
+
+// NewDockerCollectorWithProfile builds a collector that uses the platform
+// Profile for distro-aware checks (e.g. the RHEL 10+ iptables-legacy hint).
+func NewDockerCollectorWithProfile(p platform.Profile) *DockerCollector {
+	return &DockerCollector{profile: p}
+}
 
 func (c *DockerCollector) Name() string           { return "Docker" }
 func (c *DockerCollector) Timeout() time.Duration { return 10 * time.Second }
@@ -52,7 +62,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 		// Check if Docker is installed but daemon not running
 		if dockerInstalled() {
 			info.StatusReason = "Docker installed but daemon not running"
-			if isRHEL10Plus() {
+			if c.isRHEL10Plus() {
 				info.StatusReason = "Docker installed but daemon not running — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
 			}
 		}
@@ -118,7 +128,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// On RHEL/Rocky 10+ with zero images and containers, daemon likely failed
 	// to start due to missing iptables-legacy — add actionable hint.
-	if info.TotalContainers == 0 && info.ImagesCount == 0 && isRHEL10Plus() {
+	if info.TotalContainers == 0 && info.ImagesCount == 0 && c.isRHEL10Plus() {
 		info.StatusReason = "Docker daemon may have failed to start — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
 	}
 
@@ -785,6 +795,16 @@ func quadletFilesPresent(dir string) bool {
 		}
 	}
 	return false
+}
+
+// isRHEL10Plus reports RHEL-family v10+ using the platform Profile when set,
+// falling back to the inline os-release read for the zero-profile case
+// (e.g. NewDockerCollector / NewDockerDeepCollector). Zero regressions.
+func (c *DockerCollector) isRHEL10Plus() bool {
+	if c.profile.Distro != "" {
+		return c.profile.Distro == "rhel" && c.profile.MajorVersion >= 10
+	}
+	return isRHEL10Plus()
 }
 
 // isRHEL10Plus returns true when running on RHEL, Rocky, AlmaLinux or

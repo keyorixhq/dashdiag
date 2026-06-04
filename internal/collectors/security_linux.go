@@ -17,13 +17,22 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // SecurityCollector reads system security posture directly from kernel and
 // config files. No external tools except SUID detection (find).
-type SecurityCollector struct{}
+type SecurityCollector struct {
+	profile platform.Profile
+}
 
 func NewSecurityCollector() *SecurityCollector { return &SecurityCollector{} }
+
+// NewSecurityCollectorWithProfile builds a collector that uses the platform
+// Profile for distro-aware checks (e.g. offensive-distro detection).
+func NewSecurityCollectorWithProfile(p platform.Profile) *SecurityCollector {
+	return &SecurityCollector{profile: p}
+}
 
 func (c *SecurityCollector) Name() string           { return "Hardening" }
 func (c *SecurityCollector) Timeout() time.Duration { return 10 * time.Second }
@@ -55,7 +64,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// Detect offensive/pentest distros and suppress false-positive security WARNs.
 	// Kali Linux ships with PermitRootLogin yes, password auth, and no firewall by design.
-	if isOffensiveDistro() {
+	if c.isOffensiveDistro() {
 		info.IsOffensiveDistro = true
 	}
 
@@ -1372,7 +1381,17 @@ func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 
 // isOffensiveDistro returns true for pentest/offensive security distros
 // that ship with intentionally relaxed security defaults (root SSH, no firewall).
-// Used to suppress false-positive WARNs in dsd security.
+// Used to suppress false-positive WARNs in dsd security. Uses the platform
+// Profile when set, falling back to the inline os-release read otherwise.
+func (c *SecurityCollector) isOffensiveDistro() bool {
+	if c.profile.Distro != "" {
+		d := c.profile.Distro
+		return d == "kali" || d == "parrot" || strings.Contains(d, "blackarch")
+	}
+	return isOffensiveDistro()
+}
+
+// isOffensiveDistro is the zero-profile fallback: a direct os-release read.
 func isOffensiveDistro() bool {
 	data, err := os.ReadFile("/etc/os-release") // #nosec G304
 	if err != nil {

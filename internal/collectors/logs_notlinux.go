@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // LogsCollector is a no-op on non-Linux platforms.
 type LogsCollector struct {
 	Lookback time.Duration
+	profile  platform.Profile
 }
 
 func NewLogsCollector() *LogsCollector {
@@ -20,6 +22,12 @@ func NewLogsCollector() *LogsCollector {
 
 func NewLogsCollectorWithLookback(d time.Duration) *LogsCollector {
 	return &LogsCollector{Lookback: d}
+}
+
+// NewLogsCollectorWithProfile mirrors the Linux constructor; the profile is
+// unused on non-Linux platforms where the collector is a no-op.
+func NewLogsCollectorWithProfile(p platform.Profile) *LogsCollector {
+	return &LogsCollector{Lookback: 1 * time.Hour, profile: p}
 }
 
 func (c *LogsCollector) Name() string           { return "Logs" }
