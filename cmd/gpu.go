@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -12,32 +13,47 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func init() {
 	rootCmd.AddCommand(gpuCmd)
+	gpuCmd.Flags().Bool("deep", false, "deep mode: DPM performance level + extra sysfs reads")
 }
 
 var gpuCmd = &cobra.Command{
 	Use:   "gpu",
-	Short: "GPU health — temperature, VRAM, utilization, power draw",
+	Short: "GPU health — temperature, VRAM, clocks, TDP, utilization",
 	RunE:  runGPU,
 }
 
 func runGPU(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	deep, _ := cmd.Flags().GetBool("deep")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
-	p := output.NewCommandProgress("GPU health", 5*time.Second, mode, 1)
-	p.Start()
-	defer p.Done()
+	col := collectors.NewGPUCollector()
+	col.Deep = deep
+
+	p := output.NewCommandProgress("GPU health", 6*time.Second, mode, 1)
+	if mode != output.ModeJSON {
+		p.Start()
+		defer p.Done()
+	}
 
 	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewGPUCollector()}) {
-		p.Step(r.Name)
+	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
+		if mode != output.ModeJSON {
+			p.Step(r.Name)
+		}
 		result = r
 	}
 
@@ -48,26 +64,45 @@ func runGPU(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	printGPUReport(info, mode, elapsed)
+	if mode == output.ModeJSON {
+		// Print [] for an empty GPU list — no GPU is not an error.
+		if len(info.Devices) == 0 && len(info.NoDriver) == 0 {
+			fmt.Println("[]")
+			return nil
+		}
+		return outputJSON(os.Stdout, info)
+	}
+
+	printGPUReport(info, elapsed)
 	return nil
 }
 
-func printGPUReport(info *models.GPUInfo, mode output.OutputMode, elapsed time.Duration) {
+func printGPUReport(info *models.GPUInfo, elapsed time.Duration) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
+	fmt.Println("\n🎮 GPU")
+
 	if len(info.Devices) == 0 && len(info.NoDriver) == 0 {
-		fmt.Println("\nNo GPU detected or driver not loaded.")
-		fmt.Println()
-		fmt.Println(sep)
-		fmt.Println(render.StyleInfo.Render("ℹ️  No GPU data available"))
+		fmt.Println("\nGPU   ℹ️  no GPU detected (virtual machine or no sysfs data)")
 		return
 	}
+
+	steamOS := platform.Detect().IsSteamOS
 
 	for _, dev := range info.Devices {
 		printGPUDevice(dev, info.DriverVersion)
 	}
 	printGPUNoDriver(info.NoDriver)
+
+	hints := gpuHints(info, steamOS)
+	if len(hints) > 0 {
+		fmt.Println()
+		fmt.Println(sep)
+		for _, h := range hints {
+			fmt.Println(h)
+		}
+	}
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -75,52 +110,166 @@ func printGPUReport(info *models.GPUInfo, mode output.OutputMode, elapsed time.D
 }
 
 func printGPUDevice(dev models.GPUDevice, driverVersion string) {
-	vendor := ""
-	if dev.Vendor != "" {
-		vendor = " [" + dev.Vendor + "]"
+	printGPUHeader(dev, driverVersion)
+	printGPUTemps(dev)
+	printGPUPerformance(dev)
+}
+
+// printGPUHeader renders the device identity line:
+// "[Name]  Driver: amdgpu  Mesa 24.3.1".
+func printGPUHeader(dev models.GPUDevice, driverVersion string) {
+	var parts []string
+	driver := dev.DRMDriver
+	if driver == "" && dev.Vendor == "nvidia" {
+		driver = "nvidia"
 	}
-	fmt.Printf("\nGPU %d — %s%s\n", dev.Index, dev.Name, vendor)
-	if driverVersion != "" && dev.Vendor == "nvidia" {
-		fmt.Printf("  Driver:        %s\n", driverVersion)
+	if driver != "" {
+		parts = append(parts, "Driver: "+driver)
 	}
-	tempIcon := "✅"
-	if dev.TempC >= 90 {
-		tempIcon = "❌"
-	} else if dev.TempC >= 80 {
-		tempIcon = "⚠️ "
+	if dev.Vendor == "nvidia" && driverVersion != "" {
+		parts = append(parts, driverVersion)
 	}
-	fmt.Printf("  Temperature:   %s %d°C\n", tempIcon, dev.TempC)
-	utilIcon := "✅"
-	if dev.UtilPct >= 95 {
-		utilIcon = "⚠️ "
+	if dev.MesaVersion != "" {
+		parts = append(parts, "Mesa "+dev.MesaVersion)
 	}
-	fmt.Printf("  Utilization:   %s %d%%\n", utilIcon, dev.UtilPct)
-	vramIcon := "✅"
-	if dev.MemUsedPct >= 95 {
-		vramIcon = "❌"
-	} else if dev.MemUsedPct >= 85 {
-		vramIcon = "⚠️ "
+	suffix := ""
+	if len(parts) > 0 {
+		suffix = "  " + strings.Join(parts, "  ")
 	}
-	if dev.MemTotalMB > 0 {
-		fmt.Printf("  VRAM:          %s %d MB / %d MB (%.0f%%)\n",
-			vramIcon, dev.MemUsedMB, dev.MemTotalMB, dev.MemUsedPct)
+	fmt.Printf("\n[%s]%s\n", dev.Name, suffix)
+}
+
+// printGPUTemps renders the Temperature section. Intel (and any device with no
+// junction/memory sensors) gets a single compact temperature line.
+func printGPUTemps(dev models.GPUDevice) {
+	if dev.TempC == 0 && dev.TempJunctionC == 0 && dev.TempMemC == 0 {
+		return
 	}
-	if dev.PowerDrawW > 0 {
-		fmt.Printf("  Power draw:    ✅  %.1fW\n", dev.PowerDrawW)
+	fmt.Println("\n  Temperature")
+	if dev.TempJunctionC == 0 && dev.TempMemC == 0 {
+		fmt.Printf("    %s %d°C\n", tempIcon(dev.TempC, 80, 90), dev.TempC)
+		return
 	}
-	if dev.XidErrors == 0 {
-		fmt.Printf("  Xid errors:    ✅  none (last 1h)\n")
-	} else {
-		fmt.Printf("  Xid errors:    ❌  %d hardware fault(s) detected\n", dev.XidErrors)
-		fmt.Printf("                     → dmesg | grep 'NVRM: Xid'\n")
+	if dev.TempC > 0 {
+		fmt.Printf("    %s Edge:      %d°C\n", tempIcon(dev.TempC, 80, 90), dev.TempC)
 	}
+	if dev.TempJunctionC > 0 {
+		note := ""
+		if dev.TempJunctionC >= 90 {
+			note = "  (approaching thermal limit — 90°C threshold)"
+		}
+		fmt.Printf("    %s Junction:  %d°C%s\n", tempIcon(dev.TempJunctionC, 90, 100), dev.TempJunctionC, note)
+	}
+	if dev.TempMemC > 0 {
+		fmt.Printf("    %s Memory:    %d°C\n", tempIcon(dev.TempMemC, 95, 105), dev.TempMemC)
+	}
+}
+
+// printGPUPerformance renders the Performance section: clocks, TDP, VRAM, util.
+func printGPUPerformance(dev models.GPUDevice) {
+	lines := make([]string, 0, 5)
+
+	if dev.ClockMaxMHz > 0 {
+		pct := 0
+		if dev.ClockMaxMHz > 0 {
+			pct = dev.ClockMHz * 100 / dev.ClockMaxMHz
+		}
+		lines = append(lines, fmt.Sprintf("    ✅ Clock:       %d / %d MHz  (%d%%)", dev.ClockMHz, dev.ClockMaxMHz, pct))
+	}
+
+	if dev.TDPLimitW > 0 {
+		icon := "✅"
+		tail := ""
+		if dev.Throttling {
+			icon = "⚠️ "
+			tail = " ← throttling"
+		}
+		lines = append(lines, fmt.Sprintf("    %s TDP:         %.1f / %.1f W limit  (current: %.1fW)%s",
+			icon, dev.TDPLimitW, dev.TDPLimitW, dev.TDPCurrentW, tail))
+	}
+
+	if dev.VRAMTotalGB > 0 {
+		apu := ""
+		if dev.IsAPU {
+			apu = "  [shared APU memory]"
+		}
+		lines = append(lines, fmt.Sprintf("    %s VRAM:        %.1f / %.1f GB  (%.0f%%)%s",
+			vramIcon(dev.VRAMUsedPct), dev.VRAMUsedGB, dev.VRAMTotalGB, dev.VRAMUsedPct, apu))
+	} else if dev.MemTotalMB > 0 {
+		lines = append(lines, fmt.Sprintf("    %s VRAM:        %d / %d MB  (%.0f%%)",
+			vramIcon(dev.MemUsedPct), dev.MemUsedMB, dev.MemTotalMB, dev.MemUsedPct))
+	}
+
+	if dev.UtilPct > 0 {
+		icon := "✅"
+		if dev.UtilPct >= 95 {
+			icon = "⚠️ "
+		}
+		lines = append(lines, fmt.Sprintf("    %s Utilization: %d%%", icon, dev.UtilPct))
+	}
+
+	if dev.PowerDPMLevel != "" {
+		icon := "✅"
+		if dev.PowerDPMLevel == "low" {
+			icon = "⚠️ "
+		}
+		lines = append(lines, fmt.Sprintf("    %s DPM level:   %s", icon, dev.PowerDPMLevel))
+	}
+
+	if dev.XidErrors > 0 {
+		lines = append(lines, fmt.Sprintf("    ❌ Xid errors:  %d hardware fault(s)", dev.XidErrors))
+	}
+
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Println("\n  Performance")
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+
 	if len(dev.Processes) > 0 {
-		fmt.Printf("  Processes:\n")
-		fmt.Printf("    %-8s %-10s %s\n", "PID", "VRAM", "NAME")
+		fmt.Printf("\n  Processes\n")
 		for _, p := range dev.Processes {
-			fmt.Printf("    %-8d %-10s %s\n", p.PID, fmt.Sprintf("%dMB", p.MemUseMB), p.Name)
+			fmt.Printf("    %-8d %-8s %s\n", p.PID, fmt.Sprintf("%dMB", p.MemUseMB), p.Name)
 		}
 	}
+}
+
+// gpuHints builds the actionable hint lines shown under the separator.
+func gpuHints(info *models.GPUInfo, steamOS bool) []string {
+	var hints []string
+	for _, dev := range info.Devices {
+		if dev.TempJunctionC >= 100 {
+			hints = append(hints,
+				fmt.Sprintf("❌ Junction temperature %d°C — emergency thermal threshold (100°C)", dev.TempJunctionC),
+				"   → Shut down and inspect cooling immediately")
+		} else if dev.TempJunctionC >= 90 {
+			hints = append(hints,
+				fmt.Sprintf("⚠️  Junction temperature %d°C — approaching 90°C threshold", dev.TempJunctionC),
+				"   → Check thermal paste and fan curve if sustained")
+		}
+		if dev.Throttling {
+			hints = append(hints,
+				fmt.Sprintf("⚠️  TDP throttling — GPU at power limit (%.1fW / %.1fW)", dev.TDPCurrentW, dev.TDPLimitW))
+			if steamOS {
+				hints = append(hints, "   → On Steam Deck: increase TDP limit in Performance settings when plugged in")
+			} else {
+				hints = append(hints, "   → Raise the power cap or improve cooling if more performance is needed")
+			}
+		}
+		if dev.VRAMUsedPct >= 90 {
+			hints = append(hints,
+				fmt.Sprintf("⚠️  VRAM at %.0f%% — high memory pressure", dev.VRAMUsedPct),
+				"   → Reduce texture/resolution settings or close GPU-heavy apps")
+		}
+		if dev.PowerDPMLevel == "low" {
+			hints = append(hints,
+				"⚠️  GPU stuck in low-power DPM mode — performance capped",
+				"   → echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level")
+		}
+	}
+	return hints
 }
 
 func printGPUNoDriver(noDriver []models.GPUDetected) {
@@ -160,9 +309,11 @@ func printGPUNoDriver(noDriver []models.GPUDetected) {
 func gpuSummaryLine(info *models.GPUInfo, timing string) string {
 	crits, warns := 0, 0
 	for _, dev := range info.Devices {
-		if dev.TempC >= 90 || dev.MemUsedPct >= 95 || dev.XidErrors > 0 {
+		switch {
+		case dev.TempC >= 90 || dev.TempJunctionC >= 100 || dev.MemUsedPct >= 95 || dev.XidErrors > 0:
 			crits++
-		} else if dev.TempC >= 80 || dev.MemUsedPct >= 85 || dev.UtilPct >= 95 {
+		case dev.TempC >= 80 || dev.TempJunctionC >= 90 || dev.Throttling ||
+			dev.MemUsedPct >= 85 || dev.VRAMUsedPct >= 90 || dev.UtilPct >= 95 || dev.PowerDPMLevel == "low":
 			warns++
 		}
 	}
@@ -178,5 +329,29 @@ func gpuSummaryLine(info *models.GPUInfo, timing string) string {
 		return render.StyleWarn.Render(fmt.Sprintf("✅ active GPU healthy — %d GPU(s) without driver%s", n, timing))
 	default:
 		return render.StyleOK.Render(fmt.Sprintf("✅ GPU healthy. Checks passed%s", timing))
+	}
+}
+
+// tempIcon returns the status icon for a temperature against warn/crit thresholds.
+func tempIcon(temp, warn, crit int) string {
+	switch {
+	case temp >= crit:
+		return "❌"
+	case temp >= warn:
+		return "⚠️ "
+	default:
+		return "✅"
+	}
+}
+
+// vramIcon returns the status icon for a VRAM usage percentage.
+func vramIcon(pct float64) string {
+	switch {
+	case pct >= 95:
+		return "❌"
+	case pct >= 85:
+		return "⚠️ "
+	default:
+		return "✅"
 	}
 }
