@@ -142,6 +142,9 @@ Build order rule: **never build deep before fast is in production use.**
 | Spec 18: `dsd gpu` standalone — TDP, VRAM, clocks, utilization, Mesa, `--deep`, `--json` | cf9df4f |
 | Intel HD 530 (i915) live tested on PVE01; no-GPU path verified on openSUSE VM | cf9df4f |
 | AMD sysfs path covered by unit tests; field validation pending AMD hardware / Steam Deck | cf9df4f |
+| V2 correlation rules: ruleEntropyTLSFailure, ruleIOSingleDeviceDegradation, ruleSysctlNotPersisted | 04638ec |
+| models/sysctl.go: UptimeSeconds; CorrelateDeep +IOInfo +SysctlInfo params; 13 new tests | 04638ec |
+| Live verified: AlmaLinux CT 213 — DIAGNOSIS "Sysctl Parameter Not Persisted" fires after reboot | 04638ec |
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
@@ -502,11 +505,12 @@ Do NOT start before first paying customer is acquired.
 
 ### [V2-CORRELATION] Symptom correlation engine
 **v0 SHIPPED (commit dc729d4)** — 4 hardcoded rules + GPU context rule live.
-Next rules backlogged:
-- Multiple OOM kills + same service → memory leak in specific service
-- Entropy low + TLS signals → crypto bootstrapping failure
-- IO CRIT on one device + other OK → single drive degradation
-- Sysctl drift + recent reboot → parameter not persisted
+**June 4 (commit 04638ec)** — 3 more rules shipped:
+- ✅ Entropy low + TLS signals → crypto bootstrapping failure (`ruleEntropyTLSFailure`)
+- ✅ IO CRIT on one device + other OK → single drive degradation (`ruleIOSingleDeviceDegradation`)
+- ✅ Sysctl drift + recent reboot → parameter not persisted (`ruleSysctlNotPersisted`)
+Still pending (next batch / `spec-closeout-prompt.md`):
+- Multiple OOM kills + same service → memory leak in specific service (`ruleServiceMemoryLeak`)
 
 ### [V2-COLLECTOR] Kernel instability extensions
 Soft/hard lockups, kernel panic history, watchdog resets.
