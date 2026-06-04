@@ -246,3 +246,72 @@ func TestCheckSteamOSDiskHealthyQuiet(t *testing.T) {
 		t.Errorf("healthy SteamOS disk should be quiet, got %v", got)
 	}
 }
+
+// ── checkSteamOSWifi (Spec 20 + 22B) ──────────────────────────────────────
+
+func TestCheckSteamOSWifiBothBackendsWarn(t *testing.T) {
+	if steamLevels(checkSteamOSWifi(&models.SteamOSWifi{BothBackends: true}))["WARN"] == 0 {
+		t.Error("both backends active should WARN")
+	}
+}
+
+func TestCheckSteamOSWifiDevModeInfo(t *testing.T) {
+	lv := steamLevels(checkSteamOSWifi(&models.SteamOSWifi{DevMode: true}))
+	if lv["INFO"] == 0 || lv["WARN"] != 0 {
+		t.Errorf("dev-mode backend should be INFO only, got %v", lv)
+	}
+}
+
+func TestCheckSteamOSWifiSSIDConflictWarn(t *testing.T) {
+	if steamLevels(checkSteamOSWifi(&models.SteamOSWifi{SSIDConflict: true, ConflictSSID: "Home"}))["WARN"] == 0 {
+		t.Error("SSID conflict should WARN")
+	}
+}
+
+func TestCheckSteamOSWifiSlowDNSWarn(t *testing.T) {
+	if steamLevels(checkSteamOSWifi(&models.SteamOSWifi{CDNDNSKnown: true, CDNDNSms: 680}))["WARN"] == 0 {
+		t.Error("slow CDN DNS should WARN")
+	}
+	if got := checkSteamOSWifi(&models.SteamOSWifi{CDNDNSKnown: true, CDNDNSms: 40}); len(got) != 0 {
+		t.Errorf("fast DNS should be quiet, got %v", got)
+	}
+}
+
+func TestCheckSteamOSWifiQualityProfile(t *testing.T) {
+	// 2.4GHz + 20MHz width + marginal signal → multiple WARNs, no CRIT.
+	w := &models.SteamOSWifi{Connected: true, BandGHz: 2.4, Channel: 6, WidthMHz: 20, SignalDBm: -70}
+	lv := steamLevels(checkSteamOSWifi(w))
+	if lv["WARN"] < 3 || lv["CRIT"] != 0 {
+		t.Errorf("expected >=3 WARN, 0 CRIT, got %v", lv)
+	}
+	// Channel 6 is non-overlapping → no extra channel warn beyond the band warn.
+	w2 := &models.SteamOSWifi{Connected: true, BandGHz: 2.4, Channel: 3, WidthMHz: 80, SignalDBm: -50}
+	if steamLevels(checkSteamOSWifi(w2))["WARN"] < 2 {
+		t.Error("2.4GHz on overlapping channel 3 should add a channel WARN")
+	}
+}
+
+func TestCheckSteamOSWifiWeakSignalCrit(t *testing.T) {
+	w := &models.SteamOSWifi{Connected: true, BandGHz: 5, WidthMHz: 80, SignalDBm: -80}
+	if steamLevels(checkSteamOSWifi(w))["CRIT"] == 0 {
+		t.Error("signal < -75 dBm should be CRIT")
+	}
+}
+
+func TestCheckSteamOSWifiHealthy5GHzQuiet(t *testing.T) {
+	w := &models.SteamOSWifi{
+		Backend: "iwd", CDNDNSKnown: true, CDNDNSms: 30,
+		Connected: true, BandGHz: 5, Channel: 149, WidthMHz: 80, SignalDBm: -52,
+	}
+	if got := checkSteamOSWifi(w); len(got) != 0 {
+		t.Errorf("healthy 5GHz link should be quiet, got %v", got)
+	}
+}
+
+func TestCheckSteamOSWifiNotConnectedQuiet(t *testing.T) {
+	// Disconnected: no quality WARN even with bad-looking zero values.
+	w := &models.SteamOSWifi{Backend: "iwd", CDNDNSKnown: true, CDNDNSms: 30, Connected: false}
+	if got := checkSteamOSWifi(w); len(got) != 0 {
+		t.Errorf("disconnected Wi-Fi should be quiet, got %v", got)
+	}
+}

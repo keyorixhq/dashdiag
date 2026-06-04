@@ -390,3 +390,110 @@ func parseMountPointSet(procMounts string) map[string]bool {
 	}
 	return set
 }
+
+// ── Wi-Fi parsers (Spec 20 + 22B) ──────────────────────────────────────────
+
+// iwIface is one wireless interface parsed from `iw dev`.
+type iwIface struct {
+	Name     string
+	SSID     string
+	Channel  int
+	FreqMHz  int
+	WidthMHz int
+}
+
+// parseIwDev parses `iw dev` output into wireless interfaces. Channel/freq/width
+// are only present when the interface is associated.
+func parseIwDev(out string) []iwIface {
+	var ifaces []iwIface
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case strings.HasPrefix(line, "Interface "):
+			ifaces = append(ifaces, iwIface{Name: strings.TrimSpace(strings.TrimPrefix(line, "Interface "))})
+		case len(ifaces) == 0:
+			continue
+		case strings.HasPrefix(line, "ssid "):
+			ifaces[len(ifaces)-1].SSID = strings.TrimSpace(strings.TrimPrefix(line, "ssid "))
+		case strings.HasPrefix(line, "channel "):
+			ch, freq, width := parseIwChannelLine(line)
+			i := len(ifaces) - 1
+			ifaces[i].Channel, ifaces[i].FreqMHz, ifaces[i].WidthMHz = ch, freq, width
+		}
+	}
+	return ifaces
+}
+
+// parseIwChannelLine extracts channel, frequency, and width from a line like
+// "channel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz".
+func parseIwChannelLine(line string) (channel, freqMHz, widthMHz int) {
+	fields := strings.Fields(line)
+	for i, f := range fields {
+		if f == "channel" && i+1 < len(fields) {
+			channel, _ = strconv.Atoi(fields[i+1])
+		}
+	}
+	if o := strings.Index(line, "("); o >= 0 {
+		if c := strings.Index(line[o:], " MHz)"); c >= 0 {
+			freqMHz, _ = strconv.Atoi(strings.TrimSpace(line[o+1 : o+c]))
+		}
+	}
+	if w := strings.Index(line, "width: "); w >= 0 {
+		rest := line[w+len("width: "):]
+		if sp := strings.IndexByte(rest, ' '); sp >= 0 {
+			widthMHz, _ = strconv.Atoi(rest[:sp])
+		}
+	}
+	return channel, freqMHz, widthMHz
+}
+
+// parseIwLinkSignal extracts connection state and RSSI from `iw dev <if> link`.
+func parseIwLinkSignal(out string) (connected bool, signalDBm int) {
+	if strings.Contains(out, "Not connected") {
+		return false, 0
+	}
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "Connected to") {
+			connected = true
+		}
+		if strings.HasPrefix(line, "signal:") {
+			if f := strings.Fields(line); len(f) >= 2 { // "signal: -52 dBm"
+				signalDBm, _ = strconv.Atoi(f[1])
+				connected = true
+			}
+		}
+	}
+	return connected, signalDBm
+}
+
+// bandFromFreqMHz maps a frequency to its Wi-Fi band in GHz (0 = unknown).
+func bandFromFreqMHz(mhz int) float64 {
+	switch {
+	case mhz >= 2400 && mhz < 2500:
+		return 2.4
+	case mhz >= 5925:
+		return 6 // Wi-Fi 6E
+	case mhz >= 4900 && mhz <= 5900:
+		return 5
+	default:
+		return 0
+	}
+}
+
+// detectSSIDConflict reports whether the same non-empty SSID appears on more
+// than one interface (the dual-band Steam Deck OLED reliability issue).
+func detectSSIDConflict(ifaces []iwIface) (conflict bool, ssid string) {
+	counts := map[string]int{}
+	for _, ifc := range ifaces {
+		if ifc.SSID != "" {
+			counts[ifc.SSID]++
+		}
+	}
+	for name, n := range counts {
+		if n >= 2 {
+			return true, name
+		}
+	}
+	return false, ""
+}

@@ -124,6 +124,11 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 			result.CloseWaitCount++
 		}
 	}
+
+	// SteamOS Wi-Fi + Remote Play profile (Spec 20 + 22B) — zero cost off-SteamOS.
+	if SteamOSAvailable() {
+		result.SteamOSWifi = collectSteamOSWifi(ctx)
+	}
 	return result, nil
 }
 

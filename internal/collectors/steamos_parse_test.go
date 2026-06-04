@@ -257,3 +257,63 @@ proc /proc proc rw 0 0`
 		t.Error("/root should not be present")
 	}
 }
+
+func TestParseIwDevAndChannel(t *testing.T) {
+	out := `phy#0
+	Interface wlan0
+		ifindex 3
+		type managed
+		channel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz
+		ssid HomeNet
+		txpower 20.00 dBm`
+	ifaces := parseIwDev(out)
+	if len(ifaces) != 1 {
+		t.Fatalf("expected 1 interface, got %d", len(ifaces))
+	}
+	w := ifaces[0]
+	if w.Name != "wlan0" || w.SSID != "HomeNet" || w.Channel != 149 || w.FreqMHz != 5745 || w.WidthMHz != 80 {
+		t.Errorf("unexpected parse: %+v", w)
+	}
+}
+
+func TestParseIwChannelLine24(t *testing.T) {
+	ch, freq, width := parseIwChannelLine("channel 6 (2437 MHz), width: 20 MHz")
+	if ch != 6 || freq != 2437 || width != 20 {
+		t.Errorf("got ch=%d freq=%d width=%d, want 6/2437/20", ch, freq, width)
+	}
+}
+
+func TestParseIwLinkSignal(t *testing.T) {
+	connected, sig := parseIwLinkSignal("Connected to aa:bb (on wlan0)\n\tSSID: HomeNet\n\tsignal: -52 dBm")
+	if !connected || sig != -52 {
+		t.Errorf("got connected=%v sig=%d, want true/-52", connected, sig)
+	}
+	if c, _ := parseIwLinkSignal("Not connected."); c {
+		t.Error("'Not connected.' should report disconnected")
+	}
+}
+
+func TestBandFromFreqMHz(t *testing.T) {
+	cases := map[int]float64{2437: 2.4, 5745: 5, 5180: 5, 6075: 6, 100: 0}
+	for freq, want := range cases {
+		if got := bandFromFreqMHz(freq); got != want {
+			t.Errorf("freq %d: got %v, want %v", freq, got, want)
+		}
+	}
+}
+
+func TestDetectSSIDConflict(t *testing.T) {
+	conflict, ssid := detectSSIDConflict([]iwIface{
+		{Name: "wlan0", SSID: "Home", FreqMHz: 2437},
+		{Name: "wlan1", SSID: "Home", FreqMHz: 5745},
+	})
+	if !conflict || ssid != "Home" {
+		t.Errorf("expected conflict on 'Home', got %v/%q", conflict, ssid)
+	}
+	if c, _ := detectSSIDConflict([]iwIface{{SSID: "A"}, {SSID: "B"}}); c {
+		t.Error("distinct SSIDs should not conflict")
+	}
+	if c, _ := detectSSIDConflict([]iwIface{{SSID: ""}, {SSID: ""}}); c {
+		t.Error("empty SSIDs must not count as a conflict")
+	}
+}

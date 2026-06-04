@@ -9,6 +9,10 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// collectSteamOSWifi is a no-op on non-Linux — the network collector compiles on
+// all platforms but only calls this when SteamOSAvailable() (always false here).
+func collectSteamOSWifi(_ context.Context) *models.SteamOSWifi { return nil }
+
 type SteamOSCollector struct{ Deep bool }
 
 func NewSteamOSCollector() *SteamOSCollector     { return &SteamOSCollector{} }

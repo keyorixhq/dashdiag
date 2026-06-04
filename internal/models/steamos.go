@@ -80,6 +80,29 @@ type SteamOSInfo struct {
 	BIOSVersion       string   `json:"bios_version,omitempty"`
 }
 
+// SteamOSWifi is the SteamOS-only Wi-Fi section of `dsd net` (Spec 20 + 22B):
+// the Wi-Fi backend (iwd vs the wpa_supplicant dev workaround), dual-band SSID
+// conflicts, Steam CDN DNS latency, and the connected-link quality profile
+// (band / channel / width / signal) that determines Remote Play streaming quality.
+type SteamOSWifi struct {
+	Backend      string `json:"backend,omitempty"` // iwd / wpa_supplicant / unknown
+	BothBackends bool   `json:"both_backends,omitempty"`
+	DevMode      bool   `json:"dev_mode,omitempty"` // wpa_supplicant only (3.7.x workaround)
+	SSIDConflict bool   `json:"ssid_conflict,omitempty"`
+	ConflictSSID string `json:"conflict_ssid,omitempty"`
+	CDNDNSKnown  bool   `json:"-"`
+	CDNDNSms     int    `json:"cdn_dns_ms,omitempty"`
+
+	// Connected-link quality profile (Spec 22B).
+	Connected    bool    `json:"connected"`
+	Interface    string  `json:"interface,omitempty"`
+	BandGHz      float64 `json:"band_ghz,omitempty"` // 2.4 / 5 / 6
+	Channel      int     `json:"channel,omitempty"`
+	FrequencyMHz int     `json:"frequency_mhz,omitempty"`
+	WidthMHz     int     `json:"width_mhz,omitempty"`
+	SignalDBm    int     `json:"signal_dbm,omitempty"`
+}
+
 // SteamOSDisk is the SteamOS-only partition section of `dsd disk` (Spec 19):
 // btrfs root error counters, shader-cache growth, the offload bind mounts, and
 // the architecturally-critical /var (256 MB) + /home sizes. Attached to

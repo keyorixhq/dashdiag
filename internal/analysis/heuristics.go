@@ -1047,6 +1047,10 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
+	if net.SteamOSWifi != nil {
+		out = append(out, checkSteamOSWifi(net.SteamOSWifi)...)
+	}
+
 	// WiFi signal quality checks
 	for _, iface := range net.Interfaces {
 		if iface.WiFi == nil || iface.WiFi.SignalDBm == 0 {
@@ -4105,6 +4109,91 @@ func checkSteamOSDisk(d *models.SteamOSDisk) []models.Insight {
 		}
 	}
 	return out
+}
+
+// checkSteamOSWifi covers the SteamOS Wi-Fi section (Spec 20 + 22B): backend
+// anomalies, dual-band SSID conflict, slow Steam CDN DNS, and the connected-link
+// quality profile that governs Remote Play streaming (band/width/signal/channel).
+func checkSteamOSWifi(w *models.SteamOSWifi) []models.Insight {
+	var out []models.Insight
+
+	if w.BothBackends {
+		out = append(out, insight("WARN", "SteamOS",
+			"both iwd and wpa_supplicant are active — conflicting Wi-Fi backends",
+			[]string{"to fix: disable one (SteamOS default is iwd): systemctl disable --now wpa_supplicant"},
+		))
+	} else if w.DevMode {
+		out = append(out, insight("INFO", "SteamOS",
+			"Wi-Fi managed by wpa_supplicant (dev-option workaround) — switch back to iwd once the 3.7.x regression is resolved",
+			nil,
+		))
+	}
+
+	if w.SSIDConflict {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("SSID %q appears on both 2.4GHz and 5GHz — a known Steam Deck OLED reliability issue", w.ConflictSSID),
+			[]string{"to fix: give each band a unique name in your router (e.g. add a _5G suffix)"},
+		))
+	}
+
+	if w.CDNDNSKnown && w.CDNDNSms > 500 {
+		out = append(out, insight("WARN", "SteamOS",
+			fmt.Sprintf("Steam CDN DNS is slow (%dms) — may cause slow downloads/updates", w.CDNDNSms),
+			[]string{"to fix: Settings → Internet → set DNS to 1.1.1.1 or 8.8.8.8"},
+		))
+	}
+
+	out = append(out, checkSteamOSWifiQuality(w)...)
+	return out
+}
+
+// checkSteamOSWifiQuality covers the connected-link Remote Play profile (Spec 22B).
+func checkSteamOSWifiQuality(w *models.SteamOSWifi) []models.Insight {
+	if !w.Connected {
+		return nil // disconnected — can't stream anyway, no WARN
+	}
+	var out []models.Insight
+
+	if w.BandGHz == 2.4 {
+		out = append(out, insight("WARN", "SteamOS",
+			"Wi-Fi on 2.4GHz — switch to 5GHz for reliable Remote Play streaming",
+			[]string{"to fix: connect to the 5GHz SSID on your router"},
+		))
+		if w.Channel != 0 && !steamChannel24OK(w.Channel) {
+			out = append(out, insight("WARN", "SteamOS",
+				fmt.Sprintf("2.4GHz channel %d is not one of the non-overlapping 1/6/11", w.Channel),
+				[]string{"to fix: set the router to channel 1, 6, or 11"},
+			))
+		}
+	}
+
+	if w.WidthMHz == 20 {
+		out = append(out, insight("WARN", "SteamOS",
+			"Wi-Fi channel width is 20MHz — half the throughput of 40/80MHz",
+			[]string{"to fix: enable 40/80MHz channel width in your router (5GHz)"},
+		))
+	}
+
+	if w.SignalDBm != 0 {
+		switch {
+		case w.SignalDBm < -75:
+			out = append(out, insight("CRIT", "SteamOS",
+				fmt.Sprintf("Wi-Fi signal %d dBm — poor; move the device closer to the router", w.SignalDBm),
+				nil,
+			))
+		case w.SignalDBm <= -65:
+			out = append(out, insight("WARN", "SteamOS",
+				fmt.Sprintf("Wi-Fi signal %d dBm — marginal; streaming quality may degrade", w.SignalDBm),
+				nil,
+			))
+		}
+	}
+	return out
+}
+
+// steamChannel24OK reports whether a 2.4GHz channel is non-overlapping (1/6/11).
+func steamChannel24OK(ch int) bool {
+	return ch == 1 || ch == 6 || ch == 11
 }
 
 // checkContainerd surfaces health issues for a standalone containerd runtime

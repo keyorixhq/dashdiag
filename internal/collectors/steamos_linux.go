@@ -158,6 +158,61 @@ func dirExists(path string) bool {
 	return err == nil
 }
 
+// collectSteamOSWifi gathers the SteamOS-only Wi-Fi section (Spec 20 + 22B):
+// backend, dual-band SSID conflict, Steam CDN DNS latency, and the connected
+// link quality profile. Called by the network collector (gated on
+// SteamOSAvailable). Returns nil only on non-SteamOS via the build stub.
+func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
+	w := &models.SteamOSWifi{}
+
+	iwd := unitActive(ctx, "iwd.service")
+	wpa := unitActive(ctx, "wpa_supplicant.service")
+	switch {
+	case iwd && wpa:
+		w.Backend, w.BothBackends = "iwd", true
+	case iwd:
+		w.Backend = "iwd"
+	case wpa:
+		w.Backend, w.DevMode = "wpa_supplicant", true
+	default:
+		w.Backend = "unknown"
+	}
+
+	if out, err := runCmd(ctx, "iw", "dev"); err == nil {
+		ifaces := parseIwDev(out)
+		if c, ssid := detectSSIDConflict(ifaces); c {
+			w.SSIDConflict, w.ConflictSSID = true, ssid
+		}
+		for _, ifc := range ifaces {
+			if ifc.FreqMHz > 0 { // associated interface
+				w.Connected = true
+				w.Interface = ifc.Name
+				w.Channel, w.FrequencyMHz, w.WidthMHz = ifc.Channel, ifc.FreqMHz, ifc.WidthMHz
+				w.BandGHz = bandFromFreqMHz(ifc.FreqMHz)
+				break
+			}
+		}
+	}
+
+	if w.Interface != "" {
+		if out, err := runCmd(ctx, "iw", "dev", w.Interface, "link"); err == nil {
+			conn, sig := parseIwLinkSignal(out)
+			w.Connected = w.Connected || conn
+			w.SignalDBm = sig
+		}
+	}
+
+	// Steam CDN DNS resolve time (slow DNS is the usual "slow downloads" cause).
+	dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if _, err := net.DefaultResolver.LookupHost(dnsCtx, "steamdeck-images.steamos.cloud"); err == nil {
+		w.CDNDNSKnown = true
+		w.CDNDNSms = int(time.Since(start).Milliseconds())
+	}
+	return w
+}
+
 // steamHostUptimeSeconds returns system uptime from /proc/uptime (0 on error).
 func steamHostUptimeSeconds() float64 {
 	data, err := os.ReadFile("/proc/uptime")
