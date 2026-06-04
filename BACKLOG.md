@@ -314,6 +314,32 @@ Low priority — the underlying swappiness WARN is still correct and useful; onl
 Recorded so they aren't lost; explicitly NOT committed work. Each is demand-unvalidated
 per COMPANY_PRINCIPLES.md Principle 3 — build only when a real user/buyer asks.
 
+### OpenStack guest checks — cloud-init health + metadata reachability (candidate — gated on a real request)
+
+Anticipated: some clients will run `dsd` on OpenStack instances. An OpenStack instance is
+a KVM guest (Nova → KVM/QEMU/libvirt), so the baseline is **already covered** by the
+validated KVM-guest paths (CPU steal, run-queue collector, virtio detection, SMART
+suppression on virtual disks). Nothing new needed for the generic case.
+
+The only OpenStack-specific guest-side candidates:
+- **cloud-init health (build this first if built at all).** `cloud-init status` →
+  completed vs error/degraded. Catches the common "instance booted but never configured"
+  failure. **Generic to every cloud-init platform** (AWS/GCP/Debian VM 101), not
+  OpenStack-only — so it pays off broadly. Testable on existing KVM VMs; no OpenStack
+  cloud required to develop or validate it.
+- **Metadata service reachability** (169.254.169.254) — cheap guest-side check; modest value.
+- virtio/paravirtual driver detection — generic KVM, largely already present.
+
+**Out of scope:** Nova/Neutron/Cinder control plane, hypervisor-host state, OpenStack API —
+that would make `dsd` an OpenStack monitoring product, not a guest diagnostician. Diagnostician
+on the node, never the control plane.
+
+**Status: anticipated, demand-unvalidated (Principle 3). Plan recorded, build deferred** —
+do not build until a real OpenStack user asks. Full rationale: ADR-0002 Decision 6
+"Candidate environment — OpenStack".
+
+---
+
 ### `--export` / CMDB inventory feed (candidate — gated on a real request)
 
 DashDiag already collects hardware inventory (disk model/serial/capacity, CPU, DIMM

@@ -385,6 +385,44 @@ Additive, cheap (data already collected), demand-unvalidated per Principle 3 —
 real request. Origin: co-founder Yuri (ex-MS IT manager who built a homemade Access CMDB).
 Full entry in BACKLOG.md.
 
+### Candidate environment — OpenStack (private/public cloud guests) (2026-06-04, anticipated)
+
+Some prospective clients are expected to run `dsd` on OpenStack instances. Recorded so
+the plan exists; **demand-unvalidated (Principle 3)** — anticipated, not a named client
+with the pain. Plan now, do NOT build until a real OpenStack user appears.
+
+**Key fact — an OpenStack instance is a KVM guest.** OpenStack Nova almost universally
+uses KVM/QEMU (libvirt). From inside the guest it *is* a Linux box on KVM — which is
+already validated (openSUSE KVM VM, Proxmox guests, the Debian VM 101). So the baseline
+needs essentially **nothing new**: CPU steal time, the run-queue collector (already
+VM/container-aware), virtio disk detection, the SMART-suppression-on-virtual-disks gate
+— all already handle the KVM-guest case. OpenStack is mostly *already covered*.
+
+**The only genuinely OpenStack-specific guest-side candidates** (the parts that differ
+from a plain KVM guest are about the guest's relationship to the OpenStack control plane):
+
+- **cloud-init health (the one worth building first).** OpenStack provisions guests via
+  cloud-init pulling from the metadata service. Failed/hung cloud-init = instance boots
+  but never configures — a real, common, OpenStack-flavoured failure. A check for
+  `cloud-init status` (completed vs error/degraded) is the highest-value OpenStack-relevant
+  guest check — and it is **generic to every cloud-init platform** (AWS, GCP, the Debian
+  VM 101), so it pays off well beyond OpenStack. Can be developed and tested on the
+  existing KVM VMs — no OpenStack cloud needed to validate it.
+- **Metadata service reachability (169.254.169.254).** Cheap guest-side check; cloud-init
+  and config depend on it. Modest value, generic to most clouds.
+- **virtio / paravirtual driver detection** — generic to KVM, largely already present
+  (the `isVirtualDisk` gate already sees `vd*`).
+
+**Out of scope (the wall — same as ESXi internals for VMware):** Nova/Neutron/Cinder
+control-plane health, hypervisor-host state, the OpenStack API. The moment `dsd` reads the
+OpenStack control plane it stops being a guest diagnostician and becomes an OpenStack
+monitoring product — a crowded space with its own ecosystem tooling, and a different
+product. Diagnostician *on the node*, never the control plane.
+
+**Status:** plan recorded, build deferred. The cloud-init health check is the one concrete
+candidate; it is generic-cloud-useful (not OpenStack-only), testable on existing KVM/VM
+infra, and still gated on a real user asking — same discipline as every other candidate.
+
 ### Candidate environment — edge computing / carrier base stations (2026-06-04, one declaration)
 
 A mobile-carrier contact declared a direction: cellular base stations and antennas going
