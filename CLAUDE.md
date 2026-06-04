@@ -92,8 +92,11 @@ dsd net          🟡 +SteamOS Wi-Fi (Spec 20+22B): backend (sole home), dual-ba
                     Steam CDN DNS, Remote Play link quality (band/channel/width/signal) — gated.
                     Note: SteamOS checks are consolidated to one home each (Wi-Fi→net, shader→disk,
                     btrfs→generic, update-server→steamos) — no duplicate insights in dsd health.
-                    ⚠️ All SteamOS work (17/17a/19/20/22) is on branch `steamos`, LIVE VALIDATION
-                    PENDING — no Steam Deck hardware. See BACKLOG [STEAMOS-VALIDATION].
+                    ✅ All SteamOS work (17/17a/19/20/22) on branch `steamos` VALIDATED against
+                    real tooling on a SteamOS-spoofed Debian UEFI VM (pve01 VM 102): real rauc 1.13
+                    JSON+text, mac80211_hwsim Wi-Fi, btrfs, nft, ss, efivar, Jupiter/ROG-Ally DMI.
+                    Fixed an applyRAUCText bug (real rauc uses ○/⏺ glyphs + ANSI, not ASCII o/x).
+                    Only Game-Mode gamescope state still needs a real Deck. See BACKLOG [STEAMOS-VALIDATION].
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
 dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
                     --endpoints-file, --json); InsecureSkipVerify to read expired certs

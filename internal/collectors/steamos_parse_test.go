@@ -74,23 +74,65 @@ func TestApplyRAUCJSONRejectsNonRAUC(t *testing.T) {
 	}
 }
 
+// TestApplyRAUCJSONReal113 locks in the exact `rauc status --output-format=json`
+// shape captured from rauc 1.13 — the full per-slot object (class/device/type/
+// mountpoint/parent alongside state/boot_status/bootname) and the slots array of
+// single-key objects in inactive-then-booted order.
+func TestApplyRAUCJSONReal113(t *testing.T) {
+	out := `{"compatible":"steamos-amd64","variant":"","booted":"/dev/sda1","boot_primary":"rootfs.0","slots":[{"rootfs.1":{"class":"rootfs","device":"/dev/loop0","type":"ext4","bootname":"B","state":"inactive","parent":null,"mountpoint":null,"boot_status":"good"}},{"rootfs.0":{"class":"rootfs","device":"/dev/sda1","type":"ext4","bootname":"A","state":"booted","parent":null,"mountpoint":"/","boot_status":"good"}}],"artifact-repositories":[]}`
+	var info models.SteamOSInfo
+	if !applyRAUCJSON(out, &info) {
+		t.Fatal("expected real rauc 1.13 JSON to parse")
+	}
+	if info.RAUCBootedSlot != "A" || info.RAUCBootedStatus != "good" {
+		t.Errorf("booted: got %s/%s, want A/good", info.RAUCBootedSlot, info.RAUCBootedStatus)
+	}
+	if info.RAUCInactiveSlot != "B" || info.RAUCInactiveStatus != "good" {
+		t.Errorf("inactive: got %s/%s, want B/good", info.RAUCInactiveSlot, info.RAUCInactiveStatus)
+	}
+}
+
 func TestApplyRAUCText(t *testing.T) {
-	out := `=== System Info ===
-  Compatible:  Valve Steam Deck
-=== Slot States ===
+	// Real rauc 1.13 output captured on a SteamOS-spoofed host: status glyphs
+	// (○ inactive, ⏺ booted) plus ANSI color codes around the field values.
+	// rauc emits these even over a pipe, so the parser must strip them.
+	real113 := "=== System Info ===\n" +
+		"Compatible:  steamos-amd64\n" +
+		"=== Slot States ===\n" +
+		"○ \x1b[1m[rootfs.1]\x1b[0m (/dev/loop0, ext4, inactive\x1b[0m)\n" +
+		"      bootname: \x1b[34mB\x1b[0m\n" +
+		"      boot status: \x1b[32mgood\x1b[0m\n" +
+		"⏺ \x1b[32m\x1b[1m[rootfs.0]\x1b[0m (/dev/sda1, ext4, \x1b[1mbooted\x1b[0m)\n" +
+		"      bootname: \x1b[34mA\x1b[0m\n" +
+		"      mounted: /\n" +
+		"      boot status: \x1b[32mgood\x1b[0m"
+	// Legacy ASCII marker form must still parse (backward compatibility).
+	legacy := `=== Slot States ===
 o [rootfs.0] (/dev/nvme0n1p4, ext4, booted)
         bootname: A
         boot status: good
 x [rootfs.1] (/dev/nvme0n1p5, ext4, inactive)
         bootname: B
         boot status: bad`
-	var info models.SteamOSInfo
-	applyRAUCText(out, &info)
-	if info.RAUCBootedSlot != "A" || info.RAUCBootedStatus != "good" {
-		t.Errorf("booted: got %s/%s, want A/good", info.RAUCBootedSlot, info.RAUCBootedStatus)
+	cases := []struct {
+		name                                         string
+		out                                          string
+		wantBoot, wantBootStat, wantIna, wantInaStat string
+	}{
+		{"rauc 1.13 glyphs+ansi", real113, "A", "good", "B", "good"},
+		{"legacy ascii markers", legacy, "A", "good", "B", "bad"},
 	}
-	if info.RAUCInactiveSlot != "B" || info.RAUCInactiveStatus != "bad" {
-		t.Errorf("inactive: got %s/%s, want B/bad", info.RAUCInactiveSlot, info.RAUCInactiveStatus)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var info models.SteamOSInfo
+			applyRAUCText(tc.out, &info)
+			if info.RAUCBootedSlot != tc.wantBoot || info.RAUCBootedStatus != tc.wantBootStat {
+				t.Errorf("booted: got %s/%s, want %s/%s", info.RAUCBootedSlot, info.RAUCBootedStatus, tc.wantBoot, tc.wantBootStat)
+			}
+			if info.RAUCInactiveSlot != tc.wantIna || info.RAUCInactiveStatus != tc.wantInaStat {
+				t.Errorf("inactive: got %s/%s, want %s/%s", info.RAUCInactiveSlot, info.RAUCInactiveStatus, tc.wantIna, tc.wantInaStat)
+			}
+		})
 	}
 }
 

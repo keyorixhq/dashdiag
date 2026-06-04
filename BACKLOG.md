@@ -524,39 +524,46 @@ live amdgpu hardware — the test matrix only has Intel i915 (PVE01) and GPU-les
 `steamos` — Spec 17 (`dsd steamos`), 17a (device identity + Secure Boot), 22A
 (Remote Play ports/firewall/AP-isolation), 19 (`dsd disk` partition layout), and
 20+22B (`dsd net` Wi-Fi + Remote Play profile). All gated on `platform.IsSteamOS`,
-wired into `dsd health`/`dsd disk`/`dsd net`, pure parsers unit-tested on the host
-OS, non-SteamOS paths verified graceful + exit 0 on macOS. It has **never run on a
-real Steam Deck** — every `*-output format assumption below needs on-device confirmation.**
+wired into `dsd health`/`dsd disk`/`dsd net`.
 
-**What to validate when a Steam Deck / SteamOS device is available:**
+**June 5 — validated against REAL tooling on a SteamOS-spoofed VM (no Deck hardware).**
+Built a disposable Debian 13 UEFI/Secure-Boot VM on pve01 (VM 102, `192.168.10.60`):
+`/etc/os-release` set to `ID=steamos`/`VARIANT_ID=steamdeck` (trips `platform.IsSteamOS`),
+SMBIOS `product=Jupiter`/`Valve`, real `rauc` 1.13 with A/B slots, `mac80211_hwsim`
+virtual Wi-Fi (hostapd 5GHz/ch36/VHT80 AP + associated station), real `btrfs`,
+`nftables` drop rule, bound Remote Play sockets. `dsd` detected `steamos 3.6.20` and
+ran all collectors end-to-end. Every parser below exercised against genuine
+command output, **not fixtures** — except the two Deck-only items still flagged `[ ]`.
 
 _Spec 17 (`dsd steamos`):_
-- [ ] RAUC: `rauc status --output-format=json` shape matches `applyRAUCJSON` (`slots` array of single-key objects); booted/inactive + bootname (A/B) + boot status. Bad booted → CRIT (`mark-active booted`), bad inactive → WARN. Text fallback `applyRAUCText` matches real output.
-- [ ] `steamos-readonly status` parses "enabled"/"disabled"; disabled → CRIT.
-- [ ] Channel: confirm `/etc/steamos-atomupd/client.conf` key is `Variant` (else fix `parseSteamOSChannel`); rel→stable.
-- [ ] Session unit names + `XDG_SESSION_DESKTOP` (assumed `gamescope`) in Game Mode; stuck session → CRIT.
-- [ ] `/var` (~256MB) + `/home` statfs vs `df`; Wi-Fi backend; update-server reach; `--deep` (gamescope/rauc journals, du, flatpak, dmidecode BIOS).
+- [x] RAUC JSON: real `rauc 1.13 --output-format=json` shape matches `applyRAUCJSON` exactly (`slots` = array of single-key objects with `state`/`boot_status`/`bootname`); booted A / inactive B parsed correctly. **#1 flagged risk — confirmed correct.**
+- [x] RAUC **text fallback**: real `rauc status` uses glyph markers (`○`/`⏺`) + ANSI color codes, NOT the ASCII `o`/`x` the parser assumed → **BUG FIXED** (`applyRAUCText` now strips ANSI + detects headers by `[<slot>] (` shape; locked in by `TestApplyRAUCText/rauc 1.13 glyphs+ansi`).
+- [x] `steamos-readonly status` → "enabled" parsed (rootfs protected).
+- [~] Channel: `[Host] Variant = rel` → stable confirmed. **Caveat:** real client.conf `[Server]` uses `Variants` (plural, the *menu* of channels); the exact key/section holding the *selected* channel still needs on-Deck confirmation — parser is robust (scans for a singular `variant`/`channel` key, ignores the plural menu line).
+- [x] `/var` + `/home` statfs; Wi-Fi backend detection; update-server reach — all rendered correctly.
+- [ ] **Still needs a real Deck:** Session unit names + `XDG_SESSION_DESKTOP=gamescope` in **Game Mode** (only the *inactive* path was exercisable; a stuck-session CRIT can't be reproduced off-device). `--deep` proton/flatpak/dmidecode-BIOS ran without crashing but had no real data.
 
 _Spec 17a (device identity):_
-- [ ] `/sys/class/dmi/id/product_name`: Jupiter/Galileo/ROG Ally/Legion Go S map correctly; unknown → INFO.
-- [ ] Secure Boot efivar byte-4 parse on a non-Deck (ROG Ally) → enabled WARN; suppressed on Jupiter/Galileo; non-UEFI → nil/skip.
+- [x] DMI `product_name`: Jupiter → "Steam Deck LCD" (Deck); SMBIOS-swapped to "ROG Ally X" → "ASUS ROG Ally X" (non-Deck). Mapping confirmed live.
+- [x] Secure Boot efivar: real bytes `06 00 00 00 01` → byte-4 enabled. Suppressed on Jupiter ("n/a — Steam Deck firmware"); same efivar on ROG Ally → WARN "ENABLED". Both branches validated off one real efivar.
 
 _Spec 22A (Remote Play):_
-- [ ] `ss -tulpn` format: ports 27031/27036/27037 bound→process/PID; unbound primary → WARN; VR 10400/10401 INFO.
-- [ ] Firewall: `nft list ruleset` (root) / iptables fallback; a real drop rule on a port → WARN; not-readable stays quiet.
-- [ ] AP isolation: `ip route`/`ip neigh` parse; empty ARP after >120s uptime → WARN; ≥1 peer → quiet.
+- [x] `ss -tulpn`: real format parsed; 27036/27037 bound → process/PID; 27031 unbound → WARN; VR ports INFO.
+- [x] Firewall: real `nft list ruleset` drop rule on tcp/27037 → WARN fired (`firewallBlocksPorts`).
+- [x] AP isolation: real `ip route`/`ip neigh` → 1 peer in ARP cache → quiet.
 
 _Spec 19 (`dsd disk`):_
-- [ ] `btrfs device stats /` line format matches `parseBtrfsDeviceStats`; read/write→CRIT, corruption/generation/flush→WARN. Shader cache `du` 10/30GB. Offload bind mounts `/opt`,`/root` detected via /proc/mounts + target stat.
+- [x] `btrfs device stats` line format `[/dev/x].<counter>  N` matches the regex; volume + offload bind-mount (`/opt`,`/root` → broken) detection rendered. **Note:** the generic `btrfsDevStatRe` only captures `read_io_errs`/`write_io_errs`/`corruption_errs` — `generation_errs`/`flush_io_errs` are silently ignored (pre-existing gap in the generic btrfs collector; the spec intends these as WARN). Tracked as a separate cleanup.
 
 _Spec 20 + 22B (`dsd net`):_
-- [ ] `iw dev` format matches `parseIwDev` (Interface/ssid/`channel N (FFFF MHz), width: W MHz`); `iw dev <if> link` signal parse. Band/width/signal/channel thresholds; dual-band SSID conflict; Steam CDN DNS timing. Interface name detected dynamically (not hardcoded wlan0).
+- [x] `iw dev` format matches `parseIwDev` (`channel 36 (5180 MHz), width: 80 MHz`); `iw dev <if> link` → `signal: -27 dBm` parsed. Band=5GHz, width=80, SSID conflict, Steam CDN DNS timing all rendered. Interface detected dynamically (wlan1, not hardcoded).
 
-**Priority:** Medium — all SteamOS code is unvalidated against the real OS; the
-command-output parsers (RAUC schema, client.conf key, unit names, `ss`/`iw`/`btrfs`
-formats, efivar layout) are the likeliest to need adjustment.
-**Blocked on:** Access to a Steam Deck or a SteamOS/HoloISO/Bazzite VM.
-**Estimated:** 3–4h once hardware is available (deploy binary, walk the acceptance list across all 5 specs, capture fixtures).
+**Remaining (genuinely Deck-only):** Game-Mode gamescope session state, and on-device
+confirmation of the persisted selected-channel key in `client.conf`. Plus the
+`generation_errs`/`flush_io_errs` btrfs coverage gap (host-testable, separate item).
+**Priority:** Low — parsers now validated against real tooling; residual risk is small.
+**Blocked on:** Access to a booted Steam Deck in Game Mode.
+**Reproduce the VM rig:** see commit message for `feat(steamos): validate parsers against real tooling`.
 
 ---
 

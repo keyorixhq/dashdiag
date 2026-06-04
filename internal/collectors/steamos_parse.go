@@ -131,13 +131,23 @@ func applyRAUCJSON(out string, info *models.SteamOSInfo) bool {
 	return found
 }
 
-// applyRAUCText parses the plain `rauc status` text. Each slot block looks like:
+// raucANSIRe matches the ANSI SGR color escapes that `rauc status` embeds in
+// its text output. Confirmed against rauc 1.13 (Debian trixie): rauc colorizes
+// even when stdout is a pipe, so a captured `rauc status` carries codes like
+// "\x1b[34mB\x1b[0m" around field values that must be stripped before parsing.
+var raucANSIRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// applyRAUCText parses the plain `rauc status` text (the fallback when
+// --output-format=json is unavailable). After ANSI stripping a slot block is:
 //
-//	o [rootfs.0] (/dev/..., ext4, booted)
+//	⏺ [rootfs.0] (/dev/..., ext4, booted)
 //	    bootname: A
 //	    boot status: good
 //
-// "booted" / "active" in the slot header marks the running slot.
+// Real rauc prefixes each slot header with a status glyph (○ inactive,
+// ⏺ booted) rather than the ASCII "o"/"x" older versions used, so the header
+// is detected by its "[<slot>] (" shape instead of a fixed marker character.
+// "booted" in the header marks the running slot.
 func applyRAUCText(out string, info *models.SteamOSInfo) {
 	var curName, curStatus string
 	booted := false
@@ -154,9 +164,9 @@ func applyRAUCText(out string, info *models.SteamOSInfo) {
 		}
 	}
 	for _, line := range strings.Split(out, "\n") {
-		trimmed := strings.TrimSpace(line)
+		trimmed := strings.TrimSpace(raucANSIRe.ReplaceAllString(line, ""))
 		switch {
-		case strings.HasPrefix(trimmed, "o [") || strings.HasPrefix(trimmed, "x ["):
+		case isRAUCSlotHeader(trimmed):
 			flush()
 			curName, curStatus, booted = "", "", strings.Contains(trimmed, "booted")
 		case strings.HasPrefix(trimmed, "bootname:"):
@@ -166,6 +176,13 @@ func applyRAUCText(out string, info *models.SteamOSInfo) {
 		}
 	}
 	flush()
+}
+
+// isRAUCSlotHeader reports whether an ANSI-stripped line is a slot header of the
+// form "<glyph> [rootfs.N] (/dev/..., <fstype>, <state>)". The "] (" device
+// tuple distinguishes it from section headers like "=== Slot States ===".
+func isRAUCSlotHeader(line string) bool {
+	return strings.Contains(line, "[") && strings.Contains(line, "] (")
 }
 
 // filterGamescopeErrors keeps up to maxLines journal lines that look like errors.
