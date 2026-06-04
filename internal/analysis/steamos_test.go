@@ -29,7 +29,7 @@ func TestCheckSteamOSHealthy(t *testing.T) {
 		ReadonlyKnown: true, ReadonlyEnabled: true,
 		Channel: "stable", SessionMode: "gamemode", GamescopeActive: true,
 		VarUsedPct: 30, HomeUsedPct: 24,
-		WifiBackend: "iwd", UpdateServerKnown: true, UpdateServerReachable: true,
+		UpdateServerKnown: true, UpdateServerReachable: true,
 	}
 	if got := checkSteamOS(info); len(got) != 0 {
 		t.Errorf("healthy deck should produce no insights, got %v", got)
@@ -200,21 +200,6 @@ func TestCheckSteamOSSecureBootSuppressedOnDeck(t *testing.T) {
 
 // ── checkSteamOSDisk (Spec 19) ────────────────────────────────────────────
 
-func TestCheckSteamOSDiskBtrfsIOErrorsCrit(t *testing.T) {
-	d := &models.SteamOSDisk{BtrfsRootChecked: true, BtrfsWriteErrs: 3}
-	if steamLevels(checkSteamOSDisk(d))["CRIT"] == 0 {
-		t.Error("btrfs write I/O errors should be CRIT")
-	}
-}
-
-func TestCheckSteamOSDiskBtrfsCorruptionWarn(t *testing.T) {
-	d := &models.SteamOSDisk{BtrfsRootChecked: true, BtrfsCorruptionErrs: 1}
-	lv := steamLevels(checkSteamOSDisk(d))
-	if lv["WARN"] == 0 || lv["CRIT"] != 0 {
-		t.Errorf("corruption-only should be WARN, not CRIT: %v", lv)
-	}
-}
-
 func TestCheckSteamOSDiskShaderCacheThresholds(t *testing.T) {
 	if steamLevels(checkSteamOSDisk(&models.SteamOSDisk{ShaderCacheGB: 14}))["WARN"] == 0 {
 		t.Error("14GB shader cache should WARN")
@@ -236,8 +221,7 @@ func TestCheckSteamOSDiskBrokenBindMountWarn(t *testing.T) {
 
 func TestCheckSteamOSDiskHealthyQuiet(t *testing.T) {
 	d := &models.SteamOSDisk{
-		BtrfsRootChecked: true,
-		ShaderCacheGB:    3,
+		ShaderCacheGB: 3,
 		BindMounts: []models.SteamOSBindMount{
 			{Path: "/opt", OK: true}, {Path: "/root", OK: true},
 		},

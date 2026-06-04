@@ -201,23 +201,16 @@ func printSteamOSStorage(info *models.SteamOSInfo) {
 }
 
 func printSteamOSNetwork(info *models.SteamOSInfo) {
-	fmt.Println("\n[Network]")
-	backend := info.WifiBackend
-	if backend == "" {
-		backend = "unknown"
-	}
-	note := " (default mode)"
-	if info.WifiDevMode {
-		note = " (dev-mode workaround — not the iwd default)"
-	}
-	fmt.Printf("  ✅ Wi-Fi: %s%s\n", backend, note)
+	// Wi-Fi backend/SSID/quality is shown by `dsd net` (single home). Here we
+	// only report the SteamOS atomic-update server.
+	fmt.Println("\n[Update server]")
 	switch {
 	case !info.UpdateServerKnown:
 		fmt.Println("  ℹ️  SteamOS update server: not tested")
 	case info.UpdateServerReachable:
 		fmt.Printf("  ✅ SteamOS update server: reachable (%dms)\n", info.UpdateServerLatencyMs)
 	default:
-		fmt.Println("  ⚠️  SteamOS update server: unreachable")
+		fmt.Println("  ⚠️  SteamOS update server: unreachable  (Wi-Fi details: dsd net)")
 	}
 }
 
@@ -271,13 +264,7 @@ func printSteamOSDeep(info *models.SteamOSInfo) {
 	if info.ProtonPrefixCount > 0 || info.CompatDataGB > 0 {
 		fmt.Printf("  Proton prefixes: %d  (compatdata %.1f GB)\n", info.ProtonPrefixCount, info.CompatDataGB)
 	}
-	if info.ShaderCacheGB > 0 {
-		icon := "✅"
-		if info.ShaderCacheGB > 10 {
-			icon = "⚠️ "
-		}
-		fmt.Printf("  %s Shader cache: %.1f GB\n", icon, info.ShaderCacheGB)
-	}
+	// Shader cache is reported by `dsd disk` (single home).
 	if info.FlatpakAppCount > 0 || info.FlatpakDataGB > 0 {
 		icon := "✅"
 		if info.FlatpakDataGB > 20 {
@@ -325,9 +312,6 @@ func steamOSConcernCount(info *models.SteamOSInfo) int {
 		n++
 	}
 	if info.UpdateServerKnown && !info.UpdateServerReachable {
-		n++
-	}
-	if info.ShaderCacheGB > 10 {
 		n++
 	}
 	if info.FlatpakDataGB > 20 {

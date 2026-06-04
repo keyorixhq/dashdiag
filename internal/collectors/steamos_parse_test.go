@@ -225,26 +225,6 @@ func itoaPort(p int) string {
 	return strconv.Itoa(p)
 }
 
-func TestParseBtrfsDeviceStats(t *testing.T) {
-	out := `[/dev/nvme0n1p4].write_io_errs    2
-[/dev/nvme0n1p4].read_io_errs     0
-[/dev/nvme0n1p4].flush_io_errs    0
-[/dev/nvme0n1p4].corruption_errs  1
-[/dev/nvme0n1p4].generation_errs  0`
-	s := parseBtrfsDeviceStats(out)
-	if s.Write != 2 || s.Read != 0 || s.Corruption != 1 {
-		t.Errorf("got %+v, want write=2 read=0 corruption=1", s)
-	}
-}
-
-func TestParseBtrfsDeviceStatsSumsDevices(t *testing.T) {
-	out := `[/dev/sda].read_io_errs 1
-[/dev/sdb].read_io_errs 3`
-	if s := parseBtrfsDeviceStats(out); s.Read != 4 {
-		t.Errorf("expected summed read=4, got %d", s.Read)
-	}
-}
-
 func TestParseMountPointSet(t *testing.T) {
 	out := `/dev/nvme0n1p4 / btrfs rw 0 0
 /dev/nvme0n1p4 /opt btrfs rw 0 0

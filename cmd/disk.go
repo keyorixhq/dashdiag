@@ -280,17 +280,7 @@ func countSteamOSDiskIssues(d *models.SteamOSDisk) int {
 		return 0
 	}
 	n := 0
-	if d.BtrfsRootChecked && (d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 ||
-		d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0) {
-		n++
-	}
 	if d.ShaderCacheGB > 10 {
-		n++
-	}
-	if d.VarUsedPct >= 70 {
-		n++
-	}
-	if d.HomeUsedPct >= 85 {
 		n++
 	}
 	for _, bm := range d.BindMounts {
@@ -307,27 +297,9 @@ func printDiskSteamOS(info *models.DiskInfo) {
 	if d == nil {
 		return
 	}
-	fmt.Printf("\n[SteamOS partition layout]\n")
-
-	if d.BtrfsRootChecked {
-		icon := "✅"
-		if d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 {
-			icon = "❌"
-		} else if d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0 {
-			icon = "⚠️ "
-		}
-		fmt.Printf("  %s Root (btrfs): read errors: %d, write errors: %d, corruption: %d\n",
-			icon, d.BtrfsReadErrs, d.BtrfsWriteErrs, d.BtrfsCorruptionErrs)
-	}
-
-	if d.VarTotalMB > 0 {
-		fmt.Printf("  %s /var:  %.0f / %.0f MB  (%.0f%%)  ← 256MB partition; see dsd steamos for cleanup\n",
-			usageIcon(d.VarUsedPct, 70, 85), d.VarUsedMB, d.VarTotalMB, d.VarUsedPct)
-	}
-	if d.HomeTotalGB > 0 {
-		fmt.Printf("  %s /home: %.0f / %.0f GB  (%.0f%%)\n",
-			usageIcon(d.HomeUsedPct, 85, 95), d.HomeUsedGB, d.HomeTotalGB, d.HomeUsedPct)
-	}
+	// btrfs root errors appear in the Btrfs section above; /var + /home in the
+	// Filesystems section. This section covers only the SteamOS-specific extras.
+	fmt.Printf("\n[SteamOS storage]\n")
 
 	if d.ShaderCacheGB > 0 {
 		icon := "✅"

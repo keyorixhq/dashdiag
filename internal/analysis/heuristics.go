@@ -4024,12 +4024,8 @@ func checkSteamOSStorage(s models.SteamOSInfo) []models.Insight {
 // checkSteamOSNetwork covers Wi-Fi backend and update-server reachability.
 func checkSteamOSNetwork(s models.SteamOSInfo) []models.Insight {
 	var out []models.Insight
-	if s.WifiDevMode {
-		out = append(out, insight("INFO", "SteamOS",
-			"Wi-Fi is managed by wpa_supplicant (dev-mode workaround), not the default iwd — expected only if you applied the 3.7.x Wi-Fi fix",
-			[]string{"note: revert to iwd once the regression is resolved upstream"},
-		))
-	}
+	// Wi-Fi backend (incl. the wpa_supplicant dev-mode note) is owned by dsd net
+	// (checkSteamOSWifi) — kept out of here to avoid a duplicate insight in dsd health.
 	if s.UpdateServerKnown && !s.UpdateServerReachable {
 		out = append(out, insight("WARN", "SteamOS",
 			"SteamOS update server (steamdeck-atomupd.steamos.cloud) is unreachable — updates cannot be fetched",
@@ -4045,12 +4041,7 @@ func checkSteamOSNetwork(s models.SteamOSInfo) []models.Insight {
 // checkSteamOSDeep covers the deep-only growth checks (shader cache, flatpak).
 func checkSteamOSDeep(s models.SteamOSInfo) []models.Insight {
 	var out []models.Insight
-	if s.ShaderCacheGB > 10 {
-		out = append(out, insight("WARN", "SteamOS",
-			fmt.Sprintf("shader cache is %.1f GB — a common cause of /home filling up", s.ShaderCacheGB),
-			[]string{"to clear: Steam → Settings → Storage, or remove ~/.steam/steam/shadercache/*"},
-		))
-	}
+	// Shader cache is owned by dsd disk (checkSteamOSDisk) — not duplicated here.
 	if s.FlatpakDataGB > 20 {
 		out = append(out, insight("WARN", "SteamOS",
 			fmt.Sprintf("flatpak data is %.1f GB", s.FlatpakDataGB),
@@ -4066,27 +4057,8 @@ func checkSteamOSDeep(s models.SteamOSInfo) []models.Insight {
 func checkSteamOSDisk(d *models.SteamOSDisk) []models.Insight {
 	var out []models.Insight
 
-	if d.BtrfsRootChecked {
-		if d.BtrfsReadErrs > 0 || d.BtrfsWriteErrs > 0 {
-			out = append(out, insight("CRIT", "SteamOS",
-				fmt.Sprintf("btrfs root I/O errors (read: %d, write: %d) — failing storage or cabling", d.BtrfsReadErrs, d.BtrfsWriteErrs),
-				[]string{
-					"to inspect: btrfs device stats /",
-					"to inspect: dmesg | grep -i btrfs",
-					"note: back up /home before the device degrades further",
-				},
-			))
-		} else if d.BtrfsCorruptionErrs > 0 || d.BtrfsGenerationErrs > 0 || d.BtrfsFlushErrs > 0 {
-			out = append(out, insight("WARN", "SteamOS",
-				fmt.Sprintf("btrfs root non-zero error counters (corruption: %d, generation: %d, flush: %d)", d.BtrfsCorruptionErrs, d.BtrfsGenerationErrs, d.BtrfsFlushErrs),
-				[]string{
-					"to inspect: btrfs device stats /",
-					"to reset after investigating: btrfs device stats -z /",
-				},
-			))
-		}
-	}
-
+	// btrfs root error counters come from the generic btrfs collector/heuristic
+	// (which already runs `btrfs device stats` on every mount) — not duplicated here.
 	switch {
 	case d.ShaderCacheGB > 30:
 		out = append(out, insight("CRIT", "SteamOS",

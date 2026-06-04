@@ -59,11 +59,12 @@ type SteamOSInfo struct {
 	HomeTotalGB float64 `json:"home_total_gb"`
 
 	// ── Network ─────────────────────────────────────────────────────────
-	WifiBackend           string `json:"wifi_backend,omitempty"` // iwd / wpa_supplicant / unknown
-	WifiDevMode           bool   `json:"wifi_dev_mode,omitempty"`
-	UpdateServerReachable bool   `json:"update_server_reachable"`
-	UpdateServerKnown     bool   `json:"update_server_known"` // reachability test actually ran
-	UpdateServerLatencyMs int    `json:"update_server_latency_ms,omitempty"`
+	// Wi-Fi backend/SSID/quality live in dsd net (models.SteamOSWifi) — the
+	// single authoritative home. Only the atomic-update-server reachability
+	// (distinct from net's download-CDN DNS check) is owned here.
+	UpdateServerReachable bool `json:"update_server_reachable"`
+	UpdateServerKnown     bool `json:"update_server_known"` // reachability test actually ran
+	UpdateServerLatencyMs int  `json:"update_server_latency_ms,omitempty"`
 
 	// ── Remote Play (Spec 22 Part A) ────────────────────────────────────
 	RemotePlay *SteamOSRemotePlay `json:"remote_play,omitempty"`
@@ -74,10 +75,11 @@ type SteamOSInfo struct {
 	RAUCLastLog       string   `json:"rauc_last_log,omitempty"`
 	ProtonPrefixCount int      `json:"proton_prefix_count,omitempty"`
 	CompatDataGB      float64  `json:"compatdata_gb,omitempty"`
-	ShaderCacheGB     float64  `json:"shader_cache_gb,omitempty"`
-	FlatpakAppCount   int      `json:"flatpak_app_count,omitempty"`
-	FlatpakDataGB     float64  `json:"flatpak_data_gb,omitempty"`
-	BIOSVersion       string   `json:"bios_version,omitempty"`
+	// Shader cache lives in dsd disk (models.SteamOSDisk) — its fast path runs in
+	// dsd health, so the size check surfaces there; not duplicated here.
+	FlatpakAppCount int     `json:"flatpak_app_count,omitempty"`
+	FlatpakDataGB   float64 `json:"flatpak_data_gb,omitempty"`
+	BIOSVersion     string  `json:"bios_version,omitempty"`
 }
 
 // SteamOSWifi is the SteamOS-only Wi-Fi section of `dsd net` (Spec 20 + 22B):
@@ -104,26 +106,14 @@ type SteamOSWifi struct {
 }
 
 // SteamOSDisk is the SteamOS-only partition section of `dsd disk` (Spec 19):
-// btrfs root error counters, shader-cache growth, the offload bind mounts, and
-// the architecturally-critical /var (256 MB) + /home sizes. Attached to
-// DiskInfo only when running on SteamOS.
+// shader-cache growth and the offload bind mounts. These are the SteamOS-specific
+// storage concerns NOT already covered by dsd disk's generic checks — btrfs root
+// error counters come from the generic btrfs collector (which already runs
+// `btrfs device stats` on every btrfs mount), and /var + /home sizes appear in
+// the generic Filesystems list (with the 256MB-aware insight owned by dsd steamos).
 type SteamOSDisk struct {
-	BtrfsRootChecked    bool `json:"-"` // false when `btrfs device stats /` could not run
-	BtrfsReadErrs       int  `json:"btrfs_read_io_errs"`
-	BtrfsWriteErrs      int  `json:"btrfs_write_io_errs"`
-	BtrfsFlushErrs      int  `json:"btrfs_flush_io_errs"`
-	BtrfsCorruptionErrs int  `json:"btrfs_corruption_errs"`
-	BtrfsGenerationErrs int  `json:"btrfs_generation_errs"`
-
 	ShaderCacheGB float64            `json:"shader_cache_gb,omitempty"`
 	BindMounts    []SteamOSBindMount `json:"bind_mounts,omitempty"`
-
-	VarUsedPct  float64 `json:"var_used_pct"`
-	VarUsedMB   float64 `json:"var_used_mb"`
-	VarTotalMB  float64 `json:"var_total_mb"`
-	HomeUsedPct float64 `json:"home_used_pct"`
-	HomeUsedGB  float64 `json:"home_used_gb"`
-	HomeTotalGB float64 `json:"home_total_gb"`
 }
 
 // SteamOSBindMount is a SteamOS offload bind mount (/opt, /root → /home/.steamos/offload/*).

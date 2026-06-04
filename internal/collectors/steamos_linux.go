@@ -117,15 +117,10 @@ func collectSteamOSDisk() *models.SteamOSDisk {
 	defer cancel()
 	d := &models.SteamOSDisk{}
 
-	// btrfs root error counters (live, mounted, zero perf impact).
-	if out, err := runCmd(ctx, "btrfs", "device", "stats", "/"); err == nil {
-		d.BtrfsRootChecked = true
-		s := parseBtrfsDeviceStats(out)
-		d.BtrfsReadErrs, d.BtrfsWriteErrs = s.Read, s.Write
-		d.BtrfsFlushErrs, d.BtrfsCorruptionErrs, d.BtrfsGenerationErrs = s.Flush, s.Corruption, s.Generation
-	}
-
-	// Shader cache size (silently fills /home).
+	// Shader cache size (silently fills /home). btrfs root errors and /var+/home
+	// sizes are intentionally NOT collected here — the generic btrfs collector
+	// already runs `btrfs device stats` on every mount, and /var+/home are in the
+	// generic Filesystems list (with the 256MB-aware insight owned by dsd steamos).
 	home := steamUserHome()
 	if shader := filepath.Join(home, ".steam/steam/shadercache"); dirExists(shader) {
 		d.ShaderCacheGB = duGB(ctx, shader)
@@ -142,13 +137,6 @@ func collectSteamOSDisk() *models.SteamOSDisk {
 	} {
 		bm.OK = dirExists(bm.Target) && mounts[bm.Path]
 		d.BindMounts = append(d.BindMounts, bm)
-	}
-
-	if total, used, pct, ok := statfsUsage("/var"); ok {
-		d.VarTotalMB, d.VarUsedMB, d.VarUsedPct = total/1e6, used/1e6, pct
-	}
-	if total, used, pct, ok := statfsUsage("/home"); ok {
-		d.HomeTotalGB, d.HomeUsedGB, d.HomeUsedPct = total/1e9, used/1e9, pct
 	}
 	return d
 }
@@ -351,19 +339,10 @@ func statfsUsage(mount string) (total, used, pct float64, ok bool) {
 
 // ── Network ──────────────────────────────────────────────────────────────
 
-func (c *SteamOSCollector) collectNetwork(ctx context.Context, info *models.SteamOSInfo) {
-	// iwd is the SteamOS default; wpa_supplicant is the dev-option workaround
-	// for the 3.7.x Wi-Fi regression.
-	switch {
-	case unitActive(ctx, "iwd.service"):
-		info.WifiBackend = "iwd"
-	case unitActive(ctx, "wpa_supplicant.service"):
-		info.WifiBackend = "wpa_supplicant"
-		info.WifiDevMode = true
-	default:
-		info.WifiBackend = "unknown"
-	}
-
+func (c *SteamOSCollector) collectNetwork(_ context.Context, info *models.SteamOSInfo) {
+	// Wi-Fi backend/SSID/quality is owned by dsd net (collectSteamOSWifi) — the
+	// single authoritative home. Here we only check the atomic-update server,
+	// which is SteamOS-specific and distinct from net's download-CDN DNS check.
 	info.UpdateServerKnown = true
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", steamdeckUpdateHost, 2*time.Second)
@@ -396,10 +375,8 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 		info.ProtonPrefixCount = len(entries)
 		info.CompatDataGB = duGB(ctx, compat)
 	}
-	shader := filepath.Join(home, ".steam/steam/shadercache")
-	if _, err := os.Stat(shader); err == nil {
-		info.ShaderCacheGB = duGB(ctx, shader)
-	}
+	// Shader cache size is owned by dsd disk (collectSteamOSDisk) — its fast path
+	// runs in dsd health, so the size check surfaces there. Not duplicated here.
 
 	// Flatpak inventory.
 	if out, err := runCmd(ctx, "flatpak", "list", "--app"); err == nil {
