@@ -149,7 +149,7 @@ to date, not as confirmation.
 
 | Segment | Source role | The pain (their angle) |
 |---|---|---|
-| Infra teams managing aging, heterogeneous fleets | Head of networking dept | Herds of disparate, aging hardware across mixed distros; no single diagnostician — only a "zoo" of monitoring tools |
+| Infra teams running VMware farms on big aging Linux-adjacent hosts | Head of networking dept | Huge servers hosting client VMs; aging-hardware-under-load diagnosis. (NB: his *network-gear* pain — Cisco/Huawei — is real but OUT of scope; see scope boundary below) |
 | Provider support / NOC orgs | Solutions sales | Customers complain "my box is broken"; support either SSHes in or sends a wall of commands. "Run one line, send the link" offloads diagnosis to the customer |
 
 The support-offload angle is the more interesting *wedge*: it is **additive, not
@@ -193,3 +193,51 @@ review (which the open-source CLI clears trivially), not market saturation.
 Until one of those converts to action, this stays a hypothesis. It should add two
 UTM channels / outreach targets to the validation plan (infra-team communities;
 provider support/NOC communities) — not start backend work.
+
+### Scope boundary — what "aging heterogeneous fleet" does and doesn't mean (2026-06-04 refinement)
+
+Follow-up with the head of networking clarified his pain is actually **two
+distinct problems on the same VMware estate**, and only one is DashDiag-shaped.
+Recording the boundary precisely so "he has aging-hardware pain too" is not
+misread as roadmap permission.
+
+**Pain A — network equipment (Cisco / Huawei / mixed, aging).** Real and large,
+but it is *switches and routers*, not Linux servers. DashDiag has no SNMP, no
+NX-OS/IOS parsing, no fabric visibility, and acquiring them would turn it into a
+network-monitoring product competing head-on with entrenched incumbents
+(SolarWinds, Zabbix, vendor NMS). **OUT OF SCOPE. Do not chase.** This is the
+specific way the "aging heterogeneous fleet" framing could mislead: most of that
+fleet is network gear DashDiag cannot serve.
+
+**Pain B — the VMware farm (huge servers hosting client VMs).** Where DashDiag
+has a real, mostly-built surface — and it is two Linux-shaped layers:
+
+1. **Linux hosts in/around the farm.** ESXi internals are NOT visible to DashDiag
+   (ESXi is not Linux). But any KVM/Proxmox hosts, and the Linux management /
+   jump / storage nodes around the VMware estate, run `dsd` natively. `dsd health`
+   on a big box carrying dozens of client VMs is exactly the
+   aging-hardware-under-load diagnosis it is built for (SMART drift, ECC, thermal,
+   IO saturation, noisy-neighbour signals).
+2. **Guest Linux VMs.** The blame-attribution pain: a client's new VM "doesn't
+   work," the customer blames the network, the department must prove it isn't
+   them. `dsd net deep` inside the guest gives *fast exoneration* — if the guest's
+   own network stack is provably healthy (interface/MTU/gateway/DNS/conntrack),
+   that is evidence the fault is the vSwitch, fabric, or customer config, not the
+   network team.
+
+**The honest fit caveat:** for the blame-attribution case DashDiag adjudicates
+only the *guest-side slice* (~40%). It cannot see the vSwitch, port groups,
+physical fabric, or the customer's side. That slice may still be valuable —
+clearing the team is mostly about *fast, credible exoneration*, and "the guest
+network layer is provably clean" does much of that — but it is partial, and must
+be sold as such, not as full cross-boundary adjudication.
+
+**Scope line to hold:**
+- IN: Linux hosts (KVM/Proxmox/management nodes) in the VMware estate; guest Linux VMs.
+- OUT (real pains, not our product): ESXi hypervisor internals; Cisco/Huawei/network gear.
+
+**Qualifying question still open for the head of networking:** when a
+VMware-blame ticket lands, would proof that the guest VM's own network stack is
+healthy be part of getting his team off the hook — or does he need vSwitch/fabric
+visibility DashDiag will not build? His answer separates "design partner" from
+"polite dead end."
