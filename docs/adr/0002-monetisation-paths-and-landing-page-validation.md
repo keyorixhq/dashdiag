@@ -241,3 +241,47 @@ VMware-blame ticket lands, would proof that the guest VM's own network stack is
 healthy be part of getting his team off the hook — or does he need vSwitch/fabric
 visibility DashDiag will not build? His answer separates "design partner" from
 "polite dead end."
+
+### Candidate capability (to VALIDATE, not yet a commitment) — guest-side network path-trace
+
+Raised 2026-06-04 in response to the ~40% fit caveat. The question was: can we do
+checks for *where in the infra the client VM's traffic dies*, to raise the
+exoneration slice? Answer: partially — and the part we can do is genuinely useful,
+but the architectural wall must stay explicit.
+
+**What this would be:** a guest-side "where does it die" network collector
+extending `dsd net deep`. From INSIDE the guest Linux VM, with no privileged or
+VMware access, it builds a *directional* map of how far traffic gets before it
+fails:
+
+- Path-MTU black-hole detection — small packets pass, large ones vanish silently;
+  the classic signature of a vSwitch/overlay MTU misconfig that gets wrongly
+  blamed on "the network."
+- Gateway L2/ARP reachability — can the guest even reach its default gateway? If
+  not, the fault is the vSwitch / port-group / VLAN, not the guest.
+- Staged hop-walk (traceroute-style) — dies at hop 1 → virtual layer; dies N hops
+  out → physical fabric/upstream; reaches everything except the customer's target
+  → customer side.
+- DNS-vs-connectivity split — resolves-but-won't-connect vs won't-resolve.
+
+**Why it helps:** turns the verdict from "the guest stack is healthy" (passive,
+~40%) into "the break is at/before the first hop" vs "N hops out" vs "customer
+side" (directional, ~60–70%). It specifically catches the vSwitch-layer faults
+(MTU black-hole, gateway unreachable) the network team gets wrongly blamed for.
+
+**The wall that stays (do NOT pretend otherwise):** this is *inference from the
+guest's vantage point*, not a read of the vSwitch/port-group/fabric/customer
+config. DashDiag still cannot SEE those — it concludes "traffic dies before
+leaving the virtual layer," which is strong evidence but remains an inference an
+adversarial party can contest, unlike a direct config read. Truly closing it
+needs ESXi/vCenter API access or host agents — both deliberately OUT of scope
+(would make it a VMware product). This capability is pure Linux, guest-side, no
+VMware API — it extends `dsd net deep`, it does not cross the boundary.
+
+**Status: candidate to validate, NOT a build commitment.** Gated on the same open
+question as the rest of Decision 6 — the head of networking confirming that
+guest-side *directional* evidence ("we can show the packet never made it past the
+vSwitch") is what actually gets his team off the hook. If yes, this is the first
+concrete feature to scope for that use case. If he needs an actual vSwitch/fabric
+read, this does not close his gap and should not be built for him. Validate before
+building.
