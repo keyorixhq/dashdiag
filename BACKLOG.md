@@ -139,6 +139,9 @@ Build order rule: **never build deep before fast is in production use.**
 | VM 214 (opensuse16-btrfs, 192.168.10.56): btrfs test node, healthy + DEGRADED fixtures | db1d0be |
 | `dsd capture --cve / --timeline` + `dsd timeline --json` + cve stdout pollution fix | 83e17e6 |
 | BTRFS-TEST-INFRA logged to backlog; BTRFS-HEALTH stale checkbox closed | 1575fcc |
+| Spec 18: `dsd gpu` standalone — TDP, VRAM, clocks, utilization, Mesa, `--deep`, `--json` | cf9df4f |
+| Intel HD 530 (i915) live tested on PVE01; no-GPU path verified on openSUSE VM | cf9df4f |
+| AMD sysfs path covered by unit tests; field validation pending AMD hardware / Steam Deck | cf9df4f |
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
@@ -213,6 +216,29 @@ Bonus fix: `dsd cve --all --json` stdout banner pollution (broke piping) fixed i
 (device I/O / corruption). Runs in the health heuristics dispatch path
 (`heuristics.go:161,163` → `checkDisk` → `checkDiskExtras` → btrfs loop at L715),
 so it surfaces in `dsd health`, not just `dsd disk`. Backlog checkbox was stale.
+
+---
+
+### [GPU-AMD-VALIDATION] Live AMD amdgpu path validation for dsd gpu
+
+**Current state (June 4, commit cf9df4f):** `dsd gpu` AMD sysfs path (hwmon power1_cap*,
+pp_dpm_sclk, mem_info_vram_*, gpu_busy_percent, temp2/3_input) was written to spec and
+covered by unit tests against documented sysfs formats. It has NOT been exercised against
+live amdgpu hardware — the test matrix only has Intel i915 (PVE01) and GPU-less VMs.
+
+**What to validate when AMD hardware is available (Steam Deck or AMD workstation):**
+- `dsd gpu` shows correct TDP current/limit/max (compare against MangoHud or radeontop)
+- Junction temperature matches `sensors` amdgpu hwmon output
+- Clock speed parsing of `pp_dpm_sclk` `*`-marked line is correct
+- VRAM used/total matches `radeontop` or `/sys/class/drm/card*/device/mem_info_*`
+- GPU utilization 1s sample matches MangoHud GPU% reading
+- `dsd gpu --deep` shows PowerDPMLevel correctly (`auto`, `low`, `high`)
+- Throttling flag fires when `power1_input` ≥ 95% of `power1_cap` (run gpu-burn to trigger)
+- IsAPU=true on Steam Deck (VRAM < 2GB + GTT pool present)
+
+**Priority:** Medium — blocks Steam Deck field validation of Spec 18.
+**Blocked on:** Access to AMD GPU hardware (Steam Deck, Radeon workstation, or AMD laptop).
+**Estimated:** 1–2h once hardware is available (deploy binary, compare against MangoHud).
 
 ---
 

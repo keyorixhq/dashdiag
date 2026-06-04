@@ -72,7 +72,8 @@ platform.Profile ✅ distro normalization layer — Detect(), IsSteamOS, Network
                     PackageManager, SyslogPath; wired into health + 3 collectors; unblocks SteamOS specs
 dsd proc         ✅ smaps_rollup, FD map, socket conns, D-state guide
 dsd cron         ✅ daemon, quality, anacron staleness
-dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection
+dsd gpu          ✅ AMD amdgpu sysfs (TDP/VRAM/clocks/util/Mesa, --deep), Intel i915 temp,
+                    NVIDIA nvidia-smi fallback, --json; AMD path unit-tested, i915 live-verified
 dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
                     /.autorelabel detection, PAM lockout
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
