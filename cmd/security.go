@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -18,6 +20,8 @@ import (
 func init() {
 	rootCmd.AddCommand(securityCmd)
 	securityCmd.Flags().Bool("suid", false, "include SUID binary scan (slow on large filesystems)")
+	securityCmd.Flags().Bool("save-baseline", false, "save current security state as drift baseline")
+	securityCmd.Flags().Bool("drift", false, "compare current security state against saved baseline")
 }
 
 var securityCmd = &cobra.Command{
@@ -48,11 +52,125 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
+	saveBaseline, _ := cmd.Flags().GetBool("save-baseline")
+	drift, _ := cmd.Flags().GetBool("drift")
+	if saveBaseline || drift {
+		// The SUID scan is skipped by Collect() to keep `dsd health` fast; the
+		// drift baseline needs it, so run it explicitly here.
+		collectors.ScanSUIDBinaries(info)
+	}
+	switch {
+	case saveBaseline:
+		return runSaveBaseline(info)
+	case drift:
+		return runDrift(info)
+	}
+
 	// Snapper runs in parallel (requires root; silently skipped if unavailable)
 	snapInfo, _ := collectors.CollectSnapper(ctx)
 
 	printSecurityReport(info, snapInfo, mode, elapsed)
 	return nil
+}
+
+// runSaveBaseline persists the current security state as the drift baseline.
+func runSaveBaseline(info *models.SecurityInfo) error {
+	b := baseline.BuildSecurityBaseline(info)
+	if err := baseline.SaveSecurityBaseline(b); err != nil {
+		return fmt.Errorf("saving security baseline: %w", err)
+	}
+	fmt.Println("✅  Security baseline saved to ~/.dsd/security-baseline.json")
+	fmt.Printf("    SUID binaries: %d | Sudo NOPASSWD: %d | Suspect crons: %d | SSH configs: %d\n",
+		len(b.KnownSUIDs), len(b.SudoNopasswd), len(b.SuspectCrons), len(b.SSHConfigHashes))
+	return nil
+}
+
+// runDrift compares the current security state against the saved baseline.
+func runDrift(info *models.SecurityInfo) error {
+	saved, err := baseline.LoadSecurityBaseline()
+	if err != nil {
+		return fmt.Errorf("loading security baseline: %w", err)
+	}
+	if saved == nil {
+		fmt.Println("ℹ️  No security baseline found. Run: dsd security --save-baseline")
+		return nil
+	}
+
+	diff := baseline.DiffSecurityBaseline(saved, info)
+	dateStr := diff.BaselineSavedAt.Format("2006-01-02 15:04:05")
+	if !diff.HasChanges() {
+		fmt.Printf("✅  No security drift detected since %s\n", dateStr)
+		return nil
+	}
+
+	printSecurityDrift(&diff)
+	return nil
+}
+
+// printSecurityDrift renders the drift report when changes are detected. It
+// mirrors the styling used by printSecurityReport.
+func printSecurityDrift(diff *baseline.SecurityDiff) {
+	sep := strings.Repeat("─", 56)
+	dateStr := diff.BaselineSavedAt.Format("2006-01-02 15:04:05")
+
+	fmt.Printf("\n🔍 Security drift since %s\n", dateStr)
+
+	if len(diff.NewSUIDs) > 0 {
+		fmt.Println("\nNew SUID binaries (not in baseline):")
+		for _, s := range diff.NewSUIDs {
+			fmt.Printf("  ❌  %s  [investigate: ls -la && file]\n", s)
+		}
+	}
+
+	if len(diff.ChangedSSHFiles) > 0 {
+		fmt.Println("\nChanged SSH config files:")
+		for _, f := range diff.ChangedSSHFiles {
+			fmt.Printf("  ⚠️  %s  (modified since baseline)\n", f)
+			fmt.Printf("     → Review changes to %s and restart sshd if intentional\n", f)
+			fmt.Println("     → Or: git diff if sshd_config is version-controlled")
+		}
+	}
+
+	if len(diff.NewSudoEntries) > 0 {
+		fmt.Println("\nNew sudoers NOPASSWD entries:")
+		for _, s := range diff.NewSudoEntries {
+			fmt.Printf("  ⚠️  %s\n", s)
+		}
+	}
+
+	if len(diff.NewCronEntries) > 0 {
+		fmt.Println("\nNew suspect cron entries:")
+		for _, s := range diff.NewCronEntries {
+			fmt.Printf("  ⚠️  %s\n", s)
+		}
+	}
+
+	// Drive the summary severity from the drift heuristics.
+	insights := analysis.CheckSecurityDrift(diff)
+	changes := len(diff.NewSUIDs) + len(diff.ChangedSSHFiles) +
+		len(diff.NewSudoEntries) + len(diff.NewCronEntries)
+	baselineDate := diff.BaselineSavedAt.Format("2006-01-02")
+
+	fmt.Println()
+	fmt.Println(sep)
+	summary := fmt.Sprintf("⚠️  %d security change(s) since baseline (%s)", changes, baselineDate)
+	if hasCrit(insights) {
+		summary = fmt.Sprintf("❌  %d security change(s) since baseline (%s) — includes CRITICAL drift", changes, baselineDate)
+		fmt.Println(render.StyleCrit.Render(summary))
+	} else {
+		fmt.Println(render.StyleWarn.Render(summary))
+	}
+	fmt.Println("   → Update baseline when changes are intentional: dsd security --save-baseline")
+}
+
+// hasCrit reports whether any insight is at CRIT level.
+func hasCrit(insights []models.Insight) bool {
+	for _, ins := range insights {
+		if ins.Level == "CRIT" {
+			return true
+		}
+	}
+	return false
 }
 
 func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section

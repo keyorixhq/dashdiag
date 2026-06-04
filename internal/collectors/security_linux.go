@@ -611,6 +611,14 @@ var knownSUIDBinaries = map[string]bool{
 	"/usr/sbin/unix_chkpwd": true,
 }
 
+// ScanSUIDBinaries populates info.SUIDBinaries by scanning non-standard paths.
+// Exported for the `dsd security --save-baseline`/`--drift` paths, which need
+// the SUID list but must not pay this filesystem-walk cost on every `dsd health`
+// run (Collect intentionally skips it).
+func ScanSUIDBinaries(info *models.SecurityInfo) {
+	findUnexpectedSUIDs(info)
+}
+
 // findUnexpectedSUIDs scans non-standard paths for SUID binaries.
 // Called separately as it can be slow on large filesystems.
 func findUnexpectedSUIDs(info *models.SecurityInfo) {

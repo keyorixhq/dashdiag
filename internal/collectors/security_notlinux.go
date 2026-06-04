@@ -32,3 +32,6 @@ func (c *SecurityCollector) Collect(_ context.Context) (interface{}, error) {
 
 // CollectSUSEConnect is a no-op on non-Linux platforms.
 func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) {}
+
+// ScanSUIDBinaries is a no-op on non-Linux platforms.
+func ScanSUIDBinaries(_ *models.SecurityInfo) {}
