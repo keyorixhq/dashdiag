@@ -9,6 +9,7 @@ these cover product and strategy direction).
 |---|---|---|
 | [0001](0001-persistence-is-the-platform-foundation.md) | Persistence is the platform foundation, not a CLI feature | Accepted |
 | [0002](0002-monetisation-paths-and-landing-page-validation.md) | Monetisation paths and how the landing page decides between them | Accepted (method); path pending data |
+| [0003](0003-on-prem-and-air-gapped-commercial-model.md) | On-prem / air-gapped commercial model (the second business) | Accepted (direction); build deferred |
 
 ## Format
 

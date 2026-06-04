@@ -41,6 +41,14 @@ Concretely, the build order is:
    nodes, which are red, trending metrics, searchable freeze-frames. The CLI
    becomes the agent; the platform becomes the product.
 
+> **Later revision (2026-06-04, see ADR-0003):** "the paid product is the *hosted*
+> platform" holds for the connected/SaaS path above, but it is not the only
+> commercial model. For datacenter/cloud providers and air-gapped customers who
+> will not send data to dashdiag.sh, the platform is hosted **by them**, on their
+> premises, and the commercial model is licence + support rather than hosting.
+> The CLI/collector layer is identical across both; the platform layer forks.
+> ADR-0003 records this split.
+
 **Storage format: append-only JSONL, behind a `Store` interface.** Zero
 dependencies, cross-compiles cleanly (critical for the Mac → `GOOS=linux
 GOARCH=amd64` workflow), human-inspectable. If scale ever forces a database,
