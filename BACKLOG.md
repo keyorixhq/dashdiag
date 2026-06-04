@@ -512,22 +512,33 @@ Do NOT start before first paying customer is acquired.
 Still pending (next batch / `spec-closeout-prompt.md`):
 - Multiple OOM kills + same service → memory leak in specific service (`ruleServiceMemoryLeak`)
 
-### [V2-COLLECTOR] Kernel instability extensions
-~~Soft/hard lockups, kernel panic history, watchdog resets.~~
-**Already implemented:** `logs_linux.go` detects soft lockup, hard lockup, kernel
-panic in dmesg/journal. `timeline_hints.go` has MCE hints. Backlog entry was stale.
+### ~~[V2-COLLECTOR] Kernel instability extensions~~ ✅ DONE (shipped across multiple sessions)
 
-### [V2-COLLECTOR] Network deep diagnostics
-~~TCP retransmissions, SYN backlog, connection tracking table.~~
-**Already implemented:** `network_deep.go` collects TCPSynRetrans, ListenOverflows,
-TCPRetransFail from `/proc/net/netstat`, conntrack from `/proc/sys/net/netfilter/`.
-Backlog entry was stale.
+Soft lockups: `logs_linux.go` lines 181–185, `LogsInfo.SoftLockups`, heuristics `1720–1724`.
+Hard lockups: `logs_linux.go` lines 186–189, `LogsInfo.HardLockups`, heuristics `1726–1730`.
+Kernel panics: `logs_linux.go` `countPstorePanics()` + pstore scan, `LogsInfo.KernelPanics`,
+heuristics `1732–1735`. MCE hints: `timeline_hints.go` lines 136–144.
+All surface as CRIT insights in `dsd health` and `dsd timeline`.
 
-### [V2-COLLECTOR] CPU scheduling pathology
-~~Run queue saturation, context switch spikes, iowait vs steal.~~
-**Already implemented:** `cpu.go` samples iowait% and steal% via two-sample
-`/proc/stat`. Correlation rules `ruleIODrivenLoad` and `ruleCPUStealUnderLoad`
-surface them. Backlog entry was stale.
+---
+
+### ~~[V2-COLLECTOR] Network deep diagnostics~~ ✅ DONE (shipped across multiple sessions)
+
+TCP retransmissions: `network_deep.go` reads `TCPSynRetrans`, `ListenOverflows`,
+`TCPRetransFail` from `/proc/net/netstat`. `NetworkInfo.SynRetransCount`,
+`ListenOverflows`, `RetransFailCount`. Heuristics: lines 1157–1179.
+Conntrack: reads `/proc/sys/net/netfilter/nf_conntrack_{count,max}`.
+`NetworkInfo.ConntrackUsedPct`. CRIT when full. All in `dsd net deep` + `dsd health`.
+
+---
+
+### ~~[V2-COLLECTOR] CPU scheduling pathology~~ ✅ PARTIAL — steal + iowait done; run queue not built
+
+**Done:** `cpu.go` two-sample `/proc/stat` for `StealPct` and `IOwaitPct`.
+`CPUInfo.StealPct`, `CPUInfo.IOwaitPct`. Heuristics: CRIT at 20%/40%, WARN at 10%/20%.
+Correlation rules `ruleIODrivenLoad` and `ruleCPUStealUnderLoad` cross-correlate.
+**Not built:** run queue saturation (`/proc/schedstat` nr_running), context switch spikes.
+These were speculative V2 items, not from the pain-source research. Defer post-customer.
 
 ### [V2-COLLECTOR] Storage performance diagnostics
 Write amplification, queue depth, fsync latency (eBPF — v3).
