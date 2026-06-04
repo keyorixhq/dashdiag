@@ -27,6 +27,11 @@ type SysctlInfo struct {
 	// Detected workload
 	Workload string `json:"workload,omitempty"` // k8s, webserver, database, default
 
+	// UptimeSeconds is the system uptime at collection time from /proc/uptime.
+	// Used by the correlation engine to detect sysctl drift after a recent reboot.
+	// Zero when unavailable (non-Linux, read error).
+	UptimeSeconds int64 `json:"uptime_seconds,omitempty"`
+
 	Status       string `json:"status"`
 	StatusReason string `json:"status_reason"`
 }
