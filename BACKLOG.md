@@ -190,14 +190,18 @@ Build order rule: **never build deep before fast is in production use.**
 | `thermal --watch` (5s default, `--watch-interval` override) — clear-screen refresh loop | 0a464ca |
 | `processes --watch` (same pattern) | 0a464ca |
 
-## ✅ Recently Completed (June 4, 2026 — Session 11: PVE port dedup)
+## ✅ Recently Completed (June 4, 2026 — Session 11: PVE port dedup + run-queue collector)
 
 | Item | Commit |
 |---|---|
-| Consolidated `{8006, 3128, 111}` PVE service-port set — exported `analysis.IsPVEServicePort` as single source | — |
-| Removed duplicate `isPVEServicePort` from `cmd/security.go`; both call sites now use `analysis.IsPVEServicePort` | — |
-| Moved `TestIsPVEServicePort` to `internal/analysis/heuristics_test.go` (follows the function); cmd renderer test kept | — |
-| Resolves CLAUDE.md "Known duplicate to clean up" note — flagged for next time PVE code was touched | — |
+| Consolidated `{8006, 3128, 111}` PVE service-port set — exported `analysis.IsPVEServicePort` as single source | 68927d4 |
+| Removed duplicate `isPVEServicePort` from `cmd/security.go`; both call sites now use `analysis.IsPVEServicePort` | 68927d4 |
+| Moved `TestIsPVEServicePort` to `internal/analysis/heuristics_test.go` (follows the function); cmd renderer test kept | 68927d4 |
+| Resolves CLAUDE.md "Known duplicate to clean up" note — flagged for next time PVE code was touched | 68927d4 |
+| Corrected stale BACKLOG: `ruleServiceMemoryLeak` was already shipped (6058936) — correlation engine v1 complete | e404bc6 |
+| Run-queue saturation collector — `procs_running`/`procs_blocked`/`ctxt` from `/proc/stat`, `CPU/RunQueue` heuristic + `ruleRunQueueSaturation` correlation | — |
+| Run-queue live-verified on pve01 — WARN at 24 runnable/8 CPUs under load, silent when idle (load avg still 0.92, run queue caught it) | — |
+| Proxmox-host validation pass on pve01 — SMART (SSD+HDD), LVM thin pool low-space WARN, disk I/O rate (deep), 20+ collectors | — |
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
@@ -628,13 +632,22 @@ Conntrack: reads `/proc/sys/net/netfilter/nf_conntrack_{count,max}`.
 
 ---
 
-### ~~[V2-COLLECTOR] CPU scheduling pathology~~ ✅ PARTIAL — steal + iowait done; run queue not built
+### ~~[V2-COLLECTOR] CPU scheduling pathology~~ ✅ DONE (steal + iowait + run queue)
 
 **Done:** `cpu.go` two-sample `/proc/stat` for `StealPct` and `IOwaitPct`.
 `CPUInfo.StealPct`, `CPUInfo.IOwaitPct`. Heuristics: CRIT at 20%/40%, WARN at 10%/20%.
 Correlation rules `ruleIODrivenLoad` and `ruleCPUStealUnderLoad` cross-correlate.
-**Not built:** run queue saturation (`/proc/schedstat` nr_running), context switch spikes.
-These were speculative V2 items, not from the pain-source research. Defer post-customer.
+**Run queue (June 4):** same two-sample `/proc/stat` read now also captures
+`procs_running` (run-queue depth), `procs_blocked` (D-state count), and `ctxt`
+(→ context-switch rate). `CPUInfo.RunQueue/ProcsBlocked/ContextSwitchRate`.
+Heuristic `CPU/RunQueue`: WARN ≥2× cores, CRIT ≥4× cores. Correlation rule
+`ruleRunQueueSaturation` flags genuinely CPU-bound load (run queue saturated while
+iowait + steal both clear). Context-switch rate surfaces as a supporting hint, not
+a standalone threshold — reliable *spike* detection needs the history-aware v2.
+Used `/proc/stat procs_running` rather than `/proc/schedstat nr_running` (simpler,
+version-stable, and the read was already happening). Live-verified on pve01:
+silent at run-queue 1, fired WARN at 24 runnable on 8 CPUs under load — while load
+avg still read 0.92, proving run queue catches saturation that load avg lags on.
 
 ### [V2-COLLECTOR] Storage performance diagnostics
 Write amplification, queue depth, fsync latency (eBPF — v3).
@@ -699,13 +712,14 @@ Lower priority. Defer until macOS user demand exists.
 
 | Scenario | RHEL Laptop | Proxmox Host | Hetzner Debian | macOS arm64 |
 |---|---|---|---|---|
-| 20+ collectors | ✅ | TODO | TODO | ✅ |
-| NVMe SMART (Linux) | ✅ | TODO (aged) | N/A | N/A |
+| 20+ collectors | ✅ | ✅ (pve01, Jun 4) | TODO | ✅ |
+| SATA SSD SMART (Linux) | ✅ | ✅ LITEONIT 128GB | N/A | N/A |
 | NVMe SMART (macOS diskutil) | N/A | N/A | N/A | ✅ |
-| HDD detection | N/A | TODO | N/A | N/A |
-| ZFS pool health | N/A | TODO | TODO | N/A |
-| Disk I/O rate (deep) | ✅ | TODO | TODO | N/A |
-| LVM thin pool + snapshots | ✅ | TODO | TODO | N/A |
+| HDD detection | N/A | ✅ WD 2TB SMART PASS | N/A | N/A |
+| ZFS pool health | N/A | N/A (LVM-thin host, no zpool) | TODO | N/A |
+| Disk I/O rate (deep) | ✅ | ✅ sda/sdb idle 0.0 MB/s | TODO | N/A |
+| LVM thin pool + snapshots | ✅ | ✅ pve/data 23%, low-space WARN | TODO | N/A |
+| Run-queue saturation (CPU/RunQueue) | TODO | ✅ WARN@24/8 under load | TODO | N/A |
 | AMD GPU (amdgpu) | ✅ | depends | N/A | N/A |
 | NVIDIA (nouveau) | ✅ | depends | depends | N/A |
 | k3s / k8s | ✅ | depends | TODO | N/A |

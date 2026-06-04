@@ -66,51 +66,85 @@ func parseLoadAvg(r io.Reader) (load1, load5, load15 float64, err error) {
 }
 
 // cpuStatSample holds raw counters from one /proc/stat read.
-// Field indices (0-based after the "cpu" label):
+// Aggregate "cpu " field indices (0-based after the "cpu" label):
 //
 //	0=user 1=nice 2=system 3=idle 4=iowait 5=irq 6=softirq 7=steal 8=guest 9=guest_nice
+//
+// ctxt/procsRunning/procsBlocked come from their own single-value lines further
+// down the file (ctxt is a since-boot counter; the procs_* are instantaneous).
 type cpuStatSample struct {
-	idle   uint64
-	total  uint64
-	steal  uint64
-	iowait uint64
+	idle         uint64
+	total        uint64
+	steal        uint64
+	iowait       uint64
+	ctxt         uint64
+	procsRunning uint64
+	procsBlocked uint64
 }
 
-// parseCPUStatFull parses the aggregate "cpu " line from /proc/stat and
-// returns all counters needed for accurate CPU usage, steal, and iowait rates.
+// parseCPUStatFull parses /proc/stat and returns all counters needed for
+// accurate CPU usage, steal, and iowait rates, plus run-queue depth
+// (procs_running), blocked-task count (procs_blocked), and the context-switch
+// counter (ctxt). Scans the whole file since those auxiliary lines follow the
+// per-CPU lines after the "cpu " aggregate.
 func parseCPUStatFull(r io.Reader) (cpuStatSample, error) {
+	var s cpuStatSample
+	foundCPU := false
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "cpu ") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			return cpuStatSample{}, fmt.Errorf("unexpected cpu stat line: %q", line)
-		}
-		var s cpuStatSample
-		for i, f := range fields[1:] {
-			v, err := strconv.ParseUint(f, 10, 64)
-			if err != nil {
-				return cpuStatSample{}, fmt.Errorf("parsing cpu field %d: %w", i, err)
+		switch {
+		case strings.HasPrefix(line, "cpu "):
+			fields := strings.Fields(line)
+			if len(fields) < 5 {
+				return cpuStatSample{}, fmt.Errorf("unexpected cpu stat line: %q", line)
 			}
-			s.total += v
-			switch i {
-			case 3:
-				s.idle = v
-			case 4:
-				s.iowait = v
-			case 7:
-				s.steal = v
+			for i, f := range fields[1:] {
+				v, err := strconv.ParseUint(f, 10, 64)
+				if err != nil {
+					return cpuStatSample{}, fmt.Errorf("parsing cpu field %d: %w", i, err)
+				}
+				s.total += v
+				switch i {
+				case 3:
+					s.idle = v
+				case 4:
+					s.iowait = v
+				case 7:
+					s.steal = v
+				}
 			}
+			foundCPU = true
+		case strings.HasPrefix(line, "ctxt "):
+			s.ctxt = parseStatUint(line)
+		case strings.HasPrefix(line, "procs_running "):
+			s.procsRunning = parseStatUint(line)
+		case strings.HasPrefix(line, "procs_blocked "):
+			s.procsBlocked = parseStatUint(line)
 		}
-		return s, nil
 	}
 	if err := scanner.Err(); err != nil {
 		return cpuStatSample{}, err
 	}
-	return cpuStatSample{}, fmt.Errorf("no cpu line in stat")
+	if !foundCPU {
+		return cpuStatSample{}, fmt.Errorf("no cpu line in stat")
+	}
+	return s, nil
+}
+
+// parseStatUint extracts the integer value from a "key value" /proc/stat line
+// such as "ctxt 123456" or "procs_running 2". Returns 0 if unparseable —
+// these auxiliary counters are best-effort and must never fail the collector.
+func parseStatUint(line string) uint64 {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return 0
+	}
+	v, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // parseCPUStat is a compatibility shim used by cpu_test.go.
@@ -145,11 +179,13 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Two-sample /proc/stat for CPU usage percentage plus steal and iowait rates.
 	// Steal is the percentage of time the hypervisor stole CPU from this VM.
 	// IOwait is the percentage of time the CPU was idle waiting for I/O completion.
-	var usagePct, stealPct, iowaitPct float64
+	var usagePct, stealPct, iowaitPct, ctxSwitchRate float64
+	var runQueue, procsBlocked int
 	r1, err1 := c.readers.statOpen()
 	if err1 == nil {
 		s1, parseErr := parseCPUStatFull(r1)
 		_ = r1.Close()
+		t1 := time.Now()
 
 		if parseErr == nil {
 			select {
@@ -173,6 +209,14 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 						iowaitPct = float64(s2.iowait-s1.iowait) / delta * 100
 					}
 				}
+				// Run-queue depth and blocked count are instantaneous — use the
+				// most recent (second) sample.
+				runQueue = int(s2.procsRunning)
+				procsBlocked = int(s2.procsBlocked)
+				// Context-switch rate over the actual elapsed sampling window.
+				if elapsed := time.Since(t1).Seconds(); elapsed > 0 && s2.ctxt >= s1.ctxt {
+					ctxSwitchRate = float64(s2.ctxt-s1.ctxt) / elapsed
+				}
 			}
 		}
 	}
@@ -187,14 +231,17 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	return &models.CPUInfo{
-		LoadAvg1:  load1,
-		LoadAvg5:  load5,
-		LoadAvg15: load15,
-		NumCPU:    numCPU,
-		UsagePct:  usagePct,
-		LoadPct:   load1 / float64(numCPU) * 100,
-		StealPct:  stealPct,
-		IOwaitPct: iowaitPct,
+		LoadAvg1:          load1,
+		LoadAvg5:          load5,
+		LoadAvg15:         load15,
+		NumCPU:            numCPU,
+		UsagePct:          usagePct,
+		LoadPct:           load1 / float64(numCPU) * 100,
+		StealPct:          stealPct,
+		IOwaitPct:         iowaitPct,
+		RunQueue:          runQueue,
+		ProcsBlocked:      procsBlocked,
+		ContextSwitchRate: ctxSwitchRate,
 	}, nil
 }
 
