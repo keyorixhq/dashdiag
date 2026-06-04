@@ -77,11 +77,11 @@ dsd gpu          ✅ AMD amdgpu sysfs (TDP/VRAM/clocks/util/Mesa, --deep), Intel
                     NVIDIA nvidia-smi fallback, --json; AMD path unit-tested, i915 live-verified
 dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
                     /.autorelabel detection, PAM lockout;
-                    --save-baseline + --drift: SUID/SSH/sudo/cron change detection
+                    --deep (was --suid): SUID scan; --save-baseline + --drift
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
-dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N
+dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
 dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
                     --endpoints-file, --json); InsecureSkipVerify to read expired certs
 ```

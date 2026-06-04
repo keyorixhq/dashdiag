@@ -179,6 +179,17 @@ Build order rule: **never build deep before fast is in production use.**
 | Deviation: `processes.go` used `*models.ProcessInfo` / `procInfo` not `ProcessesInfo` / `info` | 17656b8 |
 | `FLAG_DESIGN.md`: full flag audit — current state, problems, target matrix, prioritised fix list | 5ae0da0 |
 
+## ✅ Recently Completed (June 4, 2026 — Session 10: Flag unification)
+
+| Item | Commit |
+|---|---|
+| `timeline --hours` → `--since` (duration string e.g. "1h", "24h"); reuses `parseSinceDuration()` | 0a464ca |
+| `k8s --deep` wired to existing `NewK8sDeepCollector()` (OS-layer: kubelet, CNI, iptables, certs) | 0a464ca |
+| `security --suid` → `--deep`; `--suid` kept as hidden backward-compat alias | 0a464ca |
+| `--out` now redirects stdout for every command via `PersistentPreRun` in `root.go` | 0a464ca |
+| `thermal --watch` (5s default, `--watch-interval` override) — clear-screen refresh loop | 0a464ca |
+| `processes --watch` (same pattern) | 0a464ca |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
