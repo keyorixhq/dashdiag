@@ -202,6 +202,40 @@ Build order rule: **never build deep before fast is in production use.**
 | Run-queue saturation collector — `procs_running`/`procs_blocked`/`ctxt` from `/proc/stat`, `CPU/RunQueue` heuristic + `ruleRunQueueSaturation` correlation | — |
 | Run-queue live-verified on pve01 — WARN at 24 runnable/8 CPUs under load, silent when idle (load avg still 0.92, run queue caught it) | — |
 | Proxmox-host validation pass on pve01 — SMART (SSD+HDD), LVM thin pool low-space WARN, disk I/O rate (deep), 20+ collectors | — |
+| ZFS pool health validated on pve01 (Jun 4) — file-backed mirror: ONLINE caught, DEGRADED→`dsd health` CRIT with `zpool replace`/`online` hints, `--json` zfs_pools surface clean. Host left clean (pool destroyed) | — |
+| **BUG found during ZFS test:** `dsd disk` + `dsd disk --json` exit 0 on a CRIT (DEGRADED pool); only `dsd health` returns exit 2. Standalone subcommands don't propagate worst-insight severity to exit code — breaks documented `0/1/2` convention the CI/CD story relies on. See BUG-022 below | — |
+
+## 🐞 Known Bugs
+
+### BUG-022 — standalone subcommands don't set exit code from worst insight
+
+**Found:** 2026-06-04, during ZFS pool-health validation on pve01 (file-backed DEGRADED mirror).
+
+**Symptom:** with a ZFS pool in DEGRADED state (a CRIT condition):
+- `dsd health` → exit **2** ✅ (correct)
+- `dsd disk` → exit **0** ❌ (renders ❌ DEGRADED + CRIT insight in output, but exit code is 0)
+- `dsd disk --json` → exit **0** ❌
+
+**Why it matters:** the documented Unix exit-code convention (`0 OK, 1 WARN, 2 CRIT`)
+is a core part of the CI/CD positioning (MARKETING.md "CI/CD Integration — The SSH
+Signal"). A pipeline gating on `dsd disk` would report success on a pool with
+compromised data protection. The standalone subcommands render severity correctly
+but don't propagate the worst insight's level to `os.Exit`.
+
+**Scope:** likely affects all standalone subcommands that produce insights
+(`disk`, `cve`, `tls`, `security`, etc.), not just `disk`. `health` already does it
+right — the fix is to apply the same worst-insight→exit-code mapping in the
+subcommand runners (or centralise it).
+
+**Fix sketch:** wherever each subcommand finishes rendering, compute the max insight
+level and set the process exit code (2 for any CRIT, 1 for any WARN, else 0), the
+same way `health` does. Centralising in a shared helper avoids per-command drift.
+
+**Priority:** Medium. Not a GTM blocker, but it undercuts a stated marketing claim,
+so worth fixing before leaning on the CI/CD angle publicly. Verify with a DEGRADED
+ZFS pool or any reliably-CRIT condition.
+
+---
 
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
@@ -716,10 +750,10 @@ Lower priority. Defer until macOS user demand exists.
 | SATA SSD SMART (Linux) | ✅ | ✅ LITEONIT 128GB | N/A | N/A |
 | NVMe SMART (macOS diskutil) | N/A | N/A | N/A | ✅ |
 | HDD detection | N/A | ✅ WD 2TB SMART PASS | N/A | N/A |
-| ZFS pool health | N/A | N/A (LVM-thin host, no zpool) | TODO | N/A |
+| ZFS pool health | N/A | ✅ file-backed pool (Jun 4): ONLINE + DEGRADED both caught, health CRIT | TODO | N/A |
 | Disk I/O rate (deep) | ✅ | ✅ sda/sdb idle 0.0 MB/s | TODO | N/A |
 | LVM thin pool + snapshots | ✅ | ✅ pve/data 23%, low-space WARN | TODO | N/A |
-| Run-queue saturation (CPU/RunQueue) | TODO | ✅ WARN@24/8 under load | TODO | N/A |
+| Run-queue saturation (CPU/RunQueue) | ✅ AlmaLinux 9 LXC (RHEL fam) | ✅ pve01 host + openSUSE KVM | TODO | N/A |
 | AMD GPU (amdgpu) | ✅ | depends | N/A | N/A |
 | NVIDIA (nouveau) | ✅ | depends | depends | N/A |
 | k3s / k8s | ✅ | depends | TODO | N/A |
