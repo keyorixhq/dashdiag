@@ -928,3 +928,16 @@ func TestPVENoBackupIsCrit(t *testing.T) {
 		t.Errorf("no-backup finding must not remain WARN, got %+v", got)
 	}
 }
+
+func TestIsPVEServicePort(t *testing.T) {
+	for _, p := range []int{8006, 3128, 111} {
+		if !IsPVEServicePort(p) {
+			t.Errorf("port %d should be a PVE service port", p)
+		}
+	}
+	for _, p := range []int{22, 80, 443, 9090} {
+		if IsPVEServicePort(p) {
+			t.Errorf("port %d should not be a PVE service port", p)
+		}
+	}
+}

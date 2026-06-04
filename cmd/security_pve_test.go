@@ -22,16 +22,3 @@ func TestCountSecurityIssuesPVEPorts(t *testing.T) {
 		t.Errorf("non-PVE host: expected 3 issues for the same ports, got %d", got)
 	}
 }
-
-func TestIsPVEServicePort(t *testing.T) {
-	for _, p := range []int{8006, 3128, 111} {
-		if !isPVEServicePort(p) {
-			t.Errorf("port %d should be a PVE service port", p)
-		}
-	}
-	for _, p := range []int{22, 80, 443, 9090} {
-		if isPVEServicePort(p) {
-			t.Errorf("port %d should not be a PVE service port", p)
-		}
-	}
-}
