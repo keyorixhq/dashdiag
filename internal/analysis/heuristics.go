@@ -2674,6 +2674,30 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	return nil
 }
 
+// isSteamOSHost reports whether the host is SteamOS / a Steam Deck by reading
+// /etc/os-release directly. This is a cheap probe (single file read) suited to
+// the analysis path; the full platform.Profile is not threaded through here.
+func isSteamOSHost() bool {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		val = strings.ToLower(strings.Trim(val, `"'`))
+		if key == "ID" && val == "steamos" {
+			return true
+		}
+		if key == "VARIANT_ID" && val == "steamdeck" {
+			return true
+		}
+	}
+	return false
+}
+
 func checkGPU(gpu models.GPUInfo) []models.Insight {
 	if len(gpu.Devices) == 0 && gpu.Status == "" {
 		return nil // no GPU or driver not loaded — skip silently
@@ -2693,6 +2717,7 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 		))
 	}
 
+	steamOS := isSteamOSHost()
 	for _, dev := range gpu.Devices {
 		prefix := dev.Name
 		if len(gpu.Devices) > 1 {
@@ -2707,6 +2732,43 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 			out = append(out, insight("WARN", "GPU",
 				fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
 				[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
+			))
+		}
+		// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
+		if dev.TempJunctionC >= 100 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
+				[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},
+			))
+		} else if dev.TempJunctionC >= 90 {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s junction temperature %d°C — approaching thermal limit", prefix, dev.TempJunctionC),
+				[]string{"to inspect: check thermal paste and fan curve if sustained"},
+			))
+		}
+		// TDP throttling — GPU pinned at its power cap.
+		if dev.Throttling {
+			hint := "to inspect: raise the power cap or improve cooling if more performance is needed"
+			if steamOS {
+				hint = "to fix: on Steam Deck, increase the TDP limit in Performance settings when plugged in"
+			}
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s TDP throttling — at power limit (%.1fW / %.1fW)", prefix, dev.TDPCurrentW, dev.TDPLimitW),
+				[]string{hint},
+			))
+		}
+		// VRAM pressure (GB-based field, complements the MB-based check below).
+		if dev.VRAMUsedPct >= 90 {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
+				[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
+			))
+		}
+		// DPM stuck low (deep-only field) — performance capped after failed power management.
+		if dev.PowerDPMLevel == "low" {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s stuck in low-power DPM mode — performance capped", prefix),
+				[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
 			))
 		}
 		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" {

@@ -18,15 +18,26 @@ import (
 // NVIDIA: via nvidia-smi (no stable kernel interface for VRAM/power/Xid).
 // AMD:    via /sys/class/drm/card*/device/ sysfs (stable, no commands needed).
 // Intel:  sysfs only — basic detection, limited metrics.
-type GPUCollector struct{}
+type GPUCollector struct {
+	// Deep enables deep-only sysfs reads (e.g. power_dpm_force_performance_level).
+	Deep bool
+}
 
 func NewGPUCollector() *GPUCollector { return &GPUCollector{} }
 
 func (c *GPUCollector) Name() string           { return "GPU" }
-func (c *GPUCollector) Timeout() time.Duration { return 8 * time.Second }
+func (c *GPUCollector) Timeout() time.Duration { return 10 * time.Second }
 
 func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.GPUInfo{}
+
+	// Start the 1-second AMD busy sampler early so its sleep overlaps with the
+	// nvidia-smi call and the rest of collection — it never blocks the caller.
+	amdCards := amdCardPaths()
+	busyCh := make(chan []busySample, 1)
+	if len(amdCards) > 0 {
+		go sampleAMDBusy(amdCards, busyCh)
+	}
 
 	// NVIDIA — nvidia-smi (opt-in via --gpu flag)
 	smiCtx, smiCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -34,7 +45,7 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	nvidiaPresent := hasNvidiaCard()
 	out, err := runCmd(smiCtx, "nvidia-smi",
-		"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version",
+		"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version,power.limit",
 		"--format=csv,noheader,nounits")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -47,6 +58,7 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 				continue
 			}
 			dev.Vendor = "nvidia"
+			dev.DRMDriver = "nvidia"
 			if driverVer != "" && info.DriverVersion == "" {
 				info.DriverVersion = driverVer
 			}
@@ -68,12 +80,81 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
+	// Mesa version is system-wide — detect once and apply to AMD/Intel devices.
+	mesa := detectMesaVersion(ctx)
+
 	// AMD — sysfs (always available, no commands needed)
 	// Works on RDNA, RDNA2, RDNA3, Van Gogh (Steam Deck APU), Polaris, Vega
-	amdDevices := collectAMDGPUs()
+	amdDevices := collectAMDGPUs(amdCards, c.Deep)
+
+	// Apply the 1-second busy sample (keyed by position — amdDevices is built
+	// from amdCards in the same order).
+	if len(amdCards) > 0 {
+		select {
+		case samples := <-busyCh:
+			for i := range amdDevices {
+				if i >= len(samples) {
+					break
+				}
+				if samples[i].gpuBusy >= 0 {
+					amdDevices[i].UtilPct = samples[i].gpuBusy
+				}
+				if samples[i].memBusy >= 0 {
+					amdDevices[i].MemBusyPct = samples[i].memBusy
+				}
+			}
+		case <-ctx.Done():
+		}
+	}
+	for i := range amdDevices {
+		if mesa != "" {
+			amdDevices[i].MesaVersion = mesa
+		}
+	}
 	info.Devices = append(info.Devices, amdDevices...)
 
+	// Intel — sysfs (i915/xe): temperature + power only
+	intelDevices := collectIntelGPUs()
+	for i := range intelDevices {
+		if mesa != "" {
+			intelDevices[i].MesaVersion = mesa
+		}
+	}
+	info.Devices = append(info.Devices, intelDevices...)
+
 	return info, nil
+}
+
+// busySample holds a one-second-instantaneous GPU/memory busy reading.
+// A negative value means the corresponding sysfs file was absent/unreadable.
+type busySample struct {
+	gpuBusy int
+	memBusy int
+}
+
+// sampleAMDBusy sleeps 1 second, then reads gpu_busy_percent and mem_busy_percent
+// for each AMD card. The post-sleep read is the instantaneous value that matches
+// what htop/MangoHud show (not a long-window average). Results are ordered to
+// match the input cards slice.
+func sampleAMDBusy(cards []string, ch chan<- []busySample) {
+	time.Sleep(1 * time.Second)
+	out := make([]busySample, len(cards))
+	for i, card := range cards {
+		devPath := card + "/device"
+		s := busySample{gpuBusy: -1, memBusy: -1}
+		if v := readSysfsStr(devPath + "/gpu_busy_percent"); v != "" {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				s.gpuBusy = n
+			}
+		}
+		if v := readSysfsStr(devPath + "/mem_busy_percent"); v != "" {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				s.memBusy = n
+			}
+		}
+		out[i] = s
+	}
+	ch <- out
 }
 
 // collectGPUProcesses returns processes using the GPU via nvidia-smi.
@@ -130,21 +211,38 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	}
 	driverVer := trim(fields[7])
 
+	// power.limit is appended only on newer nvidia-smi; parse when present.
+	var powerLimit float64
+	if len(fields) >= 9 {
+		if ls := trim(fields[8]); ls != "" && ls != "[N/A]" {
+			powerLimit, _ = strconv.ParseFloat(ls, 64)
+		}
+	}
+
 	memPct := 0.0
 	if memTotal > 0 {
 		memPct = float64(memUsed) / float64(memTotal) * 100
 	}
 
-	return models.GPUDevice{
-		Index:      idx,
-		Name:       name,
-		TempC:      temp,
-		UtilPct:    util,
-		MemUsedMB:  memUsed,
-		MemTotalMB: memTotal,
-		MemUsedPct: memPct,
-		PowerDrawW: power,
-	}, driverVer, nil
+	dev := models.GPUDevice{
+		Index:       idx,
+		Name:        name,
+		TempC:       temp,
+		UtilPct:     util,
+		MemUsedMB:   memUsed,
+		MemTotalMB:  memTotal,
+		MemUsedPct:  memPct,
+		VRAMUsedGB:  float64(memUsed) / 1024,
+		VRAMTotalGB: float64(memTotal) / 1024,
+		VRAMUsedPct: memPct,
+		PowerDrawW:  power,
+		TDPCurrentW: power,
+		TDPLimitW:   powerLimit,
+	}
+	if powerLimit > 0 && power >= 0.95*powerLimit {
+		dev.Throttling = true
+	}
+	return dev, driverVer, nil
 }
 
 // hasNvidiaCard returns true when an NVIDIA GPU is present in the system
@@ -160,77 +258,252 @@ func hasNvidiaCard() bool {
 	return false
 }
 
+// amdCardPaths returns the /sys/class/drm/cardN paths whose vendor ID is AMD
+// (0x1002). The order is the glob order and is reused to align the async busy
+// sample with the collected devices.
+func amdCardPaths() []string {
+	cards, err := filepath.Glob("/sys/class/drm/card[0-9]")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, card := range cards {
+		vendor := strings.TrimSpace(readSysfsStr(card + "/device/vendor"))
+		if strings.EqualFold(vendor, "0x1002") {
+			out = append(out, card)
+		}
+	}
+	return out
+}
+
 // collectAMDGPUs reads AMD GPU health from /sys/class/drm/card*/device/.
 // Pure sysfs — no commands, no root required, works on all AMD iGPU and dGPU.
 // Paths are stable across kernel versions since DRM/KMS introduction.
 //
 // Metrics read per card:
-//   - vendor: must be 0x1002 (AMD) to filter out Intel/NVIDIA DRM cards
 //   - name: from hwmon/hwmon*/name or uevent MODEL
-//   - temp: hwmon/hwmon*/temp1_input (millidegrees → °C)
-//   - util: gpu_busy_percent (0-100%)
+//   - temp: hwmon/hwmon*/temp{1,2,3}_input — edge / junction / memory (millidegrees → °C)
+//   - clock: pp_dpm_sclk (current marked with '*', plus max level)
 //   - VRAM: mem_info_vram_used + mem_info_vram_total (bytes)
-//   - power: hwmon/hwmon*/power1_average (microwatts → W)
-func collectAMDGPUs() []models.GPUDevice {
-	cards, err := filepath.Glob("/sys/class/drm/card[0-9]")
-	if err != nil || len(cards) == 0 {
-		return nil
-	}
-
-	var devices []models.GPUDevice
-	for idx, card := range cards {
+//   - TDP: hwmon/hwmon*/power1_cap{,_max} + power1_input (microwatts → W)
+//   - driver: device/driver symlink basename (amdgpu)
+//   - (deep) power_dpm_force_performance_level
+//
+// gpu_busy_percent / mem_busy_percent are sampled separately (see sampleAMDBusy).
+func collectAMDGPUs(cards []string, deep bool) []models.GPUDevice {
+	devices := make([]models.GPUDevice, 0, len(cards))
+	for _, card := range cards {
 		devPath := card + "/device"
 
-		// Only process AMD cards (vendor ID 0x1002)
-		vendor := readSysfsStr(devPath + "/vendor")
-		if !strings.EqualFold(strings.TrimSpace(vendor), "0x1002") {
-			continue
-		}
-
 		dev := models.GPUDevice{
-			Index:  idx,
-			Name:   amdGPUName(devPath),
-			Vendor: "amd",
+			Index:     cardIndex(card),
+			Name:      amdGPUName(devPath),
+			Vendor:    "amd",
+			DRMDriver: drmDriver(devPath),
 		}
 
-		// Temperature — hwmon/hwmon*/temp1_input in millidegrees
-		if tempStr := readSysfsFirstGlob(devPath + "/hwmon/hwmon*/temp1_input"); tempStr != "" {
-			if milli, err := strconv.ParseInt(strings.TrimSpace(tempStr), 10, 64); err == nil {
-				dev.TempC = int(milli / 1000)
-			}
-		}
+		// Temperatures — millidegrees → °C. temp1=edge, temp2=junction, temp3=memory.
+		dev.TempC = readSysfsMilliC(devPath + "/hwmon/hwmon*/temp1_input")
+		dev.TempJunctionC = readSysfsMilliC(devPath + "/hwmon/hwmon*/temp2_input")
+		dev.TempMemC = readSysfsMilliC(devPath + "/hwmon/hwmon*/temp3_input")
 
-		// GPU utilisation %
+		// GPU utilisation % — base read; overridden by the 1s instantaneous sample.
 		if utilStr := readSysfsStr(devPath + "/gpu_busy_percent"); utilStr != "" {
-			util, _ := strconv.Atoi(strings.TrimSpace(utilStr))
-			dev.UtilPct = util
+			dev.UtilPct, _ = strconv.Atoi(strings.TrimSpace(utilStr))
 		}
 
-		// VRAM
-		if usedStr := readSysfsStr(devPath + "/mem_info_vram_used"); usedStr != "" {
-			if used, err := strconv.ParseInt(strings.TrimSpace(usedStr), 10, 64); err == nil {
-				dev.MemUsedMB = int(used / (1024 * 1024))
-			}
-		}
-		if totalStr := readSysfsStr(devPath + "/mem_info_vram_total"); totalStr != "" {
-			if total, err := strconv.ParseInt(strings.TrimSpace(totalStr), 10, 64); err == nil {
-				dev.MemTotalMB = int(total / (1024 * 1024))
-			}
-		}
+		// GPU core clock — current (marked '*') and max from pp_dpm_sclk.
+		dev.ClockMHz, dev.ClockMaxMHz = parseDPMSclk(readSysfsStr(devPath + "/pp_dpm_sclk"))
+
+		// VRAM — bytes → MB (legacy) and GB (display).
+		usedBytes := readSysfsInt64(devPath + "/mem_info_vram_used")
+		totalBytes := readSysfsInt64(devPath + "/mem_info_vram_total")
+		dev.MemUsedMB = int(usedBytes / (1024 * 1024))
+		dev.MemTotalMB = int(totalBytes / (1024 * 1024))
+		dev.VRAMUsedGB = float64(usedBytes) / (1024 * 1024 * 1024)
+		dev.VRAMTotalGB = float64(totalBytes) / (1024 * 1024 * 1024)
 		if dev.MemTotalMB > 0 {
 			dev.MemUsedPct = float64(dev.MemUsedMB) / float64(dev.MemTotalMB) * 100
+			dev.VRAMUsedPct = dev.MemUsedPct
+		}
+		// APU: small VRAM carveout + a GTT (shared system memory) pool present.
+		if dev.VRAMTotalGB < 2.0 && readSysfsStr(devPath+"/mem_info_gtt_total") != "" {
+			dev.IsAPU = true
 		}
 
-		// Power draw — hwmon/hwmon*/power1_average in microwatts
-		if powerStr := readSysfsFirstGlob(devPath + "/hwmon/hwmon*/power1_average"); powerStr != "" {
-			if uw, err := strconv.ParseInt(strings.TrimSpace(powerStr), 10, 64); err == nil {
-				dev.PowerDrawW = float64(uw) / 1_000_000
-			}
+		// TDP — power1_cap (limit), power1_cap_max (hw max), power1_input (current).
+		dev.TDPLimitW = readSysfsMicroW(devPath + "/hwmon/hwmon*/power1_cap")
+		dev.TDPMaxW = readSysfsMicroW(devPath + "/hwmon/hwmon*/power1_cap_max")
+		dev.TDPCurrentW = readSysfsMicroW(devPath + "/hwmon/hwmon*/power1_input")
+		switch {
+		case dev.TDPCurrentW > 0:
+			dev.PowerDrawW = dev.TDPCurrentW
+		default:
+			// Fall back to power1_average if no instantaneous input is exposed.
+			dev.PowerDrawW = readSysfsMicroW(devPath + "/hwmon/hwmon*/power1_average")
+		}
+		if dev.TDPLimitW > 0 && dev.TDPCurrentW >= 0.95*dev.TDPLimitW {
+			dev.Throttling = true
+		}
+
+		if deep {
+			dev.PowerDPMLevel = strings.TrimSpace(readSysfsStr(devPath + "/power_dpm_force_performance_level"))
 		}
 
 		devices = append(devices, dev)
 	}
 	return devices
+}
+
+// collectIntelGPUs reads the limited data Intel i915/xe exposes without root:
+// hwmon temperature and, where present, power1_input. Clock and VRAM require
+// debugfs + root and are skipped.
+func collectIntelGPUs() []models.GPUDevice {
+	cards, err := filepath.Glob("/sys/class/drm/card[0-9]")
+	if err != nil {
+		return nil
+	}
+	var devices []models.GPUDevice
+	for _, card := range cards {
+		devPath := card + "/device"
+		vendor := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
+		if !strings.EqualFold(vendor, "0x8086") {
+			continue
+		}
+		dev := models.GPUDevice{
+			Index:     cardIndex(card),
+			Name:      intelGPUName(devPath),
+			Vendor:    "intel",
+			DRMDriver: drmDriver(devPath),
+		}
+		dev.TempC = readSysfsMilliC(devPath + "/hwmon/hwmon*/temp1_input")
+		dev.PowerDrawW = readSysfsMicroW(devPath + "/hwmon/hwmon*/power1_input")
+		devices = append(devices, dev)
+	}
+	return devices
+}
+
+// parseDPMSclk parses an amdgpu pp_dpm_sclk table. Lines look like
+// "0: 200Mhz" / "2: 1600Mhz *"; the '*' marks the active level. Returns the
+// current clock (the active line) and the maximum clock across all levels.
+func parseDPMSclk(data string) (cur, max int) {
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		active := strings.HasSuffix(line, "*")
+		mhz := 0
+		for _, tok := range strings.Fields(line) {
+			low := strings.ToLower(tok)
+			if strings.HasSuffix(low, "mhz") {
+				if v, err := strconv.Atoi(strings.TrimSuffix(low, "mhz")); err == nil {
+					mhz = v
+				}
+			}
+		}
+		if mhz > max {
+			max = mhz
+		}
+		if active {
+			cur = mhz
+		}
+	}
+	return cur, max
+}
+
+// detectMesaVersion parses `glxinfo -B` for the Mesa version in the OpenGL
+// version string. It only runs when a display is available (glxinfo needs one)
+// and is bounded to 2s. Returns "" on any failure.
+func detectMesaVersion(ctx context.Context) string {
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return ""
+	}
+	gctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := runCmd(gctx, "glxinfo", "-B")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "OpenGL version string") {
+			continue
+		}
+		idx := strings.Index(line, "Mesa")
+		if idx < 0 {
+			continue
+		}
+		fields := strings.Fields(line[idx:])
+		if len(fields) >= 2 {
+			return fields[1] // "Mesa 24.3.1" → "24.3.1"
+		}
+	}
+	return ""
+}
+
+// drmDriver returns the kernel driver bound to a DRM device (e.g. "amdgpu",
+// "i915", "nouveau") from the device/driver symlink. Empty if none is bound.
+func drmDriver(devPath string) string {
+	link, err := os.Readlink(devPath + "/driver")
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(link)
+}
+
+// cardIndex extracts the integer index from a "/sys/class/drm/cardN" path.
+func cardIndex(card string) int {
+	n, _ := strconv.Atoi(strings.TrimPrefix(filepath.Base(card), "card"))
+	return n
+}
+
+// intelGPUName returns a human-readable name for an Intel GPU.
+func intelGPUName(devPath string) string {
+	uevent := readSysfsStr(devPath + "/uevent")
+	for _, line := range strings.Split(uevent, "\n") {
+		if strings.HasPrefix(line, "PCI_ID=") {
+			parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+			if len(parts) == 2 {
+				return "Intel GPU (" + parts[1] + ")"
+			}
+		}
+	}
+	return "Intel GPU"
+}
+
+// readSysfsInt64 reads a sysfs file holding a single integer as int64 — used
+// for byte counts (VRAM) that can exceed 32-bit range.
+func readSysfsInt64(path string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(readSysfsStr(path)), 10, 64)
+	return n
+}
+
+// readSysfsMilliC reads a millidegree-Celsius sysfs file (first glob match) and
+// returns whole °C. Returns 0 if absent/unreadable.
+func readSysfsMilliC(pattern string) int {
+	s := readSysfsFirstGlob(pattern)
+	if s == "" {
+		return 0
+	}
+	milli, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return int(milli / 1000)
+}
+
+// readSysfsMicroW reads a microwatt sysfs file (first glob match) and returns
+// watts. Returns 0 if absent/unreadable.
+func readSysfsMicroW(pattern string) float64 {
+	s := readSysfsFirstGlob(pattern)
+	if s == "" {
+		return 0
+	}
+	uw, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return float64(uw) / 1_000_000
 }
 
 // detectNoDriverCards returns GPUDetected entries for cards matching

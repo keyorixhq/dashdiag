@@ -10,7 +10,10 @@ import (
 )
 
 // GPUCollector is a no-op on non-Linux platforms.
-type GPUCollector struct{}
+type GPUCollector struct {
+	// Deep mirrors the Linux collector field so callers compile cross-platform.
+	Deep bool
+}
 
 func NewGPUCollector() *GPUCollector { return &GPUCollector{} }
 
