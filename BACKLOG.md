@@ -597,7 +597,3 @@ Lower priority. Defer until macOS user demand exists.
 | Suspend/resume | TODO | N/A | N/A | TODO |
 | Multi-socket / NUMA | N/A | depends | N/A | N/A |
 | apt vs dnf | dnf only | apt likely | apt | brew |
-
----
-
-BUG: dsd spawns unreapped zombie subprocess during health run - parent 48436 child 48451 - investigate runCmd callers in collectors
