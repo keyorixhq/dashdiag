@@ -364,6 +364,36 @@ do not build until a real OpenStack user asks. Full rationale: ADR-0002 Decision
 
 ---
 
+### Major-cloud guests (AWS / GCP / Oracle) + ARM64 servers (Graviton/Ampere) — validation plan (gated)
+
+Anticipated: clients will run `dsd` on the big clouds. Two strands, different urgency.
+
+**Strand A — cloud guest validation (deferred, same as OpenStack).** AWS EC2 (Nitro/KVM),
+GCE (KVM), Oracle Compute (KVM) are all KVM-family Linux guests → the x86 baseline is
+**already covered** by validated KVM-guest paths. The cloud-specific surface is identical
+to the OpenStack entry above: **cloud-init health** (the one worth building, generic to all
+of them) + per-cloud **metadata-service reachability** (each cloud has its own endpoint:
+AWS/GCP `169.254.169.254`, with cloud-specific quirks like GCP's `Metadata-Flavor` header).
+Out of scope: each cloud's control plane / API (that's a cloud-monitoring product, not a
+guest diagnostician). **Status: demand-unvalidated (Principle 3), build deferred** — gated
+on a real client on that cloud. Not urgent: an x86 cloud guest is just a KVM guest.
+
+**Strand B — ARM64 *server* validation (the real near-term gap, NOT a cloud-control-plane
+thing).** `dsd` ships an arm64 binary but, until Jun 4, had only ever run on x86 Linux. The
+arch — not the provider — is the gap: arm64 has different `/proc`/`/sys`/SMART/sensor/CPU-
+feature behaviour. **Preliminary arm64-Linux smoke test DONE (Jun 4, OrbStack native
+aarch64):** binary runs, core /proc collectors parse, arch detection + exit codes correct
+(see ARM64 testbed entry). That closes the highest-probability risk cheaply. **Still open:**
+arm64 *hardware* paths (SMART, thermal, IPMI, GPU) and real ARM *server* kernels — none of
+which a container exposes. Cheapest way to close without AWS: an **Oracle Cloud always-free
+Ampere instance** (a real arm64 server VM, $0) or a Raspberry Pi. Graviton specifically is
+not required to validate the architecture — Ampere/Pi exercise the same aarch64 paths.
+**Priority:** the arm64 *server* run is worth doing relatively soon (it's the one arch we
+ship blind on the hardware paths); the cloud guests (Strand A) stay demand-gated. Both still
+behind the GTM blockers (domain + two messages).
+
+---
+
 ### `--export` / CMDB inventory feed (candidate — gated on a real request)
 
 DashDiag already collects hardware inventory (disk model/serial/capacity, CPU, DIMM
@@ -865,6 +895,25 @@ host (internal subnet); relay via the host for Mac access.
 - **Reusability:** `qm clone 101 <newid>` for a fresh identical Debian box, or
   `qm stop/start 101`. Not destroyed.
 
+### ARM64 Linux via OrbStack (MacBook M-series) — preliminary arch testbed (NEW Jun 4)
+
+The Mac is arm64 hardware; OrbStack runs **native aarch64 Linux containers** (near-zero
+overhead), so this is real ARM64-Linux execution, not emulation. Closes the highest-
+probability arm64 risk — "does the binary run and do the /proc collectors parse on ARM" —
+at zero cost. Method:
+```
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/dsd-linux-arm64 ./cmd/dsd
+docker run --rm --platform linux/arm64 -v "$PWD/dist/dsd-linux-arm64:/dsd:ro" debian:13 /dsd health
+```
+**First run (Jun 4, aarch64 / kernel 7.0.5-orbstack):** binary runs; arch detected as
+`Apple ARM (aarch64)`; core /proc collectors all parsed (CPU, memory, load, run-queue,
+processes, FD, entropy, clock, sysctl, cpufreq 2000/2000 MHz, network 10Gbps); `disk --json`
+valid; exit codes propagate (health=2 with DBus CRIT, cpu=0 clean — BUG-022 fix not
+x86-specific). DBus CRIT is a true reading of a bare container (no init), not an arm bug.
+**NOT covered (container + virtualization limits):** arm64 hardware paths — SMART, thermal
+sensors, IPMI, GPU — and real ARM *server* kernels (Graviton/Ampere). Those stay deferred
+(see ARM64 cloud-guest plan in the candidate-features section).
+
 ### MacBook (arm64 macOS) — active macOS testbed
 **Sessions 1–6 validated:**
 - `dsd disk` — disk0 500GB NVMe [APPLE SSD AP0512R] SMART: PASSED ✅
@@ -875,6 +924,7 @@ host (internal subnet); relay via the host for Mac access.
 | Scenario | RHEL Laptop | Proxmox Host | Debian 13 VM (101) | macOS arm64 |
 |---|---|---|---|---|
 | 20+ collectors | ✅ | ✅ (pve01, Jun 4) | ✅ (VM 101, Jun 4) | ✅ |
+| ARM64 Linux (aarch64 /proc collectors) | N/A | N/A | N/A | ✅ OrbStack arm64 (Jun 4): runs, /proc collectors parse, exit codes OK; HW paths + real ARM server still TODO |
 | SATA SSD SMART (Linux) | ✅ | ✅ LITEONIT 128GB | N/A | N/A |
 | NVMe SMART (macOS diskutil) | N/A | N/A | N/A | ✅ |
 | HDD detection | N/A | ✅ WD 2TB SMART PASS | N/A | N/A |
