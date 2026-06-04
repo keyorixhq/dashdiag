@@ -421,6 +421,9 @@ func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *model
 	if c, ok := ruleIOSingleDeviceDegradation(io); ok {
 		out = append(out, c)
 	}
+	if c, ok := ruleServiceMemoryLeak(oom); ok {
+		out = append(out, c)
+	}
 	idx := buildIndex(insights)
 	if c, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
 		out = append(out, c)
@@ -464,6 +467,53 @@ func ruleIOSingleDeviceDegradation(io *models.IOInfo) (Correlation, bool) {
 			dev.Name, dev.AwaitMs, dev.UtilPct, len(healthy)),
 		Action: fmt.Sprintf("smartctl -a /dev/%s && iostat -x 1 5", dev.Name),
 		Checks: []string{"IO"},
+	}, true
+}
+
+// ruleServiceMemoryLeak fires when the OOM killer repeatedly terminates the
+// same process — a pattern that distinguishes a memory leak in one specific
+// service from general system memory pressure. General pressure kills
+// different processes; a leaking service is killed repeatedly as it grows.
+//
+// Required signals (raw OOMInfo):
+//   - oom.EventsLast24h >= 2
+//   - At least one process name appears in ≥ 2 OOMEvent entries
+//   - The repeated kills must be of the same named process
+func ruleServiceMemoryLeak(oom *models.OOMInfo) (Correlation, bool) {
+	if oom == nil || oom.EventsLast24h < 2 || len(oom.RecentEvents) < 2 {
+		return Correlation{}, false
+	}
+
+	// Count kills per process name
+	counts := make(map[string]int)
+	for _, e := range oom.RecentEvents {
+		if e.Process != "" {
+			counts[e.Process]++
+		}
+	}
+
+	// Find the process killed most often (must be ≥ 2)
+	var leaker string
+	var maxCount int
+	for proc, n := range counts {
+		if n > maxCount {
+			maxCount = n
+			leaker = proc
+		}
+	}
+
+	if maxCount < 2 || leaker == "" {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:  "Repeated OOM Kill — Possible Memory Leak",
+		Level: "WARN",
+		Summary: fmt.Sprintf("%s was OOM-killed %d times in the last 24h — this pattern suggests a memory leak rather than general memory pressure",
+			leaker, maxCount),
+		Action: fmt.Sprintf("check %s memory growth: ps aux | grep %s && journalctl -u %s --since '24h ago' | grep -i 'memory\\|oom'",
+			leaker, leaker, leaker),
+		Checks: []string{"OOM"},
 	}, true
 }
 

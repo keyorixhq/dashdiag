@@ -653,12 +653,49 @@ func collectDaemonHealth(ctx context.Context, client *http.Client, runtime strin
 		}
 	}
 
+	// Spec 7d: Compose version detection
+	d.ComposePlugin = detectComposePlugin(ctx)
+	d.ComposeStandalone = detectComposeStandalone(ctx)
+
 	// Daemon journal errors (last 10 minutes) — Docker only, not Podman
 	if runtime == "docker" {
 		collectDaemonJournalErrors(ctx, d)
 	}
 
 	return d
+}
+
+// detectComposePlugin returns the docker compose v2 plugin version string,
+// or "" when the plugin is not installed or the command fails.
+// Uses `docker compose version --short` — exits 0 on v2, exits 1 on older Docker.
+func detectComposePlugin(ctx context.Context) string {
+	cCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(cCtx, "docker", "compose", "version", "--short")
+	if err != nil {
+		return ""
+	}
+	// Output: "v2.29.1\n" or "2.29.1\n"
+	ver := strings.TrimSpace(out)
+	ver = strings.TrimPrefix(ver, "v")
+	if ver == "" {
+		return ""
+	}
+	return ver
+}
+
+// detectComposeStandalone returns the docker-compose v1 standalone version string,
+// or "" when not installed. Uses `docker-compose version --short`.
+func detectComposeStandalone(ctx context.Context) string {
+	cCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(cCtx, "docker-compose", "version", "--short")
+	if err != nil {
+		return ""
+	}
+	ver := strings.TrimSpace(out)
+	ver = strings.TrimPrefix(ver, "v")
+	return ver
 }
 
 // collectDaemonJournalErrors reads recent error/warning lines from docker service journal.

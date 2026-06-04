@@ -12,9 +12,10 @@ type CertInfo struct {
 
 // TLSInfo holds all certificate findings.
 type TLSInfo struct {
-	Certs        []CertInfo `json:"certs"`
-	Expiring     int        `json:"expiring"` // expiring within 30 days
-	Expired      int        `json:"expired"`  // already expired
-	Status       string     `json:"status,omitempty"`
-	StatusReason string     `json:"status_reason,omitempty"`
+	Certs           []CertInfo `json:"certs"`
+	Expiring        int        `json:"expiring"`                   // expiring within 30 days
+	Expired         int        `json:"expired"`                    // already expired
+	RemoteEndpoints []string   `json:"remote_endpoints,omitempty"` // endpoints that were checked
+	Status          string     `json:"status,omitempty"`
+	StatusReason    string     `json:"status_reason,omitempty"`
 }

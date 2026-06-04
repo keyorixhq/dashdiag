@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 var tlsCmd = &cobra.Command{
@@ -37,45 +41,73 @@ func init() {
 	tlsCmd.Flags().Int("warn-days", 30, "warn when cert expires within N days")
 	tlsCmd.Flags().Int("crit-days", 7, "critical when cert expires within N days")
 	tlsCmd.Flags().Bool("all", false, "show all certs including healthy ones")
+	tlsCmd.Flags().StringArray("endpoint", nil, "remote TLS endpoint to check (host:port)")
+	tlsCmd.Flags().String("endpoints-file", "", "file with newline-separated host:port endpoints")
+	tlsCmd.Flags().Bool("json", false, "JSON output")
 }
 
 type certResult struct {
-	Path     string
-	Subject  string
-	Expiry   time.Time
-	DaysLeft int
-	Level    string // OK, WARN, CRIT, ERR
-	Err      string
+	Path       string
+	Subject    string
+	Expiry     time.Time
+	DaysLeft   int
+	Level      string // OK, WARN, CRIT, ERR
+	Err        string
+	Remote     bool // true when from a --endpoint / --endpoints-file scan
+	SelfSigned bool
 }
 
 func runTLS(cmd *cobra.Command, args []string) error {
 	warnDays, _ := cmd.Flags().GetInt("warn-days")
 	critDays, _ := cmd.Flags().GetInt("crit-days")
 	showAll, _ := cmd.Flags().GetBool("all")
+	endpoints, _ := cmd.Flags().GetStringArray("endpoint")
+	endpointsFile, _ := cmd.Flags().GetString("endpoints-file")
+	jsonOut, _ := cmd.Flags().GetBool("json")
 
-	// Collect paths to scan
+	// Remote endpoints: --endpoint flags first, then file lines.
+	remotes := append([]string{}, endpoints...)
+	remotes = append(remotes, readEndpointsFile(endpointsFile)...)
+
+	// Collect local paths to scan. Only auto-detect when no remote endpoints and
+	// no explicit paths were given — otherwise an empty local set is fine.
 	paths := args
-	if len(paths) == 0 {
+	if len(paths) == 0 && len(remotes) == 0 {
 		paths = autoDetectCertPaths()
 	}
 
-	if len(paths) == 0 {
+	if len(paths) == 0 && len(remotes) == 0 {
 		fmt.Println("no certificates found — pass paths explicitly or configure ~/.dsd/certs/")
 		return nil
 	}
 
-	// Scan all paths
+	// Scan local paths.
 	var results []certResult
 	for _, p := range paths {
 		res := scanCertFile(p, warnDays, critDays)
 		results = append(results, res...)
 	}
 
+	// Scan remote endpoints (leaf cert only, matching the local one-line-per-file form).
+	results = append(results, scanRemoteEndpoints(remotes, warnDays, critDays)...)
+
+	if jsonOut {
+		return outputJSON(os.Stdout, buildTLSInfo(results, remotes, warnDays))
+	}
+
 	if len(results) == 0 {
-		fmt.Println("no certificates found in scanned paths")
+		fmt.Println("no certificates found in scanned paths or endpoints")
 		return nil
 	}
 
+	renderTLSResults(results, showAll)
+	return nil
+}
+
+// renderTLSResults sorts, prints, and summarizes scan results. It calls
+// os.Exit(2) when any cert is CRIT and os.Exit(1) when any is WARN — matching
+// the original dsd tls exit-code contract.
+func renderTLSResults(results []certResult, showAll bool) {
 	// Sort: CRIT first, then WARN, then OK, then ERR
 	order := map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, "ERR": 3}
 	sort.Slice(results, func(i, j int) bool {
@@ -85,7 +117,6 @@ func runTLS(cmd *cobra.Command, args []string) error {
 		return results[i].DaysLeft < results[j].DaysLeft
 	})
 
-	// Output
 	sep := strings.Repeat("─", 60)
 	fmt.Printf("\n%s\n", sep)
 	fmt.Printf("TLS certificate health — %d certificate(s) found\n", len(results))
@@ -101,25 +132,10 @@ func runTLS(cmd *cobra.Command, args []string) error {
 		case "OK":
 			oks++
 		}
-
 		if !showAll && r.Level == "OK" {
 			continue
 		}
-
-		icon := levelIcon(r.Level)
-		fmt.Printf("%s  %s\n", icon, r.Path)
-		if r.Err != "" {
-			fmt.Printf("   error: %s\n", r.Err)
-			continue
-		}
-		fmt.Printf("   Subject:  %s\n", r.Subject)
-		fmt.Printf("   Expires:  %s", r.Expiry.Format("2006-01-02"))
-		if r.DaysLeft <= 0 {
-			fmt.Printf(" (EXPIRED %d days ago)\n", -r.DaysLeft)
-		} else {
-			fmt.Printf(" (%d days)\n", r.DaysLeft)
-		}
-		fmt.Println()
+		printCertResult(r)
 	}
 
 	// Summary
@@ -136,7 +152,31 @@ func runTLS(cmd *cobra.Command, args []string) error {
 	if !showAll {
 		fmt.Println("    (use --all to show individual certs)")
 	}
-	return nil
+}
+
+// printCertResult prints a single cert/endpoint result block.
+func printCertResult(r certResult) {
+	icon := levelIcon(r.Level)
+	tag := ""
+	if r.Remote {
+		tag = "  [remote]"
+	}
+	if r.SelfSigned {
+		tag += "  [self-signed]"
+	}
+	fmt.Printf("%s  %s%s\n", icon, r.Path, tag)
+	if r.Err != "" {
+		fmt.Printf("   error: %s\n", r.Err)
+		return
+	}
+	fmt.Printf("   Subject:  %s\n", r.Subject)
+	fmt.Printf("   Expires:  %s", r.Expiry.Format("2006-01-02"))
+	if r.DaysLeft <= 0 {
+		fmt.Printf(" (EXPIRED %d days ago)\n", -r.DaysLeft)
+	} else {
+		fmt.Printf(" (%d days)\n", r.DaysLeft)
+	}
+	fmt.Println()
 }
 
 func scanCertFile(path string, warnDays, critDays int) []certResult {
@@ -248,4 +288,97 @@ func levelIcon(level string) string {
 	default:
 		return "ℹ️ "
 	}
+}
+
+// readEndpointsFile reads newline-separated host:port endpoints from path.
+// Blank lines and lines starting with '#' are skipped. Missing path → nil.
+func readEndpointsFile(path string) []string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- operator-supplied path
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// scanRemoteEndpoints dials each endpoint, reads the leaf certificate, and
+// converts it to a certResult using the same warn/crit day thresholds as local
+// certs. A dial/handshake failure becomes an ERR result so the user still sees it.
+func scanRemoteEndpoints(remotes []string, warnDays, critDays int) []certResult {
+	if len(remotes) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	var out []certResult
+	for _, ep := range remotes {
+		ep = strings.TrimSpace(ep)
+		if ep == "" {
+			continue
+		}
+		certs, err := collectors.CheckRemoteEndpoint(ctx, ep)
+		if err != nil || len(certs) == 0 {
+			msg := "no certificates returned"
+			if err != nil {
+				msg = err.Error()
+			}
+			out = append(out, certResult{Path: ep, Level: "ERR", Err: msg, Remote: true})
+			continue
+		}
+		// Leaf cert is first in the chain — match the local one-line-per-file form.
+		leaf := certs[0]
+		level := "OK"
+		switch {
+		case leaf.ExpiresIn <= critDays:
+			level = "CRIT"
+		case leaf.ExpiresIn <= warnDays:
+			level = "WARN"
+		}
+		expiry, _ := time.Parse("2006-01-02", leaf.NotAfter)
+		out = append(out, certResult{
+			Path:       ep,
+			Subject:    leaf.Subject,
+			Expiry:     expiry,
+			DaysLeft:   leaf.ExpiresIn,
+			Level:      level,
+			Remote:     true,
+			SelfSigned: leaf.IsSelfSigned,
+		})
+	}
+	return out
+}
+
+// buildTLSInfo assembles a models.TLSInfo (for --json output) from scan results.
+func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.TLSInfo {
+	ti := &models.TLSInfo{RemoteEndpoints: remotes}
+	for _, r := range results {
+		if r.Err != "" {
+			continue
+		}
+		ci := models.CertInfo{
+			Path:         r.Path,
+			Subject:      r.Subject,
+			ExpiresIn:    r.DaysLeft,
+			IsSelfSigned: r.SelfSigned,
+		}
+		if !r.Expiry.IsZero() {
+			ci.NotAfter = r.Expiry.Format("2006-01-02")
+		}
+		ti.Certs = append(ti.Certs, ci)
+		if r.DaysLeft < 0 {
+			ti.Expired++
+		} else if r.DaysLeft <= warnDays {
+			ti.Expiring++
+		}
+	}
+	return ti
 }
