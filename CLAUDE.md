@@ -81,6 +81,10 @@ dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
+dsd steamos      🟡 Steam Deck/SteamOS: RAUC A/B slots, steamos-readonly, gamescope session,
+                    /var+/home, Wi-Fi backend, update-server reach; --deep (proton/shader/flatpak/bios).
+                    Code + heuristics + tests complete (Spec 17); gated on platform.IsSteamOS, wired
+                    into dsd health. LIVE VALIDATION PENDING — no Steam Deck hardware yet.
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
 dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
                     --endpoints-file, --json); InsecureSkipVerify to read expired certs

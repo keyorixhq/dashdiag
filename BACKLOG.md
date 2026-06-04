@@ -8,6 +8,16 @@ Build order rule: **never build deep before fast is in production use.**
 
 ---
 
+## ✅ Recently Completed (June 4, 2026 — Session: 3 bug fixes + SteamOS foundation)
+
+| Item | Notes |
+|---|---|
+| BUG-022 fixed — standalone subcommands honour 0/1/2 exit code | `cmd/exitcode.go`; wired into disk/security/docker/k8s/cve/steamos; matches `dsd health` via `ApplyThresholds` |
+| BUG-023 fixed — AppArmor profile names parsed as real JSON | `internal/drilldown/kernelsec.go`; JSON path + text fallback; clean names |
+| Sysctl false-positive fixed — `ruleSysctlNotPersisted` no longer asserts a lost fix | conditional wording + stock-default gate (swappiness=60, dirty_ratio=20) |
+| `dsd pve` BLOCKED note corrected in CLAUDE.md + BACKLOG | was stale — shipped ae9c4c4, verified on pve01 |
+| **`dsd steamos` foundation (Spec 17)** | model + collector (`steamos_linux.go`/`steamos_parse.go`/stub) + `checkSteamOS` heuristic + `cmd/steamos.go` + health gate `SteamOSAvailable()`. RAUC A/B slots (JSON+text parse), steamos-readonly, gamescope session, /var+/home, Wi-Fi backend, update-server reach; `--deep` proton/shader/flatpak/bios. 24 unit tests. **Live validation pending — no Steam Deck hardware.** See SteamOS section below. |
+
 ## ✅ Recently Completed (Sessions 1–12, May 2026)
 
 | Item | Session | Commit |
@@ -505,6 +515,36 @@ live amdgpu hardware — the test matrix only has Intel i915 (PVE01) and GPU-les
 **Priority:** Medium — blocks Steam Deck field validation of Spec 18.
 **Blocked on:** Access to AMD GPU hardware (Steam Deck, Radeon workstation, or AMD laptop).
 **Estimated:** 1–2h once hardware is available (deploy binary, compare against MangoHud).
+
+---
+
+### [STEAMOS-VALIDATION] Live `dsd steamos` validation on a Steam Deck
+
+**Current state (June 4):** `dsd steamos` foundation shipped (Spec 17) — model,
+collector (`steamos_linux.go` + pure parsers in `steamos_parse.go` + non-Linux stub),
+`checkSteamOS` heuristic wired into `ApplyThresholds`, `cmd/steamos.go` (fast/deep/json),
+and a gated hook in `dsd health` (`SteamOSAvailable()` → only on `platform.IsSteamOS`).
+Parsers and heuristics are unit-tested (24 tests); the non-SteamOS path renders a
+graceful INFO and exits 0 (verified on macOS). It has **never run on a real Steam Deck.**
+
+**What to validate when a Steam Deck / SteamOS device is available (acceptance criteria from Spec 17):**
+- [ ] RAUC: `rauc status --output-format=json` parses on the device; booted/inactive slot + bootname (A/B) + boot status correct. Confirm the JSON shape matches `applyRAUCJSON` (the `slots` array of single-key objects). If RAUC emits a different schema, fix the struct.
+- [ ] RAUC text fallback (`applyRAUCText`) matches real `rauc status` output (slot header `o [rootfs.0] (..., booted)`, `bootname:`, `boot status:`).
+- [ ] A genuinely "bad" booted slot → CRIT with `rauc status mark-active booted`; bad inactive → WARN.
+- [ ] `steamos-readonly status` output contains "enabled"/"disabled" as parsed; disabled → CRIT.
+- [ ] Update channel: confirm the real `/etc/steamos-atomupd/client.conf` key is `Variant` (or adjust `parseSteamOSChannel`). Verify rel→stable mapping.
+- [ ] Session: unit names `gamescope-session.service` / `steam-launcher.service` / `sddm.service` are correct on current SteamOS; `XDG_SESSION_DESKTOP` value in Game Mode (assumed `gamescope`).
+- [ ] Storage: `/var` (~256MB) and `/home` statfs values match `df`; WARN/CRIT thresholds (70/85, 85/95) fire.
+- [ ] Wi-Fi: iwd vs wpa_supplicant detection via `systemctl is-active`.
+- [ ] Update server: `steamdeck-atomupd.steamos.cloud:443` reachable test + latency.
+- [ ] `--deep`: gamescope journal error filter, rauc last log, compatdata/shadercache `du`, flatpak count/size, `dmidecode` BIOS (needs root).
+- [ ] `--json` valid; runs < 5s (fast).
+
+**Priority:** Medium — the whole command is unvalidated against the real OS; the parsing
+assumptions (RAUC schema, client.conf key, unit names, session env) are the likeliest to
+need adjustment. Also covers Spec 19/20/22 groundwork (SteamOS partition/Wi-Fi/Remote Play).
+**Blocked on:** Access to a Steam Deck or a SteamOS/HoloISO/Bazzite VM.
+**Estimated:** 2–3h once hardware is available (deploy binary, walk the acceptance list, capture a fixture).
 
 ---
 
