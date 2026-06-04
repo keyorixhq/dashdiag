@@ -53,7 +53,7 @@ Legion wiped and given away (June 2026) — this pattern is obsolete.
 
 ---
 
-## What Ships (as of v0.6.1, commit 9724e23)
+## What Ships (as of v0.6.1+, commit 1fb1004)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)
@@ -68,6 +68,8 @@ dsd docker       ✅ exit code labels, events, secrets, root user, socket mount,
                     daemon health, log driver (--deep), IP forward, firewalld nftables
 dsd k8s          ✅ JSON API, events, OS-layer deep, wired into dsd health
 dsd containerd   ✅ standalone containerd: socket, service state, version, namespace/container counts
+platform.Profile ✅ distro normalization layer — Detect(), IsSteamOS, NetworkStack, SELinuxMode,
+                    PackageManager, SyslogPath; wired into health + 3 collectors; unblocks SteamOS specs
 dsd proc         ✅ smaps_rollup, FD map, socket conns, D-state guide
 dsd cron         ✅ daemon, quality, anacron staleness
 dsd gpu          ✅ AMD amdgpu sysfs, NVIDIA nouveau detection

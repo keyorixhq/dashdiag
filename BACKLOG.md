@@ -128,6 +128,18 @@ Build order rule: **never build deep before fast is in production use.**
 | `dsd mock` replays disk raw data via model type map (DiskInfo/LVMInfo/ZFSInfo/IOInfo) | 4e0b943 |
 | Backward compat: old fixtures without raw replay via text-only stub unchanged | 4e0b943 |
 
+## ✅ Recently Completed (June 4, 2026 — Session 6: Spec 8 + containerd + btrfs VM)
+
+| Item | Commit |
+|---|---|
+| Spec 8: `platform.Profile` distro normalization layer — Detect(), 10 distro cases, --debug print | 1fb1004 |
+| `platform.Profile` wired into `cmd/health.go`, logs/docker/security collectors migrated | 1fb1004 |
+| Live validation: PVE01 (ifupdown+AppArmor ✅), openSUSE 16 (SELinux enforcing ✅), AlmaLinux LXC (SELinux not-present in LXC ✅) | 1fb1004 |
+| Standalone containerd health check (`dsd health` Containerd row) | ded30f4 |
+| VM 214 (opensuse16-btrfs, 192.168.10.56): btrfs test node, healthy + DEGRADED fixtures | db1d0be |
+| `dsd capture --cve / --timeline` + `dsd timeline --json` + cve stdout pollution fix | 83e17e6 |
+| BTRFS-TEST-INFRA logged to backlog; BTRFS-HEALTH stale checkbox closed | 1575fcc |
+
 ## 🚨 GTM Blockers (revenue-blocking, do these first)
 
 | Item | Status | Notes |
