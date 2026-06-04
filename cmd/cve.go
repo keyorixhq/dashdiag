@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func init() {
@@ -71,6 +73,9 @@ func runCVE(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(os.Stderr, "oval error: %v\n", err)
 				continue
 			}
+			if r.Found && len(r.Packages) > 0 {
+				recordExitCode(2) // BUG-022: VULNERABLE per OVAL → CRIT
+			}
 			if jsonOut {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -88,6 +93,8 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		}
 		r := collectors.ScanAllCVEs(ctx)
 		collectors.EnrichCVEAllWithKEV(r)
+		// BUG-022: same CVSS≥9.0/KEV→CRIT, ≥7.0→WARN mapping as `dsd health --cve`.
+		recordResultSeverity([]runner.Result{{Name: "CVE", Data: r}})
 		if jsonOut {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -101,6 +108,12 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("specify at least one CVE ID, or use --all to scan everything")
 	}
 
+	return runCVEChecks(ctx, args, jsonOut)
+}
+
+// runCVEChecks handles `dsd cve <CVE-ID...>`: per-CVE lookup, JSON or human
+// rendering, and exit-code recording (BUG-022 — a vulnerable host fails the gate).
+func runCVEChecks(ctx context.Context, args []string, jsonOut bool) error {
 	results := make([]*models.CVEResult, 0, len(args))
 	for _, cveID := range args {
 		if !jsonOut {
@@ -108,6 +121,7 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		}
 		r := collectors.CheckCVE(ctx, cveID)
 		results = append(results, r)
+		recordCVEResultSeverity(r)
 	}
 
 	if jsonOut {
@@ -133,6 +147,22 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\nSummary: %d/%d CVEs require action\n", vulnerable, len(results))
 	}
 	return nil
+}
+
+// recordCVEResultSeverity maps a single-CVE check to the exit convention
+// (BUG-022): a vulnerable host fails the gate — CRIT when actively exploited
+// (CISA KEV) or CVSS ≥ 9.0, WARN otherwise. Patched / not-affected / unknown
+// do not change the exit code (unknown is not a confirmed vulnerability).
+func recordCVEResultSeverity(r *models.CVEResult) {
+	if r == nil || r.Status != models.CVEVulnerable {
+		return
+	}
+	score, _ := strconv.ParseFloat(strings.TrimSpace(r.CVSS3Score), 64)
+	if r.KnownExploited || score >= 9.0 {
+		recordExitCode(2)
+		return
+	}
+	recordExitCode(1)
 }
 
 func printCVEResult(r *models.CVEResult) {
@@ -459,6 +489,16 @@ func runOVALScan(ctx context.Context, ovalPath string, jsonOut bool) error {
 	results, err := cvedata.ScanOVALPackages(ctx, ovalPath)
 	if err != nil {
 		return fmt.Errorf("OVAL scan: %w", err)
+	}
+
+	// BUG-022: CVSS≥9.0→CRIT, ≥7.0→WARN, matching the human bucket thresholds.
+	for _, r := range results {
+		switch {
+		case r.CVSS3 >= 9.0:
+			recordExitCode(2)
+		case r.CVSS3 >= 7.0:
+			recordExitCode(1)
+		}
 	}
 
 	if jsonOut {

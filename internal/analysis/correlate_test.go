@@ -702,6 +702,21 @@ func TestSysctlNotPersistedDoesNotFireWithNilSysctl(t *testing.T) {
 	}
 }
 
+// BUG-023 follow-up: a freshly booted box at the kernel stock default
+// (swappiness=60) raises a workload Sysctl WARN, but that is the out-of-the-box
+// value, not a sysctl -w that failed to persist. The correlation must not narrate
+// a non-existent lost fix.
+func TestSysctlNotPersistedDoesNotFireOnStockDefaults(t *testing.T) {
+	sysctl := makeSysctl(180, 60) // 3 min uptime, swappiness=60 (stock default)
+	insights := []models.Insight{
+		ins("WARN", "Sysctl", "vm.swappiness=60 is high for k8s node (recommended: <= 10)"),
+	}
+	idx := buildIndex(insights)
+	if _, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
+		t.Error("should not fire when flagged values are at kernel stock defaults (fresh boot, not a lost fix)")
+	}
+}
+
 // ── CorrelateDeep nil-safety for new params ──────────────────────────────
 
 func TestCorrelateDeepNewParamsNilSafe(t *testing.T) {

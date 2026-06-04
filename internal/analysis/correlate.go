@@ -550,13 +550,21 @@ func ruleServiceMemoryLeak(oom *models.OOMInfo) (Correlation, bool) {
 }
 
 // ruleSysctlNotPersisted fires when sysctl parameters are at non-recommended
-// values AND the system rebooted recently (uptime < 1 hour). This combination
-// indicates the operator applied a fix with `sysctl -w` but did not persist it
-// to /etc/sysctl.d/ — the fix was lost on reboot.
+// values AND the system rebooted recently (uptime < 1 hour). The combination is
+// *consistent with* an operator having applied a fix with `sysctl -w` that was
+// never persisted to /etc/sysctl.d/ (so it was lost on reboot) — but current
+// state alone cannot prove it: a lost `sysctl -w` reverts to the same stock
+// default a never-touched box shows. So the summary is phrased conditionally
+// rather than asserting a past action (BUG-023 follow-up), and the rule is
+// suppressed when the flagged values are still at their kernel stock defaults —
+// the strongest "nobody tuned this" signal available without history. A truly
+// reliable verdict needs the history-aware v2 (compare against a prior snapshot
+// that showed the recommended value).
 //
 // Required signals:
 //   - Sysctl WARN or CRIT   (some parameter is misconfigured)
 //   - sysctl.UptimeSeconds > 0 AND < 3600   (rebooted in the last hour)
+//   - at least one flagged value is non-default (not a fresh-boot stock value)
 func ruleSysctlNotPersisted(sysctl *models.SysctlInfo, idx map[string]indexEntry) (Correlation, bool) {
 	if sysctl == nil || sysctl.UptimeSeconds <= 0 || sysctl.UptimeSeconds >= 3600 {
 		return Correlation{}, false
@@ -564,16 +572,51 @@ func ruleSysctlNotPersisted(sysctl *models.SysctlInfo, idx map[string]indexEntry
 	if !atLeast(idx, "Sysctl", "WARN") {
 		return Correlation{}, false
 	}
+	if sysctlAllAtStockDefaults(sysctl) {
+		// Non-recommended-but-default values after a fresh boot are the stock
+		// configuration, not a fix that failed to persist. Don't narrate a
+		// non-existent lost fix (the underlying Sysctl WARN still stands on its
+		// own — this only suppresses the misleading correlation).
+		return Correlation{}, false
+	}
 
 	uptimeMin := sysctl.UptimeSeconds / 60
 	return Correlation{
 		Name:  "Sysctl Parameter Not Persisted",
 		Level: "WARN",
-		Summary: fmt.Sprintf("system rebooted %d minute(s) ago and sysctl parameters are still at non-recommended values — the previous fix was applied with sysctl -w but not written to /etc/sysctl.d/",
+		Summary: fmt.Sprintf("system rebooted %d minute(s) ago with sysctl parameters at non-recommended, non-default values — if a fix was applied last boot with `sysctl -w` it did not survive the reboot; persist tuning to /etc/sysctl.d/ so it reapplies at boot",
 			uptimeMin),
 		Action: "echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf && sysctl -p /etc/sysctl.d/99-dsd.conf",
 		Checks: []string{"Sysctl"},
 	}, true
+}
+
+// sysctlAllAtStockDefaults reports whether the "high value is bad" tunables that
+// commonly drive a Sysctl WARN are still at their well-known, version-stable
+// kernel defaults — i.e. nothing was tuned away from the out-of-the-box value.
+// When true, the "fix applied but not persisted" narrative is almost certainly
+// wrong (a fresh boot, not a lost sysctl -w), so the correlation is suppressed.
+//
+// Deliberately limited to swappiness and dirty_ratio: their defaults (60, 20)
+// are stable across kernel versions AND exceed the WARN threshold, so a flagged
+// value sitting exactly on the default is the unambiguous "untouched" signal.
+// Parameters whose default is itself version-dependent or whose flagged value
+// coincides with a historical default (net.core.somaxconn, tcp_tw_reuse) are
+// excluded — there a "still at default" test would misfire. For those the
+// conditional wording in the summary carries the caveat instead.
+//
+// A zero current value means "not collected" and is treated as default.
+func sysctlAllAtStockDefaults(s *models.SysctlInfo) bool {
+	type pair struct{ cur, def int }
+	for _, p := range []pair{
+		{s.VMSwappiness, 60}, // kernel default; WARN fires when > 10 for k8s/db
+		{s.VMDirtyRatio, 20}, // kernel default; WARN fires when > 10 for db
+	} {
+		if p.cur != 0 && p.cur != p.def {
+			return false // tuned away from default — let the correlation fire
+		}
+	}
+	return true
 }
 
 // ruleDockerOOMCascade fires when the kernel OOM killer and a Docker/Podman

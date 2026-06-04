@@ -76,6 +76,8 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 		return runDrift(info)
 	}
 
+	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
+
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
@@ -161,6 +163,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff) {
 
 	// Drive the summary severity from the drift heuristics.
 	insights := analysis.CheckSecurityDrift(diff)
+	recordWorstInsight(insights) // BUG-022: new SUID = CRIT, SSH/sudo/cron change = WARN
 	changes := len(diff.NewSUIDs) + len(diff.ChangedSSHFiles) +
 		len(diff.NewSudoEntries) + len(diff.NewCronEntries)
 	baselineDate := diff.BaselineSavedAt.Format("2006-01-02")
