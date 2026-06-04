@@ -64,6 +64,12 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 	// Best-effort, 5s timeout, silent on failure. Only runs on RH-family distros.
 	cvedata.EnrichFromRHAPI(ctx, cveID, result)
 
+	// Enrich with CISA KEV status — actively-exploited CVEs warrant CRIT regardless
+	// of CVSS. No-op when no KEV sidecar file is present (air-gapped friendly).
+	if cat, err := cvedata.LoadKEVFromStandardPaths(); err == nil {
+		annotateCVEResultWithKEV(cat, result)
+	}
+
 	return result
 }
 

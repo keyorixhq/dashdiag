@@ -87,6 +87,7 @@ func runCVE(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nScanning all pending security advisories...")
 		}
 		r := collectors.ScanAllCVEs(ctx)
+		collectors.EnrichCVEAllWithKEV(r)
 		if jsonOut {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -152,6 +153,16 @@ func printCVEResult(r *models.CVEResult) {
 			pkg = " — package: " + r.AffectedPkg
 		}
 		fmt.Printf("Red Hat fix state: %s%s\n", r.FixState, pkg)
+	}
+	if r.KnownExploited {
+		kev := "🔴 CISA KEV: actively exploited in the wild"
+		if r.KEVDateAdded != "" {
+			kev += " (added " + r.KEVDateAdded + ")"
+		}
+		fmt.Println(render.StyleCrit.Render(kev))
+		if r.KEVRansomware {
+			fmt.Println(render.StyleCrit.Render("   ⚠ linked to known ransomware campaigns — patch immediately"))
+		}
 	}
 	fmt.Println(sep)
 
@@ -228,6 +239,14 @@ func printAllCVEs(r *models.CVEAllResult) {
 	}
 
 	fmt.Printf("Found %d pending security advisory(ies)\n\n", r.Total)
+
+	if r.KEVCount > 0 {
+		fmt.Println(render.StyleCrit.Render(
+			fmt.Sprintf("🔴 %d actively exploited (CISA KEV): %s",
+				r.KEVCount, strings.Join(r.KEVCVEs, ", "))))
+		fmt.Println(render.StyleCrit.Render("   → patch these first — exploited in the wild"))
+		fmt.Println()
+	}
 
 	printAdvisoryGroup("🔴 CRITICAL", r.Critical)
 	printAdvisoryGroup("⚠️  IMPORTANT", r.Important)
@@ -362,6 +381,25 @@ func runCVEInfo() {
 			fmt.Println("    curl -O https://ftp.suse.com/pub/projects/security/oval/suse.linux.enterprise.server.16.xml.bz2")
 			fmt.Println("    mkdir -p /var/lib/dsd/oval && mv *.xml.bz2 /var/lib/dsd/oval/")
 		}
+	}
+
+	// CISA KEV catalog
+	fmt.Println("\nCISA KEV catalog (actively-exploited CVEs — escalates matches to CRIT):")
+	if kevPath := cvedata.FindKEVFile(); kevPath != "" {
+		if cat, err := cvedata.LoadKEV(kevPath); err == nil {
+			ver := cat.CatalogVersion
+			if ver == "" {
+				ver = "unknown version"
+			}
+			fmt.Printf("  ✅  %s  (%d CVEs, %s)\n", kevPath, cat.Count(), ver)
+		} else {
+			fmt.Printf("  ⚠️   %s (could not load: %v)\n", kevPath, err)
+		}
+	} else {
+		fmt.Println("  ─   none found")
+		fmt.Printf("  Download: curl -sL https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json \\\n")
+		fmt.Println("              -o /var/lib/dsd/kev/known_exploited_vulnerabilities.json")
+		fmt.Println("  (mkdir -p /var/lib/dsd/kev first)")
 	}
 
 	// Pre-converted snapshot

@@ -84,6 +84,9 @@ dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
 dsd timeline     ✅ unified incident timeline — journal+dmesg+load, dedup ×N; --since 1h/6h/24h
 dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint host:port,
                     --endpoints-file, --json); InsecureSkipVerify to read expired certs
+dsd cve          ✅ per-CVE + --all advisory scan (dnf/apt/zypper/pacman), OVAL --oval-scan,
+                    CISA KEV escalation (sidecar /var/lib/dsd/kev/), --json; `dsd cve info` sources
+health --cve     ✅ folds CVE scan into health as live WARN(≥7.0)/CRIT(≥9.0 or KEV) insights
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
@@ -96,7 +99,8 @@ dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint h
 1. `dsd pve` — Proxmox VE node diagnostics (Spec 24, ~4d) — **BLOCKED: needs Proxmox hardware**
 2. **Correlation engine v1** — wire the "20:00 overnight cluster" memory-pressure cascade rule
    Link: `dsd timeline` + `dsd health deep` OOM kills + `dsd docker` container stops
-3. **CVE exposure check** — OVAL feed integration, CVSS ≥7.0 WARN, ≥9.0 CRIT (~1 week)
+3. ✅ DONE — **CVE exposure check** — `dsd health --cve` (CVSS ≥7.0 WARN, ≥9.0 CRIT) +
+   CISA KEV escalation (sidecar catalog, no cloud registration)
 4. **Hetzner Debian validation** — apt vs dnf, AppArmor denials, no SELinux
 
 ### Remaining docker addendums (minor)

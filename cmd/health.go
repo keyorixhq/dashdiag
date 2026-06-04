@@ -32,6 +32,7 @@ func init() {
 	healthCmd.Flags().Bool("tls", false, "include TLS certificate expiry check")
 	healthCmd.Flags().Bool("deep", false, "extended analysis: per-core CPU breakdown, top memory consumers")
 	healthCmd.Flags().Bool("firmware", false, "check for pending firmware upgrades via fwupd")
+	healthCmd.Flags().Bool("cve", false, "include CVE security advisory scan (CVSS>=7 WARN, >=9 or CISA KEV CRIT; may be slow)")
 	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 	healthCmd.Flags().Bool("debug", false, "enable debug logging")
@@ -63,11 +64,11 @@ var healthDeepCmd = &cobra.Command{
 	},
 }
 
-// TODO(backlog): CVE exposure check — cross-reference installed packages against a local
-// advisory feed. On RHEL/CentOS: parse /var/cache/dnf or OVAL from access.redhat.com.
-// On Ubuntu: parse /var/lib/apt/lists/. Cache locally (~weekly). No cloud registration.
-// WARN: CVSS >= 7.0. CRIT: CVSS >= 9.0 or known exploited.
-// Estimated scope: ~1 week (advisory feed parsing is the bulk). See BACKLOG.md.
+// CVE exposure check — SHIPPED via `dsd health --cve` (CVEHealthCollector).
+// Cross-references the package manager's pending security advisories (dnf/apt/
+// zypper/pacman) against the CISA KEV catalog. WARN: CVSS >= 7.0 (Important).
+// CRIT: CVSS >= 9.0 (Critical) or any CISA KEV match. KEV catalog is a local
+// sidecar file (no cloud registration) — see `dsd cve info` for the fetch command.
 
 // TODO(backlog): CIS/STIG compliance checks — compare system config against CIS Benchmark
 // or STIG profiles. Enterprise-only. Implement after core product is stable and paying
@@ -122,6 +123,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	tlsFlag, _ := cmd.Flags().GetBool("tls")
 	deepFlag, _ := cmd.Flags().GetBool("deep")
 	firmwareFlag, _ := cmd.Flags().GetBool("firmware")
+	cveFlag, _ := cmd.Flags().GetBool("cve")
 	reportFlag, _ := cmd.Flags().GetBool("report")
 	policyPath, _ := cmd.Flags().GetString("policy")
 	policy, err := loadPolicyIfSet(policyPath)
@@ -129,7 +131,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		return err
 	}
 
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, policy)
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, cveFlag, policy)
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
@@ -252,8 +254,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	return nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, profile, includePackages, includeGPU, includeTLS, includeDeep, includeFirmware)
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+	cols := buildHealthCollectors(ctrCtx, profile, includePackages, includeGPU, includeTLS, includeDeep, includeFirmware, includeCVE)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -307,7 +309,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 		if mode == output.ModeHuman {
 			fmt.Print("\033[H\033[2J") // clear screen + move cursor to top
 		}
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, false, false, false, false, false, false, nil)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, false, false, false, false, false, false, false, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
@@ -346,7 +348,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
+func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -491,6 +493,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	}
 	if includeFirmware {
 		cols = append(cols, collectors.NewFirmwareCollector())
+	}
+	if includeCVE {
+		cols = append(cols, collectors.NewCVEHealthCollector())
 	}
 	return cols
 }

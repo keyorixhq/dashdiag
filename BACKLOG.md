@@ -534,10 +534,14 @@ Live RHEL 10.1: shows 7 critical security updates, clean integrity (no broken de
 
 ## Collectors (dsd health additions)
 
-### CVE exposure check
-Cross-reference installed packages against local OVAL advisory feed.
-WARN CVSS ≥ 7.0, CRIT CVSS ≥ 9.0 or known exploited.
-Estimated scope: ~1 week.
+### ~~CVE exposure check~~ ✅ DONE (June 4)
+Shipped as `dsd health --cve` (CVEHealthCollector): folds the package manager's
+pending security advisories into health as live WARN/CRIT insights.
+WARN CVSS ≥ 7.0 (Important), CRIT CVSS ≥ 9.0 (Critical) or CISA KEV match.
+CISA KEV integration (`internal/cvedata/kev.go`): a local sidecar catalog
+(`/var/lib/dsd/kev/`) escalates actively-exploited CVEs to CRIT in both
+`dsd cve` and `dsd health --cve`. No cloud registration. Live-verified on
+AlmaLinux CT 213 (94 real advisories, KEV escalation + severity mapping).
 
 ---
 

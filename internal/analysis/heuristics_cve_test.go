@@ -1,0 +1,91 @@
+package analysis
+
+import (
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// A CISA KEV match fires CRIT regardless of severity bucket — actively-exploited
+// CVEs are the most urgent signal.
+func TestCheckCVEHealthKEVFiresCrit(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "dnf",
+		FixCommand:     "dnf upgrade --security",
+		Important:      []models.CVEAdvisory{{ID: "RHSA-1"}}, // only "high" severity...
+		KEVCount:       1,
+		KEVCVEs:        []string{"CVE-2021-44228"},
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 insight, got %d", len(insights))
+	}
+	if insights[0].Level != "CRIT" {
+		t.Errorf("level = %q, want CRIT (KEV outranks severity)", insights[0].Level)
+	}
+	if !hasInsight(insights, "CRIT", "CISA KEV") {
+		t.Errorf("message should mention CISA KEV: %q", insights[0].Message)
+	}
+}
+
+// Critical advisories (CVSS >= 9.0) with no KEV match fire CRIT.
+func TestCheckCVEHealthCriticalFiresCrit(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "zypper",
+		Critical:       []models.CVEAdvisory{{ID: "A"}, {ID: "B"}},
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 1 || insights[0].Level != "CRIT" {
+		t.Fatalf("expected one CRIT, got %+v", insights)
+	}
+	if !hasInsight(insights, "CRIT", "2 critical") {
+		t.Errorf("should report the critical count: %q", insights[0].Message)
+	}
+}
+
+// Important/High advisories (CVSS >= 7.0) with no Critical/KEV fire WARN.
+func TestCheckCVEHealthImportantFiresWarn(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "apt",
+		Important:      []models.CVEAdvisory{{ID: "A"}},
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 1 || insights[0].Level != "WARN" {
+		t.Fatalf("expected one WARN, got %+v", insights)
+	}
+}
+
+// Moderate/Low only stays quiet — below the WARN threshold, avoids noise.
+func TestCheckCVEHealthModerateLowStaysQuiet(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "dnf",
+		Moderate:       []models.CVEAdvisory{{ID: "A"}},
+		Low:            []models.CVEAdvisory{{ID: "B"}},
+	}
+	if got := checkCVEHealth(r); got != nil {
+		t.Errorf("moderate/low only should not fire, got %+v", got)
+	}
+}
+
+// A clean scan produces no insight.
+func TestCheckCVEHealthCleanStaysQuiet(t *testing.T) {
+	r := models.CVEAllResult{PackageManager: "dnf", Total: 0}
+	if got := checkCVEHealth(r); got != nil {
+		t.Errorf("clean scan should not fire, got %+v", got)
+	}
+}
+
+// The CVE collector result flows through applyOne (the type dispatch) as a CRIT
+// insight on the "CVE" check — the integration point dsd health relies on.
+func TestCVEHealthDispatchProducesInsight(t *testing.T) {
+	r := &models.CVEAllResult{PackageManager: "dnf", Critical: []models.CVEAdvisory{{ID: "A"}}}
+	insights := applyOneExtended(r, Thresholds{})
+	if !hasInsight(insights, "CRIT", "critical security advisory") {
+		t.Errorf("dispatch should yield a CRIT CVE insight, got %+v", insights)
+	}
+	for _, in := range insights {
+		if in.Check != "CVE" {
+			t.Errorf("insight Check = %q, want CVE", in.Check)
+		}
+	}
+}
