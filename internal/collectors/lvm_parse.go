@@ -13,6 +13,16 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// parseLVMFloat parses an LVM size field. LVM prefixes rounded/approximate values
+// with "<" (or ">") even under --nosuffix --units g (e.g. "<5.00" = "a little under
+// 5 GiB"); a plain ParseFloat on that returns 0, which would read as zero free space
+// and trigger a false "volume full" alert. Strip the marker before parsing.
+func parseLVMFloat(s string) float64 {
+	s = strings.TrimLeft(strings.TrimSpace(s), "<>")
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
+}
+
 // parseVGs parses `vgs --noheadings --nosuffix --units g -o vg_name,vg_size,vg_free,vg_attr` output.
 func parseVGs(out string) []models.LVMVG {
 	var vgs []models.LVMVG
@@ -22,8 +32,8 @@ func parseVGs(out string) []models.LVMVG {
 			continue
 		}
 		vg := models.LVMVG{Name: fields[0]}
-		vg.SizeGB, _ = strconv.ParseFloat(fields[1], 64)
-		vg.FreeGB, _ = strconv.ParseFloat(fields[2], 64)
+		vg.SizeGB = parseLVMFloat(fields[1])
+		vg.FreeGB = parseLVMFloat(fields[2])
 		if vg.SizeGB > 0 {
 			vg.FreePct = vg.FreeGB / vg.SizeGB * 100
 		}
@@ -68,8 +78,8 @@ func parseLVs(out string) (thinPools []models.LVMThinPool, snapshots []models.LV
 		lvName := fields[0]
 		vgName := fields[1]
 		attr := fields[2]
-		dataPct, _ := strconv.ParseFloat(fields[3], 64)
-		metaPct, _ := strconv.ParseFloat(fields[4], 64)
+		dataPct := parseLVMFloat(fields[3])
+		metaPct := parseLVMFloat(fields[4])
 
 		if len(attr) == 0 {
 			continue
@@ -80,7 +90,7 @@ func parseLVs(out string) (thinPools []models.LVMThinPool, snapshots []models.LV
 			// [name, vg, attr, data%, meta%, size_gb]  (6 fields)
 			sizeGB := 0.0
 			if len(fields) >= 6 {
-				sizeGB, _ = strconv.ParseFloat(fields[5], 64)
+				sizeGB = parseLVMFloat(fields[5])
 			}
 			thinPools = append(thinPools, models.LVMThinPool{
 				Name:    lvName,

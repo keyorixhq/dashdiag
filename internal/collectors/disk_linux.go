@@ -333,20 +333,36 @@ func collectZFSPools() []models.ZFSPool {
 	return pools
 }
 
-// parseZFSVdevErrors extracts total read/write/cksum error counts from zpool status.
+// zfsStateTokens are the values zpool status prints in the vdev STATE column.
+var zfsStateTokens = map[string]bool{
+	"ONLINE": true, "DEGRADED": true, "FAULTED": true, "OFFLINE": true,
+	"UNAVAIL": true, "REMOVED": true, "AVAIL": true, "INUSE": true,
+}
+
+// parseZFSVdevErrors sums read/write/cksum error counts across the vdev lines of
+// zpool status. A vdev line is "<name> <STATE> <READ> <WRITE> <CKSUM> [note]" —
+// the three counters follow the STATE token (the name may itself be indented, so
+// STATE is not at a fixed index), may be ZFS-abbreviated ("1.2K"), and may be
+// trailed by a free-form note ("too many errors", "(resilvering)"). Anchoring on
+// STATE avoids the old last-3-fields read, which silently dropped any line
+// carrying a note or an abbreviated count — exactly the errored vdevs that matter.
 func parseZFSVdevErrors(out string) (read, write, cksum int) {
 	for _, line := range strings.Split(out, "\n") {
-		// Line format: " NAME  STATE  READ WRITE CKSUM"
-		// Actual vdev data lines have 5 fields with integer errors
 		fields := strings.Fields(line)
-		if len(fields) < 5 {
+		stateIdx := -1
+		for i, f := range fields {
+			if zfsStateTokens[f] {
+				stateIdx = i
+				break
+			}
+		}
+		if stateIdx < 0 || stateIdx+3 >= len(fields) {
 			continue
 		}
-		// Skip header line and pool/config labels
-		r, errR := strconv.Atoi(fields[len(fields)-3])
-		w, errW := strconv.Atoi(fields[len(fields)-2])
-		c, errC := strconv.Atoi(fields[len(fields)-1])
-		if errR != nil || errW != nil || errC != nil {
+		r, okR := parseZFSCount(fields[stateIdx+1])
+		w, okW := parseZFSCount(fields[stateIdx+2])
+		c, okC := parseZFSCount(fields[stateIdx+3])
+		if !okR || !okW || !okC {
 			continue
 		}
 		read += r
@@ -356,14 +372,47 @@ func parseZFSVdevErrors(out string) (read, write, cksum int) {
 	return
 }
 
+// parseZFSCount parses a zpool error counter, which is a plain integer or a
+// ZFS-abbreviated value like "1.2K" / "15M" / "3.0G".
+func parseZFSCount(s string) (int, bool) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, true
+	}
+	if len(s) < 2 {
+		return 0, false
+	}
+	mult := 1.0
+	switch s[len(s)-1] {
+	case 'K':
+		mult = 1e3
+	case 'M':
+		mult = 1e6
+	case 'G':
+		mult = 1e9
+	case 'T':
+		mult = 1e12
+	default:
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s[:len(s)-1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return int(n * mult), true
+}
+
 // parseZFSScrubAge returns days since last scrub, or -1 if never.
 func parseZFSScrubAge(out string) int {
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "scrub repaired") || strings.Contains(line, "scrub completed") {
 			fields := strings.Fields(line)
 			for i, f := range fields {
-				if f == "on" && i+4 < len(fields) {
-					dateStr := strings.Join(fields[i+1:i+5], " ")
+				// "...on Sun Jun  1 03:28:31 2025" — the date after "on" is five
+				// tokens (day, month, date, time, year); the old i+1:i+5 slice
+				// dropped the year, so the parse always failed and scrub age
+				// silently read as "never scrubbed".
+				if f == "on" && i+5 < len(fields) {
+					dateStr := strings.Join(fields[i+1:i+6], " ")
 					t, err := time.Parse("Mon Jan 2 15:04:05 2006", dateStr)
 					if err == nil {
 						return int(time.Since(t).Hours() / 24)
