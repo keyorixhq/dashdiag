@@ -432,6 +432,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.IsCloudInstance() {
 		cols = append(cols, collectors.NewCloudMetaCollector())
 	}
+	// cloud-init — gate on the CLI / runtime status file (zero-cost otherwise).
+	// Generic to every cloud-init platform, so gated independently of IsCloudInstance.
+	if collectors.CloudInitAvailable() {
+		cols = append(cols, collectors.NewCloudInitCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}

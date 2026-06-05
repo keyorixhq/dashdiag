@@ -15,7 +15,7 @@ jobs:
         with: {fetch-depth: 0}
 
       - uses: actions/setup-go@v6
-        with: {go-version: '1.22', cache: true}
+        with: {go-version-file: 'go.mod', cache: true}
 
       - name: Run tests
         run: go test -race -count=1 ./...
@@ -39,3 +39,39 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  # Push the regenerated Homebrew formula to keyorixhq/homebrew-tap.
+  # Off by default — a no-op until the maintainer has:
+  #   1. created the keyorixhq/homebrew-tap repo,
+  #   2. added a HOMEBREW_TAP_TOKEN secret (PAT with contents:write on the tap),
+  #   3. set the HOMEBREW_TAP_ENABLED repo variable to 'true'.
+  # Guarded so it never blocks or fails a release while disabled.
+  update-tap:
+    needs: release
+    if: ${{ vars.HOMEBREW_TAP_ENABLED == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate formula for this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x scripts/gen-homebrew-formula.sh
+          scripts/gen-homebrew-formula.sh "$VERSION"
+
+      - name: Push formula to tap repo
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/keyorixhq/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp packaging/homebrew-tap/Formula/dsd.rb tap/Formula/dsd.rb
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/dsd.rb
+          git commit -m "dsd ${VERSION}" || { echo "no change"; exit 0; }
+          git push
