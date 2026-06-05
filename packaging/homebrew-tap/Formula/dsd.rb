@@ -5,7 +5,7 @@
 # Do not hand-edit; re-run the generator for a new release.
 class Dsd < Formula
   desc "OBD diagnostics for your Linux server — one command, full picture"
-  homepage "https://github.com/keyorixhq/dashdiag"
+  homepage "https://dashdiag.sh"
   version "0.6.1"
   license "MIT"
 

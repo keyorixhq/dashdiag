@@ -1,15 +1,15 @@
-# keyorixhq/homebrew-tap
+# dashdiag/homebrew-tap
 
-Homebrew tap for [`dsd` (DashDiag)](https://github.com/keyorixhq/dashdiag) —
+Homebrew tap for [`dsd` (DashDiag)](https://dashdiag.sh) —
 OBD diagnostics for your Linux server.
 
 ## Install
 
 ```sh
-brew install keyorixhq/tap/dsd
+brew install dashdiag/tap/dsd
 ```
 
-(Shorthand for `brew tap keyorixhq/tap && brew install dsd`.)
+(Shorthand for `brew tap dashdiag/tap && brew install dsd`.)
 
 Works on macOS (arm64 + Intel) and Linux (arm64 + amd64) via Homebrew / Linuxbrew.
 The formula installs the prebuilt release binary — no Go toolchain required.
@@ -23,9 +23,8 @@ brew update && brew upgrade dsd
 ## How this tap is maintained
 
 `Formula/dsd.rb` is **generated**, not hand-edited. It is produced from a published
-release's `checksums.txt` by
-[`scripts/gen-homebrew-formula.sh`](https://github.com/keyorixhq/dashdiag/blob/main/scripts/gen-homebrew-formula.sh)
-in the main repo:
+release's `checksums.txt` by `scripts/gen-homebrew-formula.sh` in the main repo (the
+binaries are hosted on GitHub at `keyorixhq/dashdiag`; the brand/homepage is dashdiag.sh):
 
 ```sh
 # in the dashdiag repo, after publishing release vX.Y.Z:
@@ -41,5 +40,5 @@ with the command above.
 ## Repository layout
 
 This is the content of `packaging/homebrew-tap/` in the main repo, mirrored here so the
-tap lives at its required `keyorixhq/homebrew-tap` location. Edit the generator in the
+tap lives at its required `dashdiag/homebrew-tap` location. Edit the generator in the
 main repo, not the formula here.

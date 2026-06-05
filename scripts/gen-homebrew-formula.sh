@@ -13,6 +13,8 @@ set -euo pipefail
 VERSION="${1:?usage: gen-homebrew-formula.sh <version>  (e.g. 0.6.1)}"
 VERSION="${VERSION#v}" # tolerate a leading v
 TAG="v${VERSION}"
+# REPO is the GitHub host of the release binaries (where the bytes actually live);
+# the product homepage/brand is dashdiag.sh.
 REPO="keyorixhq/dashdiag"
 BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
@@ -51,7 +53,7 @@ cat > "$OUT" <<EOF
 # Do not hand-edit; re-run the generator for a new release.
 class Dsd < Formula
   desc "OBD diagnostics for your Linux server — one command, full picture"
-  homepage "https://github.com/${REPO}"
+  homepage "https://dashdiag.sh"
   version "${VERSION}"
   license "MIT"
 

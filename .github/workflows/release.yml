@@ -40,9 +40,9 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
-  # Push the regenerated Homebrew formula to keyorixhq/homebrew-tap.
+  # Push the regenerated Homebrew formula to dashdiag/homebrew-tap.
   # Off by default — a no-op until the maintainer has:
-  #   1. created the keyorixhq/homebrew-tap repo,
+  #   1. created the dashdiag/homebrew-tap repo,
   #   2. added a HOMEBREW_TAP_TOKEN secret (PAT with contents:write on the tap),
   #   3. set the HOMEBREW_TAP_ENABLED repo variable to 'true'.
   # Guarded so it never blocks or fails a release while disabled.
@@ -66,7 +66,7 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/keyorixhq/homebrew-tap.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/dashdiag/homebrew-tap.git" tap
           mkdir -p tap/Formula
           cp packaging/homebrew-tap/Formula/dsd.rb tap/Formula/dsd.rb
           cd tap

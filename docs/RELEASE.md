@@ -55,13 +55,16 @@ release's `checksums.txt` by `scripts/gen-homebrew-formula.sh`:
 scripts/gen-homebrew-formula.sh 1.2.3   # regenerates the formula for v1.2.3
 ```
 
-Publishing it to the user-facing tap (`brew install keyorixhq/tap/dsd`) requires the
-formula to live in a repo named `keyorixhq/homebrew-tap`. Two ways:
+Publishing it to the user-facing tap (`brew install dashdiag/tap/dsd`) requires the
+formula to live in a repo named `dashdiag/homebrew-tap`. Two ways:
 - **Manual:** run the generator, then copy `packaging/homebrew-tap/` into that repo and push.
 - **Automatic:** the `update-tap` CI job does this on tag push, but only once the
-  maintainer (1) creates `keyorixhq/homebrew-tap`, (2) adds a `HOMEBREW_TAP_TOKEN`
+  maintainer (1) creates `dashdiag/homebrew-tap`, (2) adds a `HOMEBREW_TAP_TOKEN`
   secret (PAT with `contents:write` on the tap), and (3) sets the `HOMEBREW_TAP_ENABLED`
   repo variable to `true`. Until then the job is a no-op and releases are unaffected.
+
+(The release *binaries* are hosted on GitHub at `keyorixhq/dashdiag`; only the brand,
+homepage, and tap use the DashDiag / dashdiag.sh identity.)
 
 ## Verifying a Release (user-facing)
 
