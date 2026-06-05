@@ -282,11 +282,12 @@ on the pve01 guest and `dsd health` smoke-tested live.
 - **Drilldown `LargestDirs` walk** (`internal/drilldown/disk.go`): `os.ReadDir`/`filepath.WalkDir`
   aren't bound by the dispatch `dctx`, so a stale subtree can wedge the walk. Narrow (only fires
   after a Disk WARN, where statfs just succeeded).
-- **Runner timeout is advisory** (`internal/runner/runner.go`): each collector gets
-  `context.WithTimeout(c.Timeout())` but the runner only `wg.Wait()`s — there's no `select`, so a
-  collector that ignores its ctx blocks the whole run. This is the root reason any single blocking
-  call can hang everything; BUG-031/032 are instances. A proper fix bounds each collector at the
-  runner level. Larger change — separate effort.
+- ~~**Runner timeout is advisory** (`internal/runner/runner.go`)~~ ✅ FIXED (2026-06-05, commit 6343ff5):
+  RunAll now runs each Collect in an inner goroutine and `select`s on the collector's deadline,
+  synthesizing a timeout Result for a genuinely-stuck collector (with a short grace so a
+  context-respecting one still reports its own ctx.Err()/partial data). The channel always closes;
+  a single blocking collector can no longer hang the whole run. This was the root cause behind
+  BUG-031/032. Test: `TestRunAll_BoundsBlockingCollector`.
 
 ### ~~BUG-025..030 — command-output parser field-misalignment sweep~~ ✅ FIXED (2026-06-05)
 
