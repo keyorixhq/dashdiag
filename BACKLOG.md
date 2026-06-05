@@ -410,6 +410,49 @@ behind the GTM blockers (domain + two messages).
 
 ---
 
+### Update mechanism — `dsd update` self-updater + version-check nudge (candidate — gated)
+
+Today the supported update path is re-running the installer (it fetches the latest release,
+verifies checksum, overwrites the binary). That works now and is a fine v1 answer. Two
+improvements, both deferred (no-features-before-paying-customer; NOT autopilot-safe — they
+touch the install path and a self-replacing running binary):
+
+- **`dsd update` subcommand** — binary knows its own version, queries the GitHub releases
+  API, and if newer downloads + checksum-verifies + replaces itself. The discoverable,
+  modern-CLI answer to 'how do I upgrade'. Needs careful cross-platform testing (replacing a
+  running binary, sudo/permissions, never brick an install).
+- **Passive 'update available' nudge** — occasional cached, rate-limited, non-blocking,
+  easily-disabled background check that prints a one-line 'v0.7.0 available -- run dsd update'
+  footer. Must never delay or break the actual health run.
+
+**Status: demand-unvalidated / deferred (Principle 3). NOT for unattended/autopilot work.**
+
+---
+
+### Package-manager distribution — Homebrew / apt / rpm / others (candidate — partially planned)
+
+Effort varies a lot by ecosystem. Honest difficulty ranking:
+
+- **Homebrew (EASY, do first).** A tap (`keyorixhq/homebrew-tap`) with a formula pointing at
+  the GitHub release tarball + sha256. `brew install keyorixhq/tap/dsd`. No review queue, fully
+  in your control, ~1-2h. NOTE: docs/RELEASE.md already CLAIMS CI 'Updates Homebrew tap' and
+  'Signs binaries with cosign' -- verify whether that's actually wired or aspirational before
+  relying on it. Getting into core homebrew-core is harder (notability rules, review) -- the
+  tap is the right first step and needs no approval.
+- **apt/deb + rpm (MEDIUM).** Easiest via `nfpm` (single config, builds .deb + .rpm from the
+  existing binaries -- no native toolchain). Self-hosted apt/yum repo (or Cloudsmith/
+  packagecloud) so users `apt install dsd`. Already noted as a post-launch next-tier item.
+  Getting into official Debian/Ubuntu/Fedora repos is HARD (maintainer sponsorship, packaging
+  standards, slow) -- not worth it pre-traction; ship your own repo first.
+- **Others (LATER, demand-gated):** AUR (Arch, community-easy), Nix, Snap, Scoop/winget
+  (Windows -- only if Windows ever happens). Each gated on a real user on that platform.
+
+**Recommended order:** Homebrew tap first (cheap, high-value for the mac/dev audience), then
+nfpm-built .deb/.rpm on a self-hosted repo as the post-launch next tier. Official-distro
+inclusion is a much later, traction-gated effort. All still behind the GTM blockers.
+
+---
+
 ### `--export` / CMDB inventory feed (candidate — gated on a real request)
 
 DashDiag already collects hardware inventory (disk model/serial/capacity, CPU, DIMM
