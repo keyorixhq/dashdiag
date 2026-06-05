@@ -131,12 +131,11 @@ func TestParseDmesgLine(t *testing.T) {
 			wantLevel: "WARN", wantUnit: "usb 1-1",
 		},
 		{
-			// GAP: the CRIT keyword list matches literal "oom", but the kernel OOM
-			// killer prints "Out of memory: Killed process ...". So a genuine OOM-kill
-			// line is classified WARN here, not CRIT. Pinned; worth a follow-up.
-			name:      "kernel OOM line is only WARN (keyword gap)",
+			// The kernel OOM killer header ("Out of memory: ...") has no literal "oom"
+			// token; the "out of memory" keyword ensures it is classified CRIT.
+			name:      "kernel OOM line is CRIT",
 			line:      "[Wed Jun  4 10:30:00 2025] Out of memory: Killed process 123",
-			wantLevel: "WARN",
+			wantLevel: "CRIT",
 		},
 		{
 			name:      "explicit oom-killer mention is CRIT",
@@ -188,10 +187,8 @@ func TestExtractKernelSubsystem(t *testing.T) {
 	}{
 		{"EXT4-fs (sda1): warning on mount", "EXT4-fs"},    // hyphenated before paren
 		{"CPU0: Core temperature above threshold", "CPU0"}, // all-caps before colon
-		// QUIRK: a lowercase subsystem fails the all-caps/hyphen heuristic and falls
-		// through to Fields()[0], which keeps the trailing colon ("audit:" not "audit").
-		{"audit: type=1400 denied", "audit:"},
-		{"EXT4-fs no punctuation here", "EXT4-fs"}, // no :/( -> first field
+		{"audit: type=1400 denied", "audit"},               // lowercase before colon -> colon stripped
+		{"EXT4-fs no punctuation here", "EXT4-fs"},         // no :/( -> first field
 		{"x", "kernel"}, // too short -> default
 		{"", "kernel"},  // empty -> default
 	}
