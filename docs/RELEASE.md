@@ -32,25 +32,56 @@ git push origin v1.2.3
 # CI pipeline triggers automatically
 ```
 
-The CI pipeline (`.github/workflows/release.yml`):
-1. Runs full test suite
-2. Cross-compiles Linux amd64/arm64 + macOS amd64/arm64
-3. Generates SHA256 checksums
-4. Generates SBOM with syft
-5. Signs binaries with cosign
-6. Creates GitHub Release
-7. Updates Homebrew tap
+The CI pipeline (`.github/workflows/release.yml`) — **what actually runs today:**
+1. ✅ Runs full test suite (`go test -race`)
+2. ✅ Cross-compiles Linux amd64/arm64 + macOS amd64/arm64
+3. ✅ Generates SHA256 checksums (`checksums.txt`)
+4. ✅ Creates GitHub Release (uploads 4 binaries + `checksums.txt`)
+5. ⚙️ Updates the Homebrew tap — **gated/off by default** via the `update-tap` job;
+   see "Homebrew tap" below.
+
+**Not yet wired (aspirational — do NOT rely on these):**
+- ❌ SBOM generation (syft) — not in the workflow.
+- ❌ cosign binary signing — not in the workflow. No `.sig` files are produced and
+  there is no published `cosign.pub`. The verification snippet below will NOT work
+  until signing is actually implemented.
+
+## Homebrew tap
+
+Formula source lives in `packaging/homebrew-tap/Formula/dsd.rb`, **generated** from a
+release's `checksums.txt` by `scripts/gen-homebrew-formula.sh`:
+
+```bash
+scripts/gen-homebrew-formula.sh 1.2.3   # regenerates the formula for v1.2.3
+```
+
+Publishing it to the user-facing tap (`brew install dashdiag/tap/dsd`) requires the
+formula to live in a repo named `dashdiag/homebrew-tap`. Two ways:
+- **Manual:** run the generator, then copy `packaging/homebrew-tap/` into that repo and push.
+- **Automatic:** the `update-tap` CI job does this on tag push, but only once the
+  maintainer (1) creates `dashdiag/homebrew-tap`, (2) adds a `HOMEBREW_TAP_TOKEN`
+  secret (PAT with `contents:write` on the tap), and (3) sets the `HOMEBREW_TAP_ENABLED`
+  repo variable to `true`. Until then the job is a no-op and releases are unaffected.
+
+(The release *binaries* are hosted on GitHub at `keyorixhq/dashdiag`; only the brand,
+homepage, and tap use the DashDiag / dashdiag.sh identity.)
 
 ## Verifying a Release (user-facing)
 
 ```bash
-cosign verify-blob \
-  --key https://raw.githubusercontent.com/keyorixhq/dashdiag/main/cosign.pub \
-  --signature dsd-linux-amd64.sig \
-  dsd-linux-amd64
-
+# Checksum verification (works today):
 sha256sum --check --ignore-missing checksums.txt
 ```
+
+> **cosign signature verification is not available yet.** Binary signing is not wired
+> into the release pipeline, so there are no `.sig` files or published `cosign.pub`.
+> Once signing lands, the verify step will look like:
+> ```bash
+> cosign verify-blob \
+>   --key https://raw.githubusercontent.com/keyorixhq/dashdiag/main/cosign.pub \
+>   --signature dsd-linux-amd64.sig \
+>   dsd-linux-amd64
+> ```
 
 ## Hotfix Procedure
 

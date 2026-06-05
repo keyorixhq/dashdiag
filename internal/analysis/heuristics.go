@@ -403,6 +403,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkCloudMeta(*d)
 		}
+	case models.CloudInitInfo:
+		return checkCloudInit(d)
+	case *models.CloudInitInfo:
+		if d != nil {
+			return checkCloudInit(*d)
+		}
 	case models.AuditInfo:
 		return checkAuditd(d)
 	case *models.AuditInfo:
@@ -5161,6 +5167,56 @@ func checkCloudMeta(c models.CloudInfo) []models.Insight {
 		out = append(out, insight("WARN", "CloudMeta",
 			fmt.Sprintf("%s maintenance event pending: %s", c.Provider, c.MaintenanceDetails),
 			[]string{"to inspect: check cloud provider console for details"}))
+	}
+	return out
+}
+
+// checkCloudInit flags instances that booted but never finished configuring.
+// Generic to every cloud-init platform (not provider-specific). Silent when
+// cloud-init completed cleanly, is disabled, or never ran.
+func checkCloudInit(c models.CloudInitInfo) []models.Insight {
+	if !c.Available {
+		return nil
+	}
+	ds := c.Datasource
+	if ds == "" {
+		ds = "unknown"
+	}
+	var out []models.Insight
+
+	switch {
+	case c.Status == "error" || len(c.Errors) > 0:
+		hints := []string{}
+		for i, e := range c.Errors {
+			if i >= 3 {
+				break
+			}
+			hints = append(hints, "error: "+e)
+		}
+		hints = append(hints,
+			"to inspect: cloud-init status --long",
+			"logs: /var/log/cloud-init.log, /var/log/cloud-init-output.log")
+		out = append(out, insight("CRIT", "CloudInit",
+			fmt.Sprintf("cloud-init failed — instance configuration incomplete (datasource: %s)", ds),
+			hints))
+
+	case strings.Contains(c.ExtendedStatus, "degraded") || len(c.RecoverableErrors) > 0:
+		hints := []string{}
+		for i, e := range c.RecoverableErrors {
+			if i >= 3 {
+				break
+			}
+			hints = append(hints, e)
+		}
+		hints = append(hints, "to inspect: cloud-init status --long")
+		out = append(out, insight("WARN", "CloudInit",
+			"cloud-init completed with recoverable errors — some configuration may be missing",
+			hints))
+
+	case c.Status == "running":
+		out = append(out, insight("INFO", "CloudInit",
+			"cloud-init still running — instance configuration in progress",
+			[]string{"note: provisioning not yet complete; re-check after boot settles"}))
 	}
 	return out
 }
