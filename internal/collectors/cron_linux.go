@@ -153,7 +153,10 @@ func parseCrontabFile(path, source string) []models.CronJob {
 			continue // variable assignment
 		}
 
-		cmd := extractCronCommand(line)
+		// User crontabs (source "user:NAME") have no username column; system
+		// crontabs (/etc/cron.d, source = file path) put the user before the cmd.
+		hasUserField := !strings.HasPrefix(source, "user:")
+		cmd := extractCronCommand(line, hasUserField)
 		if cmd == "" {
 			continue
 		}
@@ -198,24 +201,20 @@ func parseCrontabFile(path, source string) []models.CronJob {
 }
 
 // extractCronCommand returns the command portion of a crontab line.
-// Handles both "min hour dom mon dow user cmd" (system cron.d) and
-// "min hour dom mon dow cmd" (user crontab) formats.
-func extractCronCommand(line string) string {
+// hasUserField selects the layout: system crontabs (/etc/cron.d) are
+// "min hour dom mon dow user cmd" (6 leading fields); user crontabs are
+// "min hour dom mon dow cmd" (5). The caller knows which from the file source,
+// so we don't guess from the line content — guessing dropped the first command
+// token whenever it was a bare word (e.g. "backup --incremental ...").
+func extractCronCommand(line string, hasUserField bool) string {
 	fields := strings.Fields(line)
 	// Standard crontab: 5 time fields + command
 	if len(fields) < 6 {
 		return ""
 	}
-	// Check if this might be a system crontab line (has username field)
-	// Heuristic: if field[5] looks like a username (no / and not a flag), skip it
 	timeFields := 5
-	if len(fields) > 6 {
-		candidate := fields[5]
-		if !strings.HasPrefix(candidate, "/") && !strings.HasPrefix(candidate, "-") &&
-			!strings.ContainsAny(candidate, ".$(){}") {
-			// Looks like a username — system crontab format
-			timeFields = 6
-		}
+	if hasUserField {
+		timeFields = 6
 	}
 	if len(fields) <= timeFields {
 		return ""

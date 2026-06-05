@@ -131,7 +131,9 @@ func parseProcStatus(base string, info *models.ProcInfo) {
 		}
 		switch strings.TrimSuffix(fields[0], ":") {
 		case "Name":
-			info.Name = fields[1]
+			// comm can contain spaces (e.g. "Web Content"), so take the rest of
+			// the line rather than fields[1], which would truncate at the space.
+			info.Name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
 		case "State":
 			// Format: "S (sleeping)"
 			info.State = fields[1]

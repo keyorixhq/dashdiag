@@ -149,22 +149,30 @@ func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 		return nil, totalBoot
 	}
 
+	return parseBlameSlowUnits(string(blameOut)), totalBoot
+}
+
+// parseBlameSlowUnits parses `systemd-analyze blame` output into the top 3 slow
+// service units (≥5s), skipping cloud-init and other infrastructure noise.
+func parseBlameSlowUnits(blameOut string) []models.SlowUnit {
 	var slow []models.SlowUnit
-	for _, line := range strings.Split(string(blameOut), "\n") {
+	for _, line := range strings.Split(blameOut, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// Format: "  12.345s unit-name.service"
+		// Format: "  12.345s unit-name.service" or "1min 52.470s unit-name.service".
+		// The duration may span multiple tokens (e.g. "1min 52.470s"); the unit
+		// name is always the last field, so the duration is everything before it.
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		dur := parseBlameTime(fields[0])
+		name := fields[len(fields)-1]
+		dur := parseBlameTime(strings.Join(fields[:len(fields)-1], " "))
 		if dur < 5.0 {
 			break // blame output is sorted descending — stop early
 		}
-		name := fields[1]
 		// Skip non-service units and known infrastructure units
 		if !strings.Contains(name, ".") || cloudInitUnits[name] {
 			continue
@@ -174,7 +182,7 @@ func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 			break
 		}
 	}
-	return slow, totalBoot
+	return slow
 }
 
 // parseAnalyzeTime extracts total boot time in seconds from systemd-analyze time output.
