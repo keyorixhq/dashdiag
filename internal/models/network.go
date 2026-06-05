@@ -50,4 +50,5 @@ type NetworkInfo struct {
 	Status           string          `json:"status"`
 	StatusReason     string          `json:"status_reason"`
 	Bonds            []BondInterface `json:"bonds,omitempty"`
+	SteamOSWifi      *SteamOSWifi    `json:"steamos_wifi,omitempty"` // SteamOS-only Wi-Fi + Remote Play profile (Spec 20 + 22B)
 }

@@ -83,6 +83,44 @@ sha256sum --check --ignore-missing checksums.txt
 >   dsd-linux-amd64
 > ```
 
+## Updating dsd (user-facing)
+
+`dsd` is a single self-contained binary. There is no package database to migrate and
+no daemon to restart -- updating means replacing the binary.
+
+**Re-run the installer (recommended).** The install script always fetches the *latest*
+GitHub release, verifies its checksum, and overwrites the existing binary in place:
+
+```bash
+curl -fsSL https://dashdiag.sh/install.sh | sh
+```
+
+Running it again on an already-installed machine upgrades it. Pin a specific version
+(or downgrade) by passing a tag:
+
+```bash
+curl -fsSL https://dashdiag.sh/install.sh | sh -s -- v0.6.1
+```
+
+**Manual update (no curl-pipe-sh).** For users who won't pipe a remote script to a
+shell (common among the security-conscious SRE/sysadmin audience): download the binary
+and `checksums.txt` for your platform from the
+[GitHub releases page](https://github.com/keyorixhq/dashdiag/releases), verify, and
+replace the binary:
+
+```bash
+sha256sum --check --ignore-missing checksums.txt
+sudo mv dsd-linux-amd64 /usr/local/bin/dsd && sudo chmod +x /usr/local/bin/dsd
+```
+
+**Checking your version:** `dsd --version`.
+
+> **`dsd update` (self-update).** `dsd update` checks the latest GitHub release,
+> downloads the platform binary, verifies its sha256 against `checksums.txt`, and
+> atomically replaces the running binary. A passive "newer version available" nudge
+> runs on interactive health runs (disable with `DSD_NO_UPDATE_CHECK=1`). Re-running
+> the installer remains an equally supported update path.
+
 ## Hotfix Procedure
 
 ```bash
