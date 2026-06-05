@@ -796,11 +796,17 @@ AlmaLinux CT 213 (94 real advisories, KEV escalation + severity mapping).
 ## Strategic Discussions Required
 
 ### [DISCUSS] Team mode — how should it work?
-Before building any paid tier, answer sharing model, team workspace, fleet view,
-identity/auth, monetisation boundary, privacy/trust questions.
+**Drafted → ADR-0004 (Proposed, 2026-06-05).** Resolves it as two surfaces on one
+cost-line gate: `dsd fleet` (local SSH, free, open) vs `--push`/hosted dashboard (paid).
+Answers all four sub-questions (sharing model, identity/auth, monetisation boundary,
+privacy/trust). Supersedes `fleet-design.md`'s "€79 for `dsd fleet`" note. Needs founder
+sign-off (move Proposed → Accepted) before any backend build.
 
 ### [DISCUSS] Pricing strategy
-Anchor price, per-host fee, open source core + paid cloud model.
+**Drafted → ADR-0005 (Proposed, 2026-06-05).** Open-core settled (ADR-0001); ADR-0005
+consolidates the scattered placeholder tiers into one ladder + names the GTM signal that
+commits each price. Anchor = Team €79/yr; per-seat-vs-per-node deliberately deferred to the
+first team conversations. Numbers stay placeholders until their triggers fire (ADR-0002 Dec 4).
 
 ### --share flag
 Upload to dashdiag.sh and return shareable URL. Requires dashdiag.sh backend.

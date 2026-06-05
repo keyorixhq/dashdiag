@@ -349,6 +349,13 @@ The first run copies the binary. Subsequent runs use the cached version.
 
 ## Monetization
 
+> **⚠️ Superseded by ADR-0004 (2026-06-05).** `dsd fleet` is **free and open source** — a
+> local SSH loop on an open binary can't be paywalled, and ADR-0001/Principle 1 commit the
+> CLI to free forever. What's paid is the *backend-backed* surface (`--push` → hosted history
+> + fleet dashboard + shared state), gated at our infrastructure boundary, not by a license
+> check in the binary. `dsd fleet` is the free demo that *sells* that paid tier. The table
+> below is kept for history; read ADR-0004 + ADR-0005 for the current model.
+
 `dsd fleet` is the Pro/Team tier feature. It's the natural upgrade path:
 
 ```
