@@ -488,6 +488,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.KVMAvailable() {
 		cols = append(cols, collectors.NewKVMCollector())
 	}
+	// SteamOS / Steam Deck — gate on os-release (zero cost off-SteamOS)
+	if collectors.SteamOSAvailable() {
+		cols = append(cols, collectors.NewSteamOSCollector())
+	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
 	cols = append(cols, collectors.NewSessionsCollector())

@@ -99,6 +99,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	printDiskBtrfs(info)
 	printDiskIO(info)
 	printDiskLVM(lvmInfo)
+	printDiskSteamOS(info)
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -158,8 +159,9 @@ func printDiskBtrfs(info *models.DiskInfo) {
 				label = "<missing disk>"
 			}
 			errStr := ""
-			if d.ReadErrs+d.WriteErrs+d.CorruptErrs > 0 {
-				errStr = fmt.Sprintf("  read:%d write:%d corrupt:%d", d.ReadErrs, d.WriteErrs, d.CorruptErrs)
+			if d.ReadErrs+d.WriteErrs+d.CorruptErrs+d.GenErrs+d.FlushErrs > 0 {
+				errStr = fmt.Sprintf("  read:%d write:%d corrupt:%d gen:%d flush:%d",
+					d.ReadErrs, d.WriteErrs, d.CorruptErrs, d.GenErrs, d.FlushErrs)
 			}
 			fmt.Printf("    %s  devid %d  %s%s\n", devIcon, d.DevID, label, errStr)
 		}
@@ -268,7 +270,55 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 			}
 		}
 	}
+	n += countSteamOSDiskIssues(info.SteamOS)
 	return n
+}
+
+// countSteamOSDiskIssues counts SteamOS partition-layout concerns (Spec 19) for
+// the disk summary line.
+func countSteamOSDiskIssues(d *models.SteamOSDisk) int {
+	if d == nil {
+		return 0
+	}
+	n := 0
+	if d.ShaderCacheGB > 10 {
+		n++
+	}
+	for _, bm := range d.BindMounts {
+		if !bm.OK {
+			n++
+		}
+	}
+	return n
+}
+
+// printDiskSteamOS renders the SteamOS-only partition layout section (Spec 19).
+func printDiskSteamOS(info *models.DiskInfo) {
+	d := info.SteamOS
+	if d == nil {
+		return
+	}
+	// btrfs root errors appear in the Btrfs section above; /var + /home in the
+	// Filesystems section. This section covers only the SteamOS-specific extras.
+	fmt.Printf("\n[SteamOS storage]\n")
+
+	if d.ShaderCacheGB > 0 {
+		icon := "✅"
+		if d.ShaderCacheGB > 30 {
+			icon = "❌"
+		} else if d.ShaderCacheGB > 10 {
+			icon = "⚠️ "
+		}
+		fmt.Printf("  %s Shader cache: %.1f GB at ~/.steam/steam/shadercache/\n", icon, d.ShaderCacheGB)
+	}
+
+	for _, bm := range d.BindMounts {
+		if bm.OK {
+			fmt.Printf("  ✅ Bind mount %s → %s — intact\n", bm.Path, bm.Target)
+		} else {
+			fmt.Printf("  ⚠️  Bind mount %s → %s — broken\n", bm.Path, bm.Target)
+		}
+	}
 }
 
 // printSMARTLine renders a compact SMART summary line indented under the drive.

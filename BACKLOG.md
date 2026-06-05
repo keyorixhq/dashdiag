@@ -8,6 +8,16 @@ Build order rule: **never build deep before fast is in production use.**
 
 ---
 
+## ✅ Recently Completed (June 4, 2026 — Session: 3 bug fixes + SteamOS foundation)
+
+| Item | Notes |
+|---|---|
+| BUG-022 fixed — standalone subcommands honour 0/1/2 exit code | `cmd/exitcode.go`; wired into disk/security/docker/k8s/cve/steamos; matches `dsd health` via `ApplyThresholds` |
+| BUG-023 fixed — AppArmor profile names parsed as real JSON | `internal/drilldown/kernelsec.go`; JSON path + text fallback; clean names |
+| Sysctl false-positive fixed — `ruleSysctlNotPersisted` no longer asserts a lost fix | conditional wording + stock-default gate (swappiness=60, dirty_ratio=20) |
+| `dsd pve` BLOCKED note corrected in CLAUDE.md + BACKLOG | was stale — shipped ae9c4c4, verified on pve01 |
+| **`dsd steamos` foundation (Spec 17)** | model + collector (`steamos_linux.go`/`steamos_parse.go`/stub) + `checkSteamOS` heuristic + `cmd/steamos.go` + health gate `SteamOSAvailable()`. RAUC A/B slots (JSON+text parse), steamos-readonly, gamescope session, /var+/home, Wi-Fi backend, update-server reach; `--deep` proton/shader/flatpak/bios. 24 unit tests. **Live validation pending — no Steam Deck hardware.** See SteamOS section below. |
+
 ## ✅ Recently Completed (Sessions 1–12, May 2026)
 
 | Item | Session | Commit |
@@ -216,11 +226,17 @@ command returns (so progress/`--out` defers still run — unlike a mid-command `
 Wired into `disk`, `security` (report + `--drift`), `docker`, `k8s`, and `cve` (all four
 paths: `--all`, single-CVE, `--oval`, `--oval-scan`). Applies in JSON mode too. Standalone
 exit codes now agree with `dsd health`. Unit tests in `cmd/exitcode_test.go`.
-**Note uncovered during fix:** on macOS the docker collector reads the Linux
-`/proc/.../ip_forward` path (absent on Darwin) and falsely reports "IP forwarding disabled"
-as CRIT — so `dsd docker` *and* `dsd health` both exit 2 on a Mac with OrbStack. Pre-existing,
-Linux-concept-on-macOS heuristic bug, unrelated to the exit-code wiring (the wiring correctly
-propagated it). macOS support is low-priority (defer-until-demand); logged here, not fixed.
+**Note uncovered during fix — ✅ FIXED (2026-06-05):** on macOS the docker collector read
+the Linux `/proc/.../ip_forward` path (absent on Darwin) and falsely reported "IP forwarding
+disabled" as CRIT — so `dsd docker` *and* `dsd health` both exited 2 on a Mac with OrbStack.
+Root cause: a `bool` can't distinguish "checked and disabled" from "couldn't read the proc
+path". Fix: added `IPForwardChecked` to `models.DockerInfo`, set true only on a successful
+read; the heuristic now gates on `IPForwardChecked && !IPForwardEnabled`. Also closes the
+same latent false-positive for a Linux container without proc access. Verified live on the
+OrbStack Mac: `dsd docker` now exits 1 (legit WARNs only), no IP-forward CRIT. Regression
+tests in `internal/analysis/heuristics_ipforward_test.go`. (The parallel `internal/collectors/k8s.go`
+ip_forward read has the same shape but is gated behind `K8sAvailable()` / a k3s binary, so it
+can't false-fire on macOS — left as-is.)
 
 **Found:** 2026-06-04, during ZFS pool-health validation on pve01 (file-backed DEGRADED mirror).
 
@@ -560,6 +576,55 @@ live amdgpu hardware — the test matrix only has Intel i915 (PVE01) and GPU-les
 
 ---
 
+### [STEAMOS-VALIDATION] Live `dsd steamos` validation on a Steam Deck
+
+**Current state (June 5):** the **full SteamOS spec set** is implemented on branch
+`steamos` — Spec 17 (`dsd steamos`), 17a (device identity + Secure Boot), 22A
+(Remote Play ports/firewall/AP-isolation), 19 (`dsd disk` partition layout), and
+20+22B (`dsd net` Wi-Fi + Remote Play profile). All gated on `platform.IsSteamOS`,
+wired into `dsd health`/`dsd disk`/`dsd net`.
+
+**June 5 — validated against REAL tooling on a SteamOS-spoofed VM (no Deck hardware).**
+Built a disposable Debian 13 UEFI/Secure-Boot VM on pve01 (VM 102, `192.168.10.60`):
+`/etc/os-release` set to `ID=steamos`/`VARIANT_ID=steamdeck` (trips `platform.IsSteamOS`),
+SMBIOS `product=Jupiter`/`Valve`, real `rauc` 1.13 with A/B slots, `mac80211_hwsim`
+virtual Wi-Fi (hostapd 5GHz/ch36/VHT80 AP + associated station), real `btrfs`,
+`nftables` drop rule, bound Remote Play sockets. `dsd` detected `steamos 3.6.20` and
+ran all collectors end-to-end. Every parser below exercised against genuine
+command output, **not fixtures** — except the two Deck-only items still flagged `[ ]`.
+
+_Spec 17 (`dsd steamos`):_
+- [x] RAUC JSON: real `rauc 1.13 --output-format=json` shape matches `applyRAUCJSON` exactly (`slots` = array of single-key objects with `state`/`boot_status`/`bootname`); booted A / inactive B parsed correctly. **#1 flagged risk — confirmed correct.**
+- [x] RAUC **text fallback**: real `rauc status` uses glyph markers (`○`/`⏺`) + ANSI color codes, NOT the ASCII `o`/`x` the parser assumed → **BUG FIXED** (`applyRAUCText` now strips ANSI + detects headers by `[<slot>] (` shape; locked in by `TestApplyRAUCText/rauc 1.13 glyphs+ansi`).
+- [x] `steamos-readonly status` → "enabled" parsed (rootfs protected).
+- [~] Channel: `[Host] Variant = rel` → stable confirmed. **Caveat:** real client.conf `[Server]` uses `Variants` (plural, the *menu* of channels); the exact key/section holding the *selected* channel still needs on-Deck confirmation — parser is robust (scans for a singular `variant`/`channel` key, ignores the plural menu line).
+- [x] `/var` + `/home` statfs; Wi-Fi backend detection; update-server reach — all rendered correctly.
+- [ ] **Still needs a real Deck:** Session unit names + `XDG_SESSION_DESKTOP=gamescope` in **Game Mode** (only the *inactive* path was exercisable; a stuck-session CRIT can't be reproduced off-device). `--deep` proton/flatpak/dmidecode-BIOS ran without crashing but had no real data.
+
+_Spec 17a (device identity):_
+- [x] DMI `product_name`: Jupiter → "Steam Deck LCD" (Deck); SMBIOS-swapped to "ROG Ally X" → "ASUS ROG Ally X" (non-Deck). Mapping confirmed live.
+- [x] Secure Boot efivar: real bytes `06 00 00 00 01` → byte-4 enabled. Suppressed on Jupiter ("n/a — Steam Deck firmware"); same efivar on ROG Ally → WARN "ENABLED". Both branches validated off one real efivar.
+
+_Spec 22A (Remote Play):_
+- [x] `ss -tulpn`: real format parsed; 27036/27037 bound → process/PID; 27031 unbound → WARN; VR ports INFO.
+- [x] Firewall: real `nft list ruleset` drop rule on tcp/27037 → WARN fired (`firewallBlocksPorts`).
+- [x] AP isolation: real `ip route`/`ip neigh` → 1 peer in ARP cache → quiet.
+
+_Spec 19 (`dsd disk`):_
+- [x] `btrfs device stats` line format `[/dev/x].<counter>  N` matches the regex; volume + offload bind-mount (`/opt`,`/root` → broken) detection rendered. **gen/flush gap — ✅ FIXED (2026-06-05, commit efc4fd3):** `btrfsDevStatRe` now captures all five counters; `generation_errs`/`flush_io_errs` populate `BtrfsDev.GenErrs`/`FlushErrs`, render in `dsd disk` (`gen:N flush:N`), and upgrade volume status to `errors` → existing WARN fires. Parse split into pure `applyBtrfsDevStats`, tested against real output on Linux (pve01).
+
+_Spec 20 + 22B (`dsd net`):_
+- [x] `iw dev` format matches `parseIwDev` (`channel 36 (5180 MHz), width: 80 MHz`); `iw dev <if> link` → `signal: -27 dBm` parsed. Band=5GHz, width=80, SSID conflict, Steam CDN DNS timing all rendered. Interface detected dynamically (wlan1, not hardcoded).
+
+**Remaining (genuinely Deck-only):** Game-Mode gamescope session state, and on-device
+confirmation of the persisted selected-channel key in `client.conf`. (The
+`generation_errs`/`flush_io_errs` btrfs coverage gap is now ✅ closed — commit efc4fd3.)
+**Priority:** Low — parsers now validated against real tooling; residual risk is small.
+**Blocked on:** Access to a booted Steam Deck in Game Mode.
+**Reproduce the VM rig:** see commit message for `feat(steamos): validate parsers against real tooling`.
+
+---
+
 ### [BTRFS-TEST-INFRA] Proper reproducible btrfs RAID1 DEGRADED test on VM 214
 
 **Current state (June 4):** VM 214 (`opensuse16-btrfs`, 192.168.10.56) has a single-device
@@ -783,11 +848,17 @@ AlmaLinux CT 213 (94 real advisories, KEV escalation + severity mapping).
 ## Strategic Discussions Required
 
 ### [DISCUSS] Team mode — how should it work?
-Before building any paid tier, answer sharing model, team workspace, fleet view,
-identity/auth, monetisation boundary, privacy/trust questions.
+**Drafted → ADR-0004 (Proposed, 2026-06-05).** Resolves it as two surfaces on one
+cost-line gate: `dsd fleet` (local SSH, free, open) vs `--push`/hosted dashboard (paid).
+Answers all four sub-questions (sharing model, identity/auth, monetisation boundary,
+privacy/trust). Supersedes `fleet-design.md`'s "€79 for `dsd fleet`" note. Needs founder
+sign-off (move Proposed → Accepted) before any backend build.
 
 ### [DISCUSS] Pricing strategy
-Anchor price, per-host fee, open source core + paid cloud model.
+**Drafted → ADR-0005 (Proposed, 2026-06-05).** Open-core settled (ADR-0001); ADR-0005
+consolidates the scattered placeholder tiers into one ladder + names the GTM signal that
+commits each price. Anchor = Team €79/yr; per-seat-vs-per-node deliberately deferred to the
+first team conversations. Numbers stay placeholders until their triggers fire (ADR-0002 Dec 4).
 
 ### --share flag
 Upload to dashdiag.sh and return shareable URL. Requires dashdiag.sh backend.
