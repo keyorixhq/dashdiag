@@ -1027,3 +1027,62 @@ func TestRunQueueSingleCPUGrammar(t *testing.T) {
 		t.Errorf("expected 'on 1 CPU', got: %q", msg)
 	}
 }
+
+// btrfs device errors: read/write I/O = CRIT (failing device), corruption-only = WARN.
+func btrfsInsight(disk models.DiskInfo) (level, msg string, found bool) {
+	for _, ins := range checkDiskExtras(disk) {
+		if ins.Check == "Disk" && strings.Contains(ins.Message, "btrfs") {
+			return ins.Level, ins.Message, true
+		}
+	}
+	return "", "", false
+}
+
+func TestCheckDiskExtrasBtrfsIOErrorsCrit(t *testing.T) {
+	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
+		MountPoint: "/", Status: "errors",
+		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 0, WriteErrs: 5}},
+	}}}
+	level, msg, found := btrfsInsight(disk)
+	if !found || level != "CRIT" {
+		t.Fatalf("btrfs write I/O errors should be CRIT, got level=%q found=%v", level, found)
+	}
+	if !strings.Contains(msg, "I/O error") {
+		t.Errorf("unexpected message: %q", msg)
+	}
+}
+
+func TestCheckDiskExtrasBtrfsCorruptionWarn(t *testing.T) {
+	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
+		MountPoint: "/data", Status: "errors",
+		Devices: []models.BtrfsDev{{Path: "/dev/sdb", CorruptErrs: 3}},
+	}}}
+	level, msg, found := btrfsInsight(disk)
+	if !found || level != "WARN" {
+		t.Fatalf("corruption-only should be WARN, got level=%q found=%v", level, found)
+	}
+	if !strings.Contains(msg, "scrub-correctable") {
+		t.Errorf("unexpected message: %q", msg)
+	}
+}
+
+func TestCheckDiskExtrasBtrfsIOWinsOverCorruption(t *testing.T) {
+	// A device with both I/O and corruption errors → CRIT (I/O is the worse signal).
+	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
+		MountPoint: "/", Status: "errors",
+		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 2, CorruptErrs: 9}},
+	}}}
+	if level, _, _ := btrfsInsight(disk); level != "CRIT" {
+		t.Errorf("I/O + corruption should be CRIT, got %q", level)
+	}
+}
+
+func TestCheckDiskExtrasBtrfsMissingStillCrit(t *testing.T) {
+	// Regression: missing-device DEGRADED path is unchanged.
+	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
+		MountPoint: "/", MissingDevs: 1, Status: "degraded",
+	}}}
+	if level, msg, found := btrfsInsight(disk); !found || level != "CRIT" || !strings.Contains(msg, "DEGRADED") {
+		t.Errorf("missing device should stay CRIT/DEGRADED, got level=%q msg=%q", level, msg)
+	}
+}

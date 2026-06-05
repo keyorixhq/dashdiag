@@ -754,6 +754,52 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 	return out
 }
 
+// checkBtrfsVolume turns one btrfs volume's health into insights: missing devices
+// are a DEGRADED CRIT; read/write I/O errors are a failing-device CRIT (not
+// scrub-correctable); corruption/checksum errors alone are a WARN (often
+// scrub-correctable).
+func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
+	if v.MissingDevs > 0 {
+		return []models.Insight{insight("CRIT", "Disk",
+			fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
+			[]string{
+				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				"to fix:     reattach missing device and run: btrfs device scan",
+			},
+		)}
+	}
+	if v.Status != "errors" {
+		return nil
+	}
+
+	var ioErrs, corruptErrs int64
+	for _, d := range v.Devices {
+		ioErrs += d.ReadErrs + d.WriteErrs
+		corruptErrs += d.CorruptErrs
+	}
+	if ioErrs > 0 {
+		// Read/write I/O errors mean the underlying device is failing (bad blocks,
+		// cabling, controller) — not scrub-correctable. CRIT.
+		return []models.Insight{insight("CRIT", "Disk",
+			fmt.Sprintf("btrfs %s has %d device I/O error(s) — failing storage or cabling", v.MountPoint, ioErrs),
+			[]string{
+				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				"to inspect: dmesg | grep -i 'btrfs\\|i/o error'",
+				"note: back up data now — I/O errors are not scrub-correctable",
+			},
+		)}
+	}
+	// Corruption/checksum errors only — often correctable via scrub. WARN.
+	return []models.Insight{insight("WARN", "Disk",
+		fmt.Sprintf("btrfs %s has %d checksum/corruption error(s) — may be scrub-correctable", v.MountPoint, corruptErrs),
+		[]string{
+			fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+			fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
+		},
+	)}
+}
+
 func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	var out []models.Insight
 	if disk.SteamOS != nil {
@@ -786,24 +832,7 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	}
 	// btrfs volume health — missing devices are a silent CRIT
 	for _, v := range disk.BtrfsVolumes {
-		if v.MissingDevs > 0 {
-			out = append(out, insight("CRIT", "Disk",
-				fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
-				[]string{
-					fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
-					fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
-					"to fix:     reattach missing device and run: btrfs device scan",
-				},
-			))
-		} else if v.Status == "errors" {
-			out = append(out, insight("WARN", "Disk",
-				fmt.Sprintf("btrfs %s has device I/O or corruption errors", v.MountPoint),
-				[]string{
-					fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
-					fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
-				},
-			))
-		}
+		out = append(out, checkBtrfsVolume(v)...)
 	}
 	// ZFS pool health
 	for _, p := range disk.ZFSPools {
