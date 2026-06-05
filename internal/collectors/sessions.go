@@ -3,10 +3,19 @@ package collectors
 import (
 	"context"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// w LOGIN@ shapes that must never be mistaken for a FROM host:
+//   - a day-of-week, optionally with a time/hour suffix: "Mon", "Tue08", "Wed14"
+//   - a "DDmonYY" date stamp: "23Jun24"
+var (
+	wDayLogin  = regexp.MustCompile(`^(?i)(mon|tue|wed|thu|fri|sat|sun)\d*$`)
+	wDateLogin = regexp.MustCompile(`^\d{1,2}[A-Za-z]{3}\d{2}$`)
 )
 
 // SessionsCollector reads active login sessions via `w -h`.
@@ -118,33 +127,48 @@ func parseSessions(out string) *models.SessionsInfo {
 	return info
 }
 
-// looksLikeHost returns true when a string looks like a hostname or IP address
-// rather than a login time. Login times look like "10:00", "9:00am", "Mon".
+// looksLikeHost returns true when the `w` FROM-column candidate is a hostname or
+// IP rather than a LOGIN@ timestamp. It must recognise bare LAN hostnames with no
+// dot (e.g. "workstation") — missing those previously misclassified a remote root
+// SSH session as a local console, defeating the RootSSH security signal.
 func looksLikeHost(s string) bool {
-	if s == "-" {
+	if s == "" || s == "-" {
 		return false // explicit "no from" marker on some systems
 	}
-	// Times: contain ":" but followed by digits only (HH:MM), or contain am/pm
 	lower := strings.ToLower(s)
+	// "9:00am" / "9:00pm" — a login time, never a host.
 	if strings.HasSuffix(lower, "am") || strings.HasSuffix(lower, "pm") {
 		return false
 	}
-	// "Mon", "Tue" etc. — day-of-week login timestamps
-	days := []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
-	for _, d := range days {
-		if strings.HasPrefix(lower, d) {
-			return false
-		}
+	// A colon means either a time ("10:00" — digits before the colon) or an IPv6
+	// host ("fe80::1" — non-digits before the colon).
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		return !isAllDigits(s[:i])
 	}
-	// Contains "." (IPv4 or hostname) or is an IPv6 address
+	// Day-of-week / date login stamps ("Mon", "Tue08", "23Jun24").
+	if wDayLogin.MatchString(s) || wDateLogin.MatchString(s) {
+		return false
+	}
+	// IPv4 / FQDN have a dot; a bare hostname contains a letter.
 	if strings.Contains(s, ".") {
 		return true
 	}
-	// IPv6 in brackets or raw
-	if strings.Contains(s, ":") && strings.ContainsAny(s, "abcdefABCDEF[]") {
-		return true
+	return strings.IndexFunc(s, func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+	}) >= 0
+}
+
+// isAllDigits reports whether s is non-empty and contains only ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
 	}
-	return false
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseIdleSec converts w idle strings to seconds for threshold comparisons.

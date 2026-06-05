@@ -165,7 +165,12 @@ func collectGPUProcesses(ctx context.Context) []models.GPUProcess {
 	if err != nil {
 		return nil
 	}
+	return parseGPUProcesses(out)
+}
 
+// parseGPUProcesses parses `nvidia-smi --query-compute-apps=pid,used_memory,name
+// --format=csv,noheader,nounits` output.
+func parseGPUProcesses(out string) []models.GPUProcess {
 	var procs []models.GPUProcess
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -178,9 +183,13 @@ func collectGPUProcesses(ctx context.Context) []models.GPUProcess {
 		}
 		pid, _ := strconv.Atoi(strings.TrimSpace(fields[0]))
 		memStr := strings.TrimSpace(fields[1])
-		// memory field may be "6823 MiB" or just "6823"
+		// memory field may be "6823 MiB", just "6823", or empty/"[N/A]" on
+		// MIG / vGPU / no-accounting GPUs — guard against an empty slice.
 		memFields := strings.Fields(memStr)
-		mem, _ := strconv.Atoi(memFields[0])
+		mem := 0
+		if len(memFields) > 0 {
+			mem, _ = strconv.Atoi(memFields[0])
+		}
 		name := strings.TrimSpace(fields[2])
 		procs = append(procs, models.GPUProcess{
 			PID:      pid,

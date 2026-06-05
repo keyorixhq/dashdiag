@@ -4,9 +4,33 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-05 — btrfs I/O-error CRIT (branch btrfs-io-crit)**
+**Last updated: 2026-06-05 — dashdiag.sh registered; 2 GTM blockers left (wire email, deploy landing)**
 
 ---
+
+## ✅ Recently Completed (June 5, 2026 — doc/tech-debt hygiene, no product surface)
+
+| Item | Notes |
+|---|---|
+| Deleted `cmd/future_commands.go` | Contained only stale `TODO(backlog)` comments for `dsd docker`/`dsd k8s`/`dsd pve` — all three shipped long ago (`cmd/docker.go`/`k8s.go`/`pve.go`). File had no code. Build + `go vet` + `cmd` tests green after removal. |
+| Fixed CLAUDE.md "Deploy pattern (use this every time)" | Still pointed at the wiped Legion (`make deploy` → `192.168.1.145`, RHEL 10.1), contradicting the same doc's "Legion wiped and given away" notes. Now shows the current `make release` + `scp` to a pve01 guest pattern. |
+
+## ✅ Recently Completed (June 5, 2026 — PRs #11–#16, shipped despite the collector freeze)
+
+> ⚠️ These advanced product surface but NOT the revenue path. Domain is now
+> registered (June 5); the two remaining GTM blockers (wire email, deploy landing)
+> remain PENDING. Freeze restated in CLAUDE.md: no further features until the
+> landing page is live.
+
+| Item | PR | Notes |
+|---|---|---|
+| `dsd fleet` — run `dsd health` across many hosts over plain SSH | #15 | `internal/fleet/`; bounded fan-out, parses `--json`, treats remote non-zero exit as a verdict; `--hosts-file`/`--bin`/`--json`. No backend (ADR-0004 open half). Live-validated on the pve01 guest matrix. |
+| `dsd inventory` — CMDB-ingestable hardware/software export | #13 | `internal/inventory/`; JSON default + `--csv`/`--out`; technical-facts only (no admin layer). Validated on macOS, ubuntu:24.04, real AlmaLinux 9. |
+| `dsd update` — self-updater + passive version nudge | #14 | `internal/selfupdate/`; GH releases API + sha256 verify + atomic replace; `--check`/`--yes`; 24h-TTL nudge in health footer (interactive only, `DSD_NO_UPDATE_CHECK` opt-out). Live-validated self-replace v0.5.0→v0.6.1. |
+| cloud-init health collector | #11 | `CloudInitCollector`; `cloud-init status --format=json`; error→CRIT, degraded→WARN; gated, never `--wait`. Validated vs real CLI in ubuntu:24.04. |
+| nfpm `.deb`/`.rpm` packaging | #12 | `packaging/nfpm/` + `scripts/build-packages.sh`; CGO-free `/usr/bin/dsd`; attached on tag push. `.deb` on ubuntu:24.04, `.rpm` on almalinux:9 verified. |
+| Homebrew tap (`brew install keyorixhq/tap/dsd`) | #11 | `packaging/homebrew-tap/` + `scripts/gen-homebrew-formula.sh`; gated `update-tap` CI job. Live brew install of v0.6.1 verified. |
+| CI fix — read Go version from go.mod (was pinned 1.22 vs go.mod 1.26.3) | #16 | Pre-existing toolchain mismatch that red-failed every PR to main at Vet. |
 
 ## ✅ Recently Completed (June 5, 2026 — btrfs I/O-error severity, live-validated)
 
@@ -236,6 +260,52 @@ reads do — relevant when writing future btrfs tests.
 
 ## 🐞 Known Bugs
 
+### ~~BUG-025..030 — command-output parser field-misalignment sweep~~ ✅ FIXED (2026-06-05)
+
+**Found:** 2026-06-05, a parser bug-hunt across ~40 collector files prompted by BUG-024
+(and BUG-023). Four review passes (disk/storage, network/container, system/security,
+packages/cve/gpu/steamos). The network and container parsers were all clean; six genuine
+bugs were confirmed and fixed (commit de0bfcf), each with a regression test. Cross-platform
+tests run locally; Linux-tagged tests verified on the pve01 guest.
+
+| # | File | Bug | Impact |
+|---|---|---|---|
+| BUG-025 | `gpu_linux.go` | `parseGPUProcesses` indexed `memFields[0]` unchecked; nvidia-smi reports empty/`[N/A]` `used_memory` on MIG/vGPU/no-accounting GPUs | **panic** (index out of range) on a busy/hot GPU |
+| BUG-026 | `disk_linux.go` | `parseZFSScrubAge` sliced 4 date tokens; the layout needs 5 (the year) | scrub-staleness check never fired (always read "never scrubbed") |
+| BUG-027 | `disk_linux.go` | `parseZFSVdevErrors` read last-3 fields as counters; broke on trailing notes (`too many errors`, `(resilvering)`) and abbreviated counts (`1.5K`) | error counts on faulted disks silently dropped |
+| BUG-028 | `proc_linux.go` | `parseProcStatus` took `Name` from `fields[1]`; comm can contain spaces (`Web Content`) | process name truncated in `dsd proc` |
+| BUG-029 | `lvm_parse.go` | `vgs`/`lvs` sizes with LVM's `<` approximate marker (`<5.00`) parsed to 0 | false "volume full" signal |
+| BUG-030 | `sessions.go` | `looksLikeHost` missed bare dotless LAN hostnames in the `w` FROM column | **remote root SSH session classified as local — defeated the RootSSH security signal** |
+
+Also fixed alongside (not numbered): `cron_linux.go` `extractCronCommand` guessed
+system-vs-user crontab layout from line content and dropped the command's first token when it
+was a bare word (`backup --incremental ...`); now uses the file source the caller already knows.
+
+### ~~BUG-024 — slow-boot unit name mangled by multi-token `systemd-analyze blame` durations~~ ✅ FIXED (2026-06-05)
+
+**Found:** 2026-06-05, live validation pass on the pve01 guest matrix (openSUSE Leap 16, VM 214).
+
+**Symptom:** `dsd health` reported `Systemd WARN slow boot unit: 52.470s took 60.0s`,
+with remediation `systemctl status 52.470s` — `52.470s` is a duration, not a unit name.
+
+**Root cause:** `collectBootTimes` (`internal/collectors/systemd.go`) assumed a
+single-token duration. On `1min 52.470s cloud-final.service` it took `fields[0]`
+(`1min`→60.0s) as the duration and `fields[1]` (`52.470s`) as the unit name. The real
+unit (`cloud-final.service`) then escaped the `cloudInitUnits` filter under the garbage
+name and leaked into output.
+
+**Fix:** unit name = last field, duration = join of all preceding fields (mirrors the
+already-correct `parseBlame` in `services_deep_linux.go`; `parseBlameTime` already handled
+compound durations — it just wasn't being fed the whole string). Loop extracted into a pure
+`parseBlameSlowUnits()` helper with a regression test on real openSUSE blame output. Verified
+live: bogus entry gone, `cloud-final.service` correctly filtered, real units show correct
+names + durations. Commit 421799f.
+
+**Note (not fixed — signal-quality nit, out of scope):** the health slow-boot path still
+surfaces `.device` units (e.g. `…ttyS0.device`), unlike `dsd services deep`'s `parseBlame`,
+which filters `.device`/`.socket`/`.mount`/etc. Worth aligning if device-unit noise proves
+distracting.
+
 ### ~~BUG-022 — standalone subcommands don't set exit code from worst insight~~ ✅ FIXED (2026-06-04)
 
 **Fix:** centralised in `cmd/exitcode.go` — `pendingExitCode` + `recordResultSeverity()`
@@ -360,11 +430,11 @@ snapshot). Regression test: `TestSysctlNotPersistedDoesNotFireOnStockDefaults`.
 
 | Item | Status | Notes |
 |---|---|---|
-| Register `dashdiag.sh` | **PENDING** | ~$35/yr, confirmed available at Namecheap. Card ready. |
+| Register `dashdiag.sh` | **✅ DONE** | Registered June 5, 2026. DNS to point at landing page once deployed. |
 | Make repo public | **✅ DONE** | Public at `github.com/keyorixhq/dashdiag` (June 3) |
 | Create GitHub release | **✅ DONE** | v0.6.1 published — 4 binaries + `checksums.txt`, install one-liner verified |
-| Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `landing/index.html` — one-line swap |
-| Deploy landing page | **PENDING** | Static single file, no build step. Cloudflare Pages or GitHub Pages. DNS swap after domain. |
+| Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `index.html` in the `keyorixhq/dashdiag-landing` repo — one-line swap |
+| Deploy landing page | **PENDING** | Repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), then point the now-registered `dashdiag.sh` DNS at it. |
 
 ---
 
@@ -434,7 +504,10 @@ behind the GTM blockers (domain + two messages).
 
 ---
 
-### Update mechanism — `dsd update` self-updater + version-check nudge (candidate — gated)
+### Update mechanism — `dsd update` self-updater + version-check nudge — ✅ DONE (#14, Jun 5)
+
+> Both bullets below shipped in PR #14. Section kept for design rationale only.
+
 
 Today the supported update path is re-running the installer (it fetches the latest release,
 verifies checksum, overwrites the binary). That works now and is a fine v1 answer. Two
@@ -467,9 +540,11 @@ Effort varies a lot by ecosystem. Honest difficulty ranking:
   did NOT sign with cosign or update a tap; RELEASE.md now corrected (cosign marked NOT-WIRED,
   Homebrew documented accurately). Remaining (one-time, maintainer): create the tap repo + push
   `packaging/homebrew-tap/`. homebrew-core still out of scope. Spec: `spec-homebrew-tap-prompt.md`.
-- **apt/deb + rpm (MEDIUM).** Easiest via `nfpm` (single config, builds .deb + .rpm from the
-  existing binaries -- no native toolchain). Self-hosted apt/yum repo (or Cloudsmith/
-  packagecloud) so users `apt install dsd`. Already noted as a post-launch next-tier item.
+- ✅ **apt/deb + rpm — package BUILD DONE (#12, Jun 5).** `nfpm` (single config at
+  `packaging/nfpm/nfpm.yaml` + `scripts/build-packages.sh`) builds `.deb` + `.rpm` from the
+  existing CGO-free binaries, attached to each GitHub Release on tag push. `.deb` verified on
+  ubuntu:24.04, `.rpm` on almalinux:9. **Still open:** a self-hosted apt/yum repo (or
+  Cloudsmith/packagecloud) so users `apt install dsd` — that's the demand-gated next tier.
   Getting into official Debian/Ubuntu/Fedora repos is HARD (maintainer sponsorship, packaging
   standards, slow) -- not worth it pre-traction; ship your own repo first.
 - **Others (LATER, demand-gated):** AUR (Arch, community-easy), Nix, Snap, Scoop/winget
