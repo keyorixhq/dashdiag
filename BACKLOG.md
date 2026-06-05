@@ -260,6 +260,27 @@ reads do — relevant when writing future btrfs tests.
 
 ## 🐞 Known Bugs
 
+### ~~BUG-025..030 — command-output parser field-misalignment sweep~~ ✅ FIXED (2026-06-05)
+
+**Found:** 2026-06-05, a parser bug-hunt across ~40 collector files prompted by BUG-024
+(and BUG-023). Four review passes (disk/storage, network/container, system/security,
+packages/cve/gpu/steamos). The network and container parsers were all clean; six genuine
+bugs were confirmed and fixed (commit de0bfcf), each with a regression test. Cross-platform
+tests run locally; Linux-tagged tests verified on the pve01 guest.
+
+| # | File | Bug | Impact |
+|---|---|---|---|
+| BUG-025 | `gpu_linux.go` | `parseGPUProcesses` indexed `memFields[0]` unchecked; nvidia-smi reports empty/`[N/A]` `used_memory` on MIG/vGPU/no-accounting GPUs | **panic** (index out of range) on a busy/hot GPU |
+| BUG-026 | `disk_linux.go` | `parseZFSScrubAge` sliced 4 date tokens; the layout needs 5 (the year) | scrub-staleness check never fired (always read "never scrubbed") |
+| BUG-027 | `disk_linux.go` | `parseZFSVdevErrors` read last-3 fields as counters; broke on trailing notes (`too many errors`, `(resilvering)`) and abbreviated counts (`1.5K`) | error counts on faulted disks silently dropped |
+| BUG-028 | `proc_linux.go` | `parseProcStatus` took `Name` from `fields[1]`; comm can contain spaces (`Web Content`) | process name truncated in `dsd proc` |
+| BUG-029 | `lvm_parse.go` | `vgs`/`lvs` sizes with LVM's `<` approximate marker (`<5.00`) parsed to 0 | false "volume full" signal |
+| BUG-030 | `sessions.go` | `looksLikeHost` missed bare dotless LAN hostnames in the `w` FROM column | **remote root SSH session classified as local — defeated the RootSSH security signal** |
+
+Also fixed alongside (not numbered): `cron_linux.go` `extractCronCommand` guessed
+system-vs-user crontab layout from line content and dropped the command's first token when it
+was a bare word (`backup --incremental ...`); now uses the file source the caller already knows.
+
 ### ~~BUG-024 — slow-boot unit name mangled by multi-token `systemd-analyze blame` durations~~ ✅ FIXED (2026-06-05)
 
 **Found:** 2026-06-05, live validation pass on the pve01 guest matrix (openSUSE Leap 16, VM 214).
