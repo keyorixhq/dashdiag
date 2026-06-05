@@ -57,7 +57,14 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	// Extended tuning fields
 	info.NetRmemMax, _ = readIntFile("/proc/sys/net/core/rmem_max")
 	info.NetWmemMax, _ = readIntFile("/proc/sys/net/core/wmem_max")
-	info.TCPTWReuse, _ = readIntFile("/proc/sys/net/ipv4/tcp_tw_reuse")
+	// tcp_tw_reuse heuristic warns on the value 0 ("disabled"), so a failed read
+	// (readIntFile returns 0) would be indistinguishable from a real 0 and could
+	// false-warn. Use -1 as an "unknown" sentinel that the heuristic ignores.
+	if v, err := readIntFile("/proc/sys/net/ipv4/tcp_tw_reuse"); err == nil {
+		info.TCPTWReuse = v
+	} else {
+		info.TCPTWReuse = -1
+	}
 	info.TCPSynBacklog, _ = readIntFile("/proc/sys/net/ipv4/tcp_max_syn_backlog")
 	info.VMMaxMapCount, _ = readIntFile("/proc/sys/vm/max_map_count")
 	info.VMDirtyRatio, _ = readIntFile("/proc/sys/vm/dirty_ratio")

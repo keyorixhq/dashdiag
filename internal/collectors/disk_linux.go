@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -265,12 +266,17 @@ func trimSMARTError(s string) string {
 	return s
 }
 
-// runCmdTimeout runs a command with a timeout and returns stdout.
+// runCmdTimeout runs a command with a hard timeout and returns stdout. The
+// timeout is enforced via context + WaitDelay so a wedged tool (smartctl on a
+// dying disk, zpool on a hung pool, virsh against a stuck libvirtd) can't block
+// the caller indefinitely.
 func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...) // #nosec G204
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204
 	cmd.Env = append(os.Environ(), "LANG=C")
+	cmd.WaitDelay = 100 * time.Millisecond
 	out, err := cmd.Output()
-	_ = timeout // context timeout applied via cmd — simple timeout via Output()
 	return string(out), err
 }
 
