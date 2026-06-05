@@ -2,6 +2,24 @@ package collectors
 
 import "testing"
 
+// TestStatfsToFSRoot exercises the non-blocking statfsToFS happy path: the root
+// filesystem must return real numbers within the timeout (the timeout guard is
+// modeled on the proven nfs_linux.go pattern; the stale-mount path can't be
+// unit-tested without a hung mount).
+func TestStatfsToFSRoot(t *testing.T) {
+	t.Parallel()
+	fs, err := statfsToFS(mountEntry{device: "rootdev", mountPoint: "/", fsType: "testfs"})
+	if err != nil {
+		t.Fatalf("statfsToFS(/): %v", err)
+	}
+	if fs.Mount != "/" {
+		t.Errorf("Mount: got %q, want /", fs.Mount)
+	}
+	if fs.TotalGB <= 0 {
+		t.Errorf("TotalGB: got %v, want > 0", fs.TotalGB)
+	}
+}
+
 // TestLooksLikeHost guards the `w` FROM-vs-LOGIN@ discrimination, including the
 // previously-broken case of a bare LAN hostname with no dot.
 func TestLooksLikeHost(t *testing.T) {
