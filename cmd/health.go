@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
+	"github.com/keyorixhq/dashdiag/internal/selfupdate"
 	"github.com/keyorixhq/dashdiag/internal/tips"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -224,6 +225,15 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	if qrFlag {
 		shareURL := ""
 		_ = output.PrintQRCode(shareURL, mode)
+	}
+
+	// Passive "newer version available" nudge — interactive runs only, reads a
+	// 24h cache (no network in the hot path beyond a bounded one-off refresh),
+	// silenced by DSD_NO_UPDATE_CHECK. Never affects exit code or output data.
+	if mode == output.ModeHuman {
+		if line := selfupdate.MaybeNudge(version.Version); line != "" {
+			fmt.Println(line)
+		}
 	}
 
 	if state != nil {
