@@ -1622,20 +1622,17 @@ func avcPerms(line string) []string {
 	return strings.Fields(inner)
 }
 
-// lastPart returns the last colon-delimited component of an SELinux context.
-// "system_u:system_r:init_t:s0" → "init_t"
+// lastPart extracts the SELinux type from a context string. Contexts are
+// user:role:type[:level[:categories]], so the type is the third colon-delimited
+// field. "system_u:system_r:init_t:s0" → "init_t". For malformed inputs with
+// fewer than three fields it falls back to the last field.
 func lastPart(s, sep string) string {
-	// Strip MCS level: "init_t:s0" → "init_t"
 	parts := strings.Split(s, sep)
-	if len(parts) == 0 {
-		return s
-	}
-	// Return second-to-last (type) if we have user:role:type:level
-	if len(parts) >= 4 {
-		return parts[2]
-	}
 	if len(parts) >= 3 {
 		return parts[2]
+	}
+	if len(parts) == 0 {
+		return s
 	}
 	return parts[len(parts)-1]
 }

@@ -295,9 +295,12 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 
 	level := "WARN"
 	msgLower := strings.ToLower(msg)
+	// "out of memory" catches the kernel OOM killer header ("Out of memory: Killed
+	// process ..."), which does not contain the literal token "oom".
 	if strings.Contains(msgLower, "error") || strings.Contains(msgLower, "fail") ||
-		strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "panic") ||
-		strings.Contains(msgLower, "oops") || strings.Contains(msgLower, "bug:") {
+		strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
+		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
+		strings.Contains(msgLower, "bug:") {
 		level = "CRIT"
 	}
 
@@ -330,8 +333,12 @@ func extractKernelSubsystem(msg string) string {
 		}
 	}
 	fields := strings.Fields(msg)
-	if len(fields) > 0 && len(fields[0]) > 1 {
-		return fields[0]
+	if len(fields) > 0 {
+		// Strip a trailing colon: a lowercase subsystem like "audit:" falls through
+		// the all-caps/hyphen heuristic above to here, and Fields keeps the colon.
+		if first := strings.TrimRight(fields[0], ":"); len(first) > 1 {
+			return first
+		}
 	}
 	return "kernel"
 }
