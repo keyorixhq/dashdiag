@@ -260,6 +260,31 @@ reads do — relevant when writing future btrfs tests.
 
 ## 🐞 Known Bugs
 
+### ~~BUG-024 — slow-boot unit name mangled by multi-token `systemd-analyze blame` durations~~ ✅ FIXED (2026-06-05)
+
+**Found:** 2026-06-05, live validation pass on the pve01 guest matrix (openSUSE Leap 16, VM 214).
+
+**Symptom:** `dsd health` reported `Systemd WARN slow boot unit: 52.470s took 60.0s`,
+with remediation `systemctl status 52.470s` — `52.470s` is a duration, not a unit name.
+
+**Root cause:** `collectBootTimes` (`internal/collectors/systemd.go`) assumed a
+single-token duration. On `1min 52.470s cloud-final.service` it took `fields[0]`
+(`1min`→60.0s) as the duration and `fields[1]` (`52.470s`) as the unit name. The real
+unit (`cloud-final.service`) then escaped the `cloudInitUnits` filter under the garbage
+name and leaked into output.
+
+**Fix:** unit name = last field, duration = join of all preceding fields (mirrors the
+already-correct `parseBlame` in `services_deep_linux.go`; `parseBlameTime` already handled
+compound durations — it just wasn't being fed the whole string). Loop extracted into a pure
+`parseBlameSlowUnits()` helper with a regression test on real openSUSE blame output. Verified
+live: bogus entry gone, `cloud-final.service` correctly filtered, real units show correct
+names + durations. Commit 421799f.
+
+**Note (not fixed — signal-quality nit, out of scope):** the health slow-boot path still
+surfaces `.device` units (e.g. `…ttyS0.device`), unlike `dsd services deep`'s `parseBlame`,
+which filters `.device`/`.socket`/`.mount`/etc. Worth aligning if device-unit noise proves
+distracting.
+
 ### ~~BUG-022 — standalone subcommands don't set exit code from worst insight~~ ✅ FIXED (2026-06-04)
 
 **Fix:** centralised in `cmd/exitcode.go` — `pendingExitCode` + `recordResultSeverity()`
