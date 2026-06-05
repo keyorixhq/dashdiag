@@ -60,7 +60,7 @@ var displayOrder = []string{
 	// Platform-specific
 	"Subscription", "Snapshots", "Battery", "Launchd", "PVE",
 	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
-	"Ceph", "Firewall", "Auth", "CloudMeta", "Auditd",
+	"Ceph", "Firewall", "Auth", "CloudMeta", "CloudInit", "Auditd",
 	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
 	"HugePages", "CPUFreq",
 	// Optional
@@ -316,6 +316,8 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 		return inlineAuth(res.Data)
 	case "CloudMeta":
 		return inlineCloudMeta(res.Data)
+	case "CloudInit":
+		return inlineCloudInit(res.Data)
 	case "Auditd":
 		return inlineAuditd(res.Data)
 	case "NUMA":
@@ -795,6 +797,27 @@ func inlineCloudMeta(data interface{}) string {
 	}
 	if c.Region != "" {
 		s += "  " + c.Region
+	}
+	return s
+}
+
+func inlineCloudInit(data interface{}) string {
+	var c *models.CloudInitInfo
+	if v, ok := data.(*models.CloudInitInfo); ok {
+		c = v
+	} else if v, ok := data.(models.CloudInitInfo); ok {
+		c = &v
+	}
+	if c == nil || !c.Available {
+		return ""
+	}
+	// Prefer extended_status ("degraded done") when present — it's the richer state.
+	s := c.Status
+	if c.ExtendedStatus != "" {
+		s = c.ExtendedStatus
+	}
+	if c.Datasource != "" {
+		s += "  (" + c.Datasource + ")"
 	}
 	return s
 }

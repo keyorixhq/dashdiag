@@ -466,4 +466,9 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 	if c.Deep {
 		result.IOStats = collectDiskIO(result.Drives)
 	}
+
+	// SteamOS partition layout (Spec 19) — zero cost off-SteamOS.
+	if SteamOSAvailable() {
+		result.SteamOS = collectSteamOSDisk()
+	}
 }

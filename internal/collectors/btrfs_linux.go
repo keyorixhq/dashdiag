@@ -110,7 +110,9 @@ func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
 
 // btrfsDevStatRe matches error counter lines in `btrfs device stats` output.
 // Example: [/dev/loop0].read_io_errs    5
-var btrfsDevStatRe = regexp.MustCompile(`\[([^\]]+)\]\.(read_io_errs|write_io_errs|corruption_errs)\s+(\d+)`)
+// All five counters btrfs reports are captured — generation_errs and flush_io_errs
+// (transient-write / barrier failures) are real signals, not just read/write/corruption.
+var btrfsDevStatRe = regexp.MustCompile(`\[([^\]]+)\]\.(read_io_errs|write_io_errs|corruption_errs|generation_errs|flush_io_errs)\s+(\d+)`)
 
 // parseBtrfsDevStats runs `btrfs device stats <mount>` and populates error counters.
 func parseBtrfsDevStats(ctx context.Context, mount string, vol *models.BtrfsVolume) {
@@ -118,7 +120,13 @@ func parseBtrfsDevStats(ctx context.Context, mount string, vol *models.BtrfsVolu
 	if err != nil || out == "" {
 		return
 	}
+	applyBtrfsDevStats(out, vol)
+}
 
+// applyBtrfsDevStats parses `btrfs device stats` output and populates per-device
+// error counters on vol. Split from parseBtrfsDevStats so the parsing is unit
+// testable against real command output without spawning btrfs.
+func applyBtrfsDevStats(out string, vol *models.BtrfsVolume) {
 	// Build path → device index map
 	pathIdx := map[string]int{}
 	for i, dev := range vol.Devices {
@@ -147,6 +155,10 @@ func parseBtrfsDevStats(ctx context.Context, mount string, vol *models.BtrfsVolu
 			vol.Devices[idx].WriteErrs = val
 		case "corruption_errs":
 			vol.Devices[idx].CorruptErrs = val
+		case "generation_errs":
+			vol.Devices[idx].GenErrs = val
+		case "flush_io_errs":
+			vol.Devices[idx].FlushErrs = val
 		}
 		// Upgrade status if errors found
 		if vol.Status == "healthy" {

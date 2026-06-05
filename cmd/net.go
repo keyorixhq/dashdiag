@@ -248,10 +248,13 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		fmt.Println("\n  ℹ️   Running inside a container")
 	}
 
+	printNetSteamOSWifi(info)
+
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
 	issues := 0
+	issues += countSteamOSWifiIssues(info.SteamOSWifi)
 	if info.PrimaryInterfaceDown {
 		issues++
 	}
@@ -285,6 +288,120 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d network concern(s) found%s", issues, timing)))
 	}
+}
+
+// printNetSteamOSWifi renders the SteamOS Wi-Fi + Remote Play profile section
+// (Spec 20 + 22B). Absent on non-SteamOS systems.
+func printNetSteamOSWifi(info *models.NetworkInfo) {
+	w := info.SteamOSWifi
+	if w == nil {
+		return
+	}
+	fmt.Println("\n[SteamOS Wi-Fi]")
+	backend := w.Backend
+	if backend == "" {
+		backend = "unknown"
+	}
+	switch {
+	case w.BothBackends:
+		fmt.Printf("  ⚠️  Backend: iwd + wpa_supplicant both active (conflict)\n")
+	case w.DevMode:
+		fmt.Printf("  ℹ️  Backend: %s (dev-mode workaround)\n", backend)
+	default:
+		fmt.Printf("  ✅ Backend: %s\n", backend)
+	}
+	if w.SSIDConflict {
+		fmt.Printf("  ⚠️  SSID conflict: %q on both 2.4GHz and 5GHz — rename one band\n", w.ConflictSSID)
+	}
+	switch {
+	case !w.CDNDNSKnown:
+		// CDN DNS not measured — stay quiet
+	case w.CDNDNSms > 500:
+		fmt.Printf("  ⚠️  Steam CDN DNS: %dms (slow — set DNS to 1.1.1.1/8.8.8.8)\n", w.CDNDNSms)
+	default:
+		fmt.Printf("  ✅ Steam CDN DNS: %dms\n", w.CDNDNSms)
+	}
+
+	if !w.Connected {
+		fmt.Println("  ℹ️  Wi-Fi not connected — Remote Play profile unavailable")
+		return
+	}
+	fmt.Println("\n[Wi-Fi — Remote Play profile]")
+	fmt.Printf("  %s Band:    %s\n", iconBand(w.BandGHz), bandLabel(w.BandGHz))
+	if w.Channel != 0 {
+		fmt.Printf("  ℹ️  Channel: %d (%d MHz)\n", w.Channel, w.FrequencyMHz)
+	}
+	fmt.Printf("  %s Width:   %d MHz\n", iconWidth(w.WidthMHz), w.WidthMHz)
+	if w.SignalDBm != 0 {
+		fmt.Printf("  %s Signal:  %d dBm\n", iconSignal(w.SignalDBm), w.SignalDBm)
+	}
+}
+
+func bandLabel(ghz float64) string {
+	switch ghz {
+	case 2.4:
+		return "2.4GHz"
+	case 5:
+		return "5GHz"
+	case 6:
+		return "6GHz"
+	default:
+		return "unknown"
+	}
+}
+
+func iconBand(ghz float64) string {
+	if ghz == 2.4 {
+		return "⚠️ "
+	}
+	return "✅"
+}
+
+func iconWidth(mhz int) string {
+	if mhz == 20 {
+		return "⚠️ "
+	}
+	return "✅"
+}
+
+func iconSignal(dbm int) string {
+	switch {
+	case dbm < -75:
+		return "❌"
+	case dbm <= -65:
+		return "⚠️ "
+	default:
+		return "✅"
+	}
+}
+
+// countSteamOSWifiIssues counts SteamOS Wi-Fi concerns for the net summary line.
+func countSteamOSWifiIssues(w *models.SteamOSWifi) int {
+	if w == nil {
+		return 0
+	}
+	n := 0
+	if w.BothBackends {
+		n++
+	}
+	if w.SSIDConflict {
+		n++
+	}
+	if w.CDNDNSKnown && w.CDNDNSms > 500 {
+		n++
+	}
+	if w.Connected {
+		if w.BandGHz == 2.4 {
+			n++
+		}
+		if w.WidthMHz == 20 {
+			n++
+		}
+		if w.SignalDBm != 0 && w.SignalDBm <= -65 {
+			n++
+		}
+	}
+	return n
 }
 
 func printNetMetric(label string, val float64, unit string, warn, crit float64) {

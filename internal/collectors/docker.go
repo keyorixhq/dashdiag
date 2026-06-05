@@ -1066,11 +1066,18 @@ func collectNetworkHealth(ctx context.Context, client *http.Client, info *models
 }
 
 // collectIPForwarding checks /proc/sys/net/ipv4/ip_forward.
+//
+// IPForwardChecked is left false when the proc file can't be read — on macOS
+// (no procfs; Docker Desktop/OrbStack forward inside their Linux VM, so the host
+// value is irrelevant) or a Linux container without proc access. The heuristic
+// keys off IPForwardChecked so an unreadable path reads as "unknown", not a false
+// "disabled" CRIT.
 func collectIPForwarding(info *models.DockerInfo) {
 	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward") // #nosec G304
 	if err != nil {
-		return // not Linux or not readable
+		return // not Linux or not readable — leave IPForwardChecked false
 	}
+	info.IPForwardChecked = true
 	info.IPForwardEnabled = strings.TrimSpace(string(data)) == "1"
 }
 

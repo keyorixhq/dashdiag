@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
+	"github.com/keyorixhq/dashdiag/internal/selfupdate"
 	"github.com/keyorixhq/dashdiag/internal/tips"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -226,6 +227,15 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		_ = output.PrintQRCode(shareURL, mode)
 	}
 
+	// Passive "newer version available" nudge — interactive runs only, reads a
+	// 24h cache (no network in the hot path beyond a bounded one-off refresh),
+	// silenced by DSD_NO_UPDATE_CHECK. Never affects exit code or output data.
+	if mode == output.ModeHuman {
+		if line := selfupdate.MaybeNudge(version.Version); line != "" {
+			fmt.Println(line)
+		}
+	}
+
 	if state != nil {
 		tips.MaybePrintMilestone(state, mode)
 		tips.MaybePrintTip(state, mode)
@@ -432,6 +442,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.IsCloudInstance() {
 		cols = append(cols, collectors.NewCloudMetaCollector())
 	}
+	// cloud-init — gate on the CLI / runtime status file (zero-cost otherwise).
+	// Generic to every cloud-init platform, so gated independently of IsCloudInstance.
+	if collectors.CloudInitAvailable() {
+		cols = append(cols, collectors.NewCloudInitCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
@@ -472,6 +487,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// KVM/libvirt — gate on virsh availability
 	if collectors.KVMAvailable() {
 		cols = append(cols, collectors.NewKVMCollector())
+	}
+	// SteamOS / Steam Deck — gate on os-release (zero cost off-SteamOS)
+	if collectors.SteamOSAvailable() {
+		cols = append(cols, collectors.NewSteamOSCollector())
 	}
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())

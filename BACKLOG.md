@@ -27,6 +27,16 @@ on fresh loop-backed btrfs volumes:
 Note: `btrfs scrub` csum errors do NOT bump `device stats` counters; only buffered
 reads do — relevant when writing future btrfs tests.
 
+## ✅ Recently Completed (June 4, 2026 — Session: 3 bug fixes + SteamOS foundation)
+
+| Item | Notes |
+|---|---|
+| BUG-022 fixed — standalone subcommands honour 0/1/2 exit code | `cmd/exitcode.go`; wired into disk/security/docker/k8s/cve/steamos; matches `dsd health` via `ApplyThresholds` |
+| BUG-023 fixed — AppArmor profile names parsed as real JSON | `internal/drilldown/kernelsec.go`; JSON path + text fallback; clean names |
+| Sysctl false-positive fixed — `ruleSysctlNotPersisted` no longer asserts a lost fix | conditional wording + stock-default gate (swappiness=60, dirty_ratio=20) |
+| `dsd pve` BLOCKED note corrected in CLAUDE.md + BACKLOG | was stale — shipped ae9c4c4, verified on pve01 |
+| **`dsd steamos` foundation (Spec 17)** | model + collector (`steamos_linux.go`/`steamos_parse.go`/stub) + `checkSteamOS` heuristic + `cmd/steamos.go` + health gate `SteamOSAvailable()`. RAUC A/B slots (JSON+text parse), steamos-readonly, gamescope session, /var+/home, Wi-Fi backend, update-server reach; `--deep` proton/shader/flatpak/bios. 24 unit tests. **Live validation pending — no Steam Deck hardware.** See SteamOS section below. |
+
 ## ✅ Recently Completed (Sessions 1–12, May 2026)
 
 | Item | Session | Commit |
@@ -235,11 +245,17 @@ command returns (so progress/`--out` defers still run — unlike a mid-command `
 Wired into `disk`, `security` (report + `--drift`), `docker`, `k8s`, and `cve` (all four
 paths: `--all`, single-CVE, `--oval`, `--oval-scan`). Applies in JSON mode too. Standalone
 exit codes now agree with `dsd health`. Unit tests in `cmd/exitcode_test.go`.
-**Note uncovered during fix:** on macOS the docker collector reads the Linux
-`/proc/.../ip_forward` path (absent on Darwin) and falsely reports "IP forwarding disabled"
-as CRIT — so `dsd docker` *and* `dsd health` both exit 2 on a Mac with OrbStack. Pre-existing,
-Linux-concept-on-macOS heuristic bug, unrelated to the exit-code wiring (the wiring correctly
-propagated it). macOS support is low-priority (defer-until-demand); logged here, not fixed.
+**Note uncovered during fix — ✅ FIXED (2026-06-05):** on macOS the docker collector read
+the Linux `/proc/.../ip_forward` path (absent on Darwin) and falsely reported "IP forwarding
+disabled" as CRIT — so `dsd docker` *and* `dsd health` both exited 2 on a Mac with OrbStack.
+Root cause: a `bool` can't distinguish "checked and disabled" from "couldn't read the proc
+path". Fix: added `IPForwardChecked` to `models.DockerInfo`, set true only on a successful
+read; the heuristic now gates on `IPForwardChecked && !IPForwardEnabled`. Also closes the
+same latent false-positive for a Linux container without proc access. Verified live on the
+OrbStack Mac: `dsd docker` now exits 1 (legit WARNs only), no IP-forward CRIT. Regression
+tests in `internal/analysis/heuristics_ipforward_test.go`. (The parallel `internal/collectors/k8s.go`
+ip_forward read has the same shape but is gated behind `K8sAvailable()` / a k3s binary, so it
+can't false-fire on macOS — left as-is.)
 
 **Found:** 2026-06-04, during ZFS pool-health validation on pve01 (file-backed DEGRADED mirror).
 
@@ -365,11 +381,16 @@ validated KVM-guest paths (CPU steal, run-queue collector, virtio detection, SMA
 suppression on virtual disks). Nothing new needed for the generic case.
 
 The only OpenStack-specific guest-side candidates:
-- **cloud-init health (build this first if built at all).** `cloud-init status` →
-  completed vs error/degraded. Catches the common "instance booted but never configured"
-  failure. **Generic to every cloud-init platform** (AWS/GCP/Debian VM 101), not
-  OpenStack-only — so it pays off broadly. Testable on existing KVM VMs; no OpenStack
-  cloud required to develop or validate it.
+- ✅ **cloud-init health — DONE (Jun 5).** `CloudInitCollector` (`cloudinit_linux.go` +
+  notlinux stub) parses `cloud-init status --format=json` (JSON + plain-text fallback) →
+  `checkCloudInit`: error/`errors`→CRIT, `degraded`/`recoverable_errors`→WARN, running→INFO,
+  done/disabled/not-run→silent. Gated on `CloudInitAvailable()` (CLI on PATH or
+  `/run/cloud-init/status.json`), wired into `dsd health`. Generic to every cloud-init
+  platform. Validated end-to-end against the real cloud-init CLI in an ubuntu:24.04
+  container (running→INFO rendered); zero-noise confirmed on alpine + macOS. Spec:
+  `spec-cloudinit-prompt.md`.
+- **Metadata service reachability** (169.254.169.254) — cheap guest-side check; modest value.
+- virtio/paravirtual driver detection — generic KVM, largely already present.
 - **Metadata service reachability** (169.254.169.254) — cheap guest-side check; modest value.
 - virtio/paravirtual driver detection — generic KVM, largely already present.
 
@@ -410,6 +431,53 @@ not required to validate the architecture — Ampere/Pi exercise the same aarch6
 **Priority:** the arm64 *server* run is worth doing relatively soon (it's the one arch we
 ship blind on the hardware paths); the cloud guests (Strand A) stay demand-gated. Both still
 behind the GTM blockers (domain + two messages).
+
+---
+
+### Update mechanism — `dsd update` self-updater + version-check nudge (candidate — gated)
+
+Today the supported update path is re-running the installer (it fetches the latest release,
+verifies checksum, overwrites the binary). That works now and is a fine v1 answer. Two
+improvements, both deferred (no-features-before-paying-customer; NOT autopilot-safe — they
+touch the install path and a self-replacing running binary):
+
+- **`dsd update` subcommand** — binary knows its own version, queries the GitHub releases
+  API, and if newer downloads + checksum-verifies + replaces itself. The discoverable,
+  modern-CLI answer to 'how do I upgrade'. Needs careful cross-platform testing (replacing a
+  running binary, sudo/permissions, never brick an install).
+- **Passive 'update available' nudge** — occasional cached, rate-limited, non-blocking,
+  easily-disabled background check that prints a one-line 'v0.7.0 available -- run dsd update'
+  footer. Must never delay or break the actual health run.
+
+**Status: demand-unvalidated / deferred (Principle 3). NOT for unattended/autopilot work.**
+
+---
+
+### Package-manager distribution — Homebrew / apt / rpm / others (candidate — partially planned)
+
+Effort varies a lot by ecosystem. Honest difficulty ranking:
+
+- ✅ **Homebrew tap — DONE (Jun 5).** Formula at `packaging/homebrew-tap/Formula/dsd.rb`
+  (generated by `scripts/gen-homebrew-formula.sh <ver>` from the release's `checksums.txt`),
+  tap README, and a **gated** `update-tap` CI job in `release.yml` (off until the maintainer
+  creates `keyorixhq/homebrew-tap`, adds `HOMEBREW_TAP_TOKEN`, and sets `HOMEBREW_TAP_ENABLED`).
+  Verified: `ruby -c` + `brew style` clean, and a **live `brew install` of the v0.6.1 formula
+  on this Mac** (real asset downloaded, sha256 verified by brew, `dsd --version`→v0.6.1,
+  `brew test` passed). **Confirmed the docs/RELEASE.md claims were aspirational** — release.yml
+  did NOT sign with cosign or update a tap; RELEASE.md now corrected (cosign marked NOT-WIRED,
+  Homebrew documented accurately). Remaining (one-time, maintainer): create the tap repo + push
+  `packaging/homebrew-tap/`. homebrew-core still out of scope. Spec: `spec-homebrew-tap-prompt.md`.
+- **apt/deb + rpm (MEDIUM).** Easiest via `nfpm` (single config, builds .deb + .rpm from the
+  existing binaries -- no native toolchain). Self-hosted apt/yum repo (or Cloudsmith/
+  packagecloud) so users `apt install dsd`. Already noted as a post-launch next-tier item.
+  Getting into official Debian/Ubuntu/Fedora repos is HARD (maintainer sponsorship, packaging
+  standards, slow) -- not worth it pre-traction; ship your own repo first.
+- **Others (LATER, demand-gated):** AUR (Arch, community-easy), Nix, Snap, Scoop/winget
+  (Windows -- only if Windows ever happens). Each gated on a real user on that platform.
+
+**Recommended order:** Homebrew tap first (cheap, high-value for the mac/dev audience), then
+nfpm-built .deb/.rpm on a self-hosted repo as the post-launch next tier. Official-distro
+inclusion is a much later, traction-gated effort. All still behind the GTM blockers.
 
 ---
 
@@ -524,6 +592,55 @@ live amdgpu hardware — the test matrix only has Intel i915 (PVE01) and GPU-les
 **Priority:** Medium — blocks Steam Deck field validation of Spec 18.
 **Blocked on:** Access to AMD GPU hardware (Steam Deck, Radeon workstation, or AMD laptop).
 **Estimated:** 1–2h once hardware is available (deploy binary, compare against MangoHud).
+
+---
+
+### [STEAMOS-VALIDATION] Live `dsd steamos` validation on a Steam Deck
+
+**Current state (June 5):** the **full SteamOS spec set** is implemented on branch
+`steamos` — Spec 17 (`dsd steamos`), 17a (device identity + Secure Boot), 22A
+(Remote Play ports/firewall/AP-isolation), 19 (`dsd disk` partition layout), and
+20+22B (`dsd net` Wi-Fi + Remote Play profile). All gated on `platform.IsSteamOS`,
+wired into `dsd health`/`dsd disk`/`dsd net`.
+
+**June 5 — validated against REAL tooling on a SteamOS-spoofed VM (no Deck hardware).**
+Built a disposable Debian 13 UEFI/Secure-Boot VM on pve01 (VM 102, `192.168.10.60`):
+`/etc/os-release` set to `ID=steamos`/`VARIANT_ID=steamdeck` (trips `platform.IsSteamOS`),
+SMBIOS `product=Jupiter`/`Valve`, real `rauc` 1.13 with A/B slots, `mac80211_hwsim`
+virtual Wi-Fi (hostapd 5GHz/ch36/VHT80 AP + associated station), real `btrfs`,
+`nftables` drop rule, bound Remote Play sockets. `dsd` detected `steamos 3.6.20` and
+ran all collectors end-to-end. Every parser below exercised against genuine
+command output, **not fixtures** — except the two Deck-only items still flagged `[ ]`.
+
+_Spec 17 (`dsd steamos`):_
+- [x] RAUC JSON: real `rauc 1.13 --output-format=json` shape matches `applyRAUCJSON` exactly (`slots` = array of single-key objects with `state`/`boot_status`/`bootname`); booted A / inactive B parsed correctly. **#1 flagged risk — confirmed correct.**
+- [x] RAUC **text fallback**: real `rauc status` uses glyph markers (`○`/`⏺`) + ANSI color codes, NOT the ASCII `o`/`x` the parser assumed → **BUG FIXED** (`applyRAUCText` now strips ANSI + detects headers by `[<slot>] (` shape; locked in by `TestApplyRAUCText/rauc 1.13 glyphs+ansi`).
+- [x] `steamos-readonly status` → "enabled" parsed (rootfs protected).
+- [~] Channel: `[Host] Variant = rel` → stable confirmed. **Caveat:** real client.conf `[Server]` uses `Variants` (plural, the *menu* of channels); the exact key/section holding the *selected* channel still needs on-Deck confirmation — parser is robust (scans for a singular `variant`/`channel` key, ignores the plural menu line).
+- [x] `/var` + `/home` statfs; Wi-Fi backend detection; update-server reach — all rendered correctly.
+- [ ] **Still needs a real Deck:** Session unit names + `XDG_SESSION_DESKTOP=gamescope` in **Game Mode** (only the *inactive* path was exercisable; a stuck-session CRIT can't be reproduced off-device). `--deep` proton/flatpak/dmidecode-BIOS ran without crashing but had no real data.
+
+_Spec 17a (device identity):_
+- [x] DMI `product_name`: Jupiter → "Steam Deck LCD" (Deck); SMBIOS-swapped to "ROG Ally X" → "ASUS ROG Ally X" (non-Deck). Mapping confirmed live.
+- [x] Secure Boot efivar: real bytes `06 00 00 00 01` → byte-4 enabled. Suppressed on Jupiter ("n/a — Steam Deck firmware"); same efivar on ROG Ally → WARN "ENABLED". Both branches validated off one real efivar.
+
+_Spec 22A (Remote Play):_
+- [x] `ss -tulpn`: real format parsed; 27036/27037 bound → process/PID; 27031 unbound → WARN; VR ports INFO.
+- [x] Firewall: real `nft list ruleset` drop rule on tcp/27037 → WARN fired (`firewallBlocksPorts`).
+- [x] AP isolation: real `ip route`/`ip neigh` → 1 peer in ARP cache → quiet.
+
+_Spec 19 (`dsd disk`):_
+- [x] `btrfs device stats` line format `[/dev/x].<counter>  N` matches the regex; volume + offload bind-mount (`/opt`,`/root` → broken) detection rendered. **gen/flush gap — ✅ FIXED (2026-06-05, commit efc4fd3):** `btrfsDevStatRe` now captures all five counters; `generation_errs`/`flush_io_errs` populate `BtrfsDev.GenErrs`/`FlushErrs`, render in `dsd disk` (`gen:N flush:N`), and upgrade volume status to `errors` → existing WARN fires. Parse split into pure `applyBtrfsDevStats`, tested against real output on Linux (pve01).
+
+_Spec 20 + 22B (`dsd net`):_
+- [x] `iw dev` format matches `parseIwDev` (`channel 36 (5180 MHz), width: 80 MHz`); `iw dev <if> link` → `signal: -27 dBm` parsed. Band=5GHz, width=80, SSID conflict, Steam CDN DNS timing all rendered. Interface detected dynamically (wlan1, not hardcoded).
+
+**Remaining (genuinely Deck-only):** Game-Mode gamescope session state, and on-device
+confirmation of the persisted selected-channel key in `client.conf`. (The
+`generation_errs`/`flush_io_errs` btrfs coverage gap is now ✅ closed — commit efc4fd3.)
+**Priority:** Low — parsers now validated against real tooling; residual risk is small.
+**Blocked on:** Access to a booted Steam Deck in Game Mode.
+**Reproduce the VM rig:** see commit message for `feat(steamos): validate parsers against real tooling`.
 
 ---
 
@@ -750,11 +867,17 @@ AlmaLinux CT 213 (94 real advisories, KEV escalation + severity mapping).
 ## Strategic Discussions Required
 
 ### [DISCUSS] Team mode — how should it work?
-Before building any paid tier, answer sharing model, team workspace, fleet view,
-identity/auth, monetisation boundary, privacy/trust questions.
+**Drafted → ADR-0004 (Proposed, 2026-06-05).** Resolves it as two surfaces on one
+cost-line gate: `dsd fleet` (local SSH, free, open) vs `--push`/hosted dashboard (paid).
+Answers all four sub-questions (sharing model, identity/auth, monetisation boundary,
+privacy/trust). Supersedes `fleet-design.md`'s "€79 for `dsd fleet`" note. Needs founder
+sign-off (move Proposed → Accepted) before any backend build.
 
 ### [DISCUSS] Pricing strategy
-Anchor price, per-host fee, open source core + paid cloud model.
+**Drafted → ADR-0005 (Proposed, 2026-06-05).** Open-core settled (ADR-0001); ADR-0005
+consolidates the scattered placeholder tiers into one ladder + names the GTM signal that
+commits each price. Anchor = Team €79/yr; per-seat-vs-per-node deliberately deferred to the
+first team conversations. Numbers stay placeholders until their triggers fire (ADR-0002 Dec 4).
 
 ### --share flag
 Upload to dashdiag.sh and return shareable URL. Requires dashdiag.sh backend.
