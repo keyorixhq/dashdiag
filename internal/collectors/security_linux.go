@@ -927,7 +927,9 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 	}
 
 	// Allowed services in active zone
+	rulesRead := false
 	if svcOut, err := runCmd(ctx, "firewall-cmd", "--list-services"); err == nil {
+		rulesRead = true
 		for _, svc := range strings.Fields(svcOut) {
 			info.FirewallServices = append(info.FirewallServices, svc)
 		}
@@ -944,10 +946,17 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 	// Also check explicit port 22
 	if !info.SSHAllowed {
 		if portsOut, err := runCmd(ctx, "firewall-cmd", "--list-ports"); err == nil {
+			rulesRead = true
 			if strings.Contains(portsOut, "22/tcp") {
 				info.SSHAllowed = true
 			}
 		}
+	}
+	// If neither the service nor the port query succeeded, SSH reachability is
+	// unknown — don't claim it's blocked (a false "you may lose remote access"
+	// WARN). Matches the conservative default in the nftables path.
+	if !rulesRead {
+		info.SSHAllowed = true
 	}
 	return true
 }

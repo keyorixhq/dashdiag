@@ -71,27 +71,50 @@ func readMounts(r io.Reader) ([]mountEntry, error) {
 	return entries, scanner.Err()
 }
 
+// statfsTimeout bounds a single Statfs call. A stale NFS/CIFS/FUSE mount makes
+// Statfs block forever in uninterruptible D-state; without this bound one such
+// mount would hang the whole DiskCollector (and thus all of dsd health) — the
+// exact scenario this tool is run in. Mirrors the non-blocking pattern in
+// nfs_linux.go.
+const statfsTimeout = 2 * time.Second
+
 func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(e.mountPoint, &stat); err != nil {
-		return models.FilesystemInfo{}, err
+	type result struct {
+		fs  models.FilesystemInfo
+		err error
 	}
-	fs := models.FilesystemInfo{
-		Device:   e.device,
-		Mount:    e.mountPoint,
-		FSType:   e.fsType,
-		ReadOnly: e.readOnly,
-		TotalGB:  float64(stat.Blocks) * float64(stat.Bsize) / 1e9,
-		FreeGB:   float64(stat.Bfree) * float64(stat.Bsize) / 1e9,
+	// stat is goroutine-local so an abandoned (timed-out) call can't race the
+	// caller; the buffered channel lets that goroutine finish and exit cleanly.
+	ch := make(chan result, 1)
+	go func() {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(e.mountPoint, &stat); err != nil {
+			ch <- result{err: err}
+			return
+		}
+		fs := models.FilesystemInfo{
+			Device:   e.device,
+			Mount:    e.mountPoint,
+			FSType:   e.fsType,
+			ReadOnly: e.readOnly,
+			TotalGB:  float64(stat.Blocks) * float64(stat.Bsize) / 1e9,
+			FreeGB:   float64(stat.Bfree) * float64(stat.Bsize) / 1e9,
+		}
+		fs.UsedGB = fs.TotalGB - fs.FreeGB
+		if stat.Blocks > 0 {
+			fs.UsedPct = (1 - float64(stat.Bavail)/float64(stat.Blocks)) * 100
+		}
+		if stat.Files > 0 {
+			fs.InodesUsedPct = (1 - float64(stat.Ffree)/float64(stat.Files)) * 100
+		}
+		ch <- result{fs: fs}
+	}()
+	select {
+	case r := <-ch:
+		return r.fs, r.err
+	case <-time.After(statfsTimeout):
+		return models.FilesystemInfo{}, fmt.Errorf("statfs %s timed out (stale mount?)", e.mountPoint)
 	}
-	fs.UsedGB = fs.TotalGB - fs.FreeGB
-	if stat.Blocks > 0 {
-		fs.UsedPct = (1 - float64(stat.Bavail)/float64(stat.Blocks)) * 100
-	}
-	if stat.Files > 0 {
-		fs.InodesUsedPct = (1 - float64(stat.Ffree)/float64(stat.Files)) * 100
-	}
-	return fs, nil
 }
 
 func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
