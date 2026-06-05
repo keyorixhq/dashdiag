@@ -5294,7 +5294,10 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	if len(victims) > 0 {
 		msg += fmt.Sprintf(" — killed: %s", strings.Join(victims, ", "))
 	}
-	return []models.Insight{insight("WARN", "OOM",
+	// CRIT, not WARN: an OOM kill is a real failure (a process was killed). The
+	// logs path already CRITs on OOM kills in the last hour; this 24h-window path
+	// must agree, else a kill 60+ min ago would only WARN and exit 1 not 2.
+	return []models.Insight{insight("CRIT", "OOM",
 		msg,
 		[]string{
 			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
