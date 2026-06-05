@@ -151,6 +151,61 @@ func TestRunAll_ContextCancellation(t *testing.T) {
 	}
 }
 
+// blockingCollector ignores its context entirely and blocks until released —
+// simulating a wedged syscall (stale NFS Statfs, hung exec) that doesn't honor
+// cancellation. The runner must bound it rather than hang the whole run.
+type blockingCollector struct {
+	name    string
+	timeout time.Duration
+	release <-chan struct{}
+}
+
+func (b *blockingCollector) Name() string           { return b.name }
+func (b *blockingCollector) Timeout() time.Duration { return b.timeout }
+func (b *blockingCollector) Collect(ctx context.Context) (interface{}, error) {
+	<-b.release // deliberately ignores ctx
+	return "released", nil
+}
+
+func TestRunAll_BoundsBlockingCollector(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) }) // unblock the parked Collect goroutine
+
+	collectors := []Collector{
+		&mockCollector{name: "good", delay: 10 * time.Millisecond, result: "ok", timeout: time.Second},
+		&blockingCollector{name: "hang", timeout: 100 * time.Millisecond, release: release},
+	}
+
+	// Drain in a goroutine; the whole point is that this completes (channel
+	// closes) despite a collector that never honors cancellation.
+	done := make(chan map[string]Result, 1)
+	go func() {
+		res := map[string]Result{}
+		for r := range RunAll(context.Background(), collectors) {
+			res[r.Name] = r
+		}
+		done <- res
+	}()
+
+	select {
+	case res := <-done:
+		if len(res) != 2 {
+			t.Fatalf("expected 2 results, got %d", len(res))
+		}
+		if res["good"].Err != nil || res["good"].Data != "ok" {
+			t.Errorf("good collector: %+v", res["good"])
+		}
+		if res["hang"].Err == nil {
+			t.Error("hang collector: expected a timeout error, got nil")
+		}
+		if res["hang"].Data != nil {
+			t.Errorf("hang collector: expected nil data, got %v", res["hang"].Data)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RunAll did not complete within 3s — a blocking collector hung the whole run")
+	}
+}
+
 func TestRunAll_Timeout(t *testing.T) {
 	collectors := []Collector{
 		&mockCollector{
