@@ -15,7 +15,7 @@ jobs:
         with: {fetch-depth: 0}
 
       - uses: actions/setup-go@v6
-        with: {go-version: '1.22', cache: true}
+        with: {go-version-file: 'go.mod', cache: true}
 
       - name: Run tests
         run: go test -race -count=1 ./...
@@ -33,6 +33,11 @@ jobs:
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-darwin-amd64  ./cmd/dsd
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o dist/dsd-darwin-arm64  ./cmd/dsd
           cd dist && sha256sum dsd-* > checksums.txt
+
+      - name: Build .deb / .rpm packages
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
+          scripts/build-packages.sh "${GITHUB_REF_NAME#v}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
