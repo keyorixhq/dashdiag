@@ -226,11 +226,17 @@ command returns (so progress/`--out` defers still run — unlike a mid-command `
 Wired into `disk`, `security` (report + `--drift`), `docker`, `k8s`, and `cve` (all four
 paths: `--all`, single-CVE, `--oval`, `--oval-scan`). Applies in JSON mode too. Standalone
 exit codes now agree with `dsd health`. Unit tests in `cmd/exitcode_test.go`.
-**Note uncovered during fix:** on macOS the docker collector reads the Linux
-`/proc/.../ip_forward` path (absent on Darwin) and falsely reports "IP forwarding disabled"
-as CRIT — so `dsd docker` *and* `dsd health` both exit 2 on a Mac with OrbStack. Pre-existing,
-Linux-concept-on-macOS heuristic bug, unrelated to the exit-code wiring (the wiring correctly
-propagated it). macOS support is low-priority (defer-until-demand); logged here, not fixed.
+**Note uncovered during fix — ✅ FIXED (2026-06-05):** on macOS the docker collector read
+the Linux `/proc/.../ip_forward` path (absent on Darwin) and falsely reported "IP forwarding
+disabled" as CRIT — so `dsd docker` *and* `dsd health` both exited 2 on a Mac with OrbStack.
+Root cause: a `bool` can't distinguish "checked and disabled" from "couldn't read the proc
+path". Fix: added `IPForwardChecked` to `models.DockerInfo`, set true only on a successful
+read; the heuristic now gates on `IPForwardChecked && !IPForwardEnabled`. Also closes the
+same latent false-positive for a Linux container without proc access. Verified live on the
+OrbStack Mac: `dsd docker` now exits 1 (legit WARNs only), no IP-forward CRIT. Regression
+tests in `internal/analysis/heuristics_ipforward_test.go`. (The parallel `internal/collectors/k8s.go`
+ip_forward read has the same shape but is gated behind `K8sAvailable()` / a k3s binary, so it
+can't false-fire on macOS — left as-is.)
 
 **Found:** 2026-06-04, during ZFS pool-health validation on pve01 (file-backed DEGRADED mirror).
 
@@ -553,14 +559,14 @@ _Spec 22A (Remote Play):_
 - [x] AP isolation: real `ip route`/`ip neigh` → 1 peer in ARP cache → quiet.
 
 _Spec 19 (`dsd disk`):_
-- [x] `btrfs device stats` line format `[/dev/x].<counter>  N` matches the regex; volume + offload bind-mount (`/opt`,`/root` → broken) detection rendered. **Note:** the generic `btrfsDevStatRe` only captures `read_io_errs`/`write_io_errs`/`corruption_errs` — `generation_errs`/`flush_io_errs` are silently ignored (pre-existing gap in the generic btrfs collector; the spec intends these as WARN). Tracked as a separate cleanup.
+- [x] `btrfs device stats` line format `[/dev/x].<counter>  N` matches the regex; volume + offload bind-mount (`/opt`,`/root` → broken) detection rendered. **gen/flush gap — ✅ FIXED (2026-06-05, commit efc4fd3):** `btrfsDevStatRe` now captures all five counters; `generation_errs`/`flush_io_errs` populate `BtrfsDev.GenErrs`/`FlushErrs`, render in `dsd disk` (`gen:N flush:N`), and upgrade volume status to `errors` → existing WARN fires. Parse split into pure `applyBtrfsDevStats`, tested against real output on Linux (pve01).
 
 _Spec 20 + 22B (`dsd net`):_
 - [x] `iw dev` format matches `parseIwDev` (`channel 36 (5180 MHz), width: 80 MHz`); `iw dev <if> link` → `signal: -27 dBm` parsed. Band=5GHz, width=80, SSID conflict, Steam CDN DNS timing all rendered. Interface detected dynamically (wlan1, not hardcoded).
 
 **Remaining (genuinely Deck-only):** Game-Mode gamescope session state, and on-device
-confirmation of the persisted selected-channel key in `client.conf`. Plus the
-`generation_errs`/`flush_io_errs` btrfs coverage gap (host-testable, separate item).
+confirmation of the persisted selected-channel key in `client.conf`. (The
+`generation_errs`/`flush_io_errs` btrfs coverage gap is now ✅ closed — commit efc4fd3.)
 **Priority:** Low — parsers now validated against real tooling; residual risk is small.
 **Blocked on:** Access to a booted Steam Deck in Game Mode.
 **Reproduce the VM rig:** see commit message for `feat(steamos): validate parsers against real tooling`.

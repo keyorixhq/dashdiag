@@ -4374,8 +4374,10 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			},
 		))
 	}
-	// IP forwarding disabled — all container outbound traffic fails
-	if !d.IPForwardEnabled && d.Available {
+	// IP forwarding disabled — all container outbound traffic fails.
+	// Gate on IPForwardChecked: an unreadable /proc path (macOS, proc-less
+	// container) means state is unknown, not disabled — don't fire a false CRIT.
+	if d.IPForwardChecked && !d.IPForwardEnabled && d.Available {
 		out = append(out, insight("CRIT", "Docker",
 			"IP forwarding disabled (net.ipv4.ip_forward=0) — container outbound traffic will fail",
 			[]string{

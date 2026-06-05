@@ -98,6 +98,7 @@ type DockerInfo struct {
 	HostMTU           int    `json:"host_mtu,omitempty"`
 	ContainerMTU      int    `json:"container_mtu,omitempty"`
 	IPForwardEnabled  bool   `json:"ip_forward_enabled"` // /proc/sys/net/ipv4/ip_forward
+	IPForwardChecked  bool   `json:"ip_forward_checked"` // false when proc unreadable (macOS, proc-less container) — state unknown, not disabled
 	FirewalldActive   bool   `json:"firewalld_active,omitempty"`
 	FirewalldBackend  string `json:"firewalld_backend,omitempty"` // "nftables" or "iptables"
 	DockerZoneTrusted bool   `json:"docker_zone_trusted,omitempty"`
