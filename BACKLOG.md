@@ -260,6 +260,34 @@ reads do — relevant when writing future btrfs tests.
 
 ## 🐞 Known Bugs
 
+### ~~BUG-031..035 — collector robustness: hang risks + false readings~~ ✅ FIXED (2026-06-05)
+
+**Found:** 2026-06-05, a second bug-hunt (hang/blocking, error-swallowing, severity-threshold
+classes) across collectors + heuristics. Six fixes (commit 7685395), each verified; tests run
+on the pve01 guest and `dsd health` smoke-tested live.
+
+| # | File | Bug | Impact |
+|---|---|---|---|
+| BUG-031 | `disk_linux.go` | `runCmdTimeout` discarded its timeout (`_ = timeout`) — ran a plain `exec.Command` with no deadline | smartctl/zpool/**virsh** could **hang all of `dsd health`** (virsh via `KVMAvailable()` hangs before any output) |
+| BUG-032 | `disk.go` | `statfsToFS` called `syscall.Statfs` directly; nfs/cifs/fuse not skipped | a stale network mount hangs all of `dsd health` (D-state) |
+| BUG-033 | `security_linux.go` | `detectFirewalld` left `SSHAllowed=false` when both firewalld queries failed | false "SSH not allowed, you may lose remote access" WARN (IPForwardChecked class) |
+| BUG-034 | `heuristics.go` | `checkOOM` emitted WARN; logs path CRITs on the same event | OOM kill 60+ min ago exited 1 instead of 2 |
+| BUG-035 | `sysctl.go` | `tcp_tw_reuse` read swallowed its error (→0 = real "disabled") | false WARN on a webserver when the proc path is unreadable |
+
+**Deferred (not yet fixed) — noted for a follow-up:**
+- **NVMe `available_spare == 0` CRIT-miss** (`heuristics.go:2058`): the `> 0` guard skips a
+  drive at exactly 0% spare (worst case). Naively dropping the guard false-positives on drives
+  that don't report the field (0 = absent). Needs a model-level `SpareChecked`/sentinel. Mitigated
+  today: such a drive also sets `critical_warning` → CRIT fires anyway.
+- **Drilldown `LargestDirs` walk** (`internal/drilldown/disk.go`): `os.ReadDir`/`filepath.WalkDir`
+  aren't bound by the dispatch `dctx`, so a stale subtree can wedge the walk. Narrow (only fires
+  after a Disk WARN, where statfs just succeeded).
+- **Runner timeout is advisory** (`internal/runner/runner.go`): each collector gets
+  `context.WithTimeout(c.Timeout())` but the runner only `wg.Wait()`s — there's no `select`, so a
+  collector that ignores its ctx blocks the whole run. This is the root reason any single blocking
+  call can hang everything; BUG-031/032 are instances. A proper fix bounds each collector at the
+  runner level. Larger change — separate effort.
+
 ### ~~BUG-025..030 — command-output parser field-misalignment sweep~~ ✅ FIXED (2026-06-05)
 
 **Found:** 2026-06-05, a parser bug-hunt across ~40 collector files prompted by BUG-024
