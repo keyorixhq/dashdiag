@@ -85,4 +85,6 @@ type BtrfsDev struct {
 	ReadErrs    int64  `json:"read_errs"`
 	WriteErrs   int64  `json:"write_errs"`
 	CorruptErrs int64  `json:"corrupt_errs"`
+	GenErrs     int64  `json:"generation_errs"`
+	FlushErrs   int64  `json:"flush_errs"`
 }

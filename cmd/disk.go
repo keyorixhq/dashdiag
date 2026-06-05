@@ -159,8 +159,9 @@ func printDiskBtrfs(info *models.DiskInfo) {
 				label = "<missing disk>"
 			}
 			errStr := ""
-			if d.ReadErrs+d.WriteErrs+d.CorruptErrs > 0 {
-				errStr = fmt.Sprintf("  read:%d write:%d corrupt:%d", d.ReadErrs, d.WriteErrs, d.CorruptErrs)
+			if d.ReadErrs+d.WriteErrs+d.CorruptErrs+d.GenErrs+d.FlushErrs > 0 {
+				errStr = fmt.Sprintf("  read:%d write:%d corrupt:%d gen:%d flush:%d",
+					d.ReadErrs, d.WriteErrs, d.CorruptErrs, d.GenErrs, d.FlushErrs)
 			}
 			fmt.Printf("    %s  devid %d  %s%s\n", devIcon, d.DevID, label, errStr)
 		}
