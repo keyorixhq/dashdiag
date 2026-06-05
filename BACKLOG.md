@@ -4,9 +4,28 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-03 — Sessions 1–12 complete + June 3 sessions 1-5 (full day)**
+**Last updated: 2026-06-05 — btrfs I/O-error CRIT (branch btrfs-io-crit)**
 
 ---
+
+## ✅ Recently Completed (June 5, 2026 — btrfs I/O-error severity, live-validated)
+
+| Item | Notes |
+|---|---|
+| btrfs device read/write I/O errors → CRIT (corruption stays WARN) | `checkBtrfsVolume` in heuristics.go; branch `btrfs-io-crit`. Unit-tested + **live-validated on VM 214** (openSUSE Leap 16, kernel 6.12, btrfs-progs 6.14). |
+
+**Live validation (Jun 5, VM 214 / 192.168.10.56):** deployed binary, injected faults
+on fresh loop-backed btrfs volumes:
+- **WARN path:** corrupted data region + buffered read → `corruption_errs=257`,
+  read/write=0 → `dsd health` reported `WARN  btrfs /root/m1 has 257
+  checksum/corruption error(s) — may be scrub-correctable`.
+- **CRIT path:** `dm-error` table flip to fail all I/O, triggered writes, restored
+  the device (counters persist) → `write_io_errs=8`, corruption=0 → `dsd health`
+  reported `CRIT  btrfs /root/m2 has 8 device I/O error(s) — failing storage or cabling`.
+- Existing degraded fixture `/mnt/btrfs-test` (missing device) stayed CRIT/DEGRADED.
+- Testbed cleaned: loops/dm/imgs removed, fixture intact, binary removed.
+Note: `btrfs scrub` csum errors do NOT bump `device stats` counters; only buffered
+reads do — relevant when writing future btrfs tests.
 
 ## ✅ Recently Completed (June 4, 2026 — Session: 3 bug fixes + SteamOS foundation)
 
