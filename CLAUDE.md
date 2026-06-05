@@ -10,8 +10,18 @@
 
 Sessions 1–12 complete. Bug fixes and NixOS validation complete.
 **Next priority: landing page live at dashdiag.sh → first paying customer.**
-Do NOT start new collectors or the distro-aware fix suggestions sprint until
-the landing page is deployed and collecting emails.
+
+> **Reality check (June 5, 2026):** the collector freeze below was NOT held.
+> Between June 3 and June 5, PRs #11–#16 shipped new product surface anyway:
+> `dsd fleet`, `dsd inventory`, `dsd update` self-updater, cloud-init health
+> collector, `.deb`/`.rpm` packaging, and a Homebrew tap. These were judged
+> "build-worthy / no-backend" items, but they did NOT advance the revenue path.
+> **The three actual GTM blockers are still all PENDING** (register domain,
+> wire email capture, deploy landing page). The freeze is hereby RESTATED: no
+> further product features until the landing page is live and capturing emails.
+> The domain is now registered (June 5). The remaining user action is creating
+> the Formspree/Tally endpoint; the landing source lives in the separate repo
+> `keyorixhq/dashdiag-landing`.
 
 **June 3 (session 2) status:** repo is **public** (`github.com/keyorixhq/dashdiag`),
 **v0.6.1 released** (4 binaries + `checksums.txt`), and the `install.sh` one-liner
@@ -19,11 +29,11 @@ is **live and verified working**. Remaining GTM: register dashdiag.sh, deploy th
 landing page (now its own repo `keyorixhq/dashdiag-landing`), wire email capture.
 
 **GTM checklist (do in order):**
-1. Register `dashdiag.sh` (~$35/yr, Namecheap, confirmed available)
+1. ✅ DONE — Register `dashdiag.sh` (registered June 5, 2026; DNS → landing page after deploy)
 2. ✅ DONE — repo public (`github.com/keyorixhq/dashdiag`)
 3. ✅ DONE — GitHub release v0.6.1 (4 binaries + `checksums.txt`, install one-liner verified)
-4. Wire email capture — search `STUB` in `index.html` (now in repo `keyorixhq/dashdiag-landing`), swap for Formspree/Tally endpoint
-5. Deploy landing page — repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), DNS → dashdiag.sh
+4. ⬜ **PENDING** — Wire email capture — search `STUB` in `index.html` (now in repo `keyorixhq/dashdiag-landing`), swap for Formspree/Tally endpoint (user creates endpoint → one-line swap)
+5. ⬜ **PENDING** — Deploy landing page — repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), DNS → dashdiag.sh
 
 ---
 
@@ -103,6 +113,16 @@ dsd tls          ✅ local cert file scan + remote endpoint expiry (--endpoint h
 dsd cve          ✅ per-CVE + --all advisory scan (dnf/apt/zypper/pacman), OVAL --oval-scan,
                     CISA KEV escalation (sidecar /var/lib/dsd/kev/), --json; `dsd cve info` sources
 health --cve     ✅ folds CVE scan into health as live WARN(≥7.0)/CRIT(≥9.0 or KEV) insights
+dsd fleet        ✅ run `dsd health` across many hosts over plain SSH; aggregated verdict
+                    table; --hosts-file, --bin (scp deploy), --json. No backend (#15)
+dsd inventory    ✅ CMDB-ingestable hardware/software export (JSON default, --csv, --out);
+                    technical-facts layer only, assembled from existing collectors (#13)
+dsd update       ✅ self-updater — GH releases API + sha256 verify + atomic replace;
+                    --check/--yes; passive 24h version nudge in health footer (#14)
+health cloud-init ✅ CloudInitCollector — `cloud-init status --format=json`; error→CRIT,
+                    degraded→WARN; gated, never blocks (no --wait) (#11)
+packaging        ✅ nfpm .deb/.rpm (scripts/build-packages.sh) + Homebrew tap
+                    (keyorixhq/tap/dsd); both attached on tag push (#11, #12)
 ```
 
 **Do not rewrite or restructure these. Only extend them.**
@@ -133,9 +153,12 @@ health --cve     ✅ folds CVE scan into health as live WARN(≥7.0)/CRIT(≥9.0
 
 ### Deploy pattern (use this every time)
 ```bash
-SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.HXDa4Xy7fZ/Listeners make deploy
+make release
+scp dist/dsd-linux-amd64 root@<ip>:/tmp/dsd   # <ip> = a guest from the Test Matrix below
+ssh root@<ip> '/tmp/dsd health'
 ```
-Binary: `/usr/local/bin/dsd` on 192.168.1.145 (RHEL 10.1 Legion).
+(The old `make deploy` to Legion at 192.168.1.145 is obsolete — Legion was wiped and
+given away June 2026. Deploy to the pve01 guest matrix instead.)
 
 ### Critical cross-compile pattern
 ```bash

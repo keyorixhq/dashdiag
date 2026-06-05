@@ -4,9 +4,33 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-05 — btrfs I/O-error CRIT (branch btrfs-io-crit)**
+**Last updated: 2026-06-05 — dashdiag.sh registered; 2 GTM blockers left (wire email, deploy landing)**
 
 ---
+
+## ✅ Recently Completed (June 5, 2026 — doc/tech-debt hygiene, no product surface)
+
+| Item | Notes |
+|---|---|
+| Deleted `cmd/future_commands.go` | Contained only stale `TODO(backlog)` comments for `dsd docker`/`dsd k8s`/`dsd pve` — all three shipped long ago (`cmd/docker.go`/`k8s.go`/`pve.go`). File had no code. Build + `go vet` + `cmd` tests green after removal. |
+| Fixed CLAUDE.md "Deploy pattern (use this every time)" | Still pointed at the wiped Legion (`make deploy` → `192.168.1.145`, RHEL 10.1), contradicting the same doc's "Legion wiped and given away" notes. Now shows the current `make release` + `scp` to a pve01 guest pattern. |
+
+## ✅ Recently Completed (June 5, 2026 — PRs #11–#16, shipped despite the collector freeze)
+
+> ⚠️ These advanced product surface but NOT the revenue path. Domain is now
+> registered (June 5); the two remaining GTM blockers (wire email, deploy landing)
+> remain PENDING. Freeze restated in CLAUDE.md: no further features until the
+> landing page is live.
+
+| Item | PR | Notes |
+|---|---|---|
+| `dsd fleet` — run `dsd health` across many hosts over plain SSH | #15 | `internal/fleet/`; bounded fan-out, parses `--json`, treats remote non-zero exit as a verdict; `--hosts-file`/`--bin`/`--json`. No backend (ADR-0004 open half). Live-validated on the pve01 guest matrix. |
+| `dsd inventory` — CMDB-ingestable hardware/software export | #13 | `internal/inventory/`; JSON default + `--csv`/`--out`; technical-facts only (no admin layer). Validated on macOS, ubuntu:24.04, real AlmaLinux 9. |
+| `dsd update` — self-updater + passive version nudge | #14 | `internal/selfupdate/`; GH releases API + sha256 verify + atomic replace; `--check`/`--yes`; 24h-TTL nudge in health footer (interactive only, `DSD_NO_UPDATE_CHECK` opt-out). Live-validated self-replace v0.5.0→v0.6.1. |
+| cloud-init health collector | #11 | `CloudInitCollector`; `cloud-init status --format=json`; error→CRIT, degraded→WARN; gated, never `--wait`. Validated vs real CLI in ubuntu:24.04. |
+| nfpm `.deb`/`.rpm` packaging | #12 | `packaging/nfpm/` + `scripts/build-packages.sh`; CGO-free `/usr/bin/dsd`; attached on tag push. `.deb` on ubuntu:24.04, `.rpm` on almalinux:9 verified. |
+| Homebrew tap (`brew install keyorixhq/tap/dsd`) | #11 | `packaging/homebrew-tap/` + `scripts/gen-homebrew-formula.sh`; gated `update-tap` CI job. Live brew install of v0.6.1 verified. |
+| CI fix — read Go version from go.mod (was pinned 1.22 vs go.mod 1.26.3) | #16 | Pre-existing toolchain mismatch that red-failed every PR to main at Vet. |
 
 ## ✅ Recently Completed (June 5, 2026 — btrfs I/O-error severity, live-validated)
 
@@ -360,11 +384,11 @@ snapshot). Regression test: `TestSysctlNotPersistedDoesNotFireOnStockDefaults`.
 
 | Item | Status | Notes |
 |---|---|---|
-| Register `dashdiag.sh` | **PENDING** | ~$35/yr, confirmed available at Namecheap. Card ready. |
+| Register `dashdiag.sh` | **✅ DONE** | Registered June 5, 2026. DNS to point at landing page once deployed. |
 | Make repo public | **✅ DONE** | Public at `github.com/keyorixhq/dashdiag` (June 3) |
 | Create GitHub release | **✅ DONE** | v0.6.1 published — 4 binaries + `checksums.txt`, install one-liner verified |
-| Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `landing/index.html` — one-line swap |
-| Deploy landing page | **PENDING** | Static single file, no build step. Cloudflare Pages or GitHub Pages. DNS swap after domain. |
+| Wire Formspree/Tally email capture | **PENDING** | Search `STUB` in `index.html` in the `keyorixhq/dashdiag-landing` repo — one-line swap |
+| Deploy landing page | **PENDING** | Repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), then point the now-registered `dashdiag.sh` DNS at it. |
 
 ---
 
@@ -434,7 +458,10 @@ behind the GTM blockers (domain + two messages).
 
 ---
 
-### Update mechanism — `dsd update` self-updater + version-check nudge (candidate — gated)
+### Update mechanism — `dsd update` self-updater + version-check nudge — ✅ DONE (#14, Jun 5)
+
+> Both bullets below shipped in PR #14. Section kept for design rationale only.
+
 
 Today the supported update path is re-running the installer (it fetches the latest release,
 verifies checksum, overwrites the binary). That works now and is a fine v1 answer. Two
@@ -467,9 +494,11 @@ Effort varies a lot by ecosystem. Honest difficulty ranking:
   did NOT sign with cosign or update a tap; RELEASE.md now corrected (cosign marked NOT-WIRED,
   Homebrew documented accurately). Remaining (one-time, maintainer): create the tap repo + push
   `packaging/homebrew-tap/`. homebrew-core still out of scope. Spec: `spec-homebrew-tap-prompt.md`.
-- **apt/deb + rpm (MEDIUM).** Easiest via `nfpm` (single config, builds .deb + .rpm from the
-  existing binaries -- no native toolchain). Self-hosted apt/yum repo (or Cloudsmith/
-  packagecloud) so users `apt install dsd`. Already noted as a post-launch next-tier item.
+- ✅ **apt/deb + rpm — package BUILD DONE (#12, Jun 5).** `nfpm` (single config at
+  `packaging/nfpm/nfpm.yaml` + `scripts/build-packages.sh`) builds `.deb` + `.rpm` from the
+  existing CGO-free binaries, attached to each GitHub Release on tag push. `.deb` verified on
+  ubuntu:24.04, `.rpm` on almalinux:9. **Still open:** a self-hosted apt/yum repo (or
+  Cloudsmith/packagecloud) so users `apt install dsd` — that's the demand-gated next tier.
   Getting into official Debian/Ubuntu/Fedora repos is HARD (maintainer sponsorship, packaging
   standards, slow) -- not worth it pre-traction; ship your own repo first.
 - **Others (LATER, demand-gated):** AUR (Arch, community-easy), Nix, Snap, Scoop/winget
