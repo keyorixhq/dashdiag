@@ -241,7 +241,6 @@ func parseJournalVerifyError(out string) string {
 // which appear in the output but are not actionable.
 func parseBlame(out string, topN int) []models.BootOffender {
 	var offenders []models.BootOffender
-	skipSuffixes := []string{".device", ".socket", ".mount", ".target", ".path", ".swap", ".automount"}
 
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -258,15 +257,9 @@ func parseBlame(out string, topN int) []models.BootOffender {
 		// Unit name is always the last field
 		unitName := fields[len(fields)-1]
 
-		// Skip non-service unit types
-		skip := false
-		for _, suffix := range skipSuffixes {
-			if strings.HasSuffix(unitName, suffix) {
-				skip = true
-				break
-			}
-		}
-		if skip {
+		// Skip non-service unit types (shared with parseBlameSlowUnits — see
+		// blameSkipSuffixes — so the two blame parsers can't drift apart).
+		if isNonServiceBlameUnit(unitName) {
 			continue
 		}
 

@@ -73,14 +73,16 @@ func TestParseBlameSlowUnits(t *testing.T) {
 
 	got := parseBlameSlowUnits(openSUSEBlame)
 
-	// cloud-final.service (the slowest) is filtered as a cloud-init unit; the
-	// remaining ≥5s units keep their real names and full durations.
+	// After filtering, only real slow SERVICE units (≥5s) survive:
+	//   - cloud-final.service (slowest) → dropped (cloud-init infrastructure)
+	//   - the two .device units (ttyS0 / vport at ~24s) → dropped: these are the
+	//     virtio/serial-console device-timeout artifacts that show up on virtually
+	//     every VM. Flagging them was first-run noise on the (all-VM) pilot fleet.
+	//   - chronyd.service (850ms) → dropped (< 5s)
 	want := []struct {
 		name string
 		dur  float64
 	}{
-		{"sys-devices-pnp0-00:00-00:00:0-00:00:0.0-tty-ttyS0.device", 23.856},
-		{"dev-vport2p1.device", 23.853},
 		{"postgresql.service", 6.200},
 	}
 	if len(got) != len(want) {
@@ -95,10 +97,15 @@ func TestParseBlameSlowUnits(t *testing.T) {
 		}
 	}
 
-	// Regression guard: the mangled name must never resurface.
+	// Regression guards:
 	for _, u := range got {
+		// the mangled multi-token duration must never resurface as a unit name
 		if u.Name == "52.470s" || u.Name == "1min" {
 			t.Errorf("duration token leaked as unit name: %q", u.Name)
+		}
+		// no non-service unit (.device/.mount/etc.) may appear in the slow-boot list
+		if isNonServiceBlameUnit(u.Name) {
+			t.Errorf("non-service unit leaked into slow-boot units: %q", u.Name)
 		}
 	}
 }
