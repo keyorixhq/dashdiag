@@ -12210,9 +12210,11 @@ The product is already strong enough. The question is ambition, not capability.
 
 ### Packaging (Blocks viral growth)
 
-- [ ] **AppImage** — single binary, no install, survives SteamOS updates
-  - Install command: `curl -L https://dashdiag.sh/dsd -o ~/dsd && chmod +x ~/dsd && ~/dsd health`
-  - Required for Steam Deck viral play
+- [x] **AppImage** — single binary, no install, survives SteamOS updates
+  - Built by `scripts/build-appimage.sh`; x86_64 + aarch64 attached on every tag push.
+  - Validated: built + ran (`--version`, `dsd health`) in a clean container — reads host /proc & /sys.
+  - Install command: `curl -L https://dashdiag.sh/dsd.AppImage -o ~/dsd && chmod +x ~/dsd && ~/dsd health`
+  - Required for Steam Deck viral play — now unblocked.
 - [ ] `.deb` package (Debian/Ubuntu/Mint)
 - [ ] `.rpm` package (RHEL/Fedora/SLES/Rocky/Alma/CentOS)
 - [ ] Homebrew formula (macOS)
