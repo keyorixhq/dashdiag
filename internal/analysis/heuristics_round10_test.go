@@ -65,6 +65,14 @@ func TestCheckDisk(t *testing.T) {
 		{"usage at warn is WARN", fs(models.FilesystemInfo{UsedPct: defaultThresh.DiskWarnPct}), "WARN"},
 		{"usage at crit is CRIT", fs(models.FilesystemInfo{UsedPct: defaultThresh.DiskCritPct}), "CRIT"},
 		{"inode exhaustion is CRIT", fs(models.FilesystemInfo{UsedPct: 10, InodesUsedPct: 95}), "CRIT"},
+		// Read-only error-remount detection (a serious condition dsd used to miss).
+		{"read-only ext4 is WARN", fs(models.FilesystemInfo{UsedPct: 40, FSType: "ext4", ReadOnly: true}), "WARN"},
+		{"read-only xfs is WARN", fs(models.FilesystemInfo{UsedPct: 40, FSType: "xfs", ReadOnly: true}), "WARN"},
+		{"read-only btrfs is WARN", fs(models.FilesystemInfo{UsedPct: 40, FSType: "btrfs", ReadOnly: true}), "WARN"},
+		// Inherently/intentionally read-only mounts must NOT trip the check.
+		{"read-only squashfs is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "squashfs", ReadOnly: true}), ""},
+		{"read-only iso9660 is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "iso9660", ReadOnly: true}), ""},
+		{"writable ext4 is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "ext4", ReadOnly: false}), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

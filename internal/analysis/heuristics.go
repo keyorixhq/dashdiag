@@ -755,9 +755,37 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 				[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
 			))
 		}
+		// A writable on-disk filesystem mounted read-only is almost always an
+		// error remount: the kernel hit I/O or metadata errors and dropped the fs
+		// to ro to prevent further damage, so apps silently fail to write. dsd
+		// captured this but never surfaced it (a serious missed condition). The
+		// on-disk-fstype allowlist avoids flagging inherently/intentionally ro
+		// mounts (squashfs, iso9660, overlay, ro bind mounts).
+		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
+				[]string{
+					"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
+					fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
+					fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
+					"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
+				},
+			))
+		}
 	}
 	out = append(out, checkDiskExtras(disk)...)
 	return out
+}
+
+// isWritableOnDiskFS reports whether a filesystem type is a normal read-write
+// on-disk filesystem (so being mounted read-only is suspicious). Allowlist, not
+// denylist, so squashfs/iso9660/overlay/tmpfs/etc. never trip the ro check.
+func isWritableOnDiskFS(fsType string) bool {
+	switch fsType {
+	case "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs":
+		return true
+	}
+	return false
 }
 
 // checkBtrfsVolume turns one btrfs volume's health into insights: missing devices
