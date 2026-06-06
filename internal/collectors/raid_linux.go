@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -40,20 +41,22 @@ func (c *RAIDCollector) Name() string           { return "RAID" }
 func (c *RAIDCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
-	info := &models.RAIDInfo{}
-
 	f, err := os.Open("/proc/mdstat")
 	if err != nil {
 		// mdstat not present — no RAID configured, silent OK
-		return info, nil
+		return &models.RAIDInfo{}, nil
 	}
 	defer f.Close() //nolint:errcheck
+	return parseMDStat(f), nil
+}
 
+// parseMDStat parses /proc/mdstat content into RAID device states.
+func parseMDStat(r io.Reader) *models.RAIDInfo {
+	info := &models.RAIDInfo{}
 	var current *models.RAIDDevice
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		line := scanner.Text()
-		line = strings.TrimSpace(line)
+		line := strings.TrimSpace(scanner.Text())
 
 		if line == "" || line == "Personalities :" || strings.HasPrefix(line, "unused") {
 			if current != nil {
@@ -71,19 +74,27 @@ func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
 			current = parseMDStatHeader(line)
 			continue
 		}
+		if current == nil {
+			continue
+		}
 
-		// Block counts line — extract recovery percentage if present
-		// "      [>...................]  recovery =  1.7% (..."
-		if current != nil && strings.Contains(line, "recovery") {
-			pct := parseRecoveryPct(line)
-			if pct > 0 {
-				current.RebuildPct = pct
-				current.State = "recovering"
+		// Block-counts line carries the authoritative health: "[total/active] [U_]"
+		// e.g. "976630464 blocks super 1.2 [2/1] [U_]". This is the ONLY reliable
+		// degraded signal when a failed disk has fully dropped out of the array —
+		// then it never appears as "(F)" in the header and active<total there is
+		// false, so the array would otherwise read as healthy while running with
+		// no redundancy. Use [n/m] as the authoritative active/total count.
+		if total, active, ok := parseMDArrayCounts(line); ok {
+			current.Total = total
+			current.Active = active
+			if active < total && current.State != "failed" {
+				current.State = "degraded"
 			}
 		}
-		if current != nil && strings.Contains(line, "resync") {
-			pct := parseRecoveryPct(line)
-			if pct > 0 {
+
+		// A rebuild in progress overrides degraded with the more useful state.
+		if strings.Contains(line, "recovery") || strings.Contains(line, "resync") {
+			if pct := parseRecoveryPct(line); pct > 0 {
 				current.RebuildPct = pct
 				current.State = "recovering"
 			}
@@ -92,8 +103,34 @@ func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
 	if current != nil {
 		info.Arrays = append(info.Arrays, *current)
 	}
+	return info
+}
 
-	return info, nil
+// parseMDArrayCounts extracts [total/active] from an mdstat block line such as
+// "976630464 blocks super 1.2 [2/1] [U_]" — scanning bracket groups for the one
+// containing "n/m" (the [U_] and [===>...] groups are skipped). ok=false if absent.
+func parseMDArrayCounts(line string) (total, active int, ok bool) {
+	for {
+		open := strings.IndexByte(line, '[')
+		if open < 0 {
+			return 0, 0, false
+		}
+		end := strings.IndexByte(line[open:], ']')
+		if end < 0 {
+			return 0, 0, false
+		}
+		inner := line[open+1 : open+end]
+		line = line[open+end+1:]
+		slash := strings.IndexByte(inner, '/')
+		if slash < 0 {
+			continue // not the [n/m] group (e.g. [U_] or progress bar)
+		}
+		t, err1 := strconv.Atoi(strings.TrimSpace(inner[:slash]))
+		a, err2 := strconv.Atoi(strings.TrimSpace(inner[slash+1:]))
+		if err1 == nil && err2 == nil {
+			return t, a, true
+		}
+	}
 }
 
 // parseMDStatHeader parses a /proc/mdstat header line like:
