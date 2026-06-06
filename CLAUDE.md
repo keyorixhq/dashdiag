@@ -31,7 +31,8 @@ landing page (now its own repo `keyorixhq/dashdiag-landing`), wire email capture
 **GTM checklist (do in order):**
 1. ✅ DONE — Register `dashdiag.sh` (registered June 5, 2026; DNS → landing page after deploy)
 2. ✅ DONE — repo public (`github.com/keyorixhq/dashdiag`)
-3. ✅ DONE — GitHub release v0.6.1 (4 binaries + `checksums.txt`, install one-liner verified)
+3. ✅ DONE — GitHub releases through **v0.6.2** (June 6, 2026: 4 binaries + checksums + AppImage
+   x86_64/aarch64 + .deb/.rpm; install one-liner verified serving v0.6.2)
 4. ⬜ **PENDING** — Wire email capture — search `STUB` in `index.html` (now in repo `keyorixhq/dashdiag-landing`), swap for Formspree/Tally endpoint (user creates endpoint → one-line swap)
 5. ⬜ **PENDING** — Deploy landing page — repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), DNS → dashdiag.sh
 
@@ -63,7 +64,7 @@ Legion wiped and given away (June 2026) — this pattern is obsolete.
 
 ---
 
-## What Ships (as of v0.6.1+, commit 1fb1004)
+## What Ships (as of v0.6.2, commit f86a873)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)
@@ -125,6 +126,13 @@ dsd update       ✅ self-updater — GH releases API + sha256 verify + atomic r
                     --check/--yes; passive 24h version nudge in health footer (#14)
 health cloud-init ✅ CloudInitCollector — `cloud-init status --format=json`; error→CRIT,
                     degraded→WARN; gated, never blocks (no --wait) (#11)
+health VMware    ✅ VMwareCollector — guest-side config health for a Linux guest under
+                    VMware: recognition (DMI), open-vm-tools install/run state, paravirtual
+                    NIC drivers (vmxnet3 vs emulated e1000), vmw_pvscsi/vmw_balloon. Gated on
+                    DMI (silent on non-VMware, verified on KVM); wired into health (#54).
+                    Built for the VMware-estate design-partner pilot (ADR-0002: guest VMs
+                    IN, ESXi/vSwitch OUT). Positive path is fixture-tested, not yet run on
+                    real VMware hardware.
 packaging        ✅ nfpm .deb/.rpm (scripts/build-packages.sh) + Homebrew tap
                     (keyorixhq/tap/dsd); both attached on tag push (#11, #12).
                     + AppImage (scripts/build-appimage.sh) — single-file, survives
