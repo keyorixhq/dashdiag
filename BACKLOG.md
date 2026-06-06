@@ -655,6 +655,48 @@ Verified live on VM 214 (openSUSE Leap 16, containerd 1.7.27) with alpine contai
 
 ## Tooling
 
+### ~~[RENDER] CPU subsystem insights (steal/iowait/runqueue) don't attach to any health-table row~~ ✅ DONE (PR #43, 2026-06-06)
+
+**Resolved 2026-06-06 (PR #43).** Fixed by moving the sub-checks into the
+`"CPU Load/"` namespace (`"CPU/Steal"` → `"CPU Load/Steal"`, etc.) in `checkCPU`,
+so they now match the `"CPU Load/"` prefix and escalate the CPU Load row —
+consistent with how `"Memory/Slab"` escalates the Memory row. This took the rename
+path the analysis below warned against, but updated the three correlation rules
+(`ruleIODrivenLoad`, `ruleCPUStealUnderLoad`, `ruleRunQueueSaturation`) and their
+tests to the new names in the same change. The naive alternative — renaming the
+*collector* to `"CPU"` — was rejected because `"CPU "` also prefix-matches the
+separate `"CPU Thermal"` collector (would double-attach the thermal insight); the
+render regression test (`TestInsightForResult_CPUSubcheckEscalation`) pins both the
+escalation and the absence of that collision. Found during the post-coverage audit
+sweep that also fixed two dead correlation keys (#39, #40) and the CPU drilldown key (#41).
+
+_Original analysis (now resolved):_
+
+`insightForResult(name, insights)` in `internal/render/health.go` matches a row's
+insights by `Check == name` or prefix `name+" "` / `name+"/"`. The CPU collector's
+display name is `"CPU Load"`, but `checkCPU` (`internal/analysis/heuristics.go`)
+emits `"CPU/Steal"`, `"CPU/IOWait"`, `"CPU/RunQueue"`. None match the `"CPU Load"`
+prefixes, so in `PrintAll`/`PrintAllMock` these insights attach to **no row** —
+there is no fallthrough/unattached-insight render path.
+
+**Severity > polish:** because the row shows the single highest-severity *matching*
+insight, a `CPU/Steal` CRIT alongside a `CPU Load` WARN renders the row as WARN and
+the steal CRIT vanishes from the visible table. Exit code / summary stay correct
+(separate path), so the host is still flagged — but the table can understate which
+CPU subsystem is at fault. Misleading in a human read; safe for automation.
+
+**Fix at the render layer ONLY.** Do NOT rename the check names — `"CPU/*"` is
+consumed by the correlation engine and asserted in ~30 tests (`grep` confirmed 36
+hits across `correlate_test.go`/`heuristics_test.go`). Add a namespace→row alias
+(e.g. `"CPU" → "CPU Load"`) consulted inside `insightForResult`; severity selection
+must span the row's own checks + aliased checks. Add a render test: `CPU Load` WARN
++ `CPU/Steal` CRIT → row renders CRIT with the steal message + details.
+
+**Priority:** behind the GTM launch sequence (Netlify + 2 messages). Pull ahead of
+launch only if the first demo box is a VM where steal/iowait is plausible.
+Verification note: no fixture carries a steal value and bash can't run `dsd` here,
+so the render test IS the repro (red before fix, green after).
+
 ### ~~[CAPTURE] dsd capture — extend to support dsd disk, dsd cve, dsd timeline~~ ✅ DONE (disk: June 3 commit 4e0b943; cve+timeline: June 4 commit 83e17e6)
 
 **Completed June 4:** `dsd capture --cve <file>` / `--timeline <file>` fold standalone

@@ -6,6 +6,10 @@ coverage.html
 prompts/
 .claude/
 
+# Generated `dsd` report output (e.g. dsd-report-<host>-<ts>.md) and report dirs
+dsd-report-*.md
+reports/
+
 # Strategic documents — keep local until ENISA cofounder checks complete
 KEYORIX_FOUNDATION.md
 POSITIONING.md
