@@ -236,7 +236,11 @@ func TestIOUnderMemPressureDoesNotFireWithoutIOCrit(t *testing.T) {
 func TestNetworkDegradedUnderLoadFiresWithCPU(t *testing.T) {
 	insights := []models.Insight{
 		ins("CRIT", "Network", "gateway ping 271ms"),
-		ins("CRIT", "CPU", "load at 266%"),
+		// "CPU Load" is the real check name the CPU collector emits (not a bare
+		// "CPU"). This is the regression test for the rule keying on the wrong
+		// CPU index key — before the fix it indexed under "cpu" only, so a real
+		// high CPU load never triggered this correlation.
+		ins("CRIT", "CPU Load", "load at 266%"),
 	}
 	corrs := Correlate(insights)
 	found := false

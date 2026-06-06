@@ -220,7 +220,10 @@ func ruleIOUnderMemoryPressure(idx map[string]indexEntry) (Correlation, bool) {
 //   - CPU CRIT or WARN, OR Swap CRIT (system under load — not a pure network fault)
 func ruleNetworkDegradedUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
 	netCrit := exact(idx, "Network", "CRIT")
-	cpuLoaded := atLeast(idx, "CPU", "WARN")
+	// The CPU collector emits "CPU Load" (key "cpu load") for utilisation and
+	// "CPU/Steal" / "CPU/IOWait" / "CPU/RunQueue" (which also index under "cpu").
+	// Check both so a plain high CPU load — the primary signal — is not missed.
+	cpuLoaded := atLeast(idx, "CPU Load", "WARN") || atLeast(idx, "CPU", "WARN")
 	swapCrit := exact(idx, "Swap", "CRIT")
 	memCrit := exact(idx, "Memory", "CRIT")
 
