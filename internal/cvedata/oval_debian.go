@@ -124,7 +124,13 @@ func ParseUbuntuOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 			}
 		}
 		cvss := ubuntuPriorityToCVSS[priority]
-		severity := strings.ToUpper(priority[:1]) + strings.ToLower(priority[1:]) // Title case without deprecated strings.Title
+		// Title-case the priority for display. Guard the empty case: a
+		// vulnerability def with no severity and no <cve priority> would
+		// otherwise panic on priority[:1] (slice bounds out of range).
+		severity := priority
+		if priority != "" {
+			severity = strings.ToUpper(priority[:1]) + strings.ToLower(priority[1:]) // Title case without deprecated strings.Title
+		}
 
 		// Extract package names from criterion comments
 		var packages []string
