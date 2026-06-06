@@ -62,6 +62,45 @@ Power On Hours:                     7,183`
 	}
 }
 
+// SATA `smartctl -A` is a colon-less tabular format. The pre-failure sector
+// attributes (reallocated / current-pending / offline-uncorrectable) must sum
+// into MediaErrors — they used to be skipped by the NVMe colon guard, so a
+// degrading SATA drive showed no media-error warning until outright SMART fail.
+func TestParseSMARTAttributes_SATA(t *testing.T) {
+	out := `SMART Attributes Data Structure revision number: 16
+Vendor Specific SMART Attributes with Thresholds:
+ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE
+  5 Reallocated_Sector_Ct   0x0033   100   100   010    Pre-fail  Always       -       8
+197 Current_Pending_Sector  0x0032   100   100   000    Old_age   Always       -       3
+198 Offline_Uncorrectable   0x0030   100   100   000    Old_age   Offline      -       1
+  9 Power_On_Hours          0x0032   095   095   000    Old_age   Always       -       12345
+194 Temperature_Celsius     0x0022   035   045   000    Old_age   Always       -       35`
+	var s models.SMARTInfo
+	parseSMARTAttributes(out, &s)
+
+	// 8 reallocated + 3 pending + 1 uncorrectable = 12.
+	if s.MediaErrors != 12 {
+		t.Errorf("MediaErrors = %d, want 12 (8+3+1 SATA pre-failure sectors)", s.MediaErrors)
+	}
+}
+
+func TestIsSATAFailureAttr(t *testing.T) {
+	for _, l := range []string{
+		"  5 reallocated_sector_ct 0x0033",
+		"197 current_pending_sector 0x0032",
+		"198 offline_uncorrectable 0x0030",
+	} {
+		if !isSATAFailureAttr(l) {
+			t.Errorf("isSATAFailureAttr(%q) = false, want true", l)
+		}
+	}
+	for _, l := range []string{"  9 power_on_hours", "194 temperature_celsius", "percentage used: 5%"} {
+		if isSATAFailureAttr(l) {
+			t.Errorf("isSATAFailureAttr(%q) = true, want false", l)
+		}
+	}
+}
+
 func TestTrimSMARTError(t *testing.T) {
 	if got := trimSMARTError("smartctl: error opening device /dev/sda"); got != "error opening device /dev/sda" {
 		t.Errorf("trimSMARTError = %q", got)
