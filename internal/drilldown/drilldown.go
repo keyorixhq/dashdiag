@@ -57,7 +57,9 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 	switch ins.Check {
 	case "Memory", "Memory/Slab":
 		d, err = TopProcessesByRSS(dctx, 10)
-	case "CPU":
+	case "CPU Load":
+		// The CPU collector emits its load check as "CPU Load", not a bare "CPU";
+		// this case must match it or the top-CPU-processes drilldown never runs.
 		d, err = TopProcessesByCPU(dctx, 10)
 	case "Swap":
 		d, err = TopProcessesBySwap(dctx, 10)

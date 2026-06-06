@@ -10,7 +10,7 @@ import (
 
 func TestPopulateAll_OKInsightsUnchanged(t *testing.T) {
 	ins := []models.Insight{
-		{Level: "OK", Check: "CPU", Message: "all good"},
+		{Level: "OK", Check: "CPU Load", Message: "all good"},
 		{Level: "OK", Check: "Memory", Message: "all good"},
 	}
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func TestPopulateAll_CancelledContextNocrash(t *testing.T) {
 
 func TestPopulateAll_MultipleWARNCRIT(t *testing.T) {
 	ins := []models.Insight{
-		{Level: "OK", Check: "CPU", Message: "fine"},
+		{Level: "OK", Check: "CPU Load", Message: "fine"},
 		{Level: "WARN", Check: "UnknownA", Message: "warn"},
 		{Level: "CRIT", Check: "UnknownB", Message: "crit"},
 	}
