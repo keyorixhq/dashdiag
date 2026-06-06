@@ -152,6 +152,24 @@ func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 	return parseBlameSlowUnits(string(blameOut)), totalBoot
 }
 
+// blameSkipSuffixes are systemd unit types that appear in `systemd-analyze
+// blame` but are not actionable slow-boot offenders. .device/.mount/.socket/etc.
+// usually reflect *waiting*, not a fixable slow service — notably, virtio/serial
+// console .device units on a VM routinely sit at the ~24s device timeout, which
+// would otherwise dominate the slow-boot WARN on every guest (and the pilot's
+// fleet is all VMs). Shared by parseBlame and parseBlameSlowUnits so the two
+// blame parsers cannot drift apart again.
+var blameSkipSuffixes = []string{".device", ".socket", ".mount", ".target", ".path", ".swap", ".automount"}
+
+func isNonServiceBlameUnit(name string) bool {
+	for _, s := range blameSkipSuffixes {
+		if strings.HasSuffix(name, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseBlameSlowUnits parses `systemd-analyze blame` output into the top 3 slow
 // service units (≥5s), skipping cloud-init and other infrastructure noise.
 func parseBlameSlowUnits(blameOut string) []models.SlowUnit {
@@ -173,8 +191,10 @@ func parseBlameSlowUnits(blameOut string) []models.SlowUnit {
 		if dur < 5.0 {
 			break // blame output is sorted descending — stop early
 		}
-		// Skip non-service units and known infrastructure units
-		if !strings.Contains(name, ".") || cloudInitUnits[name] {
+		// Skip non-service units (device/mount/socket/etc. — see blameSkipSuffixes;
+		// these are waits, not fixable slow services, and .device units are VM
+		// console noise) and known infrastructure (cloud-init) units.
+		if !strings.Contains(name, ".") || isNonServiceBlameUnit(name) || cloudInitUnits[name] {
 			continue
 		}
 		slow = append(slow, models.SlowUnit{Name: name, Duration: dur})
