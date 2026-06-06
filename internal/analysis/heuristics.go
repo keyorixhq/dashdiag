@@ -413,6 +413,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkCloudInit(*d)
 		}
+	case models.VMwareInfo:
+		return checkVMware(d)
+	case *models.VMwareInfo:
+		if d != nil {
+			return checkVMware(*d)
+		}
 	case models.AuditInfo:
 		return checkAuditd(d)
 	case *models.AuditInfo:
@@ -5583,6 +5589,62 @@ func checkCloudInit(c models.CloudInitInfo) []models.Insight {
 			[]string{"note: provisioning not yet complete; re-check after boot settles"}))
 	}
 	return out
+}
+
+// checkVMware reports guest-side configuration health for a Linux VMware guest:
+// open-vm-tools presence/state and paravirtual NIC drivers. Silent on every
+// non-VMware host (the collector only runs behind the DMI gate). When everything
+// is in order it emits a single INFO line so the operator can see dsd recognised
+// the platform — useful on a VMware estate where that recognition builds trust.
+func checkVMware(v models.VMwareInfo) []models.Insight {
+	if !v.IsGuest {
+		return nil
+	}
+	name := v.ProductName
+	if name == "" {
+		name = "VMware"
+	}
+	var out []models.Insight
+
+	switch {
+	case !v.ToolsInstalled:
+		out = append(out, insight("WARN", "VMware",
+			"open-vm-tools not installed on this VMware guest — no time sync, quiesced backups, graceful shutdown, or memory ballooning",
+			[]string{"to fix: apt install open-vm-tools   (RHEL/SUSE: dnf/zypper install open-vm-tools)"}))
+	case !v.ToolsRunning:
+		out = append(out, insight("WARN", "VMware",
+			"open-vm-tools installed but not running — quiesced snapshots/backups and graceful guest shutdown will fail",
+			[]string{"to fix: systemctl enable --now vmtoolsd   (some distros: open-vm-tools)"}))
+	}
+
+	if len(v.EmulatedNICs) > 0 {
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("NIC(s) on an emulated driver (%s) — vmxnet3 (paravirtual) gives higher throughput at lower host CPU",
+				strings.Join(emulatedNICDescs(v), ", ")),
+			[]string{"to fix: set the VM's network adapter type to VMXNET 3 in vSphere, then reboot the guest"}))
+	}
+
+	// All guest-side checks clean → one INFO context line confirming recognition.
+	if len(out) == 0 {
+		out = append(out, insight("INFO", "VMware",
+			fmt.Sprintf("VMware guest (%s) — open-vm-tools running, paravirtual NIC drivers in use", name),
+			nil))
+	}
+	return out
+}
+
+// emulatedNICDescs renders "iface (driver)" for each emulated NIC, e.g.
+// "ens160 (e1000)", so the operator sees both the interface and the driver.
+func emulatedNICDescs(v models.VMwareInfo) []string {
+	descs := make([]string, 0, len(v.EmulatedNICs))
+	for _, iface := range v.EmulatedNICs {
+		if drv := v.NICDrivers[iface]; drv != "" {
+			descs = append(descs, fmt.Sprintf("%s (%s)", iface, drv))
+		} else {
+			descs = append(descs, iface)
+		}
+	}
+	return descs
 }
 
 func checkAuditd(a models.AuditInfo) []models.Insight {

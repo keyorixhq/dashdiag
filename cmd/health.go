@@ -447,6 +447,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.CloudInitAvailable() {
 		cols = append(cols, collectors.NewCloudInitCollector())
 	}
+	// VMware guest config — gate on DMI vendor (silent on every non-VMware host).
+	if collectors.VMwareGuestAvailable() {
+		cols = append(cols, collectors.NewVMwareCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
