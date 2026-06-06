@@ -74,19 +74,10 @@ func parseSoftLimit(r io.Reader) int {
 	return -1
 }
 
-func fdCountForPID(pid string) int {
-	entries, err := os.ReadDir("/proc/" + pid + "/fd")
-	if err != nil {
-		return 0
-	}
-	return len(entries)
-}
-
-func deletedFilesForPID(pid string) (count int, sizeGB float64) {
-	fds, err := os.ReadDir("/proc/" + pid + "/fd")
-	if err != nil {
-		return 0, 0
-	}
+// deletedFilesFromEntries scans a process's already-read fd entries for
+// open-but-deleted files (the classic "disk full but du shows space" cause).
+// Takes the entries from the caller's single ReadDir to avoid re-reading.
+func deletedFilesFromEntries(pid string, fds []os.DirEntry) (count int, sizeGB float64) {
 	for _, fd := range fds {
 		target, err := os.Readlink("/proc/" + pid + "/fd/" + fd.Name())
 		if err != nil || !strings.HasSuffix(target, "(deleted)") {
@@ -103,7 +94,7 @@ func deletedFilesForPID(pid string) (count int, sizeGB float64) {
 	return count, sizeGB
 }
 
-func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
+func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 	f, err := os.Open(filepath.Join("/proc", pid, "limits")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	if err != nil {
 		return models.FDProcessInfo{}, false
@@ -113,7 +104,6 @@ func hotProcInfo(pid string) (models.FDProcessInfo, bool) {
 	if softLimit <= 0 {
 		return models.FDProcessInfo{}, false
 	}
-	fdCount := fdCountForPID(pid)
 	usedPct := float64(fdCount) / float64(softLimit) * 100
 	if usedPct <= 70 {
 		return models.FDProcessInfo{}, false
@@ -140,10 +130,10 @@ func (c *FDLimitsCollector) Collect(ctx context.Context) (interface{}, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
-	return c.collectLinux()
+	return c.collectLinux(ctx)
 }
 
-func (c *FDLimitsCollector) collectLinux() (*models.FDInfo, error) {
+func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, error) {
 	f, err := os.Open(c.fileNrPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening file-nr: %w", err)
@@ -162,11 +152,26 @@ func (c *FDLimitsCollector) collectLinux() (*models.FDInfo, error) {
 	dirs, _ := filepath.Glob("/proc/[0-9]*")
 	var hot []models.FDProcessInfo
 	for _, dir := range dirs {
+		// The per-process scan is best-effort and scales with process count. The
+		// system-wide FD usage above is the primary signal and is already set, so
+		// on a big/busy host we bail with what we have rather than blow the 1s
+		// budget — which would make the runner abandon the WHOLE result and drop
+		// the system-wide usage too. Cheap check; runs before each process.
+		if ctx.Err() != nil {
+			break
+		}
 		pid := filepath.Base(dir)
-		if p, ok := hotProcInfo(pid); ok {
+		// Read each process's fd dir ONCE and reuse it for both the hot-process
+		// FD count and the deleted-open-files scan (previously two ReadDirs/proc).
+		// A non-root run can't read other users' fd dirs — that fails cheaply here.
+		fdEntries, err := os.ReadDir(filepath.Join("/proc", pid, "fd"))
+		if err != nil {
+			continue
+		}
+		if p, ok := hotProcInfo(pid, len(fdEntries)); ok {
 			hot = append(hot, p)
 		}
-		dc, ds := deletedFilesForPID(pid)
+		dc, ds := deletedFilesFromEntries(pid, fdEntries)
 		info.DeletedOpenFiles += dc
 		info.DeletedOpenSizeGB += ds
 	}
