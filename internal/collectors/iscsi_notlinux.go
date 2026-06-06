@@ -12,7 +12,7 @@ import (
 type ISCSICollector struct{}
 
 func NewISCSICollector() *ISCSICollector         { return &ISCSICollector{} }
-func (c *ISCSICollector) Name() string           { return "ISCSI" }
+func (c *ISCSICollector) Name() string           { return "iSCSI" }
 func (c *ISCSICollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *ISCSICollector) Collect(_ context.Context) (interface{}, error) {
