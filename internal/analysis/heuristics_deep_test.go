@@ -68,7 +68,11 @@ func TestCheckSysctl_Profiles(t *testing.T) {
 		{"container low max_map_count is WARN", models.SysctlInfo{Workload: "container", VMMaxMapCount: 1000}, "WARN"},
 		{"container low inotify is WARN", models.SysctlInfo{Workload: "container", VMMaxMapCount: 300000, FSInotifyWatches: 1000}, "WARN"},
 		{"k8s low inotify is WARN", models.SysctlInfo{Workload: "k8s", FSInotifyWatches: 1000}, "WARN"},
-		{"default low rmem is WARN", models.SysctlInfo{Workload: "", NetRmemMax: 1000}, "WARN"},
+		// Regression: a general-profile host at (or below) the kernel-default rmem_max
+		// must NOT warn — flagging the universal default was first-run noise. rmem
+		// tuning is workload-specific (see the "webserver" case above).
+		{"default kernel-default rmem is silent", models.SysctlInfo{Workload: "", NetRmemMax: 212992}, ""},
+		{"default low rmem still silent (rmem is role-specific)", models.SysctlInfo{Workload: "", NetRmemMax: 1000}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
