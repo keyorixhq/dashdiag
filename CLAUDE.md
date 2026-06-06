@@ -122,7 +122,10 @@ dsd update       ✅ self-updater — GH releases API + sha256 verify + atomic r
 health cloud-init ✅ CloudInitCollector — `cloud-init status --format=json`; error→CRIT,
                     degraded→WARN; gated, never blocks (no --wait) (#11)
 packaging        ✅ nfpm .deb/.rpm (scripts/build-packages.sh) + Homebrew tap
-                    (keyorixhq/tap/dsd); both attached on tag push (#11, #12)
+                    (keyorixhq/tap/dsd); both attached on tag push (#11, #12).
+                    + AppImage (scripts/build-appimage.sh) — single-file, survives
+                    SteamOS immutable-rootfs updates; x86_64+aarch64 attached on tag push.
+                    Enables the SteamOS viral-channel install story (Guide §31)
 ```
 
 **Do not rewrite or restructure these. Only extend them.**

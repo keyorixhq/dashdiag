@@ -39,6 +39,13 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
           scripts/build-packages.sh "${GITHUB_REF_NAME#v}"
 
+      - name: Build AppImages
+        run: |
+          # Reuses the linux binaries already in dist/; fetches appimagetool itself.
+          # The AppImage is the SteamOS / immutable-rootfs install path (survives OS updates).
+          scripts/build-appimage.sh "${GITHUB_REF_NAME#v}"
+          cd dist && sha256sum dsd-*.AppImage >> checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:

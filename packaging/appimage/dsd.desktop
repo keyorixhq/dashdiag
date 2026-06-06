@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DashDiag
+GenericName=Linux health diagnostics
+Comment=One-command Linux server health check — CPU, disk, network, services, containers
+Exec=dsd
+Icon=dsd
+Terminal=true
+Categories=System;Utility;Monitor;
+Keywords=health;diagnostics;sysadmin;monitoring;steamos;
