@@ -966,7 +966,7 @@ func TestCheckCPURunQueueSaturation(t *testing.T) {
 			got := checkCPU(cpu, defaultThresh)
 			has := func(level string) bool {
 				for _, ins := range got {
-					if ins.Check == "CPU/RunQueue" && ins.Level == level {
+					if ins.Check == "CPU Load/RunQueue" && ins.Level == level {
 						return true
 					}
 				}
@@ -991,7 +991,7 @@ func TestRunQueueHintsIncludeContext(t *testing.T) {
 	got := checkCPU(cpu, defaultThresh)
 	var hints []string
 	for _, ins := range got {
-		if ins.Check == "CPU/RunQueue" {
+		if ins.Check == "CPU Load/RunQueue" {
 			hints = ins.Hints
 		}
 	}
@@ -1013,7 +1013,7 @@ func TestRunQueueSingleCPUGrammar(t *testing.T) {
 	got := checkCPU(cpu, defaultThresh)
 	var msg string
 	for _, ins := range got {
-		if ins.Check == "CPU/RunQueue" {
+		if ins.Check == "CPU Load/RunQueue" {
 			msg = ins.Message
 		}
 	}

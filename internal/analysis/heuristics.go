@@ -544,7 +544,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// > 10%: host is over-provisioned — neighbours are competing for physical CPUs.
 	// > 20%: severe — application latency will be unpredictable.
 	if cpu.StealPct >= 20 {
-		out = append(out, insight("CRIT", "CPU/Steal",
+		out = append(out, insight("CRIT", "CPU Load/Steal",
 			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", cpu.StealPct),
 			[]string{
 				"to inspect: top -b -n1 | grep Cpu",
@@ -554,7 +554,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 			},
 		))
 	} else if cpu.StealPct >= 10 {
-		out = append(out, insight("WARN", "CPU/Steal",
+		out = append(out, insight("WARN", "CPU Load/Steal",
 			fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", cpu.StealPct),
 			[]string{
 				"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
@@ -568,7 +568,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// High iowait with normal/low CPU usage means load is I/O-driven, not compute-driven.
 	// This is the canonical "high load average but CPU is not busy" pattern.
 	if cpu.IOwaitPct >= 40 {
-		out = append(out, insight("CRIT", "CPU/IOWait",
+		out = append(out, insight("CRIT", "CPU Load/IOWait",
 			fmt.Sprintf("I/O wait at %.1f%% — CPU is stalled waiting for disk or network I/O", cpu.IOwaitPct),
 			[]string{
 				"to inspect: iostat -x 1 5",
@@ -578,7 +578,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 			},
 		))
 	} else if cpu.IOwaitPct >= 20 {
-		out = append(out, insight("WARN", "CPU/IOWait",
+		out = append(out, insight("WARN", "CPU Load/IOWait",
 			fmt.Sprintf("I/O wait at %.1f%% — load may be I/O-driven rather than CPU-bound", cpu.IOwaitPct),
 			[]string{
 				"to inspect: iostat -x 1 5",
@@ -597,13 +597,13 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 		cpuLabel := pluralize(cpu.NumCPU, "CPU", "CPUs")
 		switch {
 		case cpu.RunQueue >= 4*cpu.NumCPU:
-			out = append(out, insight("CRIT", "CPU/RunQueue",
+			out = append(out, insight("CRIT", "CPU Load/RunQueue",
 				fmt.Sprintf("%d runnable tasks on %s — run queue is ~%d× saturated, tasks are waiting for CPU",
 					cpu.RunQueue, cpuLabel, cpu.RunQueue/cpu.NumCPU),
 				runQueueHints(cpu),
 			))
 		case cpu.RunQueue >= 2*cpu.NumCPU:
-			out = append(out, insight("WARN", "CPU/RunQueue",
+			out = append(out, insight("WARN", "CPU Load/RunQueue",
 				fmt.Sprintf("%d runnable tasks on %s — more tasks ready to run than cores available",
 					cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
