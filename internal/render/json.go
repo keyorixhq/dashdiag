@@ -20,8 +20,19 @@ type JSONOutput struct {
 	OS        string        `json:"os"`
 	Timestamp time.Time     `json:"timestamp"`
 	Version   string        `json:"version"`
+	Verdict   string        `json:"verdict"` // worst insight level: "CRIT" | "WARN" | "OK"
+	Counts    JSONCounts    `json:"counts"`  // insight tallies by level
 	Checks    []JSONCheck   `json:"checks"`
 	Insights  []JSONInsight `json:"insights"`
+}
+
+// JSONCounts tallies insights by level so a consumer can branch without
+// iterating .insights (e.g. `jq -r .verdict`, `jq '.counts.crit'`). Mirrors the
+// process exit code (CRIT->2, WARN->1, OK->0).
+type JSONCounts struct {
+	Crit int `json:"crit"`
+	Warn int `json:"warn"`
+	Info int `json:"info"`
 }
 
 type JSONCheck struct {
@@ -101,12 +112,40 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		})
 	}
 
+	verdict, counts := summarizeInsights(insights)
+
 	return JSONOutput{
 		Hostname:  hostname,
 		OS:        platform.OSPrettyName(),
 		Timestamp: time.Now().UTC(),
 		Version:   version.Version,
+		Verdict:   verdict,
+		Counts:    counts,
 		Checks:    checks,
 		Insights:  jsonInsights,
 	}
+}
+
+// summarizeInsights returns the overall verdict (worst level) and per-level
+// counts. CRIT outranks WARN outranks OK; INFO/OK never raise the verdict.
+func summarizeInsights(insights []models.Insight) (string, JSONCounts) {
+	var c JSONCounts
+	for _, ins := range insights {
+		switch ins.Level {
+		case "CRIT":
+			c.Crit++
+		case "WARN":
+			c.Warn++
+		case "INFO":
+			c.Info++
+		}
+	}
+	verdict := "OK"
+	switch {
+	case c.Crit > 0:
+		verdict = "CRIT"
+	case c.Warn > 0:
+		verdict = "WARN"
+	}
+	return verdict, c
 }
