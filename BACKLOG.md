@@ -1219,6 +1219,24 @@ exercise the same hardware paths. This is the remaining ARM gap; see candidate-f
 - `dsd disk` — disk0 500GB NVMe [APPLE SSD AP0512R] SMART: PASSED ✅
 - APFS container label (no false "not mounted") ✅
 
+### Cross-distro validation — current `main` (Jun 6, 2026)
+
+Live run of `main` (`v0.6.1-134-g237093b`) deployed to the pve01 guest matrix,
+covering the three package-manager families (apt / dnf / zypper). No crashes,
+correct distro detection, correct exit codes (1=WARN, 2=CRIT), distro-appropriate
+findings throughout.
+
+| Distro (pkg mgr) | `dsd health` | `dsd cis` | `dsd cve --all` |
+|---|---|---|---|
+| Debian 13 / pve01 (apt) | ✅ exit 1 — AppArmor complain-mode, PVE-sub WARN | ✅ 28 rules 14/13/1 | ✅ apt path, advisories → `apt-get upgrade` |
+| Ubuntu 24.04 LTS / CT202 (apt) | ✅ exit 1 — idle-session, IO latency WARN | — | — |
+| AlmaLinux 9.4 / CT213 (dnf, RHEL fam) | ✅ exit 2 — failed unit CRIT + Podman quadlet | ✅ 28 rules 16/11/1 | ✅ dnf path |
+| openSUSE Leap 16 / VM214 (zypper) | ✅ exit 2 — slow-boot units, NOPASSWD-sudo | ✅ 28 rules 18/8/2 | ✅ zypper path |
+
+This is the "Hetzner Debian / apt-vs-dnf cross-distro" validation item — `dsd cis`
+also exercised live on real systems (complements the unit tests added in #49).
+Still open: ARM Tier-3 hardware paths (above) and real-Deck Game-Mode state.
+
 ### Test Coverage Matrix
 
 | Scenario | RHEL Laptop | Proxmox Host | Debian 13 VM (101) | macOS arm64 |
