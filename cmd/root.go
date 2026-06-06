@@ -12,7 +12,11 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "dsd",
 	Short: "DashDiag — instant system health",
-	Long: "DashDiag (dsd) — one command instant system health overview.\n\n" +
+	Long: "DashDiag (dsd) — instant Linux system health in one command.\n\n" +
+		"Quick start:\n" +
+		"  dsd health     full system check — CPU, memory, disk, network, services… (~5s)\n" +
+		"  dsd            same as 'dsd health'\n" +
+		"  dsd <area>     focus one area, e.g. dsd disk, dsd net, dsd security, dsd docker\n\n" +
 		"◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		plain, _ := cmd.Flags().GetBool("plain")
@@ -52,7 +56,19 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
+	// Help = the command's description (Long, else Short) followed by usage.
+	// The previous func called Usage() only, which silently dropped every
+	// command's description — so `dsd --help` showed 35 commands with no tagline
+	// or "start here" guidance for a first-time user.
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		desc := cmd.Long
+		if desc == "" {
+			desc = cmd.Short
+		}
+		if desc != "" {
+			fmt.Fprintln(cmd.OutOrStderr(), desc)
+			fmt.Fprintln(cmd.OutOrStderr())
+		}
 		cmd.Usage() //nolint:errcheck
 	})
 
