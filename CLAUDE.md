@@ -88,6 +88,10 @@ dsd gpu          ✅ AMD amdgpu sysfs (TDP/VRAM/clocks/util/Mesa, --deep), Intel
 dsd security     ✅ sshd -T, AVC grouping + booleans + AppArmor, user audit,
                     /.autorelabel detection, PAM lockout;
                     --deep (was --suid): SUID scan; --save-baseline + --drift
+dsd cis          ✅ CIS/STIG compliance benchmark (CIS Ubuntu 22.04 L1 default).
+                    66-rule registry (SSH 5.2.x, network 3.x, audit 4.x, auth/files 5-6.x);
+                    --level 1|2, --fail-only, --stig (DISA STIG IDs), --json. Rule logic
+                    unit-tested (internal/cis); validated live on Debian/AlmaLinux/openSUSE.
 dsd disk         ✅ SMART (Linux+macOS), ZFS, I/O rate, physical drives,
                     LVM (VGs + thin pools + snapshots + RAID/mirror)
 dsd kvm          ✅ VM/network/pool/disk error diagnostics (libvirt/QEMU)
