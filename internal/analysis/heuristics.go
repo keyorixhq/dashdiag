@@ -1529,12 +1529,12 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 				[]string{"to inspect: cat /proc/sys/vm/swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
-		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 4194304 {
-			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("net.core.rmem_max=%d is low (recommended: \u2265 4MB for modern network throughput)", sysctl.NetRmemMax),
-				[]string{"to inspect: sysctl net.core.rmem_max", "to fix: sysctl -w net.core.rmem_max=4194304", "to persist: echo 'net.core.rmem_max=4194304' >> /etc/sysctl.d/99-dsd.conf"},
-			))
-		}
+		// NOTE: no general net.core.rmem_max check here. The kernel default
+		// (212992 / ~208KB) is below any "modern throughput" target, so flagging
+		// it WARNed on essentially every untuned host \u2014 noise that reads as "this
+		// tool doesn't know what normal looks like". rmem_max tuning is workload-
+		// specific and is handled in the "webserver" profile (16MB target); a
+		// general server running the kernel default is fine.
 	}
 
 	return out
