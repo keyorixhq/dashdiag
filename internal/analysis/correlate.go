@@ -281,7 +281,10 @@ func ruleGPUSustainedLoad(idx map[string]indexEntry) (Correlation, bool) {
 		return Correlation{}, false
 	}
 
-	thermalElevated := atLeast(idx, "Thermal", "WARN")
+	// The thermal collector emits its check as "CPU Thermal" (index key
+	// "cpu thermal") — there is no bare "Thermal" check, so this must match it
+	// exactly or the thermal dimension of this correlation never fires.
+	thermalElevated := atLeast(idx, "CPU Thermal", "WARN")
 	memoryElevated := atLeast(idx, "Memory", "WARN")
 	vramElevated := atLeast(idx, "GPU", "WARN") // VRAM WARN fires at 85%
 

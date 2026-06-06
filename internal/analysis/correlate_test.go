@@ -314,7 +314,7 @@ func TestMultipleRulesFire(t *testing.T) {
 		ins("CRIT", "IO", "nvme1n1 await 18ms"),
 		ins("CRIT", "CPU", "load at 266%"),
 		ins("CRIT", "Network", "gateway ping 271ms, 50% packet loss"),
-		ins("WARN", "Thermal", "CPU 92°C"),
+		ins("WARN", "CPU Thermal", "CPU 92°C"),
 	}
 	corrs := Correlate(insights)
 	names := make(map[string]bool)
@@ -341,7 +341,7 @@ func TestMultipleRulesFire(t *testing.T) {
 func TestGPUSustainedLoadFiresWithThermal(t *testing.T) {
 	insights := []models.Insight{
 		ins("INFO", "GPU", "RTX 3070 sustained compute load — util 100%, 114W"),
-		ins("WARN", "Thermal", "CPU 85°C elevated"),
+		ins("WARN", "CPU Thermal", "CPU 85°C elevated"),
 	}
 	corrs := Correlate(insights)
 	found := false
@@ -366,7 +366,7 @@ func TestGPUSustainedLoadFiresWithVRAM(t *testing.T) {
 	insights := []models.Insight{
 		ins("INFO", "GPU", "RTX 3070 sustained compute — util 85%, 100W"),
 		ins("WARN", "GPU", "VRAM usage at 85% (6970/8192 MB)"),
-		ins("WARN", "Thermal", "CPU 82°C elevated"),
+		ins("WARN", "CPU Thermal", "CPU 82°C elevated"),
 	}
 	corrs := Correlate(insights)
 	found := false
@@ -384,7 +384,7 @@ func TestGPUSustainedLoadDoesNotFireAlone(t *testing.T) {
 	// GPU load with everything else OK — not a problem worth surfacing
 	insights := []models.Insight{
 		ins("INFO", "GPU", "RTX 3070 sustained compute — util 90%, 115W"),
-		ins("OK", "Thermal", "45°C"),
+		ins("OK", "CPU Thermal", "45°C"),
 		ins("OK", "Memory", "fine"),
 	}
 	corrs := Correlate(insights)
@@ -398,7 +398,7 @@ func TestGPUSustainedLoadDoesNotFireAlone(t *testing.T) {
 func TestGPUSustainedLoadDoesNotFireWithoutGPUInfo(t *testing.T) {
 	// Thermal WARN without GPU load — not GPU's fault
 	insights := []models.Insight{
-		ins("WARN", "Thermal", "CPU 85°C"),
+		ins("WARN", "CPU Thermal", "CPU 85°C"),
 		ins("OK", "GPU", "idle"),
 	}
 	corrs := Correlate(insights)
