@@ -813,7 +813,7 @@ func TestServiceMemoryLeakDoesNotFireWithNoNamedProcesses(t *testing.T) {
 func TestRunQueueSaturationFires(t *testing.T) {
 	// Run queue saturated, no iowait, no steal → genuinely CPU-bound.
 	insights := []models.Insight{
-		ins("WARN", "CPU/RunQueue", "16 runnable tasks on 4 CPUs"),
+		ins("WARN", "CPU Load/RunQueue", "16 runnable tasks on 4 CPUs"),
 	}
 	idx := buildIndex(insights)
 	c, ok := ruleRunQueueSaturation(idx)
@@ -831,8 +831,8 @@ func TestRunQueueSaturationFires(t *testing.T) {
 func TestRunQueueSaturationSuppressedByIOWait(t *testing.T) {
 	// Saturated run queue but high iowait — that's I/O-driven load, not CPU shortage.
 	insights := []models.Insight{
-		ins("WARN", "CPU/RunQueue", "saturated"),
-		ins("WARN", "CPU/IOWait", "I/O wait at 30%"),
+		ins("WARN", "CPU Load/RunQueue", "saturated"),
+		ins("WARN", "CPU Load/IOWait", "I/O wait at 30%"),
 	}
 	idx := buildIndex(insights)
 	if _, ok := ruleRunQueueSaturation(idx); ok {
@@ -843,8 +843,8 @@ func TestRunQueueSaturationSuppressedByIOWait(t *testing.T) {
 func TestRunQueueSaturationSuppressedBySteal(t *testing.T) {
 	// Saturated run queue but high steal — hypervisor theft, not local CPU shortage.
 	insights := []models.Insight{
-		ins("WARN", "CPU/RunQueue", "saturated"),
-		ins("CRIT", "CPU/Steal", "steal at 25%"),
+		ins("WARN", "CPU Load/RunQueue", "saturated"),
+		ins("CRIT", "CPU Load/Steal", "steal at 25%"),
 	}
 	idx := buildIndex(insights)
 	if _, ok := ruleRunQueueSaturation(idx); ok {
