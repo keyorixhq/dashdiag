@@ -214,7 +214,24 @@ func collectSMART(devName string) *models.SMARTInfo {
 func parseSMARTAttributes(out string, s *models.SMARTInfo) {
 	for _, line := range strings.Split(out, "\n") {
 		lower := strings.ToLower(line)
-		// Split on ":" to get key/value — NVMe format: "Percentage Used:  0%"
+
+		// SATA/SAS attributes are tabular with no colon, e.g.
+		//   "  5 Reallocated_Sector_Ct  0x0033  100 100 010  Pre-fail  Always  -  42"
+		// the raw value being the last column. These MUST be handled before the
+		// colon-based NVMe parsing below: the "no colon -> continue" guard used to
+		// skip every SATA line, so reallocated/pending/uncorrectable sectors — the
+		// classic pre-failure indicators that rise BEFORE overall SMART fails —
+		// were silently never counted on SATA drives.
+		if isSATAFailureAttr(lower) {
+			if fields := strings.Fields(line); len(fields) >= 10 {
+				if raw, err := strconv.ParseInt(fields[len(fields)-1], 10, 64); err == nil && raw > 0 {
+					s.MediaErrors += raw
+				}
+			}
+			continue
+		}
+
+		// NVMe key:value attributes — "Percentage Used:  0%".
 		colonIdx := strings.Index(line, ":")
 		if colonIdx < 0 {
 			continue
@@ -247,15 +264,19 @@ func parseSMARTAttributes(out string, s *models.SMARTInfo) {
 			s.UnsafeShutdowns, _ = strconv.ParseInt(val, 10, 64)
 		case strings.Contains(lower, "power cycles"):
 			s.PowerCycles, _ = strconv.ParseInt(val, 10, 64)
-		case strings.Contains(lower, "reallocated_sector_ct") && len(strings.Fields(line)) >= 10:
-			// SATA attribute 5 — raw value in last column
-			fields := strings.Fields(line)
-			raw, _ := strconv.ParseInt(fields[len(fields)-1], 10, 64)
-			if raw > 0 {
-				s.MediaErrors += raw
-			}
 		}
 	}
+}
+
+// isSATAFailureAttr matches the SATA/SAS SMART attribute names that signal
+// (impending) media failure: reallocated, current-pending, and offline-
+// uncorrectable sectors. These rise before the drive's overall SMART health
+// flips to FAILED, so they are the early-warning a fleet wants for proactive
+// replacement. All feed SMARTInfo.MediaErrors.
+func isSATAFailureAttr(lowerLine string) bool {
+	return strings.Contains(lowerLine, "reallocated_sector_ct") ||
+		strings.Contains(lowerLine, "current_pending_sector") ||
+		strings.Contains(lowerLine, "offline_uncorrectable")
 }
 
 // trimSMARTError strips noisy smartctl error prefix for display.
