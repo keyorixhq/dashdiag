@@ -1,10 +1,42 @@
 package collectors
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// On a big/busy host the per-process FD scan can exceed the 1s budget. The fix
+// makes collectLinux deadline-aware so it returns the already-computed
+// system-wide FD usage (the primary signal) instead of letting the runner
+// abandon the whole result. A cancelled context simulates the blown budget:
+// the system-wide counts must survive, and the best-effort per-process scan is
+// skipped.
+func TestCollectLinux_DeadlineKeepsSystemWideInfo(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "file-nr")
+	if err := os.WriteFile(p, []byte("100\t0\t1000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &FDLimitsCollector{fileNrPath: p}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // budget already blown — per-process loop must bail immediately
+
+	info, err := c.collectLinux(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.OpenCount != 100 || info.MaxCount != 1000 {
+		t.Errorf("system-wide FD usage lost under deadline: open=%d max=%d, want 100/1000",
+			info.OpenCount, info.MaxCount)
+	}
+	if len(info.HotProcesses) != 0 || info.DeletedOpenFiles != 0 {
+		t.Errorf("cancelled ctx should skip the per-process scan, got hot=%d deleted=%d",
+			len(info.HotProcesses), info.DeletedOpenFiles)
+	}
+}
 
 func TestParseFileNr(t *testing.T) {
 	t.Parallel()
