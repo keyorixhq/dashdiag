@@ -2287,6 +2287,20 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		))
 	}
 
+	// Errors found by the LAST scrub (the "with N errors" in zpool status) — data
+	// errors the scrub could not repair, i.e. permanent corruption of specific
+	// files. Distinct from the cumulative vdev counters above (which include
+	// repaired errors), and was parsed by the collector but never surfaced.
+	if pool.ScrubErrors > 0 {
+		out = append(out, insight("CRIT", "ZFS",
+			fmt.Sprintf("ZFS pool %s: last scrub found %d unrepairable error(s) — permanent data corruption", pool.Name, pool.ScrubErrors),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				"note: 'zpool status -v' lists the affected files — restore them from backup",
+			},
+		))
+	}
+
 	// Scrub age — periodic scrubs detect silent corruption
 	switch {
 	case pool.ScrubAgeDays < 0:
