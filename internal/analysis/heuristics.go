@@ -2455,7 +2455,39 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 	out = append(out, checkPVECluster(p)...)
 	out = append(out, checkPVEStorage(p)...)
 	out = append(out, checkPVEBackups(p)...)
+	out = append(out, checkPVETaskErrors(p)...)
 	return out
+}
+
+// checkPVETaskErrors surfaces recent failed Proxmox tasks (last 24h). The
+// collector gathers these but nothing consumed them, so failed migrations,
+// snapshots, restores, etc. were silently invisible. Backups (vzdump) are
+// excluded here — they're covered by checkPVEBackups via RecentBackups, so
+// including them would double-warn.
+func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
+	var types []string
+	seen := map[string]bool{}
+	n := 0
+	for _, t := range p.TaskErrors {
+		if t.Type == "vzdump" {
+			continue // backups handled by checkPVEBackups
+		}
+		n++
+		if !seen[t.Type] {
+			seen[t.Type] = true
+			types = append(types, t.Type)
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "PVE",
+		fmt.Sprintf("%d Proxmox task(s) failed in the last 24h (%s)", n, strings.Join(types, ", ")),
+		[]string{
+			"to inspect: pvesh get /nodes/localhost/tasks --errors 1",
+			"to inspect: cat /var/log/pve/tasks/index",
+		},
+	)}
 }
 
 func checkPVESubscription(p models.PVEInfo) []models.Insight {
