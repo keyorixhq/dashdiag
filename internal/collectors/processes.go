@@ -83,6 +83,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 		ZombieProcs: make([]models.ProcessState, 0),
 		HungProcs:   make([]models.ProcessState, 0),
 	}
+	selfPID := os.Getpid()
 	for _, dir := range dirs {
 		data, err := os.ReadFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from filepath.Glob("/proc/[0-9]*"), not user input
 		if err != nil {
@@ -95,6 +96,15 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 		// Skip kernel threads — they legitimately run in D state
 		// (jbd2, kworker, kswapd, ksoftirqd, migration, etc.)
 		if ppid == 2 || isKernelThread(name) {
+			continue
+		}
+		// Skip processes that are direct children of dsd itself. dsd spawns
+		// subprocesses (ss, journalctl, smartctl, …) and there is a brief window
+		// between a child exiting and dsd reaping it where it shows as a zombie.
+		// Counting our own transient children produced an intermittent false
+		// "N zombie process(es)" WARN — ps run afterwards showed none. Mirrors
+		// the darwin path's selfPID skip.
+		if ppid == selfPID {
 			continue
 		}
 		pid := pidFromDir(dir)
