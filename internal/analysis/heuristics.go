@@ -534,7 +534,20 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 		checkPct = cpu.UsagePct
 	}
 
-	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
+	// Instantaneous /proc/stat metrics (user+sys% and run-queue depth) are
+	// contaminated by dsd's own parallel collection on small-core hosts: while
+	// the CPU collector sleeps between its two samples, sibling collectors spawn
+	// ss/journalctl/smartctl/… that briefly saturate the box. The 1-minute load
+	// average predates this run and is immune, so use it to corroborate — if
+	// sustained load is below the warn floor, an instantaneous spike is almost
+	// always measurement noise, not host pressure. Fails open when load average
+	// is unavailable so we never lose a real detection.
+	loadCorroborated := true
+	if cpu.LoadAvg1 > 0 && cpu.NumCPU > 0 {
+		loadCorroborated = (cpu.LoadAvg1/float64(cpu.NumCPU))*100 >= thresh.CPULoadWarnMultiplier*100
+	}
+
+	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" && loadCorroborated {
 		msg := fmt.Sprintf("%.0f%% CPU (user+sys)", cpu.UsagePct)
 		if cpu.LoadAvg1 > 0 {
 			msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)
@@ -599,7 +612,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// from CPU% (how busy cores are) and load avg (which also counts D-state tasks).
 	// Context-switch rate is shown as supporting context — reliable spike detection
 	// needs the history-aware engine (v2), so it is not thresholded on its own.
-	if cpu.NumCPU > 0 && cpu.RunQueue > 0 {
+	if loadCorroborated && cpu.NumCPU > 0 && cpu.RunQueue > 0 {
 		cpuLabel := pluralize(cpu.NumCPU, "CPU", "CPUs")
 		switch {
 		case cpu.RunQueue >= 4*cpu.NumCPU:
