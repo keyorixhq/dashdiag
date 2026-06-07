@@ -67,6 +67,11 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 		UsedPct: vm.UsedPercent,
 	}
 
+	// ECC memory errors — cheap sysfs read; zero on VMs/consumer HW and non-Linux.
+	// Surfaced here so a failing DIMM is caught by routine `dsd health` rather than
+	// only by the heavier `dsd hardware`.
+	info.EDACAvailable, info.CorrectedErrors, info.UncorrectedErrors = readEDACCounts()
+
 	// Container memory limit overrides total
 	if c.ContainerCtx.MemLimitMB > 0 {
 		info.TotalGB = c.ContainerCtx.MemLimitMB / 1024

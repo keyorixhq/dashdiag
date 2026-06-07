@@ -247,32 +247,12 @@ func collectHwmonThermals(info *models.HardwareInfo) {
 // ── EDAC MEMORY ERRORS ───────────────────────────────────────────────────────
 
 func collectEDAC(info *models.HardwareInfo) {
-	edacRoot := "/sys/devices/system/edac/mc"
-	entries, err := os.ReadDir(edacRoot)
-	if err != nil {
-		// EDAC not available — common on consumer hardware
-		info.Memory.EDACAvailable = false
-		return
-	}
-
-	info.Memory.EDACAvailable = true
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "mc") {
-			continue
-		}
-		mcDir := filepath.Join(edacRoot, e.Name())
-
-		if b, err := os.ReadFile(filepath.Join(mcDir, "ue_count")); err == nil { // #nosec G304
-			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
-				info.Memory.UncorrectedErrors += n
-			}
-		}
-		if b, err := os.ReadFile(filepath.Join(mcDir, "ce_count")); err == nil { // #nosec G304
-			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
-				info.Memory.CorrectedErrors += n
-			}
-		}
-	}
+	// Shared sysfs reader (also used by the fast health Memory collector) so the
+	// two EDAC paths can't drift apart.
+	avail, ce, ue := readEDACCounts()
+	info.Memory.EDACAvailable = avail
+	info.Memory.CorrectedErrors += ce
+	info.Memory.UncorrectedErrors += ue
 }
 
 // ── CPU ───────────────────────────────────────────────────────────────────────
