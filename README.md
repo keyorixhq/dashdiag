@@ -46,6 +46,30 @@ No agents. No cloud. No registration. Single binary over SSH.
 
 ## Install
 
+The quickest way — detects your OS and architecture, grabs the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
+```
+
+Or pick a package:
+
+```bash
+# Homebrew (macOS / Linux)
+brew install keyorixhq/tap/dsd
+
+# Debian / Ubuntu — .deb attached to every release
+sudo dpkg -i dsd_*_amd64.deb
+
+# RHEL / Fedora / Rocky / AlmaLinux / openSUSE — .rpm attached to every release
+sudo rpm -i dsd-*.x86_64.rpm
+
+# AppImage — single self-contained file, survives immutable-rootfs distros
+chmod +x dsd-*-x86_64.AppImage && ./dsd-*-x86_64.AppImage health
+```
+
+Or grab the raw binary directly:
+
 ```bash
 # Linux (amd64)
 curl -sSL https://github.com/keyorixhq/dashdiag/releases/latest/download/dsd-linux-amd64 \
@@ -58,6 +82,11 @@ curl -sSL https://github.com/keyorixhq/dashdiag/releases/latest/download/dsd-dar
 # macOS (Intel)
 curl -sSL https://github.com/keyorixhq/dashdiag/releases/latest/download/dsd-darwin-amd64 \
   -o /usr/local/bin/dsd && chmod +x /usr/local/bin/dsd
+
+# No curl on the box? swap it for wget:
+wget -qO /usr/local/bin/dsd \
+  https://github.com/keyorixhq/dashdiag/releases/latest/download/dsd-linux-amd64 \
+  && chmod +x /usr/local/bin/dsd
 ```
 
 Or build from source (requires Go 1.22+):
@@ -84,6 +113,7 @@ cd dashdiag && make install
 | `dsd docker` | Container health, volumes, crash loops | ~5s |
 | `dsd k8s` | Kubernetes nodes, pods, restarts, OS-layer checks | ~15s |
 | `dsd timeline` | Unified incident timeline — journal + dmesg + load | ~5s |
+| `dsd fleet` | Run `dsd health` across many hosts over SSH — one aggregated table | varies |
 | `dsd security` | SSH config, SELinux/AppArmor, sudoers, failed logins | ~3s |
 | `dsd services` | Check TCP/HTTP endpoints are actually reachable | ~5s |
 | `dsd logs` | OOM kills, segfaults, crash loops, journal errors | ~3s |
@@ -209,6 +239,49 @@ link failure counts, active slave tracking.
 
 ---
 
+## Virtualization-aware
+
+`dsd` detects the platform it runs on and adds guest-specific checks. On a VMware guest it
+confirms the hypervisor is recognised, then flags the guest-side misconfigurations that
+quietly cost performance and safe backups:
+
+```bash
+$ sudo dsd health    # on a VMware guest
+
+VMware       ⚠️  open-vm-tools not installed — no time sync, quiesced backups,
+                 graceful shutdown, or memory ballooning
+                 → to fix: apt install open-vm-tools
+VMware       ⚠️  NIC on an emulated driver (e1000) — vmxnet3 (paravirtual) gives
+                 higher throughput at lower host CPU
+```
+
+When everything's in order it says so — `VMware guest (VMware7,1) — open-vm-tools running,
+paravirtual NIC drivers in use` — so you can see at a glance that dsd recognised the
+platform. Detection is automatic and silent on bare metal.
+
+---
+
+## Fleet — many hosts at once
+
+Run `dsd health` across an entire fleet over plain SSH and get one aggregated verdict
+table — no agent, no backend, no central server. It shells out to the SSH you already have:
+
+```bash
+$ dsd fleet web1 web2 db1
+
+HOST   STATUS  CRIT  WARN  TIME    TOP ISSUE
+web1   OK      0     0     1240ms
+web2   WARN    0     2     1310ms  Sysctl: vm.swappiness=60 high for a server
+db1    CRIT    1     3     1880ms  Disk: /var/log at 97% (2.1 GB of 50 GB used)
+
+3 host(s): 1 OK · 1 WARN · 1 CRIT · 0 unreachable
+```
+
+`--hosts-file prod.txt` reads one host per line. `--bin ./dsd` scp's the binary to hosts
+that don't have it yet. `--json` feeds dashboards; `--concurrency` tunes parallelism.
+
+---
+
 ## CI / scripting
 
 `dsd` follows Unix conventions by design:
@@ -220,7 +293,7 @@ ssh deploy@$SERVER 'dsd health' || exit 1
 # Parse CRIT checks from JSON
 ssh $SERVER 'dsd health --json' | jq '.checks[] | select(.status == "CRIT")'
 
-# Multi-server sweep
+# Multi-server sweep (or just: dsd fleet web1 web2 db1 db2)
 for host in web1 web2 db1 db2; do
   echo "=== $host ==="
   ssh $host 'dsd health --plain'
@@ -248,7 +321,7 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 - **No agent** — binary runs on demand, nothing stays resident
 - **No cloud** — all data stays on the machine
 - **Fast** — most commands complete in 1–3 seconds
-- **Distro-aware** — detects package manager, init system, and container runtime automatically
+- **Distro-aware** — detects package manager, init system, container runtime, and hypervisor automatically
 - **Composable** — `--json`, `--plain`, exit codes designed for scripting
 
 ---
