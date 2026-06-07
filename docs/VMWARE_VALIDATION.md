@@ -71,21 +71,18 @@ hardware/drivers).
    `tools_installed`, `tools_running`, `nic_drivers`, `emulated_nics`,
    `pvscsi_loaded`, `balloon_loaded` reflect reality.
 
-## Open decision — surface pvscsi / balloon?
+## Resolved — pvscsi / balloon now surfaced in the INFO line
 
-`PVSCSILoaded` and `BalloonLoaded` are **collected but used in zero insights**
-today (they appear only in `--json`). Options for the pilot:
+**Decision (founder, 2026-06-07): enrich the recognition line.** The #4 INFO line
+now reads, e.g.:
 
-- **Leave as JSON-only** — zero false-positive risk; the data is there for
-  scripting but not in the human report.
-- **Enrich the #4 INFO line** — e.g. append `paravirtual SCSI: yes; balloon:
-  active` — informational, no WARN, demonstrates depth. Requires making
-  `moduleLoaded` also check `/sys/module/<name>` so a **built-in** (non-module)
-  `vmw_pvscsi`/`vmw_balloon` is not misreported as absent.
-- **WARN on absence** — risky: many guests legitimately use the LSI Logic SAS
-  controller (no pvscsi) by choice, so a "pvscsi not loaded" WARN would be noisy.
-  Balloon-absent-while-tools-running is a safer WARN candidate.
+```
+VMware guest (VMware7,1) — open-vm-tools running; NICs: vmxnet3; paravirtual SCSI: yes; balloon: yes
+```
 
-Recommendation: **enrich the INFO line** (option 2) + the `/sys/module` robustness
-fix, before the real test, so the test validates the final intended behavior.
-Founder to confirm.
+Informational, no WARN (avoids the LSI-Logic / built-in-module false-positive
+risk). `kernelModulePresent` now checks `/sys/module/<name>` in addition to
+`/proc/modules`, so a built-in (non-module) `vmw_pvscsi`/`vmw_balloon` is not
+misreported as absent. Verified live on VM 103 (shows the KVM values
+`virtio_net; … : no; … : no`); the real-VMware test (#5 + module rows) confirms
+the demo-worthy `vmxnet3; … yes; … yes`.

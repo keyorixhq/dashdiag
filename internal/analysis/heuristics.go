@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -5768,13 +5769,41 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 			[]string{"to fix: set the VM's network adapter type to VMXNET 3 in vSphere, then reboot the guest"}))
 	}
 
-	// All guest-side checks clean → one INFO context line confirming recognition.
+	// All guest-side checks clean → one INFO context line confirming recognition,
+	// enriched with the paravirtual-driver state so the operator sees dsd's full
+	// VMware-guest read at a glance (no WARN — these are informational facts).
 	if len(out) == 0 {
 		out = append(out, insight("INFO", "VMware",
-			fmt.Sprintf("VMware guest (%s) — open-vm-tools running, paravirtual NIC drivers in use", name),
+			fmt.Sprintf("VMware guest (%s) — open-vm-tools running; NICs: %s; paravirtual SCSI: %s; balloon: %s",
+				name, vmwareNICSummary(v), vmwareYesNo(v.PVSCSILoaded), vmwareYesNo(v.BalloonLoaded)),
 			nil))
 	}
 	return out
+}
+
+// vmwareNICSummary lists the distinct NIC drivers in use (e.g. "vmxnet3") for
+// the recognition line; "none detected" when no NICs were read.
+func vmwareNICSummary(v models.VMwareInfo) string {
+	if len(v.NICDrivers) == 0 {
+		return "none detected"
+	}
+	seen := map[string]bool{}
+	drivers := make([]string, 0, len(v.NICDrivers))
+	for _, drv := range v.NICDrivers {
+		if !seen[drv] {
+			seen[drv] = true
+			drivers = append(drivers, drv)
+		}
+	}
+	sort.Strings(drivers)
+	return strings.Join(drivers, ", ")
+}
+
+func vmwareYesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // emulatedNICDescs renders "iface (driver)" for each emulated NIC, e.g.

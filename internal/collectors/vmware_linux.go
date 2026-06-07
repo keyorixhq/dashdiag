@@ -58,8 +58,8 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.NICDrivers, info.EmulatedNICs = collectNICDrivers("/sys/class/net")
 
 	mods := readFileTrimmedLocal("/proc/modules")
-	info.PVSCSILoaded = moduleLoaded(mods, "vmw_pvscsi")
-	info.BalloonLoaded = moduleLoaded(mods, "vmw_balloon")
+	info.PVSCSILoaded = kernelModulePresent(mods, "vmw_pvscsi")
+	info.BalloonLoaded = kernelModulePresent(mods, "vmw_balloon")
 
 	return info, nil
 }
@@ -170,6 +170,19 @@ func moduleLoaded(procModules, name string) bool {
 		}
 	}
 	return false
+}
+
+// kernelModulePresent reports whether a module is loaded (listed in
+// /proc/modules) OR built into the kernel. A built-in module never appears in
+// /proc/modules but does have a /sys/module/<name> directory, so checking both
+// avoids a false "absent" for vmw_pvscsi/vmw_balloon on kernels that compile
+// them in rather than ship them as loadable modules.
+func kernelModulePresent(procModules, name string) bool {
+	if moduleLoaded(procModules, name) {
+		return true
+	}
+	_, err := os.Stat(filepath.Join("/sys/module", name))
+	return err == nil
 }
 
 // readFileTrimmedLocal reads a file and trims whitespace, "" on any error.
