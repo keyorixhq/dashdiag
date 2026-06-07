@@ -530,24 +530,30 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// - LoadPct (load_avg_1 / num_cpus) is a proxy. On macOS it fires false alarms
 	//   because many tiny short-lived threads inflate the queue without consuming CPU.
 	checkPct := cpu.LoadPct
+	usingInstantaneous := false
 	if cpu.UsagePct > 0 {
 		checkPct = cpu.UsagePct
+		usingInstantaneous = true
 	}
 
 	// Instantaneous /proc/stat metrics (user+sys% and run-queue depth) are
 	// contaminated by dsd's own parallel collection on small-core hosts: while
 	// the CPU collector sleeps between its two samples, sibling collectors spawn
 	// ss/journalctl/smartctl/… that briefly saturate the box. The 1-minute load
-	// average predates this run and is immune, so use it to corroborate — if
-	// sustained load is below the warn floor, an instantaneous spike is almost
-	// always measurement noise, not host pressure. Fails open when load average
-	// is unavailable so we never lose a real detection.
-	loadCorroborated := true
-	if cpu.LoadAvg1 > 0 && cpu.NumCPU > 0 {
-		loadCorroborated = (cpu.LoadAvg1/float64(cpu.NumCPU))*100 >= thresh.CPULoadWarnMultiplier*100
+	// average predates this run and is immune, so require it to corroborate.
+	// Genuine CPU pressure always shows in the load average — a sustained
+	// run-queue cannot coexist with a near-zero load — whereas dsd's own spike
+	// does not. Anything below the warn floor (including a legitimately idle
+	// load of 0.00, where the collector still returns valid load data) is
+	// treated as measurement noise. The load-ratio verdict is itself the
+	// sustained signal, so only the instantaneous paths are gated.
+	loadPct := cpu.LoadPct
+	if loadPct == 0 && cpu.LoadAvg1 > 0 && cpu.NumCPU > 0 {
+		loadPct = cpu.LoadAvg1 / float64(cpu.NumCPU) * 100
 	}
+	loadCorroborated := loadPct >= thresh.CPULoadWarnMultiplier*100
 
-	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" && loadCorroborated {
+	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" && (!usingInstantaneous || loadCorroborated) {
 		msg := fmt.Sprintf("%.0f%% CPU (user+sys)", cpu.UsagePct)
 		if cpu.LoadAvg1 > 0 {
 			msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)

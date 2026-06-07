@@ -46,8 +46,8 @@ func TestCheckCPU_StealIOwaitRunQueue(t *testing.T) {
 		{"moderate steal is WARN", models.CPUInfo{StealPct: 15}, "WARN"},
 		{"severe iowait is CRIT", models.CPUInfo{IOwaitPct: 45}, "CRIT"},
 		{"moderate iowait is WARN", models.CPUInfo{IOwaitPct: 25}, "WARN"},
-		{"run-queue 4x saturated is CRIT", models.CPUInfo{NumCPU: 2, RunQueue: 8}, "CRIT"},
-		{"run-queue 2x saturated is WARN", models.CPUInfo{NumCPU: 2, RunQueue: 4}, "WARN"},
+		{"run-queue 4x saturated is CRIT", models.CPUInfo{NumCPU: 2, RunQueue: 8, LoadAvg1: 2.0}, "CRIT"},
+		{"run-queue 2x saturated is WARN", models.CPUInfo{NumCPU: 2, RunQueue: 4, LoadAvg1: 1.6}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,9 +88,12 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 			models.CPUInfo{RunQueue: 8, LoadAvg1: 1.9, NumCPU: 2}, "CRIT",
 		},
 		{
-			// Load average unavailable (0) must fail OPEN — never lose a real detection.
-			"missing load average fails open",
-			models.CPUInfo{RunQueue: 8, NumCPU: 2}, "CRIT",
+			// A genuinely idle box reads load 0.00 — a high instantaneous run-queue
+			// there is dsd's own collection footprint, not host pressure. Suppressed.
+			// (The collector always returns valid load data, so load 0 means idle,
+			// not "unavailable" — there is no fail-open case to lose a real detection.)
+			"idle load of zero suppresses run-queue spike",
+			models.CPUInfo{RunQueue: 8, NumCPU: 2}, "",
 		},
 	}
 	for _, tt := range tests {
