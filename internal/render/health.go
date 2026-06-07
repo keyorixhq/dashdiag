@@ -347,17 +347,34 @@ func inlineCPULoad(data interface{}) string {
 	if cpu == nil {
 		return ""
 	}
-	// Prefer real CPU utilisation (user+sys) over load average ratio.
-	// UsagePct is populated on Linux (/proc/stat) and macOS (top).
-	// LoadPct is load_avg_1 / num_cpus — useful for server context but
-	// does not match what Activity Monitor or htop show as "CPU %".
-	if cpu.UsagePct > 0 {
-		return fmt.Sprintf("%.0f%%", cpu.UsagePct)
+	return fmt.Sprintf("%.0f%%", cpuDisplayPct(cpu))
+}
+
+// cpuDisplayPct is the CPU% shown in the grid headline. It prefers the real
+// user+sys utilisation (UsagePct, which matches htop) — but that is an
+// instantaneous /proc/stat sample, and on a small-core host dsd's own parallel
+// collection can briefly load the box and inflate it. The 1-minute load average
+// predates this run and is immune, so when it says the box is light yet the
+// instantaneous reading is much higher, the reading is unreliable (dsd's
+// footprint or a sub-second spike) and we show the load-derived figure instead.
+// Busy boxes (load at/above the warn floor) always show the instantaneous value,
+// preserving the htop match. This is display-only: the verdict still uses the
+// raw UsagePct, so a genuinely busy host is never under-reported into silence.
+func cpuDisplayPct(cpu *models.CPUInfo) float64 {
+	usage := cpu.UsagePct
+	if usage <= 0 {
+		return cpu.LoadPct
 	}
-	if cpu.LoadPct >= 0 {
-		return fmt.Sprintf("%.0f%%", cpu.LoadPct)
+	// lightLoadFloorPct mirrors the default CPU warn multiplier (0.7); observerGap
+	// is the margin by which an instantaneous sample may legitimately exceed the
+	// 1-minute average in normal use — a wider gap on an otherwise-light box is
+	// measurement noise, not host load.
+	const lightLoadFloorPct = 70.0
+	const observerGapPct = 25.0
+	if cpu.LoadPct < lightLoadFloorPct && usage-cpu.LoadPct > observerGapPct {
+		return cpu.LoadPct
 	}
-	return ""
+	return usage
 }
 
 func inlineMemory(data interface{}) string {
