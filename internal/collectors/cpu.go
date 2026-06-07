@@ -16,8 +16,9 @@ import (
 )
 
 type cpuReaders struct {
-	loadAvgOpen func() (io.ReadCloser, error)
-	statOpen    func() (io.ReadCloser, error)
+	loadAvgOpen  func() (io.ReadCloser, error)
+	statOpen     func() (io.ReadCloser, error)
+	selfStatOpen func() (io.ReadCloser, error)
 }
 
 type CPUCollector struct {
@@ -29,8 +30,9 @@ func NewCPUCollector(ctx platform.ContainerContext) *CPUCollector {
 	return &CPUCollector{
 		ContainerCtx: ctx,
 		readers: cpuReaders{
-			loadAvgOpen: func() (io.ReadCloser, error) { return os.Open("/proc/loadavg") },
-			statOpen:    func() (io.ReadCloser, error) { return os.Open("/proc/stat") },
+			loadAvgOpen:  func() (io.ReadCloser, error) { return os.Open("/proc/loadavg") },
+			statOpen:     func() (io.ReadCloser, error) { return os.Open("/proc/stat") },
+			selfStatOpen: func() (io.ReadCloser, error) { return os.Open("/proc/self/stat") },
 		},
 	}
 }
@@ -154,6 +156,57 @@ func parseCPUStat(r io.Reader) (idle, total uint64, err error) {
 	return s.idle, s.total, parseErr
 }
 
+// parseSelfCPUJiffies returns dsd's own CPU time — utime+stime+cutime+cstime —
+// in jiffies (USER_HZ) from a /proc/<pid>/stat reader. cutime/cstime cover
+// reaped child processes, so this captures the ss/journalctl/smartctl/etc.
+// subprocesses dsd's collectors spawn. The comm field (field 2) is wrapped in
+// parens and may itself contain spaces or ')', so fields are counted from the
+// last ')': everything after it begins at 'state' (field 3), making utime
+// (field 14) → index 11, stime → 12, cutime → 13, cstime → 14.
+func parseSelfCPUJiffies(r io.Reader) (uint64, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+	s := string(data)
+	rparen := strings.LastIndexByte(s, ')')
+	if rparen < 0 || rparen+2 >= len(s) {
+		return 0, fmt.Errorf("unexpected /proc/self/stat format")
+	}
+	fields := strings.Fields(s[rparen+2:])
+	if len(fields) < 15 {
+		return 0, fmt.Errorf("unexpected /proc/self/stat field count: %d", len(fields))
+	}
+	var total uint64
+	for _, idx := range []int{11, 12, 13, 14} {
+		v, err := strconv.ParseUint(fields[idx], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing self cpu field %d: %w", idx, err)
+		}
+		total += v
+	}
+	return total, nil
+}
+
+// readSelfJiffies is a best-effort wrapper around parseSelfCPUJiffies. Any
+// failure returns 0, which makes the self-subtraction a no-op rather than
+// corrupting the usage figure.
+func readSelfJiffies(open func() (io.ReadCloser, error)) uint64 {
+	if open == nil {
+		return 0
+	}
+	r, err := open()
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = r.Close() }()
+	v, err := parseSelfCPUJiffies(r)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
 func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	numCPU := runtime.NumCPU()
 	if c.ContainerCtx.CPULimitCores > 0 {
@@ -185,6 +238,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	if err1 == nil {
 		s1, parseErr := parseCPUStatFull(r1)
 		_ = r1.Close()
+		self1 := readSelfJiffies(c.readers.selfStatOpen)
 		t1 := time.Now()
 
 		if parseErr == nil {
@@ -198,10 +252,24 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			if err2 == nil {
 				s2, _ := parseCPUStatFull(r2)
 				_ = r2.Close()
+				self2 := readSelfJiffies(c.readers.selfStatOpen)
 				delta := float64(s2.total - s1.total)
 				if delta > 0 {
 					idleDelta := float64(s2.idle - s1.idle)
-					usagePct = (1 - idleDelta/delta) * 100
+					busyDelta := delta - idleDelta
+					// Exclude dsd's own collection CPU: while this collector sleeps
+					// 500ms between samples, the other parallel collectors spawn
+					// ss/journalctl/smartctl/… which can saturate a small-core VM and
+					// make an idle host read as ~100% busy. Subtract our own
+					// process-tree jiffies so we report the host's load, not dsd's.
+					if self2 >= self1 {
+						if selfDelta := float64(self2 - self1); selfDelta < busyDelta {
+							busyDelta -= selfDelta
+						} else {
+							busyDelta = 0
+						}
+					}
+					usagePct = busyDelta / delta * 100
 					if s2.steal >= s1.steal {
 						stealPct = float64(s2.steal-s1.steal) / delta * 100
 					}
