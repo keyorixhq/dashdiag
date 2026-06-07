@@ -52,6 +52,7 @@ func runServices(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return result.Err
 	}
+	recordResultSeverity([]runner.Result{result})
 
 	if len(info.Results) == 0 {
 		printServicesEmpty(mode)
@@ -104,6 +105,20 @@ func runServicesDeep(cmd *cobra.Command, _ []string) error {
 	}
 	if deep == nil {
 		deep = &models.ServicesDeepInfo{PortResults: portResults, JournalHealthy: true}
+	}
+
+	deepResults := make([]runner.Result, 0, len(results))
+	for _, r := range results {
+		deepResults = append(deepResults, r)
+	}
+	recordResultSeverity(deepResults) // port checks via the shared heuristic
+	// ServicesDeepInfo has no shared heuristic — its severity is rendered straight
+	// from the data, so mirror the renderer's worst signals into the exit code.
+	if len(deep.FailedUnits) > 0 {
+		recordExitCode(2)
+	}
+	if !deep.JournalHealthy {
+		recordExitCode(1)
 	}
 
 	if mode == output.ModeJSON {

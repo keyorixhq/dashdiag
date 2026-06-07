@@ -59,6 +59,7 @@ func runHardware(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		info = &models.HardwareInfo{}
 	}
+	recordResultSeverity([]runner.Result{result})
 
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	if jsonOut {
