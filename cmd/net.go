@@ -129,6 +129,37 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// netMark returns the status marker for a net report line. In --plain mode it
+// returns an ASCII token (OK/WARN/CRIT/INFO) so the output is emoji-free and
+// machine-parseable like `dsd health --plain`; in human/report mode it returns
+// the exact glyph the report has always used (output stays byte-identical).
+func netMark(level string, mode output.OutputMode) string {
+	if mode == output.ModePlain {
+		switch level {
+		case "ok":
+			return "OK"
+		case "warn":
+			return "WARN"
+		case "fail":
+			return "CRIT"
+		case "info":
+			return "INFO"
+		}
+		return level
+	}
+	switch level {
+	case "ok":
+		return "✅"
+	case "warn":
+		return "⚠️ "
+	case "fail":
+		return "❌"
+	case "info":
+		return "ℹ️ "
+	}
+	return ""
+}
+
 func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // report renderer — each branch is a distinct display condition
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
@@ -148,9 +179,9 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	}
 	fmt.Printf("\nInterfaces (%d)\n", len(visible))
 	for _, iface := range visible {
-		statusIcon := "✅"
+		statusIcon := netMark("ok", mode)
 		if !iface.Up {
-			statusIcon = "❌"
+			statusIcon = netMark("fail", mode)
 		}
 
 		primary := ""
@@ -218,34 +249,34 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 
 	// Connectivity
 	fmt.Println("\nConnectivity")
-	printNetMetric("Gateway ping", info.GatewayPingMs, "ms", 50, 200)
-	printNetMetric("Internet ping", info.InternetPingMs, "ms", 50, 200)
-	printNetMetric("DNS resolution", info.DNSResolvesMs, "ms", 100, 500)
+	printNetMetric("Gateway ping", info.GatewayPingMs, "ms", 50, 200, mode)
+	printNetMetric("Internet ping", info.InternetPingMs, "ms", 50, 200, mode)
+	printNetMetric("DNS resolution", info.DNSResolvesMs, "ms", 100, 500, mode)
 	if info.JitterMs > 0 {
-		printNetMetric("Jitter", info.JitterMs, "ms", 20, 50)
+		printNetMetric("Jitter", info.JitterMs, "ms", 20, 50, mode)
 	}
 	if info.GatewayPacketLossPct > 0 {
-		printNetMetric("Packet loss (gw)", info.GatewayPacketLossPct, "%", 1, 5)
+		printNetMetric("Packet loss (gw)", info.GatewayPacketLossPct, "%", 1, 5, mode)
 	}
 	if info.InternetPacketLossPct > 0 {
-		printNetMetric("Packet loss (net)", info.InternetPacketLossPct, "%", 1, 5)
+		printNetMetric("Packet loss (net)", info.InternetPacketLossPct, "%", 1, 5, mode)
 	}
 	if info.ICMPBlocked {
-		fmt.Println("  ℹ️   ICMP blocked — using TCP fallback for ping")
+		fmt.Printf("  %s  ICMP blocked — using TCP fallback for ping\n", netMark("info", mode))
 	}
 
 	// TCP connection states
 	fmt.Println("\nTCP States")
 	states := netReadTCPStates()
 	if len(states) == 0 {
-		fmt.Println("  ✅  no active connections")
+		fmt.Printf("  %s  no active connections\n", netMark("ok", mode))
 	} else {
 		for state, count := range states {
-			icon := "✅"
+			icon := netMark("ok", mode)
 			if state == "CLOSE-WAIT" && count > 100 {
-				icon = "⚠️ "
+				icon = netMark("warn", mode)
 			} else if state == "TIME-WAIT" && count > 500 {
-				icon = "⚠️ "
+				icon = netMark("warn", mode)
 			}
 			fmt.Printf("  %s  %-16s %d\n", icon, state, count)
 		}
@@ -253,7 +284,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 
 	// Extra info
 	if info.NATDetected {
-		fmt.Println("\n  ℹ️   NAT detected — behind router or in container")
+		fmt.Printf("\n  %s  NAT detected — behind router or in container\n", netMark("info", mode))
 	}
 
 	// Deep TCP metrics — shown when collected by NetworkDeepCollector
@@ -264,7 +295,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		printTCPCounter("Retransmit failures", info.RetransFailCount, 10, 50)
 		printTCPCounter("TIME_WAIT sockets", info.TimeWaitCount, 1000, 5000)
 		if info.ConntrackUsedPct > 0 {
-			printNetMetric("Conntrack used", info.ConntrackUsedPct, "%", 60, 80)
+			printNetMetric("Conntrack used", info.ConntrackUsedPct, "%", 60, 80, mode)
 		}
 	}
 	if ctrCtx.InContainer {
@@ -307,9 +338,9 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	}
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Network healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Network healthy. Checks passed%s", netMark("ok", mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d network concern(s) found%s", issues, timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d network concern(s) found%s", netMark("warn", mode), issues, timing)))
 	}
 }
 
@@ -427,16 +458,16 @@ func countSteamOSWifiIssues(w *models.SteamOSWifi) int {
 	return n
 }
 
-func printNetMetric(label string, val float64, unit string, warn, crit float64) {
+func printNetMetric(label string, val float64, unit string, warn, crit float64, mode output.OutputMode) {
 	if val < 0 {
-		fmt.Printf("  ❌  %-24s unreachable\n", label+":")
+		fmt.Printf("  %s  %-24s unreachable\n", netMark("fail", mode), label+":")
 		return
 	}
-	icon := "✅"
+	icon := netMark("ok", mode)
 	if val >= crit {
-		icon = "❌"
+		icon = netMark("fail", mode)
 	} else if val >= warn {
-		icon = "⚠️ "
+		icon = netMark("warn", mode)
 	}
 	fmt.Printf("  %s  %-24s %.1f %s\n", icon, label+":", val, unit)
 }

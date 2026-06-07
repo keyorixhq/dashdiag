@@ -83,6 +83,25 @@ func TestNetJSONValid(t *testing.T) {
 	}
 }
 
+// TestNetPlainNoEmoji guards that `dsd net --plain` emits ASCII status tokens
+// (OK/WARN/CRIT) rather than ✅/⚠️/❌ — it used to leak emoji because the net
+// report hardcoded glyphs instead of honoring the output mode. Covers the base
+// report path (the only one a CI runner renders — no bonds/NFS/BIND present).
+func TestNetPlainNoEmoji(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
+	out, code := run(t, "net", "--plain")
+	if code > 2 {
+		t.Fatalf("net --plain returned unexpected exit code %d", code)
+	}
+	for _, glyph := range []string{"✅", "⚠️", "❌", "ℹ️"} {
+		if strings.Contains(out, glyph) {
+			t.Errorf("net --plain leaked emoji %q (should be ASCII OK/WARN/CRIT): %q", glyph, out)
+		}
+	}
+}
+
 func TestHealthOutputContainsCollectors(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow smoke test in short mode")
