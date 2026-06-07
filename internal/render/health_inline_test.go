@@ -67,3 +67,30 @@ func TestInlineMemoryFormat(t *testing.T) {
 		t.Errorf("inlineMemory = %q, want %q", got, "8.0/16 GB (50%)")
 	}
 }
+
+// TestCPUDisplayPct covers the observer-effect reconciliation: the grid prefers
+// the instantaneous user+sys% (htop match) but falls back to the load-derived
+// figure when a light box reads implausibly high (dsd's own collection noise).
+func TestCPUDisplayPct(t *testing.T) {
+	cases := []struct {
+		name        string
+		usage, load float64
+		want        float64
+	}{
+		{"idle box, contaminated reading → show load", 70, 0, 0},
+		{"truly idle, mild contamination → show load", 35, 0, 0},
+		{"normal light box, usage≈load → htop match", 25, 25, 25},
+		{"boundary gap (==25) stays htop match", 40, 15, 40},
+		{"busy box → instantaneous (htop match)", 81, 80, 81},
+		{"I/O-bound: high load, low CPU → show low usage", 10, 90, 10},
+		{"usage unavailable → fall back to load", 0, 12, 12},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cpuDisplayPct(&models.CPUInfo{UsagePct: tc.usage, LoadPct: tc.load})
+			if got != tc.want {
+				t.Errorf("cpuDisplayPct(usage=%v, load=%v) = %v, want %v", tc.usage, tc.load, got, tc.want)
+			}
+		})
+	}
+}
