@@ -46,6 +46,13 @@ type HealthDeepInfo struct {
 	MinCorePct    float64    `json:"min_core_pct"`   // coolest core
 	CoreImbalance float64    `json:"core_imbalance"` // max - min (high = single-threaded bottleneck)
 
+	// 1-minute load average + core count, used to corroborate the instantaneous
+	// per-core readings. Per-core %s are sampled while dsd's own deep collection
+	// runs, which can peg every core on a small host; the load average predates
+	// the run and is immune, so an "all cores saturated" verdict requires it.
+	LoadAvg1 float64 `json:"load_avg_1"`
+	NumCPU   int     `json:"num_cpu"`
+
 	// Top memory consumers
 	TopProcs     []ProcessMemStat `json:"top_procs,omitempty"` // top 10 by RSS
 	TotalProcsMB float64          `json:"total_procs_mb"`      // sum of all process RSS

@@ -3842,6 +3842,22 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 	return out
 }
 
+// cpuDeepSaturationLoadFloorPct mirrors the default CPU load warn multiplier
+// (0.7): below this load-average ratio the box is not under sustained pressure,
+// so a per-core "all saturated" reading is dsd's own collection overhead.
+const cpuDeepSaturationLoadFloorPct = 70.0
+
+// healthDeepLoadCorroborates reports whether the 1-minute load average confirms
+// the per-core saturation reading. A genuinely idle box reads load 0.00, which
+// is valid data (not "unavailable"), so it correctly returns false — there is
+// no sustained saturation to lose.
+func healthDeepLoadCorroborates(d models.HealthDeepInfo) bool {
+	if d.NumCPU <= 0 {
+		return false
+	}
+	return (d.LoadAvg1/float64(d.NumCPU))*100 >= cpuDeepSaturationLoadFloorPct
+}
+
 func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 	var out []models.Insight
 
@@ -3863,8 +3879,13 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 				"to inspect: ps aux --sort=-%cpu | head -10",
 			},
 		))
-	} else if d.MaxCorePct >= 95 && len(d.Cores) > 1 {
-		// All cores pegged
+	} else if d.MaxCorePct >= 95 && len(d.Cores) > 1 && healthDeepLoadCorroborates(d) {
+		// All cores pegged. Per-core %s are sampled while dsd's own deep
+		// collection runs, which can peg every core on a small host and read a
+		// false 100%. The 1-minute load average predates this run and is immune,
+		// so only fire when it confirms sustained saturation. (The imbalance
+		// branch above needs no such guard: dsd's load spreads across cores, so
+		// it produces low imbalance, not a hot single core.)
 		out = append(out, insight("WARN", "CPUDeep",
 			fmt.Sprintf("all CPU cores near saturation (max: %.0f%%, min: %.0f%%)", d.MaxCorePct, d.MinCorePct),
 			[]string{"to inspect: mpstat -P ALL 1 3"},
