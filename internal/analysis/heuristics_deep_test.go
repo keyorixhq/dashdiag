@@ -50,9 +50,22 @@ func TestCheckHealthDeep_CoreImbalance(t *testing.T) {
 		Cores: []models.CoreStat{{Core: 0, UsagePct: 90}, {Core: 1, UsagePct: 5}},
 	}
 	assertLevel(t, checkHealthDeep(hd), "WARN")
-	// All cores pegged (no imbalance but high).
-	pegged := models.HealthDeepInfo{MaxCorePct: 97, MinCorePct: 95, Cores: []models.CoreStat{{Core: 0, UsagePct: 97}, {Core: 1, UsagePct: 95}}}
+
+	// All cores pegged AND the load average corroborates → WARN.
+	pegged := models.HealthDeepInfo{
+		MaxCorePct: 97, MinCorePct: 95, NumCPU: 2, LoadAvg1: 2.0,
+		Cores: []models.CoreStat{{Core: 0, UsagePct: 97}, {Core: 1, UsagePct: 95}},
+	}
 	assertLevel(t, checkHealthDeep(pegged), "WARN")
+
+	// All cores read pegged but the box is idle by load average (0.05) — this is
+	// dsd's own deep collection saturating a small host, not real pressure.
+	// Suppressed. (Regression guard for the observer-effect false positive.)
+	observerNoise := models.HealthDeepInfo{
+		MaxCorePct: 100, MinCorePct: 100, NumCPU: 2, LoadAvg1: 0.05,
+		Cores: []models.CoreStat{{Core: 0, UsagePct: 100}, {Core: 1, UsagePct: 100}},
+	}
+	assertLevel(t, checkHealthDeep(observerNoise), "")
 }
 
 func TestCheckSysctl_Profiles(t *testing.T) {

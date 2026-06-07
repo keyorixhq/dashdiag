@@ -56,6 +56,17 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 		}
 	}
 
+	// Load average + core count to corroborate the per-core readings (which are
+	// sampled during dsd's own deep collection and can read falsely high on a
+	// small host). NumCPU comes from the /proc/stat per-core lines when present.
+	info.NumCPU = len(info.Cores)
+	if lf, lerr := os.Open("/proc/loadavg"); lerr == nil {
+		if l1, _, _, perr := parseLoadAvg(lf); perr == nil {
+			info.LoadAvg1 = l1
+		}
+		_ = lf.Close()
+	}
+
 	// Top memory consumers from /proc/<pid>/status
 	info.TopProcs, info.TotalProcsMB = topMemoryProcs(10)
 
