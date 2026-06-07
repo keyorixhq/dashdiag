@@ -13,17 +13,23 @@ func TestCheckVMware(t *testing.T) {
 		t.Errorf("non-guest should yield no insights, got %v", got)
 	}
 
-	// Healthy guest → a single INFO recognition line.
+	// Healthy guest → a single INFO recognition line, enriched with the
+	// paravirtual-driver state (NIC drivers / pvscsi / balloon).
 	healthy := models.VMwareInfo{
 		IsGuest: true, ProductName: "VMware7,1",
 		ToolsInstalled: true, ToolsRunning: true,
+		NICDrivers:    map[string]string{"ens160": "vmxnet3", "ens192": "vmxnet3"},
+		PVSCSILoaded:  true,
+		BalloonLoaded: false,
 	}
 	got := checkVMware(healthy)
 	if len(got) != 1 || got[0].Level != "INFO" {
 		t.Fatalf("healthy guest = %+v, want one INFO line", got)
 	}
-	if !strings.Contains(got[0].Message, "VMware7,1") {
-		t.Errorf("INFO line should name the product, got %q", got[0].Message)
+	for _, want := range []string{"VMware7,1", "vmxnet3", "paravirtual SCSI: yes", "balloon: no"} {
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("INFO line missing %q, got %q", want, got[0].Message)
+		}
 	}
 
 	// Tools not installed → WARN (and no INFO line).
@@ -66,6 +72,20 @@ func TestCheckVMware(t *testing.T) {
 		if ins.Level != "WARN" {
 			t.Errorf("expected all WARN, got %s", ins.Level)
 		}
+	}
+}
+
+// vmwareNICSummary lists distinct drivers (sorted, de-duplicated) for the
+// recognition line, and reports "none detected" when no NICs were read.
+func TestVMwareNICSummary(t *testing.T) {
+	if got := vmwareNICSummary(models.VMwareInfo{}); got != "none detected" {
+		t.Errorf("no NICs = %q, want 'none detected'", got)
+	}
+	mixed := models.VMwareInfo{NICDrivers: map[string]string{
+		"ens160": "vmxnet3", "ens192": "vmxnet3", "ens224": "e1000",
+	}}
+	if got := vmwareNICSummary(mixed); got != "e1000, vmxnet3" {
+		t.Errorf("mixed drivers = %q, want 'e1000, vmxnet3' (sorted, de-duped)", got)
 	}
 }
 
