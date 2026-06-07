@@ -962,7 +962,10 @@ func TestCheckCPURunQueueSaturation(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			cpu := models.CPUInfo{NumCPU: tc.numCPU, RunQueue: tc.runQueue}
+			// LoadAvg1 set to the core count (100% load ratio) so the run-queue
+			// reading is load-corroborated — this test exercises the run-queue
+			// thresholds, not the observer-effect guard (covered separately).
+			cpu := models.CPUInfo{NumCPU: tc.numCPU, RunQueue: tc.runQueue, LoadAvg1: float64(tc.numCPU)}
 			got := checkCPU(cpu, defaultThresh)
 			has := func(level string) bool {
 				for _, ins := range got {
@@ -987,7 +990,7 @@ func TestCheckCPURunQueueSaturation(t *testing.T) {
 
 // Context-switch rate and blocked count surface as supporting hints, not their own threshold.
 func TestRunQueueHintsIncludeContext(t *testing.T) {
-	cpu := models.CPUInfo{NumCPU: 2, RunQueue: 8, ContextSwitchRate: 42000, ProcsBlocked: 3}
+	cpu := models.CPUInfo{NumCPU: 2, RunQueue: 8, LoadAvg1: 2.0, ContextSwitchRate: 42000, ProcsBlocked: 3}
 	got := checkCPU(cpu, defaultThresh)
 	var hints []string
 	for _, ins := range got {
@@ -1009,7 +1012,7 @@ func TestRunQueueHintsIncludeContext(t *testing.T) {
 
 // Single-core hosts must read "1 CPU", not "1 CPUs".
 func TestRunQueueSingleCPUGrammar(t *testing.T) {
-	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 4} // 4 >= 4*1 → CRIT
+	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 4, LoadAvg1: 1.5} // 4 >= 4*1 → CRIT; load corroborates
 	got := checkCPU(cpu, defaultThresh)
 	var msg string
 	for _, ins := range got {
