@@ -56,6 +56,50 @@ func TestCheckCPU_StealIOwaitRunQueue(t *testing.T) {
 	}
 }
 
+// TestCheckCPU_LoadCorroboration covers the observer-effect guard: instantaneous
+// /proc/stat metrics (user+sys% and run-queue depth) are contaminated by dsd's own
+// parallel collection on small-core hosts, so an instantaneous spike must be
+// corroborated by the 1-minute load average before it raises a verdict.
+func TestCheckCPU_LoadCorroboration(t *testing.T) {
+	tests := []struct {
+		name string
+		cpu  models.CPUInfo
+		want string
+	}{
+		{
+			// 95% user+sys but load avg says the box is idle (0.1/2 = 5%) — almost
+			// always dsd measuring its own collection. Suppressed.
+			"usage spike uncorroborated by idle load is suppressed",
+			models.CPUInfo{UsagePct: 95, LoadAvg1: 0.1, NumCPU: 2}, "",
+		},
+		{
+			// 95% user+sys AND load avg confirms sustained pressure (1.9/2 = 95%).
+			"usage spike corroborated by high load fires CRIT",
+			models.CPUInfo{UsagePct: 95, LoadAvg1: 1.9, NumCPU: 2}, "CRIT",
+		},
+		{
+			// 4× run-queue but idle load avg — dsd's own runnable processes. Suppressed.
+			"run-queue spike uncorroborated by idle load is suppressed",
+			models.CPUInfo{RunQueue: 8, LoadAvg1: 0.1, NumCPU: 2}, "",
+		},
+		{
+			// 4× run-queue with corroborating load avg fires.
+			"run-queue spike corroborated by high load fires",
+			models.CPUInfo{RunQueue: 8, LoadAvg1: 1.9, NumCPU: 2}, "CRIT",
+		},
+		{
+			// Load average unavailable (0) must fail OPEN — never lose a real detection.
+			"missing load average fails open",
+			models.CPUInfo{RunQueue: 8, NumCPU: 2}, "CRIT",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertLevel(t, checkCPU(tt.cpu, defaultThresh), tt.want)
+		})
+	}
+}
+
 // TestCheckSystemd_SlowBootAndSELinux covers slowBootFix (known offender unit)
 // and unitBaseName (the SELinux-enforcing hint on a failed unit).
 func TestCheckSystemd_SlowBootAndSELinux(t *testing.T) {

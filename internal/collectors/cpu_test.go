@@ -276,3 +276,99 @@ func TestCPUCollector_Collect_InjectableReaders(t *testing.T) {
 		t.Errorf("UsagePct: got %v, want ~50%%", info.UsagePct)
 	}
 }
+
+func TestParseSelfCPUJiffies(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  uint64
+	}{
+		{
+			// comm contains a space AND a ')' — must count fields from the LAST ')'.
+			// utime=11 stime=7 cutime=3 cstime=1 → 22
+			name:  "comm with space and paren",
+			input: "1234 (weird )name) S 1 1234 1234 0 -1 4194560 100 200 0 0 11 7 3 1 0 0 0 20 1",
+			want:  22,
+		},
+		{
+			name:  "simple comm",
+			input: "42 (dsd) R 1 42 42 0 -1 4194304 50 0 0 0 30 20 0 0 0 0 0 18 1",
+			want:  50,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseSelfCPUJiffies(strings.NewReader(tc.input))
+			if err != nil {
+				t.Fatalf("parseSelfCPUJiffies error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %d jiffies, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCPUCollector_Collect_SelfSubtraction proves dsd excludes its own
+// process-tree CPU from the usage figure — the fix for the observer-effect
+// false positive where parallel collectors saturate a small-core VM and dsd
+// reported its own load as the host's (idle box reading ~95-99% CPU).
+func TestCPUCollector_Collect_SelfSubtraction(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
+
+	loadAvgContent := "1.50 1.20 0.90 3/412 8932"
+	// user delta=100, idle delta=100 → total delta=200, raw busy delta=100
+	// (50% without subtraction).
+	stat1 := "cpu  100 0 0 400 0 0 0 0 0 0\n"
+	stat2 := "cpu  200 0 0 500 0 0 0 0 0 0\n"
+	// dsd's own CPU over the window: utime+stime+cutime+cstime = 10 → 60, delta=50.
+	// adjusted busy = 100 - 50 = 50 → usage = 50/200 = 25%.
+	self1 := "1234 (dsd test) S 1 1234 1234 0 -1 4194560 100 200 0 0 10 0 0 0 0 0 0 20 1"
+	self2 := "1234 (dsd test) S 1 1234 1234 0 -1 4194560 100 200 0 0 60 0 0 0 0 0 0 20 1"
+
+	statCalls, selfCalls := 0, 0
+	c := &CPUCollector{
+		ContainerCtx: platform.ContainerContext{},
+		readers: cpuReaders{
+			loadAvgOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(loadAvgContent)), nil
+			},
+			statOpen: func() (io.ReadCloser, error) {
+				statCalls++
+				if statCalls == 1 {
+					return io.NopCloser(strings.NewReader(stat1)), nil
+				}
+				return io.NopCloser(strings.NewReader(stat2)), nil
+			},
+			selfStatOpen: func() (io.ReadCloser, error) {
+				selfCalls++
+				if selfCalls == 1 {
+					return io.NopCloser(strings.NewReader(self1)), nil
+				}
+				return io.NopCloser(strings.NewReader(self2)), nil
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info, ok := result.(*models.CPUInfo)
+	if !ok {
+		t.Fatalf("unexpected type %T", result)
+	}
+	// Without self-subtraction this would be 50%; excluding dsd's own 50 jiffies
+	// of the 200-jiffy window drops it to ~25%.
+	if info.UsagePct < 24 || info.UsagePct > 26 {
+		t.Errorf("UsagePct: got %v, want ~25%% (self-subtracted)", info.UsagePct)
+	}
+}
