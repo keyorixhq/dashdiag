@@ -63,6 +63,7 @@ func runGPU(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return result.Err
 	}
+	recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		// Print [] for an empty GPU list — no GPU is not an error.

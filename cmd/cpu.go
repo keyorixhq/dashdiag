@@ -14,6 +14,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func init() {
@@ -41,6 +42,13 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	thermalRaw, _ := collectors.NewThermalCollector().Collect(ctx)
 	hwRaw, _ := collectors.NewHardwareCollector().Collect(ctx)
 	elapsed := time.Since(start)
+
+	recordResultSeverity([]runner.Result{
+		{Name: "CPU Load", Data: cpuRaw},
+		{Name: "CPUFreq", Data: freqRaw},
+		{Name: "CPU Thermal", Data: thermalRaw},
+		{Name: "Hardware", Data: hwRaw},
+	})
 
 	if isJSON {
 		type cpuReport struct {

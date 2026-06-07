@@ -86,8 +86,10 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	var nfsInfo *models.NFSInfo
 	var bindInfo *models.BINDInfo
 	var resolverInfo *models.ResolverAuditInfo
+	var allResults []runner.Result
 	for r := range runner.RunAll(ctx, cols) {
 		p.Step(r.Name)
+		allResults = append(allResults, r)
 		switch v := r.Data.(type) {
 		case *models.NetworkInfo:
 			netResult = r
@@ -106,6 +108,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return netResult.Err
 	}
+	recordResultSeverity(allResults)
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, netJSONResult{
