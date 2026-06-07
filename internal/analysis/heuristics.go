@@ -4671,6 +4671,27 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		out = append(out, insight("CRIT", "K8s",
 			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping), hints))
 	}
+	// Pods stuck in init errors — a failing init container blocks the pod from
+	// ever starting. InitError was parsed but never surfaced; Init:CrashLoopBackOff
+	// is already counted above (it contains "CrashLoop"), so only the distinct
+	// Init:Error case is reported here to avoid double-warning.
+	var initErr []string
+	for _, p := range k.Pods {
+		if p.InitError != "" && !strings.Contains(p.Status, "CrashLoop") {
+			initErr = append(initErr, fmt.Sprintf("%s/%s (%s)", p.Namespace, p.Name, p.InitError))
+		}
+	}
+	if len(initErr) > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck in init errors — workload cannot start: %s",
+				len(initErr), strings.Join(firstN(initErr, 3), ", ")),
+			[]string{
+				"to inspect: kubectl describe pod <name> -n <ns>",
+				"to inspect: kubectl logs <name> -n <ns> -c <init-container>",
+				"note: common causes — missing ConfigMap/Secret, failing migration/init job",
+			},
+		))
+	}
 	if k.PodsNotReady > 0 {
 		out = append(out, insight("WARN", "K8s",
 			fmt.Sprintf("%d pod(s) running but containers not ready", k.PodsNotReady),
