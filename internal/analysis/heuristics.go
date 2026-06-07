@@ -699,7 +699,30 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 			[]string{"to inspect: cat /proc/slabinfo | sort -k3 -rn | head -20", "to inspect: slabtop -o | head -20"},
 		))
 	}
+	// ECC memory errors (physical hosts). Now collected in the fast health path,
+	// so a failing DIMM surfaces in routine `dsd health`, not only `dsd hardware`.
+	if mem.EDACAvailable {
+		out = append(out, eccInsights(mem.CorrectedErrors, mem.UncorrectedErrors, "Memory")...)
+	}
 	return out
+}
+
+// eccInsights turns EDAC corrected/uncorrected counts into insights. Shared by
+// the health Memory check and the hardware check so their thresholds and wording
+// can't drift. Uncorrected errors are an active RAM fault (CRIT); corrected
+// errors above a small floor mean a DIMM is degrading (WARN).
+func eccInsights(corrected, uncorrected int64, check string) []models.Insight {
+	switch {
+	case uncorrected > 0:
+		return []models.Insight{insight("CRIT", check,
+			fmt.Sprintf("%d uncorrected ECC memory error(s) — hardware RAM fault", uncorrected),
+			[]string{"to inspect: edac-util -s 4", "to diagnose: run memtest86+ and check which DIMM"})}
+	case corrected > 100:
+		return []models.Insight{insight("WARN", check,
+			fmt.Sprintf("%d corrected ECC memory error(s) — RAM degrading", corrected),
+			[]string{"to inspect: edac-util -s 4", "note: rising corrected-error counts often precede an uncorrectable fault"})}
+	}
+	return nil
 }
 
 func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
@@ -5156,21 +5179,7 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 
 	// ── EDAC memory ───────────────────────────────────────────────────────────
 	if h.Memory.EDACAvailable {
-		switch {
-		case h.Memory.UncorrectedErrors > 0:
-			out = append(out, insight("CRIT", "Hardware",
-				fmt.Sprintf("EDAC: %d uncorrected memory error(s) — hardware RAM fault", h.Memory.UncorrectedErrors),
-				[]string{
-					"to inspect: edac-util -s 4",
-					"to diagnose: run memtest86+",
-				},
-			))
-		case h.Memory.CorrectedErrors > 100:
-			out = append(out, insight("WARN", "Hardware",
-				fmt.Sprintf("EDAC: %d corrected memory error(s) — RAM degrading", h.Memory.CorrectedErrors),
-				[]string{"to inspect: edac-util -s 4"},
-			))
-		}
+		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, "Hardware")...)
 	}
 
 	return out
