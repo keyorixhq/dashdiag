@@ -258,6 +258,22 @@ reads do — relevant when writing future btrfs tests.
 | ZFS pool health validated on pve01 (Jun 4) — file-backed mirror: ONLINE caught, DEGRADED→`dsd health` CRIT with `zpool replace`/`online` hints, `--json` zfs_pools surface clean. Host left clean (pool destroyed) | — |
 | **BUG found during ZFS test:** `dsd disk` + `dsd disk --json` exit 0 on a CRIT (DEGRADED pool); only `dsd health` returns exit 2. Standalone subcommands don't propagate worst-insight severity to exit code — breaks documented `0/1/2` convention the CI/CD story relies on. See BUG-022 below | — |
 
+## 📐 Architecture / Tech Debt (non-blocking, deferred)
+
+### Split `internal/analysis/heuristics.go` into per-domain files
+**Deferred (2026-06-07).** The file is ~6,500 lines (113 `check*` functions behind a 69-case
+type-switch dispatch). The **architecture is sound** — a dispatch table routing to small,
+independently-testable functions (proven by how cleanly per-check tests are added). The problem is
+purely **packaging**: one giant file. Do a **mechanical split** into same-package files
+(`heuristics_disk.go`, `heuristics_memory.go`, `heuristics_network.go`, `heuristics_security.go`,
+`heuristics_k8s.go`, …) — zero logic change, verified by compiler + full test suite + gofmt + vet.
+
+**Do NOT** replace the type-switch with a registry/plugin pattern: high regression risk to the
+detection core, speculative benefit (no plugin host — it's a monolith CLI), and the switch isn't
+causing real pain (each case is trivial routing). Revisit only if dispatch genuinely causes friction.
+
+Priority: low. Does not advance the pilot. Tackle at a quiet, stable moment (not mid-pilot).
+
 ## 🐞 Known Bugs
 
 ### ~~BUG-031..035 — collector robustness: hang risks + false readings~~ ✅ FIXED (2026-06-05)
