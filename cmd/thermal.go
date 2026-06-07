@@ -60,6 +60,7 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return result.Err
 	}
+	recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)

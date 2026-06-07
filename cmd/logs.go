@@ -57,6 +57,7 @@ func runLogs(cmd *cobra.Command, _ []string) error {
 	}
 
 	printLogsReport(info, mode, elapsed, since)
+	recordResultSeverity([]runner.Result{result})
 	return nil
 }
 
