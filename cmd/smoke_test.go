@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"encoding/json"
 	"os/exec"
 	"strings"
 	"testing"
@@ -59,6 +60,26 @@ func TestHealthJSONValid(t *testing.T) {
 	}
 	if !strings.Contains(s, `"checks"`) {
 		t.Errorf("health --json missing 'checks' field: %q", s)
+	}
+}
+
+// TestNetJSONValid guards against the regression where `dsd net --json` ignored
+// the flag and printed the human report instead of JSON (the main runNet never
+// read the json flag). It must emit valid JSON with a top-level "network" key.
+func TestNetJSONValid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
+	out, code := run(t, "net", "--json")
+	if code > 2 {
+		t.Fatalf("net --json returned unexpected exit code %d", code)
+	}
+	s := strings.TrimSpace(out)
+	if !json.Valid([]byte(s)) {
+		t.Errorf("net --json output is not valid JSON: %q", s)
+	}
+	if !strings.Contains(s, `"network"`) {
+		t.Errorf("net --json missing 'network' field: %q", s)
 	}
 }
 

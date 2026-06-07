@@ -43,11 +43,25 @@ var netDeepCmd = &cobra.Command{
 	},
 }
 
+// netJSONResult is the machine-readable shape of `dsd net --json`. The deep-mode
+// sub-collectors (NFS / BIND / DNS resolver) are included only when they ran.
+type netJSONResult struct {
+	Network  *models.NetworkInfo       `json:"network"`
+	NFS      *models.NFSInfo           `json:"nfs,omitempty"`
+	BIND     *models.BINDInfo          `json:"bind,omitempty"`
+	Resolver *models.ResolverAuditInfo `json:"resolver,omitempty"`
+}
+
 func runNet(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
 	deepFlag, _ := cmd.Flags().GetBool("deep")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 	ctrCtx := platform.DetectContainerContext()
 
 	label := "Network health"
@@ -91,6 +105,15 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	info, ok := netResult.Data.(*models.NetworkInfo)
 	if !ok || info == nil {
 		return netResult.Err
+	}
+
+	if mode == output.ModeJSON {
+		return outputJSON(os.Stdout, netJSONResult{
+			Network:  info,
+			NFS:      nfsInfo,
+			BIND:     bindInfo,
+			Resolver: resolverInfo,
+		})
 	}
 
 	printNetReport(info, mode, elapsed, ctrCtx)
