@@ -36,15 +36,14 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 		if err != nil {
 			return nil
 		}
-		fields := strings.Fields(string(data))
-		if len(fields) < 5 {
+		name, rest, ok := parseProcStatComm(string(data))
+		if !ok || len(rest) < 2 {
 			return nil
 		}
-		if fields[2] != "D" {
+		if rest[0] != "D" { // stat field 3 = state
 			return nil
 		}
-		name := strings.Trim(fields[1], "()")
-		ppid, _ := strconv.Atoi(fields[3])
+		ppid, _ := strconv.Atoi(rest[1]) // stat field 4
 		mu.Lock()
 		hung = append(hung, hungInfo{pid: pid, name: name, ppid: ppid})
 		mu.Unlock()
@@ -106,16 +105,14 @@ func zombiesWithParentLinux(ctx context.Context) (*models.Details, error) {
 		if err != nil {
 			return nil
 		}
-		fields := strings.Fields(string(data))
-		if len(fields) < 5 {
+		name, rest, ok := parseProcStatComm(string(data))
+		if !ok || len(rest) < 2 {
 			return nil
 		}
-		state := fields[2]
-		if state != "Z" {
+		if rest[0] != "Z" { // stat field 3 = state
 			return nil
 		}
-		name := strings.Trim(fields[1], "()")
-		ppid, _ := strconv.Atoi(fields[3])
+		ppid, _ := strconv.Atoi(rest[1]) // stat field 4
 
 		parentComm := procComm(ppid)
 		mu.Lock()
