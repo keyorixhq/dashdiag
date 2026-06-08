@@ -50,6 +50,32 @@ func TestDetectCloud_Azure(t *testing.T) {
 	}
 }
 
+func TestDetectCloud_AzureByAssetTag(t *testing.T) {
+	// Gen2 Azure VMs may carry only the chassis asset tag, not "azure" in DMI.
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":        "Microsoft Corporation",
+		"product_name":      "Virtual Machine",
+		"chassis_asset_tag": "7783-7084-3265-9085-8269-3286-77",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvAzure {
+		t.Errorf("Azure asset tag should detect EnvAzure, got %v", got)
+	}
+}
+
+func TestDetectCloud_HyperVNotAzure(t *testing.T) {
+	// An on-prem Hyper-V guest reports the same Microsoft DMI as Azure but has
+	// no Azure asset tag — it must NOT be misclassified as Azure.
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "Microsoft Corporation",
+		"product_name": "Virtual Machine",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got == EnvAzure {
+		t.Error("on-prem Hyper-V guest must not be detected as Azure")
+	}
+}
+
 func TestDetectCloud_AWSEBS_ProductName(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "Amazon EC2", "")
 	blockDir := filepath.Join(dir, "block")
@@ -184,17 +210,6 @@ func TestDetectCloud_Vultr(t *testing.T) {
 	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
 	if got != EnvVultr {
 		t.Errorf("expected EnvVultr, got %v", got)
-	}
-}
-
-func TestDetectCloud_AzureSysVendor(t *testing.T) {
-	dir, dmiDir := makeDMIFull(t, map[string]string{
-		"sys_vendor":   "Microsoft Corporation",
-		"product_name": "Virtual Machine",
-	})
-	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
-	if got != EnvAzure {
-		t.Errorf("expected EnvAzure, got %v", got)
 	}
 }
 
