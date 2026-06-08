@@ -41,14 +41,14 @@ func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error)
 			if err != nil {
 				return nil
 			}
-			fields := strings.Fields(string(data))
-			if len(fields) < 15 {
+			// comm may contain spaces/parens — parse from the last ')' so the
+			// utime/stime indices don't shift (e.g. a "Web Content" process).
+			name, rest, ok := parseProcStatComm(string(data))
+			if !ok || len(rest) < 13 {
 				return nil
 			}
-			// comm is field 1 (may contain spaces, wrapped in parens)
-			name := strings.Trim(fields[1], "()")
-			utime, _ := strconv.ParseUint(fields[13], 10, 64)
-			stime, _ := strconv.ParseUint(fields[14], 10, 64)
+			utime, _ := strconv.ParseUint(rest[11], 10, 64) // stat field 14
+			stime, _ := strconv.ParseUint(rest[12], 10, 64) // stat field 15
 			mu.Lock()
 			samples[pid] = procCPUSample{pid: pid, name: name, cpuTicks: utime + stime}
 			mu.Unlock()
