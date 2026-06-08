@@ -2680,9 +2680,12 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 func checkPVEBackups(p models.PVEInfo) []models.Insight {
 	var out []models.Insight
 	switch {
-	case p.BackupAgeDays < 0:
+	case p.BackupAgeDays < 0 && len(p.BackupStatuses) > 0:
 		// No backup at all is CRIT, not WARN — VMs have no recovery point.
 		// This must bubble into the PVE summary row to match `dsd pve` (BUG-019).
+		// Gate on BackupStatuses (one entry per NON-template guest): a fresh node
+		// or a template-only node has nothing to back up, so "no recovery point"
+		// there is a false positive — don't CRIT when there's nothing to protect.
 		out = append(out, insight("CRIT", "PVE",
 			"no successful backup found — VMs have no recovery point",
 			[]string{

@@ -296,7 +296,7 @@ always-pass). Each has a regression test; smoke-tested on pve01.
 - **Swap-activity WARN at >0 pages/s** incl. normal zram churn (Ubuntu/Fedora default). Threshold tune (raise floor; context when zram present).
 - ~~**Docker DNS-trap WARN** stays WARN even when daemon DNS is configured~~ ✅ FIXED (2026-06-08, #118) — INFO when daemon DNS is set; WARN only when containers actually fall back to 8.8.8.8.
 - **Docker stopped-container WARN (>5)** counts clean-exit (exit 0) oneshot/init containers — needs exit-code/restart-policy data threaded into the count.
-- **PVE no-backup CRIT** on template-only nodes / remote (NFS/SMB) backup storage the on-disk scan misses.
+- ~~**PVE no-backup CRIT** on template-only / fresh nodes~~ ✅ FIXED (2026-06-08, #119) — the "no recovery point" CRIT now gates on `len(BackupStatuses) > 0` (≥1 non-template guest); validated live on pve01 (no regression). NB: the rarer remote-storage-via-external-tool edge (where vzdump tasks don't capture the backup) is not addressed — narrow, and pvesh tasks normally do capture vzdump to any storage.
 - **Network deep: ListenOverflows CRIT / SynRetrans WARN** use cumulative-since-boot counters with present-tense wording (`dsd net --deep`).
 - ~~**GPU APU VRAM-pressure WARN** ignores `IsAPU`~~ ✅ FIXED (2026-06-08, #117) — suppressed for APUs on both VRAM checks.
 - ~~**SSH file-parse fallback** reads `Match`-block overrides as global settings~~ ✅ FIXED (2026-06-08, #118) — `Match` blocks no longer overwrite the audited global policy; `Match all` resets to global.

@@ -54,10 +54,16 @@ func TestCheckPVEStorage(t *testing.T) {
 }
 
 func TestCheckPVEBackups(t *testing.T) {
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3}), "")      // recent, no failures
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1}), "CRIT") // never backed up
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10}), "WARN") // stale
+	// One non-template guest exists (BackupStatuses populated) for the cases that
+	// should fire on backup age.
+	oneGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: -1}}
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, BackupStatuses: oneGuest}), "")      // recent, no failures
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupStatuses: oneGuest}), "CRIT") // real VM, never backed up
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10, BackupStatuses: oneGuest}), "WARN") // stale
 	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, RecentBackups: []models.PVEBackupTask{{Status: "ERROR"}}}), "WARN")
+	// FALSE-POSITIVE GUARD: a fresh / template-only node (no backable guests →
+	// empty BackupStatuses) has nothing to back up, so "no backup" must NOT CRIT.
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1}), "")
 }
 
 func TestCheckGPU(t *testing.T) {
