@@ -148,14 +148,8 @@ func printTimelineEvents(events []models.TimelineEvent, mode output.OutputMode) 
 		if e.Source == "journal" {
 			src = "jrnl"
 		}
-		unit := e.Unit
-		if len(unit) > 16 {
-			unit = unit[:15] + "…"
-		}
-		msg := e.Message
-		if len(msg) > 55 {
-			msg = msg[:54] + "…"
-		}
+		unit := truncateStr(e.Unit, 16)
+		msg := truncateStr(e.Message, 55)
 		countStr := ""
 		if e.Count > 1 {
 			countStr = fmt.Sprintf(" ×%d", e.Count)

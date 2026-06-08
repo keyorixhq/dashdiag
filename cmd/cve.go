@@ -304,11 +304,7 @@ func printAdvisoryGroup(label string, advisories []models.CVEAdvisory) {
 		if a.CVEs != "" {
 			line += "  " + a.CVEs
 		} else if a.Summary != "" {
-			summary := a.Summary
-			if len(summary) > 50 {
-				summary = summary[:47] + "..."
-			}
-			line += "  " + summary
+			line += "  " + truncateStr(a.Summary, 50)
 		}
 		fmt.Println(line)
 	}
@@ -553,10 +549,7 @@ func printOVALScanResults(results []cvedata.OVALCVSSResult) {
 		}
 		fmt.Printf("%s %s (%d)\n", b.icon, b.label, len(b.entries))
 		for _, r := range b.entries {
-			pkgs := strings.Join(r.Installed, ", ")
-			if len(pkgs) > 50 {
-				pkgs = pkgs[:48] + "…"
-			}
+			pkgs := truncateStr(strings.Join(r.Installed, ", "), 50)
 			fmt.Printf("  %-20s  CVSS %4.1f  %-12s  %s\n",
 				r.CVEID, r.CVSS3, r.Severity, pkgs)
 		}
