@@ -98,6 +98,12 @@ func topProcessesByIOLinux(ctx context.Context, n int) (*models.Details, error) 
 		if !ok {
 			continue
 		}
+		// Skip recycled PIDs — if either counter went backwards the PID was
+		// reused between samples; the unsigned subtraction would wrap to a huge
+		// bogus rate and top the list.
+		if p1.readBytes < p0.readBytes || p1.writeBytes < p0.writeBytes {
+			continue
+		}
 		readBps := float64(p1.readBytes-p0.readBytes) / 0.5
 		writeBps := float64(p1.writeBytes-p0.writeBytes) / 0.5
 		total := readBps + writeBps
