@@ -5781,6 +5781,9 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 			[]string{"to fix: set the VM's network adapter type to VMXNET 3 in vSphere, then reboot the guest"}))
 	}
 
+	out = append(out, vmwareResourceConstraints(v)...)
+	out = append(out, vmwareSCSITimeoutCheck(v)...)
+
 	// All guest-side checks clean → one INFO context line confirming recognition,
 	// enriched with the paravirtual-driver state so the operator sees dsd's full
 	// VMware-guest read at a glance (no WARN — these are informational facts).
@@ -5791,6 +5794,73 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 			nil))
 	}
 	return out
+}
+
+// vmwareResourceConstraints reports host-imposed memory/CPU pressure visible
+// from inside the guest via open-vm-tools stat counters: active ballooning,
+// host-swapped guest memory, and explicit CPU/memory caps. These are the
+// memory/CPU analog of CPU steal — strong guest-side evidence that a "slow VM"
+// is the host's doing, which exonerates the guest.
+func vmwareResourceConstraints(v models.VMwareInfo) []models.Insight {
+	if !v.StatAvailable {
+		return nil
+	}
+	var out []models.Insight
+	if v.BalloonMB > 0 {
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("host is reclaiming %d MB of this guest's RAM via the balloon driver — the ESXi host is under memory pressure", v.BalloonMB),
+			[]string{
+				"this is host-side memory pressure, not a guest fault",
+				"to inspect: vmware-toolbox-cmd stat balloon",
+				"note: sustained ballooning means the host is overcommitted — raise the VM's memory reservation or rebalance the host",
+			}))
+	}
+	if v.HostSwapMB > 0 {
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("host has swapped %d MB of this guest's memory to disk — severe host memory pressure (hypervisor-level swap is far slower than guest swap)", v.HostSwapMB),
+			[]string{
+				"this is host-side memory pressure, not a guest fault",
+				"to inspect: vmware-toolbox-cmd stat swap",
+				"note: host swapping causes large, unpredictable latency spikes inside the guest",
+			}))
+	}
+	if v.MemLimitMB > 0 {
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("a host-imposed memory limit of %d MB is set on this VM — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB),
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat memlimit",
+				"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
+			}))
+	}
+	if v.CPULimitMHz > 0 {
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("a host-imposed CPU limit of %d MHz is set on this VM — the guest is throttled below its vCPU capacity regardless of host load", v.CPULimitMHz),
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat cpulimit",
+				"note: a CPU limit is an invisible cause of guest slowness — remove it in vSphere unless intentional",
+			}))
+	}
+	return out
+}
+
+// vmwareSCSITimeoutCheck flags SCSI disks whose command timeout is below
+// VMware's recommended 180s. The kernel default (30s) risks the guest
+// filesystem going read-only during a vMotion / storage-failover stun.
+func vmwareSCSITimeoutCheck(v models.VMwareInfo) []models.Insight {
+	if len(v.LowSCSITimeouts) == 0 {
+		return nil
+	}
+	descs := make([]string, 0, len(v.LowSCSITimeouts))
+	for _, dev := range v.LowSCSITimeouts {
+		descs = append(descs, fmt.Sprintf("%s (%ds)", dev, v.SCSITimeouts[dev]))
+	}
+	return []models.Insight{insight("WARN", "VMware",
+		fmt.Sprintf("SCSI disk command timeout below VMware's recommended 180s (%s) — the guest filesystem may go read-only during a vMotion or storage failover",
+			strings.Join(descs, ", ")),
+		[]string{
+			"to fix now: echo 180 > /sys/block/sdX/device/timeout   (per disk, non-persistent)",
+			"to persist: install open-vm-tools (ships a udev rule) or add a udev rule setting timeout=180",
+		})}
 }
 
 // vmwareNICSummary lists the distinct NIC drivers in use (e.g. "vmxnet3") for

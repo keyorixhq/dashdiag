@@ -86,3 +86,40 @@ risk). `kernelModulePresent` now checks `/sys/module/<name>` in addition to
 misreported as absent. Verified live on VM 103 (shows the KVM values
 `virtio_net; … : no; … : no`); the real-VMware test (#5 + module rows) confirms
 the demo-worthy `vmxnet3; … yes; … yes`.
+
+## Runtime resource pressure + SCSI timeout (added 2026-06-08)
+
+These move the collector from *config hygiene* to *blame-attribution* — the
+memory/CPU analog of CPU steal, plus a documented storage-resilience check.
+Built ahead of the time-boxed VMware trial so the trial window is spent inducing
+faults, not writing collectors.
+
+| # | Insight | Source | Fires when | Reproduce on real VMware |
+|---|---------|--------|-----------|--------------------------|
+| 6 | `WARN` host ballooning | `vmware-toolbox-cmd stat balloon` | balloon > 0 MB | overcommit host memory so ESXi inflates this guest's balloon |
+| 7 | `WARN` host swapping guest RAM | `stat swap` | swap > 0 MB | severe host memory contention (host-level swap) |
+| 8 | `WARN` host memory limit set | `stat memlimit` | finite limit (not "Unlimited") | set a per-VM memory **Limit** in vSphere resource settings |
+| 9 | `WARN` host CPU limit set | `stat cpulimit` | finite limit (not "Unlimited") | set a per-VM CPU **Limit** (MHz) in vSphere — the invisible "slow VM" cause |
+| 10 | `WARN` SCSI timeout < 180s | `/sys/block/sd*/device/timeout` | any sd* below 180s | default 30s on a non-open-vm-tools guest; clears after the udev rule sets 180 |
+
+Rows 6–9 require **open-vm-tools running** (gated on `ToolsRunning`), so they are
+silent on a guest whose tools are stopped — which is itself already a WARN (#3).
+The `stat` interface is probed via `balloon`; if that call fails the whole block
+is skipped and `stat_available=false` (no phantom WARNs from zero values).
+
+### Validation status (2026-06-08)
+
+- ✅ **#10 SCSI timeout — live true-positive on VM 103.** The cloud image's `sda`
+  sits at the kernel-default 30s; `dsd health` correctly emits the WARN naming
+  `sda (30s)`, and `scsi_timeouts`/`low_scsi_timeouts` serialize in `--json`. The
+  sysfs path (`/sys/block/sd*/device/timeout`) is identical on KVM SCSI and
+  VMware, so the read path is fully exercised; only the *180s-after-udev* clear
+  needs confirming on a real open-vm-tools guest.
+- ✅ Collector runs without crash on the spoofed-DMI rig; new fields serialize.
+- ⏳ **#6–#9 need a real VMware host** — VM 103 has no working open-vm-tools stat
+  interface (KVM, no VMware backdoor), so balloon/swap/memlimit/cpulimit cannot
+  be exercised here. The parsers (`parseLeadingInt`, `vmwareStatLimit`'s
+  "Unlimited" handling) are unit-tested; the values + thresholds (esp. whether a
+  bare `BalloonMB>0` is too noisy vs. needing a floor) must be tuned in Week 1 of
+  the trial. **#9 (CPU limit) is the headline demo target** — a host-imposed CPU
+  cap is the canonical invisible cause of a "slow VM" the guest gets blamed for.
