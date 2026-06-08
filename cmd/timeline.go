@@ -71,11 +71,11 @@ func runTimeline(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	printTimeline(info, elapsed)
+	printTimeline(info, elapsed, mode)
 	return nil
 }
 
-func printTimeline(info *models.TimelineInfo, elapsed time.Duration) {
+func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output.OutputMode) {
 	sep := strings.Repeat("─", 64)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -83,22 +83,22 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration) {
 	fmt.Printf("\n⏱  Incident timeline — last %s\n", windowStr)
 
 	// Load average header
-	printTimelineLoad(info)
+	printTimelineLoad(info, mode)
 
 	// Event table
 	if len(info.Events) == 0 {
-		fmt.Println("\n  ✅  No errors or warnings found in this window.")
+		fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", "✅", mode))
 	} else {
 		fmt.Printf("\n  %-8s  %-8s  %-18s  %s\n", "TIME", "LEVEL", "UNIT", "MESSAGE")
 		fmt.Printf("  %s\n", strings.Repeat("─", 60))
-		printTimelineEvents(info.Events)
+		printTimelineEvents(info.Events, mode)
 	}
 
 	fmt.Println()
 	fmt.Println(sep)
 	issues := info.CritCount + info.WarnCount
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Timeline clean%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Timeline clean%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
 		var parts []string
 		if info.CritCount > 0 {
@@ -108,28 +108,28 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration) {
 			parts = append(parts, fmt.Sprintf("%d WARN", info.WarnCount))
 		}
 		fmt.Println(render.StyleWarn.Render(
-			fmt.Sprintf("⚠️  %s event(s) found%s", strings.Join(parts, ", "), timing)))
+			fmt.Sprintf("%s  %s event(s) found%s", asciiOr("warn", "⚠️", mode), strings.Join(parts, ", "), timing)))
 	}
 }
 
-func printTimelineLoad(info *models.TimelineInfo) {
+func printTimelineLoad(info *models.TimelineInfo, mode output.OutputMode) {
 	if len(info.LoadSpikes) == 0 {
 		return
 	}
 	fmt.Printf("\n  Load average:\n")
 	for _, s := range info.LoadSpikes {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if s.Load1 >= 8 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if s.Load1 >= 4 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  %-16s  load: %.2f  %.2f  %.2f  (1m/5m/15m)\n",
 			icon, s.TimeStr, s.Load1, s.Load5, s.Load15)
 	}
 }
 
-func printTimelineEvents(events []models.TimelineEvent) {
+func printTimelineEvents(events []models.TimelineEvent, mode output.OutputMode) {
 	prevDay := ""
 	for _, e := range events {
 		day := time.Unix(e.TimestampUnix, 0).Format("Jan 02")
@@ -137,12 +137,12 @@ func printTimelineEvents(events []models.TimelineEvent) {
 			fmt.Printf("  ── %s ─────────────────────────────────────────────\n", day)
 			prevDay = day
 		}
-		icon := "⚠️ "
+		icon := asciiOr("warn", "⚠️ ", mode)
 		switch e.Level {
 		case "CRIT":
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		case "INFO":
-			icon = "ℹ️ "
+			icon = asciiOr("info", "ℹ️ ", mode)
 		}
 		src := e.Source
 		if e.Source == "journal" {

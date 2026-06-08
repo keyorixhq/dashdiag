@@ -208,7 +208,7 @@ func mockReplayTimeline(raw string) error {
 	if err := json.Unmarshal([]byte(raw), &info); err != nil {
 		return fmt.Errorf("decoding captured timeline section: %w", err)
 	}
-	printTimeline(&info, 3*time.Second) // simulate 3s run
+	printTimeline(&info, 3*time.Second, output.ModeHuman) // simulate 3s run
 	return nil
 }
 

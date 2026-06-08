@@ -112,7 +112,7 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 			currentSection = r.Section
 			fmt.Printf("  ── %s\n", strings.ToUpper(currentSection))
 		}
-		icon := cisIcon(r.Status)
+		icon := cisIcon(r.Status, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("  %s %s%s%s  %s\n",
 			icon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
@@ -156,18 +156,18 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 	fmt.Println()
 }
 
-func cisIcon(s models.CISStatus) string {
+func cisIcon(s models.CISStatus, mode output.OutputMode) string {
 	switch s {
 	case models.CISPass:
-		return "✅"
+		return asciiOr("ok", "✅", mode)
 	case models.CISFail:
-		return "❌"
+		return asciiOr("fail", "❌", mode)
 	case models.CISManual:
-		return "ℹ️ "
+		return asciiOr("info", "ℹ️ ", mode)
 	case models.CISSkipped:
-		return "⏭️ "
+		return asciiOr("skip", "⏭️ ", mode)
 	default:
-		return "— "
+		return asciiOr("unknown", "— ", mode)
 	}
 }
 

@@ -108,18 +108,18 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 		fmt.Println("\nNo thermal sensors detected.")
 		fmt.Println()
 		fmt.Println(sep)
-		fmt.Println(render.StyleInfo.Render("ℹ️  Thermal data not available on this platform"))
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️ ", mode) + " Thermal data not available on this platform"))
 		return
 	}
 
 	fmt.Printf("\nThermal Health  (source: %s)\n", info.Source)
 
 	// Primary CPU temp
-	cpuIcon := "✅"
+	cpuIcon := asciiOr("ok", "✅", mode)
 	if info.CPUTempC >= 95 {
-		cpuIcon = "❌"
+		cpuIcon = asciiOr("fail", "❌", mode)
 	} else if info.CPUTempC >= 85 {
-		cpuIcon = "⚠️ "
+		cpuIcon = asciiOr("warn", "⚠️ ", mode)
 	}
 	fmt.Printf("\n  %s  CPU temperature:  %.1f°C\n", cpuIcon, info.CPUTempC)
 
@@ -133,11 +133,11 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 		sort.Strings(keys)
 		for _, k := range keys {
 			t := info.CoreTemps[k]
-			icon := "✅"
+			icon := asciiOr("ok", "✅", mode)
 			if t >= 95 {
-				icon = "❌"
+				icon = asciiOr("fail", "❌", mode)
 			} else if t >= 85 {
-				icon = "⚠️ "
+				icon = asciiOr("warn", "⚠️ ", mode)
 			}
 			fmt.Printf("    %s  %-20s %.1f°C\n", icon, k, t)
 		}
@@ -154,10 +154,10 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	}
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Thermal healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Thermal healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	} else if info.CPUTempC >= 95 {
-		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌ CPU temperature critical%s", timing)))
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s CPU temperature critical%s", asciiOr("fail", "❌", mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  CPU temperature elevated%s", timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s CPU temperature elevated%s", asciiOr("warn", "⚠️ ", mode), timing)))
 	}
 }

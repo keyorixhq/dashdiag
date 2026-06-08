@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 func TestPVETaskErrorCritTypes(t *testing.T) {
@@ -65,9 +66,16 @@ func TestPVEBackupIconAge(t *testing.T) {
 		{45, "❌", "45 days ago"},
 	}
 	for _, c := range cases {
-		icon, age := pveBackupIconAge(c.days)
+		icon, age := pveBackupIconAge(c.days, output.ModeHuman)
 		if icon != c.wantIcon || age != c.wantAge {
 			t.Errorf("pveBackupIconAge(%d) = (%q,%q), want (%q,%q)", c.days, icon, age, c.wantIcon, c.wantAge)
+		}
+		// In plain mode the icon must be an ASCII token, never an emoji.
+		plainIcon, _ := pveBackupIconAge(c.days, output.ModePlain)
+		for _, g := range []string{"❌", "⚠️", "✅"} {
+			if plainIcon == g {
+				t.Errorf("pveBackupIconAge(%d) plain leaked emoji %q", c.days, g)
+			}
 		}
 	}
 }

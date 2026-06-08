@@ -77,7 +77,7 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 		fmt.Println("\nNo Kubernetes installation detected on this host.")
 		fmt.Println()
 		fmt.Println(sep)
-		fmt.Println(render.StyleInfo.Render("ℹ️  kubectl / k3s not found in PATH"))
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) + "kubectl / k3s not found in PATH"))
 		return
 	}
 
@@ -86,9 +86,9 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	// Nodes
 	fmt.Printf("\nNodes (%d)\n", len(info.Nodes))
 	for _, n := range info.Nodes {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if n.Status != "Ready" {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		}
 		fmt.Printf("  %s  %-35s %-14s %-20s %s\n",
 			icon, n.Name, n.Status, n.Roles, n.Version)
@@ -122,15 +122,15 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	}
 
 	if len(problemPods) == 0 {
-		fmt.Println("  ✅  All pods healthy")
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  All pods healthy")
 	} else {
-		fmt.Printf("  ⚠️   %d pod(s) need attention:\n", len(problemPods))
+		fmt.Printf("  %s  %d pod(s) need attention:\n", asciiOr("warn", "⚠️ ", mode), len(problemPods))
 		fmt.Printf("  %-20s %-42s %-22s %-8s %s\n",
 			"NAMESPACE", "NAME", "STATUS", "RESTARTS", "AGE")
 		for _, p := range problemPods {
-			icon := "⚠️ "
+			icon := asciiOr("warn", "⚠️ ", mode)
 			if strings.Contains(p.Status, "CrashLoop") || strings.Contains(p.Status, "Error") {
-				icon = "❌"
+				icon = asciiOr("fail", "❌", mode)
 			}
 			name := p.Name
 			if len(name) > 40 {
@@ -148,7 +148,7 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	for _, p := range info.Pods {
 		restartIcon := ""
 		if p.Restarts >= 10 {
-			restartIcon = " ⚠️"
+			restartIcon = " " + asciiOr("warn", "⚠️", mode)
 		}
 		name := p.Name
 		if len(name) > 40 {
@@ -161,13 +161,13 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
-	printK8sSummary(info, timing)
+	printK8sSummary(info, timing, mode)
 }
 
-func printK8sSummary(info *models.K8sInfo, timing string) {
+func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
 	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady
 	if issues == 0 && info.HighRestarts == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Cluster healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 		return
 	}
 	var parts []string
@@ -186,5 +186,5 @@ func printK8sSummary(info *models.K8sInfo, timing string) {
 	if info.HighRestarts > 0 {
 		parts = append(parts, fmt.Sprintf("%d pod(s) high restarts", info.HighRestarts))
 	}
-	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %s%s", strings.Join(parts, ", "), timing)))
+	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %s%s", asciiOr("warn", "⚠️ ", mode), strings.Join(parts, ", "), timing)))
 }

@@ -71,9 +71,9 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 	}
 	switch {
 	case saveBaseline:
-		return runSaveBaseline(info)
+		return runSaveBaseline(info, mode)
 	case drift:
-		return runDrift(info)
+		return runDrift(info, mode)
 	}
 
 	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
@@ -90,42 +90,42 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 }
 
 // runSaveBaseline persists the current security state as the drift baseline.
-func runSaveBaseline(info *models.SecurityInfo) error {
+func runSaveBaseline(info *models.SecurityInfo, mode output.OutputMode) error {
 	b := baseline.BuildSecurityBaseline(info)
 	if err := baseline.SaveSecurityBaseline(b); err != nil {
 		return fmt.Errorf("saving security baseline: %w", err)
 	}
-	fmt.Println("✅  Security baseline saved to ~/.dsd/security-baseline.json")
+	fmt.Printf("%s  Security baseline saved to ~/.dsd/security-baseline.json\n", asciiOr("ok", "✅", mode))
 	fmt.Printf("    SUID binaries: %d | Sudo NOPASSWD: %d | Suspect crons: %d | SSH configs: %d\n",
 		len(b.KnownSUIDs), len(b.SudoNopasswd), len(b.SuspectCrons), len(b.SSHConfigHashes))
 	return nil
 }
 
 // runDrift compares the current security state against the saved baseline.
-func runDrift(info *models.SecurityInfo) error {
+func runDrift(info *models.SecurityInfo, mode output.OutputMode) error {
 	saved, err := baseline.LoadSecurityBaseline()
 	if err != nil {
 		return fmt.Errorf("loading security baseline: %w", err)
 	}
 	if saved == nil {
-		fmt.Println("ℹ️  No security baseline found. Run: dsd security --save-baseline")
+		fmt.Printf("%s  No security baseline found. Run: dsd security --save-baseline\n", asciiOr("info", "ℹ️", mode))
 		return nil
 	}
 
 	diff := baseline.DiffSecurityBaseline(saved, info)
 	dateStr := diff.BaselineSavedAt.Format("2006-01-02 15:04:05")
 	if !diff.HasChanges() {
-		fmt.Printf("✅  No security drift detected since %s\n", dateStr)
+		fmt.Printf("%s  No security drift detected since %s\n", asciiOr("ok", "✅", mode), dateStr)
 		return nil
 	}
 
-	printSecurityDrift(&diff)
+	printSecurityDrift(&diff, mode)
 	return nil
 }
 
 // printSecurityDrift renders the drift report when changes are detected. It
 // mirrors the styling used by printSecurityReport.
-func printSecurityDrift(diff *baseline.SecurityDiff) {
+func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	sep := strings.Repeat("─", 56)
 	dateStr := diff.BaselineSavedAt.Format("2006-01-02 15:04:05")
 
@@ -134,14 +134,14 @@ func printSecurityDrift(diff *baseline.SecurityDiff) {
 	if len(diff.NewSUIDs) > 0 {
 		fmt.Println("\nNew SUID binaries (not in baseline):")
 		for _, s := range diff.NewSUIDs {
-			fmt.Printf("  ❌  %s  [investigate: ls -la && file]\n", s)
+			fmt.Printf("  %s  %s  [investigate: ls -la && file]\n", asciiOr("fail", "❌", mode), s)
 		}
 	}
 
 	if len(diff.ChangedSSHFiles) > 0 {
 		fmt.Println("\nChanged SSH config files:")
 		for _, f := range diff.ChangedSSHFiles {
-			fmt.Printf("  ⚠️  %s  (modified since baseline)\n", f)
+			fmt.Printf("  %s  %s  (modified since baseline)\n", asciiOr("warn", "⚠️", mode), f)
 			fmt.Printf("     → Review changes to %s and restart sshd if intentional\n", f)
 			fmt.Println("     → Or: git diff if sshd_config is version-controlled")
 		}
@@ -150,14 +150,14 @@ func printSecurityDrift(diff *baseline.SecurityDiff) {
 	if len(diff.NewSudoEntries) > 0 {
 		fmt.Println("\nNew sudoers NOPASSWD entries:")
 		for _, s := range diff.NewSudoEntries {
-			fmt.Printf("  ⚠️  %s\n", s)
+			fmt.Printf("  %s  %s\n", asciiOr("warn", "⚠️", mode), s)
 		}
 	}
 
 	if len(diff.NewCronEntries) > 0 {
 		fmt.Println("\nNew suspect cron entries:")
 		for _, s := range diff.NewCronEntries {
-			fmt.Printf("  ⚠️  %s\n", s)
+			fmt.Printf("  %s  %s\n", asciiOr("warn", "⚠️", mode), s)
 		}
 	}
 
@@ -170,9 +170,9 @@ func printSecurityDrift(diff *baseline.SecurityDiff) {
 
 	fmt.Println()
 	fmt.Println(sep)
-	summary := fmt.Sprintf("⚠️  %d security change(s) since baseline (%s)", changes, baselineDate)
+	summary := fmt.Sprintf("%s  %d security change(s) since baseline (%s)", asciiOr("warn", "⚠️", mode), changes, baselineDate)
 	if hasCrit(insights) {
-		summary = fmt.Sprintf("❌  %d security change(s) since baseline (%s) — includes CRITICAL drift", changes, baselineDate)
+		summary = fmt.Sprintf("%s  %d security change(s) since baseline (%s) — includes CRITICAL drift", asciiOr("fail", "❌", mode), changes, baselineDate)
 		fmt.Println(render.StyleCrit.Render(summary))
 	} else {
 		fmt.Println(render.StyleWarn.Render(summary))
@@ -196,8 +196,8 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 
 	// SSH Configuration
 	fmt.Println("\nSSH Configuration")
-	printSecItem("PermitRootLogin", !info.SSHRootLogin, "no (secure)", "yes (INSECURE)")
-	printSecItem("PasswordAuthentication", !info.SSHPasswordAuth, "no (key-only)", "yes (weaker)")
+	printSecItem("PermitRootLogin", !info.SSHRootLogin, "no (secure)", "yes (INSECURE)", mode)
+	printSecItem("PasswordAuthentication", !info.SSHPasswordAuth, "no (key-only)", "yes (weaker)", mode)
 
 	// Failed logins
 	fmt.Printf("\nFailed Logins (last hour): %d\n", info.FailedLogins)
@@ -211,16 +211,16 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	// Listening ports
 	fmt.Printf("\nListening Ports (%d total)\n", len(info.ListeningPorts))
 	for _, p := range info.ListeningPorts {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		tag := ""
 		if !p.Expected {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 			tag = " ← unexpected"
 		}
 		// Proxmox VE mandates 8006 (web UI), 3128 (spiceproxy), 111 (rpcbind) —
 		// expected on PVE, never flag as unexpected (BUG-016).
 		if info.IsPVE && analysis.IsPVEServicePort(p.Port) {
-			icon = "✅"
+			icon = asciiOr("ok", "✅", mode)
 			tag = " ← PVE service port (expected)"
 		}
 		proc := p.Process
@@ -239,7 +239,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	if len(info.SudoNopasswd) > 0 {
 		fmt.Println("\nSudo NOPASSWD entries:")
 		for _, entry := range info.SudoNopasswd {
-			fmt.Printf("  ⚠️   %s\n", entry)
+			fmt.Printf("  %s   %s\n", asciiOr("warn", "⚠️", mode), entry)
 		}
 	} else if info.NeedsRoot {
 		fmt.Println("\nSudo NOPASSWD entries: unknown (needs root)")
@@ -249,9 +249,9 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 
 	// Firewall
 	if info.FirewallActive {
-		sshIcon := "✅"
+		sshIcon := asciiOr("ok", "✅", mode)
 		if !info.SSHAllowed {
-			sshIcon = "❌"
+			sshIcon = asciiOr("fail", "❌", mode)
 		}
 		zone := ""
 		if info.FirewallZone != "" {
@@ -259,7 +259,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		}
 		fmt.Printf("\nFirewall: %s active%s\n", info.FirewallType, zone)
 		if len(info.FirewallServices) > 0 {
-			fmt.Printf("  ✅  allowed: %s\n", strings.Join(info.FirewallServices, ", "))
+			fmt.Printf("  %s  allowed: %s\n", asciiOr("ok", "✅", mode), strings.Join(info.FirewallServices, ", "))
 		}
 		fmt.Printf("  %s  SSH accessible\n", sshIcon)
 	} else {
@@ -269,43 +269,43 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	// macOS Security — FileVault, SIP, Gatekeeper (darwin only)
 	if info.IsDarwin {
 		fmt.Println("\nmacOS Security")
-		printSecItem("FileVault", info.FileVaultEnabled, "on (disk encrypted)", "off (disk not encrypted)")
-		printSecItem("SIP", info.SIPEnabled, "enabled", "DISABLED")
-		printSecItem("Gatekeeper", info.GatekeeperEnabled, "enabled", "disabled")
+		printSecItem("FileVault", info.FileVaultEnabled, "on (disk encrypted)", "off (disk not encrypted)", mode)
+		printSecItem("SIP", info.SIPEnabled, "enabled", "DISABLED", mode)
+		printSecItem("Gatekeeper", info.GatekeeperEnabled, "enabled", "disabled", mode)
 	}
 
 	// RHEL/Rocky security
 	if info.CryptoPolicy != "" || info.FIPSEnabled || info.AIDEInstalled || info.USBGuardActive || info.AuditRules >= 0 {
 		fmt.Println("\nSystem Security")
 		if info.FIPSEnabled {
-			fmt.Println("  ✅  FIPS mode: enabled")
+			fmt.Printf("  %s  FIPS mode: enabled\n", asciiOr("ok", "✅", mode))
 		} else if info.CryptoPolicy != "" {
-			fmt.Println("  ℹ️   FIPS mode: disabled")
+			fmt.Printf("  %s   FIPS mode: disabled\n", asciiOr("info", "ℹ️", mode))
 		}
 		if info.CryptoPolicy != "" {
-			policyIcon := "✅"
+			policyIcon := asciiOr("ok", "✅", mode)
 			if info.CryptoPolicy == "LEGACY" {
-				policyIcon = "⚠️ "
+				policyIcon = asciiOr("warn", "⚠️ ", mode)
 			}
 			fmt.Printf("  %s  Crypto policy: %s\n", policyIcon, info.CryptoPolicy)
 		}
 		if info.AuditRules >= 0 {
 			if info.AuditRules == 0 {
-				fmt.Println("  ⚠️  auditd: running, no rules configured")
+				fmt.Printf("  %s  auditd: running, no rules configured\n", asciiOr("warn", "⚠️", mode))
 			} else {
-				fmt.Printf("  ✅  auditd: %d rule(s) active\n", info.AuditRules)
+				fmt.Printf("  %s  auditd: %d rule(s) active\n", asciiOr("ok", "✅", mode), info.AuditRules)
 			}
 		}
 		if info.USBGuardActive {
-			fmt.Println("  ✅  USBGuard: active")
+			fmt.Printf("  %s  USBGuard: active\n", asciiOr("ok", "✅", mode))
 		}
 		if info.AIDEInstalled {
 			if !info.AIDEDBExists {
-				fmt.Println("  ⚠️  AIDE: installed but database not initialised")
+				fmt.Printf("  %s  AIDE: installed but database not initialised\n", asciiOr("warn", "⚠️", mode))
 			} else if info.AIDELastRunDays > 7 {
-				fmt.Printf("  ⚠️  AIDE: database %d days old\n", info.AIDELastRunDays)
+				fmt.Printf("  %s  AIDE: database %d days old\n", asciiOr("warn", "⚠️", mode), info.AIDELastRunDays)
 			} else {
-				fmt.Printf("  ✅  AIDE: database %d days old\n", info.AIDELastRunDays)
+				fmt.Printf("  %s  AIDE: database %d days old\n", asciiOr("ok", "✅", mode), info.AIDELastRunDays)
 			}
 		}
 	}
@@ -315,11 +315,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		fmt.Println("\nSUSE supportconfig")
 		switch {
 		case info.SupportconfigLastRunDays == -1:
-			fmt.Println("  \u2139\ufe0f  never run — run before contacting SUSE support")
+			fmt.Printf("  %s  never run — run before contacting SUSE support\n", asciiOr("info", "\u2139\ufe0f", mode))
 		case info.SupportconfigLastRunDays > 30:
-			fmt.Printf("  \u26a0\ufe0f  last run %d days ago\n", info.SupportconfigLastRunDays)
+			fmt.Printf("  %s  last run %d days ago\n", asciiOr("warn", "\u26a0\ufe0f", mode), info.SupportconfigLastRunDays)
 		default:
-			fmt.Printf("  \u2705  last run %d days ago (%s)\n", info.SupportconfigLastRunDays, info.SupportconfigArchive)
+			fmt.Printf("  %s  last run %d days ago (%s)\n", asciiOr("ok", "\u2705", mode), info.SupportconfigLastRunDays, info.SupportconfigArchive)
 		}
 	}
 
@@ -332,15 +332,15 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		}
 		switch {
 		case info.SUSEConnectExpiresDays == 0:
-			fmt.Printf("  \U0001f534  EXPIRED (%s)\n", status)
+			fmt.Printf("  %s  EXPIRED (%s)\n", asciiOr("fail", "\U0001f534", mode), status)
 		case info.SUSEConnectExpiresDays > 0 && info.SUSEConnectExpiresDays <= 14:
-			fmt.Printf("  \U0001f534  expires in %d day(s) \u2014 renew immediately\n", info.SUSEConnectExpiresDays)
+			fmt.Printf("  %s  expires in %d day(s) \u2014 renew immediately\n", asciiOr("fail", "\U0001f534", mode), info.SUSEConnectExpiresDays)
 		case info.SUSEConnectExpiresDays > 14 && info.SUSEConnectExpiresDays <= 30:
-			fmt.Printf("  \u26a0\ufe0f   expires in %d day(s) \u2014 renew soon\n", info.SUSEConnectExpiresDays)
+			fmt.Printf("  %s   expires in %d day(s) \u2014 renew soon\n", asciiOr("warn", "\u26a0\ufe0f", mode), info.SUSEConnectExpiresDays)
 		case info.SUSEConnectExpiresDays > 30:
-			fmt.Printf("  \u2705  active \u2014 expires in %d day(s) (%s)\n", info.SUSEConnectExpiresDays, status)
+			fmt.Printf("  %s  active \u2014 expires in %d day(s) (%s)\n", asciiOr("ok", "\u2705", mode), info.SUSEConnectExpiresDays, status)
 		default:
-			fmt.Printf("  \u2139\ufe0f   registered, expiry unknown\n")
+			fmt.Printf("  %s   registered, expiry unknown\n", asciiOr("info", "\u2139\ufe0f", mode))
 		}
 	}
 
@@ -348,7 +348,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	if snap != nil && snap.Available {
 		fmt.Println("\nBtrfs snapshots (snapper)")
 		if snap.SnapshotCount == 0 {
-			fmt.Printf("  \u26a0\ufe0f  no snapshots found\n")
+			fmt.Printf("  %s  no snapshots found\n", asciiOr("warn", "\u26a0\ufe0f", mode))
 		} else {
 			spaceStr := ""
 			if snap.TotalSpaceGB > 0 {
@@ -356,11 +356,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			}
 			switch {
 			case snap.LastSnapshotH < 0:
-				fmt.Printf("  \u26a0\ufe0f  %d snapshot(s)%s — no recent snapshot\n", snap.SnapshotCount, spaceStr)
+				fmt.Printf("  %s  %d snapshot(s)%s — no recent snapshot\n", asciiOr("warn", "\u26a0\ufe0f", mode), snap.SnapshotCount, spaceStr)
 			case snap.LastSnapshotH == 0:
-				fmt.Printf("  \u2705  %d snapshot(s)%s — last: < 1h ago\n", snap.SnapshotCount, spaceStr)
+				fmt.Printf("  %s  %d snapshot(s)%s — last: < 1h ago\n", asciiOr("ok", "\u2705", mode), snap.SnapshotCount, spaceStr)
 			default:
-				fmt.Printf("  \u2705  %d snapshot(s)%s — last: %dh ago\n", snap.SnapshotCount, spaceStr, snap.LastSnapshotH)
+				fmt.Printf("  %s  %d snapshot(s)%s — last: %dh ago\n", asciiOr("ok", "\u2705", mode), snap.SnapshotCount, spaceStr, snap.LastSnapshotH)
 			}
 		}
 	}
@@ -368,17 +368,17 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)
 		switch {
 		case info.SELinuxDenials > 0:
-			fmt.Printf("  ⚠️  %d denial(s) in the last hour\n", info.SELinuxDenials)
+			fmt.Printf("  %s  %d denial(s) in the last hour\n", asciiOr("warn", "⚠️", mode), info.SELinuxDenials)
 		case info.SELinuxDenials == -1:
-			fmt.Printf("  ℹ️  AVC denial data unavailable — run as root or install audit-libs\n")
+			fmt.Printf("  %s  AVC denial data unavailable — run as root or install audit-libs\n", asciiOr("info", "ℹ️", mode))
 		default:
-			fmt.Printf("  ✅  No denials in the last hour\n")
+			fmt.Printf("  %s  No denials in the last hour\n", asciiOr("ok", "✅", mode))
 		}
 		// SELinux booleans — show off booleans relevant to denied types
 		if len(info.SELinuxBooleans) > 0 {
 			fmt.Printf("\n  [SELinux booleans — check first]\n")
 			for _, b := range info.SELinuxBooleans {
-				fmt.Printf("  ⚠️   %-45s = off\n", b.Name)
+				fmt.Printf("  %s   %-45s = off\n", asciiOr("warn", "⚠️", mode), b.Name)
 				fmt.Printf("       → %s\n", b.SetCmd)
 			}
 		}
@@ -391,8 +391,8 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 					break
 				}
 				perms := strings.Join(g.Perms, ",")
-				fmt.Printf("  ⚠️   ×%-4d  %-20s → %-20s  [%s] %s\n",
-					g.Count, g.Scontext, g.Tcontext, g.Tclass, perms)
+				fmt.Printf("  %s   ×%-4d  %-20s → %-20s  [%s] %s\n",
+					asciiOr("warn", "⚠️", mode), g.Count, g.Scontext, g.Tcontext, g.Tclass, perms)
 				if g.BooleanFix != "" {
 					fmt.Printf("       → setsebool -P %s on\n", g.BooleanFix)
 				} else if g.FixCmd != "" {
@@ -401,7 +401,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			}
 		}
 		if info.SELinuxAutoRelabel {
-			fmt.Println("\n  ⚠️  /.autorelabel present — full filesystem relabel queued on next reboot (~15 min)")
+			fmt.Printf("\n  %s  /.autorelabel present — full filesystem relabel queued on next reboot (~15 min)\n", asciiOr("warn", "⚠️", mode))
 		}
 	}
 
@@ -409,13 +409,13 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" && info.AppArmorMode != "unknown" {
 		fmt.Printf("\nAppArmor mode: %s (%d profiles loaded)\n", info.AppArmorMode, info.AppArmorProfiles)
 		if info.AppArmorComplain > 0 {
-			fmt.Printf("  \u26a0\ufe0f  %d profile(s) in complain mode\n", info.AppArmorComplain)
+			fmt.Printf("  %s  %d profile(s) in complain mode\n", asciiOr("warn", "\u26a0\ufe0f", mode), info.AppArmorComplain)
 		} else if info.AppArmorProfiles > 0 {
-			fmt.Println("  \u2705  All profiles enforcing")
+			fmt.Printf("  %s  All profiles enforcing\n", asciiOr("ok", "\u2705", mode))
 		}
 		switch {
 		case len(info.AppArmorGroups) > 0:
-			fmt.Printf("  ⚠️   %d denial group(s) in last 24h:\n", len(info.AppArmorGroups))
+			fmt.Printf("  %s   %d denial group(s) in last 24h:\n", asciiOr("warn", "⚠️", mode), len(info.AppArmorGroups))
 			for i, g := range info.AppArmorGroups {
 				if i >= 3 {
 					break
@@ -424,9 +424,9 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			}
 			fmt.Println("  → aa-logprof  (auto-suggest profile updates)")
 		case info.AppArmorDenials > 0:
-			fmt.Printf("  \u26a0\ufe0f  %d denial(s) in the last hour\n", info.AppArmorDenials)
+			fmt.Printf("  %s  %d denial(s) in the last hour\n", asciiOr("warn", "\u26a0\ufe0f", mode), info.AppArmorDenials)
 		default:
-			fmt.Println("  \u2705  No denials in the last 24h")
+			fmt.Printf("  %s  No denials in the last 24h\n", asciiOr("ok", "\u2705", mode))
 		}
 	}
 
@@ -434,7 +434,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	if len(info.PAMLockedAccounts) > 0 {
 		fmt.Printf("\nPAM locked accounts:\n")
 		for _, a := range info.PAMLockedAccounts {
-			fmt.Printf("  ❌  %s\n", a)
+			fmt.Printf("  %s  %s\n", asciiOr("fail", "❌", mode), a)
 		}
 		fmt.Println("  → faillock --reset --user <name>  (to unlock)")
 	}
@@ -443,7 +443,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	if len(info.SUIDBinaries) > 0 {
 		fmt.Printf("\nUnexpected SUID binaries (%d):\n", len(info.SUIDBinaries))
 		for _, b := range info.SUIDBinaries {
-			fmt.Printf("  ⚠️   %s\n", b)
+			fmt.Printf("  %s   %s\n", asciiOr("warn", "⚠️", mode), b)
 		}
 	}
 
@@ -452,17 +452,17 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	fmt.Println(sep)
 	issues := countSecurityIssues(info)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Security posture healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d security concern(s) found%s", issues, timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
 	}
 }
 
-func printSecItem(label string, ok bool, goodVal, badVal string) {
+func printSecItem(label string, ok bool, goodVal, badVal string, mode output.OutputMode) {
 	if ok {
-		fmt.Printf("  ✅  %-28s %s\n", label+":", goodVal)
+		fmt.Printf("  %s  %-28s %s\n", asciiOr("ok", "✅", mode), label+":", goodVal)
 	} else {
-		fmt.Printf("  ⚠️   %-28s %s\n", label+":", badVal)
+		fmt.Printf("  %s   %-28s %s\n", asciiOr("warn", "⚠️", mode), label+":", badVal)
 	}
 }
 

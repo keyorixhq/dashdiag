@@ -92,7 +92,7 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, _ output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // flat display renderer — each section is independent
+func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // flat display renderer — each section is independent
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -128,15 +128,15 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 	fmt.Println("\nLoad")
 	if cpu != nil {
 		load1Pct := cpu.LoadAvg1 / float64(numCPU) * 100
-		cpuLine(cpuIcon(cpu.UsagePct, 70, 90), "Usage:", fmt.Sprintf("%.1f%%", cpu.UsagePct))
-		cpuLine(cpuIcon(load1Pct, 70, 90), "Load avg 1m:", fmt.Sprintf("%.2f  (%d%% of capacity)", cpu.LoadAvg1, int(load1Pct)))
+		cpuLine(cpuIcon(cpu.UsagePct, 70, 90, mode), "Usage:", fmt.Sprintf("%.1f%%", cpu.UsagePct))
+		cpuLine(cpuIcon(load1Pct, 70, 90, mode), "Load avg 1m:", fmt.Sprintf("%.2f  (%d%% of capacity)", cpu.LoadAvg1, int(load1Pct)))
 		cpuLine(noIcon, "Load avg 5m:", fmt.Sprintf("%.2f", cpu.LoadAvg5))
 		cpuLine(noIcon, "Load avg 15m:", fmt.Sprintf("%.2f", cpu.LoadAvg15))
 		if cpu.IOwaitPct > 0.5 {
-			cpuLine(cpuIcon(cpu.IOwaitPct, 10, 25), "IOWait:", fmt.Sprintf("%.1f%%", cpu.IOwaitPct))
+			cpuLine(cpuIcon(cpu.IOwaitPct, 10, 25, mode), "IOWait:", fmt.Sprintf("%.1f%%", cpu.IOwaitPct))
 		}
 		if cpu.StealPct > 0.1 {
-			cpuLine(cpuIcon(cpu.StealPct, 5, 15), "Steal:", fmt.Sprintf("%.1f%%  <- hypervisor over-provisioned?", cpu.StealPct))
+			cpuLine(cpuIcon(cpu.StealPct, 5, 15, mode), "Steal:", fmt.Sprintf("%.1f%%  <- hypervisor over-provisioned?", cpu.StealPct))
 		}
 	}
 
@@ -150,19 +150,19 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		}
 		underLoad := cpu != nil && cpu.UsagePct > 30
 		if freq.ThrottledPct > 5 && underLoad {
-			cpuLine(cpuIcon(freq.ThrottledPct, 20, 50), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
+			cpuLine(cpuIcon(freq.ThrottledPct, 20, 50, mode), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
 		} else {
-			cpuLine("✅", "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
+			cpuLine(asciiOr("ok", "✅", mode), "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
 		}
 	}
 
 	// Thermal
 	if thermal != nil && thermal.Available {
 		fmt.Println("\nThermal")
-		cpuLine(cpuIcon(thermal.CPUTempC, 80, 95), "CPU temp:", fmt.Sprintf("%.1f°C", thermal.CPUTempC))
+		cpuLine(cpuIcon(thermal.CPUTempC, 80, 95, mode), "CPU temp:", fmt.Sprintf("%.1f°C", thermal.CPUTempC))
 		if len(thermal.CoreTemps) > 1 {
 			for name, temp := range thermal.CoreTemps {
-				cpuLine(cpuIcon(temp, 80, 95), name+":", fmt.Sprintf("%.1f°C", temp))
+				cpuLine(cpuIcon(temp, 80, 95, mode), name+":", fmt.Sprintf("%.1f°C", temp))
 			}
 		}
 	}
@@ -197,18 +197,18 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		issues++
 	}
 	if issues == 0 {
-		fmt.Printf("✅ CPU healthy. Checks passed%s\n", timing)
+		fmt.Printf("%s CPU healthy. Checks passed%s\n", asciiOr("ok", "✅", mode), timing)
 	} else {
-		fmt.Printf("⚠️  %d CPU concern(s) found%s\n", issues, timing)
+		fmt.Printf("%s %d CPU concern(s) found%s\n", asciiOr("warn", "⚠️ ", mode), issues, timing)
 	}
 }
 
-func cpuIcon(val, warn, crit float64) string {
+func cpuIcon(val, warn, crit float64, mode output.OutputMode) string {
 	if val >= crit {
-		return "❌"
+		return asciiOr("fail", "❌", mode)
 	}
 	if val >= warn {
-		return "⚠️ "
+		return asciiOr("warn", "⚠️ ", mode)
 	}
-	return "✅"
+	return asciiOr("ok", "✅", mode)
 }
