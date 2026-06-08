@@ -123,6 +123,11 @@ func isEUI48(mac string) bool {
 	if len(mac) != 17 {
 		return false
 	}
+	// All-zero MACs (some bond/virtual devices report 00:00:00:00:00:00) are not
+	// real hardware addresses — exclude them from the CMDB NIC list.
+	if mac == "00:00:00:00:00:00" {
+		return false
+	}
 	for i, c := range mac {
 		if i%3 == 2 {
 			if c != ':' {

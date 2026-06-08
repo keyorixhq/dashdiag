@@ -166,4 +166,28 @@ func TestDetectSELinuxFromPath(t *testing.T) {
 	}
 }
 
+func TestDetectSELinuxFromPaths_ConfigDisabled(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config")
+	if err := os.WriteFile(cfg, []byte("# comment\nSELINUX=disabled\nSELINUXTYPE=targeted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absentEnforce := filepath.Join(dir, "no-enforce")
+
+	// enforce node absent + config says disabled → "disabled" (not "not-present").
+	if got := detectSELinuxFromPaths(absentEnforce, cfg); got != "disabled" {
+		t.Errorf("config-disabled SELinux = %q, want disabled", got)
+	}
+	// enforce node absent + no config → "not-present".
+	if got := detectSELinuxFromPaths(absentEnforce, filepath.Join(dir, "no-config")); got != "not-present" {
+		t.Errorf("no SELinux at all = %q, want not-present", got)
+	}
+	// enforce node present (enforcing) wins regardless of config.
+	enf := filepath.Join(dir, "enforce")
+	_ = os.WriteFile(enf, []byte("1"), 0o600)
+	if got := detectSELinuxFromPaths(enf, cfg); got != "enforcing" {
+		t.Errorf("enforcing host = %q, want enforcing", got)
+	}
+}
+
 func strptr(s string) *string { return &s }

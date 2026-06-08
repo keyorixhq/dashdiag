@@ -72,17 +72,20 @@ func parseDuSize(s string) int64 {
 	numStr := s[:len(s)-1]
 	var v float64
 	_, _ = fmt.Sscanf(numStr, "%f", &v)
+	// du -h emits IEC (1024-based) units; scale everything to bytes with base
+	// 1024. Used only for sort ordering, but the right base keeps cross-unit
+	// comparisons exact (the old base-1000 mix could misorder near boundaries).
 	switch suffix {
 	case 'T', 't':
-		return int64(v * 1e9)
+		return int64(v * 1024 * 1024 * 1024 * 1024)
 	case 'G', 'g':
-		return int64(v * 1e6)
+		return int64(v * 1024 * 1024 * 1024)
 	case 'M', 'm':
-		return int64(v * 1e3)
+		return int64(v * 1024 * 1024)
 	case 'K', 'k':
-		return int64(v)
+		return int64(v * 1024)
 	default:
-		return int64(v) / 1024
+		return int64(v)
 	}
 }
 
