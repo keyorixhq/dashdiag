@@ -253,3 +253,16 @@ func TestLineHasSeverity(t *testing.T) {
 		}
 	}
 }
+
+func TestIsVMVirtType(t *testing.T) {
+	for _, vm := range []string{"kvm", "qemu", "vmware", "microsoft", "amazon", "xen", "oracle", "bochs"} {
+		if !isVMVirtType(vm) {
+			t.Errorf("isVMVirtType(%q) = false, want true (VM)", vm)
+		}
+	}
+	for _, notVM := range []string{"none", "", "lxc", "lxc-libvirt", "docker", "podman", "systemd-nspawn", "wsl", "openvz"} {
+		if isVMVirtType(notVM) {
+			t.Errorf("isVMVirtType(%q) = true, want false (bare metal / container)", notVM)
+		}
+	}
+}

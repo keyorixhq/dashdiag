@@ -92,7 +92,36 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 		collectVarLogErrors(info)
 	}
 
+	// On a VM/cloud guest the NVMe device is virtual storage, so an I/O timeout
+	// is a hypervisor/cloud-storage event, not a failing physical drive — the
+	// analysis layer downgrades the NVMe insights accordingly.
+	info.Virtualized = detectVirtualized(ctx)
+
 	return info, nil
+}
+
+// detectVirtualized reports whether we are a VM/cloud guest (not bare metal).
+// `systemd-detect-virt -v` reports only VMs (kvm/qemu/vmware/microsoft/amazon/
+// xen/oracle/...) and exits non-zero with "none" on bare metal or in a
+// container. The DMI-based VMware check is the no-systemd fallback.
+func detectVirtualized(ctx context.Context) bool {
+	if out, err := runCmd(ctx, "systemd-detect-virt", "-v"); err == nil {
+		return isVMVirtType(strings.TrimSpace(out))
+	}
+	return VMwareGuestAvailable()
+}
+
+// isVMVirtType classifies systemd-detect-virt output: a VM type → true; "none"
+// or a container type → false (a container shares the host kernel, so the
+// "NVMe is virtual" reasoning doesn't apply).
+func isVMVirtType(s string) bool {
+	switch s {
+	case "", "none",
+		"lxc", "lxc-libvirt", "systemd-nspawn", "docker", "podman", "rkt", "wsl", "proot", "openvz":
+		return false
+	default:
+		return true
+	}
 }
 
 // parseKmsg reads /dev/kmsg and extracts OOM kills and segfaults from the last hour.
