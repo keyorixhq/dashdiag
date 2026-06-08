@@ -22,10 +22,11 @@ func DetectContainerContext() ContainerContext {
 		"/.dockerenv",
 		"/run/.containerenv",
 		"/sys/fs/cgroup/cgroup.controllers",
+		"/proc/self/cgroup",
 	)
 }
 
-func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers string) ContainerContext {
+func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers, procSelfCgroup string) ContainerContext {
 	cc := ContainerContext{}
 	cgroupBase := filepath.Dir(cgroupControllers)
 
@@ -68,14 +69,69 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers 
 
 	if fileExists(cgroupControllers) {
 		cc.CgroupVersion = 2
-		cc.MemLimitMB = parseCgroupV2Memory(filepath.Join(cgroupBase, "memory.max"))
-		cc.CPULimitCores = parseCgroupV2CPU(filepath.Join(cgroupBase, "cpu.max"))
+		// In a container the limit lives at the container's OWN cgroup. With a
+		// private cgroup namespace that is the base itself (/proc/self/cgroup is
+		// "0::/"), but with --cgroupns=host it's a sub-path — reading the base
+		// then gives the host root ("max") and falsely reports "unlimited".
+		// Resolve the self path only inside a container so bare hosts (where the
+		// process sits in some systemd slice) keep reporting the root.
+		cgDir := cgroupBase
+		if cc.InContainer {
+			cgDir = cgroupV2SelfDir(cgroupBase, procSelfCgroup)
+		}
+		cc.MemLimitMB = parseCgroupV2Memory(filepath.Join(cgDir, "memory.max"))
+		cc.CPULimitCores = parseCgroupV2CPU(filepath.Join(cgDir, "cpu.max"))
 	} else {
 		cc.CgroupVersion = 1
-		cc.MemLimitMB = parseCgroupV1Memory(filepath.Join(cgroupBase, "memory", "memory.limit_in_bytes"))
+		memDir := filepath.Join(cgroupBase, "memory")
+		if cc.InContainer {
+			memDir = cgroupV1ControllerDir(cgroupBase, procSelfCgroup, "memory")
+		}
+		cc.MemLimitMB = parseCgroupV1Memory(filepath.Join(memDir, "memory.limit_in_bytes"))
 	}
 
 	return cc
+}
+
+// cgroupV2SelfDir returns the directory holding the process's own cgroup v2
+// interface files, by joining the base mount with the path from the single
+// "0::<path>" line of /proc/self/cgroup. A private namespace reports "0::/" so
+// this resolves to base; --cgroupns=host reports the real sub-path. Falls back
+// to base when /proc/self/cgroup can't be read.
+func cgroupV2SelfDir(base, procSelfCgroup string) string {
+	data, err := os.ReadFile(filepath.Clean(procSelfCgroup))
+	if err != nil {
+		return base
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if rel, ok := strings.CutPrefix(line, "0::"); ok {
+			return filepath.Join(base, strings.TrimSpace(rel))
+		}
+	}
+	return base
+}
+
+// cgroupV1ControllerDir returns the directory for a cgroup v1 controller's
+// interface files. v1 /proc/self/cgroup lines are "id:controllers:path"; the
+// file lives at <base>/<controller><path>. Falls back to <base>/<controller>.
+func cgroupV1ControllerDir(base, procSelfCgroup, controller string) string {
+	fallback := filepath.Join(base, controller)
+	data, err := os.ReadFile(filepath.Clean(procSelfCgroup))
+	if err != nil {
+		return fallback
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		for _, c := range strings.Split(parts[1], ",") {
+			if c == controller {
+				return filepath.Join(base, controller, parts[2])
+			}
+		}
+	}
+	return fallback
 }
 
 func parseCgroupV2Memory(path string) float64 {
