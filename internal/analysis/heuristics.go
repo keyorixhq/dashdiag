@@ -5151,7 +5151,7 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 				"smartctl not installed — drive health unavailable",
 				[]string{"to fix: install smartmontools (apt/dnf/zypper install smartmontools)"},
 			))
-			return out
+			continue // skip this drive only — EDAC/ECC checks below are independent of smartctl
 		}
 		if d.Error != "" {
 			out = append(out, insight("WARN", "Hardware",
