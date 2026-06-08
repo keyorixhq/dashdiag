@@ -85,6 +85,12 @@ func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error)
 		if !ok {
 			continue
 		}
+		// Skip if the counter went backwards — the PID was recycled between the
+		// two samples (process exited, a new one reused the PID). The unsigned
+		// subtraction would otherwise wrap to a huge bogus rate and top the list.
+		if p1.cpuTicks < p0.cpuTicks {
+			continue
+		}
 		delta := float64(p1.cpuTicks - p0.cpuTicks)
 		pct := delta / float64(deltaTotal) * numCPU * 100
 		if pct > 0.01 {
