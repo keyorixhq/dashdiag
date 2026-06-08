@@ -4475,10 +4475,24 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 			},
 		))
 	}
-	if d.Stopped > 5 {
+	// Count stopped containers that FAILED (non-zero exit), not every stopped one.
+	// Clean-exit (exit 0) init/oneshot containers — DB migrations, secret-init,
+	// test fixtures — are EXPECTED to be exited, so counting them as "accumulating"
+	// false-positives on any normal Compose stack. The collector only sets ExitCode
+	// for non-running containers that exited non-zero, so it's the failure marker.
+	failedStopped := 0
+	for _, c := range d.Containers {
+		if st := strings.ToLower(c.State); (st == "exited" || st == "dead") && c.ExitCode != 0 {
+			failedStopped++
+		}
+	}
+	if failedStopped > 5 {
 		out = append(out, insight("WARN", "Docker",
-			fmt.Sprintf("%d stopped containers accumulating — consider pruning", d.Stopped),
-			[]string{"to fix: docker container prune"},
+			fmt.Sprintf("%d stopped container(s) exited with errors — crashes or failed jobs (clean-exit init/oneshot containers not counted)", failedStopped),
+			[]string{
+				"to inspect: docker ps -a --filter status=exited --filter status=dead",
+				"to prune:   docker container prune",
+			},
 		))
 	}
 	if d.OOMEvents > 0 {
