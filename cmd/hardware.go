@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -40,39 +39,24 @@ func init() {
 }
 
 func runHardware(cmd *cobra.Command, _ []string) error {
-	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
-
-	p := output.NewCommandProgress("Hardware health", 15*time.Second, mode, 1)
-	p.Start()
-	defer p.Done()
-
-	var result runner.Result
-	for r := range runner.RunAll(cmd.Context(), []runner.Collector{collectors.NewHardwareCollector()}) {
-		p.Step(r.Name)
-		result = r
-	}
-
-	elapsed := p.Elapsed()
-
-	info, ok := result.Data.(*models.HardwareInfo)
-	if !ok || info == nil {
-		info = &models.HardwareInfo{}
-	}
-	recordResultSeverity([]runner.Result{result})
-
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	if jsonOut {
-		data, err := json.MarshalIndent(info, "", "  ")
-		if err != nil {
-			return err
+	hwInfo := func(r []runner.Result) *models.HardwareInfo {
+		if info := resultData[*models.HardwareInfo](r); info != nil {
+			return info
 		}
-		fmt.Println(string(data))
-		return nil
+		return &models.HardwareInfo{}
 	}
-
-	printHardwareReport(info, mode, elapsed)
-	return nil
+	return runDiagnostic(cmd, diagnostic{
+		label:   "Hardware health",
+		timeout: 15 * time.Second,
+		cols:    []runner.Collector{collectors.NewHardwareCollector()},
+		jsonValue: func(r []runner.Result) (any, error) {
+			return hwInfo(r), nil
+		},
+		render: func(r []runner.Result, mode output.OutputMode, elapsed time.Duration) error {
+			printHardwareReport(hwInfo(r), mode, elapsed)
+			return nil
+		},
+	})
 }
 
 func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
