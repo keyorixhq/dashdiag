@@ -102,6 +102,20 @@ func TestNetPlainNoEmoji(t *testing.T) {
 	}
 }
 
+// TestNetDNSExitCode guards that `dsd net dns` honours the exit-code contract:
+// it must record DNS severity (checkDNS CRITs on external-resolution failure)
+// so the subcommand gates in CI like the parent `dsd net`, rather than always
+// exiting 0. A valid run returns a gate code in {0,1,2}, never >2 or a crash.
+func TestNetDNSExitCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
+	_, code := run(t, "net", "dns", "--plain")
+	if code > 2 {
+		t.Errorf("net dns returned unexpected exit code %d (want a gate code 0/1/2)", code)
+	}
+}
+
 // TestSubcommandsPlainNoEmoji guards the --plain ASCII contract across every
 // single-purpose subcommand. They used to hardcode status emoji in their
 // renderers regardless of mode, leaking multibyte glyphs that ASCII parsers and
