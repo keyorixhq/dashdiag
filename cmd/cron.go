@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -27,42 +25,26 @@ var cronCmd = &cobra.Command{
 }
 
 func runCron(cmd *cobra.Command, _ []string) error {
-	ctx := context.Background()
-	plain, _ := cmd.Flags().GetBool("plain")
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	outputFmt := ""
-	if jsonOut {
-		outputFmt = "json"
-	}
-	mode := output.DetectMode(plain, false, outputFmt)
-
-	p := output.NewCommandProgress("Cron health", 10*time.Second, mode, 1)
-	p.Start()
-	defer p.Done()
-
-	var result runner.Result
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewCronCollector()}) {
-		p.Step(r.Name)
-		result = r
-	}
-
-	info, ok := result.Data.(*models.CronInfo)
-	if !ok || info == nil {
-		return result.Err
-	}
-	recordResultSeverity([]runner.Result{result})
-
-	if mode == output.ModeJSON {
-		data, err := json.MarshalIndent(info, "", "  ")
-		if err == nil {
-			_, _ = os.Stdout.Write(data)
-			_, _ = os.Stdout.Write([]byte("\n"))
-		}
-		return nil
-	}
-
-	printCron(info, mode)
-	return nil
+	return runDiagnostic(cmd, diagnostic{
+		label:   "Cron health",
+		timeout: 10 * time.Second,
+		cols:    []runner.Collector{collectors.NewCronCollector()},
+		jsonValue: func(r []runner.Result) (any, error) {
+			info := resultData[*models.CronInfo](r)
+			if info == nil {
+				return nil, firstErr(r)
+			}
+			return info, nil
+		},
+		render: func(r []runner.Result, mode output.OutputMode, _ time.Duration) error {
+			info := resultData[*models.CronInfo](r)
+			if info == nil {
+				return firstErr(r)
+			}
+			printCron(info, mode)
+			return nil
+		},
+	})
 }
 
 func printCron(info *models.CronInfo, mode output.OutputMode) {

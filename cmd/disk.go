@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -31,15 +29,7 @@ var diskCmd = &cobra.Command{
 }
 
 func runDisk(cmd *cobra.Command, _ []string) error {
-	ctx := context.Background()
-	plain, _ := cmd.Flags().GetBool("plain")
 	deep, _ := cmd.Flags().GetBool("deep")
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	outputFmt := ""
-	if jsonOut {
-		outputFmt = "json"
-	}
-	mode := output.DetectMode(plain, false, outputFmt)
 
 	ctrCtx := platform.DetectContainerContext()
 	col := collectors.NewDiskCollector(ctrCtx)
@@ -47,46 +37,31 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 		col = collectors.NewDiskDeepCollector()
 		col.ContainerCtx = ctrCtx
 	}
-
 	cols := []runner.Collector{col}
 	if collectors.IsLVMPresent() {
 		cols = append(cols, collectors.NewLVMCollector())
 	}
 
-	p := output.NewCommandProgress("Disk health", 12*time.Second, mode, len(cols))
-	p.Start()
-	defer p.Done()
-
-	var results []runner.Result
-	var diskResult runner.Result
-	var lvmInfo *models.LVMInfo
-	for r := range runner.RunAll(ctx, cols) {
-		p.Step(r.Name)
-		results = append(results, r)
-		switch v := r.Data.(type) {
-		case *models.DiskInfo:
-			diskResult = r
-		case *models.LVMInfo:
-			lvmInfo = v
-		}
-	}
-
-	elapsed := p.Elapsed()
-	info, ok := diskResult.Data.(*models.DiskInfo)
-	if !ok || info == nil {
-		return diskResult.Err
-	}
-
-	// Propagate worst severity to the process exit code (BUG-022) — applies in
-	// both human and JSON modes so CI gates on `dsd disk` / `dsd disk --json`.
-	recordResultSeverity(results)
-
-	if mode == output.ModeJSON {
-		return outputJSON(os.Stdout, info)
-	}
-
-	printDiskReport(info, lvmInfo, mode, elapsed, deep)
-	return nil
+	return runDiagnostic(cmd, diagnostic{
+		label:   "Disk health",
+		timeout: 12 * time.Second,
+		cols:    cols,
+		jsonValue: func(r []runner.Result) (any, error) {
+			info := resultData[*models.DiskInfo](r)
+			if info == nil {
+				return nil, firstErr(r)
+			}
+			return info, nil
+		},
+		render: func(r []runner.Result, mode output.OutputMode, elapsed time.Duration) error {
+			info := resultData[*models.DiskInfo](r)
+			if info == nil {
+				return firstErr(r)
+			}
+			printDiskReport(info, resultData[*models.LVMInfo](r), mode, elapsed, deep)
+			return nil
+		},
+	})
 }
 
 func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, deep bool) {
