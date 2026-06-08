@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -107,7 +106,7 @@ func filterUnits(units []string, ignore map[string]bool) []string {
 }
 
 func listUnits(ctx context.Context, state string) []string {
-	out, err := exec.CommandContext(ctx, "systemctl", "list-units", // #nosec G204 -- command is hardcoded "systemctl"; state is from internal enum values, not user input
+	out, err := localeSafeCmd(ctx, "systemctl", "list-units", // #nosec G204 -- command is hardcoded "systemctl"; state is from internal enum values, not user input
 		"--state="+state, "--no-legend", "--no-pager", "--plain").Output()
 	if err != nil {
 		return nil
@@ -137,14 +136,14 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 // Returns nil slice and 0 if systemd-analyze is unavailable or fails.
 func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 	// Get total boot time first
-	timeOut, err := exec.CommandContext(ctx, "systemd-analyze", "time").Output() // #nosec G204
+	timeOut, err := localeSafeCmd(ctx, "systemd-analyze", "time").Output() // #nosec G204
 	if err != nil {
 		return nil, 0
 	}
 	totalBoot := parseAnalyzeTime(string(timeOut))
 
 	// Get per-unit breakdown
-	blameOut, err := exec.CommandContext(ctx, "systemd-analyze", "blame", "--no-pager").Output() // #nosec G204
+	blameOut, err := localeSafeCmd(ctx, "systemd-analyze", "blame", "--no-pager").Output() // #nosec G204
 	if err != nil {
 		return nil, totalBoot
 	}

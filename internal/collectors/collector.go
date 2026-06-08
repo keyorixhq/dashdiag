@@ -28,6 +28,17 @@ func localeSafeEnv() []string {
 	return append(os.Environ(), "LC_ALL=C", "LANG=C")
 }
 
+// localeSafeCmd is exec.CommandContext with the C locale forced. Use it for any
+// external command whose OUTPUT is parsed when you need the raw *exec.Cmd (e.g.
+// .Output() into []byte) rather than runCmd's string return. It keeps every
+// parsed command locale-safe by construction; the guard in exec_locale_test.go
+// enforces that collectors reach exec only through this / runCmd / runCmdTimeout.
+func localeSafeCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = localeSafeEnv()
+	return cmd
+}
+
 // The process is killed (not just abandoned) when ctx is cancelled.
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)

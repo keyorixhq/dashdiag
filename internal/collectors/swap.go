@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -168,7 +167,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func darwinMemPressureLevel(ctx context.Context) int {
-	out, err := exec.CommandContext(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level").Output()
+	out, err := localeSafeCmd(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level").Output()
 	if err != nil {
 		return 1 // assume normal if unavailable
 	}

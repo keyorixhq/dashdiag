@@ -7,7 +7,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -184,7 +183,7 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 }
 
 func (c *FDLimitsCollector) collectDarwin(ctx context.Context) (*models.FDInfo, error) {
-	out, err := exec.CommandContext(ctx, "sysctl", "-n", "kern.maxfiles").Output()
+	out, err := localeSafeCmd(ctx, "sysctl", "-n", "kern.maxfiles").Output()
 	if err != nil {
 		return &models.FDInfo{}, nil
 	}
