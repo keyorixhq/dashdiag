@@ -60,6 +60,22 @@ func TestParseHealth_Garbage(t *testing.T) {
 	}
 }
 
+// Valid JSON that is NOT a dsd health document (no "insights" key) must be
+// rejected, not counted as a healthy/reachable host — otherwise a foreign tool's
+// output or an error object hides a genuinely failing remote.
+func TestParseHealth_NonHealthJSON(t *testing.T) {
+	for _, js := range []string{
+		`{}`,
+		`{"error":"command not found: dsd","level":"CRIT"}`,
+		`{"hostname":"h","version":"v9"}`, // looks dsd-ish but no insights key
+	} {
+		var r Result
+		if ok := parseHealth([]byte(js), &r); ok {
+			t.Errorf("non-health JSON %q must be rejected (got reachable/OK)", js)
+		}
+	}
+}
+
 func TestWorstExitCode(t *testing.T) {
 	cases := []struct {
 		name string
