@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -451,8 +450,7 @@ func vpnInterfaceUp(name string) bool {
 func runResolvectl(ctx context.Context, args ...string) (string, error) {
 	c, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(c, "resolvectl", args...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	cmd := localeSafeCmd(c, "resolvectl", args...)
 	cmd.WaitDelay = 100 * time.Millisecond
 	out, err := cmd.CombinedOutput()
 	return string(out), err

@@ -166,6 +166,7 @@ func runDarwinCmd(ctx context.Context, name string, args ...string) (string, err
 	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, name, args...) // #nosec G204
+	cmd.Env = localeSafeEnv()
 	out, err := cmd.Output()
 	return string(out), err
 }

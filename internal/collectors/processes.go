@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -131,7 +130,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 // collectDarwin uses ps to find zombie and D-state processes on macOS.
 // stat is placed before comm so spaces in process names never shift its column position.
 func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.ProcessInfo, error) {
-	out, err := exec.CommandContext(ctx, "ps", "axo", "pid,ppid,stat,comm").Output()
+	out, err := localeSafeCmd(ctx, "ps", "axo", "pid,ppid,stat,comm").Output()
 	if err != nil {
 		return &models.ProcessInfo{}, nil
 	}

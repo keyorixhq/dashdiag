@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -204,7 +203,7 @@ func parseDarwinSudoersFile(path string, info *models.SecurityInfo) {
 // parseDarwinFirewall reads the macOS Application Firewall global state.
 func parseDarwinFirewall(info *models.SecurityInfo) {
 	fw := "/usr/libexec/ApplicationFirewall/socketfilterfw"
-	out, err := exec.Command(fw, "--getglobalstate").Output() // #nosec G204 -- fixed path, no user input
+	out, err := localeSafeCmd(context.Background(), fw, "--getglobalstate").Output() // #nosec G204 -- fixed path, no user input
 	if err != nil {
 		return
 	}
@@ -226,17 +225,17 @@ func parseDarwinSystemSecurity(info *models.SecurityInfo) {
 	info.IsDarwin = true
 
 	// FileVault disk encryption
-	if out, err := exec.Command("fdesetup", "status").Output(); err == nil { // #nosec G204
+	if out, err := localeSafeCmd(context.Background(), "fdesetup", "status").Output(); err == nil { // #nosec G204
 		info.FileVaultEnabled = strings.Contains(strings.ToLower(string(out)), "filevault is on")
 	}
 
 	// System Integrity Protection
-	if out, err := exec.Command("csrutil", "status").Output(); err == nil { // #nosec G204
+	if out, err := localeSafeCmd(context.Background(), "csrutil", "status").Output(); err == nil { // #nosec G204
 		info.SIPEnabled = strings.Contains(strings.ToLower(string(out)), "enabled")
 	}
 
 	// Gatekeeper
-	if out, err := exec.Command("spctl", "--status").Output(); err == nil { // #nosec G204
+	if out, err := localeSafeCmd(context.Background(), "spctl", "--status").Output(); err == nil { // #nosec G204
 		info.GatekeeperEnabled = strings.Contains(strings.ToLower(string(out)), "assessments enabled")
 	}
 }

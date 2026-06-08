@@ -91,7 +91,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 
 	// Try sshd -T first — gives the fully merged effective configuration.
 	// On RHEL 10 this requires root; non-root exits 0 but prints "Permission denied".
-	if out, err := exec.Command("sshd", "-T").Output(); err == nil {
+	if out, err := localeSafeCmd(context.Background(), "sshd", "-T").Output(); err == nil {
 		outStr := string(out)
 		if !strings.Contains(outStr, "Permission denied") && len(strings.TrimSpace(outStr)) > 0 {
 			parseSSHFileContent(outStr, info)
@@ -335,7 +335,7 @@ func parseFailedLogins(info *models.SecurityInfo) {
 //   - Legacy (OpenSSH ≤8): "Failed password for [invalid user] X from IP port P ssh2"
 //   - Modern (OpenSSH 9+): "drop connection #N from [IP]:P on [IP]:P penalty: failed authentication"
 func parseFailedLoginsFromJournal(info *models.SecurityInfo) {
-	out, err := exec.Command("journalctl", "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q").Output()
+	out, err := localeSafeCmd(context.Background(), "journalctl", "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q").Output()
 	if err != nil {
 		return
 	}

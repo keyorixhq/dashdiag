@@ -295,7 +295,7 @@ func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204
-	cmd.Env = append(os.Environ(), "LANG=C")
+	cmd.Env = localeSafeEnv()
 	cmd.WaitDelay = 100 * time.Millisecond
 	out, err := cmd.Output()
 	return string(out), err
