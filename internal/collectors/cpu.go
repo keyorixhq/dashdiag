@@ -348,7 +348,16 @@ func cpuUsageDarwin(ctx context.Context) float64 {
 	if err != nil || out == "" {
 		return 0
 	}
-	// Take the last "CPU usage:" line (from the second sample)
+	return parseDarwinCPUUsage(out)
+}
+
+// parseDarwinCPUUsage extracts user%+sys% from `top` output, reading the last
+// "CPU usage:" line (the second sample). The first comma-separated field carries
+// the "CPU usage:" prefix — e.g. "CPU usage: 8.97% user" — so the percentage is
+// NOT at field index 0. Scan each field for the "NN%"-suffixed number and read
+// the label that follows it; the previous code keyed off fields[0] and silently
+// dropped the user component, reporting roughly half the real usage.
+func parseDarwinCPUUsage(out string) float64 {
 	var lastLine string
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "CPU usage:") {
@@ -361,20 +370,21 @@ func cpuUsageDarwin(ctx context.Context) float64 {
 	// Parse user% + sys% from "CPU usage: 8.97% user, 4.77% sys, 86.25% idle"
 	var user, sys float64
 	for _, part := range strings.Split(lastLine, ",") {
-		part = strings.TrimSpace(part)
 		fields := strings.Fields(part)
-		if len(fields) < 2 {
-			continue
-		}
-		val, err := strconv.ParseFloat(strings.TrimSuffix(fields[0], "%"), 64)
-		if err != nil {
-			continue
-		}
-		switch fields[1] {
-		case "user":
-			user = val
-		case "sys":
-			sys = val
+		for i := 0; i+1 < len(fields); i++ {
+			if !strings.HasSuffix(fields[i], "%") {
+				continue
+			}
+			val, err := strconv.ParseFloat(strings.TrimSuffix(fields[i], "%"), 64)
+			if err != nil {
+				continue
+			}
+			switch fields[i+1] {
+			case "user":
+				user = val
+			case "sys":
+				sys = val
+			}
 		}
 	}
 	if user+sys > 0 {
