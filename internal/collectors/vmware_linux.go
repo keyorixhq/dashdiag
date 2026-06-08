@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,7 +62,139 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.PVSCSILoaded = kernelModulePresent(mods, "vmw_pvscsi")
 	info.BalloonLoaded = kernelModulePresent(mods, "vmw_balloon")
 
+	// Host-imposed resource pressure/limits — only readable when tools run.
+	if info.ToolsRunning {
+		collectVMwareStat(ctx, info)
+	}
+
+	info.SCSITimeouts, info.LowSCSITimeouts = collectSCSITimeouts("/sys/block")
+
 	return info, nil
+}
+
+// vmwareSCSITimeoutRecommended is VMware's recommended guest SCSI command
+// timeout (seconds) — high enough to ride out a vMotion / storage-failover stun
+// without the filesystem going read-only. The Linux kernel default is 30s.
+const vmwareSCSITimeoutRecommended = 180
+
+// collectVMwareStat fills the host-imposed resource fields from
+// `vmware-toolbox-cmd stat`. balloon is read first as the probe: if it fails,
+// the stat interface is unavailable (old tools / no permission) and everything
+// is left zero with StatAvailable=false.
+func collectVMwareStat(ctx context.Context, info *models.VMwareInfo) {
+	toolbox := vmwareToolboxPath()
+	if toolbox == "" {
+		return
+	}
+	balloon, ok := vmwareStatMB(ctx, toolbox, "balloon")
+	if !ok {
+		return // stat unsupported / failed — leave StatAvailable false
+	}
+	info.StatAvailable = true
+	info.BalloonMB = balloon
+	if swap, ok := vmwareStatMB(ctx, toolbox, "swap"); ok {
+		info.HostSwapMB = swap
+	}
+	if limit, limited := vmwareStatLimit(ctx, toolbox, "memlimit"); limited {
+		info.MemLimitMB = limit
+	}
+	if limit, limited := vmwareStatLimit(ctx, toolbox, "cpulimit"); limited {
+		info.CPULimitMHz = limit
+	}
+}
+
+// vmwareToolboxPath locates vmware-toolbox-cmd, "" when absent.
+func vmwareToolboxPath() string {
+	if p, err := exec.LookPath("vmware-toolbox-cmd"); err == nil {
+		return p
+	}
+	for _, p := range []string{"/usr/bin/vmware-toolbox-cmd", "/usr/sbin/vmware-toolbox-cmd"} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// vmwareStatMB runs `vmware-toolbox-cmd stat <key>` and parses a leading
+// integer in MB (e.g. "128 MB" -> 128). ok is false on command failure or when
+// no leading integer is present.
+func vmwareStatMB(ctx context.Context, toolbox, key string) (int, bool) {
+	out, err := runCmd(ctx, toolbox, "stat", key)
+	if err != nil {
+		return 0, false
+	}
+	return parseLeadingInt(out)
+}
+
+// vmwareStatLimit parses a `stat <key>` value that is either "Unlimited" (no
+// host cap) or a number with a unit ("1500 MHz", "2048 MB"). limited is true
+// only when a finite cap was parsed.
+func vmwareStatLimit(ctx context.Context, toolbox, key string) (int, bool) {
+	out, err := runCmd(ctx, toolbox, "stat", key)
+	if err != nil {
+		return 0, false
+	}
+	if strings.Contains(strings.ToLower(out), "unlimited") {
+		return 0, false
+	}
+	v, ok := parseLeadingInt(out)
+	if !ok {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseLeadingInt extracts a run of digits at the very start of s (after
+// trimming whitespace), e.g. "128 MB" -> 128. ok is false when s does not begin
+// with a digit.
+func parseLeadingInt(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	end := 0
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s[:end])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// collectSCSITimeouts reads the command timeout (seconds) for each SCSI disk
+// from /sys/block/sd*/device/timeout and returns those below the VMware
+// recommendation. Scoped to sd* (SCSI) because the 180s guidance is about
+// surviving a storage stun; virtio-blk (vd*) disks are not the target.
+func collectSCSITimeouts(blockDir string) (map[string]int, []string) {
+	entries, err := os.ReadDir(blockDir)
+	if err != nil {
+		return nil, nil
+	}
+	timeouts := map[string]int{}
+	var low []string
+	for _, e := range entries {
+		dev := e.Name()
+		if !strings.HasPrefix(dev, "sd") {
+			continue
+		}
+		raw := readFileTrimmedLocal(filepath.Join(blockDir, dev, "device", "timeout"))
+		t, ok := parseLeadingInt(raw)
+		if !ok {
+			continue
+		}
+		timeouts[dev] = t
+		if t < vmwareSCSITimeoutRecommended {
+			low = append(low, dev)
+		}
+	}
+	if len(timeouts) == 0 {
+		return nil, nil
+	}
+	sort.Strings(low)
+	return timeouts, low
 }
 
 // vmwareToolsInstalled is true when the guest-tools daemon binary is present.
