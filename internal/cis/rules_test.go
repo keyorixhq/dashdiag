@@ -343,6 +343,42 @@ func TestEvaluate(t *testing.T) {
 	})
 }
 
+// When a dedicated STIG rule shares an ID with a BOTH rule's StigID (the real
+// V-238380 case: CIS 365-day vs STIG 60-day password age), STIG mode must emit
+// that ID once — from the dedicated STIG rule — not twice with contradictory
+// verdicts.
+func TestEvaluate_StigSupersedesBoth(t *testing.T) {
+	saved := CISRules
+	t.Cleanup(func() { CISRules = saved })
+	mk := func(id string, status models.CISStatus) func(models.SecurityInfo, models.KernelSecurityInfo) models.CISResult {
+		return func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+			return models.CISResult{ID: id, Status: status}
+		}
+	}
+	CISRules = []Rule{
+		{ID: "5.x", StigID: "V-9", Framework: "BOTH", Level: 1, Section: "S",
+			Description: "both", Check: mk("V-9", models.CISPass)}, // lenient CIS verdict
+		{ID: "V-9", Framework: "STIG", Level: 1, Section: "S",
+			Description: "stig", Check: mk("V-9", models.CISFail)}, // strict STIG verdict
+	}
+
+	rep := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, true)
+	count, status := 0, models.CISStatus("")
+	for _, r := range rep.Results {
+		if r.ID == "V-9" {
+			count++
+			status = r.Status
+		}
+	}
+	if count != 1 {
+		t.Errorf("STIG mode emitted V-9 %d times, want exactly 1", count)
+	}
+	if status != models.CISFail {
+		t.Errorf("surviving V-9 status = %v, want the dedicated STIG verdict (FAIL)", status)
+	}
+	assertTally(t, rep)
+}
+
 func resultIDs(rep models.CISReport) map[string]bool {
 	m := make(map[string]bool, len(rep.Results))
 	for _, r := range rep.Results {

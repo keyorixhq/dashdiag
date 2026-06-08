@@ -610,6 +610,19 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 	}
 	report := models.CISReport{Framework: framework}
 
+	// IDs owned by a dedicated STIG-framework rule. In STIG mode a BOTH rule
+	// whose StigID matches one of these is SUPERSEDED by the dedicated (usually
+	// stricter) STIG rule — running both emitted two results with the same STIG
+	// ID and contradictory verdicts (e.g. V-238380: CIS 365-day vs STIG 60-day).
+	stigOwned := map[string]bool{}
+	if stig {
+		for _, r := range CISRules {
+			if r.Framework == "STIG" {
+				stigOwned[r.ID] = true
+			}
+		}
+	}
+
 	for _, rule := range CISRules {
 		if rule.Level > level {
 			continue
@@ -619,6 +632,9 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 		if stig {
 			if rule.Framework == "CIS" {
 				continue // CIS-only rule — skip in STIG mode
+			}
+			if rule.Framework == "BOTH" && rule.StigID != "" && stigOwned[rule.StigID] {
+				continue // superseded by a dedicated STIG rule of the same ID
 			}
 		} else {
 			if rule.Framework == "STIG" {
