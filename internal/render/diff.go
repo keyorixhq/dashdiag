@@ -3,7 +3,7 @@ package render
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"time"
 
@@ -40,7 +40,10 @@ func afterLevel(statusChange string) string {
 	return "OK"
 }
 
-func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error {
+// PrintDiff writes the baseline diff to w. The caller chooses the stream:
+// stdout for human output, stderr in machine modes (JSON/YAML) so the primary
+// single-document output on stdout is never corrupted by a second payload.
+func PrintDiff(w io.Writer, before, after *baseline.Snapshot, mode output.OutputMode) error {
 	entries := baseline.ComputeDiff(before, after)
 
 	if mode == output.ModeJSON {
@@ -48,7 +51,7 @@ func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error {
 		if err != nil {
 			return err
 		}
-		_, err = os.Stdout.Write(data)
+		_, err = w.Write(data)
 		return err
 	}
 
@@ -64,19 +67,19 @@ func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error {
 	}
 
 	if mode == output.ModeHuman {
-		fmt.Fprintln(os.Stdout, StyleBold.Render(
+		fmt.Fprintln(w, StyleBold.Render(
 			fmt.Sprintf("⚡ Changes since last run (%s) — %s", ago, before.Hostname)))
 	} else {
-		fmt.Fprintf(os.Stdout, "Changes since last run (%s) — %s\n", ago, before.Hostname)
+		fmt.Fprintf(w, "Changes since last run (%s) — %s\n", ago, before.Hostname)
 	}
-	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(w)
 
 	if len(changed) == 0 {
 		msg := "  No changes detected"
 		if mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleDim.Render(msg))
+			fmt.Fprintln(w, StyleDim.Render(msg))
 		} else {
-			fmt.Fprintln(os.Stdout, msg)
+			fmt.Fprintln(w, msg)
 		}
 	} else {
 		for _, e := range changed {
@@ -87,9 +90,9 @@ func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error {
 				if e.Improved {
 					level = "OK"
 				}
-				fmt.Fprintf(os.Stdout, "%s %s\n", name, styleForStatus(level).Render(diff))
+				fmt.Fprintf(w, "%s %s\n", name, styleForStatus(level).Render(diff))
 			} else {
-				fmt.Fprintf(os.Stdout, "%s %s -> %s\n", name, e.Before, e.After)
+				fmt.Fprintf(w, "%s %s -> %s\n", name, e.Before, e.After)
 			}
 		}
 	}
@@ -100,19 +103,19 @@ func PrintDiff(before, after *baseline.Snapshot, mode output.OutputMode) error {
 			names[i] = e.Name
 		}
 		summary := fmt.Sprintf("Unchanged (%d checks): %s", len(unchanged), strings.Join(names, "  "))
-		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(w)
 		if mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleDim.Render(summary))
+			fmt.Fprintln(w, StyleDim.Render(summary))
 		} else {
-			fmt.Fprintln(os.Stdout, summary)
+			fmt.Fprintln(w, summary)
 		}
 	}
 
-	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(w)
 	if mode == output.ModeHuman {
-		fmt.Fprintln(os.Stdout, StyleDim.Render("→ Run: dsd health deep for full picture"))
+		fmt.Fprintln(w, StyleDim.Render("→ Run: dsd health deep for full picture"))
 	} else {
-		fmt.Fprintln(os.Stdout, "-> Run: dsd health deep for full picture")
+		fmt.Fprintln(w, "-> Run: dsd health deep for full picture")
 	}
 
 	return nil

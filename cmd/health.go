@@ -181,11 +181,19 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		}
 	}
 
+	// In machine modes (JSON/YAML) stdout must stay a single document, so route
+	// the diff and the report notice to stderr instead of corrupting it.
+	machineMode := mode == output.ModeJSON || mode == output.ModeYAML
+	noticeW := os.Stdout
+	if machineMode {
+		noticeW = os.Stderr
+	}
+
 	diffFlag, _ := cmd.Flags().GetBool("diff")
 	if diffFlag {
 		prev, err := baseline.LoadBaseline("")
 		if err == nil {
-			_ = render.PrintDiff(prev, snap, mode)
+			_ = render.PrintDiff(noticeW, prev, snap, mode)
 		} else {
 			fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
 		}
@@ -202,7 +210,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "report: %v\n", err)
 		} else {
-			fmt.Printf("\n📄 Report saved: %s\n", path)
+			fmt.Fprintf(noticeW, "\n📄 Report saved: %s\n", path)
 		}
 	}
 
