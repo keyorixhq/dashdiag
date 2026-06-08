@@ -19,6 +19,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/selfupdate"
+	"github.com/keyorixhq/dashdiag/internal/share"
 	"github.com/keyorixhq/dashdiag/internal/tips"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -35,6 +36,7 @@ func init() {
 	healthCmd.Flags().Bool("firmware", false, "check for pending firmware upgrades via fwupd")
 	healthCmd.Flags().Bool("cve", false, "include CVE security advisory scan (CVSS>=7 WARN, >=9 or CISA KEV CRIT; may be slow)")
 	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
+	healthCmd.Flags().Bool("blob", false, "emit a compact, copy-pasteable encoded report blob (network-optional; decode with `dsd decode`)")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 	healthCmd.Flags().Bool("debug", false, "enable debug logging")
 	healthCmd.Flags().Bool("diff", false, "show diff from previous run")
@@ -83,12 +85,17 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	yamlOut, _ := cmd.Flags().GetBool("yaml")
 	terse, _ := cmd.Flags().GetBool("terse")
+	blobFlag, _ := cmd.Flags().GetBool("blob")
 	outputFmt := ""
 	switch {
 	case jsonOut:
 		outputFmt = "json"
 	case yamlOut:
 		outputFmt = "yaml"
+	case blobFlag:
+		// Run as quietly as JSON mode (no progress/banner on stdout) so the
+		// emitted block is clean to copy; the blob itself is printed below.
+		outputFmt = "json"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
 
@@ -133,6 +140,21 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	}
 
 	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, cveFlag, policy)
+
+	// --blob: emit a compact, copy-pasteable encoded report (network-optional).
+	// stdout gets only the block (so `--out` / a pipe captures it cleanly); the
+	// human instructions go to stderr.
+	if blobFlag {
+		data, err := render.RenderJSON(results, insights)
+		if err != nil {
+			return fmt.Errorf("blob: %w", err)
+		}
+		fmt.Print(share.Encode(data))
+		fmt.Fprintln(os.Stderr, "\n↑ Copy the whole block above (including the BEGIN/END lines) and send it to support.")
+		fmt.Fprintln(os.Stderr, "  They turn it back into a readable report with:  dsd decode   (paste it, or `dsd decode file.txt`)")
+		_ = baseline.SaveBaseline(snap)
+		return nil
+	}
 
 	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
