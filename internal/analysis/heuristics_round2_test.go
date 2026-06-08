@@ -134,9 +134,25 @@ func TestCheckProcesses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertLevel(t, checkProcesses(tt.p), tt.want)
+			// Default thresholds must reproduce the historical hardcoded behaviour.
+			assertLevel(t, checkProcesses(tt.p, defaultThresh), tt.want)
 		})
 	}
+}
+
+// The policy knobs zombie_warn_count and hung_d_state_crit must actually take
+// effect (previously they were defined but never read).
+func TestCheckProcessesHonoursThresholds(t *testing.T) {
+	th := defaultThresh
+	th.ZombieWarnCount = 5
+	th.HungDStateCrit = 1
+
+	// 3 zombies is below the raised warn count → no insight.
+	assertLevel(t, checkProcesses(models.ProcessInfo{ZombieCount: 3}, th), "")
+	// 5 zombies reaches the raised warn count → WARN.
+	assertLevel(t, checkProcesses(models.ProcessInfo{ZombieCount: 5}, th), "WARN")
+	// A single hung process is CRIT once the crit threshold is lowered to 1.
+	assertLevel(t, checkProcesses(models.ProcessInfo{HungCount: 1}, th), "CRIT")
 }
 
 // ── NFS ───────────────────────────────────────────────────────────────────────

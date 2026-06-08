@@ -327,9 +327,9 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 			return checkSecurity(*d)
 		}
 	case models.ProcessInfo:
-		return checkProcesses(d)
+		return checkProcesses(d, thresh)
 	case *models.ProcessInfo:
-		return checkProcesses(*d)
+		return checkProcesses(*d, thresh)
 	case models.SnapperInfo:
 		return checkSnapper(d)
 	case *models.SnapperInfo:
@@ -2088,20 +2088,24 @@ func checkEntropy(e models.EntropyInfo) []models.Insight {
 	return nil
 }
 
-func checkProcesses(proc models.ProcessInfo) []models.Insight {
+func checkProcesses(proc models.ProcessInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
+	// Zombie CRIT stays at the fixed 10 (no policy knob); WARN is configurable
+	// via zombie_warn_count (default 1 = warn on any zombie).
 	if proc.ZombieCount >= 10 {
 		out = append(out, insight("CRIT", "Processes",
 			fmt.Sprintf("%d zombie processes detected", proc.ZombieCount),
 			[]string{"to inspect: ps aux | grep Z", "to inspect: cat /proc/*/status | grep -E '^Name|^State' | paste - -"},
 		))
-	} else if proc.ZombieCount > 0 {
+	} else if proc.ZombieCount > 0 && proc.ZombieCount >= thresh.ZombieWarnCount {
 		out = append(out, insight("WARN", "Processes",
 			fmt.Sprintf("%d zombie process(es) detected", proc.ZombieCount),
 			[]string{"to inspect: ps aux | grep Z"},
 		))
 	}
-	if proc.HungCount >= 5 {
+	// Hung CRIT is configurable via hung_d_state_crit (default 5); any hung
+	// process below that still WARNs.
+	if proc.HungCount > 0 && proc.HungCount >= thresh.HungDStateCrit {
 		out = append(out, insight("CRIT", "Processes",
 			fmt.Sprintf("%d hung (uninterruptible) processes", proc.HungCount),
 			[]string{"to inspect: ps aux | grep ' D '", "to inspect: for pid in $(ps -eo pid,stat | awk '$2~/D/{print $1}'); do cat /proc/$pid/wchan 2>/dev/null; done"},
