@@ -102,6 +102,37 @@ func TestNetPlainNoEmoji(t *testing.T) {
 	}
 }
 
+// TestSubcommandsPlainNoEmoji guards the --plain ASCII contract across every
+// single-purpose subcommand. They used to hardcode status emoji in their
+// renderers regardless of mode, leaking multibyte glyphs that ASCII parsers and
+// log shippers choke on. All status glyphs now route through asciiOr/StatusIcon.
+func TestSubcommandsPlainNoEmoji(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow smoke test in short mode")
+	}
+	cmds := []string{
+		"cis", "cpu", "cron", "cve", "disk", "docker", "gpu", "hardware",
+		"k8s", "kvm", "logs", "proc", "processes", "pve", "security",
+		"services", "steamos", "thermal", "timeline", "tls",
+	}
+	glyphs := []string{"✅", "⚠️", "❌", "ℹ️", "⏳", "⏭️", "⏹", "🔴", "🟡", "🟢"}
+	for _, c := range cmds {
+		c := c
+		t.Run(c, func(t *testing.T) {
+			t.Parallel()
+			out, code := run(t, c, "--plain")
+			if code > 2 {
+				t.Fatalf("%s --plain returned unexpected exit code %d", c, code)
+			}
+			for _, g := range glyphs {
+				if strings.Contains(out, g) {
+					t.Errorf("%s --plain leaked emoji %q (must be ASCII OK/WARN/CRIT/INFO): %q", c, g, out)
+				}
+			}
+		})
+	}
+}
+
 func TestHealthOutputContainsCollectors(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow smoke test in short mode")
