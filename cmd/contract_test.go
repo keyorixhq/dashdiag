@@ -107,3 +107,78 @@ func TestGatesCommandsWireExitCode(t *testing.T) {
 		}
 	}
 }
+
+// ── --json contract (prevents the #74 class: a command silently ignoring --json
+// and printing the human report) ──────────────────────────────────────────────
+
+// jsonContract classifies each subcommand for --json. "json" = a diagnostic
+// command that must emit machine-readable JSON; otherwise a documented exemption
+// (meta/utility commands that have no data payload).
+var jsonContract = map[string]string{
+	"health": "json", "cpu": "json", "disk": "json", "net": "json",
+	"docker": "json", "k8s": "json", "security": "json", "services": "json",
+	"logs": "json", "hardware": "json", "thermal": "json", "gpu": "json",
+	"cron": "json", "cve": "json", "fleet": "json", "steamos": "json",
+	"tls": "json", "timeline": "json", "cis": "json", "kvm": "json",
+	"pve": "json", "proc": "json", "processes": "json", "inventory": "json",
+
+	"baseline":   "exempt: save/diff utility, no data payload",
+	"compare":    "exempt: report diff utility",
+	"update":     "exempt: self-updater",
+	"capture":    "exempt: dev capture utility",
+	"examples":   "exempt: prints usage examples",
+	"hook":       "exempt: internal hook helper",
+	"mock":       "exempt: dev mock utility",
+	"policy":     "exempt: prints policy info",
+	"story":      "exempt: dev/demo utility",
+	"tips":       "exempt: prints tips",
+	"completion": "exempt: cobra builtin",
+	"help":       "exempt: cobra builtin",
+}
+
+// jsonMechanisms are the ways a command may satisfy --json: the builder (which
+// owns the --json split), the shared encoder, or a direct json marshal.
+var jsonMechanisms = []string{
+	"runDiagnostic", "outputJSON", "ModeJSON", "json.Marshal", "json.NewEncoder", "isJSON",
+}
+
+// TestEverySubcommandClassifiedForJSON forces every registered command into the
+// --json classification — a new command can't silently skip --json the way `net`
+// did (#74).
+func TestEverySubcommandClassifiedForJSON(t *testing.T) {
+	for _, c := range rootCmd.Commands() {
+		if _, ok := jsonContract[c.Name()]; !ok {
+			t.Errorf("subcommand %q is unclassified for the --json contract — add it to "+
+				"jsonContract as \"json\" (wire runDiagnostic/outputJSON) or \"exempt:<reason>\". "+
+				"Prevents the #74 class (a command that ignores --json and prints the human report).",
+				c.Name())
+		}
+	}
+}
+
+// TestJSONCommandsWireJSON confirms a "json" classification is not a lie: the
+// command's source must reference a JSON mechanism.
+func TestJSONCommandsWireJSON(t *testing.T) {
+	for name, status := range jsonContract {
+		if status != "json" {
+			continue
+		}
+		src, err := os.ReadFile(name + ".go")
+		if err != nil {
+			t.Errorf("%q is \"json\" but %s.go is unreadable (%v)", name, name, err)
+			continue
+		}
+		body := string(src)
+		wired := false
+		for _, m := range jsonMechanisms {
+			if strings.Contains(body, m) {
+				wired = true
+				break
+			}
+		}
+		if !wired {
+			t.Errorf("%q is classified \"json\" but %s.go wires no JSON mechanism %v — "+
+				"route it through runDiagnostic or emit outputJSON", name, name, jsonMechanisms)
+		}
+	}
+}
