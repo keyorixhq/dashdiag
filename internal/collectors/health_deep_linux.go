@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -99,9 +100,15 @@ func readProcStatCores() ([]coreSnapshot, error) {
 		return nil, err
 	}
 	defer f.Close() //nolint:errcheck
+	return parseProcStatCores(f)
+}
 
+// parseProcStatCores parses the per-core ("cpu0".."cpuN") lines of /proc/stat,
+// skipping the aggregate "cpu " line. Split out from readProcStatCores so the
+// high-core-count path is unit-testable with a synthetic fixture.
+func parseProcStatCores(r io.Reader) ([]coreSnapshot, error) {
 	var snaps []coreSnapshot
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "cpu") || line[:4] == "cpu " {
