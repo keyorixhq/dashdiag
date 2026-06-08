@@ -546,6 +546,10 @@ func runNetDNS(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return result.Err
 	}
+	// Propagate DNS severity to the exit code so `dsd net dns` gates in CI like
+	// the parent `dsd net` does (checkDNS emits CRIT on external-resolution
+	// failure). Without this the subcommand always exited 0.
+	recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		enc := json.NewEncoder(os.Stdout)
