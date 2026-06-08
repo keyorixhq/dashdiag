@@ -229,6 +229,51 @@ func TestComputeDiff_NewCheckInAfter(t *testing.T) {
 	}
 }
 
+// A new healthy check must NOT be reported as a (degraded) status change; a new
+// problem check must be. Regression for the zero-value "->OK" misclassification.
+func TestComputeDiff_NewCheckClassification(t *testing.T) {
+	before := &Snapshot{Checks: []CheckResult{{Name: "cpu", Status: "OK"}}}
+	after := &Snapshot{Checks: []CheckResult{
+		{Name: "cpu", Status: "OK"},
+		{Name: "newok", Status: "OK"},     // new + healthy → not a change
+		{Name: "newwarn", Status: "WARN"}, // new + problem → degraded change
+	}}
+	byName := map[string]DiffEntry{}
+	for _, d := range ComputeDiff(before, after) {
+		byName[d.Name] = d
+	}
+	if d := byName["newok"]; d.Changed {
+		t.Errorf("new healthy check must not be Changed, got %+v", d)
+	}
+	if d := byName["newwarn"]; !d.Changed || d.Improved {
+		t.Errorf("new WARN check must be a degraded change, got %+v", d)
+	}
+}
+
+// A WARN/CRIT check that vanishes from the current run must surface (not be
+// silently dropped); a vanished OK check stays quiet.
+func TestComputeDiff_DisappearedCheck(t *testing.T) {
+	before := &Snapshot{Checks: []CheckResult{
+		{Name: "nfs", Status: "CRIT"},
+		{Name: "cpu", Status: "OK"},
+	}}
+	after := &Snapshot{Checks: []CheckResult{{Name: "cpu", Status: "OK"}}}
+
+	var nfs *DiffEntry
+	diff := ComputeDiff(before, after)
+	for i := range diff {
+		if diff[i].Name == "nfs" {
+			nfs = &diff[i]
+		}
+	}
+	if nfs == nil {
+		t.Fatal("vanished CRIT check 'nfs' must be surfaced, not dropped")
+	}
+	if !nfs.Changed || nfs.After != "absent" {
+		t.Errorf("vanished check entry = %+v, want Changed with After=absent", *nfs)
+	}
+}
+
 func TestLoadBaseline_MissingFile(t *testing.T) {
 	dir := t.TempDir()
 	_, err := LoadBaseline(filepath.Join(dir, "nonexistent.json"))
