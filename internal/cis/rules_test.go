@@ -208,6 +208,11 @@ func TestStructDrivenRules(t *testing.T) {
 		// 5.2.18 MaxStartups
 		{"5.2.18 unset fails", "5.2.18", models.SecurityInfo{}, models.CISFail},
 		{"5.2.18 set passes", "5.2.18", models.SecurityInfo{SSHMaxStartups: "10:30:60"}, models.CISPass},
+		// `sshd -T` always emits the compiled default 10:30:100 — it must FAIL
+		// (full 100 > 60), not pass on mere presence.
+		{"5.2.18 openssh default 10:30:100 fails", "5.2.18", models.SecurityInfo{SSHMaxStartups: "10:30:100"}, models.CISFail},
+		{"5.2.18 high start fails", "5.2.18", models.SecurityInfo{SSHMaxStartups: "20:30:60"}, models.CISFail},
+		{"5.2.18 bare compliant value passes", "5.2.18", models.SecurityInfo{SSHMaxStartups: "10"}, models.CISPass},
 
 		// 5.2.19 MaxSessions (default 10)
 		{"5.2.19 default 10 passes", "5.2.19", models.SecurityInfo{}, models.CISPass},

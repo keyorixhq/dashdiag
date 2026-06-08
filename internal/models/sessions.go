@@ -19,4 +19,5 @@ type SessionsInfo struct {
 	UniqueIPs   []string  `json:"unique_ips,omitempty"`
 	RootSSH     bool      `json:"root_ssh"`            // root logged in via SSH
 	LongIdle    []string  `json:"long_idle,omitempty"` // users idle > 8 hours
+	IsPVE       bool      `json:"is_pve,omitempty"`    // host is Proxmox VE — root SSH is expected
 }

@@ -276,6 +276,34 @@ Priority: low. Does not advance the pilot. Tackle at a quiet, stable moment (not
 
 ## 🐞 Known Bugs
 
+### ~~False-positive sweep — 8 fixes~~ ✅ FIXED (2026-06-08, branch `hardening/false-positive-sweep`)
+
+**Found:** 2026-06-08, a dedicated *false-positive* audit (distinct from the
+correctness bug-hunts below) ahead of the VMware pilot — hunting WARN/CRIT
+insights that fire on a legitimate/healthy/just-different config, since a wrong
+insight on a healthy box destroys demo credibility. Five parallel agents swept
+CPU/mem/disk, net/services, security/CIS, containers/platform, gpu/tls/cve/proc;
+findings verified against source before fixing. Eight fixed (memory overcommit-mode
+gate, HDD %util, ZFS scrub-in-progress, DNS internal-only, NFSv4 rpcbind, Docker
+firewalld trusted-zone, sessions root-SSH PVE exemption, CIS 5.2.18 MaxStartups
+always-pass). Each has a regression test; smoke-tested on pve01.
+
+**Deferred — verified findings NOT fixed in this pass (your call / needs infra):**
+- **K8s deep: Flannel-specific checks CRIT on Calico/Cilium** (`heuristics.go` checkK8sOSLayer — `FlannelSubnetOK`/`CNIBinsOK`/`KubeForwardChain`). Real FP, but a correct fix needs CNI detection and a real Calico/Cilium cluster to validate — rushing risks a worse bug. `dsd k8s --deep` only.
+- **CVE apt: `python3`/`perl`/`ruby` updates classed IMPORTANT regardless of CVSS** (`cve_linux.go` aptPackageSeverity). Deliberate heuristic (apt exposes no CVSS) — product call whether to keep, narrow, or annotate.
+- **ZFS cumulative vdev error counters → CRIT forever** until `zpool clear`, even after a scrub repaired a transient error. Downgrading risks masking real corruption — needs a judgment call on severity/wording.
+- **NVMe/SATA power-on-hours WARN says "consumer lifespan"** on enterprise drives (35k/43.8k-hour thresholds). Wording + thresholds are a product call.
+- **Swap-activity WARN at >0 pages/s** incl. normal zram churn (Ubuntu/Fedora default). Threshold tune (raise floor; context when zram present).
+- **Docker DNS-trap WARN** stays WARN even when daemon DNS is configured (it reads the field but only changes the note) — downgrade-to-INFO judgment call.
+- **Docker stopped-container WARN (>5)** counts clean-exit (exit 0) oneshot/init containers — needs exit-code/restart-policy data threaded into the count.
+- **PVE no-backup CRIT** on template-only nodes / remote (NFS/SMB) backup storage the on-disk scan misses.
+- **Network deep: ListenOverflows CRIT / SynRetrans WARN** use cumulative-since-boot counters with present-tense wording (`dsd net --deep`).
+- **GPU APU VRAM-pressure WARN** ignores `IsAPU` (small shared carveout fills to 90% by design). AMD-APU hosts only.
+- **SSH file-parse fallback** reads `Match`-block overrides as global settings (non-root path on RHEL-family). Real, lower demo-risk.
+- **CIS 5.2.2 AllowUsers/AllowGroups** false-FAILs on SSSD/AD hosts — but this is what the CIS benchmark literally requires, so arguably working-as-specified (consider a MANUAL/note, not a code change).
+- **suspect-cron `curl`/`/tmp/` patterns** + **SUID-in-`/opt` allowlist** flag legitimate monitoring crons / vendor agents — narrowing both is reasonable but low-priority.
+- **(false NEGATIVE) sudoers `NOPASSWD: ALL`** can be skipped by the Mint-default `ALL`-user guard — security gap worth a follow-up.
+
 ### ~~Full-subsystem bug-hunt — 27 fixes~~ ✅ FIXED (2026-06-08, PRs #85–#111)
 
 **Found:** 2026-06-08, an adversarial bug-hunt across every subsystem (cmd, analysis,

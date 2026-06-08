@@ -2,7 +2,32 @@
 
 package collectors
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// A scrub running right now must read as "scrubbed today" (age 0), not the
+// "never scrubbed" default — otherwise dsd WARNs during a scheduled scrub.
+func TestMergeZpoolStatusScrubInProgress(t *testing.T) {
+	t.Parallel()
+	pools := map[string]models.ZFSPool{"tank": {Name: "tank", ScrubAgeDays: -1}}
+	const status = `  pool: tank
+ state: ONLINE
+  scan: scrub in progress since Sun Jun  8 02:00:01 2026
+	1.20T scanned at 2.50G/s, 800G issued at 1.60G/s, 4.00T total
+
+config:
+	NAME        STATE     READ WRITE CKSUM
+	tank        ONLINE       0     0     0
+
+errors: No known data errors`
+	mergeZpoolStatus(status, pools)
+	if got := pools["tank"].ScrubAgeDays; got != 0 {
+		t.Errorf("scrub-in-progress ScrubAgeDays = %d, want 0 (healthy, scrubbing now)", got)
+	}
+}
 
 func TestParseZFSVdevErrors(t *testing.T) {
 	t.Parallel()

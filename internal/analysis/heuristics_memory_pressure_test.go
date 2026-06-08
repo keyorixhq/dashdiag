@@ -27,7 +27,9 @@ func TestCheckMemory(t *testing.T) {
 		{"below warn is clean", models.MemoryInfo{UsedPct: 10, TotalGB: 16}, noCtr, ""},
 		{"at warn threshold is WARN", models.MemoryInfo{UsedPct: defaultThresh.RAMWarnPct, TotalGB: 16, FreeGB: 3}, noCtr, "WARN"},
 		{"at crit threshold is CRIT", models.MemoryInfo{UsedPct: defaultThresh.RAMCritPct, TotalGB: 16, FreeGB: 1}, noCtr, "CRIT"},
-		{"overcommitted is CRIT", models.MemoryInfo{UsedPct: 10, TotalGB: 16, OverCommitted: true}, noCtr, "CRIT"},
+		{"overcommitted is CRIT only in strict mode (2)", models.MemoryInfo{UsedPct: 10, TotalGB: 16, OverCommitted: true, OvercommitMode: 2}, noCtr, "CRIT"},
+		{"overcommitted in heuristic mode (0) is not flagged", models.MemoryInfo{UsedPct: 10, TotalGB: 16, OverCommitted: true, OvercommitMode: 0}, noCtr, ""},
+		{"overcommitted in always-overcommit mode (1) is not flagged", models.MemoryInfo{UsedPct: 10, TotalGB: 16, OverCommitted: true, OvercommitMode: 1}, noCtr, ""},
 		// SlabMB 4000 of 16 GB ≈ 24% > SlabWarnPct(20).
 		{"high slab is WARN on host", models.MemoryInfo{UsedPct: 10, TotalGB: 16, SlabMB: 4000}, noCtr, "WARN"},
 		{"high slab suppressed in container", models.MemoryInfo{UsedPct: 10, TotalGB: 16, SlabMB: 4000}, inCtr, ""},

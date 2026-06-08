@@ -84,9 +84,16 @@ func TestMemoryUsedPctThresholds(t *testing.T) {
 }
 
 func TestMemoryOverCommitted(t *testing.T) {
-	insights := ApplyThresholds(res(models.MemoryInfo{OverCommitted: true, TotalGB: 16}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
-	if !hasLevel(insights, "CRIT") {
-		t.Error("expected CRIT for OverCommitted=true")
+	// CommitLimit is only enforced under strict accounting (vm.overcommit_memory=2),
+	// so only mode 2 is a real OOM risk worth a CRIT.
+	strict := ApplyThresholds(res(models.MemoryInfo{OverCommitted: true, OvercommitMode: 2, TotalGB: 16}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if !hasLevel(strict, "CRIT") {
+		t.Error("expected CRIT for OverCommitted=true in strict mode (2)")
+	}
+	// Default heuristic mode (0): exceeding CommitLimit is normal — no false CRIT.
+	heuristic := ApplyThresholds(res(models.MemoryInfo{OverCommitted: true, OvercommitMode: 0, TotalGB: 16}), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
+	if hasLevel(heuristic, "CRIT") {
+		t.Error("must NOT CRIT for OverCommitted=true in heuristic mode (0)")
 	}
 }
 
