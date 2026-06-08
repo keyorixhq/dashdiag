@@ -627,6 +627,15 @@ func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
 		fmt.Fprintln(os.Stdout, "\n🔍  DNS resolver audit")
 	}
 
+	// The audit is Linux-only (resolv.conf / NetworkManager / systemd-resolved).
+	// Off Linux every field is the zero value, so report it as unavailable
+	// rather than rendering "External resolution FAILED" / "none configured",
+	// which would read as real failures.
+	if !info.Available {
+		printLine(mode, "info", "Resolver audit", "not available on this platform (Linux only)")
+		return
+	}
+
 	// Manager + config source
 	printLine(mode, "info", "Manager", info.Manager)
 	if info.ConfigFile != "" && info.ConfigFile != "/etc/resolv.conf" {

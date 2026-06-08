@@ -2,6 +2,12 @@ package models
 
 // DNSResolverInfo is the output of the DNS resolver audit (`dsd net deep`).
 type DNSResolverInfo struct {
+	// Available is false when the resolver audit cannot run on this platform
+	// (the audit is Linux-only — it reads /etc/resolv.conf, NetworkManager and
+	// systemd-resolved). Consumers render a "not available" notice instead of
+	// the zero-value fields, which would otherwise read as real failures.
+	Available bool `json:"available"`
+
 	// Configuration source
 	Manager    string `json:"manager"`     // "systemd-resolved", "NetworkManager", "static", "none"
 	ConfigFile string `json:"config_file"` // /etc/resolv.conf path (or symlink target)
