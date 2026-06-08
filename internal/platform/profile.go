@@ -203,9 +203,42 @@ func detectResolved() bool {
 	return systemctlIsActive("systemd-resolved")
 }
 
-// detectSELinux reports the SELinux mode from /sys/fs/selinux/enforce.
+// detectSELinux reports the SELinux mode from /sys/fs/selinux/enforce, falling
+// back to /etc/selinux/config to tell a config-disabled install ("disabled")
+// from a system without SELinux at all ("not-present").
 func detectSELinux() string {
-	return detectSELinuxFromPath("/sys/fs/selinux/enforce")
+	return detectSELinuxFromPaths("/sys/fs/selinux/enforce", "/etc/selinux/config")
+}
+
+// detectSELinuxFromPaths layers the /etc/selinux/config check on top of the
+// enforce-node read: when the enforce node is absent (SELinux not mounted) but
+// the config explicitly says SELINUX=disabled, report "disabled" rather than
+// "not-present" — the former is an actionable admin choice, the latter just
+// means the distro ships no SELinux.
+func detectSELinuxFromPaths(enforcePath, configPath string) string {
+	mode := detectSELinuxFromPath(enforcePath)
+	if mode == "not-present" && selinuxConfigDisabled(configPath) {
+		return "disabled"
+	}
+	return mode
+}
+
+// selinuxConfigDisabled reports whether /etc/selinux/config sets SELINUX=disabled.
+func selinuxConfigDisabled(configPath string) bool {
+	data, err := os.ReadFile(configPath) // #nosec G304 -- fixed system path
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if v, ok := strings.CutPrefix(line, "SELINUX="); ok {
+			return strings.TrimSpace(v) == "disabled"
+		}
+	}
+	return false
 }
 
 // detectSELinuxFromPath is the testable core of detectSELinux.

@@ -112,7 +112,8 @@ func TestIsEUI48(t *testing.T) {
 			t.Errorf("%q should be valid EUI-48", m)
 		}
 	}
-	invalid := []string{"", "00:00:00:00", "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00", "zz:bb:cc:dd:ee:ff", "aabbccddeeff"}
+	invalid := []string{"", "00:00:00:00", "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00", "zz:bb:cc:dd:ee:ff", "aabbccddeeff",
+		"00:00:00:00:00:00"} // all-zero MAC (bond/virtual) is not real hardware
 	for _, m := range invalid {
 		if isEUI48(m) {
 			t.Errorf("%q should be invalid", m)
