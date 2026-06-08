@@ -74,6 +74,12 @@ func TestCheckGPU(t *testing.T) {
 		{"elevated gpu is WARN", dev(models.GPUDevice{Name: "card0", TempC: 82}), "WARN"},
 		{"junction emergency is CRIT", dev(models.GPUDevice{Name: "card0", TempJunctionC: 105}), "CRIT"},
 		{"tdp throttling is WARN", dev(models.GPUDevice{Name: "card0", Throttling: true, TDPCurrentW: 15, TDPLimitW: 15}), "WARN"},
+		// VRAM pressure: a discrete GPU at 95% is a real WARN; an APU at 95% is
+		// normal (small shared-RAM carveout fills by design) and must stay silent.
+		{"discrete GPU high VRAM is WARN", dev(models.GPUDevice{Name: "card0", TempC: 50, VRAMUsedPct: 95}), "WARN"},
+		{"APU high VRAM is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, VRAMUsedPct: 95, IsAPU: true}), ""},
+		{"discrete GPU high MemUsedPct is WARN", dev(models.GPUDevice{Name: "card0", TempC: 50, MemUsedPct: 90}), "WARN"},
+		{"APU high MemUsedPct is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, MemUsedPct: 90, IsAPU: true}), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
