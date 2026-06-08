@@ -3,10 +3,68 @@
 package collectors
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+func TestSudoGrantsAllCommands(t *testing.T) {
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"ALL ALL=(ALL:ALL) NOPASSWD: ALL", true},                 // full passwordless root
+		{"%wheel ALL=(ALL) NOPASSWD:ALL", true},                   // no space after colon
+		{"ALL ALL=(ALL) NOPASSWD: ALL, /bin/systemctl", true},     // ALL first in list
+		{"ALL ALL=(root) NOPASSWD: /usr/sbin/mintdrivers", false}, // specific command (Mint)
+		{"deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart app", false},
+		{"# ALL ALL=(ALL) NOPASSWD: ALL", true}, // sudoGrantsAllCommands itself doesn't skip comments (caller does)
+		{"no nopasswd here", false},
+	}
+	for _, c := range cases {
+		if got := sudoGrantsAllCommands(c.line); got != c.want {
+			t.Errorf("sudoGrantsAllCommands(%q) = %v, want %v", c.line, got, c.want)
+		}
+	}
+}
+
+// A system-wide "NOPASSWD: ALL" (full passwordless root) must be flagged, while
+// a Mint-style "ALL ... NOPASSWD: <specific command>" stays correctly skipped.
+func TestParseSudoersFileFullEscalationFlagged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sudoers")
+	content := "# comment line\n" +
+		"ALL ALL=(root) NOPASSWD: /usr/sbin/mintdrivers\n" + // benign, must skip
+		"deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl\n" + // specific user, captured
+		"ALL ALL=(ALL:ALL) NOPASSWD: ALL\n" // full root, must be captured
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := &models.SecurityInfo{}
+	parseSudoersFile(path, info)
+
+	has := func(u string) bool {
+		for _, e := range info.SudoNopasswd {
+			if e == u {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("ALL") {
+		t.Errorf("full 'NOPASSWD: ALL' escalation must be flagged, got %v", info.SudoNopasswd)
+	}
+	if !has("deploy") {
+		t.Errorf("specific-user NOPASSWD entry should be captured, got %v", info.SudoNopasswd)
+	}
+	// The Mint-style specific-command ALL line contributes only the full-root "ALL"
+	// (one ALL entry), so there must be exactly two entries total: deploy + ALL.
+	if len(info.SudoNopasswd) != 2 {
+		t.Errorf("expected 2 entries (deploy, ALL), got %v", info.SudoNopasswd)
+	}
+}
 
 // Characterization tests for previously-uncovered pure parsers in
 // security_linux.go. They lock in current behavior so the parser-hardening work
