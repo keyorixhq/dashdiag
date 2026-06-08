@@ -109,3 +109,67 @@ func TestCollectNICDriversMissingDir(t *testing.T) {
 		t.Errorf("missing net dir should yield nil/nil, got %v/%v", drivers, emulated)
 	}
 }
+
+func TestParseLeadingInt(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{"128 MB", 128, true},
+		{"  1500 MHz\n", 1500, true},
+		{"0 MB", 0, true},
+		{"Unlimited", 0, false},
+		{"", 0, false},
+		{"MB 128", 0, false}, // integer must be at the start
+	}
+	for _, c := range cases {
+		got, ok := parseLeadingInt(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("parseLeadingInt(%q) = (%d,%v), want (%d,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestCollectSCSITimeouts(t *testing.T) {
+	root := t.TempDir()
+	// sda below the recommendation, sdb compliant, vda (virtio-blk) must be
+	// ignored, sdc with an unreadable timeout must be skipped (not flagged).
+	mk := func(dev, timeout string) {
+		dir := filepath.Join(root, dev, "device")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if timeout != "" {
+			if err := os.WriteFile(filepath.Join(dir, "timeout"), []byte(timeout), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	mk("sda", "30\n")
+	mk("sdb", "180\n")
+	mk("vda", "30\n") // virtio-blk — not SCSI, must be ignored
+	mk("sdc", "")     // no timeout file — skipped
+
+	timeouts, low := collectSCSITimeouts(root)
+
+	if timeouts["sda"] != 30 || timeouts["sdb"] != 180 {
+		t.Errorf("timeouts = %v, want sda=30 sdb=180", timeouts)
+	}
+	if _, ok := timeouts["vda"]; ok {
+		t.Error("virtio-blk (vda) must not be scanned")
+	}
+	if _, ok := timeouts["sdc"]; ok {
+		t.Error("disk with no timeout file must be skipped")
+	}
+	if len(low) != 1 || low[0] != "sda" {
+		t.Errorf("low = %v, want [sda] (sdb is compliant at 180s)", low)
+	}
+}
+
+func TestCollectSCSITimeoutsMissingDir(t *testing.T) {
+	timeouts, low := collectSCSITimeouts(filepath.Join(t.TempDir(), "nope"))
+	if timeouts != nil || low != nil {
+		t.Errorf("missing block dir should yield nil/nil, got %v/%v", timeouts, low)
+	}
+}
