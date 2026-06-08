@@ -15,6 +15,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 var tlsCmd = &cobra.Command{
@@ -63,6 +64,12 @@ func runTLS(cmd *cobra.Command, args []string) error {
 	endpoints, _ := cmd.Flags().GetStringArray("endpoint")
 	endpointsFile, _ := cmd.Flags().GetString("endpoints-file")
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	plain, _ := cmd.Flags().GetBool("plain")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	// Remote endpoints: --endpoint flags first, then file lines.
 	remotes := append([]string{}, endpoints...)
@@ -99,14 +106,14 @@ func runTLS(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	renderTLSResults(results, showAll)
+	renderTLSResults(results, showAll, mode)
 	return nil
 }
 
 // renderTLSResults sorts, prints, and summarizes scan results. It calls
 // os.Exit(2) when any cert is CRIT and os.Exit(1) when any is WARN — matching
 // the original dsd tls exit-code contract.
-func renderTLSResults(results []certResult, showAll bool) {
+func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode) {
 	// Sort: CRIT first, then WARN, then OK, then ERR
 	order := map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, "ERR": 3}
 	sort.Slice(results, func(i, j int) bool {
@@ -134,28 +141,30 @@ func renderTLSResults(results []certResult, showAll bool) {
 		if !showAll && r.Level == "OK" {
 			continue
 		}
-		printCertResult(r)
+		printCertResult(r, mode)
 	}
 
 	// Summary
 	fmt.Printf("%s\n", sep)
 	if crits > 0 {
-		fmt.Printf("❌  %d CRIT  ⚠️  %d WARN  ✅  %d OK\n", crits, warns, oks)
+		fmt.Printf("%s %d CRIT  %s %d WARN  %s %d OK\n",
+			asciiOr("fail", "❌ ", mode), crits, asciiOr("warn", "⚠️ ", mode), warns, asciiOr("ok", "✅ ", mode), oks)
 		os.Exit(2)
 	}
 	if warns > 0 {
-		fmt.Printf("⚠️   %d WARN  ✅  %d OK\n", warns, oks)
+		fmt.Printf("%s  %d WARN  %s %d OK\n",
+			asciiOr("warn", "⚠️ ", mode), warns, asciiOr("ok", "✅ ", mode), oks)
 		os.Exit(1)
 	}
-	fmt.Printf("✅  All %d certificate(s) healthy\n", oks)
+	fmt.Printf("%s All %d certificate(s) healthy\n", asciiOr("ok", "✅ ", mode), oks)
 	if !showAll {
 		fmt.Println("    (use --all to show individual certs)")
 	}
 }
 
 // printCertResult prints a single cert/endpoint result block.
-func printCertResult(r certResult) {
-	icon := levelIcon(r.Level)
+func printCertResult(r certResult, mode output.OutputMode) {
+	icon := levelIcon(r.Level, mode)
 	tag := ""
 	if r.Remote {
 		tag = "  [remote]"
@@ -276,16 +285,16 @@ func autoDetectCertPaths() []string {
 	return paths
 }
 
-func levelIcon(level string) string {
+func levelIcon(level string, mode output.OutputMode) string {
 	switch level {
 	case "CRIT":
-		return "❌"
+		return asciiOr("fail", "❌", mode)
 	case "WARN":
-		return "⚠️ "
+		return asciiOr("warn", "⚠️ ", mode)
 	case "OK":
-		return "✅"
+		return asciiOr("ok", "✅", mode)
 	default:
-		return "ℹ️ "
+		return asciiOr("info", "ℹ️ ", mode)
 	}
 }
 

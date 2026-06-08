@@ -28,11 +28,6 @@ var pveCmd = &cobra.Command{
 }
 
 func runPVE(cmd *cobra.Command, _ []string) error {
-	if !collectors.IsPVEHost() {
-		fmt.Println("ℹ️  Not a Proxmox VE node — dsd pve requires a Proxmox host")
-		return nil
-	}
-
 	deep, _ := cmd.Flags().GetBool("deep")
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")
@@ -41,6 +36,11 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 		outputFmt = "json"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
+
+	if !collectors.IsPVEHost() {
+		fmt.Println(asciiOr("info", "ℹ️ ", mode) + " Not a Proxmox VE node — dsd pve requires a Proxmox host")
+		return nil
+	}
 
 	timeout := 18 * time.Second
 	if deep {
@@ -78,7 +78,7 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 		return printPVEJSON(info)
 	}
 
-	printPVEReport(info, deep, elapsed)
+	printPVEReport(info, deep, elapsed, mode)
 	return nil
 }
 
@@ -87,7 +87,7 @@ func printPVEJSON(info *models.PVEInfo) error {
 	return outputJSON(os.Stdout, info)
 }
 
-func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
+func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration, mode output.OutputMode) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -95,32 +95,32 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
 	fmt.Println(sep)
 
 	// Node overview
-	printPVENode(info)
+	printPVENode(info, mode)
 
 	// VMs and containers
-	printPVEGuests(info)
+	printPVEGuests(info, mode)
 
 	// Storage
-	printPVEStorage(info)
+	printPVEStorage(info, mode)
 
 	// Task errors
-	printPVETaskErrors(info)
+	printPVETaskErrors(info, mode)
 
 	// Cluster
-	printPVECluster(info)
+	printPVECluster(info, mode)
 
 	// Network bridges
-	printPVEBridges(info)
+	printPVEBridges(info, mode)
 
 	// Backup
-	printPVEBackup(info)
+	printPVEBackup(info, mode)
 
 	// Performance (deep)
 	if deep {
 		perfCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		info.Perf = collectors.CollectPVEPerf(perfCtx, "/var/lib/vz")
-		printPVEPerf(info.Perf)
+		printPVEPerf(info.Perf, mode)
 	}
 
 	// Summary
@@ -128,13 +128,13 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration) {
 	fmt.Println(sep)
 	issues := countPVEIssues(info)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Proxmox VE healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Proxmox VE healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d concern(s) found%s", issues, timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d concern(s) found%s", asciiOr("warn", "⚠️ ", mode), issues, timing)))
 	}
 }
 
-func printPVENode(info *models.PVEInfo) {
+func printPVENode(info *models.PVEInfo, mode output.OutputMode) {
 	fmt.Printf("\n[Proxmox Node]\n")
 
 	// Host line: hostname + PVE version / kernel
@@ -174,7 +174,7 @@ func printPVENode(info *models.PVEInfo) {
 	}
 	// Subscription
 	sub := info.Subscription
-	subIcon := "✅"
+	subIcon := asciiOr("ok", "✅", mode)
 	subDetail := sub.Status
 	switch strings.ToLower(sub.Status) {
 	case "active":
@@ -183,16 +183,16 @@ func printPVENode(info *models.PVEInfo) {
 			subDetail += " (" + sub.Product + ")"
 		}
 	case "notfound", "":
-		subIcon = "ℹ️ "
+		subIcon = asciiOr("info", "ℹ️ ", mode)
 		subDetail = "no subscription (community edition)"
 	case "expired":
-		subIcon = "⚠️ "
+		subIcon = asciiOr("warn", "⚠️ ", mode)
 		subDetail = "subscription expired"
 	}
 	fmt.Printf("  License:  %s %s\n", subIcon, subDetail)
 }
 
-func printPVEGuests(info *models.PVEInfo) {
+func printPVEGuests(info *models.PVEInfo, mode output.OutputMode) {
 	total := info.RunningCount + info.StoppedCount + info.PausedCount
 	if total == 0 {
 		fmt.Printf("\n[VMs & Containers]  none\n")
@@ -206,18 +206,18 @@ func printPVEGuests(info *models.PVEInfo) {
 	fmt.Println(")")
 
 	for _, g := range info.Guests {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		note := ""
 		switch g.Status {
 		case "paused":
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 			note = "  [unexpected pause — migration hung?]"
 		case "stopped":
 			if g.OnBoot {
-				icon = "⚠️ "
+				icon = asciiOr("warn", "⚠️ ", mode)
 				note = "  [autostart ON — should be running]"
 			} else {
-				icon = "ℹ️ "
+				icon = asciiOr("info", "ℹ️ ", mode)
 				note = "  [autostart OFF]"
 			}
 		}
@@ -232,44 +232,44 @@ func printPVEGuests(info *models.PVEInfo) {
 	// Resource overcommit check
 	if info.PhysicalCores > 0 && info.TotalVCPUs > 0 {
 		ratio := float64(info.TotalVCPUs) / float64(info.PhysicalCores)
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if ratio > 8 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if ratio > 4 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("\n  %s  vCPU ratio: %d vCPUs / %d cores (%.1f:1)\n",
 			icon, info.TotalVCPUs, info.PhysicalCores, ratio)
 	}
 	if info.HostMemGB > 0 && info.TotalMemGB > 0 {
 		pct := info.TotalMemGB / info.HostMemGB * 100
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if pct > 150 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if pct > 100 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  Memory assigned: %.1f GB / %.1f GB RAM (%.0f%%)\n",
 			icon, info.TotalMemGB, info.HostMemGB, pct)
 	}
 }
 
-func printPVEStorage(info *models.PVEInfo) {
+func printPVEStorage(info *models.PVEInfo, mode output.OutputMode) {
 	if len(info.Storages) == 0 {
 		return
 	}
 	fmt.Printf("\n[Storage]\n")
 	for _, s := range info.Storages {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		note := ""
 		if !s.Active {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 			note = "  UNAVAILABLE"
 		} else if s.UsedPct >= 95 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 			note = fmt.Sprintf("  CRIT: %.0f%% full", s.UsedPct)
 		} else if s.UsedPct >= 85 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 			note = fmt.Sprintf("  %.0f%% full", s.UsedPct)
 		}
 		sizeStr := ""
@@ -282,10 +282,10 @@ func printPVEStorage(info *models.PVEInfo) {
 	}
 }
 
-func printPVETaskErrors(info *models.PVEInfo) {
+func printPVETaskErrors(info *models.PVEInfo, mode output.OutputMode) {
 	fmt.Printf("\n[Recent Tasks]  (last 24h)\n")
 	if len(info.TaskErrors) == 0 {
-		fmt.Println("  ✅  No task errors")
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  No task errors")
 		return
 	}
 
@@ -293,9 +293,9 @@ func printPVETaskErrors(info *models.PVEInfo) {
 	critTypes := pveTaskErrorCritTypes(info.TaskErrors)
 
 	for _, e := range info.TaskErrors {
-		icon := "⚠️ "
+		icon := asciiOr("warn", "⚠️ ", mode)
 		if critTypes[e.Type] {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		}
 		msg := e.Msg
 		if len(msg) > 80 {
@@ -309,20 +309,20 @@ func printPVETaskErrors(info *models.PVEInfo) {
 	}
 }
 
-func printPVECluster(info *models.PVEInfo) {
+func printPVECluster(info *models.PVEInfo, mode output.OutputMode) {
 	if info.ClusterName == "" && len(info.Nodes) == 0 {
 		return // single-node, no cluster
 	}
 	fmt.Printf("\n[Cluster]  %s\n", info.ClusterName)
 	if info.QuorumOK {
-		fmt.Println("  ✅  Quorate: yes")
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  Quorate: yes")
 	} else {
-		fmt.Println("  ❌  Quorate: NO — split-brain risk")
+		fmt.Println("  " + asciiOr("fail", "❌", mode) + "  Quorate: NO — split-brain risk")
 	}
 	for _, n := range info.Nodes {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if !n.Online {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		status := "online"
 		if !n.Online {
@@ -332,13 +332,13 @@ func printPVECluster(info *models.PVEInfo) {
 	}
 }
 
-func printPVEBackup(info *models.PVEInfo) {
+func printPVEBackup(info *models.PVEInfo, mode output.OutputMode) {
 	fmt.Printf("\n[Backups]\n")
 
 	// Per-VM/CT audit when available (templates already excluded by the collector).
 	if len(info.BackupStatuses) > 0 {
 		for _, b := range info.BackupStatuses {
-			icon, ageStr := pveBackupIconAge(b.LastBackupDays)
+			icon, ageStr := pveBackupIconAge(b.LastBackupDays, mode)
 			fmt.Printf("  %s  %-5d %-20s last backup: %s\n", icon, b.VMID, b.Name, ageStr)
 		}
 		return
@@ -346,89 +346,89 @@ func printPVEBackup(info *models.PVEInfo) {
 
 	switch {
 	case info.BackupAgeDays < 0:
-		fmt.Println("  ❌  No successful backup found")
+		fmt.Println("  " + asciiOr("fail", "❌", mode) + "  No successful backup found")
 	case info.BackupAgeDays == 0:
-		fmt.Println("  ✅  Last successful backup: today")
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  Last successful backup: today")
 	case info.BackupAgeDays == 1:
-		fmt.Println("  ✅  Last successful backup: yesterday")
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  Last successful backup: yesterday")
 	case info.BackupAgeDays <= 7:
-		fmt.Printf("  ✅  Last successful backup: %d days ago\n", info.BackupAgeDays)
+		fmt.Printf("  %s  Last successful backup: %d days ago\n", asciiOr("ok", "✅", mode), info.BackupAgeDays)
 	case info.BackupAgeDays <= 30:
-		fmt.Printf("  ⚠️   Last successful backup: %d days ago\n", info.BackupAgeDays)
+		fmt.Printf("  %s  Last successful backup: %d days ago\n", asciiOr("warn", "⚠️ ", mode), info.BackupAgeDays)
 	default:
-		fmt.Printf("  ❌  Last successful backup: %d days ago\n", info.BackupAgeDays)
+		fmt.Printf("  %s  Last successful backup: %d days ago\n", asciiOr("fail", "❌", mode), info.BackupAgeDays)
 	}
 }
 
 // pveBackupIconAge maps backup age (days; -1 = never) to an icon and label.
 // > 30 days or never → CRIT, > 7 days → WARN, otherwise OK.
-func pveBackupIconAge(days int) (icon, ageStr string) {
+func pveBackupIconAge(days int, mode output.OutputMode) (icon, ageStr string) {
 	switch {
 	case days < 0:
-		return "❌", "never"
+		return asciiOr("fail", "❌", mode), "never"
 	case days == 0:
-		return "✅", "today"
+		return asciiOr("ok", "✅", mode), "today"
 	case days == 1:
-		return "✅", "1 day ago"
+		return asciiOr("ok", "✅", mode), "1 day ago"
 	case days <= 7:
-		return "✅", fmt.Sprintf("%d days ago", days)
+		return asciiOr("ok", "✅", mode), fmt.Sprintf("%d days ago", days)
 	case days <= 30:
-		return "⚠️ ", fmt.Sprintf("%d days ago", days)
+		return asciiOr("warn", "⚠️ ", mode), fmt.Sprintf("%d days ago", days)
 	default:
-		return "❌", fmt.Sprintf("%d days ago", days)
+		return asciiOr("fail", "❌", mode), fmt.Sprintf("%d days ago", days)
 	}
 }
 
-func printPVEPerf(perf *models.PVEPerf) {
+func printPVEPerf(perf *models.PVEPerf, mode output.OutputMode) {
 	if perf == nil {
 		return
 	}
 	fmt.Printf("\n[Storage Performance (pveperf %s)]\n", perf.Path)
 	if !perf.Available {
-		fmt.Println("  ℹ️   pveperf not found — install proxmox-ve package")
+		fmt.Println("  " + asciiOr("info", "ℹ️ ", mode) + "  pveperf not found — install proxmox-ve package")
 		return
 	}
 	if perf.BufferedReadMB > 0 {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if perf.BufferedReadMB < 50 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if perf.BufferedReadMB < 200 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  Buffered reads:  %.0f MB/s\n", icon, perf.BufferedReadMB)
 	}
 	if perf.FsyncsPerSec > 0 {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if perf.FsyncsPerSec < 100 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if perf.FsyncsPerSec < 500 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  Fsyncs/sec:      %.0f  (expected: > 500 for good VM stability)\n",
 			icon, perf.FsyncsPerSec)
 	}
 	if perf.AvgSeekMs > 0 {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if perf.AvgSeekMs > 10 {
-			icon = "❌"
+			icon = asciiOr("fail", "❌", mode)
 		} else if perf.AvgSeekMs > 2 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  Avg seek time:   %.2f ms\n", icon, perf.AvgSeekMs)
 	}
 	if perf.CPUBogomips > 0 {
-		fmt.Printf("  ✅  CPU bogomips:    %.0f\n", perf.CPUBogomips)
+		fmt.Printf("  %s  CPU bogomips:    %.0f\n", asciiOr("ok", "✅", mode), perf.CPUBogomips)
 	}
 	if perf.DNSExtMs > 0 {
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if perf.DNSExtMs > 500 {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  DNS ext:         %.0f ms\n", icon, perf.DNSExtMs)
 	}
 }
 
-func printPVEBridges(info *models.PVEInfo) {
+func printPVEBridges(info *models.PVEInfo, mode output.OutputMode) {
 	if len(info.Bridges) == 0 {
 		return
 	}
@@ -436,10 +436,10 @@ func printPVEBridges(info *models.PVEInfo) {
 	for _, b := range info.Bridges {
 		switch {
 		case !b.Active:
-			fmt.Printf("  ❌  %-8s DOWN  — VMs on this bridge lose network\n", b.Name)
+			fmt.Printf("  %s  %-8s DOWN  — VMs on this bridge lose network\n", asciiOr("fail", "❌", mode), b.Name)
 			continue
 		case !b.HasUplink:
-			fmt.Printf("  ⚠️   %-8s UP   ← no uplink interface attached\n", b.Name)
+			fmt.Printf("  %s  %-8s UP   ← no uplink interface attached\n", asciiOr("warn", "⚠️ ", mode), b.Name)
 			fmt.Println("       This bridge has no physical NIC — VMs on it are isolated.")
 			continue
 		}
@@ -448,9 +448,9 @@ func printPVEBridges(info *models.PVEInfo) {
 		if b.STPEnabled {
 			stp = "ON"
 		}
-		icon := "✅"
+		icon := asciiOr("ok", "✅", mode)
 		if b.STPEnabled {
-			icon = "⚠️ "
+			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		fmt.Printf("  %s  %-8s UP   ← %s  STP: %s", icon, b.Name, b.Ports, stp)
 		if b.STPEnabled {

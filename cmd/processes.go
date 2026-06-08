@@ -159,9 +159,9 @@ func printProcessesReport(ctx context.Context, info *models.ProcessInfo, mode ou
 	fmt.Println()
 	fmt.Println(sep)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Processes healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Processes healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("⚠️  %d process concern(s) found%s", issues, timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d process concern(s) found%s", asciiOr("warn", "⚠️ ", mode), issues, timing)))
 	}
 }
 

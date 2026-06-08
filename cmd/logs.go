@@ -86,11 +86,11 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
 	fmt.Printf("\nLog health — last %s\n", formatDuration(since))
-	printLogsSeverity(info)
-	printLogsOOM(info)
-	printLogsSegfaults(info)
-	printLogsCrashLoops(info)
-	printLogsCrashFiles(info)
+	printLogsSeverity(info, mode)
+	printLogsOOM(info, mode)
+	printLogsSegfaults(info, mode)
+	printLogsCrashLoops(info, mode)
+	printLogsCrashFiles(info, mode)
 	printLogsJournalSize(info)
 
 	fmt.Println()
@@ -104,19 +104,19 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 	}
 	issues += len(info.CrashLoops)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("✅ Logs healthy. Checks passed%s", timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Logs healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
-		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("❌ %d log issue(s) found%s", issues, timing)))
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s %d log issue(s) found%s", asciiOr("fail", "❌", mode), issues, timing)))
 	}
 }
 
-func printLogsSeverity(info *models.LogsInfo) {
+func printLogsSeverity(info *models.LogsInfo, mode output.OutputMode) {
 	if info.ErrorCount == 0 && info.WarningCount == 0 {
 		return
 	}
 	fmt.Printf("\nSeverity summary:\n")
 	if info.ErrorCount > 0 {
-		fmt.Printf("  ❌  Errors:   %d\n", info.ErrorCount)
+		fmt.Printf("  %s  Errors:   %d\n", asciiOr("fail", "❌", mode), info.ErrorCount)
 		if len(info.TopCritical) > 0 {
 			for _, e := range info.TopCritical {
 				if age := formatAgeMin(e.AgeMin); age != "" {
@@ -132,7 +132,7 @@ func printLogsSeverity(info *models.LogsInfo) {
 		}
 	}
 	if info.WarningCount > 0 {
-		fmt.Printf("  ⚠️   Warnings: %d\n", info.WarningCount)
+		fmt.Printf("  %s   Warnings: %d\n", asciiOr("warn", "⚠️", mode), info.WarningCount)
 	}
 }
 
@@ -156,7 +156,7 @@ func formatAgeMin(min int) string {
 	}
 }
 
-func printLogsOOM(info *models.LogsInfo) {
+func printLogsOOM(info *models.LogsInfo, mode output.OutputMode) {
 	fmt.Printf("\nOOM Kills: ")
 	if info.OOMKills == 0 {
 		fmt.Println("none")
@@ -164,12 +164,12 @@ func printLogsOOM(info *models.LogsInfo) {
 	}
 	fmt.Printf("%d\n", info.OOMKills)
 	for _, p := range info.OOMProcesses {
-		fmt.Printf("    ❌  %s\n", p)
+		fmt.Printf("    %s  %s\n", asciiOr("fail", "❌", mode), p)
 	}
 	fmt.Println("  → to inspect: dmesg | grep -i 'out of memory'")
 }
 
-func printLogsSegfaults(info *models.LogsInfo) {
+func printLogsSegfaults(info *models.LogsInfo, mode output.OutputMode) {
 	fmt.Printf("\nSegfaults: ")
 	if info.Segfaults == 0 {
 		fmt.Println("none")
@@ -177,12 +177,12 @@ func printLogsSegfaults(info *models.LogsInfo) {
 	}
 	fmt.Printf("%d\n", info.Segfaults)
 	for _, p := range info.SegfaultProcs {
-		fmt.Printf("    ⚠️   %s\n", p)
+		fmt.Printf("    %s   %s\n", asciiOr("warn", "⚠️", mode), p)
 	}
 	fmt.Println("  → to inspect: dmesg | grep segfault")
 }
 
-func printLogsCrashLoops(info *models.LogsInfo) {
+func printLogsCrashLoops(info *models.LogsInfo, mode output.OutputMode) {
 	fmt.Printf("\nCrash loops: ")
 	if len(info.CrashLoops) == 0 {
 		fmt.Println("none")
@@ -191,12 +191,12 @@ func printLogsCrashLoops(info *models.LogsInfo) {
 	fmt.Println()
 	for _, u := range info.CrashLoops {
 		unit := strings.Fields(u)[0]
-		fmt.Printf("    ❌  %s\n", u)
+		fmt.Printf("    %s  %s\n", asciiOr("fail", "❌", mode), u)
 		fmt.Printf("       → journalctl -u %s -n 20\n", unit)
 	}
 }
 
-func printLogsCrashFiles(info *models.LogsInfo) {
+func printLogsCrashFiles(info *models.LogsInfo, mode output.OutputMode) {
 	if info.CoreDumpCount == 0 {
 		return
 	}
@@ -206,7 +206,7 @@ func printLogsCrashFiles(info *models.LogsInfo) {
 		if cf.AgeDays > 0 {
 			ago = fmt.Sprintf("%dd ago", cf.AgeDays)
 		}
-		fmt.Printf("    ⚠️   %-50s %6.1fMB  %s\n", cf.Path, cf.SizeMB, ago)
+		fmt.Printf("    %s   %-50s %6.1fMB  %s\n", asciiOr("warn", "⚠️", mode), cf.Path, cf.SizeMB, ago)
 	}
 	fmt.Println("  → to analyse: journalctl -k -b -1 | tail -50")
 }
