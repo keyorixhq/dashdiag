@@ -302,7 +302,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 		}
 	}
 	if ctrCtx.InContainer {
-		fmt.Println("\n  ℹ️   Running inside a container")
+		fmt.Printf("\n  %s  Running inside a container\n", netMark("info", mode))
 	}
 
 	printNetSteamOSWifi(info)
