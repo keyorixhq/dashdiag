@@ -110,15 +110,18 @@ func TestCheckK8sWorkloadsAndEvents(t *testing.T) {
 }
 
 func TestCheckK8sOSLayer(t *testing.T) {
-	// Healthy OS layer (all gates pass).
-	ok := models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}
+	// Healthy OS layer (all gates pass; ip_forward read and enabled).
+	ok := models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}
 	tests := []struct {
 		name string
 		l    models.K8sOSLayer
 		want string
 	}{
 		{"healthy is clean", ok, ""},
-		{"ip forward off is CRIT", models.K8sOSLayer{FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}, "CRIT"},
+		{"ip forward checked + off is CRIT", models.K8sOSLayer{IPForwardChecked: true, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}, "CRIT"},
+		// /proc unreadable (IPForwardChecked=false) must NOT produce a false
+		// "IP forwarding disabled" CRIT — state is unknown, not disabled.
+		{"ip forward unchecked is not CRIT", models.K8sOSLayer{IPForwardChecked: false, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}, ""},
 		{"missing flannel subnet is CRIT", models.K8sOSLayer{IPForwardEnabled: true, CNIBinsOK: true, KubeForwardChain: true}, "CRIT"},
 		{"empty CNI bins is CRIT", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, KubeForwardChain: true}, "CRIT"},
 		{"missing kube-forward chain is WARN", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIBinsOK: true}, "WARN"},

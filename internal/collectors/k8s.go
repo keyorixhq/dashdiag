@@ -403,8 +403,10 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	_, err = runCmd(ctx, "systemctl", "is-active", "containerd")
 	layer.ContainerdActive = err == nil
 
-	// IP forwarding
+	// IP forwarding — leave IPForwardChecked false when /proc is unreadable so
+	// the heuristic treats it as "unknown" rather than a false "disabled" CRIT.
 	if data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil { // #nosec G304
+		layer.IPForwardChecked = true
 		layer.IPForwardEnabled = strings.TrimSpace(string(data)) == "1"
 	}
 

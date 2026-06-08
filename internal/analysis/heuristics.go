@@ -4845,7 +4845,9 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 	var out []models.Insight
 
-	if !l.IPForwardEnabled {
+	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
+	// at its false zero value, which must not be reported as a real "disabled".
+	if l.IPForwardChecked && !l.IPForwardEnabled {
 		out = append(out, insight("CRIT", "K8s",
 			"IP forwarding disabled — pod-to-pod networking will fail",
 			[]string{
