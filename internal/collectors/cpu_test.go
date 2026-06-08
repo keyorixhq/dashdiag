@@ -372,3 +372,20 @@ func TestCPUCollector_Collect_SelfSubtraction(t *testing.T) {
 		t.Errorf("UsagePct: got %v, want ~25%% (self-subtracted)", info.UsagePct)
 	}
 }
+
+func TestParseDarwinCPUUsage(t *testing.T) {
+	t.Parallel()
+	// Real `top -l 2` output: two samples, the second is authoritative.
+	out := "CPU usage: 1.00% user, 1.00% sys, 98.00% idle\n" +
+		"some other line\n" +
+		"CPU usage: 8.97% user, 4.77% sys, 86.25% idle\n"
+	got := parseDarwinCPUUsage(out)
+	// Must sum user (8.97) + sys (4.77) from the LAST sample — the prior code
+	// keyed off fields[0] ("CPU"), dropped user, and returned only 4.77.
+	if want := 8.97 + 4.77; got != want {
+		t.Errorf("parseDarwinCPUUsage = %.2f, want %.2f (user+sys of the second sample)", got, want)
+	}
+	if parseDarwinCPUUsage("no cpu usage line here") != 0 {
+		t.Error("missing CPU usage line should yield 0")
+	}
+}
