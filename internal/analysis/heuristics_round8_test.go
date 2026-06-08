@@ -42,6 +42,12 @@ func TestCheckHardware(t *testing.T) {
 		{"drive read error is WARN", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda", SmartctlAvailable: true, Error: "scan timeout"}}}, "WARN"},
 		{"EDAC uncorrected is CRIT", models.HardwareInfo{Memory: models.HardwareMemory{EDACAvailable: true, UncorrectedErrors: 1}}, "CRIT"},
 		{"EDAC corrected is WARN", models.HardwareInfo{Memory: models.HardwareMemory{EDACAvailable: true, CorrectedErrors: 150}}, "WARN"},
+		// Regression: a missing smartctl (synthetic SmartctlAvailable:false drive)
+		// must NOT short-circuit the EDAC/ECC memory check that follows the drive loop.
+		{"ECC fault surfaces even when smartctl is absent", models.HardwareInfo{
+			Drives: []models.HardwareDrive{{SmartctlAvailable: false}},
+			Memory: models.HardwareMemory{EDACAvailable: true, UncorrectedErrors: 1},
+		}, "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
