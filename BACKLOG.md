@@ -294,12 +294,12 @@ always-pass). Each has a regression test; smoke-tested on pve01.
 - **ZFS cumulative vdev error counters → CRIT forever** until `zpool clear`, even after a scrub repaired a transient error. Downgrading risks masking real corruption — needs a judgment call on severity/wording.
 - **NVMe/SATA power-on-hours WARN says "consumer lifespan"** on enterprise drives (35k/43.8k-hour thresholds). Wording + thresholds are a product call.
 - **Swap-activity WARN at >0 pages/s** incl. normal zram churn (Ubuntu/Fedora default). Threshold tune (raise floor; context when zram present).
-- **Docker DNS-trap WARN** stays WARN even when daemon DNS is configured (it reads the field but only changes the note) — downgrade-to-INFO judgment call.
+- ~~**Docker DNS-trap WARN** stays WARN even when daemon DNS is configured~~ ✅ FIXED (2026-06-08, #118) — INFO when daemon DNS is set; WARN only when containers actually fall back to 8.8.8.8.
 - **Docker stopped-container WARN (>5)** counts clean-exit (exit 0) oneshot/init containers — needs exit-code/restart-policy data threaded into the count.
 - **PVE no-backup CRIT** on template-only nodes / remote (NFS/SMB) backup storage the on-disk scan misses.
 - **Network deep: ListenOverflows CRIT / SynRetrans WARN** use cumulative-since-boot counters with present-tense wording (`dsd net --deep`).
 - ~~**GPU APU VRAM-pressure WARN** ignores `IsAPU`~~ ✅ FIXED (2026-06-08, #117) — suppressed for APUs on both VRAM checks.
-- **SSH file-parse fallback** reads `Match`-block overrides as global settings (non-root path on RHEL-family). Real, lower demo-risk.
+- ~~**SSH file-parse fallback** reads `Match`-block overrides as global settings~~ ✅ FIXED (2026-06-08, #118) — `Match` blocks no longer overwrite the audited global policy; `Match all` resets to global.
 - **CIS 5.2.2 AllowUsers/AllowGroups** false-FAILs on SSSD/AD hosts — but this is what the CIS benchmark literally requires, so arguably working-as-specified (consider a MANUAL/note, not a code change).
 - **suspect-cron `curl`/`/tmp/` patterns** + **SUID-in-`/opt` allowlist** flag legitimate monitoring crons / vendor agents — narrowing both is reasonable but low-priority.
 - ~~**(false NEGATIVE) sudoers `NOPASSWD: ALL`** skipped by the Mint-default `ALL`-user guard~~ ✅ FIXED (2026-06-08, #117) — `ALL`-user skip now applies only to specific-command rules; `NOPASSWD: ALL` is flagged.
