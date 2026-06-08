@@ -55,6 +55,10 @@ func TestSnapshot_IsEmptyAndLookup(t *testing.T) {
 	if cve, ok := s.Lookup("CVE-2021-1234"); !ok || cve.Severity != "High" {
 		t.Errorf("Lookup hit = %+v, %v", cve, ok)
 	}
+	// Case-insensitive: a lower-case query must still hit (keys are upper-case).
+	if cve, ok := s.Lookup("cve-2021-1234"); !ok || cve.Severity != "High" {
+		t.Errorf("case-insensitive Lookup = %+v, %v; want hit", cve, ok)
+	}
 	if _, ok := s.Lookup("CVE-9999-0000"); ok {
 		t.Error("Lookup of an absent CVE should miss")
 	}
