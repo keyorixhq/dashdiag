@@ -47,6 +47,30 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	}
 }
 
+// LoadBaseline("") backs `dsd health --diff`, which runs before the current run
+// saves. It must return the LAST completed run (-latest.json), not the run
+// before it (-prev.json). Regression for the off-by-one that diffed two runs ago.
+func TestLoadBaseline_EmptyReturnsLastRun(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	hostname, _ := os.Hostname()
+
+	if err := SaveBaseline(makeSnap(hostname, "run-A", "cpu", "OK")); err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	if err := SaveBaseline(makeSnap(hostname, "run-B", "cpu", "OK")); err != nil {
+		t.Fatalf("save B: %v", err)
+	}
+	// After A then B: latest=B, prev=A. The diff baseline must be B (last run).
+	loaded, err := LoadBaseline("")
+	if err != nil {
+		t.Fatalf("LoadBaseline(\"\"): %v", err)
+	}
+	if loaded.Version != "run-B" {
+		t.Errorf("LoadBaseline(\"\") = %q, want run-B (the last completed run, not run-A two runs ago)", loaded.Version)
+	}
+}
+
 func TestSaveBaseline_RotatesPrevious(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

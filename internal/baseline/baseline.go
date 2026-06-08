@@ -107,8 +107,13 @@ func LoadBaseline(path string) (*Snapshot, error) {
 	case "-":
 		data, err = io.ReadAll(os.Stdin)
 	case "":
+		// The empty path means "the last completed run", used by `dsd health
+		// --diff` (which runs before the current run is saved). That is the
+		// -latest.json file. Reading -prev.json here was an off-by-one: at the
+		// start of run N, -latest holds run N-1 and -prev holds run N-2, so the
+		// diff compared against TWO runs ago and showed nothing on the 2nd run.
 		hostname, _ := os.Hostname()
-		data, err = os.ReadFile(prevPath(hostname))
+		data, err = os.ReadFile(latestPath(hostname))
 	default:
 		data, err = os.ReadFile(filepath.Clean(path))
 	}
