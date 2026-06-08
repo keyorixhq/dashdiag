@@ -29,9 +29,10 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Find all NVMe controllers
 	controllers, _ := filepath.Glob("/sys/class/nvme/nvme*")
 	for _, ctrl := range controllers {
-		// Skip namespace entries (nvme0n1 etc) — only controllers
+		// Only controllers (nvme0, nvme10, …) — skip namespaces (nvme0n1) and
+		// multipath instances (nvme0c0n1).
 		base := filepath.Base(ctrl)
-		if strings.Contains(base, "n") && len(base) > 5 {
+		if !isNVMeController(base) {
 			continue
 		}
 
