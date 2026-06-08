@@ -71,8 +71,10 @@ func TestEverySubcommandClassified(t *testing.T) {
 }
 
 // exitMechanisms are the primitives a "gates" command may use to honour the
-// contract: the shared recorder, or a direct os.Exit derived from severity.
+// contract: the shared runDiagnostic builder (which applies it by construction —
+// the strongest option), the lower-level recorder, or a severity-derived os.Exit.
 var exitMechanisms = []string{
+	"runDiagnostic",
 	"recordResultSeverity", "recordWorstInsight", "recordExitCode",
 	"recordCVEResultSeverity", "PrintSummary", "os.Exit",
 }
