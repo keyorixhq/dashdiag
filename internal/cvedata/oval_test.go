@@ -438,3 +438,16 @@ func TestCollectMatches(t *testing.T) {
 		t.Errorf("match = %+v, want vulnpkg 1.0-1 fixed 2.0-1", m)
 	}
 }
+
+func TestLoadOVAL_EmptyDefinitions(t *testing.T) {
+	dir := t.TempDir()
+	// Well-formed XML but no <definition> entries — must error, not silently
+	// return an empty feed that makes every CVE come back "not vulnerable".
+	p := filepath.Join(dir, "empty.xml")
+	if err := os.WriteFile(p, []byte(`<?xml version="1.0"?><oval_definitions></oval_definitions>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOVAL(p); err == nil {
+		t.Error("loadOVAL on a 0-definition file should error, got nil")
+	}
+}

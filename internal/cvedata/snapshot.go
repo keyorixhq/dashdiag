@@ -201,6 +201,9 @@ func (s *Snapshot) IsEmpty() bool { return len(s.CVEs) == 0 }
 
 // Lookup finds a CVE by ID.
 func (s *Snapshot) Lookup(cveID string) (SnapshotCVE, bool) {
-	cve, ok := s.CVEs[cveID]
+	// Normalise the query (upper-case, trimmed) like KEVCatalog.Lookup so a
+	// caller passing "cve-2024-1234" doesn't silently miss — a miss reads as
+	// "not vulnerable".
+	cve, ok := s.CVEs[normalizeCVE(cveID)]
 	return cve, ok
 }
