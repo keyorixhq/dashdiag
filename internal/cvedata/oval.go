@@ -212,6 +212,12 @@ func loadOVAL(path string) (*ovalDefinitions, error) {
 	if err := dec.Decode(&oval); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
+	// A real OVAL feed always contains definitions. Zero means the file was
+	// truncated, decompressed wrong, or isn't OVAL — fail loudly rather than
+	// let every CVE check silently come back "not found / not vulnerable".
+	if len(oval.Definitions) == 0 {
+		return nil, fmt.Errorf("OVAL file %s parsed 0 definitions — truncated, corrupt, or not an OVAL feed", path)
+	}
 	return &oval, nil
 }
 
