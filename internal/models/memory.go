@@ -8,6 +8,11 @@ type MemoryInfo struct {
 	CommitLimitMB float64 `json:"commit_limit_mb"`
 	CommittedAsMB float64 `json:"committed_as_mb"`
 	OverCommitted bool    `json:"over_committed"`
+	// OvercommitMode is vm.overcommit_memory: 0 = heuristic (default), 1 = always
+	// overcommit, 2 = strict accounting. CommitLimit is only ENFORCED in mode 2,
+	// so Committed_AS exceeding it is an OOM risk only there; in modes 0/1 it is
+	// normal and must not be flagged.
+	OvercommitMode int `json:"overcommit_mode"`
 	// EDAC / ECC memory error counts (physical hosts only; zero on VMs/consumer
 	// hardware where EDAC is unavailable). Surfaced in default `dsd health` so a
 	// failing DIMM is caught without needing the heavier `dsd hardware`.

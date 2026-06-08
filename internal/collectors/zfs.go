@@ -140,6 +140,11 @@ func mergeZpoolStatus(out string, pools map[string]models.ZFSPool) {
 			if strings.Contains(scanLine, "scrub repaired") {
 				pool.ScrubAgeDays = parseScrubAge(scanLine)
 				pool.ScrubErrors = parseScrubErrors(scanLine)
+			} else if strings.Contains(scanLine, "scrub in progress") ||
+				strings.Contains(scanLine, "scrub started") {
+				// A scrub running right now is the healthiest possible state —
+				// not "never scrubbed". Age 0 = scrubbed today.
+				pool.ScrubAgeDays = 0
 			} else if strings.Contains(scanLine, "none requested") ||
 				strings.Contains(scanLine, "no scrubs") {
 				pool.ScrubAgeDays = -1
