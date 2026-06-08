@@ -27,6 +27,7 @@ type LogsInfo struct {
 	KernelPanics  int      `json:"kernel_panics"`           // Kernel panic events from pstore or kmsg
 	NVMeTimeouts  int      `json:"nvme_timeouts,omitempty"` // NVMe I/O timeout events from kmsg
 	NVMeResets    int      `json:"nvme_resets,omitempty"`   // NVMe controller reset/down events from kmsg
+	Virtualized   bool     `json:"virtualized,omitempty"`   // VM/cloud guest — NVMe is virtual storage, so timeouts are hypervisor/cloud events, not a failing physical drive
 	JournalSizeGB float64  `json:"journal_size_gb"`
 	CrashLoops    []string `json:"crash_loops"`
 	NeedsRoot     bool     `json:"needs_root,omitempty"`
