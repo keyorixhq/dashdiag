@@ -31,7 +31,7 @@ func buildRules() []Rule {
 				if err != nil {
 					return skipr(r, "sshd_config not found")
 				}
-				if fi.Mode().Perm() > 0o600 {
+				if fi.Mode().Perm()&^0o600 != 0 {
 					return failr(r, fmt.Sprintf("sshd_config mode %o", fi.Mode().Perm()),
 						"chmod 600 /etc/ssh/sshd_config")
 				}
@@ -573,13 +573,18 @@ func checkSysctl(r Rule, path, wantVal, finding, fix string) models.CISResult {
 	return pass(r)
 }
 
-// checkFilePerm checks that a file's permissions are <= maxMode.
+// checkFilePerm fails when the file carries any permission bit beyond those
+// allowed by maxMode. It must test the bitmask, not magnitude: a numeric
+// comparison (perm > maxMode) wrongly PASSES modes that are numerically smaller
+// yet add a forbidden bit — e.g. /etc/shadow at 0o604 (world-readable) is 388,
+// below maxMode 0o640 (416), so `> maxMode` is false and the world-read slips
+// through. `perm &^ maxMode` isolates exactly the disallowed bits.
 func checkFilePerm(r Rule, path string, maxMode os.FileMode, fix string) models.CISResult {
 	fi, err := os.Stat(path) // #nosec G304 -- hardcoded system paths
 	if err != nil {
 		return skipr(r, fmt.Sprintf("%s not found", path))
 	}
-	if fi.Mode().Perm() > maxMode {
+	if fi.Mode().Perm()&^maxMode != 0 {
 		return failr(r, fmt.Sprintf("%s mode is %o (max %o)", path, fi.Mode().Perm(), maxMode), fix)
 	}
 	return pass(r)

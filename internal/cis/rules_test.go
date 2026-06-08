@@ -104,6 +104,22 @@ func TestCheckFilePerm(t *testing.T) {
 			t.Errorf("want SKIP for missing path, got %s", got.Status)
 		}
 	})
+	// Regression: these modes are numerically SMALLER than maxMode but add a
+	// forbidden bit. A magnitude compare (perm > maxMode) wrongly passed them.
+	t.Run("world-readable shadow fails despite lower numeric value", func(t *testing.T) {
+		// 0o604 (=388) < 0o640 (=416) but world-read is forbidden on /etc/shadow.
+		got := checkFilePerm(r, withMode(t, 0o604), 0o640, "chmod 640")
+		if got.Status != models.CISFail {
+			t.Errorf("0604 has world-read beyond 0640 — must FAIL, got %s", got.Status)
+		}
+	})
+	t.Run("group-writable passwd fails despite lower numeric value", func(t *testing.T) {
+		// 0o620 (=400) < 0o644 (=420) but group-write is forbidden on /etc/passwd.
+		got := checkFilePerm(r, withMode(t, 0o620), 0o644, "chmod 644")
+		if got.Status != models.CISFail {
+			t.Errorf("0620 has group-write beyond 0644 — must FAIL, got %s", got.Status)
+		}
+	})
 }
 
 // ── ruleByID ─────────────────────────────────────────────────────────────────
