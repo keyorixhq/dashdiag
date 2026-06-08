@@ -3030,7 +3030,10 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 			))
 		}
 		// VRAM pressure (GB-based field, complements the MB-based check below).
-		if dev.VRAMUsedPct >= 90 {
+		// Skip APUs: their "VRAM" is a small shared-RAM carveout that fills to 90%+
+		// under any GPU load by design — a high % there is normal, not pressure.
+		// Genuine memory exhaustion on an APU surfaces via system-RAM checks.
+		if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
 			out = append(out, insight("WARN", "GPU",
 				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
 				[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
@@ -3043,7 +3046,7 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 				[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
 			))
 		}
-		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" {
+		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" && !dev.IsAPU {
 			out = append(out, insight(l, "GPU",
 				fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
 				[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},

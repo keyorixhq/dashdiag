@@ -556,14 +556,30 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
 			user := fields[0]
-			// Skip ALL — these are system-wide NOPASSWD for specific commands
-			// (e.g. mintdrivers, mintupdate on Linux Mint) not full privilege escalation
-			if user == "ALL" {
+			// A system-wide (user "ALL") NOPASSWD rule for a SPECIFIC command is
+			// benign and noisy (e.g. Mint's mintdrivers/mintupdate) — skip it. But
+			// "ALL ... NOPASSWD: ALL" is full passwordless root for everyone, the
+			// most dangerous escalation there is; it must NOT be skipped.
+			if user == "ALL" && !sudoGrantsAllCommands(line) {
 				continue
 			}
 			info.SudoNopasswd = append(info.SudoNopasswd, user)
 		}
 	}
+}
+
+// sudoGrantsAllCommands reports whether a sudoers line grants NOPASSWD for ALL
+// commands (e.g. "ALL ALL=(ALL:ALL) NOPASSWD: ALL" — full passwordless root) as
+// opposed to a specific command (e.g. "ALL ALL=(root) NOPASSWD: /usr/sbin/mintdrivers").
+func sudoGrantsAllCommands(line string) bool {
+	idx := strings.LastIndex(line, "NOPASSWD:")
+	if idx < 0 {
+		return false
+	}
+	cmds := strings.TrimSpace(line[idx+len("NOPASSWD:"):])
+	// First command in a possibly comma-separated list; "ALL" means all commands.
+	first := strings.TrimSpace(strings.SplitN(cmds, ",", 2)[0])
+	return first == "ALL"
 }
 
 // parseSELinuxDenials reads the audit log directly for recent AVC denials.
