@@ -59,8 +59,14 @@ func TestCheckDockerContainers(t *testing.T) {
 		{"empty is clean", models.DockerInfo{}, ""},
 		{"crash looping is CRIT", models.DockerInfo{CrashLooping: []string{"web"}}, "CRIT"},
 		{"unhealthy is WARN", models.DockerInfo{Unhealthy: []string{"db"}}, "WARN"},
-		{"6 stopped is WARN", models.DockerInfo{Stopped: 6}, "WARN"},
-		{"5 stopped is fine", models.DockerInfo{Stopped: 5}, ""}, // threshold is strictly >5
+		// Raw stopped count no longer warns — the WARN now counts only failed-exit
+		// containers (see TestDockerStoppedCleanExitNotFlagged); clean-exit oneshots
+		// are expected. A non-zero-exit container is the real signal.
+		{"6 clean-stopped (no exit codes) is fine", models.DockerInfo{Stopped: 6}, ""},
+		{"6 failed-exit stopped is WARN", models.DockerInfo{Containers: []models.ContainerInfo{
+			{State: "exited", ExitCode: 1}, {State: "exited", ExitCode: 1}, {State: "exited", ExitCode: 1},
+			{State: "exited", ExitCode: 1}, {State: "exited", ExitCode: 1}, {State: "exited", ExitCode: 137},
+		}}, "WARN"},
 		{"oom events is CRIT", models.DockerInfo{OOMEvents: 1}, "CRIT"},
 	}
 	for _, tt := range tests {

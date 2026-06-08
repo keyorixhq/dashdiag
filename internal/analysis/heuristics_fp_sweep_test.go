@@ -157,3 +157,24 @@ func TestDockerDNSTrapMitigatedByDaemonDNS(t *testing.T) {
 		t.Errorf("DNS trap without daemon DNS should still WARN, got %+v", got)
 	}
 }
+
+// The "stopped containers accumulating" WARN must count only FAILED (non-zero
+// exit) containers — clean-exit (exit 0) init/oneshot containers are expected to
+// be exited and must not trip it on a normal Compose stack.
+func TestDockerStoppedCleanExitNotFlagged(t *testing.T) {
+	clean := models.DockerInfo{}
+	for i := 0; i < 6; i++ {
+		clean.Containers = append(clean.Containers, models.ContainerInfo{State: "exited", ExitCode: 0})
+	}
+	if got := checkDockerContainers(clean); fpHasLevel(got, "WARN") {
+		t.Errorf("6 clean-exit (exit 0) oneshot containers must not WARN, got %+v", got)
+	}
+
+	failed := models.DockerInfo{}
+	for i := 0; i < 6; i++ {
+		failed.Containers = append(failed.Containers, models.ContainerInfo{State: "exited", ExitCode: 1})
+	}
+	if got := checkDockerContainers(failed); !fpHasLevel(got, "WARN") {
+		t.Errorf("6 failed-exit (exit!=0) containers should WARN, got %+v", got)
+	}
+}
