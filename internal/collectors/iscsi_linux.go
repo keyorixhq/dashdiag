@@ -63,8 +63,14 @@ func parseISCSISessions(out string) []models.ISCSISession {
 		if len(parts) < 4 {
 			continue
 		}
+		// portal is "host:port,<tid>" — strip the portal-group tag regardless of
+		// its value. The tid is always after the final comma (IPv6 portals like
+		// "[fe80::1]:3260,1" keep their colons), so trim from the last comma; the
+		// previous code only handled the ",1" default and left ",2"/",3"/… on.
 		portal := parts[2]
-		portal = strings.TrimSuffix(portal, ",1")
+		if i := strings.LastIndex(portal, ","); i != -1 {
+			portal = portal[:i]
+		}
 		target := parts[3]
 		session := models.ISCSISession{
 			Target: target,

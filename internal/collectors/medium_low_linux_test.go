@@ -36,19 +36,31 @@ func TestParseVLANConfig(t *testing.T) {
 // ── iSCSI tests ─────────────────────────────────────────────────────────────
 
 const iscsiadmOutput = `tcp: [1] 10.0.0.1:3260,1 iqn.2019-01.com.example:storage1 (non-flash)
-tcp: [2] 10.0.0.2:3260,1 iqn.2019-01.com.example:storage2 (non-flash)
+tcp: [2] 10.0.0.2:3260,2 iqn.2019-01.com.example:storage2 (non-flash)
+tcp: [3] [fe80::1]:3260,1 iqn.2019-01.com.example:storage3 (non-flash)
 `
 
 func TestParseISCSISessions(t *testing.T) {
 	sessions := parseISCSISessions(iscsiadmOutput)
-	if len(sessions) != 2 {
-		t.Fatalf("sessions = %d, want 2", len(sessions))
+	if len(sessions) != 3 {
+		t.Fatalf("sessions = %d, want 3", len(sessions))
 	}
 	if sessions[0].Target != "iqn.2019-01.com.example:storage1" {
 		t.Errorf("sessions[0].Target = %q", sessions[0].Target)
 	}
 	if sessions[0].State != "LOGGED_IN" {
 		t.Errorf("sessions[0].State = %q, want LOGGED_IN", sessions[0].State)
+	}
+	if sessions[0].Portal != "10.0.0.1:3260" {
+		t.Errorf("sessions[0].Portal = %q, want 10.0.0.1:3260", sessions[0].Portal)
+	}
+	// Non-default portal-group tag (",2") must be stripped, not left on.
+	if sessions[1].Portal != "10.0.0.2:3260" {
+		t.Errorf("sessions[1].Portal = %q, want 10.0.0.2:3260 (',2' tag stripped)", sessions[1].Portal)
+	}
+	// IPv6 portal: the tid comma is stripped but the address colons are kept.
+	if sessions[2].Portal != "[fe80::1]:3260" {
+		t.Errorf("sessions[2].Portal = %q, want [fe80::1]:3260", sessions[2].Portal)
 	}
 }
 
