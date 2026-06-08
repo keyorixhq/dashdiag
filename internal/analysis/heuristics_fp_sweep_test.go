@@ -134,3 +134,26 @@ func TestSessionsRootSSHPVEExemption(t *testing.T) {
 		t.Errorf("root SSH on a non-PVE host should CRIT, got %+v", got)
 	}
 }
+
+// A loopback resolv.conf (the systemd-resolved DNS trap) is only a problem when
+// the Docker daemon has NO DNS override — once daemon DNS is configured (the
+// documented fix), containers use it, so it's INFO not a false WARN.
+func TestDockerDNSTrapMitigatedByDaemonDNS(t *testing.T) {
+	mitigated := models.DockerInfo{
+		DNSTrap: true, DNSTrapServer: "127.0.0.53",
+		DaemonDNSConfigured: true, DaemonDNSServers: []string{"1.1.1.1"},
+	}
+	got := checkDockerResources(mitigated)
+	if fpHasLevel(got, "WARN") {
+		t.Errorf("configured daemon DNS must downgrade the DNS-trap WARN, got %+v", got)
+	}
+	if !fpHasLevel(got, "INFO") {
+		t.Errorf("DNS trap with daemon DNS configured should be INFO, got %+v", got)
+	}
+
+	// No daemon DNS override → still a real WARN (containers fall back to 8.8.8.8).
+	unmitigated := models.DockerInfo{DNSTrap: true, DNSTrapServer: "127.0.0.53"}
+	if got := checkDockerResources(unmitigated); !fpHasLevel(got, "WARN") {
+		t.Errorf("DNS trap without daemon DNS should still WARN, got %+v", got)
+	}
+}
