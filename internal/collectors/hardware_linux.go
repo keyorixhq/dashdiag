@@ -258,46 +258,6 @@ func collectEDAC(info *models.HardwareInfo) {
 // ── CPU ───────────────────────────────────────────────────────────────────────
 
 // armImplementerName maps ARM CPU implementer codes to vendor names.
-func armImplementerName(code string) string {
-	switch strings.ToLower(code) {
-	case "0x41":
-		return "ARM"
-	case "0x42":
-		return "Broadcom"
-	case "0x43":
-		return "Cavium"
-	case "0x44":
-		return "DEC"
-	case "0x48":
-		return "HiSilicon"
-	case "0x49":
-		return "Infineon"
-	case "0x4d":
-		return "Motorola/Freescale"
-	case "0x4e":
-		return "NVIDIA"
-	case "0x50":
-		return "APM"
-	case "0x51":
-		return "Qualcomm"
-	case "0x53":
-		return "Samsung"
-	case "0x56":
-		return "Marvell"
-	case "0x61":
-		return "Apple"
-	case "0x66":
-		return "Faraday"
-	case "0x69":
-		return "Intel"
-	case "0x70":
-		return "Phytium"
-	case "0xc0":
-		return "Ampere"
-	default:
-		return code
-	}
-}
 
 func collectCPU(info *models.HardwareInfo) {
 	data, err := os.ReadFile("/proc/cpuinfo")
@@ -305,54 +265,11 @@ func collectCPU(info *models.HardwareInfo) {
 		return
 	}
 
-	var model, hardware, implementer string
-	var threads, cores int
-	var freq float64
-	coresSet := false
+	cpu := parseProcCPUInfo(string(data))
+	threads := cpu.threads
+	model := cpu.model
 
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
-
-		switch key {
-		case "model name": // x86
-			if model == "" {
-				model = val
-			}
-			threads++ // one entry per logical CPU on x86
-		case "processor": // ARM: one entry per logical CPU
-			threads++
-		case "cpu cores": // x86
-			if !coresSet {
-				if n, err := strconv.Atoi(val); err == nil {
-					cores = n
-					coresSet = true
-				}
-			}
-		case "cpu MHz": // x86
-			if freq == 0 {
-				if f, err := strconv.ParseFloat(val, 64); err == nil {
-					freq = f
-				}
-			}
-		case "Hardware": // ARM bare-metal: "Raspberry Pi 4 Model B Rev 1.4"
-			hardware = val
-		case "CPU implementer": // ARM
-			if implementer == "" {
-				implementer = val
-			}
-		}
-	}
-
-	// ARM: prefer Hardware field, then device tree, then vendor+arch description
-	if model == "" {
-		model = hardware
-	}
+	// ARM: device-tree model fallback (filesystem-backed, kept out of the parser).
 	if model == "" {
 		for _, path := range []string{
 			"/sys/firmware/devicetree/base/model",
@@ -364,16 +281,15 @@ func collectCPU(info *models.HardwareInfo) {
 			}
 		}
 	}
-	if model == "" && implementer != "" {
-		vendor := armImplementerName(implementer)
-		model = fmt.Sprintf("%s ARM (aarch64)", vendor)
+	if model == "" && cpu.implementer != "" {
+		model = fmt.Sprintf("%s ARM (aarch64)", armImplementerName(cpu.implementer))
 	}
 
 	info.CPU = models.HardwareCPU{
 		Model:   model,
-		Cores:   cores,
+		Cores:   cpu.cores,
 		Threads: threads,
-		FreqMHz: freq,
+		FreqMHz: cpu.freqMHz,
 	}
 
 	// Max boost frequency from cpufreq sysfs (kHz → MHz)
