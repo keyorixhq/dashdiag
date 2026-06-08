@@ -1,6 +1,8 @@
 package render
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -117,9 +119,23 @@ func TestRenderStoryAndPostMortem(t *testing.T) {
 func TestPrintDiff(t *testing.T) {
 	before, after := snap("host1"), snap("host1")
 	after.Checks[0].Status = "OK" // a change to render
-	quietStdout(t, func() {
-		if err := PrintDiff(before, after, output.ModeHuman); err != nil {
-			t.Errorf("PrintDiff: %v", err)
-		}
-	})
+
+	var human bytes.Buffer
+	if err := PrintDiff(&human, before, after, output.ModeHuman); err != nil {
+		t.Errorf("PrintDiff human: %v", err)
+	}
+	if human.Len() == 0 {
+		t.Error("PrintDiff human wrote nothing")
+	}
+
+	// JSON mode must write exactly one valid JSON document to the given writer
+	// (the caller routes this to stderr so stdout stays a single document).
+	var jsonBuf bytes.Buffer
+	if err := PrintDiff(&jsonBuf, before, after, output.ModeJSON); err != nil {
+		t.Errorf("PrintDiff json: %v", err)
+	}
+	var entries []baseline.DiffEntry
+	if err := json.Unmarshal(jsonBuf.Bytes(), &entries); err != nil {
+		t.Errorf("PrintDiff json output is not a single valid JSON document: %v", err)
+	}
 }
