@@ -80,6 +80,7 @@ type K8sOSLayer struct {
 	KubeletErrors      []string `json:"kubelet_errors,omitempty"`
 	ContainerdActive   bool     `json:"containerd_active"`
 	IPForwardEnabled   bool     `json:"ip_forward_enabled"`
+	IPForwardChecked   bool     `json:"ip_forward_checked"`    // false when /proc unreadable — state unknown, not disabled
 	KubeForwardChain   bool     `json:"kube_forward_chain"`    // iptables/nft KUBE-FORWARD rule
 	FlannelSubnetOK    bool     `json:"flannel_subnet_ok"`     // /run/flannel/subnet.env present
 	CNIBinsOK          bool     `json:"cni_bins_ok"`           // /opt/cni/bin/ populated
