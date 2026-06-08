@@ -925,8 +925,12 @@ func TestPVESSHRootLoginDowngraded(t *testing.T) {
 }
 
 // BUG-019: no backup must be CRIT (not WARN) so it bubbles into the PVE summary.
+// The node must have a backable (non-template) guest — BackupStatuses has one
+// entry per such guest; a fresh/template-only node with nothing to back up no
+// longer CRITs (#119 false-positive fix).
 func TestPVENoBackupIsCrit(t *testing.T) {
-	p := models.PVEInfo{IsPVE: true, QuorumOK: true, BackupAgeDays: -1}
+	p := models.PVEInfo{IsPVE: true, QuorumOK: true, BackupAgeDays: -1,
+		BackupStatuses: []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: -1}}}
 	got := checkPVE(p)
 	if !hasInsight(got, "CRIT", "no successful backup") {
 		t.Errorf("no backup on PVE must be CRIT, got %+v", got)
