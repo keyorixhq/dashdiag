@@ -249,6 +249,7 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	defer cancel()
 
 	cmd := exec.CommandContext(dCtx, "dmesg", "-T", "--level=err,warn,crit,emerg,alert") // #nosec G204
+	cmd.Env = localeSafeEnv()                                                            // `dmesg -T` localizes month/day names; force C so the English parser works
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil
@@ -392,6 +393,7 @@ func collectSarLoad(ctx context.Context, since time.Time) []models.LoadSpike {
 	// sar -q gives queue length and load average
 	cmd := exec.CommandContext(sCtx, "sar", "-q", "-s", // #nosec G204
 		since.Format("15:04:00"))
+	cmd.Env = localeSafeEnv() // sar uses the locale decimal separator (es_ES: "1,50") — force C
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
