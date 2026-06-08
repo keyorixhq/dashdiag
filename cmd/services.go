@@ -36,7 +36,12 @@ var servicesDeepCmd = &cobra.Command{
 func runServices(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	plain, _ := cmd.Flags().GetBool("plain")
-	mode := output.DetectMode(plain, false, "")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	outputFmt := ""
+	if jsonOut {
+		outputFmt = "json"
+	}
+	mode := output.DetectMode(plain, false, outputFmt)
 
 	p := output.NewCommandProgress("Service health", 10*time.Second, mode, 1)
 	p.Start()
@@ -53,6 +58,15 @@ func runServices(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 	recordResultSeverity([]runner.Result{result})
+
+	if mode == output.ModeJSON {
+		data, err := json.MarshalIndent(info, "", "  ")
+		if err == nil {
+			_, _ = os.Stdout.Write(data)
+			_, _ = os.Stdout.Write([]byte("\n"))
+		}
+		return nil
+	}
 
 	if len(info.Results) == 0 {
 		printServicesEmpty(mode)
