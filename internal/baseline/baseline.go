@@ -157,27 +157,60 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 	statusOrder := map[string]int{"OK": 0, "INFO": 0, "WARN": 1, "CRIT": 2}
 
 	var degraded, improved, unchanged []DiffEntry
+	seen := make(map[string]bool, len(after.Checks))
 	for _, ac := range after.Checks {
-		bc := beforeMap[ac.Name]
+		seen[ac.Name] = true
+		bc, existed := beforeMap[ac.Name]
 		d := DiffEntry{
-			Name:         ac.Name,
-			Before:       bc.Status + " " + bc.Value,
-			After:        ac.Status + " " + ac.Value,
-			StatusChange: bc.Status + "->" + ac.Status,
-			Changed:      bc.Status != ac.Status,
-			Improved:     statusOrder[ac.Status] < statusOrder[bc.Status],
+			Name:   ac.Name,
+			Before: bc.Status + " " + bc.Value,
+			After:  ac.Status + " " + ac.Value,
 		}
 		switch {
-		case d.Changed && !d.Improved:
-			degraded = append(degraded, d)
-		case d.Changed && d.Improved:
-			improved = append(improved, d)
+		case !existed:
+			// A brand-new check. A new problem (WARN/CRIT) is a degraded change;
+			// a new healthy check is just added coverage, not a status change —
+			// flagging it as "->OK degraded" (the old zero-value bug) was wrong.
+			d.StatusChange = "new->" + ac.Status
+			if statusOrder[ac.Status] > 0 {
+				d.Changed = true
+				degraded = append(degraded, d)
+			} else {
+				unchanged = append(unchanged, d)
+			}
 		default:
-			unchanged = append(unchanged, d)
+			d.StatusChange = bc.Status + "->" + ac.Status
+			d.Changed = bc.Status != ac.Status
+			d.Improved = statusOrder[ac.Status] < statusOrder[bc.Status]
+			switch {
+			case d.Changed && !d.Improved:
+				degraded = append(degraded, d)
+			case d.Changed && d.Improved:
+				improved = append(improved, d)
+			default:
+				unchanged = append(unchanged, d)
+			}
 		}
 	}
 
-	result := make([]DiffEntry, 0, len(after.Checks))
+	// Checks present in the baseline but gone from the current run. A vanished
+	// WARN/CRIT must be surfaced — silently dropping it (the old loop only walked
+	// after.Checks) hid real drift, e.g. a previously-CRIT mount no longer
+	// reported. Vanished healthy checks are benign and left out to avoid noise.
+	for _, bc := range before.Checks {
+		if seen[bc.Name] || statusOrder[bc.Status] == 0 {
+			continue
+		}
+		degraded = append(degraded, DiffEntry{
+			Name:         bc.Name,
+			Before:       bc.Status + " " + bc.Value,
+			After:        "absent",
+			StatusChange: bc.Status + "->absent",
+			Changed:      true,
+		})
+	}
+
+	result := make([]DiffEntry, 0, len(degraded)+len(improved)+len(unchanged))
 	result = append(result, degraded...)
 	result = append(result, improved...)
 	result = append(result, unchanged...)
