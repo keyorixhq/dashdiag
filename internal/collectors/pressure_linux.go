@@ -34,16 +34,18 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 
 	info.Available = true
 
-	if m, err := readPSIFile(fmt.Sprintf("%s/memory", base)); err == nil {
+	// len()>0 guards are required: readPSIFile returns (nil, nil) when the file
+	// exists but no line parses (malformed/truncated), so a bare [0] would panic.
+	if m, err := readPSIFile(fmt.Sprintf("%s/memory", base)); err == nil && len(m) > 0 {
 		info.MemorySome = m[0]
 		if len(m) > 1 {
 			info.MemoryFull = m[1]
 		}
 	}
-	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu", base)); err == nil {
+	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu", base)); err == nil && len(cpu) > 0 {
 		info.CPUSome = cpu[0]
 	}
-	if io, err := readPSIFile(fmt.Sprintf("%s/io", base)); err == nil {
+	if io, err := readPSIFile(fmt.Sprintf("%s/io", base)); err == nil && len(io) > 0 {
 		info.IOSome = io[0]
 		if len(io) > 1 {
 			info.IOFull = io[1]
