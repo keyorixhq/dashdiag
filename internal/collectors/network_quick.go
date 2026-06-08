@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -355,9 +354,8 @@ func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok b
 	args = append(args, host)
 	// Use exec directly — ping exits 1 on 100% loss but still writes
 	// parseable output to stdout. runCmd discards output on non-zero exit.
-	cmd := exec.CommandContext(pCtx, "ping", args...) // #nosec G204
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	raw, _ := cmd.Output() // ignore exit code intentionally
+	cmd := localeSafeCmd(pCtx, "ping", args...) // #nosec G204
+	raw, _ := cmd.Output()                      // ignore exit code intentionally
 	out := string(raw)
 	if strings.TrimSpace(out) == "" {
 		return -1, 100, false
@@ -545,7 +543,7 @@ func detectRouteSrcIP(ctx context.Context, dest string) string {
 }
 
 func detectGatewayDarwin(ctx context.Context) routeInfo {
-	out, err := exec.CommandContext(ctx, "route", "-n", "get", "default").Output()
+	out, err := localeSafeCmd(ctx, "route", "-n", "get", "default").Output()
 	if err != nil {
 		return routeInfo{}
 	}

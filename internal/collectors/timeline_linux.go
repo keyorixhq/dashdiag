@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,7 +103,7 @@ func collectJournalEvents(ctx context.Context, since time.Time) ([]models.Timeli
 		"--since", sinceStr,
 		"--priority=warning", // 0–4: emerg/alert/crit/err/warning
 	}
-	cmd := exec.CommandContext(jCtx, args[0], args[1:]...) // #nosec G204
+	cmd := localeSafeCmd(jCtx, args[0], args[1:]...) // #nosec G204
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil // journalctl unavailable — silent
@@ -248,8 +247,7 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	dCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(dCtx, "dmesg", "-T", "--level=err,warn,crit,emerg,alert") // #nosec G204
-	cmd.Env = localeSafeEnv()                                                            // `dmesg -T` localizes month/day names; force C so the English parser works
+	cmd := localeSafeCmd(dCtx, "dmesg", "-T", "--level=err,warn,crit,emerg,alert") // #nosec G204
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil
@@ -391,9 +389,8 @@ func collectSarLoad(ctx context.Context, since time.Time) []models.LoadSpike {
 	sCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	// sar -q gives queue length and load average
-	cmd := exec.CommandContext(sCtx, "sar", "-q", "-s", // #nosec G204
+	cmd := localeSafeCmd(sCtx, "sar", "-q", "-s", // #nosec G204
 		since.Format("15:04:00"))
-	cmd.Env = localeSafeEnv() // sar uses the locale decimal separator (es_ES: "1,50") — force C
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

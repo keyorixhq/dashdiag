@@ -66,13 +66,13 @@ func bindDetect() bool {
 		out, err := exec.LookPath(name)
 		if err == nil && out != "" {
 			// Binary exists — check if process is running
-			if _, err := exec.Command("pgrep", "-x", name).Output(); err == nil {
+			if _, err := localeSafeCmd(context.Background(), "pgrep", "-x", name).Output(); err == nil {
 				return true
 			}
 		}
 	}
 	// Also try systemctl — process may be running under different name
-	out, err := exec.Command("systemctl", "is-active", "--quiet", "named").Output()
+	out, err := localeSafeCmd(context.Background(), "systemctl", "is-active", "--quiet", "named").Output()
 	_ = out
 	return err == nil
 }

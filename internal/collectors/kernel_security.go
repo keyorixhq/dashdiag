@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -26,7 +25,7 @@ func parseSELinuxMode(out string) string {
 }
 
 func collectSELinux(ctx context.Context) (present bool, mode string, denials int) {
-	out, err := exec.CommandContext(ctx, "getenforce").Output()
+	out, err := localeSafeCmd(ctx, "getenforce").Output()
 	if err != nil {
 		return false, "", 0
 	}
@@ -44,7 +43,7 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	}
 
 	// Fallback: journald (works only when auditd is NOT running)
-	jout, err := exec.CommandContext(ctx, "journalctl",
+	jout, err := localeSafeCmd(ctx, "journalctl",
 		"--since=1 hour ago", "--no-pager", "-q").Output()
 	if err != nil {
 		return present, mode, 0
