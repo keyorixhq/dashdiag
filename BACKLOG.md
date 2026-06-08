@@ -298,11 +298,11 @@ always-pass). Each has a regression test; smoke-tested on pve01.
 - **Docker stopped-container WARN (>5)** counts clean-exit (exit 0) oneshot/init containers — needs exit-code/restart-policy data threaded into the count.
 - **PVE no-backup CRIT** on template-only nodes / remote (NFS/SMB) backup storage the on-disk scan misses.
 - **Network deep: ListenOverflows CRIT / SynRetrans WARN** use cumulative-since-boot counters with present-tense wording (`dsd net --deep`).
-- **GPU APU VRAM-pressure WARN** ignores `IsAPU` (small shared carveout fills to 90% by design). AMD-APU hosts only.
+- ~~**GPU APU VRAM-pressure WARN** ignores `IsAPU`~~ ✅ FIXED (2026-06-08, #117) — suppressed for APUs on both VRAM checks.
 - **SSH file-parse fallback** reads `Match`-block overrides as global settings (non-root path on RHEL-family). Real, lower demo-risk.
 - **CIS 5.2.2 AllowUsers/AllowGroups** false-FAILs on SSSD/AD hosts — but this is what the CIS benchmark literally requires, so arguably working-as-specified (consider a MANUAL/note, not a code change).
 - **suspect-cron `curl`/`/tmp/` patterns** + **SUID-in-`/opt` allowlist** flag legitimate monitoring crons / vendor agents — narrowing both is reasonable but low-priority.
-- **(false NEGATIVE) sudoers `NOPASSWD: ALL`** can be skipped by the Mint-default `ALL`-user guard — security gap worth a follow-up.
+- ~~**(false NEGATIVE) sudoers `NOPASSWD: ALL`** skipped by the Mint-default `ALL`-user guard~~ ✅ FIXED (2026-06-08, #117) — `ALL`-user skip now applies only to specific-command rules; `NOPASSWD: ALL` is flagged.
 
 ### ~~Full-subsystem bug-hunt — 27 fixes~~ ✅ FIXED (2026-06-08, PRs #85–#111)
 
