@@ -114,7 +114,7 @@ func collectDarwinDriveInfo(ctx context.Context, dev string) *models.PhysicalDri
 			}
 		case "Mount Point":
 			if val != "" {
-				drive.Mounts = append(drive.Mounts, drive.Name+"→"+val)
+				drive.Mounts = append(drive.Mounts, drive.Name+"->"+val)
 			}
 		}
 	}

@@ -84,7 +84,7 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 				continue
 			}
 			for _, m := range devMounts {
-				mounts = append(mounts, dev+"→"+m)
+				mounts = append(mounts, dev+"->"+m)
 			}
 			fs := fstypeByDev[dev]
 			if linuxFS[fs] {
