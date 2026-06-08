@@ -561,12 +561,18 @@ func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 	}
 }
 
-// truncateStr truncates a string to n characters with ellipsis.
+// truncateStr truncates a string to at most n runes with an ellipsis. It slices
+// by rune, not byte, so a multibyte character at the boundary is never split
+// into invalid UTF-8.
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }
 
 // extractOOM type-asserts *models.OOMInfo from a runner results slice.

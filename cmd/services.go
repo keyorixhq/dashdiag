@@ -300,11 +300,17 @@ func printLine(mode output.OutputMode, level, label, value string) {
 	fmt.Printf("  %s  %-30s %s\n", icon, label, value)
 }
 
+// truncate shortens s to at most n runes with an ellipsis, slicing by rune (not
+// byte) so a multibyte character at the boundary is never split.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(r[:n]) + "…"
 }
 
 // capSlice returns at most n elements from ss.
