@@ -60,4 +60,19 @@ func TestReadPSIFile(t *testing.T) {
 			t.Errorf("full.avg60 = %f, want >= 10 (critical threshold)", lines[1].Avg60)
 		}
 	})
+
+	// Regression: a malformed/truncated pressure file (no line with >=4 fields)
+	// must return an empty slice — never a non-nil err with a [0]-indexable slice.
+	// Collect() relies on this to guard its m[0]/cpu[0]/io[0] indexing.
+	t.Run("malformed content returns empty, no nil-err non-empty trap", func(t *testing.T) {
+		for _, content := range []string{"", "   \n", "garbage", "some avg10=1.0"} {
+			lines, err := readPSIString(content)
+			if err != nil {
+				t.Fatalf("readPSIString(%q) err = %v, want nil", content, err)
+			}
+			if len(lines) != 0 {
+				t.Errorf("readPSIString(%q) = %d lines, want 0", content, len(lines))
+			}
+		}
+	})
 }
