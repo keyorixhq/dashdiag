@@ -76,8 +76,11 @@ func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
 		FDSystemCritPct: 90,
 		FDProcWarnPct:   80,
 
-		ZombieWarnCount: 5,
-		HungDStateCrit:  1,
+		// Defaults preserve the historical hardcoded behaviour: warn on any
+		// zombie, CRIT at 5+ hung D-state processes. Overridable via policy
+		// (zombie_warn_count / hung_d_state_crit).
+		ZombieWarnCount: 1,
+		HungDStateCrit:  5,
 
 		JournalSizeWarnGB: 2,
 		JournalSizeCritGB: 5,
