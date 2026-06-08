@@ -39,27 +39,9 @@ func QueryInstalledRPM(ctx context.Context) ([]InstalledPackage, error) {
 	return pkgs, nil
 }
 
-// IsVulnerable returns true when the installed version is older than fixedIn.
-// Uses a simplified string comparison on RPM EVR — sufficient for the common
-// case where we just need to know if the installed version pre-dates the fix.
-// Full RPM version comparison (rpmvercmp) would require CGO.
+// IsVulnerable returns true when the installed EVR is older than fixedIn, using
+// a proper RPM epoch/version/release comparison (compareEVR) rather than a
+// lexicographic string compare.
 func IsVulnerable(installed, fixedIn string) bool {
-	// Normalise: strip epoch if identical
-	inst := normaliseEVR(installed)
-	fix := normaliseEVR(fixedIn)
-	if inst == fix {
-		return false
-	}
-	// Simple lexicographic comparison — works for most package versions.
-	// rpmvercmp handles edge cases (1.10 > 1.9 etc) but requires CGO.
-	// For our purposes: if installed == fixed we're safe, otherwise flag it.
-	return inst < fix
-}
-
-func normaliseEVR(evr string) string {
-	// Strip "0:" epoch prefix for comparison when epoch is zero
-	if strings.HasPrefix(evr, "0:") {
-		return evr[2:]
-	}
-	return evr
+	return compareEVR(installed, fixedIn) < 0
 }
