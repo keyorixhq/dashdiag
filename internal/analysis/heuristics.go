@@ -4631,19 +4631,25 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	}
 	// 7g: DNS trap — host resolv.conf uses loopback; containers fall back to 8.8.8.8
 	if d.DNSTrap {
-		daemonNote := "daemon DNS override: not configured (containers fall back to 8.8.8.8)"
 		if d.DaemonDNSConfigured && len(d.DaemonDNSServers) > 0 {
-			daemonNote = "daemon DNS configured: " + strings.Join(d.DaemonDNSServers, ", ")
+			// Mitigated: the daemon hands containers explicit DNS, so the host's
+			// loopback resolv.conf is not the resolver they use. Informational —
+			// not a WARN (the admin already did the documented fix).
+			out = append(out, insight("INFO", "Docker",
+				fmt.Sprintf("host resolv.conf uses %s (loopback), but Docker daemon DNS is configured (%s) — containers use that",
+					d.DNSTrapServer, strings.Join(d.DaemonDNSServers, ", ")),
+				nil,
+			))
+		} else {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("host resolv.conf uses %s (loopback) — containers cannot reach it and fall back to 8.8.8.8", d.DNSTrapServer),
+				[]string{
+					"note: if 8.8.8.8 is blocked by corporate firewall, container DNS fails silently",
+					"to fix: add to /etc/docker/daemon.json: {\"dns\": [\"1.1.1.1\", \"8.8.8.8\"]}",
+					"to fix: systemctl restart docker",
+				},
+			))
 		}
-		out = append(out, insight("WARN", "Docker",
-			fmt.Sprintf("host resolv.conf uses %s (loopback) — containers cannot reach this address", d.DNSTrapServer),
-			[]string{
-				daemonNote,
-				"note: if 8.8.8.8 is blocked by corporate firewall, container DNS fails silently",
-				"to fix: add to /etc/docker/daemon.json: {\"dns\": [\"1.1.1.1\", \"8.8.8.8\"]}",
-				"to fix: systemctl restart docker",
-			},
-		))
 	}
 	return out
 }

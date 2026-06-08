@@ -139,6 +139,13 @@ func parseSSHFile(path string, info *models.SecurityInfo) {
 // parseSSHFileContent parses sshd_config content from a string — used by tests.
 func parseSSHFileContent(content string, info *models.SecurityInfo) {
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	// inMatch tracks whether we're inside a conditional `Match` block. Directives
+	// there are per-connection overrides, NOT the global policy we audit — e.g.
+	// `PasswordAuthentication no` globally with `yes` inside `Match Address ...`
+	// is a hardened config, and reading the Match value as global produced a false
+	// "SSH allows password authentication" WARN on the file-parse fallback path.
+	// Global directives precede the first Match; `Match all` returns to global.
+	inMatch := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "#") || line == "" {
@@ -149,6 +156,13 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) {
 			continue
 		}
 		key := strings.ToLower(fields[0])
+		if key == "match" {
+			inMatch = !strings.EqualFold(fields[1], "all")
+			continue
+		}
+		if inMatch {
+			continue // conditional override — not the global policy
+		}
 		val := strings.ToLower(fields[1])
 
 		switch key {

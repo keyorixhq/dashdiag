@@ -124,6 +124,46 @@ AllowTcpForwarding no`
 	}
 }
 
+// TestParseSSHFileContent_MatchBlockNotGlobal confirms that directives inside a
+// conditional Match block do NOT overwrite the audited global policy. A hardened
+// config (global "no", per-source "yes") must read as global=no, not a false
+// "password auth / root login enabled".
+func TestParseSSHFileContent_MatchBlockNotGlobal(t *testing.T) {
+	content := `PermitRootLogin no
+PasswordAuthentication no
+Match Address 10.0.0.0/8
+    PasswordAuthentication yes
+    PermitRootLogin yes
+Match User backup
+    PasswordAuthentication yes`
+
+	var info models.SecurityInfo
+	parseSSHFileContent(content, &info)
+
+	if info.SSHPasswordAuth {
+		t.Error("global PasswordAuthentication is 'no' — Match-block 'yes' must not flip it")
+	}
+	if info.SSHRootLogin || info.SSHPermitRoot {
+		t.Error("global PermitRootLogin is 'no' — Match-block 'yes' must not flip it")
+	}
+}
+
+// TestParseSSHFileContent_MatchAllResetsToGlobal confirms `Match all` returns to
+// the global context, so directives after it ARE audited.
+func TestParseSSHFileContent_MatchAllResetsToGlobal(t *testing.T) {
+	content := `Match Address 10.0.0.0/8
+    PasswordAuthentication no
+Match all
+PasswordAuthentication yes`
+
+	var info models.SecurityInfo
+	parseSSHFileContent(content, &info)
+
+	if !info.SSHPasswordAuth {
+		t.Error("'Match all' must restore global context — the trailing 'yes' should be read")
+	}
+}
+
 // TestParseSSHFileContent_Protocol1 confirms the deprecated Protocol 1 is flagged.
 func TestParseSSHFileContent_Protocol1(t *testing.T) {
 	var info models.SecurityInfo
