@@ -38,6 +38,7 @@ var exitCodeContract = map[string]string{
 	// Deliberately exempt — not a current-state health check.
 	"timeline":  "exempt: forensic reconstruction of past events, not current state",
 	"inventory": "exempt: informational CMDB export",
+	"decode":    "exempt: renders a shared report blob, does not diagnose the local host",
 	"update":    "exempt: self-updater",
 	"baseline":  "exempt: security-baseline save/diff utility",
 	"compare":   "exempt: report diff utility",
@@ -124,6 +125,7 @@ var jsonContract = map[string]string{
 
 	"baseline":   "exempt: save/diff utility, no data payload",
 	"compare":    "exempt: report diff utility",
+	"decode":     "exempt: not a diagnostic; --json passes through the decoded report's own JSON",
 	"update":     "exempt: self-updater",
 	"capture":    "exempt: dev capture utility",
 	"examples":   "exempt: prints usage examples",
