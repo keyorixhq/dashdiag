@@ -63,7 +63,11 @@ type Result struct {
 type remoteHealth struct {
 	Hostname string `json:"hostname"`
 	Version  string `json:"version"`
-	Insights []struct {
+	// Pointer so we can tell an absent "insights" key (not a dsd health doc —
+	// reject) from a present-but-empty one (a clean host — accept). Without this
+	// any valid JSON object, including "{}" or a foreign error object, parsed as
+	// a healthy/reachable host and hid a genuinely failing remote.
+	Insights *[]struct {
 		Check   string `json:"check"`
 		Level   string `json:"level"`
 		Message string `json:"message"`
@@ -137,10 +141,16 @@ func parseHealth(stdout []byte, res *Result) bool {
 	if err := json.Unmarshal(stdout, &rh); err != nil {
 		return false
 	}
+	// Reject JSON that isn't a dsd health document — without the "insights" key
+	// (a foreign error object, an older/renamed schema, or "{}") we have no
+	// trustworthy verdict and must treat the host as unreachable, not OK.
+	if rh.Insights == nil {
+		return false
+	}
 	res.Hostname = rh.Hostname
 	res.Version = rh.Version
 	var firstCrit, firstWarn string
-	for _, ins := range rh.Insights {
+	for _, ins := range *rh.Insights {
 		switch ins.Level {
 		case "CRIT":
 			res.Crit++
