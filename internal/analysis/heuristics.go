@@ -1897,6 +1897,61 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	return out
 }
 
+// nvmeEventInsights turns kmsg NVMe timeout/reset counts into insights. On
+// physical NVMe these are the leading cause of system freezes (timeout=WARN,
+// reset=CRIT). But on a VM/cloud guest the NVMe device is virtual storage, so a
+// timeout/reset is a hypervisor/cloud-storage event (EBS throttle, volume
+// detach, live-migration stun), NOT a failing physical drive — and the
+// physical-host remediation (smartctl, nvme_core power settings) doesn't apply.
+// Downgrade severity + reword on a guest; keep the strong signal on bare metal.
+func nvmeEventInsights(logs models.LogsInfo) []models.Insight {
+	var out []models.Insight
+	if logs.NVMeTimeouts > 0 {
+		if logs.Virtualized {
+			out = append(out, insight("INFO", "Logs",
+				fmt.Sprintf("%d NVMe I/O timeout event(s) on virtualized storage — usually a transient hypervisor/cloud-storage event, not a failing drive", logs.NVMeTimeouts),
+				[]string{
+					"to inspect: dmesg | grep -i 'nvme.*timeout'",
+					"note: on a VM/cloud guest the NVMe device is virtual — persistent timeouts may mean cloud-storage throttling or a degraded volume",
+				},
+			))
+		} else {
+			out = append(out, insight("WARN", "Logs",
+				fmt.Sprintf("%d NVMe I/O timeout event(s) in the last hour — drive may be failing or entering bad power state", logs.NVMeTimeouts),
+				[]string{
+					"to inspect: dmesg | grep -i 'nvme.*timeout'",
+					"to inspect: smartctl -a /dev/nvme0  (or nvme smart-log /dev/nvme0)",
+					"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
+					"note: NVMe timeouts can freeze the entire I/O stack — monitor closely",
+				},
+			))
+		}
+	}
+	if logs.NVMeResets > 0 {
+		if logs.Virtualized {
+			out = append(out, insight("WARN", "Logs",
+				fmt.Sprintf("%d NVMe controller reset/down event(s) on virtualized storage — likely a cloud-storage/hypervisor event (volume detach, migration), not a failing drive", logs.NVMeResets),
+				[]string{
+					"to inspect: dmesg | grep -i 'nvme.*reset\\|controller is down\\|CSTS'",
+					"note: on a VM/cloud guest repeated resets may indicate a degraded volume or a noisy hypervisor host — check the cloud console / hypervisor",
+				},
+			))
+		} else {
+			out = append(out, insight("CRIT", "Logs",
+				fmt.Sprintf("%d NVMe controller reset/down event(s) — drive or PCIe link is unstable", logs.NVMeResets),
+				[]string{
+					"to inspect: dmesg | grep -i 'nvme.*reset\\|controller is down\\|CSTS'",
+					"to inspect: nvme smart-log /dev/nvme0  (if nvme-cli installed)",
+					"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
+					"to mitigate: add 'pcie_aspm=off' to kernel cmdline if power-state related",
+					"note: controller resets can cause mdadm/BTRFS/ZFS to go read-only",
+				},
+			))
+		}
+	}
+	return out
+}
+
 func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if logs.NeedsRoot {
@@ -1952,31 +2007,7 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 		))
 	}
 
-	// NVMe timeout and controller reset events — the leading cause of system freezes
-	// on NVMe hardware. Any count is worth surfacing — these don't happen normally.
-	if logs.NVMeTimeouts > 0 {
-		out = append(out, insight("WARN", "Logs",
-			fmt.Sprintf("%d NVMe I/O timeout event(s) in the last hour — drive may be failing or entering bad power state", logs.NVMeTimeouts),
-			[]string{
-				"to inspect: dmesg | grep -i 'nvme.*timeout'",
-				"to inspect: smartctl -a /dev/nvme0  (or nvme smart-log /dev/nvme0)",
-				"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
-				"note: NVMe timeouts can freeze the entire I/O stack — monitor closely",
-			},
-		))
-	}
-	if logs.NVMeResets > 0 {
-		out = append(out, insight("CRIT", "Logs",
-			fmt.Sprintf("%d NVMe controller reset/down event(s) — drive or PCIe link is unstable", logs.NVMeResets),
-			[]string{
-				"to inspect: dmesg | grep -i 'nvme.*reset\\|controller is down\\|CSTS'",
-				"to inspect: nvme smart-log /dev/nvme0  (if nvme-cli installed)",
-				"to mitigate: echo 'options nvme_core default_ps_max_latency_us=0' >> /etc/modprobe.d/nvme.conf",
-				"to mitigate: add 'pcie_aspm=off' to kernel cmdline if power-state related",
-				"note: controller resets can cause mdadm/BTRFS/ZFS to go read-only",
-			},
-		))
-	}
+	out = append(out, nvmeEventInsights(logs)...)
 
 	// Journal health — silent log loss is worse than noisy logs
 	out = append(out, checkJournalHealthInsights(logs)...)

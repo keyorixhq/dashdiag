@@ -178,3 +178,36 @@ func TestDockerStoppedCleanExitNotFlagged(t *testing.T) {
 		t.Errorf("6 failed-exit (exit!=0) containers should WARN, got %+v", got)
 	}
 }
+
+// On a VM/cloud guest the NVMe device is virtual storage, so an I/O timeout is a
+// hypervisor/cloud event, not a failing physical drive — downgrade (timeout
+// WARN→INFO, reset CRIT→WARN). On bare metal the strong signal is kept.
+func TestNVMeTimeoutVirtualizedDowngrade(t *testing.T) {
+	hasMsg := func(ins []models.Insight, level, substr string) bool {
+		for _, i := range ins {
+			if i.Level == level && strings.Contains(i.Message, substr) {
+				return true
+			}
+		}
+		return false
+	}
+
+	phys := checkLogs(models.LogsInfo{Available: true, NVMeTimeouts: 1, NVMeResets: 1}, defaultThresh)
+	if !hasMsg(phys, "WARN", "drive may be failing") {
+		t.Errorf("physical NVMe timeout should WARN 'drive may be failing', got %+v", phys)
+	}
+	if !hasMsg(phys, "CRIT", "PCIe link is unstable") {
+		t.Errorf("physical NVMe reset should CRIT, got %+v", phys)
+	}
+
+	virt := checkLogs(models.LogsInfo{Available: true, NVMeTimeouts: 1, NVMeResets: 1, Virtualized: true}, defaultThresh)
+	if !hasMsg(virt, "INFO", "virtualized storage") {
+		t.Errorf("virtualized NVMe timeout should be INFO, got %+v", virt)
+	}
+	if !hasMsg(virt, "WARN", "virtualized storage") {
+		t.Errorf("virtualized NVMe reset should downgrade to WARN, got %+v", virt)
+	}
+	if hasMsg(virt, "WARN", "drive may be failing") || hasMsg(virt, "CRIT", "PCIe link is unstable") {
+		t.Errorf("virtualized guest must NOT emit the physical-drive WARN/CRIT, got %+v", virt)
+	}
+}
