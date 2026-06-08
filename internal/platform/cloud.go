@@ -59,10 +59,14 @@ func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL s
 		return EnvGCP
 	}
 
-	// Azure
-	if strings.Contains(productName, "Virtual Machine") && strings.Contains(sysVendor, "Microsoft") ||
-		strings.Contains(dmiAll, "microsoft azure") ||
-		strings.Contains(sysVendor, "Microsoft Corporation") {
+	// Azure — the chassis asset tag is the definitive marker (the value
+	// WALinuxAgent and cloud-init key on). A "Microsoft Corporation" sys_vendor
+	// or a "Virtual Machine" product name is NOT enough: every on-prem Hyper-V
+	// guest reports exactly that DMI, so the old broad clauses misclassified
+	// datacenter/dev Hyper-V VMs as Azure.
+	chassisAssetTag := readFileTrimmed(filepath.Join(dmiDir, "chassis_asset_tag"))
+	if chassisAssetTag == "7783-7084-3265-9085-8269-3286-77" ||
+		strings.Contains(dmiAll, "microsoft azure") {
 		return EnvAzure
 	}
 
