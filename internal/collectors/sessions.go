@@ -34,7 +34,11 @@ func (c *SessionsCollector) Collect(ctx context.Context) (interface{}, error) {
 		// `w` not available — return empty, not an error
 		return &models.SessionsInfo{}, nil
 	}
-	return parseSessions(out), nil
+	info := parseSessions(out)
+	// PVE requires root SSH for cluster management; record it so the root-SSH
+	// finding can be exempted (matching checkSecurity's PermitRootLogin handling).
+	info.IsPVE = IsPVEHost()
+	return info, nil
 }
 
 // parseSessions parses `w -h` output into a SessionsInfo.

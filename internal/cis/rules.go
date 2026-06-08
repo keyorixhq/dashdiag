@@ -3,10 +3,30 @@ package cis
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare
+// "start") into its start and full limits. A bare value has no random-drop
+// throttling, so full == start. ok is false when the value can't be parsed.
+func parseMaxStartups(v string) (start, full int, ok bool) {
+	parts := strings.Split(strings.TrimSpace(v), ":")
+	s, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	if len(parts) < 3 {
+		return s, s, true
+	}
+	f, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0, false
+	}
+	return s, f, true
+}
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
 // covering SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
@@ -208,8 +228,16 @@ func buildRules() []Rule {
 			Description: "Ensure SSH MaxStartups is configured",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.18")
+				// `sshd -T` always emits MaxStartups (compiled default 10:30:100),
+				// so presence alone is not compliance — the value must be within
+				// CIS limits (start ≤ 10, full ≤ 60). The OpenSSH default 10:30:100
+				// FAILS, so a presence-only check wrongly passed every stock host.
 				if sec.SSHMaxStartups == "" {
-					return failr(r, "MaxStartups not set (default allows 100 unauthenticated connections)",
+					return failr(r, "MaxStartups not set (default 10:30:100 allows 100 unauthenticated connections)",
+						"set MaxStartups 10:30:60 in /etc/ssh/sshd_config")
+				}
+				if start, full, ok := parseMaxStartups(sec.SSHMaxStartups); ok && (start > 10 || full > 60) {
+					return failr(r, fmt.Sprintf("MaxStartups %s exceeds CIS limit (start ≤ 10, full ≤ 60)", sec.SSHMaxStartups),
 						"set MaxStartups 10:30:60 in /etc/ssh/sshd_config")
 				}
 				return pass(r)

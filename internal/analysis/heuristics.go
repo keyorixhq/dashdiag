@@ -700,9 +700,13 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 			memHints,
 		))
 	}
-	if mem.OverCommitted {
+	// CommitLimit is only ENFORCED in strict-accounting mode (vm.overcommit_memory=2).
+	// In the default heuristic mode (0) and always-overcommit mode (1), Committed_AS
+	// routinely exceeds CommitLimit on a perfectly healthy box — flagging it there is
+	// a false positive. Only mode 2 makes the over-commit an actual allocation/OOM risk.
+	if mem.OverCommitted && mem.OvercommitMode == 2 {
 		out = append(out, insight("CRIT", "Memory",
-			"memory overcommitted — OOM kill risk",
+			"memory overcommitted under strict accounting (vm.overcommit_memory=2) — new allocations will be refused",
 			[]string{"to inspect: cat /proc/meminfo | grep -E 'CommitLimit|Committed_AS'", "to inspect: sysctl vm.overcommit_memory"},
 		))
 	}
@@ -992,7 +996,7 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	saturatedCount := 0
 	for _, dev := range io.Devices {
-		warnUtil, critUtil := thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD
+		warnUtil, critUtil := ioUtilThresholds(dev.DriveType, thresh)
 		warnAwait, critAwait := ioAwaitThresholds(dev.DriveType, thresh)
 
 		if l := levelPct(dev.UtilPct, warnUtil, critUtil); l != "" {
@@ -1041,6 +1045,22 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 }
 
 // ioAwaitThresholds returns WARN and CRIT await thresholds based on drive type.
+// ioUtilThresholds returns the %util WARN/CRIT thresholds for a drive type.
+// %util is the fraction of time the device had ≥1 request in flight — for a
+// spinning HDD that sits at 80–100% during any normal sequential workload
+// (backups, large copies) because an HDD serialises requests. So util-based
+// alerting is a false positive on HDDs; their saturation is caught by AWAIT
+// (latency) instead, which ioAwaitThresholds scales correctly. Returning
+// thresholds above 100 disables util alerting for HDDs while leaving the
+// await check to do the real work. SSD/NVMe keep the SSD thresholds (100%
+// util genuinely is abnormal there).
+func ioUtilThresholds(driveType string, thresh Thresholds) (warn, crit float64) {
+	if driveType == "hdd" {
+		return 101, 101 // never fires — await is the HDD saturation signal
+	}
+	return thresh.IOUtilWarnPctSSD, thresh.IOUtilCritPctSSD
+}
+
 func ioAwaitThresholds(driveType string, thresh Thresholds) (warn, crit float64) {
 	switch driveType {
 	case "nvme":
@@ -1084,15 +1104,32 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			},
 		))
 	}
-	if !nfs.RpcbindActive && len(nfs.Mounts) > 0 {
+	// rpcbind only matters for NFSv3 (portmapper). NFSv4 uses the single
+	// well-known port 2049 and needs no rpcbind, so a v4-only host legitimately
+	// runs without it — don't warn unless at least one v3 mount is present.
+	if !nfs.RpcbindActive && nfsHasV3Mount(nfs.Mounts) {
 		out = append(out, insight("WARN", "NFS",
-			"rpcbind inactive with NFS mounts present — NFS client operations may fail",
+			"rpcbind inactive with NFSv3 mounts present — NFS client operations may fail",
 			[]string{
 				"to fix: systemctl enable --now rpcbind",
 			},
 		))
 	}
 	return out
+}
+
+// nfsHasV3Mount reports whether any mount might be NFSv3 (and thus needs
+// rpcbind). It is conservative: only a mount explicitly typed "nfs4" is treated
+// as definitely-not-v3, so an ambiguous "nfs" fstype (which can be v3 OR a
+// vers=4 mount the kernel labelled generically) still counts — better a rare
+// extra WARN than re-introducing the rpcbind false-negative for a real v3 host.
+func nfsHasV3Mount(mounts []models.NFSMount) bool {
+	for _, m := range mounts {
+		if m.FSType != "nfs4" {
+			return true
+		}
+	}
+	return false
 }
 
 func checkBIND(b models.BINDInfo) []models.Insight {
@@ -4576,8 +4613,11 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			},
 		))
 	}
-	// firewalld with nftables backend — silently drops Docker iptables rules
-	if d.FirewalldActive && d.FirewalldBackend == "nftables" {
+	// firewalld with nftables backend — silently drops Docker iptables rules,
+	// UNLESS docker0 has already been added to the trusted zone (the documented
+	// fix below). Skip the WARN when that fix is in place, or we flag a host the
+	// admin already remediated.
+	if d.FirewalldActive && d.FirewalldBackend == "nftables" && !d.DockerZoneTrusted {
 		out = append(out, insight("WARN", "Docker",
 			"firewalld is active with nftables backend — Docker iptables rules are silently ignored",
 			[]string{
@@ -6160,16 +6200,26 @@ func checkSessions(s models.SessionsInfo) []models.Insight {
 	}
 	var out []models.Insight
 
-	// Root logged in via SSH — always CRIT
+	// Root logged in via SSH. On Proxmox VE root SSH is required for cluster
+	// management, so flagging it CRIT (as checkSecurity already declines to do for
+	// PermitRootLogin on PVE) would fire on the operator's own management session.
+	// Surface it as INFO there instead of a false CRIT.
 	if s.RootSSH {
-		out = append(out, insight("CRIT", "Sessions",
-			"root is logged in via SSH — direct root SSH access is a security risk",
-			[]string{
-				"to inspect: w",
-				"to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
-				"to fix: use sudo or su instead of direct root SSH",
-			},
-		))
+		if s.IsPVE {
+			out = append(out, insight("INFO", "Sessions",
+				"root is logged in via SSH — expected on Proxmox VE (cluster management requires it)",
+				[]string{"to inspect: w"},
+			))
+		} else {
+			out = append(out, insight("CRIT", "Sessions",
+				"root is logged in via SSH — direct root SSH access is a security risk",
+				[]string{
+					"to inspect: w",
+					"to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
+					"to fix: use sudo or su instead of direct root SSH",
+				},
+			))
+		}
 	}
 
 	// Sessions idle > 8 hours — unattended terminals
@@ -6518,7 +6568,24 @@ func checkDNS(d models.DNSResolverInfo) []models.Insight {
 	var out []models.Insight
 
 	if !d.ExternalResolvesOK && d.Manager != "none" {
-		msg := "DNS resolution failing — cannot resolve external hostnames"
+		// Internal names resolve but external don't → an intentional internal-only
+		// / air-gapped / split-horizon network, not a broken resolver. Downgrade to
+		// WARN with accurate wording instead of a false "DNS is failing" CRIT.
+		if d.InternalResolvesOK {
+			msg := "external DNS resolution unavailable, but internal names resolve — expected on air-gapped / internal-only networks"
+			if d.ResolvTestError != "" {
+				msg += " (" + d.ResolvTestError + ")"
+			}
+			out = append(out, insight("WARN", "DNS", msg,
+				[]string{
+					"to inspect: dig google.com   (expected to fail on an isolated network)",
+					"note: if external resolution IS expected, check the upstream forwarder / firewall",
+				},
+			))
+			out = append(out, checkDNSQuality(d)...)
+			return out
+		}
+		msg := "DNS resolution failing — cannot resolve external or internal hostnames"
 		if d.ResolvTestError != "" {
 			msg += ": " + d.ResolvTestError
 		}

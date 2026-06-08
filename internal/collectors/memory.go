@@ -97,6 +97,9 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.CommitLimitMB = float64(m["CommitLimit"]) / 1024
 	info.CommittedAsMB = float64(m["Committed_AS"]) / 1024
 	info.OverCommitted = info.CommitLimitMB > 0 && info.CommittedAsMB > info.CommitLimitMB
+	// vm.overcommit_memory mode — CommitLimit is only enforced in mode 2, so the
+	// over-commit CRIT must gate on it (see checkMemory). Absent (non-Linux) → 0.
+	info.OvercommitMode, _ = readIntFile("/proc/sys/vm/overcommit_memory")
 
 	return info, nil
 }
