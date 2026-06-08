@@ -249,7 +249,7 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	defer cancel()
 
 	cmd := exec.CommandContext(dCtx, "dmesg", "-T", "--level=err,warn,crit,emerg,alert") // #nosec G204
-	cmd.Env = localeSafeEnv() // `dmesg -T` localizes month/day names; force C so the English parser works
+	cmd.Env = localeSafeEnv()                                                            // `dmesg -T` localizes month/day names; force C so the English parser works
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil
