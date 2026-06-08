@@ -276,6 +276,28 @@ Priority: low. Does not advance the pilot. Tackle at a quiet, stable moment (not
 
 ## 🐞 Known Bugs
 
+### ~~Full-subsystem bug-hunt — 27 fixes~~ ✅ FIXED (2026-06-08, PRs #85–#111)
+
+**Found:** 2026-06-08, an adversarial bug-hunt across every subsystem (cmd, analysis,
+collectors, render, cis, cvedata, baseline, fleet, inventory, platform, drilldown).
+27 PRs, each verified against the source, each with a regression test, all CI-green.
+Headline classes: a CIS file-perm magnitude compare that PASSed a world-readable
+`/etc/shadow` (#100); lexicographic RPM version compare reporting a vulnerable host
+as safe (#102, now a real `rpmvercmp`); `/proc/stat` comm-parens mis-parse (#101);
+`dsd health --diff` comparing two runs ago (#103); on-prem Hyper-V tagged as Azure
+(#106); fleet counting a non-dsd JSON reply as a healthy host (#107). `selfupdate`
+audited clean.
+
+**Deferred (not yet fixed) — noted for a follow-up:**
+- **OVAL criteria AND/OR/`negate` evaluation** (`internal/cvedata/oval.go`): `CheckCVEFromOVAL`
+  flattens the criteria tree and ignores boolean operators + negation (treats every leaf as
+  "installed and older than fixed"). A correct evaluator needs the OVAL state `operation`
+  semantics, which require a **real SUSE/RHEL OVAL fixture** to validate — guessing wrong
+  reintroduces a false negative (vulnerable→safe), the class fixed in #102. Current behavior is
+  a conservative over-flagging simplification; `--oval` is a niche air-gapped path. Safe
+  sub-fixes already shipped (#110: 0-definition parse guard + case-insensitive snapshot lookup).
+  See memory `oval-boolean-tree-deferred` for the resume plan.
+
 ### ~~BUG-031..035 — collector robustness: hang risks + false readings~~ ✅ FIXED (2026-06-05)
 
 **Found:** 2026-06-05, a second bug-hunt (hang/blocking, error-swallowing, severity-threshold
@@ -291,10 +313,9 @@ on the pve01 guest and `dsd health` smoke-tested live.
 | BUG-035 | `sysctl.go` | `tcp_tw_reuse` read swallowed its error (→0 = real "disabled") | false WARN on a webserver when the proc path is unreadable |
 
 **Deferred (not yet fixed) — noted for a follow-up:**
-- **NVMe `available_spare == 0` CRIT-miss** (`heuristics.go:2058`): the `> 0` guard skips a
-  drive at exactly 0% spare (worst case). Naively dropping the guard false-positives on drives
-  that don't report the field (0 = absent). Needs a model-level `SpareChecked`/sentinel. Mitigated
-  today: such a drive also sets `critical_warning` → CRIT fires anyway.
+- ~~**NVMe `available_spare == 0` CRIT-miss**~~ ✅ FIXED (2026-06-08, #93): the CRIT now gates on
+  `SpareThresholdPct > 0` (a defined SMART field = "log was read") instead of `AvailableSparePct > 0`,
+  so 0% spare CRITs while truly-unread data stays silent.
 - **Drilldown `LargestDirs` walk** (`internal/drilldown/disk.go`): `os.ReadDir`/`filepath.WalkDir`
   aren't bound by the dispatch `dctx`, so a stale subtree can wedge the walk. Narrow (only fires
   after a Disk WARN, where statfs just succeeded).
