@@ -2132,7 +2132,13 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
-		if dev.AvailableSparePct > 0 && dev.AvailableSparePct <= dev.SpareThresholdPct {
+		// Gate on the threshold (a defined NVMe SMART field, ~10% on healthy
+		// drives) rather than on AvailableSparePct itself: AvailableSparePct==0
+		// is the WORST reading (spare fully exhausted), but the old `> 0` guard
+		// silently dropped it. SpareThresholdPct>0 means the SMART log was read,
+		// so spare<=threshold (including 0) is a real CRIT; both-zero (unread)
+		// still stays silent.
+		if dev.SpareThresholdPct > 0 && dev.AvailableSparePct <= dev.SpareThresholdPct {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s spare capacity at %d%% (threshold: %d%%) — drive near end of life", dev.Name, dev.AvailableSparePct, dev.SpareThresholdPct),
 				[]string{"to inspect: nvme smart-log " + dev.Name},

@@ -109,6 +109,12 @@ func TestCheckNVMe(t *testing.T) {
 		{"nvme critical warning is CRIT", nvme(models.NVMeDevice{Name: "nvme0", CriticalWarning: 1}), "CRIT"},
 		{"nvme media errors is CRIT", nvme(models.NVMeDevice{Name: "nvme0", MediaErrors: 5}), "CRIT"},
 		{"nvme spare below threshold is CRIT", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 5, SpareThresholdPct: 10}), "CRIT"},
+		// 0% available spare is the worst reading and must CRIT (the old `> 0`
+		// guard silently dropped it). Threshold>0 proves the SMART log was read.
+		{"nvme spare exhausted (0%) is CRIT", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 0, SpareThresholdPct: 10}), "CRIT"},
+		// Both fields zero = SMART log not read for this drive → stay silent, no
+		// false CRIT.
+		{"nvme spare unread (0/0) is clean", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 0, SpareThresholdPct: 0}), ""},
 		{"nvme spare low is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 15}), "WARN"},
 		{"nvme wear >=90 is WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 95}), "WARN"},
 		{"nvme hot is WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 75}), "WARN"},
