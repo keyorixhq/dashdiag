@@ -23,7 +23,7 @@ func (c *DNSCollector) Name() string           { return "DNS" }
 func (c *DNSCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *DNSCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.DNSResolverInfo{}
+	info := &models.DNSResolverInfo{Available: true}
 
 	parseResolvConf(info)
 	detectDNSManager(ctx, info)
