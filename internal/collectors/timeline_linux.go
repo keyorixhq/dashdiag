@@ -132,8 +132,11 @@ func parseJournalLine(line string) *models.TimelineEvent {
 		Priority          string `json:"PRIORITY"`
 		SyslogID          string `json:"SYSLOG_IDENTIFIER"`
 		SystemdUnit       string `json:"_SYSTEMD_UNIT"`
-		Message           string `json:"MESSAGE"`
-		Comm              string `json:"_COMM"`
+		// RawMessage: journald exports a MESSAGE with non-UTF-8/binary content as a
+		// JSON array of byte integers, not a string. A plain `string` field would
+		// fail to unmarshal that line and silently drop the whole event.
+		Message json.RawMessage `json:"MESSAGE"`
+		Comm    string          `json:"_COMM"`
 	}
 	if err := json.Unmarshal([]byte(line), &entry); err != nil {
 		return nil
@@ -141,10 +144,11 @@ func parseJournalLine(line string) *models.TimelineEvent {
 	us, _ := strconv.ParseInt(entry.RealtimeTimestamp, 10, 64)
 	ts := time.Unix(us/1_000_000, 0)
 
-	// Priority: 0=emerg, 1=alert, 2=crit, 3=err, 4=warning
-	prio, _ := strconv.Atoi(entry.Priority)
+	// Priority: 0=emerg, 1=alert, 2=crit, 3=err, 4=warning. Only escalate to CRIT
+	// when PRIORITY actually parses as <=3 — a missing/garbled field must NOT
+	// default to the worst level (that would inflate the CRIT count and verdict).
 	level := "WARN"
-	if prio <= 3 {
+	if prio, err := strconv.Atoi(strings.TrimSpace(entry.Priority)); err == nil && prio <= 3 {
 		level = "CRIT"
 	}
 
@@ -156,10 +160,7 @@ func parseJournalLine(line string) *models.TimelineEvent {
 		unit = entry.Comm
 	}
 
-	msg := entry.Message
-	if len(msg) > 140 {
-		msg = msg[:140] + "…"
-	}
+	msg := truncateMessage(decodeJournalMessage(entry.Message))
 	// Skip boring / noisy entries
 	if isNoisyJournalEntry(unit, msg) {
 		return nil
@@ -191,6 +192,41 @@ func isNoisyJournalEntry(unit, msg string) bool {
 		return true
 	}
 	return false
+}
+
+// decodeJournalMessage extracts the MESSAGE text whether journald rendered it as
+// a JSON string (the common case) or as an array of byte integers (used for
+// content that is not valid UTF-8). Returns "" if neither form decodes.
+func decodeJournalMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	// Array-of-bytes form: [104,101,...]. encoding/json maps []byte to base64, so
+	// decode into []int and rebuild the bytes ourselves.
+	var nums []int
+	if err := json.Unmarshal(raw, &nums); err == nil {
+		bs := make([]byte, len(nums))
+		for i, n := range nums {
+			bs[i] = byte(n)
+		}
+		return string(bs)
+	}
+	return ""
+}
+
+// truncateMessage caps a message at 140 runes (not bytes) so a multi-byte rune is
+// never split into invalid UTF-8 at the boundary.
+func truncateMessage(s string) string {
+	const max = 140
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
 // deduplicateEvents collapses identical unit+level events within the same minute.
@@ -306,9 +342,7 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 	// Extract subsystem from first word group in brackets: "[ 1234.567] EXT4-fs..."
 	unit := extractKernelSubsystem(msg)
 
-	if len(msg) > 140 {
-		msg = msg[:140] + "…"
-	}
+	msg = truncateMessage(msg)
 
 	return &models.TimelineEvent{
 		TimestampUnix: ts.Unix(),
