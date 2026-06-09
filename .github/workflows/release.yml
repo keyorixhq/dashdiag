@@ -46,6 +46,26 @@ jobs:
           scripts/build-appimage.sh "${GITHUB_REF_NAME#v}"
           cd dist && sha256sum dsd-*.AppImage >> checksums.txt
 
+      # Smoke-test EVERY artifact in a clean container before publishing — install
+      # it the way a user would and confirm `dsd` runs. A broken artifact fails the
+      # release here instead of reaching users (the install.sh P0, #123, shipped
+      # because nothing tested the front door). amd64 only (release runner arch);
+      # arm64 packages are built identically and the install.sh path is PR-guarded.
+      - name: Smoke-test artifacts (before publishing)
+        run: |
+          set -e
+          VER="${GITHUB_REF_NAME#v}"
+          run() { docker run --rm -v "$PWD/dist:/d:ro" "$1" sh -c "$2"; }
+          echo "::group::raw linux-amd64 binary"
+          run debian:13 'install -m755 /d/dsd-linux-amd64 /usr/local/bin/dsd && dsd --version'
+          echo "::group::.deb (dpkg)"
+          run debian:13 "dpkg -i /d/dsd_${VER}_amd64.deb && dsd --version"
+          echo "::group::.rpm (rpm)"
+          run rockylinux:9 "rpm -i /d/dsd-${VER}-1.x86_64.rpm && dsd --version"
+          echo "::group::AppImage (extract-and-run, no FUSE in CI)"
+          run debian:13 "install -m755 /d/dsd-${VER}-x86_64.AppImage /tmp/a && /tmp/a --appimage-extract-and-run --version"
+          echo "::endgroup::"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
