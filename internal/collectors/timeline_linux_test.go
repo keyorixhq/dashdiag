@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
@@ -108,6 +109,54 @@ func TestParseJournalLine_MessageTruncation(t *testing.T) {
 	// 140 runes + the ellipsis rune.
 	if got := len([]rune(ev.Message)); got != 141 {
 		t.Errorf("truncated message rune length = %d, want 141", got)
+	}
+}
+
+// A missing or unparseable PRIORITY must NOT default to CRIT — that would inflate
+// the timeline's CRIT count and verdict. The journalctl filter already bounds
+// these to <= warning, so the safe default is WARN.
+func TestParseJournalLine_PriorityDefaultsToWarn(t *testing.T) {
+	for _, prio := range []string{"", "  ", "notanumber"} {
+		line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"` + prio +
+			`","_SYSTEMD_UNIT":"app.service","MESSAGE":"something"}`
+		ev := parseJournalLine(line)
+		if ev == nil {
+			t.Fatalf("priority %q: expected event, got nil", prio)
+		}
+		if ev.Level != "WARN" {
+			t.Errorf("priority %q: Level = %q, want WARN (must not default to CRIT)", prio, ev.Level)
+		}
+	}
+}
+
+// journald renders a MESSAGE with non-UTF-8 content as a JSON array of byte
+// integers. The event must still be parsed (decoded to text), not silently
+// dropped because the field isn't a JSON string.
+func TestParseJournalLine_MessageAsByteArray(t *testing.T) {
+	// "hi" as a byte array, plus a high byte (0xff) that isn't valid UTF-8.
+	line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"3","_SYSTEMD_UNIT":"app.service","MESSAGE":[104,105,255]}`
+	ev := parseJournalLine(line)
+	if ev == nil {
+		t.Fatal("event with array MESSAGE must not be dropped")
+	}
+	if !strings.HasPrefix(ev.Message, "hi") {
+		t.Errorf("decoded message = %q, want prefix %q", ev.Message, "hi")
+	}
+}
+
+// Truncation must cut on a rune boundary so it never emits invalid UTF-8.
+func TestParseJournalLine_TruncationIsRuneSafe(t *testing.T) {
+	long := strings.Repeat("世", 200) // 3 bytes each — byte-slicing would split a rune
+	line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"` + long + `"}`
+	ev := parseJournalLine(line)
+	if ev == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if !utf8.ValidString(ev.Message) {
+		t.Errorf("truncated message is not valid UTF-8: %q", ev.Message)
+	}
+	if got := len([]rune(ev.Message)); got != 141 { // 140 runes + ellipsis
+		t.Errorf("rune length = %d, want 141", got)
 	}
 }
 
