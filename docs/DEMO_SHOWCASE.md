@@ -112,3 +112,34 @@ log nobody reads. `dsd health` puts it on the first screen — back up now."*
   (currently v0.6.10).
 - Real captured fixtures (from a live host) carry more credibility than authored
   ones — capture with the live tool where possible and drop the YAML here.
+
+---
+
+## Real captures (authentic — from the live test matrix)
+
+These were captured from real hosts via `dsd health --json | dsd capture` — not
+authored. Most credible for "this is real output" claims.
+
+| Fixture | Real host | Headline finding |
+|---|---|---|
+| `real-proxmox.yaml` | pve01 (Debian 13 / PVE 9.1) | 4 guests with no backup hidden behind a healthy node-wide age; elevated CPU temp; AppArmor profiles in complain mode |
+| `real-almalinux-crashloop.yaml` | almalinux9-lxc | `Systemd ❌` + `Logs ❌ crash loop detected` + `Docker ⚠️ quadlet failed` — a real failing Podman quadlet |
+| `real-ubuntu24.yaml` | ubuntu24-lxc | A near-clean container: shows the no-phantom-rows behavior on a host without disks/NICs/etc. |
+
+## More authored scenarios
+
+| Fixture | Angle | Headline finding |
+|---|---|---|
+| `docker-host-meltdown.yaml` | Docker | crash loop + OOM kills + docker.sock-mounted container (host-root footgun) |
+| `cve-actively-exploited.yaml` | Security | `dsd health --cve` → CISA KEV actively-exploited CVEs as CRIT |
+| `cloud-vm-cloudinit-failed.yaml` | Cloud | cloud-init errored mid-provision — half-configured instance surfaced |
+| `steamdeck.yaml` | Steam Deck (top-of-funnel) | SteamOS RAUC slot, gamescope, shader cache — "it speaks Deck" |
+
+---
+
+## Companion docs
+
+- **`docs/LINKEDIN_POSTS.md`** — ready-to-schedule post drafts (hook + body + CTA +
+  the matching fixture to screenshot), one per scenario above.
+- **`docs/DEMO_SCRIPT.md`** — a 60-second recording script (install → run → the
+  catch) for an asciinema cast / LinkedIn video, with per-audience cold-opens.

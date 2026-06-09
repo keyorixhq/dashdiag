@@ -1,0 +1,368 @@
+# fixture captured from pve01 (Debian GNU/Linux 13 (trixie))
+# replay with: dsd mock <this-file>
+
+host: pve01
+os: Debian GNU/Linux 13 (trixie)
+version: v0.6.10-2-gcb72795
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 9%
+      message: ""
+      hints: []
+    - name: CPU Thermal
+      level: WARN
+      inline: ""
+      message: CPU temperature 77°C at 9% load — elevated for low CPU activity, possible cooling issue
+      hints:
+        - 'to inspect: cat /sys/class/hwmon/hwmon*/temp*_input'
+        - 'to inspect: check for dust buildup and blocked vents'
+        - 'to inspect: consider reseating thermal paste on older hardware'
+    - name: Memory
+      level: ""
+      inline: 7.2/31 GB (23%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: 6 mounts, max 49% (/)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "filesystems": [
+                  {
+                    "mount": "/",
+                    "device": "/dev/mapper/pve-root",
+                    "fs_type": "ext4",
+                    "total_gb": 41.489260544,
+                    "used_gb": 18.342936575999996,
+                    "free_gb": 23.146323968,
+                    "used_pct": 49.37060269434529,
+                    "inodes_used_pct": 10.314171246549686,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/boot/efi",
+                    "device": "/dev/sda2",
+                    "fs_type": "vfat",
+                    "total_gb": 1.071624192,
+                    "used_gb": 0.009191423999999948,
+                    "free_gb": 1.062432768,
+                    "used_pct": 0.8577096400600892,
+                    "inodes_used_pct": 0,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/mnt/data",
+                    "device": "/dev/sdb2",
+                    "fs_type": "ext4",
+                    "total_gb": 1967.83132672,
+                    "used_gb": 18.48979046400018,
+                    "free_gb": 1949.341536256,
+                    "used_pct": 6.023159328678829,
+                    "inodes_used_pct": 0.000040952198232524495,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/var/lib/lxcfs",
+                    "device": "lxcfs",
+                    "fs_type": "fuse.lxcfs",
+                    "total_gb": 0,
+                    "used_gb": 0,
+                    "free_gb": 0,
+                    "used_pct": 0,
+                    "inodes_used_pct": 0,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/run/rpc_pipefs",
+                    "device": "sunrpc",
+                    "fs_type": "rpc_pipefs",
+                    "total_gb": 0,
+                    "used_gb": 0,
+                    "free_gb": 0,
+                    "used_pct": 0,
+                    "inodes_used_pct": 0,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "mount": "/etc/pve",
+                    "device": "/dev/fuse",
+                    "fs_type": "fuse",
+                    "total_gb": 0.134217728,
+                    "used_gb": 0.000024575999999998377,
+                    "free_gb": 0.134193152,
+                    "used_pct": 0.018310546875,
+                    "inodes_used_pct": 0.0171661376953125,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "drives": [
+                  {
+                    "name": "sda",
+                    "size_gb": 128.03567616,
+                    "type": "SSD",
+                    "model": "LITEONIT LCS-128",
+                    "mounts": [
+                      "sda2-\u003e/boot/efi"
+                    ],
+                    "smart": {
+                      "device": "/dev/sda",
+                      "healthy": true,
+                      "percent_used": 0,
+                      "available_spare": 0,
+                      "temperature_c": 0,
+                      "media_errors": 0
+                    }
+                  },
+                  {
+                    "name": "sdb",
+                    "size_gb": 2000.398934016,
+                    "type": "HDD",
+                    "model": "WDC WD2003FYYS-0",
+                    "mounts": [
+                      "sdb2-\u003e/mnt/data"
+                    ],
+                    "smart": {
+                      "device": "/dev/sdb",
+                      "healthy": true,
+                      "percent_used": 0,
+                      "available_spare": 0,
+                      "temperature_c": 0,
+                      "media_errors": 0
+                    }
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: IO
+      level: ""
+      inline: 0.4 ms (sda)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": [
+                  {
+                    "name": "sda",
+                    "is_ssd": true,
+                    "drive_type": "ssd",
+                    "util_pct": 0.6,
+                    "await_ms": 0.42105263157894735,
+                    "read_mbps": 2.359296,
+                    "write_mbps": 0.004096,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "name": "sdb",
+                    "is_ssd": false,
+                    "drive_type": "hdd",
+                    "util_pct": 0,
+                    "await_ms": 0,
+                    "read_mbps": 0,
+                    "write_mbps": 0,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: Drives
+      level: ""
+      inline: 2 drives  healthy
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": null,
+                "sata_devices": [
+                  {
+                    "name": "/dev/sda",
+                    "model": "LITEONIT LCS-128L9S-11 2.5 7mm 128GB",
+                    "type": "sata",
+                    "temp_c": 0,
+                    "smart_ok": true,
+                    "power_on_hours": 0,
+                    "reallocated_sectors": 0,
+                    "pending_sectors": 0,
+                    "uncorrectable_errors": 0
+                  },
+                  {
+                    "name": "/dev/sdb",
+                    "model": "WDC WD2003FYYS-05T8B0",
+                    "type": "sata",
+                    "temp_c": 51,
+                    "smart_ok": true,
+                    "power_on_hours": 36436,
+                    "reallocated_sectors": 0,
+                    "pending_sectors": 0,
+                    "uncorrectable_errors": 0
+                  }
+                ]
+              }
+    - name: LVM
+      level: ""
+      inline: 1 VG
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "vgs": [
+                  {
+                    "name": "pve",
+                    "size_gb": 118.24,
+                    "free_gb": 14.75,
+                    "free_pct": 12.474627875507444,
+                    "has_mounted_lv": true
+                  }
+                ],
+                "thin_pools": [
+                  {
+                    "name": "data",
+                    "vg": "pve",
+                    "data_pct": 26.88,
+                    "meta_pct": 2.06,
+                    "size_gb": 53.93
+                  }
+                ]
+              }
+    - name: ZFS
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+      raw: '{}'
+    - name: Network
+      level: ""
+      inline: 6 NICs, nic0 1Gbps  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: ""
+      inline: boot 47s
+      message: ""
+      hints: []
+    - name: Processes
+      level: ""
+      inline: 423 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: 12k open  339 deleted
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±0 ms  adjtimex
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read
+      hints:
+        - 'to fix: apt install rsyslog  OR  dnf install rsyslog  OR  zypper install rsyslog'
+        - 'note:   without a text fallback, logs are unreadable if journald corrupts or system partially fails'
+        - 'note:   standard Unix tools (grep, tail, less) cannot read binary journal files'
+    - name: Sysctl
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: KernelSec
+      level: WARN
+      inline: ""
+      message: 23 AppArmor profile(s) in complain mode — not enforcing
+      hints:
+        - 'to inspect: aa-status'
+        - 'to enforce: aa-enforce /etc/apparmor.d/*'
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: PVE
+      level: WARN
+      inline: ""
+      message: '4 VM/CT have no backup while others on this node do: opensuse16-btrfs, steamos-validate, dsd-vmware-test, debian13-vm — no recovery point'
+      hints:
+        - 'to inspect: Datacenter -> Backup — confirm every guest is in a backup job'
+        - 'note: a healthy node-wide backup age hides individual guests that were never added to a job'
+        - 'also: no Proxmox VE subscription — security updates require an active subscription'
+    - name: OOM
+      level: ""
+      inline: 0 events
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: no pressure
+      message: ""
+      hints: []
+    - name: Firewall
+      level: INFO
+      inline: ""
+      message: PVE firewall active (pve-firewall) — host firewall managed by Proxmox
+      hints:
+        - 'to inspect: pve-firewall status'
+        - 'to inspect: cat /etc/pve/firewall/cluster.fw'
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: HugePages
+      level: ""
+      inline: THP madvise
+      message: ""
+      hints: []
+    - name: CPUFreq
+      level: ""
+      inline: performance  3700/4000 MHz
+      message: ""
+      hints: []
+    - name: KVM
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: 2 sessions
+      message: ""
+      hints: []

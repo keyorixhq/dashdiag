@@ -1,0 +1,203 @@
+# fixture captured from almalinux9-lxc (AlmaLinux 9.4 (Seafoam Ocelot))
+# replay with: dsd mock <this-file>
+
+host: almalinux9-lxc
+os: AlmaLinux 9.4 (Seafoam Ocelot)
+version: v0.6.10-2-gcb72795
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 17%
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.0/1 GB (3%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: / 14%
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "filesystems": [
+                  {
+                    "mount": "/",
+                    "device": "/dev/mapper/pve-vm--213--disk--0",
+                    "fs_type": "ext4",
+                    "total_gb": 8.350298112,
+                    "used_gb": 0.7202734080000006,
+                    "free_gb": 7.630024704,
+                    "used_pct": 13.970098795917096,
+                    "inodes_used_pct": 3.7204742431640625,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "drives": [
+                  {
+                    "name": "sda",
+                    "size_gb": 128.03567616,
+                    "type": "SSD",
+                    "model": "LITEONIT LCS-128",
+                    "mounts": [
+                      "not mounted"
+                    ]
+                  },
+                  {
+                    "name": "sdb",
+                    "size_gb": 2000.398934016,
+                    "type": "HDD",
+                    "model": "WDC WD2003FYYS-0",
+                    "mounts": [
+                      "not mounted"
+                    ]
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: IO
+      level: ""
+      inline: 19.6 ms (sdb)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": [
+                  {
+                    "name": "sda",
+                    "is_ssd": true,
+                    "drive_type": "ssd",
+                    "util_pct": 0.6,
+                    "await_ms": 1.3333333333333333,
+                    "read_mbps": 0,
+                    "write_mbps": 0.544768,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "name": "sdb",
+                    "is_ssd": false,
+                    "drive_type": "hdd",
+                    "util_pct": 9.3,
+                    "await_ms": 19.56756756756757,
+                    "read_mbps": 0,
+                    "write_mbps": 0.172032,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: Network
+      level: ""
+      inline: eth0 10Gbps  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: CRIT
+      inline: ""
+      message: unit test-nginx.service has failed
+      hints:
+        - 'to inspect: systemctl status test-nginx.service'
+        - 'to inspect: journalctl -u test-nginx.service -n 50'
+    - name: Processes
+      level: ""
+      inline: 20 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: 12k open  1 deleted
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±1 ms  host
+      message: ""
+      hints: []
+    - name: Logs
+      level: CRIT
+      inline: ""
+      message: 'crash loop detected: test-nginx.service (restarted 5 times)'
+      hints:
+        - 'to inspect: journalctl -u test-nginx.service -n 50'
+    - name: Sysctl
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: KernelSec
+      level: INFO
+      inline: ""
+      message: kernel security module not enforced
+      hints: []
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: OOM
+      level: ""
+      inline: 0 events
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: mem 0%  cpu 0%  io 0%
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  14 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: HugePages
+      level: ""
+      inline: THP madvise
+      message: ""
+      hints: []
+    - name: CPUFreq
+      level: ""
+      inline: performance  3699/4000 MHz
+      message: ""
+      hints: []
+    - name: Docker
+      level: WARN
+      inline: ""
+      message: '1 Podman quadlet(s) failed: test-nginx'
+      hints:
+        - 'to inspect: systemctl status test-nginx.service'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Sessions
+      level: ""
+      inline: no active sessions
+      message: ""
+      hints: []

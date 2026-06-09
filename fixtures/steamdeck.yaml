@@ -1,0 +1,31 @@
+# fixtures/steamdeck.yaml
+# Demo: dsd speaks Steam Deck / SteamOS natively — RAUC A/B slots, read-only
+# rootfs, gamescope session, shader cache. The top-of-funnel "it even knows my
+# Deck" moment for the Steam Deck community.
+# Use: dsd mock fixtures/steamdeck.yaml
+host: "steamdeck"
+os: "SteamOS 3.6 (Holo)"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "23% (Custom APU 0405)"
+  - name: "CPU Thermal"
+    inline: "61°C"
+  - name: "Memory"
+    inline: "5.1/16 GB (32%)"
+  - name: "Disk"
+    inline: "/home 78%  shader cache 11 GB"
+  - name: "SteamOS"
+    level: WARN
+    message: "inactive RAUC slot B is marked bad — update rollback safety net is gone (booted slot A good)"
+    hints:
+      - "to inspect: rauc status"
+      - "note: with a bad inactive slot, a failed update has nowhere to roll back to"
+  - name: "Network"
+    level: WARN
+    message: "Wi-Fi on 2.4GHz (RSSI -71 dBm) while a 5GHz SSID is in range — Remote Play will stutter"
+    hints: ["to fix: prefer the 5GHz band for Remote Play"]
+  - name: "GPU"
+    inline: "amdgpu (RADV) 61°C  Mesa 24.1"
+  - name: "Firewall"
+    inline: "inactive (default)"
