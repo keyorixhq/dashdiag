@@ -286,18 +286,31 @@ func collectK8sEvents(ctx context.Context, bin string, info *models.K8sInfo) {
 	if err != nil {
 		return
 	}
-	count := 0
+	info.Events = append(info.Events, parseK8sWarningEvents(out)...)
+}
+
+// parseK8sWarningEvents parses `kubectl get events --field-selector type=Warning
+// --sort-by=.lastTimestamp --no-headers` and returns the 10 MOST RECENT warning
+// events. Two fixes over the original loop:
+//   - kubectl sorts ascending (oldest first), so the most recent events are at the
+//     END — keep the tail, not the head. Keeping the head showed stale warnings
+//     and could miss a recent one (e.g. the flannel subnet.env CRIT hint).
+//   - a short/blank line is SKIPPED, not treated as end-of-input. The old
+//     `len(fields) < 5 || count >= 10 { break }` aborted all collection on the
+//     first malformed line (e.g. a trailing blank line).
+func parseK8sWarningEvents(out string) []models.K8sEvent {
+	var evs []models.K8sEvent
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 5 || count >= 10 {
-			break
+		if len(fields) < 5 {
+			continue
 		}
 		ev := models.K8sEvent{
 			Namespace: fields[0],
 			Age:       fields[1],
 			Reason:    fields[3],
 		}
-		// Name: fields[4] (type/name format)
+		// Name: fields[4] is "type/name" format.
 		parts := strings.SplitN(fields[4], "/", 2)
 		if len(parts) == 2 {
 			ev.Name = parts[1]
@@ -307,9 +320,13 @@ func collectK8sEvents(ctx context.Context, bin string, info *models.K8sInfo) {
 		if len(fields) > 5 {
 			ev.Message = strings.Join(fields[5:], " ")
 		}
-		info.Events = append(info.Events, ev)
-		count++
+		evs = append(evs, ev)
 	}
+	const maxEvents = 10
+	if len(evs) > maxEvents {
+		evs = evs[len(evs)-maxEvents:] // most recent (sorted ascending → tail)
+	}
+	return evs
 }
 
 // ── PVCs ──────────────────────────────────────────────────────────────────────
