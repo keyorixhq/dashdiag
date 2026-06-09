@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -37,15 +38,21 @@ type SecurityDiff struct {
 	NewSudoEntries  []string // new NOPASSWD entries since baseline
 	NewCronEntries  []string // new suspect cron entries since baseline
 	ChangedSSHFiles []string // SSH config files whose hash changed
+	AddedSSHFiles   []string // SSH config files present now but not in the baseline
+	RemovedSSHFiles []string // SSH config files in the baseline but now gone
 	// true when baseline is missing entirely (first run)
 	NoBaseline      bool
 	BaselineSavedAt time.Time
 }
 
-// HasChanges returns true when any drift was detected.
+// HasChanges returns true when any drift was detected. Added and removed SSH
+// config files count: an attacker dropping /etc/ssh/sshd_config.d/99-evil.conf
+// (PermitRootLogin yes) or deleting a hardening drop-in is exactly the drift
+// this is meant to catch.
 func (d *SecurityDiff) HasChanges() bool {
 	return len(d.NewSUIDs) > 0 || len(d.NewSudoEntries) > 0 ||
-		len(d.NewCronEntries) > 0 || len(d.ChangedSSHFiles) > 0
+		len(d.NewCronEntries) > 0 || len(d.ChangedSSHFiles) > 0 ||
+		len(d.AddedSSHFiles) > 0 || len(d.RemovedSSHFiles) > 0
 }
 
 // SecurityBaselinePath returns the path to the security baseline file.
@@ -176,16 +183,38 @@ func DiffSecurityBaseline(baseline *SecurityBaseline, current *models.SecurityIn
 		}
 	}
 
-	// SSH config drift — compare current file hashes against the baseline.
-	curHashes := hashSSHConfigFiles()
+	// SSH config drift — compare the current set of config files against the
+	// baseline. Detect three kinds of change: content changed, file removed
+	// (baseline had it, gone now), and file added (present now, not in baseline).
+	// Earlier this only caught content changes to files in BOTH sets, so a new
+	// sshd_config.d/*.conf drop-in or a deleted hardening file slipped through.
+	curHashes := hashSSHConfigFilesFn()
 	for path, baseHash := range baseline.SSHConfigHashes {
-		if curHash, ok := curHashes[path]; ok && curHash != baseHash {
+		curHash, ok := curHashes[path]
+		switch {
+		case !ok:
+			diff.RemovedSSHFiles = append(diff.RemovedSSHFiles, path)
+		case curHash != baseHash:
 			diff.ChangedSSHFiles = append(diff.ChangedSSHFiles, path)
 		}
 	}
+	for path := range curHashes {
+		if _, ok := baseline.SSHConfigHashes[path]; !ok {
+			diff.AddedSSHFiles = append(diff.AddedSSHFiles, path)
+		}
+	}
+	// Map iteration is unordered — sort for stable output and tests.
+	sort.Strings(diff.ChangedSSHFiles)
+	sort.Strings(diff.AddedSSHFiles)
+	sort.Strings(diff.RemovedSSHFiles)
 
 	return diff
 }
+
+// hashSSHConfigFilesFn is the source of current SSH config hashes, overridable
+// in tests so drift detection can be exercised without depending on the host's
+// /etc/ssh contents.
+var hashSSHConfigFilesFn = hashSSHConfigFiles
 
 // toSet converts a slice to a membership set. A nil slice yields an empty set.
 func toSet(items []string) map[string]bool {

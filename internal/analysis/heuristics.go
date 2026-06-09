@@ -3630,6 +3630,30 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 		))
 	}
 
+	// Added SSH config file = WARN — a new sshd_config.d/*.conf drop-in can
+	// silently re-enable PermitRootLogin or password auth.
+	if len(diff.AddedSSHFiles) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d new SSH config file(s) since last security baseline", len(diff.AddedSSHFiles)),
+			[]string{
+				"to review: inspect the new drop-in(s) for PermitRootLogin/PasswordAuthentication overrides",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
+
+	// Removed SSH config file = WARN — a deleted hardening drop-in reverts its
+	// directives to the daemon default.
+	if len(diff.RemovedSSHFiles) > 0 {
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d SSH config file(s) removed since last security baseline", len(diff.RemovedSSHFiles)),
+			[]string{
+				"to review: confirm the removed drop-in's hardening is still applied elsewhere",
+				"to update baseline once verified intentional: dsd security --save-baseline",
+			},
+		))
+	}
+
 	// New sudo NOPASSWD = WARN
 	if len(diff.NewSudoEntries) > 0 {
 		out = append(out, insight("WARN", "Hardening",
