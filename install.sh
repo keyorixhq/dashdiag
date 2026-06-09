@@ -11,9 +11,13 @@ PREFIX="${1:-/usr/local}"
 
 # ── colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
-info()    { printf "${BOLD}[dsd]${RESET} %s\n" "$*"; }
-success() { printf "${GREEN}✅ %s${RESET}\n" "$*"; }
-warn()    { printf "${YELLOW}⚠️  %s${RESET}\n" "$*"; }
+# All log output goes to stderr so that command substitution capturing a
+# function's stdout (e.g. TMPFILE="$(download)") gets ONLY the intended return
+# value, not log lines. (Bug: info() on stdout leaked into $TMPFILE, so the
+# checksum step hashed a non-existent path and the install aborted.)
+info()    { printf "${BOLD}[dsd]${RESET} %s\n" "$*" >&2; }
+success() { printf "${GREEN}✅ %s${RESET}\n" "$*" >&2; }
+warn()    { printf "${YELLOW}⚠️  %s${RESET}\n" "$*" >&2; }
 die()     { printf "${RED}❌ %s${RESET}\n" "$*" >&2; exit 1; }
 
 # ── detect OS / arch ─────────────────────────────────────────────────────────
