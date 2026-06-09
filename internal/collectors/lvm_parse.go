@@ -100,10 +100,11 @@ func parseLVs(out string) (thinPools []models.LVMThinPool, snapshots []models.LV
 				SizeGB:  sizeGB,
 			})
 		case 's', 'S': // classic snapshot (copy-on-write, origin is a regular LV)
-			origin := ""
-			if len(fields) >= 6 {
-				origin = fields[5]
-			}
+			// metadata_percent is BLANK for classic snapshots (only thin/cache
+			// pools report it), so under strings.Fields the column collapses and a
+			// fixed fields[5] would read lv_size as the origin. Use the same
+			// position-independent scan the thin-snapshot branch uses.
+			origin := findLVOrigin(fields)
 			snapshots = append(snapshots, models.LVMSnapshot{
 				Name:    lvName,
 				VG:      vgName,
