@@ -191,16 +191,23 @@ func collectSMART(devName string) *models.SMARTInfo {
 		return s
 	}
 
-	// Overall health: smartctl -H /dev/nvmeX
+	// Overall health: smartctl -H /dev/nvmeX. smartctl reports SMART findings via a
+	// bitmask exit code — bit 3 ("DISK FAILING") is a NON-ZERO exit that still
+	// prints a valid verdict on stdout. Treating any non-zero exit as a read error
+	// and returning early silently skipped the one drive we most need to flag (a
+	// failing drive was dropped, never producing the CRIT). So parse stdout
+	// regardless of exit code; only error out when no verdict is present (e.g. the
+	// device genuinely couldn't be opened).
 	healthOut, err := runCmdTimeout(3*time.Second, "smartctl", "-H", devPath)
-	if err != nil {
-		s.Error = "smartctl: " + trimSMARTError(err.Error())
-		return s
-	}
-	for _, line := range strings.Split(healthOut, "\n") {
-		if strings.Contains(line, "SMART overall-health") {
-			s.Healthy = strings.Contains(line, "PASSED") || strings.Contains(line, "OK")
+	if healthy, ok := parseSMARTHealth(healthOut); ok {
+		s.Healthy = healthy
+	} else {
+		if err != nil {
+			s.Error = "smartctl: " + trimSMARTError(err.Error())
+		} else {
+			s.Error = "smartctl: no health status reported"
 		}
+		return s
 	}
 
 	// Attributes for NVMe: smartctl -A gives wear, temp, errors
@@ -208,6 +215,21 @@ func collectSMART(devName string) *models.SMARTInfo {
 	parseSMARTAttributes(attrOut, s)
 
 	return s
+}
+
+// parseSMARTHealth extracts the overall health verdict from `smartctl -H` output.
+// Handles the SATA/NVMe form ("SMART overall-health self-assessment test result:
+// PASSED") and the SAS form ("SMART Health Status: OK"). ok is false when no
+// verdict line is present, so the caller can distinguish "no verdict" from
+// "verdict says unhealthy" — critical because a FAILING drive exits non-zero but
+// still prints its verdict here.
+func parseSMARTHealth(out string) (healthy, ok bool) {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "SMART overall-health") || strings.Contains(line, "SMART Health Status") {
+			return strings.Contains(line, "PASSED") || strings.Contains(line, "OK"), true
+		}
+	}
+	return false, false
 }
 
 // parseSMARTAttributes extracts wear %, temp, and media errors from smartctl -A output.
