@@ -133,6 +133,15 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 
 // bindQueryTest sends a test query to 127.0.0.1 via dig.
 func bindQueryTest(ctx context.Context, info *models.BINDInfo) {
+	// Without dig we cannot run the live query test. Leave QueryTested=false so the
+	// analysis layer does NOT report "named is not answering" — a BIND server
+	// often lacks bind-utils/dig, and a missing test tool is not a name-server
+	// outage. (Distinguishing the two is the whole point of QueryTested.)
+	if _, err := exec.LookPath("dig"); err != nil {
+		return
+	}
+	info.QueryTested = true
+
 	start := time.Now()
 	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
