@@ -6,35 +6,33 @@
 
 ---
 
-## Current Phase: GTM UNBLOCKING (June 2026)
+## Current Phase: POST-LAUNCH — outreach / first paying customer (June 2026)
 
-Sessions 1–12 complete. Bug fixes and NixOS validation complete.
-**Next priority: landing page live at dashdiag.sh → first paying customer.**
+Sessions 1–12 complete. GTM build is **done** (landing page live + email capture
+wired — verified June 9). The remaining revenue lever is **outreach / pilots**, not
+code or web work.
 
-> **Reality check (June 5, 2026):** the collector freeze below was NOT held.
-> Between June 3 and June 5, PRs #11–#16 shipped new product surface anyway:
-> `dsd fleet`, `dsd inventory`, `dsd update` self-updater, cloud-init health
-> collector, `.deb`/`.rpm` packaging, and a Homebrew tap. These were judged
-> "build-worthy / no-backend" items, but they did NOT advance the revenue path.
-> **The three actual GTM blockers are still all PENDING** (register domain,
-> wire email capture, deploy landing page). The freeze is hereby RESTATED: no
-> further product features until the landing page is live and capturing emails.
-> The domain is now registered (June 5). The remaining user action is creating
-> the Formspree/Tally endpoint; the landing source lives in the separate repo
-> `keyorixhq/dashdiag-landing`.
-
-**June 3 (session 2) status:** repo is **public** (`github.com/keyorixhq/dashdiag`),
-**v0.6.1 released** (4 binaries + `checksums.txt`), and the `install.sh` one-liner
-is **live and verified working**. Remaining GTM: register dashdiag.sh, deploy the
-landing page (now its own repo `keyorixhq/dashdiag-landing`), wire email capture.
-
-**GTM checklist (do in order):**
-1. ✅ DONE — Register `dashdiag.sh` (registered June 5, 2026; DNS → landing page after deploy)
+**GTM checklist — ALL BUILD STEPS DONE (verified live 2026-06-09):**
+1. ✅ DONE — `dashdiag.sh` registered (June 5, 2026)
 2. ✅ DONE — repo public (`github.com/keyorixhq/dashdiag`)
-3. ✅ DONE — GitHub releases through **v0.6.2** (June 6, 2026: 4 binaries + checksums + AppImage
-   x86_64/aarch64 + .deb/.rpm; install one-liner verified serving v0.6.2)
-4. ⬜ **PENDING** — Wire email capture — search `STUB` in `index.html` (now in repo `keyorixhq/dashdiag-landing`), swap for Formspree/Tally endpoint (user creates endpoint → one-line swap)
-5. ⬜ **PENDING** — Deploy landing page — repo `keyorixhq/dashdiag-landing` (Netlify deploy pending), DNS → dashdiag.sh
+3. ✅ DONE — GitHub releases (current: **v0.6.10**; 4 binaries + checksums + AppImage
+   x86_64/aarch64 + .deb/.rpm; install one-liner verified serving latest)
+4. ✅ DONE — Email capture wired — the landing form POSTs to `formspree.io/f/xkoabqgb`
+   (validated + success/error states). No longer a STUB.
+5. ✅ DONE — Landing page deployed — **https://dashdiag.sh** serves it (HTTP 200, HTTPS).
+   Source: repo `keyorixhq/dashdiag-landing`.
+6. ⬜ **PENDING (user action)** — Outreach / VMware pilot. The only remaining lever
+   that produces demand signal; Claude cannot do this. See BACKLOG.md.
+
+> **The old "collector freeze" is retired** — it was predicated on GTM being
+> blocked, which it no longer is. Continue improving the product as warranted.
+
+**June 9, 2026 — fleet-review hardening pass (v0.6.9 + v0.6.10):** a systematic
+sweep of every collector that produces a health verdict, closing a recurring
+"false-OK" bug class (a green/OK verdict that didn't actually verify health). 17
+PRs (#130–#146). Every collector now checked against: absent subsystem, failed
+command, missing/garbled data, long lists — across live / `--report` / `--json` /
+fleet. See BACKLOG.md "Recently Completed" and BUGS.md "Fleet-review (code-review)".
 
 ---
 
@@ -64,7 +62,7 @@ Legion wiped and given away (June 2026) — this pattern is obsolete.
 
 ---
 
-## What Ships (as of v0.6.2, commit f86a873)
+## What Ships (as of v0.6.10)
 
 ```
 dsd health       ✅ fast + deep (cgroup v2, sessions, k8s, docker, kvm wired in)

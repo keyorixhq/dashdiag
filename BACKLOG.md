@@ -4,7 +4,45 @@ This file tracks all planned features not yet implemented.
 Items in cmd/*.go files are also tagged `TODO(backlog)` inline.
 Build order rule: **never build deep before fast is in production use.**
 
-**Last updated: 2026-06-05 — dashdiag.sh registered; 2 GTM blockers left (wire email, deploy landing)**
+**Last updated: 2026-06-09 — GTM build DONE (landing live + email capture wired); only outreach/pilot remains. Released v0.6.9 + v0.6.10 (fleet-review false-OK sweep, 17 PRs).**
+
+---
+
+## ✅ Recently Completed (June 9, 2026 — fleet-review false-OK sweep → v0.6.9 + v0.6.10)
+
+A systematic review of every collector that produces a health verdict, closing a
+recurring **false-OK** bug class: a green/OK verdict (or silence) shown when the
+tool had NOT actually verified health, hiding the real problem. The 7 grep-able
+anti-patterns are recorded in the agent's memory (`false-ok-bug-class`).
+
+**v0.6.9 (PRs #130–#144):**
+
+| Area | Fix | PR |
+|---|---|---|
+| Visibility | Unified live / `--report` / `--json`+`--yaml` — no phantom "OK" rows (shared `runner.IsAvailable`, explicit `IsAvailable()` contract + AST meta-test) | #131, #132 |
+| `dsd fleet` | `--json` fleet-level rollup (verdict/counts), consistent with `health --json` | #133 |
+| Timeline | Journal parse hardening — no false CRITs (missing PRIORITY), no dropped binary-MESSAGE events, rune-safe truncation | #134 |
+| CVE | "scan unavailable" → INFO, not a green CVE OK | #135 |
+| TLS | Cert expired <24h ago now classified expired (int-truncation sign bug) | #136 |
+| Security drift | Detects added/removed SSH config drop-ins, not just content changes | #137 |
+| Disk/SMART | A FAILING drive (non-zero smartctl exit) no longer silently skipped | #138 |
+| LVM | Classic-snapshot origin no longer misread as lv_size (blank meta% collapse) | #139 |
+| Docker | OOM kills no longer missed when >10 die/kill events in the window | #140 |
+| k8s | Most-recent warning events shown; short line no longer aborts collection | #141 |
+| BIND | No phantom "named not answering" when `dig` isn't installed | #142 |
+| PVE | Per-VM backup gaps no longer hidden by a healthy node-wide backup age | #143 |
+| Collectors | Rune-safe message truncation (no split UTF-8 in verdict lines) | #144 |
+
+**v0.6.10 (PRs #145–#146) — gated-collector follow-up sweep:**
+
+| Area | Fix | PR |
+|---|---|---|
+| Ceph | Configured cluster with unreachable mons now CRITs instead of staying silent | #145 |
+| cloud-init / IPMI | Errored/degraded cloud-init and failed IPMI BMC reads now surface (were silent) | #146 |
+
+Swept and verified CLEAN (no bug): ComputeDiff, self-updater, correlation engine,
+`dsd inventory`, `dsd cis`, NFS, DNS, `dsd kvm`, containerd, suseconnect, cloudmeta,
+vmware, auditd, dbus, snapper, raid, bonding, edac, numa, sriov.
 
 ---
 

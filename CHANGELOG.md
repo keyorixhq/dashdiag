@@ -3,7 +3,62 @@
 All notable changes to DashDiag are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+> Note: this file was not maintained between v0.2.0 and v0.6.8 — those releases
+> are documented in [GitHub Releases](https://github.com/keyorixhq/dashdiag/releases)
+> (auto-generated notes). Resumed at v0.6.9.
+
 ---
+
+## [v0.6.10] — 2026-06-09
+
+### Fixed
+
+- **Gated-collector false-OK sweep** — three more error states that were silently
+  hidden now surface:
+  - **Ceph**: a node configured for a cluster (`/etc/ceph/ceph.conf` present) whose
+    mons are unreachable now reports CRIT instead of staying silent (#145).
+  - **cloud-init**: an errored/degraded instance is now flagged — `cloud-init
+    status` exits non-zero to report state and still prints the status JSON, which
+    was previously discarded (#146).
+  - **IPMI**: a failed BMC/sensor read on a server with IPMI hardware now WARNs
+    instead of being swallowed by the not-available early return (#146).
+
+## [v0.6.9] — 2026-06-09
+
+A fleet-wide review closing a recurring **false-OK** bug class — a green/OK verdict
+(or silence) shown when a check had not actually verified health.
+
+### Fixed
+
+- **Unified verdict visibility** across live `dsd health`, `--report`, and
+  `--json`/`--yaml`: not-applicable collectors no longer appear as phantom "✅ OK"
+  rows. Backed by a shared `runner.IsAvailable` contract + AST meta-test (#131, #132).
+- **Disk/SMART**: a FAILING drive (smartctl exits non-zero on "DISK FAILING") is no
+  longer silently skipped — the "back up immediately" CRIT now fires (#138).
+- **Docker**: container OOM kills are no longer missed on hosts with >10 die/kill
+  events in the window (#140).
+- **PVE**: a never-backed-up VM is no longer hidden by a healthy node-wide backup
+  age (#143).
+- **Security drift**: added/removed SSH config drop-ins are now detected, not just
+  content changes (#137).
+- **TLS**: a cert that expired <24h ago is classified expired, not "expires in 0
+  days" (#136).
+- **CVE**: "scan unavailable" surfaces as INFO instead of a green CVE OK (#135).
+- **Timeline**: journal parsing hardened — no false CRITs from a missing PRIORITY,
+  no dropped non-UTF-8 MESSAGE events, rune-safe truncation (#134).
+- **k8s**: most-recent warning events are shown (was oldest), and a malformed line
+  no longer aborts event collection (#141).
+- **BIND**: no phantom "named not answering" when `dig` isn't installed (#142).
+- **LVM**: classic-snapshot origin no longer misread as the volume size (#139).
+- **Collectors**: message truncation is rune-safe — no split UTF-8 in verdict lines
+  (#144).
+
+### Changed
+
+- **`dsd fleet --json`** now returns a fleet-level rollup object
+  (`{verdict, exit_code, total, counts, hosts}`) mirroring `dsd health --json`,
+  instead of a bare array. Consumers using `jq '.[]'` should switch to `.hosts[]`
+  (#133).
 
 ## [v0.2.0] — 2026-05-10
 
