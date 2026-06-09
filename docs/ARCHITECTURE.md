@@ -1,7 +1,6 @@
 # DashDiag Architecture
 
 This document explains the *why* behind architectural decisions.
-For full specification including models, collectors, and thresholds, read `SPEC.md`.
 
 ## The Core Constraint
 
@@ -88,5 +87,4 @@ Progress bar appears on terminal (stderr) without contaminating the JSON (stdout
 - Adding new optional fields is backward compatible
 - New required fields require a major version bump
 
-*For implementation details, read `SPEC.md`.*
 *For running commands, read `Makefile`.*

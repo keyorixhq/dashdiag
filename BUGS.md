@@ -109,11 +109,9 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
   (same source as auditd). Falls back to journald when audit.log unreadable.
   security_linux.go refactored to call shared helper instead of duplicating.
 **Commit:** `968a097`
-**Marketing:** Full story in MARKETING.md "The SELinux Blind Spot" section.
-  Evidence in marketing-assets/selinux-blind-spot-evidence.md
-  Nagios connection: founder contributed to Nagios 20 years ago; Nagios
-  has this same blind spot. Not a bug — the auditd architecture postdates
-  Nagios. The problem evolved; the tools didn't.
+**Note:** auditd architecture postdates most legacy monitoring tools, which still
+  read journald for SELinux events and so see zero on auditd-enabled hosts. Not a
+  bug — the problem evolved after those tools were designed.
 
 ### BUG-010 — KernelSec drilldown dumped 200+ disabled SELinux booleans
 **Found:** RHEL 10.1 final validation run

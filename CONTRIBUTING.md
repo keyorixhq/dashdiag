@@ -42,10 +42,10 @@ dashdiag/
 │   └── fuzz/             # fuzz corpus (committed)
 ├── schema/               # dsd-output.json — public JSON contract
 ├── scripts/              # smoke-test.sh, hooks/pre-commit, hooks/pre-push
-└── SPEC.md               # product bible — read before writing any code
+└── docs/ARCHITECTURE.md               # product bible — read before writing any code
 ```
 
-**Read `SPEC.md` before writing code.** It contains architecture decisions,
+**Read `docs/ARCHITECTURE.md` before writing code.** It contains architecture decisions,
 data models, and design constraints that govern everything in this project.
 
 ## Architecture in One Paragraph

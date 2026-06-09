@@ -68,7 +68,7 @@ if err != nil {
 
 ## The Development Loop
 
-1. Read relevant SPEC.md section
+1. Read relevant docs/ARCHITECTURE.md section
 2. Open Cursor Composer (Cmd+I)
 3. Paste prompt from `DashDiag_Cursor_Guide.md`
 4. Review output before accepting
@@ -152,7 +152,7 @@ git reset HEAD~1        # undo last commit (keep changes)
 - [ ] `./dist/dsd --version` prints a version
 - [ ] `./dist/dsd --help` shows commands
 - [ ] Pre-commit hook installed
-- [ ] SPEC.md is in the project root
+- [ ] docs/ARCHITECTURE.md is in the project root
 - [ ] `.cursorrules` is in the project root
 - [ ] Cursor opens the project and finds `.cursorrules`
 
