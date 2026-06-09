@@ -54,16 +54,40 @@ func TestCheckPVEStorage(t *testing.T) {
 }
 
 func TestCheckPVEBackups(t *testing.T) {
-	// One non-template guest exists (BackupStatuses populated) for the cases that
-	// should fire on backup age.
-	oneGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: -1}}
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, BackupStatuses: oneGuest}), "")      // recent, no failures
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupStatuses: oneGuest}), "CRIT") // real VM, never backed up
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10, BackupStatuses: oneGuest}), "WARN") // stale
+	// Fixtures are kept CONSISTENT: a guest's LastBackupDays matches the node-wide
+	// BackupAgeDays story (a guest can't be "never backed up" while the node's last
+	// backup was 3 days ago, unless ANOTHER guest backed up — that's the per-VM gap
+	// case tested separately below).
+	backedUp := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: 3}}
+	neverGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: -1}}
+	staleGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: 10}}
+
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, BackupStatuses: backedUp}), "")        // recent, VM covered
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupStatuses: neverGuest}), "CRIT") // no backup at all
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10, BackupStatuses: staleGuest}), "WARN") // stale node-wide
 	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, RecentBackups: []models.PVEBackupTask{{Status: "ERROR"}}}), "WARN")
 	// FALSE-POSITIVE GUARD: a fresh / template-only node (no backable guests →
 	// empty BackupStatuses) has nothing to back up, so "no backup" must NOT CRIT.
 	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1}), "")
+
+	// PER-VM GAP: the node's global age is healthy (1 day) because most guests back
+	// up, but one guest has never been backed up — it must still be flagged, not
+	// hidden by the healthy aggregate.
+	mixed := []models.PVEBackupStatus{
+		{VMID: 100, Name: "ok-vm", LastBackupDays: 1},
+		{VMID: 101, Name: "forgotten-vm", LastBackupDays: -1},
+	}
+	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixed}); !hasInsight(got, "WARN", "no backup") {
+		t.Errorf("a never-backed-up VM must be flagged even when global age is healthy, got %+v", got)
+	}
+	// PER-VM STALE while the node's global age is recent.
+	mixedStale := []models.PVEBackupStatus{
+		{VMID: 100, Name: "ok-vm", LastBackupDays: 1},
+		{VMID: 101, Name: "old-vm", LastBackupDays: 30},
+	}
+	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixedStale}); !hasInsight(got, "WARN", "older than 7 days") {
+		t.Errorf("a stale per-VM backup must be flagged when global age is healthy, got %+v", got)
+	}
 }
 
 func TestCheckGPU(t *testing.T) {

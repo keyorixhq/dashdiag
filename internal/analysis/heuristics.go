@@ -2756,6 +2756,45 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 			},
 		))
 	}
+
+	// Per-VM backup gaps hidden by a healthy global age. The node-wide
+	// BackupAgeDays only reflects the MOST RECENT successful backup across all
+	// guests, so a single never-backed-up or stale guest is invisible when others
+	// back up nightly. Only meaningful once the node has at least one successful
+	// backup (BackupAgeDays >= 0) — i.e. backups ARE working, so a guest with none
+	// is a forgotten/excluded guest, not an unconfigured node (already CRIT above).
+	if p.BackupAgeDays >= 0 {
+		var never, stale []string
+		for _, s := range p.BackupStatuses {
+			label := s.Name
+			if label == "" {
+				label = fmt.Sprintf("VMID %d", s.VMID)
+			}
+			switch {
+			case s.LastBackupDays < 0:
+				never = append(never, label)
+			case s.LastBackupDays > 7:
+				stale = append(stale, fmt.Sprintf("%s (%dd)", label, s.LastBackupDays))
+			}
+		}
+		if len(never) > 0 {
+			out = append(out, insight("WARN", "PVE",
+				fmt.Sprintf("%d VM/CT have no backup while others on this node do: %s — no recovery point",
+					len(never), strings.Join(firstN(never, 5), ", ")),
+				[]string{
+					"to inspect: Datacenter → Backup — confirm every guest is in a backup job",
+					"note: newly-created guests may simply not have hit their first backup window yet",
+				},
+			))
+		}
+		if len(stale) > 0 {
+			out = append(out, insight("WARN", "PVE",
+				fmt.Sprintf("%d VM/CT backup(s) older than 7 days: %s",
+					len(stale), strings.Join(firstN(stale, 5), ", ")),
+				[]string{"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump"},
+			))
+		}
+	}
 	return out
 }
 
