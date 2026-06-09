@@ -193,7 +193,7 @@ func TestCheckNFS(t *testing.T) {
 func TestCheckBIND(t *testing.T) {
 	healthy := models.BINDInfo{
 		Detected: true, ServiceActive: true, Port53TCP: true, Port53UDP: true,
-		ConfigOK: true, QueryOK: true,
+		ConfigOK: true, QueryOK: true, QueryTested: true,
 	}
 	tests := []struct {
 		name string
@@ -205,17 +205,17 @@ func TestCheckBIND(t *testing.T) {
 		{"service down is CRIT", models.BINDInfo{Detected: true, ServiceActive: false}, "CRIT"},
 		{
 			name: "not listening on 53 is WARN",
-			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: false, Port53UDP: true, ConfigOK: true, QueryOK: true},
+			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: false, Port53UDP: true, ConfigOK: true, QueryOK: true, QueryTested: true},
 			want: "WARN",
 		},
 		{
 			name: "bad config is CRIT",
-			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: true, Port53UDP: true, ConfigOK: false, QueryOK: true},
+			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: true, Port53UDP: true, ConfigOK: false, QueryOK: true, QueryTested: true},
 			want: "CRIT",
 		},
 		{
-			name: "not answering queries is CRIT",
-			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: true, Port53UDP: true, ConfigOK: true, QueryOK: false},
+			name: "tested and not answering queries is CRIT",
+			b:    models.BINDInfo{Detected: true, ServiceActive: true, Port53TCP: true, Port53UDP: true, ConfigOK: true, QueryOK: false, QueryTested: true},
 			want: "CRIT",
 		},
 	}

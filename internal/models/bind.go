@@ -20,6 +20,7 @@ type BINDInfo struct {
 	Port53TCP      bool       `json:"port_53_tcp"`
 	Port53UDP      bool       `json:"port_53_udp"`
 	QueryOK        bool       `json:"query_ok"`
+	QueryTested    bool       `json:"query_tested"` // false when dig is unavailable to run the live query test
 	QueryLatencyMs int        `json:"query_latency_ms"`
 	Zones          []BINDZone `json:"zones,omitempty"`
 	ZonesFailed    int        `json:"zones_failed"`
