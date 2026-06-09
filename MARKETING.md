@@ -1854,3 +1854,147 @@ Collector: two-sample `/proc/stat` read capturing `procs_running` (run-queue),
 Heuristic: `CPU/RunQueue` — WARN ≥ 2× cores, CRIT ≥ 4× cores.
 Correlation rule: `ruleRunQueueSaturation` — flags genuinely CPU-bound load
 (run-queue saturated while iowait and steal both clear).
+
+---
+
+## Story 11 — The Diagnostic Tool That Was Hiding Failures (The Trust Story)
+
+> **The flagship credibility story.** Answers the deepest objection to any health
+> tool: *"what if it says OK but it's actually wrong?"*
+
+### The insight
+
+A health tool makes exactly one promise: when it shows a green check, it means
+*"I checked this, and it's fine."* If a green check can also mean *"I couldn't
+check, so I assumed fine,"* the tool is worse than nothing — it's false
+reassurance on the day you most need the truth.
+
+So I audited DashDiag against its own promise. I went collector by collector and
+asked one question of each: *what does this show when the subsystem is absent, the
+command fails, the data is missing, or the list is long?* The answer was supposed
+to be "it tells you." Too often, it was a silent green OK.
+
+I found a whole class of these — I started calling them **false-OKs** — and fixed
+17 of them.
+
+### The one that should scare you
+
+The worst was the simplest. A failing hard drive.
+
+`smartctl` reports a dying drive by returning a **non-zero exit code** — that's how
+it says "SMART status: DISK FAILING." DashDiag was treating any non-zero exit as
+"couldn't read the drive" and skipping it. So the **one drive it most needed to
+scream about was the one drive it stayed silent on.** The verdict that exists to
+say *"back up immediately"* never fired for an actually-failing disk.
+
+After the fix:
+
+```
+Drives ❌ /dev/sdb SMART health FAILED — drive may be failing, back up immediately
+   → note: a FAILED self-assessment means the drive predicts its own failure — replace it
+```
+
+### It wasn't just one
+
+- A **container OOM storm** went uncounted on busy hosts — the OOM alert stopped
+  counting after the tenth log event, exactly when a host is thrashing.
+- A **Proxmox VM with no backup** hid behind the node's healthy *average* backup
+  age. (Found live on my own node — four guests, no recovery point.)
+- A **cloud-init that errored mid-provision** was invisible, because cloud-init
+  exits non-zero to *report* the error and the tool discarded that output.
+- An **expired TLS certificate** read as *"expires in 0 days"* instead of
+  *"expired"* — an integer-truncation sign bug, on a security check.
+
+### The principle, and why it won't regress
+
+Every one of these came down to the same rule, now enforced in code: **a green OK
+has to mean we actually checked.** The three output surfaces (live, report, JSON)
+now share one definition of "is this result real," and a meta-test fails the build
+if a new collector ever drifts from it. The whole bug class is documented
+(`BUGS.md`), every fix is a public PR (#130–#146), and the result was validated
+live on real Proxmox, Ubuntu, and AlmaLinux hosts.
+
+### Why this is the most important story we have
+
+Everyone selling a monitoring tool says "we catch problems." Nobody volunteers the
+times their tool *missed* one. This story does the opposite: a founder who went
+hunting for his own tool's blind spots, found a dangerous class of them, and fixed
+them in the open — *before* a customer hit one.
+
+That is the entire pitch for trusting a green checkmark. You don't earn "trust the
+OK" by claiming you're careful. You earn it by showing the work.
+
+### Founder credibility line
+
+> *"I audited my own diagnostic tool the way I'd audit someone else's — and found
+> it was hiding the exact failures it exists to catch. A failing drive that
+> smartctl was screaming about, and my tool was skipping. I fixed the whole class
+> in the open. A green checkmark only means something if the tool earned it."*
+
+### Social angles
+
+- **HN / Show HN:** "I found my health tool was reporting a failing disk as fine — here's the class of bug behind it and how I killed it." (Engineers love a rigorous post-mortem more than a feature list.)
+- **LinkedIn (trust):** the failing-drive screenshot + "your monitoring's green checkmark is only as honest as the day someone checked what it does on failure."
+- **Build-in-public thread:** one bug per post — failing drive, OOM storm, backup gap, cloud-init, TLS — each a 30-second "here's what it was hiding."
+
+---
+
+## Story 12 — Your Backups Are Green. Four VMs Have None. (Proxmox, real capture)
+
+### The insight
+
+Proxmox shows your last backup was recent and everything's green. That number is
+the *most recent backup across all guests* — so the VMs nobody ever added to a
+backup job are completely invisible behind it. You find out which ones when you go
+to restore.
+
+### The real finding
+
+This is real output, captured from a live Proxmox node (`dsd mock fixtures/real-proxmox.yaml`):
+
+```
+PVE ⚠️ 4 VM/CT have no backup while others on this node do: opensuse16-btrfs, steamos-validate, dsd-vmware-test, debian13-vm — no recovery point
+   → to inspect: Datacenter -> Backup — confirm every guest is in a backup job
+   → note: a healthy node-wide backup age hides individual guests that were never added to a job
+```
+
+### Why it lands
+
+It's the most relatable failure for the huge Proxmox/homelab audience: *"I was
+sure those were backed up."* No agent, no dashboard to configure — one read-only
+command checks every guest, not just the node average.
+
+**LinkedIn hook:** *"Your Proxmox backups are green. Four of your VMs have no
+backup at all. The node-wide age hides it — here's the 5-second check."*
+
+---
+
+## Story 13 — Your VMs Will Go Read-Only on the Next vMotion (VMware)
+
+### The insight
+
+The default SCSI command timeout on a Linux guest is 30 seconds. VMware recommends
+**180**. During a vMotion or storage failover the storage can pause longer than
+30s — and the guest filesystem flips read-only. It's a known vSphere best practice
+that almost nobody checks, and no dashboard surfaces.
+
+### The output
+
+```
+VMware ❌ SCSI disk command timeout below VMware's recommended 180s (sda 30s) — the guest filesystem may go read-only during a vMotion or storage failover
+   → to fix now: echo 180 > /sys/block/sda/device/timeout
+   → to persist: install open-vm-tools (ships a udev rule)
+```
+
+`dsd mock fixtures/vmware-guest-scsi-timeout.yaml`. It pairs the gotcha with
+paravirtual-NIC (vmxnet3) and open-vm-tools advice — the read a seasoned VMware
+admin recognizes as "this tool actually knows my environment."
+
+### Why it lands (enterprise / pilot)
+
+This is the credibility opener for the VMware-estate conversation: a specific,
+correct, non-obvious finding that maps to a real outage mode. It says *expertise*
+in one line, which is exactly what a design-partner pilot needs to hear first.
+
+**LinkedIn hook:** *"Your Linux VMs on vSphere can go read-only during the next
+vMotion — and you won't know until it happens. One command tells you today."*
