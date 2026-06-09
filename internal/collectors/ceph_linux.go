@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -23,6 +24,15 @@ func (c *CephCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	out, err := runCmd(ctx, "ceph", "health", "detail", "--format", "json")
 	if err != nil {
+		// `ceph health` failed. Distinguish a host that merely has the client
+		// binary (no cluster — stay silent) from one configured for a cluster it
+		// can no longer reach (a real outage that must be flagged, not hidden).
+		// /etc/ceph/ceph.conf — a symlink to /etc/pve/ceph.conf on Proxmox
+		// hyperconverged — is the "this node is part of a cluster" signal.
+		if _, statErr := os.Stat("/etc/ceph/ceph.conf"); statErr == nil {
+			info.Configured = true
+			info.StatusReason = "ceph health detail failed — cluster unreachable"
+		}
 		return info, nil
 	}
 	info.Available = true
