@@ -25,3 +25,6 @@ deploy.sh
 .dsd/oval/
 marketing-assets/**/*.oval.xml.bz2
 marketing-assets/**/baselines/
+
+# Local AI/dev context — not tracked in the public repo
+CLAUDE.md
