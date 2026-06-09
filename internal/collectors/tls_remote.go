@@ -46,7 +46,7 @@ func CheckRemoteEndpoint(ctx context.Context, endpoint string) ([]models.CertInf
 	now := time.Now()
 	var certs []models.CertInfo
 	for _, cert := range tlsConn.ConnectionState().PeerCertificates {
-		expiresIn := int(cert.NotAfter.Sub(now).Hours() / 24)
+		expiresIn := expiryDays(cert.NotAfter, now)
 		certs = append(certs, models.CertInfo{
 			Path:         endpoint, // use endpoint as "path" for display
 			Subject:      cert.Subject.CommonName,
