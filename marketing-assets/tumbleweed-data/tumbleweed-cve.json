@@ -1,7 +1,0 @@
-
-Scanning all pending security advisories...
-{
-  "package_manager": "zypper",
-  "total": 0,
-  "fix_command": "zypper patch --category security"
-}
