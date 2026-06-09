@@ -684,11 +684,7 @@ func logMessageKey(line string) string {
 	fields := strings.Fields(line)
 	// Skip date(0) time(1) host(2), take from field 3 onward
 	if len(fields) > 3 {
-		msg := strings.Join(fields[3:], " ")
-		if len(msg) > 80 {
-			msg = msg[:80]
-		}
-		return msg
+		return truncateRunes(strings.Join(fields[3:], " "), 80)
 	}
 	return line
 }

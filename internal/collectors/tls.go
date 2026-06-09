@@ -139,9 +139,7 @@ func parseCertFile(path string, now time.Time) []models.CertInfo {
 		if subject == "" {
 			subject = cert.Subject.String()
 		}
-		if len(subject) > 60 {
-			subject = subject[:60] + "…"
-		}
+		subject = truncateRunes(subject, 60)
 
 		results = append(results, models.CertInfo{
 			Path:         path,
