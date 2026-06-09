@@ -61,6 +61,12 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Also detect SATA/SAS drives via smartctl
 	collectSATADrives(ctx, info)
 
+	if len(info.Devices) == 0 && len(info.SATADevices) == 0 {
+		// No NVMe controllers and no SMART-capable SATA/SAS drives — typical of
+		// cloud/KVM guests on virtio disks. Nothing to report; gate off rather
+		// than emit a phantom "NVMe ✅ OK" row.
+		return nil, nil
+	}
 	return info, nil
 }
 
