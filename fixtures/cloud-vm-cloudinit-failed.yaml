@@ -1,0 +1,31 @@
+# fixtures/cloud-vm-cloudinit-failed.yaml
+# Demo: a cloud VM that booted but cloud-init errored mid-provision — so config,
+# keys, or mounts may be missing. dsd surfaces it (cloud-init exits non-zero AND
+# prints the status; dsd reads it either way) instead of it being invisible.
+# Use: dsd mock fixtures/cloud-vm-cloudinit-failed.yaml
+host: "ip-10-2-14-88"
+os: "Amazon Linux 2023"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "7%"
+  - name: "Memory"
+    inline: "0.9/4 GB (23%)"
+  - name: "Disk"
+    inline: "/ 28%"
+  - name: "CloudInit"
+    level: CRIT
+    message: "cloud-init failed — instance configuration incomplete (datasource: ec2)"
+    hints:
+      - "to inspect: cloud-init status --long"
+      - "logs: /var/log/cloud-init.log, /var/log/cloud-init-output.log"
+  - name: "Network"
+    inline: "ens5 (vmxnet/ena)  gw <1 ms"
+  - name: "NVMe"
+    inline: "1 EBS volume  healthy"
+  - name: "Clock"
+    inline: "±0 ms  chrony"
+  - name: "Hardening"
+    inline: "sshd hardened (key-only)"
+  - name: "Firewall"
+    inline: "security group enforced"

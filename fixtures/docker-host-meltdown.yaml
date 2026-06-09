@@ -1,0 +1,33 @@
+# fixtures/docker-host-meltdown.yaml
+# Demo: a Docker host where several things are quietly on fire — a crash-looping
+# container, OOM kills, and a security footgun (container mounting the docker
+# socket). dsd correlates them onto one screen.
+# Use: dsd mock fixtures/docker-host-meltdown.yaml
+host: "docker-prod-01"
+os: "Ubuntu 24.04 LTS"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "61% (load avg 9.8 across 8 CPUs)"
+  - name: "Memory"
+    level: WARN
+    message: "memory at 92% — OOM kill risk"
+    hints: ["to inspect: docker stats --no-stream"]
+  - name: "Disk"
+    inline: "/ 73%"
+  - name: "Docker"
+    level: CRIT
+    message: "container \"payments-api\" is crash looping (restarted >5 times); 3 container OOM kill(s) in the last hour"
+    hints:
+      - "to inspect: docker logs payments-api --tail 50"
+      - "to fix: set memory limits in container config"
+  - name: "Network"
+    inline: "eth0 1Gbps  gw <1 ms"
+  - name: "Systemd"
+    inline: "boot 16s"
+  - name: "Hardening"
+    level: WARN
+    message: "container \"ci-runner\" mounts /var/run/docker.sock — full host root from inside the container"
+    hints: ["note: a compromised container with the socket = host takeover"]
+  - name: "Firewall"
+    inline: "nftables  12 rules"
