@@ -13,8 +13,7 @@ The Steam Deck and every SteamOS device ship an **immutable, read-only rootfs**:
 - `sudo steamos-readonly disable` only unlocks temporarily; updates re-lock it.
 
 An AppImage sidesteps all of that — it lives in `$HOME` and survives every
-update. This is the install path behind the SteamOS viral-channel strategy
-(`DashDiag_Project_Guide.md` §31). It also gives every other Linux distro a
+update. This is the install path behind the SteamOS viral-channel strategy It also gives every other Linux distro a
 zero-dependency "download and run" option.
 
 ## Usage

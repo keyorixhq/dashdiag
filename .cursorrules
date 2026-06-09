@@ -218,7 +218,7 @@ When in doubt: make it simpler. Ship the minimal correct implementation first.
 
 ─────────────────────────────────────────────────────────────────────────────
 # REFERENCE: Key file locations
-# SPEC.md                  — complete product specification
+# docs/ARCHITECTURE.md                  — complete product specification
 # internal/models/         — all data structs (read before writing collectors)
 # internal/output/tty.go   — OutputMode enum
 # internal/runner/         — Collector interface definition

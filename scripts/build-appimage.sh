@@ -8,7 +8,7 @@
 # update, and the bundled package manager is disabled. An AppImage is a single
 # self-contained file the user downloads and runs from $HOME; it survives every
 # update. This is the install story behind the SteamOS viral-channel strategy
-# (DashDiag_Project_Guide.md §31). dsd is a static CGO-free binary, so the
+# dsd is a static CGO-free binary, so the
 # AppImage is a thin wrapper — no bundled libraries.
 #
 # Cross-builds both arches from a single host: appimagetool runs on the host
