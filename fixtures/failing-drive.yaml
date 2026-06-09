@@ -1,0 +1,42 @@
+# fixtures/failing-drive.yaml
+# Demo: the finding nobody wants to miss. A disk has reported SMART overall-health
+# FAILED — dsd surfaces it as a back-up-now CRIT in one command, instead of it
+# sitting silently in a log nobody reads until the drive dies.
+# Use: dsd mock fixtures/failing-drive.yaml
+host: "db-prod-02"
+os: "Rocky Linux 9.4"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "44% (load avg 7.2 across 16 CPUs)"
+  - name: "Memory"
+    inline: "58/64 GB (90%)"
+  - name: "Swap"
+    inline: "1.2 GB used"
+  - name: "Disk"
+    inline: "/ 61%"
+  - name: "IO"
+    level: WARN
+    message: "nvme0n1 await 24 ms — elevated disk latency"
+    hints:
+      - "to inspect: iostat -x 1 5"
+  - name: "Drives"
+    level: CRIT
+    message: "/dev/sdb SMART health FAILED — drive may be failing, back up immediately"
+    hints:
+      - "to inspect: smartctl -a /dev/sdb"
+      - "to inspect: dmesg | grep -i 'error\\|failed\\|reset'"
+      - "note: a FAILED self-assessment means the drive predicts its own failure — replace it"
+  - name: "Network"
+    inline: "bond0 2x10Gbps  gw <1 ms"
+  - name: "Systemd"
+    inline: "boot 21s"
+  - name: "Logs"
+    level: WARN
+    message: "12 disk I/O errors in dmesg in the last hour (sdb)"
+    hints:
+      - "to inspect: dmesg -T | grep -i 'I/O error'"
+  - name: "Hardening"
+    inline: "sshd hardened"
+  - name: "Firewall"
+    inline: "firewalld  running"
