@@ -15,6 +15,18 @@ type Collector interface {
 	Collect(ctx context.Context) (interface{}, error)
 }
 
+// truncateRunes caps s at max runes (not bytes), appending an ellipsis when it
+// truncates. Slicing a string by byte (s[:n]) can cut a multi-byte UTF-8 rune in
+// half and emit invalid UTF-8 in a verdict/report line; converting to runes
+// first never does. Returns s unchanged when it already fits.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
 // runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
 // always uses dot as the decimal separator regardless of the user's locale.
 // localeSafeEnv returns the process environment forced to the C locale, so any

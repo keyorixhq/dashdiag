@@ -107,10 +107,7 @@ func bindCheckConfig(ctx context.Context, info *models.BINDInfo) {
 		if info.ConfigError == "" && err != nil {
 			info.ConfigError = err.Error()
 		}
-		// Truncate long errors
-		if len(info.ConfigError) > 200 {
-			info.ConfigError = info.ConfigError[:200] + "…"
-		}
+		info.ConfigError = truncateRunes(info.ConfigError, 200)
 	}
 }
 
@@ -292,10 +289,7 @@ func bindExtractZoneError(out string) string {
 		if strings.Contains(strings.ToLower(line), "error") ||
 			strings.Contains(strings.ToLower(line), "failed") ||
 			strings.Contains(line, "no TTL") {
-			if len(line) > 150 {
-				return line[:150] + "…"
-			}
-			return line
+			return truncateRunes(line, 150)
 		}
 	}
 	return strings.TrimSpace(out)

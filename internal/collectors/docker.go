@@ -738,11 +738,7 @@ func extractJournalMessage(line string) string {
 	// journalctl short format: "May 19 14:05:46 hostname docker[pid]: message"
 	parts := strings.SplitN(line, ": ", 2)
 	if len(parts) == 2 {
-		msg := strings.TrimSpace(parts[1])
-		if len(msg) > 120 {
-			return msg[:120] + "…"
-		}
-		return msg
+		return truncateRunes(strings.TrimSpace(parts[1]), 120)
 	}
 	return ""
 }
