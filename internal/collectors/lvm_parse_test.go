@@ -84,6 +84,12 @@ const lvsOutputThinCrit = `  data pve  twi-aotz-- 91.00  2.50   100.00
 const lvsOutputSnapOverflow = `  snap1 pve  swi-a-s---  95.00  0.00 vm-200-disk-0 2.00
 `
 
+// Real-world classic (CoW) snapshot: metadata_percent is BLANK — only thin/cache
+// pools report it. The blank column collapses under strings.Fields, so a naive
+// fixed-index read of origin would pick up lv_size instead. Regression fixture.
+const lvsOutputClassicSnapBlankMeta = `  snap0  pve  swi-a-s---  78.00         vm-100-disk-0  2.00
+`
+
 // No thin pools or snapshots — regular LVs only.
 const lvsOutputNoSpecial = `  root  ol  -wi-ao---- 0.00 0.00   30.00
   swap  ol  -wi-ao---- 0.00 0.00    4.00
@@ -125,6 +131,19 @@ func TestParseLVs(t *testing.T) {
 		}
 		if s.DataPct != 78.00 {
 			t.Errorf("snapshot DataPct = %g, want 78.00", s.DataPct)
+		}
+	})
+
+	t.Run("classic snapshot with blank metadata_percent keeps correct origin", func(t *testing.T) {
+		_, snaps := parseLVs(lvsOutputClassicSnapBlankMeta)
+		if len(snaps) != 1 {
+			t.Fatalf("snapshots = %d, want 1", len(snaps))
+		}
+		if snaps[0].Origin != "vm-100-disk-0" {
+			t.Errorf("origin = %q, want vm-100-disk-0 (blank meta%% must not shift origin to lv_size)", snaps[0].Origin)
+		}
+		if snaps[0].DataPct != 78.00 {
+			t.Errorf("DataPct = %g, want 78.00", snaps[0].DataPct)
 		}
 	})
 
