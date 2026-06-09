@@ -148,6 +148,26 @@ func printFleetTable(summary fleet.Summary, mode output.OutputMode) {
 	c := summary.Counts
 	fmt.Printf("\n%d host(s): %d OK · %d WARN · %d CRIT · %d unreachable\n",
 		summary.Total, c.OK, c.WARN, c.CRIT, c.Unreachable)
+	if n := fleetWaitlistNudge(mode, summary.Total); n != "" {
+		fmt.Println(n)
+	}
+}
+
+// fleetWaitlistNudge returns a one-line, suppressible pointer to the (waitlisted)
+// hosted Team dashboard. `dsd fleet` itself is and stays free and local (ADR-0004);
+// this is NOT a paywall — just a nudge toward the backend-backed product that
+// persists/centralises what fleet already shows. Shown only on genuine multi-host
+// runs (the team signal), only in this human/table path (never --json), and
+// silenced by DSD_NO_NUDGE or the existing DSD_NO_UPDATE_CHECK.
+func fleetWaitlistNudge(mode output.OutputMode, hostCount int) string {
+	if hostCount < 2 {
+		return ""
+	}
+	if os.Getenv("DSD_NO_NUDGE") != "" || os.Getenv("DSD_NO_UPDATE_CHECK") != "" {
+		return ""
+	}
+	icon := asciiOr("info", "💡", mode)
+	return fmt.Sprintf("%s  Team mode — one hosted dashboard for every host, with history & alerts — is on the way.\n   Join the waitlist: https://dashdiag.sh/plans  (silence: DSD_NO_NUDGE=1)", icon)
 }
 
 func fleetStatusLabel(r fleet.Result, mode output.OutputMode) string {
