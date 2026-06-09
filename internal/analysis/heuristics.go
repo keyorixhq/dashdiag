@@ -1181,13 +1181,21 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 			},
 		))
 	}
-	if !b.QueryOK {
+	switch {
+	case b.QueryTested && !b.QueryOK:
 		out = append(out, insight("CRIT", "BIND",
 			"named is running but not answering DNS queries on 127.0.0.1:53",
 			[]string{
 				"to test: dig @127.0.0.1 localhost A +time=2 +tries=1",
 				"to inspect: journalctl -u named -n 50 --no-pager",
 			},
+		))
+	case !b.QueryTested:
+		// dig isn't installed, so we couldn't verify named is answering — say so
+		// rather than falsely asserting an outage.
+		out = append(out, insight("INFO", "BIND",
+			"could not verify named is answering — dig not installed",
+			[]string{"to enable the check: install bind-utils (RHEL) / dnsutils (Debian)"},
 		))
 	}
 	return out
