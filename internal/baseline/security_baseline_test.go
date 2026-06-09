@@ -1,11 +1,27 @@
 package baseline
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// testSSHHashes backs the stubbed hashSSHConfigFilesFn so SSH-drift tests don't
+// depend on the host's /etc/ssh contents. Default empty = "no SSH config files".
+var testSSHHashes map[string]string
+
+func TestMain(m *testing.M) {
+	hashSSHConfigFilesFn = func() map[string]string {
+		out := make(map[string]string, len(testSSHHashes))
+		for k, v := range testSSHHashes {
+			out[k] = v
+		}
+		return out
+	}
+	os.Exit(m.Run())
+}
 
 func TestBuildSecurityBaseline_PopulatesFields(t *testing.T) {
 	info := &models.SecurityInfo{
@@ -89,6 +105,58 @@ func TestDiffSecurityBaseline_NoDriftWhenIdentical(t *testing.T) {
 	diff := DiffSecurityBaseline(base, cur)
 	if diff.HasChanges() {
 		t.Errorf("expected no changes, got %+v", diff)
+	}
+}
+
+// A new SSH config drop-in (present now, not in the baseline) and a removed one
+// (in the baseline, gone now) must both be detected as drift — not just content
+// changes to files in both sets. Regression for the gap where dropping
+// /etc/ssh/sshd_config.d/99-evil.conf evaded the security drift check.
+func TestDiffSecurityBaseline_AddedAndRemovedSSHFiles(t *testing.T) {
+	base := &SecurityBaseline{
+		SSHConfigHashes: map[string]string{
+			"/etc/ssh/sshd_config":               "hash-main",
+			"/etc/ssh/sshd_config.d/10-old.conf": "hash-old",
+		},
+	}
+	// Current state: main unchanged, 10-old.conf removed, 99-evil.conf added.
+	testSSHHashes = map[string]string{
+		"/etc/ssh/sshd_config":                "hash-main",
+		"/etc/ssh/sshd_config.d/99-evil.conf": "hash-evil",
+	}
+	defer func() { testSSHHashes = nil }()
+
+	diff := DiffSecurityBaseline(base, &models.SecurityInfo{})
+
+	if len(diff.AddedSSHFiles) != 1 || diff.AddedSSHFiles[0] != "/etc/ssh/sshd_config.d/99-evil.conf" {
+		t.Errorf("AddedSSHFiles = %v, want [99-evil.conf]", diff.AddedSSHFiles)
+	}
+	if len(diff.RemovedSSHFiles) != 1 || diff.RemovedSSHFiles[0] != "/etc/ssh/sshd_config.d/10-old.conf" {
+		t.Errorf("RemovedSSHFiles = %v, want [10-old.conf]", diff.RemovedSSHFiles)
+	}
+	if len(diff.ChangedSSHFiles) != 0 {
+		t.Errorf("ChangedSSHFiles = %v, want none (main unchanged)", diff.ChangedSSHFiles)
+	}
+	if !diff.HasChanges() {
+		t.Error("HasChanges must be true when an SSH config file is added/removed")
+	}
+}
+
+// A changed SSH file (same path, different hash) is still detected, and a new
+// drop-in does not get misreported as a content change.
+func TestDiffSecurityBaseline_ChangedSSHFile(t *testing.T) {
+	base := &SecurityBaseline{
+		SSHConfigHashes: map[string]string{"/etc/ssh/sshd_config": "hash-v1"},
+	}
+	testSSHHashes = map[string]string{"/etc/ssh/sshd_config": "hash-v2"}
+	defer func() { testSSHHashes = nil }()
+
+	diff := DiffSecurityBaseline(base, &models.SecurityInfo{})
+	if len(diff.ChangedSSHFiles) != 1 || diff.ChangedSSHFiles[0] != "/etc/ssh/sshd_config" {
+		t.Errorf("ChangedSSHFiles = %v, want [sshd_config]", diff.ChangedSSHFiles)
+	}
+	if len(diff.AddedSSHFiles) != 0 || len(diff.RemovedSSHFiles) != 0 {
+		t.Errorf("unexpected add/remove: added=%v removed=%v", diff.AddedSSHFiles, diff.RemovedSSHFiles)
 	}
 }
 
