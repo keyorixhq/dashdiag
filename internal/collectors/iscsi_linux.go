@@ -22,18 +22,23 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ISCSIInfo{}
 
 	if _, err := exec.LookPath("iscsiadm"); err != nil {
-		return info, nil
+		return nil, nil // no initiator tooling — absent, gate off (no phantom row)
 	}
 	info.Available = true
 
 	// iscsiadm -m session prints one line per active session
 	out, err := runCmd(ctx, "iscsiadm", "-m", "session")
 	if err != nil {
-		// No sessions or daemon not running — not an error
-		return info, nil
+		// No sessions or daemon not running — initiator installed but not in use.
+		// open-iscsi ships by default on Ubuntu/Debian with zero targets logged in,
+		// so an empty initiator is "absent" (matches the VLAN gate), not a phantom OK.
+		return nil, nil
 	}
 
 	info.Sessions = parseISCSISessions(out)
+	if len(info.Sessions) == 0 {
+		return nil, nil // initiator present but no active sessions — absent
+	}
 	for _, s := range info.Sessions {
 		if strings.ToUpper(s.State) != "LOGGED_IN" {
 			info.FailedCount++

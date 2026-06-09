@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -215,36 +214,10 @@ func shouldHideRow(res runner.Result, insights []models.Insight) bool {
 	if inlineData(res) != "" {
 		return false
 	}
-	// Check if the collector signals unavailability via an Available field
-	return !isAvailable(res.Data)
-}
-
-// isAvailable returns false when the data struct has an Available field set to false.
-// Collectors that are not applicable on the current platform set Available=false.
-func isAvailable(data interface{}) bool {
-	if data == nil {
-		return false
-	}
-	type availabler interface{ IsAvailable() bool }
-	if a, ok := data.(availabler); ok {
-		return a.IsAvailable()
-	}
-	// Use reflection to check common Available bool field
-	v := reflect.ValueOf(data)
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return false
-		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return true // unknown type — show by default
-	}
-	f := v.FieldByName("Available")
-	if !f.IsValid() || f.Kind() != reflect.Bool {
-		return true // no Available field or wrong type — always show
-	}
-	return f.Bool()
+	// Check if the collector signals unavailability via an Available field.
+	// runner.IsAvailable is the shared definition — baseline.BuildSnapshot uses
+	// the same one so --report and live health hide the same rows.
+	return !runner.IsAvailable(res.Data)
 }
 
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.

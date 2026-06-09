@@ -143,12 +143,27 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 			continue
 		}
 		cr := CheckResult{Name: r.Name, Raw: r.Data, Status: "OK"}
+		hasInsight := false
 		for _, ins := range insights {
 			if ins.Check == r.Name {
 				cr.Status = ins.Level
 				cr.Value = ins.Message
+				hasInsight = true
 				break
 			}
+		}
+		// Mirror live health (render.shouldHideRow): a collector that reports
+		// itself unavailable (Available=false) and carries no insight is "absent /
+		// not applicable" — recording it as a passing check produced phantom
+		// "X ✅ OK" rows in dsd health --report (e.g. Ceph with the CLI installed
+		// but no cluster, Auth with no sshd). An insight referencing the check is
+		// an actionable finding and must never be dropped, so keep those.
+		// runner.IsAvailable is the shared definition used by live health too
+		// (render.shouldHideRow) so --report and live dsd health hide the same
+		// not-applicable rows. An insight is an actionable finding and is kept
+		// regardless.
+		if !hasInsight && !runner.IsAvailable(r.Data) {
+			continue
 		}
 		snap.Checks = append(snap.Checks, cr)
 	}

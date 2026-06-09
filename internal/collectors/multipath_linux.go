@@ -37,13 +37,18 @@ func (c *MultipathCollector) Collect(ctx context.Context) (interface{}, error) {
 		if err != nil {
 			info.Status = "error"
 			info.StatusReason = "multipathd running but paths unreadable"
-			return info, nil
+			return info, nil // actionable error — keep the row
 		}
 		info.Devices = parseMultipathL(out)
-		return info, nil
+	} else {
+		info.Devices = parseMultipathShow(out)
 	}
 
-	info.Devices = parseMultipathShow(out)
+	if len(info.Devices) == 0 {
+		// multipathd installed/running but no multipath maps configured — common
+		// when multipath-tools is present without any SAN. Absent, gate off.
+		return nil, nil
+	}
 	return info, nil
 }
 
