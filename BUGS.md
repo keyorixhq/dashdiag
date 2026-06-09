@@ -389,3 +389,54 @@ its parent's `Wait()` returning, during the ~2s concurrent run of ~20 collectors
 each spawning short-lived helpers (journalctl, ps, systemctl, dmesg, ip, …). This
 is normal and harmless. Documented the reaping guarantee in `runCmd` (collector.go).
 Re-open only if a `<defunct>` process *persists* (survives the dsd process exit).
+
+---
+
+## Fleet-review (code-review discoveries, 2026-06-09)
+
+Unlike the entries above, these were found by a systematic **code review** of every
+collector that produces a health verdict — not by hardware validation. They share
+one root class: **false-OK** — a green/OK verdict (or silence) shown when the check
+had not actually verified health, hiding the real problem. They escaped CI because
+unit tests existed but encoded the buggy behavior (or used unrealistic fixtures).
+Shipped in v0.6.9 (#130–#144) and v0.6.10 (#145–#146). The 7 grep-able anti-patterns
+live in the agent memory `false-ok-bug-class`.
+
+### BUG-040 — failing SMART drive silently skipped (highest impact)
+`smartctl -H` returns a non-zero **bitmask** exit on "DISK FAILING" (bit 3) while
+still printing the verdict to stdout. `collectSMART` treated any non-zero exit as a
+read error and returned early with `Error` set; the analysis layer skips drives with
+`SMART.Error != ""` — so a genuinely failing drive never produced the CRIT. Fixed by
+parsing stdout regardless of exit code (`parseSMARTHealth`). **#138.**
+
+### BUG-041 — docker OOM kills undercounted on busy hosts
+`collectDockerEvents` broke the parse loop after 10 events (a display cap), which
+also stopped OOM counting — so an `oom` later in a >10-event window was never
+counted and the OOM CRIT never fired. Split display cap from detection. **#140.**
+
+### BUG-042 — PVE per-VM backup gap hidden by healthy global age
+`checkPVEBackups` only checked the node-wide `BackupAgeDays`; a single never-backed-up
+guest was invisible when others backed up nightly. Now flags per-VM gaps. **#143.**
+
+### BUG-043 — ceph cluster-unreachable reported as silent/OK
+`ceph health detail` failing was treated as "no cluster" (silent). A node configured
+for a cluster (`/etc/ceph/ceph.conf`) whose mons are unreachable was hidden. Now
+CRITs when configured. **#145.**
+
+### BUG-044 — cloud-init / IPMI error states swallowed
+`cloud-init status` exits non-zero to report error/degraded (JSON still on stdout) —
+the error JSON was discarded. IPMI set `Status="error"` on a failed BMC read but the
+heuristic returned nil on `!Available`. Both now surface. **#146.**
+
+### Others (same class)
+Security drift missing added/removed SSH drop-ins (#137), TLS <24h-expired
+misclassified (#136), CVE scan-unavailable shown OK (#135), timeline false CRITs from
+missing PRIORITY + dropped non-UTF-8 messages (#134), k8s oldest-not-newest events +
+abort-on-short-line (#141), BIND phantom "not answering" when `dig` absent (#142),
+LVM snapshot origin misparse (#139), phantom "OK" rows across live/report/json
+(#131, #132), rune-split truncation (#144).
+
+**Meta-lesson:** "gated collector → covered by the `runner.IsAvailable` gate" was
+asserted without checking and proved wrong — the gate only covers the phantom-row
+pattern, not command-failed-is-ambiguous. Verifying the gated collectors found
+BUG-043/044. Never assert "gated → fine"; check.
