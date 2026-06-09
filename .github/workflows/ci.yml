@@ -44,3 +44,33 @@ jobs:
           GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
+
+  # Guards the install front door — a P0 (broken one-liner for every new user,
+  # #123) slipped through because install.sh had ZERO automated coverage. This
+  # runs THIS branch's install.sh in a clean container against the latest
+  # release and asserts dsd actually installs + runs, on both arches.
+  install-smoke:
+    name: Install one-liner (${{ matrix.platform }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v6
+
+      # arm64 needs emulation on an amd64 runner.
+      - name: Set up QEMU
+        if: matrix.platform != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install via install.sh in a clean container
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
+              set -e
+              apt-get update -qq >/dev/null
+              apt-get install -y -qq curl ca-certificates >/dev/null
+              sh /tmp/install.sh
+              dsd --version
+            '
