@@ -91,6 +91,20 @@ func scanCertPath(root string, now time.Time) []models.CertInfo {
 	return results
 }
 
+// expiryDays returns whole days from now until notAfter — positive while the
+// cert is valid, negative once it has expired. int() truncates toward zero, so a
+// cert that expired less than 24h ago divides to a fraction in (-1,0) and would
+// round to 0 — misreported as "expires in 0 days" (about to break) instead of
+// already-expired (down now), and mis-bucketed as Expiring rather than Expired.
+// Force the sign negative for any cert whose NotAfter is already in the past.
+func expiryDays(notAfter, now time.Time) int {
+	days := int(notAfter.Sub(now).Hours() / 24)
+	if days == 0 && notAfter.Before(now) {
+		days = -1
+	}
+	return days
+}
+
 // parseCertFile reads a PEM file and extracts certificate expiry info.
 func parseCertFile(path string, now time.Time) []models.CertInfo {
 	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path from hardcoded list
@@ -113,7 +127,7 @@ func parseCertFile(path string, now time.Time) []models.CertInfo {
 			continue
 		}
 
-		daysLeft := int(cert.NotAfter.Sub(now).Hours() / 24)
+		daysLeft := expiryDays(cert.NotAfter, now)
 		selfSigned := cert.Issuer.String() == cert.Subject.String()
 
 		// Skip root CA certs — they're long-lived and noise
