@@ -5790,6 +5790,18 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 
 func checkCeph(c models.CephInfo) []models.Insight {
 	if !c.Available {
+		// Configured for a cluster but `ceph health` failed → the cluster is
+		// unreachable from a node that's part of it. That's a real outage and must
+		// surface, not be silently gated off like a bare client binary.
+		if c.Configured {
+			return []models.Insight{insight("CRIT", "Ceph",
+				"Ceph cluster unreachable — node is configured for a cluster but `ceph health` failed",
+				[]string{
+					"to inspect: ceph -s   (or: ceph health detail)",
+					"to check mons: systemctl status ceph-mon.target",
+					"note: a stuck/unreachable mon quorum freezes all RBD/CephFS I/O",
+				})}
+		}
 		return nil
 	}
 	switch c.Health {

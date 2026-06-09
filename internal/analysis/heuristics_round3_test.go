@@ -56,7 +56,8 @@ func TestCheckCeph(t *testing.T) {
 		c    models.CephInfo
 		want string
 	}{
-		{"unavailable is silent", models.CephInfo{Available: false}, ""},
+		{"unavailable + not configured is silent (client binary only)", models.CephInfo{Available: false}, ""},
+		{"unavailable + configured is CRIT (cluster unreachable)", models.CephInfo{Available: false, Configured: true}, "CRIT"},
 		{"healthy is clean", models.CephInfo{Available: true, Health: "HEALTH_OK", OSDTotal: 3, OSDUp: 3}, ""},
 		{"health err is CRIT", models.CephInfo{Available: true, Health: "HEALTH_ERR"}, "CRIT"},
 		{"health warn is WARN", models.CephInfo{Available: true, Health: "HEALTH_WARN"}, "WARN"},
