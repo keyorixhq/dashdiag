@@ -108,6 +108,60 @@ func TestSortByHost(t *testing.T) {
 	}
 }
 
+func TestSummarize(t *testing.T) {
+	results := []Result{
+		{Host: "web2", Reachable: true, Worst: "OK"},
+		{Host: "db1", Reachable: true, Worst: "CRIT", Crit: 2},
+		{Host: "web1", Reachable: true, Worst: "WARN", Warn: 1},
+		{Host: "cache1", Reachable: false, Worst: "ERROR", Error: "Connection refused"},
+		{Host: "app1", Reachable: true, Worst: "OK"},
+	}
+
+	s := Summarize(results)
+
+	if s.Total != 5 {
+		t.Errorf("total = %d, want 5", s.Total)
+	}
+	if s.Counts != (Counts{OK: 2, WARN: 1, CRIT: 1, Unreachable: 1}) {
+		t.Errorf("counts = %+v, want ok2 warn1 crit1 unreachable1", s.Counts)
+	}
+	// Any CRIT or unreachable host → fleet verdict CRIT / exit 2.
+	if s.Verdict != "CRIT" || s.ExitCode != 2 {
+		t.Errorf("verdict=%q exit=%d, want CRIT/2", s.Verdict, s.ExitCode)
+	}
+	// Hosts must be sorted by host string (same order as the table).
+	wantOrder := []string{"app1", "cache1", "db1", "web1", "web2"}
+	for i, h := range wantOrder {
+		if s.Hosts[i].Host != h {
+			t.Errorf("hosts[%d] = %q, want %q (sorted)", i, s.Hosts[i].Host, h)
+		}
+	}
+	// Summarize must not mutate the caller's slice order.
+	if results[0].Host != "web2" {
+		t.Error("Summarize mutated input order")
+	}
+}
+
+// An unreachable-only fleet is CRIT-severity, not OK — the verdict must reflect
+// that a host we could not check is a problem, matching WorstExitCode.
+func TestSummarize_UnreachableIsCrit(t *testing.T) {
+	s := Summarize([]Result{{Host: "h", Reachable: false, Worst: "ERROR"}})
+	if s.Verdict != "CRIT" || s.ExitCode != 2 || s.Counts.Unreachable != 1 {
+		t.Errorf("got verdict=%q exit=%d unreachable=%d, want CRIT/2/1", s.Verdict, s.ExitCode, s.Counts.Unreachable)
+	}
+}
+
+// A clean fleet rolls up to OK/0.
+func TestSummarize_AllOK(t *testing.T) {
+	s := Summarize([]Result{
+		{Host: "a", Reachable: true, Worst: "OK"},
+		{Host: "b", Reachable: true, Worst: "OK"},
+	})
+	if s.Verdict != "OK" || s.ExitCode != 0 || s.Counts.OK != 2 {
+		t.Errorf("got verdict=%q exit=%d ok=%d, want OK/0/2", s.Verdict, s.ExitCode, s.Counts.OK)
+	}
+}
+
 func TestOptionsDefaults(t *testing.T) {
 	o := Options{}.withDefaults()
 	if o.RemoteCmd == "" || o.Concurrency == 0 || o.ConnectTimeout == 0 || o.RunTimeout == 0 || o.RemoteBinDir == "" {
