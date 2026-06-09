@@ -3816,8 +3816,38 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 		)}
 	}
 
+	// Scan couldn't actually run (no package manager, scanner tool absent, or the
+	// scan command failed) — surface as INFO, not a green "OK". A security check
+	// that silently reads OK when it never ran is a false sense of security. INFO
+	// does not raise the verdict.
+	if cveScanUnavailable(r) {
+		reason := r.StatusReason
+		if reason == "" {
+			reason = "no supported package manager"
+		}
+		return []models.Insight{insight("INFO", "CVE",
+			"CVE scan unavailable: "+reason,
+			[]string{"run `dsd cve --all` for details, or install a supported scanner"},
+		)}
+	}
+
 	// Moderate/Low only, or clean — stays quiet (below the WARN threshold).
 	return nil
+}
+
+// cveScanUnavailable reports whether the CVE scan could not actually run on this
+// host — no supported package manager, the scanner tool is not installed, or the
+// scan command failed — as opposed to running and finding nothing. Such a result
+// must not render as a green "OK" (which reads as "no CVEs" on a host we never
+// scanned). The signal is carried in CVEAllResult.StatusReason by the scanners in
+// cve_linux.go; the substrings here are pinned by TestCVEScanUnavailable.
+func cveScanUnavailable(r models.CVEAllResult) bool {
+	if r.PackageManager == "" {
+		return true
+	}
+	reason := strings.ToLower(r.StatusReason)
+	return strings.Contains(reason, "failed") ||
+		strings.Contains(reason, "install arch-audit")
 }
 
 func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {

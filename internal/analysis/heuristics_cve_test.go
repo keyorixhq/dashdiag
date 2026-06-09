@@ -75,6 +75,51 @@ func TestCheckCVEHealthCleanStaysQuiet(t *testing.T) {
 	}
 }
 
+// When the scan could not run, the row must surface as INFO ("scan unavailable"),
+// never a green OK — a security check reading OK without running is a false sense
+// of security. INFO does not raise the verdict.
+func TestCheckCVEHealthUnavailableFiresInfo(t *testing.T) {
+	cases := []struct {
+		name string
+		r    models.CVEAllResult
+	}{
+		{"no package manager", models.CVEAllResult{StatusReason: "no supported package manager found"}},
+		{"zypper failed", models.CVEAllResult{PackageManager: "zypper", StatusReason: "zypper list-patches failed: timeout"}},
+		{"dnf failed", models.CVEAllResult{PackageManager: "dnf", StatusReason: "dnf advisory list failed"}},
+		{"arch-audit not installed", models.CVEAllResult{PackageManager: "pacman", StatusReason: "install arch-audit for CVE scanning: pacman -S arch-audit"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			insights := checkCVEHealth(tc.r)
+			if len(insights) != 1 || insights[0].Level != "INFO" {
+				t.Fatalf("expected one INFO insight, got %+v", insights)
+			}
+			if !hasInsight(insights, "INFO", "scan unavailable") {
+				t.Errorf("message should say scan unavailable: %q", insights[0].Message)
+			}
+		})
+	}
+}
+
+// A clean scan (scanner ran, found nothing) must NOT be misclassified as
+// unavailable — it stays a legitimate quiet OK.
+func TestCVEScanUnavailable_CleanIsAvailable(t *testing.T) {
+	clean := []models.CVEAllResult{
+		{PackageManager: "dnf", StatusReason: "no pending security advisories — system is up to date"},
+		{PackageManager: "zypper", StatusReason: "no pending security patches — system is up to date"},
+		{PackageManager: "apt", StatusReason: "no pending upgrades found"},
+		{PackageManager: "pacman", StatusReason: "no vulnerable packages found — system is up to date"},
+	}
+	for _, r := range clean {
+		if cveScanUnavailable(r) {
+			t.Errorf("clean scan (%s) wrongly classified as unavailable: %q", r.PackageManager, r.StatusReason)
+		}
+		if got := checkCVEHealth(r); got != nil {
+			t.Errorf("clean scan (%s) should stay quiet, got %+v", r.PackageManager, got)
+		}
+	}
+}
+
 // The CVE collector result flows through applyOne (the type dispatch) as a CRIT
 // insight on the "CVE" check — the integration point dsd health relies on.
 func TestCVEHealthDispatchProducesInsight(t *testing.T) {
