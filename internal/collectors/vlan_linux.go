@@ -26,7 +26,7 @@ func (c *VLANCollector) Collect(_ context.Context) (interface{}, error) {
 	// /proc/net/vlan/config lists all VLAN interfaces
 	data, err := os.ReadFile("/proc/net/vlan/config")
 	if err != nil {
-		return info, nil
+		return nil, nil // 8021q not loaded / no VLANs — absent, gate off (no phantom "VLAN OK" row)
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
@@ -54,6 +54,9 @@ func (c *VLANCollector) Collect(_ context.Context) (interface{}, error) {
 			VLANID: vlanID,
 			Up:     up,
 		})
+	}
+	if len(info.Interfaces) == 0 {
+		return nil, nil // config present but no VLAN interfaces — absent
 	}
 	return info, nil
 }

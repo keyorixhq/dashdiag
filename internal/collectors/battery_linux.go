@@ -31,13 +31,13 @@ func (c *BatteryCollector) Collect(_ context.Context) (interface{}, error) {
 		supplies, _ = filepath.Glob("/sys/class/power_supply/battery")
 	}
 	if len(supplies) == 0 {
-		return info, nil // no battery — desktop system
+		return nil, nil // no battery (server/desktop) — absent, gate off (no phantom "Battery OK" row)
 	}
 
 	bat := supplies[0]
 	info.Present = readBatString(bat, "present") == "1"
 	if !info.Present {
-		return info, nil
+		return nil, nil // battery bay present but empty — absent
 	}
 
 	info.Status = readBatString(bat, "status")
