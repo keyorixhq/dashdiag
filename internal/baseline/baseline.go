@@ -135,6 +135,13 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 		Version:   version.Version,
 	}
 	for _, r := range results {
+		// Skip collectors that gated themselves off (nil data, no error) — the
+		// "absent / not applicable on this platform" signal. Recording them as a
+		// passing check produced phantom rows (e.g. macOS-only "Launchd ✅ OK"
+		// in a Linux report).
+		if r.Data == nil && r.Err == nil {
+			continue
+		}
 		cr := CheckResult{Name: r.Name, Raw: r.Data, Status: "OK"}
 		for _, ins := range insights {
 			if ins.Check == r.Name {

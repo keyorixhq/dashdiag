@@ -5,7 +5,40 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
+
+// A collector that gated itself off (nil data, no error — e.g. macOS-only
+// Launchd on Linux) must NOT become a phantom "OK" check in the snapshot.
+func TestBuildSnapshot_SkipsAbsentCollectors(t *testing.T) {
+	results := []runner.Result{
+		{Name: "CPU Load", Data: models.CPUInfo{UsagePct: 5}}, // present → kept
+		{Name: "Launchd", Data: nil},                          // gated off → skipped
+		{Name: "Disk", Data: models.DiskInfo{}},               // present → WARN below
+	}
+	insights := []models.Insight{{Check: "Disk", Level: "WARN", Message: "disk 90%"}}
+
+	snap := BuildSnapshot(results, insights)
+
+	got := map[string]string{}
+	for _, c := range snap.Checks {
+		got[c.Name] = c.Status
+	}
+	if _, ok := got["Launchd"]; ok {
+		t.Errorf("absent (nil-data) collector must be skipped, got %+v", snap.Checks)
+	}
+	if got["CPU Load"] != "OK" {
+		t.Errorf("present collector should be OK, got %q", got["CPU Load"])
+	}
+	if got["Disk"] != "WARN" {
+		t.Errorf("insight status should apply, got %q", got["Disk"])
+	}
+	if len(snap.Checks) != 2 {
+		t.Errorf("want 2 checks (absent skipped), got %d: %+v", len(snap.Checks), snap.Checks)
+	}
+}
 
 func makeSnap(hostname, version, checkName, status string) *Snapshot {
 	return &Snapshot{
