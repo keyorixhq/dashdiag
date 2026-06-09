@@ -139,7 +139,8 @@ func kvmDomInfo(ctx context.Context, name string) models.KVMVM {
 	return vm
 }
 
-// kvmCheckDiskErrors runs virsh domblkerror — any line containing "error" = I/O error.
+// kvmCheckDiskErrors runs virsh domblkerror. Any non-empty output other than the
+// "No errors found" line indicates a live block-device I/O error.
 func kvmCheckDiskErrors(ctx context.Context, vm *models.KVMVM) {
 	if vm.ID < 0 {
 		return // not running — no live disk stats
@@ -178,10 +179,7 @@ func kvmReadLastLogError(vm *models.KVMVM) {
 		}
 	}
 	if lastError != "" {
-		if len(lastError) > 120 {
-			lastError = lastError[:120] + "…"
-		}
-		vm.LastLogError = lastError
+		vm.LastLogError = truncateRunes(lastError, 120)
 	}
 }
 
