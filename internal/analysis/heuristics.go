@@ -5604,6 +5604,22 @@ func isUSBNetworkInterface(iface string) bool {
 }
 
 func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
+	// IPMI hardware is present (the collector is gated on /dev/ipmi*) but the
+	// sensor read failed — surface it rather than stay silent. The collector sets
+	// Status="error" with Available=false here; returning nil on !Available alone
+	// hid a BMC/sensor read failure on a server that has IPMI.
+	if ipmi.Status == "error" {
+		reason := ipmi.StatusReason
+		if reason == "" {
+			reason = "IPMI sensor read failed"
+		}
+		return []models.Insight{insight("WARN", "IPMI", reason,
+			[]string{
+				"to inspect: ipmitool sdr",
+				"to inspect: ipmitool sel list | tail -20",
+				"note: check BMC access — kernel module ipmi_devintf and /dev/ipmi0 permissions",
+			})}
+	}
 	if !ipmi.Available {
 		return nil
 	}
