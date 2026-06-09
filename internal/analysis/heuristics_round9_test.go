@@ -24,6 +24,10 @@ func TestCheckIPMI(t *testing.T) {
 	assertLevel(t, checkIPMI(models.IPMIInfo{Available: true, PSUFailed: 1}), "CRIT")
 	assertLevel(t, checkIPMI(models.IPMIInfo{Available: true, FanFailed: 1}), "WARN")
 	assertLevel(t, checkIPMI(models.IPMIInfo{Available: true, TempCritical: 1}), "CRIT")
+	// A failed BMC/sensor read (Status="error", Available=false) must surface as
+	// WARN, not be silently swallowed by the !Available early return.
+	assertLevel(t, checkIPMI(models.IPMIInfo{Available: false, Status: "error",
+		StatusReason: "ipmitool available but sdr read failed"}), "WARN")
 }
 
 func TestCheckDNSQuality(t *testing.T) {
