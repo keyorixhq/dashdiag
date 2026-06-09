@@ -1,0 +1,207 @@
+# fixture captured from ubuntu24-lxc (Ubuntu 24.04 LTS)
+# replay with: dsd mock <this-file>
+
+host: ubuntu24-lxc
+os: Ubuntu 24.04 LTS
+version: v0.6.10-2-gcb72795
+rows:
+    - name: CPU Load
+      level: ""
+      inline: 18%
+      message: ""
+      hints: []
+    - name: Memory
+      level: ""
+      inline: 0.1/0 GB (12%)
+      message: ""
+      hints: []
+    - name: Swap
+      level: ""
+      inline: 0 MB used
+      message: ""
+      hints: []
+    - name: Disk
+      level: ""
+      inline: / 25%
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "filesystems": [
+                  {
+                    "mount": "/",
+                    "device": "/dev/mapper/pve-vm--202--disk--0",
+                    "fs_type": "ext4",
+                    "total_gb": 4.14367744,
+                    "used_gb": 0.8004362240000003,
+                    "free_gb": 3.343241216,
+                    "used_pct": 24.904412636906414,
+                    "inodes_used_pct": 8.658599853515625,
+                    "read_only": false,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "drives": [
+                  {
+                    "name": "sda",
+                    "size_gb": 128.03567616,
+                    "type": "SSD",
+                    "model": "LITEONIT LCS-128",
+                    "mounts": [
+                      "not mounted"
+                    ]
+                  },
+                  {
+                    "name": "sdb",
+                    "size_gb": 2000.398934016,
+                    "type": "HDD",
+                    "model": "WDC WD2003FYYS-0",
+                    "mounts": [
+                      "not mounted"
+                    ]
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: IO
+      level: ""
+      inline: 12.1 ms (sdb)
+      message: ""
+      hints: []
+      raw: |-
+        {
+                "devices": [
+                  {
+                    "name": "sda",
+                    "is_ssd": true,
+                    "drive_type": "ssd",
+                    "util_pct": 0.2,
+                    "await_ms": 0.6666666666666666,
+                    "read_mbps": 0,
+                    "write_mbps": 0.012288,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  },
+                  {
+                    "name": "sdb",
+                    "is_ssd": false,
+                    "drive_type": "hdd",
+                    "util_pct": 7.9,
+                    "await_ms": 12.125,
+                    "read_mbps": 0,
+                    "write_mbps": 0.065536,
+                    "queue_depth": 0,
+                    "status": "",
+                    "status_reason": ""
+                  }
+                ],
+                "status": "",
+                "status_reason": ""
+              }
+    - name: Network
+      level: ""
+      inline: eth0 10Gbps  gw <1 ms
+      message: ""
+      hints: []
+    - name: Systemd
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: Processes
+      level: ""
+      inline: 22 running
+      message: ""
+      hints: []
+    - name: FDLimits
+      level: ""
+      inline: 12k open
+      message: ""
+      hints: []
+    - name: Entropy
+      level: ""
+      inline: 256/256 bits
+      message: ""
+      hints: []
+    - name: Clock
+      level: ""
+      inline: ±1 ms  host
+      message: ""
+      hints: []
+    - name: Logs
+      level: INFO
+      inline: ""
+      message: journald SyncIntervalSec is high (default 5min) — final log lines from a crashing process may be lost
+      hints:
+        - 'to fix: echo ''SyncIntervalSec=30s'' >> /etc/systemd/journald.conf'
+        - 'to fix: systemctl restart systemd-journald'
+        - 'note:   lower sync interval increases disk I/O but ensures crash logs are preserved'
+    - name: Sysctl
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
+    - name: KernelSec
+      level: ""
+      inline: AppArmor enforce
+      message: ""
+      hints: []
+    - name: Hardening
+      level: WARN
+      inline: ""
+      message: SSH allows password authentication — key-based auth recommended
+      hints:
+        - 'to fix: set PasswordAuthentication no in /etc/ssh/sshd_config'
+    - name: Subscription
+      level: INFO
+      inline: ""
+      message: Ubuntu Pro not attached — ESM security patches and Livepatch unavailable
+      hints:
+        - 'to attach: pro attach <token>  (free for up to 5 personal machines)'
+        - 'to get token: ubuntu.com/pro'
+        - 'to inspect: pro status'
+    - name: OOM
+      level: ""
+      inline: 0 events
+      message: ""
+      hints: []
+    - name: Pressure
+      level: ""
+      inline: mem 0%  cpu 0%  io 0%
+      message: ""
+      hints: []
+    - name: Firewall
+      level: ""
+      inline: nftables  3 rules
+      message: ""
+      hints: []
+    - name: Auth
+      level: ""
+      inline: 0 failed logins
+      message: ""
+      hints: []
+    - name: HugePages
+      level: ""
+      inline: THP madvise
+      message: ""
+      hints: []
+    - name: CPUFreq
+      level: ""
+      inline: performance  3700/4000 MHz
+      message: ""
+      hints: []
+    - name: Sessions
+      level: WARN
+      inline: ""
+      message: '1 session(s) idle > 8h: root — unattended terminal risk'
+      hints:
+        - 'to inspect: w'
+        - 'to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect'
+    - name: DBus
+      level: ""
+      inline: ""
+      message: ""
+      hints: []
