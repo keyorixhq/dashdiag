@@ -44,15 +44,20 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// `cloud-init status` (without --wait) just reads /run/cloud-init/status.json
 	// and returns immediately — never blocks. NEVER add --wait here.
-	out, err := runCmd(ctx, "cloud-init", "status", "--format=json")
-	if err == nil && strings.TrimSpace(out) != "" {
-		if parseCloudInitJSON(out, info) {
-			return info, nil
-		}
+	//
+	// IMPORTANT: cloud-init status exits NON-ZERO to *report* state (1 = error,
+	// 2 = degraded), not only on failure — and still prints the status JSON to
+	// stdout. So parse the output regardless of exit code; gating on err == nil
+	// discarded the very JSON that says status:"error", silently hiding a failed
+	// instance (the case we most need to flag).
+	out, _ := runCmd(ctx, "cloud-init", "status", "--format=json")
+	if strings.TrimSpace(out) != "" && parseCloudInitJSON(out, info) {
+		return info, nil
 	}
 
 	// Fallback for old cloud-init without --format=json: plain text "status: X".
-	if txt, terr := runCmd(ctx, "cloud-init", "status"); terr == nil {
+	// Same exit-code semantics — parse whatever it prints, ignore the exit code.
+	if txt, _ := runCmd(ctx, "cloud-init", "status"); strings.TrimSpace(txt) != "" {
 		parseCloudInitText(txt, info)
 	}
 	return info, nil
