@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,9 +94,55 @@ func snap(host string) *baseline.Snapshot {
 }
 
 func TestGenerateReport(t *testing.T) {
+	// Write into a temp dir — GenerateReport writes to CWD, and the test must not
+	// litter the source tree.
+	old, _ := os.Getwd()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(old) //nolint:errcheck
 	out, err := GenerateReport(snap("host1"), sampleInsights(), 5*time.Second, nil)
 	if err != nil || out == "" {
 		t.Fatalf("GenerateReport: err=%v empty=%v", err, out == "")
+	}
+}
+
+// The report is a client-facing (paid-tier) artifact, so its formatting matters:
+// remediation must be ONE fenced block (not a stack of per-line fences), and the
+// Check Results table must be deterministic + worst-first (it used to iterate
+// snap.Checks in map order — a different ordering every run).
+func TestBuildMarkdownReportQuality(t *testing.T) {
+	s := &baseline.Snapshot{
+		Hostname: "h", Version: "v0", Timestamp: time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC),
+		Checks: []baseline.CheckResult{ // scrambled order on purpose
+			{Name: "Zeta"}, {Name: "CPU Load"}, {Name: "Alpha"}, {Name: "Disk"}, {Name: "Mid"},
+		},
+	}
+	md := buildMarkdown(s, sampleInsights(), time.Second, nil)
+
+	// 1. The 3 CPU Load hints render consecutively inside one block (a per-line
+	//    fence would put "```" between them).
+	if !strings.Contains(md, "to inspect: uptime\nto fix: kill the runaway process\nnote: check top consumers") {
+		t.Errorf("remediation hints should be in a single code block:\n%s", md)
+	}
+
+	// 2. Worst-first, alphabetical within rank: CRIT, WARN, then OK (Alpha<Mid<Zeta).
+	want := []string{"| CPU Load | 🔴 CRIT", "| Disk | ⚠️ WARN", "| Alpha | ✅", "| Mid | ✅", "| Zeta | ✅"}
+	last := -1
+	for _, tok := range want {
+		i := strings.Index(md, tok)
+		if i < 0 {
+			t.Fatalf("table missing row %q", tok)
+		}
+		if i < last {
+			t.Errorf("table row %q is out of worst-first/alpha order", tok)
+		}
+		last = i
+	}
+
+	// 3. Deterministic across runs.
+	if md != buildMarkdown(s, sampleInsights(), time.Second, nil) {
+		t.Error("report output must be deterministic (was map-order dependent)")
 	}
 }
 

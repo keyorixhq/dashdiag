@@ -72,11 +72,14 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 			fmt.Fprintf(&b, "### %s %s — %s\n\n", icon, ins.Level, ins.Check)
 			fmt.Fprintf(&b, "%s\n\n", ins.Message)
 			if len(ins.Hints) > 0 {
-				fmt.Fprintf(&b, "**Remediation:**\n")
+				// One fenced block for ALL remediation lines — a separate fence per
+				// line renders as a stack of tiny code boxes, which looks broken in a
+				// client-facing report.
+				fmt.Fprintf(&b, "**Remediation:**\n\n```\n")
 				for _, h := range ins.Hints {
-					fmt.Fprintf(&b, "```\n%s\n```\n", h)
+					fmt.Fprintf(&b, "%s\n", h)
 				}
-				fmt.Fprintf(&b, "\n")
+				fmt.Fprintf(&b, "```\n\n")
 			}
 		}
 	}
@@ -97,14 +100,32 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 		}
 	}
 
+	// Deterministic, worst-first order: snap.Checks comes back in map/iteration
+	// order (different every run, which reads as unstable in a client report).
+	// Sort CRIT → WARN → OK, alphabetical within each rank.
+	type checkRow struct {
+		name, status string
+		rank         int
+	}
+	rows := make([]checkRow, 0, len(snap.Checks))
 	for _, check := range snap.Checks {
-		status := "✅ OK"
-		if critChecks[check.Name] {
-			status = "🔴 CRIT"
-		} else if warnChecks[check.Name] {
-			status = "⚠️ WARN"
+		switch {
+		case critChecks[check.Name]:
+			rows = append(rows, checkRow{check.Name, "🔴 CRIT", 2})
+		case warnChecks[check.Name]:
+			rows = append(rows, checkRow{check.Name, "⚠️ WARN", 1})
+		default:
+			rows = append(rows, checkRow{check.Name, "✅ OK", 0})
 		}
-		fmt.Fprintf(&b, "| %s | %s |\n", check.Name, status)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].rank != rows[j].rank {
+			return rows[i].rank > rows[j].rank
+		}
+		return rows[i].name < rows[j].name
+	})
+	for _, r := range rows {
+		fmt.Fprintf(&b, "| %s | %s |\n", r.name, r.status)
 	}
 	fmt.Fprintf(&b, "\n")
 
