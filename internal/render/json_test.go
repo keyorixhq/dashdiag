@@ -2,9 +2,11 @@ package render
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func TestSummarizeInsights(t *testing.T) {
@@ -60,5 +62,51 @@ func TestRenderJSON_VerdictField(t *testing.T) {
 	}
 	if out.Counts.Crit != 1 || out.Counts.Warn != 1 || out.Counts.Info != 1 {
 		t.Errorf("counts = %+v, want crit=1 warn=1 info=1", out.Counts)
+	}
+}
+
+// --json / --yaml must hide the same not-applicable collectors that live health
+// and --report hide: a gated-off (nil-data) collector and an Available=false
+// collector with no insight are absent, not phantom "OK" checks. Errors and
+// available collectors are always kept. Keeps the three surfaces consistent.
+func TestRenderJSON_SkipsAbsentChecks(t *testing.T) {
+	results := []runner.Result{
+		{Name: "CPU Load", Data: models.CPUInfo{UsagePct: 5}},        // no Available field → kept
+		{Name: "Launchd", Data: nil},                                 // gated off (nil) → skipped
+		{Name: "Ceph", Data: &models.CephInfo{Available: false}},     // unavailable, no insight → skipped
+		{Name: "Docker", Data: &models.DockerInfo{Available: false}}, // unavailable BUT has insight → kept
+		{Name: "Disk", Data: nil, Err: errors.New("read failed")},    // error → kept
+	}
+	insights := []models.Insight{{Check: "Docker", Level: "WARN", Message: "container exited"}}
+
+	data, err := RenderJSON(results, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, c := range out.Checks {
+		got[c.Name] = c.Status
+	}
+	for _, absent := range []string{"Launchd", "Ceph"} {
+		if _, ok := got[absent]; ok {
+			t.Errorf("absent collector %q must be skipped, got checks %+v", absent, out.Checks)
+		}
+	}
+	if got["CPU Load"] != "OK" {
+		t.Errorf("present collector should be OK, got %q", got["CPU Load"])
+	}
+	if got["Docker"] != "WARN" {
+		t.Errorf("unavailable collector with an insight must be kept (WARN), got %q", got["Docker"])
+	}
+	if got["Disk"] != "ERROR" {
+		t.Errorf("errored collector must be kept (ERROR), got %q", got["Disk"])
+	}
+	if len(out.Checks) != 3 {
+		t.Errorf("want 3 checks (Launchd+Ceph skipped), got %d: %+v", len(out.Checks), out.Checks)
 	}
 }

@@ -74,6 +74,20 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 
 	checks := make([]JSONCheck, 0, len(results))
 	for _, r := range results {
+		// Keep the JSON/YAML contract consistent with live health and --report
+		// (baseline.BuildSnapshot): a collector that gated itself off (nil data,
+		// no error) or reports itself not-applicable (Available=false) with no
+		// insight is absent. Emitting it as a phantom "OK" check — e.g.
+		// {"name":"Launchd","status":"OK","raw":null} on Linux — is the same noise
+		// #129/#131 removed from the other surfaces. Errors are always kept.
+		if r.Err == nil {
+			if r.Data == nil {
+				continue
+			}
+			if _, hasInsight := insightMap[r.Name]; !hasInsight && !runner.IsAvailable(r.Data) {
+				continue
+			}
+		}
 		c := JSONCheck{
 			Name:     r.Name,
 			Status:   "OK",
