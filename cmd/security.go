@@ -147,6 +147,22 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 		}
 	}
 
+	if len(diff.AddedSSHFiles) > 0 {
+		fmt.Println("\nNew SSH config files (not in baseline):")
+		for _, f := range diff.AddedSSHFiles {
+			fmt.Printf("  %s  %s  (added since baseline)\n", asciiOr("warn", "⚠️", mode), f)
+			fmt.Printf("     → Inspect %s for PermitRootLogin / PasswordAuthentication overrides\n", f)
+		}
+	}
+
+	if len(diff.RemovedSSHFiles) > 0 {
+		fmt.Println("\nRemoved SSH config files (in baseline, now gone):")
+		for _, f := range diff.RemovedSSHFiles {
+			fmt.Printf("  %s  %s  (removed since baseline)\n", asciiOr("warn", "⚠️", mode), f)
+			fmt.Printf("     → Confirm the hardening from %s is still applied elsewhere\n", f)
+		}
+	}
+
 	if len(diff.NewSudoEntries) > 0 {
 		fmt.Println("\nNew sudoers NOPASSWD entries:")
 		for _, s := range diff.NewSudoEntries {
@@ -165,6 +181,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	insights := analysis.CheckSecurityDrift(diff)
 	recordWorstInsight(insights) // BUG-022: new SUID = CRIT, SSH/sudo/cron change = WARN
 	changes := len(diff.NewSUIDs) + len(diff.ChangedSSHFiles) +
+		len(diff.AddedSSHFiles) + len(diff.RemovedSSHFiles) +
 		len(diff.NewSudoEntries) + len(diff.NewCronEntries)
 	baselineDate := diff.BaselineSavedAt.Format("2006-01-02")
 
