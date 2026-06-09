@@ -1,0 +1,44 @@
+# fixtures/vmware-guest-scsi-timeout.yaml
+# Demo: a VMware vSphere Linux guest dsd flags for a data-integrity gotcha most
+# admins never check — the default 30s SCSI timeout, which makes the guest go
+# read-only during a vMotion/storage failover. Plus the paravirtual-driver and
+# open-vm-tools advice that signals VMware-specific expertise.
+# Use: dsd mock fixtures/vmware-guest-scsi-timeout.yaml
+host: "vsphere-app-04"
+os: "Ubuntu 22.04 LTS"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "38% (load avg 3.1 across 8 CPUs)"
+  - name: "Memory"
+    inline: "22/32 GB (69%)"
+  - name: "Swap"
+    inline: "0 MB used"
+  - name: "Disk"
+    inline: "/ 64%"
+  - name: "IO"
+    inline: "2.1 ms (sda)"
+  - name: "VMware"
+    level: CRIT
+    message: "SCSI disk command timeout below VMware's recommended 180s (sda 30s) — the guest filesystem may go read-only during a vMotion or storage failover"
+    hints:
+      - "to fix now: echo 180 > /sys/block/sda/device/timeout   (per disk, non-persistent)"
+      - "to persist: install open-vm-tools (ships a udev rule) or add a udev rule setting timeout=180"
+  - name: "Network"
+    level: WARN
+    message: "NIC eth0 on an emulated driver (e1000) — vmxnet3 (paravirtual) gives higher throughput at lower host CPU"
+    hints:
+      - "to fix: set the VM's network adapter type to VMXNET 3 in vSphere, then reboot the guest"
+  - name: "Systemd"
+    inline: "boot 18s"
+  - name: "Processes"
+    inline: "214 running"
+  - name: "Hardening"
+    level: WARN
+    message: "SSH allows password authentication — key-based auth recommended"
+    hints:
+      - "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+  - name: "Firewall"
+    inline: "nftables  9 rules"
+  - name: "Clock"
+    inline: "±1 ms  chrony"
