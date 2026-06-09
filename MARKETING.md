@@ -1998,3 +1998,134 @@ in one line, which is exactly what a design-partner pilot needs to hear first.
 
 **LinkedIn hook:** *"Your Linux VMs on vSphere can go read-only during the next
 vMotion — and you won't know until it happens. One command tells you today."*
+
+---
+
+## Story 14 — Same Data, Three Different Answers (The Consistency Story)
+
+> Engineering-rigor angle. Pairs with Story 11 (Trust).
+
+### The insight
+
+DashDiag speaks three ways: the live terminal verdict, a shareable `--report`, and
+machine-readable `--json`/`--yaml` for automation. They are supposed to be the same
+truth in three formats. They weren't.
+
+A collector that wasn't applicable to a host — no battery on a server, no NVMe in a
+container — was correctly hidden in the live view, but leaked into the report and
+the JSON as a phantom `✅ OK` row. So the same `dsd health`, on the same machine,
+gave you a different set of checks depending on how you looked at it.
+
+That's a quiet credibility killer. If `--json` says a check passed and the terminal
+never mentions it, which one does your alerting trust?
+
+### The fix
+
+One shared definition of "is this result real," used by all three surfaces, plus a
+meta-test that fails the build if a new collector ever drifts from it. Now the live
+verdict, the report, and the JSON agree on exactly which checks ran and what they
+said — by construction, not by luck.
+
+### Why it matters
+
+- **Automation can trust it.** `dsd health --json | jq .verdict` returns the same
+  answer a human sees on screen. CI gates and dashboards aren't reading a different
+  reality than the operator.
+- **It's the unglamorous work that separates a tool you rely on from a demo.**
+  Anybody can render output. Making three renderers agree on the truth, forever, is
+  the part that earns "I trust it in my pipeline."
+
+**Social angle:** *"Your monitoring tool's terminal output and its JSON should never
+disagree about what passed. Ours did. Here's how we made it impossible."*
+
+---
+
+## Story 15 — The Test That Lied (The Build-in-Public Story)
+
+> For the engineering audience. Every developer has lived this.
+
+### The insight
+
+A passing test suite doesn't mean correct code. It means the code does what the
+*fixtures* describe — and fixtures are written by the same person who wrote the bug.
+
+### The real example
+
+DashDiag parses `lvs` output to spot a snapshot's origin volume. There was a column
+that the parser read by position. The unit test fed it a fixture where that column
+held `0.00`. The test passed for months.
+
+Real `lvs` leaves that column **blank** for a classic snapshot — not `0.00`. With a
+blank, the columns collapse and the parser silently reads the wrong field: it
+reported a snapshot's *origin* as the disk's *size*. The fixture was the one input
+that hid the bug, because it never matched what the real tool actually prints.
+
+Same shape bit the BIND check: a fixture that set a flag the live code never sets
+that way, so the test green-lit a path that couldn't happen in production.
+
+### The lesson, baked in
+
+We now capture fixtures from **real hosts** (`dsd health --json | dsd capture`)
+instead of authoring idealized ones — so the tests chew on exactly what the tools
+emit in the wild, mojibake and blank columns and all.
+
+### Why it lands
+
+It's honest, specific, and universally relatable to engineers: *"the test passed
+because the fixture was wrong."* It positions the team as people who know that
+green CI is the beginning of confidence, not the end of it.
+
+**Social angle:** *"Our test passed for months. The bug shipped anyway — because the
+fixture used a value the real command never produces. A short post-mortem on testing
+the wrong thing."*
+
+---
+
+## Story 16 — I Almost Stopped Looking (The Diligence Story)
+
+> Founder-process angle. Vulnerable, honest, and it's the through-line of the whole
+> hardening cycle. Pairs with Story 11.
+
+### The insight
+
+The most dangerous moment in a quality pass isn't the first bug. It's the moment
+your gut says *"it's clean now — diminishing returns."* That instinct is almost
+always wrong, and in diagnostics it's the exact instinct that ships the blind spot.
+
+### What happened
+
+A few fixes in, I was ready to call the codebase clean and move on. I'd even started
+arguing it. Then I checked one more surface — and found a **failing hard drive being
+silently skipped**. So I kept going. Every single round of *actually looking* found
+another real bug: a missed container OOM, a backup that wasn't there, a cloud-init
+error swallowed whole.
+
+Later I did the worse version of the same mistake out loud: I claimed a group of
+collectors was "already covered" — without checking. Someone pushed back: *did you
+actually check that?* I hadn't. I checked. Three more real failures were hiding
+there, including a Proxmox/Ceph cluster that could be completely unreachable and
+report nothing.
+
+### The principle
+
+**Verify, don't predict.** A diagnostic tool is a promise that someone looked. The
+only way to keep that promise is to refuse the comfortable assumption — every time,
+including when you're the one writing the tool.
+
+### Why this is the founder story
+
+It's the opposite of the usual founder flex. It's not "I'm brilliant," it's "I
+caught myself about to trust my gut over the evidence, on the one product where
+that's fatal — and I built the discipline to not do that." That's exactly the
+person you want building the thing that tells you your servers are fine.
+
+### Founder credibility line
+
+> *"The scariest moment building a health tool is when you decide it's 'probably
+> fine.' Every time I pushed past that and actually checked, I found something real
+> — including a failing drive my own tool was hiding. So 'probably fine' isn't in
+> the product. It checks. That's the whole point."*
+
+**Social angle:** *"I almost stopped auditing my own tool because it felt clean. The
+next check found a failing disk it was silently ignoring. A thread on why 'verify,
+don't predict' is the only honest setting for a diagnostic tool."*
