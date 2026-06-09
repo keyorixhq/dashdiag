@@ -32,7 +32,7 @@ Examples:
   dsd fleet web1 web2 db1
   dsd fleet --hosts-file hosts.txt
   dsd fleet --bin ./dist/dsd-linux-amd64 root@10.0.0.5 root@10.0.0.6
-  dsd fleet --json web1 web2 | jq .
+  dsd fleet --json web1 web2 | jq .verdict   # OK | WARN | CRIT (fleet-wide)
 
 Exit code: 2 if any host is CRIT or unreachable, 1 if any WARN, else 0.`,
 	RunE: runFleet,
@@ -85,17 +85,18 @@ func runFleet(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Checking %d host(s)…\n", len(hosts))
 	}
 	results := fleet.Run(cmd.Context(), hosts, opts)
+	summary := fleet.Summarize(results)
 
 	if jsonOut {
-		data, _ := json.MarshalIndent(results, "", "  ")
+		data, _ := json.MarshalIndent(summary, "", "  ")
 		fmt.Println(string(data))
 	} else {
-		printFleetTable(results, mode)
+		printFleetTable(summary, mode)
 	}
 
 	// Use the shared exit-code mechanism (applied by Execute after defers run),
 	// matching dsd health: 2 = any CRIT/unreachable, 1 = any WARN, 0 = clean.
-	recordExitCode(fleet.WorstExitCode(results))
+	recordExitCode(summary.ExitCode)
 	return nil
 }
 
@@ -130,12 +131,10 @@ func resolveHosts(args []string, hostsFile string) ([]string, error) {
 	return hosts, nil
 }
 
-func printFleetTable(results []fleet.Result, mode output.OutputMode) {
-	results = fleet.SortByHost(results)
+func printFleetTable(summary fleet.Summary, mode output.OutputMode) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "HOST\tSTATUS\tCRIT\tWARN\tTIME\tTOP ISSUE")
-	var ok, warn, crit, unreachable int
-	for _, r := range results {
+	for _, r := range summary.Hosts {
 		status := fleetStatusLabel(r, mode)
 		issue := r.TopIssue
 		if !r.Reachable {
@@ -144,20 +143,11 @@ func printFleetTable(results []fleet.Result, mode output.OutputMode) {
 		issue = truncate(strings.ReplaceAll(issue, "\n", " "), 60)
 		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%dms\t%s\n",
 			r.Host, status, r.Crit, r.Warn, r.ElapsedMs, issue)
-		switch {
-		case !r.Reachable || r.Worst == "ERROR":
-			unreachable++
-		case r.Worst == "CRIT":
-			crit++
-		case r.Worst == "WARN":
-			warn++
-		default:
-			ok++
-		}
 	}
 	_ = w.Flush()
+	c := summary.Counts
 	fmt.Printf("\n%d host(s): %d OK · %d WARN · %d CRIT · %d unreachable\n",
-		len(results), ok, warn, crit, unreachable)
+		summary.Total, c.OK, c.WARN, c.CRIT, c.Unreachable)
 }
 
 func fleetStatusLabel(r fleet.Result, mode output.OutputMode) string {
