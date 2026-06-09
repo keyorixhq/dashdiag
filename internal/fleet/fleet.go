@@ -231,6 +231,58 @@ func firstLine(s string) string {
 	return s
 }
 
+// Counts tallies hosts by their worst verdict. Unreachable folds in both
+// genuinely unreachable hosts and ones whose remote run errored (Worst=="ERROR")
+// — the same bucket the human summary and WorstExitCode treat as CRIT-severity.
+type Counts struct {
+	OK          int `json:"ok"`
+	WARN        int `json:"warn"`
+	CRIT        int `json:"crit"`
+	Unreachable int `json:"unreachable"`
+}
+
+// Summary is the fleet-wide aggregate: the machine contract for dsd fleet --json
+// and the single source for the human summary line, so the two never disagree.
+// It mirrors dsd health --json's top-level verdict/counts so the same automation
+// (`jq .verdict`, `jq .counts.crit`) works against a fleet run.
+type Summary struct {
+	Verdict  string   `json:"verdict"`   // OK | WARN | CRIT — fleet-wide worst
+	ExitCode int      `json:"exit_code"` // matches the process exit code (0/1/2)
+	Total    int      `json:"total"`     // number of hosts checked
+	Counts   Counts   `json:"counts"`
+	Hosts    []Result `json:"hosts"` // per-host results, sorted by host
+}
+
+// Summarize rolls per-host results up into the fleet verdict. Hosts are sorted by
+// host string so the JSON and the table present the same order. The verdict is
+// derived from WorstExitCode so the rollup, the table summary, and the exit code
+// can never diverge: any CRIT/unreachable host → CRIT/2, any WARN → WARN/1.
+func Summarize(results []Result) Summary {
+	s := Summary{Total: len(results), Hosts: SortByHost(results)}
+	for _, r := range results {
+		switch {
+		case !r.Reachable || r.Worst == "ERROR":
+			s.Counts.Unreachable++
+		case r.Worst == "CRIT":
+			s.Counts.CRIT++
+		case r.Worst == "WARN":
+			s.Counts.WARN++
+		default:
+			s.Counts.OK++
+		}
+	}
+	s.ExitCode = WorstExitCode(results)
+	switch s.ExitCode {
+	case 2:
+		s.Verdict = "CRIT"
+	case 1:
+		s.Verdict = "WARN"
+	default:
+		s.Verdict = "OK"
+	}
+	return s
+}
+
 // WorstExitCode returns the fleet-wide exit code: 2 if any host is CRIT or
 // unreachable, 1 if any WARN, else 0.
 func WorstExitCode(results []Result) int {
