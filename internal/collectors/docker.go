@@ -420,7 +420,19 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 	if err != nil {
 		return
 	}
-	// Events are newline-delimited JSON objects (not an array)
+	events, oom := parseDockerEvents(data)
+	info.RecentEvents = append(info.RecentEvents, events...)
+	info.OOMEvents += oom
+}
+
+// parseDockerEvents parses the newline-delimited /events stream. It returns up to
+// 10 events for display AND the FULL count of OOM kills in the stream. The 10-cap
+// must bound only the display list, never the OOM count: the events are already
+// time- and type-filtered (die/oom/kill, last hour), and on a host with a crash
+// storm (>10 die/kill events) an `oom` later in the stream would otherwise go
+// uncounted — silently dropping the OOM CRIT.
+func parseDockerEvents(data []byte) (events []models.DockerEvent, oomCount int) {
+	const displayCap = 10
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		if line == "" {
 			continue
@@ -439,11 +451,13 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 		if name == "" {
 			name = ev.Actor.Attributes["containerName"]
 		}
-		info.RecentEvents = append(info.RecentEvents, models.DockerEvent{
-			Action:   ev.Action,
-			Actor:    name,
-			TimeUnix: ev.Time,
-		})
+		if len(events) < displayCap {
+			events = append(events, models.DockerEvent{
+				Action:   ev.Action,
+				Actor:    name,
+				TimeUnix: ev.Time,
+			})
+		}
 		// Docker emits a separate "oom" event; Podman encodes OOM as "die"
 		// with exitCode=137 in Actor.Attributes (confirmed on Podman 5.6 / RHEL 10.1).
 		exitCode := ev.Actor.Attributes["exitCode"]
@@ -451,12 +465,10 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 			exitCode = ev.Actor.Attributes["containerExitCode"]
 		}
 		if ev.Action == "oom" || (ev.Action == "die" && exitCode == "137") {
-			info.OOMEvents++
-		}
-		if len(info.RecentEvents) >= 10 {
-			break
+			oomCount++
 		}
 	}
+	return events, oomCount
 }
 
 // timeNow is a variable so tests can override it.
