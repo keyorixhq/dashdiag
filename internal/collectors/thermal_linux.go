@@ -37,16 +37,11 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 	// This is misleading — the container has no CPU of its own.
 	// Skip thermal collection entirely in container environments.
 	if c.InContainer {
-		info.Source = "" // no source = no thermal display
-		return info, nil
+		return nil, nil // host sensors are misleading in a container — absent, gate off
 	}
 
 	// Walk /sys/class/hwmon looking for CPU temp sensors
-	hwmons, err := filepath.Glob("/sys/class/hwmon/hwmon*")
-	if err != nil || len(hwmons) == 0 {
-		return info, nil
-	}
-
+	hwmons, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
 	for _, hwmon := range hwmons {
 		name, err := os.ReadFile(filepath.Join(hwmon, "name"))
 		if err != nil {
@@ -69,6 +64,11 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 		readThermalZone(info)
 	}
 
+	if info.Source == "" {
+		// No CPU thermal sensor anywhere (typical of cloud/KVM guests) — gate off
+		// rather than emit a phantom "Thermal ✅ OK" row with no temperature data.
+		return nil, nil
+	}
 	return info, nil
 }
 

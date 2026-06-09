@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -143,16 +144,57 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 			continue
 		}
 		cr := CheckResult{Name: r.Name, Raw: r.Data, Status: "OK"}
+		hasInsight := false
 		for _, ins := range insights {
 			if ins.Check == r.Name {
 				cr.Status = ins.Level
 				cr.Value = ins.Message
+				hasInsight = true
 				break
 			}
+		}
+		// Mirror live health (render.shouldHideRow): a collector that reports
+		// itself unavailable (Available=false) and carries no insight is "absent /
+		// not applicable" — recording it as a passing check produced phantom
+		// "X ✅ OK" rows in dsd health --report (e.g. Ceph with the CLI installed
+		// but no cluster, Auth with no sshd). An insight referencing the check is
+		// an actionable finding and must never be dropped, so keep those.
+		if !hasInsight && !resultAvailable(r.Data) {
+			continue
 		}
 		snap.Checks = append(snap.Checks, cr)
 	}
 	return snap
+}
+
+// resultAvailable reports whether a collector result should be treated as
+// "present" for snapshot purposes. It is the snapshot-side twin of
+// render.isAvailable — kept in sync deliberately so dsd health --report and live
+// dsd health hide the same not-applicable rows. (baseline cannot import render:
+// render imports baseline.) Collectors that gate themselves off on a platform
+// set Available=false; nil data is already handled by the caller.
+func resultAvailable(data interface{}) bool {
+	if data == nil {
+		return false
+	}
+	if a, ok := data.(interface{ IsAvailable() bool }); ok {
+		return a.IsAvailable()
+	}
+	v := reflect.ValueOf(data)
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return true // unknown type — show by default
+	}
+	f := v.FieldByName("Available")
+	if !f.IsValid() || f.Kind() != reflect.Bool {
+		return true // no Available field — always show (e.g. CPU, Memory, NVMe)
+	}
+	return f.Bool()
 }
 
 func ComputeDiff(before, after *Snapshot) []DiffEntry {

@@ -40,6 +40,46 @@ func TestBuildSnapshot_SkipsAbsentCollectors(t *testing.T) {
 	}
 }
 
+// A collector that reports itself unavailable (Available=false) and carries no
+// insight is "absent / not applicable" — it must NOT become a phantom "OK" check
+// in the snapshot (e.g. Ceph with the CLI but no cluster, Auth with no sshd).
+// This mirrors live health's render.shouldHideRow so --report and live agree.
+func TestBuildSnapshot_SkipsUnavailableCollectors(t *testing.T) {
+	results := []runner.Result{
+		{Name: "CPU Load", Data: models.CPUInfo{UsagePct: 5}},             // no Available field → kept
+		{Name: "Ceph", Data: &models.CephInfo{Available: false}},          // unavailable, no insight → skipped
+		{Name: "Auth", Data: &models.AuthInfo{Available: false}},          // unavailable, no insight → skipped
+		{Name: "Multipath", Data: &models.MultipathInfo{Available: true}}, // available → kept
+		{Name: "Firewall", Data: &models.AuthInfo{Available: false}},      // unavailable BUT has insight → kept
+	}
+	insights := []models.Insight{{Check: "Firewall", Level: "CRIT", Message: "port open"}}
+
+	snap := BuildSnapshot(results, insights)
+
+	got := map[string]string{}
+	for _, c := range snap.Checks {
+		got[c.Name] = c.Status
+	}
+	if _, ok := got["Ceph"]; ok {
+		t.Errorf("unavailable collector with no insight must be skipped, got %+v", snap.Checks)
+	}
+	if _, ok := got["Auth"]; ok {
+		t.Errorf("unavailable collector with no insight must be skipped, got %+v", snap.Checks)
+	}
+	if got["CPU Load"] != "OK" {
+		t.Errorf("collector without Available field should be kept as OK, got %q", got["CPU Load"])
+	}
+	if got["Multipath"] != "OK" {
+		t.Errorf("available collector should be kept, got %q", got["Multipath"])
+	}
+	if got["Firewall"] != "CRIT" {
+		t.Errorf("unavailable collector with an actionable insight must be kept, got %q", got["Firewall"])
+	}
+	if len(snap.Checks) != 3 {
+		t.Errorf("want 3 checks (2 unavailable skipped), got %d: %+v", len(snap.Checks), snap.Checks)
+	}
+}
+
 func makeSnap(hostname, version, checkName, status string) *Snapshot {
 	return &Snapshot{
 		Hostname:  hostname,

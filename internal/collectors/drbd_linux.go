@@ -34,8 +34,7 @@ func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
 
 	f, err := os.Open("/proc/drbd")
 	if err != nil {
-		// DRBD not loaded — silent OK
-		return info, nil
+		return nil, nil // DRBD module not loaded — absent, gate off (no phantom row)
 	}
 	defer f.Close() //nolint:errcheck
 
@@ -69,6 +68,11 @@ func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
 		info.Resources = append(info.Resources, *current)
 	}
 
+	if len(info.Resources) == 0 {
+		// Module loaded (version header present) but no configured resources —
+		// nothing to monitor. Absent, gate off (no phantom "DRBD ✅ OK" row).
+		return nil, nil
+	}
 	return info, nil
 }
 
