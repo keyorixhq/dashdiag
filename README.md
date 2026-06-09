@@ -66,6 +66,9 @@ sudo rpm -i dsd-*.x86_64.rpm
 
 # AppImage — single self-contained file, survives immutable-rootfs distros
 chmod +x dsd-*-x86_64.AppImage && ./dsd-*-x86_64.AppImage health
+# No FUSE / libfuse2 on the box (common on minimal & immutable distros)? Run
+# without it — no mount needed:
+#   ./dsd-*-x86_64.AppImage --appimage-extract-and-run health
 ```
 
 Or grab the raw binary directly:
