@@ -1,0 +1,46 @@
+# fixtures/proxmox-backup-gap.yaml
+# Demo: a Proxmox VE node that LOOKS fine — recent backups, quorum OK — but dsd
+# catches the thing the dashboard hides: 4 guests have NO backup at all, masked by
+# the node's healthy overall backup age. The relatable "you'd never have noticed"
+# finding for the Proxmox/homelab audience.
+# Use: dsd mock fixtures/proxmox-backup-gap.yaml
+host: "pve-node-01"
+os: "Debian GNU/Linux 13 (trixie) / PVE 9.1"
+version: "v0.6.10"
+rows:
+  - name: "CPU Load"
+    inline: "29% (load avg 4.6 across 16 CPUs)"
+  - name: "CPU Thermal"
+    level: WARN
+    message: "CPU temperature 71°C at 12% load — elevated for low CPU activity, possible cooling issue"
+    hints:
+      - "to inspect: check for dust buildup and blocked vents"
+  - name: "Memory"
+    inline: "41/126 GB (33%)"
+  - name: "Disk"
+    inline: "6 mounts, max 58% (/)"
+  - name: "Drives"
+    inline: "4 drives  healthy"
+  - name: "LVM"
+    inline: "2 VGs, thin pool 44%"
+  - name: "ZFS"
+    inline: "pool tank ONLINE"
+  - name: "KVM"
+    inline: "11 VMs running"
+  - name: "PVE"
+    level: WARN
+    message: "4 VM/CT have no backup while others on this node do: gitlab, postgres-prod, mail, vault — no recovery point"
+    hints:
+      - "to inspect: Datacenter -> Backup — confirm every guest is in a backup job"
+      - "note: a healthy node-wide backup age hides individual guests that were never added to a job"
+  - name: "Network"
+    inline: "6 NICs, vmbr0 1Gbps  gw <1 ms"
+  - name: "Hardening"
+    level: WARN
+    message: "SSH allows password authentication — key-based auth recommended"
+    hints:
+      - "to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"
+  - name: "OOM"
+    inline: "0 events"
+  - name: "Firewall"
+    inline: "PVE firewall active"
