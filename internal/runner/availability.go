@@ -1,6 +1,10 @@
 package runner
 
-import "reflect"
+// availabler is the visibility contract a collector result opts into when it can
+// be "not applicable" on a host. Result types with an `Available bool` field
+// implement it in internal/models/availability.go (one method per type, enforced
+// by a meta-test there).
+type availabler interface{ IsAvailable() bool }
 
 // IsAvailable reports whether a collector result is "present / applicable" on
 // this host. It is the single source of truth shared by both surfaces that need
@@ -12,30 +16,15 @@ import "reflect"
 // carried their own copy, drifted apart, and leaked phantom "X ✅ OK" rows into
 // --report for collectors that the live view already hid (Battery/VLAN/Ceph/…).
 //
-// The contract: a collector that is not applicable on the current platform
-// signals it by either implementing IsAvailable() bool, or exposing a bool
-// `Available` field set to false. Anything without that field is always
-// considered present (e.g. CPU, Memory, NVMe — they have no Available field).
+// A result that implements availabler decides for itself; a type that does not
+// (CPU, Memory's siblings without the field, NVMe, …) is always present. nil
+// data is treated as absent.
 func IsAvailable(data interface{}) bool {
 	if data == nil {
 		return false
 	}
-	if a, ok := data.(interface{ IsAvailable() bool }); ok {
+	if a, ok := data.(availabler); ok {
 		return a.IsAvailable()
 	}
-	v := reflect.ValueOf(data)
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return false
-		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return true // unknown type — show by default
-	}
-	f := v.FieldByName("Available")
-	if !f.IsValid() || f.Kind() != reflect.Bool {
-		return true // no Available field — always show
-	}
-	return f.Bool()
+	return true // no availability contract — always show
 }
