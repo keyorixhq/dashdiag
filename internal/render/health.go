@@ -1513,6 +1513,9 @@ func inlinePackages(data interface{}) string {
 	if p.SecurityUpdates > 0 || p.CriticalUpdates > 0 || p.ImportantUpdates > 0 {
 		return "" // heuristic already shows the warning message
 	}
+	if p.Status == "stale-metadata" {
+		return "" // unverified — the heuristic shows the "cannot confirm" reason
+	}
 	if p.Checked {
 		return "up to date"
 	}

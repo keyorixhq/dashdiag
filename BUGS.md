@@ -607,3 +607,31 @@ systemd isn't the init system. Verified live on Alpine — both gone, health now
 
 Minor, left as-is: `Hardening INFO: SSH idle timeout not set` still shows on a host with
 no sshd installed (INFO-level, low stakes).
+
+---
+
+## Trustworthiness: mark unverified results instead of false "OK" (2026-06-10)
+
+The generalised antidote to the whole false-OK class: **a check that couldn't fully
+run should report low confidence with the reason, not a green OK.**
+
+### BUG-052 — `Packages OK up to date` claimed without fresh metadata
+`dsd health` rendered `Packages OK up to date` whenever the package manager was queried
+and found 0 security updates — but the collectors read CACHED metadata (apt deliberately
+never runs `apt update`; dnf/zypper can be offline/never-refreshed). So "0 updates" from
+a stale or absent cache was shown as a confident "up to date". `inlinePackages` even
+discarded the cautionary `StatusReason` the apt collector already set. Surfaced on the
+cross-distro container sweep (bare images → "up to date" despite never refreshing).
+Fixed: `markStaleMetadata` checks the newest update-metadata cache age per manager
+(apt `/var/lib/apt/lists`, dnf/yum `/var/cache/dnf|yum/*/repodata/repomd.xml`, zypper
+`/var/cache/zypp/{raw/*/repodata/repomd.xml,solv/*/solv}`); when absent or
+>`packageMetadataStaleDays` (7), it sets `Status=stale-metadata` and the heuristic emits
+an **INFO** ("update metadata is N days old / not found — cannot confirm packages are up
+to date; refresh and re-run"), and `inlinePackages` no longer claims "up to date".
+Managers whose cache we don't read (brew/pacman) are left untouched (no false stale).
+This resolves the earlier-flagged open item. **(#163)**
+
+**Validated both directions on real hosts + containers:** apt — debian empty-lists →
+INFO, Ubuntu fresh → not flagged; dnf — fedora cleared → INFO, AlmaLinux fresh (2d) →
+not flagged (38 real updates); zypper — glob confirmed against real `repomd.xml`/`solv`
+after `zypper ref`, openSUSE fresh → up to date. No false-stale on healthy hosts.

@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -45,12 +46,91 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 		return info, err
 	}
 
+	// A "0 security updates" result is only trustworthy if the update metadata is
+	// fresh. apt never auto-refreshes (we deliberately don't run `apt update`), and
+	// dnf/zypper can be offline or never-refreshed — so stale/absent metadata means
+	// "couldn't confirm", not "up to date". Mark it unverified rather than green.
+	markStaleMetadata(info)
+
 	// Deep mode: run integrity checks (slower operations gated here)
 	if c.Deep {
 		info.Integrity = collectPackageIntegrity(ctx, info.PackageManager)
 	}
 
 	return info, nil
+}
+
+// packageMetadataStaleDays is the age beyond which a cached update index is treated
+// as too old to trust a "0 security updates" result.
+const packageMetadataStaleDays = 7
+
+// markStaleMetadata flags a clean "0 updates" result as unverified when the update
+// metadata is absent or older than packageMetadataStaleDays. Only managers whose
+// cache location we can read are considered; others are left untouched (no false
+// "stale"). It never overrides an existing Status (e.g. "no-security-repo").
+func markStaleMetadata(info *models.PackagesInfo) {
+	if info == nil || !info.Checked || info.SecurityUpdates > 0 || info.Status != "" {
+		return
+	}
+	if !supportedMetadataManager(info.PackageManager) {
+		return // manager whose cache layout we don't read — don't claim stale or fresh
+	}
+	age, found := packageMetadataAgeDays(info.PackageManager)
+	if found && age <= packageMetadataStaleDays {
+		return // metadata is fresh — the "0 updates" result is trustworthy
+	}
+	info.Status = "stale-metadata"
+	info.MetadataAgeDays = age // -1 when no cache was found
+	if !found {
+		info.StatusReason = "update metadata not found — cannot confirm packages are up to date"
+	} else {
+		info.StatusReason = fmt.Sprintf("update metadata is %d days old — cannot confirm packages are up to date", age)
+	}
+}
+
+func supportedMetadataManager(pm string) bool {
+	switch pm {
+	case "apt", "dnf", "yum", "zypper":
+		return true
+	}
+	return false
+}
+
+// packageMetadataAgeDays returns the age in days of the newest update-metadata cache
+// file for the given package manager, and whether any was found. Returns (-1, false)
+// for managers whose cache layout we don't read (brew/pacman/unknown) so callers can
+// skip them rather than mis-flag.
+func packageMetadataAgeDays(pm string) (int, bool) {
+	var globs []string
+	switch pm {
+	case "apt":
+		globs = []string{"/var/lib/apt/lists/*InRelease", "/var/lib/apt/lists/*Release", "/var/lib/apt/lists/*_Packages*"}
+	case "dnf", "yum":
+		globs = []string{"/var/cache/dnf/*/repodata/repomd.xml", "/var/cache/yum/*/repodata/repomd.xml"}
+	case "zypper":
+		globs = []string{"/var/cache/zypp/raw/*/repodata/repomd.xml", "/var/cache/zypp/solv/*/solv"}
+	default:
+		return -1, false
+	}
+	var newest time.Time
+	found := false
+	for _, g := range globs {
+		matches, _ := filepath.Glob(g)
+		for _, m := range matches {
+			fi, err := os.Stat(m)
+			if err != nil {
+				continue
+			}
+			found = true
+			if fi.ModTime().After(newest) {
+				newest = fi.ModTime()
+			}
+		}
+	}
+	if !found {
+		return -1, false
+	}
+	return int(time.Since(newest).Hours() / 24), true
 }
 
 // collectDNF parses security advisories for RHEL/Rocky/Fedora/CentOS.

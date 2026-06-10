@@ -68,6 +68,20 @@ func TestInlineMemoryFormat(t *testing.T) {
 	}
 }
 
+// A "0 updates" result must NOT render "up to date" when the update metadata is
+// stale/absent — that's a false-OK. The heuristic surfaces the "cannot confirm"
+// reason instead; the inline text must yield to it.
+func TestInlinePackagesStaleNotUpToDate(t *testing.T) {
+	stale := models.PackagesInfo{Checked: true, SecurityUpdates: 0, Status: "stale-metadata", PackageManager: "apt"}
+	if got := inlinePackages(stale); got == "up to date" {
+		t.Errorf("stale metadata: inlinePackages = %q, must not claim 'up to date'", got)
+	}
+	fresh := models.PackagesInfo{Checked: true, SecurityUpdates: 0, PackageManager: "apt"}
+	if got := inlinePackages(fresh); got != "up to date" {
+		t.Errorf("fresh/clean: inlinePackages = %q, want 'up to date'", got)
+	}
+}
+
 // A drive detected via sysfs but with no SMART log read (no nvme-cli, common on
 // minimal cloud/ARM images) must NOT be rendered "healthy" — that's a false-OK.
 func TestInlineDrivesSmartUnread(t *testing.T) {
