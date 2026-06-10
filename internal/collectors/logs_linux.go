@@ -27,6 +27,11 @@ const (
 	// window; older failures are already surfaced by the systemd "unit failed"
 	// insight, and reporting them as a current crash loop is misleading.
 	crashLoopRecencyWindow = time.Hour
+	// Crash/panic records (coredumps in /var/crash, panic dumps in /sys/fs/pstore)
+	// persist long after the event — pstore until it is manually cleared — so a
+	// months-old record must not be flagged as a current problem. Anything older
+	// than this is treated as stale and skipped.
+	crashFileMaxAgeDays = 30
 )
 
 type LogsCollector struct {
@@ -367,21 +372,35 @@ func crashLoopRecent(inactiveEnter string, window time.Duration) bool {
 }
 
 // countPstorePanics counts kernel panic dump files in /sys/fs/pstore.
+// crashFileTooOld reports whether a crash/panic file with modification time mtime
+// is older than crashFileMaxAgeDays — i.e. stale and not worth flagging as current.
+func crashFileTooOld(mtime, now time.Time) bool {
+	return int(now.Sub(mtime).Hours()/24) > crashFileMaxAgeDays
+}
+
 // pstore files persist across reboots and are named dmesg-efi-*, dmesg-erst-*, etc.
-// A panic file means the previous boot ended in a kernel panic.
-// Returns 0 when pstore is not mounted or no panic files exist.
+// A panic file means a previous boot ended in a kernel panic. pstore is NOT cleared
+// on reboot, so a record can linger for months across many boots — only count ones
+// recent enough (crashFileMaxAgeDays) to avoid a perpetual "kernel panic" CRIT.
+// Returns 0 when pstore is not mounted or no recent panic files exist.
 func countPstorePanics() int {
 	entries, err := os.ReadDir("/sys/fs/pstore")
 	if err != nil {
 		return 0
 	}
+	now := time.Now()
 	count := 0
 	for _, e := range entries {
 		name := strings.ToLower(e.Name())
 		// pstore panic files: dmesg-efi-NNN, dmesg-erst-NNN, dmesg-ramoops-NNN
-		if strings.HasPrefix(name, "dmesg-") || strings.Contains(name, "panic") {
-			count++
+		if !strings.HasPrefix(name, "dmesg-") && !strings.Contains(name, "panic") {
+			continue
 		}
+		fi, err := e.Info()
+		if err != nil || crashFileTooOld(fi.ModTime(), now) {
+			continue
+		}
+		count++
 	}
 	return count
 }
@@ -869,11 +888,11 @@ func collectCrashFiles(info *models.LogsInfo) {
 			if err != nil {
 				continue
 			}
-			// Only flag files from the last 30 days
-			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
-			if ageDays > 30 {
+			// Only flag files from the last crashFileMaxAgeDays.
+			if crashFileTooOld(fi.ModTime(), now) {
 				continue
 			}
+			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
 			cf := models.CrashFile{
 				Path:    filepath.Join(dir, e.Name()),
 				SizeMB:  float64(fi.Size()) / (1024 * 1024),
@@ -892,6 +911,11 @@ func collectCrashFiles(info *models.LogsInfo) {
 			strings.Contains(name, "dmesg") {
 			fi, err := e.Info()
 			if err != nil {
+				continue
+			}
+			// pstore is never cleared on reboot — skip stale records so the
+			// "last 30 days" crash-dump verdict stays truthful.
+			if crashFileTooOld(fi.ModTime(), now) {
 				continue
 			}
 			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
