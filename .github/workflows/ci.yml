@@ -64,7 +64,7 @@ jobs:
         if: matrix.platform != 'linux/amd64'
         uses: docker/setup-qemu-action@v3
 
-      - name: Install via install.sh in a clean container
+      - name: Install via install.sh in a clean container (curl, default prefix)
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
@@ -74,3 +74,45 @@ jobs:
               sh /tmp/install.sh
               dsd --version
             '
+
+      # The wget branch (fetch_latest_version/download/verify_checksum all fork on
+      # curl-vs-wget) was never exercised — a bug there ships silently to curl-less
+      # minimal images. Arch-independent script logic, so amd64-only to skip slow
+      # emulated arm64.
+      - name: Install via wget-only path (no curl on the box)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
+              set -e
+              apt-get update -qq >/dev/null
+              apt-get install -y -qq wget ca-certificates >/dev/null
+              sh /tmp/install.sh
+              dsd --version
+            '
+
+      # The documented `--prefix DIR` flag (install.sh header line 4) was broken —
+      # main() read the prefix positionally, so `--prefix` landed in ./--prefix/bin.
+      # Guard the documented form so it can't silently regress again.
+      - name: Install with documented --prefix flag (custom root)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
+              set -e
+              apt-get update -qq >/dev/null
+              apt-get install -y -qq curl ca-certificates >/dev/null
+              sh /tmp/install.sh --prefix /opt/dsd
+              test -x /opt/dsd/bin/dsd
+              /opt/dsd/bin/dsd --version
+            '
+
+  # Static lint of the install front door — cheap guard against the shell-scripting
+  # bug class that produced the #123 P0 (a stdout/stderr mix-up that aborted every
+  # install). shellcheck is preinstalled on GitHub ubuntu runners.
+  shellcheck:
+    name: Shellcheck install.sh
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - run: shellcheck install.sh
