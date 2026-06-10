@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -154,9 +155,9 @@ func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 		case "DEGRADED", "FAULTED", "OFFLINE":
 			icon = asciiOr("fail", "❌", mode)
 		case "ONLINE":
-			if p.UsedPct >= 95 {
+			if p.UsedPct >= analysis.DefaultDiskCritPct {
 				icon = asciiOr("fail", "❌", mode)
-			} else if p.UsedPct >= 85 {
+			} else if p.UsedPct >= analysis.DefaultDiskWarnPct {
 				icon = asciiOr("warn", "⚠️ ", mode)
 			}
 		}
@@ -182,9 +183,9 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 			continue
 		}
 		icon := asciiOr("ok", "✅", mode)
-		if fs.UsedPct >= 95 {
+		if fs.UsedPct >= analysis.DefaultDiskCritPct {
 			icon = asciiOr("fail", "❌", mode)
-		} else if fs.UsedPct >= 85 {
+		} else if fs.UsedPct >= analysis.DefaultDiskWarnPct {
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		roNote := ""
@@ -193,7 +194,7 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 		}
 		fmt.Printf("  %s  %-22s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
 			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
-		if fs.InodesUsedPct >= 85 {
+		if fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
 			fmt.Printf("       %s  inodes at %.0f%%\n", asciiOr("warn", "⚠️ ", mode), fs.InodesUsedPct)
 		}
 	}
@@ -213,7 +214,7 @@ func printDiskIO(info *models.DiskInfo) {
 func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 	n := 0
 	for _, fs := range info.Filesystems {
-		if fs.UsedPct >= 85 || fs.InodesUsedPct >= 85 {
+		if fs.UsedPct >= analysis.DefaultDiskWarnPct || fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
 			n++
 		}
 	}
@@ -223,7 +224,7 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 		}
 	}
 	for _, p := range info.ZFSPools {
-		if p.State != "ONLINE" || p.UsedPct >= 85 || p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
+		if p.State != "ONLINE" || p.UsedPct >= analysis.DefaultDiskWarnPct || p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
 			n++
 		}
 	}

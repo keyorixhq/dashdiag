@@ -566,3 +566,20 @@ upward — the generic `error`/`fail` escalation is gone. Verified live: regulat
 is now WARN; the genuinely err-rated `PCI: OF: of_root … NULL` stays CRIT (faithful
 to the kernel — not our job to override an err rating). Tests updated to the `-x`
 format + a regulatory.db regression case. **(#160)**
+
+### BUG-050 — `dsd disk` capacity verdicts diverged from `dsd health`
+Found by the "diff the sibling" audit (the meta-pattern from BUG-047/049). `cmd/disk.go`
+hardcoded **85% WARN / 95% FAIL** for filesystems, ZFS pools, and inodes, while
+`dsd health` uses **80/90** (`DiskWarnPct/CritPct`, default 80/90; ZFS `levelPct(80,90)`).
+So the same volume at 82% read OK in `dsd disk` but WARN in `dsd health`; at 92%, WARN
+vs CRIT — a different verdict depending on which command you ran. Worse, `cmd/disk.go`
+never loaded policy, so it also ignored user threshold overrides. Fixed by making the
+defaults a single source of truth — exported `analysis.DefaultDiskWarnPct` (80) /
+`DefaultDiskCritPct` (90), referenced by `DefaultThresholds`, the ZFS heuristic, and all
+five capacity checks in `cmd/disk.go`. **(#161)**
+
+Audited and found consistent / not bugs: docker crash-loop threshold (both `cmd` and
+collector use `>=5`; the heuristic message's ">5 times" wording is a harmless nit, and
+the const is duplicated but identical). `inlineDrives` "healthy" is only reached when no
+insight fired (the grid shows the insight's severity/message otherwise — confirmed live
+on Graviton2), so it is not a false-OK.

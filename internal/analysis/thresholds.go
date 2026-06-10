@@ -2,6 +2,15 @@ package analysis
 
 import "github.com/keyorixhq/dashdiag/internal/platform"
 
+// Default disk / filesystem / ZFS capacity thresholds (percent used). Exported as
+// the single source of truth so the standalone `dsd disk` renderer classifies
+// storage identically to `dsd health` — they had drifted (disk used 85/95, health
+// 80/90), so the same volume could read OK in one command and WARN in the other.
+const (
+	DefaultDiskWarnPct = 80.0
+	DefaultDiskCritPct = 90.0
+)
+
 type Thresholds struct {
 	CPULoadWarnMultiplier float64
 	CPULoadCritMultiplier float64
@@ -58,8 +67,8 @@ func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
 		RAMCritPct:  95,
 		SlabWarnPct: 20,
 
-		DiskWarnPct: 80,
-		DiskCritPct: 90,
+		DiskWarnPct: DefaultDiskWarnPct,
+		DiskCritPct: DefaultDiskCritPct,
 
 		SwapWarnPct:      20,
 		SwapCritPct:      60,
