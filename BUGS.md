@@ -510,7 +510,9 @@ false-positive trap it sidesteps), and hugepages reads the kernel's real
   `CPU part` parsing + a kernel-canonical part map (`armPartName`, from
   `cputype.h`): Neoverse-N1/V1/N2, Cortex-A53/55/57/72/76, AmpereOne. A server now
   reads e.g. `ARM Neoverse-N1 (aarch64)` (Ampere Altra / Graviton2) instead of a
-  bare vendor string. Tests cover Neoverse-N1 + AmpereOne.
+  bare vendor string. Tests cover Neoverse-N1 + AmpereOne. **Verified on real
+  silicon (AWS Graviton2 t4g, 2026-06-10):** reports implementer `0x41` + part
+  `0xd0c` → renders `ARM Neoverse-N1 (aarch64)`; `health`/`deep` anomaly-free.
 - **Killed redundant "ARM ARM (aarch64)"** — the implementer-only fallback now reads
   `ARM (aarch64)` / `Ampere (aarch64)`. Removed a dead duplicate model-fallback in
   `collectCPU` (the parser already resolves it).
@@ -526,7 +528,9 @@ validated in a container:**
    Neoverse-N1). Verify `dsd inventory` / hardware model on real firmware.
 3. **SMART** on real NVMe/SAS; **EDAC/ECC** on server RAM; **IPMI/BMC** reachability.
 4. **Real cpufreq governors** + per-core scaling on many-core Ampere (80+ cores).
-5. **Capture a real Ampere `/proc/cpuinfo`** → pin a verified fixture (confirm
-   whether Altra reports implementer `0x41` vs `0xc0` — left unguessed deliberately).
+5. **Ampere-specific SoC id.** Graviton2 (Neoverse-N1) confirmed reporting
+   implementer `0x41` + part `0xd0c` on real silicon. Ampere Altra uses the same
+   core but its SoC-vendor reporting (`0x41` vs `0xc0`) is still unconfirmed — pin a
+   verified fixture from a real Altra if the Ampere box lands.
 
 See agent memory `tencent-arm-goodwill-infra` for the hardware source.
