@@ -534,3 +534,19 @@ validated in a container:**
    verified fixture from a real Altra if the Ampere box lands.
 
 See agent memory `tencent-arm-goodwill-infra` for the hardware source.
+
+### BUG-048 — NVMe drive reported "healthy" when SMART was never read (false-OK)
+Surfaced while re-validating the AWS collectors on the live Graviton2 (smartctl AND
+nvme-cli both absent — typical of minimal cloud/ARM images). The `Drives` collector
+finds NVMe controllers via `/sys/class/nvme/` (no tooling needed), then tries `nvme
+smart-log`; when nvme-cli is absent it stored the device with **all SMART fields at
+zero-defaults** — indistinguishable from a genuinely healthy drive. The heuristic
+correctly stayed silent (no false CRIT — every check is `>0`-gated), but with no
+insight the drive defaulted to OK and `inlineDrives` printed `<name> healthy`
+unconditionally. So `dsd health` claimed `Drives OK /dev/nvme0 healthy` while `dsd
+disk` (smartctl path) correctly said "smartctl not installed". Fixed: added
+`NVMeDevice.SmartRead` (true only when smart-log parsed); the renderer shows
+`detected (SMART not read)` and the heuristic emits an INFO ("nvme-cli not
+installed", health unverified) instead of implying healthy. Verified live on
+Graviton2: now reads `Drives INFO … SMART health not read`. Tests
+`TestInlineDrivesSmartUnread`, `TestCheckNVMe/nvme smart unread is INFO`. **(#159)**

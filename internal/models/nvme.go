@@ -16,6 +16,11 @@ type NVMeDevice struct {
 	PowerCycles       int64    `json:"power_cycles"`
 	MountPoints       []string `json:"mount_points,omitempty"`
 	HasLinux          bool     `json:"has_linux"`
+	// SmartRead is true only when the SMART log was actually read (nvme-cli
+	// present). When false the device was detected via sysfs but its health
+	// fields are zero-defaults — NOT a confirmed-healthy drive. Without this the
+	// renderer/heuristic can't tell "verified healthy" from "never checked".
+	SmartRead bool `json:"smart_read"`
 }
 
 // SATADevice holds SMART health data for a SATA/SAS drive.

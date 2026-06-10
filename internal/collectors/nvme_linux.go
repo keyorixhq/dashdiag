@@ -51,6 +51,7 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 
 		parseNVMeSmartLog(out, dev)
+		dev.SmartRead = true // smart-log read + parsed — health fields are real
 
 		// Detect mount points from /proc/mounts
 		dev.MountPoints, dev.HasLinux = nvmeMountPoints(base)

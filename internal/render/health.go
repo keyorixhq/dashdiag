@@ -526,11 +526,28 @@ func inlineDrives(data interface{}) string {
 	if total == 0 {
 		return ""
 	}
-	if total == 1 {
-		if len(n.Devices) == 1 {
-			return n.Devices[0].Name + "  healthy"
+	// NVMe devices whose SMART log was never read (no nvme-cli) carry zero-default
+	// health fields — they are detected, not verified-healthy. Don't claim "healthy".
+	unread := 0
+	for _, d := range n.Devices {
+		if !d.SmartRead {
+			unread++
 		}
-		return n.SATADevices[0].Name + "  healthy"
+	}
+	if total == 1 {
+		name := ""
+		if len(n.Devices) == 1 {
+			name = n.Devices[0].Name
+		} else {
+			name = n.SATADevices[0].Name
+		}
+		if unread == 1 {
+			return name + "  detected (SMART not read)"
+		}
+		return name + "  healthy"
+	}
+	if unread > 0 {
+		return fmt.Sprintf("%d drives, %d SMART not read", total, unread)
 	}
 	return fmt.Sprintf("%d drives  healthy", total)
 }
