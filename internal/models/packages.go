@@ -31,4 +31,9 @@ type PackagesInfo struct {
 	SUSEMigrationRisks []string          `json:"suse_migration_risks,omitempty"`
 	Status             string            `json:"status,omitempty"`
 	StatusReason       string            `json:"status_reason,omitempty"`
+	// MetadataAgeDays is the age of the newest update-metadata cache (apt lists /
+	// dnf+zypper repodata); -1 when no metadata cache was found. Used to mark a
+	// "0 updates" result unverified when the metadata is stale/absent rather than
+	// claiming "up to date" on data that was never refreshed.
+	MetadataAgeDays int `json:"metadata_age_days,omitempty"`
 }

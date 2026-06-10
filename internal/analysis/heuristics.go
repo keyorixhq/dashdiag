@@ -3767,6 +3767,23 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 		)}
 	}
 
+	// Stale/absent update metadata — the "0 updates" result was not refreshed, so
+	// report it as unverified (INFO) rather than a confident "up to date".
+	if pkg.Status == "stale-metadata" {
+		reason := pkg.StatusReason
+		if reason == "" {
+			reason = "update metadata is stale — cannot confirm packages are up to date"
+		}
+		refresh := map[string]string{
+			"apt": "apt update", "dnf": "dnf makecache", "yum": "yum makecache", "zypper": "zypper refresh",
+		}[pkg.PackageManager]
+		hints := []string{"note: this is an unverified result, not a clean bill of health"}
+		if refresh != "" {
+			hints = append([]string{"to refresh: " + refresh + "  then re-run dsd"}, hints...)
+		}
+		return []models.Insight{insight("INFO", "Packages", reason, hints)}
+	}
+
 	if pkg.SecurityUpdates == 0 {
 		// Check for ESM-only updates even when no standard security updates exist
 		if pkg.ESMUpdates > 0 {
