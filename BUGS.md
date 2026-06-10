@@ -494,3 +494,43 @@ clean/normal fixtures; only running on a real small container + a host with an o
 failed unit exposed them. And BUG-047 came from *asking "where else?"* after 046 —
 the same anti-pattern hid one file away, behind an inconsistency with its own
 sibling code. Verify on the actual matrix; then sweep the class, don't stop at one.
+
+---
+
+## ARM64 (aarch64) hardening — software pass (2026-06-10)
+
+Run on **native (non-emulated) linux/arm64 containers** (Debian 13 / Ubuntu /
+AlmaLinux 9) on Apple-Silicon OrbStack. `dsd health` / `deep` / `inventory` run
+clean on aarch64; the install one-liner is already CI-tested on linux/arm64 (#125).
+Notably, dsd has **no** x86-only CPU-mitigation/microcode checks (a common ARM
+false-positive trap it sidesteps), and hugepages reads the kernel's real
+`Hugepagesize` (page-size aware), so those are fine on ARM. Fixed here:
+
+- **CPU core identification** — ARM `/proc/cpuinfo` has no "model name" line. Added
+  `CPU part` parsing + a kernel-canonical part map (`armPartName`, from
+  `cputype.h`): Neoverse-N1/V1/N2, Cortex-A53/55/57/72/76, AmpereOne. A server now
+  reads e.g. `ARM Neoverse-N1 (aarch64)` (Ampere Altra / Graviton2) instead of a
+  bare vendor string. Tests cover Neoverse-N1 + AmpereOne. **Verified on real
+  silicon (AWS Graviton2 t4g, 2026-06-10):** reports implementer `0x41` + part
+  `0xd0c` → renders `ARM Neoverse-N1 (aarch64)`; `health`/`deep` anomaly-free.
+- **Killed redundant "ARM ARM (aarch64)"** — the implementer-only fallback now reads
+  `ARM (aarch64)` / `Ampere (aarch64)`. Removed a dead duplicate model-fallback in
+  `collectCPU` (the parser already resolves it).
+- **grub EFI lock check is now arch-aware** — `checkSUSEMigrationRisks` hardcoded
+  `grub2-x86_64-efi`, so on an aarch64 SUSE host it searched the wrong package and
+  silently skipped the grub-lock risk. Now `grub2-arm64-efi` via `runtime.GOARCH`.
+
+**Still needs a real aarch64 server (e.g. the offered Ampere Altra box) — cannot be
+validated in a container:**
+1. **Thermal** — `/sys/class/hwmon` ARM SoC sensors (absent in containers/VMs).
+2. **DMI/SMBIOS** — the SoC/system product name ("Ampere Altra") that gives the
+   *real* CPU identity cpuinfo can't (cpuinfo only reports the IP core, e.g.
+   Neoverse-N1). Verify `dsd inventory` / hardware model on real firmware.
+3. **SMART** on real NVMe/SAS; **EDAC/ECC** on server RAM; **IPMI/BMC** reachability.
+4. **Real cpufreq governors** + per-core scaling on many-core Ampere (80+ cores).
+5. **Ampere-specific SoC id.** Graviton2 (Neoverse-N1) confirmed reporting
+   implementer `0x41` + part `0xd0c` on real silicon. Ampere Altra uses the same
+   core but its SoC-vendor reporting (`0x41` vs `0xc0`) is still unconfirmed — pin a
+   verified fixture from a real Altra if the Ampere box lands.
+
+See agent memory `tencent-arm-goodwill-infra` for the hardware source.
