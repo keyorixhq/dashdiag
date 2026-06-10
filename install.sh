@@ -7,7 +7,7 @@ set -e
 
 REPO="keyorixhq/dashdiag"
 BINARY="dsd"
-PREFIX="${1:-/usr/local}"
+# PREFIX / VERSION are parsed from args in main().
 
 # ── colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -138,19 +138,30 @@ verify_install() {
     else
         warn "${PREFIX}/bin is not in your PATH."
         printf '  Add to your shell profile:\n'
+        # $PATH is meant to stay literal here — it's a line the user pastes into their shell.
+        # shellcheck disable=SC2016
         printf '    export PATH="$PATH:%s/bin"\n' "${PREFIX}"
     fi
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
 main() {
-    # Allow pinning: install.sh v0.6.0
-    if [ -n "$1" ] && [ "$(echo "$1" | cut -c1)" = "v" ]; then
-        VERSION="$1"
-        PREFIX="${2:-/usr/local}"
-    else
-        PREFIX="${1:-/usr/local}"
-    fi
+    # Arg forms (all back-compat):
+    #   --prefix DIR / --prefix=DIR   install root (the documented flag, header line 4)
+    #   vX.Y.Z                        pin a release (positional, leading 'v' + digit)
+    #   DIR                           bare positional install root
+    VERSION=""
+    PREFIX=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --prefix)    [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;;
+            --prefix=*)  PREFIX="${1#--prefix=}"; shift ;;
+            v[0-9]*)     VERSION="$1"; shift ;;
+            -*)          die "Unknown option: $1" ;;
+            *)           PREFIX="$1"; shift ;;
+        esac
+    done
+    PREFIX="${PREFIX:-/usr/local}"
 
     printf '\n'
     info "DashDiag (dsd) installer"
