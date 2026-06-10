@@ -42,7 +42,8 @@ Linux distributions (plus macOS) the tool has been run on, by package/init famil
 | 14 | Gentoo | source/portage | v0.6.11 | OrbStack (gentoo-dsd) | T2 | `marketing-assets/gentoo-data/` | captured 2026-06-10 |
 | 15 | NixOS 25.05 | independent | v0.5.x | PVE VM (212) | T2 | `marketing-assets/nixos-25-05-data/` | |
 | 16 | Alpine | independent/musl/OpenRC | v0.6.11 | PVE LXC (CT210) | T2 | `marketing-assets/alpine-data/` | captured 2026-06-10; non-systemd |
-| 17 | macOS (arm64) | Darwin | v0.6.11 | real hardware (M-series) | **T1** | live run 2026-06-10 | reduced coverage (27 collectors vs 70+); no SMART/IPMI/ZFS |
+| 17 | Amazon Linux 2023 | RHEL-family/dnf | v0.6.11 | real EC2 (t3.micro) | T2 | `marketing-assets/amazonlinux2023-data/` | captured 2026-06-10; AWS-native distro, cloud-aware NVMe handling verified; runs clean on both kernel-6.1 (LTS) and kernel-6.18 |
+| 18 | macOS (arm64) | Darwin | v0.6.11 | real hardware (M-series) | **T1** | live run 2026-06-10 | reduced coverage (27 collectors vs 70+); no SMART/IPMI/ZFS |
 
 **Family coverage:** apt/dpkg, rpm/dnf, zypper, pacman, portage — all major Linux
 package managers. Both init systems (systemd + OpenRC via Alpine). Plus Darwin.
@@ -57,6 +58,7 @@ This is the specialized intelligence, separate from the distro count.
 | **Proxmox VE** | PVE host detection, PVE task errors, cluster/storage state | Real Proxmox host (`pve01`, PVE 9.1.1) | **T1**\* | `marketing-assets/pve-data/`, `proxmox-data/` |
 | **VMware guest** | VMware guest detection (DMI), SCSI cmd-timeout <180s (vMotion read-only risk), e1000-vs-vmxnet3 NIC | DMI-spoofed VM, **not** real ESXi/vSphere | **T3** | `screenshots/vmware-guest-scsi-timeout.txt` |
 | **SteamOS / Steam Deck** | `ID=steamos` gate, RAUC A/B update-slot health, Deck APU/GPU profile, shader-cache disk | Spoofed `ID=steamos` on PVE VM (`steamos-validate`), **not** real Deck HW | **T3** | `screenshots/steamdeck.txt` |
+| **AWS EC2** | Cloud-env detection (real AWS DMI/IMDS), cloud-init, Graviton arm64 on real silicon | Real EC2: t3.micro (x86_64) + t4g.small (arm64/Graviton), Ubuntu 26.04, 2026-06-10 | T2 | `marketing-assets/aws-x86-data/`, `aws-graviton-data/` |
 | **Cloud guests** | cloud-init status, cloud metadata (AWS/Azure/GCP DMI fingerprints) | VM captures w/ cloud markers | T2/T3 | `screenshots/cloud-vm-cloudinit-failed.txt` |
 | **Containers** | Docker (events, quadlet), containerd, container-aware resource limits | Real containers on multiple hosts | T2 | mint/pve/sles docker captures |
 | **KVM** | KVM host/guest detection | Real KVM on PVE | T2 | per-distro `kvm.json` |
@@ -68,8 +70,9 @@ host, not a multi-node cluster — cluster-quorum / corosync paths are not yet H
 
 Tracked honestly so claims stay accurate:
 
-- **ARM server hardware** — no real aarch64 server validation of SMART/thermal/IPMI/GPU.
-  Cheapest path: Oracle always-free Ampere, or Raspberry Pi.
+- **ARM server hardware** — no real aarch64 *bare-metal* validation of SMART/thermal/IPMI/GPU.
+  (Graviton on EC2 validated arm64 software + AWS detection, but is virtualized — T2, not
+  hardware.) Cheapest path to T1: Oracle always-free Ampere bare-metal, or Raspberry Pi.
 - **SteamOS on real hardware** — only code-path validated. Planned: SteamOS as second OS
   on a spare AMD laptop. Before claiming "RAUC-on-hardware", confirm the install actually
   has the A/B RAUC immutable layout (community spins sometimes don't).
