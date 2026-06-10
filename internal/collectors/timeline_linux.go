@@ -283,7 +283,9 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	dCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := localeSafeCmd(dCtx, "dmesg", "-T", "--level=err,warn,crit,emerg,alert") // #nosec G204
+	// -x decodes facility:level into each line so severity can follow the kernel's
+	// own rating instead of guessing from words in the message text.
+	cmd := localeSafeCmd(dCtx, "dmesg", "-T", "-x", "--level=err,warn,crit,emerg,alert") // #nosec G204
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil
@@ -305,8 +307,20 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 // parseDmesgLine parses one dmesg -T line into a TimelineEvent.
 // Format: "[Mon Jan 02 15:04:05 2006] message"
 func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
+	// `dmesg -Tx` prefixes each line with "facility:level: " ahead of the
+	// "[timestamp]". Pull the decoded kernel level so severity follows the kernel's
+	// own rating. (Lines without the prefix — old format — leave kernLevel empty
+	// and fall back to WARN + the catastrophe-keyword override below.)
+	kernLevel := ""
 	if !strings.HasPrefix(line, "[") {
-		return nil
+		br := strings.Index(line, "[")
+		if br < 0 {
+			return nil
+		}
+		if fields := strings.SplitN(line[:br], ":", 3); len(fields) >= 2 {
+			kernLevel = strings.TrimSpace(fields[1])
+		}
+		line = line[br:]
 	}
 	end := strings.Index(line, "]")
 	if end < 0 {
@@ -328,12 +342,20 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 		return nil
 	}
 
+	// Severity follows the kernel's decoded level: err and above = CRIT, warn = WARN.
+	// Generic "error"/"fail" in the text must NOT escalate — the kernel logs many
+	// benign warn-level messages containing those words (e.g. "Direct firmware load
+	// for regulatory.db failed", which is warn, not an incident). Only a few
+	// catastrophe keywords override upward, for the rare case one is logged below err.
 	level := "WARN"
+	switch kernLevel {
+	case "emerg", "alert", "crit", "err":
+		level = "CRIT"
+	}
 	msgLower := strings.ToLower(msg)
 	// "out of memory" catches the kernel OOM killer header ("Out of memory: Killed
 	// process ..."), which does not contain the literal token "oom".
-	if strings.Contains(msgLower, "error") || strings.Contains(msgLower, "fail") ||
-		strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
+	if strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
 		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
 		strings.Contains(msgLower, "bug:") {
 		level = "CRIT"

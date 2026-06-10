@@ -550,3 +550,19 @@ disk` (smartctl path) correctly said "smartctl not installed". Fixed: added
 installed", health unverified) instead of implying healthy. Verified live on
 Graviton2: now reads `Drives INFO … SMART health not read`. Tests
 `TestInlineDrivesSmartUnread`, `TestCheckNVMe/nvme smart unread is INFO`. **(#159)**
+
+### BUG-049 — `dsd timeline` keyword-escalated benign kernel warnings to CRIT
+Found running the full subcommand sweep on the live Graviton2: `dsd timeline` reported
+2 CRIT "incidents" on a healthy fresh boot — one of them
+`faux_driver regulatory: Direct firmware load for regulatory.db failed`, a benign
+message the kernel logs at **warn** (priority 4) on nearly every minimal Linux boot.
+Root cause: the journal path classifies severity by kernel `PRIORITY` (correct), but
+the **dmesg sibling** (`parseDmesgLine`) ignored the level and escalated to CRIT on
+any message containing `"error"`/`"fail"` — so kernel *warnings* became CRIT. Same
+"inconsistent sibling" shape as BUG-047. Fixed: fetch `dmesg -T -x` (decodes
+`facility:level:` into each line) and classify by the kernel's own level (err+ →
+CRIT, warn → WARN); only catastrophe keywords (panic/oops/OOM/bug:) still override
+upward — the generic `error`/`fail` escalation is gone. Verified live: regulatory.db
+is now WARN; the genuinely err-rated `PCI: OF: of_root … NULL` stays CRIT (faithful
+to the kernel — not our job to override an err rating). Tests updated to the `-x`
+format + a regulatory.db regression case. **(#160)**
