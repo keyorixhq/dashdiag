@@ -2255,6 +2255,26 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 		}
 	}
 
+	// NVMe drives detected via sysfs but with no SMART log read (nvme-cli absent,
+	// common on minimal cloud/ARM images). Surface this rather than letting the
+	// drive default to a confident "healthy" — health was never verified.
+	var unread []string
+	for _, dev := range n.Devices {
+		if !dev.SmartRead {
+			unread = append(unread, dev.Name)
+		}
+	}
+	if len(unread) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme-cli not installed",
+				len(unread), strings.Join(unread, ", ")),
+			[]string{
+				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli)",
+				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+
 	// SATA/SAS drives
 	for _, dev := range n.SATADevices {
 		if dev.Error != "" {

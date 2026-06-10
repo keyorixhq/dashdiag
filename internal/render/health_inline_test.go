@@ -68,6 +68,25 @@ func TestInlineMemoryFormat(t *testing.T) {
 	}
 }
 
+// A drive detected via sysfs but with no SMART log read (no nvme-cli, common on
+// minimal cloud/ARM images) must NOT be rendered "healthy" — that's a false-OK.
+func TestInlineDrivesSmartUnread(t *testing.T) {
+	unread := models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "/dev/nvme0", SmartRead: false}}}
+	if got := inlineDrives(unread); got != "/dev/nvme0  detected (SMART not read)" {
+		t.Errorf("unread drive: inlineDrives = %q, want SMART-not-read text", got)
+	}
+	read := models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "/dev/nvme0", SmartRead: true}}}
+	if got := inlineDrives(read); got != "/dev/nvme0  healthy" {
+		t.Errorf("verified drive: inlineDrives = %q, want healthy", got)
+	}
+	mixed := models.NVMeInfo{Devices: []models.NVMeDevice{
+		{Name: "/dev/nvme0", SmartRead: true}, {Name: "/dev/nvme1", SmartRead: false},
+	}}
+	if got := inlineDrives(mixed); got != "2 drives, 1 SMART not read" {
+		t.Errorf("mixed drives: inlineDrives = %q, want count with unread note", got)
+	}
+}
+
 // Sub-GB totals (small containers / minimal VMs) used to floor to "0 GB" under
 // %.0f, rendering a broken-looking "0.1/0 GB". Below 1 GB we switch to MB.
 func TestInlineMemorySubGB(t *testing.T) {

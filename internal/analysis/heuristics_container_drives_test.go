@@ -99,7 +99,11 @@ func TestCheckDockerSecurity(t *testing.T) {
 // ── NVMe / SATA drive health ──────────────────────────────────────────────────
 
 func TestCheckNVMe(t *testing.T) {
+	// These fixtures represent drives whose SMART log was read (they carry real
+	// values), so mark them SmartRead — otherwise they trip the new "SMART not
+	// read" INFO. The unread case is covered explicitly below.
 	nvme := func(d models.NVMeDevice) models.NVMeInfo {
+		d.SmartRead = true
 		return models.NVMeInfo{Devices: []models.NVMeDevice{d}}
 	}
 	sata := func(d models.SATADevice) models.NVMeInfo {
@@ -118,9 +122,11 @@ func TestCheckNVMe(t *testing.T) {
 		// 0% available spare is the worst reading and must CRIT (the old `> 0`
 		// guard silently dropped it). Threshold>0 proves the SMART log was read.
 		{"nvme spare exhausted (0%) is CRIT", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 0, SpareThresholdPct: 10}), "CRIT"},
-		// Both fields zero = SMART log not read for this drive → stay silent, no
-		// false CRIT.
+		// Threshold zero → spare not evaluated, stay silent (no false spare CRIT).
 		{"nvme spare unread (0/0) is clean", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 0, SpareThresholdPct: 0}), ""},
+		// Device detected via sysfs but SMART log never read (no nvme-cli) → INFO,
+		// not a confident "healthy". Note: no SmartRead, so not via the nvme() helper.
+		{"nvme smart unread is INFO", models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "nvme0"}}}, "INFO"},
 		{"nvme spare low is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 15}), "WARN"},
 		{"nvme wear >=90 is WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 95}), "WARN"},
 		{"nvme hot is WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 75}), "WARN"},
