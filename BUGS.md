@@ -583,3 +583,27 @@ collector use `>=5`; the heuristic message's ">5 times" wording is a harmless ni
 the const is duplicated but identical). `inlineDrives` "healthy" is only reached when no
 insight fired (the grid shows the insight's severity/message otherwise — confirmed live
 on Graviton2), so it is not a false-OK.
+
+---
+
+## Alpine / non-systemd hardening (2026-06-10)
+
+Ran the full suite in a native `alpine:latest` arm64 container (musl, busybox, **no
+systemd** — `/proc/1/comm` = `sh`). Most systemd-dependent collectors already gate
+correctly (`services`, `logs`, `timeline`, `security` all clean — 0 anomalies, 0 false
+CRITs, no stray `systemctl`/`journalctl` in output). Two did NOT gate:
+
+### BUG-051 — DBus + journald checks fire phantom warnings on non-systemd hosts
+On Alpine, `dsd health` showed `DBus CRIT: D-Bus system message bus has failed` and
+`Logs WARN: journald logs are volatile` — both false. `DBusCollector` ran `systemctl
+is-active dbus.service`; with `systemctl` absent the error path set status "unknown" →
+`Active=false` → a CRIT (the remediation even said `systemctl status dbus.service`, a
+command Alpine lacks). `checkJournalHealth` never checked that journald exists, so an
+absent `/var/log/journal` read as "volatile". Both also fired on minimal containers
+without an init. Fixed with the established gate (`platform.SystemdAvailable()`, as the
+systemd collector already uses): DBus and the journald-health section return/skip when
+systemd isn't the init system. Verified live on Alpine — both gone, health now 0 CRIT.
+**(#162)**
+
+Minor, left as-is: `Hardening INFO: SSH idle timeout not set` still shows on a host with
+no sshd installed (INFO-level, low stakes).

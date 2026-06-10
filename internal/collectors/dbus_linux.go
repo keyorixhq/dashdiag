@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // DBusCollector checks whether the D-Bus system message bus is active.
@@ -22,6 +23,14 @@ func (c *DBusCollector) Name() string           { return "DBus" }
 func (c *DBusCollector) Timeout() time.Duration { return 3 * time.Second }
 
 func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
+	// D-Bus health here is the state of the *systemd* dbus.service unit. On a
+	// non-systemd host (Alpine/OpenRC, minimal containers) `systemctl` is absent,
+	// so the check can't run — gate off rather than report a phantom "D-Bus failed"
+	// CRIT. (Mirrors the systemd collector's gate.)
+	if !platform.SystemdAvailable() {
+		return nil, nil
+	}
+
 	info := &models.DBusInfo{Available: true}
 
 	out, err := localeSafeCmd(ctx, "systemctl", "is-active", "dbus.service").Output() // #nosec G204
