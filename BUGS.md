@@ -55,6 +55,24 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
   `ss`/iproute2 hints for the same issue.
 **Commit:** _open_
 
+### BUG-054 — Hardening/Logs fix-hints emit systemd commands on Alpine (OpenRC)
+**Found:** Alpine LXC (PVE CT210 `alpine-dsd`) validation, `v0.6.11-1-g54769ef`
+**Symptom:** On Alpine, hardening findings are correct (weak MACs umac-64/hmac-sha1,
+  password auth) but fix-hints tell the user to run `systemctl restart sshd` and to
+  edit `/etc/systemd/journald.conf`. Alpine uses OpenRC + busybox, has no systemd and
+  no `systemctl`, so the remedies fail.
+**Root cause:** Same family as BUG-053 — fix-hint text is hardcoded to the systemd
+  toolset and not branched by the host's init system. The *diagnosis* is
+  platform-correct; the *remedy* is not. Confirms the cross-platform-hint gap is not
+  macOS-specific but affects every non-systemd target.
+**Affected:** Hardening + Logs insight fix-hints on OpenRC/non-systemd Linux (Alpine,
+  and any sysvinit/runit host). Diagnosis valid; remedy non-runnable.
+**Fix (proposed, not yet done):** Detect init system (already have non-systemd
+  handling per the Alpine hardening pass) and branch service-restart hints — emit
+  `rc-service sshd restart` / OpenRC log guidance on Alpine instead of `systemctl`.
+  Audit all hint strings that hardcode `systemctl`/`/etc/systemd/*`.
+**Commit:** _open_
+
 ---
 
 ## RHEL 10.1 (AMD Ryzen 7 5800H, RTX 3070, k3s)
