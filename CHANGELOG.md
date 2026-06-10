@@ -9,6 +9,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.11] — 2026-06-10
+
+A correctness-and-coverage batch: a few targeted features plus continued
+false-OK / phantom-verdict fixes across collectors.
+
+### Added
+
+- **arm64 awareness** — CPU core identification on arm64 and an arch-aware GRUB
+  check (no x86-only assumptions) (#158).
+- **Fleet Team-mode nudge** — multi-host `dsd fleet` runs surface a tasteful
+  waitlist nudge for the forthcoming Team mode (#154).
+- **Package update freshness** — `dsd packages` marks an "up to date" verdict as
+  *unverified* when the package manager's update metadata is stale, instead of
+  asserting health it can't confirm (#163).
+
+### Fixed
+
+- **health (non-systemd)** — DBus and journald checks are gated on systemd, so
+  Alpine/OpenRC hosts no longer raise a phantom CRIT (#162).
+- **disk capacity** — `dsd disk` capacity verdicts are aligned to `dsd health`
+  from a single source, eliminating divergent thresholds (#161).
+- **timeline** — dmesg events are classified by kernel log level rather than
+  keyword matching, reducing mis-severity (#160).
+- **drives (false-OK)** — NVMe drives are no longer reported "healthy" when SMART
+  was never read (#159).
+- **logs** — pstore panic records are recency-gated so a single old panic no
+  longer produces a perpetual CRIT (#157).
+- **health (memory/crash)** — sub-GB total memory no longer renders "0 GB"; a
+  stale crash-loop is no longer presented as live (#156).
+- **install** — the documented `--prefix` flag is honored, with wget and
+  `--prefix` now covered in CI (#155).
+
 ## [v0.6.10] — 2026-06-09
 
 ### Fixed
