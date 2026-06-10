@@ -2370,7 +2370,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 	}
 
 	// Capacity — ZFS copy-on-write degrades badly above 80%, writes fail above 90%
-	if l := levelPct(pool.UsedPct, 80, 90); l != "" {
+	if l := levelPct(pool.UsedPct, DefaultDiskWarnPct, DefaultDiskCritPct); l != "" {
 		out = append(out, insight(l, "ZFS",
 			fmt.Sprintf("ZFS pool %s is %.0f%% full (%.1f GB free of %.1f GB)",
 				pool.Name, pool.UsedPct, pool.FreeGB, pool.SizeGB),
