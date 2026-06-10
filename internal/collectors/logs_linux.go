@@ -408,6 +408,13 @@ func countPstorePanics() int {
 // checkJournalHealth checks for common journald misconfigurations that cause
 // silent log loss — the most frequent complaint about systemd logging.
 func checkJournalHealth(ctx context.Context, info *models.LogsInfo, profile platform.Profile) {
+	// All checks below concern systemd-journald. On a non-systemd host
+	// (Alpine/OpenRC, minimal containers) journald isn't running, so flagging it as
+	// "volatile" or lacking a text fallback is a phantom warning — skip the section.
+	if !platform.SystemdAvailable() {
+		return
+	}
+
 	// 1. Journal integrity — only verify archived (*.journal~) files, not active
 	//    ones. journalctl --verify races with active writers and produces false
 	//    corruption reports on healthy live journals (systemd issue #35916).
