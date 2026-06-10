@@ -59,6 +59,7 @@ This is the specialized intelligence, separate from the distro count.
 | **VMware guest** | VMware guest detection (DMI), SCSI cmd-timeout <180s (vMotion read-only risk), e1000-vs-vmxnet3 NIC | DMI-spoofed VM, **not** real ESXi/vSphere | **T3** | `screenshots/vmware-guest-scsi-timeout.txt` |
 | **SteamOS / Steam Deck** | `ID=steamos` gate, RAUC A/B update-slot health, Deck APU/GPU profile, shader-cache disk | Spoofed `ID=steamos` on PVE VM (`steamos-validate`), **not** real Deck HW | **T3** | `screenshots/steamdeck.txt` |
 | **AWS EC2** | Cloud-env detection (real AWS DMI/IMDS), cloud-init, Graviton arm64 on real silicon | Real EC2: t3.micro (x86_64) + t4g.small (arm64/Graviton), Ubuntu 26.04, 2026-06-10 | T2 | `marketing-assets/aws-x86-data/`, `aws-graviton-data/` |
+| **Azure** | Cloud-env detection (Azure DMI/metadata), azure-kernel flavor, Azure-default user posture (NOPASSWD sudo, non-expiring pw) flagged | Real Azure VM: Standard_B-series x86_64, Ubuntu 24.04, 2026-06-10 | T2 | `marketing-assets/azure-x86-data/` |
 | **Cloud guests** | cloud-init status, cloud metadata (AWS/Azure/GCP DMI fingerprints) | VM captures w/ cloud markers | T2/T3 | `screenshots/cloud-vm-cloudinit-failed.txt` |
 | **Containers** | Docker (events, quadlet), containerd, container-aware resource limits | Real containers on multiple hosts | T2 | mint/pve/sles docker captures |
 | **KVM** | KVM host/guest detection | Real KVM on PVE | T2 | per-distro `kvm.json` |
@@ -80,6 +81,13 @@ Tracked honestly so claims stay accurate:
   Legion, now given away and not reproducible. Same spare AMD laptop can provide a fresh,
   reproducible x86_64 T1 capture (real SMART/thermal/GPU) under its native OS — bundle with
   the SteamOS install. x86_64 *VM/container* coverage is already thorough (most of Table 1).
+- **Server-grade hardware (ECC/EDAC, IPMI/BMC, NUMA)** — the EDAC, IPMI, and NUMA collectors
+  only have real data on *server-class* hardware; consumer CPUs (Core i5/i7), laptops, and
+  cloud VMs can't exercise them. Identified path when demand-warranted: an hourly **Xeon/EPYC
+  dedicated server** (e.g. Scaleway/OVH EM-class, Xeon E3, ~€0.08/hr) — cleaner and far cheaper
+  than cloud bare-metal, and the only target that validates the full server-hardware collector
+  set. A consumer-i7 dedicated box is a weaker subset (real SMART/thermal but no ECC/IPMI/NUMA),
+  so the Xeon is strictly preferred.
 - **VMware on real vSphere** — only DMI-spoofed. Would need an actual ESXi/vSphere guest.
 - **Multi-node Proxmox cluster** — single host only.
 - **Kali on physical hardware** — was on the Legion laptop (given away); now OrbStack-only (T2).
