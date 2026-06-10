@@ -361,6 +361,11 @@ func inlineMemory(data interface{}) string {
 		return ""
 	}
 	used := r.TotalGB * r.UsedPct / 100
+	// Sub-GB totals (small containers / minimal VMs) floor to "0 GB" under %.0f,
+	// producing a broken-looking "0.1/0 GB" — show MB in that range instead.
+	if r.TotalGB < 1 {
+		return fmt.Sprintf("%.0f/%.0f MB (%.0f%%)", used*1024, r.TotalGB*1024, r.UsedPct)
+	}
 	return fmt.Sprintf("%.1f/%.0f GB (%.0f%%)", used, r.TotalGB, r.UsedPct)
 }
 

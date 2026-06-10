@@ -68,6 +68,15 @@ func TestInlineMemoryFormat(t *testing.T) {
 	}
 }
 
+// Sub-GB totals (small containers / minimal VMs) used to floor to "0 GB" under
+// %.0f, rendering a broken-looking "0.1/0 GB". Below 1 GB we switch to MB.
+func TestInlineMemorySubGB(t *testing.T) {
+	got := inlineMemory(models.MemoryInfo{TotalGB: 0.5, UsedPct: 12})
+	if got != "61/512 MB (12%)" {
+		t.Errorf("inlineMemory = %q, want %q", got, "61/512 MB (12%)")
+	}
+}
+
 // TestCPUDisplayPct covers the observer-effect reconciliation: the grid prefers
 // the instantaneous user+sys% (htop match) but falls back to the load-derived
 // figure when a light box reads implausibly high (dsd's own collection noise).

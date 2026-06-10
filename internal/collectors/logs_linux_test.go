@@ -266,3 +266,29 @@ func TestIsVMVirtType(t *testing.T) {
 		}
 	}
 }
+
+// crashLoopRecent gates the crash-loop insight to genuinely recent failures, so a
+// unit given up on days ago (NRestarts is cumulative and never resets) stops being
+// reported as a live crash loop. Inputs are formatted with systemd's wall-clock
+// layout so they round-trip through the same parser.
+func TestCrashLoopRecent(t *testing.T) {
+	const layout = "Mon 2006-01-02 15:04:05 MST"
+	fmtTS := func(d time.Duration) string { return time.Now().UTC().Add(d).Format(layout) }
+	cases := []struct {
+		name string
+		ts   string
+		want bool
+	}{
+		{"just now", fmtTS(-1 * time.Minute), true},
+		{"stale (2h ago)", fmtTS(-2 * time.Hour), false},
+		{"6 days ago (the live repro)", fmtTS(-6 * 24 * time.Hour), false},
+		{"future ⇒ conservative report", fmtTS(2 * time.Hour), true},
+		{"blank ⇒ conservative report", "", true},
+		{"unparseable ⇒ conservative report", "not a timestamp", true},
+	}
+	for _, c := range cases {
+		if got := crashLoopRecent(c.ts, crashLoopRecencyWindow); got != c.want {
+			t.Errorf("%s: crashLoopRecent(%q) = %v, want %v", c.name, c.ts, got, c.want)
+		}
+	}
+}

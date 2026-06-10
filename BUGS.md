@@ -438,3 +438,37 @@ LVM snapshot origin misparse (#139), phantom "OK" rows across live/report/json
 asserted without checking and proved wrong — the gate only covers the phantom-row
 pattern, not command-failed-is-ambiguous. Verifying the gated collectors found
 BUG-043/044. Never assert "gated → fine"; check.
+
+---
+
+## Pre-pilot verification sweep (2026-06-10)
+
+Found by deploying current `main` to the pve01 guest matrix (Debian/PVE, Ubuntu
+24.04 LXC, AlmaLinux 9.4 LXC) and reading the live output — the "walk the real
+output on real distros" discipline, run before putting `dsd` in front of a VMware
+pilot. pve01 + `health deep` were clean; the two below surfaced on the LXC guests.
+
+### BUG-045 — memory total renders "0 GB" on sub-1GB hosts
+On a 512 MB Ubuntu LXC, `inlineMemory` showed `0.1/0 GB (12%)` — the total used
+`%.0f GB`, which floors a 0.5 GB total to "0", producing a broken-looking "X/0 GB".
+Hits any small container or minimal VM (exactly what a pilot runs). Fixed: render
+sub-1 GB totals in MB (`66/512 MB`); GB format unchanged ≥1 GB. Test
+`TestInlineMemorySubGB`. **(this PR)**
+
+### BUG-046 — week-old crash loop reported as a live CRIT
+On AlmaLinux, a `test-nginx` quadlet that failed **6 days ago** and that systemd had
+given up on still produced `Logs CRIT: crash loop detected … (restarted 5 times)`.
+Root cause: systemd's `NRestarts` is **cumulative and never resets**, so
+`detectCrashLoops` (which lists `--state=failed` units with `NRestarts≥5`) reports a
+long-dead loop as current — indefinitely. A stale present-tense CRIT about real infra
+is the exact "says something wrong" failure the pilot runbook warns against. Fixed
+with a wall-clock recency gate (`crashLoopRecent`, `InactiveEnterTimestamp` within 1h;
+blank/unparseable/future ⇒ report, conservative). Wall-clock, not monotonic, because
+lxcfs virtualizes `/proc/uptime` but not `CLOCK_MONOTONIC` — verified they disagree
+(6.4d vs 2.5d) on the repro container. The genuine failure is still surfaced by the
+`Systemd: unit … has failed` CRIT, which is the correct, non-stale signal. Test
+`TestCrashLoopRecent`. **(this PR)**
+
+**Meta-lesson (again):** both escaped CI because the unit tests used clean/normal
+fixtures; only running on a real small container + a host with an old failed unit
+exposed them. Verify on the actual matrix, don't predict.

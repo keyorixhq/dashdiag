@@ -21,6 +21,12 @@ const (
 	journalRunPath    = "/run/log/journal"
 	journalVarPath    = "/var/log/journal"
 	crashLoopRestarts = 5
+	// systemd's NRestarts counter is cumulative and never resets, so a unit that
+	// crash-looped and was given up on stays NRestarts>=N forever. Only treat a
+	// failed unit as a *live* crash loop if its last state change is within this
+	// window; older failures are already surfaced by the systemd "unit failed"
+	// insight, and reporting them as a current crash loop is misleading.
+	crashLoopRecencyWindow = time.Hour
 )
 
 type LogsCollector struct {
@@ -311,21 +317,53 @@ func detectCrashLoops(ctx context.Context) []string {
 				}
 			}
 		}
-		// Check NRestarts via systemctl show
-		showOut, err := runCmd(ctx, "systemctl", "show", unit, "--property=NRestarts")
+		// Check NRestarts + recency via systemctl show.
+		showOut, err := runCmd(ctx, "systemctl", "show", unit,
+			"--property=NRestarts", "--property=InactiveEnterTimestamp")
 		if err != nil {
 			continue
 		}
+		var restarts int
+		var inactiveEnter string
 		for _, l := range strings.Split(showOut, "\n") {
-			if strings.HasPrefix(l, "NRestarts=") {
-				n, _ := strconv.Atoi(strings.TrimPrefix(l, "NRestarts="))
-				if n >= crashLoopRestarts {
-					loops = append(loops, fmt.Sprintf("%s (restarted %d times)", unit, n))
-				}
+			switch {
+			case strings.HasPrefix(l, "NRestarts="):
+				restarts, _ = strconv.Atoi(strings.TrimPrefix(l, "NRestarts="))
+			case strings.HasPrefix(l, "InactiveEnterTimestamp="):
+				inactiveEnter = strings.TrimPrefix(l, "InactiveEnterTimestamp=")
 			}
 		}
+		if restarts < crashLoopRestarts {
+			continue
+		}
+		// Skip stale loops: a unit given up on long ago is not currently looping
+		// (the systemd "unit failed" insight still flags it). Wall-clock based so
+		// it stays correct inside lxcfs containers, where CLOCK_MONOTONIC and
+		// /proc/uptime disagree.
+		if !crashLoopRecent(inactiveEnter, crashLoopRecencyWindow) {
+			continue
+		}
+		loops = append(loops, fmt.Sprintf("%s (restarted %d times)", unit, restarts))
 	}
 	return loops
+}
+
+// crashLoopRecent reports whether a failed unit's last state change (systemd's
+// InactiveEnterTimestamp, a wall-clock string like "Thu 2026-06-04 00:35:21 UTC")
+// falls within window. Blank or unparseable timestamps return true — conservative:
+// never hide a possibly-live crash loop. A timestamp that parses to the future
+// (zone misparse / clock skew) also returns true for the same reason.
+func crashLoopRecent(inactiveEnter string, window time.Duration) bool {
+	inactiveEnter = strings.TrimSpace(inactiveEnter)
+	if inactiveEnter == "" {
+		return true
+	}
+	t, err := time.Parse("Mon 2006-01-02 15:04:05 MST", inactiveEnter)
+	if err != nil {
+		return true
+	}
+	age := time.Since(t)
+	return age < 0 || age <= window
 }
 
 // countPstorePanics counts kernel panic dump files in /sys/fs/pstore.
