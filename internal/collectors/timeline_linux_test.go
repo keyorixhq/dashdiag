@@ -170,30 +170,38 @@ func TestParseDmesgLine(t *testing.T) {
 		wantUnit  string
 	}{
 		{
-			name:      "ext4 error is CRIT",
-			line:      "[Wed Jun  4 10:30:00 2025] EXT4-fs (sda1): error reading block",
+			// kernel err level → CRIT (the `dmesg -x` decoded prefix drives severity).
+			name:      "ext4 error (err level) is CRIT",
+			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] EXT4-fs (sda1): error reading block",
 			wantLevel: "CRIT", wantUnit: "EXT4-fs",
 		},
 		{
+			// The bug fix: a warn-level message containing "failed"/"error" must stay
+			// WARN, not get keyword-escalated to CRIT (regulatory.db is benign noise).
+			name:      "warn-level 'failed' stays WARN (not keyword-escalated)",
+			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] regulatory: Direct firmware load for regulatory.db failed with error -2",
+			wantLevel: "WARN",
+		},
+		{
 			name:      "two-digit day, warn",
-			line:      "[Wed Jun 04 10:30:00 2025] usb 1-1: device descriptor read",
+			line:      "kern  :warn  : [Wed Jun 04 10:30:00 2025] usb 1-1: device descriptor read",
 			wantLevel: "WARN", wantUnit: "usb 1-1",
 		},
 		{
-			// The kernel OOM killer header ("Out of memory: ...") has no literal "oom"
-			// token; the "out of memory" keyword ensures it is classified CRIT.
-			name:      "kernel OOM line is CRIT",
-			line:      "[Wed Jun  4 10:30:00 2025] Out of memory: Killed process 123",
+			// Catastrophe keyword overrides upward even at warn level: the OOM killer
+			// header has no literal "oom" token, so "out of memory" catches it.
+			name:      "kernel OOM line is CRIT even at warn level",
+			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] Out of memory: Killed process 123",
 			wantLevel: "CRIT",
 		},
 		{
 			name:      "explicit oom-killer mention is CRIT",
-			line:      "[Wed Jun  4 10:30:00 2025] oom-killer: gfp_mask=0x100",
+			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] oom-killer: gfp_mask=0x100",
 			wantLevel: "CRIT",
 		},
 		{"no bracket", "kernel: just a message", true, "", ""},
-		{"no closing bracket", "[Wed Jun  4 10:30:00 2025 missing", true, "", ""},
-		{"bad timestamp", "[not a timestamp] some message", true, "", ""},
+		{"no closing bracket", "kern  :err   : [Wed Jun  4 10:30:00 2025 missing", true, "", ""},
+		{"bad timestamp", "kern  :err   : [not a timestamp] some message", true, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
