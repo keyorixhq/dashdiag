@@ -270,6 +270,8 @@ func collectCPU(info *models.HardwareInfo) {
 	model := cpu.model
 
 	// ARM: device-tree model fallback (filesystem-backed, kept out of the parser).
+	// Reached only when /proc/cpuinfo had no model name, Hardware, or implementer —
+	// parseProcCPUInfo resolves the vendor/core string when an implementer is present.
 	if model == "" {
 		for _, path := range []string{
 			"/sys/firmware/devicetree/base/model",
@@ -280,9 +282,6 @@ func collectCPU(info *models.HardwareInfo) {
 				break
 			}
 		}
-	}
-	if model == "" && cpu.implementer != "" {
-		model = fmt.Sprintf("%s ARM (aarch64)", armImplementerName(cpu.implementer))
 	}
 
 	info.CPU = models.HardwareCPU{

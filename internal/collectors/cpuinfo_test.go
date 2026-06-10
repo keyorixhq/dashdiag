@@ -44,8 +44,8 @@ cpu cores	: 4
 	}
 }
 
-// ARM /proc/cpuinfo has "processor" lines but no "model name"; the model falls
-// back to the implementer code.
+// ARM /proc/cpuinfo has "processor" lines but no "model name"; with an implementer
+// but no recognized part, the model is the vendor + arch (no redundant "ARM ARM").
 func TestParseProcCPUInfo_armImplementerFallback(t *testing.T) {
 	const data = `processor	: 0
 BogoMIPS	: 108.00
@@ -60,8 +60,45 @@ CPU implementer	: 0x41
 	if got.threads != 2 {
 		t.Errorf("threads = %d, want 2", got.threads)
 	}
-	if got.model != "ARM ARM (aarch64)" {
-		t.Errorf("model = %q, want ARM implementer fallback", got.model)
+	if got.model != "ARM (aarch64)" {
+		t.Errorf("model = %q, want %q", got.model, "ARM (aarch64)")
+	}
+}
+
+// Server ARM (Ampere Altra / AWS Graviton2) reports a Neoverse-N1 core via the
+// implementer+part codes — the model should name the core (the useful server ID,
+// since there is no "model name" line and no Hardware field).
+func TestParseProcCPUInfo_armNeoverseN1(t *testing.T) {
+	const data = `processor	: 0
+BogoMIPS	: 50.00
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x3
+CPU part	: 0xd0c
+CPU revision	: 1
+
+processor	: 1
+CPU implementer	: 0x41
+CPU part	: 0xd0c
+`
+	got := parseProcCPUInfo(data)
+	if got.threads != 2 {
+		t.Errorf("threads = %d, want 2", got.threads)
+	}
+	if got.model != "ARM Neoverse-N1 (aarch64)" {
+		t.Errorf("model = %q, want %q", got.model, "ARM Neoverse-N1 (aarch64)")
+	}
+}
+
+// AmpereOne reports the Ampere implementer (0xc0) with its own part space.
+func TestParseProcCPUInfo_ampereOne(t *testing.T) {
+	const data = `processor	: 0
+CPU implementer	: 0xc0
+CPU part	: 0xac3
+`
+	got := parseProcCPUInfo(data)
+	if got.model != "Ampere AmpereOne (aarch64)" {
+		t.Errorf("model = %q, want %q", got.model, "Ampere AmpereOne (aarch64)")
 	}
 }
 

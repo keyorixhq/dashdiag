@@ -11,6 +11,7 @@ type procCPUInfo struct {
 	model       string
 	hardware    string // ARM bare-metal "Hardware" field
 	implementer string // ARM "CPU implementer"
+	part        string // ARM "CPU part" (core ID, e.g. 0xd0c = Neoverse-N1)
 	threads     int
 	cores       int
 	freqMHz     float64
@@ -62,18 +63,66 @@ func parseProcCPUInfo(data string) procCPUInfo {
 			if info.implementer == "" {
 				info.implementer = val
 			}
+		case "CPU part": // ARM core ID
+			if info.part == "" {
+				info.part = val
+			}
 		}
 	}
 
-	// ARM: prefer Hardware field, then vendor+arch description.
+	// ARM: prefer the Hardware field, else a vendor (+ core) description.
 	if info.model == "" {
 		info.model = info.hardware
 	}
 	if info.model == "" && info.implementer != "" {
-		info.model = fmt.Sprintf("%s ARM (aarch64)", armImplementerName(info.implementer))
+		info.model = armModelString(info.implementer, info.part)
 	}
 
 	return info
+}
+
+// armModelString builds a human model string from the ARM implementer (vendor) and
+// part (core) codes, e.g. "ARM Neoverse-N1 (aarch64)" or, when the core is unknown,
+// "Ampere (aarch64)". ARM /proc/cpuinfo has no "model name" line, so this is the
+// best identity available without DMI/SMBIOS (which needs real hardware).
+func armModelString(implementer, part string) string {
+	vendor := armImplementerName(implementer)
+	if core := armPartName(implementer, part); core != "" {
+		return fmt.Sprintf("%s %s (aarch64)", vendor, core)
+	}
+	return fmt.Sprintf("%s (aarch64)", vendor)
+}
+
+// armPartName maps an ARM implementer+part to a core name. Part IDs are scoped to
+// the implementer, so they are matched per-vendor. Values are the canonical kernel
+// IDs (arch/arm64/include/asm/cputype.h); unknown parts return "" (vendor-only).
+func armPartName(implementer, part string) string {
+	switch strings.ToLower(implementer) {
+	case "0x41": // ARM Ltd — Cortex / Neoverse reference cores
+		switch strings.ToLower(part) {
+		case "0xd03":
+			return "Cortex-A53"
+		case "0xd05":
+			return "Cortex-A55"
+		case "0xd07":
+			return "Cortex-A57"
+		case "0xd08":
+			return "Cortex-A72"
+		case "0xd0b":
+			return "Cortex-A76"
+		case "0xd0c":
+			return "Neoverse-N1" // Ampere Altra, AWS Graviton2
+		case "0xd40":
+			return "Neoverse-V1" // AWS Graviton3
+		case "0xd49":
+			return "Neoverse-N2"
+		}
+	case "0xc0": // Ampere
+		if strings.ToLower(part) == "0xac3" {
+			return "AmpereOne"
+		}
+	}
+	return ""
 }
 
 // armImplementerName maps an ARM "CPU implementer" hex code to a vendor name.

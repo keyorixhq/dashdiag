@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -505,16 +506,21 @@ func dnfHasUpdateRepo(ctx context.Context) bool {
 func checkSUSEMigrationRisks(ctx context.Context) []string {
 	var risks []string
 
-	// Check 1: grub2-x86_64-efi version lock
-	// If the package exists and is NOT locked, migration can overwrite grub config
+	// Check 1: grub2 EFI package version lock.
+	// If the package exists and is NOT locked, migration can overwrite grub config.
+	// The package is arch-specific: grub2-x86_64-efi on x86, grub2-arm64-efi on ARM.
+	grubPkg := "grub2-x86_64-efi"
+	if runtime.GOARCH == "arm64" {
+		grubPkg = "grub2-arm64-efi"
+	}
 	grubOut, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
-		"search", "--installed-only", "grub2-x86_64-efi")
-	if err == nil && strings.Contains(grubOut, "grub2-x86_64-efi") {
+		"search", "--installed-only", grubPkg)
+	if err == nil && strings.Contains(grubOut, grubPkg) {
 		// Check if it's locked
 		lockOut, _ := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "locks")
-		if !strings.Contains(lockOut, "grub2-x86_64-efi") {
+		if !strings.Contains(lockOut, grubPkg) {
 			risks = append(risks,
-				"grub2-x86_64-efi is installed but NOT locked — migration may overwrite grub config and break boot",
+				grubPkg+" is installed but NOT locked — migration may overwrite grub config and break boot",
 			)
 		}
 	}
