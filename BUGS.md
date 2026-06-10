@@ -38,6 +38,23 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
 **Commit:** early macOS fixes session
 **Note:** Documented in handover notes — critical gotcha for macOS
 
+### BUG-053 — Hardening fix-hint emits Linux-only `ss` command on macOS
+**Found:** macOS arm64 validation (native build, `go1.26.4 darwin/arm64`)
+**Symptom:** On macOS, the Hardening WARN for unexpected listening ports tells
+  the user to run `ss -tlnp` (and `ss -tlnp | grep :PORT`). `ss` (iproute2) does
+  not exist on macOS, so following the hint yields "command not found".
+**Root cause:** Fix-hint text is hardcoded to the Linux toolset; the *finding*
+  is platform-correct but the *remedy* is not branched by platform. Same family
+  as the locale-safe-exec discipline — the boundary between "right diagnosis" and
+  "runnable remedy" is not surfaced per-platform.
+**Affected:** Hardening insight fix-hints on darwin (port-inspection guidance).
+  Reduced-coverage platform, so low severity, but it's a silent cross-platform
+  wrongness that erodes trust in the hint layer.
+**Fix (proposed, not yet done):** Branch port-inspection hint on GOOS — on darwin
+  emit `lsof -nP -iTCP -sTCP:LISTEN` instead of `ss -tlnp`. Audit other hardcoded
+  `ss`/iproute2 hints for the same issue.
+**Commit:** _open_
+
 ---
 
 ## RHEL 10.1 (AMD Ryzen 7 5800H, RTX 3070, k3s)
