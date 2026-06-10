@@ -469,6 +469,28 @@ lxcfs virtualizes `/proc/uptime` but not `CLOCK_MONOTONIC` — verified they dis
 `Systemd: unit … has failed` CRIT, which is the correct, non-stale signal. Test
 `TestCrashLoopRecent`. **(this PR)**
 
-**Meta-lesson (again):** both escaped CI because the unit tests used clean/normal
-fixtures; only running on a real small container + a host with an old failed unit
-exposed them. Verify on the actual matrix, don't predict.
+### BUG-047 — pstore kernel-panic records flagged forever (no recency gate)
+Follow-up sweep of every counter/event collector for the BUG-046 anti-pattern
+(historical signal reported as current). `/sys/fs/pstore` is **not cleared on
+reboot**, yet `countPstorePanics` (→ `KernelPanics` → a **CRIT**) and the pstore
+loop in `collectCrashFiles` (→ `CoreDumpCount`) counted panic dumps of any age —
+while the sibling `/var/crash` path in the *same function* already filtered to 30
+days, and the crash-dump verdict literally says "in the last 30 days". So a panic
+record from months ago (host long since rebooted past it) produced a perpetual
+CRIT and made the "last 30 days" wording false. Fixed with a shared
+`crashFileMaxAgeDays` (30d) gate via `crashFileTooOld`, applied to pstore in both
+readers. Test `TestCrashFileTooOld`. **(#157)**
+
+Audited and found **correctly time-scoped** (no bug): OOM (journal `--since 24h`),
+failed logins (24h), cron failures (24h), security AVC denials (1h/24h), timeline
+(windowed), and the whole kmsg counter set — segfaults / soft+hard lockups /
+in-kmsg panics / NVMe timeouts — which `parseKmsg` filters by `lookback` (1h).
+Deliberately-persistent health flags left as-is (NOT the anti-pattern): btrfs
+`device stats` and NVMe/SMART lifetime error counters are documented cumulative
+signals you reset after investigating, not stale transient events.
+
+**Meta-lesson (again):** BUG-045/046 escaped CI because the unit tests used
+clean/normal fixtures; only running on a real small container + a host with an old
+failed unit exposed them. And BUG-047 came from *asking "where else?"* after 046 —
+the same anti-pattern hid one file away, behind an inconsistency with its own
+sibling code. Verify on the actual matrix; then sweep the class, don't stop at one.

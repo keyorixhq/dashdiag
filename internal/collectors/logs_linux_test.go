@@ -292,3 +292,26 @@ func TestCrashLoopRecent(t *testing.T) {
 		}
 	}
 }
+
+// crashFileTooOld gates coredump/pstore-panic records to recent ones — pstore
+// persists across reboots until manually cleared, so without the gate a months-old
+// panic would CRIT forever and contradict the "last 30 days" crash-dump wording.
+func TestCrashFileTooOld(t *testing.T) {
+	now := mustTime(t, "2026-06-10T12:00:00Z")
+	cases := []struct {
+		name  string
+		mtime time.Time
+		want  bool
+	}{
+		{"today", now, false},
+		{"10 days", now.Add(-10 * 24 * time.Hour), false},
+		{"exactly 30 days", now.Add(-30 * 24 * time.Hour), false},
+		{"31 days", now.Add(-31 * 24 * time.Hour), true},
+		{"6 months", now.Add(-180 * 24 * time.Hour), true},
+	}
+	for _, c := range cases {
+		if got := crashFileTooOld(c.mtime, now); got != c.want {
+			t.Errorf("%s: crashFileTooOld = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
