@@ -134,6 +134,10 @@ func TestCheckNVMe(t *testing.T) {
 		{"sata uncorrectable is CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 1}), "CRIT"},
 		{"sata reallocated is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, ReallocatedSectors: 4}), "WARN"},
 		{"sata read error skipped", sata(models.SATADevice{Name: "/dev/sda", SmartOK: false, Error: "permission denied"}), ""},
+		// Power-on-hours is age, not wear: a healthy long-lived drive must NOT WARN
+		// (real endurance is PercentageUsed/spare for NVMe, reallocated sectors for SATA).
+		{"nvme high power-on-hours healthy is INFO not WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 10, TempC: 40, PowerOnHours: 40000}), "INFO"},
+		{"sata high power-on-hours healthy is INFO not WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, PowerOnHours: 50000}), "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
