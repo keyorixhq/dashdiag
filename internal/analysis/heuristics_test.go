@@ -190,17 +190,24 @@ func TestSwapActivityThresholds(t *testing.T) {
 		name      string
 		pagesIn   float64
 		pagesOut  float64
+		zramDevs  int
 		wantLevel string
 	}{
-		{"no activity", 0, 0, ""},
-		{"any swap in warn", 1, 0, "WARN"},
-		{"any swap out warn", 0, 1, "WARN"},
-		{"crit swap in", 101, 0, "CRIT"},
-		{"crit swap out", 0, 101, "CRIT"},
+		{"no activity", 0, 0, 0, ""},
+		{"trivial churn below floor is silent", 1, 0, 0, ""}, // was a false WARN at >0
+		{"trivial churn below floor (out)", 0, 40, 0, ""},    // still under the 50 floor
+		{"moderate disk swap is WARN", 60, 0, 0, "WARN"},
+		{"moderate disk swap (out) is WARN", 0, 60, 0, "WARN"},
+		{"crit swap in", 101, 0, 0, "CRIT"},
+		{"crit swap out", 0, 101, 0, "CRIT"},
+		// zram-backed: moderate paging is compressed-RAM churn, not disk thrash.
+		{"moderate zram swap is INFO not WARN", 60, 0, 1, "INFO"},
+		{"trivial zram churn still below floor", 1, 0, 1, ""},
+		{"heavy zram swap still CRIT", 101, 0, 1, "CRIT"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := models.SwapInfo{PagesInPerSec: tc.pagesIn, PagesOutPerSec: tc.pagesOut}
+			s := models.SwapInfo{PagesInPerSec: tc.pagesIn, PagesOutPerSec: tc.pagesOut, ZramDevices: tc.zramDevs}
 			insights := ApplyThresholds(res(s), defaultThresh, platform.EnvBareMetal, platform.ContainerContext{})
 			assertLevel(t, insights, tc.wantLevel)
 		})

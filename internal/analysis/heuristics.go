@@ -978,12 +978,23 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 	if actOut > maxAct {
 		maxAct = actOut
 	}
-	if maxAct > thresh.SwapActivityCrit {
+	switch {
+	case maxAct > thresh.SwapActivityCrit:
+		// Heavy sustained paging warrants a CRIT even on zram: at this rate the
+		// (de)compression CPU cost and the memory shortfall it implies both bite.
 		out = append(out, insight("CRIT", "Swap",
 			fmt.Sprintf("heavy swap activity: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
 			[]string{"to inspect: vmstat 1 5", "to inspect: sar -W 1 5", "to inspect: ps aux --sort=-%mem | head -10"},
 		))
-	} else if maxAct > thresh.SwapActivityWarn {
+	case maxAct > thresh.SwapActivityWarn && swap.ZramDevices > 0:
+		// zram-backed swap is compressed RAM, not disk. Moderate paging is normal
+		// on zram-by-default distros (Fedora/Ubuntu/Pop!_OS/SteamOS) and is not the
+		// latency cliff a disk-swap WARN implies — report it as context, not a fault.
+		out = append(out, insight("INFO", "Swap",
+			fmt.Sprintf("swap activity: %.0f pages/s in, %.0f pages/s out — zram-backed (compressed RAM, not disk thrash)", actIn, actOut),
+			[]string{"to inspect: zramctl", "to inspect: vmstat 1 5"},
+		))
+	case maxAct > thresh.SwapActivityWarn:
 		out = append(out, insight("WARN", "Swap",
 			fmt.Sprintf("swap activity detected: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
 			[]string{"to inspect: vmstat 1 5", "to inspect: free -h"},
