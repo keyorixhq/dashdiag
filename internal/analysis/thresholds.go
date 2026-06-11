@@ -72,7 +72,7 @@ func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
 
 		SwapWarnPct:      20,
 		SwapCritPct:      60,
-		SwapActivityWarn: 0,
+		SwapActivityWarn: 50, // pages/s — below this is background churn, not a problem
 		SwapActivityCrit: 100,
 
 		IOUtilWarnPctSSD: 60,

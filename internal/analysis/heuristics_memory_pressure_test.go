@@ -52,8 +52,11 @@ func TestCheckSwap(t *testing.T) {
 		{"below warn is clean", models.SwapInfo{UsedPct: 10}, ""},
 		{"usage at warn is WARN", models.SwapInfo{UsedPct: defaultThresh.SwapWarnPct, UsedGB: 2}, "WARN"},
 		{"usage at crit is CRIT", models.SwapInfo{UsedPct: defaultThresh.SwapCritPct, UsedGB: 8}, "CRIT"},
-		// SwapActivityWarn defaults to 0, so any paging is a WARN; >100 is CRIT.
-		{"moderate paging is WARN", models.SwapInfo{UsedPct: 10, PagesInPerSec: 50}, "WARN"},
+		// SwapActivityWarn floor is 50 pages/s (disk swap); >100 is CRIT. zram-backed
+		// paging below CRIT is INFO (compressed RAM, not disk thrash).
+		{"trivial paging below floor is clean", models.SwapInfo{UsedPct: 10, PagesInPerSec: 40}, ""},
+		{"moderate disk paging is WARN", models.SwapInfo{UsedPct: 10, PagesInPerSec: 60}, "WARN"},
+		{"moderate zram paging is INFO", models.SwapInfo{UsedPct: 10, PagesInPerSec: 60, ZramDevices: 1}, "INFO"},
 		{"heavy paging is CRIT", models.SwapInfo{UsedPct: 10, PagesInPerSec: 150}, "CRIT"},
 		// macOS pressure path: MemPressureLevel>1 + high usage.
 		{"darwin pressure level 2 high usage is WARN", models.SwapInfo{MemPressureLevel: 2, UsedPct: 80}, "WARN"},
