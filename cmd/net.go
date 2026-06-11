@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -292,10 +293,13 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 
 	// Deep TCP metrics — shown when collected by NetworkDeepCollector
 	if info.SynRetransCount > 0 || info.ListenOverflows > 0 || info.RetransFailCount > 0 || info.TimeWaitCount > 0 {
-		fmt.Println("\nTCP Kernel Counters")
-		printTCPCounter("SYN retransmissions", info.SynRetransCount, 100, 500)
-		printTCPCounter("Listen queue overflows", info.ListenOverflows, 1, 10)
-		printTCPCounter("Retransmit failures", info.RetransFailCount, 10, 50)
+		fmt.Println("\nTCP Kernel Counters (cumulative since boot)")
+		printTCPCounterLevel("SYN retransmissions", info.SynRetransCount,
+			analysis.DeepTCPCounterLevel("syn_retrans", info.SynRetransCount, info.UptimeSec))
+		printTCPCounterLevel("Listen queue overflows", info.ListenOverflows,
+			analysis.DeepTCPCounterLevel("listen_overflow", info.ListenOverflows, info.UptimeSec))
+		printTCPCounterLevel("Retransmit failures", info.RetransFailCount,
+			analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec))
 		printTCPCounter("TIME_WAIT sockets", info.TimeWaitCount, 1000, 5000)
 		if info.ConntrackUsedPct > 0 {
 			printNetMetric("Conntrack used", info.ConntrackUsedPct, "%", 60, 80, mode)
@@ -327,13 +331,13 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	if info.CloseWaitCount > 100 {
 		issues++
 	}
-	if info.ListenOverflows > 0 {
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("listen_overflow", info.ListenOverflows, info.UptimeSec)) {
 		issues++
 	}
-	if info.SynRetransCount > 100 {
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("syn_retrans", info.SynRetransCount, info.UptimeSec)) {
 		issues++
 	}
-	if info.RetransFailCount > 10 {
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec)) {
 		issues++
 	}
 	if info.ConntrackUsedPct >= 80 {
@@ -486,6 +490,32 @@ func printTCPCounter(label string, val int, warn, crit int) {
 		icon = "⚠️ "
 	}
 	fmt.Printf("  %s  %-24s %d\n", icon, label+":", val)
+}
+
+// printTCPCounterLevel renders a cumulative since-boot counter whose severity was
+// already decided (rate-normalized against uptime) by analysis.DeepTCPCounterLevel,
+// so the `dsd net` table can't disagree with `dsd health`. An empty level means
+// the value is at/below the reporting floor — shown green, not flagged.
+func printTCPCounterLevel(label string, val int, level string) {
+	if val == 0 {
+		return // skip zero counters
+	}
+	icon := "✅"
+	switch level {
+	case "CRIT":
+		icon = "❌"
+	case "WARN":
+		icon = "⚠️ "
+	case "INFO":
+		icon = "ℹ️ "
+	}
+	fmt.Printf("  %s  %-24s %d\n", icon, label+":", val)
+}
+
+// tcpCounterIsIssue reports whether a DeepTCPCounterLevel result counts toward the
+// `dsd net` summary issue tally (WARN/CRIT do; INFO/"" are context, not issues).
+func tcpCounterIsIssue(level string) bool {
+	return level == "WARN" || level == "CRIT"
 }
 
 func netReadTCPStates() map[string]int {

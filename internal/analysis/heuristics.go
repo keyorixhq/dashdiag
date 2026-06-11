@@ -1219,18 +1219,69 @@ func rateSuffix(rate float64) string {
 	return fmt.Sprintf(" (~%.1f/hr)", rate)
 }
 
+// Floors (minimum since-boot total worth reporting) and per-hour rate boundaries
+// for the cumulative TcpExt counters. A critRate of 0 means the counter has no
+// CRIT tier (its worst live state is WARN).
+const (
+	synRetransFloor, synRetransWarnRate                     = 100, 60.0 // ≥1/sec sustained
+	listenOverflowFloor, listenOverflowWarnRate, listenCrit = 0, 1.0, 10.0
+	retransFailFloor, retransFailWarnRate                   = 10, 6.0
+)
+
+// DeepTCPCounterLevel is the single source of truth for how a cumulative
+// since-boot TcpExt counter maps to a health severity, shared by the health
+// heuristics and the `dsd net` renderer so the two never diverge. kind is one of
+// "syn_retrans", "listen_overflow", "retrans_fail". It returns "", "INFO",
+// "WARN", or "CRIT": at/below the floor is ""; above it, a sustained per-hour
+// rate (relative to uptime) escalates, while a small historical total — or one
+// that can't be rated because uptime is unknown — stays INFO.
+func DeepTCPCounterLevel(kind string, count int, uptimeSec float64) string {
+	switch kind {
+	case "syn_retrans":
+		if count <= synRetransFloor {
+			return ""
+		}
+		return tcpCounterLevel(count, uptimeSec, synRetransWarnRate, 0)
+	case "listen_overflow":
+		if count <= listenOverflowFloor {
+			return ""
+		}
+		return tcpCounterLevel(count, uptimeSec, listenOverflowWarnRate, listenCrit)
+	case "retrans_fail":
+		if count <= retransFailFloor {
+			return ""
+		}
+		return tcpCounterLevel(count, uptimeSec, retransFailWarnRate, 0)
+	}
+	return ""
+}
+
+// tcpCounterLevel classifies a counter already known to be above its floor by its
+// per-hour rate. An unknown rate (uptime unreadable → eventsPerHour returns -1)
+// falls through to INFO, so we never escalate on a total we can't normalize.
+func tcpCounterLevel(count int, uptimeSec, warnRate, critRate float64) string {
+	rate := eventsPerHour(count, uptimeSec)
+	switch {
+	case critRate > 0 && rate >= critRate:
+		return "CRIT"
+	case rate >= warnRate:
+		return "WARN"
+	default:
+		return "INFO"
+	}
+}
+
 // deepTCPCounterInsights evaluates the cumulative-since-boot TcpExt counters
 // (SYN retransmissions, listen-queue overflows, retransmit failures). These are
 // totals since boot, not live readings, so a single old spike on a long-uptime
-// host would otherwise read as a current outage. We rate-normalize each against
-// host uptime: a sustained rate escalates (WARN/CRIT), while a small historical
-// total — or one we can't rate (uptime unknown) — is reported as INFO context.
+// host would otherwise read as a current outage. Severity comes from the shared
+// DeepTCPCounterLevel; the wording here makes the since-boot/rate nature explicit.
 func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 	var out []models.Insight
 
-	if net.SynRetransCount > 100 {
+	if lvl := DeepTCPCounterLevel("syn_retrans", net.SynRetransCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.SynRetransCount, net.UptimeSec)
-		if rate >= 60 { // ≥1/sec sustained — active packet loss or overload
+		if lvl == "WARN" { // sustained — active packet loss or overload
 			out = append(out, insight("WARN", "Network",
 				fmt.Sprintf("~%.0f SYN retransmissions/hr since boot (%d total) — packet loss or server overload", rate, net.SynRetransCount),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans", "to inspect: ss -tan state syn-sent"},
@@ -1243,16 +1294,16 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 		}
 	}
 
-	if net.ListenOverflows > 0 {
+	if lvl := DeepTCPCounterLevel("listen_overflow", net.ListenOverflows, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.ListenOverflows, net.UptimeSec)
 		fix := []string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"}
-		switch {
-		case rate >= 10: // sustained saturation — connections actively dropped
+		switch lvl {
+		case "CRIT": // sustained saturation — connections actively dropped
 			out = append(out, insight("CRIT", "Network",
 				fmt.Sprintf("listen queue overflowing (~%.0f/hr, %d since boot) — SYN backlog saturated, connections being dropped", rate, net.ListenOverflows),
 				fix,
 			))
-		case rate >= 1:
+		case "WARN":
 			out = append(out, insight("WARN", "Network",
 				fmt.Sprintf("%d listen-queue overflow(s) since boot (~%.1f/hr) — SYN backlog saturated at times", net.ListenOverflows, rate),
 				fix,
@@ -1265,9 +1316,9 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 		}
 	}
 
-	if net.RetransFailCount > 10 {
+	if lvl := DeepTCPCounterLevel("retrans_fail", net.RetransFailCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.RetransFailCount, net.UptimeSec)
-		if rate >= 6 { // retransmits giving up entirely at a real rate — active failure
+		if lvl == "WARN" { // retransmits giving up entirely at a real rate — active failure
 			out = append(out, insight("WARN", "Network",
 				fmt.Sprintf("~%.0f TCP retransmit failures/hr since boot (%d total) — persistent connectivity problems", rate, net.RetransFailCount),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail", "to inspect: ss -ti"},
