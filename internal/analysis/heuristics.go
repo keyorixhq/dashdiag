@@ -4062,6 +4062,10 @@ func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
 //
 // Moderate and Low advisories do not fire — they fall below the WARN threshold
 // and would only add noise to the health summary.
+//
+// Exception: apt exposes no CVSS, so its severities are name-inferred guesses.
+// For apt we cap at a single honest WARN (no name-only CRIT, no "CVSS >= X"
+// claim the scan never measured) — see the apt branch below.
 func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 	withFix := func(hints []string) []string {
 		if r.FixCommand != "" {
@@ -4083,18 +4087,35 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 		)}
 	}
 
-	if len(r.Critical) > 0 {
-		return []models.Insight{insight("CRIT", "CVE",
-			fmt.Sprintf("%d critical security advisory(ies) — CVSS >= 9.0 (%s)", len(r.Critical), r.PackageManager),
-			withFix(nil),
-		)}
-	}
+	// apt publishes no per-package CVSS, so its severities are inferred from the
+	// package name (aptPackageSeverity). Don't assert a "CVSS >= X" threshold the
+	// scan never measured, and don't let a name guess mint a hard CRIT — fold the
+	// name-matched advisories into a single honest WARN. Managers that do expose a
+	// real severity/CVSS (dnf/zypper/…) keep the CVSS-based CRIT/WARN below.
+	if r.PackageManager == "apt" {
+		if n := len(r.Critical) + len(r.Important); n > 0 {
+			return []models.Insight{insight("WARN", "CVE",
+				fmt.Sprintf("%d security-relevant package update(s) pending (apt) — severity inferred from package name; apt exposes no CVSS", n),
+				withFix([]string{
+					"to review the list: dsd cve --all",
+					"note: confirm real severity via the Debian/Ubuntu security tracker — apt does not publish CVSS",
+				}),
+			)}
+		}
+	} else {
+		if len(r.Critical) > 0 {
+			return []models.Insight{insight("CRIT", "CVE",
+				fmt.Sprintf("%d critical security advisory(ies) — CVSS >= 9.0 (%s)", len(r.Critical), r.PackageManager),
+				withFix(nil),
+			)}
+		}
 
-	if len(r.Important) > 0 {
-		return []models.Insight{insight("WARN", "CVE",
-			fmt.Sprintf("%d high-severity security advisory(ies) — CVSS >= 7.0 (%s)", len(r.Important), r.PackageManager),
-			withFix(nil),
-		)}
+		if len(r.Important) > 0 {
+			return []models.Insight{insight("WARN", "CVE",
+				fmt.Sprintf("%d high-severity security advisory(ies) — CVSS >= 7.0 (%s)", len(r.Important), r.PackageManager),
+				withFix(nil),
+			)}
+		}
 	}
 
 	// Scan couldn't actually run (no package manager, scanner tool absent, or the
