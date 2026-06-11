@@ -1,8 +1,8 @@
 # Platform Coverage Matrix
 
-What DashDiag has actually been validated against, and **how deeply**. This is the
-ground-truth ledger — claims on the website and in marketing must trace back to a row
-here. If it isn't in this file with evidence, we don't claim it.
+What DashDiag has actually been validated against, and **how deeply**. Everything we
+claim about platform support traces back to a row in this file. If it isn't here with
+evidence, we don't claim it.
 
 This is deliberately honest about depth: "tested" is not binary. A tool that runs in a
 container has never exercised the SMART / IPMI / thermal / firmware collectors, so a
@@ -29,8 +29,8 @@ Linux distributions (plus macOS) the tool has been run on, by package/init famil
 | 1 | Ubuntu 24.04 | Debian/apt | v0.6.11 | PVE LXC (CT202) | T2 | `marketing-assets/ubuntu24-lxc-data/` | also ubuntu26, 2604 captures |
 | 2 | Debian 12/13 | Debian/apt | mixed | PVE VM (101) + LXC | T2 | `marketing-assets/debian13-*` | CI smoke-tests debian:13 |
 | 3 | Linux Mint 22 | Debian/apt | v0.5.x | bare/VM | T2 | `marketing-assets/mint22-data/` | full capture set + screenshots |
-| 4 | Kali Rolling | Debian/apt | v0.6.11 | OrbStack (kali-dsd) | T2 | `marketing-assets/kali-data/` | recaptured 2026-06-10; prior Legion HW given away, **not reproducible** |
-| 5 | RHEL 10 / 10.1 | RHEL/rpm | mixed | bare (Legion) + VM | T1/T2 | `marketing-assets/rhel*` | RHEL 10.1 ran on real Legion HW (GPU burn) = T1 ⚠️ HW given away, **not reproducible** |
+| 4 | Kali Rolling | Debian/apt | v0.6.11 | OrbStack (kali-dsd) | T2 | `marketing-assets/kali-data/` | captured 2026-06-10 |
+| 5 | RHEL 10 / 10.1 | RHEL/rpm | mixed | bare metal + VM | T1/T2 | `marketing-assets/rhel*` | RHEL 10.1 validated on real hardware (T1); current captures are VM-based (T2) |
 | 6 | AlmaLinux 9 / 10 | RHEL/rpm | v0.6.11 (9) | PVE LXC (CT213) | T2 | `marketing-assets/almalinux9-lxc-data/`, `almalinux10-data/` | |
 | 7 | Rocky 10 | RHEL/rpm | v0.6.11 | PVE LXC (CT203) | T2 | `marketing-assets/rocky10-session13-data/` | CI smoke-tests rockylinux:9 |
 | 8 | CentOS Stream 10 | RHEL/rpm | v0.5.x | VM | T2 | `marketing-assets/centos-stream10-data/` | |
@@ -72,30 +72,30 @@ host, not a multi-node cluster — cluster-quorum / corosync paths are not yet H
 Tracked honestly so claims stay accurate:
 
 - **ARM server hardware** — no real aarch64 *bare-metal* validation of SMART/thermal/IPMI/GPU.
-  (Graviton on EC2 validated arm64 software + AWS detection, but is virtualized — T2, not
-  hardware.) Cheapest path to T1: Oracle always-free Ampere bare-metal, or Raspberry Pi.
-- **SteamOS on real hardware** — only code-path validated. Planned: SteamOS as second OS
-  on a spare AMD laptop. Before claiming "RAUC-on-hardware", confirm the install actually
-  has the A/B RAUC immutable layout (community spins sometimes don't).
-- **x86_64 bare-metal (current/reproducible)** — the only x86_64 HW run was RHEL 10.1 on the
-  Legion, now given away and not reproducible. Same spare AMD laptop can provide a fresh,
-  reproducible x86_64 T1 capture (real SMART/thermal/GPU) under its native OS — bundle with
-  the SteamOS install. x86_64 *VM/container* coverage is already thorough (most of Table 1).
-- **Server-grade hardware (ECC/EDAC, IPMI/BMC, NUMA)** — the EDAC, IPMI, and NUMA collectors
-  only have real data on *server-class* hardware; consumer CPUs (Core i5/i7), laptops, and
-  cloud VMs can't exercise them. Identified path when demand-warranted: an hourly **Xeon/EPYC
-  dedicated server** (e.g. Scaleway/OVH EM-class, Xeon E3, ~€0.08/hr) — cleaner and far cheaper
-  than cloud bare-metal, and the only target that validates the full server-hardware collector
-  set. A consumer-i7 dedicated box is a weaker subset (real SMART/thermal but no ECC/IPMI/NUMA),
-  so the Xeon is strictly preferred.
-- **VMware on real vSphere** — only DMI-spoofed. Would need an actual ESXi/vSphere guest.
-- **Multi-node Proxmox cluster** — single host only.
-- **Kali on physical hardware** — was on the Legion laptop (given away); now OrbStack-only (T2).
+  (Graviton on EC2 validated arm64 software + AWS detection, but is virtualized — T2, not hardware.)
+- **SteamOS on real hardware** — only the code path is validated, not a physical Steam Deck.
+- **x86_64 bare-metal (current)** — thoroughly covered in VMs and containers (most of Table 1);
+  a fresh, reproducible physical-hardware capture (real SMART/thermal/GPU) is not currently on hand.
+- **Server-grade hardware (ECC/EDAC, IPMI/BMC, NUMA)** — these collectors only see real data on
+  server-class hardware; consumer CPUs, laptops, and cloud VMs can't exercise them.
+- **VMware on real vSphere** — validated via DMI detection, not yet on an actual ESXi/vSphere guest.
+- **Multi-node Proxmox cluster** — validated on a single PVE host; cluster-quorum paths not yet covered.
 
-## Claim guidance (derive marketing copy from this, not vice versa)
+## How to read this matrix
 
-- ✅ "Tested across 16 Linux distributions spanning every major family" — Table 1, defensible.
-- ✅ "SteamOS-aware: RAUC update-slot health + Deck hardware profile" — capability claim, T3-backed.
-- ✅ "Proxmox VE diagnostics" — T1 on real PVE.
-- ❌ "Tested on Steam Deck" / "tested on vSphere" — would overclaim T3 as hardware.
-- ❌ Any single round number ("18+ distros") that isn't the count of evidenced rows above.
+We try to be precise about what "tested" means, so you can judge the coverage for
+your own environment:
+
+- **17 Linux distributions** (Table 1, rows 1–17) spanning every major family —
+  apt/dpkg, rpm/dnf, zypper, pacman, portage — plus both init systems (systemd and
+  OpenRC) and macOS.
+- **Platform awareness** (Table 2) — Proxmox VE, VMware-guest, SteamOS, AWS EC2
+  (including Graviton/arm64), and Azure each have environment-specific detection and
+  diagnostics, validated at the depth shown in the Tier column.
+- The **depth tier** on every row states exactly what was exercised. A container or
+  VM run (T2) validates the full software stack but not hardware-layer collectors
+  (SMART, IPMI, thermal); only a real-hardware run (T1) does. Where a platform's
+  logic was validated via its code path rather than a genuine instance (T3), we say
+  so rather than imply hardware testing.
+
+If it isn't in this file with evidence, we don't claim it.
