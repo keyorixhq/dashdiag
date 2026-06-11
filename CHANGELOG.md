@@ -9,6 +9,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.7.0] — 2026-06-12
+
+Two new capabilities — a live incident view and an in-tool reference.
+
+### Added
+
+- **`dsd explain <topic>`** — a plain-language reference for the health checks.
+  `dsd explain swap` (or zfs, cve, drives, docker, k8s, …) prints what the check
+  diagnoses, why it matters, how dsd decides severity (the real thresholds), and
+  the commands to investigate and fix it; no argument lists the 20 topics, and
+  aliases resolve (`ram`→memory, `zpool`→zfs, `kev`→cve). It is pure static
+  documentation — it never touches the host — and `--json` is supported. Turns dsd
+  from an alerter into a teacher: when health flags a subsystem, get the full
+  picture in-tool (#174, #175).
+- **`dsd health --watch` change detection** — each refresh now prints a "Changes
+  since last refresh" block: 🆕 newly-broken, ✅ newly-resolved, and ↕ severity
+  changes (WARN→CRIT), with "· no change" as a steady-state signal. Insights are
+  matched across ticks by a value-normalized signature, so a fluctuating number
+  (CPU 75%→82%) doesn't churn as resolved+new. The point of watch during an
+  incident is the delta — now you see it (#173).
+
 ## [v0.6.15] — 2026-06-11
 
 ### Fixed
