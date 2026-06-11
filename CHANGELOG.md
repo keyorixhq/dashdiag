@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.13] — 2026-06-11
+
+A follow-up to v0.6.12 closing the matching display drift.
+
+### Fixed
+
+- **network: `dsd net --deep` now agrees with `dsd health`.** v0.6.12 rate-normalized
+  the since-boot TCP counters in the health verdict, but the standalone
+  `dsd net --deep` table and its issue tally still classified those same counters
+  by raw absolute value — so it could show ⚠️/❌ and count an "issue" for a lone
+  historical SYN-retransmission/listen-overflow that `dsd health` correctly reports
+  as INFO. Both now read a single shared classifier (`analysis.DeepTCPCounterLevel`),
+  so the two views can't diverge (same single-source approach as the v0.6.11 disk
+  fix). The counter table is relabeled "cumulative since boot." Verified live on an
+  8-day-uptime host (149 SYN retransmissions → INFO, Network OK).
+
 ## [v0.6.12] — 2026-06-11
 
 A bug-fix and hygiene release continuing the false-verdict cleanup.
