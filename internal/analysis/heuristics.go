@@ -3818,6 +3818,25 @@ func min(a, b int) int {
 	return b
 }
 
+// packageFixCommands returns the distro-correct (fix, inspect) command pair for
+// a package manager, defaulting to apt's when the manager is unknown.
+func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
+	switch pm {
+	case "brew":
+		return "brew upgrade", "brew outdated"
+	case "dnf":
+		return "dnf upgrade --security", "dnf updateinfo list security"
+	case "zypper":
+		return "zypper patch --category security", "zypper list-patches --category security"
+	case "pacman":
+		return "pacman -Syu", "checkupdates"
+	case "yum":
+		return "yum update --security", "yum updateinfo list security"
+	default:
+		return "apt-get upgrade", "apt list --upgradable 2>/dev/null | grep -i security"
+	}
+}
+
 func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	var out []models.Insight
 
@@ -3864,25 +3883,7 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	}
 
 	// distro-correct fix commands
-	fixCmd := "apt-get upgrade"
-	inspectCmd := "apt list --upgradable 2>/dev/null | grep -i security"
-	switch pkg.PackageManager {
-	case "brew":
-		fixCmd = "brew upgrade"
-		inspectCmd = "brew outdated"
-	case "dnf":
-		fixCmd = "dnf upgrade --security"
-		inspectCmd = "dnf updateinfo list security"
-	case "zypper":
-		fixCmd = "zypper patch --category security"
-		inspectCmd = "zypper list-patches --category security"
-	case "pacman":
-		fixCmd = "pacman -Syu"
-		inspectCmd = "checkupdates"
-	case "yum":
-		fixCmd = "yum update --security"
-		inspectCmd = "yum updateinfo list security"
-	}
+	fixCmd, inspectCmd := packageFixCommands(pkg.PackageManager)
 
 	if pkg.CriticalUpdates > 0 {
 		out = append(out, insight("CRIT", "Packages",

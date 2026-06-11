@@ -32,7 +32,7 @@ func TestDegradeArrow(t *testing.T) {
 }
 
 func TestSeverityOrder(t *testing.T) {
-	if !(severityOrder("CRIT") > severityOrder("WARN") && severityOrder("WARN") > severityOrder("INFO")) {
+	if severityOrder("CRIT") <= severityOrder("WARN") || severityOrder("WARN") <= severityOrder("INFO") {
 		t.Error("severityOrder must rank CRIT > WARN > INFO/OK")
 	}
 	if severityOrder("INFO") != 0 || severityOrder("OK") != 0 {

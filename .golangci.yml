@@ -57,11 +57,12 @@ linters:
         - name: var-naming
         - name: indent-error-flow
         - name: superfluous-else
+  exclusions:
+    rules:
+      - path: "_test\\.go$"
+        linters: [gosec, errcheck, funlen, cyclop]
+      - path: "^cmd/"
+        linters: [funlen, cyclop]
 
 issues:
   max-same-issues: 0
-  exclude-rules:
-    - path: "_test\\.go$"
-      linters: [gosec, errcheck, funlen, cyclop]
-    - path: "^cmd/"
-      linters: [funlen, cyclop]

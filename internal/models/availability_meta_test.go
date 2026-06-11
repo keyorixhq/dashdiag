@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"strings"
 	"testing"
 )
@@ -17,38 +17,50 @@ import (
 // phantom "X ✅ OK" rows in dsd health --report that #129–#131 removed.
 func TestAvailableStructsImplementIsAvailable(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	// Parse every non-test .go file in this dir. We use ParseFile in a manual
+	// loop rather than the deprecated parser.ParseDir (whose only documented
+	// shortcoming — ignoring build tags — is irrelevant here: we inspect struct
+	// and method declarations in a single package directory).
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parsing package source: %v", err)
+		t.Fatalf("reading package dir: %v", err)
+	}
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, name, nil, 0)
+		if perr != nil {
+			t.Fatalf("parsing %s: %v", name, perr)
+		}
+		files = append(files, f)
 	}
 
 	withAvailableField := map[string]bool{}
 	withMethod := map[string]bool{}
 
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				switch d := decl.(type) {
-				case *ast.GenDecl:
-					for _, spec := range d.Specs {
-						ts, ok := spec.(*ast.TypeSpec)
-						if !ok {
-							continue
-						}
-						st, ok := ts.Type.(*ast.StructType)
-						if !ok {
-							continue
-						}
-						if structHasAvailableBool(st) {
-							withAvailableField[ts.Name.Name] = true
-						}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
 					}
-				case *ast.FuncDecl:
-					if d.Recv != nil && d.Name.Name == "IsAvailable" {
-						withMethod[receiverTypeName(d.Recv.List[0].Type)] = true
+					st, ok := ts.Type.(*ast.StructType)
+					if !ok {
+						continue
 					}
+					if structHasAvailableBool(st) {
+						withAvailableField[ts.Name.Name] = true
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv != nil && d.Name.Name == "IsAvailable" {
+					withMethod[receiverTypeName(d.Recv.List[0].Type)] = true
 				}
 			}
 		}

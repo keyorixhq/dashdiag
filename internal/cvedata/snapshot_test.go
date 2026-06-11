@@ -101,8 +101,8 @@ func TestLoadSnapshot_Gzip(t *testing.T) {
 	if _, err := gw.Write([]byte(snapshotJSON)); err != nil {
 		t.Fatal(err)
 	}
-	gw.Close()
-	f.Close()
+	_ = gw.Close()
+	_ = f.Close()
 
 	s, err := LoadSnapshot(path)
 	if err != nil {

@@ -71,105 +71,38 @@ func parseEpoch(s string) int {
 // stripped, longer wins), a numeric segment outranks an alpha one — and honours
 // the '~' (sorts before everything, for pre-releases) and '^' (sorts after the
 // base version) separators.
+//
+// The loop body is split into helpers (separator skip, tilde, caret, segment
+// compare) so each piece stays individually simple; behaviour is identical to
+// the single-function form and is pinned by TestRpmvercmp's edge-case table.
 func rpmvercmp(a, b string) int {
 	if a == b {
 		return 0
 	}
 	i, j := 0, 0
 	for i < len(a) || j < len(b) {
-		// Skip separators, but preserve '~' and '^'.
-		for i < len(a) && !isAlnum(a[i]) && a[i] != '~' && a[i] != '^' {
-			i++
-		}
-		for j < len(b) && !isAlnum(b[j]) && b[j] != '~' && b[j] != '^' {
-			j++
-		}
+		skipSeparators(a, &i)
+		skipSeparators(b, &j)
 
-		// Tilde sorts before everything else.
-		aTilde := i < len(a) && a[i] == '~'
-		bTilde := j < len(b) && b[j] == '~'
-		if aTilde || bTilde {
-			if !aTilde {
-				return 1
+		if decided, res := compareTilde(a, b, &i, &j); decided {
+			if res == continueLoop {
+				continue
 			}
-			if !bTilde {
-				return -1
-			}
-			i++
-			j++
-			continue
+			return res
 		}
-
-		// Caret: like tilde, but if one string ends the other (the base) is older.
-		aCaret := i < len(a) && a[i] == '^'
-		bCaret := j < len(b) && b[j] == '^'
-		if aCaret || bCaret {
-			if i >= len(a) {
-				return -1
+		if decided, res := compareCaret(a, b, &i, &j); decided {
+			if res == continueLoop {
+				continue
 			}
-			if j >= len(b) {
-				return 1
-			}
-			if !aCaret {
-				return 1
-			}
-			if !bCaret {
-				return -1
-			}
-			i++
-			j++
-			continue
+			return res
 		}
 
 		if i >= len(a) || j >= len(b) {
 			break
 		}
 
-		// Grab the next segment (all digits or all alpha).
-		startI, startJ := i, j
-		isNum := isDigit(a[i])
-		if isNum {
-			for i < len(a) && isDigit(a[i]) {
-				i++
-			}
-			for j < len(b) && isDigit(b[j]) {
-				j++
-			}
-		} else {
-			for i < len(a) && isAlpha(a[i]) {
-				i++
-			}
-			for j < len(b) && isAlpha(b[j]) {
-				j++
-			}
-		}
-		segA := a[startI:i]
-		segB := b[startJ:j]
-
-		// b's segment is empty → the two are different types at this position.
-		// A numeric segment outranks an alpha one.
-		if len(segB) == 0 {
-			if isNum {
-				return 1
-			}
-			return -1
-		}
-
-		if isNum {
-			segA = strings.TrimLeft(segA, "0")
-			segB = strings.TrimLeft(segB, "0")
-			if len(segA) > len(segB) {
-				return 1
-			}
-			if len(segB) > len(segA) {
-				return -1
-			}
-		}
-		if c := strings.Compare(segA, segB); c != 0 {
-			if c < 0 {
-				return -1
-			}
-			return 1
+		if decided, res := compareSegment(a, b, &i, &j); decided {
+			return res
 		}
 	}
 
@@ -181,6 +114,111 @@ func rpmvercmp(a, b string) int {
 	default:
 		return 1
 	}
+}
+
+// continueLoop is a sentinel result meaning "both cursors advanced, keep looping"
+// (distinct from the -1/0/1 comparison results).
+const continueLoop = 2
+
+// skipSeparators advances idx over separator bytes, preserving '~' and '^'.
+func skipSeparators(s string, idx *int) {
+	for *idx < len(s) && !isAlnum(s[*idx]) && s[*idx] != '~' && s[*idx] != '^' {
+		*idx++
+	}
+}
+
+// compareTilde handles '~' (sorts before everything else). Returns decided=true
+// when it resolved the comparison or consumed a matching pair (res=continueLoop).
+func compareTilde(a, b string, i, j *int) (decided bool, res int) {
+	aTilde := *i < len(a) && a[*i] == '~'
+	bTilde := *j < len(b) && b[*j] == '~'
+	if !aTilde && !bTilde {
+		return false, 0
+	}
+	if !aTilde {
+		return true, 1
+	}
+	if !bTilde {
+		return true, -1
+	}
+	*i++
+	*j++
+	return true, continueLoop
+}
+
+// compareCaret handles '^' (like tilde, but if one string ends, the base is older).
+func compareCaret(a, b string, i, j *int) (decided bool, res int) {
+	aCaret := *i < len(a) && a[*i] == '^'
+	bCaret := *j < len(b) && b[*j] == '^'
+	if !aCaret && !bCaret {
+		return false, 0
+	}
+	if *i >= len(a) {
+		return true, -1
+	}
+	if *j >= len(b) {
+		return true, 1
+	}
+	if !aCaret {
+		return true, 1
+	}
+	if !bCaret {
+		return true, -1
+	}
+	*i++
+	*j++
+	return true, continueLoop
+}
+
+// compareSegment grabs the next maximal digit-or-alpha run from each string and
+// compares them: numeric outranks alpha, numerics compare by stripped length
+// then lexically. decided=false means the segments were equal — keep looping.
+func compareSegment(a, b string, i, j *int) (decided bool, res int) {
+	startI, startJ := *i, *j
+	isNum := isDigit(a[*i])
+	if isNum {
+		for *i < len(a) && isDigit(a[*i]) {
+			*i++
+		}
+		for *j < len(b) && isDigit(b[*j]) {
+			*j++
+		}
+	} else {
+		for *i < len(a) && isAlpha(a[*i]) {
+			*i++
+		}
+		for *j < len(b) && isAlpha(b[*j]) {
+			*j++
+		}
+	}
+	segA := a[startI:*i]
+	segB := b[startJ:*j]
+
+	// b's segment is empty → different types at this position; numeric outranks alpha.
+	if len(segB) == 0 {
+		if isNum {
+			return true, 1
+		}
+		return true, -1
+	}
+
+	if isNum {
+		segA = strings.TrimLeft(segA, "0")
+		segB = strings.TrimLeft(segB, "0")
+		if len(segA) > len(segB) {
+			return true, 1
+		}
+		if len(segB) > len(segA) {
+			return true, -1
+		}
+	}
+	if c := strings.Compare(segA, segB); c != 0 {
+		if c < 0 {
+			return true, -1
+		}
+		return true, 1
+	}
+	return false, 0
 }
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
