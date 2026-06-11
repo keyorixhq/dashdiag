@@ -9,6 +9,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.15] — 2026-06-11
+
+### Fixed
+
+- **cve: apt no longer claims a CVSS verdict it can't measure.** apt publishes no
+  per-package CVSS, so `dsd health --cve` inferred severity from the package name
+  yet reported it as "critical advisory — CVSS >= 9.0" / "high-severity — CVSS >=
+  7.0" — and a name guess (e.g. a routine `python3-*` or `libssl` update) could
+  raise a hard CRIT. For apt, name-matched advisories now fold into a single
+  honest WARN ("severity inferred from package name; apt exposes no CVSS", with a
+  pointer to the distro security tracker) — no name-only CRIT, no fabricated CVSS
+  claim. Package managers that expose real severity (dnf/zypper/…) are unchanged,
+  and CISA KEV matches still escalate to CRIT (#171).
+
 ## [v0.6.14] — 2026-06-11
 
 A batch of false-positive fixes — verdicts that fired on healthy hosts.
