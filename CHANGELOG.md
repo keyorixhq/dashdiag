@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.14] — 2026-06-11
+
+A batch of false-positive fixes — verdicts that fired on healthy hosts.
+
+### Fixed
+
+- **swap: no more false WARN on zram churn.** Swap-activity WARNed on *any*
+  paging (`> 0` pages/s) and ignored zram. On zram-by-default distros
+  (Fedora/Ubuntu/Pop!_OS/SteamOS) swapping is compressed-RAM churn, not disk
+  thrash. The WARN floor is raised to 50 pages/s, and zram-backed paging below the
+  heavy-thrash threshold is now INFO ("compressed RAM, not disk thrash"). Heavy
+  paging (>100 pages/s) still CRITs; disk-backed swap keeps WARN/CRIT (#167).
+- **drives: power-on-hours is age, not wear.** The NVMe (>35,000 h) and HDD
+  (>43,800 h) power-on-hours checks WARNed about "consumer/HDD lifespan" — but
+  hours run is not a failure signal, and the real endurance metrics
+  (NVMe percentage-used/spare, SATA reallocated sectors, SMART self-assessment)
+  are checked separately. A healthy long-lived enterprise drive no longer gets a
+  false lifespan WARN; power-on-hours is now INFO context (#168).
+- **zfs: no more perpetual CRIT on repaired vdev errors.** `zpool`'s cumulative
+  read/write/checksum vdev counters include errors ZFS already repaired and
+  persist until `zpool clear`, so one transient blip CRITed forever. Severity is
+  now gated on actual pool health: an ONLINE pool with a clean last scrub is WARN
+  ("repaired; investigate if recurring"), CRIT only when the pool is not ONLINE or
+  the last scrub left unrepairable errors — real corruption is still caught (#169).
+
 ## [v0.6.13] — 2026-06-11
 
 A follow-up to v0.6.12 closing the matching display drift.
