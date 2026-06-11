@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -43,15 +44,40 @@ func TestCheckCVEHealthCriticalFiresCrit(t *testing.T) {
 	}
 }
 
-// Important/High advisories (CVSS >= 7.0) with no Critical/KEV fire WARN.
+// Important/High advisories (CVSS >= 7.0) with no Critical/KEV fire WARN on a
+// manager that publishes real severity (dnf).
 func TestCheckCVEHealthImportantFiresWarn(t *testing.T) {
 	r := models.CVEAllResult{
-		PackageManager: "apt",
+		PackageManager: "dnf",
 		Important:      []models.CVEAdvisory{{ID: "A"}},
 	}
 	insights := checkCVEHealth(r)
 	if len(insights) != 1 || insights[0].Level != "WARN" {
 		t.Fatalf("expected one WARN, got %+v", insights)
+	}
+	if !hasInsight(insights, "WARN", "CVSS >= 7.0") {
+		t.Errorf("expected CVSS-based wording for dnf, got %+v", insights)
+	}
+}
+
+// apt exposes no CVSS — its name-inferred severities must not claim a CVSS
+// threshold or mint a hard CRIT. A name-matched "critical" package folds into a
+// single honest WARN.
+func TestCheckCVEHealthAptIsNameInferredWarnNotCrit(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "apt",
+		Critical:       []models.CVEAdvisory{{ID: "A"}}, // name-guessed "critical" (e.g. openssl)
+		Important:      []models.CVEAdvisory{{ID: "B"}},
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 1 || insights[0].Level != "WARN" {
+		t.Fatalf("apt name-guess must be a single WARN, got %+v", insights)
+	}
+	if hasLevel(insights, "CRIT") {
+		t.Error("apt name-inferred severity must not produce a CRIT")
+	}
+	if strings.Contains(insights[0].Message, "CVSS >=") {
+		t.Errorf("apt insight must not claim a CVSS threshold, got %q", insights[0].Message)
 	}
 }
 
