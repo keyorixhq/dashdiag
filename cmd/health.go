@@ -345,6 +345,8 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 		}
 	}
 
+	var prev []models.Insight
+	hasPrev := false
 	run := func() {
 		if mode == output.ModeHuman {
 			fmt.Print("\033[H\033[2J") // clear screen + move cursor to top
@@ -354,6 +356,14 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
 		renderer.PrintSummary(insights, 0) //nolint:errcheck
+		// Surface the delta from the previous tick (skipped on the first render,
+		// when there is no baseline to compare against).
+		if hasPrev {
+			added, resolved, changed := render.InsightChanges(prev, insights)
+			render.PrintInsightChanges(os.Stdout, added, resolved, changed, mode)
+		}
+		prev = insights
+		hasPrev = true
 	}
 
 	run()
