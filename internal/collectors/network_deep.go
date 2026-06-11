@@ -108,8 +108,10 @@ func jitterStddev(values []float64) float64 {
 }
 
 // parseTCPCounters reads TCP statistics from /proc/net/netstat and /proc/net/sockstat.
-// These are cumulative counters since boot — we report current values, not deltas.
-// High values indicate persistent network stress, not momentary spikes.
+// TcpExt counters (SynRetrans/ListenOverflows/RetransFail) are cumulative since boot,
+// so a single old spike on a long-uptime host inflates them — the heuristics layer
+// rate-normalizes them against UptimeSec rather than reading the raw total as "now".
+// TimeWait (sockstat) is a live snapshot, not cumulative.
 func parseTCPCounters(info *models.NetworkInfo) {
 	// /proc/net/sockstat: current socket counts including TIME_WAIT
 	if data, err := os.ReadFile("/proc/net/sockstat"); err == nil {
@@ -159,6 +161,14 @@ func parseTCPCounters(info *models.NetworkInfo) {
 		info.ListenOverflows = get("ListenOverflows")
 		info.RetransFailCount = get("TCPRetransFail")
 		break
+	}
+
+	// /proc/uptime — first field is seconds since boot; lets the heuristics turn the
+	// cumulative TcpExt counters above into a per-hour rate instead of a raw total.
+	if up, err := os.ReadFile("/proc/uptime"); err == nil {
+		if f := strings.Fields(string(up)); len(f) > 0 {
+			info.UptimeSec, _ = strconv.ParseFloat(f[0], 64)
+		}
 	}
 
 	// /proc/sys/net/netfilter/nf_conntrack_{count,max} — optional, needs nf_conntrack module

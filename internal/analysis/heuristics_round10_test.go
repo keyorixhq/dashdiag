@@ -39,7 +39,9 @@ func TestCheckNetwork(t *testing.T) {
 		{"close_wait elevated is WARN", models.NetworkInfo{CloseWaitCount: 150}, "WARN"},
 		{"conntrack near full is CRIT", models.NetworkInfo{ConntrackUsedPct: 85}, "CRIT"},
 		{"conntrack elevated is WARN", models.NetworkInfo{ConntrackUsedPct: 65}, "WARN"},
-		{"listen overflows is CRIT", models.NetworkInfo{ListenOverflows: 1}, "CRIT"},
+		{"lone listen overflow (uptime unknown) is INFO", models.NetworkInfo{ListenOverflows: 1}, "INFO"},
+		{"sustained listen overflow is CRIT", models.NetworkInfo{ListenOverflows: 5000, UptimeSec: 3600}, "CRIT"},
+		{"low-rate listen overflow is WARN", models.NetworkInfo{ListenOverflows: 5, UptimeSec: 3600}, "WARN"},
 		{"slow primary link is WARN", primary(100), "WARN"},
 		{"NIC hardware errors is WARN", models.NetworkInfo{Interfaces: []models.InterfaceInfo{{Name: "eth0", RxErrors: 200}}}, "WARN"},
 	}

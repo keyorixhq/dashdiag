@@ -46,6 +46,7 @@ type NetworkInfo struct {
 	SynRetransCount  int             `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
 	ListenOverflows  int             `json:"listen_overflows,omitempty"`   // ListenOverflows — SYN backlog saturation
 	RetransFailCount int             `json:"retrans_fail_count,omitempty"` // TCPRetransFail — persistent retransmit failures
+	UptimeSec        float64         `json:"uptime_sec,omitempty"`         // host uptime — to rate-normalize the since-boot counters above
 	ConntrackUsedPct float64         `json:"conntrack_used_pct,omitempty"` // nf_conntrack fill %
 	Status           string          `json:"status"`
 	StatusReason     string          `json:"status_reason"`

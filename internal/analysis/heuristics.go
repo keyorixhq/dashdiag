@@ -1201,6 +1201,88 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 	return out
 }
 
+// eventsPerHour turns a since-boot cumulative counter into a per-hour rate.
+// A return of -1 means uptime is unknown (couldn't be read) — callers then report
+// the raw since-boot total without asserting a rate they can't compute.
+func eventsPerHour(count int, uptimeSec float64) float64 {
+	if uptimeSec <= 0 {
+		return -1
+	}
+	return float64(count) / (uptimeSec / 3600.0)
+}
+
+// rateSuffix renders a "(~N/hr)" qualifier, or "" when the rate is unknown.
+func rateSuffix(rate float64) string {
+	if rate < 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (~%.1f/hr)", rate)
+}
+
+// deepTCPCounterInsights evaluates the cumulative-since-boot TcpExt counters
+// (SYN retransmissions, listen-queue overflows, retransmit failures). These are
+// totals since boot, not live readings, so a single old spike on a long-uptime
+// host would otherwise read as a current outage. We rate-normalize each against
+// host uptime: a sustained rate escalates (WARN/CRIT), while a small historical
+// total — or one we can't rate (uptime unknown) — is reported as INFO context.
+func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
+	var out []models.Insight
+
+	if net.SynRetransCount > 100 {
+		rate := eventsPerHour(net.SynRetransCount, net.UptimeSec)
+		if rate >= 60 { // ≥1/sec sustained — active packet loss or overload
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("~%.0f SYN retransmissions/hr since boot (%d total) — packet loss or server overload", rate, net.SynRetransCount),
+				[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans", "to inspect: ss -tan state syn-sent"},
+			))
+		} else {
+			out = append(out, insight("INFO", "Network",
+				fmt.Sprintf("%d SYN retransmissions since boot%s — cumulative, low ongoing rate", net.SynRetransCount, rateSuffix(rate)),
+				[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans"},
+			))
+		}
+	}
+
+	if net.ListenOverflows > 0 {
+		rate := eventsPerHour(net.ListenOverflows, net.UptimeSec)
+		fix := []string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"}
+		switch {
+		case rate >= 10: // sustained saturation — connections actively dropped
+			out = append(out, insight("CRIT", "Network",
+				fmt.Sprintf("listen queue overflowing (~%.0f/hr, %d since boot) — SYN backlog saturated, connections being dropped", rate, net.ListenOverflows),
+				fix,
+			))
+		case rate >= 1:
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("%d listen-queue overflow(s) since boot (~%.1f/hr) — SYN backlog saturated at times", net.ListenOverflows, rate),
+				fix,
+			))
+		default: // a handful since boot, or uptime unknown — historical, not necessarily live
+			out = append(out, insight("INFO", "Network",
+				fmt.Sprintf("%d listen-queue overflow(s) since boot%s — backlog saturated at least once, not necessarily ongoing", net.ListenOverflows, rateSuffix(rate)),
+				fix,
+			))
+		}
+	}
+
+	if net.RetransFailCount > 10 {
+		rate := eventsPerHour(net.RetransFailCount, net.UptimeSec)
+		if rate >= 6 { // retransmits giving up entirely at a real rate — active failure
+			out = append(out, insight("WARN", "Network",
+				fmt.Sprintf("~%.0f TCP retransmit failures/hr since boot (%d total) — persistent connectivity problems", rate, net.RetransFailCount),
+				[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail", "to inspect: ss -ti"},
+			))
+		} else {
+			out = append(out, insight("INFO", "Network",
+				fmt.Sprintf("%d TCP retransmit failures since boot%s — cumulative, low ongoing rate", net.RetransFailCount, rateSuffix(rate)),
+				[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail"},
+			))
+		}
+	}
+
+	return out
+}
+
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
@@ -1378,24 +1460,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to inspect: ss -tan state time-wait | head -10", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
 		))
 	}
-	if net.SynRetransCount > 100 {
-		out = append(out, insight("WARN", "Network",
-			fmt.Sprintf("%d SYN retransmissions — packet loss or server overload", net.SynRetransCount),
-			[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans", "to inspect: ss -tan state syn-sent"},
-		))
-	}
-	if net.ListenOverflows > 0 {
-		out = append(out, insight("CRIT", "Network",
-			fmt.Sprintf("%d listen queue overflow(s) — SYN backlog saturated, connections being dropped", net.ListenOverflows),
-			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"},
-		))
-	}
-	if net.RetransFailCount > 10 {
-		out = append(out, insight("WARN", "Network",
-			fmt.Sprintf("%d TCP retransmit failures — persistent connectivity problems", net.RetransFailCount),
-			[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail", "to inspect: ss -ti"},
-		))
-	}
+	out = append(out, deepTCPCounterInsights(net)...)
 	if net.ConntrackUsedPct >= 80 {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("conntrack table %.0f%% full — new connections will be dropped when full", net.ConntrackUsedPct),
