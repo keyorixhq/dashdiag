@@ -2375,8 +2375,11 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 			))
 		}
 		if dev.PowerOnHours > 35000 {
-			out = append(out, insight("WARN", "Drives",
-				fmt.Sprintf("%s has %d power-on hours (~%.1f years) — beyond typical consumer NVMe lifespan", dev.Name, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
+			// Power-on hours is age, not wear — a long-lived enterprise/healthy drive
+			// is fine. Real endurance is PercentageUsed / AvailableSpare (checked above),
+			// so this is INFO context, not a WARN.
+			out = append(out, insight("INFO", "Drives",
+				fmt.Sprintf("%s has %d power-on hours (~%.1f years) — age only; wear is tracked via percentage-used/spare, not hours", dev.Name, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
 				[]string{"to inspect: nvme smart-log " + dev.Name},
 			))
 		}
@@ -2438,8 +2441,11 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 			))
 		}
 		if dev.PowerOnHours > 43800 {
-			out = append(out, insight("WARN", "Drives",
-				fmt.Sprintf("%s (%s) has %d power-on hours (~%.1f years) — beyond typical HDD lifespan", dev.Name, dev.Type, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
+			// Age, not health — enterprise/NAS HDDs routinely run 5+ years 24/7.
+			// On its own this is not a failure signal; reallocated/pending sectors
+			// and a failing SMART self-assessment (checked above) are. INFO context.
+			out = append(out, insight("INFO", "Drives",
+				fmt.Sprintf("%s (%s) has %d power-on hours (~%.1f years) — age only; not a failure signal on its own (check reallocated/pending sectors)", dev.Name, dev.Type, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
 				[]string{"to inspect: smartctl -a " + dev.Name},
 			))
 		}
