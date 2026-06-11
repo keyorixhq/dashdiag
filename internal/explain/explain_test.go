@@ -68,6 +68,35 @@ func TestTopicsContentIntegrity(t *testing.T) {
 	}
 }
 
+func TestForCheck(t *testing.T) {
+	// Health Check names → explain topics (drives the `dsd health --explain` tail).
+	tests := []struct {
+		check   string
+		wantKey string // "" = no topic
+	}{
+		{"Swap", "swap"},
+		{"CPU Load", "cpu"},      // first-word fallback
+		{"KernelSec", "selinux"}, // via alias
+		{"ZFS", "zfs"},
+		{"Network", "network"},
+		{"Drives", "drives"},
+		{"CVE", "cve"},
+		{"Entropy", ""}, // no topic yet — must not panic or mis-map
+	}
+	for _, tt := range tests {
+		got := ForCheck(tt.check)
+		if tt.wantKey == "" {
+			if got != nil {
+				t.Errorf("ForCheck(%q) = %q, want nil", tt.check, got.Key)
+			}
+			continue
+		}
+		if got == nil || got.Key != tt.wantKey {
+			t.Errorf("ForCheck(%q) = %v, want %q", tt.check, got, tt.wantKey)
+		}
+	}
+}
+
 func TestTopicsSorted(t *testing.T) {
 	all := Topics()
 	for i := 1; i < len(all); i++ {

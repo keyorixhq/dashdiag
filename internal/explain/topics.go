@@ -161,7 +161,7 @@ var topics = []Topic{
 	{
 		Key:     "selinux",
 		Title:   "SELinux / AppArmor denials",
-		Aliases: []string{"avc", "apparmor", "mac", "denials"},
+		Aliases: []string{"avc", "apparmor", "mac", "denials", "kernelsec"},
 		Summary: "Mandatory-access-control denials that silently break services.",
 		Checks:  "Recent SELinux AVC denials (grouped by source), SELinux booleans that would resolve them, AppArmor profiles in complain/enforce mode, and the /.autorelabel flag.",
 		Matters: "An AVC denial is the invisible reason a service 'just won't work' despite correct config — SELinux blocked it and the app only sees a generic permission error. The right fix is usually a boolean or a context, not `setenforce 0`.",
