@@ -932,12 +932,8 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 				[]string{fmt.Sprintf("to inspect: zpool status %s", p.Name)},
 			))
 		}
-		if p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
-			out = append(out, insight("WARN", "Disk",
-				fmt.Sprintf("ZFS pool %s has vdev errors (R:%d W:%d C:%d) — run scrub",
-					p.Name, p.ReadErrors, p.WriteErrors, p.CksumErrors),
-				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
-			))
+		if ins, ok := zfsVdevErrorInsight(p, "Disk"); ok {
+			out = append(out, ins)
 		}
 		if p.ScrubAgeDays < 0 {
 			out = append(out, insight("INFO", "Disk",
@@ -2456,6 +2452,57 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 
 // checkZFS surfaces ZFS pool health issues: degraded state, capacity, errors, scrub age.
 // ZFS is used heavily by Proxmox, TrueNAS-derived systems, and enterprise Linux.
+// zfsVdevErrorLevel classifies a pool's cumulative R/W/Cksum vdev counters. Those
+// counters tally every error since the last `zpool clear` — INCLUDING ones ZFS
+// already repaired from redundancy — and persist until cleared, so a transient or
+// repaired blip on a healthy pool would otherwise read as a permanent CRIT. Real,
+// current corruption is signalled separately (a non-ONLINE State, or unrepairable
+// ScrubErrors), and stays CRIT here too; an ONLINE pool whose last scrub was clean
+// is WARN (investigate/clear), since the errors were repaired. "" = no errors.
+func zfsVdevErrorLevel(p models.ZFSPool) string {
+	if p.ReadErrors+p.WriteErrors+p.CksumErrors == 0 {
+		return ""
+	}
+	if (p.State != "" && p.State != "ONLINE") || p.ScrubErrors > 0 {
+		return "CRIT"
+	}
+	return "WARN"
+}
+
+// zfsVdevErrorInsight builds the insight for a pool's cumulative vdev error
+// counters (or ok=false when there are none). Shared by the disk and ZFS checks
+// so they assign the same severity for the same condition. check is the insight
+// category label ("Disk" or "ZFS").
+func zfsVdevErrorInsight(p models.ZFSPool, check string) (models.Insight, bool) {
+	lvl := zfsVdevErrorLevel(p)
+	if lvl == "" {
+		return models.Insight{}, false
+	}
+	counts := fmt.Sprintf("R:%d W:%d C:%d", p.ReadErrors, p.WriteErrors, p.CksumErrors)
+	if lvl == "WARN" {
+		return insight("WARN", check,
+			fmt.Sprintf("ZFS pool %s recorded vdev errors (%s) since last clear — repaired (pool ONLINE, last scrub clean); investigate if recurring", p.Name, counts),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", p.Name),
+				"note: counters persist until cleared — recurring checksum errors can mean bad disk/RAM/cable",
+				fmt.Sprintf("to clear after confirming healthy: zpool clear %s", p.Name),
+			},
+		), true
+	}
+	reason := fmt.Sprintf("pool is %s", p.State)
+	if p.ScrubErrors > 0 {
+		reason = fmt.Sprintf("last scrub left %d unrepairable error(s)", p.ScrubErrors)
+	}
+	return insight("CRIT", check,
+		fmt.Sprintf("ZFS pool %s has vdev errors (%s) — %s", p.Name, counts, reason),
+		[]string{
+			fmt.Sprintf("to inspect: zpool status -v %s", p.Name),
+			"note: checksum errors indicate data corruption or bad hardware",
+			fmt.Sprintf("to clear after fixing root cause: zpool clear %s", p.Name),
+		},
+	), true
+}
+
 func checkZFS(z models.ZFSInfo) []models.Insight {
 	out := make([]models.Insight, 0, len(z.Pools))
 	for _, pool := range z.Pools {
@@ -2532,18 +2579,10 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		))
 	}
 
-	// Errors — any count is worth surfacing
-	if total := pool.ReadErrors + pool.WriteErrors + pool.CksumErrors; total > 0 {
-		out = append(out, insight("CRIT", "ZFS",
-			fmt.Sprintf("ZFS pool %s has errors: %d read, %d write, %d checksum",
-				pool.Name, pool.ReadErrors, pool.WriteErrors, pool.CksumErrors),
-			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
-				"note: checksum errors indicate data corruption or bad hardware",
-				"to clear counters: zpool clear <pool>  (only after fixing root cause)",
-				"to run scrub: zpool scrub <pool>",
-			},
-		))
+	// Cumulative vdev error counters — severity gated on actual pool health so a
+	// repaired/transient error on an ONLINE pool isn't a perpetual CRIT.
+	if ins, ok := zfsVdevErrorInsight(pool, "ZFS"); ok {
+		out = append(out, ins)
 	}
 
 	// Errors found by the LAST scrub (the "with N errors" in zpool status) — data

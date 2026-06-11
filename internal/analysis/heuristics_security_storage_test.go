@@ -113,7 +113,11 @@ func TestCheckZFSPool(t *testing.T) {
 		{"85pct full is WARN not CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 85, ScrubAgeDays: 5}, "WARN", "CRIT"},
 		{"92pct full is CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 92, ScrubAgeDays: 5}, "CRIT", ""},
 		{"high fragmentation is WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, FragPct: 75, ScrubAgeDays: 5}, "WARN", ""},
-		{"checksum errors is CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, CksumErrors: 3, ScrubAgeDays: 5}, "CRIT", ""},
+		// Cumulative vdev errors on a healthy ONLINE pool with a clean last scrub are
+		// repaired/transient — WARN, not a perpetual CRIT (real corruption signals below).
+		{"repaired checksum errors on healthy pool is WARN not CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, CksumErrors: 3, ScrubAgeDays: 5}, "WARN", "CRIT"},
+		{"vdev errors on degraded pool is CRIT", models.ZFSPool{Name: "tank", State: "DEGRADED", UsedPct: 10, CksumErrors: 3, ScrubAgeDays: 5}, "CRIT", ""},
+		{"vdev errors with unrepairable scrub is CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, CksumErrors: 3, ScrubErrors: 2, ScrubAgeDays: 5}, "CRIT", ""},
 		{"never scrubbed is WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, ScrubAgeDays: -1}, "WARN", ""},
 	}
 	for _, tt := range tests {
