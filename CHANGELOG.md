@@ -9,6 +9,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.12] — 2026-06-11
+
+A bug-fix and hygiene release continuing the false-verdict cleanup.
+
+### Fixed
+
+- **network (false CRIT on long uptime)** — the since-boot TCP counters
+  (SYN retransmissions, listen-queue overflows, retransmit failures) were read
+  as raw totals, so a single old spike on a long-uptime host produced a current
+  WARN/CRIT. They are now rate-normalized against uptime: a sustained rate
+  escalates, while a small historical total — or one that can't be rated because
+  uptime is unknown — is reported as INFO with the "not necessarily ongoing"
+  boundary surfaced.
+
+### Changed
+
+- **internal: zero golangci-lint issues.** Fixed the `.golangci.yml` v2 schema
+  (test-file exemptions had been silently inactive since the v2 upgrade),
+  refactored `rpmvercmp` and `checkPackages` for clarity, and replaced a
+  deprecated `parser.ParseDir` call. No behavioural change; CVE version-compare
+  behaviour is pinned by tests and verified identical.
+
 ## [v0.6.11] — 2026-06-10
 
 A correctness-and-coverage batch: a few targeted features plus continued
