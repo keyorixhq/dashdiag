@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.3] — 2026-06-12
+
+### Added
+
+- **`dsd health --fix`** — after the verdict, prints a "Suggested fixes" block:
+  the remediation commands for every flagged subsystem, grouped and deduped, as a
+  copy-pasteable list. Completes the triage → understand → fix arc alongside
+  `--explain`. Opt-in, so default output stays terse (#189).
+
 ## [v0.8.2] — 2026-06-12
 
 The release that actually ships the SELinux path-guard security fix and the
