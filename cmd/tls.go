@@ -128,7 +128,7 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 	fmt.Printf("TLS certificate health — %d certificate(s) found\n", len(results))
 	fmt.Printf("%s\n\n", sep)
 
-	crits, warns, oks := 0, 0, 0
+	crits, warns, oks, errs := 0, 0, 0, 0
 	for _, r := range results {
 		switch r.Level {
 		case "CRIT":
@@ -137,6 +137,8 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 			warns++
 		case "OK":
 			oks++
+		case "ERR":
+			errs++
 		}
 		if !showAll && r.Level == "OK" {
 			continue
@@ -144,16 +146,23 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 		printCertResult(r, mode)
 	}
 
-	// Summary
+	// Summary. An ERR (unreachable endpoint / unreadable cert) is a cert we could
+	// NOT check — it must never be summarized as "healthy" or exit 0, or a monitor
+	// reads a host it never reached as fine (false-OK).
 	fmt.Printf("%s\n", sep)
+	errPart := ""
+	if errs > 0 {
+		errPart = fmt.Sprintf("  %s %d ERR", asciiOr("fail", "❌ ", mode), errs)
+	}
+	okPart := fmt.Sprintf("%s %d OK", asciiOr("ok", "✅ ", mode), oks)
 	if crits > 0 {
-		fmt.Printf("%s %d CRIT  %s %d WARN  %s %d OK\n",
-			asciiOr("fail", "❌ ", mode), crits, asciiOr("warn", "⚠️ ", mode), warns, asciiOr("ok", "✅ ", mode), oks)
+		fmt.Printf("%s %d CRIT  %s %d WARN%s  %s\n",
+			asciiOr("fail", "❌ ", mode), crits, asciiOr("warn", "⚠️ ", mode), warns, errPart, okPart)
 		os.Exit(2)
 	}
-	if warns > 0 {
-		fmt.Printf("%s  %d WARN  %s %d OK\n",
-			asciiOr("warn", "⚠️ ", mode), warns, asciiOr("ok", "✅ ", mode), oks)
+	if warns > 0 || errs > 0 {
+		fmt.Printf("%s %d WARN%s  %s\n",
+			asciiOr("warn", "⚠️ ", mode), warns, errPart, okPart)
 		os.Exit(1)
 	}
 	fmt.Printf("%s All %d certificate(s) healthy\n", asciiOr("ok", "✅ ", mode), oks)
@@ -370,6 +379,10 @@ func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.
 	ti := &models.TLSInfo{RemoteEndpoints: remotes}
 	for _, r := range results {
 		if r.Err != "" {
+			// A cert we could NOT check (unreachable endpoint, unreadable file).
+			// Record it instead of dropping it — otherwise --json shows 0 expired /
+			// 0 expiring and a monitor reads an unreachable host as healthy.
+			ti.Uncheckable = append(ti.Uncheckable, models.TLSUncheckable{Path: r.Path, Error: r.Err})
 			continue
 		}
 		ci := models.CertInfo{
@@ -387,6 +400,18 @@ func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.
 		} else if r.DaysLeft <= warnDays {
 			ti.Expiring++
 		}
+	}
+	// Explicit verdict so --json consumers don't infer health from counts alone.
+	switch {
+	case ti.Expired > 0:
+		ti.Status = "critical"
+	case ti.Expiring > 0 || len(ti.Uncheckable) > 0:
+		ti.Status = "warning"
+	default:
+		ti.Status = "ok"
+	}
+	if len(ti.Uncheckable) > 0 {
+		ti.StatusReason = fmt.Sprintf("%d certificate(s)/endpoint(s) could not be checked", len(ti.Uncheckable))
 	}
 	return ti
 }

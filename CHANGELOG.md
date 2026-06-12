@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd tls`: an unreachable endpoint no longer reports "all healthy"** — a cert
+  that couldn't be checked (unreachable remote endpoint, unreadable file) was
+  counted in neither the CRIT/WARN/OK tally nor the exit code, so `dsd tls
+  --endpoint down-host:443` printed "All 0 certificate(s) healthy" and **exited 0**
+  — a cert-expiry monitor reporting success on a host it never reached (whose cert
+  may be expired). `--json` was worse: the failed endpoint was dropped entirely
+  (`0 expired, 0 expiring`). Now uncheckable certs are counted (`N ERR`, exit 1)
+  and surfaced in `--json` as `uncheckable[]` with a `warning` status.
 - **k8s: an unreachable cluster API no longer reads as a healthy cluster** — when
   `kubectl`/`k3s` is present but no cluster query succeeds (API server down, bad
   kubeconfig, or insufficient RBAC), every count stayed at zero and `dsd health`
