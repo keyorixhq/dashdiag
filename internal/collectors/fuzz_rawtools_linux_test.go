@@ -39,7 +39,9 @@ func FuzzParseNVMeSmartLog(f *testing.F) {
 	seeds := []string{
 		"critical_warning : 0\ntemperature : 35 C\npercentage_used : 2%\n",
 		"temperature : 9001 C\n",
-		"critical_warning : 0x4\n",
+		"critical_warning : 0x4\n", // hex bitmask (nvme-cli %#x form)
+		"critical_warning : 0x1d\nmedia_errors : 9\n",
+		"media_errors : -5\npercentage_used : -3%\n", // garbled negatives
 		"no colon lines here",
 		"",
 		"temperature :\npercentage_used : abc%\n",
@@ -51,6 +53,12 @@ func FuzzParseNVMeSmartLog(f *testing.F) {
 	f.Fuzz(func(t *testing.T, out string) {
 		var dev models.NVMeDevice
 		parseNVMeSmartLog(out, &dev)
+		// Counters that gate a `> 0` / `>= N` health verdict must never go
+		// negative on garbled input — a negative reads as healthy (false-OK).
+		if dev.CriticalWarning < 0 || dev.MediaErrors < 0 || dev.PercentageUsed < 0 ||
+			dev.UnsafeShutdowns < 0 || dev.PowerOnHours < 0 {
+			t.Fatalf("parseNVMeSmartLog produced a negative counter for %q: %+v", out, dev)
+		}
 	})
 }
 

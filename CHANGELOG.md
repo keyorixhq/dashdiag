@@ -13,7 +13,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **SMART: negative attribute values no longer read as a healthy drive** — the
+- **NVMe: a set `critical_warning` flag is no longer missed** — `nvme smart-log`
+  prints `critical_warning` as hex (`%#x`, e.g. `0x4`), but the parser used
+  `strconv.Atoi`, which can't read `0x…` and returned `0` — so a drive signalling
+  spare-exhausted / reliability-degraded / read-only / backup-failed was reported
+  **healthy** (`critical_warning` is *the* primary NVMe health flag). Now parsed
+  base-0 (hex or decimal). Verified against the nvme-cli 2.13 format string.
+- **NVMe/SMART: negative attribute values no longer read as a healthy drive** —
+  the `nvme smart-log` and `smartctl -A` parsers assigned counts directly, so a
+  garbled or hostile log printing e.g. `media_errors: -5` set a *negative* count
+  — which slips under the `> 0` failure threshold in the analysis layer and reads
+  as healthy (a false-OK). Both parsers now reject negative/garbled numbers.
+  Found by the new `nvme`/`smartctl`/`rauc` fuzz harnesses (SSDLC Layer 2).
   NVMe key:value path of the `smartctl -A` parser assigned counts directly, so a
   garbled or hostile SMART log printing e.g. `Media and Data Integrity Errors: -5`
   set a *negative* `MediaErrors` count — which slips under the `> 0` failure
