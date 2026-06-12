@@ -67,3 +67,19 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	}
 	return out.String(), nil
 }
+
+// runCmdOutput is runCmd that KEEPS stdout even when the command exits non-zero.
+// Some tools signal FINDINGS via a non-zero exit while writing them to stdout —
+// `rpm --verify` (exit 1 = discrepancies/tampering), `dnf check` (exit non-zero =
+// broken deps). runCmd discards stdout on any error, so those findings vanish and
+// the integrity check reads clean (false-OK). Use this when a tool reports
+// problems through its exit code and parse the returned stdout regardless of err.
+func runCmdOutput(ctx context.Context, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = localeSafeEnv()
+	cmd.WaitDelay = 100 * time.Millisecond
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	return out.String(), err
+}

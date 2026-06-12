@@ -672,8 +672,11 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 	// dnf check — fast dependency consistency check
 	dnfCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	out, err := runCmd(dnfCtx, "dnf", "check", "--quiet")
-	if err == nil && strings.TrimSpace(out) != "" {
+	// `dnf check` EXITS NON-ZERO when it finds broken deps (writing them to stdout),
+	// so capture stdout regardless of exit — runCmd would discard the findings and
+	// the check would read clean (false-OK).
+	out, _ := runCmdOutput(dnfCtx, "dnf", "check", "--quiet")
+	if strings.TrimSpace(out) != "" {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			if line = strings.TrimSpace(line); line != "" &&
 				!strings.HasPrefix(line, "Updating Subscription") &&
@@ -686,14 +689,16 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 		}
 	}
 
-	// rpm --verify on critical packages only (capped at 5s)
+	// rpm --verify on critical packages only (capped at 5s). rpm -V EXITS 1 when it
+	// finds discrepancies (a modified/tampered file) and prints them to stdout — so
+	// capture stdout regardless of exit, or the tamper findings vanish (false-OK).
 	rpmCtx, rpmCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer rpmCancel()
 	canary := []string{"bash", "coreutils", "systemd", "glibc", "openssl-libs"}
-	rpmOut, rpmErr := runCmd(rpmCtx, "rpm", append([]string{"--verify"}, canary...)...)
+	rpmOut, _ := runCmdOutput(rpmCtx, "rpm", append([]string{"--verify"}, canary...)...)
 	if rpmCtx.Err() != nil {
 		pi.VerifyTimedOut = true
-	} else if rpmErr == nil && strings.TrimSpace(rpmOut) != "" {
+	} else if strings.TrimSpace(rpmOut) != "" {
 		for _, line := range strings.Split(strings.TrimSpace(rpmOut), "\n") {
 			line = strings.TrimSpace(line)
 			// Skip config file modifications (expected) — lines with 'c' at position 9
