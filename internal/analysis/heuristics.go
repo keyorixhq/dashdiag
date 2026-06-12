@@ -3988,6 +3988,20 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 		)}
 	}
 
+	// The security-update query itself FAILED (dnf/zypper/apt errored — broken
+	// plugin, apt lock, permission). The "0 updates" is not a real result; report
+	// "couldn't verify" rather than a silent clean OK (false-OK).
+	if pkg.Status == "query-failed" {
+		reason := pkg.StatusReason
+		if reason == "" {
+			reason = "the package manager's security query failed"
+		}
+		return []models.Insight{insight("INFO", "Packages",
+			"could not verify security updates: "+reason,
+			[]string{"note: this is an unverified result, not a clean bill of health"},
+		)}
+	}
+
 	// Stale/absent update metadata — the "0 updates" result was not refreshed, so
 	// report it as unverified (INFO) rather than a confident "up to date".
 	if pkg.Status == "stale-metadata" {
@@ -4563,6 +4577,18 @@ func checkSteamOSDevice(s models.SteamOSInfo) []models.Insight {
 // checkSteamOSUpdate covers the RAUC slots, read-only rootfs, and update channel.
 func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 	var out []models.Insight
+
+	// `rauc status` couldn't be read (D-Bus down, rauc.service dead, permission,
+	// parse failure). The A/B slot health — the single most important
+	// update-blocking signal on SteamOS — was NOT verified. The two checks below
+	// are both gated on RAUCAvailable, so without this a failed query reads as a
+	// silent OK. INFO doesn't raise the verdict.
+	if !s.RAUCAvailable {
+		out = append(out, insight("INFO", "SteamOS",
+			"RAUC A/B slot health could not be verified — `rauc status` failed or returned no data",
+			[]string{"to inspect: rauc status", "check: systemctl status rauc — is the service up?"},
+		))
+	}
 
 	// RAUC booted slot bad — updates will fail to install.
 	if s.RAUCAvailable && strings.EqualFold(s.RAUCBootedStatus, "bad") {

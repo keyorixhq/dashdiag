@@ -19,6 +19,9 @@ func TestCheckPackages(t *testing.T) {
 		{"no security repo is WARN", models.PackagesInfo{Status: "no-security-repo"}, "WARN"},
 		{"no updates is clean", models.PackagesInfo{SecurityUpdates: 0}, ""},
 		{"stale metadata is INFO (unverified, not up-to-date)", models.PackagesInfo{SecurityUpdates: 0, Status: "stale-metadata", PackageManager: "apt", StatusReason: "update metadata is 40 days old — cannot confirm packages are up to date"}, "INFO"},
+		// The security query itself failed → INFO "couldn't verify", never a silent
+		// clean 0-updates OK (dnf/zypper/apt errored; zypper used to claim Status:OK).
+		{"query failed is INFO (unverified, not clean)", models.PackagesInfo{SecurityUpdates: 0, Status: "query-failed", PackageManager: "dnf", StatusReason: "dnf advisory/updateinfo unavailable"}, "INFO"},
 		{"ESM-only updates is WARN", models.PackagesInfo{SecurityUpdates: 0, ESMUpdates: 3}, "WARN"},
 		{"critical updates is CRIT", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 1, PackageManager: "apt"}, "CRIT"},
 		{"important updates is WARN", models.PackagesInfo{SecurityUpdates: 5, ImportantUpdates: 1, PackageManager: "apt"}, "WARN"},

@@ -101,6 +101,9 @@ func TestCheckSteamOSUpdate(t *testing.T) {
 	assertLevel(t, checkSteamOSUpdate(models.SteamOSInfo{RAUCAvailable: true, RAUCBootedSlot: "A", RAUCBootedStatus: "good"}), "")
 	assertLevel(t, checkSteamOSUpdate(models.SteamOSInfo{RAUCAvailable: true, RAUCBootedSlot: "A", RAUCBootedStatus: "bad"}), "CRIT")
 	assertLevel(t, checkSteamOSUpdate(models.SteamOSInfo{RAUCAvailable: true, RAUCInactiveSlot: "B", RAUCInactiveStatus: "bad"}), "WARN")
+	// rauc status couldn't be read → INFO "could not verify", not a silent OK
+	// (both slot checks above are gated on RAUCAvailable).
+	assertLevel(t, checkSteamOSUpdate(models.SteamOSInfo{RAUCAvailable: false}), "INFO")
 }
 
 func TestCheckSteamOSSession(t *testing.T) {
