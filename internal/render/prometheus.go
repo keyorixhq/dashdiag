@@ -44,12 +44,12 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 		if !runner.IsAvailable(res.Data) {
 			continue // absent collector — not "OK", just not present here
 		}
-		b.WriteString(fmt.Sprintf("dsd_check_status{check=%q} %d\n", promLabel(res.Name), worstByCheck[res.Name]))
+		fmt.Fprintf(&b, "dsd_check_status{check=%q} %d\n", promLabel(res.Name), worstByCheck[res.Name])
 	}
 
 	b.WriteString("# HELP dsd_health_status Worst severity across all checks (0=OK, 1=WARN, 2=CRIT).\n")
 	b.WriteString("# TYPE dsd_health_status gauge\n")
-	b.WriteString(fmt.Sprintf("dsd_health_status %d\n", overall))
+	fmt.Fprintf(&b, "dsd_health_status %d\n", overall)
 	return b.String()
 }
 
