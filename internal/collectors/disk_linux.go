@@ -267,27 +267,57 @@ func parseSMARTAttributes(out string, s *models.SMARTInfo) {
 		val = strings.TrimSuffix(val, "%")
 		val = strings.TrimSuffix(val, ",")
 		val = strings.ReplaceAll(val, ",", "") // strip thousand-separators e.g. "7,183"
+		// Counts/percentages are assigned only for a clean, non-negative parse.
+		// A garbled or hostile SMART log printing a negative media-error count
+		// would otherwise land below the "> 0" failure thresholds in
+		// analysis/heuristics.go — a false-OK (a dying drive read as healthy).
+		// Mirrors the SATA path's `raw > 0` guard above.
 		switch {
 		case strings.Contains(lower, "percentage used"):
-			s.PercentUsed, _ = strconv.Atoi(val)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.PercentUsed = int(v)
+			}
 		case strings.Contains(lower, "available spare") &&
 			!strings.Contains(lower, "threshold"):
-			s.AvailableSpare, _ = strconv.Atoi(val)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.AvailableSpare = int(v)
+			}
 		case strings.Contains(lower, "temperature:") ||
 			strings.HasPrefix(strings.TrimSpace(lower), "temperature sensor 1:"):
+			// Temperature may legitimately be below 0 °C, so it is not clamped.
 			if s.Temperature == 0 { // take first temperature field
 				s.Temperature, _ = strconv.Atoi(val)
 			}
 		case strings.Contains(lower, "media and data integrity errors"):
-			s.MediaErrors, _ = strconv.ParseInt(val, 10, 64)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.MediaErrors = v
+			}
 		case strings.Contains(lower, "power on hours"):
-			s.PowerOnHours, _ = strconv.ParseInt(val, 10, 64)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.PowerOnHours = v
+			}
 		case strings.Contains(lower, "unsafe shutdowns"):
-			s.UnsafeShutdowns, _ = strconv.ParseInt(val, 10, 64)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.UnsafeShutdowns = v
+			}
 		case strings.Contains(lower, "power cycles"):
-			s.PowerCycles, _ = strconv.ParseInt(val, 10, 64)
+			if v, ok := nonNegSMARTInt(val); ok {
+				s.PowerCycles = v
+			}
 		}
 	}
+}
+
+// nonNegSMARTInt parses a SMART numeric attribute value, returning ok only for a
+// clean, non-negative integer. Negative or garbled input (a corrupt or hostile
+// SMART log) must not reach a counter where it could slip under the "> 0"
+// failure thresholds as a false-OK.
+func nonNegSMARTInt(val string) (int64, bool) {
+	v, err := strconv.ParseInt(val, 10, 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
 }
 
 // isSATAFailureAttr matches the SATA/SAS SMART attribute names that signal
