@@ -719,7 +719,11 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 	// We filter to security repos by matching the repo string in each line.
 	out, err := runCmd(ctx, "apt-get", "--simulate", "upgrade")
 	if err != nil && len(out) == 0 {
-		out, _ = runCmd(ctx, "apt-get", "--simulate", "dist-upgrade")
+		// Reassign err so the both-failed case is distinguishable below — without
+		// it, a failed apt (lock held, broken sources, no privilege) parsed to 0
+		// advisories and reported "no pending upgrades found" → a green CVE OK on a
+		// host we never actually scanned (false-OK).
+		out, err = runCmd(ctx, "apt-get", "--simulate", "dist-upgrade")
 	}
 
 	var advisories []models.CVEAdvisory
@@ -761,10 +765,24 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 		}
 	}
 	result.FixCommand = "apt-get upgrade"
-	if result.Total == 0 {
-		result.StatusReason = "no pending upgrades found"
-	}
+	result.StatusReason = aptScanStatusReason(result.Total, err)
 	return result
+}
+
+// aptScanStatusReason picks the StatusReason for an apt scan from the advisory
+// count and the final apt-get error. Zero advisories with a command error means
+// apt could NOT run (lock, broken sources, no privilege) — reported as "failed"
+// so the health layer surfaces INFO "scan unavailable" rather than a false-OK
+// "no pending upgrades" / green CVE OK. (Mirrors the zypper/dnf failure paths;
+// apt was the lone sibling that silently read clean when the scan failed.)
+func aptScanStatusReason(total int, err error) string {
+	if total > 0 {
+		return "" // real advisories found — report them, no status note
+	}
+	if err != nil {
+		return "apt-get --simulate upgrade failed: " + err.Error()
+	}
+	return "no pending upgrades found"
 }
 
 // trySnapshotFallback checks a pre-converted DashDiag snapshot file.

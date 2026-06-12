@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CVE scan: a failed apt scan no longer reads as "no CVEs"** — when both
+  `apt-get --simulate upgrade`/`dist-upgrade` failed (apt lock held by
+  unattended-upgrades, broken sources, or insufficient privilege), `dsd health
+  --cve` parsed zero advisories and reported the system **clean** — a false sense
+  of security on the most common Linux servers. apt now reports the failure (like
+  the zypper/dnf paths already did), so a scan that couldn't run surfaces as INFO
+  "CVE scan unavailable" instead of a green OK.
+
 ### Added
 
 - **Release signing scaffold (minisign)** — `dsd update` can now verify that a
