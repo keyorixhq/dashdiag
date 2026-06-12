@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: every job here only reads the repo (tests, lint, smoke,
+# shellcheck) — none write contents, comment, or upload. Scoped at the top so a
+# new job can't silently inherit a broad default token.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (${{ matrix.os }})

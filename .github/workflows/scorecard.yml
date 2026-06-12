@@ -1,0 +1,54 @@
+name: Scorecard supply-chain security
+
+# OpenSSF Scorecard (SSDLC Layer 2, ADR-0007): scores this repo against the
+# supply-chain best practices enterprise reviewers ask about — pinned
+# dependencies, token permissions, branch protection, signed releases, dangerous
+# workflow patterns. Results land in the repo's Security tab (code scanning) and,
+# via publish_results, on the public OpenSSF dashboard so the README badge works.
+# It complements release signing (PR #205): signing proves authenticity, Scorecard
+# documents the practices around it.
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '27 9 * * 1' # weekly, offset from the Security job
+  push:
+    branches: [main]
+
+# Read-only by default; the analysis job below elevates only what it needs.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-22.04
+    permissions:
+      security-events: write # upload the SARIF result to code scanning
+      id-token: write        # OIDC, to publish results to the public OpenSSF API
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2.4.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishes to api.securityscorecards.dev (public, derived from already-
+          # public repo signals) so the README badge resolves. Set to false to keep
+          # results only in the Security tab.
+          publish_results: true
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
