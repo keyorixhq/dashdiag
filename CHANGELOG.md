@@ -18,6 +18,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   failed (D-Bus down, service dead, permission, parse error) the A/B update health
   — SteamOS's most important update-blocking signal — emitted nothing (silent OK).
   Now surfaces INFO "RAUC A/B slot health could not be verified".
+- **Remediation hints now match the host platform** — fix/inspect commands were
+  generated in their Linux/systemd form and shown verbatim everywhere, so on macOS
+  `dsd` suggested `ss -tlnp` (which doesn't exist there) and on Alpine/OpenRC it
+  suggested `systemctl` (no systemd). The diagnosis was always correct; only the
+  remedy line was unrunnable. A platform-aware adapter now rewrites them: on macOS
+  `ss -tlnp [| grep :PORT]` → `lsof -nP -iTCP[:PORT] -sTCP:LISTEN`; on OpenRC
+  `systemctl restart/enable/disable X` → `rc-service`/`rc-update`. (TRIAGE §A;
+  BUG-053, BUG-054.)
 - **Packages: a failed security-update query no longer reads as "0 updates"** —
   when `dnf advisory`/`zypper list-patches`/`apt-get -s upgrade` errored (broken
   plugin, apt lock, permission), the collector returned 0 security updates with no
