@@ -86,6 +86,27 @@ func ForCheck(check string) *Topic {
 	return nil
 }
 
+// Search returns topics whose text (key, title, summary, checks, why-it-matters,
+// or aliases) contains the query, case-insensitively — for `dsd explain --search`.
+// Results are sorted by key. An empty query returns nil.
+func Search(query string) []Topic {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil
+	}
+	var out []Topic
+	for _, t := range topics {
+		hay := strings.ToLower(strings.Join([]string{
+			t.Key, t.Title, t.Summary, t.Checks, t.Matters, strings.Join(t.Aliases, " "),
+		}, " "))
+		if strings.Contains(hay, q) {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
 // Topics returns all topics sorted by key, for the index listing.
 func Topics() []Topic {
 	out := make([]Topic, len(topics))

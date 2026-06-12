@@ -98,6 +98,45 @@ func TestForCheck(t *testing.T) {
 	}
 }
 
+func TestSearch(t *testing.T) {
+	t.Run("matches content, not just name", func(t *testing.T) {
+		hits := Search("OOM")
+		keys := map[string]bool{}
+		for _, h := range hits {
+			keys[h.Key] = true
+		}
+		if !keys["oom"] {
+			t.Errorf("expected the oom topic, got %v", keys)
+		}
+		// memory's key/title/summary don't contain "oom" — only its body does,
+		// so matching it proves the search covers content, not just the name.
+		if !keys["memory"] {
+			t.Errorf("expected memory (body mentions the OOM killer), got %v", keys)
+		}
+	})
+
+	t.Run("case-insensitive + sorted", func(t *testing.T) {
+		hits := Search("ZRAM")
+		if len(hits) == 0 {
+			t.Fatal("expected zram matches")
+		}
+		for i := 1; i < len(hits); i++ {
+			if hits[i-1].Key > hits[i].Key {
+				t.Errorf("results not sorted: %q before %q", hits[i-1].Key, hits[i].Key)
+			}
+		}
+	})
+
+	t.Run("empty query and no-match", func(t *testing.T) {
+		if Search("") != nil {
+			t.Error("empty query should return nil")
+		}
+		if got := Search("zzznotathing"); len(got) != 0 {
+			t.Errorf("expected no matches, got %v", got)
+		}
+	})
+}
+
 func TestTopicsSorted(t *testing.T) {
 	all := Topics()
 	for i := 1; i < len(all); i++ {
