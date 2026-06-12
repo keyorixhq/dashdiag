@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.6] — 2026-06-12
+
+### Added
+
+- **`dsd explain --search <keyword>`** — finds topics by content, not just name:
+  `dsd explain --search memory` surfaces memory, swap, oom, docker, k8s, gpu, and
+  sysctl. For "I'm seeing X, which check covers it?" when you don't know the topic
+  name. Honors `--json` (#195).
+
 ## [v0.8.5] — 2026-06-12
 
 ### Added
