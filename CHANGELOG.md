@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.4] — 2026-06-12
+
+### Added
+
+- **`dsd explain --all`** — prints full detail for every topic in one pass; pipe
+  it to a file for a complete checks reference (`dsd explain --all > checks.md`).
+  Honors `--json`/`--plain`.
+- **Tab-completion for `dsd explain`** — `dsd explain <TAB>` completes topic
+  names (#191).
+
 ## [v0.8.3] — 2026-06-12
 
 ### Added
