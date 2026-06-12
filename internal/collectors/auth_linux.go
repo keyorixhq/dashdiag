@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -114,10 +113,4 @@ func parseAuthLogLine(line string) (ip string, isRoot bool) {
 		}
 	}
 	return ip, isRoot
-}
-
-// parseSourceCount is a helper for tests
-func parseSourceCount(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }

@@ -138,7 +138,7 @@ func isVMVirtType(s string) bool {
 // parseKmsg reads /dev/kmsg and extracts OOM kills and segfaults from the last hour.
 // /dev/kmsg entries are: "priority,sequence,timestamp_usec,flags;message"
 // timestamp_usec is monotonic time since boot in microseconds.
-func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) {
+func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:cyclop,funlen // flat /dev/kmsg line parser — sequential field handling, splitting would harm readability
 	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
 	if err != nil {
 		return
@@ -759,7 +759,7 @@ func topMessages(counts map[string]int, n int) []string {
 		key   string
 		count int
 	}
-	var sorted []kv
+	sorted := make([]kv, 0, len(counts))
 	for k, v := range counts {
 		sorted = append(sorted, kv{k, v})
 	}

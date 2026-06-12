@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -70,12 +69,4 @@ func (c *CephCollector) Collect(ctx context.Context) (interface{}, error) {
 func IsCephPresent() bool {
 	_, err := exec.LookPath("ceph")
 	return err == nil
-}
-
-func parseCephHealth(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "unknown"
-	}
-	return s
 }

@@ -137,7 +137,7 @@ func parseSSHFile(path string, info *models.SecurityInfo) {
 }
 
 // parseSSHFileContent parses sshd_config content from a string — used by tests.
-func parseSSHFileContent(content string, info *models.SecurityInfo) {
+func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // flat sshd_config directive parser — each directive is an independent branch, splitting would harm readability
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	// inMatch tracks whether we're inside a conditional `Match` block. Directives
 	// there are per-connection overrides, NOT the global policy we audit — e.g.
@@ -960,9 +960,7 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 	rulesRead := false
 	if svcOut, err := runCmd(ctx, "firewall-cmd", "--list-services"); err == nil {
 		rulesRead = true
-		for _, svc := range strings.Fields(svcOut) {
-			info.FirewallServices = append(info.FirewallServices, svc)
-		}
+		info.FirewallServices = append(info.FirewallServices, strings.Fields(svcOut)...)
 	}
 
 	// SSH allowed?
