@@ -123,11 +123,27 @@ test-fuzz:
 	go test -run=NONE -fuzz='^FuzzParseDiskstats$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseFileNr$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseProcStat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseVGs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVMFloat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseSteamOSChannel$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseHealth$$'         -fuzztime=$(FUZZTIME) ./internal/fleet/; \
 	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/
-	@echo "✅ all fuzz harnesses passed"
+	@echo "✅ all portable fuzz harnesses passed"
+	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
+	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid — run on Linux/CI"
+
+.PHONY: test-fuzz-linux
+# Linux-tagged parser harnesses (raid_linux/nvme_linux/lvm_linux). Run on a
+# Linux host or in CI; they don't compile on macOS by design.
+test-fuzz-linux:
+	@set -e; \
+	go test -run=NONE -fuzz='^FuzzParseMDStat$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseNVMeSmartLog$$'  -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVMRaid$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/
+	@echo "✅ all Linux fuzz harnesses passed"
 
 .PHONY: test-contract
 test-contract:
