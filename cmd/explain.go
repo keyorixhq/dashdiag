@@ -141,6 +141,7 @@ func printHealthFixes(insights []models.Insight, mode output.OutputMode) {
 func init() {
 	rootCmd.AddCommand(explainCmd)
 	explainCmd.Flags().Bool("all", false, "print full detail for every topic (e.g. dsd explain --all > checks.md)")
+	explainCmd.Flags().String("search", "", "list topics whose text mentions a keyword (e.g. dsd explain --search memory)")
 	// Tab-complete topic names: `dsd explain <TAB>`.
 	explainCmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -182,6 +183,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 	if allFlag, _ := cmd.Flags().GetBool("all"); allFlag {
 		return explainAll(mode)
+	}
+	if kw, _ := cmd.Flags().GetString("search"); kw != "" {
+		return explainSearch(kw, mode)
 	}
 	if len(args) == 0 {
 		return explainList(mode)
@@ -262,6 +266,38 @@ func explainAll(mode output.OutputMode) error {
 			fmt.Println("\n" + sep)
 		}
 		printTopic(t, mode)
+	}
+	return nil
+}
+
+// explainSearch lists topics whose text mentions the keyword.
+func explainSearch(keyword string, mode output.OutputMode) error {
+	hits := explain.Search(keyword)
+	if mode == output.ModeJSON || mode == output.ModeYAML {
+		b, err := json.MarshalIndent(hits, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	if len(hits) == 0 {
+		fmt.Printf("No topics mention %q. Run `dsd explain` to list all topics.\n", keyword)
+		return nil
+	}
+	human := mode == output.ModeHuman
+	heading := fmt.Sprintf("Topics mentioning %q — run `dsd explain <topic>` for detail:", keyword)
+	if human {
+		heading = render.StyleBold.Render(heading)
+	}
+	fmt.Println(heading)
+	fmt.Println()
+	for _, t := range hits {
+		key := fmt.Sprintf("  %-12s", t.Key)
+		if human {
+			key = "  " + render.StyleBold.Render(fmt.Sprintf("%-10s", t.Key))
+		}
+		fmt.Printf("%s %s\n", key, t.Summary)
 	}
 	return nil
 }
