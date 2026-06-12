@@ -140,6 +140,18 @@ func printHealthFixes(insights []models.Insight, mode output.OutputMode) {
 
 func init() {
 	rootCmd.AddCommand(explainCmd)
+	explainCmd.Flags().Bool("all", false, "print full detail for every topic (e.g. dsd explain --all > checks.md)")
+	// Tab-complete topic names: `dsd explain <TAB>`.
+	explainCmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var keys []string
+		for _, t := range explain.Topics() {
+			keys = append(keys, t.Key)
+		}
+		return keys, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 var explainCmd = &cobra.Command{
@@ -157,7 +169,8 @@ Examples:
   dsd explain            list all topics
   dsd explain swap       explain the swap check
   dsd explain ram        aliases resolve (→ memory)
-  dsd explain zfs --json machine-readable`,
+  dsd explain zfs --json machine-readable
+  dsd explain --all      full detail for every topic (pipe to a reference file)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runExplain,
 }
@@ -167,6 +180,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, jsonModeStr(jsonOut))
 
+	if allFlag, _ := cmd.Flags().GetBool("all"); allFlag {
+		return explainAll(mode)
+	}
 	if len(args) == 0 {
 		return explainList(mode)
 	}
@@ -221,6 +237,31 @@ func explainList(mode output.OutputMode) error {
 			key = "  " + render.StyleBold.Render(fmt.Sprintf("%-10s", t.Key))
 		}
 		fmt.Printf("%s %s\n", key, t.Summary)
+	}
+	return nil
+}
+
+// explainAll prints full detail for every topic — a complete checks reference.
+// In structured modes it emits the same JSON array as the topic list.
+func explainAll(mode output.OutputMode) error {
+	all := explain.Topics()
+	if mode == output.ModeJSON || mode == output.ModeYAML {
+		b, err := json.MarshalIndent(all, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	for i, t := range all {
+		if i > 0 {
+			sep := "────────────────────────────────────────────────────────"
+			if mode == output.ModeHuman {
+				sep = render.StyleDim.Render(sep)
+			}
+			fmt.Println("\n" + sep)
+		}
+		printTopic(t, mode)
 	}
 	return nil
 }
