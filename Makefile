@@ -136,7 +136,9 @@ test-fuzz:
 	@echo "✅ all portable fuzz harnesses passed"
 	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
 	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid,"
-	@echo "   FuzzParseSMARTHealth, FuzzParseSMARTAttributes — run on Linux/CI"
+	@echo "   FuzzParseSMARTHealth, FuzzParseSMARTAttributes, FuzzParseFailedUnits,"
+	@echo "   FuzzParseUnitShow, FuzzParseBlame, FuzzParseDurationMs,"
+	@echo "   FuzzParseJournalLines — run on Linux/CI"
 
 .PHONY: test-fuzz-linux
 # Linux-tagged parser harnesses (raid_linux/nvme_linux/lvm_linux). Run on a
@@ -147,7 +149,12 @@ test-fuzz-linux:
 	go test -run=NONE -fuzz='^FuzzParseNVMeSmartLog$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseLVMRaid$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseSMARTHealth$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSMARTAttributes$$'  -fuzztime=$(FUZZTIME) ./internal/collectors/
+	go test -run=NONE -fuzz='^FuzzParseSMARTAttributes$$'  -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseFailedUnits$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseUnitShow$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseBlame$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseDurationMs$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseJournalLines$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/
 	@echo "✅ all Linux fuzz harnesses passed"
 
 .PHONY: test-contract
