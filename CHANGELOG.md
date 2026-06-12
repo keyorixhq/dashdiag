@@ -9,6 +9,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.2] — 2026-06-12
+
+The release that actually ships the SELinux path-guard security fix and the
+prometheus output fix described in the v0.8.1 notes — both landed just after the
+v0.8.1 tag, so v0.8.2 is the first built binary to contain them. Plus a CI
+lint cleanup.
+
+### Security
+
+- **SELinux policy-type path hardening** — now shipped in a released binary. (Full
+  detail under v0.8.1; in short: the filesystem path built from `SELINUXTYPE=` in
+  `/etc/selinux/config` is charset-guarded before use. Root-owned config, so
+  practical exploitability was low.)
+
+### Changed
+
+- **CI: golangci-lint gate is clean** — cleared 18 pre-existing issues so the
+  stricter gate passes: removed dead, unreferenced helper funcs (and the
+  single-func `fcntl_linux.go`); preallocated slices with known capacity; dropped
+  ineffectual assignments; applied two staticcheck simplifications; and `nolint`'d
+  two inherently-branchy parsers plus a gosec G703 on a host-local trusted crontab
+  path (stat-only). Behaviour-preserving (#187).
+
+### Docs
+
+- `dsd examples` adds scenarios for understanding a finding (`dsd explain` /
+  `--explain`), monitoring integration (`--nagios` / `--prometheus`), and watching
+  an incident (`--watch`) (#184).
+
 ## [v0.8.1] — 2026-06-12
 
 ### Added
