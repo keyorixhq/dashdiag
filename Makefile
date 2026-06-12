@@ -109,11 +109,41 @@ test-integration:
 	go test -tags integration -race -count=1 -timeout 120s ./...
 
 .PHONY: test-fuzz
+# SSDLC Layer 2 (ADR-0007): per-release fuzzing of parsers, prioritised by
+# THREAT_MODEL_CLI.md §5 (partially-attacker-influenced inputs). Does NOT hide
+# failures — a crash or false-OK violation must fail the target (a fuzz run that
+# swallows crashes is itself a false-OK). FUZZTIME overridable: make test-fuzz FUZZTIME=2m
+FUZZTIME ?= 30s
 test-fuzz:
-	@echo "→ Fuzz tests (30s each)"
-	go test -fuzz=FuzzParseLoadAvg    ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
-	go test -fuzz=FuzzReadVMStat      ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
-	go test -fuzz=FuzzParseIOCounters ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
+	@echo "→ Fuzz tests ($(FUZZTIME) each) — Ctrl-C to stop early"
+	@set -e; \
+	go test -run=NONE -fuzz='^FuzzParseLoadAvg$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseMeminfo$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseVMStat$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseDiskstats$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseFileNr$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseProcStat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseVGs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVMFloat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseSteamOSChannel$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseHealth$$'         -fuzztime=$(FUZZTIME) ./internal/fleet/; \
+	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
+	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
+	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/
+	@echo "✅ all portable fuzz harnesses passed"
+	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
+	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid — run on Linux/CI"
+
+.PHONY: test-fuzz-linux
+# Linux-tagged parser harnesses (raid_linux/nvme_linux/lvm_linux). Run on a
+# Linux host or in CI; they don't compile on macOS by design.
+test-fuzz-linux:
+	@set -e; \
+	go test -run=NONE -fuzz='^FuzzParseMDStat$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseNVMeSmartLog$$'  -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseLVMRaid$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/
+	@echo "✅ all Linux fuzz harnesses passed"
 
 .PHONY: test-contract
 test-contract:
@@ -150,8 +180,19 @@ vuln:
 	govulncheck ./... 2>/dev/null || echo "⚠️  govulncheck not installed — run: make tools"
 
 .PHONY: security
+# SSDLC Layer 1 (ADR-0007). Mirrors CI: gosec runs via golangci-lint (single
+# source of truth for excludes — .golangci.yml); semgrep blocking set =
+# ERROR+WARNING; the INFO rules are the periodic audit layer (run
+# `make security-audit` to see them).
 security: vuln
-	gosec -quiet ./... 2>/dev/null || echo "⚠️  gosec not installed — run: make tools"
+	@golangci-lint run --enable-only=gosec ./... && echo "gosec: clean" || true
+	@semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING --quiet . 2>/dev/null && echo "semgrep (blocking set): clean" || echo "⚠️  semgrep findings or not installed — brew install semgrep"
+
+.PHONY: security-audit
+# Full semgrep output including non-blocking INFO audit rules
+# (e.g. dsd-file-read-concat-path — review NEW hits, existing are audited).
+security-audit:
+	@semgrep scan --config .semgrep/ . 2>/dev/null || echo "⚠️  semgrep not installed — brew install semgrep"
 
 # ── TOOLS ─────────────────────────────────────────────────────────────────────
 .PHONY: tools

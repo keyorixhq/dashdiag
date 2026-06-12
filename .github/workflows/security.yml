@@ -1,5 +1,16 @@
 name: Security
 
+# SSDLC Layer 1 (ADR-0007). gosec runs on every PR via the CI lint job
+# (golangci-lint with .golangci.yml excludes — single source of truth, no
+# config drift). This workflow's unique value is the SCHEDULE: govulncheck
+# re-run weekly against UNCHANGED code catches newly published CVEs in our
+# dependency tree the moment the vuln DB learns about them.
+#
+# History note: this job previously ran standalone `gosec ./...` with the
+# DEFAULT ruleset, ignoring the .golangci.yml excludes — it was permanently
+# red with ~37 pre-triaged findings (G104/G204/G304...). Removed 2026-06-12;
+# gosec coverage moved to the PR gate where the tuned config applies.
+
 on:
   schedule:
     - cron: '0 9 * * 1'
@@ -19,8 +30,3 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
         # GitHub will email you when this step fails in a scheduled run
-
-      - name: gosec
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -quiet ./...

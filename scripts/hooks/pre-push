@@ -37,16 +37,30 @@ if command -v staticcheck &>/dev/null; then
     echo "  ✅ staticcheck"
 fi
 
-# 4. gosec (if installed) — security scan before push
-# Exclusions mirror .golangci.yml: G104=errcheck dup, G115=uint conv, G204=subprocess,
-# G301=dir 0755, G302=OpenFile 0644 (shell RC files), G304=file path var, G306=file 0644.
-if command -v gosec &>/dev/null; then
-    echo "  Running gosec..."
-    if ! gosec -quiet -exclude=G104,G115,G204,G301,G302,G304,G306 ./... 2>&1; then
+# 4. gosec via golangci-lint — single source of truth for excludes is
+# .golangci.yml (no standalone exclude list to drift; ADR-0007 lesson).
+if command -v golangci-lint &>/dev/null; then
+    echo "  Running gosec (via golangci-lint config)..."
+    if ! golangci-lint run --enable-only=gosec ./... 2>&1; then
         echo "❌ gosec found security issues"
         exit 1
     fi
     echo "  ✅ gosec"
+fi
+
+# 5. semgrep custom rules — blocking set (ERROR+WARNING), mirrors CI.
+# The INFO audit layer is intentionally excluded here; run `make security-audit`.
+# Resolve paths from the repo root so the hook works regardless of git's CWD.
+if command -v semgrep &>/dev/null; then
+    echo "  Running semgrep (custom rules, blocking set)..."
+    ROOT="$(git rev-parse --show-toplevel)"
+    if ! semgrep scan --config "$ROOT/.semgrep/" --error --severity ERROR --severity WARNING --quiet "$ROOT" 2>/dev/null; then
+        echo "❌ semgrep found security issues"
+        exit 1
+    fi
+    echo "  ✅ semgrep"
+else
+    echo "  ⚠️  semgrep not installed — brew install semgrep (skipping)"
 fi
 
 echo ""
