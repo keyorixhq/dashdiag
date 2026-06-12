@@ -12,6 +12,22 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// darwinSMARTStatus maps a `diskutil info` "SMART Status:" value to a verdict.
+// read is false for statuses that aren't an actual health verdict ("Not
+// Supported", or anything unrecognized) so the caller surfaces "SMART not read"
+// rather than a false pass OR a false fail. "Failing" is a real verdict (ok=false)
+// and must reach the analysis layer as a CRIT, not be swallowed as an error.
+func darwinSMARTStatus(status string) (read, ok bool) {
+	switch {
+	case strings.EqualFold(status, "Verified"), strings.EqualFold(status, "Passed"):
+		return true, true
+	case strings.EqualFold(status, "Failing"):
+		return true, false
+	default:
+		return false, false
+	}
+}
+
 // collectDarwin overrides the base implementation to add physical drive + SMART data.
 func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, error) {
 	result, err := c.collectDarwinBase(ctx)
@@ -108,8 +124,13 @@ func collectDarwinDriveInfo(ctx context.Context, dev string) *models.PhysicalDri
 			// "500.3 GB (500277792768 Bytes) ..."
 			drive.SizeGB = parseDarwinSize(val)
 		case "SMART Status":
-			drive.SMART.Healthy = val == "Verified" || val == "Passed"
-			if !drive.SMART.Healthy {
+			// "Failing" must surface as a FAILED verdict (CRIT), not be shoved into
+			// Error where the analysis layer skips it — that silently hid a dying
+			// drive. Only a status that isn't a real verdict ("Not Supported",
+			// unknown) goes to Error so it's skipped rather than mis-called.
+			if read, ok := darwinSMARTStatus(val); read {
+				drive.SMART.Healthy = ok
+			} else {
 				drive.SMART.Error = "SMART: " + val
 			}
 		case "Mount Point":

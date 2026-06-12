@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **macOS: failing drives now surface, healthy drives stay quiet** — the `diskutil`
+  SMART path had two faults: a `"Failing"` status was stuffed into an error field
+  where the analysis layer *skips* it, so a dying Mac drive was silently hidden;
+  and (after the SATA `SmartRead` guard) a healthy `"Verified"` drive was
+  mis-labelled "SMART not read". Both darwin paths (`dsd health` + `dsd disk`) now
+  share one verdict mapping: `Verified/Passed` → healthy, `Failing` → **CRIT**,
+  `Not Supported`/unknown → "SMART not read" INFO.
 - **SATA/SAS + `dsd hardware`: a drive whose SMART can't be read is no longer
   reported as failing** — `smartctl --json -a` emits JSON with **no `smart_status`**
   for drives behind RAID/HBA controllers, USB bridges, and virtual disks (common
