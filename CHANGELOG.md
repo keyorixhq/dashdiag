@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **SMART: negative attribute values no longer read as a healthy drive** — the
+  NVMe key:value path of the `smartctl -A` parser assigned counts directly, so a
+  garbled or hostile SMART log printing e.g. `Media and Data Integrity Errors: -5`
+  set a *negative* `MediaErrors` count — which slips under the `> 0` failure
+  threshold in the analysis layer and reads as healthy (a false-OK). The parser
+  now rejects negative/garbled numbers (mirroring the SATA path's existing guard).
+  Found by the new `smartctl`/`rauc` fuzz harnesses (SSDLC Layer 2).
+
 ### Security
 
 - **Installer fails closed on unverifiable downloads** — `install.sh` previously
