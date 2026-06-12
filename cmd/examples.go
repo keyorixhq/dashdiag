@@ -8,7 +8,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(examplesCmd)
-	examplesCmd.Flags().Int("scenario", 0, "show one scenario (1-6)")
+	examplesCmd.Flags().Int("scenario", 0, "show one scenario (1-9)")
 }
 
 var examplesCmd = &cobra.Command{
@@ -49,6 +49,21 @@ func runExamples(cmd *cobra.Command, _ []string) error {
 			"6. Automate health checks",
 			"Run dsd on SSH login, git push, or in CI pipelines.",
 			"  dsd hook install",
+		},
+		{
+			"7. Understand a finding",
+			"health flagged a subsystem — learn what it means and how to fix it.",
+			"  dsd explain swap\n  dsd explain zfs\n  dsd health --explain",
+		},
+		{
+			"8. Monitoring integration",
+			"Wire dsd into Nagios/Icinga or Prometheus — exit codes already match.",
+			"  dsd health --nagios\n  dsd health --prometheus > /var/lib/node_exporter/textfile_collector/dsd.prom",
+		},
+		{
+			"9. Watch an incident unfold",
+			"Refresh on an interval and see only what changed since the last tick.",
+			"  dsd health --watch\n  dsd health --watch --watch-interval 5s",
 		},
 	}
 	for i, s := range scenarios {
