@@ -55,7 +55,7 @@ type smartctlDevice struct {
 		Type     string `json:"type"` // nvme, sat, scsi
 		Protocol string `json:"protocol"`
 	} `json:"device"`
-	SmartStatus struct {
+	SmartStatus *struct {
 		Passed bool `json:"passed"`
 	} `json:"smart_status"`
 	Temperature struct {
@@ -134,7 +134,10 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 	}
 
 	drive.Model = d.ModelName
-	drive.SmartOK = d.SmartStatus.Passed
+	if d.SmartStatus != nil { // verdict present → trust it; absent → SmartRead stays false
+		drive.SmartRead = true
+		drive.SmartOK = d.SmartStatus.Passed
+	}
 	drive.TempC = d.Temperature.Current
 	drive.PowerOnH = d.PowerOnTime.Hours
 

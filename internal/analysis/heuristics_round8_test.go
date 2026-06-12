@@ -17,6 +17,7 @@ func TestCheckHardware(t *testing.T) {
 	drive := func(d models.HardwareDrive) models.HardwareInfo {
 		d.Device = "/dev/sda"
 		d.SmartctlAvailable = true
+		d.SmartRead = true // SMART verdict was reported (the common case)
 		d.SmartOK = true
 		return models.HardwareInfo{Drives: []models.HardwareDrive{d}}
 	}
@@ -28,7 +29,10 @@ func TestCheckHardware(t *testing.T) {
 		{"no hardware data is clean", models.HardwareInfo{}, ""},
 		{"smartctl missing is INFO", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda"}}}, "INFO"},
 		{"healthy drive emits OK", drive(models.HardwareDrive{Type: "sata", TempC: 35}), "OK"},
-		{"smart failed is CRIT", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda", SmartctlAvailable: true, SmartOK: false}}}, "CRIT"},
+		{"smart failed is CRIT", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda", SmartctlAvailable: true, SmartRead: true, SmartOK: false}}}, "CRIT"},
+		// Detected, smartctl present, but no SMART verdict reported (controller/USB
+		// bridge/virtual disk) → INFO, not a false "may fail imminently" CRIT.
+		{"smart unread is INFO", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda", SmartctlAvailable: true, SmartOK: false}}}, "INFO"},
 		{"nvme critical temp is CRIT", drive(models.HardwareDrive{Type: "nvme", TempC: 85}), "CRIT"},
 		{"nvme hot is WARN", drive(models.HardwareDrive{Type: "nvme", TempC: 72}), "WARN"},
 		{"hdd critical temp is CRIT", drive(models.HardwareDrive{Type: "sata", TempC: 62}), "CRIT"},

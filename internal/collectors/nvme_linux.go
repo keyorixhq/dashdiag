@@ -271,45 +271,59 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 			continue
 		}
 
-		var smart struct {
-			ModelName   string `json:"model_name"`
-			SmartStatus struct {
-				Passed bool `json:"passed"`
-			} `json:"smart_status"`
-			Temperature struct {
-				Current int `json:"current"`
-			} `json:"temperature"`
-			PowerOnTime struct {
-				Hours int64 `json:"hours"`
-			} `json:"power_on_time"`
-			ATAAttributes *struct {
-				Table []struct {
-					ID  int `json:"id"`
-					Raw struct {
-						Value int64 `json:"value"`
-					} `json:"raw"`
-				} `json:"table"`
-			} `json:"ata_smart_attributes,omitempty"`
-		}
-		if err := jsonUnmarshal([]byte(smartOut), &smart); err == nil {
-			dev.Model = smart.ModelName
-			dev.SmartOK = smart.SmartStatus.Passed
-			dev.TempC = smart.Temperature.Current
-			dev.PowerOnHours = smart.PowerOnTime.Hours
-			if smart.ATAAttributes != nil {
-				for _, attr := range smart.ATAAttributes.Table {
-					switch attr.ID {
-					case 5:
-						dev.ReallocatedSectors = int(attr.Raw.Value)
-					case 197:
-						dev.PendingSectors = int(attr.Raw.Value)
-					case 198:
-						dev.UncorrectableErrors = int(attr.Raw.Value)
-					}
-				}
+		applySATASmartJSON(smartOut, &dev)
+		info.SATADevices = append(info.SATADevices, dev)
+	}
+}
+
+// applySATASmartJSON parses `smartctl --json=c -a` output into a SATADevice.
+// smart_status.passed is read through a *bool so a MISSING verdict (smartctl
+// emits JSON with no smart_status for USB bridges / RAID members / virtual
+// disks) is distinguished from an explicit "not passed". dev.SmartRead is set
+// only when the verdict is actually present, so the analysis layer never fires
+// a "drive may be failing" CRIT on a drive whose SMART was simply never read.
+func applySATASmartJSON(out string, dev *models.SATADevice) {
+	var smart struct {
+		ModelName   string `json:"model_name"`
+		SmartStatus *struct {
+			Passed bool `json:"passed"`
+		} `json:"smart_status"`
+		Temperature struct {
+			Current int `json:"current"`
+		} `json:"temperature"`
+		PowerOnTime struct {
+			Hours int64 `json:"hours"`
+		} `json:"power_on_time"`
+		ATAAttributes *struct {
+			Table []struct {
+				ID  int `json:"id"`
+				Raw struct {
+					Value int64 `json:"value"`
+				} `json:"raw"`
+			} `json:"table"`
+		} `json:"ata_smart_attributes,omitempty"`
+	}
+	if err := jsonUnmarshal([]byte(out), &smart); err != nil {
+		return // not JSON / garbled — SmartRead stays false, no false verdict
+	}
+	dev.Model = smart.ModelName
+	dev.TempC = smart.Temperature.Current
+	dev.PowerOnHours = smart.PowerOnTime.Hours
+	if smart.SmartStatus != nil {
+		dev.SmartRead = true
+		dev.SmartOK = smart.SmartStatus.Passed
+	}
+	if smart.ATAAttributes != nil {
+		for _, attr := range smart.ATAAttributes.Table {
+			switch attr.ID {
+			case 5:
+				dev.ReallocatedSectors = int(attr.Raw.Value)
+			case 197:
+				dev.PendingSectors = int(attr.Raw.Value)
+			case 198:
+				dev.UncorrectableErrors = int(attr.Raw.Value)
 			}
 		}
-		info.SATADevices = append(info.SATADevices, dev)
 	}
 }
 
