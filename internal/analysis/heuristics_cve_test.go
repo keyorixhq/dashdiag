@@ -112,6 +112,7 @@ func TestCheckCVEHealthUnavailableFiresInfo(t *testing.T) {
 		{"no package manager", models.CVEAllResult{StatusReason: "no supported package manager found"}},
 		{"zypper failed", models.CVEAllResult{PackageManager: "zypper", StatusReason: "zypper list-patches failed: timeout"}},
 		{"dnf failed", models.CVEAllResult{PackageManager: "dnf", StatusReason: "dnf advisory list failed"}},
+		{"apt failed (lock/broken sources)", models.CVEAllResult{PackageManager: "apt", StatusReason: "apt-get --simulate upgrade failed: exit status 100"}},
 		{"arch-audit not installed", models.CVEAllResult{PackageManager: "pacman", StatusReason: "install arch-audit for CVE scanning: pacman -S arch-audit"}},
 	}
 	for _, tc := range cases {

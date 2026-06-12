@@ -2,7 +2,29 @@
 
 package collectors
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+// aptScanStatusReason must report "failed" (→ INFO "scan unavailable") when apt
+// could not run and found nothing — not a false-OK "no pending upgrades". A real
+// empty result (no error) stays clean; any advisories suppress the status note.
+func TestAptScanStatusReason(t *testing.T) {
+	if got := aptScanStatusReason(0, errors.New("exit status 100")); !strings.Contains(got, "failed") {
+		t.Errorf("0 advisories + error must be a failure, got %q", got)
+	}
+	if got := aptScanStatusReason(0, nil); got != "no pending upgrades found" {
+		t.Errorf("0 advisories + no error must be clean, got %q", got)
+	}
+	if got := aptScanStatusReason(3, nil); got != "" {
+		t.Errorf("advisories found must have no status note, got %q", got)
+	}
+	if got := aptScanStatusReason(3, errors.New("x")); got != "" {
+		t.Errorf("advisories found (even with a late error) must report them, got %q", got)
+	}
+}
 
 // Characterization tests for the pure CVE-classification helpers in cve_linux.go:
 // the apt package-name heuristic severity, the arch-audit severity mapping, and
