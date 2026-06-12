@@ -40,6 +40,7 @@ func init() {
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 	healthCmd.Flags().Bool("explain", false, "after the verdict, explain each flagged subsystem (see also: dsd explain)")
 	healthCmd.Flags().Bool("nagios", false, "single-line monitoring-plugin output (Nagios/Icinga/check_mk); exit 0/1/2")
+	healthCmd.Flags().Bool("prometheus", false, "Prometheus exposition metrics (node_exporter textfile collector / scrape)")
 	healthCmd.Flags().Bool("debug", false, "enable debug logging")
 	healthCmd.Flags().Bool("diff", false, "show diff from previous run")
 	healthCmd.Flags().Bool("since-deploy", false, "show metrics since last deploy")
@@ -104,7 +105,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	// --nagios emits a single status line; run quietly (no progress/banner/board)
 	// so stdout carries only that line, then branch out below after collection.
 	nagiosFlag, _ := cmd.Flags().GetBool("nagios")
-	if nagiosFlag && mode == output.ModeHuman {
+	promFlag, _ := cmd.Flags().GetBool("prometheus")
+	if (nagiosFlag || promFlag) && mode == output.ModeHuman {
 		mode = output.ModePlain
 	}
 
@@ -159,6 +161,13 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		if code > 0 {
 			os.Exit(code)
 		}
+		return nil
+	}
+	// --prometheus: emit exposition metrics and exit 0 — the health state lives in
+	// the metric values, not the exit code (textfile collectors expect success).
+	if promFlag {
+		fmt.Print(render.PrometheusMetrics(results, insights))
+		_ = baseline.SaveBaseline(snap)
 		return nil
 	}
 
