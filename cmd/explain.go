@@ -142,6 +142,7 @@ func init() {
 	rootCmd.AddCommand(explainCmd)
 	explainCmd.Flags().Bool("all", false, "print full detail for every topic (e.g. dsd explain --all > checks.md)")
 	explainCmd.Flags().String("search", "", "list topics whose text mentions a keyword (e.g. dsd explain --search memory)")
+	explainCmd.Flags().Bool("markdown", false, "emit the full reference as markdown (regenerates docs/CHECKS.md)")
 	// Tab-complete topic names: `dsd explain <TAB>`.
 	explainCmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -181,6 +182,10 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, jsonModeStr(jsonOut))
 
+	if md, _ := cmd.Flags().GetBool("markdown"); md {
+		fmt.Print(explain.Markdown())
+		return nil
+	}
 	if allFlag, _ := cmd.Flags().GetBool("all"); allFlag {
 		return explainAll(mode)
 	}
