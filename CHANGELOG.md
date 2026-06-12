@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Package integrity: a modified/tampered system file is no longer missed** —
+  `rpm --verify` exits non-zero (and `dnf check` likewise for broken deps) while
+  printing the findings to stdout, but the shared `runCmd` helper discarded stdout
+  on any non-zero exit. So the integrity check only read output when the tool
+  exited 0 — i.e. when there was nothing to report — and a tampered file on a
+  RHEL/Fedora host produced no insight (silent OK). The integrity collector now
+  captures stdout regardless of exit code (new `runCmdOutput` helper).
 - **Security: an unreadable SSH config no longer reads as hardened** — when
   `sshd_config` exists but can't be read (non-root on RHEL/Rocky, where the file
   is mode 600 and `sshd -T` also needs root), the SSH directives stayed at their
