@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.0] — 2026-06-12
+
+Monitoring integration and in-context explanations.
+
+### Added
+
+- **`dsd health --nagios`** — a single-line monitoring-plugin status on stdout
+  (`DASHDIAG OK/WARNING/CRITICAL - …`) with the exit code already matching the
+  Nagios spec (0/1/2). Drops dsd straight into Nagios/Icinga/check_mk/Sensu as a
+  check command, no wrapper script. Each affected subsystem is named once at its
+  worst level (#178).
+- **`dsd health --prometheus`** — the verdict as Prometheus exposition metrics
+  (`dsd_up`, `dsd_check_status{check="…"}`, `dsd_health_status`; severity 0/1/2)
+  for node_exporter's textfile collector or scraping — chart and alert on host
+  health in Grafana/Alertmanager. Output validated by `promtool check metrics`
+  (#179).
+- **`dsd health --explain`** — after the verdict, appends a "Why these matter"
+  block explaining each flagged subsystem and how to fix it (from the `dsd explain`
+  content). Opt-in, so default output stays terse (#177).
+
 ## [v0.7.0] — 2026-06-12
 
 Two new capabilities — a live incident view and an in-tool reference.
