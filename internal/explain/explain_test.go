@@ -81,7 +81,8 @@ func TestForCheck(t *testing.T) {
 		{"Network", "network"},
 		{"Drives", "drives"},
 		{"CVE", "cve"},
-		{"Entropy", ""}, // no topic yet — must not panic or mis-map
+		{"Entropy", "entropy"},
+		{"Subscription", ""}, // uncovered subsystem — must not panic or mis-map
 	}
 	for _, tt := range tests {
 		got := ForCheck(tt.check)
