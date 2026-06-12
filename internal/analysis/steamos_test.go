@@ -139,7 +139,7 @@ func TestCheckSteamOSRemotePlayUnboundPortsWarn(t *testing.T) {
 
 func TestCheckSteamOSRemotePlayVRUnboundIsQuiet(t *testing.T) {
 	// All primary bound, only optional VR ports unbound → no WARN.
-	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
+	info := models.SteamOSInfo{Detected: true, RAUCAvailable: true, RemotePlay: &models.SteamOSRemotePlay{
 		Ports: []models.RemotePlayPort{
 			{Protocol: "udp", Port: 27031, Bound: true},
 			{Protocol: "udp", Port: 27036, Bound: true},
