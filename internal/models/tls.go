@@ -16,6 +16,16 @@ type TLSInfo struct {
 	Expiring        int        `json:"expiring"`                   // expiring within 30 days
 	Expired         int        `json:"expired"`                    // already expired
 	RemoteEndpoints []string   `json:"remote_endpoints,omitempty"` // endpoints that were checked
-	Status          string     `json:"status,omitempty"`
-	StatusReason    string     `json:"status_reason,omitempty"`
+	// Uncheckable lists cert files / remote endpoints that could NOT be read
+	// (e.g. an unreachable endpoint). Reported so a `0 expired` result is never
+	// mistaken for "all healthy" when some certs were never actually checked.
+	Uncheckable  []TLSUncheckable `json:"uncheckable,omitempty"`
+	Status       string           `json:"status,omitempty"`
+	StatusReason string           `json:"status_reason,omitempty"`
+}
+
+// TLSUncheckable is a cert path or remote endpoint that could not be evaluated.
+type TLSUncheckable struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
 }
