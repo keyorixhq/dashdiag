@@ -1,0 +1,38 @@
+name: CodeQL
+
+# First-party SAST (SSDLC Layer 1, ADR-0007). gosec (via golangci-lint) and our
+# semgrep rules catch known patterns on every PR; CodeQL adds GitHub's deeper
+# dataflow analysis for the security bug classes those miss, with results in the
+# Security tab. Runs on push to main + weekly (not per-PR) to keep the PR gate
+# fast — the PR gate already has gosec + semgrep + race tests.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 9 * * 1' # weekly, offset from the other security jobs
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (go)
+    runs-on: ubuntu-22.04
+    permissions:
+      security-events: write # upload findings to code scanning
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
