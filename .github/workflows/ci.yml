@@ -118,6 +118,27 @@ jobs:
               dsd --version
             '
 
+      # Fail-CLOSED guard (threat model CLI F-3): if integrity can't be verified the
+      # installer must ABORT, not silently install an unverified binary. Simulate a
+      # box with no hashing tool (remove sha256sum; shasum isn't present on debian),
+      # then assert: default => non-zero exit AND nothing installed; --no-verify =>
+      # installs. Without this guard the old silent skip-and-continue could regress.
+      - name: Install fails closed when it cannot verify (and --no-verify overrides)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
+              set -e
+              apt-get update -qq >/dev/null
+              apt-get install -y -qq curl ca-certificates >/dev/null
+              rm -f /usr/bin/sha256sum /usr/bin/shasum   # leave the box with no way to hash
+              if sh /tmp/install.sh; then echo "FAIL: installed without verification"; exit 1; fi
+              if command -v dsd >/dev/null 2>&1; then echo "FAIL: dsd present after a refused install"; exit 1; fi
+              echo "OK: refused unverified install"
+              sh /tmp/install.sh --no-verify
+              dsd --version
+            '
+
       # The documented `--prefix DIR` flag (install.sh header line 4) was broken —
       # main() read the prefix positionally, so `--prefix` landed in ./--prefix/bin.
       # Guard the documented form so it can't silently regress again.
