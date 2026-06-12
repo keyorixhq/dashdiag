@@ -13,6 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **SteamOS: an unreadable `rauc status` no longer reads as a healthy A/B slot** —
+  both RAUC slot-health checks were gated on `RAUCAvailable`, so when `rauc status`
+  failed (D-Bus down, service dead, permission, parse error) the A/B update health
+  — SteamOS's most important update-blocking signal — emitted nothing (silent OK).
+  Now surfaces INFO "RAUC A/B slot health could not be verified".
 - **Packages: a failed security-update query no longer reads as "0 updates"** —
   when `dnf advisory`/`zypper list-patches`/`apt-get -s upgrade` errored (broken
   plugin, apt lock, permission), the collector returned 0 security updates with no

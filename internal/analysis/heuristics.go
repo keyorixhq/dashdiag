@@ -4578,6 +4578,18 @@ func checkSteamOSDevice(s models.SteamOSInfo) []models.Insight {
 func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 	var out []models.Insight
 
+	// `rauc status` couldn't be read (D-Bus down, rauc.service dead, permission,
+	// parse failure). The A/B slot health — the single most important
+	// update-blocking signal on SteamOS — was NOT verified. The two checks below
+	// are both gated on RAUCAvailable, so without this a failed query reads as a
+	// silent OK. INFO doesn't raise the verdict.
+	if !s.RAUCAvailable {
+		out = append(out, insight("INFO", "SteamOS",
+			"RAUC A/B slot health could not be verified — `rauc status` failed or returned no data",
+			[]string{"to inspect: rauc status", "check: systemctl status rauc — is the service up?"},
+		))
+	}
+
 	// RAUC booted slot bad — updates will fail to install.
 	if s.RAUCAvailable && strings.EqualFold(s.RAUCBootedStatus, "bad") {
 		out = append(out, insight("CRIT", "SteamOS",
