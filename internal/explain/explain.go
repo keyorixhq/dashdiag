@@ -70,6 +70,22 @@ func aliasContains(aliases []string, q string) bool {
 	return false
 }
 
+// ForCheck maps a health insight's Check name (e.g. "CPU Load", "KernelSec") to a
+// topic, or nil if none covers it. It tries the lowercased check, then its first
+// word — so "CPU Load" resolves via "cpu". Used by `dsd health --explain`.
+func ForCheck(check string) *Topic {
+	c := strings.ToLower(strings.TrimSpace(check))
+	if t, _ := Lookup(c); t != nil {
+		return t
+	}
+	if i := strings.IndexByte(c, ' '); i > 0 {
+		if t, _ := Lookup(c[:i]); t != nil {
+			return t
+		}
+	}
+	return nil
+}
+
 // Topics returns all topics sorted by key, for the index listing.
 func Topics() []Topic {
 	out := make([]Topic, len(topics))

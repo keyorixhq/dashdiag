@@ -38,6 +38,7 @@ func init() {
 	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
 	healthCmd.Flags().Bool("blob", false, "emit a compact, copy-pasteable encoded report blob (network-optional; decode with `dsd decode`)")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
+	healthCmd.Flags().Bool("explain", false, "after the verdict, explain each flagged subsystem (see also: dsd explain)")
 	healthCmd.Flags().Bool("debug", false, "enable debug logging")
 	healthCmd.Flags().Bool("diff", false, "show diff from previous run")
 	healthCmd.Flags().Bool("since-deploy", false, "show metrics since last deploy")
@@ -222,6 +223,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	}
 
 	exitCode := renderer.PrintSummary(insights, elapsed)
+	if explainFlag, _ := cmd.Flags().GetBool("explain"); explainFlag {
+		printHealthExplanations(insights, mode)
+	}
 	_ = baseline.SaveBaseline(snap)
 
 	// --report: write shareable markdown file

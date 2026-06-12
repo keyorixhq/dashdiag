@@ -9,9 +9,57 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/explain"
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
 )
+
+// printHealthExplanations is the `dsd health --explain` tail: after the verdict,
+// it appends a compact explanation for each subsystem that produced a WARN/CRIT,
+// deduped by topic and shown in the order the insights appear. Human/plain only;
+// structured output already carries the insight data.
+func printHealthExplanations(insights []models.Insight, mode output.OutputMode) {
+	if mode != output.ModeHuman && mode != output.ModePlain {
+		return
+	}
+	seen := map[string]bool{}
+	var matched []explain.Topic
+	for _, ins := range insights {
+		if ins.Level != "WARN" && ins.Level != "CRIT" {
+			continue
+		}
+		t := explain.ForCheck(ins.Check)
+		if t == nil || seen[t.Key] {
+			continue
+		}
+		seen[t.Key] = true
+		matched = append(matched, *t)
+	}
+	if len(matched) == 0 {
+		return
+	}
+	human := mode == output.ModeHuman
+	bold := func(s string) string {
+		if human {
+			return render.StyleBold.Render(s)
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if human {
+			return render.StyleDim.Render(s)
+		}
+		return s
+	}
+	fmt.Println()
+	fmt.Println(bold("Why these matter") + dim("  ·  dsd explain <topic> for full detail"))
+	for _, t := range matched {
+		fmt.Printf("\n  %s — %s\n    %s\n", bold(t.Title), dim(t.Summary), t.Matters)
+		if len(t.Fix) > 0 {
+			fmt.Printf("    %s %s\n", dim("fix:"), strings.Join(t.Fix, "; "))
+		}
+	}
+}
 
 func init() {
 	rootCmd.AddCommand(explainCmd)
