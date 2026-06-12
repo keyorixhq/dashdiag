@@ -109,11 +109,25 @@ test-integration:
 	go test -tags integration -race -count=1 -timeout 120s ./...
 
 .PHONY: test-fuzz
+# SSDLC Layer 2 (ADR-0007): per-release fuzzing of parsers, prioritised by
+# THREAT_MODEL_CLI.md §5 (partially-attacker-influenced inputs). Does NOT hide
+# failures — a crash or false-OK violation must fail the target (a fuzz run that
+# swallows crashes is itself a false-OK). FUZZTIME overridable: make test-fuzz FUZZTIME=2m
+FUZZTIME ?= 30s
 test-fuzz:
-	@echo "→ Fuzz tests (30s each)"
-	go test -fuzz=FuzzParseLoadAvg    ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
-	go test -fuzz=FuzzReadVMStat      ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
-	go test -fuzz=FuzzParseIOCounters ./internal/collectors/ -fuzztime=30s 2>/dev/null || true
+	@echo "→ Fuzz tests ($(FUZZTIME) each) — Ctrl-C to stop early"
+	@set -e; \
+	go test -run=NONE -fuzz='^FuzzParseLoadAvg$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseMeminfo$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseVMStat$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseDiskstats$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseFileNr$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseProcStat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseHealth$$'         -fuzztime=$(FUZZTIME) ./internal/fleet/; \
+	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
+	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
+	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/
+	@echo "✅ all fuzz harnesses passed"
 
 .PHONY: test-contract
 test-contract:
