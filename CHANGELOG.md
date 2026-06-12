@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.5] — 2026-06-12
+
+### Added
+
+- **`dsd explain` now covers 36 subsystems** — added oom, firewall, pve, bind,
+  ceph, ipmi, bonding, and containerd, so the remaining commonly-flagged checks
+  all have a "what it means / how it's judged / how to fix it" entry (#193).
+
 ## [v0.8.4] — 2026-06-12
 
 ### Added
