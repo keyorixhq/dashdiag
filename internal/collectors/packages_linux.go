@@ -153,6 +153,10 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
 	}
 	if err != nil {
+		// The advisory query failed (broken plugin, transient dnf error, permission)
+		// — we did NOT learn there are 0 updates. Mark it so the verdict reports
+		// "couldn't verify" instead of a silent clean 0-updates OK (false-OK).
+		info.Status = "query-failed"
 		info.StatusReason = "dnf advisory/updateinfo unavailable"
 		return info, nil
 	}
@@ -235,7 +239,9 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	// We read whatever is cached; caller should ensure cache is fresh.
 	out, err := runCmd(ctx, "apt-get", "-s", "upgrade")
 	if err != nil {
-		// apt-get -s (simulate) requires no lock but may fail without root
+		// apt-get -s (simulate) requires no lock but may fail (apt lock, broken
+		// sources) — we didn't verify, so don't read as a clean 0-updates result.
+		info.Status = "query-failed"
 		info.StatusReason = "apt-get unavailable"
 		return info, nil
 	}
@@ -464,10 +470,10 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
 		"list-patches", "--category", "security")
 	if err != nil {
-		// zypper may require root for full repo access — not a hard error
+		// zypper may require root for full repo access. This is NOT "OK" — we
+		// couldn't check, so don't claim a clean result; report it as unverified.
+		info.Status = "query-failed"
 		info.StatusReason = "zypper list-patches unavailable (try running as root)"
-		info.Status = "OK"
-		info.StatusReason = "unable to check security patches"
 		return info, nil
 	}
 
