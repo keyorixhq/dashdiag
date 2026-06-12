@@ -3384,6 +3384,18 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
+	// The sshd config existed but couldn't be read (mode 600, non-root, and
+	// `sshd -T` also needs root). The SSH directives below default to their secure
+	// values, so without this the host would read as SSH-hardened having audited
+	// nothing — a false-OK on a security check. Surface it; INFO doesn't raise the
+	// verdict.
+	if sec.SSHConfigUnreadable && sec.SSHAuditSource == "" {
+		out = append(out, insight("INFO", "Hardening",
+			"SSH config present but not readable — sshd settings (root login, password auth, ciphers) were NOT audited",
+			[]string{"to audit: re-run as root (sudo dsd security)"},
+		))
+	}
+
 	// SSH misconfigurations
 	if sec.SSHPermitRoot {
 		switch {

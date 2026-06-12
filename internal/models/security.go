@@ -31,6 +31,11 @@ type SecurityInfo struct {
 	SSHMACs          string `json:"ssh_macs,omitempty"`
 	SSHKexAlgorithms string `json:"ssh_kex_algorithms,omitempty"`
 	SSHAuditSource   string `json:"ssh_audit_source,omitempty"` // "sshd -T" or "file"
+	// SSHConfigUnreadable is true when an sshd_config exists but could not be read
+	// (permission denied — non-root on RHEL where the file is mode 600 and
+	// `sshd -T` also needs root). Without this, the SSH directives stay at their
+	// secure defaults and the host reads as hardened having audited nothing.
+	SSHConfigUnreadable bool `json:"ssh_config_unreadable,omitempty"`
 
 	// Authentication
 	FailedLogins   int      `json:"failed_logins"`    // failed logins in last hour

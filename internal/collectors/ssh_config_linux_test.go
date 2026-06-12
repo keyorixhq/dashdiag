@@ -3,10 +3,44 @@
 package collectors
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// parseSSHFile must report whether it actually read the file, and distinguish a
+// not-found path (no SSH config there) from a permission-denied one (config
+// exists but couldn't be audited → SSHConfigUnreadable, the false-OK guard).
+func TestParseSSHFileReadSignal(t *testing.T) {
+	// A readable file → true, no unreadable flag, content parsed.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "sshd_config")
+	if err := os.WriteFile(p, []byte("PermitRootLogin yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var info models.SecurityInfo
+	if !parseSSHFile(p, &info) {
+		t.Fatal("readable file: parseSSHFile returned false")
+	}
+	if info.SSHConfigUnreadable {
+		t.Error("readable file wrongly flagged unreadable")
+	}
+	if !info.SSHPermitRoot {
+		t.Error("content not parsed (PermitRootLogin yes)")
+	}
+
+	// A not-found path → false, but NOT flagged unreadable (no SSH config here is
+	// not the same as a config we couldn't read).
+	var info2 models.SecurityInfo
+	if parseSSHFile(filepath.Join(dir, "does-not-exist"), &info2) {
+		t.Error("missing file: parseSSHFile returned true")
+	}
+	if info2.SSHConfigUnreadable {
+		t.Error("missing file wrongly flagged unreadable (would false-fire on hosts without sshd)")
+	}
+}
 
 // ── SSH config parser tests ──────────────────────────────────────────────────
 
