@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -86,29 +85,4 @@ func parseIBState(raw string) string {
 		return strings.TrimSpace(raw[i+2:])
 	}
 	return strings.TrimSpace(raw)
-}
-
-// parseIBPortFromSysfs is exposed for unit tests
-func parseIBPortFromSysfs(device, portNum, state, rate string) models.IBPort {
-	port := models.IBPort{
-		Device: device,
-		Port:   parsePortNum(portNum),
-		State:  parseIBState(state),
-	}
-	// Parse rate like "100 Gb/sec (4X EDR)"
-	if i := strings.Index(rate, "("); i >= 0 {
-		inner := strings.TrimSuffix(rate[i+1:], ")")
-		parts := strings.Fields(inner)
-		if len(parts) >= 2 {
-			port.Width = parts[0]
-			port.Speed = parts[1]
-		}
-	}
-
-	// Optionally read device state from sysfs path
-	if p, err := os.ReadFile(filepath.Join("/sys/class/infiniband", device, "ports", portNum, "state")); err == nil {
-		port.State = parseIBState(strings.TrimSpace(string(p)))
-	}
-
-	return port
 }

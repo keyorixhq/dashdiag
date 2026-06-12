@@ -2,7 +2,6 @@ package collectors
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"os/exec"
 	"regexp"
@@ -48,66 +47,6 @@ func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 		return info, nil
 	}
 	return parseSnapperPlain(listOut, info), nil
-}
-
-// parseSnapperCSV parses `snapper --csvout list` output.
-func parseSnapperCSV(out string, info *models.SnapperInfo) *models.SnapperInfo {
-	lines := strings.Split(out, "\n")
-	var lastTime time.Time
-	var oldestTime time.Time
-	var totalMiB float64
-
-	for i, line := range lines {
-		if i == 0 || strings.TrimSpace(line) == "" {
-			continue // header
-		}
-		fields := strings.Split(line, ",")
-		if len(fields) < 8 {
-			continue
-		}
-		info.SnapshotCount++
-
-		// CSV header: config,subvolume,number,default,active,type,pre-number,date,user,used-space,...
-		// date is index 7, used-space is index 9
-		dateStr := strings.TrimSpace(fields[7])
-		if dateStr != "" {
-			t, err := time.Parse("Mon 02 Jan 2006 03:04:05 PM MST", dateStr)
-			if err != nil {
-				t, err = time.Parse("2006-01-02 15:04:05", dateStr)
-			}
-			if err == nil {
-				if lastTime.IsZero() || t.After(lastTime) {
-					lastTime = t
-				}
-				if oldestTime.IsZero() || t.Before(oldestTime) {
-					oldestTime = t
-				}
-			}
-		}
-
-		// used-space index 9 — value in bytes in CSV output
-		if len(fields) > 9 {
-			usedStr := strings.TrimSpace(fields[9])
-			if usedStr != "" {
-				var bytes float64
-				if _, err := fmt.Sscanf(usedStr, "%f", &bytes); err == nil && bytes > 0 {
-					totalMiB += bytes / 1024 / 1024
-				}
-			}
-		}
-	}
-
-	if !lastTime.IsZero() {
-		info.LastSnapshotH = int(time.Since(lastTime).Hours())
-	} else {
-		info.LastSnapshotH = -1
-	}
-	if !oldestTime.IsZero() {
-		info.OldestDays = int(time.Since(oldestTime).Hours() / 24)
-	}
-	info.TotalSpaceGB = math.Round(totalMiB/1024*100) / 100
-
-	return info
 }
 
 // parseSnapperPlain parses `snapper list` table output.
@@ -213,7 +152,6 @@ func parseSnapperDate(s string) time.Time {
 			last == strings.ToUpper(last) &&
 			last != "AM" && last != "PM" {
 			fields = fields[:len(fields)-1]
-			s = strings.Join(fields, " ")
 		}
 	}
 	// Reorder: "Wed 13 May 2026 08:39:27 PM" -> "Wed May 13 2026 08:39:27 PM"

@@ -168,7 +168,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 
 		// Missing binary (only report first missing binary found)
 		if missingCmd == "" && strings.HasPrefix(cmd, "/") {
-			binary := strings.Fields(cmd)[0]
+			binary := strings.Fields(cmd)[0] //nolint:gosec // G703: path from the host's own trusted crontab, stat-only existence check (never opened/executed)
 			if _, err := os.Stat(binary); os.IsNotExist(err) {
 				missingCmd = "command not found: " + binary
 			}
