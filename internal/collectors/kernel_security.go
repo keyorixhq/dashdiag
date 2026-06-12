@@ -328,15 +328,22 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 	validTypes := map[string]bool{"targeted": true, "minimum": true, "mls": true}
 	typeValid = validTypes[seType]
 
-	// Policy directory must exist under /etc/selinux/<type>/
-	policyDir := "/etc/selinux/" + seType
-	if _, statErr := os.Stat(policyDir); statErr == nil { //nolint:gosec // policyDir built from seType validated against fixed allowlist above
-		dirOK = true
-	}
+	// Path-safety guard: seType is interpolated into a filesystem path and a
+	// package name below. The config file is root-owned, but the guard must be
+	// enforced in code, not just claimed in a comment — restrict to a simple
+	// token so the constructed path cannot traverse (custom/distro policy
+	// names like Debian's "default" remain allowed; they are simple tokens).
+	if isSafePolicyToken(seType) {
+		// Policy directory must exist under /etc/selinux/<type>/
+		policyDir := "/etc/selinux/" + seType
+		if _, statErr := os.Stat(policyDir); statErr == nil { // #nosec G703 -- seType restricted to [A-Za-z0-9_-] by isSafePolicyToken above
+			dirOK = true
+		}
 
-	// Policy package selinux-policy-<type> must be installed.
-	// Try rpm first (RHEL/CentOS/Fedora), then dpkg (Debian/Ubuntu).
-	pkgOK = selinuxPolicyPkgInstalled(seType)
+		// Policy package selinux-policy-<type> must be installed.
+		// Try rpm first (RHEL/CentOS/Fedora), then dpkg (Debian/Ubuntu).
+		pkgOK = selinuxPolicyPkgInstalled(seType)
+	}
 
 	// /.autorelabel: a reboot with relabeling requested but not yet completed.
 	if _, statErr := os.Stat("/.autorelabel"); statErr == nil {
@@ -344,6 +351,24 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 	}
 
 	return seType, typeValid, dirOK, pkgOK, relabelPending
+}
+
+// isSafePolicyToken reports whether s is a simple policy-name token
+// ([A-Za-z0-9_-]+) and therefore safe to interpolate into a filesystem path
+// or package name. Rejects empty strings and anything containing path
+// separators or dots, so "../..", "a/b" and "" all fail.
+func isSafePolicyToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // selinuxPolicyPkgInstalled returns true when selinux-policy-<policyType>
