@@ -5114,6 +5114,22 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 		return out
 	}
 
+	// kubectl/k3s is present but no cluster query succeeded — the API server is
+	// down, the kubeconfig is wrong, or RBAC forbids it. Every count is zero
+	// because we never reached the cluster, which would read as a healthy cluster.
+	// Surface it as INFO ("health not verified"), not a silent green OK. INFO does
+	// not raise the verdict (a kubectl-on-a-workstation pointing at a remote
+	// cluster shouldn't WARN).
+	if !k.APIReachable {
+		return []models.Insight{insight("INFO", "K8s",
+			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
+			[]string{
+				"to inspect: kubectl get nodes",
+				"check: API server up? kubeconfig valid (KUBECONFIG / ~/.kube/config)? RBAC sufficient?",
+			},
+		)}
+	}
+
 	out = append(out, checkK8sNodes(k)...)
 	out = append(out, checkK8sPodHealth(k)...)
 	out = append(out, checkK8sWorkloadsAndEvents(k)...)

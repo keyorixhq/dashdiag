@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **k8s: an unreachable cluster API no longer reads as a healthy cluster** — when
+  `kubectl`/`k3s` is present but no cluster query succeeds (API server down, bad
+  kubeconfig, or insufficient RBAC), every count stayed at zero and `dsd health`
+  reported the cluster fine — a false-OK on the exact host where k8s is broken.
+  It now tracks whether a query actually reached the API and surfaces
+  "cluster health NOT verified" as INFO instead of a silent OK (matching how
+  Docker/Ceph surface their unreachable states).
 - **CVE scan: a failed apt scan no longer reads as "no CVEs"** — when both
   `apt-get --simulate upgrade`/`dist-upgrade` failed (apt lock held by
   unattended-upgrades, broken sources, or insufficient privilege), `dsd health
