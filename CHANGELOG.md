@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Packages: a failed security-update query no longer reads as "0 updates"** —
+  when `dnf advisory`/`zypper list-patches`/`apt-get -s upgrade` errored (broken
+  plugin, apt lock, permission), the collector returned 0 security updates with no
+  status, and on a host with fresh package metadata the verdict stayed a silent
+  clean OK. zypper was worst — its failure path literally set `Status: "OK"`. All
+  three now report `query-failed` → INFO "could not verify security updates", not a
+  clean bill of health.
 - **Package integrity: a modified/tampered system file is no longer missed** —
   `rpm --verify` exits non-zero (and `dnf check` likewise for broken deps) while
   printing the findings to stdout, but the shared `runCmd` helper discarded stdout
