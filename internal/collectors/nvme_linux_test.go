@@ -35,6 +35,43 @@ func TestParseNVMeCriticalWarningHex(t *testing.T) {
 	}
 }
 
+// applySATASmartJSON must set SmartRead only when smartctl actually reported a
+// verdict. `smartctl --json -a` emits JSON with NO smart_status for USB bridges,
+// RAID members, and virtual disks — without the SmartRead distinction those
+// defaulted SmartOK=false and fired a false "drive may be failing" CRIT.
+func TestApplySATASmartJSON(t *testing.T) {
+	t.Run("verdict passed", func(t *testing.T) {
+		var d models.SATADevice
+		applySATASmartJSON(`{"model_name":"X","smart_status":{"passed":true},"temperature":{"current":34}}`, &d)
+		if !d.SmartRead || !d.SmartOK || d.TempC != 34 {
+			t.Fatalf("got SmartRead=%v SmartOK=%v temp=%d, want true,true,34", d.SmartRead, d.SmartOK, d.TempC)
+		}
+	})
+	t.Run("verdict failed", func(t *testing.T) {
+		var d models.SATADevice
+		applySATASmartJSON(`{"smart_status":{"passed":false}}`, &d)
+		if !d.SmartRead || d.SmartOK {
+			t.Fatalf("got SmartRead=%v SmartOK=%v, want true,false", d.SmartRead, d.SmartOK)
+		}
+	})
+	t.Run("no smart_status — unread, no false verdict", func(t *testing.T) {
+		var d models.SATADevice
+		// Realistic smartctl output for a drive behind a controller: JSON present,
+		// no smart_status object.
+		applySATASmartJSON(`{"model_name":"VMware Virtual disk","temperature":{"current":0}}`, &d)
+		if d.SmartRead {
+			t.Fatalf("SmartRead=true with no smart_status — would fire a false CRIT")
+		}
+	})
+	t.Run("garbled JSON — unread", func(t *testing.T) {
+		var d models.SATADevice
+		applySATASmartJSON(`not json`, &d)
+		if d.SmartRead || d.SmartOK {
+			t.Fatalf("garbled input produced a verdict: SmartRead=%v SmartOK=%v", d.SmartRead, d.SmartOK)
+		}
+	})
+}
+
 // Negative or garbled counters must not reach a field that a `> 0` / `>= N`
 // health check reads — a negative slips under the threshold and reads healthy.
 func TestParseNVMeNegativeCountersRejected(t *testing.T) {

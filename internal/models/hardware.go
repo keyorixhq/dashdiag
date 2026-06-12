@@ -2,9 +2,13 @@ package models
 
 // HardwareDrive holds SMART health for a single drive (NVMe or SATA/SAS).
 type HardwareDrive struct {
-	Device              string `json:"device"`
-	Model               string `json:"model"`
-	Type                string `json:"type"`
+	Device string `json:"device"`
+	Model  string `json:"model"`
+	Type   string `json:"type"`
+	// SmartRead is true only when smartctl actually reported a SMART verdict
+	// (smart_status present). False = detected but unread (controller/USB bridge
+	// /virtual disk) — must not fire a "drive may fail imminently" CRIT.
+	SmartRead           bool   `json:"smart_read"`
 	SmartOK             bool   `json:"smart_ok"`
 	TempC               int    `json:"temp_c"`
 	PowerOnH            int64  `json:"power_on_h"`

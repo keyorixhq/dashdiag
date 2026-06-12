@@ -106,7 +106,11 @@ func TestCheckNVMe(t *testing.T) {
 		d.SmartRead = true
 		return models.NVMeInfo{Devices: []models.NVMeDevice{d}}
 	}
+	// SATA fixtures with explicit attributes represent drives whose SMART verdict
+	// was read; mark SmartRead so they don't trip the "SMART not read" INFO. The
+	// unread case is covered explicitly below.
 	sata := func(d models.SATADevice) models.NVMeInfo {
+		d.SmartRead = true
 		return models.NVMeInfo{SATADevices: []models.SATADevice{d}}
 	}
 	tests := []struct {
@@ -134,6 +138,10 @@ func TestCheckNVMe(t *testing.T) {
 		{"sata uncorrectable is CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 1}), "CRIT"},
 		{"sata reallocated is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, ReallocatedSectors: 4}), "WARN"},
 		{"sata read error skipped", sata(models.SATADevice{Name: "/dev/sda", SmartOK: false, Error: "permission denied"}), ""},
+		// Detected but SMART never reported (controller/USB bridge/virtual disk) →
+		// INFO, NOT a confident "drive may be failing" CRIT. No SmartRead → not via
+		// the sata() helper.
+		{"sata smart unread is INFO", models.NVMeInfo{SATADevices: []models.SATADevice{{Name: "/dev/sda", Type: "sata", SmartOK: false}}}, "INFO"},
 		// Power-on-hours is age, not wear: a healthy long-lived drive must NOT WARN
 		// (real endurance is PercentageUsed/spare for NVMe, reallocated sectors for SATA).
 		{"nvme high power-on-hours healthy is INFO not WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 10, TempC: 40, PowerOnHours: 40000}), "INFO"},

@@ -2402,8 +2402,16 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 	}
 
 	// SATA/SAS drives
+	var sataUnread []string
 	for _, dev := range n.SATADevices {
 		if dev.Error != "" {
+			continue
+		}
+		// Detected but no SMART verdict (USB bridge / RAID member / virtual disk
+		// — smartctl emits JSON with no smart_status). Surface as INFO instead of
+		// firing a confident "drive may be failing" CRIT on an unverified drive.
+		if !dev.SmartRead {
+			sataUnread = append(sataUnread, dev.Name)
 			continue
 		}
 		if !dev.SmartOK {
@@ -2445,6 +2453,16 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 				[]string{"to inspect: smartctl -a " + dev.Name},
 			))
 		}
+	}
+	if len(sataUnread) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART, or a virtual disk",
+				len(sataUnread), strings.Join(sataUnread, ", ")),
+			[]string{
+				"to inspect: smartctl -a <device>  (try -d sat / -d cciss,N for controllers)",
+				"note: drive presence is known; SMART health, wear, and errors are unverified",
+			},
+		))
 	}
 
 	return out
@@ -5607,8 +5625,17 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 			prefix = fmt.Sprintf("%s (%s)", d.Device, d.Model)
 		}
 
-		// SMART overall
-		if !d.SmartOK {
+		// SMART overall. Only a drive that actually reported a verdict can FAIL it;
+		// a detected-but-unread drive (controller/USB bridge/virtual disk emits
+		// JSON with no smart_status) must not be called failing — that was a false
+		// CRIT ("back up immediately") on healthy drives.
+		switch {
+		case !d.SmartRead:
+			out = append(out, insight("INFO", "Hardware",
+				fmt.Sprintf("%s — SMART health not reported (behind a RAID/HBA controller or USB bridge, or a virtual disk)", prefix),
+				[]string{"to inspect: smartctl -a " + d.Device + "  (try -d sat / -d cciss,N)"},
+			))
+		case !d.SmartOK:
 			out = append(out, insight("CRIT", "Hardware",
 				fmt.Sprintf("%s — SMART FAILED: drive may fail imminently, back up immediately", prefix),
 				[]string{

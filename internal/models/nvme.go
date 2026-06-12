@@ -25,10 +25,17 @@ type NVMeDevice struct {
 
 // SATADevice holds SMART health data for a SATA/SAS drive.
 type SATADevice struct {
-	Name                string   `json:"name"`
-	Model               string   `json:"model"`
-	Type                string   `json:"type"` // sata, sas
-	TempC               int      `json:"temp_c"`
+	Name  string `json:"name"`
+	Model string `json:"model"`
+	Type  string `json:"type"` // sata, sas
+	TempC int    `json:"temp_c"`
+	// SmartRead is true only when smartctl actually reported a SMART verdict
+	// (smart_status.passed present). False when the drive was detected but SMART
+	// couldn't be read — USB bridges, RAID/HBA controllers, virtual disks all
+	// make `smartctl --json -a` emit JSON with no smart_status. Without this, a
+	// missing verdict defaulted SmartOK=false and fired a false "drive may be
+	// failing" CRIT (sibling of the NVMe SmartRead guard, BUG-048).
+	SmartRead           bool     `json:"smart_read"`
 	SmartOK             bool     `json:"smart_ok"`
 	PowerOnHours        int64    `json:"power_on_hours"`
 	ReallocatedSectors  int      `json:"reallocated_sectors"`

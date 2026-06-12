@@ -13,6 +13,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **SATA/SAS + `dsd hardware`: a drive whose SMART can't be read is no longer
+  reported as failing** — `smartctl --json -a` emits JSON with **no `smart_status`**
+  for drives behind RAID/HBA controllers, USB bridges, and virtual disks (common
+  on cloud/VMware guests). The verdict then defaulted to "not passed" with no
+  error, firing a false **CRIT** — `dsd health`: "drive may be failing"; `dsd
+  hardware`: "may fail imminently, back up immediately" — on perfectly healthy
+  drives. Both paths now track whether a verdict was actually read (`SmartRead`)
+  and surface unread drives as **INFO** ("SMART health not read — behind a
+  controller/bridge or virtual disk") instead of a confident CRIT. Brings SATA/SAS
+  and `dsd hardware` in line with the NVMe path (BUG-048).
 - **NVMe: a set `critical_warning` flag is no longer missed** — `nvme smart-log`
   prints `critical_warning` as hex (`%#x`, e.g. `0x4`), but the parser used
   `strconv.Atoi`, which can't read `0x…` and returned `0` — so a drive signalling
