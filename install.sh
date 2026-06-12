@@ -2,6 +2,11 @@
 # DashDiag (dsd) installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
 # Or:    curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh -s -- --prefix /usr/local
+#
+# Integrity: the downloaded binary is sha256-verified against the release's
+# checksums.txt and the install FAILS CLOSED if it cannot verify (no checksums,
+# no entry for this platform, or no hashing tool). Pass --no-verify to override
+# (installs UNVERIFIED — not recommended).
 
 set -e
 
@@ -74,6 +79,21 @@ download() {
     echo "$TMPFILE"
 }
 
+# Called when integrity verification CANNOT proceed (no checksums.txt, no entry
+# for this platform, no hashing tool). Fails CLOSED by default — refuses to
+# install a binary it couldn't verify — because an origin that simply withholds
+# checksums.txt must not silently downgrade the install to unverified (threat
+# model CLI F-3). --no-verify is the explicit, loud escape hatch.
+# NOTE: a checksum *mismatch* is positive evidence of tampering, not an inability
+# to verify, so it always dies regardless of --no-verify.
+unverified() {
+    if [ "$NO_VERIFY" = "1" ]; then
+        warn "$1 -- continuing anyway (--no-verify: UNVERIFIED install)"
+        return 0
+    fi
+    die "$1. Refusing to install an unverified binary -- re-run with --no-verify to override."
+}
+
 # ── verify checksum ──────────────────────────────────────────────────────────
 verify_checksum() {
     TMPFILE="$1"
@@ -81,20 +101,20 @@ verify_checksum() {
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { warn "Could not fetch checksums -- skipping verification"; return; }
+        curl -fsSL "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     else
-        wget -qO "$SUMS_FILE" "$SUMS_URL" 2>/dev/null || { warn "Could not fetch checksums -- skipping verification"; return; }
+        wget -qO "$SUMS_FILE" "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     fi
 
     EXPECTED="$(grep "${BINARY}-${PLATFORM}" "$SUMS_FILE" | awk '{print $1}')"
-    [ -n "$EXPECTED" ] || { warn "No checksum found for ${BINARY}-${PLATFORM} -- skipping verification"; return; }
+    [ -n "$EXPECTED" ] || { unverified "No checksum for ${BINARY}-${PLATFORM} in checksums.txt"; return; }
 
     if command -v sha256sum >/dev/null 2>&1; then
         ACTUAL="$(sha256sum "$TMPFILE" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then
         ACTUAL="$(shasum -a 256 "$TMPFILE" | awk '{print $1}')"
     else
-        warn "sha256sum/shasum not found -- skipping checksum verification"
+        unverified "Neither sha256sum nor shasum is available to compute the hash"
         return
     fi
 
@@ -150,12 +170,15 @@ main() {
     #   --prefix DIR / --prefix=DIR   install root (the documented flag, header line 4)
     #   vX.Y.Z                        pin a release (positional, leading 'v' + digit)
     #   DIR                           bare positional install root
+    #   --no-verify                   install even if integrity can't be verified
     VERSION=""
     PREFIX=""
+    NO_VERIFY=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --prefix)    [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;;
             --prefix=*)  PREFIX="${1#--prefix=}"; shift ;;
+            --no-verify) NO_VERIFY=1; shift ;;
             v[0-9]*)     VERSION="$1"; shift ;;
             -*)          die "Unknown option: $1" ;;
             *)           PREFIX="$1"; shift ;;

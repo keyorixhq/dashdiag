@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- **Installer fails closed on unverifiable downloads** — `install.sh` previously
+  *skipped* sha256 verification (silent warning, install continued) whenever
+  `checksums.txt` couldn't be fetched, lacked an entry for the platform, or no
+  hashing tool was present. An origin that simply withheld `checksums.txt` thus
+  downgraded every install to unverified (threat model CLI **F-3**). The installer
+  now **aborts** in those cases; the new `--no-verify` flag is the explicit, loud
+  escape hatch for genuinely tool-less environments. A checksum *mismatch* still
+  always aborts regardless of the flag. CI now guards the fail-closed path.
+
+---
+
 ## [v0.8.7] — 2026-06-12
 
 ### Added
