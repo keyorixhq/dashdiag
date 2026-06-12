@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.7] — 2026-06-12
+
+### Added
+
+- **Checks reference (`docs/CHECKS.md`) + `dsd explain --markdown`** — a generated,
+  browsable reference of all 36 checks (what each looks at, why it matters, how the
+  verdict is decided, how to fix), so coverage is visible on GitHub without
+  installing. A sync test keeps the doc from drifting from the topic registry;
+  regenerate with `dsd explain --markdown > docs/CHECKS.md` (#197).
+
 ## [v0.8.6] — 2026-06-12
 
 ### Added
