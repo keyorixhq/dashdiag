@@ -13,6 +13,10 @@ set -e
 REPO="keyorixhq/dashdiag"
 BINARY="dsd"
 # PREFIX / VERSION are parsed from args in main().
+# Pinned minisign public key (the base64 line from minisign.pub). EMPTY = release
+# signing not yet configured → signature verification is inert. Keep in sync with
+# internal/selfupdate MinisignPublicKey. See docs/RELEASE_SIGNING.md.
+MINISIGN_PUBKEY=""
 
 # ── colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -125,6 +129,37 @@ verify_checksum() {
     fi
 }
 
+# ── verify signature (best-effort authenticity) ───────────────────────────────
+# Authenticity layer on top of the checksum (integrity): a minisign signature
+# over checksums.txt that a compromised origin can't forge. Inert until a key is
+# pinned. Best-effort in shell — needs the `minisign` tool, which most boxes lack;
+# the in-binary `dsd update` verifier is the always-on, fail-closed path. A
+# signature that is present AND verifiable-as-bad aborts; a missing signature or
+# missing tool only warns (the checksum already guaranteed integrity).
+verify_signature() {
+    [ -n "$MINISIGN_PUBKEY" ] || return 0          # signing not configured — inert
+    [ -f "$SUMS_FILE" ] || return 0                # no checksums.txt to verify against
+
+    SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
+    SIG_FILE="${SUMS_FILE}.minisig"                # minisign -Vm looks for <file>.minisig
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+    else
+        wget -qO "$SIG_FILE" "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+    fi
+
+    if ! command -v minisign >/dev/null 2>&1; then
+        warn "release signature present but 'minisign' is not installed -- verified checksum only (to verify authenticity: minisign -Vm checksums.txt -P '$MINISIGN_PUBKEY')"
+        return 0
+    fi
+
+    if minisign -Vm "$SUMS_FILE" -P "$MINISIGN_PUBKEY" >/dev/null 2>&1; then
+        info "Signature verified (minisign)"
+    else
+        die "Release signature verification FAILED -- refusing to install (possible tampering)"
+    fi
+}
+
 # ── install ───────────────────────────────────────────────────────────────────
 install_binary() {
     TMPFILE="$1"
@@ -195,6 +230,7 @@ main() {
 
     TMPFILE="$(download)"
     verify_checksum "$TMPFILE"
+    verify_signature
     install_binary "$TMPFILE"
     verify_install
 

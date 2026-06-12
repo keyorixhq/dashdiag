@@ -193,7 +193,20 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 		return "", fmt.Errorf("release %s has no checksums.txt", rel.TagName)
 	}
 
-	wantSum, err := fetchChecksum(ctx, sums.URL, name)
+	sumsBody, err := fetchBytes(ctx, sums.URL)
+	if err != nil {
+		return "", err
+	}
+
+	// Authenticity: when this build embeds a signing key, checksums.txt must carry
+	// a valid minisign signature before any hash in it is trusted — a compromised
+	// release origin can serve a matching checksum but cannot forge the signature.
+	// Inert (skipped) when no key is configured, preserving current behaviour.
+	if err := verifyChecksumsSignature(ctx, rel, sumsBody); err != nil {
+		return "", err
+	}
+
+	wantSum, err := checksumFor(sumsBody, name)
 	if err != nil {
 		return "", err
 	}
@@ -224,17 +237,18 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 	return exe, nil
 }
 
-// fetchChecksum pulls checksums.txt and returns the hex sha256 for assetName.
-func fetchChecksum(ctx context.Context, url, assetName string) (string, error) {
+// fetchBytes GETs url and returns the full body.
+func fetchBytes(ctx context.Context, url string) ([]byte, error) {
 	body, err := httpGet(ctx, dlClient, url)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer body.Close()
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return "", err
-	}
+	return io.ReadAll(body)
+}
+
+// checksumFor returns the hex sha256 for assetName from checksums.txt content.
+func checksumFor(data []byte, assetName string) (string, error) {
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && fields[1] == assetName {
@@ -242,6 +256,39 @@ func fetchChecksum(ctx context.Context, url, assetName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no checksum for %s in checksums.txt", assetName)
+}
+
+// verifyChecksumsSignature enforces release authenticity when this build embeds a
+// minisign public key (MinisignPublicKey). It fetches the release's
+// checksums.txt.minisig and verifies it over sumsBody. When no key is configured
+// it is a no-op, so unsigned/old releases keep working (checksum-only).
+//
+// Fail-closed: once a key IS embedded, a release that ships no signature — or a
+// signature that does not verify — aborts the update rather than trusting an
+// unauthenticated checksums.txt.
+func verifyChecksumsSignature(ctx context.Context, rel *Release, sumsBody []byte) error {
+	return verifyChecksumsSignatureKey(ctx, MinisignPublicKey, rel, sumsBody)
+}
+
+// verifyChecksumsSignatureKey is the key-parameterised core of
+// verifyChecksumsSignature (split out so the active path is testable without
+// patching the build-time MinisignPublicKey constant).
+func verifyChecksumsSignatureKey(ctx context.Context, pubKey string, rel *Release, sumsBody []byte) error {
+	if pubKey == "" {
+		return nil // signing not configured — inert
+	}
+	sig := findAsset(rel.Assets, "checksums.txt.minisig")
+	if sig == nil {
+		return fmt.Errorf("release %s is not signed (no checksums.txt.minisig) but this build requires a verified signature", rel.TagName)
+	}
+	sigBody, err := fetchBytes(ctx, sig.URL)
+	if err != nil {
+		return fmt.Errorf("fetching release signature: %w", err)
+	}
+	if err := verifyMinisign(pubKey, sumsBody, sigBody); err != nil {
+		return fmt.Errorf("release signature verification failed (refusing to update): %w", err)
+	}
+	return nil
 }
 
 // downloadToTemp streams url into a temp file in dir, returning the path and the
