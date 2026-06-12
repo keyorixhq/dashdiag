@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.8.1] — 2026-06-12
+
+### Added
+
+- **`dsd explain` now covers 28 subsystems** — added sysctl, entropy, fdlimits,
+  thermal, kvm, lvm, raid, and nfs to the offline reference, so the common checks
+  an operator gets flagged on all have a "what it means / how it's judged / how to
+  fix it" entry (#182).
+
+### Docs
+
+- README documents the v0.7–v0.8 features: `dsd explain`, and the `dsd health`
+  `--watch` / `--explain` / `--nagios` / `--prometheus` flags, with a
+  monitoring-integration section (#181).
+
 ## [v0.8.0] — 2026-06-12
 
 Monitoring integration and in-context explanations.
