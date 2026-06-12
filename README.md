@@ -1,5 +1,8 @@
 # DashDiag (`dsd`)
 
+[![CI](https://github.com/keyorixhq/dashdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/keyorixhq/dashdiag/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/keyorixhq/dashdiag/badge)](https://scorecard.dev/viewer/?uri=github.com/keyorixhq/dashdiag)
+
 **OBD diagnostics for your Linux server.**
 
 Your car has had a health scanner since 1996. Plug it in, get:
