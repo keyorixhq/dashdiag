@@ -73,9 +73,13 @@ func driveInfoDarwin(ctx context.Context, disk string) models.SATADevice {
 		}
 		if strings.HasPrefix(line, "SMART Status:") {
 			status := strings.TrimSpace(strings.TrimPrefix(line, "SMART Status:"))
-			dev.SmartOK = strings.EqualFold(status, "Verified")
-			if !dev.SmartOK {
-				dev.Error = status
+			// SmartRead gates the analysis verdict: only a real verdict (Verified/
+			// Passed/Failing) counts as "read". "Not Supported" → unread INFO, not a
+			// CRIT and not a silent skip. (Without SmartRead, a healthy Mac drive was
+			// mis-reported "SMART not read" after the SATADevice SmartRead guard landed.)
+			if read, ok := darwinSMARTStatus(status); read {
+				dev.SmartRead = true
+				dev.SmartOK = ok
 			}
 		}
 	}
