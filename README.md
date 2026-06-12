@@ -121,8 +121,18 @@ cd dashdiag && make install
 | `dsd services` | Check TCP/HTTP endpoints are actually reachable | ~5s |
 | `dsd logs` | OOM kills, segfaults, crash loops, journal errors | ~3s |
 | `dsd proc <pid>` | Deep process inspect — memory map, FDs, connections | ~3s |
+| `dsd explain <topic>` | What a check means, how it's judged, how to fix it (offline reference) | instant |
 
 Every command supports `--json` for scripting and `--plain` for CI output.
+
+**Useful `dsd health` flags:**
+
+| Flag | What it does |
+|---|---|
+| `--watch` | Refresh on an interval and highlight what changed since the last tick (🆕 new / ✅ resolved / ↕ severity) |
+| `--explain` | After the verdict, explain each flagged subsystem and how to fix it |
+| `--nagios` | One-line monitoring-plugin output (Nagios/Icinga/check_mk), exit 0/1/2 |
+| `--prometheus` | Prometheus exposition metrics for node_exporter's textfile collector or scraping |
 
 ---
 
@@ -306,6 +316,27 @@ done
 **Exit codes:** `0` = healthy, `1` = warnings, `2` = critical issues.
 
 No agent. No port. No registration. Works wherever SSH works.
+
+---
+
+## Monitoring integration
+
+Drop `dsd` into an existing monitoring stack — the exit codes already match the
+Nagios spec, so there's no wrapper script:
+
+```bash
+# Nagios / Icinga / check_mk / Sensu — one-line status + exit 0/1/2
+dsd health --nagios
+# → DASHDIAG WARNING - 2 warning: Swap, Hardening
+
+# Prometheus — write metrics for node_exporter's textfile collector
+dsd health --prometheus > /var/lib/node_exporter/textfile_collector/dsd.prom
+# → dsd_check_status{check="disk"} 0
+#   dsd_health_status 1
+
+# Watch an incident unfold — refresh and show only what changed
+dsd health --watch --watch-interval 5s
+```
 
 ---
 
