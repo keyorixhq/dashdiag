@@ -7,6 +7,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -74,8 +75,34 @@ type remoteHealth struct {
 	} `json:"insights"`
 }
 
+// ValidateHost rejects host tokens that ssh/scp would reinterpret as options or
+// that contain shell/whitespace metacharacters. This is the primary guard for
+// trust boundary B (THREAT_MODEL_CLI.md F-1): a host entry like
+// "-oProxyCommand=..." is parsed by ssh as a flag, not a hostname, yielding
+// local command execution from a poisoned hosts list. Accepts the documented
+// [user@]host form (letters, digits, dot, dash, colon for IPv6, @, _, /).
+func ValidateHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("empty host")
+	}
+	if strings.HasPrefix(host, "-") {
+		return fmt.Errorf("host %q starts with '-' (would be read as an ssh option)", host)
+	}
+	for _, r := range host {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == ':' || r == '@' || r == '_' || r == '/' || r == '%':
+			// dot/dash: hostnames; colon/%: IPv6 (incl. zone id); @: user@host; _,/: ssh config aliases
+		default:
+			return fmt.Errorf("host %q contains invalid character %q", host, r)
+		}
+	}
+	return nil
+}
+
 // Run executes the health command on every host with bounded concurrency and
-// returns results in input order.
+// returns results in input order. Hosts failing ValidateHost are returned as
+// ERROR results without ever reaching ssh/scp.
 func Run(ctx context.Context, hosts []string, opts Options) []Result {
 	opts = opts.withDefaults()
 	results := make([]Result, len(hosts))
@@ -86,6 +113,12 @@ func Run(ctx context.Context, hosts []string, opts Options) []Result {
 		go func(idx int, host string) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if err := ValidateHost(host); err != nil {
+				results[idx] = Result{Host: host, Reachable: false, Worst: "ERROR", Error: "invalid host: " + err.Error()}
+				results[idx].finalize(time.Now())
+				done <- idx
+				return
+			}
 			results[idx] = runHost(ctx, host, opts)
 			done <- idx
 		}(i, h)
@@ -196,7 +229,9 @@ func (r *Result) finalize(start time.Time) {
 
 // sshRun runs cmd on host and returns combined stdout.
 func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error) {
-	args := append(sshBaseArgs(opts), host, cmd)
+	// "--" terminates ssh option parsing so a host that survived validation can
+	// never be reinterpreted as a flag; ValidateHost is the primary guard.
+	args := append(sshBaseArgs(opts), "--", host, cmd)
 	return exec.CommandContext(ctx, "ssh", args...).Output()
 }
 
@@ -204,7 +239,7 @@ func scp(ctx context.Context, opts Options, localPath, host, remotePath string) 
 	scpArgs := []string{"-q", "-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + seconds(opts.ConnectTimeout),
 		"-o", "StrictHostKeyChecking=accept-new",
-		localPath, host + ":" + remotePath}
+		"--", localPath, host + ":" + remotePath}
 	return exec.CommandContext(ctx, "scp", scpArgs...).Run()
 }
 
