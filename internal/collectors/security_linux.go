@@ -101,24 +101,36 @@ func parseSSHConfig(info *models.SecurityInfo) {
 	}
 
 	// Fall back to file parsing (works without root, may miss drop-ins on some distros)
-	parseSSHFile("/etc/ssh/sshd_config", info)
+	readAny := parseSSHFile("/etc/ssh/sshd_config", info)
 	for _, pattern := range []string{
 		"/etc/ssh/sshd_config.d/*.conf",
 		"/etc/ssh/sshd_config.d/*.cfg",
 	} {
 		if files, err := filepath.Glob(pattern); err == nil {
 			for _, f := range files {
-				parseSSHFile(f, info)
+				if parseSSHFile(f, info) {
+					readAny = true
+				}
 			}
 		}
 	}
+	if readAny {
+		info.SSHAuditSource = "file"
+	}
 }
 
-// parseSSHFile reads a single sshd_config file or drop-in and populates SecurityInfo.
-func parseSSHFile(path string, info *models.SecurityInfo) {
+// parseSSHFile reads a single sshd_config file or drop-in and populates
+// SecurityInfo. Returns true when the file was actually read. A permission-denied
+// open on an existing file flags SSHConfigUnreadable so the analysis layer can
+// say "couldn't audit SSH" instead of silently reporting the secure defaults as
+// real (false-OK); a not-found file just means no SSH config there.
+func parseSSHFile(path string, info *models.SecurityInfo) bool {
 	f, err := os.Open(path) // #nosec G304 -- only reads well-known config paths
 	if err != nil {
-		return
+		if os.IsPermission(err) {
+			info.SSHConfigUnreadable = true
+		}
+		return false
 	}
 	defer f.Close() //nolint:errcheck
 
@@ -134,6 +146,7 @@ func parseSSHFile(path string, info *models.SecurityInfo) {
 		}
 	}
 	parseSSHFileContent(content.String(), info)
+	return true
 }
 
 // parseSSHFileContent parses sshd_config content from a string — used by tests.

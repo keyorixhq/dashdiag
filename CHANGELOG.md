@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Security: an unreadable SSH config no longer reads as hardened** — when
+  `sshd_config` exists but can't be read (non-root on RHEL/Rocky, where the file
+  is mode 600 and `sshd -T` also needs root), the SSH directives stayed at their
+  secure defaults and `dsd security`/`dsd health` reported SSH hardened having
+  audited nothing. It now distinguishes "config unreadable" from "no SSH server"
+  and surfaces INFO "sshd settings were NOT audited — re-run as root" instead of a
+  silent OK.
 - **`dsd tls`: an unreachable endpoint no longer reports "all healthy"** — a cert
   that couldn't be checked (unreachable remote endpoint, unreadable file) was
   counted in neither the CRIT/WARN/OK tally nor the exit code, so `dsd tls

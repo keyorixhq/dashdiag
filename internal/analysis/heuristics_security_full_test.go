@@ -27,6 +27,10 @@ func TestCheckSecurityFull(t *testing.T) {
 		{"x11 forwarding is INFO", func(s *models.SecurityInfo) { s.SSHX11Forwarding = true }, "INFO", "X11Forwarding"},
 		{"agent forwarding is INFO", func(s *models.SecurityInfo) { s.SSHAgentForwarding = true }, "INFO", "AgentForwarding"},
 		{"no idle timeout is INFO", func(s *models.SecurityInfo) { s.SSHClientAliveInterval = 0 }, "INFO", "idle timeout"},
+		// False-OK guard: sshd_config present but unreadable (non-root, mode 600) →
+		// the SSH directives stay at secure defaults; must surface "NOT audited",
+		// not silently read as hardened.
+		{"unreadable ssh config is INFO", func(s *models.SecurityInfo) { s.SSHConfigUnreadable = true }, "INFO", "NOT audited"},
 		{"many failed logins is CRIT", func(s *models.SecurityInfo) { s.FailedLogins = 25 }, "CRIT", "failed login"},
 		{"some failed logins is WARN", func(s *models.SecurityInfo) { s.FailedLogins = 10 }, "WARN", "failed login"},
 		{
