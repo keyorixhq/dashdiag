@@ -44,7 +44,7 @@ func TestParseOOMEvents(t *testing.T) {
 
 	t.Run("empty input", func(t *testing.T) {
 		events := parseOOMEvents("")
-		if events != nil && len(events) != 0 {
+		if len(events) != 0 {
 			t.Errorf("expected empty, got %d events", len(events))
 		}
 	})

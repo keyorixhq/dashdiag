@@ -262,14 +262,6 @@ func collectMemDetail(info *models.HealthDeepInfo) {
 	}
 }
 
-// fmtMB formats MB values compactly.
-func fmtMB(mb float64) string {
-	if mb >= 1024 {
-		return fmt.Sprintf("%.1fGB", mb/1024)
-	}
-	return fmt.Sprintf("%.0fMB", mb)
-}
-
 // ── cgroup v2 slice summary ───────────────────────────────────────────────────
 
 const cgroupRoot = "/sys/fs/cgroup"

@@ -98,7 +98,7 @@ func parseMultipathShow(out string) []models.MultipathDevice {
 		d.Paths = append(d.Paths, path)
 	}
 
-	var devices []models.MultipathDevice
+	devices := make([]models.MultipathDevice, 0, len(deviceMap))
 	for _, d := range deviceMap {
 		if d.FailedPaths > 0 {
 			d.State = "degraded"

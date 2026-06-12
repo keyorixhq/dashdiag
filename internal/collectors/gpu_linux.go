@@ -515,56 +515,6 @@ func readSysfsMicroW(pattern string) float64 {
 	return float64(uw) / 1_000_000
 }
 
-// detectNoDriverCards returns GPUDetected entries for cards matching
-// the given vendor ID that have no kernel driver loaded.
-// vendor examples: "0x10de" (NVIDIA), "0x1002" (AMD).
-func detectNoDriverCards(vendorID, vendorName string) []models.GPUDetected {
-	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
-	var found []models.GPUDetected
-	for _, card := range cards {
-		devPath := card + "/device"
-		v := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
-		if !strings.EqualFold(v, vendorID) {
-			continue
-		}
-		// Check if a driver is bound
-		driver := strings.TrimSpace(readSysfsStr(devPath + "/driver/module/version"))
-		if driver != "" {
-			continue // driver loaded
-		}
-		// Also check via driver symlink
-		if _, err := os.Lstat(devPath + "/driver"); err == nil {
-			continue // driver bound
-		}
-		name := vendorName + " GPU"
-		// Try to get PCI ID for a more specific name
-		uevent := readSysfsStr(devPath + "/uevent")
-		for _, line := range strings.Split(uevent, "\n") {
-			if strings.HasPrefix(line, "PCI_ID=") {
-				parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
-				if len(parts) == 2 {
-					name = fmt.Sprintf("%s GPU (%s)", strings.ToUpper(vendorName), parts[1])
-				}
-				break
-			}
-		}
-		// PCI address from DEVPATH
-		pciAddr := ""
-		for _, line := range strings.Split(uevent, "\n") {
-			if strings.HasPrefix(line, "PCI_SLOT_NAME=") {
-				pciAddr = strings.TrimPrefix(line, "PCI_SLOT_NAME=")
-				break
-			}
-		}
-		found = append(found, models.GPUDetected{
-			Name:    name,
-			Vendor:  vendorName,
-			PCIAddr: pciAddr,
-		})
-	}
-	return found
-}
-
 // detectNvidiaWithoutSMI finds NVIDIA GPUs whose driver is not the
 // proprietary nvidia module (i.e. nvidia-smi won't work).
 // Returns entries for: nouveau-bound, no-driver-at-all, or vfio-bound.

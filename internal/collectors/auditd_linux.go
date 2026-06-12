@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -73,10 +72,4 @@ func parseAuditctlRules(out string) int {
 
 func parseAuditEventCount(out string) int {
 	return strings.Count(out, "type=")
-}
-
-// parseAuditLogSize parses file size string to GB for tests
-func parseAuditLogSizeGB(sizeBytes string) float64 {
-	n, _ := strconv.ParseInt(strings.TrimSpace(sizeBytes), 10, 64)
-	return float64(n) / (1024 * 1024 * 1024)
 }

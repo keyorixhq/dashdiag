@@ -430,7 +430,7 @@ func parseZFSCount(s string) (int, bool) {
 	if len(s) < 2 {
 		return 0, false
 	}
-	mult := 1.0
+	var mult float64
 	switch s[len(s)-1] {
 	case 'K':
 		mult = 1e3
@@ -508,7 +508,7 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 	time.Sleep(1 * time.Second)
 	after := readStats()
 
-	var stats []models.DiskIOStat
+	stats := make([]models.DiskIOStat, 0, len(drives))
 	for _, d := range drives {
 		name := d.Name
 		b, a := before[name], after[name]
