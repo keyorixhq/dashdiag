@@ -84,7 +84,7 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) {
 
 		switch key {
 		case "critical_warning":
-			dev.CriticalWarning = parseInt(val)
+			dev.CriticalWarning = parseBitmask(val)
 		case "temperature":
 			// Format: "111 °F (317 K)" — extract Kelvin and convert
 			dev.TempC = parseNVMeTemp(val)
@@ -179,13 +179,39 @@ func readFileStr(path string) string {
 	return string(data)
 }
 
+// parseBitmask parses an nvme `critical_warning` value. `nvme smart-log
+// --output-format=normal` prints this field as %#x (verified in nvme-cli 2.13),
+// so a NON-ZERO warning arrives hex-encoded ("0x4") while zero prints plain "0".
+// strconv.Atoi chokes on the "0x" form and returned 0 — silently clearing a real
+// warning (spare-exhausted / reliability-degraded / read-only / backup-failed
+// bits) so a failing drive read as healthy at heuristics.go's `CriticalWarning >
+// 0`. Base 0 auto-detects 0x; decimal still parses. Negative/garbled → 0.
+func parseBitmask(s string) int {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return 0
+	}
+	v, err := strconv.ParseInt(fields[0], 0, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return int(v)
+}
+
+// parseInt / parseInt64 read a SMART numeric attribute. They reject negative or
+// garbled values (→ 0): a negative count would slip under the `> 0` / `>= N`
+// failure thresholds in analysis/heuristics.go as a false-OK (mirrors the
+// smartctl path's guard; same bug class as PR #200).
 func parseInt(s string) int {
 	// Handle values like "60783741 (31.12 TB)"
 	fields := strings.Fields(s)
 	if len(fields) == 0 {
 		return 0
 	}
-	v, _ := strconv.Atoi(fields[0])
+	v, err := strconv.Atoi(fields[0])
+	if err != nil || v < 0 {
+		return 0
+	}
 	return v
 }
 
@@ -194,7 +220,10 @@ func parseInt64(s string) int64 {
 	if len(fields) == 0 {
 		return 0
 	}
-	v, _ := strconv.ParseInt(fields[0], 10, 64)
+	v, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
 	return v
 }
 
