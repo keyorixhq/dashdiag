@@ -371,4 +371,4 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
