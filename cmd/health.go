@@ -39,6 +39,7 @@ func init() {
 	healthCmd.Flags().Bool("blob", false, "emit a compact, copy-pasteable encoded report blob (network-optional; decode with `dsd decode`)")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 	healthCmd.Flags().Bool("explain", false, "after the verdict, explain each flagged subsystem (see also: dsd explain)")
+	healthCmd.Flags().Bool("fix", false, "after the verdict, list the remediation commands for each flagged subsystem")
 	healthCmd.Flags().Bool("nagios", false, "single-line monitoring-plugin output (Nagios/Icinga/check_mk); exit 0/1/2")
 	healthCmd.Flags().Bool("prometheus", false, "Prometheus exposition metrics (node_exporter textfile collector / scrape)")
 	healthCmd.Flags().Bool("debug", false, "enable debug logging")
@@ -254,6 +255,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	exitCode := renderer.PrintSummary(insights, elapsed)
 	if explainFlag, _ := cmd.Flags().GetBool("explain"); explainFlag {
 		printHealthExplanations(insights, mode)
+	}
+	if fixFlag, _ := cmd.Flags().GetBool("fix"); fixFlag {
+		printHealthFixes(insights, mode)
 	}
 	_ = baseline.SaveBaseline(snap)
 
