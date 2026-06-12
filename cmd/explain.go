@@ -61,6 +61,83 @@ func printHealthExplanations(insights []models.Insight, mode output.OutputMode) 
 	}
 }
 
+// printHealthFixes is the `dsd health --fix` tail: after the verdict, it
+// consolidates the "to fix:" remediation commands from every WARN/CRIT insight
+// into one copy-pasteable block, grouped by subsystem and deduped. Pure
+// aggregation of hints the verdict already produced. Human/plain only.
+// healthFixGroup is the remediation commands for one subsystem.
+type healthFixGroup struct {
+	check string
+	cmds  []string
+}
+
+// healthFixGroups extracts the "to fix:" commands from WARN/CRIT insights, grouped
+// by subsystem in first-seen order and deduped by (check, command). Pure — no I/O.
+func healthFixGroups(insights []models.Insight) []healthFixGroup {
+	var groups []healthFixGroup
+	idx := map[string]int{}
+	seen := map[string]bool{}
+	for _, ins := range insights {
+		if ins.Level != "WARN" && ins.Level != "CRIT" {
+			continue
+		}
+		for _, h := range ins.Hints {
+			rest, ok := strings.CutPrefix(h, "to fix:")
+			if !ok {
+				continue
+			}
+			cmd := strings.TrimSpace(rest)
+			if cmd == "" {
+				continue
+			}
+			key := ins.Check + "|" + cmd
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			gi, ok := idx[ins.Check]
+			if !ok {
+				gi = len(groups)
+				groups = append(groups, healthFixGroup{check: ins.Check})
+				idx[ins.Check] = gi
+			}
+			groups[gi].cmds = append(groups[gi].cmds, cmd)
+		}
+	}
+	return groups
+}
+
+func printHealthFixes(insights []models.Insight, mode output.OutputMode) {
+	if mode != output.ModeHuman && mode != output.ModePlain {
+		return
+	}
+	groups := healthFixGroups(insights)
+	if len(groups) == 0 {
+		return
+	}
+	human := mode == output.ModeHuman
+	bold := func(s string) string {
+		if human {
+			return render.StyleBold.Render(s)
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if human {
+			return render.StyleDim.Render(s)
+		}
+		return s
+	}
+	fmt.Println()
+	fmt.Println(bold("Suggested fixes") + dim("  ·  review before running; some need sudo"))
+	for _, g := range groups {
+		fmt.Printf("\n  %s\n", bold(g.check))
+		for _, c := range g.cmds {
+			fmt.Printf("    %s %s\n", dim("$"), c)
+		}
+	}
+}
+
 func init() {
 	rootCmd.AddCommand(explainCmd)
 }
