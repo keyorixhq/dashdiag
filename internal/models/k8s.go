@@ -67,7 +67,14 @@ type K8sInfo struct {
 	WorkloadsDown int               `json:"workloads_down"` // ready < desired
 	Terminating   int               `json:"terminating"`    // stuck Terminating pods
 	Detected      bool              `json:"detected"`
-	KubeBin       string            `json:"kube_bin"`
+	// APIReachable is true only when at least one cluster query (nodes/pods)
+	// actually succeeded. kubectl/k3s being present (Detected) does NOT mean the
+	// API answered — a down API server, bad kubeconfig, or missing RBAC makes
+	// every query fail and leaves all the counts at zero, which would otherwise
+	// read as a healthy cluster (false-OK). The health layer surfaces
+	// Detected && !APIReachable as "health not verified".
+	APIReachable bool   `json:"api_reachable"`
+	KubeBin      string `json:"kube_bin"`
 	// OS-layer deep checks (only populated when --deep and running on k8s node)
 	OSLayer      *K8sOSLayer `json:"os_layer,omitempty"`
 	Status       string      `json:"status,omitempty"`

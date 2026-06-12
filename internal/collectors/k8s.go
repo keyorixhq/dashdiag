@@ -93,6 +93,7 @@ func collectK8sNodes(ctx context.Context, bin string, info *models.K8sInfo) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		return
 	}
+	info.APIReachable = true // a `get nodes` that parsed means the API answered
 	for _, item := range result.Items {
 		node := models.K8sNodeInfo{
 			Name:       item.Metadata.Name,
@@ -174,6 +175,7 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		return
 	}
+	info.APIReachable = true // pods listed (covers restricted-RBAC keys that can't get nodes)
 
 	crashNames := map[string]bool{}
 	for _, item := range result.Items {

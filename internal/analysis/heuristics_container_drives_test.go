@@ -21,21 +21,24 @@ func TestCheckK8s(t *testing.T) {
 		want string
 	}{
 		{"not detected yields nothing", models.K8sInfo{Detected: false, CrashLooping: 5}, ""},
-		{"nodes not ready is CRIT", models.K8sInfo{Detected: true, NodesNotReady: 1}, "CRIT"},
-		{"crash looping is CRIT", models.K8sInfo{Detected: true, CrashLooping: 2}, "CRIT"},
-		{"pods not ready is WARN", models.K8sInfo{Detected: true, PodsNotReady: 1}, "WARN"},
-		{"pending is WARN", models.K8sInfo{Detected: true, Pending: 1}, "WARN"},
-		{"high restarts is WARN", models.K8sInfo{Detected: true, HighRestarts: 1}, "WARN"},
+		// Detected but the API never answered — must surface as INFO, not a silent
+		// healthy cluster (the false-OK: kubectl present, API down → all counts 0).
+		{"detected but API unreachable is INFO", models.K8sInfo{Detected: true, APIReachable: false}, "INFO"},
+		{"nodes not ready is CRIT", models.K8sInfo{Detected: true, APIReachable: true, NodesNotReady: 1}, "CRIT"},
+		{"crash looping is CRIT", models.K8sInfo{Detected: true, APIReachable: true, CrashLooping: 2}, "CRIT"},
+		{"pods not ready is WARN", models.K8sInfo{Detected: true, APIReachable: true, PodsNotReady: 1}, "WARN"},
+		{"pending is WARN", models.K8sInfo{Detected: true, APIReachable: true, Pending: 1}, "WARN"},
+		{"high restarts is WARN", models.K8sInfo{Detected: true, APIReachable: true, HighRestarts: 1}, "WARN"},
 		{
 			name: "node pressure condition is CRIT",
-			info: models.K8sInfo{Detected: true, Nodes: []models.K8sNodeInfo{
+			info: models.K8sInfo{Detected: true, APIReachable: true, Nodes: []models.K8sNodeInfo{
 				{Name: "n1", Conditions: map[string]string{"DiskPressure": "True"}},
 			}},
 			want: "CRIT",
 		},
 		{
-			name: "node Ready=True is fine",
-			info: models.K8sInfo{Detected: true, Nodes: []models.K8sNodeInfo{
+			name: "reachable, node Ready=True is fine",
+			info: models.K8sInfo{Detected: true, APIReachable: true, Nodes: []models.K8sNodeInfo{
 				{Name: "n1", Conditions: map[string]string{"Ready": "True"}},
 			}},
 			want: "",
