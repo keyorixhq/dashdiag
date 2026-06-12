@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Release signing scaffold (minisign)** — `dsd update` can now verify that a
+  release's `checksums.txt` was signed by the project key before trusting any hash
+  in it, closing the self-updater single-origin gap (a compromised origin can
+  serve a matching checksum but can't forge an Ed25519 signature). Verification is
+  **in-binary** (stdlib + `x/crypto/blake2b`, no external tool) and **fails
+  closed** once a key is embedded; `install.sh` adds a best-effort `minisign`
+  check. The whole path ships **dormant** (like the Homebrew-tap job) until a
+  maintainer generates a key and sets `MINISIGN_SECRET_KEY` — see
+  `docs/RELEASE_SIGNING.md`. No behaviour change until then.
+
 ### Fixed
 
 - **macOS: failing drives now surface, healthy drives stay quiet** — the `diskutil`
