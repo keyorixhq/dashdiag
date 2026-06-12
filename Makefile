@@ -150,8 +150,19 @@ vuln:
 	govulncheck ./... 2>/dev/null || echo "⚠️  govulncheck not installed — run: make tools"
 
 .PHONY: security
+# SSDLC Layer 1 (ADR-0007). Mirrors CI: gosec runs via golangci-lint (single
+# source of truth for excludes — .golangci.yml); semgrep blocking set =
+# ERROR+WARNING; the INFO rules are the periodic audit layer (run
+# `make security-audit` to see them).
 security: vuln
-	gosec -quiet ./... 2>/dev/null || echo "⚠️  gosec not installed — run: make tools"
+	@golangci-lint run --enable-only=gosec ./... && echo "gosec: clean" || true
+	@semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING --quiet . 2>/dev/null && echo "semgrep (blocking set): clean" || echo "⚠️  semgrep findings or not installed — brew install semgrep"
+
+.PHONY: security-audit
+# Full semgrep output including non-blocking INFO audit rules
+# (e.g. dsd-file-read-concat-path — review NEW hits, existing are audited).
+security-audit:
+	@semgrep scan --config .semgrep/ . 2>/dev/null || echo "⚠️  semgrep not installed — brew install semgrep"
 
 # ── TOOLS ─────────────────────────────────────────────────────────────────────
 .PHONY: tools

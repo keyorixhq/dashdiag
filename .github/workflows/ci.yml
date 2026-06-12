@@ -45,6 +45,33 @@ jobs:
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
 
+  # SSDLC Layer 1 (ADR-0007): the .golangci.yml gosec config previously only ran
+  # locally / pre-push — nothing gated PRs. This is the PR security gate.
+  lint:
+    name: Lint + gosec (golangci-lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2  # keep in sync with local dev (brew)
+
+  # SSDLC Layer 1 (ADR-0007): custom semgrep rules for our recurring risk
+  # patterns (root-privileged exec + parsing). Rules live in .semgrep/.
+  # Rule-per-finding discipline: every confirmed security finding ends with
+  # the rule that catches its class.
+  semgrep:
+    name: Semgrep (custom rules)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - run: pipx install semgrep
+      - run: semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING .
+
   # Guards the install front door — a P0 (broken one-liner for every new user,
   # #123) slipped through because install.sh had ZERO automated coverage. This
   # runs THIS branch's install.sh in a clean container against the latest

@@ -1,0 +1,100 @@
+# DashDiag custom semgrep rules — SSDLC Layer 1 (ADR-0007, SECURITY_SDL.md)
+#
+# Context: .golangci.yml deliberately excludes gosec G204 (exec with variable
+# args) and G304 (file open via variable) because they are dsd's NORMAL
+# operating pattern — a diagnostician execs tools and reads system files.
+# These rules re-cover the genuinely dangerous SHAPES inside that pattern.
+#
+# Rule-per-finding discipline: every confirmed security finding in review
+# gets a rule here that catches its class. Suppress a true-but-safe hit with
+# `// nosemgrep: <rule-id> -- <why it is safe>` and make sure the WHY is
+# enforced in code, not just claimed (see the kernel_security.go G703 lesson:
+# the suppression comment described validation the code never applied).
+
+rules:
+  - id: dsd-shell-dash-c
+    languages: [go]
+    severity: ERROR
+    message: >
+      Shell interpretation of a non-literal string (sh/bash -c with a
+      variable) — command injection if any part of the string is
+      attacker-influenced. dsd execs tools directly with argv; there should
+      be no dynamic shell strings. Build the argv slice instead.
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $X, ...)
+          - pattern: exec.Command("bash", "-c", $X, ...)
+          - pattern: exec.CommandContext($CTX, "sh", "-c", $X, ...)
+          - pattern: exec.CommandContext($CTX, "bash", "-c", $X, ...)
+      - pattern-not: exec.Command("sh", "-c", "...")
+      - pattern-not: exec.Command("bash", "-c", "...")
+      - pattern-not: exec.CommandContext($CTX, "sh", "-c", "...")
+      - pattern-not: exec.CommandContext($CTX, "bash", "-c", "...")
+
+  - id: dsd-exec-arg-built-by-sprintf
+    languages: [go]
+    severity: WARNING
+    message: >
+      exec argument built with fmt.Sprintf — argument-injection audit point.
+      An interpolated value starting with "-" can become a flag to the
+      target tool (e.g. smartctl, ssh -o). Prefer passing values as separate
+      argv elements; if interpolation is required, validate the value's
+      charset first and add a nosemgrep with the enforced reason.
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($CMD, <... fmt.Sprintf(...) ...>)
+          - pattern: exec.CommandContext($CTX, $CMD, <... fmt.Sprintf(...) ...>)
+
+  - id: dsd-exec-arg-string-concat
+    languages: [go]
+    severity: WARNING
+    message: >
+      exec argument built by string concatenation — same argument-injection
+      audit point as sprintf. Validate the variable part (charset/allowlist)
+      or pass it as its own argv element.
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($CMD, <... $A + $B ...>)
+          - pattern: exec.CommandContext($CTX, $CMD, <... $A + $B ...>)
+
+  - id: dsd-file-read-concat-path
+    languages: [go]
+    severity: INFO
+    message: >
+      File read with a concatenated path — path-traversal audit point when
+      the variable part comes from parsed content (configs, tool output,
+      user flags). NON-BLOCKING (INFO): the G304 class is consciously
+      excluded in .golangci.yml and existing sites carry per-site #nosec
+      audit annotations (verified 2026-06-12: /proc and /sys reads with
+      kernel-derived names). This rule exists for periodic local audits
+      (`make security`) so NEW concat-path reads surface for review.
+      Enforce a token guard (see isSafePolicyToken in kernel_security.go)
+      when the variable part comes from parsed content.
+    patterns:
+      - pattern-either:
+          - pattern: os.ReadFile($A + $B)
+          - pattern: os.Open($A + $B)
+          - pattern: os.ReadDir($A + $B)
+      - pattern-not: os.ReadFile("/proc/" + ...)
+      - pattern-not: os.Open("/proc/" + ...)
+      - pattern-not: os.ReadDir("/proc/" + ...)
+      - pattern-not: os.ReadFile("/sys/" + ...)
+      - pattern-not: os.Open("/sys/" + ...)
+      - pattern-not: os.ReadDir("/sys/" + ...)
+
+  - id: dsd-ssh-scp-without-host-validation
+    languages: [go]
+    severity: ERROR
+    message: >
+      A value is being concatenated into an ssh/scp target ("host:path") —
+      THREAT_MODEL_CLI.md F-1 (option injection: a host beginning with "-" is
+      read by ssh as a flag → local command execution). Route the host through
+      fleet.ValidateHost before it reaches argv, and keep the "--"
+      end-of-options separator. Suppress only with proof the host was validated.
+    patterns:
+      - pattern: $H + ":" + $P
+      - pattern-inside: |
+          exec.CommandContext(...)
+      - metavariable-regex:
+          metavariable: $H
+          regex: (?i).*host.*
