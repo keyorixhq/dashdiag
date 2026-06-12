@@ -18,6 +18,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   an operator gets flagged on all have a "what it means / how it's judged / how to
   fix it" entry (#182).
 
+### Security
+
+- **SELinux policy-type path hardening** — `dsd health`/security collection built
+  a filesystem path from the `SELINUXTYPE=` value in `/etc/selinux/config` under a
+  suppression that claimed allowlist validation the code did not actually enforce.
+  The value is now charset-guarded before use. The config file is root-owned, so
+  practical exploitability was low, but the guard is now enforced in code. As a
+  side effect, distro-custom policy names (e.g. Debian's `default`) are handled
+  correctly.
+
+### Fixed
+
+- Prometheus exposition output now uses `fmt.Fprintf` directly instead of
+  `WriteString(fmt.Sprintf(...))` (no behavioural change; resolves two
+  staticcheck warnings).
+
 ### Docs
 
 - README documents the v0.7–v0.8 features: `dsd explain`, and the `dsd health`
