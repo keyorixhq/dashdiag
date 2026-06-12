@@ -166,11 +166,17 @@ func parseCrontabFile(path, source string) []models.CronJob {
 			issueSet["no PATH set and command uses relative path — may fail silently"] = true
 		}
 
-		// Missing binary (only report first missing binary found)
+		// Missing binary (only report first missing binary found).
+		// binary is parsed from crontab content (taint source). We only stat
+		// absolute, lexically-clean paths under known system roots — never a
+		// caller-influenced relative or traversing path. The stat only checks
+		// existence (no open/exec), but the guard keeps the taint flow closed.
 		if missingCmd == "" && strings.HasPrefix(cmd, "/") {
 			binary := strings.Fields(cmd)[0]
-			if _, err := os.Stat(binary); os.IsNotExist(err) {
-				missingCmd = "command not found: " + binary
+			if isStattableBinaryPath(binary) {
+				if _, err := os.Stat(binary); os.IsNotExist(err) { // #nosec G703 -- path guarded by isStattableBinaryPath (absolute, cleaned, no traversal)
+					missingCmd = "command not found: " + binary
+				}
 			}
 		}
 	}
@@ -407,4 +413,20 @@ func truncateCron(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// isStattableBinaryPath reports whether p is safe to os.Stat as a cron command
+// binary: it must be absolute and lexically clean (no ".." traversal). Cron
+// command binaries are normally plain absolute paths like /usr/bin/foo; for
+// anything else we decline to stat rather than follow a caller-influenced path
+// parsed from crontab content. Guards gosec G703 (THREAT_MODEL_CLI.md
+// path-traversal class, same as the SELinux F-2 fix).
+func isStattableBinaryPath(p string) bool {
+	if !strings.HasPrefix(p, "/") {
+		return false
+	}
+	if strings.Contains(p, "..") {
+		return false
+	}
+	return filepath.Clean(p) == p
 }
