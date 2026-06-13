@@ -13,6 +13,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Auth: an unreadable SSH auth log no longer reads as "no failed logins"** — the
+  Auth check counts failed SSH logins from the journal, falling back to
+  `/var/log/{auth.log,secure}`. As a non-root user both are typically inaccessible
+  (the journal sshd entries are system-scoped; the text logs are mode 640), and the
+  fallback treated an unreadable file the same as an empty one — so the host reported
+  0 failed logins having opened no log at all (a false-OK on a security check). The
+  collector now distinguishes permission-denied (via `os.Open`/`os.IsPermission`) from
+  "absent" and "no failures", sets the model's existing `Checked=false` when it truly
+  couldn't read, and the verdict surfaces that as an honest INFO ("run as root to
+  verify") instead of a silent pass. Quiet healthy hosts (readable log, 0 failures)
+  are unaffected.
+
 - **Logs: a syslog-only host no longer reports "0 errors" without reading its logs** —
   the severity summary runs `journalctl`, and the `/var/log` fallback that covers the
   no-error case was gated on `JournalVolatile` (a journald-only flag). On a host with

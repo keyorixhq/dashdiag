@@ -114,10 +114,16 @@ func TestCheckHBA(t *testing.T) {
 }
 
 func TestCheckAuth(t *testing.T) {
-	assertLevel(t, checkAuth(models.AuthInfo{FailedLast24h: 0}), "")                       // hidden
-	assertLevel(t, checkAuth(models.AuthInfo{FailedLast24h: 1500}), "WARN")                // brute force
-	assertLevel(t, checkAuth(models.AuthInfo{FailedLast24h: 150}), "INFO")                 // notable
-	assertLevel(t, checkAuth(models.AuthInfo{FailedLast24h: 50, RootAttempts: 1}), "WARN") // root attempts
+	// Available=false → sshd not installed, row hidden.
+	assertLevel(t, checkAuth(models.AuthInfo{}), "")
+	// Read succeeded (Checked) with no failures → quiet.
+	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: true, FailedLast24h: 0}), "")
+	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: true, FailedLast24h: 1500}), "WARN")                // brute force
+	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: true, FailedLast24h: 150}), "INFO")                 // notable
+	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: true, FailedLast24h: 50, RootAttempts: 1}), "WARN") // root attempts
+	// Auth source unreadable (e.g. non-root, no journal/auth.log access): must
+	// surface as INFO, not pass silently as a clean "0 failures" (false-OK).
+	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: false}), "INFO")
 }
 
 func TestCheckBattery(t *testing.T) {
