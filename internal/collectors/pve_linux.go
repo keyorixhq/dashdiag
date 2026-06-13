@@ -64,8 +64,9 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	// Subscription status
 	info.Subscription = collectPVESubscription(ctx)
 
-	// Cluster quorum + nodes
-	info.ClusterName, info.QuorumOK, info.Nodes = collectPVECluster(ctx)
+	// Cluster quorum + nodes. APIReachable doubles as the canonical "pvesh is
+	// responding" probe: if it fails, every collection below is empty/unreliable.
+	info.ClusterName, info.QuorumOK, info.Nodes, info.APIReachable = collectPVECluster(ctx)
 
 	// HA fencing
 	info.HAFencingOK, info.HAFencingMsg = collectPVEHAFencing(ctx)
@@ -195,11 +196,14 @@ func collectPVESubscriptionFile() models.PVESubscription {
 }
 
 // collectPVECluster reads cluster quorum and node status via pvesh.
-func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes []models.PVENode) {
+func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes []models.PVENode, reachable bool) {
 	out, err := runCmd(ctx, "pvesh", "get", "/cluster/status", "--output-format", "json")
 	if err != nil {
-		// Single-node / no cluster — quorum is implicit
-		return "", true, nil
+		// pvesh failed — API/pmxcfs unreachable. NOT the same as a standalone node:
+		// a standalone node returns exit 0 with a single `node` item (verified live
+		// on PVE 9.1). reachable=false so the analysis layer reports "not verified"
+		// instead of assuming quorum is implicitly OK (a false-OK).
+		return "", false, nil, false
 	}
 
 	var items []struct {
@@ -210,7 +214,7 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 		Version string `json:"pve_version"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return "", true, nil
+		return "", false, nil, false
 	}
 
 	quorumOK = true
@@ -229,7 +233,7 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 			})
 		}
 	}
-	return name, quorumOK, nodes
+	return name, quorumOK, nodes, true
 }
 
 // collectPVEHAFencing checks HA fencing device status.
