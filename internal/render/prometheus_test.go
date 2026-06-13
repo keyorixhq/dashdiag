@@ -73,3 +73,31 @@ func TestPromLabel(t *testing.T) {
 		}
 	}
 }
+
+// TestPrometheusQualifiedCheckRollup pins that a subsystem-qualified insight Check
+// (e.g. "Network/DNS") rolls its severity up to the base collector's per-check
+// metric. Before, a DNS-only CRIT left dsd_check_status{check="network"} at 0 even
+// though dsd_health_status was 2 — a false-OK in the per-check series that a
+// monitoring alert keyed on `check="network"` would silently miss.
+func TestPrometheusQualifiedCheckRollup(t *testing.T) {
+	results := []runner.Result{availResult("Network"), availResult("Memory"), availResult("CPU Load")}
+	insights := []models.Insight{
+		{Level: "CRIT", Check: "Network/DNS"},    // qualified -> rolls into Network
+		{Level: "WARN", Check: "Memory/Slab"},    // qualified -> rolls into Memory
+		{Level: "CRIT", Check: "CPU Load/Steal"}, // qualified -> rolls into CPU Load
+	}
+	out := PrometheusMetrics(results, insights)
+	for _, s := range []string{
+		`dsd_check_status{check="network"} 2`,
+		`dsd_check_status{check="memory"} 1`,
+		`dsd_check_status{check="cpu_load"} 2`,
+		"dsd_health_status 2",
+	} {
+		if !strings.Contains(out, s) {
+			t.Errorf("missing sample %q in:\n%s", s, out)
+		}
+	}
+	if strings.Contains(out, `check="network_dns"`) {
+		t.Errorf("qualified Check must not emit its own series:\n%s", out)
+	}
+}
