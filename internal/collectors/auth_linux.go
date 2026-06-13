@@ -120,8 +120,14 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 // absent via os.IsPermission) and only then grep, so a grep exit of 1 (no matches)
 // on a file we know is readable correctly means "zero failures", not "unreadable".
 func readAuthLog(ctx context.Context) (content string, readable, denied bool) {
-	// Try auth.log (Debian/Ubuntu) then secure (RHEL/CentOS).
-	return readAuthLogFrom(ctx, []string{"/var/log/auth.log", "/var/log/secure"})
+	// Try auth.log (Debian/Ubuntu), then secure (RHEL/CentOS), then messages. The
+	// last covers busybox/Alpine (and other minimal syslog setups), which have no
+	// separate auth log — sshd's "Failed password"/"Invalid user" lines land in the
+	// general /var/log/messages. Without it, dsd missed SSH brute-force attempts on
+	// those hosts and reported "no failed logins" (a security false-OK). The
+	// first-readable-file order means messages is only consulted when auth.log and
+	// secure are both absent, so it never double-counts on Debian/RHEL.
+	return readAuthLogFrom(ctx, []string{"/var/log/auth.log", "/var/log/secure", "/var/log/messages"})
 }
 
 // readAuthLogFrom is the testable core of readAuthLog over an explicit candidate
