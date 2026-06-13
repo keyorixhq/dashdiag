@@ -46,26 +46,35 @@ build-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -trimpath -o dist/$(BINARY)-linux-amd64 ./cmd/dsd
 	@echo "✅ Built: dist/$(BINARY)-linux-amd64 ($(VERSION))"
 
-.PHONY: deploy
-LEGION_HOST ?= andrei@192.168.1.145
-deploy: build-linux
-	scp dist/$(BINARY)-linux-amd64 $(LEGION_HOST):/tmp/dsd
-	ssh $(LEGION_HOST) 'sudo -n install -m 755 /tmp/dsd /usr/bin/dsd && sudo -n install -m 755 /tmp/dsd /usr/local/bin/dsd && dsd --version'
-	@echo "✅ Deployed to $(LEGION_HOST)"
+# A reachable Linux host with passwordless sudo, for the deploy/run/root-test
+# targets. No default — set it explicitly, e.g. `make deploy LINUX_HOST=root@10.0.0.5`.
+# (The old hardcoded Legion box was retired; use any Linux guest you can SSH to.)
+LINUX_HOST ?=
+require-linux-host = @test -n "$(LINUX_HOST)" || { echo "✗ set LINUX_HOST=user@host (e.g. make $@ LINUX_HOST=root@10.0.0.5)"; exit 1; }
 
-# Run dsd as root on Legion — needed for checks that require elevated access:
-# /etc/shadow (user audit), IPMI sensors, auditd AVC log, hardware SMART writes.
+.PHONY: deploy
+deploy: build-linux
+	$(require-linux-host)
+	scp dist/$(BINARY)-linux-amd64 $(LINUX_HOST):/tmp/dsd
+	ssh $(LINUX_HOST) 'sudo -n install -m 755 /tmp/dsd /usr/bin/dsd && sudo -n install -m 755 /tmp/dsd /usr/local/bin/dsd && dsd --version'
+	@echo "✅ Deployed to $(LINUX_HOST)"
+
+# Run dsd as root on the remote host — needed for checks that require elevated
+# access: /etc/shadow (user audit), IPMI sensors, auditd AVC log, hardware SMART.
 .PHONY: run-root
 run-root:
-	ssh $(LEGION_HOST) 'sudo -n /usr/bin/dsd $(ARGS)'
+	$(require-linux-host)
+	ssh $(LINUX_HOST) 'sudo -n /usr/bin/dsd $(ARGS)'
 
-# Run the full Linux test suite on Legion as root.
+# Run the full Linux collector test suite as root on the remote host.
 # Some collectors only produce full output under root (IPMI, auditd, /etc/shadow).
+# For non-root linux-gated tests with no host, use `make test-linux` (Docker).
 .PHONY: test-linux-root
 test-linux-root:
-	@echo "→ Syncing source to $(LEGION_HOST):/tmp/dashdiag-test"
-	rsync -a --exclude='.git' --exclude='dist/' . $(LEGION_HOST):/tmp/dashdiag-test/
-	ssh $(LEGION_HOST) 'cd /tmp/dashdiag-test && sudo -n env GOROOT=/home/andrei/go GOPATH=/home/andrei/gopath /home/andrei/go/bin/go test ./internal/collectors/ -v -count=1 -timeout 60s 2>&1'
+	$(require-linux-host)
+	@echo "→ Syncing source to $(LINUX_HOST):/tmp/dashdiag-test"
+	rsync -a --exclude='.git' --exclude='dist/' . $(LINUX_HOST):/tmp/dashdiag-test/
+	ssh $(LINUX_HOST) 'cd /tmp/dashdiag-test && sudo -n go test ./internal/collectors/ -v -count=1 -timeout 60s 2>&1'
 
 # ── CODE QUALITY ──────────────────────────────────────────────────────────────
 .PHONY: check
@@ -162,13 +171,16 @@ test-contract:
 	go test -tags contract -count=1 ./test/contract/... 2>/dev/null || echo "⚠️  No contract tests yet"
 
 .PHONY: test-linux
-## Run Linux-only collector tests on the Legion box via SSH.
-## Uses the same LEGION_HOST as `make deploy` (default: andrei@192.168.1.145).
-## Requires Go installed on the remote host.
+## Run the Linux-only collector tests (the *_linux.go files compile out on macOS)
+## in a golang container — no remote host needed. Named volumes cache the build +
+## module downloads so reruns are fast. Mirrors what CI runs on ubuntu.
+DOCKER_GO ?= golang:1.26
 test-linux:
-	@echo "→ Syncing source to $(LEGION_HOST):/tmp/dashdiag-test"
-	rsync -a --exclude='.git' --exclude='dist/' . $(LEGION_HOST):/tmp/dashdiag-test/
-	ssh $(LEGION_HOST) 'cd /tmp/dashdiag-test && GOROOT=/home/andrei/go GOPATH=/home/andrei/gopath /home/andrei/go/bin/go test ./internal/collectors/ -run "TestParseVGs|TestParseLVs|TestMergeMissingPVs" -v'
+	@echo "→ Running linux-gated collector tests in $(DOCKER_GO)"
+	docker run --rm -v "$(CURDIR)":/src \
+		-v dashdiag-gocache:/root/.cache/go-build -v dashdiag-gomod:/go/pkg/mod \
+		-w /src $(DOCKER_GO) \
+		sh -c 'go vet ./internal/collectors/ && go test -race -count=1 -timeout 120s ./internal/collectors/'
 
 .PHONY: test-all
 test-all: test test-integration test-contract
@@ -244,10 +256,10 @@ help:
 	@echo "  make test         → unit tests with race detector"
 	@echo "  make cover        → unit tests + coverage.html"
 	@echo "  make test-all     → unit + integration + contract"
-	@echo "  make deploy       → build linux + deploy to Legion via SSH"
-	@echo "  make run-root     → run dsd as root on Legion (ARGS='health --json')"
-	@echo "  make test-linux   → Linux-only collector tests via SSH to Legion"
-	@echo "  make test-linux-root → full collector tests as root on Legion"
+	@echo "  make test-linux   → Linux-only collector tests in Docker (no host needed)"
+	@echo "  make deploy       → build linux + deploy (set LINUX_HOST=user@host)"
+	@echo "  make run-root     → run dsd as root on LINUX_HOST (ARGS='health --json')"
+	@echo "  make test-linux-root → full collector tests as root on LINUX_HOST"
 	@echo "  make golden-update→ update golden files"
 	@echo "  make smoke        → smoke test (requires dsd in PATH)"
 	@echo "  make vuln         → govulncheck"
