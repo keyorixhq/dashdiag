@@ -361,10 +361,13 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	for _, vg := range lvm.VGs {
 		icon := asciiOr("ok", "✅", mode)
 		note := ""
-		if vg.FreePct < 5 {
+		// Classify identically to dsd health (analysis.LVMVGFullLevel) so the two
+		// commands never disagree on the same VG (BUG-050 class).
+		switch analysis.LVMVGFullLevel(vg.FreePct) {
+		case "CRIT":
 			icon = asciiOr("fail", "❌", mode)
 			note = "  ← CRIT: VG almost full"
-		} else if vg.FreePct < 15 {
+		case "WARN":
 			icon = asciiOr("warn", "⚠️ ", mode)
 			note = "  ← low on space"
 		}
@@ -380,9 +383,10 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 		fmt.Printf("\n  Thin pools (%d):\n", len(lvm.ThinPools))
 		for _, p := range lvm.ThinPools {
 			dIcon := asciiOr("ok", "✅", mode)
-			if p.DataPct >= 90 {
+			switch analysis.LVMThinPoolLevel(p.DataPct) {
+			case "CRIT":
 				dIcon = asciiOr("fail", "❌", mode)
-			} else if p.DataPct >= 70 {
+			case "WARN":
 				dIcon = asciiOr("warn", "⚠️ ", mode)
 			}
 			fmt.Printf("  %s  %-20s Data: %.0f%%  Meta: %.0f%%\n",
@@ -395,9 +399,10 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 		fmt.Printf("\n  Snapshots (%d):\n", len(lvm.Snapshots))
 		for _, s := range lvm.Snapshots {
 			sIcon := asciiOr("ok", "✅", mode)
-			if s.DataPct >= 90 {
+			switch analysis.LVMSnapshotLevel(s.DataPct) {
+			case "CRIT":
 				sIcon = asciiOr("fail", "❌", mode)
-			} else if s.DataPct >= 70 {
+			case "WARN":
 				sIcon = asciiOr("warn", "⚠️ ", mode)
 			}
 			fmt.Printf("  %s  %-20s → %-20s  Snap%%: %.0f%%\n",

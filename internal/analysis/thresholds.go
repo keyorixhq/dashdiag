@@ -11,6 +11,46 @@ const (
 	DefaultDiskCritPct = 90.0
 )
 
+// LVM thin-pool / snapshot / volume-group and Proxmox storage thresholds. Same
+// single-source-of-truth rationale as the disk constants above: these facts are
+// classified by BOTH a dedicated subcommand (`dsd disk`, `dsd pve`) and `dsd health`,
+// and they had drifted — `dsd disk` warned on a thin pool at 70% / snapshot at 70% /
+// VG under 15% free, and `dsd pve` on storage at 85%, while health used 80 / 80 / 10
+// / 80 — so the same volume read WARN in one command and OK (or CRIT vs WARN) in the
+// other (BUG-050 class). Both sides now go through the classifiers below.
+const (
+	LVMThinPoolWarnPct = 80.0
+	LVMThinPoolCritPct = 90.0
+	LVMSnapshotWarnPct = 80.0
+	LVMSnapshotCritPct = 95.0 // snapshots tolerate slightly higher fill than pools before CRIT
+	LVMVGFullWarnPct   = 90.0 // measured as % of VG capacity used, i.e. 100 - FreePct
+	LVMVGFullCritPct   = 98.0
+	PVEStorageWarnPct  = 80.0
+	PVEStorageCritPct  = 90.0
+)
+
+// LVMThinPoolLevel classifies a thin-pool data-fill percentage as "CRIT"/"WARN"/"".
+func LVMThinPoolLevel(dataPct float64) string {
+	return levelPct(dataPct, LVMThinPoolWarnPct, LVMThinPoolCritPct)
+}
+
+// LVMSnapshotLevel classifies a snapshot data-fill percentage as "CRIT"/"WARN"/"".
+func LVMSnapshotLevel(dataPct float64) string {
+	return levelPct(dataPct, LVMSnapshotWarnPct, LVMSnapshotCritPct)
+}
+
+// LVMVGFullLevel classifies a volume group by how full it is. It takes the FREE
+// percentage (as the collectors report it) and classifies the used percentage,
+// so callers don't each re-derive 100-free and risk drifting again.
+func LVMVGFullLevel(freePct float64) string {
+	return levelPct(100-freePct, LVMVGFullWarnPct, LVMVGFullCritPct)
+}
+
+// PVEStorageLevel classifies a Proxmox storage pool used percentage as "CRIT"/"WARN"/"".
+func PVEStorageLevel(usedPct float64) string {
+	return levelPct(usedPct, PVEStorageWarnPct, PVEStorageCritPct)
+}
+
 type Thresholds struct {
 	CPULoadWarnMultiplier float64
 	CPULoadCritMultiplier float64

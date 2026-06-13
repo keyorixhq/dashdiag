@@ -2733,8 +2733,8 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 	// Thin pool data and metadata usage — CRIT thresholds are tight because
 	// exhaustion happens fast and recovery requires unmounting everything.
 	for _, pool := range l.ThinPools {
-		// Data exhaustion: 80% WARN, 90% CRIT
-		if lv := levelPct(pool.DataPct, 80, 90); lv != "" {
+		// Data exhaustion: 80% WARN, 90% CRIT (see analysis/thresholds.go)
+		if lv := LVMThinPoolLevel(pool.DataPct); lv != "" {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("thin pool %s/%s data at %.0f%% (%.1f GB total)",
 					pool.VG, pool.Name, pool.DataPct, pool.SizeGB),
@@ -2775,7 +2775,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 			))
 			continue
 		}
-		if lv := levelPct(100-vg.FreePct, 90, 98); lv != "" {
+		if lv := LVMVGFullLevel(vg.FreePct); lv != "" {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
 					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),
@@ -2802,7 +2802,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 
 	// Snapshots — COW table overflow corrupts the snapshot
 	for _, snap := range l.Snapshots {
-		if lv := levelPct(snap.DataPct, 80, 95); lv != "" {
+		if lv := LVMSnapshotLevel(snap.DataPct); lv != "" {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("snapshot %s/%s is %.0f%% full — overflow will corrupt the snapshot",
 					snap.VG, snap.Name, snap.DataPct),
@@ -2997,7 +2997,7 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 			))
 			continue
 		}
-		if l := levelPct(s.UsedPct, 80, 90); l != "" {
+		if l := PVEStorageLevel(s.UsedPct); l != "" {
 			out = append(out, insight(l, "PVE",
 				fmt.Sprintf("storage %s (%s) is %.0f%% full (%.1f GB free of %.1f GB)",
 					s.Name, s.Type, s.UsedPct, s.TotalGB-s.UsedGB, s.TotalGB),

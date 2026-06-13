@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd disk` / `dsd pve` now agree with `dsd health` on LVM and Proxmox storage** —
+  four capacity verdicts were classified with different inline thresholds in the
+  detail command than in the health rollup, so the same volume could read WARN in one
+  and OK (or CRIT vs WARN) in the other: LVM thin pools (`dsd disk` warned at 70% vs
+  health 80%), snapshots (70% vs 80%, and `dsd disk` showed CRIT at 90% vs health's
+  95%), volume-group free space (`dsd disk` warned under 15% / CRIT under 5% free vs
+  health 10% / 2%), and PVE storage (`dsd pve` 85/95% vs health 80/90%). All four now
+  route through shared `analysis.LVM*Level`/`PVEStorageLevel` classifiers — one source
+  of truth, same as the disk/ZFS thresholds fixed earlier. (TRIAGE §E; BUG-050 class.)
 - **SteamOS: an unreadable `rauc status` no longer reads as a healthy A/B slot** —
   both RAUC slot-health checks were gated on `RAUCAvailable`, so when `rauc status`
   failed (D-Bus down, service dead, permission, parse error) the A/B update health
