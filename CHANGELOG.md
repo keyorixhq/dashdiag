@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **btrfs: device errors on an unmappable device path no longer leave the volume
+  "healthy"** — `btrfs device stats` errors were recorded only after matching the
+  reported device path against a device from `btrfs filesystem show`, and the volume
+  status upgrade lived inside that match. If the paths didn't line up (multi-device,
+  `/dev/mapper`/LUKS names, or a show-parse that left the device list empty) a non-zero
+  read/write/corruption/generation/flush counter was dropped and the volume stayed
+  "healthy" — a false-OK on a storage-corruption signal. The volume is now flagged on
+  any non-zero counter; per-device attribution remains best-effort.
+
 - **Auditd: a running auditd on a non-systemd host no longer false-alarms "not
   running"** — the daemon-running check was `systemctl is-active`-only, so on a
   non-systemd host (OpenRC/SysV) where auditd is running it reported `Running=false`,
