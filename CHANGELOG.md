@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **ufw SSH-reachability detection no longer mis-reads the port** — deciding whether the
+  firewall lets SSH in (which drives the "firewall blocks SSH — lockout risk" warning),
+  the ufw path matched `"22"` as a substring anywhere in `ufw status` and counted any
+  `"allow"` regardless of which port it was on. So `2222/tcp ALLOW` made it think port 22
+  was open, and a `22/tcp DENY` next to an unrelated allow rule read as reachable. Now it
+  matches the SSH port against the rule's target column with proper boundaries and honors
+  ufw's default-deny-incoming — consistent with the nft/iptables paths. Verified against
+  real `ufw status` output.
 - **An empty nftables ruleset no longer reads as an "active" firewall** — the nftables
   parser set the firewall's `Active` flag unconditionally, so a host with `nft` installed
   but **no rules** (`nft list ruleset` empty — common on minimal servers) had its firewall

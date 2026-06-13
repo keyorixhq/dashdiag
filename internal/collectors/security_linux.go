@@ -1024,10 +1024,42 @@ func detectUFW(ctx context.Context, info *models.SecurityInfo) bool {
 	}
 	info.FirewallActive = true
 	info.FirewallType = "ufw"
-	// ufw status shows "22/tcp ALLOW" or "OpenSSH ALLOW"
-	info.SSHAllowed = strings.Contains(lower, "22") && strings.Contains(lower, "allow") ||
-		strings.Contains(lower, "openssh") && strings.Contains(lower, "allow")
+	info.SSHAllowed = sshAllowedUFW(out, sshPort(info))
 	return true
+}
+
+// sshAllowedUFW reports whether `ufw status` output allows inbound SSH on port.
+// ufw's "To" column is the rule target (e.g. "22/tcp", "22/tcp (v6)", "OpenSSH").
+// We match the port against THAT column only — checking the whole line for "22"
+// (the previous implementation) false-matched "2222/tcp", a source IP ending in
+// .22, etc., and treated any "allow" anywhere as allowing SSH. ufw's default
+// incoming policy is deny, so SSH is reachable only via an explicit allow/limit
+// rule — mirrors the nft/iptables paths (decideSSHAllowed with a drop baseline).
+func sshAllowedUFW(out string, port int) bool {
+	p := strconv.Itoa(port)
+	var acceptSSH, blockSSH bool
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		raw := scanner.Text()
+		fields := strings.Fields(raw)
+		if len(fields) < 2 {
+			continue
+		}
+		to := fields[0] // the "To" column: the rule's destination
+		matchesSSH := to == p || strings.HasPrefix(to, p+"/") ||
+			strings.EqualFold(to, "ssh") || strings.EqualFold(to, "openssh")
+		if !matchesSSH {
+			continue
+		}
+		low := strings.ToLower(raw)
+		switch {
+		case strings.Contains(low, "allow"), strings.Contains(low, "limit"):
+			acceptSSH = true
+		case strings.Contains(low, "deny"), strings.Contains(low, "reject"):
+			blockSSH = true
+		}
+	}
+	return decideSSHAllowed(acceptSSH, blockSSH, true)
 }
 
 // detectNFTables reports whether an active nftables ruleset is present.
