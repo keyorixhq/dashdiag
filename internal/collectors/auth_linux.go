@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -29,15 +30,33 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info := &models.AuthInfo{Available: true, Checked: true}
 
-	// journalctl is the most portable source — works on all systemd distros
-	// grep for "Failed password" and "Invalid user" from sshd
+	// journalctl is the most portable source — works on all systemd distros.
+	// grep for "Failed password" and "Invalid user" from sshd. As a non-root user
+	// without journal access this returns nothing (the sshd entries live in the
+	// system journal), so an empty result is NOT proof of "no failures" — fall
+	// through to the text logs to decide.
 	out, err := runCmd(ctx, "journalctl", "_COMM=sshd", "--since", "24 hours ago",
 		"--no-pager", "-o", "cat")
-	if err != nil {
-		// Fallback: parse /var/log/auth.log directly (Debian/Ubuntu)
-		out, err = readAuthLog(ctx)
-		if err != nil {
+	if err != nil || strings.TrimSpace(out) == "" {
+		fileOut, readable, denied := readAuthLog(ctx)
+		switch {
+		case readable:
+			// A text log was readable; empty content here genuinely means no
+			// failed logins.
+			out = fileOut
+		case denied:
+			// An auth log exists but we could not read it (typically non-root on
+			// Debian/Ubuntu/RHEL, where /var/log/{auth.log,secure} is mode 640),
+			// and the journal gave us nothing either — we have NO auth data.
+			// Report "not checked" rather than a clean bill of health (a false-OK:
+			// "0 failed logins" read off a log we never opened).
+			info.Checked = false
+			info.StatusReason = "auth log unreadable — run as root to verify SSH auth failures"
 			return info, nil
+		default:
+			// No journal data and no auth log file present at all (e.g. a
+			// journald-only host with genuinely no sshd failures). Trust the empty
+			// result — avoids false-alarming healthy quiet hosts.
 		}
 	}
 
@@ -91,15 +110,39 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-func readAuthLog(ctx context.Context) (string, error) {
-	// Try auth.log (Debian/Ubuntu) then secure (RHEL/CentOS)
-	for _, path := range []string{"/var/log/auth.log", "/var/log/secure"} {
-		out, err := runCmd(ctx, "grep", "-E", "Failed password|Invalid user", path)
-		if err == nil {
-			return out, nil
+// readAuthLog scans the system auth logs for failed-login lines. It returns the
+// matching lines, whether any candidate file was actually readable, and whether a
+// candidate existed but was permission-denied. The readable/denied distinction is
+// what lets the caller tell "no failed logins" (readable, empty) apart from "could
+// not read the log" (denied) — the latter must not be reported as a clean host.
+//
+// We probe readability with os.Open (which distinguishes permission-denied from
+// absent via os.IsPermission) and only then grep, so a grep exit of 1 (no matches)
+// on a file we know is readable correctly means "zero failures", not "unreadable".
+func readAuthLog(ctx context.Context) (content string, readable, denied bool) {
+	// Try auth.log (Debian/Ubuntu) then secure (RHEL/CentOS).
+	return readAuthLogFrom(ctx, []string{"/var/log/auth.log", "/var/log/secure"})
+}
+
+// readAuthLogFrom is the testable core of readAuthLog over an explicit candidate
+// list. (The permission-denied branch can't be exercised in CI, which runs as
+// root and bypasses file modes — it is covered by a live non-root check.)
+func readAuthLogFrom(ctx context.Context, candidates []string) (content string, readable, denied bool) {
+	for _, path := range candidates {
+		f, err := os.Open(path) // #nosec G304 -- fixed candidate list
+		if err != nil {
+			if os.IsPermission(err) {
+				denied = true // exists but we can't read it
+			}
+			continue // absent or unreadable — try the next candidate
 		}
+		_ = f.Close()
+		// Readable. grep exit 1 (no matches) is fine — the file opened, so an
+		// empty result genuinely means no failed logins.
+		out, _ := runCmd(ctx, "grep", "-E", "Failed password|Invalid user", path)
+		return out, true, denied
 	}
-	return "", nil
+	return "", false, denied
 }
 
 // parseAuthLogLine is kept for unit tests

@@ -3,6 +3,10 @@
 package collectors
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +160,41 @@ func TestParseAuthLogLine(t *testing.T) {
 		if isRoot != c.wantRoot {
 			t.Errorf("parseAuthLogLine isRoot = %v, want %v (line: %q)", isRoot, c.wantRoot, c.line)
 		}
+	}
+}
+
+// TestReadAuthLogFrom_ReadableVsAbsent locks in the key distinction behind the
+// auth false-OK fix: a readable file with no failed-login lines reports
+// readable=true (empty ≠ unread), while a missing file reports readable=false
+// without claiming denial. (The permission-denied branch needs a non-root reader
+// and is verified live, not in CI which runs as root.)
+func TestReadAuthLogFrom_ReadableVsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Readable file WITH failures.
+	hits := filepath.Join(dir, "auth.log")
+	content := "May 17 09:00:01 host sshd[1]: Failed password for root from 1.2.3.4 port 22 ssh2\n"
+	if err := os.WriteFile(hits, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, readable, denied := readAuthLogFrom(ctx, []string{hits}); !readable || denied || !strings.Contains(out, "Failed password") {
+		t.Errorf("readable-with-hits: out=%q readable=%v denied=%v, want readable=true denied=false with content", out, readable, denied)
+	}
+
+	// Readable file with NO failures — must still be readable=true (the regression:
+	// empty must not look like "unread").
+	clean := filepath.Join(dir, "secure")
+	if err := os.WriteFile(clean, []byte("May 17 09:00:02 host sshd[1]: Accepted publickey for ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, readable, denied := readAuthLogFrom(ctx, []string{clean}); !readable || denied || strings.TrimSpace(out) != "" {
+		t.Errorf("readable-clean: out=%q readable=%v denied=%v, want readable=true denied=false empty", out, readable, denied)
+	}
+
+	// Absent file — readable=false, denied=false (nothing to read, not a denial).
+	if _, readable, denied := readAuthLogFrom(ctx, []string{filepath.Join(dir, "nope")}); readable || denied {
+		t.Errorf("absent: readable=%v denied=%v, want both false", readable, denied)
 	}
 }
 

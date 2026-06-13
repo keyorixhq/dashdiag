@@ -6310,6 +6310,21 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 }
 
 func checkAuth(a models.AuthInfo) []models.Insight {
+	if !a.Available {
+		return nil // sshd not installed — row hidden
+	}
+	// The auth source could not be read (typically a non-root run where the
+	// journal and /var/log/auth.log are both inaccessible). Surface that honestly
+	// as INFO instead of letting FailedLast24h==0 read as a clean "no failures" —
+	// a check that silently reads OK when it never ran is a false sense of security.
+	if !a.Checked {
+		msg := a.StatusReason
+		if msg == "" {
+			msg = "SSH auth log could not be read — failed-login detection skipped"
+		}
+		return []models.Insight{insight("INFO", "Auth", msg,
+			[]string{"run as root (sudo) to verify SSH authentication failures"})}
+	}
 	if a.FailedLast24h == 0 {
 		return nil
 	}
