@@ -87,6 +87,25 @@ it is a complete attack surface map of the system.
 
 ---
 
+## The --blob report block (shipped)
+
+`dsd health --blob` emits the full report as a compressed, base64-encoded text
+block (`-----BEGIN DSD REPORT-----`) for the network-broken support-offload case:
+you paste it into your support channel and support runs `dsd decode`.
+
+Be clear on what this is and isn't:
+
+- **Encoded, not encrypted.** The block is gzip + base64. Anyone who has it can run
+  `dsd decode` (or decode it by hand) and read the whole report. The `BEGIN/END`
+  markers resemble an encrypted PGP block, but there is no key and no encryption.
+- **Not redacted.** It carries everything `dsd health --json` does — hostname,
+  IP/MAC addresses, open ports and their processes, package and SMART data.
+- **So:** send it only through a trusted support channel. Do not paste it into a
+  public issue, forum, or chat. The redaction and encryption guarantees below apply
+  to the planned `--share` upload, **not** to `--blob`.
+
+---
+
 ## The --share flag (planned, not yet implemented)
 
 `--share` is currently a stub (hidden flag, no implementation).

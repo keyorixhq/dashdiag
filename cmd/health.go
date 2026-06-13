@@ -183,6 +183,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 		fmt.Print(share.Encode(data))
 		fmt.Fprintln(os.Stderr, "\n↑ Copy the whole block above (including the BEGIN/END lines) and send it to support.")
 		fmt.Fprintln(os.Stderr, "  They turn it back into a readable report with:  dsd decode   (paste it, or `dsd decode file.txt`)")
+		fmt.Fprintln(os.Stderr, "  Note: the block is compressed + encoded, NOT encrypted or redacted — it contains this host's")
+		fmt.Fprintln(os.Stderr, "  name, addresses, and open ports. Send it through a trusted channel; don't post it publicly.")
 		_ = baseline.SaveBaseline(snap)
 		return nil
 	}
