@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -87,7 +88,7 @@ func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.Out
 		} else {
 			fmt.Println("   to install (RHEL/Fedora): dnf install qemu-kvm libvirt libvirt-client")
 			fmt.Println("   to install (Debian/Ubuntu): apt install qemu-kvm libvirt-daemon-system")
-			fmt.Println("   to start:   systemctl enable --now libvirtd")
+			fmt.Println("   to start:   " + analysis.PlatformServiceCmd("systemctl enable --now libvirtd"))
 		}
 		fmt.Println()
 		fmt.Println(sep)

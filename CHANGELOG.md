@@ -24,8 +24,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   suggested `systemctl` (no systemd). The diagnosis was always correct; only the
   remedy line was unrunnable. A platform-aware adapter now rewrites them: on macOS
   `ss -tlnp [| grep :PORT]` → `lsof -nP -iTCP[:PORT] -sTCP:LISTEN`; on OpenRC
-  `systemctl restart/enable/disable X` → `rc-service`/`rc-update`. (TRIAGE §A;
-  BUG-053, BUG-054.)
+  `systemctl restart/enable/disable X` → `rc-service`/`rc-update`. The same audit
+  routed the remedy lines that `dsd docker`, `dsd cron`, `dsd kvm`, `dsd proc`, and
+  the entropy/TLS correlation print directly (outside the insight pipeline) through
+  one shared `analysis.PlatformServiceCmd` helper, so those were OpenRC-wrong too
+  and now aren't. (TRIAGE §A; BUG-053, BUG-054.)
 - **Packages: a failed security-update query no longer reads as "0 updates"** —
   when `dnf advisory`/`zypper list-patches`/`apt-get -s upgrade` errored (broken
   plugin, apt lock, permission), the collector returned 0 security updates with no

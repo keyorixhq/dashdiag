@@ -151,6 +151,23 @@ func adaptHint(hint, goos, initSystem string) (string, bool) {
 	return hint, false
 }
 
+// PlatformServiceCmd rewrites a systemd service-management command (e.g.
+// "systemctl restart docker") into the form runnable on the running host's init
+// system, returning it unchanged on systemd/macOS. It exists so subcommands that
+// print remedy lines directly to stdout — outside the insight pipeline that
+// adaptHintsToPlatform covers — share the same one source of truth as the
+// adapter (it delegates to adaptHint). (TRIAGE §A audit.)
+func PlatformServiceCmd(systemdCmd string) string {
+	return platformServiceCmd(systemdCmd, runtime.GOOS, hostInitSystem())
+}
+
+// platformServiceCmd is the host-independent core, split out so it is
+// unit-testable without the real GOOS/init system (see hostInitSystem).
+func platformServiceCmd(systemdCmd, goos, initSystem string) string {
+	out, _ := adaptHint("to fix: "+systemdCmd, goos, initSystem)
+	return strings.TrimPrefix(out, "to fix: ")
+}
+
 // NixOS configures the system declaratively via configuration.nix + nixos-rebuild,
 // not the imperative /etc/sysctl.d, /etc/ssh/sshd_config, and apt/dnf/zypper
 // commands the generic fix hints assume. The patterns below are anchored so

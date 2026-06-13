@@ -60,6 +60,36 @@ func TestAdaptHintsToPlatform(t *testing.T) {
 	}
 }
 
+// PlatformServiceCmd is the choke point for subcommands (dsd docker/cron/kvm/proc)
+// and correlation Actions that print service-management remedies directly, outside
+// the insight pipeline. It must rewrite systemctl→rc-* on OpenRC and pass through
+// unchanged on systemd/macOS — the same contract as adaptHint, which it delegates to.
+func TestPlatformServiceCmd(t *testing.T) {
+	cases := []struct {
+		name       string
+		systemd    string
+		goos, init string
+		want       string
+	}{
+		{"systemd restart passthrough", "systemctl restart docker", "linux", "systemd", "systemctl restart docker"},
+		{"systemd enable passthrough", "systemctl enable --now crond", "linux", "systemd", "systemctl enable --now crond"},
+		{"openrc restart", "systemctl restart docker", "linux", "openrc", "rc-service docker restart"},
+		{"openrc enable --now", "systemctl enable --now crond", "linux", "openrc", "rc-update add crond && rc-service crond start"},
+		{"openrc libvirtd", "systemctl enable --now libvirtd", "linux", "openrc", "rc-update add libvirtd && rc-service libvirtd start"},
+		{"openrc placeholder service", "systemctl restart <service-name>", "linux", "openrc", "rc-service <service-name> restart"},
+		// macOS has no systemctl rewrite target (Docker Desktop/launchd), so the
+		// command is left as-is rather than emitting a wrong rc-*/lsof guess.
+		{"macos leaves systemctl", "systemctl restart docker", "darwin", "unknown", "systemctl restart docker"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := platformServiceCmd(c.systemd, c.goos, c.init); got != c.want {
+				t.Errorf("platformServiceCmd(%q, %s, %s) = %q, want %q", c.systemd, c.goos, c.init, got, c.want)
+			}
+		})
+	}
+}
+
 func cloneInsights(in []models.Insight) []models.Insight {
 	out := make([]models.Insight, len(in))
 	for i, ins := range in {

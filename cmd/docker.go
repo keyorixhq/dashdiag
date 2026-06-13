@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -373,7 +374,7 @@ func printDockerLogDriver(ld *models.DockerLogDriverInfo, mode output.OutputMode
 	if !ld.MaxSizeSet {
 		fmt.Println(`  → Add to /etc/docker/daemon.json:`)
 		fmt.Println(`    {"log-driver":"json-file","log-opts":{"max-size":"100m","max-file":"3"}}`)
-		fmt.Println("  → systemctl restart docker")
+		fmt.Println("  → " + analysis.PlatformServiceCmd("systemctl restart docker"))
 	}
 
 	// Container log file sizes
