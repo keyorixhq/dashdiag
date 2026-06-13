@@ -279,6 +279,16 @@ func parseSSHDuration(s string) int {
 				total += n * 3600
 			}
 			num = ""
+		case c == 'd':
+			if n, err := strconv.Atoi(num); err == nil {
+				total += n * 86400
+			}
+			num = ""
+		case c == 'w':
+			if n, err := strconv.Atoi(num); err == nil {
+				total += n * 604800
+			}
+			num = ""
 		}
 	}
 	// bare number without unit = seconds
