@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -118,6 +119,14 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 			m.LatencyMs = r.latencyMs
 		} else {
 			m.Healthy = false
+			// A PROMPT error (not the 2s hang below) still means the mount is broken.
+			// ESTALE ("Stale file handle") and EIO (server gone) are the cases where
+			// accessing it hangs processes in D-state — flag them as stale so the
+			// verdict fires. Previously only the timeout path set Stale, so a mount
+			// that returned ESTALE immediately read as a non-event (false-OK).
+			if errors.Is(r.err, syscall.ESTALE) || errors.Is(r.err, syscall.EIO) {
+				m.Stale = true
+			}
 		}
 	case <-deadline:
 		m.Stale = true

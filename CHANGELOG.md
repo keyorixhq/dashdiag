@@ -13,6 +13,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **IPMI: PSU failures named "PS1 Status" are no longer missed** — the power-supply
+  check only matched sensor names containing "psu" or "power supply", but real Dell/
+  Supermicro servers name them "PS1 Status" / "PS2 Status". A critical/failed PSU on
+  those servers went unreported. Matching now also recognizes the `ps<digit>` form
+  (without matching "ups").
+- **NFS: a promptly-failing stale mount is no longer a non-event** — a mount whose
+  `statfs` returned ESTALE/EIO *immediately* (rather than hanging for the 2s timeout)
+  set Healthy=false but left Stale=false, so the CRIT "mount is STALE" never fired. A
+  prompt ESTALE/EIO now flags the mount stale.
+
 - **Ceph: an unreadable cluster health no longer reads as OK** — when `ceph health
   detail --format json` exits 0 but its output isn't parseable health JSON (empty, a
   leading deprecation banner, or an unexpected shape), `Health` was left empty and the
