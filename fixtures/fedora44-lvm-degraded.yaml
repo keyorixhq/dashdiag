@@ -1,7 +1,7 @@
-# fixture captured from 192.168.1.145 (Fedora Linux 44 (Server Edition))
+# fixture captured from redacted-host (Fedora Linux 44 (Server Edition))
 # replay with: dsd mock <this-file>
 
-host: 192.168.1.145
+host: redacted-host
 os: Fedora Linux 44 (Server Edition)
 version: v0.5.1-63-g9d42c8e-dirty
 rows:

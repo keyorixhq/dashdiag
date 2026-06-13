@@ -13,6 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd capture` redacts the hostname by default** — capture output is routinely
+  committed to a repo (`fixtures/`) or pasted into a ticket, but it embedded the real
+  hostname verbatim into the fixture's `host:` field and the "captured from …" comment.
+  It's now replaced with `redacted-host` unless `--include-identity` is passed. Also
+  scrubbed real private IPs that earlier (un-redacting) captures had already committed
+  into shipped fixtures. (Same privacy posture as the planned `--share --include-identity`.)
 - **`dsd health --blob` now says it's encoded, not encrypted** — the report block uses
   PGP-style `-----BEGIN DSD REPORT-----` markers and is opaque base64, but it's only
   gzip + base64 (anyone can `dsd decode` it) and carries the full unredacted report —

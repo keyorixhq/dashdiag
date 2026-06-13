@@ -167,6 +167,6 @@ rows:
     - name: Sessions
       level: INFO
       inline: ""
-      message: '2 session(s) from 2 unique IP(s): 192.168.1.145, 192.168.1.147'
+      message: '2 session(s) from 2 unique IP(s): 192.0.2.10, 192.0.2.11'
       hints:
         - 'to inspect: w'
