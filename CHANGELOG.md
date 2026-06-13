@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--prometheus`: a subsystem-qualified finding now shows in its per-check metric** —
+  insights with a qualified `Check` like `Network/DNS`, `Memory/Slab`, or `CPU Load/Steal`
+  were keyed under the qualified name, but `dsd_check_status{check="…"}` is keyed by the
+  base collector name. So a DNS-only CRIT left `dsd_check_status{check="network"} 0` even
+  though `dsd_health_status` was `2` — a monitoring alert on the per-check series would
+  silently miss it. The severity now rolls up to the base collector's metric. (Output is
+  still valid Prometheus exposition format — verified with `promtool check metrics`.)
+
 ## [v0.9.0] — 2026-06-13
 
 ### Fixed

@@ -25,8 +25,17 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 	overall := 0
 	for _, ins := range insights {
 		v := promSeverity(ins.Level)
-		if v > worstByCheck[ins.Check] {
-			worstByCheck[ins.Check] = v
+		// Roll a subsystem-qualified Check ("Network/DNS", "Memory/Slab",
+		// "CPU Load/Steal") up to its base collector name ("Network", "Memory",
+		// "CPU Load"), since the per-check series below is keyed by collector name.
+		// Without this a DNS-only CRIT left dsd_check_status{check="network"} at 0
+		// while dsd_health_status was 2 — the per-check metric hid the cause.
+		base := ins.Check
+		if i := strings.IndexByte(base, '/'); i >= 0 {
+			base = base[:i]
+		}
+		if v > worstByCheck[base] {
+			worstByCheck[base] = v
 		}
 		if v > overall {
 			overall = v
