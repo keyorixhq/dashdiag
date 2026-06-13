@@ -146,6 +146,15 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	fmt.Println()
 	fmt.Println(sep)
 
+	// A thermal sensor was detected (Source set) but no temperature could be read
+	// (CPUTempC stayed 0) — don't claim "healthy" off a reading we never got. The
+	// health heuristic already gates CPUTempC==0; mirror that here.
+	if info.CPUTempC <= 0 {
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s Thermal sensor present (%s) but temperature unreadable%s",
+			asciiOr("warn", "⚠️ ", mode), info.Source, timing)))
+		return
+	}
+
 	issues := 0
 	if info.CPUTempC >= 95 {
 		issues++

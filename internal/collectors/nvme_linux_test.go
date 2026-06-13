@@ -97,3 +97,21 @@ func TestParseNVMeNegativeCountersRejected(t *testing.T) {
 			ok.MediaErrors, ok.PercentageUsed, ok.UnsafeShutdowns, ok.PowerOnHours)
 	}
 }
+
+// TestParseNVMeSmartLogReportsParseSuccess pins the SmartRead signal: real smart-log
+// output returns true (and populates fields), while exit-0-but-unparseable output
+// returns false so the all-zero health fields aren't read as a healthy drive.
+func TestParseNVMeSmartLogReportsParseSuccess(t *testing.T) {
+	var d models.NVMeDevice
+	if parseNVMeSmartLog("WARNING: nvme-cli deprecation notice\nnonsense line\n", &d) {
+		t.Error("unparseable smart-log must return false (no recognized fields)")
+	}
+	var d2 models.NVMeDevice
+	real := "critical_warning			: 0\npercentage_used			: 7%\nmedia_errors			: 0\n"
+	if !parseNVMeSmartLog(real, &d2) {
+		t.Error("real smart-log with recognized fields must return true")
+	}
+	if d2.PercentageUsed != 7 {
+		t.Errorf("PercentageUsed = %d, want 7", d2.PercentageUsed)
+	}
+}
