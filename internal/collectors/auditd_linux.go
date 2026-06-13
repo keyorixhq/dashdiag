@@ -29,10 +29,11 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Check if the daemon is running. systemctl is-active fails on a non-systemd
 	// host (OpenRC/SysV) even when auditd is running, which would false-alarm
 	// "auditd installed but not running — compliance logging inactive" in the
-	// verdict. Confirm via the process too (same fallback as cron detection).
+	// verdict. Confirm via the running process too (matching /proc/<pid>/comm —
+	// portable where `pgrep -x` is not; same fallback as cron detection).
 	if _, err := runCmd(ctx, "systemctl", "is-active", "auditd"); err == nil {
 		info.Running = true
-	} else if _, err := runCmd(ctx, "pgrep", "-x", "auditd"); err == nil {
+	} else if anyProcessNamed("auditd") {
 		info.Running = true
 	}
 

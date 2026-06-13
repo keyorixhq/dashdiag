@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cron/Auditd: daemon detection on busybox/Alpine now actually works** — the
+  non-systemd fallback added in 0.9.1 used `pgrep -x <name>`, but **busybox's `pgrep
+  -x` matches `argv[0]` (the full `/usr/sbin/crond` path), not the comm basename** —
+  so it missed a running busybox `crond`/`auditd` on the very Alpine/OpenRC hosts the
+  fallback was meant to fix, and still false-alarmed "no cron daemon" / "auditd not
+  running". Detection now matches `/proc/<pid>/comm` directly, which is portable
+  across `pgrep` implementations. Verified live on an Alpine LXC (busybox crond →
+  correctly detected as active).
+
 ## [0.9.1] - 2026-06-13
 
 A correctness-hardening release: a sweep of every collector that emits a health
