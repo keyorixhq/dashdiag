@@ -50,22 +50,47 @@ func (c *CronCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // ── daemon detection ──────────────────────────────────────────────────────────
 
+var cronDaemonNames = []string{"crond", "cron", "fcron"}
+
 func detectCronDaemon(ctx context.Context, info *models.CronInfo) {
-	daemons := []string{"crond", "cron", "fcron"}
-	for _, d := range daemons {
+	systemctlActive := func(d string) bool {
 		out, err := runCmd(ctx, "systemctl", "is-active", d)
-		if err == nil && strings.TrimSpace(out) == "active" {
-			info.DaemonActive = true
-			info.DaemonName = d
-			break
-		}
+		return err == nil && strings.TrimSpace(out) == "active"
 	}
+	// pgrep is the systemd-independent confirmation: on a non-systemd host
+	// (Alpine/OpenRC, Devuan/SysV, Gentoo, busybox crond) `systemctl is-active`
+	// fails even when cron is running, which otherwise produced a false "no cron
+	// daemon — scheduled jobs will not run" alarm.
+	processRunning := func(d string) bool {
+		_, err := runCmd(ctx, "pgrep", "-x", d)
+		return err == nil
+	}
+	info.DaemonName, info.DaemonActive = detectCronDaemonName(systemctlActive, processRunning)
+
 	// Anacron: present if binary exists (doesn't run as a persistent daemon)
 	if _, err := os.Stat("/usr/sbin/anacron"); err == nil {
 		info.AnacronPresent = true
 	} else if _, err := os.Stat("/usr/bin/anacron"); err == nil {
 		info.AnacronPresent = true
 	}
+}
+
+// detectCronDaemonName decides which cron daemon (if any) is active from two
+// signal sources, checked in order: systemctl (systemd hosts) then a running
+// process (non-systemd). A daemon reported active by EITHER counts — both are
+// positive confirmation, so this never invents a daemon that isn't running.
+func detectCronDaemonName(systemctlActive, processRunning func(string) bool) (name string, active bool) {
+	for _, d := range cronDaemonNames {
+		if systemctlActive(d) {
+			return d, true
+		}
+	}
+	for _, d := range cronDaemonNames {
+		if processRunning(d) {
+			return d, true
+		}
+	}
+	return "", false
 }
 
 // ── crontab quality ───────────────────────────────────────────────────────────
