@@ -89,17 +89,14 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 	fmt.Fprintf(&b, "| Check | Status |\n")
 	fmt.Fprintf(&b, "|---|---|\n")
 
-	warnChecks := map[string]bool{}
-	critChecks := map[string]bool{}
-	for _, ins := range insights {
-		switch ins.Level {
-		case "CRIT":
-			critChecks[ins.Check] = true
-		case "WARN":
-			warnChecks[ins.Check] = true
-		}
-	}
-
+	// Per-check status comes straight from the snapshot. baseline.BuildSnapshot
+	// already records each check's WORST finding and rolls a subsystem-qualified
+	// insight ("Network/DNS", "Memory/Slab") up to its collector ("Network",
+	// "Memory"). Re-deriving status here from the raw insights — which were keyed by
+	// the *qualified* Check name yet looked up by the *base* collector name — dropped
+	// a DNS-only CRIT: the table showed "Network ✅ OK" while the Issues section above
+	// listed that very CRIT (a false-OK in --report). Trust the snapshot's status.
+	//
 	// Deterministic, worst-first order: snap.Checks comes back in map/iteration
 	// order (different every run, which reads as unstable in a client report).
 	// Sort CRIT → WARN → OK, alphabetical within each rank.
@@ -109,10 +106,10 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 	}
 	rows := make([]checkRow, 0, len(snap.Checks))
 	for _, check := range snap.Checks {
-		switch {
-		case critChecks[check.Name]:
+		switch check.Status {
+		case "CRIT":
 			rows = append(rows, checkRow{check.Name, "🔴 CRIT", 2})
-		case warnChecks[check.Name]:
+		case "WARN":
 			rows = append(rows, checkRow{check.Name, "⚠️ WARN", 1})
 		default:
 			rows = append(rows, checkRow{check.Name, "✅ OK", 0})

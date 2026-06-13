@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`--report`: a subsystem-only CRIT no longer renders as "OK" in the Check Results
+  table** — the table re-derived each check's status from the raw insights keyed by the
+  *qualified* Check name (`Network/DNS`) but looked it up by the *base* collector name
+  (`Network`), so a DNS-only CRIT showed `Network ✅ OK` while the Issues section above
+  listed that very CRIT (a false-OK). The table now reads status straight from the
+  baseline snapshot, which already rolls qualified findings up to their collector and
+  records each check's worst finding.
 - **Baseline/drift: a check's recorded status now reflects its worst finding** — the
   baseline snapshot took the *first* insight matching a check and matched check names
   *exactly*, so (a) a subsystem-qualified finding (`Network/DNS` CRIT, `Memory/Slab`,

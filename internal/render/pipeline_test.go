@@ -114,8 +114,8 @@ func TestGenerateReport(t *testing.T) {
 func TestBuildMarkdownReportQuality(t *testing.T) {
 	s := &baseline.Snapshot{
 		Hostname: "h", Version: "v0", Timestamp: time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC),
-		Checks: []baseline.CheckResult{ // scrambled order on purpose
-			{Name: "Zeta"}, {Name: "CPU Load"}, {Name: "Alpha"}, {Name: "Disk"}, {Name: "Mid"},
+		Checks: []baseline.CheckResult{ // scrambled order on purpose; Status as BuildSnapshot records it from sampleInsights()
+			{Name: "Zeta", Status: "OK"}, {Name: "CPU Load", Status: "CRIT"}, {Name: "Alpha", Status: "OK"}, {Name: "Disk", Status: "WARN"}, {Name: "Mid", Status: "OK"},
 		},
 	}
 	md := buildMarkdown(s, sampleInsights(), time.Second, nil)
