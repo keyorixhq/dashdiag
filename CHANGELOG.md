@@ -29,6 +29,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the entropy/TLS correlation print directly (outside the insight pipeline) through
   one shared `analysis.PlatformServiceCmd` helper, so those were OpenRC-wrong too
   and now aren't. (TRIAGE §A; BUG-053, BUG-054.)
+- **"SSH idle timeout not set" no longer fires on hosts with no sshd** — the check
+  triggers on the *absence* of `ClientAliveInterval` (value 0), but 0 is also the
+  zero-value when no sshd was audited at all, so a host without sshd was told to set
+  a directive in a config it doesn't have. Now gated on `SSHAuditSource` (an sshd
+  config was actually read). (TRIAGE §A minor.)
 - **Packages: a failed security-update query no longer reads as "0 updates"** —
   when `dnf advisory`/`zypper list-patches`/`apt-get -s upgrade` errored (broken
   plugin, apt lock, permission), the collector returned 0 security updates with no

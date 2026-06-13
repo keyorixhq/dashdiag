@@ -26,7 +26,7 @@ func TestCheckSecurityFull(t *testing.T) {
 		{"long login grace time is INFO", func(s *models.SecurityInfo) { s.SSHLoginGraceTime = 120 }, "INFO", "LoginGraceTime"},
 		{"x11 forwarding is INFO", func(s *models.SecurityInfo) { s.SSHX11Forwarding = true }, "INFO", "X11Forwarding"},
 		{"agent forwarding is INFO", func(s *models.SecurityInfo) { s.SSHAgentForwarding = true }, "INFO", "AgentForwarding"},
-		{"no idle timeout is INFO", func(s *models.SecurityInfo) { s.SSHClientAliveInterval = 0 }, "INFO", "idle timeout"},
+		{"no idle timeout is INFO", func(s *models.SecurityInfo) { s.SSHClientAliveInterval = 0; s.SSHAuditSource = "file" }, "INFO", "idle timeout"},
 		// False-OK guard: sshd_config present but unreadable (non-root, mode 600) →
 		// the SSH directives stay at secure defaults; must surface "NOT audited",
 		// not silently read as hardened.
@@ -119,5 +119,22 @@ func TestCheckSecurityFull(t *testing.T) {
 				t.Errorf("want %s insight containing %q, got %+v", tt.level, tt.msg, got)
 			}
 		})
+	}
+}
+
+// On a host with no sshd at all, SSHClientAliveInterval is its 0 zero-value and
+// SSHAuditSource is "" — the "set ClientAliveInterval" INFO must NOT fire, since
+// there is no sshd_config to set it in. (TRIAGE §A minor; regression for the
+// gate added to the idle-timeout check.)
+func TestNoIdleTimeoutSuppressedWhenNoSSHD(t *testing.T) {
+	// No SSHAuditSource → nothing was audited.
+	noSSHD := models.SecurityInfo{SSHStrictModes: true, SSHClientAliveInterval: 0}
+	if hasInsightMsg(checkSecurity(noSSHD), "INFO", "idle timeout") {
+		t.Error("idle-timeout INFO should be suppressed when no sshd was audited (SSHAuditSource == \"\")")
+	}
+	// But once an sshd config IS audited, the missing setting is real → fire.
+	withSSHD := models.SecurityInfo{SSHStrictModes: true, SSHClientAliveInterval: 0, SSHAuditSource: "sshd -T"}
+	if !hasInsightMsg(checkSecurity(withSSHD), "INFO", "idle timeout") {
+		t.Error("idle-timeout INFO should fire when sshd was audited and ClientAliveInterval is unset")
 	}
 }

@@ -3604,8 +3604,12 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
-	// ClientAliveInterval = 0 — no idle timeout; sessions left open indefinitely
-	if sec.SSHClientAliveInterval == 0 && !sec.IsOffensiveDistro {
+	// ClientAliveInterval = 0 — no idle timeout; sessions left open indefinitely.
+	// Unlike the sibling checks above (which fire on a bad *present* value), this one
+	// fires on an *absent* setting, so the zero value also occurs when no sshd was
+	// audited at all — gate on SSHAuditSource so a host with no sshd doesn't get told
+	// to set ClientAliveInterval in a config it doesn't have. (TRIAGE §A minor.)
+	if sec.SSHClientAliveInterval == 0 && sec.SSHAuditSource != "" && !sec.IsOffensiveDistro {
 		out = append(out, insight("INFO", "Hardening",
 			"SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
 			[]string{
