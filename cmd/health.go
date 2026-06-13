@@ -73,9 +73,11 @@ var healthDeepCmd = &cobra.Command{
 
 // CVE exposure check — SHIPPED via `dsd health --cve` (CVEHealthCollector).
 // Cross-references the package manager's pending security advisories (dnf/apt/
-// zypper/pacman) against the CISA KEV catalog. WARN: CVSS >= 7.0 (Important).
-// CRIT: CVSS >= 9.0 (Critical) or any CISA KEV match. KEV catalog is a local
-// sidecar file (no cloud registration) — see `dsd cve info` for the fetch command.
+// zypper/pacman) against the CISA KEV catalog. WARN: advisories the manager rates
+// Important/High. CRIT: advisories rated Critical, or any CISA KEV match. The
+// bucket is the manager's published severity rating, not a CVSS score the
+// advisory-list scan measures. KEV catalog is a local sidecar file (no cloud
+// registration) — see `dsd cve info` for the fetch command.
 
 // TODO(backlog): CIS/STIG compliance checks — compare system config against CIS Benchmark
 // or STIG profiles. Enterprise-only. Implement after core product is stable and paying
