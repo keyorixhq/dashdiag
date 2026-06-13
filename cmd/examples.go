@@ -37,8 +37,8 @@ func runExamples(cmd *cobra.Command, _ []string) error {
 		},
 		{
 			"4. Share with team",
-			"Share a snapshot in Slack without requiring install.",
-			"  dsd health --share\n  dsd health --report --out report.md",
+			"Generate a portable Markdown report to paste into a ticket or chat.",
+			"  dsd health --report --out report.md",
 		},
 		{
 			"5. Kubernetes cluster",
