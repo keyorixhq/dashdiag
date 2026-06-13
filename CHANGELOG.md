@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **NVMe: an unparseable `smart-log` no longer reads as a healthy drive** — `SmartRead`
+  was set true whenever `nvme smart-log` exited 0, even if nothing parseable came back
+  (unexpected format, a tool that printed only a banner) — leaving the all-zero health
+  fields looking real. It's now true only when a recognized SMART field was parsed.
+- **`dsd thermal`: no longer prints "Thermal healthy" at 0.0°C** — when a CPU thermal
+  sensor was detected but its temperature couldn't be read (CPUTempC stayed 0), the
+  command rendered a green "Thermal healthy. Checks passed". It now reports the sensor
+  as present-but-unreadable, matching the health heuristic which already gates 0°C.
+
 - **HBA / InfiniBand: a port whose state could not be read no longer counts as
   healthy** — both verdicts whitelisted an empty state (`&& state != ""`), so a FC/IB
   port whose sysfs state file was unreadable was silently treated as fine — while the

@@ -50,8 +50,10 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 			continue
 		}
 
-		parseNVMeSmartLog(out, dev)
-		dev.SmartRead = true // smart-log read + parsed — health fields are real
+		// SmartRead only when smart-log actually yielded a recognized field — an
+		// exit-0 run with unparseable output must NOT mark the all-zero health fields
+		// as real (which would read as a healthy drive).
+		dev.SmartRead = parseNVMeSmartLog(out, dev)
 
 		// Detect mount points from /proc/mounts
 		dev.MountPoints, dev.HasLinux = nvmeMountPoints(base)
@@ -71,8 +73,13 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// parseNVMeSmartLog parses `nvme smart-log` output into NVMeDevice fields.
-func parseNVMeSmartLog(out string, dev *models.NVMeDevice) {
+// parseNVMeSmartLog parses `nvme smart-log` output into NVMeDevice fields and
+// returns whether ANY recognized SMART field was actually parsed. The caller uses
+// that to set SmartRead: `nvme smart-log` can exit 0 yet emit nothing parseable
+// (unexpected format / a tool that printed only a banner), and blindly setting
+// SmartRead=true left the all-zero health fields reading as a healthy drive.
+func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
+	parsedAny := false
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		parts := strings.SplitN(line, ":", 2)
@@ -102,8 +109,12 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) {
 			dev.PowerOnHours = parseInt64(val)
 		case "power_cycles":
 			dev.PowerCycles = parseInt64(val)
+		default:
+			continue // unrecognized key — don't count as a successful parse
 		}
+		parsedAny = true // reached only when a known case matched
 	}
+	return parsedAny
 }
 
 // parseNVMeTemp extracts temperature in Celsius from nvme smart-log output.
