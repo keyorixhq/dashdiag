@@ -87,3 +87,17 @@ func TestMockReplayTimeline_MalformedErrors(t *testing.T) {
 		t.Fatal("mockReplayTimeline accepted malformed JSON")
 	}
 }
+
+// captureHost redacts the real hostname by default (fixtures are often committed),
+// and only passes it through when --include-identity is set.
+func TestCaptureHostRedaction(t *testing.T) {
+	if got := captureHost("prod-db-07.internal.example", false); got != "redacted-host" {
+		t.Errorf("default must redact hostname, got %q", got)
+	}
+	if got := captureHost("192.168.1.145", false); got != "redacted-host" {
+		t.Errorf("default must redact an IP-style hostname, got %q", got)
+	}
+	if got := captureHost("prod-db-07", true); got != "prod-db-07" {
+		t.Errorf("--include-identity must keep the hostname, got %q", got)
+	}
+}

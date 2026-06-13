@@ -63,6 +63,7 @@ func init() {
 	rootCmd.AddCommand(captureCmd)
 	captureCmd.Flags().String("cve", "", "fold in a `dsd cve --all --json` report from FILE")
 	captureCmd.Flags().String("timeline", "", "fold in a `dsd timeline --json` report from FILE")
+	captureCmd.Flags().Bool("include-identity", false, "keep the real hostname in the fixture (default: redact it, since fixtures are often committed)")
 }
 
 // captureInsight mirrors the JSON insight structure for unmarshalling.
@@ -151,8 +152,16 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	}
 	rows := append(ordered, unordered...)
 
+	// Redact the hostname by default: capture output is routinely committed to a
+	// repo (fixtures/) or pasted into a ticket, and the real hostname is identity
+	// data. Opt back in with --include-identity. (IPs in check messages are left
+	// as-is — blanket-stripping them would also remove benign public addresses like
+	// resolver IPs that make a fixture useful; scrub those by hand if needed.)
+	inc, _ := cmd.Flags().GetBool("include-identity")
+	host := captureHost(input.Hostname, inc)
+
 	fix := MockFixture{
-		Host:    input.Hostname,
+		Host:    host,
 		OS:      input.OS,
 		Version: input.Version,
 		Rows:    rows,
@@ -186,10 +195,21 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	}
 
 	header := fmt.Sprintf("# fixture captured from %s (%s)\n# replay with: dsd mock <this-file>\n\n",
-		input.Hostname, input.OS)
+		host, input.OS)
 
 	_, err = os.Stdout.Write(append([]byte(header), out...))
 	return err
+}
+
+// captureHost returns the hostname to embed in a fixture: the real one only when
+// the operator opts in with --include-identity, otherwise a redacted placeholder.
+// Fixtures are routinely committed to a repo or pasted into a ticket, so the real
+// hostname (identity data) is stripped by default.
+func captureHost(hostname string, includeIdentity bool) string {
+	if includeIdentity {
+		return hostname
+	}
+	return "redacted-host"
 }
 
 func buildFixtureRow(c captureCheck, insightMap map[string]captureInsight) MockRow {
