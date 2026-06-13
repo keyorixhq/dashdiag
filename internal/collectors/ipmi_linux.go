@@ -6,12 +6,26 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// psuStatusRe matches the per-supply status sensor names real servers emit, e.g.
+// Dell/Supermicro "PS1 Status" / "PS2 Status" (the literal "ps<digit>" form that the
+// old "psu"/"power supply" substring check missed, so PSU failures went unreported).
+// The leading word boundary keeps it from matching "ups1" etc.
+var psuStatusRe = regexp.MustCompile(`\bps\d`)
+
+// isPSUSensor reports whether a (lowercased) IPMI sensor name names a power supply.
+func isPSUSensor(name string) bool {
+	return strings.Contains(name, "psu") ||
+		strings.Contains(name, "power supply") ||
+		psuStatusRe.MatchString(name)
+}
 
 // IPMICollector reads BMC sensor data via ipmitool or the ipmi_si kernel driver.
 // Falls back gracefully when IPMI is unavailable.
@@ -49,7 +63,7 @@ func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 	for _, s := range info.Sensors {
 		name := strings.ToLower(s.Name)
 		switch {
-		case (strings.Contains(name, "psu") || strings.Contains(name, "power supply")) &&
+		case isPSUSensor(name) &&
 			(s.Status == "cr" || s.Status == "nr" || s.Status == "nc"):
 			info.PSUFailed++
 		case strings.Contains(name, "fan") &&

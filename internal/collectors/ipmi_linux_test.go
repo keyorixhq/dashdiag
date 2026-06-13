@@ -104,3 +104,19 @@ func TestParseIPMISDR(t *testing.T) {
 		}
 	})
 }
+
+// TestIsPSUSensor pins the PSU-name matching, incl. the real Dell/Supermicro
+// "PS1 Status"/"PS2 Status" form the old substring check missed (so PSU failures
+// went unreported). "ups1" must NOT match (it's a UPS, not a PSU).
+func TestIsPSUSensor(t *testing.T) {
+	for _, n := range []string{"psu1", "power supply 1", "ps1 status", "ps2 status", "pwr ps3"} {
+		if !isPSUSensor(n) {
+			t.Errorf("isPSUSensor(%q) = false, want true", n)
+		}
+	}
+	for _, n := range []string{"fan1", "inlet temp", "ups1 status", "cpu1 temp"} {
+		if isPSUSensor(n) {
+			t.Errorf("isPSUSensor(%q) = true, want false", n)
+		}
+	}
+}
