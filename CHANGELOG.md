@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Ceph: an unreadable cluster health no longer reads as OK** — when `ceph health
+  detail --format json` exits 0 but its output isn't parseable health JSON (empty, a
+  leading deprecation banner, or an unexpected shape), `Health` was left empty and the
+  verdict fell through to silent OK. It's now marked unknown and surfaces a WARN.
+- **TLS: an unreadable/garbled certificate no longer reads as healthy** — `checkTLS`
+  ignored the `Uncheckable` list (and returned early when no checkable certs existed),
+  so a cert file that couldn't be read produced a clean "0 expired". Uncheckable certs
+  now WARN.
+
 - **BIND: "named service is not active" no longer false-fires on RHEL/Fedora or
   non-systemd hosts** — the check ran `systemctl is-active named bind9` (two units at
   once), which exits non-zero unless BOTH units exist and are active. RHEL/Fedora have
