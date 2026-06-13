@@ -108,6 +108,29 @@ Unblock: one session on the AMD laptop. Agent memory: `gpu-allzero-falseok-defer
 
 ---
 
+## G. Debian/Ubuntu OVAL version-awareness — BLOCKED (needs real Ubuntu OVAL fixtures)
+
+The dpkg version comparator (`analysis`/`cvedata` `CompareDpkg`, #231) is built and
+verified against the real `dpkg --compare-versions` tool — but deliberately **not
+wired** into the Ubuntu/Debian OVAL scan. That scan (`ScanUbuntuOVALPackages`) is
+name-based today: it matches an affected package by NAME and ignores the installed
+version, so it can over-report a CVE that a newer install already patched.
+
+| Item | Surface | Test target |
+|---|---|---|
+| Extract per-component fixed version from Ubuntu OVAL | `cvedata/oval_debian.go` `ParseUbuntuOVAL` | real Ubuntu OVAL feed |
+| Wire `CompareDpkg(installed, fixedIn)` into the affected/not-affected decision | `ScanUbuntuOVALPackages` | Debian/Ubuntu host |
+| Validate no false-negatives introduced (the dangerous direction) | both | real OVAL fixtures |
+
+Why blocked, not just unstarted: name-based over-reporting is a SAFE false-positive;
+version-aware matching risks a **false-OK** (silently suppressing a real CVE) if the
+fixed-version extraction is wrong. Per the project's deferred-OVAL caution
+(agent memory `oval-boolean-tree-deferred`), this needs a real Ubuntu OVAL feed to
+validate against before shipping — do not wire it blind. The comparator is proven; the
+risk is entirely in the OVAL parsing + the suppress decision.
+
+---
+
 ## Housekeeping
 
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
