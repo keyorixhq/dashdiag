@@ -129,7 +129,7 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 	if human && (len(info.Failures) > 0 || !info.DaemonActive) {
 		fmt.Fprintln(os.Stdout, "\nNext:")
 		if !info.DaemonActive {
-			fmt.Fprintln(os.Stdout, "  → sudo "+analysis.PlatformServiceCmd("systemctl enable --now crond"))
+			fmt.Fprintln(os.Stdout, "  → "+analysis.PlatformServiceCmdSudo("systemctl enable --now crond"))
 		}
 		if len(info.Failures) > 0 {
 			fmt.Fprintln(os.Stdout, "  → journalctl -u crond --since '24 hours ago' | grep -i failed")
