@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.9.0] — 2026-06-13
+
 ### Fixed
 
 - **SELinux denial count no longer includes `avc: granted` records** — the
