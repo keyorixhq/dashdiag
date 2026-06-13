@@ -154,3 +154,47 @@ func TestSSHAllowedIPT(t *testing.T) {
 		})
 	}
 }
+
+// TestSSHAllowedUFW pins ufw SSH-reachability detection. The first case is a real
+// `ufw status` dump (debian:12 ufw). The previous Contains("22")&&Contains("allow")
+// logic mis-read several of these — "2222/tcp ALLOW" alone made it think port 22 was
+// allowed, and any "allow" line counted regardless of which port it was on.
+func TestSSHAllowedUFW(t *testing.T) {
+	// Real `ufw status` output: 22/tcp ALLOW, 2222/tcp ALLOW, 80/tcp DENY (+ v6).
+	realStatus := `Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere
+2222/tcp                   ALLOW       Anywhere
+80/tcp                     DENY        Anywhere
+22/tcp (v6)                ALLOW       Anywhere (v6)
+2222/tcp (v6)              ALLOW       Anywhere (v6)
+80/tcp (v6)                DENY        Anywhere (v6)
+`
+	cases := []struct {
+		name string
+		out  string
+		port int
+		want bool
+	}{
+		{"real status, 22 allowed", realStatus, 22, true},
+		{"real status, port 2222 is SSH", realStatus, 2222, true},
+		// Only 2222 allowed, no 22 rule → default-deny means 22 is NOT reachable.
+		// (The old substring logic matched "22" inside "2222" and reported true.)
+		{"only 2222 allowed, 22 not", "Status: active\n2222/tcp ALLOW Anywhere\n", 22, false},
+		// 22 explicitly denied while another port is allowed.
+		{"22 denied, 2222 allowed", "Status: active\n22/tcp DENY Anywhere\n2222/tcp ALLOW Anywhere\n", 22, false},
+		{"OpenSSH app profile allowed", "Status: active\nOpenSSH ALLOW Anywhere\n", 22, true},
+		{"22 limit (rate-limited but allowed)", "Status: active\n22/tcp LIMIT Anywhere\n", 22, true},
+		// ufw active, no SSH rule → default deny incoming → not reachable.
+		{"no ssh rule, default deny", "Status: active\n80/tcp ALLOW Anywhere\n", 22, false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sshAllowedUFW(tt.out, tt.port); got != tt.want {
+				t.Errorf("sshAllowedUFW(port=%d) = %v, want %v", tt.port, got, tt.want)
+			}
+		})
+	}
+}
