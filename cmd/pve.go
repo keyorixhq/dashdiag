@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -265,12 +266,17 @@ func printPVEStorage(info *models.PVEInfo, mode output.OutputMode) {
 		if !s.Active {
 			icon = asciiOr("fail", "❌", mode)
 			note = "  UNAVAILABLE"
-		} else if s.UsedPct >= 95 {
-			icon = asciiOr("fail", "❌", mode)
-			note = fmt.Sprintf("  CRIT: %.0f%% full", s.UsedPct)
-		} else if s.UsedPct >= 85 {
-			icon = asciiOr("warn", "⚠️ ", mode)
-			note = fmt.Sprintf("  %.0f%% full", s.UsedPct)
+		} else {
+			// Classify identically to dsd health (analysis.PVEStorageLevel) so the
+			// two commands never disagree on the same storage (BUG-050 class).
+			switch analysis.PVEStorageLevel(s.UsedPct) {
+			case "CRIT":
+				icon = asciiOr("fail", "❌", mode)
+				note = fmt.Sprintf("  CRIT: %.0f%% full", s.UsedPct)
+			case "WARN":
+				icon = asciiOr("warn", "⚠️ ", mode)
+				note = fmt.Sprintf("  %.0f%% full", s.UsedPct)
+			}
 		}
 		sizeStr := ""
 		if s.TotalGB > 0 {
