@@ -78,6 +78,14 @@ func parseMultipathShow(out string) []models.MultipathDevice {
 		}
 		dev := fields[0]
 		state := fields[1]
+		// Skip the column-header row that `multipathd show paths format` prints —
+		// "dev dm_st vend/prod/rev multipath". Parsed as a path it became a phantom
+		// device "multipath" whose one path was in state "dm_st" (not active/ready →
+		// counted as failed → a spurious "degraded" device → a false CRIT on every
+		// real multipath host). Real %d/%t values are never literally "dev"/"dm_st".
+		if dev == "dev" && state == "dm_st" {
+			continue
+		}
 		dm := fields[3]
 		if dm == "" || dm == "[orphan]" {
 			dm = "unknown"
