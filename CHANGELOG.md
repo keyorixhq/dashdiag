@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **SSH duration parsing now handles the `d` (day) and `w` (week) units** — OpenSSH's
+  time format (e.g. `LoginGraceTime`) accepts `s/m/h/d/w`, but the parser only knew
+  `s/m/h`. It silently dropped `d`/`w`, which also concatenated the surrounding digits:
+  `1d12h` parsed as "112h" (403200s) instead of 129600s, and `1w` as 1s instead of
+  604800s. Now matches `sshd -T` normalization exactly (verified against real
+  openssh-server). Affects the file-parse fallback path (`sshd -T` already emits
+  normalized seconds); low practical impact since LoginGraceTime/ClientAliveInterval
+  are rarely set in days/weeks, but it was a real correctness gap.
 - **`dsd capture` redacts the hostname by default** — capture output is routinely
   committed to a repo (`fixtures/`) or pasted into a ticket, but it embedded the real
   hostname verbatim into the fixture's `host:` field and the "captured from …" comment.
