@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd cron` OpenRC remediation is now fully runnable** — the "start crond" hint on
+  Alpine/OpenRC rendered `sudo rc-update add crond && rc-service crond start`, but the
+  single leading `sudo` only elevated the first command, so a non-root user copy-pasting
+  it added crond to boot while `rc-service crond start` (which needs root) silently failed
+  — crond not actually started. `sudo` now applies to each command:
+  `sudo rc-update add crond && sudo rc-service crond start` (via `PlatformServiceCmdSudo`).
+  Validated live on Alpine/OpenRC. (Completes the TRIAGE §A unrunnable-remediation class.)
 - **Proxmox: an unreachable `pvesh` API no longer reads as a healthy node (false-OK)** —
   the PVE collector gated on the `pvedaemon` binary existing, then ran every check via
   `pvesh`. When the API was down (pmxcfs/pve-cluster stopped, not quorate) all queries

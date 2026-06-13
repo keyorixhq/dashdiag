@@ -90,6 +90,29 @@ func TestPlatformServiceCmd(t *testing.T) {
 	}
 }
 
+// PlatformServiceCmdSudo must apply sudo to EVERY command, so the OpenRC
+// `enable --now` pair (rc-update && rc-service) is fully privileged — a single
+// leading sudo would leave `rc-service X start` to fail for a non-root user.
+func TestPlatformServiceCmdSudo(t *testing.T) {
+	cases := []struct {
+		name       string
+		systemd    string
+		goos, init string
+		want       string
+	}{
+		{"systemd single sudo", "systemctl enable --now crond", "linux", "systemd", "sudo systemctl enable --now crond"},
+		{"openrc enable sudo on both", "systemctl enable --now crond", "linux", "openrc", "sudo rc-update add crond && sudo rc-service crond start"},
+		{"openrc restart single sudo", "systemctl restart docker", "linux", "openrc", "sudo rc-service docker restart"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := platformServiceCmdSudo(c.systemd, c.goos, c.init); got != c.want {
+				t.Errorf("platformServiceCmdSudo(%q, %s, %s) = %q, want %q", c.systemd, c.goos, c.init, got, c.want)
+			}
+		})
+	}
+}
+
 func cloneInsights(in []models.Insight) []models.Insight {
 	out := make([]models.Insight, len(in))
 	for i, ins := range in {

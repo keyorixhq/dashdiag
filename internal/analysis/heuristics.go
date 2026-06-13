@@ -168,6 +168,24 @@ func platformServiceCmd(systemdCmd, goos, initSystem string) string {
 	return strings.TrimPrefix(out, "to fix: ")
 }
 
+// PlatformServiceCmdSudo is like PlatformServiceCmd but for callers that print the
+// remedy as a privileged command. It applies `sudo` to EACH command in the result,
+// because the OpenRC rewrite of `enable --now` is a `&&` pair (rc-update + rc-service)
+// and a single leading `sudo` only elevates the first — the second (`rc-service X
+// start`, which needs root) would fail for a non-root user copy-pasting the line.
+func PlatformServiceCmdSudo(systemdCmd string) string {
+	return platformServiceCmdSudo(systemdCmd, runtime.GOOS, hostInitSystem())
+}
+
+func platformServiceCmdSudo(systemdCmd, goos, initSystem string) string {
+	cmd := platformServiceCmd(systemdCmd, goos, initSystem)
+	parts := strings.Split(cmd, " && ")
+	for i, p := range parts {
+		parts[i] = "sudo " + p
+	}
+	return strings.Join(parts, " && ")
+}
+
 // NixOS configures the system declaratively via configuration.nix + nixos-rebuild,
 // not the imperative /etc/sysctl.d, /etc/ssh/sshd_config, and apt/dnf/zypper
 // commands the generic fix hints assume. The patterns below are anchored so
