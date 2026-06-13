@@ -166,6 +166,7 @@ func TestCheckInfiniBand(t *testing.T) {
 	assertLevel(t, checkInfiniBand(models.InfiniBandInfo{}), "")
 	assertLevel(t, checkInfiniBand(models.InfiniBandInfo{Ports: []models.IBPort{{Device: "mlx5_0", Port: 1, State: "ACTIVE"}}}), "")
 	assertLevel(t, checkInfiniBand(models.InfiniBandInfo{Ports: []models.IBPort{{Device: "mlx5_0", Port: 1, State: "DOWN"}}}), "WARN")
+	assertLevel(t, checkInfiniBand(models.InfiniBandInfo{Ports: []models.IBPort{{Device: "mlx5_0", Port: 1, State: ""}}}), "WARN") // unreadable state must not read healthy
 }
 
 func TestCheckNspawn(t *testing.T) {
