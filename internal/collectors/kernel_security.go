@@ -93,29 +93,37 @@ func countAVCsFromAuditLog(window time.Duration) (int, bool) {
 	count := 0
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "type=AVC") {
-			continue
-		}
-		// Parse Unix timestamp from: msg=audit(1715000000.000:1)
-		idx := strings.Index(line, "msg=audit(")
-		if idx < 0 {
-			continue
-		}
-		rest := line[idx+10:]
-		dotIdx := strings.IndexByte(rest, '.')
-		if dotIdx <= 0 {
-			continue
-		}
-		sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64)
-		if err != nil {
-			continue
-		}
-		if time.Unix(sec, 0).After(cutoff) {
+		if isRecentAVCDenial(scanner.Text(), cutoff) {
 			count++
 		}
 	}
 	return count, true
+}
+
+// isRecentAVCDenial reports whether an audit.log line is a SELinux AVC *denial*
+// whose audit(EPOCH.ms:serial) timestamp is after cutoff. It requires both
+// "type=AVC" and "denied" so an `avc: granted` record (logged by an auditallow
+// policy rule) is NOT counted as a denial — the verdict and the journald fallback
+// both mean denials, so the audit-log path must too.
+func isRecentAVCDenial(line string, cutoff time.Time) bool {
+	if !strings.Contains(line, "type=AVC") || !strings.Contains(line, "denied") {
+		return false
+	}
+	// Parse Unix timestamp from: msg=audit(1715000000.000:1)
+	idx := strings.Index(line, "msg=audit(")
+	if idx < 0 {
+		return false
+	}
+	rest := line[idx+10:]
+	dotIdx := strings.IndexByte(rest, '.')
+	if dotIdx <= 0 {
+		return false
+	}
+	sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64)
+	if err != nil {
+		return false
+	}
+	return time.Unix(sec, 0).After(cutoff)
 }
 
 func apparmorEnabled() bool {
@@ -474,7 +482,9 @@ func countAVCsViaAusearch(window time.Duration) (int, bool) {
 
 	count := 0
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "type=AVC") {
+		// Count denials only — exclude `avc: granted` (auditallow) records, matching
+		// the audit-log path and the verdict's meaning.
+		if strings.Contains(line, "type=AVC") && strings.Contains(line, "denied") {
 			count++
 		}
 	}

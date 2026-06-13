@@ -13,6 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **SELinux denial count no longer includes `avc: granted` records** — the
+  audit-log and `ausearch` paths counted every `type=AVC` line, which includes
+  `avc: granted` entries logged by `auditallow` policy rules, while the verdict (and
+  the journald fallback) mean *denials*. On a system with `auditallow` rules this
+  over-counted denials and could push the per-hour SELinux-denials verdict to WARN/CRIT.
+  All paths now require `denied`. No change on the common case (no `auditallow` rules).
 - **ufw SSH-reachability detection no longer mis-reads the port** — deciding whether the
   firewall lets SSH in (which drives the "firewall blocks SSH — lockout risk" warning),
   the ufw path matched `"22"` as a substring anywhere in `ufw status` and counted any
