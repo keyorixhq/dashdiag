@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Auth: SSH brute-force on busybox/Alpine is no longer missed** — `readAuthLog`
+  only consulted `/var/log/auth.log` and `/var/log/secure`, but busybox/Alpine (and
+  other minimal-syslog hosts) have no separate auth log — sshd's "Failed password" /
+  "Invalid user" lines go to the general `/var/log/messages`. With no journald either,
+  dsd saw nothing and reported "no failed logins" (a security false-OK). `messages` is
+  now a third fallback candidate (consulted only when auth.log/secure are absent, so it
+  never double-counts on Debian/RHEL). Verified live on an Alpine LXC: injected failed
+  logins now surface with source IPs and the root-attempt warning.
 - **Cron/Auditd: daemon detection on busybox/Alpine now actually works** — the
   non-systemd fallback added in 0.9.1 used `pgrep -x <name>`, but **busybox's `pgrep
   -x` matches `argv[0]` (the full `/usr/sbin/crond` path), not the comm basename** —

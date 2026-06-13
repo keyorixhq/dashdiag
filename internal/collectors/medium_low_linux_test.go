@@ -198,6 +198,31 @@ func TestReadAuthLogFrom_ReadableVsAbsent(t *testing.T) {
 	}
 }
 
+// TestReadAuthLogFrom_MessagesFallback covers the busybox/Alpine case (verified live
+// on an Alpine LXC): no auth.log or secure, sshd failures in /var/log/messages. The
+// first-readable-file order must skip the two absent candidates and find the hits in
+// messages — otherwise SSH brute-force attempts go unseen (a security false-OK).
+func TestReadAuthLogFrom_MessagesFallback(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	messages := filepath.Join(dir, "messages")
+	content := "Jun 14 10:00:01 alpine auth.info sshd[999]: Failed password for root from 203.0.113.7 port 4444 ssh2\n" +
+		"Jun 14 10:00:02 alpine auth.info sshd[999]: Invalid user admin from 203.0.113.9 port 5555\n"
+	if err := os.WriteFile(messages, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// auth.log and secure absent → fall through to messages.
+	out, readable, denied := readAuthLogFrom(ctx, []string{
+		filepath.Join(dir, "auth.log"), filepath.Join(dir, "secure"), messages,
+	})
+	if !readable || denied {
+		t.Fatalf("messages fallback: readable=%v denied=%v, want readable=true denied=false", readable, denied)
+	}
+	if !strings.Contains(out, "Failed password") || !strings.Contains(out, "Invalid user") {
+		t.Errorf("messages fallback must surface both failure lines, got %q", out)
+	}
+}
+
 // ── auditd tests ─────────────────────────────────────────────────────────────
 
 const auditctlRules = `-a always,exit -F arch=b64 -S open -k file_access
