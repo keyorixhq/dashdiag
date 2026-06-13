@@ -15,16 +15,16 @@ var tips = []struct {
 }{
 	{"See only what changed since your last check", "dsd health --diff", ""},
 	{"Get a human-readable narrative of system state", "dsd health --story", ""},
-	{"Share a snapshot URL in Slack — no install needed", "dsd health --share", "Free account"},
+	{"Audit CIS/STIG compliance posture", "dsd cis --level 1", ""},
 	{"Generate a pre-filled post-mortem template", "dsd health --post-mortem \"title\"", ""},
 	{"Deep network analysis: jitter, bonds, traceroute", "dsd net deep", ""},
 	{"Markdown output for GitHub issues and Jira", "dsd health --report", ""},
 	{"Compare health across multiple servers", "dsd compare server1 server2", "Team"},
 	{"Auto-run dsd on SSH login or before deploys", "dsd hook install", ""},
 	{"Monitor for changes every 60 seconds", "dsd health --watch", ""},
-	{"Embed a live health badge in your README", "dsd health --badge", "Free account"},
+	{"Watch TLS certificate expiry on an endpoint", "dsd tls --endpoint example.com:443", ""},
 	{"Custom thresholds and service checks", "~/.dsd.yaml", ""},
-	{"Run all checks — the complete picture", "dsd full", ""},
+	{"Extended deep-dive snapshot — the complete picture", "dsd health --deep", ""},
 }
 
 func MaybePrintTip(state *State, mode output.OutputMode) {

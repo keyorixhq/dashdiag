@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd tips` / `dsd examples` no longer suggest commands that don't work** — the tip
+  rotation told users to run `dsd health --badge` (errors with "unknown flag"),
+  `dsd full` (errors with "unknown command"), and `dsd health --share` (a hidden,
+  unimplemented stub that produces no share URL); `dsd examples` led its "share with
+  team" entry with the same `--share` stub. These referenced backlog features that were
+  never built. Replaced with working shipped features (`dsd cis --level 1`, `dsd tls
+  --endpoint`, `dsd health --deep`, and a Markdown-report example) so every suggested
+  command actually runs.
 - **`dsd cron` OpenRC remediation is now fully runnable** — the "start crond" hint on
   Alpine/OpenRC rendered `sudo rc-update add crond && rc-service crond start`, but the
   single leading `sudo` only elevated the first command, so a non-root user copy-pasting
