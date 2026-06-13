@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd health --blob` now says it's encoded, not encrypted** — the report block uses
+  PGP-style `-----BEGIN DSD REPORT-----` markers and is opaque base64, but it's only
+  gzip + base64 (anyone can `dsd decode` it) and carries the full unredacted report —
+  hostname, IP/MAC addresses, open ports and processes, package and SMART data. A user
+  could mistake it for an encrypted artifact and paste it somewhere public. The emit
+  guidance now states it's "NOT encrypted or redacted — send through a trusted channel,
+  don't post it publicly," and PRIVACY.md documents the shipped `--blob` flow (the
+  redaction/encryption guarantees there describe the still-unbuilt `--share`, not `--blob`).
 - **`dsd tips` / `dsd examples` no longer suggest commands that don't work** — the tip
   rotation told users to run `dsd health --badge` (errors with "unknown flag"),
   `dsd full` (errors with "unknown command"), and `dsd health --share` (a hidden,
