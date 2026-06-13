@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Auditd: a running auditd on a non-systemd host no longer false-alarms "not
+  running"** — the daemon-running check was `systemctl is-active`-only, so on a
+  non-systemd host (OpenRC/SysV) where auditd is running it reported `Running=false`,
+  producing a wrong compliance WARN ("auditd is installed but not running — compliance
+  logging inactive"). It now also confirms via a running-process check (`pgrep`), the
+  same fallback as cron daemon detection.
+
 - **Cron: a running cron daemon on a non-systemd host is no longer reported as "no
   cron daemon"** — daemon detection only ran `systemctl is-active`, which fails on a
   non-systemd host (Alpine/OpenRC, Devuan/SysV, Gentoo, busybox `crond`) even when cron
