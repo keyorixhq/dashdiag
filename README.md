@@ -118,13 +118,19 @@ cd dashdiag && make install
 | `dsd cve --oval-scan` | CVSS-scored scan against OVAL feed | ~10s |
 | `dsd docker` | Container health, volumes, crash loops | ~5s |
 | `dsd k8s` | Kubernetes nodes, pods, restarts, OS-layer checks | ~15s |
+| `dsd kvm` | libvirt VMs, networks, storage pools, disk errors | ~5s |
+| `dsd pve` | Proxmox VE — VMs/CTs, storage, cluster quorum, backups | ~15s |
 | `dsd timeline` | Unified incident timeline — journal + dmesg + load | ~5s |
 | `dsd fleet` | Run `dsd health` across many hosts over SSH — one aggregated table | varies |
 | `dsd security` | SSH config, SELinux/AppArmor, sudoers, failed logins | ~3s |
+| `dsd cis` | CIS/STIG compliance benchmark (Ubuntu/RHEL/SUSE) | ~5s |
+| `dsd tls` | TLS certificate expiry — local files + remote endpoints | ~3s |
 | `dsd services` | Check TCP/HTTP endpoints are actually reachable | ~5s |
 | `dsd logs` | OOM kills, segfaults, crash loops, journal errors | ~3s |
 | `dsd proc <pid>` | Deep process inspect — memory map, FDs, connections | ~3s |
 | `dsd explain <topic>` | What a check means, how it's judged, how to fix it (offline reference) | instant |
+| `dsd inventory` | Hardware/software inventory export for a CMDB (JSON/CSV) | ~5s |
+| `dsd update` | Self-update to the latest release (checksum-verified) | varies |
 
 Every command supports `--json` for scripting and `--plain` for CI output.
 
