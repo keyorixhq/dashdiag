@@ -9,28 +9,53 @@ import (
 func TestParseGatewayLinux(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name   string
-		input  string
-		wantGW string
+		name      string
+		input     string
+		wantGW    string
+		wantIface string
 	}{
 		{
 			name: "standard default route",
 			input: "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n" +
 				"eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n" +
 				"eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n",
-			wantGW: "192.168.1.1",
+			wantGW:    "192.168.1.1",
+			wantIface: "eth0",
 		},
 		{
 			name: "different gateway",
 			input: "Iface\tDestination\tGateway\tFlags\n" +
 				"eth0\t00000000\t010AA8C0\t0003\n",
-			wantGW: "192.168.10.1",
+			wantGW:    "192.168.10.1",
+			wantIface: "eth0",
 		},
 		{
 			name: "no default route",
 			input: "Iface\tDestination\tGateway\tFlags\n" +
 				"eth0\t0001A8C0\t00000000\t0001\n",
 			wantGW: "",
+		},
+		{
+			// On-link default route ("default dev eth9", gateway 0.0.0.0) — real
+			// /proc/net/route content from a dummy iface (verified live). Must NOT
+			// decode to GatewayIP "0.0.0.0": pinging 0.0.0.0 hits localhost and
+			// would falsely report a healthy gateway. Iface is still surfaced.
+			name: "on-link default (no gateway hop)",
+			input: "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n" +
+				"eth9\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n" +
+				"eth9\t0000630A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n",
+			wantGW:    "",
+			wantIface: "eth9",
+		},
+		{
+			// On-link default first, but a real via-gateway default also present —
+			// prefer the real gateway.
+			name: "on-link plus real gateway prefers real",
+			input: "Iface\tDestination\tGateway\tFlags\n" +
+				"eth9\t00000000\t00000000\t0001\n" +
+				"eth0\t00000000\t0101A8C0\t0003\n",
+			wantGW:    "192.168.1.1",
+			wantIface: "eth0",
 		},
 		{
 			name:   "empty input",
@@ -51,6 +76,9 @@ func TestParseGatewayLinux(t *testing.T) {
 			gw := parseGatewayLinux(strings.NewReader(tc.input))
 			if gw.GatewayIP != tc.wantGW {
 				t.Errorf("gateway: got %q, want %q", gw.GatewayIP, tc.wantGW)
+			}
+			if tc.wantIface != "" && gw.Iface != tc.wantIface {
+				t.Errorf("iface: got %q, want %q", gw.Iface, tc.wantIface)
 			}
 		})
 	}

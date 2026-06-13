@@ -495,10 +495,24 @@ func detectDefaultGateway(ctx context.Context) routeInfo {
 // Gateway field is 4-byte little-endian hex (e.g. "0101A8C0" = 192.168.1.1).
 func parseGatewayLinux(r io.Reader) routeInfo {
 	scanner := bufio.NewScanner(r)
-	scanner.Scan() // skip header
+	scanner.Scan()       // skip header
+	var onLink routeInfo // fallback: a default route with no gateway hop
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 3 || fields[1] != "00000000" {
+			continue
+		}
+		// An on-link default route ("default dev X", gateway 0.0.0.0 — common on
+		// point-to-point links, tunnels, and some cloud/DHCP setups) has no
+		// gateway hop. Decoding its all-zero gateway field yields "0.0.0.0", and
+		// `ping 0.0.0.0` resolves to the LOCAL host (127.0.0.1) — so probing it
+		// would report a healthy gateway at ~0 ms while never touching the uplink
+		// (a false-OK). Record the interface but leave GatewayIP empty, and keep
+		// scanning for a real via-gateway default route, which we prefer.
+		if fields[2] == "00000000" {
+			if onLink.Iface == "" {
+				onLink.Iface = fields[0]
+			}
 			continue
 		}
 		b, err := hex.DecodeString(fields[2])
@@ -510,7 +524,7 @@ func parseGatewayLinux(r io.Reader) routeInfo {
 			Iface:     fields[0],
 		}
 	}
-	return routeInfo{}
+	return onLink
 }
 
 func detectGatewayLinux() routeInfo {
