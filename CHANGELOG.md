@@ -13,6 +13,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd net` now agrees with `dsd health` on packet loss, DNS latency, and TIME_WAIT** —
+  three network verdicts used different thresholds in the detail command than in the
+  health rollup. Gateway packet loss: `dsd net` escalated any drop to CRIT (1%/5%)
+  while health used 10%/50% — since loss is sampled from only 2-3 pings (effectively
+  0/33/50%), 10/50 is the meaningful granularity, so `dsd net` now matches it (a single
+  dropped packet is WARN, not CRIT). DNS resolution: health was looser (WARN 200ms /
+  CRIT 1000ms) than `dsd net` (100/500) — health now uses 100/500. TIME_WAIT: health
+  had no CRIT tier, so 60k sockets read the same WARN as 1001 — it now escalates to
+  CRIT at 5000, matching `dsd net`. All three route through shared
+  `analysis.GatewayPacketLossLevel`/`DNSResolveLevel`/`TimeWaitLevel`. (TRIAGE §E; BUG-050 class.)
 - **`dsd disk` / `dsd pve` now agree with `dsd health` on LVM and Proxmox storage** —
   four capacity verdicts were classified with different inline thresholds in the
   detail command than in the health rollup, so the same volume could read WARN in one

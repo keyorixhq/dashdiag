@@ -255,15 +255,17 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	fmt.Println("\nConnectivity")
 	printNetMetric("Gateway ping", info.GatewayPingMs, "ms", 50, 200, mode)
 	printNetMetric("Internet ping", info.InternetPingMs, "ms", 50, 200, mode)
-	printNetMetric("DNS resolution", info.DNSResolvesMs, "ms", 100, 500, mode)
+	printNetMetric("DNS resolution", info.DNSResolvesMs, "ms", analysis.DNSResolveWarnMs, analysis.DNSResolveCritMs, mode)
 	if info.JitterMs > 0 {
 		printNetMetric("Jitter", info.JitterMs, "ms", 20, 50, mode)
 	}
+	// Packet loss is sampled from 2-3 pings; classify identically to dsd health
+	// (analysis.GatewayPacketLoss*Pct) so the two commands agree (BUG-050 class).
 	if info.GatewayPacketLossPct > 0 {
-		printNetMetric("Packet loss (gw)", info.GatewayPacketLossPct, "%", 1, 5, mode)
+		printNetMetric("Packet loss (gw)", info.GatewayPacketLossPct, "%", analysis.GatewayPacketLossWarnPct, analysis.GatewayPacketLossCritPct, mode)
 	}
 	if info.InternetPacketLossPct > 0 {
-		printNetMetric("Packet loss (net)", info.InternetPacketLossPct, "%", 1, 5, mode)
+		printNetMetric("Packet loss (net)", info.InternetPacketLossPct, "%", analysis.GatewayPacketLossWarnPct, analysis.GatewayPacketLossCritPct, mode)
 	}
 	if info.ICMPBlocked {
 		fmt.Printf("  %s  ICMP blocked — using TCP fallback for ping\n", netMark("info", mode))
@@ -300,7 +302,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 			analysis.DeepTCPCounterLevel("listen_overflow", info.ListenOverflows, info.UptimeSec))
 		printTCPCounterLevel("Retransmit failures", info.RetransFailCount,
 			analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec))
-		printTCPCounter("TIME_WAIT sockets", info.TimeWaitCount, 1000, 5000)
+		printTCPCounter("TIME_WAIT sockets", info.TimeWaitCount, analysis.TimeWaitWarnCount, analysis.TimeWaitCritCount)
 		if info.ConntrackUsedPct > 0 {
 			printNetMetric("Conntrack used", info.ConntrackUsedPct, "%", 60, 80, mode)
 		}

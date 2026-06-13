@@ -1557,16 +1557,15 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		))
 	}
 	if !net.PrimaryInterfaceDown && net.GatewayPingMs >= 0 {
-		if net.GatewayPacketLossPct >= 50 {
-			out = append(out, insight("CRIT", "Network",
-				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct),
-				[]string{"to inspect: ping -c20 $(ip route | awk '/default/{print $3}')", "to inspect: ip link show"},
-			))
-		} else if net.GatewayPacketLossPct >= 10 {
-			out = append(out, insight("WARN", "Network",
-				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct),
-				[]string{"to inspect: ping -c20 $(ip route | awk '/default/{print $3}')"},
-			))
+		// Shared with dsd net (analysis.GatewayPacketLossLevel). Loss is sampled from
+		// 2-3 pings, so 10/50 is the meaningful granularity — see thresholds.go.
+		if lv := GatewayPacketLossLevel(net.GatewayPacketLossPct); lv != "" {
+			hints := []string{"to inspect: ping -c20 $(ip route | awk '/default/{print $3}')"}
+			if lv == "CRIT" {
+				hints = append(hints, "to inspect: ip link show")
+			}
+			out = append(out, insight(lv, "Network",
+				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct), hints))
 		}
 	}
 	if net.DNSFailed {
@@ -1574,16 +1573,14 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			"DNS resolution failed — cannot resolve hostnames",
 			[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf", "to inspect: systemctl status systemd-resolved"},
 		))
-	} else if net.DNSResolvesMs > 1000 {
-		out = append(out, insight("CRIT", "Network/DNS",
-			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs),
-			[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf", "to inspect: systemctl status systemd-resolved"},
-		))
-	} else if net.DNSResolvesMs > 200 {
-		out = append(out, insight("WARN", "Network/DNS",
-			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs),
-			[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf"},
-		))
+	} else if lv := DNSResolveLevel(net.DNSResolvesMs); lv != "" {
+		// Shared with dsd net (analysis.DNSResolveLevel): WARN 100ms, CRIT 500ms.
+		hints := []string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf"}
+		if lv == "CRIT" {
+			hints = append(hints, "to inspect: systemctl status systemd-resolved")
+		}
+		out = append(out, insight(lv, "Network/DNS",
+			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs), hints))
 	}
 	if net.CloseWaitCount > 500 {
 		out = append(out, insight("CRIT", "Network",
@@ -1597,9 +1594,12 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		))
 	}
 
-	// Deep TCP metrics — only populated when NetworkDeepCollector is used
-	if net.TimeWaitCount > 1000 {
-		out = append(out, insight("WARN", "Network",
+	// Deep TCP metrics — only populated when NetworkDeepCollector is used.
+	// Shared with dsd net (analysis.TimeWaitLevel): WARN 1000, CRIT 5000 — health
+	// previously had no CRIT tier, so a host with 60k TIME_WAIT read the same WARN
+	// as one with 1001 (BUG-050 class).
+	if lv := TimeWaitLevel(net.TimeWaitCount); lv != "" {
+		out = append(out, insight(lv, "Network",
 			fmt.Sprintf("%d TIME_WAIT sockets — high connection churn or missing tcp_tw_reuse", net.TimeWaitCount),
 			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to inspect: ss -tan state time-wait | head -10", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
 		))
