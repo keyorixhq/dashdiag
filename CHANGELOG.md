@@ -13,6 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **HBA / InfiniBand: a port whose state could not be read no longer counts as
+  healthy** — both verdicts whitelisted an empty state (`&& state != ""`), so a FC/IB
+  port whose sysfs state file was unreadable was silently treated as fine — while the
+  inline health row already counted it as not-online (a sibling-divergence false-OK).
+  An unreadable port state now surfaces (WARN "state could not be read").
+
 - **IPMI: PSU failures named "PS1 Status" are no longer missed** — the power-supply
   check only matched sensor names containing "psu" or "power supply", but real Dell/
   Supermicro servers name them "PS1 Status" / "PS2 Status". A critical/failed PSU on

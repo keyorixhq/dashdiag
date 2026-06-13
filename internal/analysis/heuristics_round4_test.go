@@ -114,6 +114,7 @@ func TestCheckHBA(t *testing.T) {
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online"}}}), "")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Offline"}}}), "CRIT")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 5}}}), "WARN")
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: ""}}}), "WARN") // unreadable state must not read healthy
 }
 
 func TestCheckAuth(t *testing.T) {

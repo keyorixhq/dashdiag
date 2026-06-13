@@ -6143,7 +6143,19 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 	var out []models.Insight
 	for _, p := range hba.Ports {
 		state := strings.ToLower(p.PortState)
-		if state != "online" && state != "linkup" && state != "" {
+		switch {
+		case state == "":
+			// port_state was unreadable (sysfs read failed). Don't whitelist it as
+			// healthy — the inline renderer already counts it as not-online, so a
+			// silent OK here was a sibling-divergence false-OK. Surface it as unknown.
+			out = append(out, insight("WARN", "HBA",
+				fmt.Sprintf("FC port %s state could not be read — storage path health unknown", p.Name),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					"to inspect: systool -c fc_host -v",
+				},
+			))
+		case state != "online" && state != "linkup":
 			out = append(out, insight("CRIT", "HBA",
 				fmt.Sprintf("FC port %s is %s — storage path lost", p.Name, p.PortState),
 				[]string{
@@ -6683,8 +6695,15 @@ func checkInfiniBand(ib models.InfiniBandInfo) []models.Insight {
 	var down []string
 	for _, p := range ib.Ports {
 		state := strings.ToUpper(p.State)
-		if state != "ACTIVE" && state != "" {
-			down = append(down, fmt.Sprintf("%s port %d (%s)", p.Device, p.Port, p.State))
+		// An unreadable state ("") is NOT treated as active — the inline renderer
+		// already counts it as not-active, so whitelisting it here was a divergence
+		// false-OK. Surface it as unreadable.
+		if state != "ACTIVE" {
+			label := p.State
+			if label == "" {
+				label = "unreadable"
+			}
+			down = append(down, fmt.Sprintf("%s port %d (%s)", p.Device, p.Port, label))
 		}
 	}
 	if len(down) == 0 {
