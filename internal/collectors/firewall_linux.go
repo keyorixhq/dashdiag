@@ -68,7 +68,6 @@ func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 func parseNFTRuleset(out string, info *models.FirewallInfo) {
 	info.Available = true
 	info.Backend = "nftables"
-	info.Active = true
 
 	scanner := bufio.NewScanner(strings.NewReader(out))
 	var currentTable, currentChain string
@@ -99,6 +98,11 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 			info.TotalRules++
 		}
 	}
+	// Active only when there is actual filtering — an empty `nft list ruleset`
+	// (nftables installed, no rules) is NOT a firewall. Matches the iptables path
+	// (TotalRules > 0) so the two backends agree; previously nftables set Active
+	// unconditionally, a latent false-OK (no rules read as "protected").
+	info.Active = info.TotalRules > 0
 }
 
 func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {

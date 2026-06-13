@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **An empty nftables ruleset no longer reads as an "active" firewall** — the nftables
+  parser set the firewall's `Active` flag unconditionally, so a host with `nft` installed
+  but **no rules** (`nft list ruleset` empty — common on minimal servers) had its firewall
+  marked active, while the iptables path correctly required actual rules. Every consumer
+  happened to also guard on the rule count, so this was a latent false-OK rather than a
+  live one — but the field is now correct and consistent across both backends (active
+  requires rules). Verified against real `nft list ruleset` output.
 - **SSH duration parsing now handles the `d` (day) and `w` (week) units** — OpenSSH's
   time format (e.g. `LoginGraceTime`) accepts `s/m/h/d/w`, but the parser only knew
   `s/m/h`. It silently dropped `d`/`w`, which also concatenated the surrounding digits:
