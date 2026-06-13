@@ -13,6 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **iSCSI: a failed/reconnecting session is no longer reported as logged-in** — the
+  collector parsed the bare `iscsiadm -m session` listing (which carries no state) and
+  hardcoded every session `LOGGED_IN`, so `FailedCount` could never increment and a
+  dropped storage path read as healthy. It now parses `iscsiadm -m session -P 1`, which
+  includes the real per-session "iSCSI Session State". Verified live (2-portal LIO rig).
+
 - **NVMe: an unparseable `smart-log` no longer reads as a healthy drive** — `SmartRead`
   was set true whenever `nvme smart-log` exited 0, even if nothing parseable came back
   (unexpected format, a tool that printed only a banner) — leaving the all-zero health

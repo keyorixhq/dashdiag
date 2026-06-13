@@ -26,8 +26,10 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info.Available = true
 
-	// iscsiadm -m session prints one line per active session
-	out, err := runCmd(ctx, "iscsiadm", "-m", "session")
+	// `-P 1` includes the per-session "iSCSI Session State" — the bare `-m session`
+	// listing does NOT, so the previous parser hardcoded every session LOGGED_IN and
+	// FailedCount could never increment (a failed/reconnecting session read as fine).
+	out, err := runCmd(ctx, "iscsiadm", "-m", "session", "-P", "1")
 	if err != nil {
 		// No sessions or daemon not running — initiator installed but not in use.
 		// open-iscsi ships by default on Ubuntu/Debian with zero targets logged in,
@@ -53,36 +55,50 @@ func IsISCSIPresent() bool {
 	return err == nil
 }
 
-// parseISCSISessions parses `iscsiadm -m session` output.
-// Format: "tcp: [1] 10.0.0.1:3260,1 iqn.2019-01.com.example:storage (non-flash)"
+// parseISCSISessions parses `iscsiadm -m session -P 1` output, which groups state
+// under each portal:
+//
+//	Target: iqn.2026-06.example:tgt0 (non-flash)
+//	    Current Portal: 10.0.0.1:3260,1
+//	        iSCSI Session State: LOGGED_IN
+//	    Current Portal: 10.0.0.2:3260,1
+//	        iSCSI Session State: FAILED
+//
+// Each "Current Portal" begins a session; its "iSCSI Session State" sets the real
+// state (the old parser read the stateless `-m session` form and hardcoded
+// LOGGED_IN, so a failed/reconnecting session was never counted).
 func parseISCSISessions(out string) []models.ISCSISession {
 	var sessions []models.ISCSISession
+	var target, portal string
+	pending := false
+	// flush records the current portal's session; state "UNKNOWN" when a portal had
+	// no "iSCSI Session State" line (counted as not-logged-in by the caller).
+	flush := func(state string) {
+		if pending {
+			sessions = append(sessions, models.ISCSISession{Target: target, Portal: portal, State: state})
+			pending = false
+		}
+	}
 	scanner := bufio.NewScanner(strings.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+		switch {
+		case strings.HasPrefix(line, "Target:"):
+			if f := strings.Fields(strings.TrimPrefix(line, "Target:")); len(f) > 0 {
+				target = f[0] // the IQN; drop the trailing "(non-flash)"
+			}
+		case strings.HasPrefix(line, "Current Portal:"):
+			flush("UNKNOWN") // previous portal had no state line
+			p := strings.TrimSpace(strings.TrimPrefix(line, "Current Portal:"))
+			if i := strings.LastIndex(p, ","); i != -1 {
+				p = p[:i] // strip the ",<tid>" group tag (IPv6 portals keep their colons)
+			}
+			portal = p
+			pending = true
+		case strings.HasPrefix(line, "iSCSI Session State:"):
+			flush(strings.TrimSpace(strings.TrimPrefix(line, "iSCSI Session State:")))
 		}
-		parts := strings.Fields(line)
-		// Minimum: "tcp: [1] portal,tid target"
-		if len(parts) < 4 {
-			continue
-		}
-		// portal is "host:port,<tid>" — strip the portal-group tag regardless of
-		// its value. The tid is always after the final comma (IPv6 portals like
-		// "[fe80::1]:3260,1" keep their colons), so trim from the last comma; the
-		// previous code only handled the ",1" default and left ",2"/",3"/… on.
-		portal := parts[2]
-		if i := strings.LastIndex(portal, ","); i != -1 {
-			portal = portal[:i]
-		}
-		target := parts[3]
-		session := models.ISCSISession{
-			Target: target,
-			Portal: portal,
-			State:  "LOGGED_IN",
-		}
-		sessions = append(sessions, session)
 	}
+	flush("UNKNOWN")
 	return sessions
 }
