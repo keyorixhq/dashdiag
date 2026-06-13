@@ -4222,16 +4222,22 @@ func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
 // i.e. `dsd health --cve`) into health insights. Severity buckets map to dsd
 // levels per the documented thresholds:
 //
-//   - any CISA KEV match  → CRIT (actively exploited in the wild, urgent)
-//   - Critical advisories → CRIT (CVSS >= 9.0)
-//   - Important/High      → WARN (CVSS >= 7.0)
+//   - any CISA KEV match     → CRIT (actively exploited in the wild, urgent)
+//   - Critical-rated advisory → CRIT
+//   - Important/High-rated    → WARN
 //
 // Moderate and Low advisories do not fire — they fall below the WARN threshold
 // and would only add noise to the health summary.
 //
-// Exception: apt exposes no CVSS, so its severities are name-inferred guesses.
-// For apt we cap at a single honest WARN (no name-only CRIT, no "CVSS >= X"
-// claim the scan never measured) — see the apt branch below.
+// The bucket is the package manager's published severity RATING (dnf/zypper
+// "Critical"/"Important", arch-audit "Critical"/"High"), not a CVSS score this
+// scan measured: `<pkgmgr> updateinfo` reports a label, not a number, and a
+// vendor's "Critical"/"Important" rating is not a strict CVSS band (Red Hat
+// weighs exploitability/wormability too). So the messages say "rates these
+// Critical", never "CVSS >= 9.0" — which would assert a precise score the scan
+// never read. apt is one step further removed: it publishes no severity at all,
+// so its bucket is inferred from the package name — capped at a single honest
+// WARN (no name-only CRIT, no "CVSS >= X" claim). See the apt branch below.
 func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 	withFix := func(hints []string) []string {
 		if r.FixCommand != "" {
@@ -4271,14 +4277,14 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 	} else {
 		if len(r.Critical) > 0 {
 			return []models.Insight{insight("CRIT", "CVE",
-				fmt.Sprintf("%d critical security advisory(ies) — CVSS >= 9.0 (%s)", len(r.Critical), r.PackageManager),
+				fmt.Sprintf("%d critical security advisory(ies) — %s rates these Critical", len(r.Critical), r.PackageManager),
 				withFix(nil),
 			)}
 		}
 
 		if len(r.Important) > 0 {
 			return []models.Insight{insight("WARN", "CVE",
-				fmt.Sprintf("%d high-severity security advisory(ies) — CVSS >= 7.0 (%s)", len(r.Important), r.PackageManager),
+				fmt.Sprintf("%d high-severity security advisory(ies) — %s rates these High/Important", len(r.Important), r.PackageManager),
 				withFix(nil),
 			)}
 		}

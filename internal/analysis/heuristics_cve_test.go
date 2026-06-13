@@ -29,7 +29,7 @@ func TestCheckCVEHealthKEVFiresCrit(t *testing.T) {
 	}
 }
 
-// Critical advisories (CVSS >= 9.0) with no KEV match fire CRIT.
+// Critical-rated advisories with no KEV match fire CRIT.
 func TestCheckCVEHealthCriticalFiresCrit(t *testing.T) {
 	r := models.CVEAllResult{
 		PackageManager: "zypper",
@@ -44,8 +44,10 @@ func TestCheckCVEHealthCriticalFiresCrit(t *testing.T) {
 	}
 }
 
-// Important/High advisories (CVSS >= 7.0) with no Critical/KEV fire WARN on a
-// manager that publishes real severity (dnf).
+// Important/High-rated advisories with no Critical/KEV fire WARN on a manager
+// that publishes a vendor severity rating (dnf). The message must reference the
+// rating, not assert a CVSS score the advisory-list scan never measured (the
+// bucket comes from dnf's "Important" label, not a number).
 func TestCheckCVEHealthImportantFiresWarn(t *testing.T) {
 	r := models.CVEAllResult{
 		PackageManager: "dnf",
@@ -55,8 +57,11 @@ func TestCheckCVEHealthImportantFiresWarn(t *testing.T) {
 	if len(insights) != 1 || insights[0].Level != "WARN" {
 		t.Fatalf("expected one WARN, got %+v", insights)
 	}
-	if !hasInsight(insights, "WARN", "CVSS >= 7.0") {
-		t.Errorf("expected CVSS-based wording for dnf, got %+v", insights)
+	if !hasInsight(insights, "WARN", "rates these High/Important") {
+		t.Errorf("expected rating-based wording for dnf, got %+v", insights)
+	}
+	if strings.Contains(insights[0].Message, "CVSS >=") {
+		t.Errorf("dnf advisory-list scan reads a severity label, not a CVSS score — must not claim a CVSS threshold, got %q", insights[0].Message)
 	}
 }
 

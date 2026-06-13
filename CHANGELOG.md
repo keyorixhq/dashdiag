@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`health --cve`: the dnf/zypper/pacman verdict no longer claims a CVSS score it
+  never measured** — the message read "critical security advisory — CVSS >= 9.0
+  (dnf)", but the `<pkgmgr> updateinfo` advisory-list scan reports a vendor *severity
+  rating* (Critical/Important), not a number, and a vendor's Critical/Important rating
+  is not a strict CVSS band. It now reads "N critical security advisory(ies) — dnf
+  rates these Critical", matching the honesty already enforced for apt (which exposes
+  no severity at all). Verdict levels are unchanged — only the wording is now truthful.
 - **`--report`: a subsystem-only CRIT no longer renders as "OK" in the Check Results
   table** — the table re-derived each check's status from the raw insights keyed by the
   *qualified* Check name (`Network/DNS`) but looked it up by the *base* collector name
