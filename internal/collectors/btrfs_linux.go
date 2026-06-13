@@ -144,6 +144,17 @@ func applyBtrfsDevStats(out string, vol *models.BtrfsVolume) {
 		if val == 0 {
 			continue
 		}
+		// A non-zero counter means the volume HAS errors — flag it before trying to
+		// attribute the error to a specific device. The device-stats path can fail to
+		// match a path from `btrfs filesystem show` (multi-device, /dev/mapper or LUKS
+		// names, or a show-parse that left vol.Devices empty); previously that
+		// mismatch dropped the error entirely and the volume stayed "healthy" — a
+		// false-OK on a storage-corruption signal. Per-device attribution below is
+		// best-effort; the volume verdict no longer depends on it.
+		if vol.Status == "healthy" {
+			vol.Status = "errors"
+			vol.StatusReason = "device I/O or corruption errors detected"
+		}
 		idx, ok := pathIdx[path]
 		if !ok {
 			continue
@@ -159,11 +170,6 @@ func applyBtrfsDevStats(out string, vol *models.BtrfsVolume) {
 			vol.Devices[idx].GenErrs = val
 		case "flush_io_errs":
 			vol.Devices[idx].FlushErrs = val
-		}
-		// Upgrade status if errors found
-		if vol.Status == "healthy" {
-			vol.Status = "errors"
-			vol.StatusReason = "device I/O or corruption errors detected"
 		}
 	}
 }

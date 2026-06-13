@@ -89,3 +89,28 @@ func TestApplyBtrfsDevStatsGenFlushOnly(t *testing.T) {
 		t.Errorf("gen/flush-only errors must upgrade status, got %q", vol.Status)
 	}
 }
+
+// TestApplyBtrfsDevStatsUnmappedPath is the false-OK regression guard: a non-zero
+// error counter whose device path does NOT match any device from `btrfs filesystem
+// show` (multi-device path-format mismatch, /dev/mapper/LUKS names, or an empty
+// vol.Devices from a show-parse miss) must still flag the volume. Previously the
+// path-match failure dropped the error and the volume stayed "healthy".
+func TestApplyBtrfsDevStatsUnmappedPath(t *testing.T) {
+	// vol.Devices empty (e.g. parseBtrfsShow couldn't enumerate devices), yet device
+	// stats reports real corruption.
+	vol := &models.BtrfsVolume{Status: "healthy"}
+	out := `[/dev/mapper/cryptroot].write_io_errs    0
+[/dev/mapper/cryptroot].read_io_errs     0
+[/dev/mapper/cryptroot].flush_io_errs    0
+[/dev/mapper/cryptroot].corruption_errs  12
+[/dev/mapper/cryptroot].generation_errs  0
+`
+	applyBtrfsDevStats(out, vol)
+
+	if vol.Status != "errors" {
+		t.Errorf("corruption on an unmappable device path must still flag the volume, got %q", vol.Status)
+	}
+	if vol.StatusReason == "" {
+		t.Error("expected a StatusReason when errors are detected")
+	}
+}
