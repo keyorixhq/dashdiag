@@ -11,7 +11,12 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
-## A. Fix-hint platform correctness — READY
+## A. Fix-hint platform correctness — ✅ DONE (#218, 2026-06-13)
+
+All four items shipped in #218 and validated live (macOS native + Alpine/OpenRC
+CT210): the platform-aware hint helper, the audit of direct-print remedy lines
+(`dsd docker`/`cron`/`kvm`/`proc` + entropy correlation → `analysis.PlatformServiceCmd`),
+and the idle-timeout-on-no-sshd gate. Left below for history.
 
 Diagnosis is platform-correct; the remedy text is not. One class, one branch.
 
@@ -77,6 +82,29 @@ These found BUG-040–052; re-run after any collector/heuristic change:
    reported as current. Ask "where else?" — BUG-047/049 hid one file away.
 3. **Sibling divergence diff** — same fact, two code paths, two verdicts
    (BUG-050 `cmd/disk.go` vs health thresholds). Diff cmd/* against analysis/.
+
+---
+
+## F. GPU sensor-read false-OK — BLOCKED (needs AMD GPU observation)
+
+A 2026-06-13 false-OK sweep verified a real path: a detected AMD/Intel GPU whose
+sysfs sensors all read 0 (temperature never read) still renders `dsd gpu` →
+"✅ GPU healthy. Checks passed" and emits no health insight (`collectAMDGPUs`/
+`collectIntelGPUs` always append the device; `checkGPU` only skips on `len==0`;
+every threshold no-ops on 0; `gpuSummaryLine` default asserts "Checks passed").
+
+**Not blind-fixed** — the obvious fix (per-device INFO "temperature not readable")
+is noisy on the many normal Intel iGPUs that don't expose hwmon temp by design, and
+there's no clean sysfs signal to tell "sensor broken" (rare, real) from "GPU exposes
+no temp" (common, fine). Unlike drives (BUG-048: `/sys/class/nvme` exists without
+nvme-cli = clean signal), GPU has none.
+
+| Item | Surface | Test target |
+|---|---|---|
+| Confirm a healthy AMD GPU actually reads temp (expected yes) | gpu_linux.go | AMD laptop testbed |
+| If a clean "read nothing" signal exists → narrow guard: don't claim "Checks passed" when no device had a readable temp | cmd/gpu.go gpuSummaryLine + checkGPU | AMD laptop |
+
+Unblock: one session on the AMD laptop. Agent memory: `gpu-allzero-falseok-deferred`.
 
 ---
 
