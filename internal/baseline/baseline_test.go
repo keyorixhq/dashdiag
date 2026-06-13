@@ -373,3 +373,35 @@ func TestSaveBaseline_NoTmpFileLeft(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildSnapshot_WorstAndQualified pins two snapshot-status fixes:
+//  1. A subsystem-qualified insight Check ("Network/DNS") must attach to its base
+//     collector ("Network") — otherwise the CRIT never matched and the check was
+//     recorded OK, hiding the degradation from drift.
+//  2. The WORST level wins, not the first — a CRIT must not be hidden behind an
+//     earlier INFO/WARN insight for the same check.
+func TestBuildSnapshot_WorstAndQualified(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Network", Data: models.NetworkInfo{}},
+		{Name: "Memory", Data: models.MemoryInfo{TotalGB: 1}},
+	}
+	insights := []models.Insight{
+		// Network: an INFO appears before the qualified CRIT in the slice.
+		{Check: "Network", Level: "INFO", Message: "NAT detected"},
+		{Check: "Network/DNS", Level: "CRIT", Message: "DNS resolution failed"},
+		// Memory: a WARN before a CRIT for the same exact check.
+		{Check: "Memory", Level: "WARN", Message: "slab high"},
+		{Check: "Memory", Level: "CRIT", Message: "RAM at 99%"},
+	}
+	snap := BuildSnapshot(results, insights)
+	got := map[string]string{}
+	for _, c := range snap.Checks {
+		got[c.Name] = c.Status
+	}
+	if got["Network"] != "CRIT" {
+		t.Errorf("Network should be CRIT (qualified Network/DNS CRIT rolls up), got %q", got["Network"])
+	}
+	if got["Memory"] != "CRIT" {
+		t.Errorf("Memory should be CRIT (worst wins over earlier WARN), got %q", got["Memory"])
+	}
+}

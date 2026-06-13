@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Baseline/drift: a check's recorded status now reflects its worst finding** — the
+  baseline snapshot took the *first* insight matching a check and matched check names
+  *exactly*, so (a) a subsystem-qualified finding (`Network/DNS` CRIT, `Memory/Slab`,
+  `CPU Load/Steal`) never attached to its collector and (b) a CRIT could be hidden
+  behind an earlier INFO/WARN for the same check. Either way the check was recorded
+  healthier than it was, so `dsd health` drift / `dsd baseline --drift` missed the
+  degradation (false-OK). It now matches by base check name and keeps the worst level.
 - **`--watch`: two devices with the same issue are tracked separately** — the change
   detector collapses fluctuating numbers in a finding's message so a value change
   (CPU 75%→82%) reads as "changed", not a resolve+new churn — but it also collapsed
