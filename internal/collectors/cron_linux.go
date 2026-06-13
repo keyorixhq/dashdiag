@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,13 +58,15 @@ func detectCronDaemon(ctx context.Context, info *models.CronInfo) {
 		out, err := runCmd(ctx, "systemctl", "is-active", d)
 		return err == nil && strings.TrimSpace(out) == "active"
 	}
-	// pgrep is the systemd-independent confirmation: on a non-systemd host
-	// (Alpine/OpenRC, Devuan/SysV, Gentoo, busybox crond) `systemctl is-active`
-	// fails even when cron is running, which otherwise produced a false "no cron
-	// daemon — scheduled jobs will not run" alarm.
+	// Systemd-independent confirmation: on a non-systemd host (Alpine/OpenRC,
+	// Devuan/SysV, Gentoo, busybox crond) `systemctl is-active` fails even when cron
+	// is running, which otherwise produced a false "no cron daemon — scheduled jobs
+	// will not run" alarm. We match the process's /proc/<pid>/comm directly rather
+	// than shelling out to pgrep: busybox's `pgrep -x` matches argv[0] (the full
+	// "/usr/sbin/crond" path), NOT the comm basename, so it missed a running busybox
+	// crond on the very Alpine hosts this fallback targets (verified live).
 	processRunning := func(d string) bool {
-		_, err := runCmd(ctx, "pgrep", "-x", d)
-		return err == nil
+		return anyProcessNamed(d)
 	}
 	info.DaemonName, info.DaemonActive = detectCronDaemonName(systemctlActive, processRunning)
 
@@ -73,6 +76,40 @@ func detectCronDaemon(ctx context.Context, info *models.CronInfo) {
 	} else if _, err := os.Stat("/usr/bin/anacron"); err == nil {
 		info.AnacronPresent = true
 	}
+}
+
+// anyProcessNamed reports whether any running process's executable name
+// (/proc/<pid>/comm) exactly matches one of names. Reading comm directly is
+// portable across pgrep implementations — unlike `pgrep -x`, whose meaning differs
+// between procps (matches comm) and busybox (matches argv[0] incl. path), which made
+// it miss a running busybox daemon symlinked under /usr/sbin on Alpine.
+func anyProcessNamed(names ...string) bool {
+	return anyProcessNamedIn("/proc", names...)
+}
+
+func anyProcessNamedIn(procDir string, names ...string) bool {
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	entries, err := os.ReadDir(procDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		// PID directories only.
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(procDir, e.Name(), "comm")) // #nosec G304 -- /proc/<pid>/comm
+		if err != nil {
+			continue // process exited or comm unreadable — skip
+		}
+		if want[strings.TrimSpace(string(data))] {
+			return true
+		}
+	}
+	return false
 }
 
 // detectCronDaemonName decides which cron daemon (if any) is active from two
