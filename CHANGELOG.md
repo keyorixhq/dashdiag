@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Network: an on-link default route is no longer "verified" by pinging localhost** —
+  on a host whose default route has no gateway hop (`default dev eth0`, gateway
+  `0.0.0.0` — point-to-point links, tunnels, some cloud/DHCP setups), the route parser
+  decoded the all-zero gateway as the literal IP `0.0.0.0`. `dsd health` then pinged
+  `0.0.0.0`, which Linux routes to the **local host** (127.0.0.1) — so the gateway came
+  back healthy at ~0 ms while never touching the uplink (a false-OK). The parser now
+  treats an all-zero gateway as "no gateway hop": it keeps the interface but leaves the
+  gateway empty, so connectivity is judged by the internet/DNS probes instead (verified
+  against real `/proc/net/route` from an on-link dummy interface).
 - **`health --cve`: the dnf/zypper/pacman verdict no longer claims a CVSS score it
   never measured** — the message read "critical security advisory — CVSS >= 9.0
   (dnf)", but the `<pkgmgr> updateinfo` advisory-list scan reports a vendor *severity
