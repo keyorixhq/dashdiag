@@ -214,6 +214,35 @@ func TestCollectVarLogErrorsFrom_NoFile(t *testing.T) {
 	}
 }
 
+// TestShouldReadVarLogFallback pins when the severity summary falls back to
+// /var/log. The "pure syslog" case is the regression guard: on a no-journald host
+// the journalctl scan reads nothing, so without the fallback Logs would report
+// "0 errors" having consulted no log at all (a false-OK).
+func TestShouldReadVarLogFallback(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		info models.LogsInfo
+		want bool
+	}{
+		{"pure syslog, no errors → fall back (the fix)", models.LogsInfo{LogSource: "syslog"}, true},
+		{"volatile journald, no errors → fall back", models.LogsInfo{JournalVolatile: true, LogSource: "journald"}, true},
+		{"persistent journald, no errors → trust journal", models.LogsInfo{LogSource: "journald"}, false},
+		{"journald+syslog, no errors → don't double-read", models.LogsInfo{LogSource: "journald+syslog"}, false},
+		{"unknown source, no errors → nothing to read", models.LogsInfo{LogSource: "unknown"}, false},
+		{"syslog but errors already found → don't double-count", models.LogsInfo{LogSource: "syslog", ErrorCount: 4}, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldReadVarLogFallback(&tc.info); got != tc.want {
+				t.Errorf("shouldReadVarLogFallback(%+v) = %v, want %v", tc.info, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestScanVarLog_TailCap(t *testing.T) {
 	t.Parallel()
 	now := refNow(t)

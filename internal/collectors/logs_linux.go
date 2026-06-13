@@ -97,9 +97,14 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Log source detection
 	info.LogSource = detectLogSource(c.profile)
 
-	// /var/log fallback: when the journal is volatile (lost on reboot) and gave
-	// us no errors, pull the severity summary from /var/log instead (Spec 3).
-	if info.ErrorCount == 0 && info.JournalVolatile {
+	// /var/log fallback: the severity summary above runs journalctl. When that
+	// produced no errors, fall back to /var/log if the journal can't be trusted to
+	// be the whole story — either it's volatile (in-memory, lost on reboot) or
+	// there is no journald at all (a pure syslog host, where journalctl read
+	// nothing). Without the no-journald case, a syslog-only host (Devuan, Alpine,
+	// Gentoo/OpenRC, ...) reported "0 errors" while never reading its syslog — a
+	// false-OK (Spec 3).
+	if shouldReadVarLogFallback(info) {
 		collectVarLogErrors(info)
 	}
 
@@ -973,6 +978,25 @@ func detectLogSource(profile platform.Profile) string {
 }
 
 // ── /var/log error aggregation fallback (Spec 3) ─────────────────────────────
+
+// shouldReadVarLogFallback reports whether to pull the severity summary from
+// /var/log text files instead of the journal. It is only consulted after the
+// journalctl severity scan ran. True when that scan produced no errors AND the
+// journal is not the authoritative source — either it's volatile (in-memory) or
+// there is no journald at all (LogSource "syslog", set by detectLogSource only
+// when no journald socket exists). The no-journald case is the important one:
+// without it, a pure syslog host's journalctl reads nothing, ErrorCount stays 0,
+// and Logs reports clean having consulted no log at all (a false-OK).
+//
+// "journald+syslog" deliberately does NOT trigger the fallback: journald is
+// present and worked, so its 0-error result is authoritative and re-reading the
+// mirrored /var/log would risk double-counting.
+func shouldReadVarLogFallback(info *models.LogsInfo) bool {
+	if info.ErrorCount != 0 {
+		return false
+	}
+	return info.JournalVolatile || info.LogSource == "syslog"
+}
 
 // varLogTailLines is how many trailing lines of /var/log we scan.
 const varLogTailLines = 500

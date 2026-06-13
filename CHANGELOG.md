@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Logs: a syslog-only host no longer reports "0 errors" without reading its logs** —
+  the severity summary runs `journalctl`, and the `/var/log` fallback that covers the
+  no-error case was gated on `JournalVolatile` (a journald-only flag). On a host with
+  no journald (Devuan, Alpine, Gentoo/OpenRC, …) `journalctl` reads nothing, so the
+  error count stayed 0 and Logs read clean having consulted no log at all (a false-OK).
+  The fallback now also fires when the detected log source is a pure syslog file, so
+  `/var/log/{syslog,messages}` is actually scanned. journald and journald+syslog hosts
+  are unchanged (their journal result stays authoritative — no double-reading).
+
 - **Network: an on-link default route is no longer "verified" by pinging localhost** —
   on a host whose default route has no gateway hop (`default dev eth0`, gateway
   `0.0.0.0` — point-to-point links, tunnels, some cloud/DHCP setups), the route parser
