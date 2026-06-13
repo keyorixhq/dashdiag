@@ -15,10 +15,14 @@ import (
 // severity — so an operator watching an incident sees the delta, not the whole
 // board re-read each cycle.
 
-// digitRun collapses any number (incl. decimals/percentages) so a verdict whose
-// only difference between ticks is a fluctuating value (CPU 75% → 82%) is treated
-// as the same underlying issue, not a churn of resolved+new every refresh.
-var digitRun = regexp.MustCompile(`\d+(\.\d+)?`)
+// digitRun collapses a free-standing number (incl. decimals/percentages) so a
+// verdict whose only difference between ticks is a fluctuating value (CPU 75% →
+// 82%) is treated as the same underlying issue, not a churn of resolved+new every
+// refresh. The \b boundaries keep numbers EMBEDDED in identifiers intact — sda1
+// vs sda2, nvme0 vs nvme1, eth0 vs eth1 — so two devices with the same issue stay
+// distinct signatures instead of colliding into one (which dropped one of them
+// from the watch diff).
+var digitRun = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
 
 // insightSignature is a tick-stable identity for an insight: its check plus its
 // message with numbers normalized away. Severity is deliberately excluded so a
