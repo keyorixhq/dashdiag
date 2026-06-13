@@ -32,9 +32,7 @@ func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info.Detected = true
 
-	// Service active via systemctl
-	out, _ := runCmd(ctx, "systemctl", "is-active", "named", "bind9")
-	info.ServiceActive = strings.Contains(out, "active")
+	info.ServiceActive = bindServiceActive(ctx)
 
 	// Config file location — RHEL uses /etc/named.conf, Debian uses /etc/bind/named.conf
 	info.ConfigFile = bindConfigPath()
@@ -60,18 +58,29 @@ func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// bindDetect returns true when named or bind9 is in the process list.
-func bindDetect() bool {
-	for _, name := range []string{"named", "bind9", "named-sdb"} {
-		out, err := exec.LookPath(name)
-		if err == nil && out != "" {
-			// Binary exists — check if process is running
-			if _, err := localeSafeCmd(context.Background(), "pgrep", "-x", name).Output(); err == nil {
-				return true
-			}
+// bindServiceActive reports whether the BIND daemon's service is active. It probes
+// each known unit name with a SINGLE-unit `systemctl is-active` gated on success —
+// the previous two-unit call (`is-active named bind9`) exited non-zero whenever
+// EITHER unit was absent (e.g. RHEL/Fedora have no bind9.service), and runCmd
+// discards stdout on a non-zero exit, so ServiceActive went false even with named
+// fully running → a false "named service is not active" CRIT. On a non-systemd host
+// (Alpine/OpenRC/Devuan) systemctl is absent, so fall back to the running process.
+func bindServiceActive(ctx context.Context) bool {
+	for _, unit := range []string{"named", "bind9", "named-sdb"} {
+		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil && strings.TrimSpace(out) == "active" {
+			return true
 		}
 	}
-	// Also try systemctl — process may be running under different name
+	return anyProcessNamed("named", "bind9", "named-sdb")
+}
+
+// bindDetect returns true when a BIND daemon process is running. Matches
+// /proc/<pid>/comm (portable; busybox `pgrep -x` matches argv[0] incl. path) with a
+// systemctl fallback for setups where the process name differs from the unit.
+func bindDetect() bool {
+	if anyProcessNamed("named", "bind9", "named-sdb") {
+		return true
+	}
 	out, err := localeSafeCmd(context.Background(), "systemctl", "is-active", "--quiet", "named").Output()
 	_ = out
 	return err == nil

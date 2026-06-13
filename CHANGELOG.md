@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **BIND: "named service is not active" no longer false-fires on RHEL/Fedora or
+  non-systemd hosts** — the check ran `systemctl is-active named bind9` (two units at
+  once), which exits non-zero unless BOTH units exist and are active. RHEL/Fedora have
+  no `bind9.service`, so with named fully running the command failed, stdout was
+  discarded, and `ServiceActive` went false → a CRIT "DNS server not running" that also
+  short-circuited the port/config/zone/query checks. It now probes each unit name
+  separately and falls back to the running process (`/proc` comm) on non-systemd hosts.
+- **NFS: rpcbind no longer reported down on non-systemd hosts** — `nfsRpcbindActive`
+  was `systemctl is-active`-only; it now falls back to the running process on
+  Alpine/OpenRC/Devuan.
+
 ## [0.9.2] - 2026-06-14
 
 Hardware-validation release: standing up real storage and a real non-systemd host on

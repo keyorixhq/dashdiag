@@ -226,8 +226,12 @@ func nfsCheckFstab(m *models.NFSMount) {
 // ── rpcbind + NFS stats ───────────────────────────────────────────────────────
 
 func nfsRpcbindActive(ctx context.Context) bool {
-	out, err := runCmd(ctx, "systemctl", "is-active", "rpcbind")
-	return err == nil && strings.TrimSpace(out) == "active"
+	if out, err := runCmd(ctx, "systemctl", "is-active", "rpcbind"); err == nil && strings.TrimSpace(out) == "active" {
+		return true
+	}
+	// Non-systemd host (Alpine/OpenRC/Devuan): systemctl is absent, so confirm via
+	// the running process instead of false-alarming "rpcbind not running".
+	return anyProcessNamed("rpcbind", "rpc.statd")
 }
 
 // nfsReadStats reads /proc/net/rpc/nfs and parses operation counts.
