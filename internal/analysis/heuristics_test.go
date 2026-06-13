@@ -351,9 +351,10 @@ func TestNetworkDNSThresholds(t *testing.T) {
 		ms   float64
 		want string
 	}{
+		// Thresholds shared with dsd net (analysis.DNSResolveLevel): WARN 100, CRIT 500.
 		{"ok", 50, ""},
-		{"warn", 500, "WARN"},
-		{"crit", 1500, "CRIT"},
+		{"warn", 200, "WARN"},
+		{"crit", 500, "CRIT"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

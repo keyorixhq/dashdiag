@@ -29,6 +29,39 @@ const (
 	PVEStorageCritPct  = 90.0
 )
 
+// Network connectivity thresholds shared by `dsd net` and `dsd health`, same
+// single-source-of-truth rationale (BUG-050 class). Notes on the chosen values:
+//   - Gateway packet loss is sampled from only 2-3 pings, so it is effectively
+//     0 / ~33 / ~50% — finer thresholds aren't measurable. 10/50 maps a single
+//     dropped packet (of three) to WARN and half-loss to CRIT, which fits that
+//     granularity; `dsd net` previously over-escalated any drop to CRIT (1/5).
+//   - DNS resolution is a single continuous millisecond measurement, so 100/500
+//     is meaningful; `dsd health` previously used a looser 200/1000.
+//   - TIME_WAIT had no CRIT tier in health; `dsd net` already escalated at 5000.
+const (
+	GatewayPacketLossWarnPct = 10.0
+	GatewayPacketLossCritPct = 50.0
+	DNSResolveWarnMs         = 100.0
+	DNSResolveCritMs         = 500.0
+	TimeWaitWarnCount        = 1000
+	TimeWaitCritCount        = 5000
+)
+
+// GatewayPacketLossLevel classifies gateway packet-loss percent as "CRIT"/"WARN"/"".
+func GatewayPacketLossLevel(lossPct float64) string {
+	return levelPct(lossPct, GatewayPacketLossWarnPct, GatewayPacketLossCritPct)
+}
+
+// DNSResolveLevel classifies DNS resolution latency (ms) as "CRIT"/"WARN"/"".
+func DNSResolveLevel(ms float64) string {
+	return levelPct(ms, DNSResolveWarnMs, DNSResolveCritMs)
+}
+
+// TimeWaitLevel classifies a TIME_WAIT socket count as "CRIT"/"WARN"/"".
+func TimeWaitLevel(count int) string {
+	return levelPct(float64(count), TimeWaitWarnCount, TimeWaitCritCount)
+}
+
 // LVMThinPoolLevel classifies a thin-pool data-fill percentage as "CRIT"/"WARN"/"".
 func LVMThinPoolLevel(dataPct float64) string {
 	return levelPct(dataPct, LVMThinPoolWarnPct, LVMThinPoolCritPct)
