@@ -106,3 +106,35 @@ func TestPrintInsightChanges(t *testing.T) {
 		}
 	})
 }
+
+// TestInsightChangesPerDeviceDistinct pins that two devices with the same issue
+// are tracked as distinct signatures. The number-normalization collapses
+// fluctuating values, but it must NOT collapse a device index embedded in an
+// identifier (sda1 vs sda2) — otherwise the two findings share one signature and
+// the watch diff drops/mis-tracks one of them.
+func TestInsightChangesPerDeviceDistinct(t *testing.T) {
+	prev := []models.Insight{
+		ins("CRIT", "Drives", "drive /dev/sda1 SMART self-assessment FAILED"),
+		ins("CRIT", "Drives", "drive /dev/sda2 SMART self-assessment FAILED"),
+	}
+	// sda1 recovered; sda2 still failing.
+	cur := []models.Insight{
+		ins("CRIT", "Drives", "drive /dev/sda2 SMART self-assessment FAILED"),
+	}
+	added, resolved, changed := InsightChanges(prev, cur)
+	if len(added) != 0 || len(changed) != 0 {
+		t.Errorf("unexpected added=%d changed=%d", len(added), len(changed))
+	}
+	if len(resolved) != 1 || !strings.Contains(resolved[0].Message, "sda1") {
+		t.Errorf("sda1 should be the single resolved drive, got %d: %+v", len(resolved), resolved)
+	}
+
+	// And a fluctuating value still collapses to the same signature (no regression).
+	a, r, c := InsightChanges(
+		[]models.Insight{ins("WARN", "CPU", "load at 71.5%")},
+		[]models.Insight{ins("WARN", "CPU", "load at 83.2%")},
+	)
+	if len(a) != 0 || len(r) != 0 || len(c) != 0 {
+		t.Errorf("fluctuating value must be the same signature (no churn), got a=%d r=%d c=%d", len(a), len(r), len(c))
+	}
+}

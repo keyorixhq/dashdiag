@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`--watch`: two devices with the same issue are tracked separately** — the change
+  detector collapses fluctuating numbers in a finding's message so a value change
+  (CPU 75%→82%) reads as "changed", not a resolve+new churn — but it also collapsed
+  device indexes (`sda1`/`sda2`, `nvme0`/`nvme1`, `eth0`/`eth1`) into one signature, so
+  two same-issue findings on different devices collided and one was dropped from the
+  diff (e.g. `sda1` recovering wouldn't show as resolved while `sda2` still failed).
+  Number-normalization now keeps indexes embedded in identifiers intact; free-standing
+  values still collapse.
 - **`--prometheus`: a subsystem-qualified finding now shows in its per-check metric** —
   insights with a qualified `Check` like `Network/DNS`, `Memory/Slab`, or `CPU Load/Steal`
   were keyed under the qualified name, but `dsd_check_status{check="…"}` is keyed by the
