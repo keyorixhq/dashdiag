@@ -13,6 +13,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Proxmox: an unreachable `pvesh` API no longer reads as a healthy node (false-OK)** —
+  the PVE collector gated on the `pvedaemon` binary existing, then ran every check via
+  `pvesh`. When the API was down (pmxcfs/pve-cluster stopped, not quorate) all queries
+  failed silently, returning empty — and `collectPVECluster` treated a *failed* cluster
+  query as "single-node, quorum implicitly OK". So a cluster node that had lost its API
+  showed `dsd pve` → "✅ Proxmox VE healthy. Checks passed" and `dsd health` → green,
+  with quorum reported OK. Confirmed on PVE 9.1 that a real standalone node returns the
+  query successfully (exit 0), so the error path is purely failure. Now an `APIReachable`
+  probe surfaces WARN "Proxmox VE API (pvesh) not responding — cluster/storage/backup
+  health could NOT be verified" instead. Validated live (healthy + simulated-failure) on
+  a real PVE host. (TRIAGE §E; false-OK class, mirrors the k8s-API-unreachable fix #210.)
 - **`dsd net` now agrees with `dsd health` on packet loss, DNS latency, and TIME_WAIT** —
   three network verdicts used different thresholds in the detail command than in the
   health rollup. Gateway packet loss: `dsd net` escalated any drop to CRIT (1%/5%)

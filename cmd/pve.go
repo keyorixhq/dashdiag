@@ -95,6 +95,14 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration, mode
 	fmt.Println()
 	fmt.Println(sep)
 
+	// pvesh API unreachable (root path): everything below is empty/unverified.
+	// Surface it up front so the report isn't read as a clean health check.
+	if info.IsPVE && !info.NeedsRoot && !info.APIReachable {
+		fmt.Println(render.StyleWarn.Render(asciiOr("warn", "⚠️ ", mode) +
+			" Proxmox API (pvesh) not responding — health below could NOT be verified"))
+		fmt.Println("    → to inspect: systemctl status pve-cluster corosync pvedaemon")
+	}
+
 	// Node overview
 	printPVENode(info, mode)
 
@@ -497,6 +505,12 @@ func formatPVEUptime(sec int64) string {
 }
 
 func countPVEIssues(info *models.PVEInfo) int {
+	// pvesh API unreachable (root path) — nothing below was actually verified, so
+	// the unreachable API is the one real concern; everything else is empty by
+	// failure, not by health. Don't add spurious "backup never" etc. on top.
+	if info.IsPVE && !info.NeedsRoot && !info.APIReachable {
+		return 1
+	}
 	n := 0
 	for _, s := range info.Storages {
 		if !s.Active || s.UsedPct >= 95 {

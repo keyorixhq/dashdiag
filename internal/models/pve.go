@@ -126,4 +126,10 @@ type PVEInfo struct {
 	// Meta
 	IsPVE     bool `json:"is_pve"`     // false = not a Proxmox host
 	NeedsRoot bool `json:"needs_root"` // some checks require root
+	// APIReachable is true when the canonical `pvesh get /cluster/status` probe
+	// succeeded and parsed (set only on the root path). When pvedaemon exists but
+	// pvesh fails — pmxcfs/pve-cluster down, API unreachable — every collection
+	// returns empty and the node would otherwise read as a clean "healthy" with
+	// quorum implicitly OK. False here means "health NOT verified", not healthy.
+	APIReachable bool `json:"api_reachable"`
 }

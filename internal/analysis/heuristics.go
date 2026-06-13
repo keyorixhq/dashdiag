@@ -2866,6 +2866,20 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 			[]string{"to run: sudo dsd health"},
 		)}
 	}
+	// pvedaemon exists and we are root, but the pvesh API probe failed — pmxcfs /
+	// pve-cluster down or unreachable. Every collection below is empty, so without
+	// this the node reads as a clean "healthy" with quorum implicitly OK (false-OK).
+	// Stop here: we cannot verify quorum, storage, or backups, so don't pretend to.
+	if !p.APIReachable {
+		return []models.Insight{insight("WARN", "PVE",
+			"Proxmox VE API (pvesh) not responding — cluster quorum, storage, and backup health could NOT be verified",
+			[]string{
+				"to inspect: systemctl status pve-cluster corosync pvedaemon",
+				"to inspect: pvesh get /cluster/status",
+				"note: pmxcfs (/etc/pve) must be mounted and quorate for the API to respond",
+			},
+		)}
+	}
 	out := make([]models.Insight, 0, 8)
 	out = append(out, checkPVESubscription(p)...)
 	out = append(out, checkPVECluster(p)...)
