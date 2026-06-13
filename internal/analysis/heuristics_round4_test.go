@@ -39,6 +39,9 @@ func TestCheckTLS(t *testing.T) {
 	assertLevel(t, checkTLS(cert(3)), "CRIT")      // expiring <=7d
 	assertLevel(t, checkTLS(cert(20)), "WARN")     // expiring <=30d
 	assertLevel(t, checkTLS(cert(90)), "")         // healthy
+	// An unreadable cert must WARN, not read as healthy — even when it's the ONLY
+	// thing found (no checkable certs).
+	assertLevel(t, checkTLS(models.TLSInfo{Uncheckable: []models.TLSUncheckable{{Path: "/x.pem", Error: "permission denied"}}}), "WARN")
 }
 
 func TestCheckKVM(t *testing.T) {

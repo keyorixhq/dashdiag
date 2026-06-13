@@ -42,11 +42,18 @@ func (c *CephCollector) Collect(ctx context.Context) (interface{}, error) {
 			Summary struct{ Message string } `json:"summary"`
 		} `json:"checks"`
 	}
-	if err := json.Unmarshal([]byte(out), &h); err == nil {
+	if err := json.Unmarshal([]byte(out), &h); err == nil && h.Status != "" {
 		info.Health = h.Status
 		for _, v := range h.Checks {
 			info.Summary = append(info.Summary, v.Summary.Message)
 		}
+	} else {
+		// `ceph health detail` exited 0 but its stdout wasn't parseable health JSON
+		// (empty, a leading deprecation/WARNING banner before the JSON, or an
+		// unexpected shape). Leaving Health="" reads as a clean cluster in checkCeph
+		// (matches neither HEALTH_ERR nor HEALTH_WARN) — a false-OK on a cluster we
+		// never actually read. Mark it unknown so the verdict says so.
+		info.Health = "HEALTH_UNKNOWN"
 	}
 
 	// OSD stats

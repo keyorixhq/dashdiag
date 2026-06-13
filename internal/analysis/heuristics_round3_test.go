@@ -62,6 +62,7 @@ func TestCheckCeph(t *testing.T) {
 		{"health err is CRIT", models.CephInfo{Available: true, Health: "HEALTH_ERR"}, "CRIT"},
 		{"health warn is WARN", models.CephInfo{Available: true, Health: "HEALTH_WARN"}, "WARN"},
 		{"osd down is WARN", models.CephInfo{Available: true, Health: "HEALTH_OK", OSDTotal: 5, OSDUp: 4}, "WARN"},
+		{"unparseable health is WARN not silent OK", models.CephInfo{Available: true, Health: "HEALTH_UNKNOWN"}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -4384,10 +4384,20 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 }
 
 func checkTLS(tls models.TLSInfo) []models.Insight {
-	if len(tls.Certs) == 0 {
-		return nil // no certs found — don't fire
+	if len(tls.Certs) == 0 && len(tls.Uncheckable) == 0 {
+		return nil // nothing found and nothing failed to read — don't fire
 	}
 	var out []models.Insight
+
+	// Cert files / endpoints that could NOT be read (unreadable file, unreachable
+	// endpoint, garbled PEM). Surface as WARN so a "0 expired" verdict is never
+	// mistaken for "all healthy" when some certs were never actually evaluated.
+	for _, u := range tls.Uncheckable {
+		out = append(out, insight("WARN", "TLS",
+			fmt.Sprintf("certificate could not be checked: %s (%s)", u.Path, u.Error),
+			[]string{fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", u.Path)},
+		))
+	}
 
 	// Expired certs — always CRIT
 	for _, cert := range tls.Certs {
@@ -6275,6 +6285,12 @@ func checkCeph(c models.CephInfo) []models.Insight {
 		}
 		return []models.Insight{insight("WARN", "Ceph", msg,
 			[]string{"to inspect: ceph health detail", "to inspect: ceph osd stat"})}
+	case "HEALTH_UNKNOWN":
+		// `ceph health detail` ran but returned no parseable status — surface that
+		// rather than letting an empty Health read as a healthy cluster.
+		return []models.Insight{insight("WARN", "Ceph",
+			"Ceph cluster health could not be read — `ceph health detail` returned no parseable status",
+			[]string{"to inspect: ceph health detail", "to inspect: ceph -s"})}
 	}
 	downOSDs := c.OSDTotal - c.OSDUp
 	if downOSDs > 0 {
