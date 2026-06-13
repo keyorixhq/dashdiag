@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-13
+
+A correctness-hardening release: a sweep of every collector that emits a health
+verdict, closing a batch of "false-OK" bugs (a green/OK verdict shown when nothing
+was actually verified) and two systematic root causes — subsystem-qualified check
+names not matching their collector, and collectors assuming systemd/journald is
+present (wrong verdict on non-systemd hosts).
+
 ### Fixed
 
 - **btrfs: device errors on an unmappable device path no longer leave the volume
