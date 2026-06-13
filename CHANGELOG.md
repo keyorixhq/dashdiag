@@ -11,6 +11,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-06-14
+
+Hardware-validation release: standing up real storage and a real non-systemd host on
+the test fleet (live multipath/iSCSI, btrfs/LVM/ZFS, an Alpine/busybox LXC) surfaced
+three bugs that unit tests missed — including two cases where the 0.9.1 non-systemd
+fixes only *appeared* to work until run on actual busybox/Alpine.
+
 ### Fixed
 
 - **Auth: SSH brute-force on busybox/Alpine is no longer missed** — `readAuthLog`
