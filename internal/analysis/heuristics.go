@@ -79,7 +79,93 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	if hostIsNixOS() {
 		insights = nixosifyHints(insights)
 	}
+	// Remedy text is generated in its Linux/systemd form; rewrite commands that
+	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
+	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
+	// fixes only the "to inspect/to fix" line. (TRIAGE §A.)
+	insights = adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
 	return insights
+}
+
+// hostInitSystem returns the init system ("systemd", "openrc", "unknown") so the
+// hint adapter can pick the right service command. Indirection keeps
+// adaptHintsToPlatform unit-testable without the real host.
+var hostInitSystem = func() string { return platform.Detect().InitSystem }
+
+// adaptHintsToPlatform rewrites each hint's platform-specific command for goos +
+// initSystem. Pure dispatch over adaptHint so it can be tested per platform.
+func adaptHintsToPlatform(insights []models.Insight, goos, initSystem string) []models.Insight {
+	if goos != "darwin" && initSystem != "openrc" {
+		return insights // Linux/systemd: hints already correct
+	}
+	for i := range insights {
+		if len(insights[i].Hints) == 0 {
+			continue
+		}
+		out := make([]string, 0, len(insights[i].Hints))
+		for _, h := range insights[i].Hints {
+			if nh, drop := adaptHint(h, goos, initSystem); !drop {
+				out = append(out, nh)
+			}
+		}
+		insights[i].Hints = out
+	}
+	return insights
+}
+
+var (
+	// macOS has no `ss`; lsof is the listening-socket equivalent.
+	reSSPortGrep = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp \| grep :(\d+)$`)
+	reSSListen   = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp$`)
+	// OpenRC (Alpine/Gentoo) uses rc-service / rc-update, not systemctl.
+	reSystemctlAction  = regexp.MustCompile(`^to fix: systemctl (restart|start|stop) (\S+)$`)
+	reSystemctlEnable  = regexp.MustCompile(`^to fix: systemctl enable --now (\S+)$`)
+	reSystemctlDisable = regexp.MustCompile(`^to fix: systemctl disable (\S.*)$`)
+)
+
+// adaptHint rewrites a single hint for the platform, or returns drop=true when no
+// runnable equivalent exists (the diagnosis still stands; only the remedy line is
+// removed). Unknown hints pass through unchanged.
+func adaptHint(hint, goos, initSystem string) (string, bool) {
+	if goos == "darwin" {
+		if m := reSSPortGrep.FindStringSubmatch(hint); m != nil {
+			return "to inspect: lsof -nP -iTCP:" + m[1] + " -sTCP:LISTEN", false
+		}
+		if reSSListen.MatchString(hint) {
+			return "to inspect: lsof -nP -iTCP -sTCP:LISTEN", false
+		}
+		return hint, false
+	}
+	if initSystem == "openrc" {
+		if m := reSystemctlAction.FindStringSubmatch(hint); m != nil {
+			return fmt.Sprintf("to fix: rc-service %s %s", m[2], m[1]), false
+		}
+		if m := reSystemctlEnable.FindStringSubmatch(hint); m != nil {
+			return fmt.Sprintf("to fix: rc-update add %s && rc-service %s start", m[1], m[1]), false
+		}
+		if m := reSystemctlDisable.FindStringSubmatch(hint); m != nil {
+			return fmt.Sprintf("to fix: rc-update del %s", m[1]), false
+		}
+		return hint, false
+	}
+	return hint, false
+}
+
+// PlatformServiceCmd rewrites a systemd service-management command (e.g.
+// "systemctl restart docker") into the form runnable on the running host's init
+// system, returning it unchanged on systemd/macOS. It exists so subcommands that
+// print remedy lines directly to stdout — outside the insight pipeline that
+// adaptHintsToPlatform covers — share the same one source of truth as the
+// adapter (it delegates to adaptHint). (TRIAGE §A audit.)
+func PlatformServiceCmd(systemdCmd string) string {
+	return platformServiceCmd(systemdCmd, runtime.GOOS, hostInitSystem())
+}
+
+// platformServiceCmd is the host-independent core, split out so it is
+// unit-testable without the real GOOS/init system (see hostInitSystem).
+func platformServiceCmd(systemdCmd, goos, initSystem string) string {
+	out, _ := adaptHint("to fix: "+systemdCmd, goos, initSystem)
+	return strings.TrimPrefix(out, "to fix: ")
 }
 
 // NixOS configures the system declaratively via configuration.nix + nixos-rebuild,
@@ -3518,8 +3604,12 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
-	// ClientAliveInterval = 0 — no idle timeout; sessions left open indefinitely
-	if sec.SSHClientAliveInterval == 0 && !sec.IsOffensiveDistro {
+	// ClientAliveInterval = 0 — no idle timeout; sessions left open indefinitely.
+	// Unlike the sibling checks above (which fire on a bad *present* value), this one
+	// fires on an *absent* setting, so the zero value also occurs when no sshd was
+	// audited at all — gate on SSHAuditSource so a host with no sshd doesn't get told
+	// to set ClientAliveInterval in a config it doesn't have. (TRIAGE §A minor.)
+	if sec.SSHClientAliveInterval == 0 && sec.SSHAuditSource != "" && !sec.IsOffensiveDistro {
 		out = append(out, insight("INFO", "Hardening",
 			"SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
 			[]string{

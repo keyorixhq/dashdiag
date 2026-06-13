@@ -440,7 +440,7 @@ func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
 		Name:    "Entropy Starvation with TLS Active",
 		Level:   "CRIT",
 		Summary: "entropy pool is critically low while TLS certificates are in use — SSL handshakes and key operations will stall or time out waiting for randomness",
-		Action:  "apt install haveged OR dnf install rng-tools && systemctl enable --now rngd",
+		Action:  "apt install haveged OR dnf install rng-tools && " + PlatformServiceCmd("systemctl enable --now rngd"),
 		Checks:  []string{"Entropy", "TLS"},
 	}, true
 }

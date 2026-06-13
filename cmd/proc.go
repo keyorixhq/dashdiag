@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -206,7 +207,7 @@ func printProcFiles(info *models.ProcInfo, mode output.OutputMode, human bool) {
 			fmt.Printf("     %s\n", lib)
 		}
 		if human {
-			fmt.Printf("  → to restart: systemctl restart <service-name>\n")
+			fmt.Printf("  → to restart: %s\n", analysis.PlatformServiceCmd("systemctl restart <service-name>"))
 		}
 	}
 }
