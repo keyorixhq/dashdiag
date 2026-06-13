@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -127,6 +128,20 @@ func LoadBaseline(path string) (*Snapshot, error) {
 	return &snap, nil
 }
 
+// statusRank orders insight levels so BuildSnapshot can keep the worst per check.
+func statusRank(level string) int {
+	switch level {
+	case "CRIT":
+		return 3
+	case "WARN":
+		return 2
+	case "INFO":
+		return 1
+	default:
+		return 0
+	}
+}
+
 func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot {
 	hostname, _ := os.Hostname()
 	snap := &Snapshot{
@@ -144,12 +159,26 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 		}
 		cr := CheckResult{Name: r.Name, Raw: r.Data, Status: "OK"}
 		hasInsight := false
+		worstRank := -1
 		for _, ins := range insights {
-			if ins.Check == r.Name {
+			// Match by the base check name so a subsystem-qualified insight
+			// ("Network/DNS", "Memory/Slab", "CPU Load/Steal") still attaches to its
+			// collector ("Network", "Memory", "CPU Load"). And keep the WORST level,
+			// not the first matched — otherwise a CRIT hidden behind an earlier
+			// INFO/WARN (or a qualified-Check CRIT that never matched) under-recorded
+			// the check in the baseline and hid the degradation from drift detection.
+			base := ins.Check
+			if i := strings.IndexByte(base, '/'); i >= 0 {
+				base = base[:i]
+			}
+			if base != r.Name {
+				continue
+			}
+			hasInsight = true
+			if rank := statusRank(ins.Level); rank > worstRank {
+				worstRank = rank
 				cr.Status = ins.Level
 				cr.Value = ins.Message
-				hasInsight = true
-				break
 			}
 		}
 		// Mirror live health (render.shouldHideRow): a collector that reports
