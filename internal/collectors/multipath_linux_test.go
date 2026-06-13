@@ -9,20 +9,34 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-const multipathShowOK = `sdb active LUN01 dm-0
+// Fixtures include the column-header row that `multipathd show paths format
+// "%d %t %s %m"` actually prints first — omitting it (as the original fixtures did)
+// hid a bug where the header was parsed as a phantom failed path.
+const multipathShowOK = `dev dm_st  vend/prod/rev     multipath
+sdb active LUN01 dm-0
 sdc active LUN01 dm-0
 sdd active LUN02 dm-1
 sde active LUN02 dm-1
 `
 
-const multipathShowDegraded = `sdb active LUN01 dm-0
+const multipathShowDegraded = `dev dm_st  vend/prod/rev     multipath
+sdb active LUN01 dm-0
 sdc failed LUN01 dm-0
 sdd active LUN02 dm-1
 sde active LUN02 dm-1
 `
 
-const multipathShowAllFailed = `sdb failed LUN01 dm-0
+const multipathShowAllFailed = `dev dm_st  vend/prod/rev     multipath
+sdb failed LUN01 dm-0
 sdc failed LUN01 dm-0
+`
+
+// multipathShowRealHeader is verbatim `multipathd show paths format "%d %t %s %m"`
+// output from a live 2-path iSCSI multipath device (LIO target). The header row
+// previously became a phantom "multipath" device in state "degraded" → a false CRIT.
+const multipathShowRealHeader = `dev dm_st  vend/prod/rev     multipath
+sdb active LIO-ORG,disk0,4.0 mpatha
+sdc active LIO-ORG,disk0,4.0 mpatha
 `
 
 func findDevice(devices []models.MultipathDevice, dm string) *models.MultipathDevice {
@@ -77,6 +91,23 @@ func TestParseMultipathShow(t *testing.T) {
 		}
 		if devices[0].State != "degraded" {
 			t.Errorf("state = %q, want degraded", devices[0].State)
+		}
+	})
+
+	// Regression (found via live 2-path iSCSI multipath on a VM): the format header
+	// row must not become a phantom "multipath" device that reads as degraded and
+	// raises a false CRIT. The real output has exactly ONE healthy device, mpatha.
+	t.Run("format header row is not a phantom device", func(t *testing.T) {
+		devices := parseMultipathShow(multipathShowRealHeader)
+		if len(devices) != 1 {
+			t.Fatalf("devices = %d, want 1 (header must be skipped); got %+v", len(devices), devices)
+		}
+		d := devices[0]
+		if d.DM != "mpatha" {
+			t.Errorf("device DM = %q, want mpatha", d.DM)
+		}
+		if d.ActivePaths != 2 || d.FailedPaths != 0 || d.State != "active" {
+			t.Errorf("mpatha = {active:%d failed:%d state:%q}, want {2 0 active}", d.ActivePaths, d.FailedPaths, d.State)
 		}
 	})
 }
