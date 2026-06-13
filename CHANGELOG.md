@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Cron: a running cron daemon on a non-systemd host is no longer reported as "no
+  cron daemon"** — daemon detection only ran `systemctl is-active`, which fails on a
+  non-systemd host (Alpine/OpenRC, Devuan/SysV, Gentoo, busybox `crond`) even when cron
+  is running, producing a false WARN "no cron daemon and no anacron — scheduled jobs
+  will not run". Detection now falls back to a running-process check (`pgrep`), so a
+  cron daemon managed outside systemd is recognized. (Verified: busybox `crond` runs
+  with no `systemctl` present and is `pgrep`-able.)
+
 - **Auth: an unreadable SSH auth log no longer reads as "no failed logins"** — the
   Auth check counts failed SSH logins from the journal, falling back to
   `/var/log/{auth.log,secure}`. As a non-root user both are typically inaccessible
