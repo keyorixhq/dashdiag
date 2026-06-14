@@ -13,6 +13,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Cgroup (deep): cumulative counters are no longer framed as live alarms** — the
+  root-scope `memory.events` oom_kill counter fired a CRIT "processes are being killed"
+  whenever it was >0, but it's a lifetime total since boot, so a single boot-time OOM
+  produced a permanent CRIT (a recency-gate). It's now an INFO that says "since boot
+  (lifetime total)" and points to the windowed Logs/OOM check for recency. CPU
+  throttle (`throttled_usec/usage_usec`) is likewise a lifetime ratio, not the current
+  rate — its wording now says "of its run time (since boot)" so a slice hammered at
+  boot but idle now isn't read as currently throttled. (Throttle severity unchanged —
+  a high lifetime ratio is still a real chronic-constraint signal.)
+
+### Fixed
+
 - **Bonding: the standalone collector's JSON now reports degraded/all_down** — only the
   NetworkCollector path set those verdict booleans, so `dsd bonding`/`--json` raw
   payloads showed `degraded:false`/`all_down:false` even for a fully-down bond (the

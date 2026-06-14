@@ -7373,34 +7373,42 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 	}
 	var out []models.Insight
 
-	// OOM kills at root scope
+	// OOM kills at root scope. memory.events oom_kill is a CUMULATIVE counter since
+	// boot — it can't tell a kill from 5 minutes ago from one at boot weeks back, so
+	// firing CRIT on >0 was a recency-gate (a single boot-time OOM = permanent CRIT).
+	// Recency is owned by the timestamped Logs/OOM check (windowed to 24h); here we
+	// surface the lifetime counter as INFO context, not a live alarm.
 	if cg.OOMKills > 0 {
-		out = append(out, insight("CRIT", "Cgroup",
-			fmt.Sprintf("cgroup OOM kill counter = %d — processes are being killed due to memory limits",
+		out = append(out, insight("INFO", "Cgroup",
+			fmt.Sprintf("cgroup OOM kill counter = %d since boot (lifetime total, not necessarily recent)",
 				cg.OOMKills),
 			[]string{
+				"recency: see the Logs/OOM check — it windows OOM events to the last 24h",
 				"to inspect: cat /sys/fs/cgroup/memory.events",
-				"to inspect: journalctl -k | grep -i oom",
 				"to identify: dmesg | grep -i 'oom_kill\\|out of memory'",
 			},
 		))
 	}
 
-	// CPU throttled slices
+	// CPU throttled slices. ThrottledPct is throttled_usec/usage_usec — both
+	// cumulative since the slice was created, so this is a LIFETIME ratio, not the
+	// current rate (a slice hammered at boot but idle now still reads high). The
+	// wording reflects that; a high lifetime ratio is still a real "this slice is
+	// chronically cpu-constrained" signal.
 	for _, s := range cg.Slices {
 		if s.ThrottledPct > 20 {
 			out = append(out, insight("CRIT", "Cgroup",
-				fmt.Sprintf("%s CPU throttled %.0f%% — workloads are hitting cpu.max limits",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot) — chronically hitting cpu.max",
 					s.Name, s.ThrottledPct),
 				[]string{
 					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
 					fmt.Sprintf("to fix: increase or remove cpu.max in /sys/fs/cgroup/%s/cpu.max", s.Name),
-					"note: throttling causes latency spikes even when overall CPU is idle",
+					"note: lifetime ratio — throttling causes latency spikes even when overall CPU is idle",
 				},
 			))
 		} else if s.ThrottledPct > 5 {
 			out = append(out, insight("WARN", "Cgroup",
-				fmt.Sprintf("%s CPU throttled %.0f%%",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot)",
 					s.Name, s.ThrottledPct),
 				[]string{
 					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),

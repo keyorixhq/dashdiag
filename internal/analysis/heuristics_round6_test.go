@@ -124,7 +124,9 @@ func TestCheckCgroupV2(t *testing.T) {
 	}{
 		{"unavailable is silent", models.CgroupV2Info{Available: false}, ""},
 		{"available and quiet is clean", models.CgroupV2Info{Available: true}, ""},
-		{"oom kills is CRIT", models.CgroupV2Info{Available: true, OOMKills: 1}, "CRIT"},
+		// Cumulative since-boot counter — INFO context, not a live CRIT (recency is
+		// owned by the windowed Logs/OOM check).
+		{"cgroup oom counter is INFO", models.CgroupV2Info{Available: true, OOMKills: 1}, "INFO"},
 		{"heavy CPU throttle is CRIT", slice(models.CgroupSlice{Name: "system.slice", ThrottledPct: 25}), "CRIT"},
 		{"mild CPU throttle is WARN", slice(models.CgroupSlice{Name: "system.slice", ThrottledPct: 10}), "WARN"},
 		{"memory near limit is CRIT", slice(models.CgroupSlice{Name: "user.slice", HasMemLimit: true, MemUsedPct: 95}), "CRIT"},
