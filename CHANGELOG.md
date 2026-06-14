@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **K8s: the OS-layer node diagnostics now understand k3s** — `dsd k8s --deep` reported
+  wrong values on a healthy k3s node (the dominant homelab/edge distribution) because
+  the checks assumed kubeadm paths: CNI bins reported missing (k3s bundles them under
+  `/var/lib/rancher/k3s/data/current/bin`, not `/opt/cni/bin`); flannel reported not-in-use
+  (k3s keeps its CNI config under `/var/lib/rancher/k3s/agent/etc/cni/net.d`); containerd
+  reported inactive (k3s embeds it — socket at `/run/k3s/containerd/containerd.sock`); and
+  kubelet reported inactive (`systemctl is-active kubelet k3s` is a two-unit call that
+  fails because k3s has no `kubelet.service` — the unit is `k3s`/`k3s-agent`). All four now
+  detect the k3s layout. Validated live against a real k3s v1.36 node.
+
 ## [0.9.6] - 2026-06-14
 
 Tail of the collector-audit sweep: the bonding/oom JSON cleanups and the cgroup deep

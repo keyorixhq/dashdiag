@@ -402,30 +402,74 @@ func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) 
 // /run/flannel/subnet.env, so its absence is only a problem when flannel is actually
 // configured.
 func flannelCNIConfigured() bool {
-	entries, err := os.ReadDir("/etc/cni/net.d")
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if strings.Contains(strings.ToLower(e.Name()), "flannel") {
-			return true
+	// kubeadm writes CNI configs to /etc/cni/net.d; k3s keeps them under
+	// /var/lib/rancher/k3s/agent/etc/cni/net.d (and only symlinks /etc/cni/net.d
+	// on some setups), so check both before deciding flannel isn't in use.
+	for _, dir := range []string{"/etc/cni/net.d", "/var/lib/rancher/k3s/agent/etc/cni/net.d"} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
 		}
-		data, err := os.ReadFile(filepath.Join("/etc/cni/net.d", e.Name())) // #nosec G304 -- CNI conf dir
-		if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Name()), "flannel") {
+				return true
+			}
+			data, err := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- CNI conf dir
+			if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// k8sUnitActive reports whether ANY of the named systemd units is active, probing
+// each singly (a multi-unit `systemctl is-active a b` exits non-zero unless ALL
+// exist and are active, which breaks on k3s where only k3s/k3s-agent exist).
+func k8sUnitActive(ctx context.Context, units ...string) bool {
+	for _, u := range units {
+		if out, err := runCmd(ctx, "systemctl", "is-active", u); err == nil && strings.TrimSpace(out) == "active" {
 			return true
 		}
 	}
 	return false
 }
 
+// cniBinsPresent reports whether CNI plugin binaries are installed and whether the
+// check could be made. kubeadm uses /opt/cni/bin; k3s bundles them under
+// /var/lib/rancher/k3s/data/current/bin — checking only the former false-CRIT'd
+// every k3s node. checked is false only when every candidate was unreadable
+// (permission denied), so the verdict treats that as unknown, not "missing".
+func cniBinsPresent() (checked, ok bool) {
+	return cniBinsPresentIn("/opt/cni/bin", "/var/lib/rancher/k3s/data/current/bin")
+}
+
+func cniBinsPresentIn(dirs ...string) (checked, ok bool) {
+	for _, d := range dirs {
+		entries, err := os.ReadDir(d)
+		switch {
+		case err == nil:
+			checked = true
+			if len(entries) > 0 {
+				return true, true // a populated CNI bin dir — done
+			}
+		case os.IsNotExist(err):
+			checked = true // this path is absent, but another may hold the bins
+		default:
+			// permission denied / other — state unknown for this candidate
+		}
+	}
+	return checked, false
+}
+
 func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
 
-	// kubelet
-	out, err := runCmd(ctx, "systemctl", "is-active", "kubelet", "k3s")
-	if err == nil {
-		layer.KubeletActive = strings.Contains(out, "active")
-	}
+	// kubelet. k3s embeds the kubelet — there is no kubelet.service, the unit is
+	// k3s.service (server) or k3s-agent.service. The old two-unit `is-active kubelet
+	// k3s` exits non-zero whenever EITHER unit is missing (always, on k3s), so a
+	// running k3s node read as kubelet-inactive. Probe each unit singly instead.
+	layer.KubeletActive = k8sUnitActive(ctx, "kubelet", "k3s", "k3s-agent")
 	if layer.KubeletActive {
 		logOut, _ := runCmd(ctx, "journalctl", "-u", "kubelet", "-u", "k3s",
 			"-n", "30", "--no-pager", "-q")
@@ -440,9 +484,15 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 		}
 	}
 
-	// containerd
-	_, err = runCmd(ctx, "systemctl", "is-active", "containerd")
-	layer.ContainerdActive = err == nil
+	// containerd. k3s bundles its own containerd (no containerd.service) reachable at
+	// /run/k3s/containerd/containerd.sock — recognize it so a k3s node isn't reported
+	// as "containerd not active".
+	layer.ContainerdActive = k8sUnitActive(ctx, "containerd")
+	if !layer.ContainerdActive {
+		if _, statErr := os.Stat("/run/k3s/containerd/containerd.sock"); statErr == nil {
+			layer.ContainerdActive = true
+		}
+	}
 
 	// IP forwarding — leave IPForwardChecked false when /proc is unreadable so
 	// the heuristic treats it as "unknown" rather than a false "disabled" CRIT.
@@ -455,23 +505,13 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	// Calico/Cilium/Weave nodes /run/flannel/subnet.env never exists, so flagging its
 	// absence as a CRIT was a false alarm on every non-flannel node.
 	layer.FlannelInUse = flannelCNIConfigured()
-	_, err = os.Stat("/run/flannel/subnet.env")
-	layer.FlannelSubnetOK = err == nil
+	_, statErr := os.Stat("/run/flannel/subnet.env")
+	layer.FlannelSubnetOK = statErr == nil
 
-	// CNI binaries — distinguish an empty dir (real: plugins missing) from an
-	// unreadable one (permission denied when run without root). A discarded error
-	// made a non-root run report "/opt/cni/bin empty — networking will fail".
-	entries, cniErr := os.ReadDir("/opt/cni/bin")
-	switch {
-	case cniErr == nil:
-		layer.CNIChecked = true
-		layer.CNIBinsOK = len(entries) > 0
-	case os.IsNotExist(cniErr):
-		layer.CNIChecked = true
-		layer.CNIBinsOK = false // dir genuinely absent → CNI not installed
-	default:
-		layer.CNIChecked = false // permission denied / other — state unknown
-	}
+	// CNI binaries — check both the kubeadm path (/opt/cni/bin) and the k3s bundle
+	// (/var/lib/rancher/k3s/data/current/bin); only report "missing" when neither
+	// holds plugins, and only when at least one path was actually readable.
+	layer.CNIChecked, layer.CNIBinsOK = cniBinsPresent()
 
 	// KUBE-FORWARD chain check (iptables or nft)
 	nftOut, _ := runCmd(ctx, "nft", "list", "tables")
