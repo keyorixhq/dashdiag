@@ -5496,7 +5496,7 @@ func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 		))
 	}
 
-	if !l.FlannelSubnetOK {
+	if l.FlannelInUse && !l.FlannelSubnetOK {
 		out = append(out, insight("CRIT", "K8s",
 			"/run/flannel/subnet.env missing — CNI network plugin cannot configure pod networking",
 			[]string{
@@ -5506,7 +5506,7 @@ func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 		))
 	}
 
-	if !l.CNIBinsOK {
+	if l.CNIChecked && !l.CNIBinsOK {
 		out = append(out, insight("CRIT", "K8s",
 			"/opt/cni/bin/ is empty — CNI plugins not installed, networking will fail",
 			[]string{

@@ -90,7 +90,9 @@ type K8sOSLayer struct {
 	IPForwardChecked   bool     `json:"ip_forward_checked"`    // false when /proc unreadable — state unknown, not disabled
 	KubeForwardChain   bool     `json:"kube_forward_chain"`    // iptables/nft KUBE-FORWARD rule
 	FlannelSubnetOK    bool     `json:"flannel_subnet_ok"`     // /run/flannel/subnet.env present
+	FlannelInUse       bool     `json:"flannel_in_use"`        // flannel is the configured CNI (else subnet.env absence is normal)
 	CNIBinsOK          bool     `json:"cni_bins_ok"`           // /opt/cni/bin/ populated
+	CNIChecked         bool     `json:"cni_checked"`           // false when /opt/cni/bin unreadable (permission) — state unknown
 	FirewalldMasquOK   bool     `json:"firewalld_masq_ok"`     // masquerade enabled if firewalld
 	CertExpirySoonDays int      `json:"cert_expiry_soon_days"` // 0 = OK, >0 = days to expiry
 	CertExpiredNames   []string `json:"cert_expired_names,omitempty"`

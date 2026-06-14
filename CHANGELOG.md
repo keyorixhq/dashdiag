@@ -13,6 +13,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **K8s: no more false CRIT on Calico/Cilium nodes, or when CNI dir is unreadable** —
+  the OS-layer deep checks (a) CRIT'd "/run/flannel/subnet.env missing" on every node
+  not using flannel (Calico/Cilium/Weave never create that file), and (b) read
+  /opt/cni/bin with a discarded error, so a permission-denied (non-root) read reported
+  "/opt/cni/bin empty — networking will fail". Flannel's subnet check now only fires
+  when flannel is the configured CNI (detected from /etc/cni/net.d), and an unreadable
+  CNI dir is treated as state-unknown (the existing IPForwardChecked pattern), not
+  empty.
+
+### Fixed
+
 - **Parser realism: four collectors mis-parsed real command output** (found by the
   audit sweep, fixed as a batch):
   - **nspawn**: `machinectl list` has no state column (MACHINE CLASS SERVICE OS VERSION
