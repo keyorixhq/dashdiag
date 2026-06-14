@@ -166,13 +166,20 @@ func printProcResources(info *models.ProcInfo, mode output.OutputMode) {
 	if info.SwapMB > 0 {
 		printProcLine(mode, "Swap", fmt.Sprintf("%.1f MB", info.SwapMB))
 	}
-	fdStr := fmt.Sprintf("%d", info.FDCount)
-	if info.FDLimit > 0 {
-		fdStr += fmt.Sprintf(" / %d (%.0f%%)", info.FDLimit,
-			float64(info.FDCount)/float64(info.FDLimit)*100)
-	}
-	if info.FDPressure {
-		fdStr += " ⚠️  >80% of limit"
+	var fdStr string
+	if !info.FDReadable {
+		// /proc/PID/fd requires the same UID or root; a 0 count here would
+		// otherwise render as "0 / <limit> (0%)" and read as healthy.
+		fdStr = "(unreadable — need same UID or root)"
+	} else {
+		fdStr = fmt.Sprintf("%d", info.FDCount)
+		if info.FDLimit > 0 {
+			fdStr += fmt.Sprintf(" / %d (%.0f%%)", info.FDLimit,
+				float64(info.FDCount)/float64(info.FDLimit)*100)
+		}
+		if info.FDPressure {
+			fdStr += " ⚠️  >80% of limit"
+		}
 	}
 	printProcLine(mode, "Open FDs", fdStr)
 	if info.MemMap != nil {

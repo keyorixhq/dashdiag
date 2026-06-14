@@ -51,6 +51,7 @@ type ProcInfo struct {
 	SwapMB     float64 `json:"swap_mb"`
 	FDCount    int     `json:"fd_count"`
 	FDLimit    int     `json:"fd_limit"`
+	FDReadable bool    `json:"fd_readable"` // /proc/PID/fd was readable (same UID or root)
 	FDPressure bool    `json:"fd_pressure"` // FDCount > 80% of FDLimit
 
 	// Memory map (from smaps_rollup or smaps)
