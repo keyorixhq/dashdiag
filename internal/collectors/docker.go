@@ -260,7 +260,12 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			info.UnhealthyCount++
 			info.Unhealthy = append(info.Unhealthy, name)
 		}
-		if det.restarts >= crashLoopRestartThreshold {
+		// A high RestartCount is cumulative since the container was created; only treat
+		// it as an active crash loop if the container hasn't since stabilized (running
+		// long enough), so a one-time deploy-era loop doesn't CRIT forever.
+		isCrashLooping := det.restarts >= crashLoopRestartThreshold &&
+			!crashLoopStabilized(det.running, det.startedAt)
+		if isCrashLooping {
 			info.CrashLoopCount++
 			info.CrashLooping = append(info.CrashLooping, name)
 		}
@@ -281,6 +286,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			State:               state,
 			Health:              det.health,
 			Restart:             det.restarts,
+			CrashLooping:        isCrashLooping,
 			PlaintextSecrets:    det.secrets,
 			RunsAsRoot:          det.runsAsRoot,
 			User:                det.user,
@@ -303,6 +309,23 @@ type containerDetailResult struct {
 	runsAsRoot    bool
 	user          string
 	socketMounted bool
+	running       bool
+	startedAt     time.Time
+}
+
+// crashLoopStableWindow is how long a container with a high lifetime restart count
+// must have been continuously running before we treat the restarts as historical
+// rather than an active crash loop.
+const crashLoopStableWindow = 10 * time.Minute
+
+// crashLoopStabilized reports whether a container that accumulated a high lifetime
+// RestartCount has since settled: currently running and up longer than
+// crashLoopStableWindow. This keeps a one-time early crash loop (e.g. at deploy)
+// from emitting a perpetual CRIT once the container has recovered. RestartCount is
+// cumulative for the container's life and only resets on recreate, so without this
+// gate the verdict never decays. Mirrors the systemd crashLoopRecent gate.
+func crashLoopStabilized(running bool, startedAt time.Time) bool {
+	return running && !startedAt.IsZero() && time.Since(startedAt) > crashLoopStableWindow
 }
 
 func containerDetail(ctx context.Context, client *http.Client, id string) containerDetailResult {
@@ -313,8 +336,10 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 	var detail struct {
 		RestartCount int `json:"RestartCount"`
 		State        struct {
-			ExitCode int `json:"ExitCode"`
-			Health   struct {
+			Running   bool   `json:"Running"`
+			StartedAt string `json:"StartedAt"`
+			ExitCode  int    `json:"ExitCode"`
+			Health    struct {
 				Status string `json:"Status"`
 			} `json:"Health"`
 		} `json:"State"`
@@ -342,6 +367,7 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 			break
 		}
 	}
+	startedAt, _ := time.Parse(time.RFC3339Nano, detail.State.StartedAt)
 	return containerDetailResult{
 		health:        h,
 		restarts:      detail.RestartCount,
@@ -350,6 +376,8 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 		runsAsRoot:    runsAsRoot,
 		user:          detail.Config.User,
 		socketMounted: socketMounted,
+		running:       detail.State.Running,
+		startedAt:     startedAt,
 	}
 }
 
