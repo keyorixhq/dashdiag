@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"os"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -93,5 +94,36 @@ func TestUpdatePodCounts(t *testing.T) {
 				t.Errorf("crashNames recorded = %v, want %v (%v)", gotCrash, tt.wantCrash, crashNames)
 			}
 		})
+	}
+}
+
+// TestCNIBinsPresentIn pins the multi-path CNI check (kubeadm /opt/cni/bin vs the
+// k3s bundle) — found via live k3s validation: checking only /opt/cni/bin false-CRIT'd
+// every k3s node, whose CNI plugins live under /var/lib/rancher/k3s/data/.../bin.
+func TestCNIBinsPresentIn(t *testing.T) {
+	dir := t.TempDir()
+	kubeadm := dir + "/opt-cni-bin" // absent
+	k3s := dir + "/k3s-bin"         // populated
+	if err := os.MkdirAll(k3s, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(k3s+"/flannel", []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// kubeadm path absent, k3s path populated → checked & ok (the k3s regression).
+	if checked, ok := cniBinsPresentIn(kubeadm, k3s); !checked || !ok {
+		t.Errorf("k3s bundle present: checked=%v ok=%v, want both true", checked, ok)
+	}
+	// Both absent → checked (we could look) but not ok (genuinely no CNI).
+	if checked, ok := cniBinsPresentIn(kubeadm, dir+"/also-absent"); !checked || ok {
+		t.Errorf("both absent: checked=%v ok=%v, want checked=true ok=false", checked, ok)
+	}
+	// A readable-but-empty dir → checked, not ok.
+	empty := dir + "/empty"
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if checked, ok := cniBinsPresentIn(empty); !checked || ok {
+		t.Errorf("empty dir: checked=%v ok=%v, want checked=true ok=false", checked, ok)
 	}
 }
