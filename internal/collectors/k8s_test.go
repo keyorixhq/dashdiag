@@ -32,6 +32,7 @@ func TestUpdatePodCounts(t *testing.T) {
 		name        string
 		pod         models.K8sPodInfo
 		maxRestarts int
+		fullyReady  bool
 		wantField   func(*models.K8sInfo) int
 		wantValue   int
 		wantCrash   bool // expect an entry in crashNames
@@ -67,11 +68,20 @@ func TestUpdatePodCounts(t *testing.T) {
 			wantValue:   1,
 		},
 		{
-			name:        "high restarts increments HighRestarts",
-			pod:         models.K8sPodInfo{Status: "Running", Ready: "1/1"},
+			name:        "high restarts but not fully ready increments HighRestarts",
+			pod:         models.K8sPodInfo{Status: "Running", Ready: "1/2"},
 			maxRestarts: 10,
+			fullyReady:  false,
 			wantField:   func(i *models.K8sInfo) int { return i.HighRestarts },
 			wantValue:   1,
+		},
+		{
+			name:        "high restarts but fully ready (recovered) does not increment HighRestarts",
+			pod:         models.K8sPodInfo{Status: "Running", Ready: "1/1"},
+			maxRestarts: 10,
+			fullyReady:  true,
+			wantField:   func(i *models.K8sInfo) int { return i.HighRestarts },
+			wantValue:   0,
 		},
 		{
 			name:        "terminating increments Terminating",
@@ -86,7 +96,7 @@ func TestUpdatePodCounts(t *testing.T) {
 			info := &models.K8sInfo{}
 			crashNames := map[string]bool{}
 			pod := tt.pod
-			updatePodCounts(info, &pod, tt.maxRestarts, crashNames)
+			updatePodCounts(info, &pod, tt.maxRestarts, tt.fullyReady, crashNames)
 			if got := tt.wantField(info); got != tt.wantValue {
 				t.Errorf("counter = %d, want %d", got, tt.wantValue)
 			}
