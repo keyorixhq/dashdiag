@@ -121,9 +121,13 @@ func TestParseIBState(t *testing.T) {
 
 // ── nspawn tests ─────────────────────────────────────────────────────────────
 
-const machinectlOutput = `web-frontend container nspawn running
-db-backend   container nspawn running
-test-env     container nspawn exited
+// Real `machinectl list --no-legend` columns: MACHINE CLASS SERVICE OS VERSION
+// ADDRESSES — there is NO state column. The old fixture fabricated a 4th "state"
+// field; the parser read fields[3] (really the OS) as state, so failure detection
+// never worked.
+const machinectlOutput = `web-frontend container systemd-nspawn debian 12 -
+db-backend   container systemd-nspawn ubuntu 22.04 10.0.0.5
+test-env     container systemd-nspawn alpine 3.20 -
 `
 
 func TestParseMachinectlList(t *testing.T) {
@@ -134,8 +138,11 @@ func TestParseMachinectlList(t *testing.T) {
 	if containers[0].Name != "web-frontend" {
 		t.Errorf("containers[0].Name = %q", containers[0].Name)
 	}
-	if containers[2].State != "exited" {
-		t.Errorf("containers[2].State = %q, want exited", containers[2].State)
+	// Every listed machine is running; the OS column must NOT leak into State.
+	for _, c := range containers {
+		if c.State != "running" {
+			t.Errorf("container %s State = %q, want running (OS column must not be read as state)", c.Name, c.State)
+		}
 	}
 }
 

@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parser realism: four collectors mis-parsed real command output** (found by the
+  audit sweep, fixed as a batch):
+  - **nspawn**: `machinectl list` has no state column (MACHINE CLASS SERVICE OS VERSION
+    ADDRESSES), so the OS field was read as a "state" and `FailedCount` was always 0.
+    Failed containers are now counted from failed `systemd-nspawn@*` units.
+  - **sessions**: a local login's "-" in the `w` FROM column was treated as "no FROM
+    column", shifting LOGIN@/IDLE/command by one field. "-" is now recognized as the
+    (empty) FROM column.
+  - **snapper**: only the Unicode "─" separator was skipped; the ASCII "---+---"
+    separator that older/non-UTF-8 snapper prints was counted as a phantom config/
+    snapshot. Both forms are now skipped.
+  - **drbd**: the per-resource stats line ("ns:0 nr:0 …") was misclassified as a new
+    resource header (matched on a colon at offset 2), duplicating the resource and
+    stealing its sync-progress line. Resource headers now require a numeric minor.
+
 ## [0.9.3] - 2026-06-14
 
 A batched collector audit (30 collectors, each finding adversarially verified) plus
