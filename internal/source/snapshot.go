@@ -43,7 +43,7 @@ func FromSnapshot(tarballPath string) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a gzip tarball: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	b := NewBundle()
 	b.Manifest.Note = "ingested from hw-snapshot.sh: " + filepath.Base(tarballPath)

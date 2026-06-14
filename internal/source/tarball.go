@@ -16,7 +16,7 @@ func (b *Bundle) SaveTarball(path string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := b.Save(tmp); err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func LoadTarball(path string) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := untarGz(path, tmp); err != nil {
 		return nil, err
 	}
@@ -41,13 +41,12 @@ func tarGzDir(srcDir, dstPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	gz := gzip.NewWriter(f)
-	defer gz.Close()
-	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	defer func() { _ = f.Close() }()
 
-	return filepath.Walk(srcDir, func(p string, fi os.FileInfo, err error) error {
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+
+	walkErr := filepath.Walk(srcDir, func(p string, fi os.FileInfo, err error) error {
 		if err != nil || fi.IsDir() {
 			return err
 		}
@@ -55,7 +54,7 @@ func tarGzDir(srcDir, dstPath string) error {
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(p) // #nosec G304 -- path from Walk under our temp dir
+		data, err := os.ReadFile(p) // #nosec G304 G122 -- srcDir is our own freshly-created temp dir; no untrusted symlinks
 		if err != nil {
 			return err
 		}
@@ -66,6 +65,18 @@ func tarGzDir(srcDir, dstPath string) error {
 		_, err = tw.Write(data)
 		return err
 	})
+	// Close the writers explicitly so a flush error surfaces instead of being
+	// swallowed by a deferred close (a dropped flush on a writer loses data).
+	if walkErr != nil {
+		_ = tw.Close()
+		_ = gz.Close()
+		return walkErr
+	}
+	if err := tw.Close(); err != nil {
+		_ = gz.Close()
+		return err
+	}
+	return gz.Close()
 }
 
 func untarGz(srcPath, dstDir string) error {
@@ -78,7 +89,7 @@ func untarGz(srcPath, dstDir string) error {
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
