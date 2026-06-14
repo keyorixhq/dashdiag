@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-14
+
+A batched collector audit (30 collectors, each finding adversarially verified) plus
+live hardware validation closed a further set of false-OK / false-alarm bugs across
+the storage, fabric, and server-hardware collectors.
+
 ### Fixed
 
 - **OOM: an old OOM kill from the dmesg ring buffer is no longer reported as "last
