@@ -207,7 +207,8 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 		pod.Ready = fmt.Sprintf("%d/%d", ready, len(item.Status.ContainerStatuses))
 		pod.Restarts = maxRestarts
 		pod.InitError = parseInitError(item.Status.InitContainerStatuses, item.Spec.InitContainers)
-		updatePodCounts(info, &pod, maxRestarts, crashNames)
+		fullyReady := len(item.Status.ContainerStatuses) > 0 && ready == len(item.Status.ContainerStatuses)
+		updatePodCounts(info, &pod, maxRestarts, fullyReady, crashNames)
 		info.Pods = append(info.Pods, pod)
 	}
 	fetchPreviousLogs(ctx, bin, info, crashNames)
@@ -239,7 +240,7 @@ func parseInitError(
 }
 
 // updatePodCounts increments the relevant counters on K8sInfo.
-func updatePodCounts(info *models.K8sInfo, pod *models.K8sPodInfo, maxRestarts int, crashNames map[string]bool) {
+func updatePodCounts(info *models.K8sInfo, pod *models.K8sPodInfo, maxRestarts int, fullyReady bool, crashNames map[string]bool) {
 	switch {
 	case strings.Contains(pod.Status, "CrashLoop") || pod.Status == "Error":
 		info.CrashLooping++
@@ -251,7 +252,10 @@ func updatePodCounts(info *models.K8sInfo, pod *models.K8sPodInfo, maxRestarts i
 	case strings.HasPrefix(pod.Ready, "0/") && pod.Status == "Running":
 		info.PodsNotReady++
 	}
-	if maxRestarts >= 10 {
+	// restartCount is cumulative over the pod's lifetime; a pod that is currently
+	// fully ready has recovered, so its high count is historical, not active
+	// instability (live flapping shows up as CrashLoopBackOff / not-ready above).
+	if maxRestarts >= 10 && !fullyReady {
 		info.HighRestarts++
 	}
 	if pod.Terminating {
