@@ -74,8 +74,8 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 	info.CPUSec = procCPUSec(base)
 
 	// FD count and limit
-	info.FDCount, info.FDLimit = procFDInfo(base)
-	if info.FDLimit > 0 {
+	info.FDCount, info.FDLimit, info.FDReadable = procFDInfo(base)
+	if info.FDReadable && info.FDLimit > 0 {
 		info.FDPressure = float64(info.FDCount)/float64(info.FDLimit) > 0.80
 	}
 
@@ -217,10 +217,11 @@ func procCPUSec(base string) float64 {
 }
 
 // procFDInfo returns (count, limit) for open file descriptors.
-func procFDInfo(base string) (count, limit int) {
+func procFDInfo(base string) (count, limit int, readable bool) {
 	fds, err := os.ReadDir(base + "/fd")
 	if err == nil {
 		count = len(fds)
+		readable = true
 	}
 	// Limit from /proc/PID/limits
 	if data, err := os.ReadFile(base + "/limits"); err == nil { // #nosec G304
@@ -309,6 +310,14 @@ func procUser(base string) string {
 
 // collectOpenFiles reads /proc/PID/fd symlinks and categorises each entry.
 // Returns a set of socket inodes for connection lookup.
+// isSharedLib reports whether path points at a shared object, matching on the
+// base name so a versioned (libfoo.so.6) or unversioned (libfoo.so) library is
+// recognised regardless of the directory it lives in.
+func isSharedLib(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasSuffix(base, ".so") || strings.Contains(base, ".so.")
+}
+
 func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 	inodes := map[string]bool{}
 	fdDir := base + "/fd"
@@ -326,6 +335,10 @@ func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 
 		pf := models.ProcOpenFile{FD: fd, Target: target}
 		pf.Deleted = strings.Contains(target, "(deleted)")
+		// readlink target for a deleted file is "<path> (deleted)"; strip the
+		// suffix before classifying so an unversioned ".so (deleted)" still
+		// matches and isn't silently filed under the generic "/" case.
+		cleanTarget := strings.TrimSuffix(target, " (deleted)")
 
 		switch {
 		case strings.HasPrefix(target, "socket:["):
@@ -334,11 +347,11 @@ func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 			inodes[inode] = true
 			info.SocketCount++
 			// Check for deleted .so files (important signal: updated package, stale process)
-		case strings.HasSuffix(target, ".so") || strings.Contains(target, ".so."):
+		case isSharedLib(cleanTarget):
 			pf.Type = "file"
 			info.FileCount++
 			if pf.Deleted {
-				info.DeletedLibs = append(info.DeletedLibs, filepath.Base(target))
+				info.DeletedLibs = append(info.DeletedLibs, filepath.Base(cleanTarget))
 			}
 		case strings.HasPrefix(target, "pipe:["):
 			pf.Type = "pipe"
