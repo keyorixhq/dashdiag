@@ -39,9 +39,17 @@ func TestParseVLANConfig(t *testing.T) {
 
 // ── iSCSI tests ─────────────────────────────────────────────────────────────
 
-const iscsiadmOutput = `tcp: [1] 10.0.0.1:3260,1 iqn.2019-01.com.example:storage1 (non-flash)
-tcp: [2] 10.0.0.2:3260,2 iqn.2019-01.com.example:storage2 (non-flash)
-tcp: [3] [fe80::1]:3260,1 iqn.2019-01.com.example:storage3 (non-flash)
+// `iscsiadm -m session -P 1` form, exercising portal-tag stripping (",1"/",2") and
+// an IPv6 portal whose address colons must survive.
+const iscsiadmOutput = `Target: iqn.2019-01.com.example:storage1 (non-flash)
+	Current Portal: 10.0.0.1:3260,1
+		iSCSI Session State: LOGGED_IN
+Target: iqn.2019-01.com.example:storage2 (non-flash)
+	Current Portal: 10.0.0.2:3260,2
+		iSCSI Session State: LOGGED_IN
+Target: iqn.2019-01.com.example:storage3 (non-flash)
+	Current Portal: [fe80::1]:3260,1
+		iSCSI Session State: LOGGED_IN
 `
 
 func TestParseISCSISessions(t *testing.T) {
