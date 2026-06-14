@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-06-14
+
+k8s node-diagnostics overhaul, validated end-to-end against a real k3s cluster: the
+checks now understand k3s's layout, the OS-layer verdict actually surfaces in
+`health deep`, and the KUBE-FORWARD check no longer false-OKs when it can't be read.
+
 ### Added
 
 - **`dsd health deep` now surfaces the k8s OS-layer node diagnostics** — CNI plugins,
