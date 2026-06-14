@@ -24,7 +24,7 @@ func (c *HBACollector) Timeout() time.Duration { return 4 * time.Second }
 func (c *HBACollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.HBAInfo{}
 
-	hosts, err := filepath.Glob("/sys/class/fc_host/host*")
+	hosts, err := glob("/sys/class/fc_host/host*")
 	if err != nil || len(hosts) == 0 {
 		return info, nil
 	}
@@ -38,7 +38,7 @@ func (c *HBACollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsHBAPresent returns true when any FC HBA is present.
 func IsHBAPresent() bool {
-	hosts, _ := filepath.Glob("/sys/class/fc_host/host*")
+	hosts, _ := glob("/sys/class/fc_host/host*")
 	return len(hosts) > 0
 }
 

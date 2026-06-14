@@ -33,7 +33,7 @@ func (c *DRBDCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.DRBDInfo{}
 
-	f, err := os.Open("/proc/drbd")
+	f, err := openFile("/proc/drbd")
 	if err != nil {
 		return nil, nil // DRBD module not loaded — absent, gate off (no phantom row)
 	}

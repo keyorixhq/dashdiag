@@ -101,7 +101,7 @@ func anyProcessNamedIn(procDir string, names ...string) bool {
 		if _, err := strconv.Atoi(e.Name()); err != nil {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(procDir, e.Name(), "comm")) // #nosec G304 -- /proc/<pid>/comm
+		data, err := readFile(filepath.Join(procDir, e.Name(), "comm")) // #nosec G304 -- /proc/<pid>/comm
 		if err != nil {
 			continue // process exited or comm unreadable — skip
 		}
@@ -178,7 +178,7 @@ func scanCrontabQuality() []models.CronJob {
 // parseCrontabFile reads a crontab file and checks each job line for quality issues.
 // Returns at most one CronJob entry per file (deduplicating issues across lines).
 func parseCrontabFile(path, source string) []models.CronJob {
-	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- known cron paths
+	data, err := readFile(filepath.Clean(path)) // #nosec G304 -- known cron paths
 	if err != nil {
 		return nil
 	}
@@ -298,7 +298,7 @@ func scanCronFailures(ctx context.Context) []models.CronFailure {
 
 	// Also check syslog-style files
 	for _, logPath := range []string{"/var/log/cron", "/var/log/cron.log", "/var/log/syslog"} {
-		data, err := os.ReadFile(filepath.Clean(logPath)) // #nosec G304 -- known log paths
+		data, err := readFile(filepath.Clean(logPath)) // #nosec G304 -- known log paths
 		if err != nil {
 			continue
 		}
@@ -423,7 +423,7 @@ func checkAnacronStaleness() []models.AnacronJob {
 	var jobs []models.AnacronJob
 	for _, p := range periods {
 		path := "/var/spool/anacron/cron." + p.name
-		data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304
+		data, err := readFile(filepath.Clean(path)) // #nosec G304
 		if err != nil {
 			jobs = append(jobs, models.AnacronJob{Name: p.name, LastRunH: -1})
 			continue

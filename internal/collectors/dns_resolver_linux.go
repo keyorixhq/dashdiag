@@ -39,7 +39,7 @@ func (c *DNSResolverCollector) Collect(ctx context.Context) (interface{}, error)
 		if status, err := runResolvectl(ctx, "status"); err == nil {
 			parseResolvectlStatus(status, info)
 		}
-		if f, err := os.Open("/etc/systemd/resolved.conf"); err == nil {
+		if f, err := openFile("/etc/systemd/resolved.conf"); err == nil {
 			info.DNSSECConfigured = parseResolvedConfDNSSEC(f)
 			f.Close() //nolint:errcheck
 		}
@@ -359,7 +359,7 @@ func parseNmcliDNS(out string) []string {
 
 // resolvConfNameservers reads nameserver lines directly from /etc/resolv.conf.
 func resolvConfNameservers() []string {
-	data, err := os.ReadFile("/etc/resolv.conf") // #nosec G304 -- hardcoded system file
+	data, err := readFile("/etc/resolv.conf") // #nosec G304 -- hardcoded system file
 	if err != nil {
 		return nil
 	}
@@ -435,7 +435,7 @@ func isVPNInterfaceName(name string) bool {
 // WireGuard links report "unknown" while fully functional, so only "down" is
 // treated as inactive.
 func vpnInterfaceUp(name string) bool {
-	data, err := os.ReadFile("/sys/class/net/" + name + "/operstate") // #nosec G304 -- iface name from sysfs listing
+	data, err := readFile("/sys/class/net/" + name + "/operstate") // #nosec G304 -- iface name from sysfs listing
 	if err != nil {
 		return true // exists but no operstate — assume up (tun devices)
 	}

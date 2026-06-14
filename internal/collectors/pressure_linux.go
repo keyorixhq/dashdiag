@@ -72,7 +72,7 @@ func IsPSIAvailable() bool {
 }
 
 func readPSIFile(path string) ([]models.PSILine, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return nil, err
 	}

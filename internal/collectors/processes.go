@@ -49,7 +49,7 @@ func pidFromDir(dir string) int {
 }
 
 func readWchan(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", pid))
+	data, err := readFile(fmt.Sprintf("/proc/%d/wchan", pid))
 	if err != nil {
 		return ""
 	}
@@ -57,7 +57,7 @@ func readWchan(pid int) string {
 }
 
 func readComm(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid)) // #nosec G703 -- pid is an integer from /proc glob, not user input
+	data, err := readFile(fmt.Sprintf("/proc/%d/comm", pid)) // #nosec G703 -- pid is an integer from /proc glob, not user input
 	if err != nil {
 		return ""
 	}
@@ -72,7 +72,7 @@ func (c *ProcessesCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
-	dirs, err := filepath.Glob("/proc/[0-9]*")
+	dirs, err := glob("/proc/[0-9]*")
 	if err != nil {
 		return nil, fmt.Errorf("globbing /proc: %w", err)
 	}
@@ -84,7 +84,7 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 	}
 	selfPID := os.Getpid()
 	for _, dir := range dirs {
-		data, err := os.ReadFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from filepath.Glob("/proc/[0-9]*"), not user input
+		data, err := readFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from glob("/proc/[0-9]*"), not user input
 		if err != nil {
 			continue
 		}

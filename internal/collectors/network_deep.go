@@ -3,7 +3,6 @@ package collectors
 import (
 	"context"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -114,7 +113,7 @@ func jitterStddev(values []float64) float64 {
 // TimeWait (sockstat) is a live snapshot, not cumulative.
 func parseTCPCounters(info *models.NetworkInfo) {
 	// /proc/net/sockstat: current socket counts including TIME_WAIT
-	if data, err := os.ReadFile("/proc/net/sockstat"); err == nil {
+	if data, err := readFile("/proc/net/sockstat"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "TCP:") {
 				fields := strings.Fields(line)
@@ -131,7 +130,7 @@ func parseTCPCounters(info *models.NetworkInfo) {
 	}
 
 	// /proc/net/netstat: TcpExt counters — two rows: header then values
-	data, err := os.ReadFile("/proc/net/netstat")
+	data, err := readFile("/proc/net/netstat")
 	if err != nil {
 		return
 	}
@@ -165,15 +164,15 @@ func parseTCPCounters(info *models.NetworkInfo) {
 
 	// /proc/uptime — first field is seconds since boot; lets the heuristics turn the
 	// cumulative TcpExt counters above into a per-hour rate instead of a raw total.
-	if up, err := os.ReadFile("/proc/uptime"); err == nil {
+	if up, err := readFile("/proc/uptime"); err == nil {
 		if f := strings.Fields(string(up)); len(f) > 0 {
 			info.UptimeSec, _ = strconv.ParseFloat(f[0], 64)
 		}
 	}
 
 	// /proc/sys/net/netfilter/nf_conntrack_{count,max} — optional, needs nf_conntrack module
-	countData, err1 := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_count")
-	maxData, err2 := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max")
+	countData, err1 := readFile("/proc/sys/net/netfilter/nf_conntrack_count")
+	maxData, err2 := readFile("/proc/sys/net/netfilter/nf_conntrack_max")
 	if err1 == nil && err2 == nil {
 		count, _ := strconv.Atoi(strings.TrimSpace(string(countData)))
 		max, _ := strconv.Atoi(strings.TrimSpace(string(maxData)))

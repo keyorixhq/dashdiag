@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +36,7 @@ func (c *EntropyCollector) Collect(_ context.Context) (interface{}, error) {
 }
 
 func readProcInt(path string) (int, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- path is a hardcoded /proc constant
+	data, err := readFile(path) // #nosec G304 -- path is a hardcoded /proc constant
 	if err != nil {
 		return 0, err
 	}

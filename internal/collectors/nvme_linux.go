@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,7 +26,7 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NVMeInfo{}
 
 	// Find all NVMe controllers
-	controllers, _ := filepath.Glob("/sys/class/nvme/nvme*")
+	controllers, _ := glob("/sys/class/nvme/nvme*")
 	for _, ctrl := range controllers {
 		// Only controllers (nvme0, nvme10, …) — skip namespaces (nvme0n1) and
 		// multipath instances (nvme0c0n1).
@@ -146,7 +145,7 @@ func nvmeMountPoints(ctrlBase string) ([]string, bool) {
 	// ctrlBase is like "/sys/class/nvme/nvme0" → device prefix is "nvme0"
 	devPrefix := filepath.Base(ctrlBase) // "nvme0"
 
-	data, err := os.ReadFile("/proc/mounts")
+	data, err := readFile("/proc/mounts")
 	if err != nil {
 		return nil, false
 	}
@@ -183,7 +182,7 @@ func nvmeMountPoints(ctrlBase string) ([]string, bool) {
 }
 
 func readFileStr(path string) string {
-	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path from sysfs glob
+	data, err := readFile(filepath.Clean(path)) // #nosec G304 -- path from sysfs glob
 	if err != nil {
 		return ""
 	}

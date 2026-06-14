@@ -106,7 +106,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 		"/etc/ssh/sshd_config.d/*.conf",
 		"/etc/ssh/sshd_config.d/*.cfg",
 	} {
-		if files, err := filepath.Glob(pattern); err == nil {
+		if files, err := glob(pattern); err == nil {
 			for _, f := range files {
 				if parseSSHFile(f, info) {
 					readAny = true
@@ -125,7 +125,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 // say "couldn't audit SSH" instead of silently reporting the secure defaults as
 // real (false-OK); a not-found file just means no SSH config there.
 func parseSSHFile(path string, info *models.SecurityInfo) bool {
-	f, err := os.Open(path) // #nosec G304 -- only reads well-known config paths
+	f, err := openFile(path) // #nosec G304 -- only reads well-known config paths
 	if err != nil {
 		if os.IsPermission(err) {
 			info.SSHConfigUnreadable = true
@@ -319,7 +319,7 @@ func parseFailedLogins(info *models.SecurityInfo) {
 		return
 	}
 
-	f, err := os.Open(logPath) // #nosec G304 -- hardcoded known paths
+	f, err := openFile(logPath) // #nosec G304 -- hardcoded known paths
 	if err != nil {
 		return // requires root
 	}
@@ -437,7 +437,7 @@ func parseListeningPorts(info *models.SecurityInfo) {
 }
 
 func parseProcNetTCP(path string, info *models.SecurityInfo) {
-	f, err := os.Open(path) // #nosec G304 -- hardcoded /proc path
+	f, err := openFile(path) // #nosec G304 -- hardcoded /proc path
 	if err != nil {
 		return
 	}
@@ -508,7 +508,7 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 // Returns the map and a bool indicating whether root-level fd access was available.
 func buildInodeProcMap() (map[string]string, bool) {
 	result := make(map[string]string)
-	dirs, err := filepath.Glob("/proc/[0-9]*/fd")
+	dirs, err := glob("/proc/[0-9]*/fd")
 	if err != nil {
 		return result, false
 	}
@@ -519,7 +519,7 @@ func buildInodeProcMap() (map[string]string, bool) {
 			continue
 		}
 		pid := parts[2]
-		comm, err := os.ReadFile("/proc/" + pid + "/comm") // #nosec G304
+		comm, err := readFile("/proc/" + pid + "/comm") // #nosec G304
 		if err != nil {
 			continue
 		}
@@ -568,7 +568,7 @@ func isExpectedPort(port int) bool {
 // parseSudoers scans /etc/sudoers and /etc/sudoers.d/ for NOPASSWD entries.
 func parseSudoers(info *models.SecurityInfo) {
 	paths := []string{"/etc/sudoers"}
-	if entries, err := filepath.Glob("/etc/sudoers.d/*"); err == nil {
+	if entries, err := glob("/etc/sudoers.d/*"); err == nil {
 		paths = append(paths, entries...)
 	}
 	for _, p := range paths {
@@ -577,7 +577,7 @@ func parseSudoers(info *models.SecurityInfo) {
 }
 
 func parseSudoersFile(path string, info *models.SecurityInfo) {
-	f, err := os.Open(filepath.Clean(path))
+	f, err := openFile(filepath.Clean(path))
 	if err != nil {
 		return
 	}
@@ -622,7 +622,7 @@ func sudoGrantsAllCommands(line string) bool {
 // parseSELinuxDenials reads the audit log directly for recent AVC denials.
 func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 	// Check if SELinux is active
-	mode, err := os.ReadFile("/sys/fs/selinux/enforce") // #nosec G304
+	mode, err := readFile("/sys/fs/selinux/enforce") // #nosec G304
 	if err != nil {
 		return // SELinux not present
 	}
@@ -851,7 +851,7 @@ func collectPAMLockedAccounts(ctx context.Context) []string {
 // parseUID0Users scans /etc/passwd for non-root accounts with UID 0.
 // Only root should have UID 0. Any other UID-0 account is a critical finding.
 func parseUID0Users(info *models.SecurityInfo) {
-	data, err := os.ReadFile("/etc/passwd") // #nosec G304
+	data, err := readFile("/etc/passwd") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -897,7 +897,7 @@ func parseSuspectCrons(info *models.SecurityInfo) {
 				continue
 			}
 			path := filepath.Join(dir, e.Name())
-			data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- hardcoded dirs
+			data, err := readFile(filepath.Clean(path)) // #nosec G304 -- hardcoded dirs
 			if err != nil {
 				continue
 			}
@@ -1085,9 +1085,9 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 	}
 	// Fallback: nft binary missing — infer from on-disk config. We can't read
 	// the ruleset here, so leave SSH reachability conservatively "allowed".
-	entries, _ := filepath.Glob("/etc/nftables.conf")
+	entries, _ := glob("/etc/nftables.conf")
 	if len(entries) == 0 {
-		entries, _ = filepath.Glob("/etc/nftables.d/*.nft")
+		entries, _ = glob("/etc/nftables.d/*.nft")
 	}
 	if len(entries) > 0 {
 		info.FirewallActive = true
@@ -1231,7 +1231,7 @@ func parseRHELSecurity(ctx context.Context, info *models.SecurityInfo) {
 // parseFIPS checks /proc/sys/crypto/fips_enabled.
 // Returns silently on non-RHEL systems where the file doesn't exist.
 func parseFIPS(info *models.SecurityInfo) {
-	data, err := os.ReadFile("/proc/sys/crypto/fips_enabled") // #nosec G304
+	data, err := readFile("/proc/sys/crypto/fips_enabled") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -1242,7 +1242,7 @@ func parseFIPS(info *models.SecurityInfo) {
 // RHEL/Rocky uses /etc/crypto-policies/config (DEFAULT, LEGACY, FUTURE, FIPS).
 func parseCryptoPolicy(ctx context.Context, info *models.SecurityInfo) {
 	// Prefer reading the config file directly — no subprocess needed
-	if data, err := os.ReadFile("/etc/crypto-policies/config"); err == nil { // #nosec G304
+	if data, err := readFile("/etc/crypto-policies/config"); err == nil { // #nosec G304
 		policy := strings.TrimSpace(string(data))
 		if policy != "" {
 			info.CryptoPolicy = policy
@@ -1257,7 +1257,7 @@ func parseCryptoPolicy(ctx context.Context, info *models.SecurityInfo) {
 
 // parseUSBGuard checks if usbguard service is active.
 func parseUSBGuard(info *models.SecurityInfo) {
-	data, err := os.ReadFile("/sys/class/usb_device") // #nosec G304
+	data, err := readFile("/sys/class/usb_device") // #nosec G304
 	_ = data
 	// usbguard detection: check if the service unit exists and is active
 	if _, err2 := os.Stat("/usr/sbin/usbguard"); err2 == nil {
@@ -1371,7 +1371,7 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	}
 
 	for _, pattern := range patterns {
-		matches, err := filepath.Glob(pattern)
+		matches, err := glob(pattern)
 		if err != nil {
 			continue
 		}
@@ -1493,7 +1493,7 @@ func (c *SecurityCollector) isOffensiveDistro() bool {
 
 // isOffensiveDistro is the zero-profile fallback: a direct os-release read.
 func isOffensiveDistro() bool {
-	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	data, err := readFile("/etc/os-release") // #nosec G304
 	if err != nil {
 		return false
 	}
@@ -1516,14 +1516,14 @@ func isOffensiveDistro() bool {
 // password="" → empty password
 // max field = 99999 or 0 → password never expires
 func parsePasswordAging(info *models.SecurityInfo) {
-	shadow, err := os.ReadFile("/etc/shadow") // #nosec G304 -- hardcoded system file, root only
+	shadow, err := readFile("/etc/shadow") // #nosec G304 -- hardcoded system file, root only
 	if err != nil {
 		return // requires root — silent skip
 	}
 
 	// Build UID lookup from /etc/passwd to filter human accounts
 	humanAccounts := map[string]bool{}
-	if passwd, err := os.ReadFile("/etc/passwd"); err == nil { // #nosec G304
+	if passwd, err := readFile("/etc/passwd"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(passwd), "\n") {
 			fields := strings.SplitN(line, ":", 4)
 			if len(fields) < 4 {
@@ -1589,7 +1589,7 @@ func parseWorldWritable(info *models.SecurityInfo) {
 // (scontext_type, tcontext_type, tclass) — the unit an admin acts on.
 // For each group it attempts to find a getsebool fix or semanage/chcon command.
 func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxAVCGroup {
-	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304 -- hardcoded audit log path
+	f, err := openFile("/var/log/audit/audit.log") // #nosec G304 -- hardcoded audit log path
 	if err != nil {
 		return nil
 	}

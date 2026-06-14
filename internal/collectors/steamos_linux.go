@@ -128,7 +128,7 @@ func collectSteamOSDisk() *models.SteamOSDisk {
 
 	// Offload bind mounts: target dir must exist AND the path must be a mount.
 	mounts := map[string]bool{}
-	if data, err := os.ReadFile("/proc/mounts"); err == nil {
+	if data, err := readFile("/proc/mounts"); err == nil {
 		mounts = parseMountPointSet(string(data))
 	}
 	for _, bm := range []models.SteamOSBindMount{
@@ -203,7 +203,7 @@ func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
 
 // steamHostUptimeSeconds returns system uptime from /proc/uptime (0 on error).
 func steamHostUptimeSeconds() float64 {
-	data, err := os.ReadFile("/proc/uptime")
+	data, err := readFile("/proc/uptime")
 	if err != nil {
 		return 0
 	}
@@ -222,7 +222,7 @@ const secureBootEfivar = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d
 // ── Device identity (Spec 17a) ─────────────────────────────────────────────
 
 func (c *SteamOSCollector) collectDevice(info *models.SteamOSInfo) {
-	if data, err := os.ReadFile("/sys/class/dmi/id/product_name"); err == nil {
+	if data, err := readFile("/sys/class/dmi/id/product_name"); err == nil {
 		info.DeviceProductRaw = strings.TrimSpace(string(data))
 	}
 	name, recognised, isDeck := mapSteamOSDevice(info.DeviceProductRaw)
@@ -235,7 +235,7 @@ func (c *SteamOSCollector) collectDevice(info *models.SteamOSInfo) {
 		return
 	}
 	info.SecureBootApplicable = true
-	if data, err := os.ReadFile(secureBootEfivar); err == nil { // #nosec G304 — fixed path
+	if data, err := readFile(secureBootEfivar); err == nil { // #nosec G304 — fixed path
 		if enabled, ok := parseSecureBootVar(data); ok {
 			info.SecureBootEnabled = &enabled
 		}
@@ -246,12 +246,12 @@ func (c *SteamOSCollector) collectDevice(info *models.SteamOSInfo) {
 // ── System / channel / readonly ──────────────────────────────────────────
 
 func (c *SteamOSCollector) collectSystem(ctx context.Context, info *models.SteamOSInfo) {
-	if data, err := os.ReadFile("/etc/os-release"); err == nil {
+	if data, err := readFile("/etc/os-release"); err == nil {
 		info.BuildID = osReleaseValue(string(data), "BUILD_ID")
 	}
 
 	const confPath = "/etc/steamos-atomupd/client.conf"
-	if data, err := os.ReadFile(confPath); err == nil {
+	if data, err := readFile(confPath); err == nil {
 		info.ChannelRaw, info.Channel = parseSteamOSChannel(string(data))
 	} else if os.IsNotExist(err) {
 		info.ChannelConfigMissing = true

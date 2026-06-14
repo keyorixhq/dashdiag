@@ -257,7 +257,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 // hasNvidiaCard returns true when an NVIDIA GPU is present in the system
 // via /sys/class/drm sysfs — works even without the proprietary driver loaded.
 func hasNvidiaCard() bool {
-	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
+	cards, _ := glob("/sys/class/drm/card[0-9]")
 	for _, card := range cards {
 		vendor := strings.TrimSpace(readSysfsStr(card + "/device/vendor"))
 		if strings.EqualFold(vendor, "0x10de") {
@@ -271,7 +271,7 @@ func hasNvidiaCard() bool {
 // (0x1002). The order is the glob order and is reused to align the async busy
 // sample with the collected devices.
 func amdCardPaths() []string {
-	cards, err := filepath.Glob("/sys/class/drm/card[0-9]")
+	cards, err := glob("/sys/class/drm/card[0-9]")
 	if err != nil {
 		return nil
 	}
@@ -368,7 +368,7 @@ func collectAMDGPUs(cards []string, deep bool) []models.GPUDevice {
 // hwmon temperature and, where present, power1_input. Clock and VRAM require
 // debugfs + root and are skipped.
 func collectIntelGPUs() []models.GPUDevice {
-	cards, err := filepath.Glob("/sys/class/drm/card[0-9]")
+	cards, err := glob("/sys/class/drm/card[0-9]")
 	if err != nil {
 		return nil
 	}
@@ -519,7 +519,7 @@ func readSysfsMicroW(pattern string) float64 {
 // proprietary nvidia module (i.e. nvidia-smi won't work).
 // Returns entries for: nouveau-bound, no-driver-at-all, or vfio-bound.
 func detectNvidiaWithoutSMI() []models.GPUDetected {
-	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]")
+	cards, _ := glob("/sys/class/drm/card[0-9]")
 	var found []models.GPUDetected
 	for _, card := range cards {
 		devPath := card + "/device"

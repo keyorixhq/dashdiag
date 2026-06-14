@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,7 @@ import (
 // /proc/mdstat always exists on Linux, but only contains array entries
 // when md devices are configured. We check for any "md" device line.
 func IsRAIDPresent() bool {
-	data, err := os.ReadFile("/proc/mdstat")
+	data, err := readFile("/proc/mdstat")
 	if err != nil {
 		return false
 	}
@@ -41,7 +40,7 @@ func (c *RAIDCollector) Name() string           { return "RAID" }
 func (c *RAIDCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
-	f, err := os.Open("/proc/mdstat")
+	f, err := openFile("/proc/mdstat")
 	if err != nil {
 		// mdstat not present — no RAID configured, silent OK
 		return &models.RAIDInfo{}, nil

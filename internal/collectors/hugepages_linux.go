@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +24,7 @@ func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.HugePagesInfo{Available: true}
 
 	// Read /proc/meminfo for huge page stats
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := readFile("/proc/meminfo")
 	if err != nil {
 		return info, nil
 	}
@@ -58,7 +57,7 @@ func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 	}
 
 	// Transparent huge pages — /sys/kernel/mm/transparent_hugepage/enabled
-	thpData, err := os.ReadFile("/sys/kernel/mm/transparent_hugepage/enabled")
+	thpData, err := readFile("/sys/kernel/mm/transparent_hugepage/enabled")
 	if err == nil {
 		thpStr := strings.TrimSpace(string(thpData))
 		// Format: "always [madvise] never" — bracketed value is active
@@ -78,7 +77,7 @@ func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsHugePagesConfigured returns true when static huge pages are reserved.
 func IsHugePagesConfigured() bool {
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := readFile("/proc/meminfo")
 	if err != nil {
 		return false
 	}

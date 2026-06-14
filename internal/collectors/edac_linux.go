@@ -36,7 +36,7 @@ func readEDACCountsFrom(edacRoot string) (available bool, corrected, uncorrected
 }
 
 func readEDACCounter(path string) int64 {
-	b, err := os.ReadFile(path) // #nosec G304 -- hardcoded /sys EDAC path
+	b, err := readFile(path) // #nosec G304 -- hardcoded /sys EDAC path
 	if err != nil {
 		return 0
 	}

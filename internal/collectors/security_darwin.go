@@ -70,7 +70,7 @@ func parseDarwinSSHConfig(info *models.SecurityInfo) {
 	info.SSHPasswordAuth = true // PasswordAuthentication yes (macOS default)
 
 	paths := []string{"/etc/ssh/sshd_config"}
-	if dropins, err := filepath.Glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
+	if dropins, err := glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
 		paths = append(paths, dropins...)
 	}
 	for _, p := range paths {
@@ -81,7 +81,7 @@ func parseDarwinSSHConfig(info *models.SecurityInfo) {
 // parseDarwinSSHFile parses the SSH keys that drive checkSecurity() heuristics.
 // It deliberately covers only those keys — not a full sshd_config parse.
 func parseDarwinSSHFile(path string, info *models.SecurityInfo) {
-	data, err := os.ReadFile(path) // #nosec G304 -- well-known config path
+	data, err := readFile(path) // #nosec G304 -- well-known config path
 	if err != nil {
 		return
 	}
@@ -167,7 +167,7 @@ func isDarwinExpectedPort(port int) bool {
 func parseDarwinSudoers(info *models.SecurityInfo) {
 	paths := []string{"/etc/sudoers", "/private/etc/sudoers"}
 	for _, p := range []string{"/private/etc/sudoers.d", "/etc/sudoers.d"} {
-		if entries, err := filepath.Glob(p + "/*"); err == nil {
+		if entries, err := glob(p + "/*"); err == nil {
 			paths = append(paths, entries...)
 		}
 	}
@@ -182,7 +182,7 @@ func parseDarwinSudoers(info *models.SecurityInfo) {
 }
 
 func parseDarwinSudoersFile(path string, info *models.SecurityInfo) {
-	f, err := os.Open(filepath.Clean(path)) // #nosec G304
+	f, err := openFile(filepath.Clean(path)) // #nosec G304
 	if err != nil {
 		return
 	}
@@ -266,7 +266,7 @@ func parseDarwinSuspectLaunchd(ctx context.Context, info *models.SecurityInfo) {
 				continue
 			}
 			path := filepath.Join(dir, e.Name())
-			data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304
+			data, err := readFile(filepath.Clean(path)) // #nosec G304
 			if err != nil {
 				continue
 			}

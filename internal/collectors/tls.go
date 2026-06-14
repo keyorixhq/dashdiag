@@ -107,7 +107,7 @@ func expiryDays(notAfter, now time.Time) int {
 
 // parseCertFile reads a PEM file and extracts certificate expiry info.
 func parseCertFile(path string, now time.Time) []models.CertInfo {
-	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path from hardcoded list
+	data, err := readFile(filepath.Clean(path)) // #nosec G304 -- path from hardcoded list
 	if err != nil {
 		return nil
 	}

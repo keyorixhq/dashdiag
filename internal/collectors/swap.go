@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -33,7 +32,7 @@ func NewSwapCollector(ctx platform.ContainerContext) *SwapCollector {
 		ContainerCtx: ctx,
 		swapsPath:    "/proc/swaps",
 		readers: swapReaders{
-			vmstatOpen: func() (io.ReadCloser, error) { return os.Open("/proc/vmstat") },
+			vmstatOpen: func() (io.ReadCloser, error) { return openFile("/proc/vmstat") },
 		},
 	}
 }
@@ -124,7 +123,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// /proc/swaps for totals
-	sf, err := os.Open(c.swapsPath)
+	sf, err := openFile(c.swapsPath)
 	if err == nil {
 		totalKB, usedKB, _ := parseSwaps(sf)
 		_ = sf.Close()
@@ -139,18 +138,18 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 	// mm_stat fields (space-separated): orig_data_size compr_data_size
 	// mem_used_total mem_limit mem_used_max same_pages pages_compacted huge_pages
 	// ZramUsedPct = orig_data_size / disksize * 100 (how full the swap device is).
-	zrams, _ := filepath.Glob("/sys/block/zram*")
+	zrams, _ := glob("/sys/block/zram*")
 	info.ZramDevices = len(zrams)
 	var zramTotalBytes, zramOrigBytes uint64
 	for _, dev := range zrams {
 		// disksize: configured capacity of this zram device.
-		if dsData, err := os.ReadFile(filepath.Join(dev, "disksize")); err == nil {
+		if dsData, err := readFile(filepath.Join(dev, "disksize")); err == nil {
 			if ds, err := strconv.ParseUint(strings.TrimSpace(string(dsData)), 10, 64); err == nil {
 				zramTotalBytes += ds
 			}
 		}
 		// mm_stat field 0: orig_data_size (uncompressed bytes currently stored).
-		if mmData, err := os.ReadFile(filepath.Join(dev, "mm_stat")); err == nil {
+		if mmData, err := readFile(filepath.Join(dev, "mm_stat")); err == nil {
 			fields := strings.Fields(string(mmData))
 			if len(fields) >= 1 {
 				if orig, err := strconv.ParseUint(fields[0], 10, 64); err == nil {

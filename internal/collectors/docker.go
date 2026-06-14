@@ -507,7 +507,7 @@ var timeNow = func() time.Time { return time.Now() }
 // Docker silently falls back to 8.8.8.8 which is often blocked by corporate firewalls.
 // Spec 7g.
 func collectDNSTrap(ctx context.Context, client *http.Client, info *models.DockerInfo) {
-	data, err := os.ReadFile("/etc/resolv.conf") // #nosec G304
+	data, err := readFile("/etc/resolv.conf") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -582,7 +582,7 @@ func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo
 	ld := &models.DockerLogDriverInfo{}
 
 	// Read daemon.json
-	data, err := os.ReadFile("/etc/docker/daemon.json") // #nosec G304
+	data, err := readFile("/etc/docker/daemon.json") // #nosec G304
 	if err == nil {
 		ld.DaemonJSONExists = true
 		var cfg struct {
@@ -884,7 +884,7 @@ func (c *DockerCollector) isRHEL10Plus() bool {
 // compatible distro at major version 10 or above.
 // Reads /etc/os-release which is present on all modern Linux distros.
 func isRHEL10Plus() bool {
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := readFile("/etc/os-release")
 	if err != nil {
 		return false
 	}
@@ -1109,7 +1109,7 @@ func collectNetworkHealth(ctx context.Context, client *http.Client, info *models
 // keys off IPForwardChecked so an unreadable path reads as "unknown", not a false
 // "disabled" CRIT.
 func collectIPForwarding(info *models.DockerInfo) {
-	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward") // #nosec G304
+	data, err := readFile("/proc/sys/net/ipv4/ip_forward") // #nosec G304
 	if err != nil {
 		return // not Linux or not readable — leave IPForwardChecked false
 	}
@@ -1127,7 +1127,7 @@ func collectFirewalldCheck(ctx context.Context, info *models.DockerInfo) {
 	info.FirewalldActive = true
 
 	// Read backend from /etc/firewalld/firewalld.conf
-	data, err := os.ReadFile("/etc/firewalld/firewalld.conf") // #nosec G304
+	data, err := readFile("/etc/firewalld/firewalld.conf") // #nosec G304
 	if err == nil {
 		info.FirewalldBackend = "nftables" // default on modern systems
 		for _, line := range strings.Split(string(data), "\n") {
@@ -1147,7 +1147,7 @@ func collectFirewalldCheck(ctx context.Context, info *models.DockerInfo) {
 
 func detectNetworkBackend(runtime string) string {
 	// Netavark creates an 'inet netavark' nftables table
-	if data, err := os.ReadFile("/proc/net/nf_conntrack_stat"); err == nil {
+	if data, err := readFile("/proc/net/nf_conntrack_stat"); err == nil {
 		_ = data // nftables is loaded
 	}
 	// Check for netavark nft table via /run/netavark or nft list tables
@@ -1222,7 +1222,7 @@ func getHostMTU() int {
 		if skip {
 			continue
 		}
-		mtuData, err := os.ReadFile("/sys/class/net/" + name + "/mtu") // #nosec G304
+		mtuData, err := readFile("/sys/class/net/" + name + "/mtu") // #nosec G304
 		if err != nil {
 			continue
 		}

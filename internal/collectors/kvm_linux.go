@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -168,7 +167,7 @@ func kvmCheckDiskErrors(ctx context.Context, vm *models.KVMVM) {
 // kvmReadLastLogError reads the last error line from /var/log/libvirt/qemu/<name>.log.
 func kvmReadLastLogError(vm *models.KVMVM) {
 	logPath := filepath.Join("/var/log/libvirt/qemu", vm.Name+".log")
-	f, err := os.Open(logPath) // #nosec G304
+	f, err := openFile(logPath) // #nosec G304
 	if err != nil {
 		return
 	}
@@ -349,7 +348,7 @@ func KVMAvailable() bool {
 // pveHasRunningQEMU reports whether any Proxmox VE QEMU guest is running, by
 // the presence of at least one <vmid>.pid file in /var/run/qemu-server/.
 func pveHasRunningQEMU() bool {
-	matches, _ := filepath.Glob(filepath.Join(pveQEMUDir, "*.pid"))
+	matches, _ := glob(filepath.Join(pveQEMUDir, "*.pid"))
 	return len(matches) > 0
 }
 
@@ -357,7 +356,7 @@ func pveHasRunningQEMU() bool {
 // files Proxmox writes to dir (normally /var/run/qemu-server/<vmid>.pid).
 // A guest counts as running when its pid file points to a live "kvm" process.
 func kvmCollectPVEFromDir(dir string, info *models.KVMInfo) {
-	matches, _ := filepath.Glob(filepath.Join(dir, "*.pid"))
+	matches, _ := glob(filepath.Join(dir, "*.pid"))
 	if len(matches) == 0 {
 		return
 	}
@@ -376,7 +375,7 @@ func kvmCollectPVEFromDir(dir string, info *models.KVMInfo) {
 
 // readPVEVMPid reads a Proxmox <vmid>.pid file and returns the contained pid.
 func readPVEVMPid(path string) (int, bool) {
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed /var/run/qemu-server path
+	data, err := readFile(path) // #nosec G304 -- fixed /var/run/qemu-server path
 	if err != nil {
 		return 0, false
 	}
@@ -390,7 +389,7 @@ func readPVEVMPid(path string) (int, bool) {
 // pveKVMProcessAlive confirms pid maps to a live process whose name is "kvm",
 // guarding against stale pid files and pid reuse.
 func pveKVMProcessAlive(pid int) bool {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status")) // #nosec G304
+	data, err := readFile(filepath.Join("/proc", strconv.Itoa(pid), "status")) // #nosec G304
 	if err != nil {
 		return false
 	}

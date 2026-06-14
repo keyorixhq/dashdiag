@@ -22,7 +22,7 @@ func (c *SRIOVCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.SRIOVInfo{}
 
 	// /sys/bus/pci/devices/*/sriov_numvfs — only PCI devices with SR-IOV capability
-	numvfsFiles, _ := filepath.Glob("/sys/bus/pci/devices/*/sriov_numvfs")
+	numvfsFiles, _ := glob("/sys/bus/pci/devices/*/sriov_numvfs")
 	if len(numvfsFiles) == 0 {
 		return info, nil
 	}
@@ -56,7 +56,7 @@ func (c *SRIOVCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsSRIOVPresent returns true when any SR-IOV capable device exists.
 func IsSRIOVPresent() bool {
-	files, _ := filepath.Glob("/sys/bus/pci/devices/*/sriov_totalvfs")
+	files, _ := glob("/sys/bus/pci/devices/*/sriov_totalvfs")
 	for _, f := range files {
 		v := strings.TrimSpace(readSysfsStr(f))
 		n, err := strconv.Atoi(v)

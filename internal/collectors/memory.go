@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -78,7 +77,7 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// Extended fields from /proc/meminfo
-	f, err := os.Open(c.meminfoPath)
+	f, err := openFile(c.meminfoPath)
 	if err != nil {
 		if runtime.GOOS == "darwin" {
 			info.SlabMB = -1

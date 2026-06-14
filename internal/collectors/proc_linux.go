@@ -53,7 +53,7 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 	parseProcStatus(base, info)
 
 	// Cmdline
-	if data, err := os.ReadFile(base + "/cmdline"); err == nil { // #nosec G304
+	if data, err := readFile(base + "/cmdline"); err == nil { // #nosec G304
 		info.Cmdline = strings.ReplaceAll(
 			strings.TrimRight(string(data), "\x00"), "\x00", " ")
 		if len(info.Cmdline) > 200 {
@@ -62,7 +62,7 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 	}
 
 	// wchan — kernel function the process is blocked on
-	if data, err := os.ReadFile(base + "/wchan"); err == nil { // #nosec G304
+	if data, err := readFile(base + "/wchan"); err == nil { // #nosec G304
 		info.WChan = strings.TrimSpace(string(data))
 	}
 	info.DState = info.State == "D"
@@ -87,14 +87,14 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 
 	// Parent name
 	if info.PPID > 0 {
-		if data, err := os.ReadFile(
+		if data, err := readFile(
 			fmt.Sprintf("/proc/%d/comm", info.PPID)); err == nil { // #nosec G304
 			info.ParentName = strings.TrimSpace(string(data))
 		}
 	}
 
 	// Cgroup (last path component for readability)
-	if data, err := os.ReadFile(base + "/cgroup"); err == nil { // #nosec G304
+	if data, err := readFile(base + "/cgroup"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
@@ -120,7 +120,7 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 
 // parseProcStatus reads /proc/PID/status for key fields.
 func parseProcStatus(base string, info *models.ProcInfo) {
-	data, err := os.ReadFile(base + "/status") // #nosec G304
+	data, err := readFile(base + "/status") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -155,7 +155,7 @@ func parseProcStatus(base string, info *models.ProcInfo) {
 
 // procUptimeSec returns process uptime in seconds using /proc/PID/stat + /proc/uptime.
 func procUptimeSec(base string) int {
-	data, err := os.ReadFile(base + "/stat") // #nosec G304
+	data, err := readFile(base + "/stat") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -176,7 +176,7 @@ func procUptimeSec(base string) int {
 	}
 
 	// System uptime from /proc/uptime
-	upData, err := os.ReadFile("/proc/uptime") // #nosec G304
+	upData, err := readFile("/proc/uptime") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -198,7 +198,7 @@ func procUptimeSec(base string) int {
 
 // procCPUSec returns total CPU time (user+system) in seconds.
 func procCPUSec(base string) float64 {
-	data, err := os.ReadFile(base + "/stat") // #nosec G304
+	data, err := readFile(base + "/stat") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -224,7 +224,7 @@ func procFDInfo(base string) (count, limit int, readable bool) {
 		readable = true
 	}
 	// Limit from /proc/PID/limits
-	if data, err := os.ReadFile(base + "/limits"); err == nil { // #nosec G304
+	if data, err := readFile(base + "/limits"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "Max open files") {
 				fields := strings.Fields(line)
@@ -244,10 +244,10 @@ func procMemMap(base string) *models.ProcMemMap {
 	m := &models.ProcMemMap{}
 
 	// Try smaps_rollup first (kernel 4.14+)
-	data, err := os.ReadFile(base + "/smaps_rollup") // #nosec G304
+	data, err := readFile(base + "/smaps_rollup") // #nosec G304
 	if err != nil {
 		// Fall back to smaps
-		data, err = os.ReadFile(base + "/smaps") // #nosec G304
+		data, err = readFile(base + "/smaps") // #nosec G304
 		if err != nil {
 			return nil
 		}
@@ -281,7 +281,7 @@ func procMemMap(base string) *models.ProcMemMap {
 
 // procUser reads /proc/PID/status Uid field and resolves to username.
 func procUser(base string) string {
-	data, err := os.ReadFile(base + "/status") // #nosec G304
+	data, err := readFile(base + "/status") // #nosec G304
 	if err != nil {
 		return ""
 	}
@@ -295,7 +295,7 @@ func procUser(base string) string {
 		}
 		uid := fields[1]
 		// Look up username from /etc/passwd
-		if passwd, err := os.ReadFile("/etc/passwd"); err == nil { // #nosec G304
+		if passwd, err := readFile("/etc/passwd"); err == nil { // #nosec G304
 			for _, pline := range strings.Split(string(passwd), "\n") {
 				parts := strings.SplitN(pline, ":", 4)
 				if len(parts) >= 4 && parts[2] == uid {
@@ -377,7 +377,7 @@ func procNetConns(inodes map[string]bool) []models.ProcNetConn {
 	var conns []models.ProcNetConn
 	for _, proto := range []string{"tcp", "tcp6"} {
 		path := "/proc/net/" + proto
-		f, err := os.Open(path) // #nosec G304
+		f, err := openFile(path) // #nosec G304
 		if err != nil {
 			continue
 		}

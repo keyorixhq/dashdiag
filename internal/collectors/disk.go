@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"strings"
 	"syscall"
@@ -121,7 +120,7 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
-	f, err := os.Open(c.mountsPath)
+	f, err := openFile(c.mountsPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening mounts: %w", err)
 	}

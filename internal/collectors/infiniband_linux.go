@@ -21,7 +21,7 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.InfiniBandInfo{}
 
 	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.)
-	devices, _ := filepath.Glob("/sys/class/infiniband/*")
+	devices, _ := glob("/sys/class/infiniband/*")
 	if len(devices) == 0 {
 		return info, nil
 	}
@@ -29,7 +29,7 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	for _, dev := range devices {
 		devName := filepath.Base(dev)
 		// Each device has ports/ subdirectory
-		ports, _ := filepath.Glob(filepath.Join(dev, "ports", "*"))
+		ports, _ := glob(filepath.Join(dev, "ports", "*"))
 		for _, portPath := range ports {
 			port := readIBPort(devName, portPath)
 			info.Ports = append(info.Ports, port)
@@ -40,7 +40,7 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsInfiniBandPresent returns true when IB hardware is found.
 func IsInfiniBandPresent() bool {
-	devices, _ := filepath.Glob("/sys/class/infiniband/*")
+	devices, _ := glob("/sys/class/infiniband/*")
 	return len(devices) > 0
 }
 

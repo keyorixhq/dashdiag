@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,9 +25,9 @@ func (c *BatteryCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.BatteryInfo{}
 
 	// Find first battery
-	supplies, _ := filepath.Glob("/sys/class/power_supply/BAT*")
+	supplies, _ := glob("/sys/class/power_supply/BAT*")
 	if len(supplies) == 0 {
-		supplies, _ = filepath.Glob("/sys/class/power_supply/battery")
+		supplies, _ = glob("/sys/class/power_supply/battery")
 	}
 	if len(supplies) == 0 {
 		return nil, nil // no battery (server/desktop) — absent, gate off (no phantom "Battery OK" row)
@@ -60,7 +59,7 @@ func (c *BatteryCollector) Collect(_ context.Context) (interface{}, error) {
 }
 
 func readBatString(base, file string) string {
-	data, err := os.ReadFile(filepath.Join(base, file)) // #nosec G304 -- sysfs path
+	data, err := readFile(filepath.Join(base, file)) // #nosec G304 -- sysfs path
 	if err != nil {
 		return ""
 	}

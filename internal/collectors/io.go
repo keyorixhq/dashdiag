@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -69,7 +68,7 @@ func parseDiskstats(r io.Reader) (map[string]diskStatRaw, error) {
 }
 
 func readRotational(dev string) bool {
-	data, err := os.ReadFile(filepath.Join("/sys/block", dev, "queue/rotational")) // #nosec G304 -- root is hardcoded to /sys/block; dev is from kernel diskstats, not user input
+	data, err := readFile(filepath.Join("/sys/block", dev, "queue/rotational")) // #nosec G304 -- root is hardcoded to /sys/block; dev is from kernel diskstats, not user input
 	if err != nil {
 		return false // assume SSD on error
 	}
@@ -125,7 +124,7 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 		return c.collectDarwin(ctx)
 	}
 
-	f1, err := os.Open(c.diskstatsPath)
+	f1, err := openFile(c.diskstatsPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening diskstats: %w", err)
 	}
@@ -141,7 +140,7 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 	case <-time.After(1 * time.Second):
 	}
 
-	f2, err := os.Open(c.diskstatsPath)
+	f2, err := openFile(c.diskstatsPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening diskstats (2nd): %w", err)
 	}
