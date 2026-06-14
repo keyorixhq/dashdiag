@@ -111,7 +111,7 @@ func TestCheckK8sWorkloadsAndEvents(t *testing.T) {
 
 func TestCheckK8sOSLayer(t *testing.T) {
 	// Healthy OS layer (all gates pass; ip_forward read and enabled).
-	ok := models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChain: true}
+	ok := models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: true, KubeForwardChain: true}
 	tests := []struct {
 		name string
 		l    models.K8sOSLayer
@@ -129,7 +129,10 @@ func TestCheckK8sOSLayer(t *testing.T) {
 		{"empty CNI bins is CRIT", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, KubeForwardChain: true}, "CRIT"},
 		// /opt/cni/bin unreadable (permission) → CNIChecked=false → must NOT CRIT.
 		{"unreadable CNI bins (unchecked) is not CRIT", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: false, CNIBinsOK: false, KubeForwardChain: true}, ""},
-		{"missing kube-forward chain is WARN", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true}, "WARN"},
+		{"missing kube-forward chain (checked) is WARN", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: true}, "WARN"},
+		// [19] fix: neither nft nor iptables available (e.g. k3s) → unchecked → must
+		// NOT WARN (previously defaulted to "present", a false-OK; gating flips it).
+		{"unchecked kube-forward (no tools) is not WARN", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: false}, ""},
 		{"expired cert is CRIT", func() models.K8sOSLayer { l := ok; l.CertExpiredNames = []string{"apiserver"}; return l }(), "CRIT"},
 		{"cert expiring soon is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoonDays = 5; return l }(), "WARN"},
 		{"kubelet errors is WARN", func() models.K8sOSLayer { l := ok; l.KubeletErrors = []string{"failed to pull image"}; return l }(), "WARN"},
