@@ -257,10 +257,14 @@ func nfsReadStats(info *models.NFSInfo) {
 		}
 		switch fields[0] {
 		case "rpc":
-			// calls retrans authrefrsh
+			// fields: rpc <calls> <retrans> <authrefresh> — both cumulative since boot.
+			// Capture calls too so the verdict can gate on the retrans RATE (retrans/calls)
+			// rather than a raw lifetime total that never decays.
 			if len(fields) >= 3 {
+				calls, _ := strconv.ParseFloat(fields[1], 64)
 				retrans, _ := strconv.ParseFloat(fields[2], 64)
-				info.RetransPerMin = retrans // raw counter; caller compares with previous
+				info.RPCCalls = calls
+				info.RetransPerMin = retrans
 			}
 		case "proc4":
 			// NFSv4 operations: count null read write commit ...

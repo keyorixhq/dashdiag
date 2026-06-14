@@ -23,5 +23,6 @@ type NFSInfo struct {
 	RpcbindActive  bool       `json:"rpcbind_active"`
 	ReadOpsPerMin  float64    `json:"read_ops_per_min,omitempty"`
 	WriteOpsPerMin float64    `json:"write_ops_per_min,omitempty"`
-	RetransPerMin  float64    `json:"retrans_per_min,omitempty"`
+	RetransPerMin  float64    `json:"retrans_per_min,omitempty"` // raw since-boot retrans count (misnamed; gate on RetransRate)
+	RPCCalls       float64    `json:"rpc_calls,omitempty"`       // total RPC calls since boot — denominator for the retrans rate
 }

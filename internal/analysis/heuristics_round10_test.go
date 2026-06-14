@@ -43,7 +43,7 @@ func TestCheckNetwork(t *testing.T) {
 		{"sustained listen overflow is CRIT", models.NetworkInfo{ListenOverflows: 5000, UptimeSec: 3600}, "CRIT"},
 		{"low-rate listen overflow is WARN", models.NetworkInfo{ListenOverflows: 5, UptimeSec: 3600}, "WARN"},
 		{"slow primary link is WARN", primary(100), "WARN"},
-		{"NIC hardware errors is WARN", models.NetworkInfo{Interfaces: []models.InterfaceInfo{{Name: "eth0", RxErrors: 200}}}, "WARN"},
+		{"NIC hardware error rate is WARN", models.NetworkInfo{Interfaces: []models.InterfaceInfo{{Name: "eth0", RxErrors: 200, RxPackets: 100_000}}}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

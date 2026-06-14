@@ -88,6 +88,8 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 			TxDrops:   cnt.Dropout,
 			RxErrors:  cnt.Errin,
 			TxErrors:  cnt.Errout,
+			RxPackets: cnt.PacketsRecv,
+			TxPackets: cnt.PacketsSent,
 			SpeedMbps: speedMbps,
 			IsUSB:     isUSB,
 			Driver:    driver,
