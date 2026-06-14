@@ -76,13 +76,13 @@ func parseSoftLimit(r io.Reader) int {
 // deletedFilesFromEntries scans a process's already-read fd entries for
 // open-but-deleted files (the classic "disk full but du shows space" cause).
 // Takes the entries from the caller's single ReadDir to avoid re-reading.
-func deletedFilesFromEntries(pid string, fds []os.DirEntry) (count int, sizeGB float64) {
+func deletedFilesFromEntries(pid string, fds []string) (count int, sizeGB float64) {
 	for _, fd := range fds {
-		target, err := os.Readlink("/proc/" + pid + "/fd/" + fd.Name())
+		target, err := os.Readlink("/proc/" + pid + "/fd/" + fd)
 		if err != nil || !strings.HasSuffix(target, "(deleted)") {
 			continue
 		}
-		fi, err := os.Stat("/proc/" + pid + "/fd/" + fd.Name())
+		fi, err := os.Stat("/proc/" + pid + "/fd/" + fd)
 		if err != nil {
 			count++
 			continue
@@ -163,7 +163,7 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 		// Read each process's fd dir ONCE and reuse it for both the hot-process
 		// FD count and the deleted-open-files scan (previously two ReadDirs/proc).
 		// A non-root run can't read other users' fd dirs — that fails cheaply here.
-		fdEntries, err := os.ReadDir(filepath.Join("/proc", pid, "fd"))
+		fdEntries, err := readDirNames(filepath.Join("/proc", pid, "fd"))
 		if err != nil {
 			continue
 		}

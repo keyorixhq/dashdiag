@@ -92,7 +92,7 @@ func anyProcessNamedIn(procDir string, names ...string) bool {
 	for _, n := range names {
 		want[n] = true
 	}
-	entries, err := os.ReadDir(procDir)
+	entries, err := readDirEntries(procDir)
 	if err != nil {
 		return false
 	}
@@ -145,7 +145,7 @@ func scanCrontabQuality() []models.CronJob {
 
 	// System crontabs in /etc/cron.d and /etc/cron.*/
 	for _, dir := range cronDirs {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirEntries(dir)
 		if err != nil {
 			continue
 		}
@@ -163,7 +163,7 @@ func scanCrontabQuality() []models.CronJob {
 	issues = append(issues, parseCrontabFile("/var/spool/cron/crontabs/root", "user:root")...)
 
 	// User crontabs
-	userEntries, _ := os.ReadDir("/var/spool/cron/crontabs")
+	userEntries, _ := readDirEntries("/var/spool/cron/crontabs")
 	for _, e := range userEntries {
 		if e.IsDir() || e.Name() == "root" {
 			continue

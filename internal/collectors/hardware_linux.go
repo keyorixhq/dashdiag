@@ -197,13 +197,13 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 
 func collectHwmonThermals(info *models.HardwareInfo) {
 	hwmonRoot := "/sys/class/hwmon"
-	entries, err := os.ReadDir(hwmonRoot)
+	entries, err := readDirNames(hwmonRoot)
 	if err != nil {
 		return
 	}
 
 	for _, e := range entries {
-		dir := filepath.Join(hwmonRoot, e.Name())
+		dir := filepath.Join(hwmonRoot, e)
 		nameBytes, err := readFile(filepath.Join(dir, "name")) // #nosec G304
 		if err != nil {
 			continue
@@ -404,13 +404,13 @@ func collectRAM(ctx context.Context, info *models.HardwareInfo) {
 // ── NETWORK INTERFACES ────────────────────────────────────────────────────────
 
 func collectNICs(ctx context.Context, info *models.HardwareInfo) {
-	entries, err := os.ReadDir("/sys/class/net")
+	entries, err := readDirNames("/sys/class/net")
 	if err != nil {
 		return
 	}
 
 	for _, e := range entries {
-		name := e.Name()
+		name := e
 		if name == "lo" {
 			continue
 		}

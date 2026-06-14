@@ -3,7 +3,6 @@
 package collectors
 
 import (
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,16 +18,16 @@ func readEDACCounts() (available bool, corrected, uncorrected int64) {
 }
 
 func readEDACCountsFrom(edacRoot string) (available bool, corrected, uncorrected int64) {
-	entries, err := os.ReadDir(edacRoot)
+	entries, err := readDirNames(edacRoot)
 	if err != nil {
 		return false, 0, 0 // EDAC not available — common on VMs / consumer HW
 	}
 	available = true
 	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "mc") {
+		if !strings.HasPrefix(e, "mc") {
 			continue
 		}
-		mcDir := filepath.Join(edacRoot, e.Name())
+		mcDir := filepath.Join(edacRoot, e)
 		corrected += readEDACCounter(filepath.Join(mcDir, "ce_count"))
 		uncorrected += readEDACCounter(filepath.Join(mcDir, "ue_count"))
 	}

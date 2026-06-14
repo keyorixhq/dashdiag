@@ -218,7 +218,7 @@ func procCPUSec(base string) float64 {
 
 // procFDInfo returns (count, limit) for open file descriptors.
 func procFDInfo(base string) (count, limit int, readable bool) {
-	fds, err := os.ReadDir(base + "/fd")
+	fds, err := readDirNames(base + "/fd")
 	if err == nil {
 		count = len(fds)
 		readable = true
@@ -321,14 +321,14 @@ func isSharedLib(path string) bool {
 func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 	inodes := map[string]bool{}
 	fdDir := base + "/fd"
-	entries, err := os.ReadDir(fdDir)
+	entries, err := readDirNames(fdDir)
 	if err != nil {
 		return inodes // requires same UID or root
 	}
 
 	for _, e := range entries {
-		fd, _ := strconv.Atoi(e.Name())
-		target, err := os.Readlink(fdDir + "/" + e.Name())
+		fd, _ := strconv.Atoi(e)
+		target, err := os.Readlink(fdDir + "/" + e)
 		if err != nil {
 			continue
 		}

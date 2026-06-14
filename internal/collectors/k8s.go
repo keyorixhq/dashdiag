@@ -406,15 +406,15 @@ func flannelCNIConfigured() bool {
 	// /var/lib/rancher/k3s/agent/etc/cni/net.d (and only symlinks /etc/cni/net.d
 	// on some setups), so check both before deciding flannel isn't in use.
 	for _, dir := range []string{"/etc/cni/net.d", "/var/lib/rancher/k3s/agent/etc/cni/net.d"} {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirNames(dir)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if strings.Contains(strings.ToLower(e.Name()), "flannel") {
+			if strings.Contains(strings.ToLower(e), "flannel") {
 				return true
 			}
-			data, err := readFile(filepath.Join(dir, e.Name())) // #nosec G304 -- CNI conf dir
+			data, err := readFile(filepath.Join(dir, e)) // #nosec G304 -- CNI conf dir
 			if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
 				return true
 			}
@@ -446,7 +446,7 @@ func cniBinsPresent() (checked, ok bool) {
 
 func cniBinsPresentIn(dirs ...string) (checked, ok bool) {
 	for _, d := range dirs {
-		entries, err := os.ReadDir(d)
+		entries, err := readDirNames(d)
 		switch {
 		case err == nil:
 			checked = true

@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -257,7 +256,7 @@ func parseDarwinSuspectLaunchd(ctx context.Context, info *models.SecurityInfo) {
 		"/dev/tcp", // raw TCP (reverse shell indicator)
 	}
 	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirEntries(dir)
 		if err != nil {
 			continue
 		}

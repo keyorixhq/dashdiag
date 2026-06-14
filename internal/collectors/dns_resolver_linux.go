@@ -402,13 +402,13 @@ func checkVPNDNS(info *models.ResolverAuditInfo) {
 
 // detectVPNInterface returns the first up VPN interface, or "" if none.
 func detectVPNInterface() string {
-	entries, err := os.ReadDir("/sys/class/net")
+	entries, err := readDirNames("/sys/class/net")
 	if err != nil {
 		return ""
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		names = append(names, e.Name())
+		names = append(names, e)
 	}
 	for _, name := range names {
 		if !isVPNInterfaceName(name) {

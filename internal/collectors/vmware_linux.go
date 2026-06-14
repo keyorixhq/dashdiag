@@ -169,7 +169,7 @@ func parseLeadingInt(s string) (int, bool) {
 // recommendation. Scoped to sd* (SCSI) because the 180s guidance is about
 // surviving a storage stun; virtio-blk (vd*) disks are not the target.
 func collectSCSITimeouts(blockDir string) (map[string]int, []string) {
-	entries, err := os.ReadDir(blockDir)
+	entries, err := readDirEntries(blockDir)
 	if err != nil {
 		return nil, nil
 	}
@@ -231,7 +231,7 @@ func vmwareToolsRunning(ctx context.Context) bool {
 // return is false when /proc could not be read at all (so the caller can fall
 // back), distinguishing "not running" from "couldn't tell".
 func procCommRunning(name string) (running, ok bool) {
-	entries, err := os.ReadDir("/proc")
+	entries, err := readDirEntries("/proc")
 	if err != nil {
 		return false, false
 	}
@@ -253,7 +253,7 @@ func procCommRunning(name string) (running, ok bool) {
 // collectNICDrivers maps each non-loopback interface to its kernel driver and
 // returns the subset using emulated (non-paravirtual) drivers.
 func collectNICDrivers(netDir string) (map[string]string, []string) {
-	entries, err := os.ReadDir(netDir)
+	entries, err := readDirEntries(netDir)
 	if err != nil {
 		return nil, nil
 	}
