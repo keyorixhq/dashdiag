@@ -396,6 +396,28 @@ func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) 
 
 // ── OS-layer deep checks ──────────────────────────────────────────────────────
 
+// flannelCNIConfigured reports whether flannel is the CNI in use, by looking for a
+// flannel CNI config in /etc/cni/net.d (by filename or content). Non-flannel CNIs
+// (Calico/Cilium/Weave) drop their own configs there and never create flannel's
+// /run/flannel/subnet.env, so its absence is only a problem when flannel is actually
+// configured.
+func flannelCNIConfigured() bool {
+	entries, err := os.ReadDir("/etc/cni/net.d")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Name()), "flannel") {
+			return true
+		}
+		data, err := os.ReadFile(filepath.Join("/etc/cni/net.d", e.Name())) // #nosec G304 -- CNI conf dir
+		if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
+			return true
+		}
+	}
+	return false
+}
+
 func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
 
@@ -429,13 +451,27 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 		layer.IPForwardEnabled = strings.TrimSpace(string(data)) == "1"
 	}
 
-	// Flannel subnet.env
+	// Flannel subnet.env — only meaningful when flannel is the configured CNI. On
+	// Calico/Cilium/Weave nodes /run/flannel/subnet.env never exists, so flagging its
+	// absence as a CRIT was a false alarm on every non-flannel node.
+	layer.FlannelInUse = flannelCNIConfigured()
 	_, err = os.Stat("/run/flannel/subnet.env")
 	layer.FlannelSubnetOK = err == nil
 
-	// CNI binaries
-	entries, _ := os.ReadDir("/opt/cni/bin")
-	layer.CNIBinsOK = len(entries) > 0
+	// CNI binaries — distinguish an empty dir (real: plugins missing) from an
+	// unreadable one (permission denied when run without root). A discarded error
+	// made a non-root run report "/opt/cni/bin empty — networking will fail".
+	entries, cniErr := os.ReadDir("/opt/cni/bin")
+	switch {
+	case cniErr == nil:
+		layer.CNIChecked = true
+		layer.CNIBinsOK = len(entries) > 0
+	case os.IsNotExist(cniErr):
+		layer.CNIChecked = true
+		layer.CNIBinsOK = false // dir genuinely absent → CNI not installed
+	default:
+		layer.CNIChecked = false // permission denied / other — state unknown
+	}
 
 	// KUBE-FORWARD chain check (iptables or nft)
 	nftOut, _ := runCmd(ctx, "nft", "list", "tables")
