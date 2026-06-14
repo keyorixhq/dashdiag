@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **OOM: an old OOM kill from the dmesg ring buffer is no longer reported as "last
+  24h"** — when journalctl is unavailable (non-systemd hosts), the collector fell back
+  to `dmesg`, which has no `--since`, and counted EVERY OOM line in the ring buffer as
+  recent. On a long-running host an OOM from days ago then fired a CRIT "OOM kills in
+  the last 24h" (recency-gate). The dmesg fallback now drops dated events older than
+  24h (undated/boot-relative ones are kept conservatively).
+
 - **iSCSI: a failed/reconnecting session is no longer reported as logged-in** — the
   collector parsed the bare `iscsiadm -m session` listing (which carries no state) and
   hardcoded every session `LOGGED_IN`, so `FailedCount` could never increment and a

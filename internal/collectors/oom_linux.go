@@ -33,6 +33,7 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Use journalctl to search kernel messages for OOM events.
 	// --since "24 hours ago" scopes to recent events.
 	// -k limits to kernel messages (same as dmesg but with timestamps).
+	usedDmesg := false
 	out, err := runCmd(ctx, "journalctl", "-k", "--since", "24 hours ago",
 		"--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process")
 	if err != nil {
@@ -41,9 +42,18 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 		if err != nil {
 			return info, nil
 		}
+		usedDmesg = true
 	}
 
 	events := parseOOMEvents(out)
+	if usedDmesg {
+		// dmesg has no `--since`; the kernel ring buffer can hold OOM lines from days
+		// ago on a long-running host. Counting them all as "last 24h" produced a CRIT
+		// for an OOM that happened long ago (recency-gate). Drop dated events older
+		// than 24h; keep undated ones (boot-relative timestamps when `--time-format
+		// iso` is unsupported) conservatively rather than silently dropping a real OOM.
+		events = filterOOMRecent(events, time.Now().Add(-24*time.Hour))
+	}
 	info.EventsLast24h = len(events)
 	if len(events) > 5 {
 		info.RecentEvents = events[len(events)-5:]
@@ -82,6 +92,19 @@ func parseOOMTimestamp(line string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// filterOOMRecent keeps OOM events that occurred at or after cutoff. Events with a
+// zero timestamp (couldn't be dated — e.g. boot-relative dmesg) are kept, so a real
+// OOM is never dropped just because we couldn't parse its time.
+func filterOOMRecent(events []models.OOMEvent, cutoff time.Time) []models.OOMEvent {
+	kept := events[:0]
+	for _, e := range events {
+		if e.Timestamp.IsZero() || e.Timestamp.After(cutoff) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 func parseOOMEvents(out string) []models.OOMEvent {
