@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -41,9 +40,9 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 	}
 
 	// Walk /sys/class/hwmon looking for CPU temp sensors
-	hwmons, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
+	hwmons, _ := glob("/sys/class/hwmon/hwmon*")
 	for _, hwmon := range hwmons {
-		name, err := os.ReadFile(filepath.Join(hwmon, "name"))
+		name, err := readFile(filepath.Join(hwmon, "name"))
 		if err != nil {
 			continue
 		}
@@ -75,9 +74,9 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 // readHwmonTemps reads temp*_input files from a hwmon directory.
 // Values are in millidegrees Celsius.
 func readHwmonTemps(hwmon string, info *models.ThermalInfo) {
-	inputs, _ := filepath.Glob(filepath.Join(hwmon, "temp*_input"))
+	inputs, _ := glob(filepath.Join(hwmon, "temp*_input"))
 	for _, input := range inputs {
-		raw, err := os.ReadFile(input) // #nosec G304 -- path from filepath.Glob under /sys/class/hwmon
+		raw, err := readFile(input)
 		if err != nil {
 			continue
 		}
@@ -103,7 +102,7 @@ func readHwmonTemps(hwmon string, info *models.ThermalInfo) {
 }
 
 func readSensorLabel(path string) string {
-	data, err := os.ReadFile(path) // #nosec G304 -- path from filepath.Glob
+	data, err := readFile(path)
 	if err != nil {
 		return ""
 	}
@@ -112,9 +111,9 @@ func readSensorLabel(path string) string {
 
 // readThermalZone reads from /sys/class/thermal/thermal_zone* as fallback.
 func readThermalZone(info *models.ThermalInfo) {
-	zones, _ := filepath.Glob("/sys/class/thermal/thermal_zone*/temp")
+	zones, _ := glob("/sys/class/thermal/thermal_zone*/temp")
 	for _, zone := range zones {
-		raw, err := os.ReadFile(zone) // #nosec G304 -- path from filepath.Glob
+		raw, err := readFile(zone)
 		if err != nil {
 			continue
 		}

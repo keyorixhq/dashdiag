@@ -1,0 +1,111 @@
+package cmd
+
+// capture_raw.go — `dsd capture --raw`
+//
+// Runs the full health collection with a source.Recorder swapped in, so every
+// sysfs read and command output the collectors touch is recorded, then writes a
+// single self-contained .tar.gz the operator hands back. One command, no
+// wrappers, no separate script — the native replacement for hack/hw-snapshot.sh
+// (which remains the fallback for hosts where you can't get a dsd binary on).
+//
+// Replay it offline with: dsd replay <bundle>      (see cmd/replay.go, ADR-0003)
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/version"
+)
+
+func init() {
+	captureCmd.Flags().Bool("raw", false, "capture a raw input bundle (every sysfs read + command output) for offline replay with `dsd replay`")
+	captureCmd.Flags().StringP("out", "o", "", "output path for the --raw bundle (default: dsd-raw-<host>-<timestamp>.tar.gz)")
+}
+
+func runCaptureRaw(cmd *cobra.Command) error {
+	ctx := context.Background()
+	ctrCtx := platform.DetectContainerContext()
+	cloudEnv := platform.DetectCloudEnvironment()
+	profile := platform.Detect()
+
+	// Record over the live, locale-safe source; restore on exit.
+	rec := source.NewRecorder(collectors.ActiveSource())
+	prev := collectors.SetSource(rec)
+	defer collectors.SetSource(prev)
+
+	fmt.Fprintln(os.Stderr, "Capturing raw system inputs (running the full health check)…")
+
+	// Full collector set so the bundle is complete; terse skips drilldown, whose
+	// extra reads aren't routed through the source yet (ADR-0003 Phase 3).
+	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, output.ModePlain,
+		true /*terse*/, false /*pkg*/, true /*gpu*/, false /*tls*/, false /*deep*/, false /*firmware*/, false /*cve*/, nil)
+
+	b := rec.Bundle()
+	b.Manifest = source.Manifest{
+		Format:  source.FormatVersion,
+		Host:    hostnameOr("host"),
+		OS:      osPretty(),
+		Kernel:  kernelRelease(),
+		DsdVer:  version.Version,
+		Created: time.Now().UTC().Format(time.RFC3339),
+		Note:    "dsd capture --raw",
+	}
+
+	// Embed the rendered health JSON — the report these inputs produced — so the
+	// bundle carries both inputs and output for cross-checking on replay.
+	if data, err := render.RenderJSON(results, insights); err == nil {
+		b.PutFile("/__dsd__/health.json", data)
+	}
+
+	out, _ := cmd.Flags().GetString("out")
+	if out == "" {
+		out = fmt.Sprintf("dsd-raw-%s-%s.tar.gz", b.Manifest.Host, time.Now().Format("20060102-150405"))
+	}
+	if err := b.SaveTarball(out); err != nil {
+		return fmt.Errorf("writing bundle: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n✅ Raw bundle written: %s\n", out)
+	fmt.Fprintf(os.Stderr, "   Replay it offline with:  dsd replay %s\n", out)
+	fmt.Fprintln(os.Stderr, "   NOTE: unredacted — contains hostname, IPs, disk serials, and journald lines.")
+	fmt.Fprintln(os.Stderr, "   Send it through a trusted channel; don't post it publicly.")
+	return nil
+}
+
+func hostnameOr(def string) string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		return def
+	}
+	return h
+}
+
+func kernelRelease() string {
+	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func osPretty() string {
+	if b, err := os.ReadFile("/etc/os-release"); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "PRETTY_NAME=") {
+				return strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
+			}
+		}
+	}
+	return runtime.GOOS
+}
