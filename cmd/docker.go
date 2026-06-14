@@ -17,8 +17,6 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
-const crashLoopRestartThreshold = 5
-
 func init() {
 	rootCmd.AddCommand(dockerCmd)
 	dockerCmd.Flags().Bool("deep", false, "deep mode: log driver config + container log file sizes")
@@ -219,7 +217,9 @@ func printDockerContainers(info *models.DockerInfo, mode output.OutputMode) {
 		if c.State != "running" {
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
-		if c.Health == "unhealthy" || c.Restart >= crashLoopRestartThreshold {
+		// Key on the gated CrashLooping decision (not raw restart count) so a stabilized
+		// container's row doesn't show ❌ while the verdict says it's fine.
+		if c.Health == "unhealthy" || c.CrashLooping {
 			icon = asciiOr("fail", "❌", mode)
 		}
 		health := ""
