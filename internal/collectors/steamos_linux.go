@@ -371,7 +371,7 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 
 	home := steamUserHome()
 	compat := filepath.Join(home, ".steam/steam/steamapps/compatdata")
-	if entries, err := os.ReadDir(compat); err == nil {
+	if entries, err := readDirEntries(compat); err == nil {
 		info.ProtonPrefixCount = len(entries)
 		info.CompatDataGB = duGB(ctx, compat)
 	}

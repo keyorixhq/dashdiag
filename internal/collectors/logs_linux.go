@@ -389,7 +389,7 @@ func crashFileTooOld(mtime, now time.Time) bool {
 // recent enough (crashFileMaxAgeDays) to avoid a perpetual "kernel panic" CRIT.
 // Returns 0 when pstore is not mounted or no recent panic files exist.
 func countPstorePanics() int {
-	entries, err := os.ReadDir("/sys/fs/pstore")
+	entries, err := readDirEntries("/sys/fs/pstore")
 	if err != nil {
 		return 0
 	}
@@ -456,7 +456,7 @@ func checkJournalHealth(ctx context.Context, info *models.LogsInfo, profile plat
 // Active *.journal files are skipped — they're written live and always appear
 // "corrupt" to the verifier due to an unflushed tail segment (systemd#35916).
 func hasCorruptArchived(dir string) bool {
-	entries, err := os.ReadDir(dir)
+	entries, err := readDirEntries(dir)
 	if err != nil {
 		return false
 	}
@@ -645,7 +645,7 @@ func detectNoTextFallback(profile platform.Profile) bool {
 func readJournaldConfig(key string) string {
 	var result string
 	files := []string{"/etc/systemd/journald.conf"}
-	if entries, err := os.ReadDir("/etc/systemd/journald.conf.d"); err == nil {
+	if entries, err := readDirEntries("/etc/systemd/journald.conf.d"); err == nil {
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".conf") {
 				files = append(files, "/etc/systemd/journald.conf.d/"+e.Name())
@@ -888,7 +888,7 @@ func collectCrashFiles(info *models.LogsInfo) {
 	now := time.Now()
 
 	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirEntries(dir)
 		if err != nil {
 			continue
 		}
@@ -916,7 +916,7 @@ func collectCrashFiles(info *models.LogsInfo) {
 	}
 
 	// pstore — count panic records (each file is one event, filenames contain type)
-	pstoreEntries, _ := os.ReadDir("/sys/fs/pstore")
+	pstoreEntries, _ := readDirEntries("/sys/fs/pstore")
 	for _, e := range pstoreEntries {
 		name := e.Name()
 		if strings.Contains(name, "panic") || strings.Contains(name, "oops") ||

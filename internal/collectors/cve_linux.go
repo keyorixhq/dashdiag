@@ -608,7 +608,7 @@ func rhSubscriptionNote() string {
 		return "ℹ️  CVE IDs require root access on RHEL — run: sudo dsd cve --all"
 	}
 	// Root: check for entitlement certificates — present when registered
-	entries, err := os.ReadDir("/etc/pki/entitlement")
+	entries, err := readDirNames("/etc/pki/entitlement")
 	if err != nil || len(entries) == 0 {
 		return "⚠️  System not registered with Red Hat — CVE IDs unavailable\n" +
 			"   → to register: subscription-manager register --username=<user> --password=<pass>\n" +
@@ -617,7 +617,7 @@ func rhSubscriptionNote() string {
 	// Has certs but no CVE data — may be expired or repos not synced
 	hasPEM := false
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".pem") && !strings.HasSuffix(e.Name(), "-key.pem") {
+		if strings.HasSuffix(e, ".pem") && !strings.HasSuffix(e, "-key.pem") {
 			hasPEM = true
 			break
 		}

@@ -624,7 +624,7 @@ func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerL
 		idToName[c.ID] = c.Name
 	}
 
-	entries, err := os.ReadDir("/var/lib/docker/containers") // #nosec G304
+	entries, err := readDirEntries("/var/lib/docker/containers") // #nosec G304
 	if err != nil {
 		return nil
 	}
@@ -854,7 +854,7 @@ func PodmanQuadletsPresent() bool {
 // quadletFilesPresent returns true if dir holds at least one .container or .pod
 // file. A missing or unreadable directory yields false (not an error).
 func quadletFilesPresent(dir string) bool {
-	entries, err := os.ReadDir(dir)
+	entries, err := readDirEntries(dir)
 	if err != nil {
 		return false
 	}
@@ -1008,7 +1008,7 @@ func collectPodmanQuadlets(ctx context.Context) []models.PodmanQuadlet {
 func scanQuadletFiles(dirs []string) []quadletFile {
 	var out []quadletFile
 	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirEntries(dir)
 		if err != nil {
 			continue // directory absent or unreadable — skip
 		}
@@ -1205,7 +1205,7 @@ func getContainerNetworkMTU(ctx context.Context, client *http.Client) int {
 // getHostMTU returns the MTU of the first physical network interface.
 // Reads /sys/class/net/*/mtu — skips lo, virtual, container interfaces.
 func getHostMTU() int {
-	entries, err := os.ReadDir("/sys/class/net")
+	entries, err := readDirEntries("/sys/class/net")
 	if err != nil {
 		return 0
 	}

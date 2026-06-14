@@ -524,7 +524,7 @@ func buildInodeProcMap() (map[string]string, bool) {
 			continue
 		}
 		procName := strings.TrimSpace(string(comm))
-		fds, err := os.ReadDir(fdDir)
+		fds, err := readDirEntries(fdDir)
 		if err != nil {
 			continue
 		}
@@ -888,7 +888,7 @@ func parseSuspectCrons(info *models.SecurityInfo) {
 	}
 
 	for _, dir := range cronDirs {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDirEntries(dir)
 		if err != nil {
 			continue
 		}
@@ -1357,7 +1357,7 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	var newestPath string
 
 	// Also check for directory-based output (SLES 16 default)
-	if entries, err := os.ReadDir("/var/log"); err == nil {
+	if entries, err := readDirEntries("/var/log"); err == nil {
 		for _, e := range entries {
 			if e.IsDir() && (strings.HasPrefix(e.Name(), "scc_") || strings.HasPrefix(e.Name(), "nts_")) {
 				p := "/var/log/" + e.Name()

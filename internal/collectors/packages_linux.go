@@ -432,7 +432,7 @@ func aptHasSecurityRepo() bool {
 	paths := []string{"/etc/apt/sources.list"}
 
 	// Include all .list and .sources files from sources.list.d/
-	entries, _ := os.ReadDir("/etc/apt/sources.list.d")
+	entries, _ := readDirEntries("/etc/apt/sources.list.d")
 	for _, e := range entries {
 		if !e.IsDir() {
 			paths = append(paths, "/etc/apt/sources.list.d/"+e.Name())
