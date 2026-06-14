@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-06-14
+
+Final wave of collector-audit fixes: three more "couldn't read → reads healthy"
+false-OKs (kvm enumeration failure, cgroup-v2 PSI paths, macOS swap read error).
+
 ### Fixed
 
 - **KVM: libvirt up but unqueryable no longer reads as "no VMs"** — `kvmCollectVMs`
