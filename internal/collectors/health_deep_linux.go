@@ -61,7 +61,7 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	// sampled during dsd's own deep collection and can read falsely high on a
 	// small host). NumCPU comes from the /proc/stat per-core lines when present.
 	info.NumCPU = len(info.Cores)
-	if lf, lerr := os.Open("/proc/loadavg"); lerr == nil {
+	if lf, lerr := openFile("/proc/loadavg"); lerr == nil {
 		if l1, _, _, perr := parseLoadAvg(lf); perr == nil {
 			info.LoadAvg1 = l1
 		}
@@ -95,7 +95,7 @@ func (s coreSnapshot) busy() uint64 {
 }
 
 func readProcStatCores() ([]coreSnapshot, error) {
-	f, err := os.Open("/proc/stat") // #nosec G304 -- hardcoded path
+	f, err := openFile("/proc/stat") // #nosec G304 -- hardcoded path
 	if err != nil {
 		return nil, err
 	}
@@ -166,14 +166,14 @@ func computeCoreUsage(s1, s2 []coreSnapshot) []models.CoreStat {
 
 // topMemoryProcs reads /proc/<pid>/status for RSS and returns top N by RSS.
 func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
-	entries, err := filepath.Glob("/proc/[0-9]*")
+	entries, err := glob("/proc/[0-9]*")
 	if err != nil {
 		return nil, 0
 	}
 
 	// Get total RAM for percentage calculation
 	totalKB := uint64(0)
-	if data, err := os.ReadFile("/proc/meminfo"); err == nil { // #nosec G304
+	if data, err := readFile("/proc/meminfo"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "MemTotal:") {
 				fields := strings.Fields(line)
@@ -190,7 +190,7 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 
 	for _, entry := range entries {
 		statusPath := filepath.Join(entry, "status")
-		data, err := os.ReadFile(filepath.Clean(statusPath)) // #nosec G304
+		data, err := readFile(filepath.Clean(statusPath)) // #nosec G304
 		if err != nil {
 			continue
 		}
@@ -236,7 +236,7 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 
 // collectMemDetail reads extended memory fields from /proc/meminfo.
 func collectMemDetail(info *models.HealthDeepInfo) {
-	data, err := os.ReadFile("/proc/meminfo") // #nosec G304
+	data, err := readFile("/proc/meminfo") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -278,13 +278,13 @@ func collectCgroupV2() *models.CgroupV2Info {
 	cg := &models.CgroupV2Info{Available: true}
 
 	// Controllers available at root
-	if data, err := os.ReadFile(cgroupRoot + "/cgroup.controllers"); err == nil { // #nosec G304
+	if data, err := readFile(cgroupRoot + "/cgroup.controllers"); err == nil { // #nosec G304
 		cg.Controllers = strings.Fields(strings.TrimSpace(string(data)))
 	}
 
 	// Slices: system.slice, user.slice, machine.slice, init.scope
-	sliceDirs, _ := filepath.Glob(cgroupRoot + "/*.slice")
-	scopeDirs, _ := filepath.Glob(cgroupRoot + "/*.scope")
+	sliceDirs, _ := glob(cgroupRoot + "/*.slice")
+	scopeDirs, _ := glob(cgroupRoot + "/*.scope")
 	sliceDirs = append(sliceDirs, scopeDirs...)
 
 	for _, dir := range sliceDirs {
@@ -307,7 +307,7 @@ func readCgroupSlice(dir, name string) models.CgroupSlice {
 	s := models.CgroupSlice{Name: name, MemLimitMB: -1}
 
 	// CPU: cpu.stat — throttled_usec / usage_usec
-	if data, err := os.ReadFile(dir + "/cpu.stat"); err == nil { // #nosec G304
+	if data, err := readFile(dir + "/cpu.stat"); err == nil { // #nosec G304
 		var usageUSec, throttledUSec int64
 		for _, line := range strings.Split(string(data), "\n") {
 			fields := strings.Fields(line)
@@ -328,7 +328,7 @@ func readCgroupSlice(dir, name string) models.CgroupSlice {
 	}
 
 	// CPU limit: cpu.max "quota period" — "max 100000" means no limit
-	if data, err := os.ReadFile(dir + "/cpu.max"); err == nil { // #nosec G304
+	if data, err := readFile(dir + "/cpu.max"); err == nil { // #nosec G304
 		fields := strings.Fields(strings.TrimSpace(string(data)))
 		if len(fields) >= 1 && fields[0] != "max" {
 			s.HasCPULimit = true
@@ -336,14 +336,14 @@ func readCgroupSlice(dir, name string) models.CgroupSlice {
 	}
 
 	// Memory: memory.current (bytes)
-	if data, err := os.ReadFile(dir + "/memory.current"); err == nil { // #nosec G304
+	if data, err := readFile(dir + "/memory.current"); err == nil { // #nosec G304
 		if n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil {
 			s.MemCurrentMB = float64(n) / (1024 * 1024)
 		}
 	}
 
 	// Memory limit: memory.max
-	if data, err := os.ReadFile(dir + "/memory.max"); err == nil { // #nosec G304
+	if data, err := readFile(dir + "/memory.max"); err == nil { // #nosec G304
 		val := strings.TrimSpace(string(data))
 		if val != "max" {
 			if n, err := strconv.ParseInt(val, 10, 64); err == nil {
@@ -357,7 +357,7 @@ func readCgroupSlice(dir, name string) models.CgroupSlice {
 	}
 
 	// I/O: io.stat — sum across all block devices
-	if data, err := os.ReadFile(dir + "/io.stat"); err == nil { // #nosec G304
+	if data, err := readFile(dir + "/io.stat"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			fields := strings.Fields(line)
 			// Format: "253:0 rbytes=N wbytes=N rios=N wios=N ..."
@@ -386,7 +386,7 @@ func readCgroupSlice(dir, name string) models.CgroupSlice {
 
 // readCgroupOOMKills reads the oom_kill counter from a memory.events file.
 func readCgroupOOMKills(path string) int {
-	data, err := os.ReadFile(path) // #nosec G304
+	data, err := readFile(path) // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -405,7 +405,7 @@ func readCgroupOOMKills(path string) int {
 // cgroupScope reads /proc/<pid>/cgroup and returns a human-readable scope label.
 // Format: "system:<service>", "container:<id-prefix>", "user:<uid>", "kernel", "init", or "unknown".
 func cgroupScope(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid)) // #nosec G304
+	data, err := readFile(fmt.Sprintf("/proc/%d/cgroup", pid)) // #nosec G304
 	if err != nil {
 		return ""
 	}

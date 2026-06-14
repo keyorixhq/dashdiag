@@ -277,7 +277,7 @@ func detectICMPAvailability() bool {
 // hasCapNetRaw reads /proc/self/status and checks the effective
 // capabilities bitmap for CAP_NET_RAW (capability 13).
 func hasCapNetRaw() bool {
-	data, err := os.ReadFile("/proc/self/status")
+	data, err := readFile("/proc/self/status")
 	if err != nil {
 		return false
 	}
@@ -307,7 +307,7 @@ func parseCapEffHasNetRaw(status string) bool {
 // checks whether the process's primary or supplementary GIDs fall
 // inside the allowed range. "1 0" (low > high) means no groups allowed.
 func gidInPingGroupRange() bool {
-	data, err := os.ReadFile("/proc/sys/net/ipv4/ping_group_range")
+	data, err := readFile("/proc/sys/net/ipv4/ping_group_range")
 	if err != nil {
 		return false
 	}
@@ -530,7 +530,7 @@ func parseGatewayLinux(r io.Reader) routeInfo {
 }
 
 func detectGatewayLinux() routeInfo {
-	f, err := os.Open("/proc/net/route") // #nosec G304
+	f, err := openFile("/proc/net/route") // #nosec G304
 	if err != nil {
 		return routeInfo{}
 	}
@@ -588,7 +588,7 @@ func readIfaceSpeed(name string) int {
 	if runtime.GOOS == "darwin" {
 		return readIfaceSpeedDarwin(name)
 	}
-	data, err := os.ReadFile("/sys/class/net/" + name + "/speed") // #nosec G304
+	data, err := readFile("/sys/class/net/" + name + "/speed") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -702,7 +702,7 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 	w := &models.WiFiInfo{}
 
 	// Read driver from uevent
-	if data, err := os.ReadFile("/sys/class/net/" + iface + "/device/uevent"); err == nil { // #nosec G304
+	if data, err := readFile("/sys/class/net/" + iface + "/device/uevent"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "DRIVER=") {
 				w.Driver = strings.TrimPrefix(line, "DRIVER=")
@@ -712,7 +712,7 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 	}
 
 	// /proc/net/wireless — signal dBm, link quality (no root, always available)
-	if data, err := os.ReadFile("/proc/net/wireless"); err == nil { // #nosec G304
+	if data, err := readFile("/proc/net/wireless"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			if !strings.HasPrefix(strings.TrimSpace(line), iface) {
 				continue

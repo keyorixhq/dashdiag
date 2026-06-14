@@ -239,7 +239,7 @@ func procCommRunning(name string) (running, ok bool) {
 		if !e.IsDir() {
 			continue
 		}
-		comm, err := os.ReadFile(filepath.Join("/proc", e.Name(), "comm"))
+		comm, err := readFile(filepath.Join("/proc", e.Name(), "comm"))
 		if err != nil {
 			continue
 		}
@@ -320,7 +320,7 @@ func kernelModulePresent(procModules, name string) bool {
 
 // readFileTrimmedLocal reads a file and trims whitespace, "" on any error.
 func readFileTrimmedLocal(path string) string {
-	data, err := os.ReadFile(filepath.Clean(path))
+	data, err := readFile(filepath.Clean(path))
 	if err != nil {
 		return ""
 	}

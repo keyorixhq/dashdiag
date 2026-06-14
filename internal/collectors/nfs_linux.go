@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,7 +51,7 @@ func (c *NFSCollector) Collect(ctx context.Context) (interface{}, error) {
 // ── mount parsing ─────────────────────────────────────────────────────────────
 
 func parseNFSMounts() []models.NFSMount {
-	data, err := os.ReadFile("/proc/mounts") // #nosec G304
+	data, err := readFile("/proc/mounts") // #nosec G304
 	if err != nil {
 		return nil
 	}
@@ -214,7 +213,7 @@ func nfsAuditOptions(m *models.NFSMount) {
 
 // nfsCheckFstab checks for missing _netdev option which causes boot hangs.
 func nfsCheckFstab(m *models.NFSMount) {
-	data, err := os.ReadFile("/etc/fstab") // #nosec G304
+	data, err := readFile("/etc/fstab") // #nosec G304
 	if err != nil {
 		return
 	}
@@ -246,7 +245,7 @@ func nfsRpcbindActive(ctx context.Context) bool {
 // nfsReadStats reads /proc/net/rpc/nfs and parses operation counts.
 // Format: line starting with "rpc" has: calls retransmissions authrefrsh
 func nfsReadStats(info *models.NFSInfo) {
-	data, err := os.ReadFile("/proc/net/rpc/nfs") // #nosec G304
+	data, err := readFile("/proc/net/rpc/nfs") // #nosec G304
 	if err != nil {
 		return
 	}

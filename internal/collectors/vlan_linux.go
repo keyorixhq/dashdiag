@@ -24,7 +24,7 @@ func (c *VLANCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.VLANInfo{}
 
 	// /proc/net/vlan/config lists all VLAN interfaces
-	data, err := os.ReadFile("/proc/net/vlan/config")
+	data, err := readFile("/proc/net/vlan/config")
 	if err != nil {
 		return nil, nil // 8021q not loaded / no VLANs — absent, gate off (no phantom "VLAN OK" row)
 	}

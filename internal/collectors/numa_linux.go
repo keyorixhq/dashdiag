@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,7 +21,7 @@ func (c *NUMACollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *NUMACollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.NUMAInfo{}
 
-	nodes, _ := filepath.Glob("/sys/devices/system/node/node[0-9]*")
+	nodes, _ := glob("/sys/devices/system/node/node[0-9]*")
 	if len(nodes) <= 1 {
 		return info, nil // single-node system — not interesting
 	}
@@ -49,7 +48,7 @@ func (c *NUMACollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsNUMAPresent returns true when multiple NUMA nodes exist.
 func IsNUMAPresent() bool {
-	nodes, _ := filepath.Glob("/sys/devices/system/node/node[0-9]*")
+	nodes, _ := glob("/sys/devices/system/node/node[0-9]*")
 	return len(nodes) > 1
 }
 
@@ -60,7 +59,7 @@ func parseNUMANode(path string) models.NUMANode {
 	node := models.NUMANode{ID: id}
 
 	// Memory info from meminfo
-	memData, err := os.ReadFile(filepath.Join(path, "meminfo"))
+	memData, err := readFile(filepath.Join(path, "meminfo"))
 	if err == nil {
 		for _, line := range strings.Split(string(memData), "\n") {
 			fields := strings.Fields(line)
@@ -81,7 +80,7 @@ func parseNUMANode(path string) models.NUMANode {
 	}
 
 	// CPU list
-	cpuListData, err := os.ReadFile(filepath.Join(path, "cpulist"))
+	cpuListData, err := readFile(filepath.Join(path, "cpulist"))
 	if err == nil {
 		node.CPUs = parseCPUList(strings.TrimSpace(string(cpuListData)))
 	}

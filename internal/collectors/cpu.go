@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,9 +29,9 @@ func NewCPUCollector(ctx platform.ContainerContext) *CPUCollector {
 	return &CPUCollector{
 		ContainerCtx: ctx,
 		readers: cpuReaders{
-			loadAvgOpen:  func() (io.ReadCloser, error) { return os.Open("/proc/loadavg") },
-			statOpen:     func() (io.ReadCloser, error) { return os.Open("/proc/stat") },
-			selfStatOpen: func() (io.ReadCloser, error) { return os.Open("/proc/self/stat") },
+			loadAvgOpen:  func() (io.ReadCloser, error) { return openFile("/proc/loadavg") },
+			statOpen:     func() (io.ReadCloser, error) { return openFile("/proc/stat") },
+			selfStatOpen: func() (io.ReadCloser, error) { return openFile("/proc/self/stat") },
 		},
 	}
 }

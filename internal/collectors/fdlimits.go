@@ -94,7 +94,7 @@ func deletedFilesFromEntries(pid string, fds []os.DirEntry) (count int, sizeGB f
 }
 
 func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
-	f, err := os.Open(filepath.Join("/proc", pid, "limits")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
+	f, err := openFile(filepath.Join("/proc", pid, "limits")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	if err != nil {
 		return models.FDProcessInfo{}, false
 	}
@@ -114,7 +114,7 @@ func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 		return models.FDProcessInfo{}, false
 	}
 	pidInt, _ := strconv.Atoi(pid)
-	nameData, _ := os.ReadFile(filepath.Join("/proc", pid, "comm")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
+	nameData, _ := readFile(filepath.Join("/proc", pid, "comm")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	name := strings.TrimSpace(string(nameData))
 	return models.FDProcessInfo{
 		PID:       pidInt,
@@ -133,7 +133,7 @@ func (c *FDLimitsCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, error) {
-	f, err := os.Open(c.fileNrPath)
+	f, err := openFile(c.fileNrPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening file-nr: %w", err)
 	}
@@ -148,7 +148,7 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 		info.UsedPct = float64(open) / float64(max) * 100
 	}
 
-	dirs, _ := filepath.Glob("/proc/[0-9]*")
+	dirs, _ := glob("/proc/[0-9]*")
 	var hot []models.FDProcessInfo
 	for _, dir := range dirs {
 		// The per-process scan is best-effort and scales with process count. The

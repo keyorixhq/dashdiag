@@ -126,7 +126,7 @@ func readDistroID() string {
 // ReadDistroID returns the distro ID from /etc/os-release (e.g. "rhel", "ubuntu").
 // Exported for use by cmd layer.
 func ReadDistroID() string {
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := readFile("/etc/os-release")
 	if err != nil {
 		return ""
 	}
@@ -361,7 +361,7 @@ func isUbuntu() bool {
 
 // isKali checks /etc/os-release for Kali Linux.
 func isKali() bool {
-	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	data, err := readFile("/etc/os-release") // #nosec G304
 	if err != nil {
 		return false
 	}

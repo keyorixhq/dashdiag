@@ -135,7 +135,7 @@ func parsePVEManagerVersion(line string) string {
 
 // collectKernelVersion reads the running kernel release (uname -r equivalent).
 func collectKernelVersion() string {
-	data, err := os.ReadFile("/proc/sys/kernel/osrelease") // #nosec G304 -- hardcoded /proc path
+	data, err := readFile("/proc/sys/kernel/osrelease") // #nosec G304 -- hardcoded /proc path
 	if err != nil {
 		return ""
 	}
@@ -183,7 +183,7 @@ func collectPVESubscription(ctx context.Context) models.PVESubscription {
 // collectPVESubscriptionFile reads subscription status from the local file
 // as a fallback when pvesh is unavailable or running without root.
 func collectPVESubscriptionFile() models.PVESubscription {
-	data, err := os.ReadFile("/etc/apt/auth.conf.d/pve.conf")
+	data, err := readFile("/etc/apt/auth.conf.d/pve.conf")
 	if err != nil {
 		// No subscription file — community/no subscription
 		return models.PVESubscription{Status: "notfound"}
@@ -409,7 +409,7 @@ func scanBackupDumpDirs(dirs []string) map[int]time.Time {
 	result := make(map[int]time.Time)
 	for _, dir := range dirs {
 		for _, ext := range vzdumpArchiveExts {
-			matches, err := filepath.Glob(filepath.Join(dir, "vzdump-*."+ext))
+			matches, err := glob(filepath.Join(dir, "vzdump-*."+ext))
 			if err != nil {
 				continue
 			}
@@ -488,7 +488,7 @@ func backupAudit(guests []models.PVEGuest, lastOKByVM map[int]time.Time) []model
 
 // collectPVEBackupAgeFromLogs scans /var/log/vzdump/ for recent backup logs.
 func collectPVEBackupAgeFromLogs() int {
-	entries, err := filepath.Glob("/var/log/vzdump/*.log")
+	entries, err := glob("/var/log/vzdump/*.log")
 	if err != nil || len(entries) == 0 {
 		return -1
 	}
@@ -500,7 +500,7 @@ func collectPVEBackupAgeFromLogs() int {
 			continue
 		}
 		// Only count logs that contain "Backup job finished successfully"
-		f, err := os.Open(e) // #nosec G304
+		f, err := openFile(e) // #nosec G304
 		if err != nil {
 			continue
 		}
@@ -582,7 +582,7 @@ func collectPVEResourceUsage(guests []models.PVEGuest) (vcpus int, memGB float64
 
 // collectPhysicalCores reads the number of physical CPU cores from /proc/cpuinfo.
 func collectPhysicalCores() int {
-	data, err := os.ReadFile("/proc/cpuinfo") // #nosec G304
+	data, err := readFile("/proc/cpuinfo") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -604,7 +604,7 @@ func collectPhysicalCores() int {
 
 // collectHostMemGB reads total physical RAM from /proc/meminfo.
 func collectHostMemGB() float64 {
-	data, err := os.ReadFile("/proc/meminfo") // #nosec G304
+	data, err := readFile("/proc/meminfo") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -696,8 +696,8 @@ func collectPVEBridges(ctx context.Context) []models.PVEBridge {
 
 // bridgeSTPEnabled reads /sys/class/net/<bridge>/bridge/stp_state (1=on, 0=off).
 func bridgeSTPEnabled(name string) bool {
-	clean := filepath.Base(name)                                              // defend against any path tricks in the iface name
-	data, err := os.ReadFile("/sys/class/net/" + clean + "/bridge/stp_state") // #nosec G304 -- sysfs, name sanitised
+	clean := filepath.Base(name)                                           // defend against any path tricks in the iface name
+	data, err := readFile("/sys/class/net/" + clean + "/bridge/stp_state") // #nosec G304 -- sysfs, name sanitised
 	if err != nil {
 		return false
 	}

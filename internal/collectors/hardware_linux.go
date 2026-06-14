@@ -204,7 +204,7 @@ func collectHwmonThermals(info *models.HardwareInfo) {
 
 	for _, e := range entries {
 		dir := filepath.Join(hwmonRoot, e.Name())
-		nameBytes, err := os.ReadFile(filepath.Join(dir, "name")) // #nosec G304
+		nameBytes, err := readFile(filepath.Join(dir, "name")) // #nosec G304
 		if err != nil {
 			continue
 		}
@@ -218,9 +218,9 @@ func collectHwmonThermals(info *models.HardwareInfo) {
 			continue
 		}
 
-		temps, _ := filepath.Glob(filepath.Join(dir, "temp*_input"))
+		temps, _ := glob(filepath.Join(dir, "temp*_input"))
 		for _, tf := range temps {
-			val, err := os.ReadFile(tf) // #nosec G304
+			val, err := readFile(tf) // #nosec G304
 			if err != nil {
 				continue
 			}
@@ -234,7 +234,7 @@ func collectHwmonThermals(info *models.HardwareInfo) {
 			base := strings.TrimSuffix(filepath.Base(tf), "_input")
 			labelFile := filepath.Join(dir, base+"_label")
 			label := base
-			if lb, err := os.ReadFile(labelFile); err == nil { // #nosec G304
+			if lb, err := readFile(labelFile); err == nil { // #nosec G304
 				label = strings.TrimSpace(string(lb))
 			}
 
@@ -263,7 +263,7 @@ func collectEDAC(info *models.HardwareInfo) {
 // armImplementerName maps ARM CPU implementer codes to vendor names.
 
 func collectCPU(info *models.HardwareInfo) {
-	data, err := os.ReadFile("/proc/cpuinfo")
+	data, err := readFile("/proc/cpuinfo")
 	if err != nil {
 		return
 	}
@@ -280,7 +280,7 @@ func collectCPU(info *models.HardwareInfo) {
 			"/sys/firmware/devicetree/base/model",
 			"/proc/device-tree/model",
 		} {
-			if b, err := os.ReadFile(path); err == nil { // #nosec G304
+			if b, err := readFile(path); err == nil { // #nosec G304
 				model = strings.TrimRight(string(b), "\x00\n")
 				break
 			}
@@ -295,14 +295,14 @@ func collectCPU(info *models.HardwareInfo) {
 	}
 
 	// Max boost frequency from cpufreq sysfs (kHz → MHz)
-	if b, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil { // #nosec G304
+	if b, err := readFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil { // #nosec G304
 		if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
 			info.CPU.MaxFreqMHz = n / 1000
 		}
 	}
 	// Current frequency from cpufreq if not in /proc/cpuinfo (common on ARM)
 	if info.CPU.FreqMHz == 0 {
-		if b, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"); err == nil { // #nosec G304
+		if b, err := readFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"); err == nil { // #nosec G304
 			if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
 				info.CPU.FreqMHz = n / 1000
 			}
@@ -310,7 +310,7 @@ func collectCPU(info *models.HardwareInfo) {
 	}
 
 	// Load average from /proc/loadavg — used for idle thermal check in render
-	if b, err := os.ReadFile("/proc/loadavg"); err == nil { // #nosec G304
+	if b, err := readFile("/proc/loadavg"); err == nil { // #nosec G304
 		fields := strings.Fields(string(b))
 		if len(fields) >= 1 {
 			if load1, err := strconv.ParseFloat(fields[0], 64); err == nil && threads > 0 {
@@ -324,7 +324,7 @@ func collectCPU(info *models.HardwareInfo) {
 
 func collectSystem(info *models.HardwareInfo) {
 	readDMI := func(f string) string {
-		b, err := os.ReadFile(f) // #nosec G304
+		b, err := readFile(f) // #nosec G304
 		if err != nil {
 			return ""
 		}
@@ -434,13 +434,13 @@ func collectNICs(ctx context.Context, info *models.HardwareInfo) {
 		nic := models.HardwareNIC{Name: name}
 
 		netDir := "/sys/class/net/" + name
-		if b, err := os.ReadFile(netDir + "/address"); err == nil { // #nosec G304
+		if b, err := readFile(netDir + "/address"); err == nil { // #nosec G304
 			nic.MAC = strings.TrimSpace(string(b))
 		}
-		if b, err := os.ReadFile(netDir + "/operstate"); err == nil { // #nosec G304
+		if b, err := readFile(netDir + "/operstate"); err == nil { // #nosec G304
 			nic.State = strings.TrimSpace(string(b))
 		}
-		if b, err := os.ReadFile(netDir + "/speed"); err == nil { // #nosec G304
+		if b, err := readFile(netDir + "/speed"); err == nil { // #nosec G304
 			if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
 				nic.SpeedMbps = n
 			}
@@ -450,12 +450,12 @@ func collectNICs(ctx context.Context, info *models.HardwareInfo) {
 			nic.Driver = filepath.Base(link)
 		}
 		// RX/TX errors from sysfs stats
-		if b, err := os.ReadFile(netDir + "/statistics/rx_errors"); err == nil { // #nosec G304
+		if b, err := readFile(netDir + "/statistics/rx_errors"); err == nil { // #nosec G304
 			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
 				nic.RxErrors = n
 			}
 		}
-		if b, err := os.ReadFile(netDir + "/statistics/tx_errors"); err == nil { // #nosec G304
+		if b, err := readFile(netDir + "/statistics/tx_errors"); err == nil { // #nosec G304
 			if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
 				nic.TxErrors = n
 			}

@@ -167,7 +167,9 @@ func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 		}
 		scrubStr := ""
 		if p.ScrubAgeDays > 30 {
-			scrubStr = fmt.Sprintf("  %s last scrub %dd ago", asciiOr("warn", "⚠️ ", mode), p.ScrubAgeDays)
+			// health treats an overdue scrub as INFO, not WARN — show it as a plain
+			// note so the row severity matches the verdict.
+			scrubStr = fmt.Sprintf("  last scrub %dd ago", p.ScrubAgeDays)
 		} else if p.ScrubAgeDays < 0 {
 			scrubStr = "  " + asciiOr("warn", "⚠️ ", mode) + " never scrubbed"
 		}
@@ -229,7 +231,10 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 		}
 	}
 	for _, d := range info.Drives {
-		if d.SMART != nil && !d.SMART.Healthy {
+		// Count wear/media-error drives too, matching the SMART row icon and
+		// checkNVMe — a still-"PASSED" drive with media errors or 90%+ wear must
+		// not let the summary read "healthy".
+		if d.SMART != nil && (!d.SMART.Healthy || d.SMART.MediaErrors > 0 || d.SMART.PercentUsed >= 90) {
 			n++
 		}
 	}

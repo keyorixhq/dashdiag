@@ -109,7 +109,9 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 		for _, j := range info.AnacronJobs {
 			switch {
 			case j.LastRunH < 0:
-				printLine(mode, "warn", "cron."+j.Name, "never run")
+				// health logs never-run anacron as INFO (machine may simply have been
+				// off at the scheduled time), not WARN — keep the two in step.
+				printLine(mode, "info", "cron."+j.Name, "never run")
 			case j.OverdueH > 0:
 				printLine(mode, "warn", "cron."+j.Name,
 					fmt.Sprintf("overdue by %dh (last: %dh ago)", j.OverdueH, j.LastRunH))

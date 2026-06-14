@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -146,7 +145,7 @@ func dmNameToVGName(dmName string) string {
 // typically a previous OS install on a different drive — and should not
 // trigger CRIT alerts just because it's full.
 func mergeMountedLVs(vgs []models.LVMVG) {
-	data, err := os.ReadFile("/proc/mounts")
+	data, err := readFile("/proc/mounts")
 	if err != nil {
 		return
 	}

@@ -82,7 +82,7 @@ func ExtractAVCProcesses(samples []string) []string {
 // Returns (count, true) on success, (0, false) if the file is unreadable.
 // When the direct read fails (non-root), falls back to ausearch if available.
 func countAVCsFromAuditLog(window time.Duration) (int, bool) {
-	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
 	if err != nil {
 		// Fallback: try ausearch which uses the auditd socket (works non-root)
 		return countAVCsViaAusearch(window)
@@ -127,7 +127,7 @@ func isRecentAVCDenial(line string, cutoff time.Time) bool {
 }
 
 func apparmorEnabled() bool {
-	data, err := os.ReadFile("/sys/module/apparmor/parameters/enabled")
+	data, err := readFile("/sys/module/apparmor/parameters/enabled")
 	if err != nil {
 		return false
 	}
@@ -151,7 +151,7 @@ func apparmorMode() string {
 }
 
 func apparmorModeFromPath(path string) string {
-	data, err := os.ReadFile(path) // #nosec G304
+	data, err := readFile(path) // #nosec G304
 	if err != nil {
 		if os.IsPermission(err) {
 			return "unknown"
@@ -177,7 +177,7 @@ func parseApparmorProfiles(data string) string {
 // apparmorDetail returns profile counts by mode from the profiles list.
 // Path is /sys/kernel/security/apparmor/profiles — requires root.
 func apparmorDetail() (total, enforce, complain int) {
-	data, err := os.ReadFile("/sys/kernel/security/apparmor/profiles") // #nosec G304
+	data, err := readFile("/sys/kernel/security/apparmor/profiles") // #nosec G304
 	if err != nil {
 		return 0, 0, 0
 	}
@@ -200,7 +200,7 @@ func apparmorDetail() (total, enforce, complain int) {
 // countAppArmorDenials counts AppArmor DENIED entries in the audit log
 // within the last hour. Returns -1 when the audit log is unreadable.
 func countAppArmorDenials(window time.Duration) int {
-	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
 	if err != nil {
 		// Try dmesg fallback — kernel logs AppArmor denials there too
 		return countAppArmorDenialsDmesg(window)
@@ -311,7 +311,7 @@ func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, err
 // references an installed, available policy. Returns (type, typeValid, dirOK, pkgOK, relabelPending).
 // All return values are zero/false when /etc/selinux/config does not exist (SELinux absent).
 func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabelPending bool) {
-	data, err := os.ReadFile("/etc/selinux/config")
+	data, err := readFile("/etc/selinux/config")
 	if err != nil {
 		return "", false, false, false, false
 	}
@@ -417,7 +417,7 @@ func selinuxPolicyPkgInstalled(policyType string) bool {
 // These are shown in dsd output so the admin can see exactly what was denied
 // and generate a fix with audit2allow without manual grepping.
 func collectAVCSamples(n int) []string {
-	f, err := os.Open("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
 	if err != nil {
 		return nil
 	}

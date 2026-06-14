@@ -115,7 +115,7 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 	var newest time.Time
 	found := false
 	for _, g := range globs {
-		matches, _ := filepath.Glob(g)
+		matches, _ := glob(g)
 		for _, m := range matches {
 			fi, err := os.Stat(m)
 			if err != nil {
@@ -440,7 +440,7 @@ func aptHasSecurityRepo() bool {
 	}
 
 	for _, p := range paths {
-		data, err := os.ReadFile(p) // #nosec G304 -- hardcoded known paths
+		data, err := readFile(p) // #nosec G304 -- hardcoded known paths
 		if err != nil {
 			continue
 		}

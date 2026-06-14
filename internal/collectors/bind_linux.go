@@ -179,7 +179,7 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 	if depth > 5 {
 		return nil // guard against circular includes
 	}
-	f, err := os.Open(filePath) // #nosec G304
+	f, err := openFile(filePath) // #nosec G304
 	if err != nil {
 		return nil
 	}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -418,7 +417,7 @@ func collectLoadSpikes(ctx context.Context, since time.Time) []models.LoadSpike 
 
 // currentLoadSpike reads /proc/loadavg for the current reading.
 func currentLoadSpike() *models.LoadSpike {
-	data, err := os.ReadFile("/proc/loadavg") // #nosec G304
+	data, err := readFile("/proc/loadavg") // #nosec G304
 	if err != nil {
 		return nil
 	}

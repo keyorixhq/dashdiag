@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -22,7 +21,7 @@ import (
 func collectPhysicalDrives() []models.PhysicalDrive {
 	mountsByDev := make(map[string][]string)
 	fstypeByDev := make(map[string]string)
-	if data, err := os.ReadFile("/proc/mounts"); err == nil { // #nosec G304
+	if data, err := readFile("/proc/mounts"); err == nil { // #nosec G304
 		for _, line := range strings.Split(string(data), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 3 {
@@ -38,7 +37,7 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 		}
 	}
 
-	f, err := os.Open("/proc/partitions") // #nosec G304
+	f, err := openFile("/proc/partitions") // #nosec G304
 	if err != nil {
 		return nil
 	}
@@ -117,7 +116,7 @@ func diskDetectType(name string) models.DriveType {
 	if strings.HasPrefix(name, "nvme") {
 		return models.DriveTypeNVMe
 	}
-	data, err := os.ReadFile(filepath.Join("/sys/block", name, "queue/rotational")) // #nosec G304
+	data, err := readFile(filepath.Join("/sys/block", name, "queue/rotational")) // #nosec G304
 	if err != nil {
 		return models.DriveTypeSSD
 	}
@@ -129,7 +128,7 @@ func diskDetectType(name string) models.DriveType {
 
 // diskSizeGB returns device capacity from sysfs sectors.
 func diskSizeGB(name string) float64 {
-	data, err := os.ReadFile(filepath.Join("/sys/block", name, "size")) // #nosec G304
+	data, err := readFile(filepath.Join("/sys/block", name, "size")) // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -147,7 +146,7 @@ func diskModel(name string) string {
 		filepath.Join("/sys/block", name, "device/device/model"),
 	}
 	for _, p := range paths {
-		if data, err := os.ReadFile(p); err == nil { // #nosec G304
+		if data, err := readFile(p); err == nil { // #nosec G304
 			return strings.TrimSpace(string(data))
 		}
 	}
@@ -366,7 +365,7 @@ func zfsGate() bool {
 	if _, err := exec.LookPath("zpool"); err != nil {
 		return false
 	}
-	data, err := os.ReadFile("/proc/mounts") // #nosec G304
+	data, err := readFile("/proc/mounts") // #nosec G304
 	if err != nil {
 		return false
 	}
@@ -520,7 +519,7 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 
 	readStats := func() map[string]diskStat {
 		m := make(map[string]diskStat)
-		f, err := os.Open("/proc/diskstats") // #nosec G304
+		f, err := openFile("/proc/diskstats") // #nosec G304
 		if err != nil {
 			return m
 		}

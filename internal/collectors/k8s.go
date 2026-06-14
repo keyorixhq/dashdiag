@@ -414,7 +414,7 @@ func flannelCNIConfigured() bool {
 			if strings.Contains(strings.ToLower(e.Name()), "flannel") {
 				return true
 			}
-			data, err := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- CNI conf dir
+			data, err := readFile(filepath.Join(dir, e.Name())) // #nosec G304 -- CNI conf dir
 			if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
 				return true
 			}
@@ -514,7 +514,7 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 
 	// IP forwarding — leave IPForwardChecked false when /proc is unreadable so
 	// the heuristic treats it as "unknown" rather than a false "disabled" CRIT.
-	if data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil { // #nosec G304
+	if data, err := readFile("/proc/sys/net/ipv4/ip_forward"); err == nil { // #nosec G304
 		layer.IPForwardChecked = true
 		layer.IPForwardEnabled = strings.TrimSpace(string(data)) == "1"
 	}
@@ -555,10 +555,10 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 
 // checkCertExpiry scans a directory for expiring certificates.
 func checkCertExpiry(dir string, layer *models.K8sOSLayer) {
-	certs, _ := filepath.Glob(filepath.Join(dir, "*.crt"))
+	certs, _ := glob(filepath.Join(dir, "*.crt"))
 	now := time.Now()
 	for _, certPath := range certs {
-		data, err := os.ReadFile(certPath) // #nosec G304
+		data, err := readFile(certPath) // #nosec G304
 		if err != nil {
 			continue
 		}

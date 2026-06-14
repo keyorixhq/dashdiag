@@ -3,7 +3,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -22,7 +21,7 @@ func (c *SysctlCollector) Timeout() time.Duration { return 1 * time.Second }
 
 // readIntFile reads a single integer from a file (e.g. /proc/sys/* files).
 func readIntFile(path string) (int, error) {
-	data, err := os.ReadFile(filepath.Clean(path))
+	data, err := readFile(filepath.Clean(path))
 	if err != nil {
 		return 0, fmt.Errorf("reading %s: %w", path, err)
 	}
@@ -34,7 +33,7 @@ func readIntFile(path string) (int, error) {
 }
 
 func countProcDirs() int {
-	dirs, _ := filepath.Glob("/proc/[0-9]*")
+	dirs, _ := glob("/proc/[0-9]*")
 	return len(dirs)
 }
 
@@ -73,7 +72,7 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info.FSInotifyWatches, _ = readIntFile("/proc/sys/fs/inotify/max_user_watches")
 
 	// Uptime — used by correlation engine for sysctl-drift-after-reboot detection.
-	if data, err := os.ReadFile("/proc/uptime"); err == nil {
+	if data, err := readFile("/proc/uptime"); err == nil {
 		if fields := strings.Fields(string(data)); len(fields) >= 1 {
 			if f, err := strconv.ParseFloat(fields[0], 64); err == nil {
 				info.UptimeSeconds = int64(f)
@@ -90,9 +89,9 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 // detectWorkload scans /proc/*/comm to identify the primary workload.
 func detectWorkload() string {
 	procs := make(map[string]bool)
-	dirs, _ := filepath.Glob("/proc/[0-9]*")
+	dirs, _ := glob("/proc/[0-9]*")
 	for _, dir := range dirs {
-		comm, err := os.ReadFile(filepath.Join(dir, "comm")) // #nosec G304
+		comm, err := readFile(filepath.Join(dir, "comm")) // #nosec G304
 		if err != nil {
 			continue
 		}

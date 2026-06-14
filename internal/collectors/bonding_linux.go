@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,7 +24,7 @@ func (c *BondingCollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.BondingInfo{}
 
-	files, err := filepath.Glob("/proc/net/bonding/bond*")
+	files, err := glob("/proc/net/bonding/bond*")
 	if err != nil || len(files) == 0 {
 		return info, nil
 	}
@@ -42,13 +41,13 @@ func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsBondingPresent returns true if any bond interfaces exist.
 func IsBondingPresent() bool {
-	files, _ := filepath.Glob("/proc/net/bonding/bond*")
+	files, _ := glob("/proc/net/bonding/bond*")
 	return len(files) > 0
 }
 
 // collectBonds returns bond health for all bond interfaces — used by NetworkCollector.
 func collectBonds() []models.BondInterface {
-	files, err := filepath.Glob("/proc/net/bonding/bond*")
+	files, err := glob("/proc/net/bonding/bond*")
 	if err != nil || len(files) == 0 {
 		return nil
 	}
@@ -64,7 +63,7 @@ func collectBonds() []models.BondInterface {
 }
 
 func parseBondFile(path string) (models.BondInterface, error) {
-	f, err := os.Open(path)
+	f, err := openFile(path)
 	if err != nil {
 		return models.BondInterface{}, err
 	}

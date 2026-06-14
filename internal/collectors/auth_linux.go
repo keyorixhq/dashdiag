@@ -116,7 +116,7 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 // what lets the caller tell "no failed logins" (readable, empty) apart from "could
 // not read the log" (denied) — the latter must not be reported as a clean host.
 //
-// We probe readability with os.Open (which distinguishes permission-denied from
+// We probe readability with openFile (which distinguishes permission-denied from
 // absent via os.IsPermission) and only then grep, so a grep exit of 1 (no matches)
 // on a file we know is readable correctly means "zero failures", not "unreadable".
 func readAuthLog(ctx context.Context) (content string, readable, denied bool) {
@@ -135,7 +135,7 @@ func readAuthLog(ctx context.Context) (content string, readable, denied bool) {
 // root and bypasses file modes — it is covered by a live non-root check.)
 func readAuthLogFrom(ctx context.Context, candidates []string) (content string, readable, denied bool) {
 	for _, path := range candidates {
-		f, err := os.Open(path) // #nosec G304 -- fixed candidate list
+		f, err := openFile(path) // #nosec G304 -- fixed candidate list
 		if err != nil {
 			if os.IsPermission(err) {
 				denied = true // exists but we can't read it

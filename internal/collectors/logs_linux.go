@@ -150,7 +150,7 @@ func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duratio
 	}
 	defer f.Close() //nolint:errcheck
 
-	uptimeBytes, err := os.ReadFile("/proc/uptime")
+	uptimeBytes, err := readFile("/proc/uptime")
 	if err != nil {
 		return
 	}
@@ -654,7 +654,7 @@ func readJournaldConfig(key string) string {
 	}
 	prefix := key + "="
 	for _, path := range files {
-		b, err := os.ReadFile(path) // #nosec G304
+		b, err := readFile(path) // #nosec G304
 		if err != nil {
 			continue
 		}
@@ -1024,7 +1024,7 @@ func collectVarLogErrorsFrom(info *models.LogsInfo, candidates []string) {
 		return
 	}
 
-	data, err := os.ReadFile(path) // #nosec G304 -- path comes from a controlled candidate list
+	data, err := readFile(path) // #nosec G304 -- path comes from a controlled candidate list
 	if err != nil {
 		return
 	}
