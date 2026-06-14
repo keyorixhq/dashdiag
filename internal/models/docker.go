@@ -24,6 +24,7 @@ type ContainerInfo struct {
 	State               string   `json:"state"`  // running, exited, paused, dead, etc.
 	Health              string   `json:"health"` // healthy, unhealthy, starting, none
 	Restart             int      `json:"restart"`
+	CrashLooping        bool     `json:"crash_looping,omitempty"` // restarts past threshold AND not since stabilized
 	ExitCode            int      `json:"exit_code,omitempty"`
 	ExitLabel           string   `json:"exit_label,omitempty"`        // "OOM kill", "segfault", etc.
 	PlaintextSecrets    []string `json:"plaintext_secrets,omitempty"` // env var names only
