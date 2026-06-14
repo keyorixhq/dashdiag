@@ -116,6 +116,11 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	if info.SocketMountedCount > 0 {
 		issues++
 	}
+	// Root-user containers — matches checkDockerSecurity (WARN), which the
+	// standalone verdict previously ignored.
+	if info.RunningAsRootCount > 0 {
+		issues++
+	}
 
 	fmt.Println()
 	fmt.Println(sep)

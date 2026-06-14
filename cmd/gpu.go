@@ -311,10 +311,13 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 	crits, warns := 0, 0
 	for _, dev := range info.Devices {
 		switch {
-		case dev.TempC >= 90 || dev.TempJunctionC >= 100 || dev.MemUsedPct >= 95 || dev.XidErrors > 0:
+		// APUs carve out a small shared-RAM "VRAM" that fills to 90%+ by design;
+		// skip the memory-pressure tiers for them, matching checkGPU.
+		case dev.TempC >= 90 || dev.TempJunctionC >= 100 || (dev.MemUsedPct >= 95 && !dev.IsAPU) || dev.XidErrors > 0:
 			crits++
 		case dev.TempC >= 80 || dev.TempJunctionC >= 90 || dev.Throttling ||
-			dev.MemUsedPct >= 85 || dev.VRAMUsedPct >= 90 || dev.UtilPct >= 95 || dev.PowerDPMLevel == "low":
+			(dev.MemUsedPct >= 85 && !dev.IsAPU) || (dev.VRAMUsedPct >= 90 && !dev.IsAPU) ||
+			dev.UtilPct >= 95 || dev.PowerDPMLevel == "low":
 			warns++
 		}
 	}
