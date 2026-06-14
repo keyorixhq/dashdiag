@@ -103,6 +103,11 @@ type captureInput struct {
 }
 
 func runCapture(cmd *cobra.Command, args []string) error {
+	// --raw: native raw input capture (no stdin). One command, one tarball.
+	if raw, _ := cmd.Flags().GetBool("raw"); raw {
+		return runCaptureRaw(cmd)
+	}
+
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)

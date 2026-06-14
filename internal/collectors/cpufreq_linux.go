@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,13 +23,15 @@ func (c *CPUFreqCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.CPUFreqInfo{}
 
-	// Read cpu0 as representative — governor is typically system-wide
+	// Read cpu0 as representative — governor is typically system-wide. Use the
+	// governor read itself as the availability probe (routed through the source
+	// so replay works); an empty governor means cpufreq is absent or unreadable.
 	base := "/sys/devices/system/cpu/cpu0/cpufreq"
-	if _, err := os.Stat(base); os.IsNotExist(err) {
+	gov := strings.TrimSpace(readSysfsStr(base + "/scaling_governor"))
+	if gov == "" {
 		return info, nil // cpufreq not available (VM, container, or old kernel)
 	}
-
-	info.Governor = strings.TrimSpace(readSysfsStr(base + "/scaling_governor"))
+	info.Governor = gov
 
 	// Frequencies are in kHz — convert to MHz
 	if v := readSysfsKHz(base + "/scaling_cur_freq"); v > 0 {
@@ -44,7 +45,7 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 	}
 
 	// CPU count from present list
-	if cpus, _ := filepath.Glob("/sys/devices/system/cpu/cpu[0-9]*"); len(cpus) > 0 {
+	if cpus, _ := glob("/sys/devices/system/cpu/cpu[0-9]*"); len(cpus) > 0 {
 		info.CPUCount = len(cpus)
 	}
 

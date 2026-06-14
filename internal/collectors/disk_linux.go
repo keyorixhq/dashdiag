@@ -342,15 +342,20 @@ func trimSMARTError(s string) string {
 // runCmdTimeout runs a command with a hard timeout and returns stdout. The
 // timeout is enforced via context + WaitDelay so a wedged tool (smartctl on a
 // dying disk, zpool on a hung pool, virsh against a stuck libvirtd) can't block
-// the caller indefinitely.
+// the caller indefinitely. Routed through the active source so capture/replay
+// see it. Stdout is returned even on a non-zero exit (smartctl -H prints the
+// failing verdict and exits non-zero), with the exit surfaced as the error.
 func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204
-	cmd.Env = localeSafeEnv()
-	cmd.WaitDelay = 100 * time.Millisecond
-	out, err := cmd.Output()
-	return string(out), err
+	res, err := activeSource.Run(ctx, name, args...)
+	if err != nil {
+		return string(res.Stdout), err
+	}
+	if res.ExitCode != 0 {
+		return string(res.Stdout), &cmdError{name: name, code: res.ExitCode}
+	}
+	return string(res.Stdout), nil
 }
 
 // ── ZFS pool health ───────────────────────────────────────────────────────────
