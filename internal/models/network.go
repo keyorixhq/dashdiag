@@ -21,6 +21,8 @@ type InterfaceInfo struct {
 	TxDrops   uint64    `json:"tx_drops"`
 	RxErrors  uint64    `json:"rx_errors,omitempty"`
 	TxErrors  uint64    `json:"tx_errors,omitempty"`
+	RxPackets uint64    `json:"rx_packets,omitempty"` // denominator for the error-rate gate
+	TxPackets uint64    `json:"tx_packets,omitempty"`
 	SpeedMbps int       `json:"speed_mbps"`
 	IsUSB     bool      `json:"is_usb,omitempty"`
 	Driver    string    `json:"driver,omitempty"`

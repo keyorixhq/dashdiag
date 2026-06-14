@@ -1206,9 +1206,15 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			))
 		}
 	}
-	if nfs.StaleMounts == 0 && nfs.RetransPerMin > 100 {
+	// retrans and calls are both cumulative since boot, so a raw retrans threshold
+	// fires forever after a transient blip. Gate on the retrans RATE (retrans/calls)
+	// instead, with a call-volume floor so a freshly-mounted share isn't flagged on a
+	// handful of calls. >5% retransmitted is the conventional nfsstat concern line.
+	if nfs.StaleMounts == 0 && nfs.RPCCalls > 1000 &&
+		nfs.RetransPerMin/nfs.RPCCalls > 0.05 {
 		out = append(out, insight("WARN", "NFS",
-			fmt.Sprintf("elevated NFS retransmissions (%.0f) — NFS transport may be unreliable", nfs.RetransPerMin),
+			fmt.Sprintf("NFS retransmission rate %.1f%% (%.0f/%.0f calls) — transport may be unreliable",
+				nfs.RetransPerMin/nfs.RPCCalls*100, nfs.RetransPerMin, nfs.RPCCalls),
 			[]string{
 				"to inspect: nfsstat -rc",
 				"to inspect: cat /proc/net/rpc/nfs",
@@ -1445,6 +1451,22 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 	return out
 }
 
+// nicErrorRateHigh reports whether a NIC's cumulative error counter represents a
+// sustained link-layer fault rather than a stale boot-time blip. It requires both an
+// absolute floor (>100 errors, so trivial counts on idle links are ignored) and an
+// error rate above 0.01% of packets (so 100 errors across billions of packets on a
+// long-lived host does not fire a perpetual "happening now" warning).
+func nicErrorRateHigh(errors, packets uint64) bool {
+	const (
+		absFloor  = 100
+		rateLimit = 0.0001 // 0.01% of packets
+	)
+	if errors <= absFloor || packets == 0 {
+		return false
+	}
+	return float64(errors)/float64(packets) > rateLimit
+}
+
 func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
@@ -1536,8 +1558,12 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 				},
 			))
 		}
-		// Hardware NIC errors (CRC, frame, overrun) — distinct from drops
-		if iface.RxErrors > 100 || iface.TxErrors > 100 {
+		// Hardware NIC errors (CRC, frame, overrun) — distinct from drops.
+		// rx/tx_errors are cumulative since boot, so a flat count fires forever after a
+		// one-time boot event. Gate on the error RATE (errors as a fraction of packets):
+		// require both a meaningful absolute floor AND >0.01% of traffic erroring.
+		if nicErrorRateHigh(iface.RxErrors, iface.RxPackets) ||
+			nicErrorRateHigh(iface.TxErrors, iface.TxPackets) {
 			out = append(out, insight("WARN", "Network",
 				fmt.Sprintf("%s has hardware errors: rx:%d tx:%d — may indicate bad cable, NIC, or switch port", iface.Name, iface.RxErrors, iface.TxErrors),
 				[]string{

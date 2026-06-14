@@ -174,7 +174,7 @@ func TestCheckNFS(t *testing.T) {
 			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", OptionsWarnings: []string{"soft without timeo"}}}},
 			want: "WARN",
 		},
-		{"elevated retransmissions is WARN", models.NFSInfo{RetransPerMin: 150}, "WARN"},
+		{"high retransmission rate is WARN", models.NFSInfo{RetransPerMin: 200, RPCCalls: 2000}, "WARN"},
 		{
 			name: "rpcbind inactive with mounts is WARN",
 			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs"}}, RpcbindActive: false},
