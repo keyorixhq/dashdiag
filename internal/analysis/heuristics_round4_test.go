@@ -52,6 +52,8 @@ func TestCheckKVM(t *testing.T) {
 	}{
 		{"not detected is silent", models.KVMInfo{Detected: false}, ""},
 		{"healthy is clean", models.KVMInfo{Detected: true}, ""},
+		// libvirt up but `virsh list` failed → WARN, not a silent "no VMs / healthy".
+		{"enumeration failed is WARN", models.KVMInfo{Detected: true, Status: "enum-failed", StatusReason: "libvirt is up but `virsh list` failed"}, "WARN"},
 		{"crashed VM is CRIT", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMCrashed}}}, "CRIT"},
 		{"paused VMs is WARN", models.KVMInfo{Detected: true, VMsPaused: 1}, "WARN"},
 		{"disk IO errors is CRIT", models.KVMInfo{Detected: true, DiskIOErrors: 1}, "CRIT"},

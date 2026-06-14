@@ -79,8 +79,17 @@ func parseVirshVersion(out string, info *models.KVMInfo) {
 
 func kvmCollectVMs(ctx context.Context, info *models.KVMInfo) {
 	out, err := runCmd(ctx, "virsh", "list", "--all", "--name")
-	if err != nil || strings.TrimSpace(out) == "" {
+	if err != nil {
+		// libvirt was detected (virsh version --daemon succeeded) but enumeration
+		// failed. Returning silently left VMs empty, which reads as "no VMs / healthy"
+		// — so a crashed VM on a host whose `virsh list` is failing went unreported.
+		// Record the failure so the verdict surfaces it instead of a green OK.
+		info.Status = "enum-failed"
+		info.StatusReason = "libvirt is up but `virsh list` failed — VM states could not be read"
 		return
+	}
+	if strings.TrimSpace(out) == "" {
+		return // genuinely no domains defined
 	}
 
 	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {

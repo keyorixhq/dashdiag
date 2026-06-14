@@ -24,9 +24,14 @@ func (c *PressureCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.PressureInfo{}
 
-	base := "/proc/pressure"
+	// /proc/pressure exposes PSI as plain files: memory, cpu, io. cgroup v2 exposes
+	// them with a ".pressure" suffix: memory.pressure, cpu.pressure, io.pressure. The
+	// old fallback used base "/sys/fs/cgroup" but still read "<base>/memory" (the
+	// memory CONTROLLER dir, not the PSI file), so on a host with only the cgroup PSI
+	// files every read failed and Pressure reported empty/no-pressure (a false-OK).
+	base, suffix := "/proc/pressure", ""
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		base = "/sys/fs/cgroup"
+		base, suffix = "/sys/fs/cgroup", ".pressure"
 		if _, err := os.Stat(base + "/memory.pressure"); os.IsNotExist(err) {
 			return info, nil
 		}
@@ -36,16 +41,16 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 
 	// len()>0 guards are required: readPSIFile returns (nil, nil) when the file
 	// exists but no line parses (malformed/truncated), so a bare [0] would panic.
-	if m, err := readPSIFile(fmt.Sprintf("%s/memory", base)); err == nil && len(m) > 0 {
+	if m, err := readPSIFile(fmt.Sprintf("%s/memory%s", base, suffix)); err == nil && len(m) > 0 {
 		info.MemorySome = m[0]
 		if len(m) > 1 {
 			info.MemoryFull = m[1]
 		}
 	}
-	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu", base)); err == nil && len(cpu) > 0 {
+	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu%s", base, suffix)); err == nil && len(cpu) > 0 {
 		info.CPUSome = cpu[0]
 	}
-	if io, err := readPSIFile(fmt.Sprintf("%s/io", base)); err == nil && len(io) > 0 {
+	if io, err := readPSIFile(fmt.Sprintf("%s/io%s", base, suffix)); err == nil && len(io) > 0 {
 		info.IOSome = io[0]
 		if len(io) > 1 {
 			info.IOFull = io[1]
