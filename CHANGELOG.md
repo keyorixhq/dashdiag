@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-06-14
+
+Tail of the collector-audit sweep: the bonding/oom JSON cleanups and the cgroup deep
+recency reframe (lifetime counters no longer presented as live alarms).
+
 ### Fixed
 
 - **Cgroup (deep): cumulative counters are no longer framed as live alarms** — the
