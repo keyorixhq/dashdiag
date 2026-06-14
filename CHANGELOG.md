@@ -11,6 +11,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-14
+
+Raw input capture & replay — turn a scarce real-hardware window into permanent,
+re-runnable test capital. Collectors read sysfs and command output; until now
+those raw bytes were discarded after the run, so a hardware-specific parser bug
+(AMD k10temp, EDAC, amdgpu) couldn't be reproduced off the box. Now `dsd capture
+--raw` records exactly what the collectors read into one portable bundle, and
+`dsd replay` re-runs the real collector code against it offline. See
+`docs/adr/0003-raw-input-capture-replay.md`.
+
+### Added
+
+- **`dsd capture --raw`** — one command, one self-contained `.tar.gz`. Runs the
+  full health check with every file/sysfs read and command output recorded (keyed
+  by real path and argv), plus the rendered health JSON for cross-checking. The
+  native replacement for `hack/hw-snapshot.sh`, which remains the fallback for
+  hosts where you can't get a binary on.
+- **`dsd replay <bundle>`** — re-runs the migrated collectors (thermal, cpufreq,
+  gpu) against a captured bundle with no hardware and no live reads. Also accepts
+  the file layer of an `hw-snapshot.sh` tarball. Replay must run in a binary
+  matching the captured host's OS (use an OrbStack Linux container for a Linux
+  bundle).
+- **`internal/source`** — a recordable/replayable I/O abstraction behind the
+  collectors (Live / Recorder / Replay) with a `raw-v1` bundle format. An
+  unrecorded access fails loud rather than falling through to the live system, so
+  a recording gap can't masquerade as a healthy result.
+
+### Changed
+
+- Collector command execution (`runCmd` / `runCmdOutput` / `runCmdTimeout`) and
+  the thermal / cpufreq / amdgpu sysfs reads now route through the active source,
+  so they are captured and replayable. Live behaviour (LC_ALL=C, timeouts,
+  exit-code contract) is unchanged.
+
 ## [0.9.7] - 2026-06-14
 
 k8s node-diagnostics overhaul, validated end-to-end against a real k3s cluster: the

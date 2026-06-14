@@ -595,7 +595,7 @@ func amdGPUName(devPath string) string {
 // readSysfsStr reads a sysfs file and returns its content as a string.
 // Returns "" on any error.
 func readSysfsStr(path string) string {
-	b, err := os.ReadFile(path) // #nosec G304
+	b, err := readFile(path)
 	if err != nil {
 		return ""
 	}
@@ -604,7 +604,7 @@ func readSysfsStr(path string) string {
 
 // readSysfsFirstGlob returns the content of the first file matching a glob pattern.
 func readSysfsFirstGlob(pattern string) string {
-	matches, err := filepath.Glob(pattern)
+	matches, err := glob(pattern)
 	if err != nil || len(matches) == 0 {
 		return ""
 	}

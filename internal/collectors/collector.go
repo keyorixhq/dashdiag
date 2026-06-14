@@ -3,9 +3,13 @@ package collectors
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Collector matches runner.Collector exactly.
@@ -51,35 +55,87 @@ func localeSafeCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// The process is killed (not just abandoned) when ctx is cancelled.
-func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+// activeSource is the system-input backend every collector reads through:
+// external commands via the runCmd family here, file/sysfs reads via the
+// fsaccess.go helpers. The default reads the live system with locale-safe exec.
+// `dsd capture --raw` swaps in a source.Recorder; `dsd replay` swaps in a
+// source.Replay. See docs/adr/0003-raw-input-capture-replay.md.
+var activeSource source.Source = source.Live{Exec: localeSafeExec}
+
+// SetSource swaps the active input backend and returns the previous one so the
+// caller can restore it (defer collectors.SetSource(prev)).
+func SetSource(s source.Source) source.Source {
+	prev := activeSource
+	activeSource = s
+	return prev
+}
+
+// ActiveSource returns the current input backend. `dsd capture --raw` wraps it in
+// a source.Recorder so the recorder tees the live, locale-safe exec/read path
+// rather than a bare source.Live that would lose LC_ALL=C.
+func ActiveSource() source.Source { return activeSource }
+
+// localeSafeExec is the live exec backend: LC_ALL=C, the same force-kill-after-
+// cancel semantics runCmd always had, and stdout+stderr+exit captured into a
+// source.Result. A non-zero exit is reported via ExitCode with a nil error; only
+// a genuine spawn failure (tool absent, ctx cancelled) returns a non-nil error.
+func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = localeSafeEnv()
 	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	// cmd.Run() calls Wait() internally on every path (success, non-zero exit, and
-	// context cancel + WaitDelay force-kill), so the child is always reaped — no
-	// zombie can leak here. See BUG-021: investigation found no Start()-without-Wait()
-	// anywhere in the tree; transient <defunct> in ps is a sampling artifact.
-	if err := cmd.Run(); err != nil {
+	var so, se bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &so, &se
+	// cmd.Run() calls Wait() internally on every path, so the child is always
+	// reaped — no zombie can leak (see BUG-021).
+	err := cmd.Run()
+	res := source.Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			res.ExitCode = ee.ExitCode()
+			return res, nil
+		}
+		return res, err
+	}
+	return res, nil
+}
+
+// cmdError reports a non-zero exit from runCmd, preserving the long-standing
+// contract that any non-zero status comes back as an error (callers only ever
+// check err != nil, never the exit code on this path).
+type cmdError struct {
+	name string
+	code int
+}
+
+func (e *cmdError) Error() string { return fmt.Sprintf("%s exited %d", e.name, e.code) }
+
+// runCmd runs name through the active source and returns stdout, treating a
+// non-zero exit as an error (use runCmdOutput when the exit code itself carries
+// findings). The process is killed, not just abandoned, when ctx is cancelled.
+func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+	res, err := activeSource.Run(ctx, name, args...)
+	if err != nil {
 		return "", err
 	}
-	return out.String(), nil
+	if res.ExitCode != 0 {
+		return "", &cmdError{name: name, code: res.ExitCode}
+	}
+	return string(res.Stdout), nil
 }
 
 // runCmdOutput is runCmd that KEEPS stdout even when the command exits non-zero.
 // Some tools signal FINDINGS via a non-zero exit while writing them to stdout —
 // `rpm --verify` (exit 1 = discrepancies/tampering), `dnf check` (exit non-zero =
-// broken deps). runCmd discards stdout on any error, so those findings vanish and
-// the integrity check reads clean (false-OK). Use this when a tool reports
-// problems through its exit code and parse the returned stdout regardless of err.
+// broken deps). Use this when a tool reports problems through its exit code and
+// parse the returned stdout regardless of err.
 func runCmdOutput(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = localeSafeEnv()
-	cmd.WaitDelay = 100 * time.Millisecond
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	return out.String(), err
+	res, err := activeSource.Run(ctx, name, args...)
+	if err != nil {
+		return string(res.Stdout), err
+	}
+	if res.ExitCode != 0 {
+		return string(res.Stdout), &cmdError{name: name, code: res.ExitCode}
+	}
+	return string(res.Stdout), nil
 }
