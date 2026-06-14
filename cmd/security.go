@@ -213,7 +213,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 
 	// SSH Configuration
 	fmt.Println("\nSSH Configuration")
-	printSecItem("PermitRootLogin", !info.SSHRootLogin, "no (secure)", "yes (INSECURE)", mode)
+	// Key on SSHPermitRoot (the same field the verdict + checkSecurity use) so the
+	// detail line can't show "secure" while the verdict flags root login — e.g.
+	// PermitRootLogin forced-commands-only.
+	printSecItem("PermitRootLogin", !info.SSHPermitRoot, "no (secure)", "yes (INSECURE)", mode)
 	printSecItem("PasswordAuthentication", !info.SSHPasswordAuth, "no (key-only)", "yes (weaker)", mode)
 
 	// Failed logins

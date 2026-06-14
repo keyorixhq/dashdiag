@@ -165,7 +165,8 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 }
 
 func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
-	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady
+	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady +
+		info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
 	if issues == 0 && info.HighRestarts == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 		return
@@ -185,6 +186,15 @@ func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode
 	}
 	if info.HighRestarts > 0 {
 		parts = append(parts, fmt.Sprintf("%d pod(s) high restarts", info.HighRestarts))
+	}
+	if info.WorkloadsDown > 0 {
+		parts = append(parts, fmt.Sprintf("%d workload(s) degraded", info.WorkloadsDown))
+	}
+	if info.PVCsNotBound > 0 {
+		parts = append(parts, fmt.Sprintf("%d PVC(s) not bound", info.PVCsNotBound))
+	}
+	if len(info.Events) > 0 {
+		parts = append(parts, fmt.Sprintf("%d warning event(s)", len(info.Events)))
 	}
 	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %s%s", asciiOr("warn", "⚠️ ", mode), strings.Join(parts, ", "), timing)))
 }

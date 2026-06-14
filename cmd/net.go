@@ -321,10 +321,12 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	if info.PrimaryInterfaceDown {
 		issues++
 	}
-	if info.GatewayPingMs > 200 || info.GatewayPingMs < 0 {
+	// Thresholds mirror checkNetwork so `dsd net` and `dsd health` agree on the
+	// same data (elevated latency >50ms; packet-loss WARN at >=10%).
+	if info.GatewayPingMs > 50 || info.GatewayPingMs < 0 {
 		issues++
 	}
-	if info.GatewayPacketLossPct > 5 {
+	if analysis.GatewayPacketLossLevel(info.GatewayPacketLossPct) != "" {
 		issues++
 	}
 	if info.DNSFailed {
@@ -342,7 +344,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec)) {
 		issues++
 	}
-	if info.ConntrackUsedPct >= 80 {
+	if info.ConntrackUsedPct >= 60 {
 		issues++
 	}
 
