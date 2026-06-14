@@ -58,9 +58,7 @@ func collectBonds() []models.BondInterface {
 		if err != nil {
 			continue
 		}
-		b.Degraded = b.DownSlaves > 0
-		b.AllDown = b.DownSlaves > 0 && b.DownSlaves == len(b.Slaves)
-		bonds = append(bonds, b)
+		bonds = append(bonds, b) // Degraded/AllDown now set in parseBondFileContent
 	}
 	return bonds
 }
@@ -141,6 +139,12 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 			bond.DownSlaves++
 		}
 	}
+	// Derive the verdict booleans here so EVERY caller gets them. The standalone
+	// BondingCollector skipped this (only the NetworkCollector path set them), so
+	// `dsd ... --json` raw bond payloads reported degraded=false/all_down=false even
+	// for a fully-down bond — a false-OK in the machine-readable contract.
+	bond.Degraded = bond.DownSlaves > 0
+	bond.AllDown = bond.DownSlaves > 0 && bond.DownSlaves == len(bond.Slaves)
 	return bond, nil
 }
 

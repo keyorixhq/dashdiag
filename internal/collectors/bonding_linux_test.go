@@ -98,6 +98,14 @@ func TestParseBondFile(t *testing.T) {
 		if bond.DownSlaves != 1 {
 			t.Errorf("DownSlaves = %d, want 1", bond.DownSlaves)
 		}
+		// Verdict booleans are now derived in the shared parser (so the standalone
+		// BondingCollector's JSON gets them too, not just the NetworkCollector path).
+		if !bond.Degraded {
+			t.Error("Degraded = false, want true (one slave down)")
+		}
+		if bond.AllDown {
+			t.Error("AllDown = true, want false (only one of two slaves down)")
+		}
 	})
 
 	t.Run("active-backup all slaves up", func(t *testing.T) {
