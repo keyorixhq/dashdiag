@@ -136,8 +136,15 @@ func parseSessions(out string) *models.SessionsInfo {
 // dot (e.g. "workstation") — missing those previously misclassified a remote root
 // SSH session as a local console, defeating the RootSSH security signal.
 func looksLikeHost(s string) bool {
-	if s == "" || s == "-" {
-		return false // explicit "no from" marker on some systems
+	if s == "" {
+		return false
+	}
+	if s == "-" {
+		// "-" IS the FROM column — the local-login marker `w` prints for a console
+		// session. Treating it as "no FROM column" took the column-shifted branch and
+		// mis-read LOGIN@/IDLE/command. It's a present (empty) FROM; the remote/RootSSH
+		// checks already exclude From=="-".
+		return true
 	}
 	lower := strings.ToLower(s)
 	// "9:00am" / "9:00pm" — a login time, never a host.

@@ -12,6 +12,25 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// isSnapperSeparator reports whether a snapper table line is a column-separator rule
+// — both the modern Unicode form ("──────┼──────") and the ASCII form ("------+-----")
+// that older / non-UTF-8 snapper builds print. The old code only skipped the Unicode
+// "─" prefix, so an ASCII separator was counted as a phantom config/snapshot row.
+func isSnapperSeparator(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		switch r {
+		case '-', '+', '|', ' ', '\t', '─', '┼', '│', '├', '┤':
+			// rule/box-drawing/whitespace characters only
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 var snapperDateRe = regexp.MustCompile(`(?:` +
 	`(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})` + // LC_ALL=C: "Wed May 13 20:39:27 2026"
 	`|(\w{3}\s+\d{1,2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[AP]M\s+\w+)` + // locale: "Wed 13 May 2026 08:39:27 PM CEST"
@@ -32,7 +51,7 @@ func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 	if err == nil {
 		for _, line := range strings.Split(configOut, "\n") {
 			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "Config") || strings.HasPrefix(line, "─") {
+			if line == "" || strings.HasPrefix(line, "Config") || isSnapperSeparator(line) {
 				continue
 			}
 			info.ConfigCount++
@@ -57,7 +76,7 @@ func parseSnapperPlain(out string, info *models.SnapperInfo) *models.SnapperInfo
 
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "─") || strings.HasPrefix(line, "Config") {
+		if line == "" || strings.HasPrefix(line, "#") || isSnapperSeparator(line) || strings.HasPrefix(line, "Config") {
 			continue
 		}
 		// Skip header row

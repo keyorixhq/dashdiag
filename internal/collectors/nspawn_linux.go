@@ -32,12 +32,28 @@ func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info.Available = true
 	info.Containers = parseMachinectlList(out)
-	for _, c := range info.Containers {
-		if c.State == "degraded" || c.State == "failed" {
-			info.FailedCount++
+	info.FailedCount = countFailedNspawnUnits(ctx)
+	return info, nil
+}
+
+// countFailedNspawnUnits counts systemd-nspawn@<name> service units in the failed
+// state — the actual source of nspawn-container failure. `machinectl list` only shows
+// RUNNING machines (a crashed container is simply absent from it), so the old check —
+// comparing the OS column (fields[3], e.g. "debian") to "failed"/"degraded" — could
+// never match and FailedCount was always 0.
+func countFailedNspawnUnits(ctx context.Context) int {
+	out, err := runCmd(ctx, "systemctl", "list-units", "systemd-nspawn@*.service",
+		"--state=failed", "--no-legend", "--no-pager", "--plain")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "systemd-nspawn@") {
+			count++
 		}
 	}
-	return info, nil
+	return count
 }
 
 // IsNspawnPresent returns true when machinectl is available.
@@ -60,13 +76,12 @@ func parseMachinectlList(out string) []models.NspawnContainer {
 		if len(fields) < 1 {
 			continue
 		}
-		state := "running"
-		if len(fields) >= 4 {
-			state = strings.ToLower(fields[3])
-		}
+		// `machinectl list` columns are MACHINE CLASS SERVICE OS VERSION ADDRESSES —
+		// there is no state column, so every listed machine is running. (The old code
+		// read fields[3], the OS, as a "state" — it never equalled "failed".)
 		containers = append(containers, models.NspawnContainer{
 			Name:  fields[0],
-			State: state,
+			State: "running",
 		})
 	}
 	return containers

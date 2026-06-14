@@ -36,8 +36,8 @@ func TestLooksLikeHost(t *testing.T) {
 		{"build-server-01", true},
 		{"monitoring", true}, // starts with "mon" but is a host, not Monday
 		{"fe80::1", true},    // IPv6
+		{"-", true},          // local-login marker — the FROM column IS present (just empty)
 		// LOGIN@ timestamps (no FROM column)
-		{"-", false},
 		{"", false},
 		{"10:00", false},
 		{"08:23", false},
