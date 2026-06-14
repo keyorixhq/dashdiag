@@ -4,6 +4,9 @@ package collectors
 
 import (
 	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 const oomJournalOutput = `2026-05-17T09:12:34+0000 kernel: Out of memory: Kill process 12345 (nginx) score 900 or sacrifice child
@@ -48,4 +51,24 @@ func TestParseOOMEvents(t *testing.T) {
 			t.Errorf("expected empty, got %d events", len(events))
 		}
 	})
+}
+
+// TestFilterOOMRecent pins the dmesg-fallback recency window: a dated OOM older than
+// the cutoff is dropped, a recent one kept, and an undated one kept (conservative).
+func TestFilterOOMRecent(t *testing.T) {
+	cutoff := time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC)
+	events := []models.OOMEvent{
+		{Process: "old", Timestamp: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},     // before cutoff → drop
+		{Process: "recent", Timestamp: time.Date(2026, 6, 14, 6, 0, 0, 0, time.UTC)}, // after cutoff → keep
+		{Process: "undated"}, // zero time → keep
+	}
+	got := filterOOMRecent(events, cutoff)
+	if len(got) != 2 {
+		t.Fatalf("kept %d events, want 2: %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.Process == "old" {
+			t.Error("an OOM older than the 24h cutoff must be dropped")
+		}
+	}
 }
