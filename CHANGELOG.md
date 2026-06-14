@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-06-14
+
+Second wave of collector-audit fixes: parser-realism bugs (real command output the
+parsers mis-read) and two k8s false-alarms on non-flannel CNIs / non-root runs.
+
 ### Fixed
 
 - **K8s: no more false CRIT on Calico/Cilium nodes, or when CNI dir is unreadable** —
