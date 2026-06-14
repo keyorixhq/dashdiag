@@ -44,12 +44,21 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	prev := collectors.SetSource(rec)
 	defer collectors.SetSource(prev)
 
-	fmt.Fprintln(os.Stderr, "Capturing raw system inputs (running the full health check)…")
+	// Autodetect GPU: probe /sys/class/drm for DRM card nodes — the same check
+	// the GPU collector itself uses, now routed through the recorder so the probe
+	// read is captured in the bundle. If no cards found, skip GPU collection
+	// (avoids a confusing empty GPU section on headless servers / VMs / ARM).
+	gpu := detectGPUPresence()
+	if gpu {
+		fmt.Fprintln(os.Stderr, "Capturing raw system inputs (running the full health check, GPU detected)…")
+	} else {
+		fmt.Fprintln(os.Stderr, "Capturing raw system inputs (running the full health check, no GPU detected)…")
+	}
 
 	// Full collector set so the bundle is complete; terse skips drilldown, whose
 	// extra reads aren't routed through the source yet (ADR-0003 Phase 3).
 	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, output.ModePlain,
-		true /*terse*/, false /*pkg*/, true /*gpu*/, false /*tls*/, false /*deep*/, false /*firmware*/, false /*cve*/, nil)
+		true /*terse*/, false /*pkg*/, gpu, false /*tls*/, false /*deep*/, false /*firmware*/, false /*cve*/, nil)
 
 	b := rec.Bundle()
 	b.Manifest = source.Manifest{
@@ -91,21 +100,34 @@ func hostnameOr(def string) string {
 	return h
 }
 
+// kernelRelease reads /proc/sys/kernel/osrelease through the active source so
+// it is captured in the bundle (and replayable).
 func kernelRelease() string {
-	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	b, err := collectors.ReadFileViaSource("/proc/sys/kernel/osrelease")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
 }
 
+// osPretty reads /etc/os-release through the active source so it is captured.
 func osPretty() string {
-	if b, err := os.ReadFile("/etc/os-release"); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, "PRETTY_NAME=") {
-				return strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
-			}
+	b, err := collectors.ReadFileViaSource("/etc/os-release")
+	if err != nil {
+		return runtime.GOOS
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
+			return strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
 		}
 	}
 	return runtime.GOOS
+}
+
+// detectGPUPresence probes /sys/class/drm for DRM card nodes using the active
+// source so the directory listing is captured in the bundle. Returns true if at
+// least one card node is present, false on headless/VM/ARM hosts.
+func detectGPUPresence() bool {
+	cards, err := collectors.GlobViaSource("/sys/class/drm/card[0-9]")
+	return err == nil && len(cards) > 0
 }

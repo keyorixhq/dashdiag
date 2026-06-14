@@ -29,3 +29,9 @@ func openFile(path string) (io.ReadCloser, error) {
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
+
+// ReadFileViaSource and GlobViaSource are exported for use by cmd/ callers
+// (e.g. capture_raw.go) that need to read through the active source without
+// importing internal implementation details.
+func ReadFileViaSource(path string) ([]byte, error)  { return activeSource.ReadFile(path) }
+func GlobViaSource(pattern string) ([]string, error) { return activeSource.Glob(pattern) }
