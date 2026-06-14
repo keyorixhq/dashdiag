@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bonding: the standalone collector's JSON now reports degraded/all_down** — only the
+  NetworkCollector path set those verdict booleans, so `dsd bonding`/`--json` raw
+  payloads showed `degraded:false`/`all_down:false` even for a fully-down bond (the
+  human verdict was already correct). The derivation moved into the shared parser, so
+  every caller gets it.
+- **OOM: when neither journalctl nor dmesg can be read, the section gates off** — both
+  failing (non-systemd host with `kernel.dmesg_restrict=1` and no root) left
+  Available=true with 0 events, which rendered a phantom "OOM ✅ OK" row. It's now
+  marked unavailable so an un-checkable OOM state isn't shown as verified-clean.
+
 ## [0.9.5] - 2026-06-14
 
 Final wave of collector-audit fixes: three more "couldn't read → reads healthy"

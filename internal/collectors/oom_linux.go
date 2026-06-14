@@ -40,6 +40,11 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 		// journalctl not available — try dmesg fallback
 		out, err = runCmd(ctx, "dmesg", "--time-format", "iso")
 		if err != nil {
+			// Neither journalctl nor dmesg is readable (e.g. non-systemd host with
+			// kernel.dmesg_restrict=1 and no root) — we could NOT check for OOM kills.
+			// Gate the section off rather than returning Available=true with 0 events,
+			// which would read as a verified "no OOM kills" (false-OK).
+			info.Available = false
 			return info, nil
 		}
 		usedDmesg = true
