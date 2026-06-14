@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`dsd health deep` now surfaces the k8s OS-layer node diagnostics** — CNI plugins,
+  flannel, KUBE-FORWARD/kube-proxy, IP forwarding and cert expiry. These were collected
+  only by `dsd k8s --deep` and judged only in the (non-deep) health path, so they
+  produced no insights anywhere; deep health now runs the deep K8s collector so the
+  verdict actually fires. Validated on a live k3s node (no false positives).
+
+### Fixed
+
+- **K8s: the KUBE-FORWARD chain check no longer defaults to "present" when it can't be
+  read** — when neither `nft` nor `iptables` is available on the host (e.g. k3s keeps
+  its bundled iptables off the host PATH), the old logic evaluated `!contains("", "No
+  chain")` and reported the chain as present (false-OK). It now records whether a tool
+  actually ran and treats "couldn't check" as unknown, not present/missing.
+
 ### Fixed
 
 - **K8s: the OS-layer node diagnostics now understand k3s** — `dsd k8s --deep` reported

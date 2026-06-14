@@ -565,9 +565,16 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.ContainerdAvailable() && !collectors.K8sAvailable() {
 		cols = append(cols, collectors.NewContainerdCollector())
 	}
-	// Kubernetes — gate on kubectl/k3s availability
+	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
+	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
+	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
+	// otherwise collected only by `dsd k8s --deep` and never surfaced in health.
 	if collectors.K8sAvailable() {
-		cols = append(cols, collectors.NewK8sCollector())
+		if includeDeep {
+			cols = append(cols, collectors.NewK8sDeepCollector())
+		} else {
+			cols = append(cols, collectors.NewK8sCollector())
+		}
 	}
 	// KVM/libvirt — gate on virsh availability
 	if collectors.KVMAvailable() {

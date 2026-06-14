@@ -5522,7 +5522,7 @@ func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 		))
 	}
 
-	if !l.KubeForwardChain {
+	if l.KubeForwardChecked && !l.KubeForwardChain {
 		out = append(out, insight("WARN", "K8s",
 			"KUBE-FORWARD chain not found in iptables/nftables — kube-proxy may not be running",
 			[]string{

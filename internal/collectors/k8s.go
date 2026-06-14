@@ -462,6 +462,24 @@ func cniBinsPresentIn(dirs ...string) (checked, ok bool) {
 	return checked, false
 }
 
+// detectKubeForward reports whether the KUBE-FORWARD chain (kube-proxy) is present,
+// and whether it could be verified at all. nft is tried first, then iptables. If
+// neither tool can run (e.g. k3s, which keeps iptables off the host PATH), checked is
+// false so the verdict treats it as unknown rather than a false "present" or "missing".
+func detectKubeForward(ctx context.Context) (checked, present bool) {
+	nftOut, nftErr := runCmd(ctx, "nft", "list", "tables")
+	if nftErr == nil && strings.Contains(nftOut, "kube") {
+		return true, true
+	}
+	if iptOut, iptErr := runCmd(ctx, "iptables", "-L", "KUBE-FORWARD", "-n"); iptErr == nil {
+		return true, !strings.Contains(iptOut, "No chain")
+	}
+	if nftErr == nil {
+		return true, false // nft ran (no kube table) and iptables unavailable
+	}
+	return false, false // neither tool available — unknown
+}
+
 func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
 
@@ -513,14 +531,11 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	// holds plugins, and only when at least one path was actually readable.
 	layer.CNIChecked, layer.CNIBinsOK = cniBinsPresent()
 
-	// KUBE-FORWARD chain check (iptables or nft)
-	nftOut, _ := runCmd(ctx, "nft", "list", "tables")
-	if strings.Contains(nftOut, "kube") {
-		layer.KubeForwardChain = true
-	} else {
-		iptOut, _ := runCmd(ctx, "iptables", "-L", "KUBE-FORWARD", "-n")
-		layer.KubeForwardChain = !strings.Contains(iptOut, "No chain")
-	}
+	// KUBE-FORWARD chain check (iptables or nft). The old code defaulted to "present"
+	// when iptables was absent (`!Contains("", "No chain")` == true) — a false-OK, and
+	// it fires nowhere useful on k3s, whose bundled iptables isn't on the host PATH.
+	// Track whether a tool actually ran so the verdict can say "unknown" vs "missing".
+	layer.KubeForwardChecked, layer.KubeForwardChain = detectKubeForward(ctx)
 
 	// firewalld masquerade (Flannel requirement)
 	masqOut, _ := runCmd(ctx, "firewall-cmd", "--query-masquerade")
