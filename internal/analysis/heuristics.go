@@ -4515,6 +4515,12 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 	if !kvm.Detected {
 		return out
 	}
+	// libvirt is up but its domains couldn't be enumerated — surface that rather than
+	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
+	if kvm.Status == "enum-failed" {
+		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
+			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
+	}
 	// Crashed VMs — always CRIT
 	for _, vm := range kvm.VMs {
 		if vm.State == models.KVMCrashed {

@@ -11,6 +11,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **KVM: libvirt up but unqueryable no longer reads as "no VMs"** — `kvmCollectVMs`
+  returned silently on both an empty list AND a `virsh list` error, so when libvirt was
+  detected but enumeration failed, the empty VM list read as healthy and a crashed VM
+  went unreported. An enumeration error is now distinguished from "no domains" and
+  surfaced as a WARN.
+- **Pressure (PSI): the cgroup-v2 fallback read the wrong paths** — when `/proc/pressure`
+  is absent, the collector fell back to `/sys/fs/cgroup` but still read `<base>/memory`
+  (the controller dir) instead of `<base>/memory.pressure`, so every PSI read failed and
+  Pressure reported empty/no-pressure. The fallback now uses the `.pressure` suffix.
+- **Swap (macOS): a failed swap read no longer reads as healthy** — on `SwapMemory`
+  error the collector returned a fabricated `MemPressureLevel:1` with zero usage, which
+  `checkSwap` passed silently. It now returns the error so the row reads as errored.
+
 ## [0.9.4] - 2026-06-14
 
 Second wave of collector-audit fixes: parser-realism bugs (real command output the
