@@ -95,7 +95,7 @@ jobs:
       # arm64 needs emulation on an amd64 runner.
       - name: Set up QEMU
         if: matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
         run: |
