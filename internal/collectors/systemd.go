@@ -123,11 +123,12 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{
-		Available:    true,
-		FailedUnits:  failed,
-		StuckUnits:   nil,
-		SlowUnits:    slowUnits,
-		TotalBootSec: totalBoot,
+		Available:         true,
+		FailedUnits:       failed,
+		NeedsDaemonReload: systemdNeedsReload(ctx),
+		StuckUnits:        nil,
+		SlowUnits:         slowUnits,
+		TotalBootSec:      totalBoot,
 	}, nil
 }
 
