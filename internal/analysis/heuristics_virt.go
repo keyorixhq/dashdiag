@@ -1,0 +1,741 @@
+package analysis
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+func checkKVM(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
+	if !kvm.Detected {
+		return out
+	}
+	// libvirt is up but its domains couldn't be enumerated — surface that rather than
+	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
+	if kvm.Status == "enum-failed" {
+		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
+			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
+	}
+	// Crashed VMs — always CRIT
+	for _, vm := range kvm.VMs {
+		if vm.State == models.KVMCrashed {
+			hints := []string{
+				fmt.Sprintf("to inspect: virsh console %s", vm.Name),
+				fmt.Sprintf("to inspect: cat /var/log/libvirt/qemu/%s.log | tail -50", vm.Name),
+				fmt.Sprintf("to restart: virsh start %s", vm.Name),
+			}
+			if vm.LastLogError != "" {
+				hints = append([]string{"last log: " + vm.LastLogError}, hints...)
+			}
+			out = append(out, insight("CRIT", "KVM",
+				fmt.Sprintf("VM %s is in CRASHED state", vm.Name), hints))
+		}
+	}
+	// Paused VMs — WARN
+	if kvm.VMsPaused > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) paused — may indicate a problem or forgotten snapshot", kvm.VMsPaused),
+			[]string{
+				"to inspect: virsh list --all | grep paused",
+				"to resume:  virsh resume <name>",
+			},
+		))
+	}
+	// Shut-off VMs with autostart=yes — WARN
+	if kvm.VMsDownAutostart > 0 {
+		var names []string
+		for _, vm := range kvm.VMs {
+			if (vm.State == models.KVMShutOff || vm.State == models.KVMShutDown) && vm.AutoStart {
+				names = append(names, vm.Name)
+			}
+		}
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) shut off with autostart=yes: %s",
+				kvm.VMsDownAutostart, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to start:   virsh start <name>",
+				"to inspect: virsh dominfo <name>",
+			},
+		))
+	}
+	// Disk I/O errors — CRIT
+	if kvm.DiskIOErrors > 0 {
+		out = append(out, insight("CRIT", "KVM",
+			fmt.Sprintf("%d VM(s) have recorded disk I/O errors", kvm.DiskIOErrors),
+			[]string{
+				"to inspect: virsh domblkerror <name>",
+				"to inspect: dmesg | grep -i 'error\\|failed'",
+				"note:       disk I/O errors persist across VM reboots until cleared",
+			},
+		))
+	}
+	// Inactive networks — WARN
+	if kvm.NetworksInactive > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d virtual network(s) inactive — VMs may lose connectivity", kvm.NetworksInactive),
+			[]string{
+				"to inspect: virsh net-list --all",
+				"to start:   virsh net-start <name>",
+				"to autostart: virsh net-autostart <name>",
+			},
+		))
+	}
+	// Inactive storage pools — WARN
+	if kvm.PoolsInactive > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d storage pool(s) inactive — disk images may be inaccessible", kvm.PoolsInactive),
+			[]string{
+				"to inspect: virsh pool-list --all",
+				"to start:   virsh pool-start <name>",
+			},
+		))
+	}
+	// Full storage pools — WARN/CRIT
+	if kvm.PoolsNearFull > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d storage pool(s) >85%% full — VMs may fail to write disk", kvm.PoolsNearFull),
+			[]string{
+				"to inspect: virsh pool-info <name>",
+				"to inspect: du -sh /var/lib/libvirt/images/*",
+			},
+		))
+	}
+	return out
+}
+
+func checkDocker(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
+
+	if !d.Available {
+		if d.StatusReason != "" {
+			out = append(out, insight("WARN", "Docker",
+				d.StatusReason,
+				[]string{"to inspect: systemctl status docker"},
+			))
+		}
+		// 7h: socket found but permission denied — surface specific fix
+		if d.SocketPermDenied {
+			return out
+		}
+		return out
+	}
+
+	out = append(out, checkDockerContainers(d)...)
+	out = append(out, checkDockerResources(d)...)
+	out = append(out, checkDockerSecurity(d)...)
+	out = append(out, checkPodmanQuadlets(d)...)
+	return out
+}
+
+// checkContainerd surfaces health issues for a standalone containerd runtime
+// (running without a Kubernetes layer). Only called when ContainerdAvailable()
+// is true and K8sAvailable() is false — avoids double-counting with dsd k8s.
+func checkContainerd(d models.ContainerdInfo) []models.Insight {
+	var out []models.Insight
+
+	if !d.Available {
+		// Socket not found but service might be installed — give actionable hint
+		out = append(out, insight("WARN", "Containerd",
+			d.StatusReason,
+			[]string{
+				"to inspect: systemctl status containerd",
+				"to inspect: ls /run/containerd/containerd.sock",
+			},
+		))
+		return out
+	}
+
+	// Service not active despite socket being reachable — transient state
+	if d.ServiceState != "" && d.ServiceState != "active" && d.ServiceState != "unknown" {
+		out = append(out, insight("CRIT", "Containerd",
+			fmt.Sprintf("containerd.service is %s — runtime may be unstable", d.ServiceState),
+			[]string{
+				"to inspect: systemctl status containerd",
+				"to fix:     systemctl restart containerd",
+				"to inspect: journalctl -u containerd -n 50 --no-pager",
+			},
+		))
+	}
+
+	return out
+}
+
+// checkPodmanQuadlets warns when any systemd-managed Podman quadlet has failed.
+// Zero failed quadlets → no insight (no noise).
+func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
+	var failed []string
+	var firstUnit string
+	for _, q := range d.PodmanQuadlets {
+		if q.Failed {
+			failed = append(failed, q.Name)
+			if firstUnit == "" {
+				firstUnit = q.ServiceUnit
+			}
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Docker",
+		fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
+		[]string{fmt.Sprintf("to inspect: systemctl status %s", firstUnit)},
+	)}
+}
+
+func checkDockerContainers(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
+	for _, name := range d.CrashLooping {
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("container %q is crash looping (restarted >5 times)", name),
+			[]string{
+				fmt.Sprintf("to inspect: docker logs %s --tail 50", name),
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A5 RestartCount", name),
+			},
+		))
+	}
+	for _, name := range d.Unhealthy {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("container %q health check failing", name),
+			[]string{
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A10 Health", name),
+				fmt.Sprintf("to inspect: docker logs %s --tail 20", name),
+			},
+		))
+	}
+	// Count stopped containers that FAILED (non-zero exit), not every stopped one.
+	// Clean-exit (exit 0) init/oneshot containers — DB migrations, secret-init,
+	// test fixtures — are EXPECTED to be exited, so counting them as "accumulating"
+	// false-positives on any normal Compose stack. The collector only sets ExitCode
+	// for non-running containers that exited non-zero, so it's the failure marker.
+	failedStopped := 0
+	for _, c := range d.Containers {
+		if st := strings.ToLower(c.State); (st == "exited" || st == "dead") && c.ExitCode != 0 {
+			failedStopped++
+		}
+	}
+	if failedStopped > 5 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d stopped container(s) exited with errors — crashes or failed jobs (clean-exit init/oneshot containers not counted)", failedStopped),
+			[]string{
+				"to inspect: docker ps -a --filter status=exited --filter status=dead",
+				"to prune:   docker container prune",
+			},
+		))
+	}
+	if d.OOMEvents > 0 {
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("%d container OOM kill(s) in the last hour — containers are out of memory", d.OOMEvents),
+			[]string{
+				"to inspect: docker events --filter event=oom",
+				"to fix: set memory limits in container config",
+				"to inspect: docker stats --no-stream",
+			},
+		))
+	}
+	// 7i: image architecture mismatch
+	if d.ArchMismatchCount > 0 {
+		var mismatched []string
+		for _, c := range d.Containers {
+			if c.ArchMismatch {
+				mismatched = append(mismatched, fmt.Sprintf("%s (image: %s, host: %s)", c.Name, c.ImageArch, d.HostArch))
+			}
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container(s) have image architecture mismatch — will fail with 'exec format error': %s",
+				d.ArchMismatchCount, strings.Join(firstN(mismatched, 3), ", ")),
+			[]string{
+				fmt.Sprintf("note: host is %s — pull or rebuild images for the correct platform", d.HostArch),
+				"to fix: docker buildx build --platform linux/" + d.HostArch + " -t <image> .",
+				"to fix: docker pull --platform linux/" + d.HostArch + " <image>",
+			},
+		))
+	}
+	return out
+}
+
+func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funlen
+	var out []models.Insight
+	// Deprecated storage driver
+	if d.Daemon != nil && d.Daemon.StorageDriver == "devicemapper" {
+		out = append(out, insight("WARN", "Docker",
+			"storage driver is devicemapper (deprecated) — known performance and stability issues",
+			[]string{
+				"to fix: migrate to overlay2 (requires re-creating all containers and images)",
+				"to inspect: docker info | grep 'Storage Driver'",
+				"note: devicemapper in loop mode has known data corruption risks",
+			},
+		))
+	}
+	// Spec 7d: Compose version
+	if d.Daemon != nil {
+		if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin != "" {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("both docker-compose v1 (%s) and docker compose v2 (%s) installed — scripts may use the wrong one",
+					d.Daemon.ComposeStandalone, d.Daemon.ComposePlugin),
+				[]string{
+					"to fix: remove docker-compose (v1) and use docker compose (v2) plugin only",
+					"to inspect: which docker-compose && docker compose version",
+				},
+			))
+		} else if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin == "" {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("docker-compose v1 (%s) installed — standalone is deprecated, migrate to docker compose plugin",
+					d.Daemon.ComposeStandalone),
+				[]string{
+					"to fix: apt install docker-compose-plugin  OR  dnf install docker-compose-plugin",
+					"to migrate: replace 'docker-compose' with 'docker compose' in scripts",
+				},
+			))
+		}
+	}
+	// Recent daemon errors
+	if d.Daemon != nil && d.Daemon.RecentErrors > 0 {
+		hints := []string{"to inspect: journalctl -u docker -n 50 --no-pager"}
+		if d.Daemon.LastDaemonError != "" {
+			hints = append([]string{"last error: " + d.Daemon.LastDaemonError}, hints...)
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d Docker daemon error(s) in the last 10 minutes", d.Daemon.RecentErrors),
+			hints,
+		))
+	}
+	// Log driver unbounded (deep mode only)
+	if d.LogDriver != nil && d.LogDriver.Driver == "json-file" && !d.LogDriver.MaxSizeSet {
+		out = append(out, insight("WARN", "Docker",
+			"log driver is json-file with no max-size — container logs grow unbounded",
+			[]string{
+				"to fix: add to /etc/docker/daemon.json: {\"log-opts\":{\"max-size\":\"100m\",\"max-file\":\"3\"}}",
+				"to fix: systemctl restart docker",
+			},
+		))
+	}
+	if d.LogDriver != nil && d.LogDriver.LargeLogCount > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container log file(s) >500MB — disk usage risk", d.LogDriver.LargeLogCount),
+			[]string{
+				"to inspect: ls -lh /var/lib/docker/containers/*/*-json.log",
+				"to fix: truncate -s 0 /var/lib/docker/containers/<id>/<id>-json.log",
+			},
+		))
+	}
+	if d.DanglingImagesMB >= 1024 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),
+			[]string{"to fix: docker image prune", "to fix: docker system prune"},
+		))
+	} else if d.DanglingImages > 0 {
+		out = append(out, insight("INFO", "Docker",
+			fmt.Sprintf("%d dangling image(s) using %.0f MB", d.DanglingImages, d.DanglingImagesMB),
+			[]string{"to fix: docker image prune"},
+		))
+	}
+	if d.OrphanedVolumes > 3 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
+			[]string{"to fix: docker volume prune"},
+		))
+	}
+	if d.MTUMismatch {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("container network MTU (%d) > host interface MTU (%d) — silent packet fragmentation",
+				d.ContainerMTU, d.HostMTU),
+			[]string{
+				fmt.Sprintf("to fix: set MTU %d in container network config to match host", d.HostMTU),
+				"to inspect (docker): docker network inspect bridge | grep mtu",
+				"to inspect (podman): podman network inspect podman | grep mtu",
+				"note: MTU mismatch causes connection timeouts for large payloads (HTTP, TLS handshakes)",
+			},
+		))
+	}
+	// IP forwarding disabled — all container outbound traffic fails.
+	// Gate on IPForwardChecked: an unreadable /proc path (macOS, proc-less
+	// container) means state is unknown, not disabled — don't fire a false CRIT.
+	if d.IPForwardChecked && !d.IPForwardEnabled && d.Available {
+		out = append(out, insight("CRIT", "Docker",
+			"IP forwarding disabled (net.ipv4.ip_forward=0) — container outbound traffic will fail",
+			[]string{
+				"to fix:    sysctl -w net.ipv4.ip_forward=1",
+				"to persist: echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-docker.conf && sysctl -p",
+				"note: Docker sets this on start, but systemd-networkd restart can reset it",
+			},
+		))
+	}
+	// firewalld with nftables backend — silently drops Docker iptables rules,
+	// UNLESS docker0 has already been added to the trusted zone (the documented
+	// fix below). Skip the WARN when that fix is in place, or we flag a host the
+	// admin already remediated.
+	if d.FirewalldActive && d.FirewalldBackend == "nftables" && !d.DockerZoneTrusted {
+		out = append(out, insight("WARN", "Docker",
+			"firewalld is active with nftables backend — Docker iptables rules are silently ignored",
+			[]string{
+				"fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf && systemctl restart firewalld docker",
+				"fix B (trust docker0): firewall-cmd --permanent --zone=trusted --add-interface=docker0 && firewall-cmd --reload",
+			},
+		))
+	}
+	// 7g: DNS trap — host resolv.conf uses loopback; containers fall back to 8.8.8.8
+	if d.DNSTrap {
+		if d.DaemonDNSConfigured && len(d.DaemonDNSServers) > 0 {
+			// Mitigated: the daemon hands containers explicit DNS, so the host's
+			// loopback resolv.conf is not the resolver they use. Informational —
+			// not a WARN (the admin already did the documented fix).
+			out = append(out, insight("INFO", "Docker",
+				fmt.Sprintf("host resolv.conf uses %s (loopback), but Docker daemon DNS is configured (%s) — containers use that",
+					d.DNSTrapServer, strings.Join(d.DaemonDNSServers, ", ")),
+				nil,
+			))
+		} else {
+			out = append(out, insight("WARN", "Docker",
+				fmt.Sprintf("host resolv.conf uses %s (loopback) — containers cannot reach it and fall back to 8.8.8.8", d.DNSTrapServer),
+				[]string{
+					"note: if 8.8.8.8 is blocked by corporate firewall, container DNS fails silently",
+					"to fix: add to /etc/docker/daemon.json: {\"dns\": [\"1.1.1.1\", \"8.8.8.8\"]}",
+					"to fix: systemctl restart docker",
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkDockerSecurity(d models.DockerInfo) []models.Insight {
+	var out []models.Insight
+
+	// Docker socket mounted — CRIT: root-equivalent host access
+	if d.SocketMountedCount > 0 {
+		var names []string
+		for _, c := range d.Containers {
+			if c.DockerSocketMounted {
+				names = append(names, c.Name)
+			}
+		}
+		out = append(out, insight("CRIT", "Docker",
+			fmt.Sprintf("%d container(s) have docker.sock mounted — grants root-equivalent host access: %s",
+				d.SocketMountedCount, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: docker inspect <name> | grep docker.sock",
+				"to fix: remove HostConfig.Binds entry for docker.sock",
+				"note: any process inside can escape to host via Docker API",
+			},
+		))
+	}
+
+	// Running as root
+	if d.RunningAsRootCount > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d running container(s) using root user — reduces container isolation", d.RunningAsRootCount),
+			[]string{
+				"to fix: add 'USER <non-root>' directive to Dockerfile",
+				"to fix: use --user flag: docker run --user 1000:1000 ...",
+			},
+		))
+	}
+
+	// Plaintext secrets
+	if d.ContainersWithSecrets > 0 {
+		var names []string
+		for _, c := range d.Containers {
+			if len(c.PlaintextSecrets) > 0 {
+				names = append(names, c.Name)
+			}
+		}
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d container(s) have plaintext secrets in env vars: %s",
+				d.ContainersWithSecrets, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: docker inspect <name> | grep -i 'env\\|secret\\|password'",
+				"to fix: use Docker secrets, a vault, or environment variable files",
+				"note: env vars are visible in docker inspect and container logs",
+			},
+		))
+	}
+
+	return out
+}
+
+func checkK8s(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+
+	if !k.Detected {
+		return out
+	}
+
+	// kubectl/k3s is present but no cluster query succeeded — the API server is
+	// down, the kubeconfig is wrong, or RBAC forbids it. Every count is zero
+	// because we never reached the cluster, which would read as a healthy cluster.
+	// Surface it as INFO ("health not verified"), not a silent green OK. INFO does
+	// not raise the verdict (a kubectl-on-a-workstation pointing at a remote
+	// cluster shouldn't WARN).
+	if !k.APIReachable {
+		return []models.Insight{insight("INFO", "K8s",
+			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
+			[]string{
+				"to inspect: kubectl get nodes",
+				"check: API server up? kubeconfig valid (KUBECONFIG / ~/.kube/config)? RBAC sufficient?",
+			},
+		)}
+	}
+
+	out = append(out, checkK8sNodes(k)...)
+	out = append(out, checkK8sPodHealth(k)...)
+	out = append(out, checkK8sWorkloadsAndEvents(k)...)
+
+	if k.OSLayer != nil {
+		out = append(out, checkK8sOSLayer(*k.OSLayer)...)
+	}
+
+	return out
+}
+
+func checkK8sNodes(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+	if k.NodesNotReady > 0 {
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("%d node(s) not Ready — cluster may be degraded", k.NodesNotReady),
+			[]string{
+				"to inspect: kubectl get nodes -o wide",
+				"to inspect: kubectl describe node <name>",
+			},
+		))
+	}
+	for _, node := range k.Nodes {
+		for cond, status := range node.Conditions {
+			if cond == "Ready" || status != "True" {
+				continue
+			}
+			out = append(out, insight("CRIT", "K8s",
+				fmt.Sprintf("node %s: %s condition True — workloads may be evicted", node.Name, cond),
+				[]string{
+					fmt.Sprintf("to inspect: kubectl describe node %s | grep -A5 Conditions", node.Name),
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+	if k.CrashLooping > 0 {
+		hints := []string{"to inspect: kubectl get pods -A | grep -v Running"}
+		for _, p := range k.Pods {
+			if strings.Contains(p.Status, "CrashLoop") && p.PreviousLogs != "" {
+				hints = append(hints, fmt.Sprintf("  %s/%s last log: %s",
+					p.Namespace, p.Name, k8sFirstLine(p.PreviousLogs)))
+			}
+			if p.TerminationMsg != "" {
+				hints = append(hints, fmt.Sprintf("  %s/%s exit msg: %s",
+					p.Namespace, p.Name, k8sFirstLine(p.TerminationMsg)))
+			}
+		}
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping), hints))
+	}
+	// Pods stuck in init errors — a failing init container blocks the pod from
+	// ever starting. InitError was parsed but never surfaced; Init:CrashLoopBackOff
+	// is already counted above (it contains "CrashLoop"), so only the distinct
+	// Init:Error case is reported here to avoid double-warning.
+	var initErr []string
+	for _, p := range k.Pods {
+		if p.InitError != "" && !strings.Contains(p.Status, "CrashLoop") {
+			initErr = append(initErr, fmt.Sprintf("%s/%s (%s)", p.Namespace, p.Name, p.InitError))
+		}
+	}
+	if len(initErr) > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck in init errors — workload cannot start: %s",
+				len(initErr), strings.Join(firstN(initErr, 3), ", ")),
+			[]string{
+				"to inspect: kubectl describe pod <name> -n <ns>",
+				"to inspect: kubectl logs <name> -n <ns> -c <init-container>",
+				"note: common causes — missing ConfigMap/Secret, failing migration/init job",
+			},
+		))
+	}
+	if k.PodsNotReady > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) running but containers not ready", k.PodsNotReady),
+			[]string{
+				"to inspect: kubectl get pods -A | grep '0/'",
+				"to inspect: kubectl describe pod <name> -n <ns>",
+			},
+		))
+	}
+	if k.Pending > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck in Pending — check node resources or PVC availability",
+				k.Pending),
+			[]string{
+				"to inspect: kubectl get pods -A | grep Pending",
+				"to inspect: kubectl describe pod <name> -n <ns> | grep -A5 Events",
+			},
+		))
+	}
+	if k.HighRestarts > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) with ≥10 restarts — instability detected", k.HighRestarts),
+			[]string{
+				"to inspect: kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'",
+				"to inspect: kubectl logs <pod> -n <ns> --previous",
+			},
+		))
+	}
+	if k.Terminating > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d pod(s) stuck Terminating — finalizer or webhook blocking deletion",
+				k.Terminating),
+			[]string{
+				"to inspect: kubectl get pods -A | grep Terminating",
+				"to force: kubectl delete pod <name> -n <ns> --grace-period=0 --force",
+			},
+		))
+	}
+	return out
+}
+
+func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
+	var out []models.Insight
+	if k.PVCsNotBound > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d PVC(s) not Bound — pods waiting for storage may stay Pending",
+				k.PVCsNotBound),
+			[]string{
+				"to inspect: kubectl get pvc -A | grep -v Bound",
+				"to inspect: kubectl describe pvc <name> -n <ns>",
+			},
+		))
+	}
+	if k.WorkloadsDown > 0 {
+		var names []string
+		for _, w := range k.Workloads {
+			if w.Ready < w.Desired {
+				names = append(names, fmt.Sprintf("%s/%s (%d/%d)",
+					w.Namespace, w.Name, w.Ready, w.Desired))
+			}
+		}
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d workload(s) degraded: %s",
+				k.WorkloadsDown, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: kubectl get deploy,statefulset -A | grep -v '1/1'",
+				"to inspect: kubectl rollout status deployment/<name> -n <ns>",
+			},
+		))
+	}
+	if len(k.Events) > 0 {
+		reasons := map[string]int{}
+		for _, e := range k.Events {
+			reasons[e.Reason]++
+		}
+		var summary []string
+		for reason, count := range reasons {
+			summary = append(summary, fmt.Sprintf("%s×%d", reason, count))
+			if len(summary) >= 4 {
+				break
+			}
+		}
+		hints := []string{"to inspect: kubectl get events -A --field-selector type=Warning"}
+		for _, e := range k.Events {
+			if strings.Contains(e.Message, "subnet.env") {
+				hints = append(hints,
+					"CRIT: flannel subnet.env missing — CNI network plugin not ready",
+					"to fix: sudo systemctl restart k3s  (regenerates subnet.env)")
+				break
+			}
+		}
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("%d Warning event(s): %s", len(k.Events), strings.Join(summary, ", ")),
+			hints))
+	}
+	return out
+}
+
+// checkK8sOSLayer emits insights for OS-level k8s node health.
+func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
+	var out []models.Insight
+
+	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
+	// at its false zero value, which must not be reported as a real "disabled".
+	if l.IPForwardChecked && !l.IPForwardEnabled {
+		out = append(out, insight("CRIT", "K8s",
+			"IP forwarding disabled — pod-to-pod networking will fail",
+			[]string{
+				"to fix (persistent): echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.d/99-k8s.conf && sysctl -p",
+				"to fix (immediate): sysctl -w net.ipv4.ip_forward=1",
+			},
+		))
+	}
+
+	if l.FlannelInUse && !l.FlannelSubnetOK {
+		out = append(out, insight("CRIT", "K8s",
+			"/run/flannel/subnet.env missing — CNI network plugin cannot configure pod networking",
+			[]string{
+				"to fix (k3s): sudo systemctl restart k3s",
+				"to inspect: sudo journalctl -u k3s -n 50 | grep -i flannel",
+			},
+		))
+	}
+
+	if l.CNIChecked && !l.CNIBinsOK {
+		out = append(out, insight("CRIT", "K8s",
+			"/opt/cni/bin/ is empty — CNI plugins not installed, networking will fail",
+			[]string{
+				"to fix (k3s): sudo systemctl restart k3s",
+				"to fix (kubeadm): reinstall kubeadm network plugin",
+			},
+		))
+	}
+
+	if l.KubeForwardChecked && !l.KubeForwardChain {
+		out = append(out, insight("WARN", "K8s",
+			"KUBE-FORWARD chain not found in iptables/nftables — kube-proxy may not be running",
+			[]string{
+				"to inspect: sudo iptables -L KUBE-FORWARD -n 2>/dev/null || sudo nft list tables",
+				"to inspect: kubectl get pods -n kube-system | grep kube-proxy",
+			},
+		))
+	}
+
+	if len(l.CertExpiredNames) > 0 {
+		out = append(out, insight("CRIT", "K8s",
+			fmt.Sprintf("k8s certificate(s) EXPIRED: %s — API server will reject requests",
+				strings.Join(l.CertExpiredNames, ", ")),
+			[]string{
+				"to fix (kubeadm): kubeadm certs renew all",
+				"to fix (k3s): sudo systemctl restart k3s  (auto-renews certs)",
+			},
+		))
+	} else if l.CertExpirySoonDays > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("k8s certificate(s) expire in %d day(s) — renew before expiry",
+				l.CertExpirySoonDays),
+			[]string{
+				"to fix (kubeadm): kubeadm certs renew all",
+				"to fix (k3s): sudo systemctl restart k3s",
+			},
+		))
+	}
+
+	if len(l.KubeletErrors) > 0 {
+		out = append(out, insight("WARN", "K8s",
+			fmt.Sprintf("kubelet errors in journal: %s", l.KubeletErrors[0]),
+			append([]string{"to inspect: journalctl -u kubelet -u k3s -n 50 --no-pager"},
+				l.KubeletErrors[1:]...),
+		))
+	}
+
+	return out
+}
+
+// k8sFirstLine returns the first non-empty line of a multi-line string.
+func k8sFirstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return s
+}
