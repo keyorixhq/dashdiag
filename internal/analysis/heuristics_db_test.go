@@ -89,3 +89,43 @@ func TestCheckMySQL(t *testing.T) {
 		t.Errorf("replica lag should WARN, got %+v", lag)
 	}
 }
+
+func TestCheckRedis(t *testing.T) {
+	if got := checkRedis(models.RedisInfo{Detected: false}); got != nil {
+		t.Errorf("undetected redis should be silent, got %+v", got)
+	}
+
+	noMetrics := checkRedis(models.RedisInfo{Detected: true, MetricsRead: false})
+	if !insightWithMsg(noMetrics, "INFO", "metrics were not read") {
+		t.Errorf("unreadable metrics should be INFO, got %+v", noMetrics)
+	}
+
+	// Healthy (no maxmemory limit, low clients, master, save ok) → silent.
+	healthy := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: true})
+	if len(healthy) != 0 {
+		t.Errorf("healthy redis should be silent, got %+v", healthy)
+	}
+
+	// noeviction at the cliff → CRIT (writes rejected).
+	oom := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "noeviction"})
+	if !insightWithMsg(oom, "CRIT", "writes will be rejected") {
+		t.Errorf("noeviction at 98%% should CRIT, got %+v", oom)
+	}
+	// eviction policy near limit → WARN, not CRIT.
+	evict := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "allkeys-lru"})
+	if !insightWithMsg(evict, "WARN", "evicting keys") || insightWithMsg(evict, "CRIT", "") {
+		t.Errorf("eviction policy at 98%% should WARN (not CRIT), got %+v", evict)
+	}
+
+	// Replica link down → CRIT.
+	repl := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "slave", ReplLinkDown: true})
+	if !insightWithMsg(repl, "CRIT", "disconnected from its master") {
+		t.Errorf("downed replica link should CRIT, got %+v", repl)
+	}
+
+	// Failed save → WARN.
+	save := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: false})
+	if !insightWithMsg(save, "WARN", "save failed") {
+		t.Errorf("failed RDB save should WARN, got %+v", save)
+	}
+}

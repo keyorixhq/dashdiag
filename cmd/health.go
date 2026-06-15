@@ -573,6 +573,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.MySQLAvailable() {
 		cols = append(cols, collectors.NewMySQLCollector())
 	}
+	// Redis / Valkey — gate on a server that answers PING (silent otherwise).
+	if collectors.RedisAvailable() {
+		cols = append(cols, collectors.NewRedisCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
