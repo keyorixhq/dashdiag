@@ -11,6 +11,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-15
+
+Service coverage expands: dsd now watches four more of the engines you actually
+run — message broker, search, document store, and a second cache — each with the
+specific outage signal that matters, folded into `dsd health` (and `dsd db` for
+the datastores). Gated and degrade-gracefully throughout: when metrics need
+credentials dsd says so (INFO), never a false green.
+
+### Added
+
+- **RabbitMQ health.** Surfaces an active **resource alarm** (memory or disk
+  watermark) — the state where the broker is up but BLOCKING all publishers, so
+  messages silently stop being accepted. CRIT. Gated on the AMQP port + the
+  rabbitmq CLI; diagnostics run via the rabbitmq user (Erlang cookie).
+- **Memcached health.** Detects **active eviction** (the working set exceeds the
+  cache) via a short two-sample eviction delta — not a bytes/limit ratio, which
+  never shows pressure because memcached evicts to stay under the limit — plus
+  connection saturation. Speaks the text protocol directly (no client needed).
+- **Elasticsearch / OpenSearch health.** The **cluster status**: RED (primary
+  shards unassigned — data unavailable) → CRIT; YELLOW (replicas unassigned — no
+  redundancy) → WARN. Probes http/https on 9200; reports "needs credentials" when
+  security is on.
+- **MongoDB health.** Replica-set health: **no PRIMARY** (writes failing) → CRIT;
+  a down member → WARN; plus connection saturation. Via one `mongosh --eval`
+  round-trip.
+- `dsd db` now also shows **Memcached** and **MongoDB** alongside Postgres, MySQL,
+  and Redis.
+
 ## [0.12.0] - 2026-06-15
 
 Service health: dsd now watches the **web servers and databases running on the
