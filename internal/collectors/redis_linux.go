@@ -98,6 +98,7 @@ func collectRedisMetrics(ctx context.Context, conn []string, info *models.RedisI
 	}
 	// maxclients is a config, not in INFO.
 	if c, e := runCmd(ctx, "redis-cli", append(append([]string{}, conn...), "CONFIG", "GET", "maxclients")...); e == nil {
+		info.MaxClientsRead = true
 		info.MaxClients = atoiSafe(lastField(strings.TrimSpace(c)))
 	}
 }

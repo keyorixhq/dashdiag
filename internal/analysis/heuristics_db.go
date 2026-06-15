@@ -109,8 +109,9 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 
 	var out []models.Insight
 
-	// Connection saturation — the "ERROR 1040: Too many connections" outage.
-	if my.MaxConnections > 0 {
+	// Connection saturation — the "ERROR 1040: Too many connections" outage. Needs
+	// BOTH counters (ConnStatsRead); a partial read would compute a bogus 0 ratio.
+	if my.ConnStatsRead && my.MaxConnections > 0 {
 		ratio := float64(my.ThreadsConnected) / float64(my.MaxConnections)
 		switch {
 		case ratio >= 0.95:
@@ -128,6 +129,13 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 				[]string{"to inspect: SHOW PROCESSLIST",
 					"note: a connection pooler is the usual fix before raising max_connections"}))
 		}
+	} else if !my.ConnStatsRead {
+		// max_connections / Threads_connected come from separate queries that can
+		// fail after VERSION() succeeded; without both the saturation check can't
+		// run. Surface that rather than let an unread dimension pass as clean.
+		out = append(out, insight("INFO", "MySQL",
+			fmt.Sprintf("%s metrics were read, but the connection counters were not — connection-saturation was not assessed", name),
+			[]string{"to inspect: mysqladmin --socket=" + my.SocketPath + " status"}))
 	}
 
 	// Replica falling behind.
@@ -191,6 +199,13 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 			fmt.Sprintf("clients at %d/%d — approaching maxclients (new connections will be refused at the limit)",
 				r.ConnectedClients, r.MaxClients),
 			[]string{"to inspect: redis-cli -s " + r.Addr + " INFO clients"}))
+	} else if !r.MaxClientsRead {
+		// maxclients comes from a separate CONFIG GET that can fail after INFO
+		// succeeded; without it the saturation check above can't run. Don't let an
+		// unread limit pass as clean.
+		out = append(out, insight("INFO", "Redis",
+			"Redis metrics were read, but maxclients could not be — client-saturation was not assessed",
+			[]string{"to inspect: redis-cli -s " + r.Addr + " CONFIG GET maxclients"}))
 	}
 
 	// A replica that lost its link is serving stale data.

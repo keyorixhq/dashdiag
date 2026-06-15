@@ -68,23 +68,29 @@ func TestCheckMySQL(t *testing.T) {
 	}
 
 	// Healthy → silent.
-	healthy := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 151, ThreadsConnected: 10})
+	healthy := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 151, ThreadsConnected: 10})
 	if len(healthy) != 0 {
 		t.Errorf("healthy mysql should be silent, got %+v", healthy)
 	}
 
+	// Metrics read but the connection counters weren't → INFO, never a silent OK.
+	noConn := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: false})
+	if !insightWithMsg(noConn, "INFO", "connection-saturation was not assessed") {
+		t.Errorf("unread connection counters should INFO, got %+v", noConn)
+	}
+
 	// Saturation tiers.
-	warn := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 82})
+	warn := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 100, ThreadsConnected: 82})
 	if !insightWithMsg(warn, "WARN", "approaching the limit") {
 		t.Errorf("82%% connections should WARN, got %+v", warn)
 	}
-	crit := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 98})
+	crit := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 100, ThreadsConnected: 98})
 	if !insightWithMsg(crit, "CRIT", "ERROR 1040") {
 		t.Errorf("98%% connections should CRIT, got %+v", crit)
 	}
 
 	// Replica lag → WARN.
-	lag := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 5, IsReplica: true, SecondsBehind: 700})
+	lag := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 100, ThreadsConnected: 5, IsReplica: true, SecondsBehind: 700})
 	if !insightWithMsg(lag, "WARN", "behind the primary") {
 		t.Errorf("replica lag should WARN, got %+v", lag)
 	}
@@ -101,30 +107,36 @@ func TestCheckRedis(t *testing.T) {
 	}
 
 	// Healthy (no maxmemory limit, low clients, master, save ok) → silent.
-	healthy := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: true})
+	healthy := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: true})
 	if len(healthy) != 0 {
 		t.Errorf("healthy redis should be silent, got %+v", healthy)
 	}
 
+	// Metrics read but maxclients wasn't → INFO, never a silent OK.
+	noMax := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: false, Role: "master", LastSaveKnown: true, LastSaveOK: true})
+	if !insightWithMsg(noMax, "INFO", "client-saturation was not assessed") {
+		t.Errorf("unread maxclients should INFO, got %+v", noMax)
+	}
+
 	// noeviction at the cliff → CRIT (writes rejected).
-	oom := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "noeviction"})
+	oom := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "noeviction"})
 	if !insightWithMsg(oom, "CRIT", "writes will be rejected") {
 		t.Errorf("noeviction at 98%% should CRIT, got %+v", oom)
 	}
 	// eviction policy near limit → WARN, not CRIT.
-	evict := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "allkeys-lru"})
+	evict := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, MaxMemoryBytes: 1000, UsedMemoryBytes: 980, MaxMemoryPolicy: "allkeys-lru"})
 	if !insightWithMsg(evict, "WARN", "evicting keys") || insightWithMsg(evict, "CRIT", "") {
 		t.Errorf("eviction policy at 98%% should WARN (not CRIT), got %+v", evict)
 	}
 
 	// Replica link down → CRIT.
-	repl := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "slave", ReplLinkDown: true})
+	repl := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, Role: "slave", ReplLinkDown: true})
 	if !insightWithMsg(repl, "CRIT", "disconnected from its master") {
 		t.Errorf("downed replica link should CRIT, got %+v", repl)
 	}
 
 	// Failed save → WARN.
-	save := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: false})
+	save := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: false})
 	if !insightWithMsg(save, "WARN", "save failed") {
 		t.Errorf("failed RDB save should WARN, got %+v", save)
 	}
