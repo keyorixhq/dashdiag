@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,7 +91,17 @@ func parseAMConfigReload(metrics string) (ok, found bool) {
 		if strings.HasPrefix(line, "alertmanager_config_last_reload_successful") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
-				return strings.HasPrefix(fields[len(fields)-1], "1"), true
+				// The value is the field right AFTER the metric name. Prometheus
+				// exposition allows an optional timestamp appended after the value
+				// ("<metric> <value> <timestamp>"), so taking the last field would
+				// read the timestamp — and a failed reload ("… 0 1700000000") would
+				// then parse as success. (This metric is unlabeled, so fields[1] is
+				// always the value.)
+				v, err := strconv.ParseFloat(fields[1], 64)
+				if err != nil {
+					continue
+				}
+				return v != 0, true
 			}
 		}
 	}

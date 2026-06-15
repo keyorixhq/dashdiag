@@ -17,6 +17,13 @@ func TestCheckEnvoy(t *testing.T) {
 		t.Errorf("unreadable stats should be INFO, got %+v", noStats)
 	}
 
+	// Stats endpoint answered but no cluster membership was parsed out of it
+	// (garbled/empty/filtered response) → INFO, not a silent green.
+	noMembers := checkEnvoy(models.EnvoyInfo{Detected: true, StatsRead: true, ClustersTotal: 0})
+	if !insightWithMsg(noMembers, "INFO", "no upstream cluster membership data was found") {
+		t.Errorf("stats-read but zero clusters should be INFO, got %+v", noMembers)
+	}
+
 	// All upstreams healthy → silent.
 	healthy := checkEnvoy(models.EnvoyInfo{Detected: true, StatsRead: true, ClustersTotal: 3, UpstreamsTotal: 9, UpstreamsHealthy: 9})
 	if len(healthy) != 0 {
