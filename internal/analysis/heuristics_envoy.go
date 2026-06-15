@@ -26,6 +26,20 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 		)}
 	}
 
+	// Stats endpoint answered (StatsRead) but no upstream cluster with members was
+	// parsed out of it — a garbled/empty response, a filter that matched nothing, or
+	// an Envoy whose membership stats use unexpected names. Upstream health was never
+	// actually assessed, so surface it rather than let all-zeros pass as clean.
+	if e.ClustersTotal == 0 {
+		return []models.Insight{insight("INFO", "Envoy",
+			"Envoy admin stats were read, but no upstream cluster membership data was found — upstream host health could not be verified",
+			[]string{
+				"to inspect: curl -s localhost:9901/stats | grep membership_",
+				"note: an Envoy with no configured upstream clusters will also show this",
+			},
+		)}
+	}
+
 	// A cluster with zero healthy hosts can serve nothing behind it.
 	if e.FullyDownClusters > 0 {
 		msg := fmt.Sprintf("%d upstream cluster(s) have ZERO healthy hosts — all requests to those backends fail (503)", e.FullyDownClusters)
