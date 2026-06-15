@@ -577,6 +577,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.RedisAvailable() {
 		cols = append(cols, collectors.NewRedisCollector())
 	}
+	// Memcached — gate on a server answering the memcached protocol on 11211.
+	if collectors.MemcachedAvailable() {
+		cols = append(cols, collectors.NewMemcachedCollector())
+	}
 	// nginx — gate on a running nginx process (silent otherwise).
 	if collectors.NginxAvailable() {
 		cols = append(cols, collectors.NewNginxCollector())

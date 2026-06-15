@@ -215,3 +215,42 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 
 	return out
 }
+
+// checkMemcached surfaces health for a local memcached server. memcached degrades
+// by evicting rather than blocking, so its signals are WARN-level cache pressure.
+func checkMemcached(m models.MemcachedInfo) []models.Insight {
+	if !m.Detected {
+		return nil
+	}
+	if !m.MetricsRead {
+		return []models.Insight{insight("INFO", "Memcached",
+			"memcached is reachable; its stats could not be read",
+			[]string{"to inspect: echo stats | nc " + m.Addr},
+		)}
+	}
+
+	var out []models.Insight
+
+	// Active eviction — the working set exceeds the cache, so memcached is dropping
+	// live keys to make room (hit rate degrades, recently-set keys vanish early).
+	// Keyed on a rising eviction count (now), not a bytes ratio: memcached evicts to
+	// stay under limit_maxbytes, so the ratio rarely reflects the pressure.
+	if m.EvictingNow {
+		out = append(out, insight("WARN", "Memcached",
+			"actively evicting keys — the working set exceeds the cache (memory pressure)",
+			[]string{
+				"to inspect: echo stats | nc " + m.Addr + "  (watch evictions climb)",
+				"to fix: raise -m (max memory) or reduce what's cached",
+			}))
+	}
+
+	// Connection saturation — at maxconns, new connections are refused.
+	if m.MaxConnections > 0 && float64(m.CurrConnections)/float64(m.MaxConnections) >= 0.90 {
+		out = append(out, insight("WARN", "Memcached",
+			fmt.Sprintf("connections at %d/%d — approaching maxconns (new connections refused at the limit)",
+				m.CurrConnections, m.MaxConnections),
+			[]string{"to inspect: echo stats | nc " + m.Addr + "  (curr_connections)", "to fix: raise -c (max connections)"}))
+	}
+
+	return out
+}
