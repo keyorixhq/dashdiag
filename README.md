@@ -58,9 +58,6 @@ curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh 
 Or pick a package:
 
 ```bash
-# Homebrew (macOS / Linux)
-brew install keyorixhq/tap/dsd
-
 # Debian / Ubuntu — .deb attached to every release
 sudo dpkg -i dsd_*_amd64.deb
 

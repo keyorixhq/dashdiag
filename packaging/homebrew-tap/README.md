@@ -1,4 +1,8 @@
-# dashdiag/homebrew-tap
+# keyorixhq/homebrew-tap
+
+> ⚠️ **Not yet published — this tap is not live.** The tap repo has not been
+> created and the formula is not maintained. Install via the methods in the
+> main [README](https://github.com/keyorixhq/dashdiag#install) instead.
 
 Homebrew tap for [`dsd` (DashDiag)](https://dashdiag.sh) —
 OBD diagnostics for your Linux server.
@@ -6,10 +10,12 @@ OBD diagnostics for your Linux server.
 ## Install
 
 ```sh
-brew install dashdiag/tap/dsd
+brew install keyorixhq/tap/dsd
 ```
 
-(Shorthand for `brew tap dashdiag/tap && brew install dsd`.)
+(Shorthand for `brew tap keyorixhq/tap && brew install dsd`. Homebrew strips the
+`homebrew-` prefix, so the `keyorixhq/tap` shorthand resolves to the
+`keyorixhq/homebrew-tap` repo.)
 
 Works on macOS (arm64 + Intel) and Linux (arm64 + amd64) via Homebrew / Linuxbrew.
 The formula installs the prebuilt release binary — no Go toolchain required.
@@ -40,5 +46,5 @@ with the command above.
 ## Repository layout
 
 This is the content of `packaging/homebrew-tap/` in the main repo, mirrored here so the
-tap lives at its required `dashdiag/homebrew-tap` location. Edit the generator in the
+tap lives at its required `keyorixhq/homebrew-tap` location. Edit the generator in the
 main repo, not the formula here.
