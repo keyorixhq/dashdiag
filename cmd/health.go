@@ -609,6 +609,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.KafkaAvailable() {
 		cols = append(cols, collectors.NewKafkaCollector())
 	}
+	// Prometheus — gate on the HTTP API (9090) answering as Prometheus.
+	if collectors.PrometheusAvailable() {
+		cols = append(cols, collectors.NewPrometheusCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
