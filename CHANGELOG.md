@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-15
+
+### Added
+
+- **Kafka health.** A gated Kafka collector folded into `dsd health` (Kafka is a
+  broker, like RabbitMQ — surfaced in health, not `dsd db`). The headline signal
+  is **OFFLINE partitions** (a partition with no leader can be neither produced to
+  nor consumed from — its data is unavailable) → CRIT; **under-replicated
+  partitions** (replicas not in the ISR, so no redundancy) → WARN. Gated on the
+  broker port (9092) + a kafka CLI (`kafka-topics.sh`/`kafka-topics`); reads via
+  `--describe --unavailable-partitions` / `--under-replicated-partitions`. When
+  the CLI can't reach the bootstrap server (SSL/SASL auth, or a broker mid-startup)
+  it reports "needs access" (INFO), never a false green. Validated against a real
+  3-node KRaft cluster.
+
+### Fixed
+
+- `dsd db` empty-state hint now lists **Memcached and MongoDB** alongside
+  PostgreSQL, MySQL, and Redis — it had gone stale when those collectors were
+  added in 0.13.0.
+
 ## [0.13.0] - 2026-06-15
 
 Service coverage expands: dsd now watches four more of the engines you actually
