@@ -407,9 +407,7 @@ func detectVPNInterface() string {
 		return ""
 	}
 	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e)
-	}
+	names = append(names, entries...)
 	for _, name := range names {
 		if !isVPNInterfaceName(name) {
 			continue
