@@ -21,6 +21,19 @@ func checkRabbitMQ(r models.RabbitMQInfo) []models.Insight {
 		)}
 	}
 
+	// ping (→ DiagnosticsRead) confirmed access, but the alarms query itself failed,
+	// so the alarm state — the headline publisher-blocking signal — was never read.
+	// Surfacing this as WARN keeps a failed alarms read from passing as a clean broker.
+	if !r.AlarmsRead {
+		return []models.Insight{insight("WARN", "RabbitMQ",
+			"RabbitMQ is up but its resource-alarm state could not be read — a publisher-blocking memory/disk alarm cannot be ruled out",
+			[]string{
+				"to inspect: rabbitmq-diagnostics alarms",
+				"note: the alarms query failed even though ping succeeded — retry, or check the rabbitmq-diagnostics version",
+			},
+		)}
+	}
+
 	if r.MemoryAlarm || r.DiskAlarm {
 		which := "memory"
 		switch {

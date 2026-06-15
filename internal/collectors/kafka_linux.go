@@ -84,6 +84,7 @@ func (c *KafkaCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// Under-replicated partitions — replicas not in the ISR, so no redundancy.
 	if out2, err := runCmd(ctx, cli, "--bootstrap-server", server, "--describe", "--under-replicated-partitions"); err == nil {
+		info.UnderReplicatedRead = true
 		info.UnderReplicatedPartitions, info.URPDetail = countKafkaPartitionLines(out2)
 	}
 	return info, nil

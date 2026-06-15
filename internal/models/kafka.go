@@ -11,7 +11,12 @@ type KafkaInfo struct {
 	Detected  bool `json:"detected"`
 	Accepting bool `json:"accepting"` // broker port (9092) reachable
 
-	MetricsRead               bool   `json:"metrics_read"`
+	MetricsRead bool `json:"metrics_read"`
+	// UnderReplicatedRead is true only when the under-replicated-partitions query
+	// actually returned. MetricsRead covers the offline-partition read; without a
+	// separate flag a failed URP query left the count at 0 and redundancy read as
+	// verified-healthy when it was never checked.
+	UnderReplicatedRead       bool   `json:"under_replicated_read,omitempty"`
 	OfflinePartitions         int    `json:"offline_partitions,omitempty"`
 	UnderReplicatedPartitions int    `json:"under_replicated_partitions,omitempty"`
 	OfflineDetail             string `json:"offline_detail,omitempty"`

@@ -17,14 +17,21 @@ func TestCheckRabbitMQ(t *testing.T) {
 		t.Errorf("unreadable diagnostics should be INFO, got %+v", noDiag)
 	}
 
-	// Healthy (pinged, no alarms) → silent.
-	healthy := checkRabbitMQ(models.RabbitMQInfo{Detected: true, Accepting: true, DiagnosticsRead: true, Pinged: true})
+	// Healthy (pinged, alarms read, no alarms active) → silent.
+	healthy := checkRabbitMQ(models.RabbitMQInfo{Detected: true, Accepting: true, DiagnosticsRead: true, Pinged: true, AlarmsRead: true})
 	if len(healthy) != 0 {
 		t.Errorf("healthy rabbitmq should be silent, got %+v", healthy)
 	}
 
+	// ping succeeded (DiagnosticsRead) but the alarms query failed → WARN, never a
+	// silent OK: a publisher-blocking alarm can't be ruled out when it wasn't read.
+	noAlarms := checkRabbitMQ(models.RabbitMQInfo{Detected: true, Accepting: true, DiagnosticsRead: true, Pinged: true, AlarmsRead: false})
+	if !insightWithMsg(noAlarms, "WARN", "resource-alarm state could not be read") {
+		t.Errorf("unread alarm state should WARN, got %+v", noAlarms)
+	}
+
 	// Memory alarm → CRIT (publishers blocked).
-	mem := checkRabbitMQ(models.RabbitMQInfo{Detected: true, DiagnosticsRead: true, MemoryAlarm: true, AlarmDetail: "memory resource limit alarm on rabbit@h"})
+	mem := checkRabbitMQ(models.RabbitMQInfo{Detected: true, DiagnosticsRead: true, AlarmsRead: true, MemoryAlarm: true, AlarmDetail: "memory resource limit alarm on rabbit@h"})
 	if !insightWithMsg(mem, "CRIT", "BLOCKING publishers") {
 		t.Fatalf("memory alarm should CRIT, got %+v", mem)
 	}
@@ -33,7 +40,7 @@ func TestCheckRabbitMQ(t *testing.T) {
 	}
 
 	// Disk alarm → CRIT, names disk.
-	disk := checkRabbitMQ(models.RabbitMQInfo{Detected: true, DiagnosticsRead: true, DiskAlarm: true})
+	disk := checkRabbitMQ(models.RabbitMQInfo{Detected: true, DiagnosticsRead: true, AlarmsRead: true, DiskAlarm: true})
 	if !insightWithMsg(disk, "CRIT", "disk resource alarm") {
 		t.Errorf("disk alarm should CRIT naming disk, got %+v", disk)
 	}
