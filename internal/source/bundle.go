@@ -20,9 +20,10 @@ type Manifest struct {
 // fileRec is a recorded file read: bytes on success, or a recorded error so that
 // "absent at capture time" replays as absent rather than as a recording gap.
 type fileRec struct {
-	data     []byte
-	notExist bool
-	errText  string
+	data       []byte
+	notExist   bool
+	permission bool // read failed with a permission error (present but unreadable)
+	errText    string
 }
 
 // cmdRec is a recorded command: its Result plus whether the tool was absent.
@@ -62,6 +63,12 @@ func (b *Bundle) putFile(path string, data []byte, err error) {
 		rec.data = append([]byte(nil), data...)
 	case errors.Is(err, fs.ErrNotExist):
 		rec.notExist = true
+	case errors.Is(err, fs.ErrPermission):
+		// Present but unreadable. Preserve the permission identity so replay can
+		// reconstruct an os.IsPermission-satisfying error (collectors branch on it,
+		// e.g. "config present but not readable").
+		rec.permission = true
+		rec.errText = err.Error()
 	default:
 		rec.errText = err.Error()
 	}

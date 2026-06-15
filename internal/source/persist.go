@@ -11,6 +11,7 @@ type fileIndexEntry struct {
 	Path     string `json:"path"`
 	Blob     string `json:"blob,omitempty"`
 	NotExist bool   `json:"not_exist,omitempty"`
+	Perm     bool   `json:"perm,omitempty"` // present but unreadable (permission denied)
 	Err      string `json:"err,omitempty"`
 }
 
@@ -42,7 +43,7 @@ func (b *Bundle) Save(dir string) error {
 	n := 0
 	for _, path := range sortedKeys(b.files) {
 		rec := b.files[path]
-		e := fileIndexEntry{Path: path, NotExist: rec.notExist, Err: rec.errText}
+		e := fileIndexEntry{Path: path, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText}
 		if !rec.notExist && rec.errText == "" {
 			blob := fmt.Sprintf("files/blobs/%04d", n)
 			n++
@@ -104,7 +105,7 @@ func Load(dir string) (*Bundle, error) {
 		return nil, err
 	}
 	for _, e := range fidx {
-		rec := fileRec{notExist: e.NotExist, errText: e.Err}
+		rec := fileRec{notExist: e.NotExist, permission: e.Perm, errText: e.Err}
 		if e.Blob != "" {
 			data, err := os.ReadFile(filepath.Join(dir, e.Blob))
 			if err != nil {

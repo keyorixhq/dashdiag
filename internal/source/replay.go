@@ -26,6 +26,11 @@ func (rp *Replay) ReadFile(path string) ([]byte, error) {
 		// os.IsNotExist / errors.Is behaves identically to the live run.
 		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist}
 	}
+	if rec.permission {
+		// Present but unreadable — reconstruct an os.IsPermission-satisfying error
+		// so a collector's "present but not readable" branch fires as it did live.
+		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrPermission}
+	}
 	if rec.errText != "" {
 		return nil, errors.New(rec.errText)
 	}
