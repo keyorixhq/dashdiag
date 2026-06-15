@@ -601,6 +601,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.ElasticsearchAvailable() {
 		cols = append(cols, collectors.NewElasticsearchCollector())
 	}
+	// MongoDB — gate on the mongo port up + the mongo shell present.
+	if collectors.MongoDBAvailable() {
+		cols = append(cols, collectors.NewMongoDBCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
