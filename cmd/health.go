@@ -589,6 +589,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.HAProxyAvailable() {
 		cols = append(cols, collectors.NewHAProxyCollector())
 	}
+	// RabbitMQ — gate on the AMQP port up + the rabbitmq CLI present.
+	if collectors.RabbitMQAvailable() {
+		cols = append(cols, collectors.NewRabbitMQCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
