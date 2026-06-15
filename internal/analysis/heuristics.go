@@ -411,6 +411,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkRedis(d)
 	case *models.RedisInfo:
 		return checkRedis(*d)
+	case models.MemcachedInfo:
+		return checkMemcached(d)
+	case *models.MemcachedInfo:
+		return checkMemcached(*d)
 	case models.NginxInfo:
 		return checkNginx(d)
 	case *models.NginxInfo:

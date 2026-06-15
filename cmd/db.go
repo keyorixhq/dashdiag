@@ -42,6 +42,9 @@ func runDB(cmd *cobra.Command, _ []string) error {
 	if collectors.RedisAvailable() {
 		cols = append(cols, collectors.NewRedisCollector())
 	}
+	if collectors.MemcachedAvailable() {
+		cols = append(cols, collectors.NewMemcachedCollector())
+	}
 	if len(cols) == 0 {
 		fmt.Fprintln(os.Stdout, "\n🗄️  Database\n  No local database server detected (PostgreSQL, MySQL/MariaDB, or Redis).")
 		return nil
@@ -61,6 +64,8 @@ func runDB(cmd *cobra.Command, _ []string) error {
 					out["mysql"] = v
 				case *models.RedisInfo:
 					out["redis"] = v
+				case *models.MemcachedInfo:
+					out["memcached"] = v
 				}
 			}
 			return out, nil
@@ -81,6 +86,8 @@ func printDB(results []runner.Result, mode output.OutputMode) {
 			printMySQLState(v, mode)
 		case *models.RedisInfo:
 			printRedisState(v, mode)
+		case *models.MemcachedInfo:
+			printMemcachedState(v, mode)
 		}
 	}
 
@@ -150,6 +157,27 @@ func printRedisState(r *models.RedisInfo, mode output.OutputMode) {
 		fmt.Fprintf(os.Stdout, "  Role: %s · clients: %d\n", orDefault(r.Role, "master"), r.ConnectedClients)
 	} else {
 		fmt.Fprintln(os.Stdout, "  (metrics unavailable — install redis-cli / check auth)")
+	}
+}
+
+func printMemcachedState(m *models.MemcachedInfo, mode output.OutputMode) {
+	if !m.Detected {
+		return
+	}
+	fmt.Fprintf(os.Stdout, "\n🧊 Memcached %s\n", m.Version)
+	fmt.Fprintf(os.Stdout, "  %s answering\n", asciiOr("ok", "✅", mode))
+	if m.MetricsRead {
+		if m.LimitMaxBytes > 0 {
+			fmt.Fprintf(os.Stdout, "  Memory: %.0f%% of %s\n",
+				float64(m.UsedBytes)/float64(m.LimitMaxBytes)*100, humanBytes(m.LimitMaxBytes))
+		}
+		fmt.Fprintf(os.Stdout, "  Items: %d · connections: %d", m.CurrItems, m.CurrConnections)
+		if m.MaxConnections > 0 {
+			fmt.Fprintf(os.Stdout, "/%d", m.MaxConnections)
+		}
+		fmt.Fprintln(os.Stdout)
+	} else {
+		fmt.Fprintln(os.Stdout, "  (stats unavailable)")
 	}
 }
 
