@@ -45,6 +45,9 @@ func runDB(cmd *cobra.Command, _ []string) error {
 	if collectors.MemcachedAvailable() {
 		cols = append(cols, collectors.NewMemcachedCollector())
 	}
+	if collectors.MongoDBAvailable() {
+		cols = append(cols, collectors.NewMongoDBCollector())
+	}
 	if len(cols) == 0 {
 		fmt.Fprintln(os.Stdout, "\n🗄️  Database\n  No local database server detected (PostgreSQL, MySQL/MariaDB, or Redis).")
 		return nil
@@ -66,6 +69,8 @@ func runDB(cmd *cobra.Command, _ []string) error {
 					out["redis"] = v
 				case *models.MemcachedInfo:
 					out["memcached"] = v
+				case *models.MongoDBInfo:
+					out["mongodb"] = v
 				}
 			}
 			return out, nil
@@ -88,6 +93,8 @@ func printDB(results []runner.Result, mode output.OutputMode) {
 			printRedisState(v, mode)
 		case *models.MemcachedInfo:
 			printMemcachedState(v, mode)
+		case *models.MongoDBInfo:
+			printMongoState(v, mode)
 		}
 	}
 
@@ -178,6 +185,32 @@ func printMemcachedState(m *models.MemcachedInfo, mode output.OutputMode) {
 		fmt.Fprintln(os.Stdout)
 	} else {
 		fmt.Fprintln(os.Stdout, "  (stats unavailable)")
+	}
+}
+
+func printMongoState(m *models.MongoDBInfo, mode output.OutputMode) {
+	if !m.Detected {
+		return
+	}
+	fmt.Fprintf(os.Stdout, "\n🍃 MongoDB %s\n", m.Version)
+	if m.MetricsRead {
+		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", "✅", mode))
+		if m.IsReplicaSet {
+			primary := "no PRIMARY"
+			if m.HasPrimary {
+				primary = "has PRIMARY"
+			}
+			fmt.Fprintf(os.Stdout, "  Replica set %q: %d members, %s", m.ReplicaSetName, m.Members, primary)
+			if m.DownMembers > 0 {
+				fmt.Fprintf(os.Stdout, ", %d down", m.DownMembers)
+			}
+			fmt.Fprintln(os.Stdout)
+		} else {
+			fmt.Fprintln(os.Stdout, "  Standalone (not a replica set)")
+		}
+		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", m.ConnCurrent, m.ConnCurrent+m.ConnAvailable)
+	} else {
+		fmt.Fprintf(os.Stdout, "  %s reachable; metrics unavailable (auth?)\n", asciiOr("ok", "✅", mode))
 	}
 }
 

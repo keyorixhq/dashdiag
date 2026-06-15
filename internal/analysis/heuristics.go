@@ -435,6 +435,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkElasticsearch(d)
 	case *models.ElasticsearchInfo:
 		return checkElasticsearch(*d)
+	case models.MongoDBInfo:
+		return checkMongoDB(d)
+	case *models.MongoDBInfo:
+		return checkMongoDB(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
