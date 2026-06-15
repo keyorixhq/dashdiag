@@ -1,0 +1,209 @@
+package analysis
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+func checkBattery(b models.BatteryInfo) []models.Insight {
+	if !b.Present {
+		return nil // desktop or no battery
+	}
+	var out []models.Insight
+
+	// Battery wear
+	if b.HealthPct > 0 {
+		if b.HealthPct < 60 {
+			out = append(out, insight("CRIT", "Battery",
+				fmt.Sprintf("battery health at %.0f%% — replacement recommended", b.HealthPct),
+				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full_design"},
+			))
+		} else if b.HealthPct < 80 {
+			out = append(out, insight("WARN", "Battery",
+				fmt.Sprintf("battery health at %.0f%% (%.0f cycle(s)) — degraded", b.HealthPct, float64(b.CycleCounts)),
+				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full"},
+			))
+		}
+	}
+
+	// Low charge while discharging
+	if b.Status == "Discharging" && b.CapacityPct <= 10 {
+		out = append(out, insight("CRIT", "Battery",
+			fmt.Sprintf("battery at %d%% and discharging — connect power", b.CapacityPct),
+			nil,
+		))
+	} else if b.Status == "Discharging" && b.CapacityPct <= 20 {
+		out = append(out, insight("WARN", "Battery",
+			fmt.Sprintf("battery at %d%% and discharging", b.CapacityPct),
+			nil,
+		))
+	}
+
+	return out
+}
+
+func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
+	if t.CPUTempC == 0 || t.Source == "" {
+		return nil // no thermal data available on this platform
+	}
+	hints := []string{
+		"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+		"to inspect: check cooling and airflow",
+	}
+	if t.CPUTempC >= 95 {
+		return []models.Insight{insight("CRIT", "CPU Thermal",
+			fmt.Sprintf("CPU temperature %g°C — thermal throttling active", t.CPUTempC),
+			hints,
+		)}
+	}
+	if t.CPUTempC >= 85 {
+		return []models.Insight{insight("WARN", "CPU Thermal",
+			fmt.Sprintf("CPU temperature %g°C — elevated (source: %s)", t.CPUTempC, t.Source),
+			hints,
+		)}
+	}
+	// Load-aware idle thermal check:
+	// High temp at low CPU load suggests poor cooling (dried paste, blocked vents)
+	// rather than normal workload heat. Only warn if we actually have load data.
+	// Threshold: >60°C when CPU is under 20% load.
+	if thresh.CPULoadPct > 0 && t.CPUTempC >= 60 && thresh.CPULoadPct < 20 {
+		return []models.Insight{insight("WARN", "CPU Thermal",
+			fmt.Sprintf("CPU temperature %g°C at %.0f%% load — elevated for low CPU activity, possible cooling issue",
+				t.CPUTempC, thresh.CPULoadPct),
+			[]string{
+				"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+				"to inspect: check for dust buildup and blocked vents",
+				"to inspect: consider reseating thermal paste on older hardware",
+			},
+		)}
+	}
+	return nil
+}
+
+// isSteamOSHost reports whether the host is SteamOS / a Steam Deck by reading
+// /etc/os-release directly. This is a cheap probe (single file read) suited to
+// the analysis path; the full platform.Profile is not threaded through here.
+func isSteamOSHost() bool {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		val = strings.ToLower(strings.Trim(val, `"'`))
+		if key == "ID" && val == "steamos" {
+			return true
+		}
+		if key == "VARIANT_ID" && val == "steamdeck" {
+			return true
+		}
+	}
+	return false
+}
+
+func checkGPU(gpu models.GPUInfo) []models.Insight {
+	if len(gpu.Devices) == 0 && gpu.Status == "" {
+		return nil // no GPU or driver not loaded — skip silently
+	}
+	var out []models.Insight
+
+	// NVIDIA detected but driver/nvidia-smi not available
+	if gpu.Status == "nvidia-no-driver" {
+		out = append(out, insight("INFO", "GPU",
+			"NVIDIA GPU detected — install driver for GPU health monitoring",
+			[]string{
+				"to fix (Debian/Ubuntu): apt-get install nvidia-driver",
+				"to fix (RHEL/Fedora):   dnf install akmod-nvidia  (RPM Fusion required)",
+				"to inspect: lspci | grep -i nvidia",
+				"note: reboot required after driver install",
+			},
+		))
+	}
+
+	steamOS := isSteamOSHost()
+	for _, dev := range gpu.Devices {
+		prefix := dev.Name
+		if len(gpu.Devices) > 1 {
+			prefix = fmt.Sprintf("GPU%d (%s)", dev.Index, dev.Name)
+		}
+		if dev.TempC >= 90 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
+				[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
+			))
+		} else if dev.TempC >= 80 {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
+				[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
+			))
+		}
+		// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
+		if dev.TempJunctionC >= 100 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
+				[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},
+			))
+		} else if dev.TempJunctionC >= 90 {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s junction temperature %d°C — approaching thermal limit", prefix, dev.TempJunctionC),
+				[]string{"to inspect: check thermal paste and fan curve if sustained"},
+			))
+		}
+		// TDP throttling — GPU pinned at its power cap.
+		if dev.Throttling {
+			hint := "to inspect: raise the power cap or improve cooling if more performance is needed"
+			if steamOS {
+				hint = "to fix: on Steam Deck, increase the TDP limit in Performance settings when plugged in"
+			}
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s TDP throttling — at power limit (%.1fW / %.1fW)", prefix, dev.TDPCurrentW, dev.TDPLimitW),
+				[]string{hint},
+			))
+		}
+		// VRAM pressure (GB-based field, complements the MB-based check below).
+		// Skip APUs: their "VRAM" is a small shared-RAM carveout that fills to 90%+
+		// under any GPU load by design — a high % there is normal, not pressure.
+		// Genuine memory exhaustion on an APU surfaces via system-RAM checks.
+		if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
+				[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
+			))
+		}
+		// DPM stuck low (deep-only field) — performance capped after failed power management.
+		if dev.PowerDPMLevel == "low" {
+			out = append(out, insight("WARN", "GPU",
+				fmt.Sprintf("%s stuck in low-power DPM mode — performance capped", prefix),
+				[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
+			))
+		}
+		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" && !dev.IsAPU {
+			out = append(out, insight(l, "GPU",
+				fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
+				[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},
+			))
+		}
+		if dev.XidErrors > 0 {
+			out = append(out, insight("CRIT", "GPU",
+				fmt.Sprintf("%s %d Xid error(s) in the last hour — hardware fault detected", prefix, dev.XidErrors),
+				[]string{"to inspect: dmesg | grep 'NVRM: Xid'", "to inspect: nvidia-smi -q | grep -A2 'Xid'"},
+			))
+		}
+		// Sustained compute load — INFO signal for correlation engine.
+		// Not a fault on its own, but provides context when combined with
+		// thermal or memory pressure signals.
+		if dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
+			out = append(out, insight("INFO", "GPU",
+				fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
+				nil,
+			))
+		}
+	}
+	return out
+}
