@@ -85,6 +85,9 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 	// Load average header
 	printTimelineLoad(info, mode)
 
+	// Incident summary — the "what happened" story, before the detailed events
+	printTimelineIncidents(info, mode)
+
 	// Event table
 	if len(info.Events) == 0 {
 		fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", "✅", mode))
@@ -109,6 +112,48 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 		}
 		fmt.Println(render.StyleWarn.Render(
 			fmt.Sprintf("%s  %s event(s) found%s", asciiOr("warn", "⚠️", mode), strings.Join(parts, ", "), timing)))
+	}
+}
+
+// printTimelineIncidents shows events clustered into incidents — the story view.
+// Only shown when there are 2+ incidents; with 0 or 1 the event list says it all.
+func printTimelineIncidents(info *models.TimelineInfo, mode output.OutputMode) {
+	if len(info.Incidents) < 2 {
+		return
+	}
+	fmt.Printf("\n  Incidents (%d):\n", len(info.Incidents))
+	for _, inc := range info.Incidents {
+		icon := asciiOr("info", "•", mode)
+		switch inc.Level {
+		case "CRIT":
+			icon = asciiOr("fail", "❌", mode)
+		case "WARN":
+			icon = asciiOr("warn", "⚠️", mode)
+		}
+		extra := fmt.Sprintf("%d event", inc.EventCount)
+		if inc.EventCount != 1 {
+			extra += "s"
+		}
+		if inc.Sources > 1 {
+			extra += fmt.Sprintf(", %d units", inc.Sources)
+		}
+		if inc.DurationSec >= 1 {
+			extra += ", over " + timelineDur(inc.DurationSec)
+		}
+		fmt.Printf("    %s %-8s  %-50s  (%s)\n",
+			icon, inc.StartStr, truncate(strings.ReplaceAll(inc.Summary, "\n", " "), 50), extra)
+	}
+}
+
+// timelineDur renders an incident span compactly (e.g. "45s", "3m", "1h2m").
+func timelineDur(sec int64) string {
+	switch {
+	case sec < 90:
+		return fmt.Sprintf("%ds", sec)
+	case sec < 3600:
+		return fmt.Sprintf("%dm", sec/60)
+	default:
+		return fmt.Sprintf("%dh%dm", sec/3600, (sec%3600)/60)
 	}
 }
 

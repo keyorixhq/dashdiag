@@ -21,12 +21,27 @@ type TimelineEvent struct {
 	Hint          *TimelineHint `json:"hint,omitempty"`  // structured fix hint
 }
 
+// TimelineIncident is a cluster of events that occurred close together in time —
+// the "what happened" story, distilled from the raw event stream so an operator
+// sees a handful of incidents instead of a wall of individual lines.
+type TimelineIncident struct {
+	StartUnix   int64  `json:"start_unix"`
+	EndUnix     int64  `json:"end_unix"`
+	StartStr    string `json:"start_str"`
+	DurationSec int64  `json:"duration_sec"`
+	Level       string `json:"level"`       // worst level in the cluster
+	Summary     string `json:"summary"`     // one-line headline (worst event, with unit)
+	EventCount  int    `json:"event_count"` // total events (incl. dedup repeat counts)
+	Sources     int    `json:"sources,omitempty"`
+}
+
 // TimelineInfo holds merged system events for dsd timeline.
 type TimelineInfo struct {
-	WindowHours int             `json:"window_hours"`
-	Events      []TimelineEvent `json:"events"`
-	CritCount   int             `json:"crit_count"`
-	WarnCount   int             `json:"warn_count"`
+	WindowHours int                `json:"window_hours"`
+	Events      []TimelineEvent    `json:"events"`
+	Incidents   []TimelineIncident `json:"incidents,omitempty"` // events clustered into incidents
+	CritCount   int                `json:"crit_count"`
+	WarnCount   int                `json:"warn_count"`
 	// Load average spikes sampled at /proc/loadavg-like intervals
 	LoadSpikes []LoadSpike `json:"load_spikes,omitempty"`
 }

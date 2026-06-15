@@ -71,6 +71,11 @@ func (c *TimelineCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Annotate known patterns with inspect/fix hints
 	info.Events = annotateHints(info.Events)
 
+	// Cluster into incidents on the full, time-sorted set — before the display
+	// cap below (filterTopEvents reorders CRITs first and truncates, which would
+	// break time-gap clustering).
+	info.Incidents = GroupIncidents(info.Events, incidentGapSec)
+
 	// Cap at 200 events — show the most significant
 	if len(info.Events) > 200 {
 		info.Events = filterTopEvents(info.Events, 200)
