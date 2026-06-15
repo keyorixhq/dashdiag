@@ -597,6 +597,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.RabbitMQAvailable() {
 		cols = append(cols, collectors.NewRabbitMQCollector())
 	}
+	// Elasticsearch / OpenSearch — gate on the HTTP API (9200) answering.
+	if collectors.ElasticsearchAvailable() {
+		cols = append(cols, collectors.NewElasticsearchCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
