@@ -11,6 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-15
+
+Service health: dsd now watches the **web servers and databases running on the
+box**, not just the OS — the services that actually page you. Plus the timeline
+groups events into incidents.
+
+### Added
+
+- **`dsd db` — database health.** Detects local **PostgreSQL, MySQL/MariaDB, and
+  Redis/Valkey** servers (by their unix socket / PING) and reports liveness,
+  connection saturation, memory pressure, replication lag, and more — in one
+  focused command, and folded into `dsd health`. The checks target the outages
+  that actually happen: `too many connections` before it fires, the Redis
+  `noeviction` memory cliff (writes rejected), idle-in-transaction lock pileups,
+  a replica that quietly fell behind. Metric depth degrades gracefully on access:
+  when it can't read the metrics it says so (INFO), never a false green.
+- **Web-server config-validity health** for **nginx, Apache, and HAProxy.** These
+  servers keep serving their *last-loaded* config, so a broken on-disk config is a
+  latent outage — invisible until the next reload takes the site down. dsd runs
+  the server's own config test (`nginx -t` / `apachectl configtest` /
+  `haproxy -c`) and raises a CRIT with the exact directive and line **before** the
+  reload. Gated on a running server, folded into `dsd health`.
+
+### Changed
+
+- **`dsd timeline` v2 — incidents.** Instead of a flat wall of deduplicated
+  events, the timeline now clusters time-adjacent events into **incidents** (a
+  quiet gap starts a new one), each headlined by its worst event with the event
+  count, distinct units, and span — the "what happened" story. Available in the
+  table and in `--json` (`incidents[]`).
+
 ## [0.11.0] - 2026-06-15
 
 Two diagnostic depth features — the correlation engine and `dsd fleet` both gain a
