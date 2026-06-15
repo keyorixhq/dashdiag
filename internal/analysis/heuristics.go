@@ -439,6 +439,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkMongoDB(d)
 	case *models.MongoDBInfo:
 		return checkMongoDB(*d)
+	case models.KafkaInfo:
+		return checkKafka(d)
+	case *models.KafkaInfo:
+		return checkKafka(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
