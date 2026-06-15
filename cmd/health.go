@@ -577,6 +577,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.RedisAvailable() {
 		cols = append(cols, collectors.NewRedisCollector())
 	}
+	// nginx — gate on a running nginx process (silent otherwise).
+	if collectors.NginxAvailable() {
+		cols = append(cols, collectors.NewNginxCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
