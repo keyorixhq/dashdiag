@@ -142,3 +142,76 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 
 	return out
 }
+
+// checkRedis surfaces health issues for a local Redis/Valkey server. Same shape
+// and discipline as the SQL collectors: gated on Detected, silent when healthy,
+// never a silent OK when the metrics couldn't be read.
+func checkRedis(r models.RedisInfo) []models.Insight {
+	if !r.Detected {
+		return nil
+	}
+	if !r.MetricsRead {
+		return []models.Insight{insight("INFO", "Redis",
+			"Redis is reachable (answered PING); memory/replication metrics were not read",
+			[]string{
+				"note: install redis-cli (or pass auth) for memory-pressure and replica checks",
+				"to inspect: redis-cli -s " + r.Addr + " INFO",
+			},
+		)}
+	}
+
+	var out []models.Insight
+
+	// Memory pressure against maxmemory — the eviction / OOM-write-rejection cliff.
+	if r.MaxMemoryBytes > 0 {
+		ratio := float64(r.UsedMemoryBytes) / float64(r.MaxMemoryBytes)
+		noEvict := r.MaxMemoryPolicy == "noeviction"
+		switch {
+		case ratio >= 0.95 && noEvict:
+			out = append(out, insight("CRIT", "Redis",
+				fmt.Sprintf("memory at %.0f%% of maxmemory with noeviction policy — writes will be rejected (OOM)", ratio*100),
+				[]string{
+					"to inspect: redis-cli -s " + r.Addr + " INFO memory",
+					"to fix: raise maxmemory, set an eviction policy, or shed keys",
+				}))
+		case ratio >= 0.95:
+			out = append(out, insight("WARN", "Redis",
+				fmt.Sprintf("memory at %.0f%% of maxmemory — actively evicting keys (%s)", ratio*100, r.MaxMemoryPolicy),
+				[]string{"to inspect: redis-cli -s " + r.Addr + " INFO stats | grep evicted_keys"}))
+		case ratio >= 0.85:
+			out = append(out, insight("WARN", "Redis",
+				fmt.Sprintf("memory at %.0f%% of maxmemory — approaching the limit", ratio*100),
+				[]string{"to inspect: redis-cli -s " + r.Addr + " INFO memory"}))
+		}
+	}
+
+	// Client saturation (default maxclients is 10000, so this is a real signal).
+	if r.MaxClients > 0 && float64(r.ConnectedClients)/float64(r.MaxClients) >= 0.90 {
+		out = append(out, insight("WARN", "Redis",
+			fmt.Sprintf("clients at %d/%d — approaching maxclients (new connections will be refused at the limit)",
+				r.ConnectedClients, r.MaxClients),
+			[]string{"to inspect: redis-cli -s " + r.Addr + " INFO clients"}))
+	}
+
+	// A replica that lost its link is serving stale data.
+	if r.Role == "slave" && r.ReplLinkDown {
+		out = append(out, insight("CRIT", "Redis",
+			"replica is disconnected from its master — it is serving stale data and not receiving updates",
+			[]string{
+				"to inspect: redis-cli -s " + r.Addr + " INFO replication",
+				"note: check the master, network, and replica auth (masterauth)",
+			}))
+	}
+
+	// Persistence broken — recent writes are not durable.
+	if r.LastSaveKnown && !r.LastSaveOK {
+		out = append(out, insight("WARN", "Redis",
+			"last RDB background save failed — recent writes are not being persisted to disk",
+			[]string{
+				"to inspect: redis-cli -s " + r.Addr + " INFO persistence",
+				"note: common causes — no disk space, or the data dir is not writable",
+			}))
+	}
+
+	return out
+}
