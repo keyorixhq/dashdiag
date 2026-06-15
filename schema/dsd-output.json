@@ -2,14 +2,18 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/keyorixhq/dashdiag/schema/dsd-output.json",
   "title": "dsd health output",
-  "description": "JSON output schema for `dsd health --json`",
+  "description": "JSON output schema for `dsd health --json`. This is the frozen platform API surface for the 1.x series (see COMPATIBILITY.md). Generated from the JSONOutput struct in internal/render/json.go; the struct is the source of truth and internal/render/schema_sync_test.go fails if the two drift.",
   "type": "object",
-  "required": ["hostname", "timestamp", "version", "checks"],
+  "required": ["hostname", "os", "timestamp", "version", "verdict", "counts", "checks", "insights"],
   "additionalProperties": false,
   "properties": {
     "hostname": {
       "type": "string",
       "description": "Hostname of the machine that ran the check"
+    },
+    "os": {
+      "type": "string",
+      "description": "Pretty OS name of the machine that ran the check (e.g. \"Ubuntu 24.04 LTS\")"
     },
     "timestamp": {
       "type": "string",
@@ -18,11 +22,36 @@
     },
     "version": {
       "type": "string",
-      "description": "dsd binary version string (e.g. v0.1.0)"
+      "description": "dsd binary version string (e.g. v1.0.0)"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["OK", "WARN", "CRIT"],
+      "description": "Overall verdict: the worst insight level. Mirrors the process exit code (OK->0, WARN->1, CRIT->2)."
+    },
+    "counts": {
+      "type": "object",
+      "description": "Insight tallies by level, so a consumer can branch without iterating .insights",
+      "required": ["crit", "warn", "info"],
+      "additionalProperties": false,
+      "properties": {
+        "crit": {
+          "type": "integer",
+          "description": "Number of CRIT-level insights"
+        },
+        "warn": {
+          "type": "integer",
+          "description": "Number of WARN-level insights"
+        },
+        "info": {
+          "type": "integer",
+          "description": "Number of INFO-level insights"
+        }
+      }
     },
     "checks": {
       "type": "array",
-      "description": "One entry per collector that ran",
+      "description": "One entry per collector that ran. A collector not applicable to the host is omitted, not shown as OK.",
       "items": {
         "type": "object",
         "required": ["name", "status"],
@@ -34,8 +63,12 @@
           },
           "status": {
             "type": "string",
-            "enum": ["OK", "WARN", "CRIT", "INFO", "PENDING", "ERROR"],
-            "description": "Outcome of the collector run"
+            "enum": ["OK", "WARN", "CRIT", "INFO", "ERROR"],
+            "description": "Outcome of the collector run. Rolled up from the worst insight for that collector (including subsystem-qualified insights). ERROR means the collector itself failed to run."
+          },
+          "inline": {
+            "type": "string",
+            "description": "Pre-rendered human-readable drill-down text. NOT part of the stable contract; presence and content may change freely (see COMPATIBILITY.md)."
           },
           "duration": {
             "type": "string",
@@ -44,36 +77,77 @@
           "error": {
             "type": "string",
             "description": "Error message if status is ERROR"
+          },
+          "raw": {
+            "description": "The collector's full internal model, serialized as-is. INTENTIONALLY UNCONSTRAINED and explicitly out-of-contract: its fields may be added, renamed, retyped, or removed in any release with no notice. Do not build consumers against raw.* (see COMPATIBILITY.md)."
           }
         }
       }
     },
     "insights": {
       "type": "array",
-      "description": "Actionable findings produced by analysis",
+      "description": "Actionable findings produced by analysis. OK-level insights are not emitted.",
       "items": {
         "type": "object",
-        "required": ["level", "check", "message"],
+        "required": ["check", "level", "message"],
         "additionalProperties": false,
         "properties": {
-          "level": {
-            "type": "string",
-            "enum": ["OK", "WARN", "CRIT", "INFO"],
-            "description": "Severity level of this insight"
-          },
           "check": {
             "type": "string",
-            "description": "Which collector or sub-check produced this insight"
+            "description": "Which collector or sub-check produced this insight. May be a bare collector name (CPU) or subsystem-qualified (CPU/Steal, Network/DNS, Disk /var); consumers matching on collector should match by prefix, not equality."
+          },
+          "level": {
+            "type": "string",
+            "enum": ["INFO", "WARN", "CRIT"],
+            "description": "Severity level of this insight"
           },
           "message": {
             "type": "string",
-            "description": "Human-readable description of the finding"
+            "description": "Human-readable description of the finding. Presence is stable; exact text is not — do not parse it."
           },
           "hints": {
             "type": "array",
             "description": "Suggested commands or actions to investigate",
             "items": {
               "type": "string"
+            }
+          },
+          "details": {
+            "type": "object",
+            "description": "Structured drill-down for the insight. Stable envelope: type, title, columns, rows, kv, note.",
+            "additionalProperties": true,
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Discriminator for the details payload shape"
+              },
+              "title": {
+                "type": "string"
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "kv": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
             }
           }
         }
