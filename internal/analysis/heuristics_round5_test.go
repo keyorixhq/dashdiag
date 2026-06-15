@@ -110,6 +110,9 @@ func TestCheckGPU(t *testing.T) {
 		{"APU high VRAM is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, VRAMUsedPct: 95, IsAPU: true}), ""},
 		{"discrete GPU high MemUsedPct is WARN", dev(models.GPUDevice{Name: "card0", TempC: 50, MemUsedPct: 90}), "WARN"},
 		{"APU high MemUsedPct is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, MemUsedPct: 90, IsAPU: true}), ""},
+		// A GPU whose nvidia-smi metrics came back [N/A] (TempC coerced to 0) would
+		// previously read as a healthy 0°C card; Unreadable must force a CRIT.
+		{"unreadable gpu is CRIT", dev(models.GPUDevice{Name: "card0", Unreadable: true}), "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -18,8 +18,13 @@ type GPUDevice struct {
 	MemTotalMB int          `json:"mem_total_mb"`
 	MemUsedPct float64      `json:"mem_used_pct"`
 	PowerDrawW float64      `json:"power_draw_w"`
-	XidErrors  int          `json:"xid_errors"`
 	Processes  []GPUProcess `json:"processes,omitempty"`
+
+	// Unreadable is set when nvidia-smi listed the GPU but reported "[N/A]"/"ERR!"
+	// for its core metrics (temperature AND total memory) — the signature of a GPU
+	// that has fallen off the bus / faulted. Without this flag those fields coerce
+	// to 0 and the device reads as a perfectly healthy 0°C/0% GPU (a false-OK).
+	Unreadable bool `json:"unreadable,omitempty"`
 
 	// Clock speeds
 	ClockMHz    int `json:"clock_mhz,omitempty"`     // current GPU core clock

@@ -132,78 +132,92 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 		if len(gpu.Devices) > 1 {
 			prefix = fmt.Sprintf("GPU%d (%s)", dev.Index, dev.Name)
 		}
-		if dev.TempC >= 90 {
-			out = append(out, insight("CRIT", "GPU",
-				fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
-				[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
-			))
-		} else if dev.TempC >= 80 {
-			out = append(out, insight("WARN", "GPU",
-				fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
-				[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
-			))
+		out = append(out, checkGPUDevice(dev, prefix, steamOS)...)
+	}
+	return out
+}
+
+// checkGPUDevice returns the health insights for a single GPU device.
+func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.Insight {
+	var out []models.Insight
+	// nvidia-smi listed the GPU but its core metrics came back [N/A]/ERR! — the
+	// card has fallen off the bus or faulted. Its temp/util/mem are bogus zeros,
+	// so emit the fault and skip the per-metric checks (which would read healthy).
+	if dev.Unreadable {
+		return append(out, insight("CRIT", "GPU",
+			fmt.Sprintf("%s metrics unreadable — nvidia-smi reported [N/A] for temperature and memory (GPU likely fallen off the bus / hardware fault)", prefix),
+			[]string{
+				"to inspect: nvidia-smi",
+				"to inspect: dmesg | grep -iE 'NVRM|Xid|fell off the bus'",
+				"a reboot may clear a transient bus fault; persistent [N/A] points to failing hardware",
+			},
+		))
+	}
+	if dev.TempC >= 90 {
+		out = append(out, insight("CRIT", "GPU",
+			fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
+			[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
+		))
+	} else if dev.TempC >= 80 {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
+			[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
+		))
+	}
+	// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
+	if dev.TempJunctionC >= 100 {
+		out = append(out, insight("CRIT", "GPU",
+			fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
+			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},
+		))
+	} else if dev.TempJunctionC >= 90 {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s junction temperature %d°C — approaching thermal limit", prefix, dev.TempJunctionC),
+			[]string{"to inspect: check thermal paste and fan curve if sustained"},
+		))
+	}
+	// TDP throttling — GPU pinned at its power cap.
+	if dev.Throttling {
+		hint := "to inspect: raise the power cap or improve cooling if more performance is needed"
+		if steamOS {
+			hint = "to fix: on Steam Deck, increase the TDP limit in Performance settings when plugged in"
 		}
-		// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
-		if dev.TempJunctionC >= 100 {
-			out = append(out, insight("CRIT", "GPU",
-				fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
-				[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},
-			))
-		} else if dev.TempJunctionC >= 90 {
-			out = append(out, insight("WARN", "GPU",
-				fmt.Sprintf("%s junction temperature %d°C — approaching thermal limit", prefix, dev.TempJunctionC),
-				[]string{"to inspect: check thermal paste and fan curve if sustained"},
-			))
-		}
-		// TDP throttling — GPU pinned at its power cap.
-		if dev.Throttling {
-			hint := "to inspect: raise the power cap or improve cooling if more performance is needed"
-			if steamOS {
-				hint = "to fix: on Steam Deck, increase the TDP limit in Performance settings when plugged in"
-			}
-			out = append(out, insight("WARN", "GPU",
-				fmt.Sprintf("%s TDP throttling — at power limit (%.1fW / %.1fW)", prefix, dev.TDPCurrentW, dev.TDPLimitW),
-				[]string{hint},
-			))
-		}
-		// VRAM pressure (GB-based field, complements the MB-based check below).
-		// Skip APUs: their "VRAM" is a small shared-RAM carveout that fills to 90%+
-		// under any GPU load by design — a high % there is normal, not pressure.
-		// Genuine memory exhaustion on an APU surfaces via system-RAM checks.
-		if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
-			out = append(out, insight("WARN", "GPU",
-				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
-				[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
-			))
-		}
-		// DPM stuck low (deep-only field) — performance capped after failed power management.
-		if dev.PowerDPMLevel == "low" {
-			out = append(out, insight("WARN", "GPU",
-				fmt.Sprintf("%s stuck in low-power DPM mode — performance capped", prefix),
-				[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
-			))
-		}
-		if l := levelPct(dev.MemUsedPct, 85, 95); l != "" && !dev.IsAPU {
-			out = append(out, insight(l, "GPU",
-				fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
-				[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},
-			))
-		}
-		if dev.XidErrors > 0 {
-			out = append(out, insight("CRIT", "GPU",
-				fmt.Sprintf("%s %d Xid error(s) in the last hour — hardware fault detected", prefix, dev.XidErrors),
-				[]string{"to inspect: dmesg | grep 'NVRM: Xid'", "to inspect: nvidia-smi -q | grep -A2 'Xid'"},
-			))
-		}
-		// Sustained compute load — INFO signal for correlation engine.
-		// Not a fault on its own, but provides context when combined with
-		// thermal or memory pressure signals.
-		if dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
-			out = append(out, insight("INFO", "GPU",
-				fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
-				nil,
-			))
-		}
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s TDP throttling — at power limit (%.1fW / %.1fW)", prefix, dev.TDPCurrentW, dev.TDPLimitW),
+			[]string{hint},
+		))
+	}
+	// VRAM pressure (GB-based field, complements the MB-based check below).
+	// Skip APUs: their "VRAM" is a small shared-RAM carveout that fills to 90%+
+	// under any GPU load by design — a high % there is normal, not pressure.
+	// Genuine memory exhaustion on an APU surfaces via system-RAM checks.
+	if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
+			[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
+		))
+	}
+	// DPM stuck low (deep-only field) — performance capped after failed power management.
+	if dev.PowerDPMLevel == "low" {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s stuck in low-power DPM mode — performance capped", prefix),
+			[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
+		))
+	}
+	if l := levelPct(dev.MemUsedPct, 85, 95); l != "" && !dev.IsAPU {
+		out = append(out, insight(l, "GPU",
+			fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
+			[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},
+		))
+	}
+	// Sustained compute load — INFO signal for correlation engine.
+	// Not a fault on its own, but provides context when combined with
+	// thermal or memory pressure signals.
+	if dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
+		out = append(out, insight("INFO", "GPU",
+			fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
+			nil,
+		))
 	}
 	return out
 }
