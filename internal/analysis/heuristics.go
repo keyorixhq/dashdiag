@@ -423,6 +423,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkHAProxy(d)
 	case *models.HAProxyInfo:
 		return checkHAProxy(*d)
+	case models.RabbitMQInfo:
+		return checkRabbitMQ(d)
+	case *models.RabbitMQInfo:
+		return checkRabbitMQ(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
