@@ -85,3 +85,60 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 
 	return out
 }
+
+// checkMySQL surfaces health issues for a local MySQL / MariaDB server. Same
+// shape and discipline as checkPostgres: gated on Detected, silent when healthy,
+// and never a silent OK when the metrics couldn't be read.
+func checkMySQL(my models.MySQLInfo) []models.Insight {
+	if !my.Detected {
+		return nil
+	}
+	name := my.Flavor
+	if name == "" {
+		name = "MySQL"
+	}
+	if !my.MetricsRead {
+		return []models.Insight{insight("INFO", "MySQL",
+			fmt.Sprintf("%s is reachable; connection/replication metrics were not read", name),
+			[]string{
+				"note: run dsd as root (root@localhost socket auth) for connection-saturation and replica-lag checks",
+				"to inspect: mysqladmin --socket=" + my.SocketPath + " status",
+			},
+		)}
+	}
+
+	var out []models.Insight
+
+	// Connection saturation — the "ERROR 1040: Too many connections" outage.
+	if my.MaxConnections > 0 {
+		ratio := float64(my.ThreadsConnected) / float64(my.MaxConnections)
+		switch {
+		case ratio >= 0.95:
+			out = append(out, insight("CRIT", "MySQL",
+				fmt.Sprintf("%s connections at %d/%d (%.0f%%) — new connections will be refused (ERROR 1040)",
+					name, my.ThreadsConnected, my.MaxConnections, ratio*100),
+				[]string{
+					"to inspect: SHOW PROCESSLIST",
+					"to fix: add a connection pooler (ProxySQL), or raise max_connections (costs RAM)",
+				}))
+		case ratio >= 0.80:
+			out = append(out, insight("WARN", "MySQL",
+				fmt.Sprintf("%s connections at %d/%d (%.0f%%) — approaching the limit",
+					name, my.ThreadsConnected, my.MaxConnections, ratio*100),
+				[]string{"to inspect: SHOW PROCESSLIST",
+					"note: a connection pooler is the usual fix before raising max_connections"}))
+		}
+	}
+
+	// Replica falling behind.
+	if my.IsReplica && my.SecondsBehind > 300 {
+		out = append(out, insight("WARN", "MySQL",
+			fmt.Sprintf("replica is %ds behind the primary — replication lag growing", my.SecondsBehind),
+			[]string{
+				"to inspect: SHOW SLAVE STATUS\\G  (look at Seconds_Behind_Master, Slave_IO/SQL_Running)",
+				"note: check the replication threads, network to the primary, and replica I/O headroom",
+			}))
+	}
+
+	return out
+}

@@ -403,6 +403,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkPostgres(d)
 	case *models.PostgresInfo:
 		return checkPostgres(*d)
+	case models.MySQLInfo:
+		return checkMySQL(d)
+	case *models.MySQLInfo:
+		return checkMySQL(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
