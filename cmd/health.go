@@ -605,6 +605,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.MongoDBAvailable() {
 		cols = append(cols, collectors.NewMongoDBCollector())
 	}
+	// Kafka — gate on the broker port (9092) up + a kafka CLI present.
+	if collectors.KafkaAvailable() {
+		cols = append(cols, collectors.NewKafkaCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
