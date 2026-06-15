@@ -581,6 +581,14 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.NginxAvailable() {
 		cols = append(cols, collectors.NewNginxCollector())
 	}
+	// Apache httpd — gate on a running httpd/apache2 process.
+	if collectors.ApacheAvailable() {
+		cols = append(cols, collectors.NewApacheCollector())
+	}
+	// HAProxy — gate on a running haproxy process.
+	if collectors.HAProxyAvailable() {
+		cols = append(cols, collectors.NewHAProxyCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were

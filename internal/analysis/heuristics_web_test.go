@@ -35,3 +35,30 @@ func TestCheckNginx(t *testing.T) {
 		t.Errorf("untested config should be INFO, got %+v", untested)
 	}
 }
+
+func TestCheckApache(t *testing.T) {
+	if got := checkApache(models.ApacheInfo{Detected: false}); got != nil {
+		t.Errorf("undetected apache should be silent, got %+v", got)
+	}
+	if got := checkApache(models.ApacheInfo{Detected: true, ConfigTested: true, ConfigValid: true}); len(got) != 0 {
+		t.Errorf("valid apache config should be silent, got %+v", got)
+	}
+	bad := checkApache(models.ApacheInfo{Detected: true, ConfigTested: true, ConfigValid: false, ConfigError: "Syntax error on line 5"})
+	if !insightWithMsg(bad, "CRIT", "Apache on-disk config is INVALID") {
+		t.Errorf("invalid apache config should CRIT, got %+v", bad)
+	}
+}
+
+func TestCheckHAProxy(t *testing.T) {
+	if got := checkHAProxy(models.HAProxyInfo{Detected: false}); got != nil {
+		t.Errorf("undetected haproxy should be silent, got %+v", got)
+	}
+	bad := checkHAProxy(models.HAProxyInfo{Detected: true, ConfigTested: true, ConfigValid: false, ConfigError: "[ALERT] parsing error"})
+	if !insightWithMsg(bad, "CRIT", "HAProxy on-disk config is INVALID") {
+		t.Errorf("invalid haproxy config should CRIT, got %+v", bad)
+	}
+	untested := checkHAProxy(models.HAProxyInfo{Detected: true, ConfigTested: false})
+	if !insightWithMsg(untested, "INFO", "not validated") {
+		t.Errorf("untested haproxy should be INFO, got %+v", untested)
+	}
+}
