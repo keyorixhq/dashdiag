@@ -41,6 +41,17 @@ func checkKafka(k models.KafkaInfo) []models.Insight {
 			}))
 	}
 
+	// The offline-partition read succeeded (MetricsRead) but the under-replicated
+	// query failed, so redundancy was never verified. Surface it (INFO) rather than
+	// let a 0 from an unread query pass as "no under-replication".
+	if !k.UnderReplicatedRead {
+		out = append(out, insight("INFO", "Kafka",
+			"offline-partition state was read, but under-replicated partition state could not be — redundancy is unverified",
+			[]string{
+				"to inspect: kafka-topics.sh --bootstrap-server localhost:9092 --describe --under-replicated-partitions",
+			}))
+	}
+
 	// Under-replicated partitions: replicas not in the ISR — no redundancy.
 	if k.UnderReplicatedPartitions > 0 {
 		msg := fmt.Sprintf("%d partition(s) under-replicated — replicas are not in sync, so there is no redundancy", k.UnderReplicatedPartitions)

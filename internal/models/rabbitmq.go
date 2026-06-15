@@ -11,11 +11,16 @@ type RabbitMQInfo struct {
 	Version   string `json:"version,omitempty"`
 	Accepting bool   `json:"accepting"` // AMQP port (5672) reachable
 
-	DiagnosticsRead bool   `json:"diagnostics_read"`
-	Pinged          bool   `json:"pinged,omitempty"`
-	MemoryAlarm     bool   `json:"memory_alarm,omitempty"`
-	DiskAlarm       bool   `json:"disk_alarm,omitempty"`
-	AlarmDetail     string `json:"alarm_detail,omitempty"`
+	DiagnosticsRead bool `json:"diagnostics_read"`
+	Pinged          bool `json:"pinged,omitempty"`
+	// AlarmsRead is true only when the `alarms` query actually returned. ping
+	// succeeding (→ DiagnosticsRead) does NOT guarantee the alarms read succeeded;
+	// without this flag a failed alarms query left MemoryAlarm/DiskAlarm false and
+	// the broker read healthy with its publisher-blocking alarm state never checked.
+	AlarmsRead  bool   `json:"alarms_read,omitempty"`
+	MemoryAlarm bool   `json:"memory_alarm,omitempty"`
+	DiskAlarm   bool   `json:"disk_alarm,omitempty"`
+	AlarmDetail string `json:"alarm_detail,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
 }

@@ -89,8 +89,9 @@ func (c *RabbitMQCollector) Collect(ctx context.Context) (interface{}, error) {
 func parseRabbitMQAlarms(ctx context.Context, cli string, info *models.RabbitMQInfo) {
 	out, err := rabbitmqRun(ctx, cli, "-q", "alarms")
 	if err != nil {
-		return
+		return // AlarmsRead stays false — the heuristic surfaces the unread state
 	}
+	info.AlarmsRead = true
 	low := strings.ToLower(out)
 	// "reported no alarms" / "no alarms in effect" ⇒ clean.
 	if strings.Contains(low, "no alarms") {
