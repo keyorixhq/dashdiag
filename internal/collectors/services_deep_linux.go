@@ -175,8 +175,10 @@ func collectNeedsDaemonReload(ctx context.Context) []string {
 		return nil
 	}
 
-	// Batch query — systemctl accepts multiple unit names in one call
-	args := append([]string{"show", "--property=Id,NeedsDaemonReload"}, unitNames...)
+	// Batch query — systemctl accepts multiple unit names in one call.
+	// The systemd unit property is NeedDaemonReload (singular); the plural
+	// "NeedsDaemonReload" returns empty for every unit (the bug this had before).
+	args := append([]string{"show", "--property=Id,NeedDaemonReload"}, unitNames...)
 	showOut, err := runCmd(ctx, "systemctl", args...)
 	if err != nil {
 		return nil
@@ -184,9 +186,9 @@ func collectNeedsDaemonReload(ctx context.Context) []string {
 	return parseNeedsDaemonReload(showOut)
 }
 
-// parseNeedsDaemonReload parses batched `systemctl show --property=Id,NeedsDaemonReload`
-// output and returns unit names with NeedsDaemonReload=yes.
-// systemctl separates units with blank lines; each block has Id= and NeedsDaemonReload=.
+// parseNeedsDaemonReload parses batched `systemctl show --property=Id,NeedDaemonReload`
+// output and returns unit names with NeedDaemonReload=yes.
+// systemctl separates units with blank lines; each block has Id= and NeedDaemonReload=.
 func parseNeedsDaemonReload(out string) []string {
 	var result []string
 	var currentID string
@@ -198,7 +200,7 @@ func parseNeedsDaemonReload(out string) []string {
 		switch kv[0] {
 		case "Id":
 			currentID = kv[1]
-		case "NeedsDaemonReload":
+		case "NeedDaemonReload":
 			if kv[1] == "yes" && currentID != "" {
 				result = append(result, currentID)
 			}

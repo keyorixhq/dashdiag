@@ -1751,6 +1751,20 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 		))
 	}
 
+	// Modified unit files not yet reloaded — the running service is using stale
+	// config (admin edited the unit and forgot `systemctl daemon-reload`). A
+	// definitive systemd signal (NeedsDaemonReload=yes), not a heuristic.
+	if n := len(sys.NeedsDaemonReload); n > 0 {
+		out = append(out, insight("WARN", "Systemd",
+			fmt.Sprintf("%d unit(s) have modified files pending reload — running stale config: %s",
+				n, strings.Join(firstN(sys.NeedsDaemonReload, 5), ", ")),
+			[]string{
+				"to fix: systemctl daemon-reload",
+				"note: the unit file on disk changed since systemd loaded it; restart the unit to apply",
+			},
+		))
+	}
+
 	// Boot slowness — surface top slow units from systemd-analyze blame.
 	// Threshold: WARN if any unit > 10s, INFO if total boot > 30s.
 	// Research: "systemd-analyze blame tells you which is slow — not why"
