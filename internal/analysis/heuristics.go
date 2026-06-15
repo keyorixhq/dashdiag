@@ -399,6 +399,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkContainerd(d)
 	case *models.ContainerdInfo:
 		return checkContainerd(*d)
+	case models.PostgresInfo:
+		return checkPostgres(d)
+	case *models.PostgresInfo:
+		return checkPostgres(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
