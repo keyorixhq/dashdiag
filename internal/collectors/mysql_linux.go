@@ -80,13 +80,20 @@ func collectMySQLMetrics(ctx context.Context, sock string, info *models.MySQLInf
 	} else {
 		info.Flavor = "MySQL"
 	}
+	maxOK := false
 	if v, ok := q("SELECT @@max_connections"); ok {
 		info.MaxConnections = atoiSafe(v)
+		maxOK = true
 	}
 	// SHOW GLOBAL STATUS rows are "Name\tValue" (portable across MySQL/MariaDB).
+	threadsOK := false
 	if v, ok := q("SHOW GLOBAL STATUS LIKE 'Threads_connected'"); ok {
 		info.ThreadsConnected = atoiSafe(lastField(v))
+		threadsOK = true
 	}
+	// Both numbers are needed for the saturation ratio; only claim it's assessable
+	// when both queries actually returned.
+	info.ConnStatsRead = maxOK && threadsOK
 	parseMySQLReplica(q, info)
 }
 

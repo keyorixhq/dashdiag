@@ -16,8 +16,13 @@ type MySQLInfo struct {
 	MetricsRead      bool `json:"metrics_read"`
 	MaxConnections   int  `json:"max_connections,omitempty"`
 	ThreadsConnected int  `json:"threads_connected,omitempty"`
-	IsReplica        bool `json:"is_replica,omitempty"`
-	SecondsBehind    int  `json:"seconds_behind,omitempty"` // replica lag (Seconds_Behind_Master)
+	// ConnStatsRead is true only when BOTH the max_connections and Threads_connected
+	// queries returned. VERSION() succeeding (→ MetricsRead) does NOT cover them;
+	// without this flag a failed either-query left a count at 0 and the
+	// connection-saturation check silently couldn't run.
+	ConnStatsRead bool `json:"conn_stats_read,omitempty"`
+	IsReplica     bool `json:"is_replica,omitempty"`
+	SecondsBehind int  `json:"seconds_behind,omitempty"` // replica lag (Seconds_Behind_Master)
 
 	StatusReason string `json:"status_reason,omitempty"`
 }
