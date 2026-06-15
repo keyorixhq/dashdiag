@@ -11,6 +11,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-15
+
+Hardening and correctness follow-up to the v0.10.0 capture/replay release: every
+collector's I/O is now routed through the capture layer (so `dsd replay` reproduces
+the *full* health run, not a subset), plus a batch of health-verdict correctness
+fixes — several "stale signal reported as live" and "couldn't read → reads healthy"
+cases.
+
+### Fixed
+
+- Docker: a container that crash-looped earlier but has since run stably no longer
+  reports a perpetual "crash looping" CRIT. The verdict is now recency-gated — a
+  container running continuously past a 10-minute window is treated as recovered (#278).
+- Kubernetes: a recovered (fully-ready) pod with a high lifetime restart count no
+  longer raises "instability detected"; active flapping still surfaces via
+  CrashLoopBackOff / not-ready (#280).
+- Disk: `dsd disk` now flags NVMe wear ≥90% or media errors even when the SMART
+  overall assessment still reads PASSED — a degrading drive no longer summarises as
+  "healthy" (#281).
+- Disk: an overdue ZFS scrub (>30 days) renders as an informational note, and a
+  never-run anacron job as INFO — matching the severities `dsd health` already uses
+  (#281).
+- Replay: `dsd replay` now reproduces permission-denied reads faithfully
+  (`os.IsPermission`), so permission-gated insights like "config present but not
+  readable" are no longer silently dropped when a bundle was captured as non-root
+  (#284).
+
+### Changed
+
+- Capture/replay: all collectors now route their file, glob, directory, and command
+  I/O through the capture layer, so `dsd capture --raw` records — and `dsd replay`
+  reproduces — the complete health run rather than a subset (#281, #283).
+- Capture: GPU presence is autodetected and the capture manifest is routed through
+  the source layer (#282).
+
+### Breaking Changes
+
+- None
+
 ## [0.10.0] - 2026-06-14
 
 Raw input capture & replay — turn a scarce real-hardware window into permanent,
