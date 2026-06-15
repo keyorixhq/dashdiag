@@ -58,6 +58,25 @@ func Correlate(insights []models.Insight) []Correlation {
 	if c, ok := ruleEntropyTLSFailure(idx); ok {
 		out = append(out, c)
 	}
+	// v2 rules — cross-collector causal chains (2026-06).
+	if c, ok := ruleDiskFullServiceFailure(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleNFSStaleProcessHang(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleClockSkewTLSAuth(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleContainerCgroupOOM(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleThermalThrottleUnderLoad(idx); ok {
+		out = append(out, c)
+	}
+	if c, ok := ruleDNSResolverNotConnectivity(idx); ok {
+		out = append(out, c)
+	}
 
 	return out
 }
@@ -442,6 +461,173 @@ func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
 		Summary: "entropy pool is critically low while TLS certificates are in use — SSL handshakes and key operations will stall or time out waiting for randomness",
 		Action:  "apt install haveged OR dnf install rng-tools && " + PlatformServiceCmd("systemctl enable --now rngd"),
 		Checks:  []string{"Entropy", "TLS"},
+	}, true
+}
+
+// ── v2 rules ─────────────────────────────────────────────────────────────────
+
+// ruleDiskFullServiceFailure fires when a filesystem is full and a service has
+// failed or write errors are logged — the canonical "disk filled, things broke"
+// incident, where the disk is the cause and the service failure is the symptom.
+//
+// Required signals:
+//   - Disk CRIT                    (a filesystem at/over its capacity threshold)
+//   - Systemd CRIT OR Logs CRIT    (a unit failed, or write/ENOSPC errors logged)
+func ruleDiskFullServiceFailure(idx map[string]indexEntry) (Correlation, bool) {
+	diskCrit := exact(idx, "Disk", "CRIT")
+	systemdCrit := exact(idx, "Systemd", "CRIT")
+	logsCrit := exact(idx, "Logs", "CRIT")
+
+	if !diskCrit || (!systemdCrit && !logsCrit) {
+		return Correlation{}, false
+	}
+
+	checks := []string{"Disk"}
+	if systemdCrit {
+		checks = append(checks, "Systemd")
+	}
+	if logsCrit {
+		checks = append(checks, "Logs")
+	}
+
+	return Correlation{
+		Name:    "Disk-Full Service Failure",
+		Level:   "CRIT",
+		Summary: "A full filesystem is the likely root cause — services can't write, so failures and errors are downstream symptoms, not the problem",
+		Action:  "free space first: du -x -d1 / | sort -h | tail -10  (then restart the affected unit)",
+		Checks:  checks,
+	}, true
+}
+
+// ruleNFSStaleProcessHang fires when an NFS mount is stale/unresponsive and
+// processes are stuck — the classic uninterruptible-sleep (D-state) hang where
+// the storage, not the application, is at fault.
+//
+// Required signals:
+//   - NFS CRIT        (a stale or unreachable mount)
+//   - Processes CRIT  (uninterruptible-sleep / hung tasks)
+func ruleNFSStaleProcessHang(idx map[string]indexEntry) (Correlation, bool) {
+	if !exact(idx, "NFS", "CRIT") || !exact(idx, "Processes", "CRIT") {
+		return Correlation{}, false
+	}
+	return Correlation{
+		Name:    "NFS Stall Process Hang",
+		Level:   "CRIT",
+		Summary: "Processes are stuck in uninterruptible sleep on a stale NFS mount — they can't be killed until the mount responds or is force-unmounted",
+		Action:  "find the bad mount: nfsstat -m; then: umount -f -l <mount>  (or restore the NFS server)",
+		Checks:  []string{"NFS", "Processes"},
+	}, true
+}
+
+// ruleClockSkewTLSAuth fires when the clock is badly skewed and TLS or auth is
+// failing — time drift makes valid certificates look not-yet-valid/expired and
+// breaks Kerberos/2FA, so the fix is time sync, not the cert or credentials.
+//
+// Required signals:
+//   - Clock CRIT                (NTP unsynced or large offset)
+//   - TLS CRIT OR Auth WARN     (cert validation or authentication failing)
+func ruleClockSkewTLSAuth(idx map[string]indexEntry) (Correlation, bool) {
+	clockCrit := exact(idx, "Clock", "CRIT")
+	tlsCrit := exact(idx, "TLS", "CRIT")
+	authFired := atLeast(idx, "Auth", "WARN")
+
+	if !clockCrit || (!tlsCrit && !authFired) {
+		return Correlation{}, false
+	}
+
+	checks := []string{"Clock"}
+	if tlsCrit {
+		checks = append(checks, "TLS")
+	}
+	if authFired {
+		checks = append(checks, "Auth")
+	}
+
+	return Correlation{
+		Name:    "Clock Skew Breaking TLS/Auth",
+		Level:   "CRIT",
+		Summary: "The clock is badly skewed — valid certificates read as expired/not-yet-valid and Kerberos/2FA fail. Fix time first; the certs and credentials are probably fine",
+		Action:  "sync time: timedatectl set-ntp true  (or chronyc makestep) — then re-test TLS/login",
+		Checks:  checks,
+	}, true
+}
+
+// ruleContainerCgroupOOM fires when a container was OOM-killed and a cgroup
+// memory limit was hit while host RAM is NOT critical — the container's own
+// limit is too low, so adding host RAM won't help.
+//
+// Required signals:
+//   - Docker CRIT        (a container unhealthy / OOM-killed)
+//   - Cgroup CRIT        (a cgroup at its memory limit)
+//   - Memory NOT CRIT    (the host as a whole has headroom)
+func ruleContainerCgroupOOM(idx map[string]indexEntry) (Correlation, bool) {
+	dockerCrit := exact(idx, "Docker", "CRIT")
+	cgroupCrit := exact(idx, "Cgroup", "CRIT")
+	hostMemOK := !exact(idx, "Memory", "CRIT")
+
+	if !dockerCrit || !cgroupCrit || !hostMemOK {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "Container Memory-Limit OOM",
+		Level:   "CRIT",
+		Summary: "A container hit its own cgroup memory limit while the host still has RAM — the container's limit is too low; adding host memory won't fix it",
+		Action:  "raise the container's limit (docker update --memory / k8s resources.limits), or find its leak",
+		Checks:  []string{"Docker", "Cgroup"},
+	}, true
+}
+
+// ruleThermalThrottleUnderLoad fires when the CPU is thermally throttling while
+// under load — performance is capped by heat, not by a lack of CPU capacity, so
+// the fix is cooling/airflow rather than more cores.
+//
+// Required signals:
+//   - CPU Thermal WARN/CRIT  (throttling temperature reached)
+//   - CPU Load WARN          (the box is actually busy — not idle-and-hot)
+func ruleThermalThrottleUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
+	thermalFired := atLeast(idx, "CPU Thermal", "WARN")
+	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
+
+	if !thermalFired || !cpuLoaded {
+		return Correlation{}, false
+	}
+
+	level := "WARN"
+	if exact(idx, "CPU Thermal", "CRIT") {
+		level = "CRIT"
+	}
+
+	return Correlation{
+		Name:    "Thermal Throttling Under Load",
+		Level:   level,
+		Summary: "The CPU is throttling on temperature while busy — performance is capped by heat, not by core count; more vCPUs won't help",
+		Action:  "check cooling/airflow: sensors; reduce sustained load or improve heat dissipation",
+		Checks:  []string{"CPU Thermal", "CPU Load"},
+	}, true
+}
+
+// ruleDNSResolverNotConnectivity fires when DNS resolution is failing but the
+// network link itself is healthy — pointing the operator at the resolver/config
+// rather than chasing a connectivity problem that isn't there.
+//
+// Required signals:
+//   - DNS CRIT          (resolution failing)
+//   - Network NOT CRIT  (the link/gateway is up — so it's not connectivity)
+func ruleDNSResolverNotConnectivity(idx map[string]indexEntry) (Correlation, bool) {
+	dnsCrit := exact(idx, "DNS", "CRIT")
+	networkOK := !exact(idx, "Network", "CRIT")
+
+	if !dnsCrit || !networkOK {
+		return Correlation{}, false
+	}
+
+	return Correlation{
+		Name:    "DNS Resolver Failure (network is up)",
+		Level:   "WARN",
+		Summary: "DNS resolution is failing while the network link is healthy — this is a resolver/config problem, not connectivity. Don't chase the network",
+		Action:  "check the resolver: resolvectl status; cat /etc/resolv.conf; dig @1.1.1.1 example.com vs dig example.com",
+		Checks:  []string{"DNS"},
 	}, true
 }
 
