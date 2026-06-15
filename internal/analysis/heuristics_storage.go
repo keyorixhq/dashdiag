@@ -447,6 +447,15 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 		}
 	}
 
+	// RAID-LV health comes from a separate `lvs` query that can fail after the VG/LV
+	// collection succeeded; without it a DEGRADED RAID LV is missed entirely. Only
+	// flag when LVM is actually present (VGs found) so non-LVM hosts stay silent.
+	if len(l.VGs) > 0 && l.RaidReadFailed {
+		out = append(out, insight("INFO", "LVM",
+			"LVM RAID/mirror LV health could not be read — a degraded RAID LV cannot be ruled out",
+			[]string{"to inspect: lvs -o lv_name,vg_name,lv_attr,copy_percent"}))
+	}
+
 	return out
 }
 

@@ -60,9 +60,13 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	mergeMountedLVs(info.VGs)
 
 	// RAID/mirror LV health — copy_percent and lv_attr sync/degraded flags
-	raidOut, _ := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
+	raidOut, raidErr := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
 		"-o", "lv_name,vg_name,lv_attr,lv_size,copy_percent")
-	if raidOut != "" {
+	if raidErr != nil {
+		// Only a command error is a gap. Success with empty output legitimately
+		// means "no RAID/mirror LVs" (clean), so it leaves RaidReadFailed false.
+		info.RaidReadFailed = true
+	} else {
 		info.RaidLVs = parseLVMRaid(raidOut)
 	}
 
