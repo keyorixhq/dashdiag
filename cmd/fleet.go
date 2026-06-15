@@ -148,9 +148,40 @@ func printFleetTable(summary fleet.Summary, mode output.OutputMode) {
 	c := summary.Counts
 	fmt.Printf("\n%d host(s): %d OK · %d WARN · %d CRIT · %d unreachable\n",
 		summary.Total, c.OK, c.WARN, c.CRIT, c.Unreachable)
+	printFleetIssues(summary, mode)
 	if n := fleetWaitlistNudge(mode, summary.Total); n != "" {
 		fmt.Println(n)
 	}
+}
+
+// printFleetIssues renders WARN/CRIT issues grouped across the fleet: fleet-wide
+// (systemic — fix once) first, then outliers (one host drifting from the rest).
+// This is the fleet's answer to "what's wrong, and is it everywhere or one box?".
+func printFleetIssues(summary fleet.Summary, mode output.OutputMode) {
+	if len(summary.Issues) == 0 {
+		return
+	}
+	reachable := summary.Total - summary.Counts.Unreachable
+	fmt.Println("\nFleet issues (grouped across hosts):")
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "  SCOPE\tLVL\tCHECK\tHOSTS\tISSUE")
+	const limit = 15
+	shown := 0
+	for _, g := range summary.Issues {
+		if shown >= limit {
+			fmt.Fprintf(w, "  …\t\t\t\t%d more (see --json)\n", len(summary.Issues)-shown)
+			break
+		}
+		where := fmt.Sprintf("%d/%d", g.Count, reachable)
+		if g.Scope == "outlier" && len(g.Hosts) == 1 {
+			where = g.Hosts[0]
+		}
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
+			g.Scope, g.Level, g.Check, where,
+			truncate(strings.ReplaceAll(g.Sample, "\n", " "), 52))
+		shown++
+	}
+	_ = w.Flush()
 }
 
 // fleetWaitlistNudge returns a one-line, suppressible pointer to the (waitlisted)

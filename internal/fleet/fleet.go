@@ -56,8 +56,17 @@ type Result struct {
 	Crit      int           `json:"crit"`
 	Warn      int           `json:"warn"`
 	TopIssue  string        `json:"top_issue,omitempty"`
+	Issues    []Issue       `json:"issues,omitempty"` // WARN/CRIT insights, for cross-host aggregation
 	Elapsed   time.Duration `json:"-"`
 	ElapsedMs int64         `json:"elapsed_ms"`
+}
+
+// Issue is a single WARN/CRIT insight from one host, retained so the fleet can
+// group the same problem across hosts (fleet-wide vs outlier).
+type Issue struct {
+	Check   string `json:"check"`
+	Level   string `json:"level"`
+	Message string `json:"message"`
 }
 
 // remoteHealth is the subset of `dsd health --json` we parse.
@@ -190,11 +199,13 @@ func parseHealth(stdout []byte, res *Result) bool {
 			if firstCrit == "" {
 				firstCrit = ins.Message
 			}
+			res.Issues = append(res.Issues, Issue{Check: ins.Check, Level: ins.Level, Message: ins.Message})
 		case "WARN":
 			res.Warn++
 			if firstWarn == "" {
 				firstWarn = ins.Message
 			}
+			res.Issues = append(res.Issues, Issue{Check: ins.Check, Level: ins.Level, Message: ins.Message})
 		}
 	}
 	switch {
@@ -281,11 +292,12 @@ type Counts struct {
 // It mirrors dsd health --json's top-level verdict/counts so the same automation
 // (`jq .verdict`, `jq .counts.crit`) works against a fleet run.
 type Summary struct {
-	Verdict  string   `json:"verdict"`   // OK | WARN | CRIT — fleet-wide worst
-	ExitCode int      `json:"exit_code"` // matches the process exit code (0/1/2)
-	Total    int      `json:"total"`     // number of hosts checked
-	Counts   Counts   `json:"counts"`
-	Hosts    []Result `json:"hosts"` // per-host results, sorted by host
+	Verdict  string       `json:"verdict"`   // OK | WARN | CRIT — fleet-wide worst
+	ExitCode int          `json:"exit_code"` // matches the process exit code (0/1/2)
+	Total    int          `json:"total"`     // number of hosts checked
+	Counts   Counts       `json:"counts"`
+	Hosts    []Result     `json:"hosts"`            // per-host results, sorted by host
+	Issues   []IssueGroup `json:"issues,omitempty"` // WARN/CRIT grouped across hosts (fleet-wide vs outlier)
 }
 
 // Summarize rolls per-host results up into the fleet verdict. Hosts are sorted by
@@ -315,6 +327,7 @@ func Summarize(results []Result) Summary {
 	default:
 		s.Verdict = "OK"
 	}
+	s.Issues = AggregateIssues(results)
 	return s
 }
 
@@ -338,5 +351,129 @@ func SortByHost(results []Result) []Result {
 	out := make([]Result, len(results))
 	copy(out, results)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
+}
+
+// IssueGroup is the same problem (Check + level + message shape) seen across one
+// or more hosts. Scope answers the fleet operator's real question — is this
+// systemic or is one box drifting from the rest:
+//   - "fleet-wide": a majority of reachable hosts share it (fix once, helps many)
+//   - "outlier":    exactly one host has it while the others don't (the odd box)
+//   - "common":     several hosts, but not a majority
+type IssueGroup struct {
+	Check  string   `json:"check"`
+	Level  string   `json:"level"`  // CRIT | WARN
+	Sample string   `json:"sample"` // a representative message
+	Hosts  []string `json:"hosts"`  // hosts exhibiting it, sorted
+	Count  int      `json:"count"`
+	Scope  string   `json:"scope"` // fleet-wide | common | outlier
+}
+
+// maskNumbers collapses runs of digits to a single '#' so the same issue with
+// host-specific values ("RAM at 97%", "RAM at 85%") groups as one ("RAM at #%").
+func maskNumbers(s string) string {
+	var b strings.Builder
+	inNum := false
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			if !inNum {
+				b.WriteByte('#')
+				inNum = true
+			}
+			continue
+		}
+		inNum = false
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// scopeRank orders groups for display: fleet-wide first (most leverage), then
+// common, then outliers (drift) last.
+func scopeRank(scope string) int {
+	switch scope {
+	case "fleet-wide":
+		return 0
+	case "common":
+		return 1
+	default: // outlier
+		return 2
+	}
+}
+
+func classifyScope(count, reachable int) string {
+	if reachable <= 1 {
+		return "common" // can't tell systemic from drift with a single host
+	}
+	if count == 1 {
+		return "outlier"
+	}
+	if count*2 > reachable {
+		return "fleet-wide"
+	}
+	return "common"
+}
+
+// AggregateIssues groups every host's WARN/CRIT issues by (Check, Level, message
+// shape) and classifies each group's scope against the number of reachable
+// hosts. Within a host the same issue is counted once. Output is ordered
+// fleet-wide → common → outlier, then CRIT before WARN, then most hosts first.
+func AggregateIssues(results []Result) []IssueGroup {
+	reachable := 0
+	for _, r := range results {
+		if r.Reachable && r.Worst != "ERROR" {
+			reachable++
+		}
+	}
+
+	type acc struct {
+		check, level, sample string
+		hosts                map[string]bool
+	}
+	groups := map[string]*acc{}
+	var order []string
+
+	for _, r := range results {
+		seen := map[string]bool{}
+		for _, iss := range r.Issues {
+			key := iss.Check + "|" + iss.Level + "|" + maskNumbers(iss.Message)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			g, ok := groups[key]
+			if !ok {
+				g = &acc{check: iss.Check, level: iss.Level, sample: iss.Message, hosts: map[string]bool{}}
+				groups[key] = g
+				order = append(order, key)
+			}
+			g.hosts[r.Host] = true
+		}
+	}
+
+	out := make([]IssueGroup, 0, len(order))
+	for _, key := range order {
+		g := groups[key]
+		hosts := make([]string, 0, len(g.hosts))
+		for h := range g.hosts {
+			hosts = append(hosts, h)
+		}
+		sort.Strings(hosts)
+		out = append(out, IssueGroup{
+			Check: g.check, Level: g.level, Sample: g.sample,
+			Hosts: hosts, Count: len(hosts), Scope: classifyScope(len(hosts), reachable),
+		})
+	}
+
+	levelRank := map[string]int{"CRIT": 0, "WARN": 1}
+	sort.SliceStable(out, func(i, j int) bool {
+		if a, b := scopeRank(out[i].Scope), scopeRank(out[j].Scope); a != b {
+			return a < b
+		}
+		if a, b := levelRank[out[i].Level], levelRank[out[j].Level]; a != b {
+			return a < b
+		}
+		return out[i].Count > out[j].Count
+	})
 	return out
 }
