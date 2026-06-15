@@ -10,6 +10,12 @@ prompts/
 dsd-report-*.md
 reports/
 
+# Stray cross-compiled binaries built to the repo root (release assets live in
+# dist/, ignored above). Exact, root-anchored names only — must NOT shadow the
+# legit dist/dsd-linux-amd64 / dsd-linux-arm64 release assets.
+/dsd-arm64
+/dsd-linux
+
 # Strategic documents — keep local until ENISA cofounder checks complete
 KEYORIX_FOUNDATION.md
 POSITIONING.md
