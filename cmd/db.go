@@ -49,7 +49,7 @@ func runDB(cmd *cobra.Command, _ []string) error {
 		cols = append(cols, collectors.NewMongoDBCollector())
 	}
 	if len(cols) == 0 {
-		fmt.Fprintln(os.Stdout, "\n🗄️  Database\n  No local database server detected (PostgreSQL, MySQL/MariaDB, or Redis).")
+		fmt.Fprintln(os.Stdout, "\n🗄️  Database\n  No local database server detected (PostgreSQL, MySQL/MariaDB, Redis, Memcached, or MongoDB).")
 		return nil
 	}
 
