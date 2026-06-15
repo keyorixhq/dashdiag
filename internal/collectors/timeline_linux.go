@@ -20,6 +20,14 @@ type TimelineCollector struct {
 	WindowHours int // how many hours back to look (default 1)
 }
 
+// incidentGapSec is the quiet gap that separates one incident from the next:
+// events more than this many seconds apart are treated as unrelated incidents.
+// Two minutes captures a typical crash-restart-cascade burst without merging
+// unrelated blips that happen to share the same window. Lives in the linux
+// collector (its only caller) so the cross-platform incident logic doesn't carry
+// a const that reads as unused on non-linux builds.
+const incidentGapSec int64 = 120
+
 func NewTimelineCollector(hours int) *TimelineCollector {
 	if hours <= 0 {
 		hours = 1

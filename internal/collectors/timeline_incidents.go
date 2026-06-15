@@ -2,12 +2,6 @@ package collectors
 
 import "github.com/keyorixhq/dashdiag/internal/models"
 
-// incidentGapSec is the quiet gap that separates one incident from the next:
-// events more than this many seconds apart are treated as unrelated incidents.
-// Two minutes captures a typical crash-restart-cascade burst without merging
-// unrelated blips that happen to share the same window.
-const incidentGapSec int64 = 120
-
 func timelineLevelRank(level string) int {
 	switch level {
 	case "CRIT":
