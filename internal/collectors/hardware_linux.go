@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -446,7 +445,7 @@ func collectNICs(ctx context.Context, info *models.HardwareInfo) {
 			}
 		}
 		// Driver from symlink
-		if link, err := os.Readlink(netDir + "/device/driver"); err == nil {
+		if link, err := readLink(netDir + "/device/driver"); err == nil {
 			nic.Driver = filepath.Base(link)
 		}
 		// RX/TX errors from sysfs stats

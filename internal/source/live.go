@@ -35,6 +35,8 @@ func (l Live) ReadDir(dir string) ([]string, error) {
 	return names, nil
 }
 
+func (l Live) Readlink(path string) (string, error) { return os.Readlink(path) }
+
 func (l Live) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	if l.Exec != nil {
 		return l.Exec(ctx, name, args...)

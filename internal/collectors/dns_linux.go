@@ -37,7 +37,7 @@ func (c *DNSCollector) Collect(ctx context.Context) (interface{}, error) {
 // This is the ground truth regardless of what manages it.
 func parseResolvConf(info *models.DNSResolverInfo) {
 	// Resolve symlink to find the real target
-	target, err := os.Readlink("/etc/resolv.conf")
+	target, err := readLink("/etc/resolv.conf")
 	if err == nil {
 		info.ConfigFile = target
 	} else {

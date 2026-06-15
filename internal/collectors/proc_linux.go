@@ -328,7 +328,7 @@ func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 
 	for _, e := range entries {
 		fd, _ := strconv.Atoi(e)
-		target, err := os.Readlink(fdDir + "/" + e)
+		target, err := readLink(fdDir + "/" + e)
 		if err != nil {
 			continue
 		}

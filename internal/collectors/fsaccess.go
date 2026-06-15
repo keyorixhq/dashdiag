@@ -36,6 +36,10 @@ func openFile(path string) (io.ReadCloser, error) {
 // Use for callers that only need names (no IsDir / Info needed).
 func readDirNames(dir string) ([]string, error) { return activeSource.ReadDir(dir) }
 
+// readLink returns the target of the symlink at path via the active source, so
+// capture/replay reproduces it instead of os.Readlink hitting the live machine.
+func readLink(path string) (string, error) { return activeSource.Readlink(path) }
+
 // readDirEntries returns a synthetic []fs.DirEntry for dir via the active
 // source. IsDir() is derived by probing whether dir/name has children in the
 // source — sufficient for the filter patterns used in collectors (skip dirs,

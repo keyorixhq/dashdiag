@@ -53,6 +53,23 @@ func (rp *Replay) ReadDir(dir string) ([]string, error) {
 	return append([]string(nil), n...), nil
 }
 
+func (rp *Replay) Readlink(path string) (string, error) {
+	rec, ok := rp.b.getLink(path)
+	if !ok {
+		return "", fmt.Errorf("%w: Readlink %s", ErrNotRecorded, path)
+	}
+	if rec.notExist {
+		return "", &fs.PathError{Op: "readlink", Path: path, Err: fs.ErrNotExist}
+	}
+	if rec.permission {
+		return "", &fs.PathError{Op: "readlink", Path: path, Err: fs.ErrPermission}
+	}
+	if rec.errText != "" {
+		return "", errors.New(rec.errText)
+	}
+	return rec.target, nil
+}
+
 func (rp *Replay) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	rec, ok := rp.b.getCmd(name, args)
 	if !ok {
