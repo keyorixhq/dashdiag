@@ -451,6 +451,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkAlertmanager(d)
 	case *models.AlertmanagerInfo:
 		return checkAlertmanager(*d)
+	case models.GrafanaInfo:
+		return checkGrafana(d)
+	case *models.GrafanaInfo:
+		return checkGrafana(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
