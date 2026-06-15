@@ -453,7 +453,7 @@ func detectMesaVersion(ctx context.Context) string {
 // drmDriver returns the kernel driver bound to a DRM device (e.g. "amdgpu",
 // "i915", "nouveau") from the device/driver symlink. Empty if none is bound.
 func drmDriver(devPath string) string {
-	link, err := os.Readlink(devPath + "/driver")
+	link, err := readLink(devPath + "/driver")
 	if err != nil {
 		return ""
 	}

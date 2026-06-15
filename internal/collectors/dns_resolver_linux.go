@@ -59,7 +59,7 @@ func (c *DNSResolverCollector) Collect(ctx context.Context) (interface{}, error)
 // ── resolver + resolv.conf detection ────────────────────────────────────────
 
 func detectResolver(ctx context.Context, info *models.ResolverAuditInfo) {
-	target, err := os.Readlink("/etc/resolv.conf")
+	target, err := readLink("/etc/resolv.conf")
 	if err == nil {
 		info.ResolvConfTarget = target
 	}

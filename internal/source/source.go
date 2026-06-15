@@ -44,6 +44,9 @@ type Source interface {
 	Glob(pattern string) ([]string, error)
 	// ReadDir returns the sorted entry names of dir.
 	ReadDir(dir string) ([]string, error)
+	// Readlink returns the target of the symlink at path (os.Readlink semantics).
+	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist).
+	Readlink(path string) (string, error)
 	// Run executes name with args and returns its captured Result. The error is
 	// non-nil only for an execution failure (tool absent, context cancelled),
 	// NOT for a non-zero exit — inspect Result.ExitCode for that.

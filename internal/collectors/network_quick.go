@@ -638,7 +638,7 @@ func readIfaceSpeedDarwin(name string) int {
 // Detected by checking if the sysfs device path passes through a USB bus.
 func readIfaceUSB(name string) (bool, string) {
 	devPath := "/sys/class/net/" + name + "/device"
-	resolved, err := os.Readlink(devPath)
+	resolved, err := readLink(devPath)
 	if err != nil {
 		return false, ""
 	}
@@ -651,7 +651,7 @@ func readIfaceUSB(name string) (bool, string) {
 	// Read driver name from driver symlink
 	driver := ""
 	driverPath := devPath + "/driver"
-	driverResolved, err := os.Readlink(driverPath)
+	driverResolved, err := readLink(driverPath)
 	if err == nil {
 		driver = filepath.Base(driverResolved)
 	}

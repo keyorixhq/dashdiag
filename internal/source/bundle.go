@@ -33,6 +33,16 @@ type cmdRec struct {
 	errText string
 }
 
+// linkRec is a recorded symlink read: its target on success, or a recorded error
+// (absent / unreadable) so replay reproduces the live os.Readlink outcome rather
+// than falling through to the replaying machine's own filesystem.
+type linkRec struct {
+	target     string
+	notExist   bool
+	permission bool
+	errText    string
+}
+
 // Bundle is the in-memory, persistable record of every system input touched
 // during a capture. Safe for concurrent use — collectors run in parallel.
 type Bundle struct {
@@ -43,6 +53,7 @@ type Bundle struct {
 	globs map[string][]string
 	dirs  map[string][]string
 	cmds  map[string]cmdRec
+	links map[string]linkRec
 }
 
 // NewBundle returns an empty bundle stamped with the current format version.
@@ -53,6 +64,7 @@ func NewBundle() *Bundle {
 		globs:    map[string][]string{},
 		dirs:     map[string][]string{},
 		cmds:     map[string]cmdRec{},
+		links:    map[string]linkRec{},
 	}
 }
 
@@ -129,6 +141,31 @@ func (b *Bundle) putCmd(name string, args []string, res Result, err error) {
 func (b *Bundle) getCmd(name string, args []string) (cmdRec, bool) {
 	b.mu.RLock()
 	rec, ok := b.cmds[cmdKey(name, args)]
+	b.mu.RUnlock()
+	return rec, ok
+}
+
+func (b *Bundle) putLink(path, target string, err error) {
+	rec := linkRec{}
+	switch {
+	case err == nil:
+		rec.target = target
+	case errors.Is(err, fs.ErrNotExist):
+		rec.notExist = true
+	case errors.Is(err, fs.ErrPermission):
+		rec.permission = true
+		rec.errText = err.Error()
+	default:
+		rec.errText = err.Error()
+	}
+	b.mu.Lock()
+	b.links[cleanPath(path)] = rec
+	b.mu.Unlock()
+}
+
+func (b *Bundle) getLink(path string) (linkRec, bool) {
+	b.mu.RLock()
+	rec, ok := b.links[cleanPath(path)]
 	b.mu.RUnlock()
 	return rec, ok
 }

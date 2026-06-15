@@ -40,6 +40,12 @@ func (r *Recorder) ReadDir(dir string) ([]string, error) {
 	return names, err
 }
 
+func (r *Recorder) Readlink(path string) (string, error) {
+	target, err := r.inner.Readlink(path)
+	r.b.putLink(path, target, err)
+	return target, err
+}
+
 func (r *Recorder) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	res, err := r.inner.Run(ctx, name, args...)
 	r.b.putCmd(name, args, res, err)

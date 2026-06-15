@@ -530,7 +530,7 @@ func buildInodeProcMap() (map[string]string, bool) {
 		}
 		hasRoot = true // we could read at least one process's fds
 		for _, fd := range fds {
-			link, err := os.Readlink(fdDir + "/" + fd.Name())
+			link, err := readLink(fdDir + "/" + fd.Name())
 			if err != nil {
 				continue
 			}

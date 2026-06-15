@@ -24,6 +24,14 @@ type cmdIndexEntry struct {
 	Err        string   `json:"err,omitempty"`
 }
 
+type linkIndexEntry struct {
+	Path     string `json:"path"`
+	Target   string `json:"target,omitempty"`
+	NotExist bool   `json:"not_exist,omitempty"`
+	Perm     bool   `json:"perm,omitempty"`
+	Err      string `json:"err,omitempty"`
+}
+
 // Save writes the bundle to dir in the raw-v1 layout (creating dir if needed).
 func (b *Bundle) Save(dir string) error {
 	b.mu.RLock()
@@ -63,6 +71,18 @@ func (b *Bundle) Save(dir string) error {
 		return err
 	}
 	if err := writeJSON(filepath.Join(dir, "dirs.json"), b.dirs); err != nil {
+		return err
+	}
+
+	// Symlinks (inline targets, no blobs)
+	var lidx []linkIndexEntry
+	for _, path := range sortedKeys(b.links) {
+		rec := b.links[path]
+		lidx = append(lidx, linkIndexEntry{
+			Path: path, Target: rec.target, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
+		})
+	}
+	if err := writeJSON(filepath.Join(dir, "links.json"), lidx); err != nil {
 		return err
 	}
 
@@ -118,6 +138,13 @@ func Load(dir string) (*Bundle, error) {
 
 	_ = readJSON(filepath.Join(dir, "globs.json"), &b.globs)
 	_ = readJSON(filepath.Join(dir, "dirs.json"), &b.dirs)
+
+	// Symlinks — optional so older bundles (pre-links) still load.
+	var lidx []linkIndexEntry
+	_ = readJSON(filepath.Join(dir, "links.json"), &lidx)
+	for _, e := range lidx {
+		b.links[e.Path] = linkRec{target: e.Target, notExist: e.NotExist, permission: e.Perm, errText: e.Err}
+	}
 
 	var cidx []cmdIndexEntry
 	if err := readJSON(filepath.Join(dir, "commands/index.json"), &cidx); err != nil {

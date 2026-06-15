@@ -265,7 +265,7 @@ func collectNICDrivers(netDir string) (map[string]string, []string) {
 			continue
 		}
 		// /sys/class/net/<if>/device/driver is a symlink to the driver module.
-		link, err := os.Readlink(filepath.Join(netDir, iface, "device", "driver"))
+		link, err := readLink(filepath.Join(netDir, iface, "device", "driver"))
 		if err != nil {
 			continue
 		}

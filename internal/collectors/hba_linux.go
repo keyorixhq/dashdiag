@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -66,7 +65,7 @@ func readHBAPort(hostPath string) models.HBAPort {
 	port.LossOfSignal = readSysfsInt(hostPath + "/statistics/loss_of_signal_count")
 
 	// Detect driver from symlink target (e.g. ../../devices/.../lpfc)
-	if target, err := os.Readlink(hostPath); err == nil {
+	if target, err := readLink(hostPath); err == nil {
 		parts := strings.Split(target, "/")
 		if len(parts) > 2 {
 			port.Driver = parts[len(parts)-2]
