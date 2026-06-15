@@ -200,6 +200,22 @@ func parseGPUProcesses(out string) []models.GPUProcess {
 	return procs
 }
 
+// naAtoi parses an nvidia-smi integer field, returning ok=false when the value is
+// "[N/A]" / "ERR!" / blank or otherwise non-numeric — the values nvidia-smi emits
+// for a GPU that has fallen off the bus or faulted. The plain strconv.Atoi path
+// discarded that error and coerced such fields to 0, so a dead GPU read as healthy.
+func naAtoi(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "[N/A]" || strings.HasPrefix(s, "ERR") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	fields := strings.Split(line, ",")
 	if len(fields) < 8 {
@@ -209,10 +225,15 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 
 	idx, _ := strconv.Atoi(trim(fields[0]))
 	name := trim(fields[1])
-	temp, _ := strconv.Atoi(trim(fields[2]))
-	util, _ := strconv.Atoi(trim(fields[3]))
-	memUsed, _ := strconv.Atoi(trim(fields[4]))
-	memTotal, _ := strconv.Atoi(trim(fields[5]))
+	temp, tempOK := naAtoi(fields[2])
+	util, _ := naAtoi(fields[3])
+	memUsed, _ := naAtoi(fields[4])
+	memTotal, memTotalOK := naAtoi(fields[5])
+	// A healthy physical GPU always reports temperature AND total memory. When BOTH
+	// are unreadable the card has fallen off the bus / faulted. (Gating on BOTH, not
+	// either, avoids false-flagging healthy MIG/vGPU instances that legitimately
+	// report [N/A] for a single metric like utilization.)
+	unreadable := !tempOK && !memTotalOK
 	powerStr := trim(fields[6])
 	var power float64
 	if powerStr != "[N/A]" {
@@ -247,6 +268,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 		PowerDrawW:  power,
 		TDPCurrentW: power,
 		TDPLimitW:   powerLimit,
+		Unreadable:  unreadable,
 	}
 	if powerLimit > 0 && power >= 0.95*powerLimit {
 		dev.Throttling = true

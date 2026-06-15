@@ -87,6 +87,63 @@ func TestParseNvidiaSMILineNoLimit(t *testing.T) {
 	}
 }
 
+func TestParseNvidiaSMILineFaulted(t *testing.T) {
+	// A GPU that has fallen off the bus: nvidia-smi still lists index/name/driver but
+	// reports [N/A] for every metric. Previously these coerced to 0 and the device
+	// read as a healthy 0°C/0% GPU (false-OK). Now it must be flagged Unreadable.
+	line := "1, NVIDIA GeForce RTX 3070, [N/A], [N/A], [N/A], [N/A], [N/A], 535.183.01, [N/A]"
+	dev, _, err := parseNvidiaSMILine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dev.Unreadable {
+		t.Errorf("expected Unreadable=true for an all-[N/A] (fallen-off-bus) GPU")
+	}
+	if dev.Name != "NVIDIA GeForce RTX 3070" {
+		t.Errorf("name still expected from a faulted line, got %q", dev.Name)
+	}
+}
+
+func TestParseNvidiaSMILineErrField(t *testing.T) {
+	// nvidia-smi can also emit "ERR!" for a faulted field.
+	line := "0, Tesla V100, ERR!, ERR!, ERR!, ERR!, ERR!, 470.82, [N/A]"
+	dev, _, err := parseNvidiaSMILine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dev.Unreadable {
+		t.Errorf("expected Unreadable=true for an ERR! line")
+	}
+}
+
+func TestParseNvidiaSMILineMIGPartialNA(t *testing.T) {
+	// A healthy MIG/vGPU instance can legitimately report [N/A] for utilization
+	// alone while temperature and total memory are present. Gating Unreadable on
+	// BOTH temp and memTotal being unreadable must NOT false-flag this case.
+	line := "0, NVIDIA A100-SXM4-40GB, 38, [N/A], 0, 40960, 65.0, 535.183.01, 400.0"
+	dev, _, err := parseNvidiaSMILine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dev.Unreadable {
+		t.Errorf("MIG instance with only util [N/A] must NOT be Unreadable")
+	}
+	if dev.TempC != 38 || dev.MemTotalMB != 40960 {
+		t.Errorf("temp/memTotal = %d/%d, want 38/40960", dev.TempC, dev.MemTotalMB)
+	}
+}
+
+func TestParseNvidiaSMILineHealthyNotUnreadable(t *testing.T) {
+	line := "0, NVIDIA GeForce RTX 3070, 71, 100, 6823, 8192, 220.5, 535.183.01, 220.0"
+	dev, _, err := parseNvidiaSMILine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dev.Unreadable {
+		t.Errorf("a healthy GPU line must not be flagged Unreadable")
+	}
+}
+
 func TestCardIndex(t *testing.T) {
 	if got := cardIndex("/sys/class/drm/card0"); got != 0 {
 		t.Errorf("cardIndex(card0) = %d, want 0", got)

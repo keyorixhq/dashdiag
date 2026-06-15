@@ -217,8 +217,8 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 		lines = append(lines, fmt.Sprintf("    %s DPM level:   %s", icon, dev.PowerDPMLevel))
 	}
 
-	if dev.XidErrors > 0 {
-		lines = append(lines, fmt.Sprintf("    %s Xid errors:  %d hardware fault(s)", asciiOr("fail", "❌", mode), dev.XidErrors))
+	if dev.Unreadable {
+		lines = append(lines, fmt.Sprintf("    %s Metrics unreadable: nvidia-smi reported [N/A] — GPU may have fallen off the bus / faulted", asciiOr("fail", "❌", mode)))
 	}
 
 	if len(lines) == 0 {
@@ -313,7 +313,7 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 		switch {
 		// APUs carve out a small shared-RAM "VRAM" that fills to 90%+ by design;
 		// skip the memory-pressure tiers for them, matching checkGPU.
-		case dev.TempC >= 90 || dev.TempJunctionC >= 100 || (dev.MemUsedPct >= 95 && !dev.IsAPU) || dev.XidErrors > 0:
+		case dev.Unreadable || dev.TempC >= 90 || dev.TempJunctionC >= 100 || (dev.MemUsedPct >= 95 && !dev.IsAPU):
 			crits++
 		case dev.TempC >= 80 || dev.TempJunctionC >= 90 || dev.Throttling ||
 			(dev.MemUsedPct >= 85 && !dev.IsAPU) || (dev.VRAMUsedPct >= 90 && !dev.IsAPU) ||
