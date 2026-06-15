@@ -11,6 +11,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-15
+
+Two diagnostic depth features — the correlation engine and `dsd fleet` both gain a
+"v2" that turns raw signals into answers: *what's the root cause*, and *is it
+fleet-wide or one box*.
+
+### Added
+
+- **Correlation engine v2** — six new cross-collector causal chains that name the
+  root cause instead of listing symptoms: Disk-Full Service Failure (a full disk is
+  the cause, the failed unit is downstream), NFS Stall Process Hang (D-state tasks on
+  a stale mount), Clock Skew Breaking TLS/Auth (fix time, not the certs), Container
+  Memory-Limit OOM (the container's limit is too low — host RAM is fine), Thermal
+  Throttling Under Load (capped by heat, not core count), and DNS Resolver Failure
+  (a resolver problem, not connectivity). Folded into `dsd health` alongside the v1
+  rules.
+- **`dsd fleet` v2 — cross-host aggregation.** Beyond the per-host verdict table,
+  `dsd fleet` now groups every host's WARN/CRIT issues across the fleet and labels
+  each **fleet-wide** (a majority share it — systemic, fix once), **outlier** (one
+  host drifting from the rest), or common. Number-masked grouping collapses the same
+  issue with host-specific values into one row. Shown as a "Fleet issues" section and
+  in `--json` (`issues[]` with scope/hosts/count).
+- **`NeedsDaemonReload` in `dsd health`** — surfaces systemd units whose on-disk file
+  changed but were never `daemon-reload`ed (running stale config), folded from
+  `dsd services deep` into the unified health verdict.
+
+### Fixed
+
+- systemd daemon-reload detection queried the non-existent `NeedsDaemonReload`
+  property (the real one is `NeedDaemonReload`), so the signal was dead in
+  `dsd services deep` too — now corrected.
+- `dsd replay` now routes symlink reads through the capture layer, so a captured
+  host's symlink-derived insights (NIC driver, resolv.conf, etc.) reproduce on
+  replay instead of reading the replaying machine's filesystem.
+
 ## [0.10.1] - 2026-06-15
 
 Hardening and correctness follow-up to the v0.10.0 capture/replay release: every
