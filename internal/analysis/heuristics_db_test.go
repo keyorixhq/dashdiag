@@ -55,3 +55,37 @@ func TestCheckPostgres(t *testing.T) {
 		t.Errorf("replica lag should WARN, got %+v", lag)
 	}
 }
+
+func TestCheckMySQL(t *testing.T) {
+	if got := checkMySQL(models.MySQLInfo{Detected: false}); got != nil {
+		t.Errorf("undetected mysql should be silent, got %+v", got)
+	}
+
+	// Reachable but metrics unreadable → INFO, never a silent OK.
+	noMetrics := checkMySQL(models.MySQLInfo{Detected: true, Flavor: "MariaDB", MetricsRead: false})
+	if !insightWithMsg(noMetrics, "INFO", "metrics were not read") {
+		t.Errorf("unreadable metrics should be INFO, got %+v", noMetrics)
+	}
+
+	// Healthy → silent.
+	healthy := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 151, ThreadsConnected: 10})
+	if len(healthy) != 0 {
+		t.Errorf("healthy mysql should be silent, got %+v", healthy)
+	}
+
+	// Saturation tiers.
+	warn := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 82})
+	if !insightWithMsg(warn, "WARN", "approaching the limit") {
+		t.Errorf("82%% connections should WARN, got %+v", warn)
+	}
+	crit := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 98})
+	if !insightWithMsg(crit, "CRIT", "ERROR 1040") {
+		t.Errorf("98%% connections should CRIT, got %+v", crit)
+	}
+
+	// Replica lag → WARN.
+	lag := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, MaxConnections: 100, ThreadsConnected: 5, IsReplica: true, SecondsBehind: 700})
+	if !insightWithMsg(lag, "WARN", "behind the primary") {
+		t.Errorf("replica lag should WARN, got %+v", lag)
+	}
+}
