@@ -625,6 +625,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.TraefikAvailable() {
 		cols = append(cols, collectors.NewTraefikCollector())
 	}
+	// Envoy — gate on the admin interface (9901) answering as Envoy.
+	if collectors.EnvoyAvailable() {
+		cols = append(cols, collectors.NewEnvoyCollector())
+	}
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were

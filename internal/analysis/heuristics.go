@@ -459,6 +459,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkTraefik(d)
 	case *models.TraefikInfo:
 		return checkTraefik(*d)
+	case models.EnvoyInfo:
+		return checkEnvoy(d)
+	case *models.EnvoyInfo:
+		return checkEnvoy(*d)
 	case models.K8sInfo:
 		return checkK8s(d)
 	case *models.K8sInfo:
