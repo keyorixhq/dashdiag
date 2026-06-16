@@ -85,7 +85,18 @@ These found BUG-040–052; re-run after any collector/heuristic change:
 
 ---
 
-## F. GPU sensor-read false-OK — BLOCKED (needs AMD GPU observation)
+## F. GPU sensor-read false-OK — ✅ DONE (#c784f68, 2026-06-16)
+
+Closed by real-hardware validation on the new Ubuntu-on-MacBookAir4,2 node
+(192.168.10.7): Intel HD 3000 / i915 exposes no hwmon temp by design, and
+`dsd gpu` was rendering "✅ GPU healthy. Checks passed" for a GPU whose
+temp/util/mem/power all read 0 — asserting health it never measured. The new
+node was exactly the GPU observation this entry was BLOCKED waiting for (it
+needed *any* real iGPU with all-zero sensors, not specifically AMD). Fix took
+the narrow path predicted below: `gpuSummaryLine` now reports "GPU detected — no
+health metrics exposed; health not verified" (INFO) when EVERY device exposed
+zero metrics; a GPU with any real metric still summarizes healthy. Left below
+for history.
 
 A 2026-06-13 false-OK sweep verified a real path: a detected AMD/Intel GPU whose
 sysfs sensors all read 0 (temperature never read) still renders `dsd gpu` →
@@ -128,6 +139,104 @@ fixed-version extraction is wrong. Per the project's deferred-OVAL caution
 (agent memory `oval-boolean-tree-deferred`), this needs a real Ubuntu OVAL feed to
 validate against before shipping — do not wire it blind. The comparator is proven; the
 risk is entirely in the OVAL parsing + the suppress decision.
+
+---
+
+## H. `dsd replay` not fully hermetic — READY (correctness gap in shipped feature)
+
+`dsd replay <bundle>` promises (help text) that "every collector reads from the
+bundle instead of the live system" so hardware-specific bugs reproduce on any
+machine. Validated 2026-06-16 (CT201, main `01734ff`): replaying the *same* raw
+bundle twice produced differing output on live-sampled fields —
+`rx_packets`/`tx_packets`, `gateway_ping_ms`/`internet_ping_ms`, memory
+free/used, context-switch rate. So several collectors ignore the bundle and
+re-measure the live host during replay.
+
+This is the false-green class: an AMD-thermal / EDAC / NVMe bug captured on the
+affected box will **not** reproduce faithfully on replay if the relevant
+collector live-samples instead of reading the bundle — replay would render the
+replaying host's clean state and look like the bug vanished. The stated use case
+("diagnose on any machine") is silently undercut.
+
+| Item | Surface | Test target |
+|---|---|---|
+| Audit which collectors honour the bundle vs hit live system in replay path | `internal/source` (Live vs bundle Recorder wiring), replay cmd | CT201: capture once, double-replay, diff |
+| Net/mem/ping/ctxsw collectors must read bundle inputs under replay, or be explicitly marked replay-excluded (not silently live) | offending collectors | same-bundle double-replay byte-identical on stable fields |
+
+Repro: `dsd capture --raw`, then `dsd replay --json B.tar.gz` twice, diff.
+Differences on non-timestamp fields = live leak. Not GATED — replay fidelity is
+the feature's whole premise.
+
+---
+
+## I. `checks[]` array has no stable ordering — GATED (sharp edge, low priority)
+
+Two `dsd health --json` runs on the same host emit `checks[]` in different array
+positions (same 23-check set, same content, shuffled order). Confirmed
+2026-06-16 across same-locale runs — collector scheduling non-determinism, not a
+data difference. Benign for consumers that index by `name` (jq); a sharp edge
+for byte/line-level golden-file tests on `--json` (they flake) and `diff`-based
+support workflows (noisy). Fix = stable sort by check name at the render
+boundary (invariant-data layer, not collectors). Build only when a test or
+workflow needs it.
+
+---
+
+## Locale safety — ✅ VALIDATED (2026-06-16), no open work
+
+Forced-C subprocess discipline (`localeSafeCmd`/`localeSafeEnv`/`localeSafeExec`,
+`LC_ALL=C`/`LANG=C`) confirmed holding on current main. Ran `dsd health --json`
+under `en_US.UTF-8` vs `es_ES.UTF-8` on CT201 (locale proven hostile — `printf`
+reads dot-decimals as `número inválido`). After controlling for check-ordering
+(§I) and live-counter drift, every parsed value is a clean dot-decimal under
+es_ES — no comma corruption, no zeroing, no garble; same exit code, same
+23-check set, same severities both locales.
+
+Root cause of the no-leak result (code audit, not just the live run): all ~260
+numeric parses use Go's `strconv`, locale-independent by language design (always
+reads `.` as decimal sep). The forced-C wrapper is real defense-in-depth — it
+covers *string* uniformity (column headers, status words, month names; the #82
+dmesg `[lun jun 8]` bug) that strconv-immunity does not. Committed guard:
+`internal/collectors/exec_locale_test.go` — `TestCollectorsUseLocaleSafeExec`
+(static: no raw `exec.Command` outside wrappers) + `TestParsingIsLocaleStable`
+(behavioral: strconv parses dot-decimals, rejects comma-decimals under forced
+es_ES env). Both run in default `go test`, no host.
+
+A live double-run integration test was prototyped and discarded as inherently
+flaky: with no locale-sensitive parser to leak into, comparing `--json` across
+two shell locales only surfaces live-counter jitter (run-queue, CPU MHz, packet
+counts) — an unbounded denylist. The unit guards test the actual risk.
+
+UI/output **translation** stays demand-gated (no user has asked; sysadmin/SRE
+buyer operates tooling in English; localized ops output hurts log/screenshot
+searchability). Discipline regardless: `--json` is born locale-invariant
+(English keys, raw numbers, ISO 8601); any future translation lives only in the
+`render/` human layer, never the data plane.
+
+---
+
+## J. SMART wear% — guard the sibling 231/233 branch (hardening) — READY
+
+The garbage-wear bug from the 2026-05-15 MacBook story (`3491877946276% used`)
+came from **attribute 173's raw value** reaching `WearPct`, and was already
+**fixed** the same evening in `05b8124` ("SMART attr 177/173 wear% uses
+normalised value not raw") — ~2h after the marketing capture was taken. Verified
+on the T1 Apple SSD (row 19) 2026-06-16: current `dsd hardware` correctly shows
+`23% used` (the 173/177 guard rejects 173's out-of-range raw `3491877946276` and
+lets attribute 177's normalised 077 → 100-77=23%). The marketing doc just froze
+pre-fix output; nothing live to fix on this hardware.
+
+Remaining (defensive, lower priority): the **sibling 231/233 branch** (SSD Life
+Left / Media Wearout) lacked the same `attr.Value > 0 && attr.Value <= 100` guard
+the 173/177 branch has — a copy-paste sibling-divergence (§E.3). Other SSDs report
+wear via 231/233 and bad firmware there would produce the same garbage. Guard
+added in this change for parity; **no live repro** (the Apple SSD has no 231/233
+attribute, so this is hardening, not a confirmed-bug fix).
+
+| Item | Surface | Status |
+|---|---|---|
+| Guard 231/233 branch to match 173/177 | `hardware_linux.go` ~L184 | ✅ done this change (hardening; unverified on real 231/233 firmware) |
+| 173 garbage on Apple SSD | `hardware_linux.go` | ✅ already fixed `05b8124`; verified clean on row 19 |
 
 ---
 

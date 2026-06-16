@@ -322,6 +322,16 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 		}
 	}
 	n := len(info.NoDriver)
+	// Every detected device exposed ZERO health metrics (e.g. an older Intel iGPU
+	// with no hwmon temperature — verified live on a MacBookAir4,2 / HD 3000). We
+	// measured nothing, so we must not claim "healthy. Checks passed".
+	metricless := len(info.Devices) > 0
+	for _, dev := range info.Devices {
+		if gpuDeviceHasMetrics(dev) {
+			metricless = false
+			break
+		}
+	}
 	switch {
 	case crits > 0:
 		return render.StyleCrit.Render(fmt.Sprintf("%s %d GPU issue(s) found%s", asciiOr("fail", "❌", mode), crits, timing))
@@ -329,11 +339,21 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 		return render.StyleWarn.Render(fmt.Sprintf("%s GPU elevated%s", asciiOr("warn", "⚠️ ", mode), timing))
 	case n > 0 && len(info.Devices) == 0:
 		return render.StyleWarn.Render(fmt.Sprintf("%s %d GPU(s) detected, no driver loaded%s", asciiOr("warn", "⚠️ ", mode), n, timing))
+	case metricless:
+		return render.StyleInfo.Render(fmt.Sprintf("%s GPU detected — no health metrics exposed (driver reports no temperature/utilization); health not verified%s", asciiOr("info", "ℹ️ ", mode), timing))
 	case n > 0:
 		return render.StyleWarn.Render(fmt.Sprintf("%s active GPU healthy — %d GPU(s) without driver%s", asciiOr("ok", "✅", mode), n, timing))
 	default:
 		return render.StyleOK.Render(fmt.Sprintf("%s GPU healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing))
 	}
+}
+
+// gpuDeviceHasMetrics reports whether any readable health metric was obtained for
+// the device. An older Intel iGPU with no hwmon exposes none — temp/util/mem/
+// power/clock all stay 0 — and must not be summarized as "healthy. Checks passed".
+func gpuDeviceHasMetrics(d models.GPUDevice) bool {
+	return d.TempC > 0 || d.TempJunctionC > 0 || d.PowerDrawW > 0 ||
+		d.UtilPct > 0 || d.MemTotalMB > 0 || d.ClockMHz > 0 || d.TDPLimitW > 0
 }
 
 // tempIcon returns the status icon for a temperature against warn/crit thresholds.
