@@ -267,13 +267,14 @@ attribute, so this is hardening, not a confirmed-bug fix).
 
 ## Housekeeping
 
-- **pve01 as a hardware-collector T1 testbed** — pve01 (`192.168.10.20`) is
-  bare-metal Debian/PVE but its current T1 only covers PVE *platform* logic, not
-  a verified hardware-collector run. If it has server-class SMART disks / real
-  thermal zones / EDAC (likely), it's a *stronger* SMART/thermal/ECC testbed than
-  the MacBook (row 19) and may be unused in that role because it's filed as "the
-  Proxmox box." Probe its hardware surface (lsblk/smartctl/hwmon/edac/ipmi) when
-  reachable; if it exposes ECC/EDAC or IPMI it would also dent the §B/server-grade
-  roadmap gaps. (Was unreachable 2026-06-16 when first checked.)
+- **pve01 hardware-collector T1** — ✅ probed 2026-06-16: HP ProDesk 600 G2 SFF
+  (i7-6700 Skylake), added as PLATFORM_COVERAGE row 20. Key win: a real **WD 1.8TB
+  rotational HDD** (`ROTA=1`) — the matrix's only spinning disk, exercising
+  HDD-specific SMART + `is_ssd:false` heuristics — plus a 2nd SATA SSD (first
+  multi-drive real node) and richer thermal (coretemp + pch_skylake + hp sensor).
+  No ECC/EDAC or IPMI (consumer SFF), so §B/server-grade gaps remain open.
+  **Remaining:** dsd on pve01 is v0.6.0 (Jun 1) — refresh to current and re-run
+  `HW_HOST=root@192.168.10.20 bash scripts/hardware-smoke.sh` to validate the
+  HDD-SMART path on current code (smoke passed on v0.6.0: 6 pass / 1 skip).
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
   duplicated with diverging counts (13 vs 14) — delete the older pair.
