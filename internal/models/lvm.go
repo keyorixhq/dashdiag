@@ -46,4 +46,10 @@ type LVMInfo struct {
 	ThinPools []LVMThinPool `json:"thin_pools,omitempty"`
 	Snapshots []LVMSnapshot `json:"snapshots,omitempty"`
 	RaidLVs   []LVMRaidLV   `json:"raid_lvs,omitempty"` // mirror/RAID LVs
+	// RaidReadFailed is true only when the separate RAID-LV `lvs` query returned an
+	// error. The VG/LV collection succeeding does NOT cover it; without this signal
+	// a failed query left RaidLVs empty and a DEGRADED RAID LV was missed (there is
+	// no other source for RAID-LV health). Inverted (failure, not success) so the
+	// zero value means "no problem" — a healthy host never has to set it.
+	RaidReadFailed bool `json:"raid_read_failed,omitempty"`
 }

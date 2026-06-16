@@ -90,6 +90,14 @@ func TestCheckLVMRaid(t *testing.T) {
 	assertLevel(t, checkLVMRaid(models.LVMInfo{}), "")
 	assertLevel(t, checkLVMRaid(models.LVMInfo{RaidLVs: []models.LVMRaidLV{{Name: "lv", VG: "vg", Type: "raid1", Degraded: true}}}), "CRIT")
 	assertLevel(t, checkLVMRaid(models.LVMInfo{RaidLVs: []models.LVMRaidLV{{Name: "lv", VG: "vg", Type: "raid1", Resyncing: true, SyncPct: 50}}}), "INFO")
+
+	// LVM present (VGs found) but the separate RAID-LV lvs query failed → INFO,
+	// never a silent OK (a degraded RAID LV can't be ruled out).
+	assertLevel(t, checkLVMRaid(models.LVMInfo{VGs: []models.LVMVG{{Name: "vg0"}}, RaidReadFailed: true}), "INFO")
+	// LVM present, RAID read succeeded (default), no RAID LVs → silent.
+	assertLevel(t, checkLVMRaid(models.LVMInfo{VGs: []models.LVMVG{{Name: "vg0"}}}), "")
+	// No LVM at all → no RAID-read INFO even if the read failed.
+	assertLevel(t, checkLVMRaid(models.LVMInfo{RaidReadFailed: true}), "")
 }
 
 func TestCheckSecurityDrift(t *testing.T) {
