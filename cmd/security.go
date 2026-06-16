@@ -471,11 +471,27 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	fmt.Println()
 	fmt.Println(sep)
 	issues := countSecurityIssues(info)
-	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
-	} else {
+	switch {
+	case issues > 0:
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
+	case securityChecksLimited(info):
+		// No issues — but the root-only checks (failed logins, listening-port
+		// process names, SELinux audit, effective sshd config) didn't run, so we
+		// verified almost nothing. Don't claim "healthy. Checks passed" (the
+		// false-OK dsd health already avoids via a NeedsRoot INFO).
+		fmt.Printf("%s Security checks limited — run as root (sudo dsd security) to fully verify; no issues found in what could be checked%s\n",
+			asciiOr("info", "ℹ️ ", mode), timing)
+	default:
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	}
+}
+
+// securityChecksLimited reports whether the standalone security audit ran with
+// reduced coverage — non-root (root-only probes silently degraded) or an
+// sshd_config that existed but couldn't be read. In that state a zero issue
+// count means "nothing to flag in what we could see", NOT a clean bill of health.
+func securityChecksLimited(info *models.SecurityInfo) bool {
+	return info.NeedsRoot || (info.SSHConfigUnreadable && info.SSHAuditSource == "")
 }
 
 func printSecItem(label string, ok bool, goodVal, badVal string, mode output.OutputMode) {
