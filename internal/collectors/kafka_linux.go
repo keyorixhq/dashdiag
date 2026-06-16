@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"net"
 	"os/exec"
 	"strings"
 	"time"
@@ -28,9 +27,7 @@ func kafkaCLI() string {
 // binds the IPv6 wildcard, so try both families; default to the IPv4 form.
 func kafkaBootstrap() string {
 	for _, addr := range []string{"127.0.0.1:9092", "[::1]:9092"} {
-		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return addr
 		}
 	}
@@ -44,9 +41,7 @@ func KafkaAvailable() bool {
 		return false
 	}
 	for _, addr := range []string{"127.0.0.1:9092", "[::1]:9092"} {
-		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return true
 		}
 	}

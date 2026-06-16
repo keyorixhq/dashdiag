@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,11 +18,9 @@ import (
 // (an Alertmanager-specific endpoint returning a cluster object) so a different
 // service on 9093 isn't mislabelled.
 func detectAlertmanager(ctx context.Context) (base string, info *models.AlertmanagerInfo) {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:9093", 300*time.Millisecond)
-	if err != nil {
+	if !dialReachable("tcp", "127.0.0.1:9093", 300*time.Millisecond) {
 		return "", nil
 	}
-	conn.Close() //nolint:errcheck
 
 	for _, b := range []string{"http://127.0.0.1:9093", "https://127.0.0.1:9093"} {
 		body, code, err := promHTTPGet(ctx, b+"/api/v2/status")

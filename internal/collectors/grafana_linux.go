@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -16,11 +15,9 @@ import (
 // non-Grafana service on 3000 won't return the {database,version} shape, so it
 // isn't mislabelled.
 func detectGrafana(ctx context.Context) (base string, info *models.GrafanaInfo) {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:3000", 300*time.Millisecond)
-	if err != nil {
+	if !dialReachable("tcp", "127.0.0.1:3000", 300*time.Millisecond) {
 		return "", nil
 	}
-	conn.Close() //nolint:errcheck
 
 	for _, b := range []string{"http://127.0.0.1:3000", "https://127.0.0.1:3000"} {
 		// /api/health returns 200 when healthy and 503 when the database is down —

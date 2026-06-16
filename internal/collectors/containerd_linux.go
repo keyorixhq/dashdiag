@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"net"
 	"strings"
 	"time"
 
@@ -44,9 +43,7 @@ func ContainerdAvailable() bool {
 // detectContainerdSocket returns the first connectable containerd socket path.
 func detectContainerdSocket() string {
 	for _, path := range containerdSocketCandidates {
-		conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("unix", path, 300*time.Millisecond) {
 			return path
 		}
 	}
