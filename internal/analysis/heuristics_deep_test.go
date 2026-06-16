@@ -29,9 +29,10 @@ func TestCheckDockerResources(t *testing.T) {
 	}{
 		{"devicemapper driver is WARN", models.DockerInfo{Daemon: &models.DockerDaemon{StorageDriver: "devicemapper"}}, "WARN"},
 		{"daemon errors is WARN", models.DockerInfo{Daemon: &models.DockerDaemon{RecentErrors: 3}}, "WARN"},
-		{"large dangling images is WARN", models.DockerInfo{DanglingImages: 5, DanglingImagesMB: 2048}, "WARN"},
-		{"some dangling images is INFO", models.DockerInfo{DanglingImages: 2, DanglingImagesMB: 100}, "INFO"},
-		{"orphaned volumes is WARN", models.DockerInfo{OrphanedVolumes: 5}, "WARN"},
+		// Dangling-image count surfaces as INFO (the size-based WARN tier and the
+		// orphaned-volumes WARN were removed — their fields were never populated).
+		{"dangling images is INFO", models.DockerInfo{DanglingImages: 5}, "INFO"},
+		{"no dangling images is silent", models.DockerInfo{DanglingImages: 0}, ""},
 		{"MTU mismatch is WARN", models.DockerInfo{MTUMismatch: true, ContainerMTU: 1500, HostMTU: 1450}, "WARN"},
 		{"ip forward disabled is CRIT", models.DockerInfo{Available: true, IPForwardChecked: true, IPForwardEnabled: false}, "CRIT"},
 		{"firewalld nftables is WARN", models.DockerInfo{FirewalldActive: true, FirewalldBackend: "nftables"}, "WARN"},

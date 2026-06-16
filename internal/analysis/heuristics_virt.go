@@ -320,21 +320,15 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			},
 		))
 	}
-	if d.DanglingImagesMB >= 1024 {
-		out = append(out, insight("WARN", "Docker",
-			fmt.Sprintf("%d dangling images using %.1f GB — run docker image prune", d.DanglingImages, d.DanglingImagesMB/1024),
-			[]string{"to fix: docker image prune", "to fix: docker system prune"},
-		))
-	} else if d.DanglingImages > 0 {
+	// Dangling-image COUNT is collected (untagged images from the images API); the
+	// size and orphaned-volume tiers were dead — DanglingImagesMB and OrphanedVolumes
+	// were never populated, so the ">=1GB" WARN and ">3 orphaned" WARN never fired and
+	// the INFO printed "0 MB". Surfacing real sizes/orphans needs `docker system df` /
+	// a dangling-volume query validated against a live daemon — deferred.
+	if d.DanglingImages > 0 {
 		out = append(out, insight("INFO", "Docker",
-			fmt.Sprintf("%d dangling image(s) using %.0f MB", d.DanglingImages, d.DanglingImagesMB),
+			fmt.Sprintf("%d dangling image(s) — reclaimable with a prune", d.DanglingImages),
 			[]string{"to fix: docker image prune"},
-		))
-	}
-	if d.OrphanedVolumes > 3 {
-		out = append(out, insight("WARN", "Docker",
-			fmt.Sprintf("%d orphaned volumes not attached to any container", d.OrphanedVolumes),
-			[]string{"to fix: docker volume prune"},
 		))
 	}
 	if d.MTUMismatch {
