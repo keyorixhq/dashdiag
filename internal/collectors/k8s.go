@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -620,13 +619,13 @@ func k8sDetectBin() string {
 		}
 	}
 	// Fall back to PATH lookup
-	if _, err := exec.LookPath("k3s"); err == nil {
+	if _, err := lookPath("k3s"); err == nil {
 		return "k3s kubectl"
 	}
-	if _, err := exec.LookPath("microk8s"); err == nil {
+	if _, err := lookPath("microk8s"); err == nil {
 		return "microk8s kubectl"
 	}
-	if _, err := exec.LookPath("kubectl"); err == nil {
+	if _, err := lookPath("kubectl"); err == nil {
 		return "kubectl"
 	}
 	return ""

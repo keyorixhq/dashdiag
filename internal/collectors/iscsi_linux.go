@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -21,7 +20,7 @@ func (c *ISCSICollector) Timeout() time.Duration { return 5 * time.Second }
 func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ISCSIInfo{}
 
-	if _, err := exec.LookPath("iscsiadm"); err != nil {
+	if _, err := lookPath("iscsiadm"); err != nil {
 		return nil, nil // no initiator tooling — absent, gate off (no phantom row)
 	}
 	info.Available = true
@@ -51,7 +50,7 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 
 // IsISCSIPresent returns true when iscsiadm is installed.
 func IsISCSIPresent() bool {
-	_, err := exec.LookPath("iscsiadm")
+	_, err := lookPath("iscsiadm")
 	return err == nil
 }
 

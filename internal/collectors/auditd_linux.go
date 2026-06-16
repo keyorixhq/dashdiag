@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -20,7 +19,7 @@ func (c *AuditCollector) Timeout() time.Duration { return 4 * time.Second }
 func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.AuditInfo{}
 
-	if _, err := exec.LookPath("auditctl"); err != nil {
+	if _, err := lookPath("auditctl"); err != nil {
 		return info, nil
 	}
 	info.Available = true
@@ -62,7 +61,7 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func IsAuditdPresent() bool {
-	_, err := exec.LookPath("auditctl")
+	_, err := lookPath("auditctl")
 	return err == nil
 }
 

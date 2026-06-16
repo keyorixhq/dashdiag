@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -42,7 +41,7 @@ func (c *FirewallCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // lookPathOK reports whether a binary is found on PATH.
 func lookPathOK(bin string) bool {
-	_, err := exec.LookPath(bin)
+	_, err := lookPath(bin)
 	return err == nil
 }
 

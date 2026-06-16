@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -104,7 +103,7 @@ func collectVMwareStat(ctx context.Context, info *models.VMwareInfo) {
 
 // vmwareToolboxPath locates vmware-toolbox-cmd, "" when absent.
 func vmwareToolboxPath() string {
-	if p, err := exec.LookPath("vmware-toolbox-cmd"); err == nil {
+	if p, err := lookPath("vmware-toolbox-cmd"); err == nil {
 		return p
 	}
 	for _, p := range []string{"/usr/bin/vmware-toolbox-cmd", "/usr/sbin/vmware-toolbox-cmd"} {
@@ -198,7 +197,7 @@ func collectSCSITimeouts(blockDir string) (map[string]int, []string) {
 
 // vmwareToolsInstalled is true when the guest-tools daemon binary is present.
 func vmwareToolsInstalled() bool {
-	if _, err := exec.LookPath("vmtoolsd"); err == nil {
+	if _, err := lookPath("vmtoolsd"); err == nil {
 		return true
 	}
 	for _, p := range []string{"/usr/bin/vmtoolsd", "/usr/sbin/vmtoolsd", "/usr/bin/vmware-toolbox-cmd"} {

@@ -8,6 +8,36 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
+// TestLookPathRoutesThroughSource guards tool-presence hermeticity: a "is tool X
+// installed" gate must replay from the captured bundle, not the replaying machine's
+// $PATH. We record a tool that exists during capture, then replay with an empty
+// $PATH (so a live exec.LookPath would fail) and assert the recorded path is still
+// returned.
+func TestLookPathRoutesThroughSource(t *testing.T) {
+	// A tool that exists on the capture machine. "sh" is on PATH everywhere tests run.
+	const tool = "sh"
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	gotLive, err := lookPath(tool)
+	SetSource(prev)
+	if err != nil || gotLive == "" {
+		t.Skipf("%s not on PATH in this environment (%v) — can't exercise the guard", tool, err)
+	}
+
+	// Empty PATH so a live exec.LookPath would now fail.
+	t.Setenv("PATH", "")
+
+	defer SetSource(SetSource(source.NewReplay(rec.Bundle())))
+	gotReplay, err := lookPath(tool)
+	if err != nil {
+		t.Fatalf("lookPath hit the live PATH on replay (empty PATH) instead of the bundle: %v", err)
+	}
+	if gotReplay != gotLive {
+		t.Fatalf("replay lookPath = %q, want recorded %q", gotReplay, gotLive)
+	}
+}
+
 // TestStatGatesRouteThroughSource is the guard that keeps the pilot-critical
 // existence/stat gates faithful under `dsd replay`: statFile/fileExists must read
 // the active source (the captured bundle), never the replaying machine's own

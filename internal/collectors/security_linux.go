@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -1071,7 +1070,7 @@ func sshAllowedUFW(out string, port int) bool {
 // config-file probe remains only as a fallback for when the nft binary is
 // unavailable on PATH.
 func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := exec.LookPath("nft"); err == nil {
+	if _, err := lookPath("nft"); err == nil {
 		if out, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
 			fw := &models.FirewallInfo{}
 			parseNFTRuleset(out, fw)
@@ -1105,7 +1104,7 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 // distros) the legacy ip_tables kernel module is never loaded, so that proc
 // file is absent even though the iptables-nft wrapper can list a full ruleset.
 func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := exec.LookPath("iptables"); err != nil {
+	if _, err := lookPath("iptables"); err != nil {
 		return false
 	}
 	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
@@ -1426,7 +1425,7 @@ func parseSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 // CollectSUSEConnect populates SUSEConnect subscription fields into info.
 // Exported so SUSEConnectCollector can call it directly without duplicating logic.
 func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
-	if _, err := exec.LookPath("SUSEConnect"); err != nil {
+	if _, err := lookPath("SUSEConnect"); err != nil {
 		return
 	}
 	out, err := runCmd(ctx, "SUSEConnect", "--status")

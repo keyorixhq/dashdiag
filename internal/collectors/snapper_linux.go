@@ -3,7 +3,6 @@ package collectors
 import (
 	"context"
 	"math"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -41,7 +40,7 @@ var snapperDateRe = regexp.MustCompile(`(?:` +
 func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 	info := &models.SnapperInfo{}
 
-	if _, err := exec.LookPath("snapper"); err != nil {
+	if _, err := lookPath("snapper"); err != nil {
 		return info, nil // not installed — not an error
 	}
 	info.Available = true

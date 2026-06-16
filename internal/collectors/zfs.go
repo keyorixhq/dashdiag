@@ -2,7 +2,6 @@ package collectors
 
 import (
 	"context"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -12,7 +11,7 @@ import (
 
 // IsZFSPresent returns true when ZFS is installed and usable on this host.
 func IsZFSPresent() bool {
-	_, err := exec.LookPath("zpool")
+	_, err := lookPath("zpool")
 	return err == nil
 }
 
@@ -30,7 +29,7 @@ func (c *ZFSCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ZFSInfo{}
 
 	// zpool not installed — silent OK
-	if _, err := exec.LookPath("zpool"); err != nil {
+	if _, err := lookPath("zpool"); err != nil {
 		return info, nil
 	}
 

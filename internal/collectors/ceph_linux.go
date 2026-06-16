@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -73,6 +72,6 @@ func (c *CephCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func IsCephPresent() bool {
-	_, err := exec.LookPath("ceph")
+	_, err := lookPath("ceph")
 	return err == nil
 }

@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -142,7 +141,7 @@ func bindQueryTest(ctx context.Context, info *models.BINDInfo) {
 	// analysis layer does NOT report "named is not answering" — a BIND server
 	// often lacks bind-utils/dig, and a missing test tool is not a name-server
 	// outage. (Distinguishing the two is the whole point of QueryTested.)
-	if _, err := exec.LookPath("dig"); err != nil {
+	if _, err := lookPath("dig"); err != nil {
 		return
 	}
 	info.QueryTested = true

@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 // `kafka-topics.sh`; some packages (Confluent, certain images) ship `kafka-topics`.
 func kafkaCLI() string {
 	for _, bin := range []string{"kafka-topics.sh", "kafka-topics"} {
-		if _, err := exec.LookPath(bin); err == nil {
+		if _, err := lookPath(bin); err == nil {
 			return bin
 		}
 	}
