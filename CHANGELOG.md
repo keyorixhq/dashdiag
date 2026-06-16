@@ -11,6 +11,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-16
+
+### Fixed
+
+- **`dsd replay` is now faithful (hermetic).** Replaying a captured `--raw` bundle
+  reproduces the *captured* host, not the machine running the replay. Previously
+  several collectors re-measured the live system during replay — disk free-space,
+  network counters, ping/DNS latency, local-service reachability + HTTP/socket
+  responses, cloud metadata — so a hardware- or state-specific bug captured on the
+  affected box could silently "vanish" when replayed elsewhere, undercutting the
+  feature's whole premise ("diagnose on any machine"). Every system input in the
+  default `dsd health` capture path now routes through the capture/replay Source
+  layer: file/sysfs reads, `os.Stat`/`syscall.Statfs`, gopsutil, ping/DNS, service
+  dials, the Docker/Podman socket API, and cloud IMDS. Verified with a
+  double-replay-diff harness (two replays of the same bundle are now byte-stable on
+  non-volatile fields). (#339–#349, #351)
+- `dsd health --json` / `dsd replay` now emit disk mount lists and multipath device
+  lists in a stable order (were map-iteration-shuffled run to run). (#348)
+
+### Added
+
+- Capture/replay Source layer gained `Stat`, `Statfs`, and a generic `Cached`
+  (record-on-capture / serve-on-replay) primitive in `internal/source`, with guard
+  tests asserting replay never re-runs a live probe. Internal; no CLI/JSON change.
+
+## [1.0.1] - 2026-06-16
+
+### Fixed
+
+- **False-OK sweep.** Collectors no longer show a green/OK verdict when they could
+  not actually verify health: GPU (faulted NVIDIA cards surfaced; no-metric reads no
+  longer "Checks passed"; dead Xid check removed), ZFS (unread pool status), LVM
+  (unread RAID-LV state), Redis/MySQL (unread connection limit), RabbitMQ/Kafka
+  (failed secondary diagnostic), Alertmanager/Envoy, multipath (orphan paths no
+  longer reported as a failed device), and the `dsd pve` storage tally aligned with
+  the health verdict. (#329–#338)
+- Removed dead, never-populated fields and their checks in docker/containerd. (#336)
+
+### Changed
+
+- Homebrew honesty: stopped advertising the unpublished tap; untracked stray
+  cross-compiled binaries from the repo root. (#327, #328)
+
+### Security
+
+- Dependency bumps (`golang.org/x/crypto` 0.53.0, `pro-bing`) and CI action bumps
+  (codeql-action v4, scorecard-action 2.4.3, upload-artifact v7, setup-qemu v4).
+
+## [1.0.0] - 2026-06-15
+
+### Added
+
+- **Froze the `dsd health --json` contract** as the stable 1.x platform API
+  (`schema/dsd-output.json` + `COMPATIBILITY.md`, guarded by a schema-sync test).
+- Health insights for five service collectors: Prometheus (down scrape targets +
+  failed config reload), Alertmanager (failed config reload), Grafana (backend
+  database failure), Traefik (routers in error), Envoy (unhealthy upstream
+  clusters).
+
 ## [0.14.0] - 2026-06-15
 
 ### Added
