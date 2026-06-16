@@ -129,6 +129,52 @@ func TestStatRecordReplayRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStatfsRecordReplayRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "no-such-mount")
+
+	rec := NewRecorder(Live{})
+	got, err := rec.Statfs(dir)
+	if err != nil {
+		t.Fatalf("statfs present dir: %v", err)
+	}
+	if got.Blocks == 0 || got.Bsize == 0 {
+		t.Fatalf("statfs of a real dir returned zero blocks/bsize: %+v", got)
+	}
+	if _, err := rec.Statfs(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("statfs missing should be ErrNotExist, got %v", err)
+	}
+
+	// Replay must serve the recorded values, not stat the live FS.
+	rp := NewReplay(rec.Bundle())
+	rgot, err := rp.Statfs(dir)
+	if err != nil {
+		t.Fatalf("replay statfs: %v", err)
+	}
+	if rgot != got {
+		t.Fatalf("replay statfs = %+v, want %+v", rgot, got)
+	}
+	if _, err := rp.Statfs(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replay missing should be ErrNotExist, got %v", err)
+	}
+	if _, err := rp.Statfs(filepath.Join(dir, "never-touched")); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unrecorded statfs should be ErrNotRecorded, got %v", err)
+	}
+
+	// Survives Save/Load.
+	out := t.TempDir()
+	if err := rec.Bundle().Save(out); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	b2, err := Load(out)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if lgot, _ := NewReplay(b2).Statfs(dir); lgot != got {
+		t.Fatalf("loaded statfs = %+v, want %+v", lgot, got)
+	}
+}
+
 func TestSaveLoad(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "f")
 	_ = os.WriteFile(src, []byte("Tctl 45000\n"), 0o644)

@@ -52,6 +52,12 @@ func (r *Recorder) Stat(path string) (FileMeta, error) {
 	return meta, err
 }
 
+func (r *Recorder) Statfs(path string) (StatfsInfo, error) {
+	info, err := r.inner.Statfs(path)
+	r.b.putStatfs(path, info, err)
+	return info, err
+}
+
 func (r *Recorder) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	res, err := r.inner.Run(ctx, name, args...)
 	r.b.putCmd(name, args, res, err)

@@ -7,7 +7,6 @@ import (
 	"io"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	gopsutildisk "github.com/shirou/gopsutil/v3/disk"
@@ -86,8 +85,8 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	// caller; the buffered channel lets that goroutine finish and exit cleanly.
 	ch := make(chan result, 1)
 	go func() {
-		var stat syscall.Statfs_t
-		if err := syscall.Statfs(e.mountPoint, &stat); err != nil {
+		stat, err := statFs(e.mountPoint)
+		if err != nil {
 			ch <- result{err: err}
 			return
 		}

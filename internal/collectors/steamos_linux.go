@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -324,8 +323,8 @@ func (c *SteamOSCollector) collectStorage(info *models.SteamOSInfo) {
 
 // statfsUsage returns total bytes, used bytes, and used percent for a mount.
 func statfsUsage(mount string) (total, used, pct float64, ok bool) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(mount, &st); err != nil || st.Blocks == 0 {
+	st, err := statFs(mount)
+	if err != nil || st.Blocks == 0 {
 		return 0, 0, 0, false
 	}
 	bsize := float64(st.Bsize)

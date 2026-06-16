@@ -53,18 +53,29 @@ type statRec struct {
 	errText    string
 }
 
+// statfsRec is a recorded syscall.Statfs: the stats on success, or a recorded
+// error (absent / unreadable) so a filesystem-usage probe replays the live
+// outcome instead of stat-ing the replaying machine's own filesystem.
+type statfsRec struct {
+	info       StatfsInfo
+	notExist   bool
+	permission bool
+	errText    string
+}
+
 // Bundle is the in-memory, persistable record of every system input touched
 // during a capture. Safe for concurrent use — collectors run in parallel.
 type Bundle struct {
 	Manifest Manifest
 
-	mu    sync.RWMutex
-	files map[string]fileRec
-	globs map[string][]string
-	dirs  map[string][]string
-	cmds  map[string]cmdRec
-	links map[string]linkRec
-	stats map[string]statRec
+	mu      sync.RWMutex
+	files   map[string]fileRec
+	globs   map[string][]string
+	dirs    map[string][]string
+	cmds    map[string]cmdRec
+	links   map[string]linkRec
+	stats   map[string]statRec
+	statfss map[string]statfsRec
 }
 
 // NewBundle returns an empty bundle stamped with the current format version.
@@ -77,6 +88,7 @@ func NewBundle() *Bundle {
 		cmds:     map[string]cmdRec{},
 		links:    map[string]linkRec{},
 		stats:    map[string]statRec{},
+		statfss:  map[string]statfsRec{},
 	}
 }
 
@@ -203,6 +215,31 @@ func (b *Bundle) putStat(path string, meta FileMeta, err error) {
 func (b *Bundle) getStat(path string) (statRec, bool) {
 	b.mu.RLock()
 	rec, ok := b.stats[cleanPath(path)]
+	b.mu.RUnlock()
+	return rec, ok
+}
+
+func (b *Bundle) putStatfs(path string, info StatfsInfo, err error) {
+	rec := statfsRec{}
+	switch {
+	case err == nil:
+		rec.info = info
+	case errors.Is(err, fs.ErrNotExist):
+		rec.notExist = true
+	case errors.Is(err, fs.ErrPermission):
+		rec.permission = true
+		rec.errText = err.Error()
+	default:
+		rec.errText = err.Error()
+	}
+	b.mu.Lock()
+	b.statfss[cleanPath(path)] = rec
+	b.mu.Unlock()
+}
+
+func (b *Bundle) getStatfs(path string) (statfsRec, bool) {
+	b.mu.RLock()
+	rec, ok := b.statfss[cleanPath(path)]
 	b.mu.RUnlock()
 	return rec, ok
 }

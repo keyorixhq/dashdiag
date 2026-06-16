@@ -546,8 +546,8 @@ func logDiskUsage() (mount string, usedPct float64) {
 		target = "/var/log"
 	}
 
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(target, &stat); err != nil {
+	stat, err := statFs(target)
+	if err != nil {
 		return "", 0
 	}
 	if stat.Blocks == 0 {

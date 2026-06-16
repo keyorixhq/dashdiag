@@ -40,6 +40,14 @@ type statIndexEntry struct {
 	Err      string   `json:"err,omitempty"`
 }
 
+type statfsIndexEntry struct {
+	Path     string     `json:"path"`
+	Info     StatfsInfo `json:"info"`
+	NotExist bool       `json:"not_exist,omitempty"`
+	Perm     bool       `json:"perm,omitempty"`
+	Err      string     `json:"err,omitempty"`
+}
+
 // Save writes the bundle to dir in the raw-v1 layout (creating dir if needed).
 func (b *Bundle) Save(dir string) error {
 	b.mu.RLock()
@@ -82,27 +90,8 @@ func (b *Bundle) Save(dir string) error {
 		return err
 	}
 
-	// Symlinks (inline targets, no blobs)
-	var lidx []linkIndexEntry
-	for _, path := range sortedKeys(b.links) {
-		rec := b.links[path]
-		lidx = append(lidx, linkIndexEntry{
-			Path: path, Target: rec.target, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
-		})
-	}
-	if err := writeJSON(filepath.Join(dir, "links.json"), lidx); err != nil {
-		return err
-	}
-
-	// Stats (inline metadata, no blobs)
-	var sidx []statIndexEntry
-	for _, path := range sortedKeys(b.stats) {
-		rec := b.stats[path]
-		sidx = append(sidx, statIndexEntry{
-			Path: path, Meta: rec.meta, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
-		})
-	}
-	if err := writeJSON(filepath.Join(dir, "stats.json"), sidx); err != nil {
+	// Links, stats, statfs — inline metadata sections, no blobs.
+	if err := b.saveInlineMeta(dir); err != nil {
 		return err
 	}
 
@@ -128,6 +117,42 @@ func (b *Bundle) Save(dir string) error {
 		cidx = append(cidx, e)
 	}
 	return writeJSON(filepath.Join(dir, "commands/index.json"), cidx)
+}
+
+// saveInlineMeta writes the three inline (blob-free) metadata sections —
+// symlink targets, os.Stat metadata, and syscall.Statfs stats. Split out of Save
+// to keep it under the funlen limit; callers hold b.mu.RLock.
+func (b *Bundle) saveInlineMeta(dir string) error {
+	lidx := make([]linkIndexEntry, 0, len(b.links))
+	for _, path := range sortedKeys(b.links) {
+		rec := b.links[path]
+		lidx = append(lidx, linkIndexEntry{
+			Path: path, Target: rec.target, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
+		})
+	}
+	if err := writeJSON(filepath.Join(dir, "links.json"), lidx); err != nil {
+		return err
+	}
+
+	sidx := make([]statIndexEntry, 0, len(b.stats))
+	for _, path := range sortedKeys(b.stats) {
+		rec := b.stats[path]
+		sidx = append(sidx, statIndexEntry{
+			Path: path, Meta: rec.meta, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
+		})
+	}
+	if err := writeJSON(filepath.Join(dir, "stats.json"), sidx); err != nil {
+		return err
+	}
+
+	sfidx := make([]statfsIndexEntry, 0, len(b.statfss))
+	for _, path := range sortedKeys(b.statfss) {
+		rec := b.statfss[path]
+		sfidx = append(sfidx, statfsIndexEntry{
+			Path: path, Info: rec.info, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
+		})
+	}
+	return writeJSON(filepath.Join(dir, "statfs.json"), sfidx)
 }
 
 // Load reads a bundle previously written by Save.
@@ -171,6 +196,13 @@ func Load(dir string) (*Bundle, error) {
 	_ = readJSON(filepath.Join(dir, "stats.json"), &sidx)
 	for _, e := range sidx {
 		b.stats[e.Path] = statRec{meta: e.Meta, notExist: e.NotExist, permission: e.Perm, errText: e.Err}
+	}
+
+	// Statfs — optional so older bundles (pre-statfs) still load.
+	var sfidx []statfsIndexEntry
+	_ = readJSON(filepath.Join(dir, "statfs.json"), &sfidx)
+	for _, e := range sfidx {
+		b.statfss[e.Path] = statfsRec{info: e.Info, notExist: e.NotExist, permission: e.Perm, errText: e.Err}
 	}
 
 	var cidx []cmdIndexEntry
