@@ -306,6 +306,20 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		))
 	}
 
+	// `zpool status` couldn't be read (it can hang/timeout on a sick pool). The pool
+	// State is still known from `zpool list`, but per-vdev error counts and scrub age
+	// are not — so the error-count check above couldn't fire and ScrubAgeDays is -1
+	// (NOT "never scrubbed"). On an otherwise-ONLINE pool, surface that it's
+	// unverified rather than pass as clean; and skip the scrub-age check below.
+	if pool.StatusReadFailed {
+		if pool.State == "" || pool.State == "ONLINE" {
+			out = append(out, insight("INFO", "ZFS",
+				fmt.Sprintf("ZFS pool %s is ONLINE, but `zpool status` could not be read — per-vdev error counts and scrub status are unverified", pool.Name),
+				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", pool.Name)}))
+		}
+		return out
+	}
+
 	// Scrub age — periodic scrubs detect silent corruption
 	switch {
 	case pool.ScrubAgeDays < 0:

@@ -14,6 +14,13 @@ type ZFSPool struct {
 	ScrubAgeDays int     `json:"scrub_age_days"`       // days since last scrub (-1 = never scrubbed)
 	ScrubErrors  int     `json:"scrub_errors"`         // errors found in last scrub
 	StatusMsg    string  `json:"status_msg,omitempty"` // human-readable from zpool status
+	// StatusReadFailed is true only when `zpool status <pool>` errored (it can hang
+	// on a sick pool and hit the timeout). The pool State above still comes from the
+	// primary `zpool list -o …,health`, but the per-vdev error counts and scrub age
+	// come from `zpool status` — when that failed they're left at 0 / -1, which
+	// would otherwise read as "no errors" + "never scrubbed". Inverted (failure, not
+	// success) so the zero value means "read OK".
+	StatusReadFailed bool `json:"status_read_failed,omitempty"`
 }
 
 // ZFSInfo holds health data for all ZFS pools on the system.
