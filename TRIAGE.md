@@ -142,7 +142,25 @@ risk is entirely in the OVAL parsing + the suppress decision.
 
 ---
 
-## H. `dsd replay` not fully hermetic — READY (correctness gap in shipped feature)
+## H. `dsd replay` not fully hermetic — ✅ DONE for default capture path (2026-06-16)
+
+Closed across #339–#349. The double-replay-diff (capture once, replay `--json`
+twice, normalise, diff) now shows **zero non-volatile differences** for the default
+`dsd health` capture path. Every live input it touches is recorded and replayed:
+`os.ReadFile`/`Glob`/`ReadDir`/`Readlink` (#339–#343), `os.Stat` gates via a new
+`Source.Stat` (#340–#341), `syscall.Statfs` via `Source.Statfs` (#344), gopsutil via
+a generic `Source.Cached` (#345), ping+DNS (#346), service-collector dials +
+HTTP/socket APIs incl. docker `apiGet` and cloud IMDS (#347, #349), and disk/multipath
+device-list ordering (#348). Mechanism + the "no live I/O outside Source" grep
+invariant are in WORKQUEUE.md and the agent's `replay-fidelity-stat-surface` memory.
+
+Deferred (consistent scoping — NOT in the default capture path): NFS reachability
+dials and `tls_remote` `--endpoint` dials (opt-in/deep); `ServicesCollector`
+(config-gated). The `ServicesCollector` + cloudmeta AWS IMDSv2 token/termination
+caching is staged on the in-progress `fix/replay-services` branch (see WORKQUEUE.md).
+Left below for history.
+
+## H (history). `dsd replay` not fully hermetic — READY (correctness gap in shipped feature)
 
 `dsd replay <bundle>` promises (help text) that "every collector reads from the
 bundle instead of the live system" so hardware-specific bugs reproduce on any
@@ -169,16 +187,23 @@ the feature's whole premise.
 
 ---
 
-## I. `checks[]` array has no stable ordering — GATED (sharp edge, low priority)
+## I. `checks[]` array has no stable ordering — PARTIAL: sub-lists fixed (#348), top-level still GATED
 
 Two `dsd health --json` runs on the same host emit `checks[]` in different array
 positions (same 23-check set, same content, shuffled order). Confirmed
 2026-06-16 across same-locale runs — collector scheduling non-determinism, not a
 data difference. Benign for consumers that index by `name` (jq); a sharp edge
 for byte/line-level golden-file tests on `--json` (they flake) and `diff`-based
-support workflows (noisy). Fix = stable sort by check name at the render
-boundary (invariant-data layer, not collectors). Build only when a test or
-workflow needs it.
+support workflows (noisy).
+
+**Done (#348):** the map-iteration ordering *within* a check's `raw` — disk
+`Drives[].Mounts` (`range mountsByDev`) and the multipath device list (`range
+deviceMap`) — now sorted, so those sub-lists are byte-stable.
+
+**Still GATED (the headline item):** the *top-level* `checks[]` array order. Fix =
+stable sort by check name at the render boundary (invariant-data layer, not
+collectors). The replay double-diff harness sorted this away with `jq sort_by(.name)`
+rather than changing the product. Build only when a test or workflow needs it.
 
 ---
 
