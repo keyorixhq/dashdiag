@@ -125,3 +125,12 @@ re-runnable test capital. Cost is bounded because exec is already chokepointed
 finite and mechanical. The risk is partial migration leaking live reads on a
 replay machine — closed by invariant 1 (loud `ErrNotRecorded`) plus the Phase 2
 enforcement test.
+
+Once replay is byte-stable (the determinism/ordering work guarded by the
+`replay-hermetic` CI job), two captures of the same host become directly
+comparable. `dsd replay <current> --diff <baseline>` replays both bundles
+through the identical health pipeline and prints only what changed (per-check
+status transitions, `--json` for machines) — the ADR-0002 D6 support workflow:
+"diff a customer's healthy capture against the one taken when it broke" without
+ever touching their machine. Reuses the existing `baseline.ComputeDiff` +
+`render.PrintDiff` drift machinery.

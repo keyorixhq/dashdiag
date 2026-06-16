@@ -23,10 +23,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -43,6 +46,13 @@ An hw-snapshot.sh tarball is also accepted for the file-based collectors.
   dsd replay dsd-raw-host-20260614-120000.tar.gz
   dsd replay --json bundle.tar.gz | jq .
 
+Use --diff to compare two captures of the same host and see only what changed
+(the support workflow: diff a healthy capture against the one taken when it
+broke). The positional bundle is "current"; --diff names the baseline:
+
+  dsd replay broke.tar.gz --diff healthy.tar.gz        # human change report
+  dsd replay broke.tar.gz --diff healthy.tar.gz --json # machine-readable diff
+
 NOTE: run dsd replay inside a linux binary to exercise linux-specific parsers.
 On macOS the linux build tags are absent; use an OrbStack container.`,
 	Args:             cobra.ExactArgs(1),
@@ -56,6 +66,8 @@ func init() {
 	replayCmd.Flags().Bool("gpu", false, "include GPU collector")
 	replayCmd.Flags().Bool("pkg", false, "include package collector")
 	replayCmd.Flags().Bool("deep", false, "include deep collectors")
+	replayCmd.Flags().String("diff", "",
+		"diff this capture against a baseline capture (path to another bundle) — shows what changed")
 }
 
 // loadBundle reads a native raw-v1 bundle, falling back to an hw-snapshot.sh
@@ -67,44 +79,43 @@ func loadBundle(path string) (*source.Bundle, error) {
 	return source.FromSnapshot(path)
 }
 
+// replayBundle runs the full health pipeline against a single bundle with the
+// source swapped to a Replay over it, then restores the previous source. It is
+// the one place replay drives runHealthOnce, so the normal and --diff paths use
+// an identical pipeline (and the same flag handling).
+func replayBundle(b *source.Bundle, deep, pkg, gpu bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
+	prev := collectors.SetSource(source.NewReplay(b))
+	defer collectors.SetSource(prev)
+
+	// Neutral platform values — this is the replaying host, not the captured one.
+	results, insights, snap, _ := runHealthOnce(
+		context.Background(), platform.ContainerContext{}, platform.CloudEnvironment(0),
+		platform.Detect(), output.ModePlain,
+		!deep,    // terse unless deep: drilldown's extra reads aren't in the bundle
+		pkg, gpu, // includePackages, includeGPU
+		false, deep, false, false, // tls, deep, firmware, cve
+		nil,
+	)
+	return results, insights, snap
+}
+
 func runReplay(cmd *cobra.Command, args []string) error {
 	b, err := loadBundle(args[0])
 	if err != nil {
 		return fmt.Errorf("loading bundle: %w", err)
 	}
 
-	prev := collectors.SetSource(source.NewReplay(b))
-	defer collectors.SetSource(prev)
-
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	gpu, _ := cmd.Flags().GetBool("gpu")
 	pkg, _ := cmd.Flags().GetBool("pkg")
 	deep, _ := cmd.Flags().GetBool("deep")
+	diffPath, _ := cmd.Flags().GetString("diff")
 
-	ctx := context.Background()
-	// Use neutral platform values — this is the dev host, not the captured host.
-	ctrCtx := platform.ContainerContext{}
-	cloudEnv := platform.CloudEnvironment(0)
-
-	// runHealthOnce uses buildHealthCollectors (the full health set) and applies
-	// thresholds, giving an identical diagnostic pipeline to `dsd health`.
-	// Inputs come from the bundle via the swapped source.
-	results, insights, _, _ := runHealthOnce(
-		ctx, ctrCtx, cloudEnv, platform.Detect(),
-		output.ModePlain,
-		true, // terse: skip drilldown (its extra reads aren't in the bundle)
-		pkg, gpu,
-		false, false, false, false, // tls, deep, firmware, cve
-		nil,
-	)
-	// Override deep so the flag is honoured.
-	if deep {
-		results, insights, _, _ = runHealthOnce(
-			ctx, ctrCtx, cloudEnv, platform.Detect(),
-			output.ModePlain,
-			false, pkg, gpu, false, true, false, false, nil,
-		)
+	if diffPath != "" {
+		return runReplayDiff(b, diffPath, deep, pkg, gpu, jsonOut)
 	}
+
+	results, insights, _ := replayBundle(b, deep, pkg, gpu)
 
 	if b.Manifest.Host != "" {
 		fmt.Fprintf(os.Stderr, "replaying: %s  OS: %s  kernel: %s  captured: %s\n\n",
@@ -123,4 +134,29 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	renderer.PrintAll(results, insights)
 	_ = renderer.PrintSummary(insights, 0)
 	return nil
+}
+
+// runReplayDiff replays a baseline capture and the current capture through the
+// same pipeline and prints what changed between them — the support workflow:
+// "diff a customer's healthy capture against the one taken when it broke".
+func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, jsonOut bool) error {
+	base, err := loadBundle(baselinePath)
+	if err != nil {
+		return fmt.Errorf("loading baseline bundle: %w", err)
+	}
+
+	_, _, baseSnap := replayBundle(base, deep, pkg, gpu)
+	_, _, curSnap := replayBundle(current, deep, pkg, gpu)
+
+	if base.Manifest.Host != "" || current.Manifest.Host != "" {
+		fmt.Fprintf(os.Stderr, "diffing baseline %s (%s) → current %s (%s)\n\n",
+			base.Manifest.Host, base.Manifest.Created,
+			current.Manifest.Host, current.Manifest.Created)
+	}
+
+	mode := output.ModeHuman
+	if jsonOut {
+		mode = output.ModeJSON
+	}
+	return render.PrintDiff(os.Stdout, baseSnap, curSnap, mode)
 }
