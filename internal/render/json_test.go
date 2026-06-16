@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -108,5 +109,57 @@ func TestRenderJSON_SkipsAbsentChecks(t *testing.T) {
 	}
 	if len(out.Checks) != 3 {
 		t.Errorf("want 3 checks (Launchd+Ceph skipped), got %d: %+v", len(out.Checks), out.Checks)
+	}
+}
+
+// TestRenderJSON_StableOrdering guards TRIAGE §I: checks[] and insights[] must come
+// out in a deterministic order regardless of collector completion order, so
+// `dsd health --json` / `capture` / `replay` are byte-stable and cleanly diffable.
+func TestRenderJSON_StableOrdering(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Zebra", Data: models.CPUInfo{}},
+		{Name: "Apple", Data: models.CPUInfo{}},
+		{Name: "Mango", Data: models.CPUInfo{}},
+	}
+	insights := []models.Insight{
+		{Check: "Mango", Level: "WARN", Message: "m warn"},
+		{Check: "Apple", Level: "CRIT", Message: "a crit"},
+		{Check: "Zebra", Level: "WARN", Message: "z warn"},
+		{Check: "Apple", Level: "WARN", Message: "a warn"},
+	}
+
+	data, err := RenderJSON(results, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// checks[] alphabetical by name
+	gotChecks := make([]string, len(out.Checks))
+	for i, c := range out.Checks {
+		gotChecks[i] = c.Name
+	}
+	wantChecks := []string{"Apple", "Mango", "Zebra"}
+	if !reflect.DeepEqual(gotChecks, wantChecks) {
+		t.Errorf("checks order = %v, want %v", gotChecks, wantChecks)
+	}
+
+	// insights[] worst-first, then by check, then message
+	type ci struct{ check, level, msg string }
+	gotIns := make([]ci, len(out.Insights))
+	for i, in := range out.Insights {
+		gotIns[i] = ci{in.Check, in.Level, in.Message}
+	}
+	wantIns := []ci{
+		{"Apple", "CRIT", "a crit"},
+		{"Apple", "WARN", "a warn"},
+		{"Mango", "WARN", "m warn"},
+		{"Zebra", "WARN", "z warn"},
+	}
+	if !reflect.DeepEqual(gotIns, wantIns) {
+		t.Errorf("insights order = %+v, want %+v", gotIns, wantIns)
 	}
 }
