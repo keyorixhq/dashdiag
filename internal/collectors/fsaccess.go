@@ -110,7 +110,11 @@ func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
 func (f fakeFileInfo) IsDir() bool        { return f.isDir }
 func (f fakeFileInfo) Sys() any           { return nil }
 
-// ReadFileViaSource and GlobViaSource are exported for cmd/ callers (e.g.
-// capture_raw.go) that need source-routed reads without a collector context.
+// ReadFileViaSource, GlobViaSource, and ReadlinkViaSource are exported for
+// callers outside the collectors package (cmd/, internal/analysis) that need
+// source-routed reads without a collector context — so their sysfs reads are
+// captured by `dsd capture --raw` and served by `dsd replay` instead of hitting
+// the live machine.
 func ReadFileViaSource(path string) ([]byte, error)  { return activeSource.ReadFile(path) }
 func GlobViaSource(pattern string) ([]string, error) { return activeSource.Glob(pattern) }
+func ReadlinkViaSource(path string) (string, error)  { return activeSource.Readlink(path) }

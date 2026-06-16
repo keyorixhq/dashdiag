@@ -2,11 +2,11 @@ package analysis
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"runtime"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -1585,9 +1585,10 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 }
 
 // isUSBNetworkInterface returns true if the network interface is USB-based.
-// Checks /sys/class/net/<iface>/device/subsystem symlink for "usb".
+// Checks /sys/class/net/<iface>/device/subsystem symlink for "usb". Routed through
+// the active source so capture/replay reproduces it instead of hitting live sysfs.
 func isUSBNetworkInterface(iface string) bool {
-	subsystem, err := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
+	subsystem, err := collectors.ReadlinkViaSource(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
 	if err != nil {
 		return false
 	}
