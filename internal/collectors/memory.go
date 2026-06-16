@@ -55,15 +55,42 @@ func parseMeminfo(r io.Reader) (map[string]uint64, error) {
 }
 
 func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
-	vm, err := mem.VirtualMemoryWithContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("virtual memory: %w", err)
+	info := &models.MemoryInfo{}
+
+	// Primary source on Linux: /proc/meminfo via the active source, so
+	// `dsd capture --raw` records it and `dsd replay` reproduces these numbers
+	// instead of gopsutil re-reading the live host — which made Total/Free/UsedPct
+	// reflect the replaying machine, not the bundle (ADR-0003 replay fidelity).
+	// gopsutil's own Linux path just parses this same file; we read it through
+	// Source for the identical math. Non-Linux (no /proc/meminfo) falls back to
+	// gopsutil below.
+	var m map[string]uint64
+	if f, err := openFile(c.meminfoPath); err == nil {
+		m, _ = parseMeminfo(f)
+		_ = f.Close()
 	}
 
-	info := &models.MemoryInfo{
-		TotalGB: float64(vm.Total) / (1024 * 1024 * 1024),
-		FreeGB:  float64(vm.Available) / (1024 * 1024 * 1024),
-		UsedPct: vm.UsedPercent,
+	if total := m["MemTotal"]; total > 0 {
+		avail, ok := m["MemAvailable"]
+		if !ok {
+			// Pre-3.14 kernels lack MemAvailable; approximate it the way gopsutil
+			// does so we stay self-contained (no live re-read on replay).
+			avail = m["MemFree"] + m["Buffers"] + m["Cached"] + m["SReclaimable"]
+		}
+		info.TotalGB = float64(total) / (1024 * 1024)
+		info.FreeGB = float64(avail) / (1024 * 1024)
+		// Matches gopsutil v3: UsedPercent = (Total-Available)/Total * 100.
+		info.UsedPct = float64(total-avail) / float64(total) * 100
+	} else {
+		// Non-Linux (darwin): no /proc/meminfo. Replay binaries must match the
+		// captured OS, so the live read here is never on a Linux replay path.
+		vm, err := mem.VirtualMemoryWithContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("virtual memory: %w", err)
+		}
+		info.TotalGB = float64(vm.Total) / (1024 * 1024 * 1024)
+		info.FreeGB = float64(vm.Available) / (1024 * 1024 * 1024)
+		info.UsedPct = vm.UsedPercent
 	}
 
 	// ECC memory errors — cheap sysfs read; zero on VMs/consumer HW and non-Linux.
@@ -76,20 +103,12 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.TotalGB = c.ContainerCtx.MemLimitMB / 1024
 	}
 
-	// Extended fields from /proc/meminfo
-	f, err := openFile(c.meminfoPath)
-	if err != nil {
+	// Extended fields from the same /proc/meminfo map parsed above.
+	if m == nil {
 		if runtime.GOOS == "darwin" {
 			info.SlabMB = -1
 			info.CommitLimitMB = -1
-			return info, nil
 		}
-		return info, nil
-	}
-	defer f.Close()
-
-	m, err := parseMeminfo(f)
-	if err != nil {
 		return info, nil
 	}
 	info.SlabMB = float64(m["Slab"]) / 1024

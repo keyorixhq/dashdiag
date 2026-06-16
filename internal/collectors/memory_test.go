@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
@@ -107,11 +108,32 @@ Committed_AS:   10240000 kB
 		ContainerCtx: platform.ContainerContext{},
 	}
 
-	result, err := c.Collect(context.Background())
+	out, err := c.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect error: %v", err)
 	}
-	if result == nil {
+	if out == nil {
 		t.Fatal("expected non-nil result")
+	}
+
+	// Total/Free/UsedPct must be computed from the injected /proc/meminfo (read
+	// through the active source), NOT from gopsutil reading the live host — that
+	// bypass made `dsd replay` show the replaying machine's memory instead of the
+	// bundle's (ADR-0003 replay fidelity). If someone reintroduces gopsutil for
+	// these fields, the live host's real RAM lands here and these exact values
+	// fail. kB→GB is /1024/1024; UsedPct = (Total-Available)/Total*100.
+	result, ok := out.(*models.MemoryInfo)
+	if !ok {
+		t.Fatalf("expected *models.MemoryInfo, got %T", out)
+	}
+	const eps = 1e-9
+	if want := 16384000.0 / (1024 * 1024); abs(result.TotalGB-want) > eps {
+		t.Errorf("TotalGB: got %v, want %v (from injected meminfo, not gopsutil)", result.TotalGB, want)
+	}
+	if want := 8192000.0 / (1024 * 1024); abs(result.FreeGB-want) > eps {
+		t.Errorf("FreeGB: got %v, want %v (from injected meminfo, not gopsutil)", result.FreeGB, want)
+	}
+	if want := 50.0; abs(result.UsedPct-want) > eps {
+		t.Errorf("UsedPct: got %v, want %v (from injected meminfo, not gopsutil)", result.UsedPct, want)
 	}
 }
