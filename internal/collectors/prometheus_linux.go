@@ -4,9 +4,7 @@ package collectors
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"time"
@@ -16,24 +14,10 @@ import (
 
 // promHTTPGet fetches url with a short timeout, tolerating self-signed TLS (a
 // Prometheus behind a reverse proxy may present one). Returns body, status, err.
+// Routed through the source cache (httpGetCached) so the response replays from the
+// bundle instead of re-fetching the replaying machine.
 func promHTTPGet(ctx context.Context, url string) ([]byte, int, error) {
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // local health probe, not a trust decision
-		},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return body, resp.StatusCode, nil
+	return httpGetCached(ctx, url)
 }
 
 // detectPrometheus finds a local Prometheus on 9090 and returns its base URL +

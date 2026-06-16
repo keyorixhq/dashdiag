@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -20,11 +19,9 @@ import (
 // plus version/state from /server_info. Identity is confirmed by the {version,state}
 // JSON shape so a different service on 9901 isn't mislabelled.
 func detectEnvoy(ctx context.Context) (base string, info *models.EnvoyInfo) {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:9901", 300*time.Millisecond)
-	if err != nil {
+	if !dialReachable("tcp", "127.0.0.1:9901", 300*time.Millisecond) {
 		return "", nil
 	}
-	conn.Close() //nolint:errcheck
 
 	for _, b := range []string{"http://127.0.0.1:9901", "https://127.0.0.1:9901"} {
 		body, code, err := promHTTPGet(ctx, b+"/server_info")

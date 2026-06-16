@@ -4,10 +4,7 @@ package collectors
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
-	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,24 +14,10 @@ import (
 
 // esHTTPGet fetches url with a short timeout, tolerating self-signed TLS (local
 // Elasticsearch defaults to a self-signed cert). Returns body, status code, err.
+// Routed through the source cache (httpGetCached) so the response replays from the
+// bundle instead of re-fetching the replaying machine.
 func esHTTPGet(ctx context.Context, url string) ([]byte, int, error) {
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // local health probe, not a trust decision
-		},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return body, resp.StatusCode, nil
+	return httpGetCached(ctx, url)
 }
 
 // detectElasticsearch finds a local ES/OpenSearch node on 9200 and returns its
@@ -43,11 +26,9 @@ func esHTTPGet(ctx context.Context, url string) ([]byte, int, error) {
 // can report "detected but health needs credentials".
 func detectElasticsearch(ctx context.Context) (info *models.ElasticsearchInfo) {
 	// Cheap pre-check: is anything on 9200 at all?
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:9200", 300*time.Millisecond)
-	if err != nil {
+	if !dialReachable("tcp", "127.0.0.1:9200", 300*time.Millisecond) {
 		return nil
 	}
-	conn.Close() //nolint:errcheck
 
 	for _, base := range []string{"http://127.0.0.1:9200", "https://127.0.0.1:9200"} {
 		body, code, err := esHTTPGet(ctx, base+"/")

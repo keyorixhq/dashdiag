@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"os/exec"
 	"strings"
 	"time"
@@ -32,9 +31,7 @@ func MongoDBAvailable() bool {
 		return false
 	}
 	for _, addr := range []string{"127.0.0.1:27017", "[::1]:27017"} {
-		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return true
 		}
 	}

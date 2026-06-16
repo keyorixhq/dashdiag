@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"net"
 	"strings"
 	"time"
 
@@ -25,9 +24,7 @@ var mysqlSocketPaths = []string{
 // the mysql client talking to a remote DB is correctly seen as no local server.
 func detectMySQLSocket() string {
 	for _, path := range mysqlSocketPaths {
-		conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("unix", path, 300*time.Millisecond) {
 			return path
 		}
 	}

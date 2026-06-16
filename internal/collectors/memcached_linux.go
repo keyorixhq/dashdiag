@@ -11,11 +11,27 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-// memcachedCmd dials addr, sends the memcached text command, and returns the
+// memcachedCmd routes memcachedCmdLive through the source cache so the socket
+// exchange replays from the bundle instead of re-dialling the replaying machine.
+// Keyed by addr+cmd (each command is issued once per run).
+func memcachedCmd(ctx context.Context, network, addr, cmd string, untilEND bool) (string, bool) {
+	var r struct {
+		Out string `json:"out"`
+		Ok  bool   `json:"ok"`
+	}
+	_ = cachedJSON("memcached/"+network+"/"+addr+"/"+cmd, func() (any, error) {
+		out, ok := memcachedCmdLive(ctx, network, addr, cmd, untilEND)
+		r.Out, r.Ok = out, ok
+		return r, nil
+	}, &r)
+	return r.Out, r.Ok
+}
+
+// memcachedCmdLive dials addr, sends the memcached text command, and returns the
 // response. For multi-line replies (stats) it reads until the "END" terminator;
 // for a single-line reply (version) it returns the first line. Best-effort with a
 // short deadline so it never hangs a health run.
-func memcachedCmd(ctx context.Context, network, addr, cmd string, untilEND bool) (string, bool) {
+func memcachedCmdLive(ctx context.Context, network, addr, cmd string, untilEND bool) (string, bool) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
