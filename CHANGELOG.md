@@ -11,6 +11,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-17
+
+First minor since the 1.0 platform freeze — purely additive (the `dsd health
+--json` contract is unchanged): a new capture-diff workflow plus correctness
+fixes from a live demo-path audit.
+
+### Added
+
+- **`dsd diff <baseline> <current>` — diff two capture bundles.** The payoff of
+  the 1.0.2–1.0.4 capture/replay hermeticity work, now that replay output is
+  byte-stable: replay two `dsd capture --raw` bundles of the same host through
+  the identical health pipeline and see only what changed (per-check status
+  transitions; `--json` for a machine-readable `DiffEntry` array). The support
+  workflow — "diff a customer's healthy capture against the one taken when it
+  broke" — without touching their machine. (#361, #362)
+- **`dsd replay <current> --diff <baseline>`** — the same engine as a flag on
+  `replay`, for when you're already replaying a bundle. (#361)
+
+### Fixed
+
+- **`dsd security` no longer claims "healthy. Checks passed" on a non-root run.**
+  As non-root the root-only probes (failed logins, listening-port process names,
+  SELinux audit, effective `sshd -T`) silently degrade; the summary now reports
+  "checks limited — run as root to fully verify" instead of a clean bill of
+  health for an audit that barely ran. (#364)
+- **Systemd row no longer reads OK when the failed-unit query didn't run.** A
+  transient `systemctl list-units --failed` failure (e.g. the 3s timeout under
+  load) used to produce a silent green row; it now reports the failed-unit state
+  as unverified. (#363)
+- **Fewer false-alarms on a first run.** CPU Thermal no longer warns at 60–74 °C
+  at idle (normal for mini-PCs/laptops/high-TDP chips; floor raised to ≥75 °C),
+  and the AppArmor complain-mode remediation no longer advises the risky blanket
+  `aa-enforce /etc/apparmor.d/*`. (#360)
+
 ## [1.0.4] - 2026-06-16
 
 ### Fixed
