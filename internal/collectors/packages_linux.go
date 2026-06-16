@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -117,13 +116,13 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 	for _, g := range globs {
 		matches, _ := glob(g)
 		for _, m := range matches {
-			fi, err := os.Stat(m)
+			fi, err := statFile(m)
 			if err != nil {
 				continue
 			}
 			found = true
-			if fi.ModTime().After(newest) {
-				newest = fi.ModTime()
+			if fi.ModTime.After(newest) {
+				newest = fi.ModTime
 			}
 		}
 	}
@@ -770,7 +769,7 @@ func pkgIntegrityLdconfig(ctx context.Context, pi *models.PackageIntegrity) {
 func pkgIntegrityLdd(ctx context.Context, pi *models.PackageIntegrity) {
 	canaries := []string{"/bin/ls", "/usr/bin/ssh", "/usr/bin/python3"}
 	for _, bin := range canaries {
-		if _, err := os.Stat(bin); err != nil {
+		if !fileExists(bin) {
 			continue
 		}
 		lddCtx, cancel := context.WithTimeout(ctx, 3*time.Second)

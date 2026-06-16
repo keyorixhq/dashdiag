@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -49,8 +48,8 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// Audit log size
-	if fi, err := os.Stat("/var/log/audit/audit.log"); err == nil {
-		info.AuditLogSizeGB = float64(fi.Size()) / (1024 * 1024 * 1024)
+	if fi, err := statFile("/var/log/audit/audit.log"); err == nil {
+		info.AuditLogSizeGB = float64(fi.Size) / (1024 * 1024 * 1024)
 	}
 
 	// Recent event count from audit log

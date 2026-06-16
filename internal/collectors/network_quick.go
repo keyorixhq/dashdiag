@@ -695,7 +695,7 @@ func darwinUSBInterfaces(ctx context.Context) map[string]string {
 //  3. nmcli dev wifi list — SSID, signal %, rate, channel (when NM active)
 func collectWiFiInfo(iface string) *models.WiFiInfo {
 	// Check if this is a wireless interface via sysfs
-	if _, err := os.Stat("/sys/class/net/" + iface + "/wireless"); err != nil {
+	if !fileExists("/sys/class/net/" + iface + "/wireless") {
 		return nil // not wireless
 	}
 

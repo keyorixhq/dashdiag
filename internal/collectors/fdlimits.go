@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -82,13 +81,13 @@ func deletedFilesFromEntries(pid string, fds []string) (count int, sizeGB float6
 		if err != nil || !strings.HasSuffix(target, "(deleted)") {
 			continue
 		}
-		fi, err := os.Stat("/proc/" + pid + "/fd/" + fd)
+		fi, err := statFile("/proc/" + pid + "/fd/" + fd)
 		if err != nil {
 			count++
 			continue
 		}
 		count++
-		sizeGB += float64(fi.Size()) / 1e9
+		sizeGB += float64(fi.Size) / 1e9
 	}
 	return count, sizeGB
 }

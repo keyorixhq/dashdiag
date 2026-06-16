@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -63,8 +62,7 @@ func (c *VLANCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsVLANPresent returns true when VLAN interfaces exist.
 func IsVLANPresent() bool {
-	_, err := os.Stat("/proc/net/vlan/config")
-	return err == nil
+	return fileExists("/proc/net/vlan/config")
 }
 
 func parseVLANConfig(content string) []models.VLANInterface {

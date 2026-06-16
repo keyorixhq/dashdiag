@@ -344,7 +344,7 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 	if isSafePolicyToken(seType) {
 		// Policy directory must exist under /etc/selinux/<type>/
 		policyDir := "/etc/selinux/" + seType
-		if _, statErr := os.Stat(policyDir); statErr == nil { // #nosec G703 -- seType restricted to [A-Za-z0-9_-] by isSafePolicyToken above
+		if fileExists(policyDir) {
 			dirOK = true
 		}
 
@@ -354,7 +354,7 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 	}
 
 	// /.autorelabel: a reboot with relabeling requested but not yet completed.
-	if _, statErr := os.Stat("/.autorelabel"); statErr == nil {
+	if fileExists("/.autorelabel") {
 		relabelPending = true
 	}
 
@@ -404,9 +404,9 @@ func selinuxPolicyPkgInstalled(policyType string) bool {
 
 	// Neither package manager found the package installed.
 	// If neither tool exists at all, return true to avoid false positive.
-	_, rpmExists := os.Stat("/usr/bin/rpm")
-	_, dpkgExists := os.Stat("/usr/bin/dpkg")
-	if rpmExists != nil && dpkgExists != nil {
+	rpmExists := fileExists("/usr/bin/rpm")
+	dpkgExists := fileExists("/usr/bin/dpkg")
+	if !rpmExists && !dpkgExists {
 		return true // no package manager available — can't verify
 	}
 

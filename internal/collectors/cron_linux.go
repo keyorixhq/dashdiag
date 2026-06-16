@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -71,9 +70,9 @@ func detectCronDaemon(ctx context.Context, info *models.CronInfo) {
 	info.DaemonName, info.DaemonActive = detectCronDaemonName(systemctlActive, processRunning)
 
 	// Anacron: present if binary exists (doesn't run as a persistent daemon)
-	if _, err := os.Stat("/usr/sbin/anacron"); err == nil {
+	if fileExists("/usr/sbin/anacron") {
 		info.AnacronPresent = true
-	} else if _, err := os.Stat("/usr/bin/anacron"); err == nil {
+	} else if fileExists("/usr/bin/anacron") {
 		info.AnacronPresent = true
 	}
 }
@@ -230,8 +229,8 @@ func parseCrontabFile(path, source string) []models.CronJob {
 
 		// Missing binary (only report first missing binary found)
 		if missingCmd == "" && strings.HasPrefix(cmd, "/") {
-			binary := strings.Fields(cmd)[0] //nolint:gosec // G703: path from the host's own trusted crontab, stat-only existence check (never opened/executed)
-			if _, err := os.Stat(binary); os.IsNotExist(err) {
+			binary := strings.Fields(cmd)[0]
+			if !fileExists(binary) {
 				missingCmd = "command not found: " + binary
 			}
 		}

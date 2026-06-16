@@ -142,8 +142,7 @@ func collectSteamOSDisk() *models.SteamOSDisk {
 }
 
 func dirExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	return fileExists(path)
 }
 
 // collectSteamOSWifi gathers the SteamOS-only Wi-Fi section (Spec 20 + 22B):
@@ -383,7 +382,7 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 		info.FlatpakAppCount = countNonEmptyLines(out)
 	}
 	flatpakData := filepath.Join(home, ".local/share/flatpak")
-	if _, err := os.Stat(flatpakData); err == nil {
+	if fileExists(flatpakData) {
 		info.FlatpakDataGB = duGB(ctx, flatpakData)
 	}
 
@@ -396,7 +395,7 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 // steamUserHome returns the Steam Deck user's home. The default user is "deck";
 // fall back to $HOME when that path is absent (HoloISO/Bazzite use other names).
 func steamUserHome() string {
-	if _, err := os.Stat("/home/deck"); err == nil {
+	if fileExists("/home/deck") {
 		return "/home/deck"
 	}
 	if h := os.Getenv("HOME"); h != "" {

@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -109,7 +108,7 @@ func vmwareToolboxPath() string {
 		return p
 	}
 	for _, p := range []string{"/usr/bin/vmware-toolbox-cmd", "/usr/sbin/vmware-toolbox-cmd"} {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			return p
 		}
 	}
@@ -203,7 +202,7 @@ func vmwareToolsInstalled() bool {
 		return true
 	}
 	for _, p := range []string{"/usr/bin/vmtoolsd", "/usr/sbin/vmtoolsd", "/usr/bin/vmware-toolbox-cmd"} {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			return true
 		}
 	}
@@ -314,8 +313,7 @@ func kernelModulePresent(procModules, name string) bool {
 	if moduleLoaded(procModules, name) {
 		return true
 	}
-	_, err := os.Stat(filepath.Join("/sys/module", name))
-	return err == nil
+	return fileExists(filepath.Join("/sys/module", name))
 }
 
 // readFileTrimmedLocal reads a file and trims whitespace, "" on any error.

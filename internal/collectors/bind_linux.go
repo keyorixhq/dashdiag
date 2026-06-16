@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -94,7 +93,7 @@ func bindConfigPath() string {
 		"/usr/local/etc/named/named.conf", // FreeBSD-style
 	}
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			return p
 		}
 	}
@@ -248,7 +247,7 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 					// Relative paths resolved against /var/named or /etc/bind
 					if !strings.HasPrefix(filePath, "/") {
 						for _, base := range []string{"/var/named", "/etc/bind"} {
-							if _, err := os.Stat(base + "/" + filePath); err == nil {
+							if fileExists(base + "/" + filePath) {
 								filePath = base + "/" + filePath
 								break
 							}

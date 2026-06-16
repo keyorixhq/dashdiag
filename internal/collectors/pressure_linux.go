@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,9 +29,9 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 	// memory CONTROLLER dir, not the PSI file), so on a host with only the cgroup PSI
 	// files every read failed and Pressure reported empty/no-pressure (a false-OK).
 	base, suffix := "/proc/pressure", ""
-	if _, err := os.Stat(base); os.IsNotExist(err) {
+	if !fileExists(base) {
 		base, suffix = "/sys/fs/cgroup", ".pressure"
-		if _, err := os.Stat(base + "/memory.pressure"); os.IsNotExist(err) {
+		if !fileExists(base + "/memory.pressure") {
 			return info, nil
 		}
 	}
@@ -62,10 +61,10 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsPSIAvailable returns true when PSI files are readable.
 func IsPSIAvailable() bool {
-	if _, err := os.Stat("/proc/pressure/memory"); err == nil {
+	if fileExists("/proc/pressure/memory") {
 		return true
 	}
-	if _, err := os.Stat("/sys/fs/cgroup/memory.pressure"); err == nil {
+	if fileExists("/sys/fs/cgroup/memory.pressure") {
 		return true
 	}
 	return false
