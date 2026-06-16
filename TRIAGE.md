@@ -242,5 +242,13 @@ attribute, so this is hardening, not a confirmed-bug fix).
 
 ## Housekeeping
 
+- **pve01 as a hardware-collector T1 testbed** — pve01 (`192.168.10.20`) is
+  bare-metal Debian/PVE but its current T1 only covers PVE *platform* logic, not
+  a verified hardware-collector run. If it has server-class SMART disks / real
+  thermal zones / EDAC (likely), it's a *stronger* SMART/thermal/ECC testbed than
+  the MacBook (row 19) and may be unused in that role because it's filed as "the
+  Proxmox box." Probe its hardware surface (lsblk/smartctl/hwmon/edac/ipmi) when
+  reachable; if it exposes ECC/EDAC or IPMI it would also dent the §B/server-grade
+  roadmap gaps. (Was unreachable 2026-06-16 when first checked.)
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
   duplicated with diverging counts (13 vs 14) — delete the older pair.

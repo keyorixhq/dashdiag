@@ -22,6 +22,29 @@ make release           # cross-compile all platforms
 
 Update `CHANGELOG.md` before tagging.
 
+### Hardware smoke test (real-hardware collectors)
+
+`make test-all` and the JSON check above run on CI / your dev box, where the
+hardware collectors (SMART, thermal, battery) return absent/virtual data — so
+they can't catch a garbage *value* like the `3491877946276%` wear bug (#J), which
+exits 0 and is valid JSON. Run the hardware smoke test against the bare-metal
+testbed (PLATFORM_COVERAGE row 19) to assert those collector outputs are *sane*,
+not just non-crashing:
+
+```bash
+PUSH=1 bash scripts/hardware-smoke.sh     # builds current tree, pushes to .7, asserts
+# or, to test the binary already on the box:
+bash scripts/hardware-smoke.sh
+# override the host:  HW_HOST=root@192.168.10.x bash scripts/hardware-smoke.sh
+```
+
+It checks wear% ∈ [0,100], CPU temp plausible, battery% ∈ [0,100], SMART health
+present — each a range/presence assertion, so garbage and "couldn't measure" both
+fail (they don't pass as OK). **Not a hard CI gate** (the testbed is on the LAN,
+not reachable from GitHub Actions, and may be offline). If the box is down, skip
+it explicitly and note it in the release — don't let a downed testbed silently
+mean "untested hardware paths."
+
 ## Cutting a Release
 
 ```bash

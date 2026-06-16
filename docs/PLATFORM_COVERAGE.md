@@ -43,7 +43,7 @@ Linux distributions (plus macOS) the tool has been run on, by package/init famil
 | 16 | Alpine | independent/musl/OpenRC | v0.6.11 | PVE LXC (CT210) | T2 | `captures/alpine-data/` | captured 2026-06-10; non-systemd |
 | 17 | Amazon Linux 2023 | RHEL-family/dnf | v0.6.11 | real EC2 (t3.micro) | T2 | `captures/amazonlinux2023-data/` | captured 2026-06-10; AWS-native distro, cloud-aware NVMe handling verified; runs clean on both kernel-6.1 (LTS) and kernel-6.18 |
 | 18 | macOS (arm64) | Darwin | v0.6.11 | real hardware (M-series) | **T1** | live run 2026-06-10 | reduced coverage (27 collectors vs 70+); no SMART/IPMI/ZFS |
-| 19 | Ubuntu 24.04 | Debian/apt | dev (`c784f68`) | **real hardware (MacBookAir4,2, Intel i5-2557M Sandy Bridge)** | **T1** | live runs 2026-06-16, host `192.168.10.7` (root `ctr`) | first **x86 bare-metal Linux T1**. Confirmed real: **SATA SMART** (APPLE SSD SM128C, health PASSED, 794 reallocated sectors + wear-leveling 077/017 — aged drive, real wear signal), coretemp thermal (63°C), battery *present* path (BAT0, 92%, Full — first non-absent battery run), ADP1 AC adapter, cpufreq governors, i915 iGPU all-zero-sensor case (closed TRIAGE §F / #c784f68). NOT covered: NVMe (SATA only), ECC/EDAC (consumer), IPMI/BMC. Note: SD-card reader (`sdb`) needs `smartctl -d scsi` (USB-bridge) |
+| 19 | Ubuntu 24.04 | Debian/apt | dev (`c784f68`) | **real hardware (MacBookAir4,2, Intel i5-2557M Sandy Bridge)** | **T1** | live runs 2026-06-16, host `192.168.10.7` (root `ctr`) | first node with the **hardware-collector data paths explicitly captured and verified** (vs pve01, whose T1 covers PVE platform logic, not a verified hardware-collector run). Confirmed real: **SATA SMART attribute parsing** (APPLE SSD SM128C, health PASSED, 794 reallocated sectors + wear-leveling 077/017 — aged drive, real wear signal; exercised the 173 garbage-guard), coretemp thermal under load (60→94°C), battery *present* path (BAT0, 92%, Full — first non-absent battery run), ADP1 AC adapter, cpufreq governors, i915 iGPU all-zero-sensor case (closed TRIAGE §F / #c784f68). NOT covered: NVMe (SATA only), ECC/EDAC (consumer), IPMI/BMC. Note: SD-card reader (`sdb`) needs `smartctl -d scsi` (USB-bridge) |
 
 **Family coverage:** apt/dpkg, rpm/dnf, zypper, pacman, portage — all major Linux
 package managers. Both init systems (systemd + OpenRC via Alpine). Plus Darwin.
@@ -97,8 +97,10 @@ backed by an evidence row above.
 - **17 Linux distributions** (Table 1, rows 1–17) spanning every major family —
   apt/dpkg, rpm/dnf, zypper, pacman, portage — plus both init systems (systemd and
   OpenRC) and macOS. Two **T1 real-hardware** rows: macOS arm64 (row 18) and the first
-  x86 bare-metal Linux — Ubuntu 24.04 on a MacBookAir4,2 (row 19), exercising SATA SMART,
-  coretemp thermal, and the battery-present path that container rows can't reach.
+  node with **hardware-collector paths explicitly verified** — Ubuntu 24.04 on a
+  MacBookAir4,2 (row 19), exercising SATA SMART attribute parsing, coretemp thermal,
+  and the battery-present path that container rows can't reach. (pve01 is also bare
+  metal, but its T1 covers Proxmox platform logic, not a verified hardware-collector run.)
 - **Platform awareness** (Table 2) — Proxmox VE, VMware-guest, SteamOS, AWS EC2
   (including Graviton/arm64), and Azure each have environment-specific detection and
   diagnostics, validated at the depth shown in the Tier column.
