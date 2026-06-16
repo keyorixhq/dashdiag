@@ -37,6 +37,14 @@ func (l Live) ReadDir(dir string) ([]string, error) {
 
 func (l Live) Readlink(path string) (string, error) { return os.Readlink(path) }
 
+func (l Live) Stat(path string) (FileMeta, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return FileMeta{}, err
+	}
+	return FileMeta{Size: fi.Size(), Mode: fi.Mode(), IsDir: fi.IsDir(), ModTime: fi.ModTime()}, nil
+}
+
 func (l Live) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	if l.Exec != nil {
 		return l.Exec(ctx, name, args...)

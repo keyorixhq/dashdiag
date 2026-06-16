@@ -19,8 +19,7 @@ import (
 // IsPVEHost returns true when this machine is a Proxmox VE host.
 // Fast check — just tests for the pvedaemon binary.
 func IsPVEHost() bool {
-	_, err := os.Stat("/usr/bin/pvedaemon")
-	return err == nil
+	return fileExists("/usr/bin/pvedaemon")
 }
 
 // PVECollector checks Proxmox VE host health: subscription, cluster quorum,
@@ -41,7 +40,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.PVEInfo{}
 
 	// Quick Proxmox detection — pvedaemon binary must exist
-	if _, err := os.Stat("/usr/bin/pvedaemon"); err != nil {
+	if !fileExists("/usr/bin/pvedaemon") {
 		return info, nil
 	}
 	info.IsPVE = true
@@ -418,11 +417,11 @@ func scanBackupDumpDirs(dirs []string) map[int]time.Time {
 				if !ok {
 					continue
 				}
-				fi, err := os.Stat(path)
+				fi, err := statFile(path)
 				if err != nil {
 					continue
 				}
-				if mt := fi.ModTime(); mt.After(result[vmid]) {
+				if mt := fi.ModTime; mt.After(result[vmid]) {
 					result[vmid] = mt
 				}
 			}
@@ -495,7 +494,7 @@ func collectPVEBackupAgeFromLogs() int {
 	// Find the most recently modified log file
 	var newest time.Time
 	for _, e := range entries {
-		fi, err := os.Stat(e)
+		fi, err := statFile(e)
 		if err != nil {
 			continue
 		}
@@ -513,8 +512,8 @@ func collectPVEBackupAgeFromLogs() int {
 			}
 		}
 		f.Close() //nolint:errcheck
-		if success && fi.ModTime().After(newest) {
-			newest = fi.ModTime()
+		if success && fi.ModTime.After(newest) {
+			newest = fi.ModTime
 		}
 	}
 	if newest.IsZero() {
@@ -718,7 +717,7 @@ func CollectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
 // collectPVEPerf runs pveperf and parses the results.
 func collectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
 	perf := &models.PVEPerf{Path: path}
-	if _, err := os.Stat("/usr/bin/pveperf"); err != nil {
+	if !fileExists("/usr/bin/pveperf") {
 		return perf // not available
 	}
 	perf.Available = true

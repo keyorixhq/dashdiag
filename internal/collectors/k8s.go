@@ -511,7 +511,7 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	// as "containerd not active".
 	layer.ContainerdActive = k8sUnitActive(ctx, "containerd")
 	if !layer.ContainerdActive {
-		if _, statErr := os.Stat("/run/k3s/containerd/containerd.sock"); statErr == nil {
+		if fileExists("/run/k3s/containerd/containerd.sock") {
 			layer.ContainerdActive = true
 		}
 	}
@@ -527,8 +527,7 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	// Calico/Cilium/Weave nodes /run/flannel/subnet.env never exists, so flagging its
 	// absence as a CRIT was a false alarm on every non-flannel node.
 	layer.FlannelInUse = flannelCNIConfigured()
-	_, statErr := os.Stat("/run/flannel/subnet.env")
-	layer.FlannelSubnetOK = statErr == nil
+	layer.FlannelSubnetOK = fileExists("/run/flannel/subnet.env")
 
 	// CNI binaries — check both the kubeadm path (/opt/cni/bin) and the k3s bundle
 	// (/var/lib/rancher/k3s/data/current/bin); only report "missing" when neither
@@ -610,7 +609,7 @@ func k8sDetectBin() string {
 		{"/usr/bin/microk8s", "microk8s"},
 	}
 	for _, p := range directPaths {
-		if _, err := os.Stat(p.bin); err == nil {
+		if fileExists(p.bin) {
 			if p.bin2 == "k3s" {
 				return p.bin + " kubectl"
 			}

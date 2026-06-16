@@ -46,6 +46,12 @@ func (r *Recorder) Readlink(path string) (string, error) {
 	return target, err
 }
 
+func (r *Recorder) Stat(path string) (FileMeta, error) {
+	meta, err := r.inner.Stat(path)
+	r.b.putStat(path, meta, err)
+	return meta, err
+}
+
 func (r *Recorder) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	res, err := r.inner.Run(ctx, name, args...)
 	r.b.putCmd(name, args, res, err)

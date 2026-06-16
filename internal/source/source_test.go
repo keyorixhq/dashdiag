@@ -63,6 +63,72 @@ func TestRecordReplayRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStatRecordReplayRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "present")
+	if err := os.WriteFile(present, []byte("0123456789"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	subdir := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing")
+
+	rec := NewRecorder(Live{})
+	fm, err := rec.Stat(present)
+	if err != nil {
+		t.Fatalf("stat present: %v", err)
+	}
+	if fm.Size != 10 || fm.IsDir {
+		t.Fatalf("present meta = %+v, want size 10, not dir", fm)
+	}
+	if _, err := rec.Stat(subdir); err != nil {
+		t.Fatalf("stat subdir: %v", err)
+	}
+	if _, err := rec.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing stat should be ErrNotExist, got %v", err)
+	}
+
+	// Replay must serve the recorded outcomes without touching the live FS.
+	rp := NewReplay(rec.Bundle())
+	got, err := rp.Stat(present)
+	if err != nil {
+		t.Fatalf("replay stat present: %v", err)
+	}
+	if got.Size != 10 || got.IsDir || got.ModTime != fm.ModTime {
+		t.Fatalf("replay present meta = %+v, want %+v", got, fm)
+	}
+	if d, _ := rp.Stat(subdir); !d.IsDir {
+		t.Fatalf("replay subdir IsDir = false, want true")
+	}
+	if _, err := rp.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replay missing should be ErrNotExist, got %v", err)
+	}
+	// A path never stat'd at capture must be a loud recording gap, NOT a
+	// fall-through to the replaying machine's own filesystem.
+	if _, err := rp.Stat(filepath.Join(dir, "never-touched")); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unrecorded stat should be ErrNotRecorded, got %v", err)
+	}
+
+	// And the records survive a Save/Load round-trip.
+	out := t.TempDir()
+	if err := rec.Bundle().Save(out); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	b2, err := Load(out)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	rp2 := NewReplay(b2)
+	if got, _ := rp2.Stat(present); got.Size != 10 {
+		t.Fatalf("loaded stat size = %d, want 10", got.Size)
+	}
+	if _, err := rp2.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("loaded missing should be ErrNotExist, got %v", err)
+	}
+}
+
 func TestSaveLoad(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "f")
 	_ = os.WriteFile(src, []byte("Tctl 45000\n"), 0o644)

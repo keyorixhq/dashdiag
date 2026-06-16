@@ -43,6 +43,16 @@ type linkRec struct {
 	errText    string
 }
 
+// statRec is a recorded os.Stat: the metadata on success, or a recorded error
+// (absent / unreadable) so an existence/size/mode gate replays the live outcome
+// instead of probing the replaying machine's own filesystem.
+type statRec struct {
+	meta       FileMeta
+	notExist   bool
+	permission bool
+	errText    string
+}
+
 // Bundle is the in-memory, persistable record of every system input touched
 // during a capture. Safe for concurrent use — collectors run in parallel.
 type Bundle struct {
@@ -54,6 +64,7 @@ type Bundle struct {
 	dirs  map[string][]string
 	cmds  map[string]cmdRec
 	links map[string]linkRec
+	stats map[string]statRec
 }
 
 // NewBundle returns an empty bundle stamped with the current format version.
@@ -65,6 +76,7 @@ func NewBundle() *Bundle {
 		dirs:     map[string][]string{},
 		cmds:     map[string]cmdRec{},
 		links:    map[string]linkRec{},
+		stats:    map[string]statRec{},
 	}
 }
 
@@ -166,6 +178,31 @@ func (b *Bundle) putLink(path, target string, err error) {
 func (b *Bundle) getLink(path string) (linkRec, bool) {
 	b.mu.RLock()
 	rec, ok := b.links[cleanPath(path)]
+	b.mu.RUnlock()
+	return rec, ok
+}
+
+func (b *Bundle) putStat(path string, meta FileMeta, err error) {
+	rec := statRec{}
+	switch {
+	case err == nil:
+		rec.meta = meta
+	case errors.Is(err, fs.ErrNotExist):
+		rec.notExist = true
+	case errors.Is(err, fs.ErrPermission):
+		rec.permission = true
+		rec.errText = err.Error()
+	default:
+		rec.errText = err.Error()
+	}
+	b.mu.Lock()
+	b.stats[cleanPath(path)] = rec
+	b.mu.Unlock()
+}
+
+func (b *Bundle) getStat(path string) (statRec, bool) {
+	b.mu.RLock()
+	rec, ok := b.stats[cleanPath(path)]
 	b.mu.RUnlock()
 	return rec, ok
 }

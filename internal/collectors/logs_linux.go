@@ -423,7 +423,7 @@ func checkJournalHealth(ctx context.Context, info *models.LogsInfo, profile plat
 	// 1. Journal integrity — only verify archived (*.journal~) files, not active
 	//    ones. journalctl --verify races with active writers and produces false
 	//    corruption reports on healthy live journals (systemd issue #35916).
-	if _, err := os.Stat(journalVarPath); err == nil {
+	if fileExists(journalVarPath) {
 		if hasCorruptArchived(journalVarPath) {
 			info.JournalCorrupt = true
 		}
@@ -542,7 +542,7 @@ func parseSystemdTime(s string) int {
 func logDiskUsage() (mount string, usedPct float64) {
 	// Prefer the actual journal directory
 	target := journalVarPath
-	if _, err := os.Stat(target); err != nil {
+	if !fileExists(target) {
 		target = "/var/log"
 	}
 
@@ -586,7 +586,7 @@ func findMountPoint(path string) string {
 // detectVolatileJournal returns true if journal logs will be lost on reboot.
 func detectVolatileJournal() bool {
 	// If /var/log/journal/ exists, journald will persist regardless of config.
-	if _, err := os.Stat(journalVarPath); err == nil {
+	if fileExists(journalVarPath) {
 		return false
 	}
 	// /var/log/journal/ missing — check config to see if persistence is explicitly set.
@@ -627,7 +627,7 @@ func detectNoTextFallback(profile platform.Profile) bool {
 	}
 	// If a text syslog file exists, there is a fallback.
 	for _, f := range []string{"/var/log/syslog", "/var/log/messages", "/var/log/auth.log"} {
-		if _, err := os.Stat(f); err == nil {
+		if fileExists(f) {
 			return false
 		}
 	}
@@ -946,10 +946,7 @@ func collectCrashFiles(info *models.LogsInfo) {
 // detectLogSource identifies what log infrastructure is active.
 // Returns "journald", "journald+syslog", or "syslog".
 func detectLogSource(profile platform.Profile) string {
-	hasJournald := false
-	if _, err := os.Stat("/run/systemd/journal/socket"); err == nil {
-		hasJournald = true
-	}
+	hasJournald := fileExists("/run/systemd/journal/socket")
 	// NixOS and SteamOS are journald-only — skip the text-syslog probe entirely.
 	if profile.Distro == "nixos" || profile.Distro == "steamos" {
 		if hasJournald {
@@ -960,7 +957,7 @@ func detectLogSource(profile platform.Profile) string {
 	// Check for syslog text files (common co-existence on Ubuntu/RHEL)
 	hasSyslog := false
 	for _, p := range []string{"/var/log/syslog", "/var/log/messages"} {
-		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+		if fi, err := statFile(p); err == nil && fi.Size > 0 {
 			hasSyslog = true
 			break
 		}
@@ -1014,7 +1011,7 @@ func collectVarLogErrors(info *models.LogsInfo) {
 func collectVarLogErrorsFrom(info *models.LogsInfo, candidates []string) {
 	path, source := "", ""
 	for _, p := range candidates {
-		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+		if fi, err := statFile(p); err == nil && fi.Size > 0 {
 			path = p
 			source = filepath.Base(p) // "syslog" or "messages"
 			break

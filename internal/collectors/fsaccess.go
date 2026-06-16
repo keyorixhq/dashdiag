@@ -9,10 +9,13 @@ package collectors
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"io/fs"
 	"path/filepath"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // readFile returns the contents of path via the active source.
@@ -39,6 +42,24 @@ func readDirNames(dir string) ([]string, error) { return activeSource.ReadDir(di
 // readLink returns the target of the symlink at path via the active source, so
 // capture/replay reproduces it instead of os.Readlink hitting the live machine.
 func readLink(path string) (string, error) { return activeSource.Readlink(path) }
+
+// statFile returns metadata for path via the active source (os.Stat semantics),
+// so an existence / size / mode / is-dir gate replays from the capture instead of
+// os.Stat hitting the replaying machine. Use this as a drop-in for os.Stat.
+func statFile(path string) (source.FileMeta, error) { return activeSource.Stat(path) }
+
+// fileExists reports whether path exists, routed through the active source. Use
+// this as a drop-in for the common `if _, err := os.Stat(p); err == nil` gate so
+// the existence check is recorded and replayed rather than probing the live
+// machine. A permission error counts as "exists" (present but unreadable), which
+// matches os.Stat returning a non-os.IsNotExist error for that case.
+func fileExists(path string) bool {
+	_, err := statFile(path)
+	if err == nil {
+		return true
+	}
+	return errors.Is(err, fs.ErrPermission)
+}
 
 // readDirEntries returns a synthetic []fs.DirEntry for dir via the active
 // source. IsDir() is derived by probing whether dir/name has children in the

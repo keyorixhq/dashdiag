@@ -18,8 +18,10 @@ package source
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FormatVersion is written into every bundle manifest. A newer bundle is refused
@@ -35,6 +37,19 @@ type Result struct {
 	ExitCode int
 }
 
+// FileMeta is the subset of os.FileInfo a collector actually consults when it
+// stats a path: whether it exists (carried by a nil error), its size, mode bits,
+// and whether it is a directory. That is everything the gate / size / mode / dir
+// checks in the collectors need, and it serialises trivially into a bundle so a
+// `os.Stat`-style existence gate replays from the capture instead of probing the
+// developer's own machine.
+type FileMeta struct {
+	Size    int64       `json:"size"`
+	Mode    os.FileMode `json:"mode"`
+	IsDir   bool        `json:"is_dir"`
+	ModTime time.Time   `json:"mod_time"`
+}
+
 // Source is the read-only system-input surface a collector depends on.
 type Source interface {
 	// ReadFile returns the contents of path. A non-existent path returns an
@@ -47,6 +62,10 @@ type Source interface {
 	// Readlink returns the target of the symlink at path (os.Readlink semantics).
 	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist).
 	Readlink(path string) (string, error)
+	// Stat returns metadata for path with os.Stat semantics (symlinks followed).
+	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist);
+	// a present-but-unreadable path returns one satisfying errors.Is(err, os.ErrPermission).
+	Stat(path string) (FileMeta, error)
 	// Run executes name with args and returns its captured Result. The error is
 	// non-nil only for an execution failure (tool absent, context cancelled),
 	// NOT for a non-zero exit — inspect Result.ExitCode for that.
