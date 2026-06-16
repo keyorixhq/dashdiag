@@ -2,9 +2,9 @@ package analysis
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -84,10 +84,12 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 }
 
 // isSteamOSHost reports whether the host is SteamOS / a Steam Deck by reading
-// /etc/os-release directly. This is a cheap probe (single file read) suited to
-// the analysis path; the full platform.Profile is not threaded through here.
+// /etc/os-release. This is a cheap probe (single file read) suited to the analysis
+// path; the full platform.Profile is not threaded through here. Routed through the
+// active source so capture/replay reproduces it instead of reading the replaying
+// machine's /etc/os-release (which would mis-detect SteamOS on replay).
 func isSteamOSHost() bool {
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := collectors.ReadFileViaSource("/etc/os-release")
 	if err != nil {
 		return false
 	}
