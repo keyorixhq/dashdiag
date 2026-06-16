@@ -68,8 +68,11 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	// Load-aware idle thermal check:
 	// High temp at low CPU load suggests poor cooling (dried paste, blocked vents)
 	// rather than normal workload heat. Only warn if we actually have load data.
-	// Threshold: >60°C when CPU is under 20% load.
-	if thresh.CPULoadPct > 0 && t.CPUTempC >= 60 && thresh.CPULoadPct < 20 {
+	// Threshold: ≥75°C when CPU is under 20% load. The floor was raised from 60°C
+	// because 60–74°C at idle is normal for a large class of real hardware —
+	// mini-PCs/NUCs, laptops, and high-TDP desktop chips (Ryzen, etc.) routinely
+	// idle there with healthy cooling. Only ≥75°C at idle is genuinely suspect.
+	if thresh.CPULoadPct > 0 && t.CPUTempC >= 75 && thresh.CPULoadPct < 20 {
 		return []models.Insight{insight("WARN", "CPU Thermal",
 			fmt.Sprintf("CPU temperature %g°C at %.0f%% load — elevated for low CPU activity, possible cooling issue",
 				t.CPUTempC, thresh.CPULoadPct),

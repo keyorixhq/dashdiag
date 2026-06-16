@@ -403,8 +403,11 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			out = append(out, insight("WARN", "KernelSec",
 				fmt.Sprintf("%d AppArmor profile(s) in complain mode — not enforcing", mac.AppArmorComplain),
 				[]string{
-					"to inspect: aa-status",
-					"to enforce: aa-enforce /etc/apparmor.d/*",
+					"to inspect: aa-status --complaining",
+					// Deliberately NOT 'aa-enforce /etc/apparmor.d/*' — some profiles
+					// ship in complain mode by distro default; blanket-enforcing all of
+					// them can break working apps. Enforce specific profiles after review.
+					"to enforce a profile after review: aa-enforce /etc/apparmor.d/<profile>",
 				},
 			))
 		}
