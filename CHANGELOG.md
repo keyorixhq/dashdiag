@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-06-16
+
+### Fixed
+
+- **Tool-presence checks are now hermetic under `dsd replay`.** `exec.LookPath`
+  ("is tool X installed") gates read the *replaying* machine's `$PATH`, not the
+  captured bundle — so a captured host's tool-dependent findings (e.g. open-vm-tools,
+  package managers, container runtimes) wouldn't reproduce on replay. Routed all 34
+  gates across 19 collectors through the capture/replay Source layer. Found by
+  validating the VMware collector on a real guest. (#354)
+- **Stable, diffable JSON output.** `dsd health --json`, `dsd capture`, and
+  `dsd replay` now emit `checks[]` (by name) and `insights[]` (worst-first, then
+  alphabetical) in a deterministic order — they were shuffled run-to-run by
+  collector scheduling, making captured artifacts noisy to diff. Completes the
+  output-ordering work begun in 1.0.2 (#348). (#355)
+
+This completes the replay-hermeticity work: `dsd replay` is now faithful for the
+entire default `dsd health` capture path, and capture artifacts are byte-stable.
+
 ## [1.0.2] - 2026-06-16
 
 ### Fixed
