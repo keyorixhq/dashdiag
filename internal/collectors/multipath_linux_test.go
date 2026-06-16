@@ -39,6 +39,23 @@ sdb active LIO-ORG,disk0,4.0 mpatha
 sdc active LIO-ORG,disk0,4.0 mpatha
 `
 
+// multipathShowOrphan is VERBATIM `multipathd show paths format "%d %t %s %m"`
+// from a real host (MacBookAir4,2, Ubuntu) with multipath-tools installed but NO
+// multipath maps. sda is an [orphan] (not multipathed), and its vend/prod/rev
+// "ATA,APPLE SSD SM128C" contains SPACES. The old fields[3] map parse read "SSD"
+// and the orphan became a phantom "all paths failed" device → false CRIT.
+const multipathShowOrphan = `dev dm_st vend/prod/rev        multipath
+sda undef ATA,APPLE SSD SM128C [orphan]
+`
+
+// multipathShowSpacedVendor is a real multipath device whose vend/prod/rev has a
+// SPACE ("ATA,Samsung SSD 870"). The map name must still be read from the last
+// field, not fields[3].
+const multipathShowSpacedVendor = `dev dm_st vend/prod/rev multipath
+sdb active ATA,Samsung SSD 870 mpatha
+sdc active ATA,Samsung SSD 870 mpatha
+`
+
 func findDevice(devices []models.MultipathDevice, dm string) *models.MultipathDevice {
 	for i := range devices {
 		if devices[i].DM == dm {
@@ -78,6 +95,28 @@ func TestParseMultipathShow(t *testing.T) {
 		}
 		if dm0.State != "degraded" {
 			t.Errorf("dm-0 state = %q, want degraded", dm0.State)
+		}
+	})
+
+	t.Run("orphan path is not a multipath device", func(t *testing.T) {
+		// Real MacBookAir4,2 output: multipath-tools installed, no SAN. The [orphan]
+		// sda must yield ZERO devices, not a phantom "all paths failed" CRIT.
+		devices := parseMultipathShow(multipathShowOrphan)
+		if len(devices) != 0 {
+			t.Fatalf("orphan path produced %d device(s), want 0: %+v", len(devices), devices)
+		}
+	})
+
+	t.Run("spaced vendor still maps to last field", func(t *testing.T) {
+		devices := parseMultipathShow(multipathShowSpacedVendor)
+		if len(devices) != 1 {
+			t.Fatalf("devices = %d, want 1", len(devices))
+		}
+		if devices[0].DM != "mpatha" {
+			t.Errorf("map = %q, want mpatha (vend/prod/rev spaces must not shift it)", devices[0].DM)
+		}
+		if devices[0].ActivePaths != 2 || devices[0].FailedPaths != 0 {
+			t.Errorf("paths active/failed = %d/%d, want 2/0", devices[0].ActivePaths, devices[0].FailedPaths)
 		}
 	})
 
