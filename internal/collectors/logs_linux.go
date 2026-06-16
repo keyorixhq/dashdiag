@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -801,12 +802,15 @@ func topMessages(counts map[string]int, n int) []string {
 	for k, v := range counts {
 		sorted = append(sorted, kv{k, v})
 	}
-	// Simple insertion sort — message map is small
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && sorted[j].count > sorted[j-1].count; j-- {
-			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+	// Sort by count desc, then key asc. The key tiebreaker is essential: counts is a
+	// map, so without it ties keep random iteration order and the top-N selection is
+	// non-deterministic (TRIAGE §I — caught by the replay hermeticity guard).
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].count != sorted[j].count {
+			return sorted[i].count > sorted[j].count
 		}
-	}
+		return sorted[i].key < sorted[j].key
+	})
 	var result []string
 	for i := 0; i < len(sorted) && i < n; i++ {
 		if sorted[i].count > 1 {
