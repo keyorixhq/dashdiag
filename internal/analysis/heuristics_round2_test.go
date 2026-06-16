@@ -90,6 +90,34 @@ func TestCheckThermal(t *testing.T) {
 	}
 }
 
+// TestCheckThermalLowLoad pins the load-aware idle thermal branch. 60–74°C at low
+// load is normal for mini-PCs/laptops/high-TDP chips and must NOT warn (was a
+// false-alarm at the old 60°C floor); ≥75°C at idle stays a genuine cooling WARN.
+func TestCheckThermalLowLoad(t *testing.T) {
+	lowLoad := func(pct float64) Thresholds {
+		th := defaultThresh
+		th.CPULoadPct = pct
+		return th
+	}
+	tests := []struct {
+		name   string
+		th     models.ThermalInfo
+		thresh Thresholds
+		want   string
+	}{
+		{"66C at 8% load is clean (normal idle)", models.ThermalInfo{CPUTempC: 66, Source: "hwmon"}, lowLoad(8), ""},
+		{"74C at 8% load is still clean", models.ThermalInfo{CPUTempC: 74, Source: "hwmon"}, lowLoad(8), ""},
+		{"78C at 8% load is WARN (hot at idle)", models.ThermalInfo{CPUTempC: 78, Source: "hwmon"}, lowLoad(8), "WARN"},
+		{"78C at 50% load is clean (not idle)", models.ThermalInfo{CPUTempC: 78, Source: "hwmon"}, lowLoad(50), ""},
+		{"no load data does not fire idle branch", models.ThermalInfo{CPUTempC: 78, Source: "hwmon"}, lowLoad(0), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertLevel(t, checkThermal(tt.th, tt.thresh), tt.want)
+		})
+	}
+}
+
 // ── entropy starvation ────────────────────────────────────────────────────────
 
 func TestCheckEntropy(t *testing.T) {
