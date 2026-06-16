@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +94,9 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 				_ = hasLinux // will stay false
 			}
 		}
+		// mounts is built by ranging a map, so sort for deterministic output
+		// (stable JSON across runs/replays — TRIAGE Section I).
+		sort.Strings(mounts)
 		// Unmounted NVMe on dual-boot → likely Windows
 		if len(mounts) == 0 && !hasLinux && isNVMe {
 			mounts = append(mounts, "not mounted (Windows/other OS)")
