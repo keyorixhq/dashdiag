@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ func rabbitmqRun(ctx context.Context, cli string, args ...string) (string, error
 // installed (so a non-RabbitMQ AMQP broker on 5672 isn't mislabelled).
 func rabbitmqCLI() string {
 	for _, bin := range []string{"rabbitmq-diagnostics", "rabbitmqctl"} {
-		if _, err := exec.LookPath(bin); err == nil {
+		if _, err := lookPath(bin); err == nil {
 			return bin
 		}
 	}

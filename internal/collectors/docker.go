@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
@@ -845,7 +844,7 @@ func dockerInstalled() bool {
 // podmanInstalled returns true if the podman binary is present on PATH.
 // Used to scan quadlets even when the Podman API socket is inactive.
 func podmanInstalled() bool {
-	_, err := exec.LookPath("podman")
+	_, err := lookPath("podman")
 	return err == nil
 }
 

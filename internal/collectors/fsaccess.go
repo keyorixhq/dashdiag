@@ -13,11 +13,32 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// lookPath reports the resolved path of a tool on $PATH, routed through the active
+// source so a "is tool X installed" gate replays from the capture instead of
+// reading the replaying machine's $PATH. Drop-in for exec.LookPath: a tool absent
+// at capture replays as an error (gate false); a tool present replays its recorded
+// path. On a recording gap (older bundle) it returns an error (don't claim a tool
+// we never observed). Keyed by tool name.
+func lookPath(name string) (string, error) {
+	data, err := activeSource.Cached("lookpath/"+name, func() ([]byte, error) {
+		p, e := exec.LookPath(name)
+		if e != nil {
+			return nil, e
+		}
+		return []byte(p), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
 
 // cachedJSON makes a computed value (e.g. a gopsutil call that reads /proc via its
 // own API, bypassing the file wrappers) hermetic under capture/replay. compute is

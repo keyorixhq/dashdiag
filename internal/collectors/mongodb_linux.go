@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 // mislabelled).
 func mongoCLI() string {
 	for _, bin := range []string{"mongosh", "mongo"} {
-		if _, err := exec.LookPath(bin); err == nil {
+		if _, err := lookPath(bin); err == nil {
 			return bin
 		}
 	}

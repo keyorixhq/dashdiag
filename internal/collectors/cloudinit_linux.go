@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +28,7 @@ func (c *CloudInitCollector) Timeout() time.Duration { return 5 * time.Second }
 // PATH or the runtime status file exists (covers minimal images where the CLI is
 // pruned but the datasource still ran).
 func CloudInitAvailable() bool {
-	if _, err := exec.LookPath("cloud-init"); err == nil {
+	if _, err := lookPath("cloud-init"); err == nil {
 		return true
 	}
 	if fileExists("/run/cloud-init/status.json") {

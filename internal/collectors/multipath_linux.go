@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -56,7 +55,7 @@ func (c *MultipathCollector) Collect(ctx context.Context) (interface{}, error) {
 // IsMultipathPresent returns true when multipathd is running.
 func IsMultipathPresent() bool {
 	// Check if multipathd socket exists or process is running
-	if _, err := exec.LookPath("multipathd"); err != nil {
+	if _, err := lookPath("multipathd"); err != nil {
 		return false
 	}
 	// Verify it's actually running (multipathd show paths fails if daemon is stopped)

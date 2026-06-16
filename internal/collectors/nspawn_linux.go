@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -21,7 +20,7 @@ func (c *NspawnCollector) Timeout() time.Duration { return 4 * time.Second }
 func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NspawnInfo{}
 
-	if _, err := exec.LookPath("machinectl"); err != nil {
+	if _, err := lookPath("machinectl"); err != nil {
 		return info, nil
 	}
 
@@ -58,7 +57,7 @@ func countFailedNspawnUnits(ctx context.Context) int {
 
 // IsNspawnPresent returns true when machinectl is available.
 func IsNspawnPresent() bool {
-	_, err := exec.LookPath("machinectl")
+	_, err := lookPath("machinectl")
 	return err == nil
 }
 

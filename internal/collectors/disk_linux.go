@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -189,7 +188,7 @@ func collectSMART(devName string) *models.SMARTInfo {
 	s := &models.SMARTInfo{Device: devPath}
 
 	// Check if smartctl is available
-	if _, err := exec.LookPath("smartctl"); err != nil {
+	if _, err := lookPath("smartctl"); err != nil {
 		s.Error = "smartctl not installed"
 		return s
 	}
@@ -366,7 +365,7 @@ func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, 
 // zfsGate returns true when ZFS is active on this system:
 // zpool binary exists AND at least one zfs mount in /proc/mounts.
 func zfsGate() bool {
-	if _, err := exec.LookPath("zpool"); err != nil {
+	if _, err := lookPath("zpool"); err != nil {
 		return false
 	}
 	data, err := readFile("/proc/mounts") // #nosec G304

@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -75,7 +74,7 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 
 // hasCmd returns true when the given command is in PATH.
 func hasCmd(name string) bool {
-	_, err := exec.LookPath(name)
+	_, err := lookPath(name)
 	return err == nil
 }
 
@@ -299,7 +298,7 @@ func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "apt"}
 
 	// Try apt-get changelog approach or debsecan if available
-	if _, err := exec.LookPath("debsecan"); err == nil {
+	if _, err := lookPath("debsecan"); err == nil {
 		return checkCVEDebsecan(ctx, cveID, result)
 	}
 
@@ -375,16 +374,16 @@ func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second) // 120s: list + CVE enrichment both need time
 	defer cancel()
 
-	if _, err := exec.LookPath("zypper"); err == nil {
+	if _, err := lookPath("zypper"); err == nil {
 		return scanAllZypper(ctx)
 	}
-	if _, err := exec.LookPath("dnf"); err == nil {
+	if _, err := lookPath("dnf"); err == nil {
 		return scanAllDNF(ctx)
 	}
-	if _, err := exec.LookPath("apt-get"); err == nil {
+	if _, err := lookPath("apt-get"); err == nil {
 		return scanAllApt(ctx)
 	}
-	if _, err := exec.LookPath("pacman"); err == nil {
+	if _, err := lookPath("pacman"); err == nil {
 		return scanAllPacman(ctx)
 	}
 	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
