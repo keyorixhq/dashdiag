@@ -646,9 +646,10 @@ func printNetBonds(info *models.NetworkInfo) {
 	}
 }
 
-// isUSBSlave checks if a network interface is USB-based via sysfs.
+// isUSBSlave checks if a network interface is USB-based via sysfs. Routed through
+// the active source so capture/replay reproduces it instead of hitting live sysfs.
 func isUSBSlave(iface string) bool {
-	link, err := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
+	link, err := collectors.ReadlinkViaSource(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
 	if err != nil {
 		return false
 	}
