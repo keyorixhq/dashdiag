@@ -82,6 +82,20 @@ These found BUG-040–052; re-run after any collector/heuristic change:
    reported as current. Ask "where else?" — BUG-047/049 hid one file away.
 3. **Sibling divergence diff** — same fact, two code paths, two verdicts
    (BUG-050 `cmd/disk.go` vs health thresholds). Diff cmd/* against analysis/.
+4. **Zero-vs-unreported ambiguity** — a numeric `0` for "attribute/sensor not
+   exposed" renders identically to a measured `0`. Distinct from the false-OK
+   sweep (#1): here the *verdict* is usually correct, but the displayed/JSON
+   value is ambiguous. Lineage: the GPU all-zero false-OK (§F, #c784f68) was the
+   verdict-breaking end of this; the cosmetic end is benign-but-misleading.
+   Observed 2026-06-16 on pve01 (row 20): the LiteOn SSD exposes no SMART attr
+   194/9, so `dsd hardware --json` shows `temp_c:0, power_on_h:0` — accurate
+   ("not reported"), verdict correct (`SMART: PASSED` is driven by the health
+   bit, not the zeros), but a consumer can't tell 0 from unsupported. **Not a bug
+   to blind-fix:** the honest representation (null / a `supported` flag / omit)
+   changes the `--json` shape, which is the **frozen 1.0 contract** — needs a
+   deliberate schema decision, not a patch. Audit scope when picked up: temp_c,
+   power_on_h, wear_pct, reallocated/pending across drives; CPU/GPU temps; any
+   sensor field that can legitimately be absent. Low priority.
 
 ---
 
@@ -267,13 +281,13 @@ attribute, so this is hardening, not a confirmed-bug fix).
 
 ## Housekeeping
 
-- **pve01 as a hardware-collector T1 testbed** — pve01 (`192.168.10.20`) is
-  bare-metal Debian/PVE but its current T1 only covers PVE *platform* logic, not
-  a verified hardware-collector run. If it has server-class SMART disks / real
-  thermal zones / EDAC (likely), it's a *stronger* SMART/thermal/ECC testbed than
-  the MacBook (row 19) and may be unused in that role because it's filed as "the
-  Proxmox box." Probe its hardware surface (lsblk/smartctl/hwmon/edac/ipmi) when
-  reachable; if it exposes ECC/EDAC or IPMI it would also dent the §B/server-grade
-  roadmap gaps. (Was unreachable 2026-06-16 when first checked.)
+- **pve01 hardware-collector T1** — ✅ done 2026-06-16: HP ProDesk 600 G2 SFF
+  (i7-6700 Skylake), PLATFORM_COVERAGE row 20. Fresh current-`main` dsd deployed
+  and validated (hardware-smoke 6 pass / 1 skip). Confirmed the real **WD 1.8TB
+  rotational HDD** SMART reads correctly on current code (temp 51°C, 36563h, attrs
+  9/194) and types as HDD; SSD/HDD discrimination verified in `dsd disk`; verdicts
+  sound. No defects found — the SSD temp=0/power-on=0 is accurate "not reported"
+  (drive exposes no such attrs), logged as cosmetic under §E.4. No ECC/EDAC or
+  IPMI (consumer SFF), so §B/server-grade gaps remain open.
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
   duplicated with diverging counts (13 vs 14) — delete the older pair.
