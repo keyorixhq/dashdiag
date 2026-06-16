@@ -2,37 +2,24 @@
 
 package collectors
 
-// netaccess_linux.go — local-service probe helpers routed through the active
-// source. Service collectors gate on a TCP/unix reachability check and then read
-// the service over HTTP or a socket; both are live network ops that bypass the
-// file/command wrappers, so `dsd replay` would re-probe the replaying machine.
-// These helpers record the probe outcome on capture and serve it on replay.
+// netaccess_linux.go — Linux-only service-probe helpers routed through the active
+// source. Service collectors gate on a reachability check (dialReachable, in the
+// cross-platform netaccess.go) and then read the service over HTTP; that HTTP read
+// is a live op that bypasses the file/command wrappers, so these helpers record it
+// on capture and serve it on replay.
 
 import (
 	"context"
 	"crypto/tls"
 	"io"
-	"net"
 	"net/http"
 	"time"
 )
 
-// dialReachable reports whether addr accepts a connection, routed through the
-// source cache so a "service is up" gate replays from the bundle instead of
-// dialing the replaying machine. The probe never errors — unreachable is recorded
-// as a "0", so replay reproduces the capture-time reachability rather than
-// defaulting to a live dial. On a recording gap (older bundle) it returns false
-// (don't claim a service we never observed).
+// dialReachable reports whether addr accepts a connection (the common gate),
+// routed through the source cache. See dialOutcome.
 func dialReachable(network, addr string, timeout time.Duration) bool {
-	data, _ := activeSource.Cached("dial/"+network+"/"+addr, func() ([]byte, error) {
-		conn, derr := net.DialTimeout(network, addr, timeout)
-		if derr != nil {
-			return []byte{'0'}, nil
-		}
-		_ = conn.Close()
-		return []byte{'1'}, nil
-	})
-	return len(data) == 1 && data[0] == '1'
+	return dialOutcome(network, addr, timeout) == dialOK
 }
 
 // httpGetResult is the cached form of an HTTP GET: response body + status code.

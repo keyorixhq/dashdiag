@@ -189,13 +189,19 @@ func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
 	}
 
 	// Steam CDN DNS resolve time (slow DNS is the usual "slow downloads" cause).
-	dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	start := time.Now()
-	if _, err := net.DefaultResolver.LookupHost(dnsCtx, "steamdeck-images.steamos.cloud"); err == nil {
-		w.CDNDNSKnown = true
-		w.CDNDNSms = int(time.Since(start).Milliseconds())
-	}
+	// Cached so the live DNS lookup replays from the bundle.
+	var cdn steamProbeResult
+	_ = cachedJSON("steamos/cdn-dns", func() (any, error) {
+		dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		start := time.Now()
+		if _, err := net.DefaultResolver.LookupHost(dnsCtx, "steamdeck-images.steamos.cloud"); err == nil {
+			return steamProbeResult{OK: true, Ms: int(time.Since(start).Milliseconds())}, nil
+		}
+		return steamProbeResult{}, nil
+	}, &cdn)
+	w.CDNDNSKnown = cdn.OK
+	w.CDNDNSms = cdn.Ms
 	return w
 }
 
@@ -342,15 +348,26 @@ func (c *SteamOSCollector) collectNetwork(_ context.Context, info *models.SteamO
 	// single authoritative home. Here we only check the atomic-update server,
 	// which is SteamOS-specific and distinct from net's download-CDN DNS check.
 	info.UpdateServerKnown = true
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", steamdeckUpdateHost, 2*time.Second)
-	if err != nil {
-		info.UpdateServerReachable = false
-		return
-	}
-	_ = conn.Close()
-	info.UpdateServerReachable = true
-	info.UpdateServerLatencyMs = int(time.Since(start).Milliseconds())
+	// Cached so the live dial replays from the bundle.
+	var up steamProbeResult
+	_ = cachedJSON("steamos/update-server", func() (any, error) {
+		start := time.Now()
+		conn, err := net.DialTimeout("tcp", steamdeckUpdateHost, 2*time.Second)
+		if err != nil {
+			return steamProbeResult{}, nil
+		}
+		_ = conn.Close()
+		return steamProbeResult{OK: true, Ms: int(time.Since(start).Milliseconds())}, nil
+	}, &up)
+	info.UpdateServerReachable = up.OK
+	info.UpdateServerLatencyMs = up.Ms
+}
+
+// steamProbeResult is the cached form of a SteamOS network probe: reachable/
+// resolved plus its latency in ms.
+type steamProbeResult struct {
+	OK bool `json:"ok"`
+	Ms int  `json:"ms"`
 }
 
 // ── Deep ───────────────────────────────────────────────────────────────────

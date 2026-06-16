@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,9 +43,7 @@ func RabbitMQAvailable() bool {
 	// RabbitMQ commonly binds the IPv6 wildcard ([::]), so try both loopback
 	// families — an IPv4-only probe misses an IPv6-listening broker.
 	for _, addr := range []string{"127.0.0.1:5672", "[::1]:5672"} {
-		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return true
 		}
 	}

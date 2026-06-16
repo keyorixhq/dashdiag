@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"time"
 
@@ -24,11 +23,9 @@ func promHTTPGet(ctx context.Context, url string) ([]byte, int, error) {
 // version. It confirms identity via /api/v1/status/buildinfo (a Prometheus-specific
 // endpoint) so a different service on 9090 isn't mislabelled.
 func detectPrometheus(ctx context.Context) (base, version string) {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:9090", 300*time.Millisecond)
-	if err != nil {
+	if !dialReachable("tcp", "127.0.0.1:9090", 300*time.Millisecond) {
 		return "", ""
 	}
-	conn.Close() //nolint:errcheck
 
 	for _, b := range []string{"http://127.0.0.1:9090", "https://127.0.0.1:9090"} {
 		body, code, err := promHTTPGet(ctx, b+"/api/v1/status/buildinfo")

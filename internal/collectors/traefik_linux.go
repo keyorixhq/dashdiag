@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"time"
 
@@ -38,11 +37,9 @@ var traefikPorts = []string{"8080", "80"}
 // shape, so a different service on 8080 isn't mislabelled.
 func detectTraefik(ctx context.Context) (base string, ov *traefikOverview) {
 	for _, port := range traefikPorts {
-		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 200*time.Millisecond)
-		if err != nil {
+		if !dialReachable("tcp", "127.0.0.1:"+port, 200*time.Millisecond) {
 			continue
 		}
-		conn.Close() //nolint:errcheck
 		for _, scheme := range []string{"http://", "https://"} {
 			b := scheme + "127.0.0.1:" + port
 			body, code, err := promHTTPGet(ctx, b+"/api/overview")

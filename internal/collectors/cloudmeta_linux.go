@@ -34,7 +34,24 @@ func (c *CloudMetaCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
+// imdsGet caches imdsGetLive through the source so cloud metadata replays from the
+// bundle instead of re-querying the live IMDS endpoint (which is absent/different on
+// a replay box). Keyed by URL — each metadata field is fetched once.
 func imdsGet(ctx context.Context, url string, headers map[string]string) (string, error) {
+	data, err := activeSource.Cached("imds/"+url, func() ([]byte, error) {
+		s, e := imdsGetLive(ctx, url, headers)
+		if e != nil {
+			return nil, e
+		}
+		return []byte(s), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func imdsGetLive(ctx context.Context, url string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
