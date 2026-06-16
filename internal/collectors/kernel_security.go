@@ -25,11 +25,11 @@ func parseSELinuxMode(out string) string {
 }
 
 func collectSELinux(ctx context.Context) (present bool, mode string, denials int) {
-	out, err := localeSafeCmd(ctx, "getenforce").Output()
+	out, err := runCmd(ctx, "getenforce")
 	if err != nil {
 		return false, "", 0
 	}
-	mode = parseSELinuxMode(string(out))
+	mode = parseSELinuxMode(out)
 	present = true
 	if mode != "enforcing" {
 		return present, mode, 0
@@ -43,12 +43,12 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	}
 
 	// Fallback: journald (works only when auditd is NOT running)
-	jout, err := localeSafeCmd(ctx, "journalctl",
-		"--since=1 hour ago", "--no-pager", "-q").Output()
+	jout, err := runCmd(ctx, "journalctl",
+		"--since=1 hour ago", "--no-pager", "-q")
 	if err != nil {
 		return present, mode, 0
 	}
-	denials = strings.Count(string(jout), "avc:  denied")
+	denials = strings.Count(jout, "avc:  denied")
 	return present, mode, denials
 }
 

@@ -448,8 +448,7 @@ func vpnInterfaceUp(name string) bool {
 func runResolvectl(ctx context.Context, args ...string) (string, error) {
 	c, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := localeSafeCmd(c, "resolvectl", args...)
-	cmd.WaitDelay = 100 * time.Millisecond
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	// runCmdCombined (Source.Run) so resolvectl output replays from the bundle;
+	// it captures stderr too (SERVFAIL/timeout messages go there).
+	return runCmdCombined(c, "resolvectl", args...)
 }

@@ -182,11 +182,11 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 }
 
 func (c *FDLimitsCollector) collectDarwin(ctx context.Context) (*models.FDInfo, error) {
-	out, err := localeSafeCmd(ctx, "sysctl", "-n", "kern.maxfiles").Output()
+	out, err := runCmd(ctx, "sysctl", "-n", "kern.maxfiles")
 	if err != nil {
 		return &models.FDInfo{}, nil
 	}
-	max, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	max, err := strconv.ParseUint(strings.TrimSpace(out), 10, 64)
 	if err != nil {
 		return &models.FDInfo{}, nil
 	}

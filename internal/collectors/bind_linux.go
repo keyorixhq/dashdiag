@@ -79,8 +79,7 @@ func bindDetect() bool {
 	if anyProcessNamed("named", "bind9", "named-sdb") {
 		return true
 	}
-	out, err := localeSafeCmd(context.Background(), "systemctl", "is-active", "--quiet", "named").Output()
-	_ = out
+	_, err := runCmd(context.Background(), "systemctl", "is-active", "--quiet", "named")
 	return err == nil
 }
 

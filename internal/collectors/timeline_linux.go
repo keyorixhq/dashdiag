@@ -115,14 +115,13 @@ func collectJournalEvents(ctx context.Context, since time.Time) ([]models.Timeli
 		"--since", sinceStr,
 		"--priority=warning", // 0–4: emerg/alert/crit/err/warning
 	}
-	cmd := localeSafeCmd(jCtx, args[0], args[1:]...) // #nosec G204
-	out, err := cmd.Output()
+	out, err := runCmd(jCtx, args[0], args[1:]...)
 	if err != nil {
 		return nil, nil // journalctl unavailable — silent
 	}
 
 	var events []models.TimelineEvent
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line == "" {
 			continue
 		}
@@ -297,14 +296,13 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 
 	// -x decodes facility:level into each line so severity can follow the kernel's
 	// own rating instead of guessing from words in the message text.
-	cmd := localeSafeCmd(dCtx, "dmesg", "-T", "-x", "--level=err,warn,crit,emerg,alert") // #nosec G204
-	out, err := cmd.Output()
+	out, err := runCmd(dCtx, "dmesg", "-T", "-x", "--level=err,warn,crit,emerg,alert")
 	if err != nil {
 		return nil, nil
 	}
 
 	var events []models.TimelineEvent
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		ev := parseDmesgLine(line, since)
 		if ev != nil {
 			events = append(events, *ev)
@@ -457,15 +455,14 @@ func collectSarLoad(ctx context.Context, since time.Time) []models.LoadSpike {
 	sCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	// sar -q gives queue length and load average
-	cmd := localeSafeCmd(sCtx, "sar", "-q", "-s", // #nosec G204
+	out, err := runCmd(sCtx, "sar", "-q", "-s",
 		since.Format("15:04:00"))
-	out, err := cmd.Output()
 	if err != nil {
 		return nil
 	}
 	var spikes []models.LoadSpike
 	today := time.Now().Format("2006-01-02")
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		s := parseSarLoadLine(line, today)
 		if s != nil {
 			spikes = append(spikes, *s)
