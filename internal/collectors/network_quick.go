@@ -142,22 +142,65 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 	return result, nil
 }
 
+// connectivityProbe holds the live network-probe results (ping RTT/loss + DNS
+// resolution time). Routed through the source cache so the recorded latencies
+// replay deterministically instead of re-pinging / re-resolving on the replay box.
+type connectivityProbe struct {
+	GatewayMs           float64 `json:"gateway_ms"`
+	GatewayLoss         float64 `json:"gateway_loss"`
+	GatewayICMPBlocked  bool    `json:"gateway_icmp_blocked"`
+	InternetMs          float64 `json:"internet_ms"`
+	InternetLoss        float64 `json:"internet_loss"`
+	InternetICMPBlocked bool    `json:"internet_icmp_blocked"`
+	DNSMs               float64 `json:"dns_ms"`
+	DNSFailed           bool    `json:"dns_failed"`
+}
+
 func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *models.NetworkInfo) {
-	var gwMs, gwLoss, internetMs, internetLoss, dnsMs float64
-	var dnsFailed, gwICMPBlocked, inetICMPBlocked bool
+	var p connectivityProbe
+	// cachedJSON records the probe on a live/capture pass and serves it on replay
+	// WITHOUT re-running ping/DNS — those are live network ops that would otherwise
+	// hit the replaying machine. On a recording gap (old bundle) p stays zero; the
+	// gateway IP is deterministic on replay (derived from captured route reads), so a
+	// single fixed key is stable.
+	_ = cachedJSON("net/connectivity", func() (any, error) {
+		return runConnectivityProbes(ctx, gatewayIP, srcIP), nil
+	}, &p)
+	debug.Log(ctx, "Network", "probe results",
+		"gw_ms", p.GatewayMs, "gw_loss_pct", p.GatewayLoss,
+		"inet_ms", p.InternetMs, "inet_loss_pct", p.InternetLoss,
+		"dns_ms", p.DNSMs, "dns_failed", p.DNSFailed)
+	result.GatewayPingMs = p.GatewayMs
+	result.GatewayPacketLossPct = p.GatewayLoss
+	result.InternetPingMs = p.InternetMs
+	result.InternetPacketLossPct = p.InternetLoss
+	result.DNSResolvesMs = p.DNSMs
+	result.DNSFailed = p.DNSFailed
+	// Mark ICMP as blocked if either probe fell back to TCP.
+	result.ICMPBlocked = p.GatewayICMPBlocked || p.InternetICMPBlocked
+
+	// Bond health — reads /proc/net/bonding/* (no-op if no bonds)
+	result.Bonds = collectBonds()
+}
+
+// runConnectivityProbes performs the live network probes (gateway + internet ping,
+// DNS resolution timing) concurrently. Pure live I/O — the caller routes it through
+// the source cache so replay reproduces the captured result without re-probing.
+func runConnectivityProbes(ctx context.Context, gatewayIP, srcIP string) connectivityProbe {
+	var p connectivityProbe
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		if gatewayIP != "" {
-			gwMs, gwLoss, gwICMPBlocked = pingRTT(ctx, gatewayIP, srcIP)
+			p.GatewayMs, p.GatewayLoss, p.GatewayICMPBlocked = pingRTT(ctx, gatewayIP, srcIP)
 		} else {
-			gwMs, gwLoss = -1, 100
+			p.GatewayMs, p.GatewayLoss = -1, 100
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		internetMs, internetLoss, inetICMPBlocked = pingRTT(ctx, "8.8.8.8", "")
+		p.InternetMs, p.InternetLoss, p.InternetICMPBlocked = pingRTT(ctx, "8.8.8.8", "")
 	}()
 	go func() {
 		defer wg.Done()
@@ -166,28 +209,14 @@ func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *mod
 		start := time.Now()
 		_, err := net.DefaultResolver.LookupHost(dnsCtx, "github.com")
 		if err != nil {
-			dnsFailed = true
-			dnsMs = -1
+			p.DNSFailed = true
+			p.DNSMs = -1
 			return
 		}
-		dnsMs = float64(time.Since(start).Milliseconds())
+		p.DNSMs = float64(time.Since(start).Milliseconds())
 	}()
 	wg.Wait()
-	debug.Log(ctx, "Network", "probe results",
-		"gw_ms", gwMs, "gw_loss_pct", gwLoss,
-		"inet_ms", internetMs, "inet_loss_pct", internetLoss,
-		"dns_ms", dnsMs, "dns_failed", dnsFailed)
-	result.GatewayPingMs = gwMs
-	result.GatewayPacketLossPct = gwLoss
-	result.InternetPingMs = internetMs
-	result.InternetPacketLossPct = internetLoss
-	result.DNSResolvesMs = dnsMs
-	result.DNSFailed = dnsFailed
-	// Mark ICMP as blocked if either probe fell back to TCP.
-	result.ICMPBlocked = gwICMPBlocked || inetICMPBlocked
-
-	// Bond health — reads /proc/net/bonding/* (no-op if no bonds)
-	result.Bonds = collectBonds()
+	return p
 }
 
 func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
