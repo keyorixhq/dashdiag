@@ -71,22 +71,14 @@ func imdsGetLive(ctx context.Context, url string, headers map[string]string) (st
 }
 
 func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
-	// IMDSv2 requires a token first
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPut,
-		"http://169.254.169.254/latest/api/token", nil)
-	if err != nil {
-		return false
-	}
-	tokenReq.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "21600")
 	client := &http.Client{Timeout: 2 * time.Second}
-	tokenResp, err := client.Do(tokenReq)
+	// IMDSv2 requires a token first. Cached so the live token PUT replays from the
+	// bundle — otherwise replay fails here (no IMDS on the replay box) before the
+	// cached metadata GETs are ever reached.
+	token, err := awsIMDSToken(ctx, client)
 	if err != nil {
 		return false
 	}
-	defer tokenResp.Body.Close()
-	tokenBuf := make([]byte, 256)
-	n, _ := tokenResp.Body.Read(tokenBuf)
-	token := string(tokenBuf[:n])
 
 	headers := map[string]string{"X-aws-ec2-metadata-token": token}
 
@@ -101,20 +93,58 @@ func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
 	info.InstanceType, _ = imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-type", headers)
 	info.Region, _ = imdsGet(ctx, "http://169.254.169.254/latest/meta-data/placement/region", headers)
 
-	// Spot termination notice — non-200 means no notice, 200 means termination imminent
-	termReq, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://169.254.169.254/latest/meta-data/spot/termination-time", nil)
-	termReq.Header.Set("X-aws-ec2-metadata-token", token)
-	termResp, err := client.Do(termReq)
-	if err == nil && termResp.StatusCode == 200 {
+	// Spot termination notice — 200 means termination imminent. Cached.
+	var spotTerm bool
+	_ = cachedJSON("imds-aws-termination", func() (any, error) {
+		return awsSpotTerminationLive(ctx, client, token), nil
+	}, &spotTerm)
+	if spotTerm {
 		info.SpotTermination = true
 		info.StatusReason = "spot instance scheduled for termination"
 	}
-	if termResp != nil {
-		termResp.Body.Close()
-	}
 
 	return true
+}
+
+// awsIMDSToken fetches (and caches) an IMDSv2 session token. The token value is
+// only used as a request header for the metadata GETs, which are themselves cached
+// by URL — so on replay the recorded token simply lets collectAWS proceed past the
+// gate; its exact value is immaterial.
+func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
+	data, err := activeSource.Cached("imds-aws-token", func() ([]byte, error) {
+		req, e := http.NewRequestWithContext(ctx, http.MethodPut,
+			"http://169.254.169.254/latest/api/token", nil)
+		if e != nil {
+			return nil, e
+		}
+		req.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "21600")
+		resp, e := client.Do(req)
+		if e != nil {
+			return nil, e
+		}
+		defer resp.Body.Close() //nolint:errcheck
+		buf := make([]byte, 256)
+		n, _ := resp.Body.Read(buf)
+		return buf[:n], nil
+	})
+	return string(data), err
+}
+
+// awsSpotTerminationLive reports whether a spot-termination notice is posted
+// (HTTP 200 on the termination-time endpoint).
+func awsSpotTerminationLive(ctx context.Context, client *http.Client, token string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"http://169.254.169.254/latest/meta-data/spot/termination-time", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-aws-ec2-metadata-token", token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	return resp.StatusCode == 200
 }
 
 func collectAzure(ctx context.Context, info *models.CloudInfo) bool {

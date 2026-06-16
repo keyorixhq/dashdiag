@@ -46,7 +46,26 @@ func (c *ServicesCollector) Collect(ctx context.Context) (any, error) {
 	return info, nil
 }
 
+// checkService caches checkServiceLive through the source so a configured-service
+// probe (a live HTTP/TCP dial + latency) replays from the bundle instead of
+// re-probing the replaying machine. Keyed by protocol+name+addr (one probe per
+// configured service). A recording gap (service not in the bundle) surfaces as an
+// explicit unreachable WARN rather than a misleading zero-value OK.
 func checkService(ctx context.Context, svc config.ServiceConfig) models.ServiceResult {
+	key := "service/" + svc.Protocol + "/" + svc.Name + "/" + net.JoinHostPort(svc.Host, strconv.Itoa(svc.Port))
+	var res models.ServiceResult
+	if err := cachedJSON(key, func() (any, error) {
+		return checkServiceLive(ctx, svc), nil
+	}, &res); err != nil {
+		return models.ServiceResult{
+			Name: svc.Name, Host: svc.Host, Port: svc.Port, Protocol: svc.Protocol,
+			Status: "WARN", Error: "not recorded in replay bundle",
+		}
+	}
+	return res
+}
+
+func checkServiceLive(ctx context.Context, svc config.ServiceConfig) models.ServiceResult {
 	res := models.ServiceResult{
 		Name:     svc.Name,
 		Host:     svc.Host,
