@@ -178,8 +178,10 @@ func darwinMemPressureLevel(ctx context.Context) int {
 }
 
 func (c *SwapCollector) collectDarwin(ctx context.Context) (*models.SwapInfo, error) {
-	swap, err := mem.SwapMemoryWithContext(ctx)
-	if err != nil {
+	var swap mem.SwapMemoryStat
+	if err := cachedJSON("gopsutil/mem/swap", func() (any, error) {
+		return mem.SwapMemoryWithContext(ctx)
+	}, &swap); err != nil {
 		// Couldn't read swap. Returning a SwapInfo with a fabricated MemPressureLevel:1
 		// and all-zero usage made checkSwap take its macOS branch and return no insight
 		// — a green "Swap OK" for a check that never ran (false-OK). Surface the error

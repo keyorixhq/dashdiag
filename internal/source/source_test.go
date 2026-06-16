@@ -175,6 +175,50 @@ func TestStatfsRecordReplayRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCachedRecordReplayRoundTrip(t *testing.T) {
+	produced := 0
+	produce := func() ([]byte, error) {
+		produced++
+		return []byte(`{"rx":1,"tx":2}`), nil
+	}
+
+	rec := NewRecorder(Live{})
+	got, err := rec.Cached("gopsutil/net/iocounters", produce)
+	if err != nil || string(got) != `{"rx":1,"tx":2}` {
+		t.Fatalf("record Cached = %q, %v", got, err)
+	}
+	if produced != 1 {
+		t.Fatalf("produce called %d times during record, want 1", produced)
+	}
+
+	// Replay must return the recorded bytes WITHOUT invoking produce — that is the
+	// whole point: no live probe runs on replay.
+	rp := NewReplay(rec.Bundle())
+	rgot, err := rp.Cached("gopsutil/net/iocounters", produce)
+	if err != nil || string(rgot) != `{"rx":1,"tx":2}` {
+		t.Fatalf("replay Cached = %q, %v", rgot, err)
+	}
+	if produced != 1 {
+		t.Fatalf("produce was invoked on replay (count=%d) — replay is not hermetic", produced)
+	}
+	if _, err := rp.Cached("never-recorded", produce); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unrecorded Cached should be ErrNotRecorded, got %v", err)
+	}
+
+	// Survives Save/Load.
+	out := t.TempDir()
+	if err := rec.Bundle().Save(out); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	b2, err := Load(out)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if lgot, _ := NewReplay(b2).Cached("gopsutil/net/iocounters", produce); string(lgot) != `{"rx":1,"tx":2}` {
+		t.Fatalf("loaded Cached = %q", lgot)
+	}
+}
+
 func TestSaveLoad(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "f")
 	_ = os.WriteFile(src, []byte("Tctl 45000\n"), 0o644)

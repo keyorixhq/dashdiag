@@ -175,8 +175,10 @@ func skipMacOSMount(fstype, mountpoint string) bool {
 }
 
 func (c *DiskCollector) collectDarwinBase(ctx context.Context) (*models.DiskInfo, error) {
-	parts, err := gopsutildisk.PartitionsWithContext(ctx, false)
-	if err != nil {
+	var parts []gopsutildisk.PartitionStat
+	if err := cachedJSON("gopsutil/disk/partitions", func() (any, error) {
+		return gopsutildisk.PartitionsWithContext(ctx, false)
+	}, &parts); err != nil {
 		return nil, fmt.Errorf("disk partitions: %w", err)
 	}
 	result := &models.DiskInfo{}
@@ -184,8 +186,10 @@ func (c *DiskCollector) collectDarwinBase(ctx context.Context) (*models.DiskInfo
 		if skipMacOSMount(p.Fstype, p.Mountpoint) {
 			continue
 		}
-		usage, err := gopsutildisk.UsageWithContext(ctx, p.Mountpoint)
-		if err != nil {
+		var usage gopsutildisk.UsageStat
+		if err := cachedJSON("gopsutil/disk/usage/"+p.Mountpoint, func() (any, error) {
+			return gopsutildisk.UsageWithContext(ctx, p.Mountpoint)
+		}, &usage); err != nil {
 			continue
 		}
 		ro := false

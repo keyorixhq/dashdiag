@@ -104,6 +104,19 @@ func (rp *Replay) Statfs(path string) (StatfsInfo, error) {
 	return rec.info, nil
 }
 
+func (rp *Replay) Cached(key string, _ func() ([]byte, error)) ([]byte, error) {
+	// Never invokes produce — the recorded bytes are the only source of truth, so
+	// no live probe runs on replay.
+	rec, ok := rp.b.getFile(cacheKey(key))
+	if !ok {
+		return nil, fmt.Errorf("%w: Cached %s", ErrNotRecorded, key)
+	}
+	if rec.errText != "" {
+		return nil, errors.New(rec.errText)
+	}
+	return append([]byte(nil), rec.data...), nil
+}
+
 func (rp *Replay) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	rec, ok := rp.b.getCmd(name, args)
 	if !ok {

@@ -52,8 +52,14 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		darwinUSB = darwinUSBInterfaces(ctx)
 	}
 
-	ifaces, _ := gopsutilnet.InterfacesWithContext(ctx)
-	ioCounters, _ := gopsutilnet.IOCountersWithContext(ctx, true)
+	var ifaces gopsutilnet.InterfaceStatList
+	_ = cachedJSON("gopsutil/net/interfaces", func() (any, error) {
+		return gopsutilnet.InterfacesWithContext(ctx)
+	}, &ifaces)
+	var ioCounters []gopsutilnet.IOCountersStat
+	_ = cachedJSON("gopsutil/net/iocounters", func() (any, error) {
+		return gopsutilnet.IOCountersWithContext(ctx, true)
+	}, &ioCounters)
 	counterMap := make(map[string]gopsutilnet.IOCountersStat, len(ioCounters))
 	for _, cnt := range ioCounters {
 		counterMap[cnt.Name] = cnt
@@ -119,7 +125,10 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	probeConnectivity(ctx, route.GatewayIP, route.SrcIP, result)
 
-	conns, _ := gopsutilnet.ConnectionsWithContext(ctx, "tcp")
+	var conns []gopsutilnet.ConnectionStat
+	_ = cachedJSON("gopsutil/net/connections/tcp", func() (any, error) {
+		return gopsutilnet.ConnectionsWithContext(ctx, "tcp")
+	}, &conns)
 	for _, conn := range conns {
 		if conn.Status == "CLOSE_WAIT" {
 			result.CloseWaitCount++

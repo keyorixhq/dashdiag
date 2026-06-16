@@ -84,8 +84,10 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 	} else {
 		// Non-Linux (darwin): no /proc/meminfo. Replay binaries must match the
 		// captured OS, so the live read here is never on a Linux replay path.
-		vm, err := mem.VirtualMemoryWithContext(ctx)
-		if err != nil {
+		var vm mem.VirtualMemoryStat
+		if err := cachedJSON("gopsutil/mem/virtual", func() (any, error) {
+			return mem.VirtualMemoryWithContext(ctx)
+		}, &vm); err != nil {
 			return nil, fmt.Errorf("virtual memory: %w", err)
 		}
 		info.TotalGB = float64(vm.Total) / (1024 * 1024 * 1024)

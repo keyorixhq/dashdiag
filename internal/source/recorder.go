@@ -58,6 +58,14 @@ func (r *Recorder) Statfs(path string) (StatfsInfo, error) {
 	return info, err
 }
 
+func (r *Recorder) Cached(key string, produce func() ([]byte, error)) ([]byte, error) {
+	data, err := r.inner.Cached(key, produce)
+	// Reuse the file store under a NUL-namespaced key — the blob machinery already
+	// records arbitrary bytes plus an error outcome, so no separate index is needed.
+	r.b.putFile(cacheKey(key), data, err)
+	return data, err
+}
+
 func (r *Recorder) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	res, err := r.inner.Run(ctx, name, args...)
 	r.b.putCmd(name, args, res, err)
