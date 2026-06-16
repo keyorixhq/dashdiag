@@ -3,6 +3,7 @@ package collectors
 import (
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -52,5 +53,45 @@ func TestCollectorsUseLocaleSafeExec(t *testing.T) {
 				"on non-English hosts (see #82). If raw exec is genuinely required, add the "+
 				"file to execWrapperFiles with a justifying comment.", name, line)
 		}
+	}
+}
+
+// TestParsingIsLocaleStable guards the OTHER half of locale-safety: the forced-C
+// wrapper above makes subprocess *strings* uniform, but numeric parsing relies
+// on Go's strconv being locale-independent by design (it always reads '.' as the
+// decimal separator, ignoring LC_NUMERIC). All ~260 numeric parses of tool
+// output go through strconv. This test forces a comma-decimal locale into the
+// process env and confirms strconv is unaffected — so if anyone ever swaps in a
+// locale-sensitive parser (x/text scanning, cgo strtod, a locale-wired Sscanf),
+// it fails here, loudly and deterministically, with no host or generated locale
+// required. Validated live 2026-06-16 (es_ES on CT201): no leak; see TRIAGE.md.
+func TestParsingIsLocaleStable(t *testing.T) {
+	t.Setenv("LC_ALL", "es_ES.UTF-8")
+	t.Setenv("LC_NUMERIC", "es_ES.UTF-8")
+	t.Setenv("LANG", "es_ES.UTF-8")
+
+	// Dot-decimal values exactly as df/free/proc/ping emit them.
+	for _, c := range []struct {
+		in   string
+		want float64
+	}{
+		{"1234.56", 1234.56},
+		{"0.266", 0.266},
+		{"22.999288284369936", 22.999288284369936},
+		{"3700", 3700},
+	} {
+		got, err := strconv.ParseFloat(c.in, 64)
+		if err != nil || got != c.want {
+			t.Errorf("ParseFloat(%q) = %v, %v under es_ES; want %v, nil — a "+
+				"locale-sensitive numeric parser was introduced; tool output "+
+				"is dot-decimal and must parse locale-independently", c.in, got, err, c.want)
+		}
+	}
+
+	// strconv must REJECT a comma-decimal: proof it's strconv in the path and
+	// not some comma-accepting locale parser that would misread "1234,56".
+	if _, err := strconv.ParseFloat("1234,56", 64); err == nil {
+		t.Error(`ParseFloat("1234,56") unexpectedly parsed — a comma-accepting ` +
+			`locale-sensitive parser is in the numeric path`)
 	}
 }
