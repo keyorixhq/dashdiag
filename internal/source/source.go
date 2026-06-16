@@ -50,6 +50,20 @@ type FileMeta struct {
 	ModTime time.Time   `json:"mod_time"`
 }
 
+// StatfsInfo is the subset of syscall.Statfs_t a collector reads to compute
+// filesystem usage (disk free-space, inode usage, mount liveness). Fields are
+// normalised to uint64 so one struct serialises across linux/darwin (where the
+// raw syscall field types differ), letting a `syscall.Statfs` probe replay from
+// the capture instead of stat-ing the developer's own filesystem.
+type StatfsInfo struct {
+	Bsize  uint64 `json:"bsize"`  // fundamental block size
+	Blocks uint64 `json:"blocks"` // total data blocks
+	Bfree  uint64 `json:"bfree"`  // free blocks
+	Bavail uint64 `json:"bavail"` // blocks available to unprivileged users
+	Files  uint64 `json:"files"`  // total inodes
+	Ffree  uint64 `json:"ffree"`  // free inodes
+}
+
 // Source is the read-only system-input surface a collector depends on.
 type Source interface {
 	// ReadFile returns the contents of path. A non-existent path returns an
@@ -66,6 +80,9 @@ type Source interface {
 	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist);
 	// a present-but-unreadable path returns one satisfying errors.Is(err, os.ErrPermission).
 	Stat(path string) (FileMeta, error)
+	// Statfs returns filesystem statistics for path (syscall.Statfs semantics).
+	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist).
+	Statfs(path string) (StatfsInfo, error)
 	// Run executes name with args and returns its captured Result. The error is
 	// non-nil only for an execution failure (tool absent, context cancelled),
 	// NOT for a non-zero exit — inspect Result.ExitCode for that.

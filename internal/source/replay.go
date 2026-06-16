@@ -87,6 +87,23 @@ func (rp *Replay) Stat(path string) (FileMeta, error) {
 	return rec.meta, nil
 }
 
+func (rp *Replay) Statfs(path string) (StatfsInfo, error) {
+	rec, ok := rp.b.getStatfs(path)
+	if !ok {
+		return StatfsInfo{}, fmt.Errorf("%w: Statfs %s", ErrNotRecorded, path)
+	}
+	if rec.notExist {
+		return StatfsInfo{}, &fs.PathError{Op: "statfs", Path: path, Err: fs.ErrNotExist}
+	}
+	if rec.permission {
+		return StatfsInfo{}, &fs.PathError{Op: "statfs", Path: path, Err: fs.ErrPermission}
+	}
+	if rec.errText != "" {
+		return StatfsInfo{}, errors.New(rec.errText)
+	}
+	return rec.info, nil
+}
+
 func (rp *Replay) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	rec, ok := rp.b.getCmd(name, args)
 	if !ok {

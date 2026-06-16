@@ -48,6 +48,13 @@ func readLink(path string) (string, error) { return activeSource.Readlink(path) 
 // os.Stat hitting the replaying machine. Use this as a drop-in for os.Stat.
 func statFile(path string) (source.FileMeta, error) { return activeSource.Stat(path) }
 
+// statFs returns filesystem statistics for path via the active source
+// (syscall.Statfs semantics), so a disk-usage / mount-liveness probe replays from
+// the capture instead of stat-ing the replaying machine's filesystem. Use as a
+// drop-in for `syscall.Statfs(path, &st)` — the returned struct's fields mirror
+// the syscall.Statfs_t fields collectors read (Blocks, Bsize, Bfree, …).
+func statFs(path string) (source.StatfsInfo, error) { return activeSource.Statfs(path) }
+
 // fileExists reports whether path exists, routed through the active source. Use
 // this as a drop-in for the common `if _, err := os.Stat(p); err == nil` gate so
 // the existence check is recorded and replayed rather than probing the live

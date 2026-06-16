@@ -104,8 +104,7 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 	start := time.Now()
 
 	go func() {
-		var st syscall.Statfs_t
-		err := syscall.Statfs(m.Mount, &st)
+		_, err := statFs(m.Mount)
 		ch <- result{int(time.Since(start).Milliseconds()), err}
 	}()
 
