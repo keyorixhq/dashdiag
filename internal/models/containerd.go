@@ -11,7 +11,6 @@ type ContainerdInfo struct {
 	SocketPath      string                `json:"socket_path"`       // detected socket path
 	Namespaces      []ContainerdNamespace `json:"namespaces,omitempty"`
 	TotalContainers int                   `json:"total_containers"`
-	RunningCount    int                   `json:"running_count"`
 	// Status fields for unavailable/error cases
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
