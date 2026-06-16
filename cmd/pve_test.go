@@ -79,3 +79,29 @@ func TestPVEBackupIconAge(t *testing.T) {
 		}
 	}
 }
+
+// TestCountPVEIssuesStorageThreshold guards the `dsd pve` concern tally against
+// drifting from the dsd health storage thresholds (analysis.PVEStorageLevel:
+// 80 WARN / 90 CRIT). The old hardcoded 85/95 under-counted the 80–84% band, so
+// `dsd pve` read "healthy" on a pool dsd health flagged WARN. IsPVE is left false
+// so the API-reachable short-circuit doesn't fire and only Storages drives n.
+func TestCountPVEIssuesStorageThreshold(t *testing.T) {
+	t.Parallel()
+	st := func(usedPct float64) *models.PVEInfo {
+		return &models.PVEInfo{Storages: []models.PVEStorage{{Name: "local", Active: true, UsedPct: usedPct}}}
+	}
+	cases := []struct {
+		usedPct float64
+		want    int
+	}{
+		{50, 0}, // healthy
+		{79, 0}, // just below the health WARN threshold
+		{82, 1}, // WARN band the old 85% cutoff missed — must agree with health now
+		{90, 1}, // CRIT
+	}
+	for _, c := range cases {
+		if got := countPVEIssues(st(c.usedPct)); got != c.want {
+			t.Errorf("countPVEIssues(storage %.0f%%) = %d, want %d (must match analysis.PVEStorageLevel)", c.usedPct, got, c.want)
+		}
+	}
+}

@@ -513,9 +513,11 @@ func countPVEIssues(info *models.PVEInfo) int {
 	}
 	n := 0
 	for _, s := range info.Storages {
-		if !s.Active || s.UsedPct >= 95 {
-			n++
-		} else if s.UsedPct >= 85 {
+		// Classify identically to dsd health (analysis.PVEStorageLevel: 80 WARN /
+		// 90 CRIT) so the `dsd pve` concern count agrees with the health verdict.
+		// The old hardcoded 85/95 under-counted pools in the 80–84% band — `dsd pve`
+		// read "healthy" while `dsd health` flagged the same pool WARN.
+		if !s.Active || analysis.PVEStorageLevel(s.UsedPct) != "" {
 			n++
 		}
 	}
