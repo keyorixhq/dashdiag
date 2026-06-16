@@ -202,11 +202,11 @@ func parseDarwinSudoersFile(path string, info *models.SecurityInfo) {
 // parseDarwinFirewall reads the macOS Application Firewall global state.
 func parseDarwinFirewall(info *models.SecurityInfo) {
 	fw := "/usr/libexec/ApplicationFirewall/socketfilterfw"
-	out, err := localeSafeCmd(context.Background(), fw, "--getglobalstate").Output() // #nosec G204 -- fixed path, no user input
+	out, err := runCmd(context.Background(), fw, "--getglobalstate")
 	if err != nil {
 		return
 	}
-	lower := strings.ToLower(strings.TrimSpace(string(out)))
+	lower := strings.ToLower(strings.TrimSpace(out))
 	// "Firewall is enabled. (State = 1)" / "Firewall is disabled. (State = 0)"
 	if strings.Contains(lower, "enabled") {
 		info.FirewallActive = true
@@ -224,18 +224,18 @@ func parseDarwinSystemSecurity(info *models.SecurityInfo) {
 	info.IsDarwin = true
 
 	// FileVault disk encryption
-	if out, err := localeSafeCmd(context.Background(), "fdesetup", "status").Output(); err == nil { // #nosec G204
-		info.FileVaultEnabled = strings.Contains(strings.ToLower(string(out)), "filevault is on")
+	if out, err := runCmd(context.Background(), "fdesetup", "status"); err == nil {
+		info.FileVaultEnabled = strings.Contains(strings.ToLower(out), "filevault is on")
 	}
 
 	// System Integrity Protection
-	if out, err := localeSafeCmd(context.Background(), "csrutil", "status").Output(); err == nil { // #nosec G204
-		info.SIPEnabled = strings.Contains(strings.ToLower(string(out)), "enabled")
+	if out, err := runCmd(context.Background(), "csrutil", "status"); err == nil {
+		info.SIPEnabled = strings.Contains(strings.ToLower(out), "enabled")
 	}
 
 	// Gatekeeper
-	if out, err := localeSafeCmd(context.Background(), "spctl", "--status").Output(); err == nil { // #nosec G204
-		info.GatekeeperEnabled = strings.Contains(strings.ToLower(string(out)), "assessments enabled")
+	if out, err := runCmd(context.Background(), "spctl", "--status"); err == nil {
+		info.GatekeeperEnabled = strings.Contains(strings.ToLower(out), "assessments enabled")
 	}
 }
 

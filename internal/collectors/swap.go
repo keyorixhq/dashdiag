@@ -166,11 +166,11 @@ func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 func darwinMemPressureLevel(ctx context.Context) int {
-	out, err := localeSafeCmd(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level").Output()
+	out, err := runCmd(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level")
 	if err != nil {
 		return 1 // assume normal if unavailable
 	}
-	v, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	v, err := strconv.Atoi(strings.TrimSpace(out))
 	if err != nil || v < 1 {
 		return 1
 	}

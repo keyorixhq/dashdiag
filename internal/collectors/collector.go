@@ -139,3 +139,22 @@ func runCmdOutput(ctx context.Context, name string, args ...string) (string, err
 	}
 	return string(res.Stdout), nil
 }
+
+// runCmdCombined runs name with args via the source, returning stdout+stderr
+// combined (like exec.Cmd.CombinedOutput) — for tools that emit findings on stderr
+// (e.g. resolvectl SERVFAIL/timeout messages). Routed through Source so the output
+// is captured and replayed rather than re-run live. Like runCmdOutput, it returns
+// the output even on a non-zero exit.
+//
+//nolint:unused // generic Source helper; currently only linux collectors (dns_resolver) use it
+func runCmdCombined(ctx context.Context, name string, args ...string) (string, error) {
+	res, err := activeSource.Run(ctx, name, args...)
+	combined := string(res.Stdout) + string(res.Stderr)
+	if err != nil {
+		return combined, err
+	}
+	if res.ExitCode != 0 {
+		return combined, &cmdError{name: name, code: res.ExitCode}
+	}
+	return combined, nil
+}

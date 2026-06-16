@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -182,12 +181,10 @@ func parseDarwinSize(s string) float64 {
 	return val
 }
 
-// runDarwinCmd runs a command with a context timeout and returns stdout.
+// runDarwinCmd runs a command with a context timeout and returns stdout, routed
+// through the source (runCmdOutput) so it is captured and replayed hermetically.
 func runDarwinCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, name, args...) // #nosec G204
-	cmd.Env = localeSafeEnv()
-	out, err := cmd.Output()
-	return string(out), err
+	return runCmdOutput(cmdCtx, name, args...)
 }

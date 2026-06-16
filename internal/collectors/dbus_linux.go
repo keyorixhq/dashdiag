@@ -33,8 +33,8 @@ func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info := &models.DBusInfo{Available: true}
 
-	out, err := localeSafeCmd(ctx, "systemctl", "is-active", "dbus.service").Output() // #nosec G204
-	status := strings.TrimSpace(string(out))
+	out, err := runCmdOutput(ctx, "systemctl", "is-active", "dbus.service")
+	status := strings.TrimSpace(out)
 	if err != nil {
 		// systemctl exits non-zero when unit is not active.
 		// Capture whatever status string was returned (e.g. "failed", "inactive").
@@ -56,14 +56,14 @@ func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
 // collectDBusLastError pulls the most recent error line from the dbus journal.
 // Returns empty string when journalctl is unavailable or produces no output.
 func collectDBusLastError(ctx context.Context) string {
-	out, err := localeSafeCmd(ctx, // #nosec G204
+	out, err := runCmd(ctx,
 		"journalctl", "-u", "dbus.service", "-n", "5", "--no-pager", "-o", "cat",
-	).Output()
+	)
 	if err != nil || len(out) == 0 {
 		return ""
 	}
 	// Walk lines in reverse to find the last non-empty error line.
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
 		if line != "" {
