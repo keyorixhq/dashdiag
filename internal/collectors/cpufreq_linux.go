@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -62,8 +61,7 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsCPUFreqAvailable returns true when cpufreq sysfs is present.
 func IsCPUFreqAvailable() bool {
-	_, err := os.Stat("/sys/devices/system/cpu/cpu0/cpufreq")
-	return err == nil
+	return fileExists("/sys/devices/system/cpu/cpu0/cpufreq")
 }
 
 func readSysfsKHz(path string) int {

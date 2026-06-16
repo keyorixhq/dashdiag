@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -43,7 +42,7 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 	base := fmt.Sprintf("/proc/%d", pid)
 
 	// Verify PID exists
-	if _, err := os.Stat(base); err != nil {
+	if !fileExists(base) {
 		return nil, fmt.Errorf("PID %d not found", pid)
 	}
 

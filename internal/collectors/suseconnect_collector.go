@@ -2,7 +2,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -18,7 +17,7 @@ func HasSubscriptionManager() bool {
 		"/usr/bin/subscription-manager", // RHEL, Oracle, Rocky, Alma
 		"/usr/bin/pro",                  // Ubuntu Pro (ubuntu-advantage-tools)
 	} {
-		if _, err := os.Stat(bin); err == nil {
+		if fileExists(bin) {
 			return true
 		}
 	}
@@ -28,10 +27,10 @@ func HasSubscriptionManager() bool {
 // IsSUSEHost returns true when this is a SUSE/openSUSE system.
 // Used for SUSE-specific collectors (Snapper, SUSEConnect).
 func IsSUSEHost() bool {
-	if _, err := os.Stat("/usr/bin/SUSEConnect"); err == nil {
+	if fileExists("/usr/bin/SUSEConnect") {
 		return true
 	}
-	if _, err := os.Stat("/usr/bin/zypper"); err == nil {
+	if fileExists("/usr/bin/zypper") {
 		return true
 	}
 	return false
@@ -51,12 +50,12 @@ func (c *SUSEConnectCollector) Collect(ctx context.Context) (interface{}, error)
 	info := &models.SUSEConnectInfo{ExpiresDays: -1}
 
 	// RHEL / Oracle Linux / Rocky / AlmaLinux
-	if _, err := os.Stat("/usr/bin/subscription-manager"); err == nil {
+	if fileExists("/usr/bin/subscription-manager") {
 		return collectRHELSubscription(ctx, info), nil
 	}
 
 	// Ubuntu Pro
-	if _, err := os.Stat("/usr/bin/pro"); err == nil {
+	if fileExists("/usr/bin/pro") {
 		return collectUbuntuPro(ctx, info), nil
 	}
 

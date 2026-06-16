@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -33,7 +32,7 @@ func CloudInitAvailable() bool {
 	if _, err := exec.LookPath("cloud-init"); err == nil {
 		return true
 	}
-	if _, err := os.Stat("/run/cloud-init/status.json"); err == nil {
+	if fileExists("/run/cloud-init/status.json") {
 		return true
 	}
 	return false

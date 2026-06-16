@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -28,7 +27,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Try absolute paths first since PATH may be restricted (sudo, sh, CI).
 	brewPath := ""
 	for _, candidate := range []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"} {
-		if _, err := os.Stat(candidate); err == nil {
+		if fileExists(candidate) {
 			brewPath = candidate
 			break
 		}

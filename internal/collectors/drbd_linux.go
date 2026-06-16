@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,8 +16,7 @@ import (
 // IsDRBDPresent returns true when the DRBD kernel module is loaded.
 // /proc/drbd only exists when the drbd module is active.
 func IsDRBDPresent() bool {
-	_, err := os.Stat("/proc/drbd")
-	return err == nil
+	return fileExists("/proc/drbd")
 }
 
 // DRBDCollector reads /proc/drbd to detect DRBD resource health.

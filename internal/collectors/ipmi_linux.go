@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,7 +38,7 @@ func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.IPMIInfo{}
 
 	// Detect IPMI availability: kernel driver device or ipmitool in PATH
-	if _, err := os.Stat("/dev/ipmi0"); os.IsNotExist(err) {
+	if !fileExists("/dev/ipmi0") {
 		if _, err2 := runCmd(ctx, "which", "ipmitool"); err2 != nil {
 			return info, nil // no IPMI — skip silently
 		}
@@ -79,11 +78,11 @@ func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 
 // IsIPMIPresent returns true when IPMI hardware is accessible.
 func IsIPMIPresent() bool {
-	if _, err := os.Stat("/dev/ipmi0"); err == nil {
+	if fileExists("/dev/ipmi0") {
 		return true
 	}
 	// Also check /dev/ipmi/0 (some distros)
-	if _, err := os.Stat("/dev/ipmi/0"); err == nil {
+	if fileExists("/dev/ipmi/0") {
 		return true
 	}
 	return false

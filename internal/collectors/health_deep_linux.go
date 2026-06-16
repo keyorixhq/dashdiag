@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -271,7 +270,7 @@ const cgroupRoot = "/sys/fs/cgroup"
 // Works on any kernel ≥ 4.15 with unified hierarchy mounted.
 func collectCgroupV2() *models.CgroupV2Info {
 	// Verify cgroup v2 is mounted (unified hierarchy)
-	if _, err := os.Stat(cgroupRoot + "/cgroup.controllers"); err != nil {
+	if !fileExists(cgroupRoot + "/cgroup.controllers") {
 		return nil
 	}
 
