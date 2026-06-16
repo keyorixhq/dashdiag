@@ -164,7 +164,7 @@ func detectContainerSocket() (path, runtime string, permDenied bool) {
 
 	for _, c := range candidates {
 		// Check if socket file exists before attempting connection (7h)
-		if _, statErr := os.Stat(c.path); statErr != nil {
+		if !fileExists(c.path) {
 			continue // file doesn't exist — try next
 		}
 		conn, err := net.DialTimeout("unix", c.path, 500*time.Millisecond)
@@ -635,7 +635,7 @@ func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerL
 			continue
 		}
 		logPath := "/var/lib/docker/containers/" + e.Name() + "/" + e.Name() + "-json.log"
-		fi, err := os.Stat(logPath) // #nosec G304
+		fi, err := statFile(logPath)
 		if err != nil {
 			continue
 		}
@@ -645,7 +645,7 @@ func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerL
 		}
 		logs = append(logs, models.DockerContainerLogFile{
 			Name:   name,
-			SizeMB: float64(fi.Size()) / (1024 * 1024),
+			SizeMB: float64(fi.Size) / (1024 * 1024),
 		})
 	}
 	return logs
@@ -914,7 +914,11 @@ func isRHEL10Plus() bool {
 }
 
 // collectSocketPermReason builds the human-readable status reason for 7h.
-// Checks if the current user is in the socket's group.
+// Checks if the current user is in the socket's group. This stays on os.Stat
+// (not the source-routed statFile): it needs the socket's GID via fi.Sys() and
+// compares it against the live os.Getgroups(), so it is an inherently
+// live-environment hint — neither side is meaningful under replay, and FileMeta
+// deliberately does not carry uid/gid.
 func collectSocketPermReason(socketPath, runtime string) string {
 	fi, err := os.Stat(socketPath)
 	if err != nil {
@@ -1151,15 +1155,15 @@ func detectNetworkBackend(runtime string) string {
 		_ = data // nftables is loaded
 	}
 	// Check for netavark nft table via /run/netavark or nft list tables
-	if _, err := os.Stat("/usr/libexec/podman/netavark"); err == nil {
+	if fileExists("/usr/libexec/podman/netavark") {
 		return "netavark"
 	}
-	if _, err := os.Stat("/usr/bin/netavark"); err == nil {
+	if fileExists("/usr/bin/netavark") {
 		return "netavark"
 	}
 	if runtime == "podman" {
 		// Podman 4+ defaults to netavark; older uses CNI
-		if _, err := os.Stat("/etc/cni/net.d"); err == nil {
+		if fileExists("/etc/cni/net.d") {
 			return "cni"
 		}
 		return "netavark"

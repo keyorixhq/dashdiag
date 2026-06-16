@@ -32,6 +32,14 @@ type linkIndexEntry struct {
 	Err      string `json:"err,omitempty"`
 }
 
+type statIndexEntry struct {
+	Path     string   `json:"path"`
+	Meta     FileMeta `json:"meta"`
+	NotExist bool     `json:"not_exist,omitempty"`
+	Perm     bool     `json:"perm,omitempty"`
+	Err      string   `json:"err,omitempty"`
+}
+
 // Save writes the bundle to dir in the raw-v1 layout (creating dir if needed).
 func (b *Bundle) Save(dir string) error {
 	b.mu.RLock()
@@ -83,6 +91,18 @@ func (b *Bundle) Save(dir string) error {
 		})
 	}
 	if err := writeJSON(filepath.Join(dir, "links.json"), lidx); err != nil {
+		return err
+	}
+
+	// Stats (inline metadata, no blobs)
+	var sidx []statIndexEntry
+	for _, path := range sortedKeys(b.stats) {
+		rec := b.stats[path]
+		sidx = append(sidx, statIndexEntry{
+			Path: path, Meta: rec.meta, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText,
+		})
+	}
+	if err := writeJSON(filepath.Join(dir, "stats.json"), sidx); err != nil {
 		return err
 	}
 
@@ -144,6 +164,13 @@ func Load(dir string) (*Bundle, error) {
 	_ = readJSON(filepath.Join(dir, "links.json"), &lidx)
 	for _, e := range lidx {
 		b.links[e.Path] = linkRec{target: e.Target, notExist: e.NotExist, permission: e.Perm, errText: e.Err}
+	}
+
+	// Stats — optional so older bundles (pre-stats) still load.
+	var sidx []statIndexEntry
+	_ = readJSON(filepath.Join(dir, "stats.json"), &sidx)
+	for _, e := range sidx {
+		b.stats[e.Path] = statRec{meta: e.Meta, notExist: e.NotExist, permission: e.Perm, errText: e.Err}
 	}
 
 	var cidx []cmdIndexEntry

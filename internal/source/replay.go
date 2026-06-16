@@ -70,6 +70,23 @@ func (rp *Replay) Readlink(path string) (string, error) {
 	return rec.target, nil
 }
 
+func (rp *Replay) Stat(path string) (FileMeta, error) {
+	rec, ok := rp.b.getStat(path)
+	if !ok {
+		return FileMeta{}, fmt.Errorf("%w: Stat %s", ErrNotRecorded, path)
+	}
+	if rec.notExist {
+		return FileMeta{}, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
+	}
+	if rec.permission {
+		return FileMeta{}, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrPermission}
+	}
+	if rec.errText != "" {
+		return FileMeta{}, errors.New(rec.errText)
+	}
+	return rec.meta, nil
+}
+
 func (rp *Replay) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	rec, ok := rp.b.getCmd(name, args)
 	if !ok {

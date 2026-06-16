@@ -307,7 +307,7 @@ func parseFailedLogins(info *models.SecurityInfo) {
 	paths := []string{"/var/log/secure", "/var/log/auth.log"}
 	var logPath string
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			logPath = p
 			break
 		}
@@ -693,7 +693,7 @@ func findUnexpectedSUIDs(info *models.SecurityInfo) {
 // parseSELinuxExtras adds booleans, AppArmor groups, autorelabel, and PAM lockout.
 func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 	// /.autorelabel — full filesystem relabel queued
-	if _, err := os.Stat("/.autorelabel"); err == nil {
+	if fileExists("/.autorelabel") {
 		info.SELinuxAutoRelabel = true
 	}
 
@@ -1260,16 +1260,16 @@ func parseUSBGuard(info *models.SecurityInfo) {
 	data, err := readFile("/sys/class/usb_device") // #nosec G304
 	_ = data
 	// usbguard detection: check if the service unit exists and is active
-	if _, err2 := os.Stat("/usr/sbin/usbguard"); err2 == nil {
+	if fileExists("/usr/sbin/usbguard") {
 		// Binary present — check if service is active via systemd cgroup
-		if _, err3 := os.Stat("/sys/fs/cgroup/system.slice/usbguard.service"); err3 == nil {
+		if fileExists("/sys/fs/cgroup/system.slice/usbguard.service") {
 			info.USBGuardActive = true
 			return
 		}
 	}
 	_ = err
 	// Fallback: check pid file or socket
-	if _, err4 := os.Stat("/run/usbguard/usbguard-daemon.pid"); err4 == nil {
+	if fileExists("/run/usbguard/usbguard-daemon.pid") {
 		info.USBGuardActive = true
 	}
 }
@@ -1279,7 +1279,7 @@ func parseAIDE(info *models.SecurityInfo) {
 	// Check binary
 	aidePaths := []string{"/usr/sbin/aide", "/usr/bin/aide"}
 	for _, p := range aidePaths {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			info.AIDEInstalled = true
 			break
 		}
@@ -1295,9 +1295,9 @@ func parseAIDE(info *models.SecurityInfo) {
 		"/var/lib/aide/aide.db.new",
 	}
 	for _, p := range dbPaths {
-		if fi, err := os.Stat(p); err == nil {
+		if fi, err := statFile(p); err == nil {
 			info.AIDEDBExists = true
-			days := int(time.Since(fi.ModTime()).Hours() / 24)
+			days := int(time.Since(fi.ModTime).Hours() / 24)
 			info.AIDELastRunDays = days
 			return
 		}
@@ -1335,7 +1335,7 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	// Check binary exists
 	paths := []string{"/usr/sbin/supportconfig", "/sbin/supportconfig"}
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		if fileExists(p) {
 			info.SupportconfigAvailable = true
 			break
 		}
@@ -1353,17 +1353,18 @@ func parseSupportconfig(info *models.SecurityInfo) {
 		"/tmp/nts_*.tbz",
 	}
 
-	var newest os.FileInfo
+	var newestMod time.Time
 	var newestPath string
 
-	// Also check for directory-based output (SLES 16 default)
+	// Also check for directory-based output (SLES 16 default). statFile (not
+	// e.Info(), whose source-fake FileInfo carries a zero ModTime) so the
+	// directory's real mtime participates in the newest-wins comparison.
 	if entries, err := readDirEntries("/var/log"); err == nil {
 		for _, e := range entries {
 			if e.IsDir() && (strings.HasPrefix(e.Name(), "scc_") || strings.HasPrefix(e.Name(), "nts_")) {
 				p := "/var/log/" + e.Name()
-				fi, err := e.Info()
-				if err == nil && (newest == nil || fi.ModTime().After(newest.ModTime())) {
-					newest = fi
+				if fi, err := statFile(p); err == nil && (newestPath == "" || fi.ModTime.After(newestMod)) {
+					newestMod = fi.ModTime
 					newestPath = p
 				}
 			}
@@ -1380,24 +1381,24 @@ func parseSupportconfig(info *models.SecurityInfo) {
 			if strings.HasSuffix(match, ".md5") {
 				continue
 			}
-			fi, err := os.Stat(match)
+			fi, err := statFile(match)
 			if err != nil {
 				continue
 			}
-			if newest == nil || fi.ModTime().After(newest.ModTime()) {
-				newest = fi
+			if newestPath == "" || fi.ModTime.After(newestMod) {
+				newestMod = fi.ModTime
 				newestPath = match
 			}
 		}
 	}
 
-	if newest == nil {
+	if newestPath == "" {
 		info.SupportconfigLastRunDays = -1 // never run
 		return
 	}
 
 	info.SupportconfigArchive = newestPath
-	info.SupportconfigLastRunDays = int(time.Since(newest.ModTime()).Hours() / 24)
+	info.SupportconfigLastRunDays = int(time.Since(newestMod).Hours() / 24)
 }
 
 // parseAppArmor populates AppArmor state into SecurityInfo.
@@ -1568,11 +1569,11 @@ func parsePasswordAging(info *models.SecurityInfo) {
 func parseWorldWritable(info *models.SecurityInfo) {
 	dirs := []string{"/tmp", "/var/tmp", "/dev/shm"}
 	for _, dir := range dirs {
-		fi, err := os.Stat(dir)
+		fi, err := statFile(dir)
 		if err != nil {
 			continue
 		}
-		mode := fi.Mode()
+		mode := fi.Mode
 		// World-writable = mode has o+w set (0002)
 		// Sticky bit = mode has sticky bit (01000 in octal)
 		worldWritable := mode&0002 != 0
