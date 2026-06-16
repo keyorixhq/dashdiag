@@ -140,15 +140,54 @@ func isVMVirtType(s string) bool {
 	}
 }
 
+// kmsgRecords returns the /dev/kmsg ring-buffer records (one per line), routed
+// through the active source so capture/replay reproduces the captured kernel log
+// instead of re-reading the live ring buffer on replay (which is non-deterministic
+// and host-specific). Keyed once per run.
+func kmsgRecords(ctx context.Context) []string {
+	data, _ := activeSource.Cached("kmsg", func() ([]byte, error) {
+		return []byte(readKmsgLive(ctx)), nil
+	})
+	s := strings.TrimRight(string(data), "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// readKmsgLive drains the live /dev/kmsg ring buffer (non-blocking) into newline-
+// separated records. One f.Read == one kmsg record.
+func readKmsgLive(ctx context.Context) string {
+	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck
+	var b strings.Builder
+	buf := make([]byte, 8192)
+	for {
+		select {
+		case <-ctx.Done():
+			return b.String()
+		default:
+		}
+		n, err := f.Read(buf)
+		if n == 0 || err != nil {
+			return b.String() // EAGAIN or EOF — ring buffer exhausted
+		}
+		b.WriteString(strings.TrimRight(string(buf[:n]), "\n"))
+		b.WriteByte('\n')
+	}
+}
+
 // parseKmsg reads /dev/kmsg and extracts OOM kills and segfaults from the last hour.
 // /dev/kmsg entries are: "priority,sequence,timestamp_usec,flags;message"
 // timestamp_usec is monotonic time since boot in microseconds.
 func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // kernel-log level classification is an inherently long, branchy dispatch
-	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
-	if err != nil {
+	kmsgLines := kmsgRecords(ctx)
+	if len(kmsgLines) == 0 {
 		return
 	}
-	defer f.Close() //nolint:errcheck
 
 	uptimeBytes, err := readFile("/proc/uptime")
 	if err != nil {
@@ -168,18 +207,12 @@ func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duratio
 	oomSeen := make(map[string]bool)
 	segSeen := make(map[string]bool)
 
-	buf := make([]byte, 8192)
-	for {
+	for _, line := range kmsgLines {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		n, err := f.Read(buf)
-		if n == 0 || err != nil {
-			return // EAGAIN or EOF — ring buffer exhausted
-		}
-		line := strings.TrimRight(string(buf[:n]), "\n")
 
 		// Format: "priority,seq,timestamp_usec,flags;message"
 		semi := strings.IndexByte(line, ';')

@@ -111,6 +111,10 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 			Mounts: mounts,
 		})
 	}
+	// Deterministic order so the drives list (and the I/O check derived from it) is
+	// byte-stable across runs/replays — TRIAGE §I (the /proc/partitions scan order
+	// has proven non-deterministic on some hosts).
+	sort.Slice(drives, func(i, j int) bool { return drives[i].Name < drives[j].Name })
 	return drives
 }
 

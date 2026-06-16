@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -154,6 +155,9 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 	for name, afterStat := range after {
 		result.Devices = append(result.Devices, computeDelta(name, before[name], afterStat))
 	}
+	// Map iteration is randomized — sort for deterministic, diffable output
+	// (TRIAGE §I; this was the intermittent device reorder the replay guard caught).
+	sort.Slice(result.Devices, func(i, j int) bool { return result.Devices[i].Name < result.Devices[j].Name })
 	return result, nil
 }
 
