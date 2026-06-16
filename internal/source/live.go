@@ -63,6 +63,10 @@ func (l Live) Statfs(path string) (StatfsInfo, error) {
 	}, nil
 }
 
+func (l Live) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
+	return produce() // live reads always recompute; nothing is cached
+}
+
 func (l Live) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	if l.Exec != nil {
 		return l.Exec(ctx, name, args...)

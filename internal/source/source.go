@@ -83,6 +83,12 @@ type Source interface {
 	// Statfs returns filesystem statistics for path (syscall.Statfs semantics).
 	// A non-existent path returns an error satisfying errors.Is(err, os.ErrNotExist).
 	Statfs(path string) (StatfsInfo, error)
+	// Cached makes a computed/derived value hermetic under replay. It is for inputs
+	// that don't map to a single file read — e.g. a gopsutil call that reads /proc
+	// through its own API. Live always invokes produce(); Recorder invokes it once
+	// and records the bytes; Replay returns the recorded bytes and NEVER invokes
+	// produce (so no live probe runs on replay). key must be stable and unique.
+	Cached(key string, produce func() ([]byte, error)) ([]byte, error)
 	// Run executes name with args and returns its captured Result. The error is
 	// non-nil only for an execution failure (tool absent, context cancelled),
 	// NOT for a non-zero exit — inspect Result.ExitCode for that.
@@ -96,6 +102,11 @@ var ErrNotRecorded = errors.New("source: input not present in replay bundle (rec
 
 // cleanPath canonicalises a file or dir key so record and replay agree.
 func cleanPath(p string) string { return filepath.Clean(p) }
+
+// cacheKey namespaces a Cached() key into the file store. The NUL prefix can
+// never appear in a real filesystem path, so a cached computed value never
+// collides with a recorded file read.
+func cacheKey(k string) string { return "\x00cached\x00" + k }
 
 // cmdKey canonicalises an argv into a single map key.
 func cmdKey(name string, args []string) string {

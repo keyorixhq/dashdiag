@@ -9,6 +9,7 @@ package collectors
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -17,6 +18,25 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// cachedJSON makes a computed value (e.g. a gopsutil call that reads /proc via its
+// own API, bypassing the file wrappers) hermetic under capture/replay. compute is
+// run on a live or capture pass and its result recorded as JSON; on `dsd replay`
+// the recorded JSON is decoded into out and compute is NEVER called — so no live
+// probe runs. key must be stable and unique. out must be a non-nil pointer.
+func cachedJSON(key string, compute func() (any, error), out any) error {
+	data, err := activeSource.Cached(key, func() ([]byte, error) {
+		v, e := compute()
+		if e != nil {
+			return nil, e
+		}
+		return json.Marshal(v)
+	})
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, out)
+}
 
 // readFile returns the contents of path via the active source.
 func readFile(path string) ([]byte, error) { return activeSource.ReadFile(path) }
