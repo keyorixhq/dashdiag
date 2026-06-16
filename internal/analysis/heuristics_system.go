@@ -41,6 +41,20 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 		return nil // not present on this platform — hide the row entirely
 	}
 	out := make([]models.Insight, 0, len(sys.FailedUnits))
+
+	// The failed-unit query did not run (systemctl list-units errored or hit the
+	// 3s timeout — most likely under load, exactly when units are failing). Say
+	// so instead of letting an empty list read as a silent healthy verdict.
+	if sys.FailedUnitsUnknown {
+		out = append(out, insight("INFO", "Systemd",
+			"could not list failed units — systemctl list-units did not complete; failed-unit status is unverified",
+			[]string{
+				"to check manually: systemctl --failed",
+				"note: the query may have timed out under load — re-run when the host is quieter",
+			},
+		))
+	}
+
 	selinuxEnforcing := sys.SELinuxEnforcing // set by ApplyThresholds pre-scan
 	for _, unit := range sys.FailedUnits {
 		hints := []string{

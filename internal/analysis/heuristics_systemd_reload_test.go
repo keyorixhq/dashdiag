@@ -23,3 +23,19 @@ func TestCheckSystemdNeedsDaemonReload(t *testing.T) {
 		t.Errorf("no pending-reload units should not WARN, got %+v", clean)
 	}
 }
+
+// TestCheckSystemdFailedUnitsUnknown guards the false-OK fix: when the
+// failed-unit query did not run, the row must say so (INFO unverified) instead
+// of staying silently green; when it did run and found nothing, it must stay
+// silent (no false-alarm on a genuinely clean host).
+func TestCheckSystemdFailedUnitsUnknown(t *testing.T) {
+	unknown := checkSystemd(models.SystemdInfo{Available: true, FailedUnitsUnknown: true})
+	if !insightWithMsg(unknown, "INFO", "could not list failed units") {
+		t.Errorf("unverified failed-unit query should emit INFO, got %+v", unknown)
+	}
+
+	clean := checkSystemd(models.SystemdInfo{Available: true})
+	if insightWithMsg(clean, "INFO", "could not list failed units") {
+		t.Errorf("a successful empty failed-unit query must stay silent, got %+v", clean)
+	}
+}

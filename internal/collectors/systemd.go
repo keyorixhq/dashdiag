@@ -105,13 +105,18 @@ func filterUnits(units []string, ignore map[string]bool) []string {
 	return out
 }
 
-func listUnits(ctx context.Context, state string) []string {
+// listUnits returns the unit names in the given state. The error is propagated
+// (not swallowed) so the caller can tell "the query failed" apart from "zero
+// units in this state" — collapsing the two into an empty list reads a transient
+// systemctl failure (e.g. the 3s Timeout tripping under load, exactly when units
+// are likely failing) as a silent healthy verdict.
+func listUnits(ctx context.Context, state string) ([]string, error) {
 	out, err := runCmd(ctx, "systemctl", "list-units",
 		"--state="+state, "--no-legend", "--no-pager", "--plain")
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return parseUnitList(strings.NewReader(out))
+	return parseUnitList(strings.NewReader(out)), nil
 }
 
 func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
@@ -119,16 +124,18 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 		return &models.SystemdInfo{Available: false}, nil
 	}
 
-	failed := filterUnits(listUnits(ctx, "failed"), cloudInitUnits)
+	failedRaw, failedErr := listUnits(ctx, "failed")
+	failed := filterUnits(failedRaw, cloudInitUnits)
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{
-		Available:         true,
-		FailedUnits:       failed,
-		NeedsDaemonReload: systemdNeedsReload(ctx),
-		StuckUnits:        nil,
-		SlowUnits:         slowUnits,
-		TotalBootSec:      totalBoot,
+		Available:          true,
+		FailedUnits:        failed,
+		FailedUnitsUnknown: failedErr != nil,
+		NeedsDaemonReload:  systemdNeedsReload(ctx),
+		StuckUnits:         nil,
+		SlowUnits:          slowUnits,
+		TotalBootSec:       totalBoot,
 	}, nil
 }
 
