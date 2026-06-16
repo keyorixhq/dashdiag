@@ -82,6 +82,20 @@ These found BUG-040–052; re-run after any collector/heuristic change:
    reported as current. Ask "where else?" — BUG-047/049 hid one file away.
 3. **Sibling divergence diff** — same fact, two code paths, two verdicts
    (BUG-050 `cmd/disk.go` vs health thresholds). Diff cmd/* against analysis/.
+4. **Zero-vs-unreported ambiguity** — a numeric `0` for "attribute/sensor not
+   exposed" renders identically to a measured `0`. Distinct from the false-OK
+   sweep (#1): here the *verdict* is usually correct, but the displayed/JSON
+   value is ambiguous. Lineage: the GPU all-zero false-OK (§F, #c784f68) was the
+   verdict-breaking end of this; the cosmetic end is benign-but-misleading.
+   Observed 2026-06-16 on pve01 (row 20): the LiteOn SSD exposes no SMART attr
+   194/9, so `dsd hardware --json` shows `temp_c:0, power_on_h:0` — accurate
+   ("not reported"), verdict correct (`SMART: PASSED` is driven by the health
+   bit, not the zeros), but a consumer can't tell 0 from unsupported. **Not a bug
+   to blind-fix:** the honest representation (null / a `supported` flag / omit)
+   changes the `--json` shape, which is the **frozen 1.0 contract** — needs a
+   deliberate schema decision, not a patch. Audit scope when picked up: temp_c,
+   power_on_h, wear_pct, reallocated/pending across drives; CPU/GPU temps; any
+   sensor field that can legitimately be absent. Low priority.
 
 ---
 
@@ -267,14 +281,13 @@ attribute, so this is hardening, not a confirmed-bug fix).
 
 ## Housekeeping
 
-- **pve01 hardware-collector T1** — ✅ probed 2026-06-16: HP ProDesk 600 G2 SFF
-  (i7-6700 Skylake), added as PLATFORM_COVERAGE row 20. Key win: a real **WD 1.8TB
-  rotational HDD** (`ROTA=1`) — the matrix's only spinning disk, exercising
-  HDD-specific SMART + `is_ssd:false` heuristics — plus a 2nd SATA SSD (first
-  multi-drive real node) and richer thermal (coretemp + pch_skylake + hp sensor).
-  No ECC/EDAC or IPMI (consumer SFF), so §B/server-grade gaps remain open.
-  **Remaining:** dsd on pve01 is v0.6.0 (Jun 1) — refresh to current and re-run
-  `HW_HOST=root@192.168.10.20 bash scripts/hardware-smoke.sh` to validate the
-  HDD-SMART path on current code (smoke passed on v0.6.0: 6 pass / 1 skip).
+- **pve01 hardware-collector T1** — ✅ done 2026-06-16: HP ProDesk 600 G2 SFF
+  (i7-6700 Skylake), PLATFORM_COVERAGE row 20. Fresh current-`main` dsd deployed
+  and validated (hardware-smoke 6 pass / 1 skip). Confirmed the real **WD 1.8TB
+  rotational HDD** SMART reads correctly on current code (temp 51°C, 36563h, attrs
+  9/194) and types as HDD; SSD/HDD discrimination verified in `dsd disk`; verdicts
+  sound. No defects found — the SSD temp=0/power-on=0 is accurate "not reported"
+  (drive exposes no such attrs), logged as cosmetic under §E.4. No ECC/EDAC or
+  IPMI (consumer SFF), so §B/server-grade gaps remain open.
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
   duplicated with diverging counts (13 vs 14) — delete the older pair.
