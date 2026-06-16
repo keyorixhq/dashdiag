@@ -406,10 +406,17 @@ func collectZFSPools() []models.ZFSPool {
 		// FreeGB
 		pool.FreeGB = parseZFSSize(fields[3])
 
-		// Per-pool status for errors and scrub age
-		statusOut, _ := runCmdTimeout(3*time.Second, "zpool", "status", pool.Name)
-		pool.ScrubAgeDays = parseZFSScrubAge(statusOut)
-		pool.ReadErrors, pool.WriteErrors, pool.CksumErrors = parseZFSVdevErrors(statusOut)
+		// Per-pool status for errors and scrub age. `zpool status` can hang on a
+		// sick pool and hit the timeout; on error we must NOT leave the counts at 0
+		// and ScrubAgeDays at -1 (which read as "no errors"/"never scrubbed") — flag
+		// it so the verdict says "unverified" instead.
+		statusOut, statusErr := runCmdTimeout(3*time.Second, "zpool", "status", pool.Name)
+		if statusErr != nil {
+			pool.StatusReadFailed = true
+		} else {
+			pool.ScrubAgeDays = parseZFSScrubAge(statusOut)
+			pool.ReadErrors, pool.WriteErrors, pool.CksumErrors = parseZFSVdevErrors(statusOut)
+		}
 
 		pools = append(pools, pool)
 	}

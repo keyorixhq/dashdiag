@@ -119,6 +119,12 @@ func TestCheckZFSPool(t *testing.T) {
 		{"vdev errors on degraded pool is CRIT", models.ZFSPool{Name: "tank", State: "DEGRADED", UsedPct: 10, CksumErrors: 3, ScrubAgeDays: 5}, "CRIT", ""},
 		{"vdev errors with unrepairable scrub is CRIT", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, CksumErrors: 3, ScrubErrors: 2, ScrubAgeDays: 5}, "CRIT", ""},
 		{"never scrubbed is WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, ScrubAgeDays: -1}, "WARN", ""},
+		// zpool status unread: ScrubAgeDays is -1 here because it couldn't be read,
+		// NOT because the pool was never scrubbed — must be INFO (unverified), and
+		// must NOT fire the "never scrubbed" WARN.
+		{"zpool status unread on ONLINE pool is INFO not WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, ScrubAgeDays: -1, StatusReadFailed: true}, "INFO", "WARN"},
+		// On an already-DEGRADED pool the CRIT still fires; the unread-status INFO is suppressed as redundant.
+		{"zpool status unread on DEGRADED pool stays CRIT", models.ZFSPool{Name: "tank", State: "DEGRADED", ScrubAgeDays: -1, StatusReadFailed: true}, "CRIT", "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
