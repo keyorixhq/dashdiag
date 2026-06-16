@@ -96,7 +96,14 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	for k, v := range counts {
 		sorted = append(sorted, kv{k, v})
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].v > sorted[j].v })
+	// count desc, then source asc — the key tiebreaker keeps the top-N deterministic
+	// (counts is a map; without it ties keep random iteration order). TRIAGE §I.
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].v != sorted[j].v {
+			return sorted[i].v > sorted[j].v
+		}
+		return sorted[i].k < sorted[j].k
+	})
 	max := 5
 	if len(sorted) < max {
 		max = len(sorted)

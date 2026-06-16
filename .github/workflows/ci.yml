@@ -51,6 +51,42 @@ jobs:
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
 
+  # Replay hermeticity guard: capture once, replay the SAME bundle twice, and assert
+  # the rendered JSON is byte-identical (modulo volatile timestamp/duration). Two
+  # replays of one bundle MUST match — a difference means a collector reads live
+  # state under replay (the bug class closed by the capture/replay epic, #339–#355).
+  # Also fails on a recording gap. Run as a workflow step (not a Go test) so the
+  # binary runs once per process — no in-process source-swapping under -race.
+  replay-hermetic:
+    name: Replay hermeticity (double-replay diff)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Build dsd
+        run: go build -o /tmp/dsd ./cmd/dsd
+      - name: Capture once, replay twice, assert byte-stable
+        run: |
+          set -euo pipefail
+          /tmp/dsd capture --raw -o /tmp/b.tar.gz
+          if /tmp/dsd replay /tmp/b.tar.gz 2>&1 >/dev/null | grep -qi "not present in replay"; then
+            echo "::error::replay hit a recording gap — a collector read an uncaptured input"
+            exit 1
+          fi
+          /tmp/dsd replay --json /tmp/b.tar.gz > /tmp/r1.json
+          /tmp/dsd replay --json /tmp/b.tar.gz > /tmp/r2.json
+          NORM='. | del(.timestamp) | .checks |= map(del(.duration))'
+          jq -S "$NORM" /tmp/r1.json > /tmp/n1.json
+          jq -S "$NORM" /tmp/r2.json > /tmp/n2.json
+          if ! diff -u /tmp/n1.json /tmp/n2.json; then
+            echo "::error::two replays of the same bundle differ — a collector reads live state under replay (hermeticity regression)"
+            exit 1
+          fi
+          echo "✅ replay is hermetic: two replays byte-identical (modulo timestamp/duration)"
+
   # SSDLC Layer 1 (ADR-0007): the .golangci.yml gosec config previously only ran
   # locally / pre-push — nothing gated PRs. This is the PR security gate.
   lint:
