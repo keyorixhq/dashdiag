@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -123,6 +124,9 @@ func parseMultipathShow(out string) []models.MultipathDevice {
 		}
 		devices = append(devices, *d)
 	}
+	// deviceMap is a map, so sort for deterministic output (stable JSON across
+	// runs/replays — TRIAGE Section I).
+	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
 	return devices
 }
 
