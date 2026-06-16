@@ -130,11 +130,13 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 // collectDarwin uses ps to find zombie and D-state processes on macOS.
 // stat is placed before comm so spaces in process names never shift its column position.
 func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.ProcessInfo, error) {
-	out, err := localeSafeCmd(ctx, "ps", "axo", "pid,ppid,stat,comm").Output()
+	// runCmd (Source.Run) so the process snapshot is captured and replayed
+	// hermetically — a direct exec here re-counts the live process table on replay.
+	out, err := runCmd(ctx, "ps", "axo", "pid,ppid,stat,comm")
 	if err != nil {
 		return &models.ProcessInfo{}, nil
 	}
-	lines := strings.Split(string(out), "\n")
+	lines := strings.Split(out, "\n")
 	info := &models.ProcessInfo{
 		Total:       len(lines) - 1, // subtract header line
 		ZombieProcs: make([]models.ProcessState, 0),
