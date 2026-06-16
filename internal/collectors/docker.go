@@ -167,12 +167,10 @@ func detectContainerSocket() (path, runtime string, permDenied bool) {
 		if !fileExists(c.path) {
 			continue // file doesn't exist — try next
 		}
-		conn, err := net.DialTimeout("unix", c.path, 500*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		switch dialOutcome("unix", c.path, 500*time.Millisecond) {
+		case dialOK:
 			return c.path, c.runtime, false
-		}
-		if strings.Contains(err.Error(), "permission denied") {
+		case dialPermission:
 			return c.path, c.runtime, true
 		}
 	}
@@ -191,8 +189,17 @@ func socketClient(socket string) *http.Client {
 	}
 }
 
-// apiGet makes a GET request to the Docker/Podman API.
+// apiGet makes a GET request to the Docker/Podman API, routed through the source
+// cache (keyed by API path) so the response replays from the bundle instead of
+// re-querying the live daemon socket.
 func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, error) {
+	return activeSource.Cached("docker-api/"+path, func() ([]byte, error) {
+		return apiGetLive(ctx, client, path)
+	})
+}
+
+// apiGetLive performs the live Docker/Podman API GET over the unix socket.
+func apiGetLive(ctx context.Context, client *http.Client, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"http://localhost"+path, nil)
 	if err != nil {

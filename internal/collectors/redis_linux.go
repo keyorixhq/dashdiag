@@ -19,10 +19,23 @@ var redisSocketPaths = []string{
 	"/run/valkey/valkey.sock",
 }
 
-// redisPing dials network/addr and sends an inline PING, returning true if the
+// redisPing caches redisPingLive through the source so the PING/PONG detection
+// replays from the bundle instead of re-dialing the replaying machine. The INFO
+// data itself comes via redis-cli (runCmd), already captured.
+func redisPing(network, addr string) bool {
+	data, _ := activeSource.Cached("redis-ping/"+network+"/"+addr, func() ([]byte, error) {
+		if redisPingLive(network, addr) {
+			return []byte{'1'}, nil
+		}
+		return []byte{'0'}, nil
+	})
+	return len(data) == 1 && data[0] == '1'
+}
+
+// redisPingLive dials network/addr and sends an inline PING, returning true if the
 // server answers "+PONG" — confirming it's really Redis (or Valkey), not just
 // any process bound to the port. No client binary needed.
-func redisPing(network, addr string) bool {
+func redisPingLive(network, addr string) bool {
 	conn, err := net.DialTimeout(network, addr, 400*time.Millisecond)
 	if err != nil {
 		return false

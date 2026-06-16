@@ -27,10 +27,17 @@ func (c *NetworkDeepCollector) Collect(ctx context.Context) (any, error) {
 	}
 	info := raw.(*models.NetworkInfo)
 
-	// 20-sample jitter against gateway
+	// 20-sample jitter against gateway. Routed through the source cache so the
+	// measured value replays from the bundle instead of re-pinging — consistent
+	// with the other live network probes (the gateway IP is deterministic on
+	// replay, derived from captured route reads).
 	if info.GatewayPingMs > 0 {
 		if gw := detectDefaultGateway(ctx); gw.GatewayIP != "" {
-			info.JitterMs = measureJitter(ctx, gw.GatewayIP, 20)
+			var jitter float64
+			_ = cachedJSON("net/jitter", func() (any, error) {
+				return measureJitter(ctx, gw.GatewayIP, 20), nil
+			}, &jitter)
+			info.JitterMs = jitter
 		}
 	}
 

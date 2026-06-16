@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -28,9 +27,7 @@ var postgresSocketDirs = []string{
 func detectPostgresSocket() string {
 	for _, dir := range postgresSocketDirs {
 		path := dir + "/.s.PGSQL.5432"
-		conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
-		if err == nil {
-			conn.Close() //nolint:errcheck
+		if dialReachable("unix", path, 300*time.Millisecond) {
 			return dir
 		}
 	}
