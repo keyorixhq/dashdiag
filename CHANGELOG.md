@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-06-16
+
+### Fixed
+
+- **Command-based collectors are now hermetic under `dsd replay`.** ~20 collectors
+  ran external commands directly (`localeSafeCmd(...).Output()`), bypassing the
+  capture/replay layer — so on replay they executed live on the *replaying* machine
+  and a captured host's findings (e.g. SSH config, systemd units/boot time, dbus,
+  SELinux denials, the incident timeline, DNS resolver, macOS firewall/FileVault)
+  reflected the wrong host. Routed them all through the source (systemd, security,
+  bind, kernel_security, dbus, dns_resolver, timeline, swap, fdlimits, disk/security
+  on darwin). (#358)
+- **Deterministic replay/JSON output.** Fixed non-determinism the new guard caught:
+  the macOS process count, `/dev/kmsg` reads, the I/O device list (`/proc/diskstats`
+  map order), physical-drive order, and the top-N error/failed-login lists (map
+  tie-breaks). (#357)
+
+### Added
+
+- **CI replay-hermeticity guard.** A `replay-hermetic` job captures once, replays
+  the same bundle twice, and fails on any non-volatile difference or recording gap —
+  so future collectors can't silently reintroduce live reads under replay. (#357)
+
+With 1.0.2–1.0.4, the default `dsd health` capture path has no live
+command/file/syscall I/O outside the capture/replay abstraction: `dsd capture` →
+`dsd replay` reproduces the captured host faithfully and byte-stably.
+
 ## [1.0.3] - 2026-06-16
 
 ### Fixed
