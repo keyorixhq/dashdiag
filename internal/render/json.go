@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -125,6 +126,24 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			Details: ins.Details,
 		})
 	}
+
+	// Stable ordering so `dsd health --json`, `dsd capture`, and `dsd replay`
+	// produce byte-stable, diffable artifacts — collectors complete in
+	// nondeterministic order, which otherwise shuffles these arrays run to run
+	// (TRIAGE §I). Checks by name; insights worst-first then alphabetical, matching
+	// the human renderer (report.go). The human path does its own sort, so this
+	// only affects the machine-consumed JSON/YAML surface.
+	sort.SliceStable(checks, func(i, j int) bool { return checks[i].Name < checks[j].Name })
+	sort.SliceStable(jsonInsights, func(i, j int) bool {
+		a, b := jsonInsights[i], jsonInsights[j]
+		if oa, ob := severityOrder(a.Level), severityOrder(b.Level); oa != ob {
+			return oa > ob // CRIT before WARN before INFO
+		}
+		if a.Check != b.Check {
+			return a.Check < b.Check
+		}
+		return a.Message < b.Message
+	})
 
 	verdict, counts := summarizeInsights(insights)
 
