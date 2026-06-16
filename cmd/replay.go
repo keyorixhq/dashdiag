@@ -144,7 +144,13 @@ func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, 
 	if err != nil {
 		return fmt.Errorf("loading baseline bundle: %w", err)
 	}
+	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut)
+}
 
+// renderCaptureDiff replays two bundles through the identical health pipeline and
+// writes the per-check delta to stdout (human or JSON). Shared by `replay --diff`
+// and the top-level `dsd diff` command.
+func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, jsonOut bool) error {
 	_, _, baseSnap := replayBundle(base, deep, pkg, gpu)
 	_, _, curSnap := replayBundle(current, deep, pkg, gpu)
 
