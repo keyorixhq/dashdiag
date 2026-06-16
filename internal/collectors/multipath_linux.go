@@ -86,9 +86,17 @@ func parseMultipathShow(out string) []models.MultipathDevice {
 		if dev == "dev" && state == "dm_st" {
 			continue
 		}
-		dm := fields[3]
-		if dm == "" || dm == "[orphan]" {
-			dm = "unknown"
+		// The map name (%m) is the LAST field, not fields[3]: the vend/prod/rev
+		// field (%s) can contain spaces (e.g. real output "ATA,APPLE SSD SM128C"),
+		// which shifts the positional columns and made fields[3] a product token.
+		// Reading from the end is robust to spaces in %s.
+		dm := fields[len(fields)-1]
+		// An [orphan] path belongs to no multipath map — it's a plain disk, not a
+		// multipath device. Skip it; otherwise a host with multipath-tools installed
+		// but no SAN (any Ubuntu box that pulled it in as a dependency) reports a
+		// phantom "all paths failed — device unavailable" CRIT on a healthy disk.
+		if dm == "[orphan]" || dm == "" {
+			continue
 		}
 
 		d, ok := deviceMap[dm]
