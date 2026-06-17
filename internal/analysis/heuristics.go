@@ -917,55 +917,64 @@ func eccInsights(corrected, uncorrected int64, check string) []models.Insight {
 func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	for _, fs := range disk.Filesystems {
-		if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
-			hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
-			// /boot filling up is almost always old kernel images after upgrades.
-			// Show distro-specific cleanup command based on detected package manager.
-			if fs.Mount == "/boot" {
-				bootHints := []string{
-					"to inspect: df -h /boot",
-					"to inspect: ls -lh /boot/vmlinuz* /boot/initramfs* /boot/initrd*",
+		// Inherently read-only image filesystems (iso9660, squashfs, erofs,
+		// cramfs) are packed to capacity at build time — 100% used is their
+		// normal state and no admin action can free space. Skip usage/inode
+		// scoring for these to avoid a guaranteed false CRIT on every live-USB
+		// /cdrom, snap-backed squashfs, or AppImage mount. The read-only
+		// remount check below still runs (handled by its own fstype allowlist).
+		inherentRO := isInherentlyReadOnlyFS(fs.FSType)
+		if !inherentRO {
+			if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
+				hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
+				// /boot filling up is almost always old kernel images after upgrades.
+				// Show distro-specific cleanup command based on detected package manager.
+				if fs.Mount == "/boot" {
+					bootHints := []string{
+						"to inspect: df -h /boot",
+						"to inspect: ls -lh /boot/vmlinuz* /boot/initramfs* /boot/initrd*",
+					}
+					switch thresh.PackageManager {
+					case "dnf":
+						bootHints = append(bootHints,
+							"to inspect: rpm -q kernel",
+							"to fix:     dnf remove --oldinstallonly --setopt installonly_limit=2",
+						)
+					case "apt":
+						bootHints = append(bootHints,
+							"to fix: apt autoremove --purge",
+						)
+					case "zypper":
+						bootHints = append(bootHints,
+							"to fix: zypper packages --orphaned | grep kernel",
+						)
+					case "pacman":
+						bootHints = append(bootHints,
+							"to inspect: pacman -Q linux",
+							"to fix:     pacman -R <old-kernel-packages>",
+						)
+					default:
+						// Unknown package manager — show all options
+						bootHints = append(bootHints,
+							"to fix (dnf):    dnf remove --oldinstallonly --setopt installonly_limit=2",
+							"to fix (apt):    apt autoremove --purge",
+							"to fix (zypper): zypper packages --orphaned | grep kernel",
+							"to fix (pacman): pacman -Q linux  # then pacman -R <old-kernels>",
+						)
+					}
+					hints = bootHints
 				}
-				switch thresh.PackageManager {
-				case "dnf":
-					bootHints = append(bootHints,
-						"to inspect: rpm -q kernel",
-						"to fix:     dnf remove --oldinstallonly --setopt installonly_limit=2",
-					)
-				case "apt":
-					bootHints = append(bootHints,
-						"to fix: apt autoremove --purge",
-					)
-				case "zypper":
-					bootHints = append(bootHints,
-						"to fix: zypper packages --orphaned | grep kernel",
-					)
-				case "pacman":
-					bootHints = append(bootHints,
-						"to inspect: pacman -Q linux",
-						"to fix:     pacman -R <old-kernel-packages>",
-					)
-				default:
-					// Unknown package manager — show all options
-					bootHints = append(bootHints,
-						"to fix (dnf):    dnf remove --oldinstallonly --setopt installonly_limit=2",
-						"to fix (apt):    apt autoremove --purge",
-						"to fix (zypper): zypper packages --orphaned | grep kernel",
-						"to fix (pacman): pacman -Q linux  # then pacman -R <old-kernels>",
-					)
-				}
-				hints = bootHints
+				out = append(out, insight(l, "Disk",
+					fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),
+					hints,
+				))
 			}
-			out = append(out, insight(l, "Disk",
-				fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),
-				hints,
-			))
-		}
-		if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
-			out = append(out, insight(l, "Disk",
-				fmt.Sprintf("inode usage at %.0f%% on %s", fs.InodesUsedPct, fs.Mount),
-				[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
-			))
+			if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
+				out = append(out, insight(l, "Disk",
+					fmt.Sprintf("inode usage at %.0f%% on %s", fs.InodesUsedPct, fs.Mount),
+					[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
+				))
+			}
 		}
 		// A writable on-disk filesystem mounted read-only is almost always an
 		// error remount: the kernel hit I/O or metadata errors and dropped the fs
@@ -995,6 +1004,21 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 func isWritableOnDiskFS(fsType string) bool {
 	switch fsType {
 	case "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs":
+		return true
+	}
+	return false
+}
+
+// isInherentlyReadOnlyFS reports whether a filesystem type is read-only by
+// design (immutable image/packed formats). Such filesystems are full by
+// construction: they are packed to capacity at build time and there is no
+// admin action that can free space. A 100%-used iso9660 (live-USB /cdrom),
+// squashfs (snap/AppImage backing), or erofs/cramfs image is the normal,
+// healthy state — not a disk-pressure condition. Reporting it as CRIT/WARN
+// is a false positive, so usage-level scoring skips these types.
+func isInherentlyReadOnlyFS(fsType string) bool {
+	switch fsType {
+	case "iso9660", "squashfs", "erofs", "cramfs":
 		return true
 	}
 	return false
