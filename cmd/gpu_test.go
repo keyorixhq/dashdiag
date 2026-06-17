@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -11,16 +12,16 @@ import (
 func TestGPUDeviceHasMetrics(t *testing.T) {
 	// An older Intel iGPU with no hwmon: detected (name/vendor/driver) but every
 	// metric is zero — no health was actually read.
-	if gpuDeviceHasMetrics(models.GPUDevice{Name: "Intel GPU (0116)", Vendor: "intel", DRMDriver: "i915"}) {
+	if analysis.GPUDeviceHasMetrics(models.GPUDevice{Name: "Intel GPU (0116)", Vendor: "intel", DRMDriver: "i915"}) {
 		t.Error("an all-zero Intel iGPU device must report no metrics")
 	}
-	if !gpuDeviceHasMetrics(models.GPUDevice{TempC: 45}) {
+	if !analysis.GPUDeviceHasMetrics(models.GPUDevice{TempC: 45}) {
 		t.Error("a device with a real temperature has metrics")
 	}
-	if !gpuDeviceHasMetrics(models.GPUDevice{MemTotalMB: 8192}) {
+	if !analysis.GPUDeviceHasMetrics(models.GPUDevice{MemTotalMB: 8192}) {
 		t.Error("a device with VRAM has metrics")
 	}
-	if !gpuDeviceHasMetrics(models.GPUDevice{PowerDrawW: 12}) {
+	if !analysis.GPUDeviceHasMetrics(models.GPUDevice{PowerDrawW: 12}) {
 		t.Error("a device with a power reading has metrics")
 	}
 }
