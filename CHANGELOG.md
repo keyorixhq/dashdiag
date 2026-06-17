@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-06-17
+
+### Fixed
+
+- **Duration parsers no longer overflow to a negative time threshold.** A garbled
+  or hostile huge duration (e.g. `SyncIntervalSec` / SSH `LoginGraceTime`) could
+  overflow `int` on the unit multiply and wrap negative, reading as "well under the
+  limit". `parseSystemdTime` / `parseSSHDuration` now saturate instead of wrapping.
+  Found by the parser-fuzzing pass; covered by a CI fuzz-seed regression guard. (#380)
+
 ## [1.3.0] - 2026-06-17
 
 Additive (no `dsd health --json` schema change): completes the capture-bundle
