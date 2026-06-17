@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-17
+
+Additive (no `dsd health --json` schema change): completes the capture-bundle
+sanitization story for safe sharing.
+
+### Added
+
+- **`dsd sanitize <bundle>`** — best-effort credential redaction for an
+  already-captured bundle (the "captured without `--sanitize`" or "scrub a bundle
+  someone handed me" case), writing `<input>-sanitized.tar.gz`. Same engine as
+  `dsd capture --raw --sanitize`. (#377)
+- **`--identifiers`** (on both `dsd capture --raw --sanitize` and `dsd sanitize`) —
+  additionally redacts IPv4 addresses, MAC addresses, and the hostname from file
+  contents and command output, using deterministic stable placeholders so the
+  bundle stays byte-stable and replay verdicts are unchanged. Identifiers used as
+  replay lookup keys (a few probe-target IPs such as the gateway/DNS, and the cloud
+  metadata IP) remain in the bundle index by necessity — disclosed in the output
+  and `--help`; review a bundle before sharing. IPv6 and disk serials are not yet
+  handled. (#378)
+
 ## [1.2.0] - 2026-06-17
 
 Additive (no `dsd health --json` schema change): completes the capture→replay→diff
