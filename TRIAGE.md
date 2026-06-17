@@ -126,10 +126,20 @@ nvme-cli = clean signal), GPU has none.
 
 | Item | Surface | Test target |
 |---|---|---|
-| Confirm a healthy AMD GPU actually reads temp (expected yes) | gpu_linux.go | AMD laptop testbed |
+| Confirm a healthy AMD GPU actually reads temp (expected yes) | gpu_linux.go | AMD laptop testbed — ⚠️ ATTEMPTED 2026-06-17, still OPEN (see note) |
 | If a clean "read nothing" signal exists → narrow guard: don't claim "Checks passed" when no device had a readable temp | cmd/gpu.go gpuSummaryLine + checkGPU | AMD laptop |
 
 Unblock: one session on the AMD laptop. Agent memory: `gpu-allzero-falseok-deferred`.
+
+**2026-06-17 attempt — did NOT close this.** Ran on a real AMD Cezanne APU
+(PLATFORM_COVERAGE row 21) expecting to confirm a healthy AMD GPU reads temp. It
+couldn't: the host was a **live USB booted with `nomodeset`**, so `amdgpu` loaded
+but never initialized the device — every telemetry node (gpu_busy_percent, VRAM,
+hwmon temp) was absent and `dsd` correctly reported no GPU check. **Lesson for the
+next attempt: a live USB / `nomodeset` boot cannot test the GPU path.** Need a
+host where amdgpu fully binds the card — a *persistent* install (drop `nomodeset`)
+or a discrete-GPU box. Friend's Proxmox host is a candidate IF it has an
+amdgpu-bound card.
 
 ---
 
@@ -276,6 +286,33 @@ attribute, so this is hardening, not a confirmed-bug fix).
 |---|---|---|
 | Guard 231/233 branch to match 173/177 | `hardware_linux.go` ~L184 | ✅ done this change (hardening; unverified on real 231/233 firmware) |
 | 173 garbage on Apple SSD | `hardware_linux.go` | ✅ already fixed `05b8124`; verified clean on row 19 |
+
+---
+
+## K. Disk false-CRIT on read-only image filesystems — ✅ DONE (#382, 2026-06-17)
+
+Surfaced by the first real AMD-silicon node (Ubuntu 26.04 live USB, PLATFORM_COVERAGE
+row 21). `dsd health` reported `Disk CRIT — disk usage at 100% on /cdrom (/dev/sda1)`
+on a healthy live boot. Root cause: inherently read-only image filesystems
+(iso9660, squashfs, erofs, cramfs) are packed to capacity at build time — 100%
+used is their normal state and no admin action can free space, so the usage/inode
+level scoring was firing a guaranteed false CRIT on every live-USB `/cdrom`,
+snap-backed squashfs, and AppImage mount.
+
+Fix: added `isInherentlyReadOnlyFS()` and skip usage/inode scoring for those
+fstypes (`checkDisk`, heuristics.go). The mount is still reported transparently in
+the inline summary (`13 mounts, max 100% (/cdrom)`) — data shown, verdict corrected.
+Writable filesystems unaffected: full ext4 still CRITs; the read-only error-remount
+WARN (writable fs dropped to ro after I/O errors) still fires via its own allowlist.
+
+Verified end-to-end on the AMD node: live run + replay of captured bundle both show
+`Disk OK`. Regression guards in `TestCheckDisk`: full image fs clean; full writable
+ext4 still CRIT; full read-only ext4 still WARN; image-fs inode-full clean.
+
+| Item | Surface | Status |
+|---|---|---|
+| Skip usage/inode scoring for iso9660/squashfs/erofs/cramfs | `heuristics.go` checkDisk + `isInherentlyReadOnlyFS` | ✅ done #382 |
+| Regression guards (image clean / writable still CRIT / ro-remount still WARN) | `heuristics_round10_test.go` TestCheckDisk | ✅ done #382 |
 
 ---
 
