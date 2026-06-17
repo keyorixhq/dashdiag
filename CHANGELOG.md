@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-06-17
+
+### Fixed
+
+- **`dsd replay` / `dsd diff` now report the captured host's identity, not the
+  replaying machine's.** The replayed `--json` `hostname`/`os` and the `dsd diff`
+  header read live (`os.Hostname`, `/etc/os-release`) instead of from the bundle,
+  so replaying a capture on a different box showed that box's name/OS. They now
+  come from the bundle manifest (deterministic — replay stays byte-stable). The
+  per-check results were already faithful; this fixes the top-level identity. (#386)
+
 ## [1.3.2] - 2026-06-17
 
 False-alarm/false-OK fixes surfaced by real-hardware validation on an AMD / Ubuntu
