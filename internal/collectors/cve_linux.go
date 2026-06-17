@@ -321,12 +321,9 @@ func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
 
 // checkCVEDebsecan uses debsecan (Debian Security Analyzer) when available.
 func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResult) *models.CVEResult {
-	out, err := runCmd(ctx, "debsecan", "--cve", cveID, "--format", "detail")
-	if err != nil || strings.TrimSpace(out) == "" {
-		result.Status = models.CVENotAffected
-		result.StatusReason = "debsecan: no vulnerabilities found for " + cveID
-		return result
-	}
+	// runCmdOutput (not runCmd) keeps stdout even on a non-zero exit — debsecan may
+	// exit non-zero when it finds a match (grep-style), and we want those findings.
+	out, err := runCmdOutput(ctx, "debsecan", "--cve", cveID, "--format", "detail")
 
 	var pkgs []models.CVEPackage
 	for _, line := range strings.Split(out, "\n") {
@@ -341,11 +338,22 @@ func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResul
 		}
 	}
 
-	if len(pkgs) > 0 {
+	switch {
+	case len(pkgs) > 0:
 		result.Status = models.CVEVulnerable
 		result.AffectedPackages = pkgs
 		result.FixCommand = "apt-get upgrade"
-	} else {
+	case err != nil:
+		// debsecan failed (not installed properly, no vulnerability DB / no network)
+		// and produced no findings — we CANNOT tell whether the host is affected.
+		// Report UNKNOWN, not a clean NOT_AFFECTED (the false-OK: a failed scan read
+		// as "you're safe").
+		result.Status = models.CVEUnknown
+		result.StatusReason = "debsecan could not run — CVE exposure NOT verified for " + cveID
+	case strings.TrimSpace(out) == "":
+		result.Status = models.CVENotAffected
+		result.StatusReason = "debsecan: no vulnerabilities found for " + cveID
+	default:
 		result.Status = models.CVEPatched
 	}
 	return result
