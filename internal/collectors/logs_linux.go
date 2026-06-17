@@ -551,24 +551,21 @@ func detectSyncRisk(volatile bool) bool {
 // Supports: plain integers (seconds), "Xs", "Xmin", "Xm", "Xh".
 func parseSystemdTime(s string) int {
 	s = strings.ToLower(strings.TrimSpace(s))
-	if strings.HasSuffix(s, "min") {
-		n, _ := strconv.Atoi(strings.TrimSuffix(s, "min"))
-		return n * 60
+	num, mult := s, 1
+	switch {
+	case strings.HasSuffix(s, "min"):
+		num, mult = strings.TrimSuffix(s, "min"), 60
+	case strings.HasSuffix(s, "m"):
+		num, mult = strings.TrimSuffix(s, "m"), 60
+	case strings.HasSuffix(s, "h"):
+		num, mult = strings.TrimSuffix(s, "h"), 3600
+	case strings.HasSuffix(s, "s"):
+		num = strings.TrimSuffix(s, "s")
 	}
-	if strings.HasSuffix(s, "m") {
-		n, _ := strconv.Atoi(strings.TrimSuffix(s, "m"))
-		return n * 60
-	}
-	if strings.HasSuffix(s, "h") {
-		n, _ := strconv.Atoi(strings.TrimSuffix(s, "h"))
-		return n * 3600
-	}
-	if strings.HasSuffix(s, "s") {
-		n, _ := strconv.Atoi(strings.TrimSuffix(s, "s"))
-		return n
-	}
-	n, _ := strconv.Atoi(s)
-	return n
+	n, _ := strconv.Atoi(num)
+	// clampMul saturates instead of overflowing negative — a huge SyncIntervalSec
+	// should read as "very large", never wrap to a negative that reads as fine.
+	return clampMul(n, mult)
 }
 
 // logDiskUsage returns the mount point and used% of the filesystem containing
