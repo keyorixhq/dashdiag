@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +127,9 @@ func parseMDArrayCounts(line string) (total, active int, ok bool) {
 		}
 		t, err1 := strconv.Atoi(strings.TrimSpace(inner[:slash]))
 		a, err2 := strconv.Atoi(strings.TrimSpace(inner[slash+1:]))
-		if err1 == nil && err2 == nil {
+		// Require non-negative counts: a negative from garbled mdstat would invert
+		// the degraded check (active < total). Skip such a group and keep scanning.
+		if err1 == nil && err2 == nil && t >= 0 && a >= 0 {
 			return t, a, true
 		}
 	}
@@ -192,5 +195,8 @@ func parseRecoveryPct(line string) float64 {
 		return 0
 	}
 	pct, _ := strconv.ParseFloat(fields[len(fields)-1], 64)
+	if math.IsNaN(pct) || math.IsInf(pct, 0) || pct < 0 {
+		return 0 // garbled progress field — treat as no measurable progress
+	}
 	return pct
 }

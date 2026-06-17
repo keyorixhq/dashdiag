@@ -473,6 +473,9 @@ func parseZFSVdevErrors(out string) (read, write, cksum int) {
 // ZFS-abbreviated value like "1.2K" / "15M" / "3.0G".
 func parseZFSCount(s string) (int, bool) {
 	if n, err := strconv.Atoi(s); err == nil {
+		if n < 0 {
+			return 0, false // a negative error count is garbled output, never a real zpool value
+		}
 		return n, true
 	}
 	if len(s) < 2 {
@@ -492,7 +495,7 @@ func parseZFSCount(s string) (int, bool) {
 		return 0, false
 	}
 	n, err := strconv.ParseFloat(s[:len(s)-1], 64)
-	if err != nil {
+	if err != nil || n < 0 {
 		return 0, false
 	}
 	return int(n * mult), true
