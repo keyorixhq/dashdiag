@@ -32,6 +32,7 @@ func init() {
 	captureCmd.Flags().Bool("raw", false, "capture a raw input bundle (every sysfs read + command output) for offline replay with `dsd replay`")
 	captureCmd.Flags().StringP("out", "o", "", "output path for the --raw bundle (default: dsd-raw-<host>-<timestamp>.tar.gz)")
 	captureCmd.Flags().Bool("sanitize", false, "best-effort redaction of common credentials (keys, passwords, tokens) from the bundle before writing — for safe sharing")
+	captureCmd.Flags().Bool("identifiers", false, "with --sanitize, also redact IPv4 addresses, MAC addresses, and the hostname (implies --sanitize)")
 }
 
 func runCaptureRaw(cmd *cobra.Command) error {
@@ -79,14 +80,23 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	}
 
 	sanitize, _ := cmd.Flags().GetBool("sanitize")
+	identifiers, _ := cmd.Flags().GetBool("identifiers")
+	if identifiers {
+		sanitize = true // identifiers can't be redacted without the sanitize pass
+	}
+
+	// Capture the real hostname for the default filename before sanitize may
+	// replace Manifest.Host with a placeholder.
+	fileHost := b.Manifest.Host
+
 	var sanReport source.SanitizeReport
 	if sanitize {
-		sanReport = b.Sanitize()
+		sanReport = b.Sanitize(source.SanitizeOptions{Identifiers: identifiers})
 	}
 
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
-		out = fmt.Sprintf("dsd-raw-%s-%s.tar.gz", b.Manifest.Host, time.Now().Format("20060102-150405"))
+		out = fmt.Sprintf("dsd-raw-%s-%s.tar.gz", fileHost, time.Now().Format("20060102-150405"))
 	}
 	if err := b.SaveTarball(out); err != nil {
 		return fmt.Errorf("writing bundle: %w", err)
@@ -97,8 +107,14 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	if sanitize {
 		fmt.Fprintf(os.Stderr, "   Sanitized (best-effort): %d redaction(s) across %d file(s) + %d command(s).\n",
 			sanReport.TotalRedactions, sanReport.FilesRedacted, sanReport.CommandsRedacted)
-		fmt.Fprintln(os.Stderr, "   NOTE: best-effort credential redaction only — REVIEW before sharing.")
-		fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, disk serials) are NOT redacted (kept for replay).")
+		fmt.Fprintln(os.Stderr, "   NOTE: best-effort redaction only — REVIEW before sharing.")
+		if identifiers {
+			fmt.Fprintln(os.Stderr, "   Identifiers redacted in file contents + command output: IPv4, MAC, hostname.")
+			fmt.Fprintln(os.Stderr, "   NOT redacted: IPv6, disk serials, and probe-target IPs (gateway/DNS) that")
+			fmt.Fprintln(os.Stderr, "   remain in the command index as replay lookup keys — review the bundle.")
+		} else {
+			fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, serials) kept for replay — add --identifiers to redact them.")
+		}
 	} else {
 		fmt.Fprintln(os.Stderr, "   NOTE: unredacted — contains hostname, IPs, disk serials, journald lines, and any")
 		fmt.Fprintln(os.Stderr, "   secrets in captured files/commands. Re-run with --sanitize for safer sharing.")

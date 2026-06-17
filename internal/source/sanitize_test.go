@@ -101,7 +101,7 @@ func TestBundleSanitize(t *testing.T) {
 	b.PutFile("/proc/cpuinfo", []byte("model name: Xeon\nMHz: 2400")) // no secret
 	b.putCmd("env", nil, Result{Stdout: []byte("DB_TOKEN=abc123\nPATH=/usr/bin")}, nil)
 
-	rep := b.Sanitize()
+	rep := b.Sanitize(SanitizeOptions{})
 	if rep.FilesRedacted != 1 || rep.CommandsRedacted != 1 || rep.TotalRedactions != 2 {
 		t.Fatalf("report = %+v, want files=1 cmds=1 total=2", rep)
 	}
@@ -116,5 +116,43 @@ func TestBundleSanitize(t *testing.T) {
 	}
 	if cr, _ := b.getCmd("env", nil); strings.Contains(string(cr.res.Stdout), "abc123") {
 		t.Errorf("secret left in command output: %q", cr.res.Stdout)
+	}
+}
+
+func TestRedactIdentifiers(t *testing.T) {
+	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
+		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +
+		"again 192.168.1.1"
+	out, n := redactIdentifiers([]byte(in), "web01")
+	got := string(out)
+
+	// Sensitive identifiers gone.
+	for _, s := range []string{"192.168.1.1", "aa:bb:cc:dd:ee:ff", "web01"} {
+		if strings.Contains(got, s) {
+			t.Errorf("identifier %q not redacted: %q", s, got)
+		}
+	}
+	// Preserved: loopback, unspecified, and a non-IP version string.
+	for _, s := range []string{"127.0.0.1", "0.0.0.0", "1.2.3.999"} {
+		if !strings.Contains(got, s) {
+			t.Errorf("expected %q to be preserved, got: %q", s, got)
+		}
+	}
+	if !strings.Contains(got, hostPlaceholder) {
+		t.Errorf("hostname should map to %s, got: %q", hostPlaceholder, got)
+	}
+	// Stable mapping: the IP appears twice and must redact to the SAME token both
+	// times (correlation preserved) — count its occurrences in the output.
+	tok := idPlaceholder("IP", "192.168.1.1")
+	if strings.Count(got, tok) != 2 {
+		t.Errorf("expected the repeated IP to map to the same token twice, got: %q", got)
+	}
+	if n == 0 {
+		t.Errorf("expected redactions, got 0")
+	}
+
+	// Determinism: same input → identical output bytes.
+	if out2, _ := redactIdentifiers([]byte(in), "web01"); string(out2) != got {
+		t.Errorf("redactIdentifiers not deterministic")
 	}
 }

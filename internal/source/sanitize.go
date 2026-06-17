@@ -1,6 +1,11 @@
 package source
 
-import "regexp"
+import (
+	"fmt"
+	"hash/fnv"
+	"net"
+	"regexp"
+)
 
 // Sanitization is BEST-EFFORT redaction of common credential patterns from a raw
 // capture bundle, so it can be shared for offline `dsd replay` / `dsd diff` without
@@ -61,18 +66,40 @@ type SanitizeReport struct {
 	TotalRedactions  int // total pattern matches replaced
 }
 
-// Sanitize redacts common credential patterns from every recorded file blob and
-// command output in the bundle, in place. Best-effort (see the package note).
-func (b *Bundle) Sanitize() SanitizeReport {
+// SanitizeOptions controls how aggressive a Sanitize pass is.
+type SanitizeOptions struct {
+	// Identifiers, when true, ALSO redacts IPv4 addresses, MAC addresses, and the
+	// host's own hostname (in addition to secrets). Replacements are deterministic
+	// stable-hash placeholders, so the bundle stays byte-stable AND the same value
+	// maps to the same token everywhere (correlation is preserved) — replay verdicts
+	// are unchanged, only the displayed identifiers differ. Loopback/unspecified
+	// addresses are kept. IPv6 is not yet handled.
+	Identifiers bool
+}
+
+// Sanitize redacts secrets (always) and, if opts.Identifiers, identifiers from
+// every recorded file blob and command output in the bundle, in place.
+// Best-effort (see the package note).
+func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	host := b.Manifest.Host
+	redact := func(data []byte) ([]byte, int) {
+		out, n := redactSecrets(data)
+		if opts.Identifiers {
+			out, k := redactIdentifiers(out, host)
+			return out, n + k
+		}
+		return out, n
+	}
 
 	var rep SanitizeReport
 	for path, fr := range b.files {
 		if len(fr.data) == 0 {
 			continue
 		}
-		if red, n := redactSecrets(fr.data); n > 0 {
+		if red, n := redact(fr.data); n > 0 {
 			fr.data = red
 			b.files[path] = fr
 			rep.FilesRedacted++
@@ -81,11 +108,11 @@ func (b *Bundle) Sanitize() SanitizeReport {
 	}
 	for key, cr := range b.cmds {
 		var n int
-		if red, k := redactSecrets(cr.res.Stdout); k > 0 {
+		if red, k := redact(cr.res.Stdout); k > 0 {
 			cr.res.Stdout = red
 			n += k
 		}
-		if red, k := redactSecrets(cr.res.Stderr); k > 0 {
+		if red, k := redact(cr.res.Stderr); k > 0 {
 			cr.res.Stderr = red
 			n += k
 		}
@@ -95,5 +122,63 @@ func (b *Bundle) Sanitize() SanitizeReport {
 			rep.TotalRedactions += n
 		}
 	}
+	// The host's own hostname also lives in the manifest metadata.
+	if opts.Identifiers && host != "" && host != "host" {
+		b.Manifest.Host = hostPlaceholder
+	}
 	return rep
+}
+
+const hostPlaceholder = "[HOST]"
+
+var (
+	reMAC  = regexp.MustCompile(`\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b`)
+	reIPv4 = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
+)
+
+// idPlaceholder is a deterministic placeholder for an identifier value: the same
+// value always maps to the same token (so correlation survives) and it never
+// varies across runs (so the bundle stays byte-stable for replay).
+func idPlaceholder(prefix, val string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(val))
+	return fmt.Sprintf("[%s-%08x]", prefix, h.Sum32())
+}
+
+// redactIdentifiers replaces MACs, real IPv4 addresses, and the host's own
+// hostname with stable placeholders. MACs are redacted before IPs. Loopback and
+// unspecified addresses are kept (they identify nothing and collectors may key on
+// them). A candidate is only redacted if net.ParseIP confirms it is a real address,
+// so version strings like "1.2.3.999" are left alone.
+func redactIdentifiers(data []byte, hostname string) ([]byte, int) {
+	if len(data) == 0 {
+		return data, 0
+	}
+	n := 0
+	out := reMAC.ReplaceAllFunc(data, func(m []byte) []byte {
+		n++
+		return []byte(idPlaceholder("MAC", string(m)))
+	})
+	out = reIPv4.ReplaceAllFunc(out, func(m []byte) []byte {
+		if !isRedactableIP(string(m)) {
+			return m
+		}
+		n++
+		return []byte(idPlaceholder("IP", string(m)))
+	})
+	if hostname != "" && hostname != "host" && len(hostname) >= 2 {
+		hostRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(hostname) + `\b`)
+		if matches := hostRe.FindAll(out, -1); len(matches) > 0 {
+			n += len(matches)
+			out = hostRe.ReplaceAll(out, []byte(hostPlaceholder))
+		}
+	}
+	return out, n
+}
+
+// isRedactableIP reports whether s is a real IP worth redacting — a valid address
+// that is not loopback (127.x / ::1) or unspecified (0.0.0.0 / ::).
+func isRedactableIP(s string) bool {
+	ip := net.ParseIP(s)
+	return ip != nil && !ip.IsLoopback() && !ip.IsUnspecified()
 }

@@ -27,7 +27,7 @@ func TestSanitizeTarballRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTarball: %v", err)
 	}
-	rep := loaded.Sanitize()
+	rep := loaded.Sanitize(SanitizeOptions{})
 	if rep.TotalRedactions != 1 {
 		t.Errorf("expected 1 redaction, got %+v", rep)
 	}

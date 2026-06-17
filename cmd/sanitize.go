@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 var sanitizeCmd = &cobra.Command{
@@ -27,11 +29,17 @@ handed to you by someone else); to sanitize at capture time, use
 Redacts (best-effort): PEM private keys, password/secret/token/api_key/access_key
 assignments, AWS access key IDs, HTTP bearer tokens, and /etc/shadow hashes — in
 recorded files and command output. Redaction is deterministic, so the sanitized
-bundle still replays to the same verdicts. Identifiers (hostname, IPs, serials) are
-NOT redacted (kept for replay fidelity).
+bundle still replays to the same verdicts.
+
+With --identifiers, also redacts IPv4 addresses, MAC addresses, and the hostname
+in file contents and command output (deterministic stable placeholders, so replay
+verdicts are unchanged). Caveat: a few probe-target IPs (e.g. the default gateway
+or DNS server) remain in the command index because replay needs them as lookup
+keys; IPv6 and disk serials are not handled. Review the bundle either way.
 
   dsd sanitize dsd-raw-host.tar.gz                  # writes dsd-raw-host-sanitized.tar.gz
   dsd sanitize dsd-raw-host.tar.gz -o clean.tar.gz
+  dsd sanitize --identifiers dsd-raw-host.tar.gz    # also scrub IPs/MAC/hostname
 
 NOTE: best-effort only — REVIEW a bundle before sharing it.`,
 	Args:             cobra.ExactArgs(1),
@@ -43,6 +51,8 @@ func init() {
 	rootCmd.AddCommand(sanitizeCmd)
 	sanitizeCmd.Flags().StringP("out", "o", "",
 		"output path (default: <input> with a -sanitized suffix)")
+	sanitizeCmd.Flags().Bool("identifiers", false,
+		"also redact IPv4 addresses, MAC addresses, and the hostname (not just secrets)")
 }
 
 func runSanitize(cmd *cobra.Command, args []string) error {
@@ -52,7 +62,8 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading bundle: %w", err)
 	}
 
-	rep := b.Sanitize()
+	identifiers, _ := cmd.Flags().GetBool("identifiers")
+	rep := b.Sanitize(source.SanitizeOptions{Identifiers: identifiers})
 
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
@@ -65,8 +76,14 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "✅ Sanitized bundle written: %s\n", out)
 	fmt.Fprintf(os.Stderr, "   %d redaction(s) across %d file(s) + %d command(s).\n",
 		rep.TotalRedactions, rep.FilesRedacted, rep.CommandsRedacted)
-	fmt.Fprintln(os.Stderr, "   NOTE: best-effort credential redaction only — REVIEW before sharing.")
-	fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, disk serials) are NOT redacted (kept for replay).")
+	fmt.Fprintln(os.Stderr, "   NOTE: best-effort redaction only — REVIEW before sharing.")
+	if identifiers {
+		fmt.Fprintln(os.Stderr, "   Identifiers redacted in file contents + command output: IPv4, MAC, hostname.")
+		fmt.Fprintln(os.Stderr, "   NOT redacted: IPv6, disk serials, and probe-target IPs (gateway/DNS) that")
+		fmt.Fprintln(os.Stderr, "   remain in the command index as replay lookup keys.")
+	} else {
+		fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, serials) kept — add --identifiers to redact them.")
+	}
 	return nil
 }
 
