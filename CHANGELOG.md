@@ -11,6 +11,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-17
+
+False-OK correctness fixes from a code-review audit of the deep/opt-in and
+standalone-command verdict paths. No CLI/`--json` schema change.
+
+### Fixed
+
+- **`dsd health deep` package integrity was silently skipped on common hosts.**
+  Two compounding bugs: `apt-get check` (exit 100, stderr) and `zypper verify`
+  (exit 1) had their output discarded on the non-zero exit — the same bug DNF was
+  already fixed for; and the integrity check sat behind early returns, so a
+  fully-patched (`SecurityUpdates==0`) or stale-metadata host never reached it.
+  Broken packages / unmet deps now surface (CRIT) regardless of update status. (#366)
+- **`dsd cis` SSH rules no longer pass/fail when sshd_config couldn't be read**
+  (non-root, mode 0600) — they read OpenSSH defaults and certified (or condemned)
+  SSH the benchmark never saw. Now reported Skipped (unverified). (#368)
+- **`dsd net deep` BIND/NFS no longer false-alarm** — "named not answering" when
+  `dig` is absent, rpcbind WARN on a v4-only host, and NFS retransmissions flagged
+  off the cumulative since-boot counter; plus "not listening on port 53" when `ss`
+  (iproute2) is unavailable. All now match `dsd health` via shared predicates. (#367, #369)
+- **`dsd cve <CVE>` reports UNKNOWN, not NOT_AFFECTED, when debsecan can't run** —
+  a failed scan no longer reads as "you're safe". (#370)
+
+## [1.1.0] - 2026-06-17
+
 ## [1.1.0] - 2026-06-17
 
 First minor since the 1.0 platform freeze — purely additive (the `dsd health
