@@ -428,8 +428,8 @@ func parseDPMSclk(data string) (cur, max int) {
 		for _, tok := range strings.Fields(line) {
 			low := strings.ToLower(tok)
 			if strings.HasSuffix(low, "mhz") {
-				if v, err := strconv.Atoi(strings.TrimSuffix(low, "mhz")); err == nil {
-					mhz = v
+				if v, err := strconv.Atoi(strings.TrimSuffix(low, "mhz")); err == nil && v >= 0 {
+					mhz = v // ignore a negative clock from garbled sysfs
 				}
 			}
 		}

@@ -130,8 +130,8 @@ func parseMiB(s string) float64 {
 	s = strings.TrimSuffix(strings.TrimSuffix(s, "MiB"), "GiB")
 	s = strings.TrimSpace(s)
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return 0 // garbled size — not a real snapshot value
 	}
 	if isGiB {
 		return v * 1024
