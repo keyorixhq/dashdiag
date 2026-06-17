@@ -11,6 +11,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-17
+
+Additive (no `dsd health --json` schema change): completes the capture→replay→diff
+support workflow with safe bundle sharing.
+
+### Added
+
+- **`dsd capture --raw --sanitize`** — best-effort redaction of common credentials
+  from a raw capture bundle before it is written, so a host's bundle can be shared
+  for offline `dsd replay` / `dsd diff` diagnosis without leaking secrets. Redacts
+  PEM private keys, `password`/`secret`/`token`/`api_key`/`access_key` assignments
+  (key kept, value dropped), AWS access key IDs, HTTP bearer tokens, and
+  `/etc/shadow` hashes — across both recorded files and command output. Redaction
+  is deterministic, so the bundle stays byte-stable and replay reproduces the same
+  verdicts; it is secrets-only (hostname/IPs/serials are kept for replay fidelity).
+  The command reports what it redacted and is explicit that this is best-effort —
+  review a bundle before sharing it. (#375)
+
 ## [1.1.2] - 2026-06-17
 
 Robustness fixes from a parser-fuzzing pass over the raw-tool numeric parsers
