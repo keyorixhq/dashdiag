@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -124,14 +125,16 @@ func parseNVMeTemp(s string) float64 {
 	close := strings.LastIndex(s, " K)")
 	if open >= 0 && close > open {
 		kelvinStr := strings.TrimSpace(s[open+1 : close])
-		if k, err := strconv.ParseFloat(kelvinStr, 64); err == nil && k > 0 {
+		if k, err := strconv.ParseFloat(kelvinStr, 64); err == nil && k > 0 && !math.IsInf(k, 0) {
 			return k - 273.15
 		}
 	}
-	// Fallback: parse Celsius directly if available
+	// Fallback: parse Celsius directly if available. Guard NaN/Inf — "nan"/"inf"
+	// are valid ParseFloat syntax (no error), and a NaN/Inf temperature would
+	// corrupt the `temp >= N` thermal verdict (NaN→false→false-OK, Inf→false CRIT).
 	fields := strings.Fields(s)
 	if len(fields) > 0 {
-		if c, err := strconv.ParseFloat(fields[0], 64); err == nil {
+		if c, err := strconv.ParseFloat(fields[0], 64); err == nil && !math.IsNaN(c) && !math.IsInf(c, 0) {
 			return c
 		}
 	}
