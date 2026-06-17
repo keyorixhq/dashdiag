@@ -35,8 +35,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 	// fires forever after a transient blip. Gate on the retrans RATE (retrans/calls)
 	// instead, with a call-volume floor so a freshly-mounted share isn't flagged on a
 	// handful of calls. >5% retransmitted is the conventional nfsstat concern line.
-	if nfs.StaleMounts == 0 && nfs.RPCCalls > 1000 &&
-		nfs.RetransPerMin/nfs.RPCCalls > 0.05 {
+	if NFSRetransConcern(nfs) {
 		out = append(out, insight("WARN", "NFS",
 			fmt.Sprintf("NFS retransmission rate %.1f%% (%.0f/%.0f calls) — transport may be unreliable",
 				nfs.RetransPerMin/nfs.RPCCalls*100, nfs.RetransPerMin, nfs.RPCCalls),
@@ -49,7 +48,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 	// rpcbind only matters for NFSv3 (portmapper). NFSv4 uses the single
 	// well-known port 2049 and needs no rpcbind, so a v4-only host legitimately
 	// runs without it — don't warn unless at least one v3 mount is present.
-	if !nfs.RpcbindActive && nfsHasV3Mount(nfs.Mounts) {
+	if !nfs.RpcbindActive && NFSHasV3Mount(nfs.Mounts) {
 		out = append(out, insight("WARN", "NFS",
 			"rpcbind inactive with NFSv3 mounts present — NFS client operations may fail",
 			[]string{
@@ -60,12 +59,23 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 	return out
 }
 
-// nfsHasV3Mount reports whether any mount might be NFSv3 (and thus needs
+// NFSRetransConcern reports whether the NFS retransmission RATE is high enough to
+// flag. retrans and calls are both cumulative since boot, so a raw count fires
+// forever after a transient blip; gate on the rate (>5%, the conventional nfsstat
+// line) with a call-volume floor. Exported so the `dsd net deep` renderer uses the
+// identical rule as checkNFS (dsd health) and the two cannot drift.
+func NFSRetransConcern(nfs models.NFSInfo) bool {
+	return nfs.StaleMounts == 0 && nfs.RPCCalls > 1000 &&
+		nfs.RetransPerMin/nfs.RPCCalls > 0.05
+}
+
+// NFSHasV3Mount reports whether any mount might be NFSv3 (and thus needs
 // rpcbind). It is conservative: only a mount explicitly typed "nfs4" is treated
 // as definitely-not-v3, so an ambiguous "nfs" fstype (which can be v3 OR a
 // vers=4 mount the kernel labelled generically) still counts — better a rare
 // extra WARN than re-introducing the rpcbind false-negative for a real v3 host.
-func nfsHasV3Mount(mounts []models.NFSMount) bool {
+// Exported so the `dsd net deep` renderer shares it with checkNFS (no drift).
+func NFSHasV3Mount(mounts []models.NFSMount) bool {
 	for _, m := range mounts {
 		if m.FSType != "nfs4" {
 			return true
