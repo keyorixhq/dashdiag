@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -146,6 +147,14 @@ func parseDRBDSyncLine(line string) (pct float64, kbLeft int64) {
 			numStr := strings.ReplaceAll(parts[0], ",", "")
 			kbLeft, _ = strconv.ParseInt(strings.TrimSpace(numStr), 10, 64)
 		}
+	}
+	// Clamp garbled values: a sync line is a progress report, so a NaN/Inf/negative
+	// percentage or a negative KB-remaining is corrupt input, not a real state.
+	if math.IsNaN(pct) || math.IsInf(pct, 0) || pct < 0 {
+		pct = 0
+	}
+	if kbLeft < 0 {
+		kbLeft = 0
 	}
 	return pct, kbLeft
 }
