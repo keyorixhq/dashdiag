@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -143,7 +144,7 @@ func statusRank(level string) int {
 }
 
 func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot {
-	hostname, _ := os.Hostname()
+	hostname := platform.Hostname() // honors the replay identity override (dsd diff)
 	snap := &Snapshot{
 		Hostname:  hostname,
 		Timestamp: time.Now(),

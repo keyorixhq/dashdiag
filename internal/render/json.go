@@ -2,7 +2,6 @@ package render
 
 import (
 	"encoding/json"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -63,7 +62,7 @@ func RenderYAML(results []runner.Result, insights []models.Insight) ([]byte, err
 }
 
 func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput {
-	hostname, _ := os.Hostname()
+	hostname := platform.Hostname() // honors the replay identity override
 
 	insightMap := make(map[string]models.Insight, len(insights))
 	for _, ins := range insights {

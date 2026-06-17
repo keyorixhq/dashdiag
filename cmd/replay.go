@@ -87,6 +87,10 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu bool) ([]runner.Result, []mod
 	prev := collectors.SetSource(source.NewReplay(b))
 	defer collectors.SetSource(prev)
 
+	// Report the CAPTURED host's identity (from the manifest), not the replaying
+	// machine's — so the snapshot/JSON carry the right hostname/OS (e.g. dsd diff).
+	defer platform.SetIdentity(b.Manifest.Host, b.Manifest.OS)()
+
 	// Neutral platform values — this is the replaying host, not the captured one.
 	results, insights, snap, _ := runHealthOnce(
 		context.Background(), platform.ContainerContext{}, platform.CloudEnvironment(0),
@@ -116,6 +120,10 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 
 	results, insights, _ := replayBundle(b, deep, pkg, gpu)
+
+	// Keep the captured host's identity active through the render below too
+	// (replayBundle restored it on return).
+	defer platform.SetIdentity(b.Manifest.Host, b.Manifest.OS)()
 
 	if b.Manifest.Host != "" {
 		fmt.Fprintf(os.Stderr, "replaying: %s  OS: %s  kernel: %s  captured: %s\n\n",

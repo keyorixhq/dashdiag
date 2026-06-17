@@ -9,6 +9,9 @@ import (
 // OSPrettyName returns the PRETTY_NAME field from /etc/os-release,
 // falling back to runtime.GOOS if the file is absent (macOS, etc).
 func OSPrettyName() string {
+	if o := osIdentityOverride(); o != "" {
+		return o // replay: report the captured host's OS, not the replaying box's
+	}
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return runtime.GOOS
