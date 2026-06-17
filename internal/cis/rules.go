@@ -631,6 +631,14 @@ func ruleByID(id string) Rule {
 
 // Evaluate runs all matching rules and returns a CISReport.
 // When stig=true, results are presented with STIG IDs and descriptions.
+// sshConfigUnverified reports that the SSH config was NOT actually read — neither
+// `sshd -T` (needs root) nor the sshd_config file (often mode 0600) succeeded.
+// SSH rules read fields that hold secure OpenSSH defaults in that state, so a PASS
+// would be unverified. Mirrors checkSecurity's NeedsRoot/SSHConfigUnreadable INFO.
+func sshConfigUnverified(sec models.SecurityInfo) bool {
+	return sec.SSHConfigUnreadable && sec.SSHAuditSource == ""
+}
+
 func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, stig bool) models.CISReport {
 	framework := "CIS"
 	if stig {
@@ -671,6 +679,20 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 		}
 
 		result := rule.Check(sec, ks)
+
+		// SSH config-derived rules read fields that fall back to OpenSSH defaults
+		// when sshd_config couldn't be read (non-root: `sshd -T` needs root and
+		// sshd_config is mode 0600). In that state the verdict is unverified in
+		// BOTH directions — a secure default reads PASS ("certified" SSH we never
+		// read, a false-OK) and an insecure default reads FAIL ("MaxAuthTries 6"
+		// when the admin may have set 4, a false alarm). Report the whole SSH
+		// section Skipped so the benchmark neither certifies nor condemns what it
+		// couldn't see. 5.2.1 checks the file MODE via os.Stat (works non-root),
+		// independent of the parsed config, so it stays valid.
+		if rule.Section == "SSH" && rule.ID != "5.2.1" && sshConfigUnverified(sec) &&
+			(result.Status == models.CISPass || result.Status == models.CISFail) {
+			result = skipr(rule, "sshd_config not readable (run as root) — SSH setting not verified")
+		}
 
 		// In STIG mode, swap in STIG ID and description where available
 		if stig && rule.StigID != "" {
