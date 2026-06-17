@@ -11,7 +11,8 @@ import (
 // that the check couldn't run. A real non-answering named (QueryTested=true,
 // QueryOK=false) still fires CRIT.
 func TestCheckBIND_QueryTestedGatesTheCrit(t *testing.T) {
-	base := models.BINDInfo{Detected: true, ServiceActive: true, ConfigOK: true}
+	base := models.BINDInfo{Detected: true, ServiceActive: true, ConfigOK: true,
+		PortsChecked: true, Port53TCP: true, Port53UDP: true}
 
 	t.Run("dig missing -> INFO, not CRIT", func(t *testing.T) {
 		b := base // QueryTested=false, QueryOK=false

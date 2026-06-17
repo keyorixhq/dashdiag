@@ -17,6 +17,7 @@ type BINDInfo struct {
 	ConfigFile     string     `json:"config_file"` // /etc/named.conf or /etc/bind/named.conf
 	ConfigOK       bool       `json:"config_ok"`
 	ConfigError    string     `json:"config_error,omitempty"`
+	PortsChecked   bool       `json:"ports_checked"` // false when `ss` was unavailable to verify listeners
 	Port53TCP      bool       `json:"port_53_tcp"`
 	Port53UDP      bool       `json:"port_53_udp"`
 	QueryOK        bool       `json:"query_ok"`
