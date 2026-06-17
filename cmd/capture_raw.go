@@ -31,6 +31,7 @@ import (
 func init() {
 	captureCmd.Flags().Bool("raw", false, "capture a raw input bundle (every sysfs read + command output) for offline replay with `dsd replay`")
 	captureCmd.Flags().StringP("out", "o", "", "output path for the --raw bundle (default: dsd-raw-<host>-<timestamp>.tar.gz)")
+	captureCmd.Flags().Bool("sanitize", false, "best-effort redaction of common credentials (keys, passwords, tokens) from the bundle before writing — for safe sharing")
 }
 
 func runCaptureRaw(cmd *cobra.Command) error {
@@ -77,6 +78,12 @@ func runCaptureRaw(cmd *cobra.Command) error {
 		b.PutFile("/__dsd__/health.json", data)
 	}
 
+	sanitize, _ := cmd.Flags().GetBool("sanitize")
+	var sanReport source.SanitizeReport
+	if sanitize {
+		sanReport = b.Sanitize()
+	}
+
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
 		out = fmt.Sprintf("dsd-raw-%s-%s.tar.gz", b.Manifest.Host, time.Now().Format("20060102-150405"))
@@ -87,7 +94,15 @@ func runCaptureRaw(cmd *cobra.Command) error {
 
 	fmt.Fprintf(os.Stderr, "\n✅ Raw bundle written: %s\n", out)
 	fmt.Fprintf(os.Stderr, "   Replay it offline with:  dsd replay %s\n", out)
-	fmt.Fprintln(os.Stderr, "   NOTE: unredacted — contains hostname, IPs, disk serials, and journald lines.")
+	if sanitize {
+		fmt.Fprintf(os.Stderr, "   Sanitized (best-effort): %d redaction(s) across %d file(s) + %d command(s).\n",
+			sanReport.TotalRedactions, sanReport.FilesRedacted, sanReport.CommandsRedacted)
+		fmt.Fprintln(os.Stderr, "   NOTE: best-effort credential redaction only — REVIEW before sharing.")
+		fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, disk serials) are NOT redacted (kept for replay).")
+	} else {
+		fmt.Fprintln(os.Stderr, "   NOTE: unredacted — contains hostname, IPs, disk serials, journald lines, and any")
+		fmt.Fprintln(os.Stderr, "   secrets in captured files/commands. Re-run with --sanitize for safer sharing.")
+	}
 	fmt.Fprintln(os.Stderr, "   Send it through a trusted channel; don't post it publicly.")
 	return nil
 }
