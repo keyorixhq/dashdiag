@@ -775,17 +775,25 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 	}
 
 	fmt.Printf("\n  [rpcbind] ")
-	if info.RpcbindActive {
+	switch {
+	case info.RpcbindActive:
 		fmt.Println("✅ active")
-	} else {
-		fmt.Println("⚠️  inactive — NFS client operations may fail")
+	case analysis.NFSHasV3Mount(info.Mounts):
+		fmt.Println("⚠️  inactive — NFSv3 mounts present, NFS client operations may fail")
+	default:
+		// rpcbind is irrelevant for NFSv4 (single port 2049); a v4-only host runs
+		// fine without it — don't false-alarm. Matches checkNFS (dsd health).
+		fmt.Println("ℹ️  inactive — not required (NFSv4 only)")
 	}
 
 	if info.RetransPerMin > 0 || info.ReadOpsPerMin > 0 {
 		fmt.Printf("\n  [NFS stats]\n")
 		if info.RetransPerMin > 0 {
+			// retrans is cumulative since boot; flag on the RATE, not the raw count
+			// (matches analysis.NFSRetransConcern / checkNFS), else a long-uptime
+			// host shows ⚠️ forever after one transient blip.
 			icon := "✅"
-			if info.RetransPerMin > 100 {
+			if analysis.NFSRetransConcern(*info) {
 				icon = "⚠️ "
 			}
 			fmt.Printf("  %s Retransmissions:  %.0f\n", icon, info.RetransPerMin)
@@ -854,13 +862,17 @@ func printBINDReport(info *models.BINDInfo) {
 		}
 	}
 
-	// DNS query test
-	queryIcon := map[bool]string{true: "✅", false: "❌"}[info.QueryOK]
-	queryStr := fmt.Sprintf("localhost resolves in %dms", info.QueryLatencyMs)
-	if !info.QueryOK {
-		queryStr = "FAILED — named running but not answering queries"
+	// DNS query test. Honor QueryTested: when dig/bind-utils isn't installed the
+	// test never ran, so a !QueryOK must read "not tested", not "named not
+	// answering" (a false outage). Matches checkBIND (dsd health).
+	switch {
+	case !info.QueryTested:
+		fmt.Println("  ℹ️  DNS query test: not run — dig/bind-utils not installed")
+	case info.QueryOK:
+		fmt.Printf("  ✅ DNS query test: localhost resolves in %dms\n", info.QueryLatencyMs)
+	default:
+		fmt.Println("  ❌ DNS query test: FAILED — named running but not answering queries")
 	}
-	fmt.Printf("  %s DNS query test: %s\n", queryIcon, queryStr)
 
 	// Query stats from rndc
 	if info.QueryCount > 0 {
