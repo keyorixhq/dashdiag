@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-06-17
+
+False-alarm/false-OK fixes surfaced by real-hardware validation on an AMD / Ubuntu
+live-USB host.
+
+### Fixed
+
+- **Disk no longer false-CRITs full read-only image filesystems.** iso9660 /
+  squashfs / erofs / cramfs are packed to capacity at build time — 100% used is
+  their normal healthy state — so every live-USB `/cdrom`, snap-backed squashfs,
+  and AppImage mount previously fired a guaranteed CRIT. Usage/inode scoring now
+  skips inherently read-only image fstypes; writable filesystems are unaffected (a
+  full ext4 still CRITs, and the error-remount-to-ro WARN still fires). (#382)
+- **`dsd health --gpu` no longer reads healthy when a GPU exposed no metrics.** A
+  detected GPU with zero readable metrics (older Intel iGPU without hwmon) passed
+  every threshold check and read healthy; it now reports INFO "no health metrics
+  exposed — health NOT verified", matching `dsd gpu`. The two now share one
+  predicate so they can't drift. (#383)
+
 ## [1.3.1] - 2026-06-17
 
 ### Fixed
