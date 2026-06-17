@@ -719,20 +719,24 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 
 // pkgIntegrityAPT checks Debian/Ubuntu package consistency.
 func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
-	// dpkg --audit — immediate, < 0.5s
+	// dpkg --audit — immediate, < 0.5s. Use runCmdOutput so its report is read
+	// regardless of exit code (capture-regardless-of-exit, mirroring DNF).
 	aptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, _ := runCmd(aptCtx, "dpkg", "--audit")
+	out, _ := runCmdOutput(aptCtx, "dpkg", "--audit")
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			pi.BrokenPackages = append(pi.BrokenPackages, line)
 		}
 	}
 
-	// apt-get check — detects unmet dependencies
+	// apt-get check — detects unmet dependencies. It EXITS NON-ZERO (100) when it
+	// finds them and writes the diagnosis to STDERR, so runCmd would discard the
+	// findings → broken deps read as clean (false-OK, the same bug DNF was fixed
+	// for). runCmdCombined keeps stdout+stderr regardless of exit.
 	checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer checkCancel()
-	checkOut, _ := runCmd(checkCtx, "apt-get", "check")
+	checkOut, _ := runCmdCombined(checkCtx, "apt-get", "check")
 	for _, line := range strings.Split(checkOut, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "unmet dep") || strings.Contains(lower, "broken package") {
@@ -743,10 +747,13 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 
 // pkgIntegrityZypper checks SUSE/openSUSE package consistency.
 func pkgIntegrityZypper(ctx context.Context, pi *models.PackageIntegrity) {
-	// zypper verify (exit 1 = problems found)
+	// zypper verify (exit 1 = problems found). It EXITS NON-ZERO when it finds
+	// broken/missing deps, so runCmd would discard the output and the check would
+	// read clean (false-OK, same bug as APT/DNF). runCmdOutput keeps stdout
+	// regardless of exit (zypper writes its resolution to stdout).
 	zCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	out, _ := runCmd(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
+	out, _ := runCmdOutput(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
 	for _, line := range strings.Split(out, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "broken") || strings.Contains(lower, "missing") {

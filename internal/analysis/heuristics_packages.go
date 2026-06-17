@@ -27,6 +27,27 @@ func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
 }
 
 func checkPackages(pkg models.PackagesInfo) []models.Insight {
+	// Security-update verdict. It may short-circuit (no-security-repo /
+	// query-failed / stale-metadata / fully patched) — but that must NOT gate the
+	// integrity checks below. A fully-patched OR stale-metadata host can still
+	// have broken packages / unmet deps, and those were silently skipped when this
+	// logic early-returned ahead of the integrity check (false-OK).
+	out := checkPackageUpdates(pkg)
+
+	// Package integrity (deep mode only — populated by PackagesDeepCollector).
+	// Always evaluated, independent of the security-update status above.
+	if pkg.Integrity != nil {
+		out = append(out, checkPackageIntegrity(*pkg.Integrity)...)
+	}
+
+	out = append(out, checkPackageExtras(pkg)...)
+	return out
+}
+
+// checkPackageUpdates turns the security-update scan result into insights. Its
+// early returns end only the UPDATE verdict — the caller still runs the
+// integrity and extras checks regardless.
+func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	var out []models.Insight
 
 	// No security repo configured — warn explicitly rather than showing zero.
@@ -120,12 +141,6 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 		))
 	}
 
-	// Package integrity (deep mode only — populated by PackagesDeepCollector)
-	if pkg.Integrity != nil {
-		out = append(out, checkPackageIntegrity(*pkg.Integrity)...)
-	}
-
-	out = append(out, checkPackageExtras(pkg)...)
 	return out
 }
 
