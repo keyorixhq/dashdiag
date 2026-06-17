@@ -259,42 +259,34 @@ func parseSSHDuration(s string) int {
 	}
 	total := 0
 	num := ""
+	// clampMul/clampAdd saturate instead of overflowing negative — a garbled huge
+	// duration must read as "very large" (over any limit), never wrap negative
+	// (which would read as "well under the limit").
+	add := func(mult int) {
+		if n, err := strconv.Atoi(num); err == nil {
+			total = clampAdd(total, clampMul(n, mult))
+		}
+		num = ""
+	}
 	for _, c := range s {
 		switch {
 		case c >= '0' && c <= '9':
 			num += string(c)
 		case c == 's':
-			if n, err := strconv.Atoi(num); err == nil {
-				total += n
-			}
-			num = ""
+			add(1)
 		case c == 'm':
-			if n, err := strconv.Atoi(num); err == nil {
-				total += n * 60
-			}
-			num = ""
+			add(60)
 		case c == 'h':
-			if n, err := strconv.Atoi(num); err == nil {
-				total += n * 3600
-			}
-			num = ""
+			add(3600)
 		case c == 'd':
-			if n, err := strconv.Atoi(num); err == nil {
-				total += n * 86400
-			}
-			num = ""
+			add(86400)
 		case c == 'w':
-			if n, err := strconv.Atoi(num); err == nil {
-				total += n * 604800
-			}
-			num = ""
+			add(604800)
 		}
 	}
 	// bare number without unit = seconds
 	if num != "" {
-		if n, err := strconv.Atoi(num); err == nil {
-			total += n
-		}
+		add(1)
 	}
 	return total
 }
