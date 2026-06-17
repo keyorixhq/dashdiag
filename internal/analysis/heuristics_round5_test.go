@@ -99,6 +99,9 @@ func TestCheckGPU(t *testing.T) {
 	}{
 		{"no gpu is silent", models.GPUInfo{}, ""},
 		{"healthy gpu is clean", dev(models.GPUDevice{Name: "card0", TempC: 50}), ""},
+		// A detected GPU that exposed NO metrics (older Intel iGPU, no hwmon) must
+		// not read healthy — it's an INFO "not verified", matching `dsd gpu`.
+		{"metricless gpu is INFO not healthy", dev(models.GPUDevice{Name: "card0"}), "INFO"},
 		{"nvidia no driver is INFO", models.GPUInfo{Status: "nvidia-no-driver"}, "INFO"},
 		{"hot gpu is CRIT", dev(models.GPUDevice{Name: "card0", TempC: 92}), "CRIT"},
 		{"elevated gpu is WARN", dev(models.GPUDevice{Name: "card0", TempC: 82}), "WARN"},

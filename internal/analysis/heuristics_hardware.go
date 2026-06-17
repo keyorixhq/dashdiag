@@ -142,6 +142,15 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 	return out
 }
 
+// GPUDeviceHasMetrics reports whether any readable health metric was obtained for
+// the device. An older Intel iGPU with no hwmon exposes none — temp/util/mem/
+// power/clock all stay 0 — and must not be summarized as healthy. Shared by
+// checkGPUDevice (dsd health) and the `dsd gpu` summary so the two cannot drift.
+func GPUDeviceHasMetrics(d models.GPUDevice) bool {
+	return d.TempC > 0 || d.TempJunctionC > 0 || d.PowerDrawW > 0 ||
+		d.UtilPct > 0 || d.MemTotalMB > 0 || d.ClockMHz > 0 || d.TDPLimitW > 0
+}
+
 // checkGPUDevice returns the health insights for a single GPU device.
 func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.Insight {
 	var out []models.Insight
@@ -156,6 +165,17 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 				"to inspect: dmesg | grep -iE 'NVRM|Xid|fell off the bus'",
 				"a reboot may clear a transient bus fault; persistent [N/A] points to failing hardware",
 			},
+		))
+	}
+	// The device was detected but exposed ZERO health metrics (e.g. an older Intel
+	// iGPU with no hwmon temperature). The per-metric checks below all read 0 and
+	// would silently pass — so we'd claim a healthy GPU we never measured (false-OK).
+	// Say so instead. `dsd gpu` already does this; this keeps `dsd health --gpu`
+	// consistent. (Real AMD/NVIDIA GPUs populate temp+VRAM, so they're unaffected.)
+	if !GPUDeviceHasMetrics(dev) {
+		return append(out, insight("INFO", "GPU",
+			fmt.Sprintf("%s detected but exposed no health metrics — temperature/utilization not available, health NOT verified", prefix),
+			[]string{"to inspect: ls /sys/class/drm/card*/device/hwmon/hwmon*/"},
 		))
 	}
 	if dev.TempC >= 90 {

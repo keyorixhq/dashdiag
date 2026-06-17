@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -327,7 +328,7 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 	// measured nothing, so we must not claim "healthy. Checks passed".
 	metricless := len(info.Devices) > 0
 	for _, dev := range info.Devices {
-		if gpuDeviceHasMetrics(dev) {
+		if analysis.GPUDeviceHasMetrics(dev) {
 			metricless = false
 			break
 		}
@@ -346,14 +347,6 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 	default:
 		return render.StyleOK.Render(fmt.Sprintf("%s GPU healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing))
 	}
-}
-
-// gpuDeviceHasMetrics reports whether any readable health metric was obtained for
-// the device. An older Intel iGPU with no hwmon exposes none — temp/util/mem/
-// power/clock all stay 0 — and must not be summarized as "healthy. Checks passed".
-func gpuDeviceHasMetrics(d models.GPUDevice) bool {
-	return d.TempC > 0 || d.TempJunctionC > 0 || d.PowerDrawW > 0 ||
-		d.UtilPct > 0 || d.MemTotalMB > 0 || d.ClockMHz > 0 || d.TDPLimitW > 0
 }
 
 // tempIcon returns the status icon for a temperature against warn/crit thresholds.
