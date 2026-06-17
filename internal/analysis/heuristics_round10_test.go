@@ -75,6 +75,19 @@ func TestCheckDisk(t *testing.T) {
 		{"read-only squashfs is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "squashfs", ReadOnly: true}), ""},
 		{"read-only iso9660 is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "iso9660", ReadOnly: true}), ""},
 		{"writable ext4 is clean", fs(models.FilesystemInfo{UsedPct: 40, FSType: "ext4", ReadOnly: false}), ""},
+		// Image filesystems are packed to 100% by design — a full iso9660
+		// (live-USB /cdrom) or squashfs (snap/AppImage) must NOT false-CRIT.
+		{"full iso9660 is clean", fs(models.FilesystemInfo{UsedPct: 100, FSType: "iso9660", ReadOnly: true}), ""},
+		{"full squashfs is clean", fs(models.FilesystemInfo{UsedPct: 100, FSType: "squashfs", ReadOnly: true}), ""},
+		{"full erofs is clean", fs(models.FilesystemInfo{UsedPct: 100, FSType: "erofs", ReadOnly: true}), ""},
+		{"full cramfs is clean", fs(models.FilesystemInfo{UsedPct: 100, FSType: "cramfs", ReadOnly: true}), ""},
+		// But a full *writable* fs that happens to be read-only (error remount)
+		// is still a real problem — the read-only WARN must still fire.
+		{"full read-only ext4 still WARN", fs(models.FilesystemInfo{UsedPct: 100, FSType: "ext4", ReadOnly: true}), "WARN"},
+		// And a normal writable fs at capacity still CRITs as before.
+		{"full writable ext4 is CRIT", fs(models.FilesystemInfo{UsedPct: 100, FSType: "ext4", ReadOnly: false}), "CRIT"},
+		// Inode exhaustion on an image fs is also impossible to act on — skip it.
+		{"image fs inode-full is clean", fs(models.FilesystemInfo{UsedPct: 100, InodesUsedPct: 100, FSType: "squashfs", ReadOnly: true}), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
