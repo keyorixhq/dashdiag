@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-06-17
+
+Robustness fixes from a parser-fuzzing pass over the raw-tool numeric parsers
+(the technique that surfaced the smartctl/NVMe bugs). Garbled or hostile tool
+output no longer yields a NaN/Inf/negative value that corrupts a verdict or
+display. No CLI/`--json` schema change.
+
+### Fixed
+
+- **ZFS / RAID / DRBD parsers** (#372): a garbled `zpool status` no longer parses
+  a negative vdev error count (which could cancel a real error to a clean
+  `R+W+C == 0` — a false-OK) or corrupt the `R:%d W:%d C:%d` display; `mdstat`
+  `[-1/-1]` no longer inverts the degraded-array check; RAID rebuild and DRBD sync
+  percentages are clamped against `NaN`/`Inf`/negative.
+- **GPU / NVMe / snapper parsers** (#373): an NVMe temperature of `nan`/`inf`
+  (valid `ParseFloat` syntax that returns no error) no longer flips the thermal
+  verdict; negative GPU clocks and `NaN`/negative snapshot sizes are rejected.
+
+Each fuzzer now runs millions of iterations clean; the seed corpus (including
+every crasher) is a permanent CI regression guard.
+
 ## [1.1.1] - 2026-06-17
 
 False-OK correctness fixes from a code-review audit of the deep/opt-in and
