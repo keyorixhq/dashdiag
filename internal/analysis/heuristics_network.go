@@ -99,13 +99,18 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 		))
 		return out
 	}
-	if !b.Port53TCP || !b.Port53UDP {
+	if b.PortsChecked && (!b.Port53TCP || !b.Port53UDP) {
 		out = append(out, insight("WARN", "BIND",
 			"named is running but not listening on port 53 — config error or firewall",
 			[]string{
 				"to inspect: ss -tulpn | grep :53",
 				"to inspect: journalctl -u named -n 20 --no-pager",
 			},
+		))
+	} else if !b.PortsChecked {
+		out = append(out, insight("INFO", "BIND",
+			"could not verify named is listening on port 53 — ss (iproute2) unavailable",
+			[]string{"to install: apt install iproute2  /  dnf install iproute"},
 		))
 	}
 	if !b.ConfigOK {

@@ -823,20 +823,20 @@ func printBINDReport(info *models.BINDInfo) {
 	fmt.Printf("  %s named: %s\n", svcIcon,
 		map[bool]string{true: "active", false: "inactive"}[info.ServiceActive])
 
-	// Port 53
-	portIcon := "✅"
-	portStr := "listening (TCP + UDP)"
-	if !info.Port53TCP || !info.Port53UDP {
-		portIcon = "⚠️ "
-		if !info.Port53TCP && !info.Port53UDP {
-			portStr = "NOT listening on port 53"
-		} else if !info.Port53TCP {
-			portStr = "UDP only (TCP not listening)"
-		} else {
-			portStr = "TCP only (UDP not listening)"
-		}
+	// Port 53. When ss was unavailable we couldn't verify listeners — say so
+	// instead of a false "NOT listening" (matches checkBIND).
+	switch {
+	case !info.PortsChecked:
+		fmt.Println("  ℹ️  Port 53: not verified — ss (iproute2) unavailable")
+	case info.Port53TCP && info.Port53UDP:
+		fmt.Println("  ✅ Port 53: listening (TCP + UDP)")
+	case !info.Port53TCP && !info.Port53UDP:
+		fmt.Println("  ⚠️  Port 53: NOT listening on port 53")
+	case !info.Port53TCP:
+		fmt.Println("  ⚠️  Port 53: UDP only (TCP not listening)")
+	default:
+		fmt.Println("  ⚠️  Port 53: TCP only (UDP not listening)")
 	}
-	fmt.Printf("  %s Port 53: %s\n", portIcon, portStr)
 
 	// Config check
 	cfgIcon := map[bool]string{true: "✅", false: "❌"}[info.ConfigOK]

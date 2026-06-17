@@ -119,7 +119,14 @@ func bindCheckConfig(ctx context.Context, info *models.BINDInfo) {
 
 // bindCheckPorts checks whether named is listening on TCP and UDP port 53.
 func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
-	out, _ := runCmd(ctx, "ss", "-tulpn")
+	out, err := runCmd(ctx, "ss", "-tulpn")
+	if err != nil {
+		// `ss` (iproute2) absent or failed — we can't tell whether named is
+		// listening. Leave PortsChecked false so consumers report "not verified"
+		// instead of a false "not listening on port 53".
+		return
+	}
+	info.PortsChecked = true
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, ":53 ") && !strings.Contains(line, ":53\t") {
 			continue
