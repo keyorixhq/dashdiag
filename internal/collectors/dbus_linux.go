@@ -33,36 +33,52 @@ func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info := &models.DBusInfo{Available: true}
 
-	out, err := runCmdOutput(ctx, "systemctl", "is-active", "dbus.service")
+	// Query the bus by its canonical name "dbus", NOT "dbus.service". On modern
+	// Debian/Ubuntu (and the VMware Ubuntu templates) the running unit may be
+	// dbus.socket / an alias / dbus-broker.service, and `is-active dbus.service`
+	// can return empty+nonzero ("unknown") even while the bus is fully active —
+	// `is-active dbus` resolves the alias and reports "active". Querying the
+	// wrong name was the root of a false "D-Bus failed" CRIT (TRIAGE §M).
+	out, err := runCmdOutput(ctx, "systemctl", "is-active", "dbus")
 	status := strings.TrimSpace(out)
-	if err != nil {
-		// systemctl exits non-zero when unit is not active.
-		// Capture whatever status string was returned (e.g. "failed", "inactive").
-		if status == "" {
-			status = "unknown"
-		}
+	if status == "" {
+		// Empty output means systemctl couldn't report a state at all (timeout,
+		// missing unit lookup). This is "couldn't determine", NOT "failed" —
+		// leave it explicit so the heuristic doesn't treat unknown as down.
+		status = "unknown"
 	}
+	_ = err // is-active exits non-zero for inactive/failed; the status string is authoritative.
 
 	info.Status = status
 	info.Active = status == "active"
 
-	if !info.Active {
+	// Only pull a journal error line when the bus is *confirmed* down (an
+	// explicit failed/inactive from systemctl), never on "unknown" — on unknown
+	// the bus is likely fine and the journal's last line is usually a success
+	// ("Successfully activated service …"), which must not masquerade as an error.
+	if status == "failed" || status == "inactive" {
 		info.LastError = collectDBusLastError(ctx)
 	}
 
 	return info, nil
 }
 
-// collectDBusLastError pulls the most recent error line from the dbus journal.
-// Returns empty string when journalctl is unavailable or produces no output.
+// collectDBusLastError pulls the most recent *error-level* line from the dbus
+// journal. Returns empty string when journalctl is unavailable, produces no
+// output, or has no error-priority lines. Filtering by priority (rather than
+// taking the last non-empty line) prevents success messages like
+// "Successfully activated service org.freedesktop.timedate1" from being
+// reported as the last error (TRIAGE §M).
 func collectDBusLastError(ctx context.Context) string {
 	out, err := runCmd(ctx,
-		"journalctl", "-u", "dbus.service", "-n", "5", "--no-pager", "-o", "cat",
+		// -p err: only priority error and above; -o cat: message text only.
+		"journalctl", "-u", "dbus.service", "-p", "err", "-n", "5", "--no-pager", "-o", "cat",
 	)
 	if err != nil || len(out) == 0 {
 		return ""
 	}
-	// Walk lines in reverse to find the last non-empty error line.
+	// Walk lines in reverse to find the last non-empty line (already filtered to
+	// error priority by journalctl -p err).
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])

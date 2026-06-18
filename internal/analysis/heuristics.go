@@ -836,6 +836,22 @@ func checkDBus(d models.DBusInfo) []models.Insight {
 	if d.Status == "n/a" || d.Active {
 		return nil // healthy or not applicable (non-Linux)
 	}
+	// "unknown" means systemctl couldn't determine the bus state (timeout, unit
+	// alias lookup miss) — NOT that the bus is down. A live system you're
+	// actively running on almost always has a working bus; treating "couldn't
+	// determine" as "failed" produced a false CRIT on VMware guests (TRIAGE §M).
+	// Surface it as INFO so the unverified state is honest without a scary
+	// top-line CRIT. Only an explicit failed/inactive is a real failure.
+	if d.Status != "failed" && d.Status != "inactive" {
+		return []models.Insight{insight("INFO", "DBus",
+			fmt.Sprintf("D-Bus state could not be determined (status: %q) — health unverified, not assumed failed", d.Status),
+			[]string{
+				"to inspect: systemctl is-active dbus",
+				"to inspect: systemctl status dbus --no-pager",
+				"note: if `systemctl is-active dbus` reports active, the bus is fine and this is a query artifact",
+			},
+		)}
+	}
 	hints := []string{
 		"to inspect: systemctl status dbus.service",
 		"to inspect: journalctl -u dbus.service -n 20",

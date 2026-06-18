@@ -106,6 +106,16 @@ func TestCheckDBus(t *testing.T) {
 	assertLevel(t, checkDBus(models.DBusInfo{Status: "n/a"}), "") // not applicable
 	assertLevel(t, checkDBus(models.DBusInfo{Active: true, Status: "active"}), "")
 	assertLevel(t, checkDBus(models.DBusInfo{Active: false, Status: "failed"}), "CRIT")
+	// TRIAGE §M — "unknown" means systemctl couldn't determine the state (alias
+	// lookup miss / timeout), NOT that the bus is down. Must be INFO, never CRIT:
+	// a live system with an active bus was false-CRITing because is-active
+	// dbus.service returned empty→"unknown"→active:false→CRIT.
+	assertLevel(t, checkDBus(models.DBusInfo{Active: false, Status: "unknown"}), "INFO")
+	// "inactive" is a genuine down state and still CRITs.
+	assertLevel(t, checkDBus(models.DBusInfo{Active: false, Status: "inactive"}), "CRIT")
+	// Any other non-failed/non-inactive status (e.g. transient "activating") is
+	// treated as undetermined, not a failure.
+	assertLevel(t, checkDBus(models.DBusInfo{Active: false, Status: "activating"}), "INFO")
 }
 
 func TestCheckLaunchd(t *testing.T) {
