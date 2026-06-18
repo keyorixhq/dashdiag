@@ -52,4 +52,13 @@ type LVMInfo struct {
 	// no other source for RAID-LV health). Inverted (failure, not success) so the
 	// zero value means "no problem" — a healthy host never has to set it.
 	RaidReadFailed bool `json:"raid_read_failed,omitempty"`
+	// VGReadFailed/PVReadFailed/LVReadFailed are true when the corresponding
+	// `vgs`/`pvs`/`lvs` query errored on a host where LVM IS installed (the collector
+	// only runs these after the presence gate). Each runs independently; a failure
+	// leaves its slice empty — or, for pvs, MissingPVs at 0, hiding a failed/removed
+	// PV ("data at risk") while vgs still reports the VG fine — which would read as a
+	// silent OK. Inverted (failure, not success) so the zero value means "read OK".
+	VGReadFailed bool `json:"vg_read_failed,omitempty"`
+	PVReadFailed bool `json:"pv_read_failed,omitempty"`
+	LVReadFailed bool `json:"lv_read_failed,omitempty"`
 }

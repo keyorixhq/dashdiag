@@ -1,0 +1,50 @@
+package analysis
+
+import (
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// SAN/volume "couldn't read → silent OK" closures (FALSE_OK_SWEEP #19/#20).
+
+func TestMultipathPathsUnreadableIsWarn(t *testing.T) {
+	// multipathd running but both path queries failed → Status="error", Devices empty.
+	got := checkMultipath(models.MultipathInfo{
+		Available: true, Status: "error", StatusReason: "multipathd running but paths unreadable",
+	})
+	if !hasInsightMsg(got, "WARN", "could NOT be verified") {
+		t.Errorf("unreadable multipath paths must WARN, got %+v", got)
+	}
+	// genuinely no maps configured (no error) → clean.
+	if got := checkMultipath(models.MultipathInfo{Available: true}); len(got) != 0 {
+		t.Errorf("no maps + no error must be clean, got %+v", got)
+	}
+	// absent → clean.
+	if got := checkMultipath(models.MultipathInfo{}); len(got) != 0 {
+		t.Errorf("absent multipath must be clean, got %+v", got)
+	}
+}
+
+func TestLVMQueryFailuresAreInfo(t *testing.T) {
+	cases := []struct {
+		name string
+		info models.LVMInfo
+		want string
+	}{
+		{"pvs failed", models.LVMInfo{PVReadFailed: true}, "physical-volume state could NOT be verified"},
+		{"vgs failed", models.LVMInfo{VGReadFailed: true}, "volume-group state could NOT be verified"},
+		{"lvs failed", models.LVMInfo{LVReadFailed: true}, "logical-volume state could NOT be verified"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := checkLVM(tc.info); !hasInsightMsg(got, "INFO", tc.want) {
+				t.Errorf("%s must INFO %q, got %+v", tc.name, tc.want, got)
+			}
+		})
+	}
+	// A clean LVM host (no failures, no VGs) emits nothing.
+	if got := checkLVM(models.LVMInfo{}); len(got) != 0 {
+		t.Errorf("clean LVM must be silent, got %+v", got)
+	}
+}

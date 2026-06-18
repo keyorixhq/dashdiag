@@ -545,6 +545,27 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 			[]string{"to inspect: lvs -o lv_name,vg_name,lv_attr,copy_percent"}))
 	}
 
+	// Each of vgs/pvs/lvs runs independently; a runtime failure (metadata lock
+	// timeout, permission, transient device-mapper error) leaves the corresponding
+	// data empty, which would read as a silent OK. The flags are only set on a host
+	// where LVM IS installed (collector gate), so they imply presence on their own.
+	if l.PVReadFailed {
+		// Most dangerous: a failed `pvs` leaves MissingPVs=0, hiding a failed/removed PV.
+		out = append(out, insight("INFO", "LVM",
+			"LVM physical-volume state could NOT be verified — `pvs` failed; a missing/failed PV cannot be ruled out",
+			[]string{"to inspect: pvs -o vg_name,pv_name,pv_attr", "note: run as root if permission denied"}))
+	}
+	if l.VGReadFailed {
+		out = append(out, insight("INFO", "LVM",
+			"LVM volume-group state could NOT be verified — `vgs` failed; VG free space not checked",
+			[]string{"to inspect: vgs -o vg_name,vg_size,vg_free,vg_attr"}))
+	}
+	if l.LVReadFailed {
+		out = append(out, insight("INFO", "LVM",
+			"LVM logical-volume state could NOT be verified — `lvs` failed; thin-pool/snapshot usage not checked",
+			[]string{"to inspect: lvs -o lv_name,vg_name,lv_attr,data_percent,metadata_percent"}))
+	}
+
 	return out
 }
 

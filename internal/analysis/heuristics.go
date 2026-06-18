@@ -1845,7 +1845,26 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 }
 
 func checkMultipath(m models.MultipathInfo) []models.Insight {
-	if !m.Available || len(m.Devices) == 0 {
+	if !m.Available {
+		return nil
+	}
+	// multipathd is running but its path table could not be read (both `multipathd
+	// show paths` and `multipath -l` failed) — Devices is empty for a reason other
+	// than "no maps configured", so don't let it pass as a silent OK.
+	if m.Status == "error" {
+		reason := m.StatusReason
+		if reason == "" {
+			reason = "multipath paths unreadable"
+		}
+		return []models.Insight{insight("WARN", "Multipath",
+			"multipath path health could NOT be verified — "+reason,
+			[]string{
+				"to inspect: multipathd show paths",
+				"to inspect: multipath -l   (run as root)",
+			},
+		)}
+	}
+	if len(m.Devices) == 0 {
 		return nil
 	}
 	var out []models.Insight

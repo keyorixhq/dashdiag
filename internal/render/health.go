@@ -728,7 +728,14 @@ func inlineMultipath(data interface{}) string {
 	} else if v, ok := data.(models.MultipathInfo); ok {
 		m = &v
 	}
-	if m == nil || !m.Available || len(m.Devices) == 0 {
+	if m == nil || !m.Available {
+		return ""
+	}
+	// paths unreadable (both queries failed) — surface it rather than drop the row.
+	if m.Status == "error" {
+		return "paths unreadable — not verified"
+	}
+	if len(m.Devices) == 0 {
 		return ""
 	}
 	totalPaths := 0
