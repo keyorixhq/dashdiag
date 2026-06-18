@@ -11,6 +11,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-18
+
+Deep capture/replay hardening — the `dsd replay` hermeticity work now extends to the
+`--deep` path, plus a few real-hardware false-alarm fixes. The frozen `dsd health
+--json` 1.x contract is unchanged.
+
+### Added
+
+- **`dsd capture --raw --deep` and `--pkg`.** Record the deep collectors (per-core
+  CPU, smaps, cgroup v2 slices, package integrity) and/or the package collector in a
+  bundle, so a customer capture can be diagnosed offline with `dsd replay --deep`. The
+  default capture stays terse — the long-validated, byte-stable path; deep is opt-in. (#396)
+
+### Fixed
+
+- **`dsd replay --deep` is now hermetic and faithful.** Several deep-path values were
+  read from the live (replaying) machine or computed against the replay-time clock, so
+  two replays of the same bundle disagreed and the captured host's real state was lost:
+  - Per-core CPU usage (`CPUDeep`) read `/proc/stat` twice into one bundle key, so on
+    replay both snapshots collapsed and every core showed 0%. The derived per-core
+    usage is now recorded at capture and replayed verbatim (real percentages). (#399)
+  - The `FDLimits` per-process scan and the CPU/memory/IO/swap/process **drill-down
+    tables** walked live `/proc` under replay (different PIDs each run). Their derived
+    results are now recorded and replayed. (#398)
+  - Log/crash-file **age** was computed from the replay-time clock; it's now relative
+    to the capture time. AppArmor denial and SELinux AVC group ordering, and the
+    AppArmor complain-mode list, were unsorted (Go-map order) and flickered between
+    replays — now deterministically sorted. (#396, #397)
+  - CI now guards the `--deep` replay path (capture→triple-replay→diff), alongside the
+    existing terse guard. (#398)
+- **`dsd health deep`: two false-alarms on real AMD / live-USB hardware** — a
+  single-threaded-bottleneck warning that fired at low load, and an ldconfig
+  "corrupted" warning on overlay filesystems. (#390)
+- **NVMe: implausible SMART data no longer triggers a false "drive near end of life"
+  CRIT.** Garbled/out-of-range SMART values (e.g. 11758 °C, spare 1%) are rejected at
+  parse instead of driving a verdict. (#392)
+- **D-Bus: an undetermined bus state is no longer reported as failed.** (#393)
+
 ## [1.3.4] - 2026-06-18
 
 No functional changes since v1.3.3 — a republish so the latest binary carries a
