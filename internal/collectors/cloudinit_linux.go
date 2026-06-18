@@ -58,6 +58,13 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 	if txt, _ := runCmd(ctx, "cloud-init", "status"); strings.TrimSpace(txt) != "" {
 		parseCloudInitText(txt, info)
 	}
+	// status.json exists (CloudInitAvailable gate) but neither CLI form produced a
+	// parseable status — the `cloud-init status` binary is pruned/broken or printed
+	// nothing. Flag it so the verdict says "status not read" instead of staying
+	// silent for an instance whose provisioning state was never verified.
+	if info.Status == "" {
+		info.StatusUnverified = true
+	}
 	return info, nil
 }
 

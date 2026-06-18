@@ -22,4 +22,9 @@ type CloudInitInfo struct {
 	// RecoverableErrors flattens the `recoverable_errors` map (level → []msg).
 	RecoverableErrors []string `json:"recoverable_errors,omitempty"`
 	LastUpdate        string   `json:"last_update,omitempty"`
+	// StatusUnverified is true when cloud-init is present (status.json exists) but the
+	// `cloud-init status` CLI produced no parseable output (pruned/broken binary,
+	// empty stdout) — Status is then empty, which would otherwise read as a silent OK
+	// for an instance whose provisioning state was never actually read.
+	StatusUnverified bool `json:"status_unverified,omitempty"`
 }

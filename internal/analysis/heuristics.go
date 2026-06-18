@@ -2074,6 +2074,17 @@ func checkCloudInit(c models.CloudInitInfo) []models.Insight {
 	if !c.Available {
 		return nil
 	}
+	// cloud-init is present (status.json exists) but its status could not be read —
+	// don't pass an instance with an unknown provisioning state as a silent OK.
+	if c.StatusUnverified {
+		return []models.Insight{insight("INFO", "CloudInit",
+			"cloud-init present but its status could NOT be read — provisioning state unverified",
+			[]string{
+				"to inspect: cloud-init status --long",
+				"to inspect: cat /run/cloud-init/status.json",
+			},
+		)}
+	}
 	ds := c.Datasource
 	if ds == "" {
 		ds = "unknown"
