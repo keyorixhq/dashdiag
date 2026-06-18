@@ -280,6 +280,13 @@ func zfsVdevErrorInsight(p models.ZFSPool, check string) (models.Insight, bool) 
 
 func checkZFS(z models.ZFSInfo) []models.Insight {
 	out := make([]models.Insight, 0, len(z.Pools))
+	if z.ListReadFailed {
+		// zpool is installed but `zpool list` failed (commonly permission denied) —
+		// no pool was inspected, so don't pass as a silent "no ZFS problems".
+		out = append(out, insight("INFO", "ZFS",
+			"ZFS is present but pools could NOT be verified — `zpool list` failed (run as root?)",
+			[]string{"to inspect: zpool list", "to inspect: zpool status"}))
+	}
 	for _, pool := range z.Pools {
 		out = append(out, checkZFSPool(pool)...)
 	}

@@ -127,6 +127,10 @@ func parseBtrfsDevStats(ctx context.Context, mount string, vol *models.BtrfsVolu
 // error counters on vol. Split from parseBtrfsDevStats so the parsing is unit
 // testable against real command output without spawning btrfs.
 func applyBtrfsDevStats(out string, vol *models.BtrfsVolume) {
+	// `btrfs device stats` ran and produced output — the per-device error counters
+	// below are now real readings, not zero-defaults. (parseBtrfsDevStats leaves this
+	// false when the command errored, so the verdict can flag "counters not read".)
+	vol.StatsRead = true
 	// Build path → device index map
 	pathIdx := map[string]int{}
 	for i, dev := range vol.Devices {

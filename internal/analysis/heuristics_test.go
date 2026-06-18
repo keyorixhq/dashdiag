@@ -1062,7 +1062,7 @@ func btrfsInsight(disk models.DiskInfo) (level, msg string, found bool) {
 
 func TestCheckDiskExtrasBtrfsIOErrorsCrit(t *testing.T) {
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/", Status: "errors",
+		MountPoint: "/", Status: "errors", StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 0, WriteErrs: 5}},
 	}}}
 	level, msg, found := btrfsInsight(disk)
@@ -1076,7 +1076,7 @@ func TestCheckDiskExtrasBtrfsIOErrorsCrit(t *testing.T) {
 
 func TestCheckDiskExtrasBtrfsCorruptionWarn(t *testing.T) {
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/data", Status: "errors",
+		MountPoint: "/data", Status: "errors", StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sdb", CorruptErrs: 3}},
 	}}}
 	level, msg, found := btrfsInsight(disk)
@@ -1091,7 +1091,7 @@ func TestCheckDiskExtrasBtrfsCorruptionWarn(t *testing.T) {
 func TestCheckDiskExtrasBtrfsIOWinsOverCorruption(t *testing.T) {
 	// A device with both I/O and corruption errors → CRIT (I/O is the worse signal).
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/", Status: "errors",
+		MountPoint: "/", Status: "errors", StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 2, CorruptErrs: 9}},
 	}}}
 	if level, _, _ := btrfsInsight(disk); level != "CRIT" {
