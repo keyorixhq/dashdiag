@@ -428,6 +428,49 @@ output is the unknown state, not `null`. Pure §E (False-OK sweep) discipline.
 
 ---
 
+## M. D-Bus false-CRIT — "unknown" state treated as "failed" — ✅ DONE (fix/dbus-unknown-not-failed-M, 2026-06-18)
+
+Found on the VMware Cloud Director guest (Ubuntu 22.04, 192.168.30.10) during the
+2026-06-18 session: `dsd health` reported **CRIT "D-Bus system message bus has
+failed"** on a host where `systemctl is-active dbus` returns `active` and
+`busctl` lists live connections — a false CRIT, and a scary top-line one.
+
+Two compounding silent-failure flaws (the false-OK class, inverted — a failed
+*measurement* rendered as a failed *subject*):
+1. **Wrong unit name.** The collector ran `systemctl is-active dbus.service`.
+   On modern Debian/Ubuntu (and these VMware templates) the bus resolves via
+   `dbus` (alias → `dbus.socket`/`dbus-broker`), and `is-active dbus.service`
+   returns empty+nonzero → status `"unknown"`. `is-active dbus` returns `active`.
+2. **"unknown" collapsed to "failed".** `info.Active = status=="active"` made
+   unknown→`active:false`, and `checkDBus` CRIT'd on anything not active/n-a — so
+   "couldn't determine" produced the same CRIT as a genuine "failed".
+3. **Bonus:** `collectDBusLastError` returned the last *non-empty* journal line
+   regardless of severity, so it captured `"Successfully activated service
+   org.freedesktop.timedate1"` and reported a success message as `last_error`.
+
+Fix (collector + heuristic, no `--json` schema change):
+- Query `dbus`, not `dbus.service` (resolves the alias; the working invocation).
+- Empty result → explicit `"unknown"`; heuristic treats anything other than
+  `failed`/`inactive` as **INFO** "state could not be determined — health
+  unverified, not assumed failed", never CRIT. Only explicit failed/inactive CRITs.
+- `collectDBusLastError` now uses `journalctl -p err` (error priority only) and is
+  called only when status is confirmed failed/inactive — no success-line-as-error.
+
+Validated live on the originating guest: DBus check now `OK`
+(`status:"active", active:true`), zero DBus insights, false CRIT gone. (The run's
+remaining CRIT was the unrelated NVMe §L, fixed on its own branch.) Regression in
+`TestCheckDBus`: unknown→INFO, activating→INFO, failed→CRIT, inactive→CRIT,
+active→clean.
+
+| Item | Surface | Status |
+|---|---|---|
+| Query `dbus` not `dbus.service`; unknown≠failed | `dbus_linux.go` Collect | ✅ done |
+| Heuristic: non-failed/inactive status → INFO not CRIT | `heuristics.go` checkDBus | ✅ done |
+| `last_error` severity-filtered (`-p err`), only when down | `dbus_linux.go` collectDBusLastError | ✅ done |
+| Regression: unknown/activating→INFO, failed/inactive→CRIT | `heuristics_round6_test.go` TestCheckDBus | ✅ done |
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
