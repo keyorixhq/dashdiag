@@ -260,6 +260,12 @@ stable sort by check name at the render boundary (invariant-data layer, not
 collectors). The replay double-diff harness sorted this away with `jq sort_by(.name)`
 rather than changing the product. Build only when a test or workflow needs it.
 
+**Re-observed 2026-06-18** (VCD root/non-root diff): besides the top-level order,
+the Hardening check's `apparmor_groups[]` array also came out in a different order
+between two runs — another map-iteration sub-list not yet sorted (the #348 sweep
+covered Drives/multipath but not this one). Same benign-but-flaky class; fold into
+the same render-boundary sort when the top-level item is built.
+
 ---
 
 ## Locale safety — ✅ VALIDATED (2026-06-16), no open work
@@ -468,6 +474,57 @@ active→clean.
 | Heuristic: non-failed/inactive status → INFO not CRIT | `heuristics.go` checkDBus | ✅ done |
 | `last_error` severity-filtered (`-p err`), only when down | `dbus_linux.go` collectDBusLastError | ✅ done |
 | Regression: unknown/activating→INFO, failed/inactive→CRIT | `heuristics_round6_test.go` TestCheckDBus | ✅ done |
+
+---
+
+## N. VMware live-guest probe checklist — BLOCKED (needs a VMware guest; tenant returned 2026-06-18)
+
+Items identified during the 2026-06-18 VCD session that need a *live VMware guest*
+to validate and weren't closable then — either gated by tenant role (couldn't edit
+reservation/limit fields) or simply not exercised before access lapsed. Grouped
+here by shared blocker: one VMware guest (own vSphere, a pilot's env, or a
+re-provisioned tenant **with admin rights**) closes the whole class in one session.
+Most have a plausible bug at the end — they're §E.4 / silent-failure probes, not
+just coverage.
+
+1. **open-vm-tools removed → do host-limit fields read "unknown" or a misleading 0?**
+   (the sharpest one.) `mem_limit_mb`/`cpu_limit_mhz`/`balloon_mb` are read through
+   the tools stat channel. Remove open-vm-tools (`apt remove open-vm-tools`) and
+   re-run: the limit fields should go **absent/unknown**, NOT `0`. If they read `0`
+   and the VMware heuristic interprets that as "no limit set" rather than "couldn't
+   read", that's a §E.4 zero-vs-unreported false-negative — dsd would silently stop
+   reporting a real host limit the moment tools are absent. Reversible: reinstall.
+2. **Tools stopped/absent — collector-side detection on real hardware.** The
+   *heuristic* paths are unit-tested (`vmware_test.go`: ToolsInstalled:false → WARN,
+   ToolsRunning:false → WARN). Not exercised live: the *collector* readers
+   `vmwareToolsRunning()` (/proc comm scan) and `vmwareToolsInstalled()` (binary
+   probe) against a genuinely stopped/removed install. `systemctl stop vmtoolsd`,
+   re-run, confirm `tools_running:false` actually surfaces. (Low — readers are
+   simple; a fake-/proc collector test would also cover it.)
+3. **Active ballooning (`balloon_mb > 0`).** GATED 2026-06-18 — couldn't lower the
+   memory limit below allocated RAM from `user_adm`. With limit-edit rights: set
+   mem limit < allocated, drive in-guest memory demand, confirm `balloon_mb` goes
+   non-zero AND dsd attributes it to **host reclamation** (a host condition) vs
+   in-guest memory pressure. Conflating the two would be a real diagnostic bug.
+4. **Active CPU-limit throttle (`steal_pct > 0`).** GATED 2026-06-18 — the 3000 MHz
+   limit on a 1-vCPU guest is ~1 full core, never throttled under `stress-ng --cpu 1`
+   (steal stayed 0, dsd correctly OK — no false alarm). With limit-edit rights: set
+   cpu limit < 1 core, load the guest, confirm steal goes non-zero AND dsd connects
+   high steal to the known `cpu_limit_mhz` as "host-throttled" rather than reporting
+   bare high CPU and missing the *why*.
+5. **PVSCSI-attached SMART parse path.** §L validated that *implausible* NVMe SMART
+   is rejected; separately, the PVSCSI controller branch (`pvscsi_loaded` detection
+   confirmed working) has not had a drive with a *readable, plausible* SMART log
+   attached through it. Attach a disk on the Paravirtual controller with real SMART
+   and confirm the parse path is clean (not just the rejection path).
+6. **vMotion / snapshot artifacts.** If a pilot env exposes live migration: post-
+   vMotion clock skew and guest stun-time. dsd's Clock check would be the surface;
+   untested against a real migration event. Demand/opportunity-gated.
+
+Provenance: full capture set in
+`dashdiag-private/marketing/marketing-assets/vmware-vcd-20260618-data/`. The
+detection-at-rest half of items 1/3/4 is confirmed working; the active/absent half
+is what's unverified.
 
 ---
 
