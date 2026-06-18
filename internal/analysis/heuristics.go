@@ -1949,6 +1949,21 @@ func checkCeph(c models.CephInfo) []models.Insight {
 
 func checkFirewall(f models.FirewallInfo) []models.Insight {
 	if !f.Available {
+		// The firewall state could not be read (query failed — typically a non-root
+		// run — or no nft/iptables tooling). Don't let !Available pass as a silent
+		// "no firewall problems"; surface it as INFO (doesn't raise the verdict).
+		if f.PVEFirewallActive {
+			return []models.Insight{insight("INFO", "Firewall",
+				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox; base ruleset not read",
+				[]string{"to inspect: pve-firewall status"},
+			)}
+		}
+		if f.StatusReason != "" {
+			return []models.Insight{insight("INFO", "Firewall",
+				"firewall state not verified — "+f.StatusReason,
+				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
+			)}
+		}
 		return nil
 	}
 	if !f.Active || f.TotalRules == 0 {
