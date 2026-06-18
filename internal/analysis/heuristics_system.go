@@ -412,29 +412,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 
 	// AppArmor-specific checks
 	if aaActive {
-		// Profiles in complain mode mean enforcement is bypassed
-		if mac.AppArmorComplain > 0 {
-			out = append(out, insight("WARN", "KernelSec",
-				fmt.Sprintf("%d AppArmor profile(s) in complain mode — not enforcing", mac.AppArmorComplain),
-				[]string{
-					"to inspect: aa-status --complaining",
-					// Deliberately NOT 'aa-enforce /etc/apparmor.d/*' — some profiles
-					// ship in complain mode by distro default; blanket-enforcing all of
-					// them can break working apps. Enforce specific profiles after review.
-					"to enforce a profile after review: aa-enforce /etc/apparmor.d/<profile>",
-				},
-			))
-		}
-		// Denials in last hour
-		if mac.AppArmorDenials > 0 {
-			out = append(out, insight("WARN", "KernelSec",
-				fmt.Sprintf("%d AppArmor denial(s) in the last hour", mac.AppArmorDenials),
-				[]string{
-					"to inspect: dmesg | grep -i apparmor",
-					"to inspect: journalctl -k | grep apparmor",
-				},
-			))
-		}
+		out = append(out, checkAppArmorActive(mac)...)
 	}
 	if !mac.SELinuxPresent {
 		return out
@@ -444,6 +422,46 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 }
 
 // checkSELinuxDenials handles SELinux AVC denial insights and dontaudit suppression warning.
+// checkAppArmorActive handles the AppArmor complain-mode and denial checks.
+// Extracted from checkKernelSecurity to keep function length within linter limits.
+func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
+	var out []models.Insight
+	// Profiles in complain mode mean enforcement is bypassed
+	if mac.AppArmorComplain > 0 {
+		out = append(out, insight("WARN", "KernelSec",
+			fmt.Sprintf("%d AppArmor profile(s) in complain mode — not enforcing", mac.AppArmorComplain),
+			[]string{
+				"to inspect: aa-status --complaining",
+				// Deliberately NOT 'aa-enforce /etc/apparmor.d/*' — some profiles
+				// ship in complain mode by distro default; blanket-enforcing all of
+				// them can break working apps. Enforce specific profiles after review.
+				"to enforce a profile after review: aa-enforce /etc/apparmor.d/<profile>",
+			},
+		))
+	}
+	// Denials in last hour. -1 = the denial source was unreadable (non-root with
+	// /var/log/audit unreadable AND dmesg restricted), so we can't claim "no
+	// denials" — surface it as unverified rather than a silent OK.
+	if mac.AppArmorDenials < 0 {
+		out = append(out, insight("INFO", "KernelSec",
+			"AppArmor enforcing but its denial log could NOT be read — denials are unverified",
+			[]string{
+				"to inspect: dmesg | grep -i apparmor   (run as root)",
+				"note: kernel.dmesg_restrict=1 blocks non-root dmesg; the audit log is root-only",
+			},
+		))
+	} else if mac.AppArmorDenials > 0 {
+		out = append(out, insight("WARN", "KernelSec",
+			fmt.Sprintf("%d AppArmor denial(s) in the last hour", mac.AppArmorDenials),
+			[]string{
+				"to inspect: dmesg | grep -i apparmor",
+				"to inspect: journalctl -k | grep apparmor",
+			},
+		))
+	}
+	return out
+}
+
 // Extracted from checkKernelSecurity to keep function length within linter limits.
 func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
@@ -483,6 +501,18 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		out = append(out, insight(l, "KernelSec",
 			fmt.Sprintf("%d SELinux denial(s) in the last hour (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
 			hints,
+		))
+	}
+	// -1 = the AVC denial source was fully unreadable (non-root with audit log
+	// unreadable, ausearch absent, journald also failed). Don't read that as "no
+	// denials" — surface it as unverified.
+	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials < 0 {
+		out = append(out, insight("INFO", "KernelSec",
+			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
+			[]string{
+				"to inspect: ausearch -m avc -ts recent   (run as root)",
+				"to inspect: journalctl --since '1 hour ago' | grep 'avc:  denied'",
+			},
 		))
 	}
 	// dontaudit suppression warning — zero denials does not mean clean.

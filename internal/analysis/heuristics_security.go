@@ -30,6 +30,15 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
+	// /etc/shadow couldn't be read (non-root), so the empty/never-expiring-password
+	// audits read nothing — an empty-password account would otherwise pass as clean.
+	if sec.ShadowUnreadable {
+		out = append(out, insight("INFO", "Hardening",
+			"/etc/shadow not readable — empty/never-expiring password accounts were NOT audited",
+			[]string{"to audit: re-run as root (sudo dsd security)"},
+		))
+	}
+
 	// SSH misconfigurations
 	if sec.SSHPermitRoot {
 		switch {

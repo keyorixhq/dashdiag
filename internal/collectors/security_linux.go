@@ -1529,7 +1529,13 @@ func isOffensiveDistro() bool {
 func parsePasswordAging(info *models.SecurityInfo) {
 	shadow, err := readFile("/etc/shadow") // #nosec G304 -- hardcoded system file, root only
 	if err != nil {
-		return // requires root — silent skip
+		// Present-but-unreadable (non-root) → flag it so the verdict says "not
+		// audited" instead of silently reporting no empty/stale-password accounts.
+		// A genuinely absent /etc/shadow (rare) just means nothing to audit.
+		if os.IsPermission(err) {
+			info.ShadowUnreadable = true
+		}
+		return
 	}
 
 	// Build UID lookup from /etc/passwd to filter human accounts
