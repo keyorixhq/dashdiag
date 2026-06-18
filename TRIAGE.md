@@ -95,7 +95,12 @@ These found BUG-040–052; re-run after any collector/heuristic change:
    changes the `--json` shape, which is the **frozen 1.0 contract** — needs a
    deliberate schema decision, not a patch. Audit scope when picked up: temp_c,
    power_on_h, wear_pct, reallocated/pending across drives; CPU/GPU temps; any
-   sensor field that can legitimately be absent. Low priority.
+   sensor field that can legitimately be absent. Low priority. **2026-06-18
+   escalation:** the VMware virtual NVMe (§L) is the verdict-breaking end of this
+   class re-surfacing — when the read returns *implausible* values rather than
+   absent ones, the zeros (non-root) or the garbage (root) drive a false CRIT.
+   §E.4's "honest representation needs a schema decision" still holds for the
+   benign cosmetic case; §L is the not-benign case and is READY to fix now.
 
 ---
 
@@ -342,8 +347,105 @@ ext4 still CRIT; full read-only ext4 still WARN; image-fs inode-full clean.
 
 ---
 
+## L. NVMe SMART implausible-value → false end-of-life CRIT (VMware virtual NVMe) — ✅ DONE (fix/nvme-smart-plausibility-L, 2026-06-18)
+
+Fixed by a plausibility gate in `checkNVMe` (`nvmeSmartPlausible`): a device whose
+SMART log was read (`SmartRead:true`) but is physically impossible (temp ∉
+[-40,125]°C, spare/threshold ∉ [0,100], counters > sane ceiling) is routed to a
+new "implausible SMART data — health unverified, values rejected" **WARN** and its
+fields are NOT scored — closing the false "near end of life" CRIT. Validated live
+on the originating device (VMware vNVMe, guest 192.168.30.10): the Drives check
+now emits the WARN and the NVMe CRIT is gone (the remaining CRIT that run was an
+unrelated DBus false-positive → §M, separate branch). Regression cases in
+`TestCheckNVMe`: vmware-garbage→WARN-not-CRIT, each implausibility trigger alone,
+and boundary guards proving a real failing drive still CRITs / real high temp
+still WARNs. Original investigation below for history.
+
+First VMware Cloud Director node (vcd-msk-3, Ubuntu 22.04 guest 192.168.30.10,
+2026-06-18 — see PLATFORM_COVERAGE). A 1 GB VMware Virtual NVMe disk hot-added
+alongside PVSCSI/LSI-SAS/LSI-Parallel/SATA/IDE test disks exposes a SMART health
+log full of nonsense, and `dsd health` ingests it and raises a **false CRIT**.
+
+Raw `sudo nvme smart-log /dev/nvme0` on the device returns:
+`temperature 11759°C`, `available_spare 1%` vs `available_spare_threshold 100%`,
+`Data Units Read 56.67 YB`, `power_on_hours 1.1e21`, `power_cycles 1.8e20` —
+i.e. out-of-range temps and counters sitting at ~2^63–2^64 (uninitialised /
+sentinel fields in VMware's virtual NVMe). The read **succeeds**, so this is
+parseable-but-garbage, not unread.
+
+dsd's behaviour (confirmed by a root/non-root run pair, 2026-06-18):
+- **root:** read succeeds → `smart_read:true`, `temp_c:11758.85`,
+  `available_spare_pct:1`, `spare_threshold_pct:100`, `Drives` check →
+  **CRIT** `"/dev/nvme0 spare capacity at 1% (threshold: 100%) — drive near end
+  of life"` + WARN on temp. Overall **verdict flips WARN → CRIT**.
+- **non-root:** read fails → `smart_read:false` + all-zero struct. No CRIT, but
+  the zeros are indistinguishable from a measured 0 (§E.4) — only the missing
+  privilege accidentally avoids the false CRIT.
+
+So there is **no plausibility/reject-before-score guard**: the spare<threshold
+end-of-life test fires on data whose own sibling field (11758°C) is physically
+impossible. A real customer running `dsd` as root on any VMware NVMe guest from
+these templates gets a spurious "drive dying" CRIT — a false positive in the
+shipped health verdict.
+
+Fix: add a bounds-check layer on the NVMe SMART struct *before* scoring —
+temp ∈ [-40, 125]°C, spare/used/threshold percentages ≤ 100, counters below a
+sane ceiling. On any implausible field, treat the whole SMART read as "couldn't
+measure" (the honest-degradation pattern KernelSec/Hardening already use:
+`-1`/`unknown`/explicit reason), **not** as measured values, and **do not** let
+the end-of-life or temp tests fire. Distinct from §J (which guards garbage *wear%*
+from bad SATA attr raw values): same class — raw-tool parser trusts a real
+device's lying output — different tool (`nvme smart-log` vs `smartctl` attrs).
+Strongest argument yet for a sanity layer on raw-tool parsers; the `/proc`
+numeric fuzz harnesses should gain an `nvme smart-log` sibling.
+
+| Item | Surface | Status |
+|---|---|---|
+| Plausibility-gate NVMe SMART before scoring (temp/pct/counter bounds) | nvme collector + `Drives` heuristic | READY — false CRIT confirmed root, repro on VMware vNVMe |
+| Implausible read → "couldn't measure", not zeros and not CRIT | nvme render + scoring | READY (§E.4 surfacing + §J reject-before-score) |
+| Fuzz harness for `nvme smart-log` parser (sibling to /proc parsers) | fuzz/ | demand/defensive |
+| Empty/unpartitioned disks (sda–sde, 1 GB, no FS) — no false WARN/CRIT | disk enum | ✅ verified clean this run (no per-disk status fired) |
+
+Also observed same run (logged, not new bugs): **PVSCSI driver detection correct**
+despite blank `lsblk` TRAN on the paravirtual disk (`pvscsi_loaded:true` reads
+`/proc/modules`, not transport); **device-name instability** — adding controllers
+moved the root disk `sda`→`sdc` (Ubuntu boots by UUID; caution for any name-keyed
+logic); **`fd0` phantom-floppy I/O errors** correctly deduped in Logs (`×2`),
+benign VMware-template artifact (§E.4 virtualization-noise candidate, park).
+
+---
+
+## Systemd failed-unit listing — guarantee timeout never reads as "none" — READY (low)
+
+Same 2026-06-18 root run: `systemctl list-units` did not complete under load, and
+dsd correctly emitted `failed_units_unknown:true` + INFO `"could not list failed
+units … failed-unit status is unverified"` — the honest path. But an earlier clean
+run showed `failed_units:null` (confident "none failed"). Risk: the timeout/error
+path must **always** yield `failed_units_unknown`, never collapse to an empty-but-
+confident `null` that renders as "no failures." Verified correct in this instance;
+add a regression test forcing the `list-units` timeout branch and asserting the
+output is the unknown state, not `null`. Pure §E (False-OK sweep) discipline.
+
+---
+
 ## Housekeeping
 
+- **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
+  (vcd-msk-3 tenant, Ubuntu 22.04, 192.168.30.10 behind Edge DNAT 5.35.120.132:2222).
+  Six controller families exercised in one run via hot-added 1 GB disks:
+  Paravirtual (PVSCSI), LSI Parallel (boot), LSI SAS, SATA, IDE, NVMe. Findings →
+  §L (NVMe false-CRIT, the headline) + Systemd timeout entry; passing results:
+  PVSCSI detection, empty-disk handling, and **root/non-root privilege-degradation
+  honesty** (Hardening/KernelSec/Logs all degrade with explicit reason strings,
+  no silent green). Add row to PLATFORM_COVERAGE.md (VCD/vSphere axis, NVMe-garbage
+  path documented). VM left powered off in VCD to stop the PAYG meter; disks/config
+  persist for revisit (PVSCSI-SMART parser re-test if §L fix needs a live target).
+- **Methodology — root/non-root pair is now a standing check.** The 2026-06-18
+  diff proved its worth: the NVMe false-CRIT (§L) was *invisible* in a non-root
+  run (hidden behind "can't read") and only exposed under root. Every privileged
+  collector gets a root + non-root run; non-root must degrade to an explicit
+  "couldn't measure", never to OK. Fold into CLAUDE.md test matrix alongside the
+  locale-safety and amd64-guest-on-ARM rules.
 - **pve01 hardware-collector T1** — ✅ done 2026-06-16: HP ProDesk 600 G2 SFF
   (i7-6700 Skylake), PLATFORM_COVERAGE row 20. Fresh current-`main` dsd deployed
   and validated (hardware-smoke 6 pass / 1 skip). Confirmed the real **WD 1.8TB

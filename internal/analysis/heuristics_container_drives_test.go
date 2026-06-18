@@ -149,6 +149,23 @@ func TestCheckNVMe(t *testing.T) {
 		// (real endurance is PercentageUsed/spare for NVMe, reallocated sectors for SATA).
 		{"nvme high power-on-hours healthy is INFO not WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 10, TempC: 40, PowerOnHours: 40000}), "INFO"},
 		{"sata high power-on-hours healthy is INFO not WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, PowerOnHours: 50000}), "INFO"},
+		// TRIAGE §L — VMware virtual NVMe returns garbage-but-parseable SMART:
+		// the real captured values (temp 11758.85°C, spare 1% vs threshold 100%,
+		// counters ~2^63). Before the plausibility guard this fired a false
+		// "near end of life" CRIT. It must now be WARN ("implausible … rejected"),
+		// NOT CRIT, and the spare/temp gates must not score.
+		{"nvme implausible vmware garbage is WARN not CRIT", nvme(models.NVMeDevice{
+			Name: "nvme0", TempC: 11758.85, AvailableSparePct: 1, SpareThresholdPct: 100,
+			PowerOnHours: 1106804644422573096, PowerCycles: 184467440737095516,
+		}), "WARN"},
+		// Individual implausibility triggers — each rejects on its own.
+		{"nvme impossible temp alone is WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 11758}), "WARN"},
+		{"nvme spare over 100 is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 150, SpareThresholdPct: 100}), "WARN"},
+		{"nvme overflow counters is WARN", nvme(models.NVMeDevice{Name: "nvme0", PowerOnHours: 1106804644422573096}), "WARN"},
+		// Plausibility boundaries must NOT reject real drives: a genuinely failing
+		// drive (spare below a real threshold, hot but in-range) still CRITs/ WARNs.
+		{"nvme real failing drive still CRIT", nvme(models.NVMeDevice{Name: "nvme0", TempC: 45, AvailableSparePct: 5, SpareThresholdPct: 10, PowerOnHours: 40000}), "CRIT"},
+		{"nvme high-but-real temp still WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 80}), "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -7,11 +7,63 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// nvmeSmartPlausible reports whether an NVMe SMART reading is physically
+// possible. Some virtual NVMe devices (notably VMware Cloud Director's vNVMe,
+// TRIAGE §L) return a SMART log that parses cleanly but is garbage — e.g.
+// temperature 11758°C, available_spare 1% against threshold 100%, counters at
+// ~2^63–2^64 (uninitialised/sentinel fields). The read SUCCEEDS, so SmartRead
+// is true and the values are non-zero, which means the spare<=threshold
+// "near end of life" gate and the temp gate both fire on data whose own sibling
+// fields are impossible — a false CRIT on a healthy virtual drive.
+//
+// This is the implausible-value sibling of the SmartRead guard: SmartRead
+// catches "never measured", this catches "measured garbage". When it returns
+// false the caller must treat the device as health-unverified (route to the
+// "detected but not verified" INFO path), NOT score its fields.
+func nvmeSmartPlausible(dev models.NVMeDevice) bool {
+	// Temperature: NVMe operating/storage range is generously [-40, 125]°C.
+	if dev.TempC < -40 || dev.TempC > 125 {
+		return false
+	}
+	// Percentages are 0–100 by spec (PercentageUsed may report >100 on
+	// genuinely worn drives, so only gate the spare/threshold pair, which is
+	// strictly bounded).
+	if dev.AvailableSparePct < 0 || dev.AvailableSparePct > 100 {
+		return false
+	}
+	if dev.SpareThresholdPct < 0 || dev.SpareThresholdPct > 100 {
+		return false
+	}
+	// Counters: a real drive has not been powered for 10^9+ hours nor cycled
+	// 10^9+ times. These sit near 2^63 on the garbage path; a sane ceiling of
+	// ~114 years of hours / a billion cycles rejects sentinels without touching
+	// any real enterprise drive.
+	const maxPlausibleHours = 1_000_000 // ~114 years
+	const maxPlausibleCycles = 1_000_000_000
+	if dev.PowerOnHours < 0 || dev.PowerOnHours > maxPlausibleHours {
+		return false
+	}
+	if dev.PowerCycles < 0 || dev.PowerCycles > maxPlausibleCycles {
+		return false
+	}
+	return true
+}
+
 func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + SATA/SAS checks — each drive type is a distinct section
 	var out []models.Insight
 
 	// NVMe drives
+	var implausible []string
 	for _, dev := range n.Devices {
+		// Guard against implausible (garbage-but-parseable) SMART logs before
+		// any scoring — see nvmeSmartPlausible / TRIAGE §L. A device whose
+		// SMART was read but is physically impossible must not score its fields
+		// (the spare<=threshold gate below would false-CRIT on it); route it to
+		// the health-unverified path instead, exactly like an unread drive.
+		if dev.SmartRead && !nvmeSmartPlausible(dev) {
+			implausible = append(implausible, dev.Name)
+			continue
+		}
 		if dev.CriticalWarning > 0 {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s critical warning flag set (0x%02x) — drive may be failing", dev.Name, dev.CriticalWarning),
@@ -86,6 +138,22 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 			[]string{
 				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli)",
 				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+
+	// NVMe drives whose SMART log was read but is physically implausible
+	// (TRIAGE §L — VMware vNVMe returns garbage-but-parseable fields). Health is
+	// unverified, same as an unread drive, but surface it distinctly: the data
+	// is actively wrong, not merely absent, and a consumer should know the
+	// device reported nonsense rather than assume a missing tool.
+	if len(implausible) > 0 {
+		out = append(out, insight("WARN", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
+				len(implausible), strings.Join(implausible, ", ")),
+			[]string{
+				"to inspect: nvme smart-log " + implausible[0],
+				"note: out-of-range temperature/spare/counters (common on virtual NVMe, e.g. VMware) — readings ignored to avoid a false end-of-life alarm",
 			},
 		))
 	}
