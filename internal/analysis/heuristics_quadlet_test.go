@@ -75,3 +75,45 @@ func TestCheckPodmanQuadletsMultipleFailed(t *testing.T) {
 		t.Errorf("want both names: %q", insights[0].Message)
 	}
 }
+
+// FALSE_OK_SWEEP #34: a quadlet whose state couldn't be read (systemctl errored,
+// State="") must surface as INFO "could not determine", not a silent OK.
+func TestCheckPodmanQuadletsUnverified(t *testing.T) {
+	d := models.DockerInfo{
+		Available: true, Runtime: "podman",
+		PodmanQuadlets: []models.PodmanQuadlet{
+			{Name: "mystery", ServiceUnit: "mystery.service", State: ""},
+		},
+	}
+	got := checkPodmanQuadlets(d)
+	if !hasInsight(got, "INFO", "could not determine state") || !hasInsight(got, "INFO", "mystery") {
+		t.Errorf("unreadable quadlet must INFO naming it, got %+v", got)
+	}
+}
+
+// A quadlet file present but its unit inactive (stopped / unit-name mismatch) →
+// WARN "present but not active", not a silent OK.
+func TestCheckPodmanQuadletsInactive(t *testing.T) {
+	d := models.DockerInfo{
+		Available: true, Runtime: "podman",
+		PodmanQuadlets: []models.PodmanQuadlet{
+			{Name: "down", ServiceUnit: "down.service", State: "inactive"},
+		},
+	}
+	if got := checkPodmanQuadlets(d); !hasInsight(got, "WARN", "present but not active") {
+		t.Errorf("inactive quadlet must WARN, got %+v", got)
+	}
+}
+
+// Transient states (activating) are NOT flagged — avoids boot-time false alarms.
+func TestCheckPodmanQuadletsTransientSilent(t *testing.T) {
+	d := models.DockerInfo{
+		Available: true, Runtime: "podman",
+		PodmanQuadlets: []models.PodmanQuadlet{
+			{Name: "booting", ServiceUnit: "booting.service", State: "activating"},
+		},
+	}
+	if got := checkPodmanQuadlets(d); got != nil {
+		t.Errorf("transient activating quadlet must be silent, got %+v", got)
+	}
+}

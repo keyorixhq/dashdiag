@@ -165,23 +165,56 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 // checkPodmanQuadlets warns when any systemd-managed Podman quadlet has failed.
 // Zero failed quadlets → no insight (no noise).
 func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
-	var failed []string
-	var firstUnit string
+	var failed, inactive, unverified []string
+	var firstFailed, firstInactive string
 	for _, q := range d.PodmanQuadlets {
-		if q.Failed {
+		switch {
+		case q.State == "":
+			// systemctl errored / was unavailable — state genuinely unknown. Don't
+			// let an unreadable quadlet pass as healthy (the silent false-OK).
+			unverified = append(unverified, q.Name)
+		case q.Failed || q.State == "failed":
 			failed = append(failed, q.Name)
-			if firstUnit == "" {
-				firstUnit = q.ServiceUnit
+			if firstFailed == "" {
+				firstFailed = q.ServiceUnit
+			}
+		case q.Active || q.State == "active":
+			// running — healthy
+		case q.State == "inactive":
+			// A quadlet file exists but its generated unit is not running — genuinely
+			// down or a unit-name mismatch (templated/renamed → LoadState=not-found →
+			// ActiveState=inactive). Transient states (activating/deactivating/
+			// reloading) are deliberately not flagged to avoid boot-time false alarms.
+			inactive = append(inactive, q.Name)
+			if firstInactive == "" {
+				firstInactive = q.ServiceUnit
 			}
 		}
 	}
-	if len(failed) == 0 {
-		return nil
+
+	var out []models.Insight
+	if len(failed) > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
+			[]string{fmt.Sprintf("to inspect: systemctl status %s", firstFailed)},
+		))
 	}
-	return []models.Insight{insight("WARN", "Docker",
-		fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
-		[]string{fmt.Sprintf("to inspect: systemctl status %s", firstUnit)},
-	)}
+	if len(inactive) > 0 {
+		out = append(out, insight("WARN", "Docker",
+			fmt.Sprintf("%d Podman quadlet(s) present but not active: %s", len(inactive), strings.Join(inactive, ", ")),
+			[]string{
+				fmt.Sprintf("to inspect: systemctl status %s", firstInactive),
+				"note: the quadlet file exists but its generated unit is not running (stopped, or a unit-name mismatch)",
+			},
+		))
+	}
+	if len(unverified) > 0 {
+		out = append(out, insight("INFO", "Docker",
+			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(unverified, ", ")),
+			[]string{"to inspect: systemctl show <unit> --property=ActiveState,LoadState   (systemctl unavailable or unit not found)"},
+		))
+	}
+	return out
 }
 
 func checkDockerContainers(d models.DockerInfo) []models.Insight {
