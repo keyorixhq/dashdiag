@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -93,6 +94,12 @@ func parseAAStatusJSON(out string) ([]string, bool) {
 			names = append(names, name)
 		}
 	}
+	// Sort for a DETERMINISTIC order: doc.Profiles is a Go map, so without this the
+	// complain list (and thus the "first N shown" KernelSec detail-table rows) came
+	// out in a different order each run — non-byte-stable replay + spurious
+	// `dsd diff` deltas on any host with AppArmor complain profiles. (Surfaced by a
+	// deep capture/replay determinism check on pve01, 2026-06-18.)
+	sort.Strings(names)
 	return names, true
 }
 

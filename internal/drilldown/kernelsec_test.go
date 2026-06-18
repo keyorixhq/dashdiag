@@ -6,16 +6,20 @@ import (
 	"testing"
 )
 
-// TestParseAAStatusJSON guards BUG-023: complain-mode names must come back clean
-// (Xorg), never with JSON punctuation attached ("Xorg":).
+// TestParseAAStatusJSON guards BUG-023 (complain-mode names must come back clean
+// — Xorg, never "Xorg": with JSON punctuation attached) AND the determinism
+// contract: the function must return names sorted, because doc.Profiles is a Go
+// map. Without the sort the complain list ordered differently each run, making
+// deep capture/replay non-byte-stable and producing spurious `dsd diff` deltas.
+// We deliberately do NOT sort here — we assert the function already did.
 func TestParseAAStatusJSON(t *testing.T) {
 	out := `{
   "version": "1.1",
   "profiles": {
     "/usr/bin/man": "enforce",
+    "sbuild": "complain",
     "Xorg": "complain",
     "plasmashell": "complain",
-    "sbuild": "complain",
     "/usr/sbin/cups-browsed": "enforce"
   },
   "processes": {}
@@ -24,10 +28,9 @@ func TestParseAAStatusJSON(t *testing.T) {
 	if !ok {
 		t.Fatal("expected JSON to parse")
 	}
-	sort.Strings(names)
-	want := []string{"Xorg", "plasmashell", "sbuild"}
+	want := []string{"Xorg", "plasmashell", "sbuild"} // ASCII-sorted: 'X' < 'p' < 's'
 	if !reflect.DeepEqual(names, want) {
-		t.Errorf("got %v, want %v", names, want)
+		t.Errorf("parseAAStatusJSON not sorted: got %v, want %v", names, want)
 	}
 }
 
