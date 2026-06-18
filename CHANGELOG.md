@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-06-18
+
+No functional changes since v1.3.3 — a republish so the latest binary carries a
+fresh version. The AMD GPU path (amdgpu sysfs: edge/junction temp, VRAM, power,
+clocks, APU detection) is now **validated on real AMD Cezanne silicon** — live
+read, capture, and offline `replay --gpu` all confirmed (docs: TRIAGE §F closed,
+PLATFORM_COVERAGE row 21). Binaries are byte-identical to v1.3.3.
+
 ## [1.3.3] - 2026-06-17
 
 ### Fixed
