@@ -86,13 +86,32 @@ jobs:
             exit 1
           fi
           echo "✅ replay is hermetic: two replays byte-identical (modulo timestamp/duration)"
-      # NOTE: the --deep capture/replay path is NOT yet guarded here. Adding a
-      # `capture --deep`/`replay --deep` double-replay check surfaced that a deep
-      # collector (top processes) reads LIVE /proc under replay — different PIDs
-      # appear across two replays of the same bundle on a busy host. That is the
-      # known-deferred deep-probe-routing work (only the default/terse health path
-      # is hermetic today, per ADR-0003 / CLAUDE.md), not a regression to gate on.
-      # Re-add a --deep step once the deep collectors route through internal/source.
+      - name: Deep variant — capture --deep, replay --deep, assert byte-stable
+        run: |
+          set -euo pipefail
+          # The --deep path records the deep collectors (per-core CPU, smaps, cgroup
+          # slices, package integrity, FD scan). Guard it too — this caught FDLimits'
+          # ctx-budget-bounded /proc scan returning a different subset per replay on a
+          # busy runner (fixed by recording the derived scan via Source.Cached).
+          # Replay THREE times vs a reference: the timing-dependent class only shows
+          # under load, so more samples = a tighter guard.
+          /tmp/dsd capture --raw --deep --pkg -o /tmp/bd.tar.gz
+          if /tmp/dsd replay --deep /tmp/bd.tar.gz 2>&1 >/dev/null | grep -qi "not present in replay"; then
+            echo "::error::deep replay hit a recording gap — a deep collector read an uncaptured input"
+            exit 1
+          fi
+          NORM='. | del(.timestamp) | .checks |= map(del(.duration))'
+          /tmp/dsd replay --deep --json /tmp/bd.tar.gz > /tmp/rdref.json
+          jq -S "$NORM" /tmp/rdref.json > /tmp/ndref.json
+          for i in 1 2 3; do
+            /tmp/dsd replay --deep --json /tmp/bd.tar.gz > /tmp/rdx.json
+            jq -S "$NORM" /tmp/rdx.json > /tmp/ndx.json
+            if ! diff -u /tmp/ndref.json /tmp/ndx.json; then
+              echo "::error::deep replay $i differs from reference — a deep collector reads live state under replay (hermeticity regression)"
+              exit 1
+            fi
+          done
+          echo "✅ deep replay is hermetic: 3 --deep replays byte-identical (modulo timestamp/duration)"
 
   # SSDLC Layer 1 (ADR-0007): the .golangci.yml gosec config previously only ran
   # locally / pre-push — nothing gated PRs. This is the PR security gate.

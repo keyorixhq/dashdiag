@@ -147,14 +147,44 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 		info.UsedPct = float64(open) / float64(max) * 100
 	}
 
+	// The per-process scan is wall-clock-bounded (the ctx budget below) and walks a
+	// live process list, so its result is inherently timing-dependent: under load two
+	// passes scan a different subset of /proc and surface different hot processes /
+	// deleted-file totals. Route the DERIVED result through Source.Cached so capture
+	// records it once and `dsd replay` reproduces it verbatim — no re-scan, no timing.
+	// Without this, two replays of one bundle disagreed (the FDLimits hot-process
+	// table flickered) on a busy host — a replay hermeticity regression. On an older
+	// bundle without the recorded key, cachedJSON errors and we keep the system-wide
+	// FD usage (the primary signal), just without the per-process detail.
+	var scan fdProcScan
+	if err := cachedJSON("fdlimits/proc-scan", func() (any, error) {
+		return c.scanProcesses(ctx), nil
+	}, &scan); err == nil {
+		info.HotProcesses = scan.Hot
+		info.DeletedOpenFiles = scan.DeletedOpenFiles
+		info.DeletedOpenSizeGB = scan.DeletedOpenSizeGB
+	}
+	return info, nil
+}
+
+// fdProcScan is the derived result of the per-process FD scan — the part that is
+// timing-dependent and so must be recorded/replayed as a unit (see collectLinux).
+type fdProcScan struct {
+	Hot               []models.FDProcessInfo `json:"hot"`
+	DeletedOpenFiles  int                    `json:"deleted_open_files"`
+	DeletedOpenSizeGB float64                `json:"deleted_open_size_gb"`
+}
+
+// scanProcesses walks /proc for FD-hungry processes and open-but-deleted files.
+// It is best-effort and ctx-budget-bounded: the system-wide FD usage is the primary
+// signal (already set by the caller), so on a big/busy host we bail with what we have
+// rather than blow the 1s budget — which would make the runner abandon the WHOLE
+// result. The caller records this via Source.Cached so the budget-dependent subset is
+// frozen at capture and replays identically.
+func (c *FDLimitsCollector) scanProcesses(ctx context.Context) fdProcScan {
+	var s fdProcScan
 	dirs, _ := glob("/proc/[0-9]*")
-	var hot []models.FDProcessInfo
 	for _, dir := range dirs {
-		// The per-process scan is best-effort and scales with process count. The
-		// system-wide FD usage above is the primary signal and is already set, so
-		// on a big/busy host we bail with what we have rather than blow the 1s
-		// budget — which would make the runner abandon the WHOLE result and drop
-		// the system-wide usage too. Cheap check; runs before each process.
 		if ctx.Err() != nil {
 			break
 		}
@@ -167,18 +197,24 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 			continue
 		}
 		if p, ok := hotProcInfo(pid, len(fdEntries)); ok {
-			hot = append(hot, p)
+			s.Hot = append(s.Hot, p)
 		}
 		dc, ds := deletedFilesFromEntries(pid, fdEntries)
-		info.DeletedOpenFiles += dc
-		info.DeletedOpenSizeGB += ds
+		s.DeletedOpenFiles += dc
+		s.DeletedOpenSizeGB += ds
 	}
-	sort.Slice(hot, func(i, j int) bool { return hot[i].UsedPct > hot[j].UsedPct })
-	if len(hot) > 5 {
-		hot = hot[:5]
+	// Sort by FD pressure desc, PID asc as a tiebreaker so equal-pressure processes
+	// order stably (and the top-5 cut is deterministic).
+	sort.Slice(s.Hot, func(i, j int) bool {
+		if s.Hot[i].UsedPct != s.Hot[j].UsedPct {
+			return s.Hot[i].UsedPct > s.Hot[j].UsedPct
+		}
+		return s.Hot[i].PID < s.Hot[j].PID
+	})
+	if len(s.Hot) > 5 {
+		s.Hot = s.Hot[:5]
 	}
-	info.HotProcesses = hot
-	return info, nil
+	return s
 }
 
 func (c *FDLimitsCollector) collectDarwin(ctx context.Context) (*models.FDInfo, error) {
