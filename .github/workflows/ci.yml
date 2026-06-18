@@ -86,6 +86,27 @@ jobs:
             exit 1
           fi
           echo "✅ replay is hermetic: two replays byte-identical (modulo timestamp/duration)"
+      - name: Deep variant — capture --deep, replay --deep twice, assert byte-stable
+        run: |
+          set -euo pipefail
+          # The --deep capture/replay path records the deep collectors (per-core CPU,
+          # smaps, cgroup slices, package integrity). It has its OWN hermeticity risk —
+          # e.g. the AppArmor complain list iterated a Go map until #396. Guard it too.
+          /tmp/dsd capture --raw --deep --pkg -o /tmp/bd.tar.gz
+          if /tmp/dsd replay --deep /tmp/bd.tar.gz 2>&1 >/dev/null | grep -qi "not present in replay"; then
+            echo "::error::deep replay hit a recording gap — a deep collector read an uncaptured input"
+            exit 1
+          fi
+          /tmp/dsd replay --deep --json /tmp/bd.tar.gz > /tmp/rd1.json
+          /tmp/dsd replay --deep --json /tmp/bd.tar.gz > /tmp/rd2.json
+          NORM='. | del(.timestamp) | .checks |= map(del(.duration))'
+          jq -S "$NORM" /tmp/rd1.json > /tmp/nd1.json
+          jq -S "$NORM" /tmp/rd2.json > /tmp/nd2.json
+          if ! diff -u /tmp/nd1.json /tmp/nd2.json; then
+            echo "::error::two deep replays of the same bundle differ — a deep collector reads live state under replay (hermeticity regression)"
+            exit 1
+          fi
+          echo "✅ deep replay is hermetic: two --deep replays byte-identical (modulo timestamp/duration)"
 
   # SSDLC Layer 1 (ADR-0007): the .golangci.yml gosec config previously only ran
   # locally / pre-push — nothing gated PRs. This is the PR security gate.
