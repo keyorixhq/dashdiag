@@ -11,7 +11,7 @@ import (
 // VLAN, iSCSI, InfiniBand, nspawn). Pure functions; reuses assertLevel.
 
 func TestCheckPVECluster(t *testing.T) {
-	ok := models.PVEInfo{QuorumOK: true, HAFencingOK: true} // healthy baseline
+	ok := models.PVEInfo{QuorumOK: true, HAFencingOK: true, HAVerified: true} // healthy baseline
 	tests := []struct {
 		name string
 		p    models.PVEInfo
@@ -44,9 +44,9 @@ func TestCheckPVECluster(t *testing.T) {
 
 func TestCheckPVEStorage(t *testing.T) {
 	stor := func(active bool, used float64) models.PVEInfo {
-		return models.PVEInfo{Storages: []models.PVEStorage{{Name: "local", Type: "dir", Active: active, UsedPct: used, TotalGB: 100}}}
+		return models.PVEInfo{StoragesVerified: true, Storages: []models.PVEStorage{{Name: "local", Type: "dir", Active: active, UsedPct: used, TotalGB: 100}}}
 	}
-	assertLevel(t, checkPVEStorage(models.PVEInfo{}), "") // no storage
+	assertLevel(t, checkPVEStorage(models.PVEInfo{StoragesVerified: true}), "") // verified, no storage
 	assertLevel(t, checkPVEStorage(stor(true, 50)), "")
 	assertLevel(t, checkPVEStorage(stor(false, 0)), "CRIT") // inactive
 	assertLevel(t, checkPVEStorage(stor(true, 85)), "WARN") // 80-90
@@ -68,7 +68,7 @@ func TestCheckPVEBackups(t *testing.T) {
 	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, RecentBackups: []models.PVEBackupTask{{Status: "ERROR"}}}), "WARN")
 	// FALSE-POSITIVE GUARD: a fresh / template-only node (no backable guests →
 	// empty BackupStatuses) has nothing to back up, so "no backup" must NOT CRIT.
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1}), "")
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupVerified: true}), "")
 
 	// PER-VM GAP: the node's global age is healthy (1 day) because most guests back
 	// up, but one guest has never been backed up — it must still be flagged, not

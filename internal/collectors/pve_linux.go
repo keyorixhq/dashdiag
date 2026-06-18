@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,16 +69,16 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.ClusterName, info.QuorumOK, info.Nodes, info.APIReachable = collectPVECluster(ctx)
 
 	// HA fencing
-	info.HAFencingOK, info.HAFencingMsg = collectPVEHAFencing(ctx)
+	info.HAFencingOK, info.HAFencingMsg, info.HAVerified = collectPVEHAFencing(ctx)
 
 	// Storage usage
-	info.Storages = collectPVEStorages(ctx)
+	info.Storages, info.StoragesVerified = collectPVEStorages(ctx)
 
 	// VMs and LXC containers (collected before backups so the audit can map per-VM)
 	info.Guests, info.RunningCount, info.StoppedCount, info.PausedCount = collectPVEGuests(ctx)
 
 	// Backup tasks — global age + per-VM audit
-	info.RecentBackups, info.BackupAgeDays, info.BackupStatuses = collectPVEBackups(ctx, info.Guests)
+	info.RecentBackups, info.BackupAgeDays, info.BackupStatuses, info.BackupVerified = collectPVEBackups(ctx, info.Guests)
 
 	// Resource overcommit
 	info.TotalVCPUs, info.TotalMemGB = collectPVEResourceUsage(info.Guests)
@@ -85,7 +86,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.HostMemGB = collectHostMemGB()
 
 	// Recent task errors (last 24h)
-	info.TaskErrors = collectPVETaskErrors(ctx)
+	info.TaskErrors, info.TasksVerified = collectPVETaskErrors(ctx)
 
 	// Network bridges
 	info.Bridges = collectPVEBridges(ctx)
@@ -187,9 +188,14 @@ func collectPVESubscriptionFile() models.PVESubscription {
 		// No subscription file — community/no subscription
 		return models.PVESubscription{Status: "notfound"}
 	}
-	// File exists — has a subscription key configured
+	// File exists — a subscription key is CONFIGURED, but the file's presence does
+	// NOT prove the subscription is currently active: an expired-but-still-configured
+	// subscription leaves this file in place. Returning "active" here (the old
+	// behaviour) let a wedged subscription API silently flip a genuinely EXPIRED
+	// subscription to active and suppress the CRIT (FALSE_OK_SWEEP #40). Report
+	// "unverified" so the analysis layer surfaces it honestly.
 	if strings.Contains(string(data), "login") {
-		return models.PVESubscription{Status: "active"}
+		return models.PVESubscription{Status: "unverified"}
 	}
 	return models.PVESubscription{Status: "unknown"}
 }
@@ -235,32 +241,46 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 	return name, quorumOK, nodes, true
 }
 
-// collectPVEHAFencing checks HA fencing device status.
-func collectPVEHAFencing(ctx context.Context) (ok bool, msg string) {
+// collectPVEHAFencing checks HA fencing/manager status. The endpoint returns a JSON
+// ARRAY of status entries — on a node without HA configured, just the quorum entry
+// ([{"id":"quorum","status":"OK",...}]); with HA, additional lrm/crm/service entries.
+// (The previous single-object struct never matched this array, so fence detection
+// was dead and always fell through to a clean OK.) verified is false only when the
+// API answered but the body was unparseable; a runCmd error means the endpoint is
+// absent (HA not available) and stays verified — nothing to read.
+func collectPVEHAFencing(ctx context.Context) (ok bool, msg string, verified bool) {
 	out, err := runCmd(ctx, "pvesh", "get", "/cluster/ha/status/current", "--output-format", "json")
 	if err != nil {
-		// No HA configured — not a problem
-		return true, ""
+		return true, "", true
 	}
-	var result struct {
-		Quorate int    `json:"quorate"`
-		Mode    string `json:"mode"`
+	var entries []struct {
+		ID     string `json:"id"`
+		Type   string `json:"type"`
+		Status string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		return true, ""
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		// The API responded but we couldn't parse it — fencing state NOT verified.
+		return true, "", false
 	}
-	if result.Mode == "error" || result.Mode == "fence" {
-		return false, "HA is in " + result.Mode + " mode — check fencing device"
+	// Conservatively flag only an explicit error/fence state on any entry; an idle
+	// node's quorum entry is "OK" and healthy HA services are "started"/"running".
+	for _, e := range entries {
+		s := strings.ToLower(e.Status)
+		if strings.Contains(s, "fence") || strings.Contains(s, "error") {
+			return false, fmt.Sprintf("HA %s %q is in %q state", e.Type, e.ID, e.Status), true
+		}
 	}
-	return true, ""
+	return true, "", true
 }
 
-// collectPVEStorages reads storage usage from pvesh.
-func collectPVEStorages(ctx context.Context) []models.PVEStorage {
+// collectPVEStorages reads storage usage from pvesh. verified is false when the
+// query failed or was unparseable, so the analysis layer can say "storage health
+// not verified" instead of silently reporting no storage problems.
+func collectPVEStorages(ctx context.Context) (storagesOut []models.PVEStorage, verified bool) {
 	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/storage",
 		"--output-format", "json")
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
 	var items []struct {
@@ -271,7 +291,7 @@ func collectPVEStorages(ctx context.Context) []models.PVEStorage {
 		Active  int     `json:"active"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return nil
+		return nil, false
 	}
 
 	var storages []models.PVEStorage
@@ -288,7 +308,7 @@ func collectPVEStorages(ctx context.Context) []models.PVEStorage {
 		}
 		storages = append(storages, s)
 	}
-	return storages
+	return storages, true
 }
 
 // collectPVEBackups reads recent backup tasks from pvesh and determines both
@@ -300,7 +320,7 @@ func collectPVEStorages(ctx context.Context) []models.PVEStorage {
 // place the VMID appears is the archive filename. pvesh task records are used
 // only as a fallback (e.g. single-guest backups when no archive is on disk).
 func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
-	tasks []models.PVEBackupTask, ageDays int, statuses []models.PVEBackupStatus,
+	tasks []models.PVEBackupTask, ageDays int, statuses []models.PVEBackupStatus, verified bool,
 ) {
 	dumpByVM := scanBackupDumpDir() // authoritative per-VM source
 
@@ -310,14 +330,19 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 		"--typefilter", "vzdump",
 		"--limit", "200")
 	if err != nil {
-		// pvesh unavailable — derive everything from the dump dir + log scan.
+		// pvesh unavailable — derive everything from the dump dir + log scan. We
+		// consider backups "verified" only if that on-disk fallback actually found
+		// something; otherwise BackupAgeDays stays -1 with no statuses and the analysis
+		// layer must say "not verified" rather than stay silent (FALSE_OK_SWEEP #8).
 		ageDays = collectPVEBackupAgeFromLogs()
 		if ageDays < 0 {
 			if newest := newestBackupTime(dumpByVM); !newest.IsZero() {
 				ageDays = int(time.Since(newest).Hours() / 24)
 			}
 		}
-		return nil, ageDays, backupAudit(guests, dumpByVM)
+		audit := backupAudit(guests, dumpByVM)
+		verifiedFromDisk := ageDays >= 0 || len(audit) > 0
+		return nil, ageDays, audit, verifiedFromDisk
 	}
 
 	tasks, ageDays, pveshByVM := parsePVEBackupTasks(out)
@@ -333,7 +358,9 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 			ageDays = int(time.Since(newest).Hours() / 24)
 		}
 	}
-	return tasks, ageDays, backupAudit(guests, perVM)
+	// The vzdump task list query succeeded, so backup health WAS verified (even an
+	// empty list is a real answer: no backups configured).
+	return tasks, ageDays, backupAudit(guests, perVM), true
 }
 
 // parsePVEBackupTasks parses the vzdump task list JSON into recent tasks (last
@@ -620,11 +647,14 @@ func collectHostMemGB() float64 {
 }
 
 // collectPVETaskErrors reads the last 100 tasks and returns errors from the last 24h.
-func collectPVETaskErrors(ctx context.Context) []models.PVETaskError {
+// collectPVETaskErrors reads recent failed tasks. verified is false when the task
+// list could not be read or parsed, so a nil result is reported as "task log
+// unreadable" rather than a clean "no recent failures".
+func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, verified bool) {
 	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
 		"--limit", "100", "--output-format", "json")
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var raw []struct {
 		Type       string  `json:"type"`
@@ -634,7 +664,7 @@ func collectPVETaskErrors(ctx context.Context) []models.PVETaskError {
 		StartTime  float64 `json:"starttime"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
-		return nil
+		return nil, false
 	}
 	cutoff := float64(time.Now().Add(-24 * time.Hour).Unix())
 	var errs []models.PVETaskError
@@ -657,7 +687,7 @@ func collectPVETaskErrors(ctx context.Context) []models.PVETaskError {
 			Msg:     t.ExitStatus,
 		})
 	}
-	return errs
+	return errs, true
 }
 
 // collectPVEBridges reads the node network config and returns one entry per

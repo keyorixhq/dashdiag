@@ -132,4 +132,15 @@ type PVEInfo struct {
 	// returns empty and the node would otherwise read as a clean "healthy" with
 	// quorum implicitly OK. False here means "health NOT verified", not healthy.
 	APIReachable bool `json:"api_reachable"`
+
+	// Per-aspect "was this actually verified?" flags. Each pvesh sub-query can fail
+	// INDEPENDENTLY of the canonical /cluster/status probe (APIReachable) — a storage
+	// list that times out, a tasks call that errors, a garbled HA response — and a
+	// nil/empty result then reads as a clean healthy verdict. False here means "this
+	// aspect's health was NOT verified", so the analysis layer emits an explicit INFO
+	// instead of a silent OK (the PVE false-OK class — FALSE_OK_SWEEP #5–#8).
+	StoragesVerified bool `json:"storages_verified"`
+	TasksVerified    bool `json:"tasks_verified"`
+	BackupVerified   bool `json:"backup_verified"`
+	HAVerified       bool `json:"ha_verified"`
 }

@@ -197,6 +197,9 @@ func printPVENode(info *models.PVEInfo, mode output.OutputMode) {
 	case "expired":
 		subIcon = asciiOr("warn", "⚠️ ", mode)
 		subDetail = "subscription expired"
+	case "unverified":
+		subIcon = asciiOr("info", "ℹ️ ", mode)
+		subDetail = "configured, live status not verified (pvesh failed)"
 	}
 	fmt.Printf("  License:  %s %s\n", subIcon, subDetail)
 }
