@@ -155,6 +155,18 @@ faithfully. The whole amdgpu path (temp/VRAM/power/clock/APU-detect, live + capt
 amd-cezanne-gpu-20260618/` (local-only, excluded). KEY: a `nomodeset` boot can't
 test GPU; drop it at the GRUB `e`-edit on a live USB.
 
+**Under-load also exercised (same day, `clpeak` OpenCL compute via rusticl).** The
+telemetry READS scale correctly under heavy load: util 0→97%, power 3→24W, clock
+400→1800 MHz, temp 34→54°C — all parse right, and dsd correctly stayed "healthy"
+(heavy but cool/within-limits → no false WARN). The elevated VERDICT thresholds were
+NOT reachable on this low-power APU and remain unit-test-only on the verdict side
+(reads validated on HW): temp peaked 54°C (< 80°C WARN); this APU exposes **no
+`power1_cap`** hwmon node → `TDPLimitW=0` → the TDP-throttle check (correctly gated on
+`TDPLimitW > 0`) never fires — no false throttle; VRAM-pressure is APU-suppressed by
+design. A *discrete* AMD GPU (or a hotter/power-capped part) is needed to drive the
+≥80°C / throttle / VRAM-pressure verdicts on real hardware. Under-load bundle:
+`amd-cezanne-gpu-20260618/dsd-gpu-underload.tar.gz` (util 97% / clock 1800, replays faithfully).
+
 ---
 
 ## G. Debian/Ubuntu OVAL version-awareness — BLOCKED (needs real Ubuntu OVAL fixtures)
