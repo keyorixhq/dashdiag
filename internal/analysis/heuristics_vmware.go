@@ -44,6 +44,19 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	out = append(out, vmwareResourceConstraints(v)...)
 	out = append(out, vmwareSCSITimeoutCheck(v)...)
 
+	// open-vm-tools is running but the resource-pressure stat interface did not
+	// answer (old tools / no permission / stat absent), so vmwareResourceConstraints
+	// read nothing. Don't let the all-clean INFO below imply ballooning/host-swap/
+	// host caps were verified — surface that they could NOT be checked.
+	if v.ToolsRunning && !v.StatAvailable {
+		out = append(out, insight("INFO", "VMware",
+			"VMware resource-pressure stats unavailable (vmware-toolbox-cmd stat failed) — ballooning / host-swap / host caps NOT verified",
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat balloon",
+				"note: requires a recent open-vm-tools with the stat interface",
+			}))
+	}
+
 	// All guest-side checks clean → one INFO context line confirming recognition,
 	// enriched with the paravirtual-driver state so the operator sees dsd's full
 	// VMware-guest read at a glance (no WARN — these are informational facts).
