@@ -18,6 +18,7 @@ func TestCheckVMware(t *testing.T) {
 	healthy := models.VMwareInfo{
 		IsGuest: true, ProductName: "VMware7,1",
 		ToolsInstalled: true, ToolsRunning: true,
+		StatAvailable: true, // stats read, no host pressure
 		NICDrivers:    map[string]string{"ens160": "vmxnet3", "ens192": "vmxnet3"},
 		PVSCSILoaded:  true,
 		BalloonLoaded: false,
@@ -49,8 +50,9 @@ func TestCheckVMware(t *testing.T) {
 	// Emulated NIC → WARN naming the iface and driver.
 	emulated := checkVMware(models.VMwareInfo{
 		IsGuest: true, ToolsInstalled: true, ToolsRunning: true,
-		EmulatedNICs: []string{"ens160"},
-		NICDrivers:   map[string]string{"ens160": "e1000"},
+		StatAvailable: true,
+		EmulatedNICs:  []string{"ens160"},
+		NICDrivers:    map[string]string{"ens160": "e1000"},
 	})
 	if len(emulated) != 1 || emulated[0].Level != "WARN" {
 		t.Fatalf("emulated NIC = %+v, want one WARN", emulated)
@@ -128,6 +130,33 @@ func TestCheckVMwareResourceConstraints(t *testing.T) {
 	if got := vmwareResourceConstraints(balloonOnly); len(got) != 1 ||
 		!strings.Contains(got[0].Message, "balloon") {
 		t.Errorf("balloon-only = %+v, want one balloon WARN", got)
+	}
+}
+
+// FALSE_OK_SWEEP #33: open-vm-tools running but the stat interface didn't answer →
+// resource-pressure (ballooning/host-swap/caps) is unverified, NOT a clean OK.
+func TestCheckVMwareStatUnavailable(t *testing.T) {
+	// ToolsRunning + !StatAvailable → an explicit "not verified" INFO, and the
+	// all-clean recognition line must NOT be the sole output.
+	v := models.VMwareInfo{
+		IsGuest: true, ProductName: "VMware7,1",
+		ToolsInstalled: true, ToolsRunning: true, StatAvailable: false,
+		NICDrivers: map[string]string{"ens160": "vmxnet3"}, PVSCSILoaded: true,
+	}
+	got := checkVMware(v)
+	if !hasInsightMsg(got, "INFO", "resource-pressure stats unavailable") {
+		t.Errorf("stat-unavailable must INFO 'not verified', got %+v", got)
+	}
+	// The misleading all-clean recognition line must not appear.
+	for _, ins := range got {
+		if strings.Contains(ins.Message, "open-vm-tools running; NICs") {
+			t.Errorf("must not emit the all-clean recognition line when stats unverified, got %+v", ins)
+		}
+	}
+	// Stats available + clean → the recognition line, no not-verified INFO.
+	v.StatAvailable = true
+	if got := checkVMware(v); hasInsightMsg(got, "INFO", "resource-pressure stats unavailable") {
+		t.Errorf("verified stats must not say unavailable, got %+v", got)
 	}
 }
 
