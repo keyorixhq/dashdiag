@@ -29,31 +29,29 @@ func (c *HealthDeepCollector) Timeout() time.Duration { return 5 * time.Second }
 func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.HealthDeepInfo{}
 
-	// Per-core CPU: two reads 500ms apart
-	snap1, err := readProcStatCores()
-	if err == nil {
-		select {
-		case <-ctx.Done():
-			return info, nil
-		case <-time.After(500 * time.Millisecond):
-		}
-		snap2, err2 := readProcStatCores()
-		if err2 == nil {
-			info.Cores = computeCoreUsage(snap1, snap2)
-			if len(info.Cores) > 0 {
-				info.MaxCorePct = info.Cores[0].UsagePct
-				info.MinCorePct = info.Cores[0].UsagePct
-				for _, c := range info.Cores {
-					if c.UsagePct > info.MaxCorePct {
-						info.MaxCorePct = c.UsagePct
-					}
-					if c.UsagePct < info.MinCorePct {
-						info.MinCorePct = c.UsagePct
-					}
-				}
-				info.CoreImbalance = info.MaxCorePct - info.MinCorePct
+	// Per-core CPU usage needs two /proc/stat reads 500ms apart. Both reads hit the
+	// same source key (/proc/stat), so under replay they collapse to a single snapshot
+	// and every core reads 0%. Cache the DERIVED per-core usage instead: capture
+	// computes it live (the two reads + 500ms wait) and records the result; replay
+	// reproduces the captured percentages with no double-read and no wait. This keeps
+	// CPUDeep faithful under `dsd replay`, not merely deterministic.
+	var cores []models.CoreStat
+	_ = cachedJSON("healthdeep/core-usage", func() (any, error) {
+		return c.sampleCoreUsage(ctx), nil
+	}, &cores)
+	info.Cores = cores
+	if len(info.Cores) > 0 {
+		info.MaxCorePct = info.Cores[0].UsagePct
+		info.MinCorePct = info.Cores[0].UsagePct
+		for _, cs := range info.Cores {
+			if cs.UsagePct > info.MaxCorePct {
+				info.MaxCorePct = cs.UsagePct
+			}
+			if cs.UsagePct < info.MinCorePct {
+				info.MinCorePct = cs.UsagePct
 			}
 		}
+		info.CoreImbalance = info.MaxCorePct - info.MinCorePct
 	}
 
 	// Load average + core count to corroborate the per-core readings (which are
@@ -77,6 +75,28 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	info.Cgroup = collectCgroupV2()
 
 	return info, nil
+}
+
+// sampleCoreUsage takes two /proc/stat snapshots 500ms apart and returns per-core
+// usage percentages. It returns nil on a read error or if ctx is cancelled during
+// the interval. The caller records the result via Source.Cached, so the
+// two-snapshot delta replays faithfully instead of collapsing to 0% (both reads
+// share the /proc/stat source key, so they cannot be replayed independently).
+func (c *HealthDeepCollector) sampleCoreUsage(ctx context.Context) []models.CoreStat {
+	snap1, err := readProcStatCores()
+	if err != nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(500 * time.Millisecond):
+	}
+	snap2, err := readProcStatCores()
+	if err != nil {
+		return nil
+	}
+	return computeCoreUsage(snap1, snap2)
 }
 
 // coreSnapshot holds raw /proc/stat ticks for one core.

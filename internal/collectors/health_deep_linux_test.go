@@ -3,10 +3,56 @@
 package collectors
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestHealthDeep_CoreUsageHermetic guards replay FIDELITY of per-core CPU usage.
+// The two /proc/stat snapshots share one source key, so they cannot be replayed
+// independently — without caching the derived result, replay collapses both to the
+// same snapshot and every core reads 0%. We seed a known per-core usage during
+// capture and assert Collect reproduces it on replay (not 0%), including the
+// derived max/min/imbalance.
+func TestHealthDeep_CoreUsageHermetic(t *testing.T) {
+	want := []models.CoreStat{{Core: 0, UsagePct: 75}, {Core: 1, UsagePct: 25}}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	if _, err := rec.Cached("healthdeep/core-usage", func() ([]byte, error) { return blob, nil }); err != nil {
+		SetSource(prev)
+		t.Fatalf("seeding cached core usage: %v", err)
+	}
+	SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("replay Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if len(info.Cores) != 2 || info.Cores[0].UsagePct != 75 {
+		t.Fatalf("replay did not return cached per-core usage (collapsed to 0%%?): %+v", info.Cores)
+	}
+	if info.MaxCorePct != 75 || info.MinCorePct != 25 || info.CoreImbalance != 50 {
+		t.Fatalf("derived max/min/imbalance wrong: max=%v min=%v imb=%v", info.MaxCorePct, info.MinCorePct, info.CoreImbalance)
+	}
+}
 
 // High-core-count coverage for the per-core CPU path — the one surface the
 // 2-vCPU AWS Graviton validation couldn't stress. Synthetic fixtures, so it runs
