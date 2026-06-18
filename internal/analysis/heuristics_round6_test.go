@@ -44,7 +44,7 @@ func TestCheckPackageIntegrity(t *testing.T) {
 		{"unmet deps is CRIT", models.PackageIntegrity{LdconfigOK: true, UnmetDeps: []string{"y"}}, "CRIT"},
 		{"missing libs is CRIT", models.PackageIntegrity{LdconfigOK: true, MissingLibs: []string{"libz.so"}}, "CRIT"},
 		{"rpm verify failures is WARN", models.PackageIntegrity{LdconfigOK: true, RPMVerifyFailed: []string{"/bin/ls"}}, "WARN"},
-		{"ldconfig broken is WARN", models.PackageIntegrity{LdconfigOK: false}, "WARN"},
+		{"ldconfig couldn't run is INFO not WARN", models.PackageIntegrity{LdconfigOK: false}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
