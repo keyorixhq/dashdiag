@@ -39,12 +39,16 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 		"-o", "vg_name,vg_size,vg_free,vg_attr")
 	if err == nil {
 		info.VGs = parseVGs(vgsOut)
+	} else {
+		info.VGReadFailed = true
 	}
 
 	// --- PV health: count missing PVs per VG ---
 	pvsOut, err := runCmd(ctx, "pvs", "--noheadings", "-o", "vg_name,pv_attr")
 	if err == nil {
 		mergeMissingPVs(pvsOut, info.VGs)
+	} else {
+		info.PVReadFailed = true
 	}
 
 	// --- LVs: thin pools and snapshots ---
@@ -52,6 +56,8 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 		"-o", "lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size")
 	if err == nil {
 		info.ThinPools, info.Snapshots = parseLVs(lvsOut)
+	} else {
+		info.LVReadFailed = true
 	}
 
 	// --- Mark VGs with at least one mounted LV ---
