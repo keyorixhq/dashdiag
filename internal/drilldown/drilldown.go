@@ -3,6 +3,8 @@ package drilldown
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +15,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
@@ -43,7 +46,39 @@ func PopulateAll(ctx context.Context, insights []models.Insight, results []runne
 	return insights
 }
 
-func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) (d *models.Details) {
+// errNoDetails is a sentinel so a nil drill-down result records as a recorded
+// "no details" outcome (replayed verbatim) rather than a recording gap.
+var errNoDetails = errors.New("drilldown: no details")
+
+// dispatch routes an insight to its drill-down, with the DERIVED *Details routed
+// through Source.Cached so it is hermetic under capture/replay. The drill-downs
+// read live /proc (often with a two-sample timing delta, e.g. top-CPU%), which is
+// neither routed through the source nor deterministic — under `dsd replay` they
+// would read the REPLAYING machine's live processes, so two replays of one bundle
+// disagreed (the top-process tables flickered). Caching the table at capture and
+// replaying it verbatim fixes the whole drill-down class at one boundary; produce
+// never runs on replay, so no live read happens. Keyed by Check+Message (stable
+// across replays — insights derive from the recorded collector results).
+func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) *models.Details {
+	key := "drilldown\x00" + ins.Check + "\x00" + ins.Message
+	data, err := collectors.ActiveSource().Cached(key, func() ([]byte, error) {
+		d := dispatchLive(ctx, ins, results)
+		if d == nil {
+			return nil, errNoDetails
+		}
+		return json.Marshal(d)
+	})
+	if err != nil {
+		return nil // no details at capture, an older bundle without the key, or a gap
+	}
+	var out *models.Details
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func dispatchLive(ctx context.Context, ins models.Insight, results []runner.Result) (d *models.Details) {
 	dctx, cancel := context.WithTimeout(ctx, drilldownTimeout)
 	defer cancel()
 

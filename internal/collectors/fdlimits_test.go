@@ -6,7 +6,67 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestCollectLinux_ScanIsHermetic guards that the per-process FD scan replays from
+// the captured bundle, not a live re-scan. The scan is ctx-budget-bounded and walks
+// a live /proc, so under load two passes surface a different subset — a replay
+// hermeticity regression (the FDLimits hot-process table flickered between two
+// replays of one bundle on a busy CI runner). The fix routes the DERIVED scan
+// result through Source.Cached. We prove it: seed a known scan during capture, then
+// replay with a CANCELLED ctx — a live ctx-bounded scan would bail to empty, but the
+// cached scan ignores ctx and returns the recorded value.
+func TestCollectLinux_ScanIsHermetic(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "file-nr")
+	if err := os.WriteFile(p, []byte("100\t0\t1000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &FDLimitsCollector{fileNrPath: p}
+
+	// Capture pass: record the file-nr read, then seed the cached scan key with a
+	// known non-empty result (so the replay assertion is meaningful on any host).
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	if _, err := c.collectLinux(context.Background()); err != nil {
+		SetSource(prev)
+		t.Fatalf("capture collectLinux: %v", err)
+	}
+	want := fdProcScan{
+		Hot:               []models.FDProcessInfo{{PID: 4242, Name: "leaky", OpenFDs: 900, SoftLimit: 1000, UsedPct: 90}},
+		DeletedOpenFiles:  3,
+		DeletedOpenSizeGB: 1.5,
+	}
+	var discard fdProcScan
+	if err := cachedJSON("fdlimits/proc-scan", func() (any, error) { return want, nil }, &discard); err != nil {
+		SetSource(prev)
+		t.Fatalf("seeding cached scan: %v", err)
+	}
+	SetSource(prev)
+
+	// Replay pass with a cancelled ctx: cached scan must come back verbatim.
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	info, err := c.collectLinux(ctx)
+	if err != nil {
+		t.Fatalf("replay collectLinux: %v", err)
+	}
+	if len(info.HotProcesses) != 1 || info.HotProcesses[0].PID != 4242 {
+		t.Fatalf("replay did not return the recorded scan (live ctx-bounded scan leaked?): %+v", info.HotProcesses)
+	}
+	if info.DeletedOpenFiles != 3 || info.DeletedOpenSizeGB != 1.5 {
+		t.Fatalf("deleted-file totals not from the cached scan: files=%d sizeGB=%v", info.DeletedOpenFiles, info.DeletedOpenSizeGB)
+	}
+	// System-wide usage still comes from the (recorded) file-nr read.
+	if info.OpenCount != 100 || info.MaxCount != 1000 {
+		t.Errorf("system-wide FD usage lost: open=%d max=%d, want 100/1000", info.OpenCount, info.MaxCount)
+	}
+}
 
 // On a big/busy host the per-process FD scan can exceed the 1s budget. The fix
 // makes collectLinux deadline-aware so it returns the already-computed

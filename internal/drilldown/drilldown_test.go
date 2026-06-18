@@ -2,11 +2,55 @@ package drilldown
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/runner"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestDispatchReplaysCachedDetails guards drill-down replay hermeticity: the
+// drill-downs read live /proc (often a two-sample timing delta, e.g. top-CPU%),
+// so under `dsd replay` they must NOT re-read the replaying machine — the derived
+// *Details is routed through Source.Cached and replayed verbatim. We seed a known
+// table under the exact dispatch key during capture, then replay with a CANCELLED
+// ctx and nil results — a live recompute would read /proc / bail to nil, so a
+// returned table proves the value came from the cache, not a re-run.
+func TestDispatchReplaysCachedDetails(t *testing.T) {
+	ins := models.Insight{Level: "WARN", Check: "CPU Load", Message: "load high"}
+	key := "drilldown\x00" + ins.Check + "\x00" + ins.Message
+	want := &models.Details{
+		Type:    "process_table",
+		Title:   "Top processes by CPU%",
+		Columns: []string{"PID", "CPU%", "COMMAND"},
+		Rows:    [][]string{{"4242", "99.9%", "busy"}},
+	}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := collectors.SetSource(rec)
+	if _, err := rec.Cached(key, func() ([]byte, error) { return blob, nil }); err != nil {
+		collectors.SetSource(prev)
+		t.Fatalf("seeding cached drilldown: %v", err)
+	}
+	collectors.SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := collectors.SetSource(rp)
+	defer collectors.SetSource(restore)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := dispatch(ctx, ins, nil)
+	if got == nil || len(got.Rows) != 1 || got.Rows[0][0] != "4242" {
+		t.Fatalf("dispatch did not replay the cached drill-down details (live re-read leaked?): %+v", got)
+	}
+}
 
 func TestPopulateAll_OKInsightsUnchanged(t *testing.T) {
 	ins := []models.Insight{
