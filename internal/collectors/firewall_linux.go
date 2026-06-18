@@ -28,6 +28,12 @@ func (c *FirewallCollector) Collect(ctx context.Context) (interface{}, error) {
 		_, _ = collectNFTables(ctx, info)
 	case lookPathOK("iptables"):
 		_, _ = collectIPTables(ctx, info)
+	default:
+		// No firewall userspace tooling on PATH (minimal container/image). We cannot
+		// read the kernel's netfilter state, so report it unverified rather than let
+		// !Available pass as a silent "no firewall problems".
+		info.Status = "unverified"
+		info.StatusReason = "no firewall tooling (nft/iptables) found — firewall state not verified"
 	}
 
 	// On Proxmox VE the host firewall is managed by pve-firewall, which loads
@@ -55,6 +61,11 @@ func pveFirewallActive(ctx context.Context) bool {
 func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {
 	out, err := runCmd(ctx, "nft", "list", "ruleset")
 	if err != nil {
+		// nft is installed but the ruleset read failed — dominant case is a non-root
+		// run (CAP_NET_ADMIN/EPERM). Record it so the verdict says "not verified"
+		// instead of silently leaving Available=false (a clean-looking no-firewall).
+		info.Status = "unverified"
+		info.StatusReason = "could not read nftables ruleset (run as root?): " + err.Error()
 		return info, nil
 	}
 	parseNFTRuleset(out, info)
@@ -107,6 +118,10 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {
 	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
 	if err != nil {
+		// iptables installed but the list read failed (non-root EPERM, most often) —
+		// flag it so the verdict reports "not verified" rather than a silent OK.
+		info.Status = "unverified"
+		info.StatusReason = "could not read iptables rules (run as root?): " + err.Error()
 		return info, nil
 	}
 	parseIPTList(out, info)
