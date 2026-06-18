@@ -100,7 +100,12 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 	fmt.Println()
 	fmt.Println(sep)
 	issues := info.CritCount + info.WarnCount
-	if issues == 0 {
+	if info.SourcesUnavailable {
+		// Both journald and the kernel ring buffer were unreadable — zero events here
+		// means "nothing was read", not a clean timeline.
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s Timeline incomplete — could not read journald or the kernel log (run as root?)%s",
+			asciiOr("info", "ℹ️", mode), timing)))
+	} else if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Timeline clean%s", asciiOr("ok", "✅", mode), timing)))
 	} else {
 		var parts []string

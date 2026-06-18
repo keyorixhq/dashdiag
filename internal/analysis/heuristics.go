@@ -1721,6 +1721,17 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 }
 
 func checkOOM(oom models.OOMInfo) []models.Insight {
+	// The kernel log was unreadable, so EventsLast24h==0 means "couldn't check",
+	// not "no OOM kills" — surface it rather than passing as a silent clean.
+	if oom.StatusReason != "" {
+		return []models.Insight{insight("INFO", "OOM",
+			"OOM check not verified — "+oom.StatusReason,
+			[]string{
+				"to inspect: journalctl -k | grep -i 'out of memory'   (run as root)",
+				"note: kernel.dmesg_restrict=1 blocks non-root dmesg",
+			},
+		)}
+	}
 	if oom.EventsLast24h == 0 {
 		return nil
 	}

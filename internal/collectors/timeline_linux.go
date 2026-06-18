@@ -62,6 +62,12 @@ func (c *TimelineCollector) Collect(ctx context.Context) (interface{}, error) {
 	jr := <-jCh
 	dr := <-dCh
 
+	// Both sources failed to read (e.g. non-root with dmesg_restrict=1 and a
+	// restricted journal) → zero events means "nothing was read", not "no incidents".
+	if jr.err != nil && dr.err != nil {
+		info.SourcesUnavailable = true
+	}
+
 	info.Events = append(info.Events, jr.events...)
 	info.Events = append(info.Events, dr.events...)
 
@@ -117,7 +123,7 @@ func collectJournalEvents(ctx context.Context, since time.Time) ([]models.Timeli
 	}
 	out, err := runCmd(jCtx, args[0], args[1:]...)
 	if err != nil {
-		return nil, nil // journalctl unavailable — silent
+		return nil, err // journalctl unavailable — caller flags it if dmesg also failed
 	}
 
 	var events []models.TimelineEvent
@@ -298,7 +304,7 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	// own rating instead of guessing from words in the message text.
 	out, err := runCmd(dCtx, "dmesg", "-T", "-x", "--level=err,warn,crit,emerg,alert")
 	if err != nil {
-		return nil, nil
+		return nil, err // caller flags "sources unavailable" if journald also failed
 	}
 
 	var events []models.TimelineEvent
