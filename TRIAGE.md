@@ -126,10 +126,10 @@ nvme-cli = clean signal), GPU has none.
 
 | Item | Surface | Test target |
 |---|---|---|
-| Confirm a healthy AMD GPU actually reads temp (expected yes) | gpu_linux.go | AMD laptop testbed — ⚠️ ATTEMPTED 2026-06-17, still OPEN (see note) |
-| If a clean "read nothing" signal exists → narrow guard: don't claim "Checks passed" when no device had a readable temp | cmd/gpu.go gpuSummaryLine + checkGPU | AMD laptop |
+| Confirm a healthy AMD GPU actually reads temp (expected yes) | gpu_linux.go | ✅ DONE 2026-06-18 — validated on real AMD Cezanne (see note) |
+| If a clean "read nothing" signal exists → narrow guard: don't claim "Checks passed" when no device had a readable temp | cmd/gpu.go gpuSummaryLine + checkGPU | ✅ DONE (#383 — guard in cmd + health; metric-less device → INFO) |
 
-Unblock: one session on the AMD laptop. Agent memory: `gpu-allzero-falseok-deferred`.
+Unblock: ~~one session on the AMD laptop~~ — CLOSED 2026-06-18. Agent memory: `gpu-allzero-falseok-deferred`.
 
 **2026-06-17 attempt — did NOT close this.** Ran on a real AMD Cezanne APU
 (PLATFORM_COVERAGE row 21) expecting to confirm a healthy AMD GPU reads temp. It
@@ -140,6 +140,20 @@ next attempt: a live USB / `nomodeset` boot cannot test the GPU path.** Need a
 host where amdgpu fully binds the card — a *persistent* install (drop `nomodeset`)
 or a discrete-GPU box. Friend's Proxmox host is a candidate IF it has an
 amdgpu-bound card.
+
+**2026-06-18 — CLOSED. Validated on real AMD Cezanne silicon.** Rebooted the same
+laptop's live USB WITHOUT `nomodeset` → amdgpu fully bound the Radeon Vega (Cezanne,
+`/sys/class/drm/card1`, driver in use `amdgpu`). `dsd gpu` read and parsed the real
+sysfs correctly: edge temp 30°C, VRAM 0.2/0.5 GB (47%, `[shared APU memory]`),
+power 2W, clock 400/1800 MHz (22%), util 0%, **IsAPU=true** (GTT 7.5 GB present) so
+the VRAM-pressure check is correctly suppressed. The #383 metric-less guard
+correctly did NOT trip (real metrics present → "GPU healthy. Checks passed" is here
+legitimate, not the false-OK). Captured (`dsd capture --raw --sanitize`, GPU
+auto-included) and **replayed `--gpu` offline** — the recorded GPU values reproduce
+faithfully. The whole amdgpu path (temp/VRAM/power/clock/APU-detect, live + capture
++ replay) is confirmed on real hardware. Bundle: `testdata/captures/
+amd-cezanne-gpu-20260618/` (local-only, excluded). KEY: a `nomodeset` boot can't
+test GPU; drop it at the GRUB `e`-edit on a live USB.
 
 ---
 
