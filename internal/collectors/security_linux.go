@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -794,6 +795,24 @@ func collectAppArmorDenials(ctx context.Context) []models.AppArmorDenial {
 			Count:     c,
 		})
 	}
+	// Sort for a DETERMINISTIC order: counts is a Go map, so without a full sort the
+	// group order (and thus which groups survive any downstream top-N truncation)
+	// varied each run — non-byte-stable replay + spurious `dsd diff` Security deltas
+	// on hosts with AppArmor denials. Count desc, then profile/path/op asc to break
+	// ties (equal-count entries must still order stably). (Surfaced by the replay
+	// hermeticity guard on pve01, 2026-06-18.)
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].Count != groups[j].Count {
+			return groups[i].Count > groups[j].Count
+		}
+		if groups[i].Profile != groups[j].Profile {
+			return groups[i].Profile < groups[j].Profile
+		}
+		if groups[i].Path != groups[j].Path {
+			return groups[i].Path < groups[j].Path
+		}
+		return groups[i].Operation < groups[j].Operation
+	})
 	return groups
 }
 
@@ -1646,6 +1665,7 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 		for p := range data.perms {
 			perms = append(perms, p)
 		}
+		sort.Strings(perms) // data.perms is a map — sort for a stable perm order under replay
 		g := models.SELinuxAVCGroup{
 			Scontext: key.stype,
 			Tcontext: key.ttype,
@@ -1657,12 +1677,22 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 		g.BooleanFix, g.FixCmd = suggestSELinuxFix(ctx, key.stype, key.ttype, key.tclass, perms)
 		result = append(result, g)
 	}
-	// Sort by count descending (most frequent first)
-	for i := 1; i < len(result); i++ {
-		for j := i; j > 0 && result[j].Count > result[j-1].Count; j-- {
-			result[j], result[j-1] = result[j-1], result[j]
+	// Sort by count descending, most frequent first. The scontext/tcontext/tclass
+	// tiebreakers are essential: groups is a Go map, so a count-only sort left
+	// equal-count groups in random iteration order — non-byte-stable replay + a
+	// flaky top-10 cut. (Surfaced by the replay hermeticity guard, 2026-06-18.)
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Count != result[j].Count {
+			return result[i].Count > result[j].Count
 		}
-	}
+		if result[i].Scontext != result[j].Scontext {
+			return result[i].Scontext < result[j].Scontext
+		}
+		if result[i].Tcontext != result[j].Tcontext {
+			return result[i].Tcontext < result[j].Tcontext
+		}
+		return result[i].Tclass < result[j].Tclass
+	})
 	// Cap at top 10 groups
 	if len(result) > 10 {
 		result = result[:10]

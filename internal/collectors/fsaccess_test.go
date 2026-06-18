@@ -4,9 +4,42 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestNowViaSourceHermetic guards replay-time-clock hermeticity: any "age since
+// event" math (e.g. a log line's age_min) must be relative to the CAPTURE time,
+// not the replaying machine's live clock. Otherwise two replays of one bundle a
+// moment apart disagree (age_min 2 vs 3) — the regression the replay-hermetic CI
+// guard flagged. We record the wall clock during capture, then replay TWICE and
+// assert both calls return the SAME recorded instant (never the live clock).
+func TestNowViaSourceHermetic(t *testing.T) {
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	recorded := NowViaSource()
+	SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	// Sleep would only prove the point if NowViaSource read the live clock; under
+	// replay it must ignore wall time entirely. Two back-to-back calls must match.
+	first := NowViaSource()
+	second := NowViaSource()
+	if !first.Equal(recorded) {
+		t.Fatalf("replay NowViaSource = %v, want recorded capture time %v (read the live clock?)", first, recorded)
+	}
+	if !first.Equal(second) {
+		t.Fatalf("two replay NowViaSource calls differ (%v vs %v) — not hermetic", first, second)
+	}
+	// Sanity: the recorded value is a real, recent instant (not the zero time).
+	if recorded.IsZero() || time.Since(recorded) > time.Hour {
+		t.Fatalf("recorded capture time looks wrong: %v", recorded)
+	}
+}
 
 // TestLookPathRoutesThroughSource guards tool-presence hermeticity: a "is tool X
 // installed" gate must replay from the captured bundle, not the replaying machine's

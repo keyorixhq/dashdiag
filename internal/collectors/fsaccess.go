@@ -166,3 +166,27 @@ func (f fakeFileInfo) Sys() any           { return nil }
 func ReadFileViaSource(path string) ([]byte, error)  { return activeSource.ReadFile(path) }
 func GlobViaSource(pattern string) ([]string, error) { return activeSource.Glob(pattern) }
 func ReadlinkViaSource(path string) (string, error)  { return activeSource.Readlink(path) }
+
+// NowViaSource returns the wall-clock time routed through the active source, so
+// it is captured by `dsd capture --raw` and replayed faithfully: under replay it
+// returns the CAPTURE time, not the replaying machine's clock. Any "age since
+// event" math (e.g. a log line's age) is then relative to the captured host's
+// moment — both faithful AND byte-stable across repeated replays of one bundle.
+// Without this, age was computed against the live replay clock, so two replays a
+// second apart could differ (e.g. age_min 2 vs 3) — a hermeticity regression the
+// replay-hermetic CI guard flagged. The Recorder records the value under a fixed
+// key; every NowViaSource call in one replay returns that same recorded instant.
+// Falls back to the live clock on any cache/parse error (never blocks a live run).
+func NowViaSource() time.Time {
+	b, err := activeSource.Cached("__wallclock_now__", func() ([]byte, error) {
+		return []byte(time.Now().UTC().Format(time.RFC3339Nano)), nil
+	})
+	if err != nil {
+		return time.Now()
+	}
+	t, perr := time.Parse(time.RFC3339Nano, string(b))
+	if perr != nil {
+		return time.Now()
+	}
+	return t
+}
