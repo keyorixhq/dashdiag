@@ -427,7 +427,7 @@ func countPstorePanics() int {
 	if err != nil {
 		return 0
 	}
-	now := time.Now()
+	now := NowViaSource() // capture-time under replay, so crash-file age is hermetic
 	count := 0
 	for _, e := range entries {
 		name := strings.ToLower(e.Name())
@@ -741,7 +741,7 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 		lines := strings.Split(strings.TrimSpace(errOut), "\n")
 		msgCounts := make(map[string]int)
 		entries := make([]models.TopError, 0, len(lines))
-		now := time.Now()
+		now := NowViaSource() // capture-time under replay, so age_min is hermetic
 		for _, line := range lines {
 			if line == "" {
 				continue
@@ -919,7 +919,7 @@ func collectCrashFiles(info *models.LogsInfo) {
 		"/var/crash",
 		"/var/lib/systemd/coredump",
 	}
-	now := time.Now()
+	now := NowViaSource() // capture-time under replay, so crash-file age is hermetic
 
 	for _, dir := range dirs {
 		entries, err := readDirEntries(dir)
@@ -1060,7 +1060,7 @@ func collectVarLogErrorsFrom(info *models.LogsInfo, candidates []string) {
 		return
 	}
 
-	count, top, crit := scanVarLog(string(data), time.Now())
+	count, top, crit := scanVarLog(string(data), NowViaSource())
 	// Record that we consulted /var/log even when it yields zero errors — this
 	// is how the fallback is confirmable on a clean system (LogSource flips to
 	// "messages"/"syslog"). The caller's ErrorCount==0 guard already prevents
