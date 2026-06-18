@@ -10,7 +10,26 @@ import (
 func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	var out []models.Insight
 
-	if !f.Available || f.UpgradeCount == 0 {
+	if !f.Available {
+		return out
+	}
+
+	// The upgrade query failed or its output was unparseable (daemon needs a refresh,
+	// permission/D-Bus error, garbled JSON). UpgradeCount stays 0, which would read as
+	// "no pending firmware" — and silently miss pending dbx / Secure Boot security
+	// updates. Surface it rather than pass as clean. Status=="OK" is the recognized
+	// "nothing to do" path, which is a genuine clean.
+	if f.StatusReason != "" && f.Status != "OK" {
+		return []models.Insight{insight("INFO", "Firmware",
+			"firmware update status could not be verified: "+f.StatusReason,
+			[]string{
+				"to inspect: fwupdmgr get-upgrades",
+				"to refresh: fwupdmgr refresh   (run as root)",
+			},
+		)}
+	}
+
+	if f.UpgradeCount == 0 {
 		return out
 	}
 
