@@ -62,6 +62,18 @@ func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
 		}
 	}
 	if n == 0 {
+		if !p.TasksVerified {
+			// The task list couldn't be read — recent failed migrations/restores/
+			// snapshots are invisible exactly when the task API is unhealthy
+			// (FALSE_OK_SWEEP #7). Report "not verified" instead of a silent clean.
+			return []models.Insight{insight("INFO", "PVE",
+				"Proxmox task log unreadable — recent task failures could NOT be verified",
+				[]string{
+					"to inspect: pvesh get /nodes/localhost/tasks --errors 1",
+					"to inspect: cat /var/log/pve/tasks/index",
+				},
+			)}
+		}
 		return nil
 	}
 	return []models.Insight{insight("WARN", "PVE",
@@ -91,6 +103,16 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 				"to inspect: pvesh get /nodes/localhost/subscription",
 			},
 		)}
+	case "unverified":
+		// pvesh failed and we fell back to the auth file — a key is configured but
+		// its live status (active vs EXPIRED) could not be read. Don't claim healthy.
+		return []models.Insight{insight("INFO", "PVE",
+			"Proxmox VE subscription configured but live status could NOT be verified (pvesh failed)",
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/subscription",
+				"note: an expired subscription leaves the auth file in place, so presence alone is not proof of an active subscription",
+			},
+		)}
 	}
 	return nil
 }
@@ -116,6 +138,17 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 				"to inspect: pvecm status",
 				"to inspect: ha-manager status",
 				"note: without fencing, HA cannot safely restart VMs from a failed node",
+			},
+		))
+	} else if !p.HAVerified {
+		// The HA endpoint answered but the response was unparseable — we cannot say
+		// fencing is healthy. (A node without HA configured stays verified, so this
+		// does not fire on the common standalone case.)
+		out = append(out, insight("INFO", "PVE",
+			"HA fencing state could NOT be verified — the HA status response was unreadable",
+			[]string{
+				"to inspect: pvesh get /cluster/ha/status/current",
+				"to inspect: ha-manager status",
 			},
 		))
 	}
@@ -153,6 +186,17 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 
 func checkPVEStorage(p models.PVEInfo) []models.Insight {
 	var out []models.Insight
+	if !p.StoragesVerified {
+		// The storage list query failed — inactive/full storage (the exact failure
+		// dsd pve exists to catch) would otherwise read clean (FALSE_OK_SWEEP #6).
+		out = append(out, insight("INFO", "PVE",
+			"Proxmox storage health NOT verified — the storage list query failed",
+			[]string{
+				"to inspect: pvesm status",
+				"to inspect: pvesh get /nodes/localhost/storage",
+			},
+		))
+	}
 	for _, s := range p.Storages {
 		if !s.Active {
 			out = append(out, insight("CRIT", "PVE",
@@ -181,6 +225,19 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 
 func checkPVEBackups(p models.PVEInfo) []models.Insight {
 	var out []models.Insight
+	if !p.BackupVerified && p.BackupAgeDays < 0 && len(p.BackupStatuses) == 0 {
+		// The vzdump task query failed and the on-disk fallback found nothing, so
+		// the "no successful backup" CRIT below (gated on len(BackupStatuses)>0) can
+		// never fire — backup health unverified would read as a silent OK
+		// (FALSE_OK_SWEEP #8). Surface it honestly instead.
+		return []models.Insight{insight("INFO", "PVE",
+			"Proxmox backup health NOT verified — the vzdump task query failed and no backup archives were found",
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				"to inspect: ls /var/log/vzdump/",
+			},
+		)}
+	}
 	switch {
 	case p.BackupAgeDays < 0 && len(p.BackupStatuses) > 0:
 		// No backup at all is CRIT, not WARN — VMs have no recovery point.

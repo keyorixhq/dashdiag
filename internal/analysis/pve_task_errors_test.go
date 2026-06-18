@@ -10,16 +10,17 @@ import (
 // Recent failed Proxmox tasks (migrations/snapshots/restores) were collected but
 // never surfaced. Backups (vzdump) are excluded — covered by checkPVEBackups.
 func TestCheckPVETaskErrors(t *testing.T) {
-	if got := checkPVETaskErrors(models.PVEInfo{}); got != nil {
+	// TasksVerified=true means the task list was read and held no failures → nil.
+	if got := checkPVETaskErrors(models.PVEInfo{TasksVerified: true}); got != nil {
 		t.Errorf("no task errors should yield nil, got %v", got)
 	}
 
-	onlyBackups := models.PVEInfo{TaskErrors: []models.PVETaskError{{Type: "vzdump"}, {Type: "vzdump"}}}
+	onlyBackups := models.PVEInfo{TasksVerified: true, TaskErrors: []models.PVETaskError{{Type: "vzdump"}, {Type: "vzdump"}}}
 	if got := checkPVETaskErrors(onlyBackups); got != nil {
 		t.Errorf("vzdump-only should be excluded (handled by backups check), got %v", got)
 	}
 
-	mixed := models.PVEInfo{TaskErrors: []models.PVETaskError{
+	mixed := models.PVEInfo{TasksVerified: true, TaskErrors: []models.PVETaskError{
 		{Type: "vzdump"}, // excluded
 		{Type: "qmigrate"},
 		{Type: "vzsnapshot"},
