@@ -59,7 +59,11 @@ type SecurityInfo struct {
 	SuspectCrons          []string `json:"suspect_crons,omitempty"`           // cron jobs writing to sensitive paths
 	EmptyPasswordAccounts []string `json:"empty_password_accounts,omitempty"` // accounts with empty password field (CRIT)
 	StalePasswordAccounts []string `json:"stale_password_accounts,omitempty"` // human UIDs with no password expiry (WARN)
-	WorldWritableDirs     []string `json:"world_writable_dirs,omitempty"`     // world-writable dirs missing sticky bit
+	// ShadowUnreadable is true when /etc/shadow exists but could not be read
+	// (permission denied — a non-root run). The empty/stale-password audits then
+	// read nothing, so an empty-password account would otherwise pass as a clean OK.
+	ShadowUnreadable  bool     `json:"shadow_unreadable,omitempty"`
+	WorldWritableDirs []string `json:"world_writable_dirs,omitempty"` // world-writable dirs missing sticky bit
 
 	// AppArmor (SLES/Ubuntu/Debian)
 	AppArmorMode     string           `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled

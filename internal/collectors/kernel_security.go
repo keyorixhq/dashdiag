@@ -42,11 +42,14 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 		return present, mode, n
 	}
 
-	// Fallback: journald (works only when auditd is NOT running)
+	// Fallback: journald (works only when auditd is NOT running). countAVCsFromAuditLog
+	// returned ok=false above, so the audit log + ausearch were both unreadable; if
+	// journald also errors, the denial source is FULLY unreadable — return -1 (not 0)
+	// so the verdict surfaces "denials unverified" rather than a silent "no denials".
 	jout, err := runCmd(ctx, "journalctl",
 		"--since=1 hour ago", "--no-pager", "-q")
 	if err != nil {
-		return present, mode, 0
+		return present, mode, -1
 	}
 	denials = strings.Count(jout, "avc:  denied")
 	return present, mode, denials
