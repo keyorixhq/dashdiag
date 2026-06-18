@@ -43,10 +43,17 @@ type LogsInfo struct {
 	LogDiskMount          string  `json:"log_disk_mount,omitempty"`
 
 	// Severity summary (Spec 3 addition)
-	ErrorCount   int        `json:"error_count"`            // ERR + CRIT + ALERT + EMERG in last hour
-	WarningCount int        `json:"warning_count"`          // WARNING in last hour
-	TopErrors    []string   `json:"top_errors,omitempty"`   // deduplicated top error messages (legacy)
-	TopCritical  []TopError `json:"top_critical,omitempty"` // structured top errors with source + age
+	ErrorCount   int `json:"error_count"`   // ERR + CRIT + ALERT + EMERG in last hour
+	WarningCount int `json:"warning_count"` // WARNING in last hour
+	// ErrorScanFailed is true when the `journalctl -p err` severity query errored
+	// (timeout, journal inaccessible, non-root without journal access); ErrorCount
+	// then stays 0. ErrorCountUnverified is the derived signal the verdict reads: the
+	// scan failed AND no /var/log fallback covered it, so a flooded error log would
+	// otherwise read as a clean "0 errors".
+	ErrorScanFailed      bool       `json:"error_scan_failed,omitempty"`
+	ErrorCountUnverified bool       `json:"error_count_unverified,omitempty"`
+	TopErrors            []string   `json:"top_errors,omitempty"`   // deduplicated top error messages (legacy)
+	TopCritical          []TopError `json:"top_critical,omitempty"` // structured top errors with source + age
 
 	// Crash files on disk (Spec 3 addition)
 	CrashFiles    []CrashFile `json:"crash_files,omitempty"` // core dumps, crash reports

@@ -51,6 +51,16 @@ func checkCron(c models.CronInfo) []models.Insight {
 				"to inspect: grep FAILED /var/log/cron",
 			},
 		))
+	} else if !c.FailureScanOK {
+		// Neither journalctl nor any /var/log/cron* file could be read — recent job
+		// failures can't be ruled out, so don't pass as a clean "no failures".
+		out = append(out, insight("INFO", "Cron",
+			"cron failure history not readable — recent job failures could be hidden",
+			[]string{
+				"to inspect: journalctl -u crond --since '24 hours ago'  (run as root?)",
+				"to inspect: grep FAILED /var/log/cron",
+			},
+		))
 	}
 
 	out = append(out, checkCronQuality(c.QualityIssues)...)

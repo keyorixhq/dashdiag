@@ -105,8 +105,16 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	// nothing). Without the no-journald case, a syslog-only host (Devuan, Alpine,
 	// Gentoo/OpenRC, ...) reported "0 errors" while never reading its syslog — a
 	// false-OK (Spec 3).
-	if shouldReadVarLogFallback(info) {
+	fellBack := shouldReadVarLogFallback(info)
+	if fellBack {
 		collectVarLogErrors(info)
+	}
+	// If the journal error scan failed and no /var/log fallback covered it (a normal
+	// persistent-journald host), the error count is unverified — a flooded error log
+	// would read as "0 errors". (The fallback path consults a real log, so it counts
+	// as covered even when it finds nothing.)
+	if info.ErrorScanFailed && !fellBack {
+		info.ErrorCountUnverified = true
 	}
 
 	// On a VM/cloud guest the NVMe device is virtual storage, so an I/O timeout
@@ -737,6 +745,12 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 	// Error count: emerg(0) through err(3).
 	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", since,
 		"--no-pager", "-q", "--output=short-iso")
+	if err != nil {
+		// The journal error query failed — ErrorCount stays 0. Flag it so the verdict
+		// doesn't read a host with a flooded error log as healthy (the /var/log
+		// fallback in Collect may still cover this; ErrorCountUnverified is finalised there).
+		info.ErrorScanFailed = true
+	}
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(errOut), "\n")
 		msgCounts := make(map[string]int)

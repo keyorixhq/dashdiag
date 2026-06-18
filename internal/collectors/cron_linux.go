@@ -33,7 +33,7 @@ func (c *CronCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.QualityIssues = scanCrontabQuality()
 
 	// 3. Recent failures from journal/syslog
-	info.Failures = scanCronFailures(ctx)
+	info.Failures, info.FailureScanOK = scanCronFailures(ctx)
 
 	// 4. Anacron staleness
 	if info.AnacronPresent {
@@ -285,13 +285,12 @@ func extractCronCommand(line string, hasUserField bool) string {
 
 // ── failure scanning ──────────────────────────────────────────────────────────
 
-func scanCronFailures(ctx context.Context) []models.CronFailure {
-	var failures []models.CronFailure
-
+func scanCronFailures(ctx context.Context) (failures []models.CronFailure, scanOK bool) {
 	// Try journalctl first (systemd systems)
 	out, err := runCmd(ctx, "journalctl", "-u", "crond", "-u", "cron",
 		"--since", "24 hours ago", "--no-pager", "-q", "--output=short")
 	if err == nil {
+		scanOK = true
 		failures = append(failures, parseCronJournalFailures(out)...)
 	}
 
@@ -301,11 +300,12 @@ func scanCronFailures(ctx context.Context) []models.CronFailure {
 		if err != nil {
 			continue
 		}
+		scanOK = true
 		failures = append(failures, parseCronLogFailures(string(data))...)
 		break // Use first available file
 	}
 
-	return deduplicateCronFailures(failures)
+	return deduplicateCronFailures(failures), scanOK
 }
 
 // parseCronJournalFailures extracts FAILED/error lines from journalctl output.

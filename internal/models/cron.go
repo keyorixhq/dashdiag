@@ -30,4 +30,9 @@ type CronInfo struct {
 	QualityIssues  []CronJob     `json:"quality_issues,omitempty"`
 	Failures       []CronFailure `json:"failures,omitempty"`
 	AnacronJobs    []AnacronJob  `json:"anacron_jobs,omitempty"`
+	// FailureScanOK is true when the cron failure history was actually read
+	// (journalctl succeeded OR a /var/log/cron* file was read). False with no
+	// Failures means the scan could not run — recent job failures may be hidden,
+	// which would otherwise read as a clean "no failures".
+	FailureScanOK bool `json:"failure_scan_ok,omitempty"`
 }
