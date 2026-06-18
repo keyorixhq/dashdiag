@@ -483,6 +483,23 @@ active→clean.
   no silent green). Add row to PLATFORM_COVERAGE.md (VCD/vSphere axis, NVMe-garbage
   path documented). VM left powered off in VCD to stop the PAYG meter; disks/config
   persist for revisit (PVSCSI-SMART parser re-test if §L fix needs a live target).
+- **VMware coverage boundary — host-limit *active* paths GATED by tenant role.**
+  The `user_adm` role on the vcd-msk-3 tenant exposes allocated memory/CPU but
+  **not** the reservation/limit fields, so the limits can't be lowered below what
+  the guest can reach, and a shared tenant gives no control over host memory/CPU
+  pressure. Net: the *active* host-throttle conditions are not inducible here.
+  - **Confirmed working (at-rest + no-throttle):** dsd correctly *detects* the
+    limits exist (`cpu_limit_mhz:3000`, `mem_limit_mb:2048`, `balloon_loaded:true`,
+    `balloon_mb:0`) and correctly does **not** false-alarm when they aren't being
+    hit — under `stress-ng --cpu 1` the 3000 MHz limit on a 1-vCPU guest was never
+    reached, `steal_pct` stayed 0, CPU check stayed OK. No false throttle alarm.
+  - **GATED (needs limit-edit rights or a host you control):** active ballooning
+    (`balloon_mb>0` → does dsd WARN and attribute it to *host reclamation* vs
+    in-guest pressure?) and active CPU throttle (limit < 1 core → `steal_pct>0` →
+    does dsd connect high steal to the known cpu_limit as "host-throttled"?). These
+    are the §L-class "behave under the real condition" tests; the detection-at-rest
+    half passes, the active half is unverified. Re-test on pve01 (own limits) or in
+    a pilot's own vSphere where reservation/limit editing is available.
 - **Methodology — root/non-root pair is now a standing check.** The 2026-06-18
   diff proved its worth: the NVMe false-CRIT (§L) was *invisible* in a non-root
   run (hidden behind "can't read") and only exposed under root. Every privileged
