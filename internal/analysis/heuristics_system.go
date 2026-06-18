@@ -736,6 +736,16 @@ func checkJournalActivity(logs models.LogsInfo) []models.Insight {
 			fmt.Sprintf("%d error(s) logged in the last hour — check if expected", logs.ErrorCount),
 			[]string{"to inspect: journalctl -p err --since '1 hour ago' --no-pager"},
 		))
+	} else if logs.ErrorCountUnverified {
+		// The journal error scan failed and no /var/log fallback covered it, so the
+		// 0-error count is not trustworthy — don't read it as a clean log.
+		out = append(out, insight("INFO", "Logs",
+			"could not read journal error counts — recent errors are unverified",
+			[]string{
+				"to inspect: journalctl -p err --since '1 hour ago' --no-pager  (run as root?)",
+				"to inspect: systemctl status systemd-journald",
+			},
+		))
 	}
 	return out
 }

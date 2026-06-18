@@ -76,11 +76,12 @@ func TestCheckCron(t *testing.T) {
 		c    models.CronInfo
 		want string
 	}{
-		{"active daemon is clean", models.CronInfo{DaemonActive: true}, ""},
+		{"active daemon is clean", models.CronInfo{DaemonActive: true, FailureScanOK: true}, ""},
 		{"anacron-only is INFO", models.CronInfo{DaemonActive: false, AnacronPresent: true}, "INFO"},
 		{"no cron at all is WARN", models.CronInfo{DaemonActive: false, AnacronPresent: false, SystemdTimers: 0}, "WARN"},
 		{"timers-only is INFO", models.CronInfo{DaemonActive: false, AnacronPresent: false, SystemdTimers: 3}, "INFO"},
-		{"job failures is WARN", models.CronInfo{DaemonActive: true, Failures: []models.CronFailure{{Job: "backup.sh"}}}, "WARN"},
+		{"job failures is WARN", models.CronInfo{DaemonActive: true, FailureScanOK: true, Failures: []models.CronFailure{{Job: "backup.sh"}}}, "WARN"},
+		{"failure scan unreadable is INFO", models.CronInfo{DaemonActive: true, FailureScanOK: false}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
