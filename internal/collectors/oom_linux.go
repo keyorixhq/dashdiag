@@ -42,9 +42,9 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 		if err != nil {
 			// Neither journalctl nor dmesg is readable (e.g. non-systemd host with
 			// kernel.dmesg_restrict=1 and no root) — we could NOT check for OOM kills.
-			// Gate the section off rather than returning Available=true with 0 events,
-			// which would read as a verified "no OOM kills" (false-OK).
-			info.Available = false
+			// Keep the section but flag it unverified, so the verdict says "not
+			// checked" rather than a silent verified "0 OOM kills" (false-OK).
+			info.StatusReason = "kernel log unreadable (journalctl -k and dmesg both failed)"
 			return info, nil
 		}
 		usedDmesg = true

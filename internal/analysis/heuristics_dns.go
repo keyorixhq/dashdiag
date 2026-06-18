@@ -12,6 +12,24 @@ import (
 func checkDNS(d models.DNSResolverInfo) []models.Insight {
 	var out []models.Insight
 
+	// No nameservers at all AND resolution failing: the resolver is unconfigured and
+	// broken. The Manager!="none" guard below would otherwise suppress this entirely,
+	// so a host with an empty /etc/resolv.conf whose live probe failed produced ZERO
+	// DNS insight. (Requiring !InternalResolvesOK protects /etc/hosts-only hosts.)
+	if !d.ExternalResolvesOK && !d.InternalResolvesOK && len(d.Nameservers) == 0 {
+		msg := "DNS misconfigured — no nameservers in /etc/resolv.conf and resolution is failing"
+		if d.ResolvTestError != "" {
+			msg += " (" + d.ResolvTestError + ")"
+		}
+		out = append(out, insight("CRIT", "DNS", msg,
+			[]string{
+				"to inspect: cat /etc/resolv.conf",
+				"to fix: add a 'nameserver <ip>' line, or enable systemd-resolved / NetworkManager",
+			},
+		))
+		return out
+	}
+
 	if !d.ExternalResolvesOK && d.Manager != "none" {
 		// Internal names resolve but external don't → an intentional internal-only
 		// / air-gapped / split-horizon network, not a broken resolver. Downgrade to

@@ -107,7 +107,8 @@ func TestCheckDNS(t *testing.T) {
 	}{
 		{"healthy is clean", models.DNSResolverInfo{ExternalResolvesOK: true, Manager: "static", ExternalLatencyMs: 50}, ""},
 		{"resolution failing is CRIT", models.DNSResolverInfo{ExternalResolvesOK: false, Manager: "systemd-resolved"}, "CRIT"},
-		{"failing with no manager is silent", models.DNSResolverInfo{ExternalResolvesOK: false, Manager: "none"}, ""},
+		{"failing with no nameservers is CRIT", models.DNSResolverInfo{ExternalResolvesOK: false, Manager: "none"}, "CRIT"},
+		{"no-DNS host resolving via /etc/hosts is silent", models.DNSResolverInfo{ExternalResolvesOK: false, InternalResolvesOK: true, Manager: "none"}, ""},
 		{"slow resolution is WARN", models.DNSResolverInfo{ExternalResolvesOK: true, ExternalLatencyMs: 600}, "WARN"},
 		{"public fallback is INFO", models.DNSResolverInfo{ExternalResolvesOK: true, PublicFallback: true, ExternalLatencyMs: 50}, "INFO"},
 		{

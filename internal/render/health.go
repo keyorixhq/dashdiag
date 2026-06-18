@@ -618,6 +618,9 @@ func inlineOOM(data interface{}) string {
 	if o == nil || !o.Available {
 		return ""
 	}
+	if o.StatusReason != "" {
+		return "not verified (kernel log unreadable)"
+	}
 	if o.EventsLast24h == 0 {
 		return "0 events"
 	}

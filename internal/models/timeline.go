@@ -42,6 +42,12 @@ type TimelineInfo struct {
 	Incidents   []TimelineIncident `json:"incidents,omitempty"` // events clustered into incidents
 	CritCount   int                `json:"crit_count"`
 	WarnCount   int                `json:"warn_count"`
+	// SourcesUnavailable is true when BOTH event sources (journald and the kernel
+	// ring buffer) failed to read — typically a non-root run under
+	// kernel.dmesg_restrict=1 with restricted journal access. Zero events then means
+	// "no source was read", not "no incidents", so the renderer must say so rather
+	// than report a clean timeline.
+	SourcesUnavailable bool `json:"sources_unavailable,omitempty"`
 	// Load average spikes sampled at /proc/loadavg-like intervals
 	LoadSpikes []LoadSpike `json:"load_spikes,omitempty"`
 }
