@@ -1055,6 +1055,15 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 			},
 		)}
 	}
+	// `btrfs device stats` couldn't be read, so the per-device read/write/corruption
+	// counters were never inspected — Status defaulted to "healthy". Don't pass that
+	// as a clean OK. (When errors WERE found, StatsRead is true, so this won't fire.)
+	if !v.StatsRead {
+		return []models.Insight{insight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s device error counters not read — run as root: btrfs device stats %s", v.MountPoint, v.MountPoint),
+			[]string{fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint)},
+		)}
+	}
 	if v.Status != "errors" {
 		return nil
 	}
@@ -1120,6 +1129,13 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	for _, v := range disk.BtrfsVolumes {
 		out = append(out, checkBtrfsVolume(v)...)
 	}
+	// ZFS — a live mount exists (zfsGate) but `zpool list` failed, so no pool was read.
+	if disk.ZFSListReadFailed {
+		out = append(out, insight("INFO", "Disk",
+			"ZFS mount present but pools could NOT be verified — `zpool list` failed (run as root?)",
+			[]string{"to inspect: zpool list", "to inspect: zpool status"},
+		))
+	}
 	// ZFS pool health
 	for _, p := range disk.ZFSPools {
 		switch p.State {
@@ -1136,6 +1152,17 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 				fmt.Sprintf("ZFS pool %s is %s — pool may be inaccessible", p.Name, p.State),
 				[]string{fmt.Sprintf("to inspect: zpool status %s", p.Name)},
 			))
+		}
+		// `zpool status` couldn't be read — per-vdev error counts and scrub age were
+		// never populated (they sit at 0 / -1, which would read as "no errors" and
+		// trigger a false "never scrubbed"). Surface it unverified and skip those
+		// checks rather than passing the zero values as clean.
+		if p.StatusReadFailed {
+			out = append(out, insight("INFO", "Disk",
+				fmt.Sprintf("ZFS pool %s: error/scrub status unread — `zpool status` failed; vdev errors not verified", p.Name),
+				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", p.Name)},
+			))
+			continue
 		}
 		if ins, ok := zfsVdevErrorInsight(p, "Disk"); ok {
 			out = append(out, ins)

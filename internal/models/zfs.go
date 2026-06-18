@@ -26,4 +26,9 @@ type ZFSPool struct {
 // ZFSInfo holds health data for all ZFS pools on the system.
 type ZFSInfo struct {
 	Pools []ZFSPool `json:"pools,omitempty"`
+	// ListReadFailed is true when `zpool` is installed but `zpool list` errored
+	// (commonly permission denied — zpool often needs root). Pools is then empty,
+	// which would otherwise read as a silent "no ZFS problems"; this lets the verdict
+	// say "present but not verified" instead.
+	ListReadFailed bool `json:"list_read_failed,omitempty"`
 }

@@ -56,14 +56,17 @@ type FilesystemInfo struct {
 }
 
 type DiskInfo struct {
-	Filesystems  []FilesystemInfo `json:"filesystems"`
-	Drives       []PhysicalDrive  `json:"drives,omitempty"`
-	ZFSPools     []ZFSPool        `json:"zfs_pools,omitempty"` // from models/zfs.go
-	BtrfsVolumes []BtrfsVolume    `json:"btrfs_volumes,omitempty"`
-	IOStats      []DiskIOStat     `json:"io_stats,omitempty"` // deep only
-	SteamOS      *SteamOSDisk     `json:"steamos,omitempty"`  // SteamOS-only partition layout (Spec 19)
-	Status       string           `json:"status"`
-	StatusReason string           `json:"status_reason"`
+	Filesystems []FilesystemInfo `json:"filesystems"`
+	Drives      []PhysicalDrive  `json:"drives,omitempty"`
+	ZFSPools    []ZFSPool        `json:"zfs_pools,omitempty"` // from models/zfs.go
+	// ZFSListReadFailed is true when a live ZFS mount exists (zfsGate) but
+	// `zpool list` errored, so ZFSPools is empty for a reason other than "no pools".
+	ZFSListReadFailed bool          `json:"zfs_list_read_failed,omitempty"`
+	BtrfsVolumes      []BtrfsVolume `json:"btrfs_volumes,omitempty"`
+	IOStats           []DiskIOStat  `json:"io_stats,omitempty"` // deep only
+	SteamOS           *SteamOSDisk  `json:"steamos,omitempty"`  // SteamOS-only partition layout (Spec 19)
+	Status            string        `json:"status"`
+	StatusReason      string        `json:"status_reason"`
 }
 
 // BtrfsVolume holds health data for a mounted btrfs filesystem.
@@ -75,6 +78,11 @@ type BtrfsVolume struct {
 	Devices      []BtrfsDev `json:"devices"`
 	Status       string     `json:"status"` // "healthy", "degraded", "missing"
 	StatusReason string     `json:"status_reason,omitempty"`
+	// StatsRead is true only when `btrfs device stats` was read successfully. When it
+	// fails (permission denied / error), the per-device error counters stay 0 and
+	// Status stays "healthy" — which would read as a silent OK even though corruption/
+	// I/O counters were never inspected. Lets the verdict say "counters not read".
+	StatsRead bool `json:"stats_read,omitempty"`
 }
 
 // BtrfsDev is one device in a btrfs filesystem.

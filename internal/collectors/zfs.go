@@ -37,15 +37,26 @@ func (c *ZFSCollector) Collect(ctx context.Context) (interface{}, error) {
 	// -H: no header, tab-separated
 	listOut, err := runCmd(ctx, "zpool", "list", "-H", "-o", "name,size,free,frag,cap,health")
 	if err != nil {
+		// zpool is installed but the list query failed (commonly permission denied).
+		// Returning empty pools here would read as a silent "no ZFS problems"; flag it.
+		info.ListReadFailed = true
 		return info, nil
 	}
 
 	pools := parseZpoolList(listOut)
 
-	// zpool status -v: detailed per-pool vdev error counts + scrub info
+	// zpool status -v: detailed per-pool vdev error counts + scrub info. When it fails
+	// (it can hang on a sick pool and hit the timeout), the per-vdev error counts and
+	// scrub age are never read — mark each pool so the verdict reports them unverified
+	// instead of treating the zero counters as clean.
 	statusOut, err := runCmd(ctx, "zpool", "status", "-v")
 	if err == nil {
 		mergeZpoolStatus(statusOut, pools)
+	} else {
+		for name, p := range pools {
+			p.StatusReadFailed = true
+			pools[name] = p
+		}
 	}
 
 	info.Pools = make([]models.ZFSPool, 0, len(pools))

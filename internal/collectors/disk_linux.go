@@ -386,13 +386,14 @@ func zfsGate() bool {
 
 // collectZFSPools runs zpool list and status to return pool health.
 // Gate: zfsGate() must be true before calling this.
-func collectZFSPools() []models.ZFSPool {
+func collectZFSPools() (pools []models.ZFSPool, listReadFailed bool) {
 	out, err := runCmdTimeout(5*time.Second, "zpool", "list",
 		"-H", "-o", "name,size,alloc,free,cap,frag,health")
 	if err != nil {
-		return nil
+		// The zfsGate() caller already confirmed a live ZFS mount, so a failed list
+		// (permission/timeout) is a real "couldn't verify", not "no pools".
+		return nil, true
 	}
-	var pools []models.ZFSPool
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 7 {
@@ -427,7 +428,7 @@ func collectZFSPools() []models.ZFSPool {
 
 		pools = append(pools, pool)
 	}
-	return pools
+	return pools, false
 }
 
 // zfsStateTokens are the values zpool status prints in the vdev STATE column.
@@ -605,7 +606,7 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 
 	// ZFS — zero overhead gate
 	if zfsGate() {
-		result.ZFSPools = collectZFSPools()
+		result.ZFSPools, result.ZFSListReadFailed = collectZFSPools()
 	}
 
 	// btrfs — check mounted btrfs filesystems for missing devices and errors

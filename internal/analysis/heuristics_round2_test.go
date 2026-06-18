@@ -19,16 +19,17 @@ func TestCheckBtrfsVolume(t *testing.T) {
 		vol  models.BtrfsVolume
 		want string
 	}{
-		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy"}, ""},
+		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: true}, ""},
 		{"missing device is CRIT", models.BtrfsVolume{MountPoint: "/data", MissingDevs: 1}, "CRIT"},
+		{"stats unread is INFO not silent OK", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: false}, "INFO"},
 		{
 			name: "device I/O errors are CRIT",
-			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", Devices: []models.BtrfsDev{{ReadErrs: 5}}},
+			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{ReadErrs: 5}}},
 			want: "CRIT",
 		},
 		{
 			name: "corruption only is WARN (scrub-correctable)",
-			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", Devices: []models.BtrfsDev{{CorruptErrs: 3}}},
+			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{CorruptErrs: 3}}},
 			want: "WARN",
 		},
 	}
