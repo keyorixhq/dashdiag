@@ -1306,8 +1306,14 @@ func healthDeepLoadCorroborates(d models.HealthDeepInfo) bool {
 func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 	var out []models.Insight
 
-	// Core imbalance — one thread bottleneck
-	if d.CoreImbalance >= 80 && len(d.Cores) > 1 {
+	// Core imbalance — one thread bottleneck. Gate on a SUSTAINED single-thread
+	// load: one hot core on an otherwise-idle box (e.g. loadavg 0.25 on 12 cores)
+	// is just normal foreground work with spare capacity, NOT a bottleneck —
+	// flagging it WARN was a false alarm (seen on a real AMD/12-core host). A genuine
+	// single-threaded bottleneck keeps a thread continuously runnable, so loadavg1
+	// is at least ~1.0; the 1-min average also predates (and is immune to) dsd's own
+	// per-core sampling spike.
+	if d.CoreImbalance >= 80 && len(d.Cores) > 1 && d.LoadAvg1 >= 1.0 {
 		// Find the hot core
 		hotCore := 0
 		for _, c := range d.Cores {

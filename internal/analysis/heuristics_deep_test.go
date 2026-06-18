@@ -46,11 +46,23 @@ func TestCheckDockerResources(t *testing.T) {
 }
 
 func TestCheckHealthDeep_CoreImbalance(t *testing.T) {
+	// Sustained single-thread saturation (loadavg1 ≥ 1.0 → a thread has been
+	// continuously runnable) AND concentrated on one core → real bottleneck, WARN.
 	hd := models.HealthDeepInfo{
-		CoreImbalance: 85, MaxCorePct: 90, MinCorePct: 5,
+		CoreImbalance: 85, MaxCorePct: 90, MinCorePct: 5, NumCPU: 8, LoadAvg1: 1.5,
 		Cores: []models.CoreStat{{Core: 0, UsagePct: 90}, {Core: 1, UsagePct: 5}},
 	}
 	assertLevel(t, checkHealthDeep(hd), "WARN")
+
+	// Same imbalance but the box is essentially idle (loadavg 0.25 on 12 cores):
+	// one hot core with plenty of spare capacity is normal foreground work, NOT a
+	// bottleneck. Suppressed. (Regression guard — false alarm seen on a real
+	// AMD/12-core host, 2026-06-18.)
+	idleImbalance := models.HealthDeepInfo{
+		CoreImbalance: 94, MaxCorePct: 98, MinCorePct: 4, NumCPU: 12, LoadAvg1: 0.25,
+		Cores: []models.CoreStat{{Core: 3, UsagePct: 98}, {Core: 1, UsagePct: 4}},
+	}
+	assertLevel(t, checkHealthDeep(idleImbalance), "")
 
 	// All cores pegged AND the load average corroborates → WARN.
 	pegged := models.HealthDeepInfo{

@@ -319,9 +319,13 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 	}
 
 	if !pi.LdconfigOK {
-		out = append(out, insight("WARN", "Packages",
-			"ldconfig failed — shared library cache may be stale or corrupted",
-			[]string{"to fix: sudo ldconfig", "to inspect: ldconfig -p | head -20"},
+		// `ldconfig -p` did not complete — could be a slow/overlay/read-only fs
+		// timing out the probe (e.g. a live-USB overlay), or a permission issue —
+		// NOT necessarily a broken cache. Report "couldn't verify" (INFO), not a
+		// "may be corrupted" WARN, per the couldn't-run ≠ broken principle.
+		out = append(out, insight("INFO", "Packages",
+			"could not verify the shared library cache — ldconfig -p did not complete (slow/overlay fs or permissions); not necessarily a problem",
+			[]string{"to check manually: ldconfig -p | head -20", "to rebuild if needed: sudo ldconfig"},
 		))
 	}
 
