@@ -33,6 +33,8 @@ func init() {
 	captureCmd.Flags().StringP("out", "o", "", "output path for the --raw bundle (default: dsd-raw-<host>-<timestamp>.tar.gz)")
 	captureCmd.Flags().Bool("sanitize", false, "best-effort redaction of common credentials (keys, passwords, tokens) from the bundle before writing — for safe sharing")
 	captureCmd.Flags().Bool("identifiers", false, "with --sanitize, also redact IPv4 addresses, MAC addresses, and the hostname (implies --sanitize)")
+	captureCmd.Flags().Bool("deep", false, "also record the deep collectors (per-core CPU, smaps, cgroup slices, package integrity) so the bundle can `dsd replay --deep`")
+	captureCmd.Flags().Bool("pkg", false, "also record the package collector (updates/integrity) in the bundle")
 }
 
 func runCaptureRaw(cmd *cobra.Command) error {
@@ -57,10 +59,13 @@ func runCaptureRaw(cmd *cobra.Command) error {
 		fmt.Fprintln(os.Stderr, "Capturing raw system inputs (running the full health check, no GPU detected)…")
 	}
 
-	// Full collector set so the bundle is complete; terse skips drilldown, whose
-	// extra reads aren't routed through the source yet (ADR-0003 Phase 3).
+	// --deep records the deep collectors (per-core CPU, smaps, cgroup slices,
+	// package integrity) so the bundle can be `dsd replay --deep`'d; --pkg adds the
+	// package collector. Default stays terse (the validated, byte-stable path).
+	deep, _ := cmd.Flags().GetBool("deep")
+	pkg, _ := cmd.Flags().GetBool("pkg")
 	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, output.ModePlain,
-		true /*terse*/, false /*pkg*/, gpu, false /*tls*/, false /*deep*/, false /*firmware*/, false /*cve*/, nil)
+		!deep /*terse*/, pkg, gpu, false /*tls*/, deep, false /*firmware*/, false /*cve*/, nil)
 
 	b := rec.Bundle()
 	b.Manifest = source.Manifest{
