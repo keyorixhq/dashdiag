@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -651,32 +652,127 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 			},
 		))
 	}
-	if len(k.Events) > 0 {
-		reasons := map[string]int{}
-		for _, e := range k.Events {
-			reasons[e.Reason]++
-		}
-		var summary []string
-		for reason, count := range reasons {
-			summary = append(summary, fmt.Sprintf("%s×%d", reason, count))
-			if len(summary) >= 4 {
-				break
-			}
-		}
-		hints := []string{"to inspect: kubectl get events -A --field-selector type=Warning"}
-		for _, e := range k.Events {
-			if strings.Contains(e.Message, "subnet.env") {
-				hints = append(hints,
-					"CRIT: flannel subnet.env missing — CNI network plugin not ready",
-					"to fix: sudo systemctl restart k3s  (regenerates subnet.env)")
-				break
-			}
-		}
-		out = append(out, insight("WARN", "K8s",
-			fmt.Sprintf("%d Warning event(s): %s", len(k.Events), strings.Join(summary, ", ")),
-			hints))
-	}
+	out = append(out, k8sWarningEventInsight(k.Events)...)
 	return out
+}
+
+// k8sEventRecentWindowSec gates Warning events on recency. k8s retains events in
+// etcd for ~1h by default, so a Warning whose last-seen age exceeds this window has
+// not recurred and is treated as quiesced rather than live.
+const k8sEventRecentWindowSec = 5 * 60
+
+// k8sWarningEventInsight turns retained Warning events into an insight, gated on
+// recency. Transient startup warnings (flannel subnet.env not yet written,
+// readiness probes failing during boot, helm-install backoff) linger in etcd long
+// after they self-heal; surfacing every retained event flipped a now-healthy
+// cluster to WARN purely on stale boot noise (seen live on a fresh k3s-on-VMware
+// node: 8 events all 5-6 min old, every involved pod since Running/Completed).
+// Events still seen within the recency window drive the WARN; once they have all
+// quiesced they are reported as INFO ("no recent recurrence — likely transient").
+func k8sWarningEventInsight(events []models.K8sEvent) []models.Insight {
+	if len(events) == 0 {
+		return nil
+	}
+	var recent []models.K8sEvent
+	for _, e := range events {
+		// Unparseable / "<unknown>" age → treat as recent, never hide a possibly-live event.
+		if sec, ok := parseK8sEventAgeSeconds(e.Age); !ok || sec <= k8sEventRecentWindowSec {
+			recent = append(recent, e)
+		}
+	}
+	if len(recent) > 0 {
+		return []models.Insight{k8sEventInsight("WARN", recent)}
+	}
+	return []models.Insight{k8sEventInsight("INFO", events)}
+}
+
+// k8sEventInsight builds the Warning-event insight at the given level. The reason
+// summary is sorted (count desc, then name) so the output is deterministic across
+// replay — the old map-iteration order was non-deterministic.
+func k8sEventInsight(level string, events []models.K8sEvent) models.Insight {
+	reasons := map[string]int{}
+	for _, e := range events {
+		reasons[e.Reason]++
+	}
+	type rc struct {
+		reason string
+		count  int
+	}
+	ordered := make([]rc, 0, len(reasons))
+	for reason, count := range reasons {
+		ordered = append(ordered, rc{reason, count})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].count != ordered[j].count {
+			return ordered[i].count > ordered[j].count
+		}
+		return ordered[i].reason < ordered[j].reason
+	})
+	var summary []string
+	for i, r := range ordered {
+		if i >= 4 {
+			break
+		}
+		summary = append(summary, fmt.Sprintf("%s×%d", r.reason, r.count))
+	}
+
+	hints := []string{"to inspect: kubectl get events -A --field-selector type=Warning"}
+	for _, e := range events {
+		if strings.Contains(e.Message, "subnet.env") {
+			hints = append(hints,
+				"flannel subnet.env missing — CNI network plugin not ready",
+				"to fix: sudo systemctl restart k3s  (regenerates subnet.env)")
+			break
+		}
+	}
+
+	msg := fmt.Sprintf("%d Warning event(s): %s", len(events), strings.Join(summary, ", "))
+	if level == "INFO" {
+		msg = fmt.Sprintf("%d Warning event(s), all quiesced (none seen in last %dm): %s",
+			len(events), k8sEventRecentWindowSec/60, strings.Join(summary, ", "))
+	}
+	return insight(level, "K8s", msg, hints)
+}
+
+// parseK8sEventAgeSeconds parses kubectl's compact age format ("47s", "6m5s",
+// "92m", "2d3h", "5h") into seconds. Returns ok=false for empty / "<unknown>" /
+// unparseable input so the caller can decide. The value is relative ("ago") as of
+// collection time, so the comparison stays deterministic across replay.
+func parseK8sEventAgeSeconds(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "<") {
+		return 0, false
+	}
+	total, num := 0, 0
+	sawUnit, sawDigit := false, false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			num = num*10 + int(r-'0')
+			sawDigit = true
+		case r == 'd' || r == 'h' || r == 'm' || r == 's':
+			if !sawDigit {
+				return 0, false
+			}
+			switch r {
+			case 'd':
+				total += num * 86400
+			case 'h':
+				total += num * 3600
+			case 'm':
+				total += num * 60
+			case 's':
+				total += num
+			}
+			num, sawDigit, sawUnit = 0, false, true
+		default:
+			return 0, false
+		}
+	}
+	if !sawUnit || sawDigit { // trailing digits without a unit, or no units at all
+		return 0, false
+	}
+	return total, true
 }
 
 // checkK8sOSLayer emits insights for OS-level k8s node health.
