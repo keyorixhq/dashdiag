@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`--report-html` — self-contained, exec-readable HTML report.** `dsd health
+  --report-html` (and `dsd replay --report-html`) writes a single dependency-free
+  HTML file with a colour-coded verdict, the issues with remediation, the full
+  check table, and any security advisories. Opens in any browser offline and
+  prints cleanly to PDF — the artifact to hand to management after a run, or to
+  produce from a customer's capture bundle without shell access. Host-derived
+  data is HTML-escaped (no XSS). `dsd replay` also gained `--report` (markdown).
+
 ### Fixed
 
 - **K8s — stale Warning events no longer false-WARN a healthy cluster.** k8s
