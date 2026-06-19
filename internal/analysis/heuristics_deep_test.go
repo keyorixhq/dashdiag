@@ -122,6 +122,66 @@ func TestCheckK8sWorkloadsAndEvents(t *testing.T) {
 	}), "WARN")
 }
 
+func TestParseK8sEventAgeSeconds(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{"47s", 47, true},
+		{"6m5s", 365, true},
+		{"92m", 5520, true},
+		{"2d3h", 183600, true},
+		{"5h", 18000, true},
+		{"", 0, false},
+		{"<unknown>", 0, false},
+		{"12", 0, false},  // digits without a unit
+		{"5m3", 0, false}, // trailing digits without a unit
+		{"abc", 0, false}, // garbage
+		{"5x", 0, false},  // unknown unit
+	}
+	for _, c := range cases {
+		got, ok := parseK8sEventAgeSeconds(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("parseK8sEventAgeSeconds(%q) = (%d,%v), want (%d,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestK8sWarningEventRecencyGate(t *testing.T) {
+	// All events quiesced (last seen well beyond the window) → INFO, not a verdict flip.
+	// This is the live k3s-on-VMware false-alarm: startup warnings 5-6m old on a
+	// now-healthy cluster.
+	stale := []models.K8sEvent{
+		{Reason: "FailedCreatePodSandBox", Age: "6m5s", Message: "subnet.env"},
+		{Reason: "Unhealthy", Age: "5m43s"},
+		{Reason: "BackOff", Age: "5m22s"},
+	}
+	assertLevel(t, k8sWarningEventInsight(stale), "INFO")
+
+	// A still-recurring event (within the window) drives the WARN.
+	assertLevel(t, k8sWarningEventInsight([]models.K8sEvent{
+		{Reason: "BackOff", Age: "30s"},
+	}), "WARN")
+
+	// Mixed: any recent event keeps it a WARN.
+	assertLevel(t, k8sWarningEventInsight([]models.K8sEvent{
+		{Reason: "FailedCreatePodSandBox", Age: "6m5s"},
+		{Reason: "Unhealthy", Age: "5m43s"},
+		{Reason: "FailedScheduling", Age: "12s"},
+	}), "WARN")
+
+	// Unparseable age is treated as recent (never hide a possibly-live event).
+	assertLevel(t, k8sWarningEventInsight([]models.K8sEvent{
+		{Reason: "BackOff", Age: ""},
+	}), "WARN")
+
+	// No events → no insight.
+	if got := k8sWarningEventInsight(nil); got != nil {
+		t.Errorf("k8sWarningEventInsight(nil) = %v, want nil", got)
+	}
+}
+
 func TestCheckK8sOSLayer(t *testing.T) {
 	// Healthy OS layer (all gates pass; ip_forward read and enabled).
 	ok := models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: true, KubeForwardChain: true}
