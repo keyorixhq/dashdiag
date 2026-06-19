@@ -981,10 +981,11 @@ func TestCheckCPURunQueueSaturation(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			// LoadAvg1 set to the core count (100% load ratio) so the run-queue
-			// reading is load-corroborated — this test exercises the run-queue
-			// thresholds, not the observer-effect guard (covered separately).
-			cpu := models.CPUInfo{NumCPU: tc.numCPU, RunQueue: tc.runQueue, LoadAvg1: float64(tc.numCPU)}
+			// LoadAvg1 set to mirror the run queue (a genuinely sustained run queue
+			// shows in the 1-min load average) so each tier is load-corroborated —
+			// this test exercises the run-queue thresholds, not the observer-effect
+			// guard (a low-load instantaneous spike is covered separately).
+			cpu := models.CPUInfo{NumCPU: tc.numCPU, RunQueue: tc.runQueue, LoadAvg1: float64(tc.runQueue)}
 			got := checkCPU(cpu, defaultThresh)
 			has := func(level string) bool {
 				for _, ins := range got {
@@ -1031,7 +1032,7 @@ func TestRunQueueHintsIncludeContext(t *testing.T) {
 
 // Single-core hosts must read "1 CPU", not "1 CPUs".
 func TestRunQueueSingleCPUGrammar(t *testing.T) {
-	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 4, LoadAvg1: 1.5} // 4 >= 4*1 → CRIT; load corroborates
+	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 4, LoadAvg1: 2.5} // 4 >= 4*1 → CRIT; load (2.5×) corroborates
 	got := checkCPU(cpu, defaultThresh)
 	var msg string
 	for _, ins := range got {
