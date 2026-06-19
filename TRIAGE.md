@@ -528,6 +528,94 @@ is what's unverified.
 
 ---
 
+## O. "Correct reading, wrong context" false-CRITs on Proxmox hosts — READY (3 confirmed)
+
+A coherent new bug *class*, distinct from §L/§M. There the bug was a failed or
+garbage *measurement* rendered as a failed subject. Here the measurement is
+**correct** — the bug is **misattributing its meaning** because the collector
+doesn't understand the Proxmox/virtualization context it's running in. All three
+below were found on a real AMD EPYC Proxmox host (`khhv01`, 252 GB RAM, 4 NUMA
+nodes, Debian 12 / kernel 6.8-pve, dsd v1.4.0) via a capture a user sent
+2026-06-19, and **confirmed false by the host's owner**. Full repro bundle +
+replay output in
+`dashdiag-private/marketing/marketing-assets/amd-gpu-friend-20260619-data/`
+(`dsd.tar.gz` — replayable offline, no live host needed to validate fixes).
+
+The host's verdict was **CRIT** driven entirely by these three. All three are
+false. Owner's words (paraphrased, RU): the LVM is the default Proxmox-created
+LVM on NVMe and is nearly empty; the ZFS is real but **passed through to a VM**,
+not the host's; the journal-corruption CRIT is "just nonsense".
+
+### O.1 — LVM: scores VG allocation, not thin-pool usage (Proxmox default layout)
+- **Fired:** `CRIT volume group pve is 98% full (16.0 GB free of 930.5 GB)`.
+- **Reality:** on a Proxmox host the `pve` VG is the default thin-pool layout —
+  Proxmox *allocates* almost the whole VG to a thin pool (`data`) by design, so
+  "VG ~98% allocated" is the normal healthy state. The capture's own `lvs`
+  output shows the `data` thin pool at **8.37% data / 0.51% metadata** — i.e.
+  ~92% free. dsd read VG allocated-vs-free and CRIT'd; the number that matters
+  (`data_percent`) was already collected and ignored.
+- **Fix:** when the host is Proxmox (detectable — `pveversion` is collected) and
+  the VG backs a thin pool, score the **thin pool's `data_percent` / metadata%**,
+  not VG allocation. A nearly-empty thin pool in a fully-allocated VG is healthy.
+  Thin-pool *data* or *metadata* approaching 100% is the real CRIT condition.
+  (Generalises beyond Proxmox: any thin-provisioned VG should be scored on pool
+  usage, not VG free.)
+
+### O.2 — ZFS: CRITs on `zfs-import-scan.service` failure with no host pools
+- **Fired:** `CRIT unit zfs-import-scan.service has failed`.
+- **Reality:** the host has no ZFS pools to import — the ZFS hardware is **passed
+  through to a VM**. `zfs-import-scan` failing (or `zfs-import-cache` when pools
+  are cache-imported) is expected/benign when the host itself manages no pools.
+  dsd saw the failed unit and didn't understand the pools aren't the host's.
+- **Fix:** don't let a failed `zfs-import-*.service` drive a CRIT unless there are
+  actually imported/expected ZFS pools **on the host** (`zpool list` non-empty).
+  No host pools + failed import unit → INFO/skip, not CRIT. Same "service failed
+  but failure is expected in this configuration" pattern as a Systemd suppression.
+
+### O.3 — Logs: journal-corruption CRIT doesn't distinguish active vs archived (`.journal~`)
+- **Fired:** `CRIT journald journal corruption detected — some logs may be
+  unreadable or missing`.
+- **Reality:** of 4 `journalctl --verify` runs in the capture, **3 PASS, 1 FAIL**
+  — and the FAIL is on a rotated `*.journal~` archive (bad hash at one offset,
+  87% into an 8 MB deactivated segment). All **active** journals pass. A `~` file
+  is a journal systemd couldn't cleanly deactivate, common after an unclean
+  shutdown; one bad block in a historical archive does not mean current logging
+  is compromised. A blanket "any verify FAIL → CRIT, logs may be missing" fires
+  on a large fraction of real hosts and is the trust-eroding false-CRIT Principle
+  4b warns against.
+- **Fix:** distinguish **active**-journal corruption (real CRIT — current logging
+  compromised) from **archived `.journal~`** corruption (WARN/INFO — historical
+  artifact). Gate the severity on whether the failing file is an active journal
+  or a rotated `~` segment.
+
+**The class lesson (worth its own note):** dsd reads the raw signal correctly but
+misattributes meaning because it lacks the host/virtualization context — Proxmox
+thin-pool intent, ZFS passthrough, active-vs-archived journals. This is the
+mirror of §L/§M (there: bad measurement → bad verdict; here: good measurement →
+bad interpretation). Watch for siblings wherever a check scores a raw number
+without asking "what does this number mean *on this kind of host*." Real-operator
+feedback was essential — the thin-pool intent and the ZFS passthrough are not
+derivable from the data alone; only the owner knew. (Validates Principle 4a: real
+hardware + real operator surfaces what synthetic fixtures cannot.)
+
+| Item | Surface | Status |
+|---|---|---|
+| O.1 LVM thin-pool usage vs VG allocation on Proxmox | LVM collector + heuristic | READY — repro in bundle, fix data already collected |
+| O.2 ZFS import-service CRIT only if host pools exist | ZFS/Systemd heuristic | READY |
+| O.3 Logs active vs archived `.journal~` corruption severity | Logs collector + heuristic | READY |
+| Replay-based regression for all three (offline, from bundle) | replay test | READY — bundle is the fixture |
+
+Also confirmed clean this capture (good behaviour, not bugs): **no false GPU** —
+the host's `card0` has `device/vendor: not_exist` (virtual console DRM, no
+discrete GPU bound; the real AMD GPU is passed through to a VM), and dsd correctly
+emitted **no GPU check at all** rather than misreporting the console device.
+Consequently this capture does **NOT** close §F (no host-bound discrete amdgpu) —
+§F still needs a capture from inside the GPU-passthrough VM, or the GPU bound on
+the host. AMD-CPU thermal path validated incidentally: k10temp Tctl + Tccd1–3 on
+a 4-NUMA EPYC, CPU Thermal correctly 57°C.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
