@@ -48,3 +48,21 @@ func TestSUSESubscriptionQueryFailed(t *testing.T) {
 		t.Errorf("genuinely unregistered must WARN, got %+v", got)
 	}
 }
+
+// FALSE_OK_SWEEP #41: a transient IMDS error on the spot-termination probe must
+// surface as INFO, not read as "no termination scheduled".
+func TestCloudMetaSpotCheckFailed(t *testing.T) {
+	got := checkCloudMeta(models.CloudInfo{Available: true, Provider: "aws", SpotCheckFailed: true})
+	if !hasInsightMsg(got, "INFO", "could not be confirmed") {
+		t.Errorf("spot-check-failed must INFO, got %+v", got)
+	}
+	// A real termination notice still CRITs (and suppresses the INFO).
+	got = checkCloudMeta(models.CloudInfo{Available: true, Provider: "aws", SpotTermination: true, SpotCheckFailed: true})
+	if !hasInsightMsg(got, "CRIT", "scheduled for termination") || hasInsightMsg(got, "INFO", "could not be confirmed") {
+		t.Errorf("termination CRIT must win over check-failed INFO, got %+v", got)
+	}
+	// Normal instance (404, no flags) → silent.
+	if got := checkCloudMeta(models.CloudInfo{Available: true, Provider: "aws"}); len(got) != 0 {
+		t.Errorf("normal instance must be silent, got %+v", got)
+	}
+}

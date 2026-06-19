@@ -93,17 +93,29 @@ func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
 	info.InstanceType, _ = imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-type", headers)
 	info.Region, _ = imdsGet(ctx, "http://169.254.169.254/latest/meta-data/placement/region", headers)
 
-	// Spot termination notice — 200 means termination imminent. Cached.
-	var spotTerm bool
+	// Spot termination notice — 200 means termination imminent, 404 means no notice
+	// (normal). A transient IMDS error / unexpected status must NOT read as "no
+	// termination" — distinguish it so an imminent reclaim isn't hidden. Cached.
+	var spot awsSpotStatus
 	_ = cachedJSON("imds-aws-termination", func() (any, error) {
-		return awsSpotTerminationLive(ctx, client, token), nil
-	}, &spotTerm)
-	if spotTerm {
+		return awsSpotTermination(ctx, client, token), nil
+	}, &spot)
+	switch {
+	case spot.Terminating:
 		info.SpotTermination = true
 		info.StatusReason = "spot instance scheduled for termination"
+	case spot.CheckFailed:
+		info.SpotCheckFailed = true
 	}
 
 	return true
+}
+
+// awsSpotStatus is the result of the spot-termination probe, distinguishing a
+// confirmed notice / confirmed-absent (404) from an IMDS error we couldn't resolve.
+type awsSpotStatus struct {
+	Terminating bool `json:"terminating"`
+	CheckFailed bool `json:"check_failed"`
 }
 
 // awsIMDSToken fetches (and caches) an IMDSv2 session token. The token value is
@@ -130,21 +142,30 @@ func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
 	return string(data), err
 }
 
-// awsSpotTerminationLive reports whether a spot-termination notice is posted
-// (HTTP 200 on the termination-time endpoint).
-func awsSpotTerminationLive(ctx context.Context, client *http.Client, token string) bool {
+// awsSpotTermination probes the spot termination-time endpoint. HTTP 200 = a notice
+// is posted (termination imminent); 404 = no notice (the normal case, also on
+// on-demand instances); a request error or any other status = couldn't confirm, so
+// CheckFailed is set rather than silently reporting "no termination".
+func awsSpotTermination(ctx context.Context, client *http.Client, token string) awsSpotStatus {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"http://169.254.169.254/latest/meta-data/spot/termination-time", nil)
 	if err != nil {
-		return false
+		return awsSpotStatus{CheckFailed: true}
 	}
 	req.Header.Set("X-aws-ec2-metadata-token", token)
 	resp, err := client.Do(req)
 	if err != nil {
-		return false
+		return awsSpotStatus{CheckFailed: true}
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	return resp.StatusCode == 200
+	switch resp.StatusCode {
+	case 200:
+		return awsSpotStatus{Terminating: true}
+	case 404:
+		return awsSpotStatus{} // no termination scheduled — the normal case
+	default:
+		return awsSpotStatus{CheckFailed: true} // unexpected status — couldn't confirm
+	}
 }
 
 func collectAzure(ctx context.Context, info *models.CloudInfo) bool {
