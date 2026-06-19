@@ -616,6 +616,35 @@ a 4-NUMA EPYC, CPU Thermal correctly 57°C.
 
 ---
 
+## P. K8s-on-VMware vertical — ✅ VALIDATED LIVE + 1 fix (fix/k8s-event-recency, 2026-06-19)
+
+The prospective client's exact topology is **k3s/Tanzu on VMware** (Docker + managed
+k8s on a VMware estate, OpenStack being built in parallel; founder's priority:
+*kubernetes-on-vmware > openstack*). Rather than predict, we stood up k3s on the real
+VMware tenant guest (vcd-msk-3, 192.168.30.10 behind 5.35.120.132:2222) and ran the
+full `dsd health` vertical on the genuine topology.
+
+**Result — the vertical coheres end-to-end on real hardware:** VMware layer (emulated
+e1000/e1000e NICs, SCSI 30s<180s timeout, host CPU 3000MHz + mem 2048MB limits), K8s
+deep OS-layer (the #271 k3s-aware paths all correct: flannel detected, CNI bins found
+under `/var/lib/rancher`, embedded kubelet + bundled containerd recognised), and the
+container layer via k3s's containerd. node=1/pods=7/0-not-ready. dsd produced useful
+k8s-specific advice (`fs.inotify.max_user_watches` low, `vm.swappiness=60` high for a
+k8s node). Note: the K8s OS-layer is **deep-only** (`dsd k8s --deep` / `health deep`).
+
+| Item | Surface | Status |
+|---|---|---|
+| K8s Warning-event recency gate — stale startup events false-WARN a healthy cluster | `heuristics_virt.go` events check | ✅ DONE #421 — gate on last-seen `Age` (recent≤5m→WARN, quiesced→INFO); verified live |
+| Determinism: event reason-summary built from Go-map iteration | `heuristics_virt.go` | ✅ DONE #421 — sorted count-desc/name-asc (replay/JSON-stability) |
+| Tanzu (TKG) OS-layer — kubeadm/Photon/**Antrea** | `collectK8sOSLayer` (k8s.go) | PARTIAL — code review says largely TKG-ready (kubelet/containerd/CNI-bins/cert paths cover kubeadm; Antrea won't false-CRIT). Needs real TKG to validate |
+| No *positive* CNI-health check for non-flannel CNIs (Antrea/Calico/Cilium) | k8s OS-layer | BLOCKED (needs TKG) — mild false-OK; pod-not-ready/sandbox events catch a broken CNI |
+| `checkCertExpiry` 0-day sentinel collision (cert expiring today reads as "unset") | k8s.go ~578 | READY — narrow 24h-window false-OK, general (not TKG-specific) |
+
+Rig kept running on the tenant guest for re-validating K8s changes on the true
+topology. The k3s-on-VMware path is now a concrete demo/pilot asset.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
