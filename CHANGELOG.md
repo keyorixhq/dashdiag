@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **K8s — stale Warning events no longer false-WARN a healthy cluster.** k8s
+  retains events in etcd for ~1h, so transient *startup* warnings (flannel
+  `subnet.env` not yet written, boot readiness-probe failures, helm-install
+  backoff) lingered long after they self-healed and flipped a now-healthy
+  cluster to WARN. Now gated on the event's last-seen age: events still seen
+  within 5 minutes drive the WARN; once they have all quiesced they are reported
+  as INFO. Found validating dsd on a real k3s-on-VMware node. Also fixes a latent
+  non-determinism in the event reason summary (now sorted). (#421)
+- **Swap — occupancy alone no longer WARNs.** Idle-swapped pages are benign;
+  the WARN is now gated on paging activity, keeping the near-exhaustion CRIT. (#420)
+
 ## [1.4.3] - 2026-06-19
 
 More false-OK / false-alarm fixes, several found by validating dsd on real
