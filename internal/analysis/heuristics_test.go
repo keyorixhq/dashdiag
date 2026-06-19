@@ -171,9 +171,12 @@ func TestSwapUsedPctThresholds(t *testing.T) {
 		pct  float64
 		want string
 	}{
+		// Occupancy ALONE (no paging activity) no longer WARNs — under default
+		// swappiness the kernel parks idle pages in swap, so 20-40% used on an idle
+		// box is benign. Only near-full occupancy CRITs (OOM-headroom risk).
 		{"below warn", 19.9, ""},
-		{"at warn", 20.0, "WARN"},
-		{"above warn", 40.0, "WARN"},
+		{"at warn, no paging", 20.0, ""},
+		{"above warn, no paging", 40.0, ""},
 		{"at crit", 60.0, "CRIT"},
 		{"above crit", 75.0, "CRIT"},
 	}

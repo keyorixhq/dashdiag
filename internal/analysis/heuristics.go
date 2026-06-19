@@ -1201,16 +1201,31 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 		}
 		return out
 	}
-	if l := levelPct(swap.UsedPct, thresh.SwapWarnPct, thresh.SwapCritPct); l != "" {
-		out = append(out, insight(l, "Swap",
-			fmt.Sprintf("swap usage at %.0f%% (%.1f GB used)", swap.UsedPct, swap.UsedGB),
-			[]string{"to inspect: free -h", "to inspect: vmstat 1 5"},
-		))
-	}
 	actIn, actOut := swap.PagesInPerSec, swap.PagesOutPerSec
 	maxAct := actIn
 	if actOut > maxAct {
 		maxAct = actOut
+	}
+	// Static swap OCCUPANCY. A near-full swap is a genuine OOM-headroom risk even when
+	// the box isn't paging right now (when swap fills, the OOM killer starts), so CRIT
+	// at the crit threshold unconditionally. Mid-range occupancy, though, is only
+	// meaningful when the box is ACTUALLY paging: under the default swappiness the
+	// kernel proactively parks idle anon pages in swap, so a healthy long-running
+	// server routinely sits at 20-40% swap used with zero memory pressure (handled
+	// above) and zero paging activity — WARNing on that occupancy alone was a false
+	// alarm. So gate the mid-range WARN on light paging, and leave heavy paging to the
+	// rate branch below (the `<= SwapActivityWarn` guard keeps the two from doubling).
+	switch {
+	case swap.UsedPct >= thresh.SwapCritPct:
+		out = append(out, insight("CRIT", "Swap",
+			fmt.Sprintf("swap %.0f%% full (%.1f GB used) — near exhaustion; the OOM killer starts when swap fills", swap.UsedPct, swap.UsedGB),
+			[]string{"to inspect: free -h", "to inspect: ps aux --sort=-%mem | head -10", "to inspect: vmstat 1 5"},
+		))
+	case swap.UsedPct >= thresh.SwapWarnPct && maxAct > 0 && maxAct <= thresh.SwapActivityWarn:
+		out = append(out, insight("WARN", "Swap",
+			fmt.Sprintf("swap %.0f%% used (%.1f GB) and paging — memory may be under real pressure", swap.UsedPct, swap.UsedGB),
+			[]string{"to inspect: free -h", "to inspect: vmstat 1 5"},
+		))
 	}
 	switch {
 	case maxAct > thresh.SwapActivityCrit:
