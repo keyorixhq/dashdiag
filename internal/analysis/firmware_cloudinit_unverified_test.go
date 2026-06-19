@@ -34,3 +34,17 @@ func TestCloudInitStatusUnverified(t *testing.T) {
 		t.Errorf("done cloud-init must be silent, got %+v", got)
 	}
 }
+
+// FALSE_OK_SWEEP #14: SUSEConnect --status failed → registration unverified (INFO),
+// not a confident "not registered" WARN.
+func TestSUSESubscriptionQueryFailed(t *testing.T) {
+	got := checkSUSEConnect(models.SUSEConnectInfo{Platform: "suse", Registered: false, Status: "query-failed"})
+	if !hasInsightMsg(got, "INFO", "not verified") {
+		t.Errorf("query-failed SUSE registration must INFO, got %+v", got)
+	}
+	// Genuinely unregistered (status not query-failed) → still the WARN.
+	got = checkSUSEConnect(models.SUSEConnectInfo{Platform: "suse", Registered: false})
+	if !hasInsightMsg(got, "WARN", "not registered") {
+		t.Errorf("genuinely unregistered must WARN, got %+v", got)
+	}
+}

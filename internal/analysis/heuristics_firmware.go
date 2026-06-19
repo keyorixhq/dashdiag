@@ -181,6 +181,14 @@ func checkSUSEConnect(s models.SUSEConnectInfo) []models.Insight {
 
 func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 	if !s.Registered {
+		// SUSEConnect present but the status query failed — we couldn't read whether
+		// the host is registered, so don't assert it's unregistered (FALSE_OK_SWEEP #14).
+		if s.Status == "query-failed" {
+			return []models.Insight{insight("INFO", "Subscription",
+				"SUSE registration not verified — SUSEConnect --status failed (network/SCC error?)",
+				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
+			)}
+		}
 		return []models.Insight{insight("WARN", "Subscription",
 			"SUSE system is not registered — security patches unavailable without SUSEConnect",
 			[]string{
