@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -1441,53 +1442,71 @@ func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 	}
 	out, err := runCmd(ctx, "SUSEConnect", "--status")
 	if err != nil || strings.TrimSpace(out) == "" {
+		// SUSEConnect present but the status query failed (network/SCC error, proxy,
+		// transient) — registration is UNVERIFIED, not "unregistered". Flag it so the
+		// verdict says "not verified" instead of a confident "not registered" WARN.
+		info.SUSEConnectStatus = "query-failed"
 		return
 	}
 
-	lower := strings.ToLower(out)
-	if !strings.Contains(lower, "registered") && !strings.Contains(lower, "identifier") {
+	applySUSEConnectStatus(out, info)
+}
+
+// applySUSEConnectStatus parses `SUSEConnect --status` JSON into info. The output is
+// an array, one entry per product, e.g.
+//
+//	[{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE",
+//	  "expires_at":"2026-07-13 00:00:00 UTC"}]
+//
+// An UNREGISTERED host returns status:"Not Registered" (verified live on openSUSE
+// Leap). The old code matched the substring "registered" — which is INSIDE "Not
+// Registered" — so an unregistered host read as REGISTERED (a silent false-OK, and a
+// false "EXPIRED" CRIT on the security path). We parse the JSON and compare exactly.
+// Split out so it is unit-testable against real command output.
+func applySUSEConnectStatus(out string, info *models.SecurityInfo) {
+	var products []struct {
+		Identifier         string `json:"identifier"`
+		Status             string `json:"status"`
+		SubscriptionStatus string `json:"subscription_status"`
+		ExpiresAt          string `json:"expires_at"`
+	}
+	if err := json.Unmarshal([]byte(out), &products); err != nil {
+		info.SUSEConnectStatus = "query-failed" // unparseable — can't determine registration
 		return
 	}
 
-	info.SUSEConnectRegistered = strings.Contains(lower, "\"registered\"") ||
-		strings.Contains(lower, "registered")
-
-	// Extract subscription_status
-	if idx := strings.Index(lower, "subscription_status"); idx >= 0 {
-		rest := out[idx:]
-		if start := strings.Index(rest, `"`); start >= 0 {
-			rest = rest[start+1:]
-			if colon := strings.Index(rest, `"`); colon >= 0 {
-				rest = rest[colon+1:]
-				if end := strings.Index(rest, `"`); end >= 0 {
-					info.SUSEConnectStatus = rest[:end]
-				}
-			}
+	info.SUSEConnectExpiresDays = -1 // unknown until a registered product reports expiry
+	for _, p := range products {
+		if !strings.EqualFold(strings.TrimSpace(p.Status), "registered") {
+			continue
+		}
+		info.SUSEConnectRegistered = true
+		if p.SubscriptionStatus != "" {
+			info.SUSEConnectStatus = p.SubscriptionStatus
+		}
+		if days, ok := parseSUSEExpiry(p.ExpiresAt); ok {
+			info.SUSEConnectExpiresDays = days
 		}
 	}
+}
 
-	// Extract expires_at and compute days remaining
-	if idx := strings.Index(out, "expires_at"); idx >= 0 {
-		rest := out[idx:]
-		// Format: "expires_at":"2026-07-13 00:00:00 UTC"
-		if start := strings.Index(rest, `":"`); start >= 0 {
-			rest = rest[start+3:]
-			if end := strings.Index(rest, `"`); end >= 0 {
-				expiryStr := strings.TrimSpace(rest[:end])
-				// Parse "2026-07-13 00:00:00 UTC"
-				t, err := time.Parse("2006-01-02 15:04:05 MST", expiryStr)
-				if err == nil {
-					days := int(time.Until(t).Hours() / 24)
-					if days < 0 {
-						days = 0 // expired
-					}
-					info.SUSEConnectExpiresDays = days
-				} else {
-					info.SUSEConnectExpiresDays = -1
-				}
-			}
-		}
+// parseSUSEExpiry parses a SUSEConnect "expires_at" timestamp ("2026-07-13 00:00:00
+// UTC") into whole days remaining (0 = already expired). ok is false when the field
+// is empty or unparseable, so the caller leaves ExpiresDays at -1 (unknown).
+func parseSUSEExpiry(expiresAt string) (days int, ok bool) {
+	expiresAt = strings.TrimSpace(expiresAt)
+	if expiresAt == "" {
+		return 0, false
 	}
+	t, err := time.Parse("2006-01-02 15:04:05 MST", expiresAt)
+	if err != nil {
+		return 0, false
+	}
+	days = int(time.Until(t).Hours() / 24)
+	if days < 0 {
+		days = 0 // expired
+	}
+	return days, true
 }
 
 // isOffensiveDistro returns true for pentest/offensive security distros
