@@ -244,3 +244,28 @@ func TestCloudEnvironment_IsCloud(t *testing.T) {
 		t.Error("EnvAWSEBS.IsCloud() should be true")
 	}
 }
+
+func TestDetectCloud_VMwareVirtualized(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "VMware, Inc.",
+		"product_name": "VMware Virtual Platform",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvVirtualized {
+		t.Errorf("VMware guest should be EnvVirtualized, got %v", got)
+	}
+	if got.IsCloud() {
+		t.Error("EnvVirtualized.IsCloud() should be false")
+	}
+}
+
+func TestDetectCloud_KVMVirtualized(t *testing.T) {
+	dir, dmiDir := makeDMIFull(t, map[string]string{
+		"sys_vendor":   "QEMU",
+		"product_name": "Standard PC (Q35 + ICH9, 2009)",
+	})
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), filepath.Join(dir, "block"), "")
+	if got != EnvVirtualized {
+		t.Errorf("QEMU/KVM guest should be EnvVirtualized, got %v", got)
+	}
+}

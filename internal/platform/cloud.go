@@ -22,6 +22,11 @@ const (
 	EnvHetzner
 	EnvOracleCloud
 	EnvVultr
+	// EnvVirtualized is an on-prem hypervisor guest (VMware/KVM/QEMU/Xen/VirtualBox/
+	// Hyper-V) that is not a recognized public cloud. Its storage is virtual, so it
+	// gets the relaxed (cloud-like) IO-latency thresholds rather than bare-metal's
+	// aggressive ones — a few ms of virtual-disk await is normal, not a fault.
+	EnvVirtualized
 )
 
 func DetectCloudEnvironment() CloudEnvironment {
@@ -96,6 +101,14 @@ func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL s
 		return EnvVultr
 	}
 
+	// On-prem hypervisor guest (not a recognized public cloud) — virtual storage, so
+	// it must NOT get bare-metal's aggressive IO thresholds. Checked before the EC2
+	// UUID / IMDS fallbacks so a clearly-virtualized guest short-circuits the IMDS
+	// network probe. (Cloud providers above already matched on their own DMI.)
+	if isVirtualizedDMI(dmiAll) {
+		return EnvVirtualized
+	}
+
 	// EC2 hypervisor UUID fallback
 	uuid := readFileTrimmed(hypervisorUUID)
 	if strings.HasPrefix(strings.ToLower(uuid), "ec2") {
@@ -150,6 +163,19 @@ func readFileTrimmed(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
+// isVirtualizedDMI reports whether the combined DMI string names an on-prem
+// hypervisor (VMware/KVM/QEMU/VirtualBox/Xen/Hyper-V). Used as the last classifier
+// before bare-metal so a virtual guest gets relaxed virtual-storage IO thresholds.
+func isVirtualizedDMI(dmiAll string) bool {
+	for _, marker := range []string{"vmware", "qemu", "kvm", "virtualbox", "innotek", "xen", "bochs"} {
+		if strings.Contains(dmiAll, marker) {
+			return true
+		}
+	}
+	// On-prem Hyper-V (Azure already matched above on its asset tag).
+	return strings.Contains(dmiAll, "microsoft") && strings.Contains(dmiAll, "virtual")
+}
+
 // String returns a human-readable name for the cloud environment.
 func (e CloudEnvironment) String() string {
 	switch e {
@@ -171,6 +197,8 @@ func (e CloudEnvironment) String() string {
 		return "oracle-cloud"
 	case EnvVultr:
 		return "vultr"
+	case EnvVirtualized:
+		return "virtualized"
 	default:
 		return "unknown"
 	}
@@ -178,5 +206,5 @@ func (e CloudEnvironment) String() string {
 
 // IsCloud returns true when running on any cloud provider.
 func (e CloudEnvironment) IsCloud() bool {
-	return e != EnvBareMetal && e != EnvUnknown
+	return e != EnvBareMetal && e != EnvUnknown && e != EnvVirtualized
 }
