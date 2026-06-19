@@ -35,13 +35,16 @@ const (
 //     0 / ~33 / ~50% — finer thresholds aren't measurable. 10/50 maps a single
 //     dropped packet (of three) to WARN and half-loss to CRIT, which fits that
 //     granularity; `dsd net` previously over-escalated any drop to CRIT (1/5).
-//   - DNS resolution is a single continuous millisecond measurement, so 100/500
-//     is meaningful; `dsd health` previously used a looser 200/1000.
+//   - DNS resolution WARN is 250ms (CRIT 500ms): a first uncached recursive lookup
+//     over the internet to a remote resolver is routinely 100-200ms on a healthy
+//     cloud/VPS host, so the earlier 100ms WARN false-alarmed on normal latency
+//     (seen on a real VMware/VPS guest at ~150-180ms). 250/500 flags genuinely slow
+//     resolution without the noise. (Was 100/500; `dsd health` originally 200/1000.)
 //   - TIME_WAIT had no CRIT tier in health; `dsd net` already escalated at 5000.
 const (
 	GatewayPacketLossWarnPct = 10.0
 	GatewayPacketLossCritPct = 50.0
-	DNSResolveWarnMs         = 100.0
+	DNSResolveWarnMs         = 250.0
 	DNSResolveCritMs         = 500.0
 	TimeWaitWarnCount        = 1000
 	TimeWaitCritCount        = 5000

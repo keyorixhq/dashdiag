@@ -458,7 +458,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf", "to inspect: systemctl status systemd-resolved"},
 		))
 	} else if lv := DNSResolveLevel(net.DNSResolvesMs); lv != "" {
-		// Shared with dsd net (analysis.DNSResolveLevel): WARN 100ms, CRIT 500ms.
+		// Shared with dsd net (analysis.DNSResolveLevel): WARN 250ms, CRIT 500ms.
 		hints := []string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf"}
 		if lv == "CRIT" {
 			hints = append(hints, "to inspect: systemctl status systemd-resolved")
