@@ -206,6 +206,84 @@ func readSelfJiffies(open func() (io.ReadCloser, error)) uint64 {
 	return v
 }
 
+// cpuSample holds the values derived from the two-sample /proc/stat read. It is
+// recorded via Source.Cached so the rate/percentage deltas replay faithfully
+// (both /proc/stat reads share one source key and cannot be replayed apart).
+type cpuSample struct {
+	UsagePct      float64 `json:"usage_pct"`
+	StealPct      float64 `json:"steal_pct"`
+	IowaitPct     float64 `json:"iowait_pct"`
+	CtxSwitchRate float64 `json:"ctx_switch_rate"`
+	RunQueue      int     `json:"run_queue"`
+	ProcsBlocked  int     `json:"procs_blocked"`
+}
+
+// sampleCPUUsage takes two /proc/stat snapshots 500ms apart and returns the
+// derived usage/steal/iowait percentages, context-switch rate, and the
+// instantaneous run-queue/blocked counts from the second sample. Returns a zero
+// sample on a read/parse error or if ctx is cancelled during the interval.
+func (c *CPUCollector) sampleCPUUsage(ctx context.Context) cpuSample {
+	var s cpuSample
+	r1, err1 := c.readers.statOpen()
+	if err1 != nil {
+		return s
+	}
+	s1, parseErr := parseCPUStatFull(r1)
+	_ = r1.Close()
+	if parseErr != nil {
+		return s
+	}
+	self1 := readSelfJiffies(c.readers.selfStatOpen)
+	t1 := time.Now()
+
+	select {
+	case <-ctx.Done():
+		return s
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	r2, err2 := c.readers.statOpen()
+	if err2 != nil {
+		return s
+	}
+	s2, _ := parseCPUStatFull(r2)
+	_ = r2.Close()
+	self2 := readSelfJiffies(c.readers.selfStatOpen)
+	delta := float64(s2.total - s1.total)
+	if delta > 0 {
+		idleDelta := float64(s2.idle - s1.idle)
+		busyDelta := delta - idleDelta
+		// Exclude dsd's own collection CPU: while this collector sleeps 500ms
+		// between samples, the other parallel collectors spawn ss/journalctl/
+		// smartctl/… which can saturate a small-core VM and make an idle host read
+		// as ~100% busy. Subtract our own process-tree jiffies so we report the
+		// host's load, not dsd's.
+		if self2 >= self1 {
+			if selfDelta := float64(self2 - self1); selfDelta < busyDelta {
+				busyDelta -= selfDelta
+			} else {
+				busyDelta = 0
+			}
+		}
+		s.UsagePct = busyDelta / delta * 100
+		if s2.steal >= s1.steal {
+			s.StealPct = float64(s2.steal-s1.steal) / delta * 100
+		}
+		if s2.iowait >= s1.iowait {
+			s.IowaitPct = float64(s2.iowait-s1.iowait) / delta * 100
+		}
+	}
+	// Run-queue depth and blocked count are instantaneous — use the most recent
+	// (second) sample.
+	s.RunQueue = int(s2.procsRunning)
+	s.ProcsBlocked = int(s2.procsBlocked)
+	// Context-switch rate over the actual elapsed sampling window.
+	if elapsed := time.Since(t1).Seconds(); elapsed > 0 && s2.ctxt >= s1.ctxt {
+		s.CtxSwitchRate = float64(s2.ctxt-s1.ctxt) / elapsed
+	}
+	return s
+}
+
 func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	numCPU := runtime.NumCPU()
 	if c.ContainerCtx.CPULimitCores > 0 {
@@ -231,62 +309,21 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Two-sample /proc/stat for CPU usage percentage plus steal and iowait rates.
 	// Steal is the percentage of time the hypervisor stole CPU from this VM.
 	// IOwait is the percentage of time the CPU was idle waiting for I/O completion.
-	var usagePct, stealPct, iowaitPct, ctxSwitchRate float64
-	var runQueue, procsBlocked int
-	r1, err1 := c.readers.statOpen()
-	if err1 == nil {
-		s1, parseErr := parseCPUStatFull(r1)
-		_ = r1.Close()
-		self1 := readSelfJiffies(c.readers.selfStatOpen)
-		t1 := time.Now()
-
-		if parseErr == nil {
-			select {
-			case <-ctx.Done():
-				return partialCPUInfo(load1, load5, load15, numCPU), nil
-			case <-time.After(500 * time.Millisecond):
-			}
-
-			r2, err2 := c.readers.statOpen()
-			if err2 == nil {
-				s2, _ := parseCPUStatFull(r2)
-				_ = r2.Close()
-				self2 := readSelfJiffies(c.readers.selfStatOpen)
-				delta := float64(s2.total - s1.total)
-				if delta > 0 {
-					idleDelta := float64(s2.idle - s1.idle)
-					busyDelta := delta - idleDelta
-					// Exclude dsd's own collection CPU: while this collector sleeps
-					// 500ms between samples, the other parallel collectors spawn
-					// ss/journalctl/smartctl/… which can saturate a small-core VM and
-					// make an idle host read as ~100% busy. Subtract our own
-					// process-tree jiffies so we report the host's load, not dsd's.
-					if self2 >= self1 {
-						if selfDelta := float64(self2 - self1); selfDelta < busyDelta {
-							busyDelta -= selfDelta
-						} else {
-							busyDelta = 0
-						}
-					}
-					usagePct = busyDelta / delta * 100
-					if s2.steal >= s1.steal {
-						stealPct = float64(s2.steal-s1.steal) / delta * 100
-					}
-					if s2.iowait >= s1.iowait {
-						iowaitPct = float64(s2.iowait-s1.iowait) / delta * 100
-					}
-				}
-				// Run-queue depth and blocked count are instantaneous — use the
-				// most recent (second) sample.
-				runQueue = int(s2.procsRunning)
-				procsBlocked = int(s2.procsBlocked)
-				// Context-switch rate over the actual elapsed sampling window.
-				if elapsed := time.Since(t1).Seconds(); elapsed > 0 && s2.ctxt >= s1.ctxt {
-					ctxSwitchRate = float64(s2.ctxt-s1.ctxt) / elapsed
-				}
-			}
-		}
-	}
+	// The two /proc/stat reads share one source key, so they cannot be replayed
+	// independently — a recompute under `dsd replay` collapses the delta to 0%,
+	// which then drops checkCPU into the load-ratio path and fires a spurious
+	// "0% CPU — load avg N" CRIT that the live run never showed. Cache the DERIVED
+	// values so they replay faithfully (same fix as CPUDeep, #399).
+	var samp cpuSample
+	_ = cachedJSON("cpu/usage-sample", func() (any, error) {
+		return c.sampleCPUUsage(ctx), nil
+	}, &samp)
+	usagePct := samp.UsagePct
+	stealPct := samp.StealPct
+	iowaitPct := samp.IowaitPct
+	ctxSwitchRate := samp.CtxSwitchRate
+	runQueue := samp.RunQueue
+	procsBlocked := samp.ProcsBlocked
 
 	// On macOS /proc/stat is not available — read CPU usage from top instead.
 	// 'top -l 2 -s 1 -n 0' takes two 1-second samples and reports the delta,
@@ -310,16 +347,6 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		ProcsBlocked:      procsBlocked,
 		ContextSwitchRate: ctxSwitchRate,
 	}, nil
-}
-
-func partialCPUInfo(load1, load5, load15 float64, numCPU int) *models.CPUInfo {
-	return &models.CPUInfo{
-		LoadAvg1:  load1,
-		LoadAvg5:  load5,
-		LoadAvg15: load15,
-		NumCPU:    numCPU,
-		LoadPct:   load1 / float64(numCPU) * 100,
-	}
 }
 
 // loadAvgDarwin reads load averages on macOS via sysctl.

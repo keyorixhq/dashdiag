@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CPU usage replays faithfully.** The CPU collector takes two `/proc/stat`
+  samples 500ms apart, but a capture bundle stores a single snapshot per path —
+  so on `dsd replay` both reads returned it, the delta collapsed to 0%, and the
+  verdict dropped into the load-ratio path and raised a spurious "0% CPU — load
+  avg N" CRIT the live run never showed. The derived sample is now cached
+  (`cpu/usage-sample`) so replay reproduces the captured usage. Same class as the
+  CPUDeep fix (#399); found generating a replay report from a real k3s-on-VMware
+  capture (live 48%/WARN → replay 0%/CRIT).
+
 ## [1.5.0] - 2026-06-19
 
 Minor (additive): a self-contained, exec-readable HTML report — the deliverable
