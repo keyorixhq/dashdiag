@@ -18,8 +18,9 @@ func TestNetworkLevelBoundaries(t *testing.T) {
 		{"loss 49 warn", GatewayPacketLossLevel(49), "WARN"},
 		{"loss 50 crit", GatewayPacketLossLevel(50), "CRIT"},
 
-		{"dns 99 ok", DNSResolveLevel(99), ""},
-		{"dns 100 warn", DNSResolveLevel(100), "WARN"},
+		{"dns 180 ok (normal internet latency)", DNSResolveLevel(180), ""},
+		{"dns 249 ok", DNSResolveLevel(249), ""},
+		{"dns 250 warn", DNSResolveLevel(250), "WARN"},
 		{"dns 499 warn", DNSResolveLevel(499), "WARN"},
 		{"dns 500 crit", DNSResolveLevel(500), "CRIT"},
 

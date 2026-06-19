@@ -351,9 +351,10 @@ func TestNetworkDNSThresholds(t *testing.T) {
 		ms   float64
 		want string
 	}{
-		// Thresholds shared with dsd net (analysis.DNSResolveLevel): WARN 100, CRIT 500.
+		// Thresholds shared with dsd net (analysis.DNSResolveLevel): WARN 250, CRIT 500.
 		{"ok", 50, ""},
-		{"warn", 200, "WARN"},
+		{"normal internet latency ok", 180, ""},
+		{"warn", 300, "WARN"},
 		{"crit", 500, "CRIT"},
 	}
 	for _, tc := range cases {
