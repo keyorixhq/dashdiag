@@ -66,6 +66,8 @@ func init() {
 	replayCmd.Flags().Bool("gpu", false, "include GPU collector")
 	replayCmd.Flags().Bool("pkg", false, "include package collector")
 	replayCmd.Flags().Bool("deep", false, "include deep collectors")
+	replayCmd.Flags().Bool("report", false, "write a shareable markdown report of the captured host")
+	replayCmd.Flags().Bool("report-html", false, "write a self-contained HTML report (printable to PDF) of the captured host")
 	replayCmd.Flags().String("diff", "",
 		"diff this capture against a baseline capture (path to another bundle) — shows what changed")
 }
@@ -119,7 +121,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		return runReplayDiff(b, diffPath, deep, pkg, gpu, jsonOut)
 	}
 
-	results, insights, _ := replayBundle(b, deep, pkg, gpu)
+	results, insights, snap := replayBundle(b, deep, pkg, gpu)
 
 	// Keep the captured host's identity active through the render below too
 	// (replayBundle restored it on return).
@@ -141,6 +143,23 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	renderer := render.NewRenderer(output.ModeHuman)
 	renderer.PrintAll(results, insights)
 	_ = renderer.PrintSummary(insights, 0)
+
+	// --report / --report-html: write shareable report(s) of the CAPTURED host.
+	// CVE is nil — advisories aren't in the bundle (they're scanned live).
+	if reportMD, _ := cmd.Flags().GetBool("report"); reportMD && snap != nil {
+		if path, err := render.GenerateReport(snap, insights, 0, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "report: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n📄 Report saved: %s\n", path)
+		}
+	}
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML && snap != nil {
+		if path, err := render.GenerateHTMLReport(snap, insights, 0, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "report: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n📄 HTML report saved: %s\n", path)
+		}
+	}
 	return nil
 }
 

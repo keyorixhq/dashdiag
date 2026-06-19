@@ -37,8 +37,9 @@ func runExamples(cmd *cobra.Command, _ []string) error {
 		},
 		{
 			"4. Share with team",
-			"Generate a portable Markdown report to paste into a ticket or chat.",
-			"  dsd health --report --out report.md",
+			"Generate a portable report. Markdown for a ticket/chat, or a self-contained\n" +
+				"HTML report (printable to PDF) to hand to management.",
+			"  dsd health --report\n  dsd health --report-html",
 		},
 		{
 			"5. Kubernetes cluster",

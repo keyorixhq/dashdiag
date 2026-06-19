@@ -36,6 +36,7 @@ func init() {
 	healthCmd.Flags().Bool("firmware", false, "check for pending firmware upgrades via fwupd")
 	healthCmd.Flags().Bool("cve", false, "include CVE security advisory scan (CVSS>=7 WARN, >=9 or CISA KEV CRIT; may be slow)")
 	healthCmd.Flags().Bool("report", false, "write a shareable markdown report to dsd-report-<host>-<date>.md")
+	healthCmd.Flags().Bool("report-html", false, "write a self-contained HTML report (printable to PDF) to dsd-report-<host>-<date>.html")
 	healthCmd.Flags().Bool("blob", false, "emit a compact, copy-pasteable encoded report blob (network-optional; decode with `dsd decode`)")
 	healthCmd.Flags().String("policy", "", "path to policy YAML — override thresholds and set CI exit behaviour")
 	healthCmd.Flags().Bool("explain", false, "after the verdict, explain each flagged subsystem (see also: dsd explain)")
@@ -147,6 +148,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	firmwareFlag, _ := cmd.Flags().GetBool("firmware")
 	cveFlag, _ := cmd.Flags().GetBool("cve")
 	reportFlag, _ := cmd.Flags().GetBool("report")
+	reportHTMLFlag, _ := cmd.Flags().GetBool("report-html")
 	policyPath, _ := cmd.Flags().GetString("policy")
 	policy, err := loadPolicyIfSet(policyPath)
 	if err != nil {
@@ -265,15 +267,23 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	}
 	_ = baseline.SaveBaseline(snap)
 
-	// --report: write shareable markdown file
-	if reportFlag && snap != nil {
-		// Collect CVE data for report (runs quickly, uses same package manager)
+	// --report / --report-html: write shareable report file(s). Collect CVE data
+	// once (runs quickly, same package manager) and feed both renderers.
+	if (reportFlag || reportHTMLFlag) && snap != nil {
 		cveData := collectors.ScanAllCVEs(ctx)
-		path, err := render.GenerateReport(snap, insights, elapsed, cveData)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "report: %v\n", err)
-		} else {
-			fmt.Fprintf(noticeW, "\n📄 Report saved: %s\n", path)
+		if reportFlag {
+			if path, err := render.GenerateReport(snap, insights, elapsed, cveData); err != nil {
+				fmt.Fprintf(os.Stderr, "report: %v\n", err)
+			} else {
+				fmt.Fprintf(noticeW, "\n📄 Report saved: %s\n", path)
+			}
+		}
+		if reportHTMLFlag {
+			if path, err := render.GenerateHTMLReport(snap, insights, elapsed, cveData); err != nil {
+				fmt.Fprintf(os.Stderr, "report: %v\n", err)
+			} else {
+				fmt.Fprintf(noticeW, "\n📄 HTML report saved: %s\n", path)
+			}
 		}
 	}
 
