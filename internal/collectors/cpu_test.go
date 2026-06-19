@@ -9,6 +9,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestParseLoadAvg(t *testing.T) {
@@ -274,6 +275,69 @@ func TestCPUCollector_Collect_InjectableReaders(t *testing.T) {
 	// idle delta=100, total delta=200 → usage = (1 - 100/200)*100 = 50%
 	if info.UsagePct < 49 || info.UsagePct > 51 {
 		t.Errorf("UsagePct: got %v, want ~50%%", info.UsagePct)
+	}
+}
+
+// Regression: CPU usage% must survive capture→replay. The two /proc/stat reads
+// share one source key, so the bundle stores a single snapshot; on `dsd replay`
+// both reads return it, a recompute collapses the delta to 0%, and checkCPU then
+// fires a spurious "0% CPU — load avg N" CRIT the live run never showed. The fix
+// caches the DERIVED sample under "cpu/usage-sample" so replay returns the captured
+// value. Found on a real k3s-on-VMware capture (live 48%/WARN → replay 0%/CRIT).
+func TestCPUCollector_UsageReplaysFaithfully(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
+	const loadAvg = "1.50 1.20 0.90 3/412 8932"
+	// idle delta=100, total delta=200 → usage = (1 - 100/200)*100 = 50%
+	const stat1 = "cpu  100 20 30 400 10 0 5 0 0 0\n"
+	const stat2 = "cpu  200 20 30 500 10 0 5 0 0 0\n"
+
+	newCollector := func(reads []string) *CPUCollector {
+		i := 0
+		return &CPUCollector{
+			ContainerCtx: platform.ContainerContext{},
+			readers: cpuReaders{
+				loadAvgOpen: func() (io.ReadCloser, error) {
+					return io.NopCloser(strings.NewReader(loadAvg)), nil
+				},
+				statOpen: func() (io.ReadCloser, error) {
+					s := reads[i]
+					if i < len(reads)-1 {
+						i++
+					}
+					return io.NopCloser(strings.NewReader(s)), nil
+				},
+			},
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Record pass: two distinct snapshots → real ~50% usage, cached under the key.
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	recResult, err := newCollector([]string{stat1, stat2}).Collect(ctx)
+	SetSource(prev)
+	if err != nil {
+		t.Fatalf("record Collect: %v", err)
+	}
+	if u := recResult.(*models.CPUInfo).UsagePct; u < 49 || u > 51 { //nolint:errcheck // asserted type
+		t.Fatalf("record UsagePct: got %v, want ~50%%", u)
+	}
+
+	// Replay pass: the mock now returns the SAME snapshot twice — a naive recompute
+	// would collapse to 0%. The cached derived value must win.
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+	rpResult, err := newCollector([]string{stat1, stat1}).Collect(ctx)
+	if err != nil {
+		t.Fatalf("replay Collect: %v", err)
+	}
+	if u := rpResult.(*models.CPUInfo).UsagePct; u < 49 || u > 51 { //nolint:errcheck // asserted type
+		t.Errorf("replay UsagePct: got %v, want ~50%% (cached value, not recomputed 0%%)", u)
 	}
 }
 
