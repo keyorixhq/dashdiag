@@ -50,8 +50,9 @@ func TestCheckSwap(t *testing.T) {
 		want string
 	}{
 		{"below warn is clean", models.SwapInfo{UsedPct: 10}, ""},
-		{"usage at warn is WARN", models.SwapInfo{UsedPct: defaultThresh.SwapWarnPct, UsedGB: 2}, "WARN"},
-		{"usage at crit is CRIT", models.SwapInfo{UsedPct: defaultThresh.SwapCritPct, UsedGB: 8}, "CRIT"},
+		{"occupancy at warn with NO paging is clean (was a false alarm)", models.SwapInfo{UsedPct: defaultThresh.SwapWarnPct, UsedGB: 2}, ""},
+		{"occupancy at warn WITH light paging is WARN", models.SwapInfo{UsedPct: defaultThresh.SwapWarnPct, UsedGB: 2, PagesInPerSec: 10}, "WARN"},
+		{"near-full occupancy CRITs even with no paging", models.SwapInfo{UsedPct: defaultThresh.SwapCritPct, UsedGB: 8}, "CRIT"},
 		// SwapActivityWarn floor is 50 pages/s (disk swap); >100 is CRIT. zram-backed
 		// paging below CRIT is INFO (compressed RAM, not disk thrash).
 		{"trivial paging below floor is clean", models.SwapInfo{UsedPct: 10, PagesInPerSec: 40}, ""},
