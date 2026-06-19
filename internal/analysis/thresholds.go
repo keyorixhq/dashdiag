@@ -172,7 +172,10 @@ func DefaultThresholds(env platform.CloudEnvironment) Thresholds {
 	}
 
 	switch env {
-	case platform.EnvAWSEBS, platform.EnvGCP, platform.EnvAzure:
+	case platform.EnvAWSEBS, platform.EnvGCP, platform.EnvAzure, platform.EnvVirtualized:
+		// Virtual storage (cloud block devices or an on-prem hypervisor's virtual
+		// disks) normally sees a few ms of await even when healthy — bare-metal's
+		// 1ms warn would false-alarm. (Found on a real VMware guest: 1.5ms → WARN.)
 		t.IOAwaitWarnMsSSD = 5
 		t.IOAwaitCritMsSSD = 20
 	case platform.EnvAWSNVMe, platform.EnvBareMetal:
