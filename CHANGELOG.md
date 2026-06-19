@@ -11,6 +11,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-06-19
+
+False-OK sweep — a systematic pass closing the recurring "silent clean" defect: a
+collector that could not actually read its source (tool absent, command failed,
+permission denied on a non-root run, garbled output) reported healthy instead of
+"not verified". Every fix below now emits an explicit INFO/WARN saying the check
+could not be completed, rather than passing as OK. No CLI or `dsd health --json`
+schema change (new insights + out-of-contract `checks[].raw` fields only).
+
+### Fixed
+
+- **Proxmox VE** — storage / task / backup / HA-fencing / subscription health each
+  read "not verified" when their `pvesh` sub-query fails independently of the main
+  cluster probe, instead of a silent OK. Also fixed a latent dead-code bug: the HA
+  status endpoint returns a JSON array, which the old object-shaped parse never read. (#401)
+- **ZFS / btrfs** — `zpool list`/`zpool status` failures (often permission) and an
+  unreadable `btrfs device stats` now report pools/volumes "not verified" instead of
+  treating zero error counters as clean. (#402)
+- **Multipath / LVM** — an unreadable multipath path table, and `vgs`/`pvs`/`lvs`
+  query failures (a failed `pvs` can hide a missing PV), now surface "not verified". (#403)
+- **Cron / journal logs** — an unreadable cron failure history or `journalctl -p err`
+  failure no longer reads as "no failures" / "no errors". (#404)
+- **SELinux / AppArmor / /etc/shadow** — when MAC denial logs or `/etc/shadow` can't
+  be read (typically a non-root run), the host reports the audit as unverified rather
+  than implying it was clean. (#405)
+- **Firewall** — `nft`/`iptables` query failure (non-root) or no firewall tooling now
+  reports "firewall state not verified" instead of silently emitting nothing. (#406)
+- **OOM / DNS / timeline** — an unreadable kernel log (OOM), an empty `/etc/resolv.conf`
+  with failing resolution (DNS), and both event sources failing (timeline) now report
+  not-verified/misconfigured instead of a clean read. (#407)
+- **Firmware / cloud-init** — a failed `fwupdmgr get-upgrades` (which can hide pending
+  dbx / Secure Boot updates) and an unreadable `cloud-init status` now report
+  "not verified". (#408)
+- **VMware** — when open-vm-tools is running but `vmware-toolbox-cmd stat` fails, host
+  resource-pressure (ballooning / host-swap / CPU+memory caps) reads "not verified"
+  rather than the all-clean line. Validated on real ESXi. (#409)
+- **Podman quadlets** — a quadlet whose unit state can't be read, or that is present
+  but not running (stopped / unit-name mismatch), is now flagged instead of only the
+  already-`failed` case. (#410)
+
 ## [1.4.0] - 2026-06-18
 
 Deep capture/replay hardening — the `dsd replay` hermeticity work now extends to the
