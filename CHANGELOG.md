@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-06-19
+
+Patch: two `dsd replay` fidelity/safety fixes found generating a diagnostic report
+from a real k3s-on-VMware capture — replayed CPU usage no longer collapses to a
+false "0% CPU" CRIT, and cross-platform replay (e.g. a Linux bundle on macOS) is
+refused instead of silently reporting the local machine's findings. No `dsd health
+--json` schema change.
+
 ### Fixed
 
 - **`dsd replay`/`dsd diff` refuse a cross-platform bundle.** Replay runs the
