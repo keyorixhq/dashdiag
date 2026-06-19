@@ -11,6 +11,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-06-19
+
+More false-OK / false-alarm fixes, several found by validating dsd on real
+hosts (VMware/VPS, openSUSE, EC2). No CLI or `dsd health --json` schema change.
+
+### Fixed
+
+- **SUSE registration parsed correctly.** `SUSEConnect --status` returns JSON; an
+  unregistered host reports `status:"Not Registered"`. The old code matched the
+  substring "registered" — inside "Not Registered" — so an unregistered SUSE host
+  (no security patches) read as **registered**: a silent OK, and a false "EXPIRED"
+  CRIT on the security path. Now parsed as JSON with an exact status match. Also: a
+  failed `SUSEConnect --status` now reports "registration not verified" (INFO)
+  instead of a confident "not registered" WARN. Validated on openSUSE Leap. (#417)
+- **AWS spot-termination check distinguishes an IMDS error from "no notice."** The
+  probe treated a transient IMDS error the same as a 404 (no termination), which
+  could hide an imminent spot reclaim. It now reports "spot-termination check could
+  not be confirmed" (INFO) on an error, while 404 stays silent. Validated on a real
+  EC2 instance. (#418)
+- **DNS-resolution WARN threshold raised 100ms → 250ms.** A first uncached recursive
+  lookup over the internet is routinely 100-200ms on a healthy cloud/VPS host, so
+  the old 100ms WARN false-alarmed on normal latency. (#415)
+
 ## [1.4.2] - 2026-06-19
 
 Two false-alarm fixes found by auditing dsd on a real on-prem VMware/ESXi guest.
