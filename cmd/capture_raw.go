@@ -72,6 +72,7 @@ func runCaptureRaw(cmd *cobra.Command) error {
 		Format:  source.FormatVersion,
 		Host:    hostnameOr("host"),
 		OS:      osPretty(),
+		GOOS:    runtime.GOOS,
 		Kernel:  kernelRelease(),
 		DsdVer:  version.Version,
 		Created: time.Now().UTC().Format(time.RFC3339),

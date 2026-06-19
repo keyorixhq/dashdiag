@@ -46,6 +46,7 @@ func init() {
 	diffCmd.Flags().Bool("gpu", false, "include GPU collector")
 	diffCmd.Flags().Bool("pkg", false, "include package collector")
 	diffCmd.Flags().Bool("deep", false, "include deep collectors")
+	diffCmd.Flags().Bool("force", false, "diff even when a bundle's OS differs from this machine (output will NOT be faithful)")
 }
 
 func runDiff(cmd *cobra.Command, args []string) error {
@@ -62,6 +63,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	gpu, _ := cmd.Flags().GetBool("gpu")
 	pkg, _ := cmd.Flags().GetBool("pkg")
 	deep, _ := cmd.Flags().GetBool("deep")
+	force, _ := cmd.Flags().GetBool("force")
 
-	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut)
+	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut, force)
 }
