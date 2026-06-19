@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-06-19
+
+Two false-alarm fixes found by auditing dsd on a real on-prem VMware/ESXi guest.
+No CLI or `dsd health --json` schema change.
+
+### Fixed
+
+- **Run-queue saturation no longer false-CRITs from an instantaneous spike.** On a
+  busy small-core host (e.g. a 1-vCPU VM running a nightly job), `procs_running` —
+  a single `/proc/stat` sample inflated by dsd's own parallel collectors — could
+  read e.g. 9 and fire `CRIT: run queue ~9× saturated`, flipping the whole verdict
+  to CRIT while the box was otherwise idle (load avg ~1.0). The run-queue tiers are
+  now corroborated by the (immune) 1-min load average at a matching level — CRIT
+  needs load ≥ 2× cores, WARN needs load ≥ cores — so a transient spike no longer
+  raises a verdict. (#412)
+- **On-prem hypervisor guests get virtual-storage IO-latency thresholds.** A VMware/
+  KVM/QEMU/Xen/Hyper-V guest matched no cloud provider and fell through to bare-metal
+  thresholds, whose IO-await warn floor is an aggressive 1ms — so ~1.5ms of normal
+  virtual-disk latency false-WARN'd. Such guests are now classified `virtualized` and
+  use the same relaxed thresholds as cloud block storage (warn 5ms / crit 20ms). (#413)
+
 ## [1.4.1] - 2026-06-19
 
 False-OK sweep — a systematic pass closing the recurring "silent clean" defect: a
