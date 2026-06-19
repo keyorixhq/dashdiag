@@ -2064,6 +2064,12 @@ func checkCloudMeta(c models.CloudInfo) []models.Insight {
 				"note: instance will be terminated imminently",
 				"to inspect: check instance metadata for exact termination time",
 			}))
+	} else if c.SpotCheckFailed {
+		// The termination probe hit an IMDS error, so we can't confirm there's no
+		// pending reclaim — surface it rather than imply "no termination scheduled".
+		out = append(out, insight("INFO", "CloudMeta",
+			fmt.Sprintf("%s spot-termination check could not be confirmed — IMDS error on the termination probe", c.Provider),
+			[]string{"to inspect: curl -s http://169.254.169.254/latest/meta-data/spot/termination-time"}))
 	}
 	if c.MaintenanceEvent {
 		out = append(out, insight("WARN", "CloudMeta",

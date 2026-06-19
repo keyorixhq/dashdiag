@@ -7,8 +7,9 @@ type CloudInfo struct {
 	InstanceID         string `json:"instance_id"`
 	InstanceType       string `json:"instance_type"`
 	Region             string `json:"region"`
-	SpotTermination    bool   `json:"spot_termination"`  // spot/preemptible termination notice
-	MaintenanceEvent   bool   `json:"maintenance_event"` // scheduled maintenance
+	SpotTermination    bool   `json:"spot_termination"`            // spot/preemptible termination notice
+	SpotCheckFailed    bool   `json:"spot_check_failed,omitempty"` // the termination probe hit an IMDS error (could not confirm)
+	MaintenanceEvent   bool   `json:"maintenance_event"`           // scheduled maintenance
 	MaintenanceDetails string `json:"maintenance_details,omitempty"`
 	Status             string `json:"status,omitempty"`
 	StatusReason       string `json:"status_reason,omitempty"`
