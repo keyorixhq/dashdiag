@@ -784,16 +784,22 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// from CPU% (how busy cores are) and load avg (which also counts D-state tasks).
 	// Context-switch rate is shown as supporting context — reliable spike detection
 	// needs the history-aware engine (v2), so it is not thresholded on its own.
-	if loadCorroborated && cpu.NumCPU > 0 && cpu.RunQueue > 0 {
+	// RunQueue (procs_running) is a single instantaneous /proc/stat sample, inflated
+	// by dsd's own parallel collectors on small-core hosts — so the 1-min load average
+	// (immune; predates this run) must corroborate the saturation at the SAME tier, not
+	// merely clear the warn floor. A genuine 4× run queue pins load avg well above the
+	// core count; a momentary procs_running spike on a 1-vCPU box does not. Without the
+	// tier-matched gate, that spike false-CRIT'd an otherwise-idle VM (load ~1.0).
+	if cpu.NumCPU > 0 && cpu.RunQueue > 0 {
 		cpuLabel := pluralize(cpu.NumCPU, "CPU", "CPUs")
 		switch {
-		case cpu.RunQueue >= 4*cpu.NumCPU:
+		case cpu.RunQueue >= 4*cpu.NumCPU && loadPct >= 200:
 			out = append(out, insight("CRIT", "CPU Load/RunQueue",
 				fmt.Sprintf("%d runnable tasks on %s — run queue is ~%d× saturated, tasks are waiting for CPU",
 					cpu.RunQueue, cpuLabel, cpu.RunQueue/cpu.NumCPU),
 				runQueueHints(cpu),
 			))
-		case cpu.RunQueue >= 2*cpu.NumCPU:
+		case cpu.RunQueue >= 2*cpu.NumCPU && loadPct >= 100:
 			out = append(out, insight("WARN", "CPU Load/RunQueue",
 				fmt.Sprintf("%d runnable tasks on %s — more tasks ready to run than cores available",
 					cpu.RunQueue, cpuLabel),

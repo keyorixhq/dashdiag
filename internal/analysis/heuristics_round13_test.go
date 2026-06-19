@@ -46,8 +46,8 @@ func TestCheckCPU_StealIOwaitRunQueue(t *testing.T) {
 		{"moderate steal is WARN", models.CPUInfo{StealPct: 15}, "WARN"},
 		{"severe iowait is CRIT", models.CPUInfo{IOwaitPct: 45}, "CRIT"},
 		{"moderate iowait is WARN", models.CPUInfo{IOwaitPct: 25}, "WARN"},
-		{"run-queue 4x saturated is CRIT", models.CPUInfo{NumCPU: 2, RunQueue: 8, LoadAvg1: 2.0}, "CRIT"},
-		{"run-queue 2x saturated is WARN", models.CPUInfo{NumCPU: 2, RunQueue: 4, LoadAvg1: 1.6}, "WARN"},
+		{"run-queue 4x saturated is CRIT", models.CPUInfo{NumCPU: 2, RunQueue: 8, LoadAvg1: 4.0}, "CRIT"},
+		{"run-queue 2x saturated is WARN", models.CPUInfo{NumCPU: 2, RunQueue: 4, LoadAvg1: 2.0}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,9 +83,9 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 			models.CPUInfo{RunQueue: 8, LoadAvg1: 0.1, NumCPU: 2}, "",
 		},
 		{
-			// 4× run-queue with corroborating load avg fires.
+			// 4× run-queue with load avg confirming genuine 4× saturation (8/2=4.0) fires.
 			"run-queue spike corroborated by high load fires",
-			models.CPUInfo{RunQueue: 8, LoadAvg1: 1.9, NumCPU: 2}, "CRIT",
+			models.CPUInfo{RunQueue: 8, LoadAvg1: 4.0, NumCPU: 2}, "CRIT",
 		},
 		{
 			// A genuinely idle box reads load 0.00 — a high instantaneous run-queue
@@ -180,4 +180,17 @@ func TestCheckDockerContainers_ArchMismatch(t *testing.T) {
 		Containers: []models.ContainerInfo{{Name: "app", ArchMismatch: true, ImageArch: "arm64"}},
 	}
 	assertLevel(t, checkDockerContainers(d), "WARN")
+}
+
+// Regression: a 1-vCPU box at ~full load (apt batch job) with an instantaneous
+// procs_running spike (dsd's own collectors) must NOT false-CRIT "Nx saturated".
+// Found live on a real 1-vCPU VMware guest (load ~1.0, RunQueue 9 → was CRIT).
+func TestCheckCPU_RunQueueSpikeOnLoadedSingleCPUNoCrit(t *testing.T) {
+	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 9, LoadAvg1: 1.0} // load 1× (saturated, not 9×)
+	got := checkCPU(cpu, defaultThresh)
+	for _, ins := range got {
+		if ins.Check == "CPU Load/RunQueue" && ins.Level == "CRIT" {
+			t.Errorf("a 1× load with a 9-deep instantaneous run queue must not CRIT, got %+v", ins)
+		}
+	}
 }
