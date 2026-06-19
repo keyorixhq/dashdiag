@@ -11,6 +11,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-19
+
+Minor (additive): a self-contained, exec-readable HTML report — the deliverable
+to hand to management after a run, or to produce from a customer's capture bundle
+without shell access — plus two false-alarm fixes found validating dsd on a real
+k3s-on-VMware node. No `dsd health --json` schema change.
+
 ### Added
 
 - **`--report-html` — self-contained, exec-readable HTML report.** `dsd health
