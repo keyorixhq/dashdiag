@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -68,6 +69,7 @@ func init() {
 	replayCmd.Flags().Bool("deep", false, "include deep collectors")
 	replayCmd.Flags().Bool("report", false, "write a shareable markdown report of the captured host")
 	replayCmd.Flags().Bool("report-html", false, "write a self-contained HTML report (printable to PDF) of the captured host")
+	replayCmd.Flags().Bool("force", false, "replay even when the bundle's OS differs from this machine (output will NOT be faithful)")
 	replayCmd.Flags().String("diff", "",
 		"diff this capture against a baseline capture (path to another bundle) — shows what changed")
 }
@@ -115,10 +117,15 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	gpu, _ := cmd.Flags().GetBool("gpu")
 	pkg, _ := cmd.Flags().GetBool("pkg")
 	deep, _ := cmd.Flags().GetBool("deep")
+	force, _ := cmd.Flags().GetBool("force")
 	diffPath, _ := cmd.Flags().GetString("diff")
 
 	if diffPath != "" {
-		return runReplayDiff(b, diffPath, deep, pkg, gpu, jsonOut)
+		return runReplayDiff(b, diffPath, deep, pkg, gpu, jsonOut, force)
+	}
+
+	if err := replayPlatformGuard(b, force); err != nil {
+		return err
 	}
 
 	results, insights, snap := replayBundle(b, deep, pkg, gpu)
@@ -166,18 +173,43 @@ func runReplay(cmd *cobra.Command, args []string) error {
 // runReplayDiff replays a baseline capture and the current capture through the
 // same pipeline and prints what changed between them — the support workflow:
 // "diff a customer's healthy capture against the one taken when it broke".
-func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, jsonOut bool) error {
+func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, jsonOut, force bool) error {
 	base, err := loadBundle(baselinePath)
 	if err != nil {
 		return fmt.Errorf("loading baseline bundle: %w", err)
 	}
-	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut)
+	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut, force)
+}
+
+// replayPlatformGuard refuses to replay a bundle captured on a different OS family
+// than the replaying machine. dsd runs the LOCAL platform's (build-tagged)
+// collectors, so a Linux capture replayed on macOS reports THIS machine's findings
+// under the captured host's name — a misleading "false everything" result, the more
+// so when written to a report file. --force overrides for the rare deliberate case.
+func replayPlatformGuard(b *source.Bundle, force bool) error {
+	fam := b.Manifest.PlatformFamily()
+	if fam == runtime.GOOS || force {
+		return nil
+	}
+	//nolint:staticcheck // ST1005: intentional multi-line user-facing CLI guidance, not a wrapped error
+	return fmt.Errorf(
+		"bundle was captured on %s (%q) but you are replaying on %s.\n"+
+			"  Cross-platform replay runs the local (%s) collectors and would report THIS\n"+
+			"  machine's findings under the captured host's name — not the captured data.\n"+
+			"  Replay on a %s host for a faithful result, or pass --force to override.",
+		fam, b.Manifest.OS, runtime.GOOS, runtime.GOOS, fam)
 }
 
 // renderCaptureDiff replays two bundles through the identical health pipeline and
 // writes the per-check delta to stdout (human or JSON). Shared by `replay --diff`
 // and the top-level `dsd diff` command.
-func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, jsonOut bool) error {
+func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, jsonOut, force bool) error {
+	if err := replayPlatformGuard(current, force); err != nil {
+		return err
+	}
+	if err := replayPlatformGuard(base, force); err != nil {
+		return err
+	}
 	_, _, baseSnap := replayBundle(base, deep, pkg, gpu)
 	_, _, curSnap := replayBundle(current, deep, pkg, gpu)
 

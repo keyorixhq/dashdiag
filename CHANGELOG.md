@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd replay`/`dsd diff` refuse a cross-platform bundle.** Replay runs the
+  *local* machine's (build-tagged) collectors, so replaying a Linux capture on
+  macOS reported THIS machine's findings (SIP, FileVault, en0) under the captured
+  host's name — a misleading "false everything" report, worse when written to a
+  file. Replay/diff now check the bundle's captured OS family against the running
+  machine and refuse with a clear message on a mismatch; `--force` overrides. The
+  manifest records `goos` at capture (older bundles infer it from the OS string).
 - **CPU usage replays faithfully.** The CPU collector takes two `/proc/stat`
   samples 500ms apart, but a capture bundle stores a single snapshot per path —
   so on `dsd replay` both reads returned it, the delta collapsed to 0%, and the

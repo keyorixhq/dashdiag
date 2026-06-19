@@ -3,6 +3,7 @@ package source
 import (
 	"errors"
 	"io/fs"
+	"strings"
 	"sync"
 )
 
@@ -11,10 +12,30 @@ type Manifest struct {
 	Format  string `json:"format"`
 	Host    string `json:"host,omitempty"`
 	OS      string `json:"os,omitempty"`
+	GOOS    string `json:"goos,omitempty"` // capture-time runtime.GOOS — for the replay platform-match guard
 	Kernel  string `json:"kernel,omitempty"`
 	DsdVer  string `json:"dsd_version,omitempty"`
 	Created string `json:"created,omitempty"`
 	Note    string `json:"note,omitempty"`
+}
+
+// PlatformFamily returns the captured host's OS family ("linux", "darwin",
+// "windows", …). It prefers the recorded GOOS; for older bundles that predate the
+// field it infers from the human OS string (defaulting to "linux", since a missing
+// GOOS almost always means a Linux capture from before the field existed).
+func (m Manifest) PlatformFamily() string {
+	if m.GOOS != "" {
+		return m.GOOS
+	}
+	os := strings.ToLower(m.OS)
+	switch {
+	case strings.Contains(os, "macos"), strings.Contains(os, "mac os"), strings.Contains(os, "darwin"):
+		return "darwin"
+	case strings.Contains(os, "windows"):
+		return "windows"
+	default:
+		return "linux"
+	}
 }
 
 // fileRec is a recorded file read: bytes on success, or a recorded error so that
