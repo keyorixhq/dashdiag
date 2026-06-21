@@ -76,3 +76,32 @@ Different layer, different prerequisites, different trust model:
 - An on-prem / customer-hosted control plane appears.
 - Pricing/packaging that targets SMB or single-server use rather than
   fleet/enterprise.
+
+---
+
+## Agentic-DevOps field report (assessed 2026-06-20)
+
+Source: Brett Fisher (*Agentic DevOps*) long-form interview. Practitioner
+read, not a buyer — **signal only, no gate moves.** Portfolio-level analysis
+and the moat framing live in unpackops `COMPETITOR_PAIN_NOTES.md` §8; recorded
+here only for the two points that bear directly on dsd's positioning.
+
+1. **Independent corroboration of dsd's posture.** From first principles the
+   speaker arrives at exactly dsd's shape as AI's safe entry to DevOps:
+   read-only, narrow-scope, human-in-the-loop, incremental. Infra correctness
+   is binary (a 70%-correct config does not deploy), so generation is the wrong
+   first product and read-only verdict/explanation is the right one. This is
+   external validation of the read-only wall (ADR-0006 D3) and the no-AI-in-the-
+   binary line (ADR-0008 D2), reached by someone with no stake in dsd.
+
+2. **The context-moat, in dsd terms.** The field's shared bottleneck is
+   *context* — and competitors manufacture it by fine-tuning models, which is
+   unverifiable (recall, not citation). dsd's `--json` is the opposite: it
+   *generates* deterministic, structured, citable evidence. "Give the agent the
+   diagnosis, not the commands" (already the dsd-MCP-server framing above) is
+   the same idea — the verdict layer is the context other tools are trying to
+   train into a model.
+
+Non-goal reinforced: dsd never grows a config-generation feature. Read-only
+verdicts forever; the wall is now backed by an outside practitioner's reasoning,
+not just our own.
