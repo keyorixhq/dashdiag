@@ -11,6 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-06-21
+
+Patch: a false-OK/false-CRIT correctness sweep — three "correct-reading, wrong-context"
+false-CRITs on Proxmox hosts, a k8s certificate-expiry false-OK, and the remaining
+map-iteration non-determinism in rendered/JSON output. No `dsd health --json` schema change.
+
+### Fixed
+
+- **Proxmox: three "correct-reading, wrong-context" false-CRITs.** On Proxmox
+  hosts dsd read the data correctly but scored it in the wrong context: LVM
+  thin-pool usage compared against VG allocation, a ZFS import-service CRIT raised
+  with no host pools present, and active vs archived (`.journal~`) journal
+  corruption scored at the same severity. Each is now context-aware; regression
+  guards replay offline from the captured bundle (#428, TRIAGE §O).
+- **k8s: a certificate expiring today no longer reads as healthy.** The k8s
+  OS-layer cert check stored the soonest near-expiry in days and used `0` as the
+  "none" sentinel — but a cert expiring within 24h is also `0` days, so a cert
+  expiring *today* was silently read as OK, and could even erase a real "expires
+  soon" WARN from a sibling cert. A `CertExpirySoon` companion flag now gates the
+  warning; `0` days surfaces as "expire in less than a day". Surfaced in the
+  k3s-on-VMware pilot topology (#431, TRIAGE §I.641).
+- **Deterministic rendered/JSON output.** Closed the remaining map-iteration
+  non-determinism that made two runs on the same host emit shuffled output (flaky
+  golden-file tests, noisy `dsd diff`): the SSID-conflict pick (`dsd net`/steamos),
+  the repeated-OOM "leaker" name (correlation engine), and the narrated story line
+  order now all sort deterministically with tie-breaks. The top-level
+  `checks[]`/`insights[]` and `apparmor_groups[]` ordering were already stable
+  (#432, TRIAGE §I).
+
 ## [1.5.1] - 2026-06-19
 
 Patch: two `dsd replay` fidelity/safety fixes found generating a diagnostic report
