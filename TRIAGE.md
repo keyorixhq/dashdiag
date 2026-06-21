@@ -242,7 +242,7 @@ the feature's whole premise.
 
 ---
 
-## I. `checks[]` array has no stable ordering — PARTIAL: sub-lists fixed (#348), top-level still GATED
+## I. `checks[]` array has no stable ordering — ✅ DONE (render-boundary sort + §I-class map-iteration sweep, fix/k8s-cert-0day)
 
 Two `dsd health --json` runs on the same host emit `checks[]` in different array
 positions (same 23-check set, same content, shuffled order). Confirmed
@@ -255,16 +255,27 @@ support workflows (noisy).
 `Drives[].Mounts` (`range mountsByDev`) and the multipath device list (`range
 deviceMap`) — now sorted, so those sub-lists are byte-stable.
 
-**Still GATED (the headline item):** the *top-level* `checks[]` array order. Fix =
-stable sort by check name at the render boundary (invariant-data layer, not
-collectors). The replay double-diff harness sorted this away with `jq sort_by(.name)`
-rather than changing the product. Build only when a test or workflow needs it.
+**Done (top-level + insights):** `render/json.go` stable-sorts the top-level
+`checks[]` by name and `insights[]` worst-first-then-name at the render boundary
+(`BuildJSONOutput`). This was already in-product when re-audited — the "still
+GATED" note below was stale.
 
-**Re-observed 2026-06-18** (VCD root/non-root diff): besides the top-level order,
-the Hardening check's `apparmor_groups[]` array also came out in a different order
-between two runs — another map-iteration sub-list not yet sorted (the #348 sweep
-covered Drives/multipath but not this one). Same benign-but-flaky class; fold into
-the same render-boundary sort when the top-level item is built.
+**Done (`apparmor_groups[]`):** `collectAppArmorDenials` sorts count-desc then
+profile/path/op (security_linux.go) — the 2026-06-18 re-observation is closed.
+
+**Done (§I-class map-iteration sweep, 2026-06-21):** a full sweep for *any*
+map→slice / map-pick feeding rendered or JSON output found and fixed three more
+tie-break/order nondeterminisms with unit-test guards:
+- `detectSSIDConflict` (steamos) returned the first conflicting SSID in map order
+  → now lexicographically smallest.
+- `ruleServiceMemoryLeak` (correlate) picked the most-OOM-killed `leaker` with no
+  tie-break → now smallest name on a tie.
+- `activeInsights` (render/story) built its slice from a map → now name-sorted, so
+  narrated story line order is stable.
+Already-sorted (verified clean): auth `TopSources`, logs `topMessages`,
+multipath devices, security AppArmor groups, json `checks[]`/`insights[]`. The
+prefix-match loop in `BuildJSONOutput` (`range insightMap`) is order-independent
+(takes the worst severity).
 
 ---
 
