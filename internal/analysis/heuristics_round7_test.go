@@ -66,7 +66,7 @@ func TestCheckJournalConfig(t *testing.T) {
 		want string
 	}{
 		{"clean is empty", models.LogsInfo{}, ""},
-		{"corrupt journal is CRIT", models.LogsInfo{JournalCorrupt: true}, "CRIT"},
+		{"archived-journal corruption is WARN (§O.3, not CRIT — historical, not current loss)", models.LogsInfo{JournalCorrupt: true}, "WARN"},
 		{"volatile journal is WARN", models.LogsInfo{JournalVolatile: true}, "WARN"},
 		{"no text fallback is INFO", models.LogsInfo{JournalNoTextFallback: true}, "INFO"},
 		{"log disk >=90 is CRIT", models.LogsInfo{LogDiskUsedPct: 95, LogDiskMount: "/var"}, "CRIT"},

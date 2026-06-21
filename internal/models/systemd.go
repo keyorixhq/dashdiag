@@ -14,6 +14,7 @@ type SystemdInfo struct {
 	SlowUnits          []SlowUnit `json:"slow_units,omitempty"`        // top 3 slow boot units
 	TotalBootSec       float64    `json:"total_boot_sec,omitempty"`    // total boot time in seconds
 	SELinuxEnforcing   bool       `json:"selinux_enforcing,omitempty"` // cross-check: SELinux enforcing when units fail
+	ZFSPoolsPresent    bool       `json:"zfs_pools_present,omitempty"` // cross-check: host imports ZFS pools — gates zfs-import-*.service failure severity (§O.2)
 	Status             string     `json:"status"`
 	StatusReason       string     `json:"status_reason"`
 }

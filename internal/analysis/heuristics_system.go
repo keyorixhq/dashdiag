@@ -57,6 +57,22 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 
 	selinuxEnforcing := sys.SELinuxEnforcing // set by ApplyThresholds pre-scan
 	for _, unit := range sys.FailedUnits {
+		// zfs-import-{scan,cache}.service failing is expected/benign on a host that
+		// imports no ZFS pools of its own — e.g. the ZFS HBA is passed through to a
+		// VM, or ZFS is installed but unused. Only a real CRIT when the host actually
+		// has imported pools. ZFSPoolsPresent is set by the ApplyThresholds pre-scan
+		// from the ZFS/Disk collectors (§O.2).
+		if isZFSImportUnit(unit) && !sys.ZFSPoolsPresent {
+			out = append(out, insight("INFO", "Systemd",
+				fmt.Sprintf("unit %s has failed, but no ZFS pools are imported on this host — expected when ZFS is passed through to a VM or unused", unit),
+				[]string{
+					fmt.Sprintf("to inspect: systemctl status %s", unit),
+					"to verify:  zpool list  (empty = no host pools, so the import failure is benign)",
+					fmt.Sprintf("to disable: systemctl disable %s  (if this host never imports pools)", unit),
+				},
+			))
+			continue
+		}
 		hints := []string{
 			fmt.Sprintf("to inspect: systemctl status %s", unit),
 			fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit),
@@ -297,6 +313,14 @@ func slowBootFix(unit string) []string {
 	default:
 		return nil
 	}
+}
+
+// isZFSImportUnit reports whether a unit is one of the ZFS pool-import services
+// (zfs-import-scan / zfs-import-cache, including the zfs-import@<pool> template
+// instances). Their failure is benign on a host that imports no pools of its own.
+func isZFSImportUnit(unit string) bool {
+	base := unitBaseName(unit) // strips ".service" and any "@instance"
+	return base == "zfs-import-scan" || base == "zfs-import-cache" || base == "zfs-import"
 }
 
 // unitBaseName extracts the base name from a systemd unit for use in ausearch -c.
@@ -657,12 +681,18 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 	var out []models.Insight
 	if logs.JournalCorrupt {
-		out = append(out, insight("CRIT", "Logs",
-			"journald journal corruption detected — some logs may be unreadable or missing",
+		// The collector only verifies archived (*.journal~) segments — active
+		// journals are skipped (they race with live writers, systemd#35916). So a
+		// hit here is always a damaged *historical* archive, common after an unclean
+		// shutdown; current logging is unaffected. WARN, not CRIT — a blanket
+		// "logs may be missing" CRIT on a rotated archive is the trust-eroding
+		// false-alarm Principle 4b warns against (§O.3).
+		out = append(out, insight("WARN", "Logs",
+			"an archived (rotated) journal segment failed verification — a historical log file has a damaged region; current logging is unaffected",
 			[]string{
 				"to inspect: journalctl --verify",
-				"to fix:     journalctl --rotate && journalctl --vacuum-time=1s",
-				"to fix:     rm /var/log/journal/*/*.journal~ (corrupted files)",
+				"to clean:   rm /var/log/journal/*/*.journal~  (removes the damaged archived segments)",
+				"note: only rotated *.journal~ archives are checked; active journals are not verified (they race with live writers)",
 			},
 		))
 	}

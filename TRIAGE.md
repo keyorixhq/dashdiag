@@ -528,7 +528,7 @@ is what's unverified.
 
 ---
 
-## O. "Correct reading, wrong context" false-CRITs on Proxmox hosts — READY (3 confirmed)
+## O. "Correct reading, wrong context" false-CRITs on Proxmox hosts — ✅ DONE (3 fixed, fix/proxmox-context-falsecrits-O); O.4 PVE-storage-INACTIVE candidate open
 
 A coherent new bug *class*, distinct from §L/§M. There the bug was a failed or
 garbage *measurement* rendered as a failed subject. Here the measurement is
@@ -600,10 +600,19 @@ hardware + real operator surfaces what synthetic fixtures cannot.)
 
 | Item | Surface | Status |
 |---|---|---|
-| O.1 LVM thin-pool usage vs VG allocation on Proxmox | LVM collector + heuristic | READY — repro in bundle, fix data already collected |
-| O.2 ZFS import-service CRIT only if host pools exist | ZFS/Systemd heuristic | READY |
-| O.3 Logs active vs archived `.journal~` corruption severity | Logs collector + heuristic | READY |
-| Replay-based regression for all three (offline, from bundle) | replay test | READY — bundle is the fixture |
+| O.1 LVM thin-pool usage vs VG allocation on Proxmox | LVM collector + heuristic | ✅ DONE (fix/proxmox-context-falsecrits-O) — VG-fullness skipped for thin-pool-backed VGs (`analysis.VGBacksThinPool`, single source of truth shared with `dsd disk`); thin-pool data/meta% still scored. **Validated end-to-end on the EPYC bundle: base v1.5.1 CRIT'd "pve 98% full", fixed binary → LVM ✅.** |
+| O.2 ZFS import-service CRIT only if host pools exist | ZFS/Systemd heuristic | ✅ DONE — `zfs-import-{scan,cache,@}` failure → INFO when no host ZFS pools imported; `SystemdInfo.ZFSPoolsPresent` set by ApplyThresholds pre-scan from the ZFS/Disk collectors. Unit-tested (heuristic + e2e pre-scan). |
+| O.3 Logs active vs archived `.journal~` corruption severity | Logs collector + heuristic | ✅ DONE — the collector already verifies *only* archived (`*.journal~`) segments (active ones race with writers, systemd#35916), so a hit is always a historical artifact → downgraded CRIT→WARN with honest wording. Unit-tested. |
+| Replay-based regression for all three (offline, from bundle) | replay test | PARTIAL — O.1 validated end-to-end against the EPYC bundle. O.2/O.3 can't be re-validated by replay of this bundle: it was captured on v1.4.0, and the v1.4.0→v1.5.1 collector-code skew means the journal-verify + failed-unit signals are no longer reconstructed in a v1.5.1 replay (base v1.5.1 replay already shows them clean). Covered by unit tests instead; would re-fire on a *live* v1.5.1 run. |
+
+**New finding while validating (NOT in scope here, needs owner confirmation → candidate O.4):**
+replaying the EPYC bundle with **base v1.5.1** surfaces **2 `PVE storage … INACTIVE` CRITs**
+(`VM03CR (dir)`, `Storage (dir)`) that were **absent in the v1.4.0 capture** and never
+mentioned by the host owner — i.e. a *new* "correct-reading / wrong-context" false-CRIT
+candidate introduced between v1.4.0 and v1.5.1, same class as O.1–O.3. A `dir`-type PVE
+storage can be intentionally disabled or on an optional mount; whether INACTIVE is a real
+fault is not derivable from the data alone (only the owner knows). Do not blind-fix — ask
+the owner whether those two storages should be active before deciding CRIT vs INFO/skip.
 
 Also confirmed clean this capture (good behaviour, not bugs): **no false GPU** —
 the host's `card0` has `device/vendor: not_exist` (virtual console DRM, no
