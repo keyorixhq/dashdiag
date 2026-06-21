@@ -57,7 +57,7 @@ func TestCheckPackageExtras(t *testing.T) {
 
 func TestCheckJournalHealthInsights(t *testing.T) {
 	assertLevel(t, checkJournalHealthInsights(models.LogsInfo{}), "")
-	assertLevel(t, checkJournalHealthInsights(models.LogsInfo{JournalCorrupt: true}), "CRIT")
+	assertLevel(t, checkJournalHealthInsights(models.LogsInfo{JournalCorrupt: true}), "WARN")
 }
 
 func TestCheckZFS(t *testing.T) {

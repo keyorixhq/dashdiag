@@ -15,8 +15,55 @@ import (
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	// Pre-scan results to extract context shared across checks.
-	// SELinux enforcing state is needed by checkSystemd to add double-layer hints.
-	selinuxEnforcing := false
+	selinuxEnforcing, zfsPoolsPresent := prescanContext(results, &thresh)
+
+	// Inject SELinux enforcing state + ZFS-pool presence into SystemdInfo for
+	// cross-check hints / failure-severity gating (§O.2).
+	for i, r := range results {
+		if r.Name == "Systemd" {
+			switch d := r.Data.(type) {
+			case *models.SystemdInfo:
+				if d != nil {
+					d.SELinuxEnforcing = selinuxEnforcing
+					d.ZFSPoolsPresent = zfsPoolsPresent
+				}
+			case models.SystemdInfo:
+				d.SELinuxEnforcing = selinuxEnforcing
+				d.ZFSPoolsPresent = zfsPoolsPresent
+				results[i].Data = d
+			}
+		}
+	}
+
+	var insights []models.Insight
+	for _, r := range results {
+		if r.Err != nil {
+			insights = append(insights, insight("INFO", r.Name,
+				fmt.Sprintf("check could not run — %v", r.Err), nil))
+			continue
+		}
+		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
+	}
+	// On NixOS the imperative fix hints (/etc/sysctl.d, /etc/ssh/sshd_config,
+	// apt/dnf/zypper) don't apply — rewrite them to the configuration.nix form.
+	if hostIsNixOS() {
+		insights = nixosifyHints(insights)
+	}
+	// Remedy text is generated in its Linux/systemd form; rewrite commands that
+	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
+	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
+	// fixes only the "to inspect/to fix" line. (TRIAGE §A.)
+	insights = adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
+	return insights
+}
+
+// prescanContext walks the collector results once to extract context shared
+// across checks before the per-check pass runs. It writes the package manager
+// and CPU load into thresh, and returns the SELinux-enforcing state (used by
+// checkSystemd for double-layer hints) and whether the host imports any ZFS
+// pools of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
+// zfs-import unit is benign when the ZFS HBA is passed through to a VM).
+func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforcing, zfsPoolsPresent bool) {
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -44,44 +91,25 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 			if d != nil && d.SELinuxPresent && d.SELinuxMode == "enforcing" {
 				selinuxEnforcing = true
 			}
-		}
-	}
-
-	// Inject SELinux enforcing state into SystemdInfo for cross-check hints
-	for i, r := range results {
-		if r.Name == "Systemd" {
-			switch d := r.Data.(type) {
-			case *models.SystemdInfo:
-				if d != nil {
-					d.SELinuxEnforcing = selinuxEnforcing
-				}
-			case models.SystemdInfo:
-				d.SELinuxEnforcing = selinuxEnforcing
-				results[i].Data = d
+		case models.ZFSInfo:
+			if len(d.Pools) > 0 {
+				zfsPoolsPresent = true
+			}
+		case *models.ZFSInfo:
+			if d != nil && len(d.Pools) > 0 {
+				zfsPoolsPresent = true
+			}
+		case models.DiskInfo:
+			if len(d.ZFSPools) > 0 {
+				zfsPoolsPresent = true
+			}
+		case *models.DiskInfo:
+			if d != nil && len(d.ZFSPools) > 0 {
+				zfsPoolsPresent = true
 			}
 		}
 	}
-
-	var insights []models.Insight
-	for _, r := range results {
-		if r.Err != nil {
-			insights = append(insights, insight("INFO", r.Name,
-				fmt.Sprintf("check could not run — %v", r.Err), nil))
-			continue
-		}
-		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
-	}
-	// On NixOS the imperative fix hints (/etc/sysctl.d, /etc/ssh/sshd_config,
-	// apt/dnf/zypper) don't apply — rewrite them to the configuration.nix form.
-	if hostIsNixOS() {
-		insights = nixosifyHints(insights)
-	}
-	// Remedy text is generated in its Linux/systemd form; rewrite commands that
-	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
-	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
-	// fixes only the "to inspect/to fix" line. (TRIAGE §A.)
-	insights = adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
-	return insights
+	return selinuxEnforcing, zfsPoolsPresent
 }
 
 // hostInitSystem returns the init system ("systemd", "openrc", "unknown") so the

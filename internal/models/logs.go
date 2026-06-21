@@ -33,6 +33,11 @@ type LogsInfo struct {
 	NeedsRoot     bool     `json:"needs_root,omitempty"`
 
 	// Journal health
+	// JournalCorrupt reflects corruption found in an ARCHIVED (rotated, *.journal~)
+	// segment only — the collector deliberately skips active *.journal files because
+	// journalctl --verify races with live writers (systemd#35916). A damaged archive
+	// is a historical artifact (common after an unclean shutdown), not current
+	// log-loss, so this drives a WARN, not a CRIT (§O.3).
 	JournalCorrupt        bool    `json:"journal_corrupt,omitempty"`
 	JournalVolatile       bool    `json:"journal_volatile,omitempty"`
 	JournalRateLimited    bool    `json:"journal_rate_limited,omitempty"`

@@ -453,6 +453,14 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 		}
 	}
 
+	// A VG that backs a thin pool is, by design, almost fully *allocated* to that
+	// pool — Proxmox's default layout hands nearly the whole VG to the `data` thin
+	// pool. "VG ~98% allocated" is then the normal healthy state, not a near-full
+	// disk: the number that matters is the thin pool's own data/metadata fill,
+	// scored above. Scoring VG free here produces a false near-full CRIT on every
+	// Proxmox host (and any thin-provisioned VG). Skip the VG-fullness check for
+	// thin-pool-backed VGs; MissingPVs (a real risk regardless) is still scored. (§O.1)
+
 	// VG free space — skip inactive VGs (no mounted LVs = leftover OS partition)
 	for _, vg := range l.VGs {
 		if !vg.HasMountedLV {
@@ -467,7 +475,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 			))
 			continue
 		}
-		if lv := LVMVGFullLevel(vg.FreePct); lv != "" {
+		if lv := LVMVGFullLevel(vg.FreePct); lv != "" && !VGBacksThinPool(l.ThinPools, vg.Name) {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
 					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),

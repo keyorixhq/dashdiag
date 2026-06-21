@@ -241,7 +241,9 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 	// LVM: full VGs (≤5% free = CRIT) or degraded RAID
 	if lvmInfo != nil {
 		for _, vg := range lvmInfo.VGs {
-			if vg.FreePct <= 5 {
+			// A thin-pool-backed VG is ~fully allocated to its pool by design;
+			// its free space is not a usage signal (§O.1) — match dsd health.
+			if vg.FreePct <= 5 && !analysis.VGBacksThinPool(lvmInfo.ThinPools, vg.Name) {
 				n++
 			}
 		}
@@ -367,14 +369,20 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 		icon := asciiOr("ok", "✅", mode)
 		note := ""
 		// Classify identically to dsd health (analysis.LVMVGFullLevel) so the two
-		// commands never disagree on the same VG (BUG-050 class).
-		switch analysis.LVMVGFullLevel(vg.FreePct) {
-		case "CRIT":
-			icon = asciiOr("fail", "❌", mode)
-			note = "  ← CRIT: VG almost full"
-		case "WARN":
-			icon = asciiOr("warn", "⚠️ ", mode)
-			note = "  ← low on space"
+		// commands never disagree on the same VG (BUG-050 class). A thin-pool-backed
+		// VG is ~fully allocated to its pool by design, so its free space is not a
+		// usage signal — leave it OK and let the thin-pool rows carry the verdict (§O.1).
+		if !analysis.VGBacksThinPool(lvm.ThinPools, vg.Name) {
+			switch analysis.LVMVGFullLevel(vg.FreePct) {
+			case "CRIT":
+				icon = asciiOr("fail", "❌", mode)
+				note = "  ← CRIT: VG almost full"
+			case "WARN":
+				icon = asciiOr("warn", "⚠️ ", mode)
+				note = "  ← low on space"
+			}
+		} else {
+			note = "  (thin-pool backed — allocation by design)"
 		}
 		fmt.Printf("  %s  %-20s %.1fGB total  %.1fGB free  (%.0f%%)%s\n",
 			icon, vg.Name, vg.SizeGB, vg.FreeGB, vg.FreePct, note)

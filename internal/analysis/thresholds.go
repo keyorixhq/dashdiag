@@ -1,6 +1,9 @@
 package analysis
 
-import "github.com/keyorixhq/dashdiag/internal/platform"
+import (
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
+)
 
 // Default disk / filesystem / ZFS capacity thresholds (percent used). Exported as
 // the single source of truth so the standalone `dsd disk` renderer classifies
@@ -80,6 +83,20 @@ func LVMSnapshotLevel(dataPct float64) string {
 // so callers don't each re-derive 100-free and risk drifting again.
 func LVMVGFullLevel(freePct float64) string {
 	return levelPct(100-freePct, LVMVGFullWarnPct, LVMVGFullCritPct)
+}
+
+// VGBacksThinPool reports whether volume group vgName backs at least one thin
+// pool. Such a VG is ~fully *allocated* to its pool by design (Proxmox's default
+// `pve` layout), so VG free space is not a usage signal — score the thin pool's
+// own data/metadata fill instead. Single source of truth for the health
+// heuristic and the `dsd disk` summary so the two never disagree (§O.1).
+func VGBacksThinPool(pools []models.LVMThinPool, vgName string) bool {
+	for _, p := range pools {
+		if p.VG == vgName {
+			return true
+		}
+	}
+	return false
 }
 
 // PVEStorageLevel classifies a Proxmox storage pool used percentage as "CRIT"/"WARN"/"".
