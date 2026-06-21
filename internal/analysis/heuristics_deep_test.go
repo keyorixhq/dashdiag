@@ -207,7 +207,10 @@ func TestCheckK8sOSLayer(t *testing.T) {
 		// NOT WARN (previously defaulted to "present", a false-OK; gating flips it).
 		{"unchecked kube-forward (no tools) is not WARN", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: false}, ""},
 		{"expired cert is CRIT", func() models.K8sOSLayer { l := ok; l.CertExpiredNames = []string{"apiserver"}; return l }(), "CRIT"},
-		{"cert expiring soon is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoonDays = 5; return l }(), "WARN"},
+		{"cert expiring soon is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoon = true; l.CertExpirySoonDays = 5; return l }(), "WARN"},
+		// Regression: a cert expiring TODAY (0 days, within 24h) must WARN, not read as
+		// the zero-value "none" (the 0-day false-OK — flag-gated, days==0 is valid).
+		{"cert expiring today (0 days) is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoon = true; l.CertExpirySoonDays = 0; return l }(), "WARN"},
 		{"kubelet errors is WARN", func() models.K8sOSLayer { l := ok; l.KubeletErrors = []string{"failed to pull image"}; return l }(), "WARN"},
 	}
 	for _, tt := range tests {

@@ -647,7 +647,7 @@ k8s node). Note: the K8s OS-layer is **deep-only** (`dsd k8s --deep` / `health d
 | Determinism: event reason-summary built from Go-map iteration | `heuristics_virt.go` | ✅ DONE #421 — sorted count-desc/name-asc (replay/JSON-stability) |
 | Tanzu (TKG) OS-layer — kubeadm/Photon/**Antrea** | `collectK8sOSLayer` (k8s.go) | PARTIAL — code review says largely TKG-ready (kubelet/containerd/CNI-bins/cert paths cover kubeadm; Antrea won't false-CRIT). Needs real TKG to validate |
 | No *positive* CNI-health check for non-flannel CNIs (Antrea/Calico/Cilium) | k8s OS-layer | BLOCKED (needs TKG) — mild false-OK; pod-not-ready/sandbox events catch a broken CNI |
-| `checkCertExpiry` 0-day sentinel collision (cert expiring today reads as "unset") | k8s.go ~578 | READY — narrow 24h-window false-OK, general (not TKG-specific) |
+| `checkCertExpiry` 0-day sentinel collision (cert expiring today reads as "unset") | k8s.go ~578 | ✅ DONE (fix/k8s-cert-0day) — `CertExpirySoon` companion bool gates the WARN so 0 days (within 24h) no longer collides with the zero-value "none"; regression test in heuristics_deep_test.go |
 
 Rig kept running on the tenant guest for re-validating K8s changes on the true
 topology. The k3s-on-VMware path is now a concrete demo/pilot asset.

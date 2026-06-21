@@ -575,7 +575,11 @@ func checkCertExpiry(dir string, layer *models.K8sOSLayer) {
 		daysLeft := int(cert.NotAfter.Sub(now).Hours() / 24)
 		if daysLeft < 0 {
 			layer.CertExpiredNames = append(layer.CertExpiredNames, filepath.Base(certPath))
-		} else if daysLeft < 30 && (layer.CertExpirySoonDays == 0 || daysLeft < layer.CertExpirySoonDays) {
+		} else if daysLeft < 30 && (!layer.CertExpirySoon || daysLeft < layer.CertExpirySoonDays) {
+			// Track via the CertExpirySoon flag, not a magic days value: a cert
+			// expiring today (daysLeft==0) must still register. Previously 0 days
+			// collided with the zero-value "none", silently reading as OK.
+			layer.CertExpirySoon = true
 			layer.CertExpirySoonDays = daysLeft
 		}
 	}
