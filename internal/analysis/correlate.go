@@ -719,8 +719,11 @@ func ruleServiceMemoryLeak(oom *models.OOMInfo) (Correlation, bool) {
 	// Find the process killed most often (must be ≥ 2)
 	var leaker string
 	var maxCount int
+	// counts is a map; tie-break by process name so the reported leaker is stable
+	// run-to-run when two processes were OOM-killed the same (max) number of times
+	// (otherwise map iteration order picks the winner — TRIAGE §I).
 	for proc, n := range counts {
-		if n > maxCount {
+		if n > maxCount || (n == maxCount && proc < leaker) {
 			maxCount = n
 			leaker = proc
 		}

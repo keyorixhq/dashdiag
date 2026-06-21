@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,21 @@ func TestRuleServiceMemoryLeak(t *testing.T) {
 	}
 	if _, ok := ruleServiceMemoryLeak(nil); ok {
 		t.Error("nil OOMInfo should not fire")
+	}
+	// Determinism (TRIAGE §I): when two processes tie for most-killed, the named
+	// leaker must be stable (lexicographically smallest), not map-iteration-order
+	// dependent. "apache" and "redis" each die twice → must always name "apache".
+	tie := &models.OOMInfo{
+		Available: true, EventsLast24h: 4,
+		RecentEvents: []models.OOMEvent{
+			{Process: "redis"}, {Process: "apache"}, {Process: "redis"}, {Process: "apache"},
+		},
+	}
+	for i := 0; i < 50; i++ {
+		c, ok := ruleServiceMemoryLeak(tie)
+		if !ok || !strings.Contains(c.Summary, "apache") {
+			t.Fatalf("tie must stably name 'apache', got ok=%v summary=%q", ok, c.Summary)
+		}
 	}
 }
 

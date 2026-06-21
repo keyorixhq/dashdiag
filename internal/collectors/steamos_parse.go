@@ -3,6 +3,7 @@ package collectors
 import (
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -472,8 +473,16 @@ func detectSSIDConflict(ifaces []iwIface) (conflict bool, ssid string) {
 			counts[ifc.SSID]++
 		}
 	}
-	for name, n := range counts {
-		if n >= 2 {
+	// Deterministic pick: counts is a map, so iterate SSIDs in sorted order and
+	// return the first conflicting one — otherwise the reported SSID varies
+	// run-to-run when two+ SSIDs each span 2+ interfaces (TRIAGE §I).
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if counts[name] >= 2 {
 			return true, name
 		}
 	}

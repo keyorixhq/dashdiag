@@ -6,7 +6,29 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+func TestActiveInsightsDeterministicOrder(t *testing.T) {
+	// seen is a map; activeInsights must return a name-sorted slice so the narrated
+	// story line order is stable run-to-run (TRIAGE §I). OK-level is dropped.
+	ins := []models.Insight{
+		{Check: "Zebra", Level: "WARN", Message: "z"},
+		{Check: "Apple", Level: "CRIT", Message: "a"},
+		{Check: "Mango", Level: "WARN", Message: "m"},
+		{Check: "Healthy", Level: "OK", Message: "ok"},
+	}
+	for i := 0; i < 50; i++ {
+		got := activeInsights(ins)
+		if len(got) != 3 {
+			t.Fatalf("expected 3 active insights, got %d", len(got))
+		}
+		if got[0].Check != "Apple" || got[1].Check != "Mango" || got[2].Check != "Zebra" {
+			t.Fatalf("expected stable order [Apple Mango Zebra], got [%s %s %s]",
+				got[0].Check, got[1].Check, got[2].Check)
+		}
+	}
+}
 
 func TestDegradeArrow(t *testing.T) {
 	tests := []struct {

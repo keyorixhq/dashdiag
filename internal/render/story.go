@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -158,6 +159,9 @@ func activeInsights(insights []models.Insight) []models.Insight {
 	for _, ins := range seen {
 		out = append(out, ins)
 	}
+	// seen is a map; sort by check name so the narrated story line order is stable
+	// run-to-run (otherwise 2+ active insights shuffle — TRIAGE §I).
+	sort.Slice(out, func(i, j int) bool { return out[i].Check < out[j].Check })
 	return out
 }
 

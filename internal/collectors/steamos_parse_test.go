@@ -338,4 +338,16 @@ func TestDetectSSIDConflict(t *testing.T) {
 	if c, _ := detectSSIDConflict([]iwIface{{SSID: ""}, {SSID: ""}}); c {
 		t.Error("empty SSIDs must not count as a conflict")
 	}
+	// Determinism (TRIAGE §I): when two+ SSIDs each conflict, the reported one must
+	// be stable — the lexicographically smallest — not whichever map iteration hits
+	// first. Run repeatedly to defeat per-run map-order randomization.
+	multi := []iwIface{
+		{Name: "wlan0", SSID: "Zeta"}, {Name: "wlan1", SSID: "Zeta"},
+		{Name: "wlan2", SSID: "Alpha"}, {Name: "wlan3", SSID: "Alpha"},
+	}
+	for i := 0; i < 50; i++ {
+		if c, s := detectSSIDConflict(multi); !c || s != "Alpha" {
+			t.Fatalf("expected stable conflict on 'Alpha', got %v/%q", c, s)
+		}
+	}
 }
