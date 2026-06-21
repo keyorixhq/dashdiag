@@ -830,10 +830,15 @@ func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 				"to fix (k3s): sudo systemctl restart k3s  (auto-renews certs)",
 			},
 		))
-	} else if l.CertExpirySoonDays > 0 {
+	} else if l.CertExpirySoon {
+		// Flag-gated (not days>0): a cert expiring today is 0 days, which must still
+		// surface — the old days>0 test let it read as the zero-value OK (false-OK).
+		when := fmt.Sprintf("in %d day(s)", l.CertExpirySoonDays)
+		if l.CertExpirySoonDays == 0 {
+			when = "in less than a day"
+		}
 		out = append(out, insight("WARN", "K8s",
-			fmt.Sprintf("k8s certificate(s) expire in %d day(s) — renew before expiry",
-				l.CertExpirySoonDays),
+			fmt.Sprintf("k8s certificate(s) expire %s — renew before expiry", when),
 			[]string{
 				"to fix (kubeadm): kubeadm certs renew all",
 				"to fix (k3s): sudo systemctl restart k3s",
