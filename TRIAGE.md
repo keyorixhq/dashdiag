@@ -711,6 +711,45 @@ one) or a consumer drive with vendor-encoded id-198 raw.
 
 ---
 
+## R. GPU thermal implausible-value → false "thermal throttling" CRIT — ✅ DONE (fix/gpu-temp-plausibility-Q2, 2026-06-22)
+
+The raw-tool implausible-value class (§L NVMe, §Q SATA) applied to **GPU
+thermals**, found by an audit of which parsed numerics drive a verdict without a
+plausibility gate. `readSysfsMilliC` (gpu_linux.go) reads hwmon `temp*_input` with
+a bare `ParseInt/1000` and **no bounds check**, so a virtual GPU, a faulted
+sensor, or a garbage/sentinel sysfs value surfaces as thousands of °C. Both
+verdict paths then fired a false **CRIT**:
+- `checkGPUDevice` (dsd health): `TempC >= 90` → "thermal throttling likely",
+  `TempJunctionC >= 100` → "emergency thermal threshold".
+- `gpuSummaryLine` + `gpuHints` (dsd gpu): same thresholds — a separate code path,
+  so the bug existed in *both* (the cmd-verdict-drift footgun).
+
+Fix (no `--json` schema change):
+- **`GPUTempPlausible(c int)`** (exported, analysis) — reject temp ∉ [-40,150]°C.
+  Real GPU silicon throttles then hard-shuts-down well below 150°C, so out-of-range
+  is garbage, not an overheat. (0 is handled earlier by `GPUDeviceHasMetrics`.)
+- Edge + junction blocks in `checkGPUDevice` gate on it → implausible reads emit a
+  **WARN** "implausible temperature — thermal health unverified, reading rejected"
+  and do NOT score the temp. Same gate wired into `gpuSummaryLine` (implausible →
+  WARN, never CRIT, never a false "healthy") and `gpuHints` (no false emergency).
+- Regression: `TestCheckGPU` (garbage edge/junction→WARN-not-CRIT, negative+real-
+  metric→WARN, boundaries: real 105°C/110°C/150°C still CRIT) +
+  `TestGPUSummaryLineImplausibleTemp` (cmd path: garbage→elevated not issue/healthy;
+  real 105°C still CRIT). Both verdict paths now agree.
+
+Offline-validatable (unit only). Live repro target: a GPU-passthrough/virtual
+console DRM device, or any faulted hwmon sensor. Note: this is the false-CRIT
+(implausibly-high) direction; the all-zero false-OK direction was §F (#383).
+
+| Item | Surface | Status |
+|---|---|---|
+| `GPUTempPlausible` bounds-gate, exported, shared by both paths | `heuristics_hardware.go` | ✅ done |
+| Gate edge+junction in `checkGPUDevice` → WARN not CRIT | `heuristics_hardware.go` | ✅ done |
+| Gate `gpuSummaryLine` + `gpuHints` (close cmd-verdict drift) | `cmd/gpu.go` | ✅ done |
+| Regression both paths (garbage→WARN, real overheat still CRIT) | `heuristics_round5_test.go`, `cmd/gpu_test.go` | ✅ done |
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
