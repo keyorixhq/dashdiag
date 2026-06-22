@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-06-23
+
+Patch: a cosmetic-but-misleading thermal-display fix surfaced on a real AWS
+Graviton2 instance. No `dsd health --json` schema change.
+
+### Fixed
+
+- **`dsd hardware` no longer shows a 0-Kelvin sentinel as "✅ -273°C".** Virtual/
+  cloud hwmon — notably the AWS EBS NVMe "Composite" sensor — returns the 0-Kelvin
+  "not reported" sentinel (-273°C). The CPU Thermals display defaulted any sub-60°C
+  reading to a healthy "✅", so it rendered "Composite: ✅ -273°C (nvme)" — a green
+  check on a physically-impossible reading, on every cloud NVMe. An out-of-plausible-
+  range sensor (< -40 or > 150°C) now renders "ℹ️ not reported", matching the GPU
+  (1.5.3) and NVMe-SMART (1.5.5) implausible-temp gates. Found + verified live on a
+  Graviton2 EBS host (#441).
+
 ## [1.5.5] - 2026-06-23
 
 Patch: a fleet-wide AWS-EBS false-WARN fix surfaced by validating on a real
