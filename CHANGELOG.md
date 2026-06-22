@@ -11,6 +11,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-06-23
+
+Patch: a fleet-wide AWS-EBS false-WARN fix surfaced by validating on a real
+Graviton2 (arm64) instance, plus a multipath message polish. No `dsd health --json`
+schema change.
+
+### Fixed
+
+- **AWS EBS / virtual NVMe no longer raises a false "implausible SMART data" WARN.**
+  EBS NVMe exposes no temperature sensor and reports `-273 °C` (0 Kelvin) with
+  all-zero SMART. The plausibility gate (v1.5.3 §L) treated `-273` as implausible
+  garbage and raised "implausible SMART data — health unverified, values rejected"
+  on **every EBS volume on every EC2 instance** (arm64 and amd64) once `nvme-cli`
+  is installed. The 0-Kelvin "not reported" sentinel is now recognized as a
+  virtual/cloud volume and surfaced as an honest **INFO** ("no real SMART telemetry
+  — e.g. AWS EBS"), distinct from a device actively reporting an impossible value
+  (VMware's 11758°C, still WARN). Found + verified live on a Graviton2 t4g.small (#440).
+- **Multipath: no duplicate `name (dm)` in the degraded/failed message.** With
+  `user_friendly_names` the alias equals the dm name, so the insight rendered
+  "mpathb (mpathb): …"; it now collapses to "mpathb: …" (and avoids a dangling
+  "()" when the dm field is empty). Verified on the VM101 multipath rig (#439).
+
 ## [1.5.4] - 2026-06-22
 
 Patch: a privilege-degradation false-OK fix surfaced by the standing root/non-root

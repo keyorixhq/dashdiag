@@ -171,6 +171,16 @@ func TestCheckNVMe(t *testing.T) {
 		// drive (spare below a real threshold, hot but in-range) still CRITs/ WARNs.
 		{"nvme real failing drive still CRIT", nvme(models.NVMeDevice{Name: "nvme0", TempC: 45, AvailableSparePct: 5, SpareThresholdPct: 10, PowerOnHours: 40000}), "CRIT"},
 		{"nvme high-but-real temp still WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 80}), "WARN"},
+		// AWS EBS / virtual NVMe: SMART read succeeds but every field is a not-reported
+		// sentinel — temp -273°C (0 Kelvin), all else 0. Pre-fix this tripped the
+		// implausible-temp gate → a fleet-wide false WARN on every EC2 instance. Must
+		// now be INFO ("no real SMART telemetry"), NOT WARN, and NOT a silent healthy.
+		// Found live on a Graviton2 t4g.small with EBS volumes.
+		{"nvme ebs sentinel (0K temp, all-zero) is INFO not WARN", nvme(models.NVMeDevice{
+			Name: "nvme0", TempC: -273, AvailableSparePct: 0, SpareThresholdPct: 0, PercentageUsed: 0,
+		}), "INFO"},
+		// A real garbage temp (not the 0K sentinel) still rejects as implausible WARN.
+		{"nvme garbage cold temp -100 still WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: -100}), "WARN"},
 		// TRIAGE §L §E.3 SATA sibling — garbage-but-parseable SMART on a virtual /
 		// USB-bridged SATA controller, or a vendor-encoded raw ATA attribute read
 		// as a plain count. Before the SATA plausibility guard, attr 198 raw →

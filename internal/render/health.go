@@ -533,7 +533,10 @@ func inlineDrives(data interface{}) string {
 	// where smartctl fails for every SATA drive, still render "N drives healthy".
 	unread := 0
 	for _, d := range n.Devices {
-		if !d.SmartRead {
+		// !SmartRead = nvme-cli absent. NVMeNoRealData = SMART read but all-sentinel
+		// (virtual/cloud volume, e.g. AWS EBS — 0-Kelvin temp + all-zero); either way
+		// nothing was verified, so it must not render "healthy".
+		if !d.SmartRead || analysis.NVMeNoRealData(d) {
 			unread++
 		}
 	}

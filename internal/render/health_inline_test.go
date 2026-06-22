@@ -122,6 +122,23 @@ func TestInlineDrivesSmartUnread(t *testing.T) {
 	if got := inlineDrives(sataOK); got != "/dev/sda  healthy" {
 		t.Errorf("verified SATA: inlineDrives = %q, want healthy", got)
 	}
+
+	// AWS EBS / virtual NVMe: SMART "read" but all sentinels (0K temp, all-zero) —
+	// must NOT render "healthy" (validated live on a Graviton2 t4g.small).
+	ebs := models.NVMeInfo{Devices: []models.NVMeDevice{
+		{Name: "/dev/nvme0", SmartRead: true, TempC: -273},
+		{Name: "/dev/nvme1", SmartRead: true, TempC: -273},
+	}}
+	if got := inlineDrives(ebs); got != "2 drives, 2 SMART not read" {
+		t.Errorf("EBS sentinel NVMe: inlineDrives = %q, want all-unread, not healthy", got)
+	}
+	// A real NVMe with a real temp still renders healthy.
+	realNVMe := models.NVMeInfo{Devices: []models.NVMeDevice{
+		{Name: "/dev/nvme0", SmartRead: true, TempC: 35},
+	}}
+	if got := inlineDrives(realNVMe); got != "/dev/nvme0  healthy" {
+		t.Errorf("real NVMe: inlineDrives = %q, want healthy", got)
+	}
 }
 
 // Sub-GB totals (small containers / minimal VMs) used to floor to "0 GB" under
