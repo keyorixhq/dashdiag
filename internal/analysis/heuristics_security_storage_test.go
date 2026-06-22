@@ -160,3 +160,31 @@ func TestCheckRAID(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckRAIDDegradedMessage guards the degraded-CRIT wording for the two real
+// mdstat cases (validated on pve01): a drive failed in place is named ("(F)" in
+// the header → arr.Failed), but a drive fully dropped out of the array is gone
+// from the header — arr.Failed is empty, and the message must NOT render a bare
+// "failed: " (cosmetic blemish in a CRIT line during a real incident).
+func TestCheckRAIDDegradedMessage(t *testing.T) {
+	named := checkRAID(models.RAIDInfo{Arrays: []models.RAIDDevice{
+		{Name: "md0", Level: "raid1", State: "degraded", Active: 1, Total: 2, Failed: []string{"loop0"}},
+	}})
+	if len(named) == 0 || !strings.Contains(named[0].Message, "failed: loop0") {
+		t.Errorf("named-failure degraded message should list the failed drive, got: %+v", named)
+	}
+
+	droppedOut := checkRAID(models.RAIDInfo{Arrays: []models.RAIDDevice{
+		{Name: "md0", Level: "raid1", State: "degraded", Active: 1, Total: 2, Failed: nil},
+	}})
+	if len(droppedOut) == 0 {
+		t.Fatal("dropped-out degraded array must still produce a CRIT")
+	}
+	msg := droppedOut[0].Message
+	if strings.Contains(msg, "failed: ") {
+		t.Errorf("dropped-out degraded message must not render a bare 'failed: ', got: %q", msg)
+	}
+	if !strings.Contains(msg, "redundancy lost") {
+		t.Errorf("dropped-out degraded message should explain redundancy is lost, got: %q", msg)
+	}
+}
