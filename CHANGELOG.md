@@ -11,6 +11,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-06-22
+
+Patch: a privilege-degradation false-OK fix surfaced by the standing root/non-root
+validation pass on real hardware, plus a RAID message polish. No `dsd health --json`
+schema change.
+
+### Fixed
+
+- **SATA SMART that smartctl couldn't read no longer renders "healthy" (non-root
+  false-OK).** smartctl needs root; an unprivileged `dsd health` got
+  `smart_read:false` + an error for every SATA drive, yet the Drives check reported
+  status OK / "N drives healthy" — false reassurance for an unprivileged operator.
+  An errored or unread SATA drive now degrades to the honest "SMART health not read
+  — running unprivileged (smartctl needs root) / RAID/USB/virtual" INFO (never a
+  CRIT), and the inline summary no longer counts unverified SATA drives as healthy.
+  Matches the sibling collectors (KernelSec/Hardening/PVE). Found + verified on
+  pve01 bare metal (#438).
+- **RAID degraded message: no bare "failed: " for a dropped-out drive.** When a
+  drive fully drops out of an array (vs failing in place) it's gone from
+  `/proc/mdstat`, so it can't be named — the degraded CRIT now reads "redundancy
+  lost (a drive dropped out of the array)" instead of a trailing-empty "failed: ".
+  Verdict was always correct (CRIT); wording only (#437).
+
 ## [1.5.3] - 2026-06-22
 
 Patch: extends the v1.5.2 correctness sweep to the raw-tool implausible-value
