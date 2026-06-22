@@ -223,6 +223,16 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 	if len(info.Thermals) > 0 {
 		fmt.Println(render.StyleBold.Render("CPU Thermals"))
 		for _, t := range info.Thermals {
+			// A sensor reporting the 0-Kelvin sentinel (-273°C) or otherwise out of a
+			// plausible range isn't measuring — common on virtual/cloud hwmon (e.g.
+			// AWS EBS NVMe "Composite" returns 0 K). Don't render it as a healthy
+			// "✅ -273°C" (a green check on an impossible reading); show it as
+			// unreported. Same implausible-temp class as the GPU/NVMe SMART gates.
+			if t.TempC < -40 || t.TempC > 150 {
+				fmt.Printf("  %-14s %s  not reported  (%s)\n",
+					t.Label+":", output.StatusIcon("info", mode), t.Sensor)
+				continue
+			}
 			level := "ok"
 			note := ""
 			if t.TempC >= 95 {
