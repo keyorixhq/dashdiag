@@ -763,9 +763,21 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 	for _, arr := range r.Arrays {
 		switch arr.State {
 		case "degraded":
+			// A drive that's failed in place still shows as "(F)" in /proc/mdstat
+			// (named in arr.Failed); a drive that's fully dropped out is gone from
+			// the header — we know one is missing from the [n/m] counts but can't
+			// name it. Only append the "failed: <names>" clause when we actually
+			// have names, else the message renders a bare "failed: " (validated on
+			// pve01, a removed-disk degraded array).
+			detail := ""
+			if len(arr.Failed) > 0 {
+				detail = ", failed: " + strings.Join(arr.Failed, ", ")
+			} else {
+				detail = " — redundancy lost (a drive dropped out of the array)"
+			}
 			out = append(out, insight("CRIT", "RAID",
-				fmt.Sprintf("%s (%s) is DEGRADED — %d/%d drives active, failed: %s",
-					arr.Name, arr.Level, arr.Active, arr.Total, strings.Join(arr.Failed, ", ")),
+				fmt.Sprintf("%s (%s) is DEGRADED — %d/%d drives active%s",
+					arr.Name, arr.Level, arr.Active, arr.Total, detail),
 				[]string{
 					"to inspect: cat /proc/mdstat",
 					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
