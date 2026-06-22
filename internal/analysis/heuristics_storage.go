@@ -49,6 +49,49 @@ func nvmeSmartPlausible(dev models.NVMeDevice) bool {
 	return true
 }
 
+// sataSmartPlausible is the SATA/SAS sibling of nvmeSmartPlausible (TRIAGE §L,
+// §E.3 sibling-divergence). The SATA scoring path reads its error counters from
+// raw ATA SMART attribute values (id 5/197/198), and those raw fields are
+// notoriously vendor-encoded — some drives pack temperature, timestamps, or
+// other data into the raw column, so a non-zero "uncorrectable" raw can be a
+// false-CRIT source on perfectly healthy consumer drives, not only on virtual
+// SATA controllers (VMware/QEMU) and USB-SATA bridges that emit sentinel
+// garbage. When this returns false the caller must route the device to the
+// "detected but health-unverified" WARN path and NOT score its attribute fields,
+// exactly as the NVMe path does. The drive's own smart_status verdict is also
+// considered untrustworthy here — a device reporting physically-impossible
+// attributes is not a reliable narrator of its own pass/fail.
+func sataSmartPlausible(dev models.SATADevice) bool {
+	// Temperature: SATA HDD/SSD operating + storage range is generously
+	// [-40, 125]°C; the garbage path reports thousands of degrees.
+	if dev.TempC < -40 || dev.TempC > 125 {
+		return false
+	}
+	// Sector counters are bounded by the drive's sector count, and a drive with
+	// even ~10^5 reallocated/pending/uncorrectable sectors is long dead and would
+	// already fail its SMART self-assessment. A ceiling of 10^8 rejects sentinel
+	// values (raw fields sitting near 2^31/2^63, or a packed vendor encoding read
+	// as a plain count) without suppressing any real failing drive. Negative is
+	// impossible for a count (raw int64→int wrap on garbage).
+	const maxPlausibleSectors = 100_000_000
+	if dev.ReallocatedSectors < 0 || dev.ReallocatedSectors > maxPlausibleSectors {
+		return false
+	}
+	if dev.PendingSectors < 0 || dev.PendingSectors > maxPlausibleSectors {
+		return false
+	}
+	if dev.UncorrectableErrors < 0 || dev.UncorrectableErrors > maxPlausibleSectors {
+		return false
+	}
+	// Power-on hours: same ~114-year ceiling as NVMe (id 9 raw is also vendor-
+	// encoded on some drives and can read as a sentinel).
+	const maxPlausibleHours = 1_000_000
+	if dev.PowerOnHours < 0 || dev.PowerOnHours > maxPlausibleHours {
+		return false
+	}
+	return true
+}
+
 func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + SATA/SAS checks — each drive type is a distinct section
 	var out []models.Insight
 
@@ -159,7 +202,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 	}
 
 	// SATA/SAS drives
-	var sataUnread []string
+	var sataUnread, sataImplausible []string
 	for _, dev := range n.SATADevices {
 		if dev.Error != "" {
 			continue
@@ -169,6 +212,15 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 		// firing a confident "drive may be failing" CRIT on an unverified drive.
 		if !dev.SmartRead {
 			sataUnread = append(sataUnread, dev.Name)
+			continue
+		}
+		// Read succeeded but the values are physically impossible (garbage raw ATA
+		// attributes — vendor-encoded raw fields, virtual SATA controllers, USB
+		// bridges; see sataSmartPlausible / TRIAGE §L §E.3). Route to the
+		// implausible WARN and DO NOT score any field — including the smart_status
+		// verdict, which is untrustworthy on a drive reporting impossible attrs.
+		if !sataSmartPlausible(dev) {
+			sataImplausible = append(sataImplausible, dev.Name)
 			continue
 		}
 		if !dev.SmartOK {
@@ -210,6 +262,16 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 				[]string{"to inspect: smartctl -a " + dev.Name},
 			))
 		}
+	}
+	if len(sataImplausible) > 0 {
+		out = append(out, insight("WARN", "Drives",
+			fmt.Sprintf("%d SATA/SAS drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
+				len(sataImplausible), strings.Join(sataImplausible, ", ")),
+			[]string{
+				"to inspect: smartctl -a " + sataImplausible[0],
+				"note: out-of-range temperature/sector-counts (vendor-encoded raw attributes, or virtual/USB-bridged SATA) — readings ignored to avoid a false drive-failure alarm",
+			},
+		))
 	}
 	if len(sataUnread) > 0 {
 		out = append(out, insight("INFO", "Drives",
