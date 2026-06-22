@@ -526,11 +526,19 @@ func inlineDrives(data interface{}) string {
 	if total == 0 {
 		return ""
 	}
-	// NVMe devices whose SMART log was never read (no nvme-cli) carry zero-default
-	// health fields — they are detected, not verified-healthy. Don't claim "healthy".
+	// Devices whose SMART was never read carry zero-default health fields — they are
+	// detected, not verified-healthy. Don't claim "healthy". NVMe: no nvme-cli. SATA:
+	// smartctl errored (permission/non-root — validated on pve01) or returned no
+	// smart_status (USB/RAID/virtual). Counting only NVMe here let a non-root run,
+	// where smartctl fails for every SATA drive, still render "N drives healthy".
 	unread := 0
 	for _, d := range n.Devices {
 		if !d.SmartRead {
+			unread++
+		}
+	}
+	for _, d := range n.SATADevices {
+		if !d.SmartRead || d.Error != "" {
 			unread++
 		}
 	}

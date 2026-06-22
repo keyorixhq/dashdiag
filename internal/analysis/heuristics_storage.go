@@ -204,13 +204,14 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 	// SATA/SAS drives
 	var sataUnread, sataImplausible []string
 	for _, dev := range n.SATADevices {
-		if dev.Error != "" {
-			continue
-		}
-		// Detected but no SMART verdict (USB bridge / RAID member / virtual disk
-		// — smartctl emits JSON with no smart_status). Surface as INFO instead of
-		// firing a confident "drive may be failing" CRIT on an unverified drive.
-		if !dev.SmartRead {
+		// smartctl could not read this drive's SMART — it errored (permission /
+		// non-root, transient) or returned no smart_status (USB bridge, RAID/HBA
+		// member, virtual disk). Either way health is UNVERIFIED → surface it (INFO),
+		// do NOT silently skip: a silent skip let the inline summary count the drive
+		// as healthy, a non-root false-OK validated on pve01 (smartctl needs root, so
+		// an unprivileged `dsd health` read "2 drives healthy" while SMART was never
+		// read). Never a confident "drive may be failing" CRIT on an unverified drive.
+		if dev.Error != "" || !dev.SmartRead {
 			sataUnread = append(sataUnread, dev.Name)
 			continue
 		}
@@ -275,9 +276,10 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 	}
 	if len(sataUnread) > 0 {
 		out = append(out, insight("INFO", "Drives",
-			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART, or a virtual disk",
+			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — running unprivileged (smartctl needs root), or a drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART, or a virtual disk",
 				len(sataUnread), strings.Join(sataUnread, ", ")),
 			[]string{
+				"to fix: re-run as root — SMART reads require privilege (sudo dsd health)",
 				"to inspect: smartctl -a <device>  (try -d sat / -d cciss,N for controllers)",
 				"note: drive presence is known; SMART health, wear, and errors are unverified",
 			},

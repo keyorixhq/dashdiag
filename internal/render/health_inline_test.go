@@ -99,6 +99,29 @@ func TestInlineDrivesSmartUnread(t *testing.T) {
 	if got := inlineDrives(mixed); got != "2 drives, 1 SMART not read" {
 		t.Errorf("mixed drives: inlineDrives = %q, want count with unread note", got)
 	}
+
+	// SATA drives whose smartctl errored (non-root — validated on pve01) must NOT
+	// be tallied as "healthy"; counting only NVMe here was the false-OK.
+	sataErrored := models.NVMeInfo{SATADevices: []models.SATADevice{
+		{Name: "/dev/sda", SmartRead: false, Error: "smartctl failed"},
+		{Name: "/dev/sdb", SmartRead: false, Error: "smartctl failed"},
+	}}
+	if got := inlineDrives(sataErrored); got != "2 drives, 2 SMART not read" {
+		t.Errorf("non-root SATA: inlineDrives = %q, want all-unread, not healthy", got)
+	}
+	singleSATAErr := models.NVMeInfo{SATADevices: []models.SATADevice{
+		{Name: "/dev/sda", SmartRead: false, Error: "smartctl failed"},
+	}}
+	if got := inlineDrives(singleSATAErr); got != "/dev/sda  detected (SMART not read)" {
+		t.Errorf("single errored SATA: inlineDrives = %q, want SMART-not-read text", got)
+	}
+	// A genuinely verified SATA drive still renders healthy.
+	sataOK := models.NVMeInfo{SATADevices: []models.SATADevice{
+		{Name: "/dev/sda", SmartRead: true, SmartOK: true},
+	}}
+	if got := inlineDrives(sataOK); got != "/dev/sda  healthy" {
+		t.Errorf("verified SATA: inlineDrives = %q, want healthy", got)
+	}
 }
 
 // Sub-GB totals (small containers / minimal VMs) used to floor to "0 GB" under
