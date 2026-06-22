@@ -140,7 +140,12 @@ func TestCheckNVMe(t *testing.T) {
 		{"sata smart fail is CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: false}), "CRIT"},
 		{"sata uncorrectable is CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 1}), "CRIT"},
 		{"sata reallocated is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, ReallocatedSectors: 4}), "WARN"},
-		{"sata read error skipped", sata(models.SATADevice{Name: "/dev/sda", SmartOK: false, Error: "permission denied"}), ""},
+		// smartctl errored (e.g. non-root permission) → health UNVERIFIED → INFO,
+		// NOT silently dropped. A silent drop let the inline summary count the drive
+		// as healthy — the non-root false-OK validated on pve01. Must never CRIT.
+		{"sata read error is INFO not silent/CRIT", sata(models.SATADevice{Name: "/dev/sda", SmartOK: false, Error: "permission denied"}), "INFO"},
+		// Realistic non-root SATA: smartctl failed, SmartRead false → INFO, never OK.
+		{"sata smartctl-failed non-root is INFO", models.NVMeInfo{SATADevices: []models.SATADevice{{Name: "/dev/sda", Type: "sata", SmartRead: false, Error: "smartctl failed"}}}, "INFO"},
 		// Detected but SMART never reported (controller/USB bridge/virtual disk) →
 		// INFO, NOT a confident "drive may be failing" CRIT. No SmartRead → not via
 		// the sata() helper.
