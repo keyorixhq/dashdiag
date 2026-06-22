@@ -20,9 +20,35 @@ import (
 // catches "never measured", this catches "measured garbage". When it returns
 // false the caller must treat the device as health-unverified (route to the
 // "detected but not verified" INFO path), NOT score its fields.
+// nvmeTempSentinel reports whether the temperature reading is the 0-Kelvin
+// "not reported" sentinel (-273°C). Virtual/cloud NVMe (AWS EBS, and other
+// hypervisor-presented volumes) expose no temperature sensor and return 0 K,
+// which the tool prints as "-273 °C". This is "unreported", NOT garbage — it must
+// be distinguished from a device actively reporting an impossible temperature
+// (VMware's 11758°C), which IS garbage and stays rejected.
+func nvmeTempSentinel(dev models.NVMeDevice) bool {
+	return dev.TempC <= -273
+}
+
+// NVMeNoRealData reports whether the SMART log was read but every field is at its
+// not-reported sentinel — a virtual/cloud volume (e.g. AWS EBS) that passes no
+// real SMART telemetry. The 0-Kelvin temp is the tell; a real drive reports a
+// real temperature. Exported so the renderer's inline summary agrees with the
+// heuristic (a no-data drive must not render "healthy"). Distinct from "implausible"
+// (active garbage → WARN) and from "unread" (no nvme-cli → INFO).
+func NVMeNoRealData(dev models.NVMeDevice) bool {
+	return nvmeTempSentinel(dev) &&
+		dev.AvailableSparePct == 0 && dev.SpareThresholdPct == 0 &&
+		dev.PercentageUsed == 0 && dev.CriticalWarning == 0 &&
+		dev.MediaErrors == 0 && dev.UnsafeShutdowns == 0 &&
+		dev.PowerOnHours == 0 && dev.PowerCycles == 0
+}
+
 func nvmeSmartPlausible(dev models.NVMeDevice) bool {
-	// Temperature: NVMe operating/storage range is generously [-40, 125]°C.
-	if dev.TempC < -40 || dev.TempC > 125 {
+	// Temperature: NVMe operating/storage range is generously [-40, 125]°C. The
+	// 0-Kelvin sentinel (-273) is "not reported", not garbage (see nvmeTempSentinel)
+	// — exempt it so a virtual/cloud volume isn't rejected as implausible.
+	if !nvmeTempSentinel(dev) && (dev.TempC < -40 || dev.TempC > 125) {
 		return false
 	}
 	// Percentages are 0–100 by spec (PercentageUsed may report >100 on
@@ -92,11 +118,11 @@ func sataSmartPlausible(dev models.SATADevice) bool {
 	return true
 }
 
-func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + SATA/SAS checks — each drive type is a distinct section
+func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NVMe + SATA/SAS checks — flat registry of independent per-drive checks
 	var out []models.Insight
 
 	// NVMe drives
-	var implausible []string
+	var implausible, noData []string
 	for _, dev := range n.Devices {
 		// Guard against implausible (garbage-but-parseable) SMART logs before
 		// any scoring — see nvmeSmartPlausible / TRIAGE §L. A device whose
@@ -105,6 +131,15 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 		// the health-unverified path instead, exactly like an unread drive.
 		if dev.SmartRead && !nvmeSmartPlausible(dev) {
 			implausible = append(implausible, dev.Name)
+			continue
+		}
+		// SMART read but all fields are not-reported sentinels (0-Kelvin temp +
+		// all-zero) — a virtual/cloud volume (e.g. AWS EBS) that exposes no real
+		// telemetry. Surface as INFO "no real SMART data", NOT a confident
+		// "healthy" (false-OK) and NOT the implausible-garbage WARN (which fired
+		// fleet-wide on every EBS volume before this gate). See NVMeNoRealData.
+		if dev.SmartRead && NVMeNoRealData(dev) {
+			noData = append(noData, dev.Name)
 			continue
 		}
 		if dev.CriticalWarning > 0 {
@@ -197,6 +232,22 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen // NVMe + S
 			[]string{
 				"to inspect: nvme smart-log " + implausible[0],
 				"note: out-of-range temperature/spare/counters (common on virtual NVMe, e.g. VMware) — readings ignored to avoid a false end-of-life alarm",
+			},
+		))
+	}
+
+	// NVMe drives whose SMART read returned only not-reported sentinels (0-Kelvin
+	// temp + all-zero) — virtual/cloud volumes (e.g. AWS EBS) that pass no real
+	// SMART. INFO, not a confident "healthy" (nothing was measured) and not the
+	// implausible-garbage WARN (for a device actively lying, e.g. VMware's 11758°C).
+	// High blast radius: pre-gate, every EBS volume on every EC2 instance tripped
+	// the implausible WARN.
+	if len(noData) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) expose no real SMART telemetry (%s) — virtual/cloud volume (e.g. AWS EBS); temperature/wear/spare not reported, on-device health not measurable",
+				len(noData), strings.Join(noData, ", ")),
+			[]string{
+				"note: virtual block devices don't pass through real SMART — drive presence is known, but wear/spare/temperature are not measurable",
 			},
 		))
 	}
