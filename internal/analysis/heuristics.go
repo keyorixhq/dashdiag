@@ -1904,6 +1904,17 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 	return out
 }
 
+// mpathLabel renders a multipath device as "name (dm)", but collapses to just
+// "name" when the dm device equals the name (the common case with
+// user_friendly_names, where the alias IS the dm name → "mpathb (mpathb)") or
+// when the dm field is empty.
+func mpathLabel(dev models.MultipathDevice) string {
+	if dev.DM == "" || dev.DM == dev.Name {
+		return dev.Name
+	}
+	return fmt.Sprintf("%s (%s)", dev.Name, dev.DM)
+}
+
 func checkMultipath(m models.MultipathInfo) []models.Insight {
 	if !m.Available {
 		return nil
@@ -1932,9 +1943,10 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 		if dev.FailedPaths == 0 {
 			continue
 		}
+		label := mpathLabel(dev)
 		if dev.ActivePaths == 0 {
 			out = append(out, insight("CRIT", "Multipath",
-				fmt.Sprintf("%s (%s): all paths failed — device unavailable", dev.Name, dev.DM),
+				fmt.Sprintf("%s: all paths failed — device unavailable", label),
 				[]string{
 					"to inspect: multipathd show paths",
 					"to inspect: multipath -l",
@@ -1943,8 +1955,8 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 			))
 		} else {
 			out = append(out, insight("WARN", "Multipath",
-				fmt.Sprintf("%s (%s): %d/%d paths failed — running degraded",
-					dev.Name, dev.DM, dev.FailedPaths, dev.TotalPaths),
+				fmt.Sprintf("%s: %d/%d paths failed — running degraded",
+					label, dev.FailedPaths, dev.TotalPaths),
 				[]string{
 					"to inspect: multipathd show paths",
 					"to inspect: multipath -l",

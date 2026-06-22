@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -46,6 +47,25 @@ func TestCheckMultipath(t *testing.T) {
 	assertLevel(t, checkMultipath(mp(2, 0, 2)), "")                            // all paths healthy
 	assertLevel(t, checkMultipath(mp(1, 1, 2)), "WARN")                        // degraded
 	assertLevel(t, checkMultipath(mp(0, 2, 2)), "CRIT")                        // all paths failed
+
+	// Message label: "name (dm)" when they differ, but no duplicate "mpathb
+	// (mpathb)" when user_friendly_names makes the alias equal the dm name, nor a
+	// dangling "(...)" when DM is empty. Validated live on VM101 (#multipath rig).
+	dev := func(name, dm string) models.MultipathInfo {
+		return models.MultipathInfo{Available: true, Devices: []models.MultipathDevice{
+			{Name: name, DM: dm, ActivePaths: 1, FailedPaths: 1, TotalPaths: 2},
+		}}
+	}
+	msgOf := func(m models.MultipathInfo) string { return checkMultipath(m)[0].Message }
+	if got := msgOf(dev("mpatha", "dm-0")); !strings.Contains(got, "mpatha (dm-0):") {
+		t.Errorf("distinct name/dm should render both: %q", got)
+	}
+	if got := msgOf(dev("mpathb", "mpathb")); strings.Contains(got, "(mpathb)") || !strings.HasPrefix(got, "mpathb:") {
+		t.Errorf("equal name/dm must not duplicate: %q", got)
+	}
+	if got := msgOf(dev("mpathc", "")); strings.Contains(got, "()") || !strings.HasPrefix(got, "mpathc:") {
+		t.Errorf("empty dm must not render dangling parens: %q", got)
+	}
 }
 
 // ── Ceph cluster health ───────────────────────────────────────────────────────
