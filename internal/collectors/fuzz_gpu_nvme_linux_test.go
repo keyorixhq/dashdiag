@@ -5,6 +5,8 @@ package collectors
 import (
 	"math"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // Batch 2 of the parser-fuzzing pass: GPU/NVMe/snapper numeric parsers whose
@@ -67,5 +69,23 @@ func FuzzParseNvidiaSMILine(f *testing.F) {
 	f.Add("x")
 	f.Fuzz(func(t *testing.T, line string) {
 		_, _, _ = parseNvidiaSMILine(line) // must not panic
+	})
+}
+
+// FuzzApplySATASmartJSON: the `smartctl --json -a` parser. Its raw ATA-attribute
+// reads (id 5/197/198) feed the SATA "uncorrectable error / data loss risk" CRIT,
+// and those raw fields are vendor-encoded — exactly the garbage that
+// analysis.sataSmartPlausible now rejects (TRIAGE §L §E.3). The parser must never
+// panic on malformed/hostile JSON; on non-JSON it must leave SmartRead false so
+// no false verdict is scored.
+func FuzzApplySATASmartJSON(f *testing.F) {
+	f.Add(`{"model_name":"Samsung SSD 870","smart_status":{"passed":true},"temperature":{"current":35},"power_on_time":{"hours":1200},"ata_smart_attributes":{"table":[{"id":5,"raw":{"value":0}},{"id":198,"raw":{"value":0}}]}}`)
+	f.Add(`{"smart_status":{"passed":true},"temperature":{"current":9000},"ata_smart_attributes":{"table":[{"id":198,"raw":{"value":9223372036854775807}}]}}`) // garbage raw
+	f.Add(`{"ata_smart_attributes":{"table":[{"id":5,"raw":{"value":-1}}]}}`)
+	f.Add(`{not json`)
+	f.Add("")
+	f.Fuzz(func(t *testing.T, out string) {
+		var dev models.SATADevice
+		applySATASmartJSON(out, &dev) // must not panic
 	})
 }

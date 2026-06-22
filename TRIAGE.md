@@ -665,6 +665,52 @@ topology. The k3s-on-VMware path is now a concrete demo/pilot asset.
 
 ---
 
+## Q. SATA/SAS SMART implausible-value → false drive-failure CRIT — ✅ DONE (fix/sata-smart-plausibility-J2, 2026-06-22)
+
+The §L §E.3 sibling, found by code inspection while triaging post-VMware-block
+work. §L added `nvmeSmartPlausible` so garbage-but-parseable **NVMe** SMART
+(VMware vNVMe: 11758°C, spare 1% vs threshold 100%, counters ~2^63) is rejected
+before scoring. The **SATA/SAS** path (`checkNVMe`'s second loop in
+`heuristics_storage.go`) had no equivalent gate — it scored `TempC`,
+`ReallocatedSectors`, `PendingSectors`, `UncorrectableErrors` straight from the
+parsed values. Those error counters come from **raw ATA SMART attribute** fields
+(smartctl id 5/197/198), which are notoriously **vendor-encoded** — drives pack
+temperature/timestamps/other data into the raw column, so a non-zero
+"uncorrectable" raw is a known false-CRIT source on healthy *consumer* drives,
+not only on virtual SATA controllers (VMware/QEMU) and USB-SATA bridges. A
+garbage raw → `UncorrectableErrors > 0` → false **CRIT "data loss risk"**.
+
+Fix (mirrors §L exactly, no `--json` schema change):
+- `sataSmartPlausible(dev)` — temp ∈ [-40,125]°C; reallocated/pending/uncorrectable
+  sector counts ∈ [0, 10^8] (rejects 2^31/2^63 sentinels + packed-vendor garbage
+  without suppressing any real failing drive, which is long dead by 10^5 bad
+  sectors); power-on-hours ∈ [0, 10^6]. (`internal/analysis/heuristics_storage.go`)
+- SATA loop: `SmartRead && !sataSmartPlausible(dev)` → route to a new
+  "implausible SMART data — health unverified, values rejected" **WARN**, skip ALL
+  scoring including `smart_status` (a drive reporting impossible attrs is an
+  unreliable narrator of its own pass/fail).
+- Fuzz: added `FuzzApplySATASmartJSON` over the `smartctl --json -a` parser
+  (`applySATASmartJSON` had no fuzz; the NVMe `smart-log` parser already did) —
+  1.6M execs, no panic. This is the §L "add an nvme smart-log fuzz sibling"
+  defensive item, applied to the SATA JSON parser that was the actual gap.
+
+Regression in `TestCheckNVMe` (`heuristics_container_drives_test.go`): garbage
+SATA→WARN-not-CRIT; each trigger alone (temp/sectors/hours); smart-fail+garbage
+attrs→WARN not a confident CRIT; and boundary guards proving a real uncorrectable
+count still CRITs / real high temp still WARNs / a real smart_status fail still
+CRITs. Validatable entirely offline (unit + fuzz, no hardware) — but the live
+repro target is any VMware/QEMU guest with a SATA controller (the §L VCD node had
+one) or a consumer drive with vendor-encoded id-198 raw.
+
+| Item | Surface | Status |
+|---|---|---|
+| `sataSmartPlausible` bounds-gate before scoring | `heuristics_storage.go` | ✅ done |
+| Implausible SATA read → WARN "values rejected", skip scoring | `checkNVMe` SATA loop | ✅ done |
+| Fuzz `applySATASmartJSON` (smartctl JSON parser) | `fuzz_gpu_nvme_linux_test.go` | ✅ done (1.6M execs clean) |
+| Regression: garbage→WARN, real failure still CRIT/WARN | `TestCheckNVMe` | ✅ done |
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest

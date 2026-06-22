@@ -166,6 +166,28 @@ func TestCheckNVMe(t *testing.T) {
 		// drive (spare below a real threshold, hot but in-range) still CRITs/ WARNs.
 		{"nvme real failing drive still CRIT", nvme(models.NVMeDevice{Name: "nvme0", TempC: 45, AvailableSparePct: 5, SpareThresholdPct: 10, PowerOnHours: 40000}), "CRIT"},
 		{"nvme high-but-real temp still WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 80}), "WARN"},
+		// TRIAGE §L §E.3 SATA sibling — garbage-but-parseable SMART on a virtual /
+		// USB-bridged SATA controller, or a vendor-encoded raw ATA attribute read
+		// as a plain count. Before the SATA plausibility guard, attr 198 raw →
+		// UncorrectableErrors fired a false "data loss risk" CRIT. It must now be
+		// WARN ("implausible … rejected"), NOT CRIT, and no field may score.
+		{"sata implausible garbage is WARN not CRIT", sata(models.SATADevice{
+			Name: "/dev/sda", Type: "sata", SmartOK: true, TempC: 11758,
+			UncorrectableErrors: 2147483647, ReallocatedSectors: 2147483647, PowerOnHours: 1106804644422573096,
+		}), "WARN"},
+		// Each SATA implausibility trigger rejects on its own.
+		{"sata impossible temp alone is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, TempC: 9000}), "WARN"},
+		{"sata overflow uncorrectable is WARN not CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 200000000}), "WARN"},
+		{"sata overflow power-on-hours is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, PowerOnHours: 1106804644422573096}), "WARN"},
+		// A drive that *reports* SMART-failed but whose attributes are garbage is
+		// treated as health-unverified (WARN), not a confident failure CRIT — the
+		// device is an unreliable narrator of its own state.
+		{"sata smart-fail with garbage attrs is WARN not CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: false, TempC: 9000}), "WARN"},
+		// Boundaries must NOT reject real drives: a genuinely failing SATA drive
+		// (real uncorrectable count, hot but in-range) still CRITs / WARNs.
+		{"sata real uncorrectable still CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 3, TempC: 40}), "CRIT"},
+		{"sata high-but-real temp still WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, TempC: 58}), "WARN"},
+		{"sata real failing drive (smart fail) still CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: false, TempC: 40}), "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
