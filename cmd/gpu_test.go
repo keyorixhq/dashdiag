@@ -47,3 +47,28 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 		t.Errorf("a GPU with real metrics should report Checks passed, got: %q", got)
 	}
 }
+
+// TestGPUSummaryLineImplausibleTemp guards the §L/§Q raw-tool implausible-value
+// class on the `dsd gpu` verdict path (gpuSummaryLine), so it cannot drift from
+// checkGPUDevice (dsd health). A garbage hwmon read (thousands of °C) must NOT
+// count as a thermal CRIT, but must still surface (WARN), never a false "healthy".
+func TestGPUSummaryLineImplausibleTemp(t *testing.T) {
+	garbage := &models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 11758, MemTotalMB: 8192}}}
+	got := gpuSummaryLine(garbage, "", output.ModePlain)
+	if strings.Contains(got, "issue(s) found") {
+		t.Errorf("implausible GPU temp must NOT be a CRIT, got: %q", got)
+	}
+	if strings.Contains(got, "Checks passed") {
+		t.Errorf("implausible GPU temp must NOT read healthy (false-OK), got: %q", got)
+	}
+	if !strings.Contains(got, "elevated") {
+		t.Errorf("implausible GPU temp should surface as a WARN/elevated, got: %q", got)
+	}
+
+	// A genuinely overheating GPU (in-range) must still CRIT — the gate must not
+	// suppress a real thermal fault.
+	overheat := &models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 105, MemTotalMB: 8192}}}
+	if got := gpuSummaryLine(overheat, "", output.ModePlain); !strings.Contains(got, "issue(s) found") {
+		t.Errorf("a real 105°C overheat must still be a CRIT, got: %q", got)
+	}
+}

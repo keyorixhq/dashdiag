@@ -11,6 +11,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-06-22
+
+Patch: extends the v1.5.2 correctness sweep to the raw-tool implausible-value
+class — parsers that drive a health verdict from external-tool numbers without a
+plausibility check, so garbage-but-parseable output (vendor-encoded raw fields,
+virtual-device sentinels) fires a false CRIT. Mirrors the NVMe gate shipped in
+v1.5.2 (TRIAGE §L). No `dsd health --json` schema change.
+
+### Fixed
+
+- **SATA/SAS SMART: no more false "data loss risk" CRIT on garbage SMART.** The
+  SATA scoring path read its error counters straight from raw ATA SMART attribute
+  fields (smartctl id 5/197/198), which are notoriously vendor-encoded — drives
+  pack temperature/timestamps into the raw column, so a non-zero "uncorrectable"
+  raw fired a false CRIT on healthy consumer drives, and virtual SATA controllers
+  (VMware/QEMU) and USB-SATA bridges emit sentinel garbage. A new
+  `sataSmartPlausible` gate (bounds temp/sector-counts/power-on-hours) routes an
+  implausible read to a "health unverified, values rejected" WARN and skips
+  scoring — the SATA sibling of the NVMe gate. Adds a fuzz harness over the
+  `smartctl --json` parser (#435, TRIAGE §Q).
+- **GPU thermals: no more false "thermal throttling" CRIT on a garbage sensor
+  read.** hwmon `temp*_input` is read with no bounds check, so a virtual GPU, a
+  faulted sensor, or a sentinel sysfs value surfaced as thousands of °C and fired
+  a false CRIT in **both** verdict paths (`dsd health` and `dsd gpu`). A new
+  `GPUTempPlausible` gate ([-40,150]°C) routes an out-of-range reading to an
+  "unverified" WARN instead of a CRIT, shared by both paths so they cannot drift.
+  A genuine in-range overheat still CRITs (#436, TRIAGE §R).
+
 ## [1.5.2] - 2026-06-21
 
 Patch: a false-OK/false-CRIT correctness sweep — three "correct-reading, wrong-context"

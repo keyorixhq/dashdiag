@@ -242,7 +242,14 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 func gpuHints(info *models.GPUInfo, steamOS bool, mode output.OutputMode) []string {
 	var hints []string
 	for _, dev := range info.Devices {
-		if dev.TempJunctionC >= 100 {
+		if !analysis.GPUTempPlausible(dev.TempJunctionC) {
+			// Implausible reading (faulted/virtual sensor) — surface as unverified
+			// rather than firing a scary false "emergency thermal threshold" CRIT.
+			// Matches checkGPUDevice (dsd health) so the two verdict paths agree.
+			hints = append(hints,
+				fmt.Sprintf("%s Junction temperature %d°C is implausible — sensor faulted/virtual, thermal health unverified", asciiOr("warn", "⚠️ ", mode), dev.TempJunctionC),
+				"   → reading ignored to avoid a false thermal alarm; check the hwmon sensor")
+		} else if dev.TempJunctionC >= 100 {
 			hints = append(hints,
 				fmt.Sprintf("%s Junction temperature %d°C — emergency thermal threshold (100°C)", asciiOr("fail", "❌", mode), dev.TempJunctionC),
 				"   → Shut down and inspect cooling immediately")
@@ -311,12 +318,19 @@ func printGPUNoDriver(noDriver []models.GPUDetected, mode output.OutputMode) {
 func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
 	crits, warns := 0, 0
 	for _, dev := range info.Devices {
+		// A temperature only drives a thermal verdict when it's physically plausible
+		// — a garbage hwmon read (thousands of °C) must NOT count as a CRIT (§L/§Q,
+		// matches checkGPUDevice). An implausible reading is surfaced as a WARN
+		// (unverified sensor) below so the summary never falsely reads healthy.
+		plausEdge := analysis.GPUTempPlausible(dev.TempC)
+		plausJunc := analysis.GPUTempPlausible(dev.TempJunctionC)
 		switch {
 		// APUs carve out a small shared-RAM "VRAM" that fills to 90%+ by design;
 		// skip the memory-pressure tiers for them, matching checkGPU.
-		case dev.Unreadable || dev.TempC >= 90 || dev.TempJunctionC >= 100 || (dev.MemUsedPct >= 95 && !dev.IsAPU):
+		case dev.Unreadable || (plausEdge && dev.TempC >= 90) || (plausJunc && dev.TempJunctionC >= 100) || (dev.MemUsedPct >= 95 && !dev.IsAPU):
 			crits++
-		case dev.TempC >= 80 || dev.TempJunctionC >= 90 || dev.Throttling ||
+		case !plausEdge || !plausJunc ||
+			(plausEdge && dev.TempC >= 80) || (plausJunc && dev.TempJunctionC >= 90) || dev.Throttling ||
 			(dev.MemUsedPct >= 85 && !dev.IsAPU) || (dev.VRAMUsedPct >= 90 && !dev.IsAPU) ||
 			dev.UtilPct >= 95 || dev.PowerDPMLevel == "low":
 			warns++

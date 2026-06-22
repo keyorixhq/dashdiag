@@ -151,6 +151,20 @@ func GPUDeviceHasMetrics(d models.GPUDevice) bool {
 		d.UtilPct > 0 || d.MemTotalMB > 0 || d.ClockMHz > 0 || d.TDPLimitW > 0
 }
 
+// GPUTempPlausible reports whether a GPU temperature (°C) is physically possible.
+// hwmon temp*_input is read raw — readSysfsMilliC does a bare ParseInt/1000 with
+// no bounds check — so a virtual GPU, a faulted sensor, or a garbage/sentinel
+// sysfs value can surface as thousands of degrees and fire a false "thermal
+// throttling likely" CRIT. This is the §L/§Q raw-tool implausible-value class
+// applied to GPU thermals (the storage path got nvmeSmartPlausible /
+// sataSmartPlausible; thermals had no equivalent). Real GPU silicon throttles and
+// then hard-shuts-down well below 150°C, so a reading outside [-40, 150]°C is
+// garbage, not an overheat — surface it as unverified, do NOT score it as a CRIT.
+// (0 is handled earlier by GPUDeviceHasMetrics, so it never reaches here.)
+func GPUTempPlausible(c int) bool {
+	return c >= -40 && c <= 150
+}
+
 // checkGPUDevice returns the health insights for a single GPU device.
 func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.Insight {
 	var out []models.Insight
@@ -178,7 +192,15 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 			[]string{"to inspect: ls /sys/class/drm/card*/device/hwmon/hwmon*/"},
 		))
 	}
-	if dev.TempC >= 90 {
+	// Reject a physically-impossible edge temperature before it can fire a CRIT
+	// (§L/§Q raw-tool implausible-value class — garbage hwmon reads as thousands
+	// of degrees). Surface it as unverified rather than a false thermal alarm.
+	if !GPUTempPlausible(dev.TempC) {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s reported an implausible temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempC),
+			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal-throttling alarm"},
+		))
+	} else if dev.TempC >= 90 {
 		out = append(out, insight("CRIT", "GPU",
 			fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
 			[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
@@ -190,7 +212,13 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 		))
 	}
 	// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
-	if dev.TempJunctionC >= 100 {
+	// Same plausibility gate as the edge sensor.
+	if !GPUTempPlausible(dev.TempJunctionC) {
+		out = append(out, insight("WARN", "GPU",
+			fmt.Sprintf("%s reported an implausible junction temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempJunctionC),
+			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal alarm"},
+		))
+	} else if dev.TempJunctionC >= 100 {
 		out = append(out, insight("CRIT", "GPU",
 			fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},

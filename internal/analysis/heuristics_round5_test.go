@@ -116,6 +116,21 @@ func TestCheckGPU(t *testing.T) {
 		// A GPU whose nvidia-smi metrics came back [N/A] (TempC coerced to 0) would
 		// previously read as a healthy 0°C card; Unreadable must force a CRIT.
 		{"unreadable gpu is CRIT", dev(models.GPUDevice{Name: "card0", Unreadable: true}), "CRIT"},
+		// §L/§Q raw-tool implausible-value class for GPU thermals: a garbage hwmon
+		// read (readSysfsMilliC does no bounds check) surfaces as thousands of °C
+		// and previously fired a false "thermal throttling likely" CRIT. It must
+		// now be WARN ("implausible … rejected"), NOT CRIT, and not score the temp.
+		{"implausible edge temp is WARN not CRIT", dev(models.GPUDevice{Name: "card0", TempC: 11758}), "WARN"},
+		{"implausible junction temp is WARN not CRIT", dev(models.GPUDevice{Name: "card0", TempC: 50, TempJunctionC: 9000}), "WARN"},
+		// A negative temp alongside a real metric (so the device isn't treated as
+		// metricless) is also garbage → WARN, not scored. (A negative-ONLY reading
+		// correctly falls to the "no metrics" INFO via GPUDeviceHasMetrics.)
+		{"negative garbage edge temp with real metric is WARN", dev(models.GPUDevice{Name: "card0", TempC: -273, PowerDrawW: 30}), "WARN"},
+		// Boundaries must NOT reject real readings: a genuinely overheating GPU
+		// (hot but in-range) still CRITs, and a real high junction still CRITs.
+		{"real overheat 105C still CRIT", dev(models.GPUDevice{Name: "card0", TempC: 105}), "CRIT"},
+		{"real junction 110C still CRIT", dev(models.GPUDevice{Name: "card0", TempC: 50, TempJunctionC: 110}), "CRIT"},
+		{"150C boundary still scored as CRIT", dev(models.GPUDevice{Name: "card0", TempC: 150}), "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
