@@ -550,6 +550,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.AzureGuestAvailable() {
 		cols = append(cols, collectors.NewAzureCollector())
 	}
+	// GCP guest deep checks — gate on DMI product name (silent on every non-GCP host).
+	if collectors.GCPGuestAvailable() {
+		cols = append(cols, collectors.NewGCPCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
