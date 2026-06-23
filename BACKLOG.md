@@ -210,40 +210,53 @@ panel/insight wiring, and four real-target captures.
 
 Analog to the existing VMware guest depth (ballooning, vmxnet3/e1000, SCSI timeout).
 Basic cloud *detection* already works and is validated (AWS + Azure captures, NVMe-timeout
-insight). This is the *deep* per-cloud surface. **Status: demand-gated — no cloud customer
-yet.** Build the specific check a cloud customer/contact pulls for.
+insight). This is the *deep* per-cloud surface. **Status: AWS high-value core SHIPPED
+(v1.6.0); Azure core PARTIALLY shipped (v1.7.0) — remaining Azure core + both full-coverage
+tails are demand-gated.** Build the specific check a cloud customer/contact pulls for.
 
-### AWS (Nitro/EC2) — high-value core (~5–6 checks, ~3–4 days)
-1. ENA driver presence + version health (missing/old ENA = degraded networking)
-2. ENA bandwidth/PPS allowance exhaustion (`ethtool -S` allowance-drop counters = throttling)
-3. EBS/NVMe latency + queue-depth under throttle
-4. IMDS reachability + v1-vs-v2 enforcement
-5. Time-sync via Nitro PTP / chrony source
-6. (stretch) instance-store vs EBS detection
+### AWS (Nitro/EC2) — ✅ high-value core SHIPPED (v1.6.0, #443)
+`AWSCollector` (`internal/collectors/aws_linux.go`), gated on EC2 DMI, wired into health.
+Validated live on Graviton arm64 (t4g) + x86 (t3) — see memory `aws-deep-checks-collector`.
+1. ✅ ENA driver presence + version health
+2. ✅ ENA bandwidth/PPS allowance exhaustion (`ethtool -S` allowance-drop counters)
+3. ✅ EBS/NVMe silent-throttle (0xD0 vendor log-page)
+4. ✅ IMDS reachability + v1-vs-v2 enforcement posture
+5. ✅ Time-sync via Amazon Time Sync / chrony source
+6. ✅ instance-store vs EBS distinguished in device detection
+Bonus beyond the original spec: SSM agent install/run state, spot-rebalance recommendation.
 
-### AWS — full coverage (additional ~6–10 checks, ~4–6 more days)
+### AWS — full coverage tail (demand-gated, build-on-pull only)
 ENA SR-IOV/express status, Nitro enclave presence, placement-group signals, cloud-init/
-cloud-config validation, EBS volume-type/IOPS-vs-workload mismatch, ENA-express, etc.
+cloud-config validation, EBS volume-type/IOPS-vs-workload mismatch. Treadmill — not a
+state to "finish."
 
-### Azure (Hyper-V) — high-value core (~5–7 checks, ~3–4 days)
-1. Accelerated Networking active vs silent fallback to synthetic netvsc (perf-critical)
-2. Mellanox VF (SR-IOV) driver health
+### Azure (Hyper-V) — 🟡 core PARTIALLY shipped (v1.7.0, #444)
+`AzureCollector` (`internal/collectors/azure_linux.go`), gated on Azure DMI, wired into
+health. Validated live on x86 D2s_v3 + arm64 Ampere D2pls_v5 — see memory
+`azure-deep-checks-collector`.
+1. ✅ Accelerated Networking active vs silent fallback to synthetic netvsc
+2. ✅ Mellanox VF (SR-IOV) driver health
+7. ✅ WAAgent health (cloud-init covered by the shared `CloudInitCollector`)
+   ✅ Time-sync via Hyper-V PTP (was a full-coverage item — shipped early)
+
+**Remaining Azure CORE checks — still genuinely core-value, demand-gated (NOT mere tail):**
 3. Dynamic Memory / ballooning pressure detection (Hyper-V — real, unlike modern Nitro)
 4. Managed-disk cache-mode mismatch (ReadOnly/ReadWrite/None vs workload)
-5. Temp-disk (/dev/sdb) detection + "don't store data here" warning
+5. Temp-disk (`/dev/sdb`) detection + "don't store data here" warning
 6. Scheduled-events metadata (maintenance/eviction warnings)
-7. WAAgent / cloud-init health
 
-### Azure — full coverage (additional ~5–8 checks, ~4–5 more days)
-netvsc synthetic/VF transition detail, host-cache vs disk-cache, Azure NVMe timeout tuning,
-time-sync via Hyper-V PTP, etc.
+### Azure — full coverage tail (demand-gated)
+netvsc synthetic/VF transition detail, host-cache vs disk-cache, Azure NVMe timeout tuning.
 
-### Totals
-- **High-value core (both clouds): ~10–13 checks, ~6–8 days** of build+test.
-- **Full coverage (both clouds): ~25–35 checks, ~15–20 days.**
-- Recommended approach: build NONE until demand; then build the single check pulled for,
-  let the customer reveal which of the core matters, build those first. Full coverage is a
-  treadmill (clouds ship new instance types/drivers constantly) — not a state to "finish."
+### What's left
+- **Shipped:** AWS core (6/6 + bonuses), Azure core subset (Accelerated Networking, SR-IOV
+  VF, WAAgent, Hyper-V PTP).
+- **Remaining core (build-on-pull):** Azure ballooning, managed-disk cache-mode, temp-disk,
+  scheduled-events (~4 checks, ~2–3 days once a real Azure pull surfaces).
+- **Remaining tail (treadmill):** the full-coverage lists above — clouds ship new instance
+  types/drivers constantly, so this is never a state to "finish."
+- Approach unchanged: build NONE speculatively; when a cloud customer pulls, build the
+  single check asked for and let them reveal which remaining core matters.
 
 ---
 
