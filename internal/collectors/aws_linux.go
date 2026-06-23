@@ -293,11 +293,19 @@ func ebsDevices() []string {
 			continue
 		}
 		model := readFileTrimmedLocal(filepath.Join("/sys/block", dev, "device", "model"))
-		if strings.Contains(strings.ToLower(model), "elastic block store") {
+		if isEBSModel(model) {
 			devs = append(devs, dev)
 		}
 	}
 	return devs
+}
+
+// isEBSModel reports whether an NVMe device's sysfs model string identifies an EBS
+// volume ("Amazon Elastic Block Store"). Instance-store NVMe ("Amazon EC2 NVMe
+// Instance Storage") is deliberately NOT matched — the 0xD0 page is EBS-specific —
+// mirroring the "Instance Storage" split in platform.detectAWSStorageType.
+func isEBSModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "elastic block store")
 }
 
 // parseEBSLogPage parses the Amazon EBS stats log page. ok is false unless the

@@ -106,6 +106,28 @@ func TestParseEBSLogPage_RejectsShort(t *testing.T) {
 	}
 }
 
+func TestIsEBSModel(t *testing.T) {
+	// The documented Amazon NVMe model strings — EBS is matched, instance-store is
+	// excluded (its 0xD0 read would be fail-safe via the magic guard anyway, but the
+	// filter keeps us off it). Covers the instance-store-exclusion path the t4g
+	// validation box can't exercise (it has only EBS volumes).
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"Amazon Elastic Block Store", true},
+		{"amazon elastic block store", true}, // case-insensitive
+		{"Amazon EC2 NVMe Instance Storage", false},
+		{"Samsung SSD 970 EVO", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isEBSModel(c.model); got != c.want {
+			t.Errorf("isEBSModel(%q)=%v want %v", c.model, got, c.want)
+		}
+	}
+}
+
 func TestSubSat(t *testing.T) {
 	if subSat(10, 4) != 6 {
 		t.Error("10-4 should be 6")
