@@ -625,6 +625,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkAzure(*d)
 		}
+	case models.GCPInfo:
+		return checkGCP(d)
+	case *models.GCPInfo:
+		if d != nil {
+			return checkGCP(*d)
+		}
 	case models.AuditInfo:
 		return checkAuditd(d)
 	case *models.AuditInfo:
