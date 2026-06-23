@@ -8,11 +8,14 @@
 # --generate-ssh-keys` lets you `ssh` straight in from the same Cloud Shell afterwards.
 #
 # Usage:
-#   ./az-deploy-validation-vm.sh up     [REGION] [ZONE] [SIZE]
+#   ./az-deploy-validation-vm.sh up     [REGION] ["ZONES"] [SIZE]
 #   ./az-deploy-validation-vm.sh down
 #
-# Defaults: swedencentral / zone 1 / Standard_D2pls_v6 (arm64, NVMe — chosen from the
-# deploy-zones scan; proven arm region for this subscription).
+# Defaults: swedencentral / zones "1 2 3" / Standard_D2pls_v6 (arm64, NVMe — chosen from
+# the deploy-zones scan; proven arm region for this subscription). ZONES is a
+# space-separated FALLBACK list: it tries each zone in order and stops at the first with
+# capacity (a single zone can be at capacity even when the size is "deployable" region-wide).
+#   e.g.  ./az-deploy-validation-vm.sh up swedencentral "1 2 3"   # the default
 #
 #   NOTE: D2pls_v6 has NO temp disk (no 'd' in the size) → the temp-disk checks (A1/A2)
 #   are NOT exercised on it. It DOES cover NVMe io_timeout, host-cache, scheduled-events,
@@ -28,7 +31,7 @@ GO_VER="1.26.4"   # bump if the build step 404s on the Go arm64 tarball
 
 ACTION="${1:-}"
 REGION="${2:-swedencentral}"
-ZONE="${3:-1}"
+ZONES="${3:-1 2 3}"   # space-separated fallback list — tries each in order until one has capacity
 SIZE="${4:-Standard_D2pls_v6}"
 # arm64 image (D2pls_v6 is Arm64 — an x86 image will NOT boot on it).
 IMAGE="Canonical:ubuntu-24_04-lts:server-arm64:latest"
@@ -44,11 +47,12 @@ down)
   ;;
 up) : ;;
 *)
-  echo "Usage: $0 up [REGION] [ZONE] [SIZE]   |   $0 down"; exit 1 ;;
+  echo "Usage: $0 up [REGION] [\"ZONES\"] [SIZE]   |   $0 down"
+  echo "       ZONES is a space-separated fallback list, default \"1 2 3\"."; exit 1 ;;
 esac
 
 echo "Subscription : $(az account show --query name -o tsv 2>/dev/null || echo '?')"
-echo "Target       : $SIZE  in  $REGION  zone $ZONE"
+echo "Target       : $SIZE  in  $REGION  zone(s) $ZONES (first with capacity)"
 echo "------------------------------------------------------------"
 
 # --- quota pre-flight: fail fast (with alternatives) rather than a cryptic create error ---
@@ -82,17 +86,39 @@ runcmd:
   - [ bash, -c, "/usr/local/bin/dsd version >/dev/null 2>&1 || true; touch /var/lib/dsd-build-done" ]
 EOF
 
-echo "Creating resource group + VM (this also generates an SSH key in Cloud Shell)..."
+echo "Creating resource group (also generates an SSH key in Cloud Shell)..."
 az group create -n "$RG" -l "$REGION" -o none
 
-az vm create \
-  -g "$RG" -n "$VM" -l "$REGION" --zone "$ZONE" \
-  --image "$IMAGE" --size "$SIZE" \
-  --admin-username "$ADMIN" --generate-ssh-keys \
-  --data-disk-sizes-gb "$DATA_DISK_GB" --data-disk-caching ReadWrite \
-  --custom-data "$CLOUDINIT" -o none
+# Try each zone in order — a specific zone can be at capacity (ZonalAllocationFailed)
+# even when the SKU is "deployable" in the region. Each attempt uses a zone-unique VM name
+# so a failed attempt's leftover NIC/IP can't block the next; all of it is removed by `down`.
+CREATED_VM="" CREATED_ZONE=""
+for z in $ZONES; do
+  vmname="${VM}-z${z}"
+  echo "→ Attempting $SIZE in $REGION zone $z (as $vmname)..."
+  if az vm create \
+       -g "$RG" -n "$vmname" -l "$REGION" --zone "$z" \
+       --image "$IMAGE" --size "$SIZE" \
+       --admin-username "$ADMIN" --generate-ssh-keys \
+       --data-disk-sizes-gb "$DATA_DISK_GB" --data-disk-caching ReadWrite \
+       --custom-data "$CLOUDINIT" -o none; then
+    CREATED_VM="$vmname" CREATED_ZONE="$z"
+    break
+  fi
+  echo "  ✗ zone $z unavailable (capacity/allocation) — cleaning the partial attempt and trying the next..."
+  az vm delete -g "$RG" -n "$vmname" --yes 2>/dev/null || true
+done
 
+if [ -z "$CREATED_VM" ]; then
+  echo "------------------------------------------------------------"
+  echo "✗ No zone in [$ZONES] had capacity for $SIZE in $REGION right now."
+  echo "  Try again later, a different region (./az-find-region-with-quota.sh $SIZE), or run \`$0 down\` to clean up."
+  exit 1
+fi
+
+VM="$CREATED_VM"
 IP="$(az vm show -g "$RG" -n "$VM" -d --query publicIps -o tsv)"
+echo "✓ Deployed in zone $CREATED_ZONE."
 
 cat <<EOF
 ------------------------------------------------------------
