@@ -206,6 +206,12 @@ func awsRecognitionLine(a models.AWSInfo) string {
 	if a.IMDSChecked && !a.IMDSv1Enabled {
 		parts = append(parts, "IMDSv2 enforced")
 	}
+	if a.ENAExpressChecked && a.ENAExpressActive {
+		parts = append(parts, "ENA Express active")
+	}
+	if a.NitroEnclavesPresent {
+		parts = append(parts, "Nitro Enclaves present")
+	}
 	summary := "no guest-side throttling or posture issues found"
 	if len(parts) > 0 {
 		summary = strings.Join(parts, "; ")
