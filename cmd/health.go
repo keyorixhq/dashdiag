@@ -542,6 +542,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())
 	}
+	// EC2 guest deep checks — gate on DMI vendor (silent on every non-EC2 host).
+	if collectors.AWSGuestAvailable() {
+		cols = append(cols, collectors.NewAWSCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
