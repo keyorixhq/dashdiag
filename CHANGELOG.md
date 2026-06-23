@@ -11,6 +11,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-23
+
+Minor (additive): guest-side EC2 deep checks. A new `AWSCollector` is folded into
+`dsd health`, gated on DMI (`Amazon EC2`) so it is silent and zero-cost off EC2. No
+AWS API credentials — IMDS + kernel/driver telemetry only. Flows through
+`checks[].raw`; the `dsd health --json` schema is unchanged.
+
+### Added
+
+- **AWS guest-side health (`dsd health` on EC2).** Surfaces the silent-throttle /
+  false-green failures the generic collectors miss — the instance looks healthy while
+  AWS quietly drops packets or caps IOPS:
+  - **ENA network allowance throttling** (`ethtool -S`): bw_in/out, pps, conntrack,
+    and link-local allowance-exceeded counters. A two-snapshot delta separates an
+    *active* throttle (WARN) from a stale historical one (INFO), so long-uptime hosts
+    don't false-alarm on a counter that hasn't moved in months.
+  - **EBS volume performance throttling** from the Amazon NVMe vendor log page (0xD0):
+    volume and instance-aggregate IOPS/throughput exceeded. Magic-guarded parse
+    (rejects a non-EBS or short page rather than ingesting it as a healthy zero);
+    a non-root read degrades to an explicit "needs root", never a silent OK.
+  - **IMDS security posture** (IMDSv1 still enabled → WARN), **spot rebalance
+    recommendation**, **Amazon Time Sync** configured, and **SSM agent** installed-
+    but-not-running.
+  - Validated live on real Nitro hardware — arm64 (t4g) and amd64 (t3.micro), root +
+    non-root (#443).
+
+### Breaking Changes
+
+- None.
+
 ## [1.5.6] - 2026-06-23
 
 Patch: a cosmetic-but-misleading thermal-display fix surfaced on a real AWS
