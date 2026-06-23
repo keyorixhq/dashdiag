@@ -11,6 +11,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-23
+
+Minor (additive): completes guest-side cloud-depth across **AWS / Azure / GCP**, adds
+**prior-boot forensics** and **cross-distro package-DB health**, and hardens the new
+parsers by fuzzing. All additive — the `dsd health --json` schema is unchanged (new
+fields flow through `checks[].raw`). Everything here was live-validated on real VMs
+(the pve01 matrix and real Azure/AWS), which caught several bugs unit tests missed.
+
+### Added
+
+- **GCP guest-side health (`GCPCollector`).** gVNIC vs virtio recognition, Google
+  guest-agent installed-but-down → WARN (SSH-key/OS-Login break), host-maintenance
+  `TERMINATE` on a non-preemptible VM → WARN, OS Login, metadata-server time sync.
+  Gated on the GCE DMI product name; the GCP analog of the AWS/Azure collectors — closes
+  the last detection-only cloud (#452).
+- **Azure guest-side depth completed.** Dynamic Memory (`hv_balloon`) detection,
+  temp/resource-disk detection + persistent-data-on-ephemeral WARN, managed-disk
+  ReadWrite host-cache hazard via the IMDS storageProfile, and NVMe `io_timeout` tuning
+  (#450, #454).
+- **AWS guest-side tail.** Nitro Enclaves presence + ENA Express (SRD) recognition (#453).
+- **Package-DB / lock health (`dsd health --packages`).** An interrupted dpkg or a
+  corrupt/locked rpmdb silently blocks every update; surfaced as WARN with the
+  security-update count marked untrustworthy. Cross-distro (apt / dnf / yum / zypper),
+  live-validated on Debian / AlmaLinux / openSUSE (#457).
+- **Prior-boot forensics (`PostBoot`).** Reads the previous boot (boot -1) for unclean
+  shutdown / OOM kills / kernel panic, with a loud FOUND / ABSENT / UNMEASURABLE source
+  verdict — "what stopped the box across the last reboot, and could we even tell?".
+  Live-validated on Debian / AlmaLinux / openSUSE / Alpine (#459).
+- `docs/CLOUD_VALIDATION.md` cloud-validation runbook + `scripts/az-find-region-with-quota.sh`
+  and `scripts/az-deploy-validation-vm.sh` (region/quota finder + throwaway-VM provisioner).
+
+### Fixed
+
+- CloudMeta Azure scheduled-events: operator-precedence bug that ignored the IMDS error
+  and missed Redeploy/Preempt/Terminate event types; now parses type + status + NotBefore
+  (#450).
+- `parseAzureStorageProfile` clamps a negative/hostile IMDS LUN to 0 (found by fuzzing, #461).
+
+### Changed
+
+- Temperature-plausibility bounds unified into `internal/analysis/temp.go`
+  (`TempPlausible` / `TempCeilSilicon` / `TempCeilNVMe` / `TempNotReported`) — a
+  behavior-preserving refactor across the GPU / NVMe / SATA / hwmon paths (#442).
+- go-fuzz harness over the new cloud + prior-boot parsers, with plausibility invariants,
+  as CI regression guards (#461).
+
 ## [1.7.0] - 2026-06-23
 
 Minor (additive): guest-side Azure deep checks. A new `AzureCollector` is folded into
