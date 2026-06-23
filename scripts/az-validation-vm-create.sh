@@ -57,8 +57,9 @@ packages: [git, chrony]
 runcmd:
   - [ bash, -c, "curl -fsSL https://go.dev/dl/go${GO_VER}.linux-arm64.tar.gz | tar -C /usr/local -xz" ]
   - [ bash, -c, "git clone --depth 1 https://github.com/keyorixhq/dashdiag /opt/dashdiag" ]
-  - [ bash, -c, "cd /opt/dashdiag && /usr/local/go/bin/go build -o /usr/local/bin/dsd ./cmd/dsd" ]
-  - [ bash, -c, "touch /var/lib/dsd-build-done" ]
+  # HOME=/root: cloud-init runcmd has no HOME, so go can't find its module cache without it.
+  # touch only on SUCCESS — a failed build must NOT signal "done" to the wait-loop (it did, once).
+  - [ bash, -c, "cd /opt/dashdiag && HOME=/root /usr/local/go/bin/go build -o /usr/local/bin/dsd ./cmd/dsd && touch /var/lib/dsd-build-done" ]
 EOF
 
 echo "Creating resource group (also generates an SSH key in Cloud Shell)..."
