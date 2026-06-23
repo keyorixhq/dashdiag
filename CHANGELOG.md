@@ -11,6 +11,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-23
+
+Minor (additive): guest-side Azure deep checks. A new `AzureCollector` is folded into
+`dsd health`, gated on the Azure DMI chassis asset tag so it is silent and zero-cost off
+Azure (and does not false-positive on on-prem Hyper-V). No Azure API credentials — sysfs,
+config, and service state only. Flows through `checks[].raw`; the `dsd health --json`
+schema is unchanged.
+
+### Added
+
+- **Azure guest-side health (`dsd health` on an Azure VM).** Surfaces the platform
+  failures the generic collectors miss — chiefly the Accelerated-Networking false-green:
+  - **Accelerated Networking SR-IOV datapath.** Detects the Mellanox/MANA VF
+    transparently bonded under the synthetic `hv_netvsc` NIC. WARN when a VF is present
+    but not bonded, or bonded but down — the case where AN reads "enabled" in the portal
+    yet traffic silently rides the slow synthetic path. Healthy and AN-off VMs stay quiet.
+  - **Azure Linux agent (waagent)** installed-but-not-running (WARN — extensions,
+    provisioning, and portal password/SSH reset would silently fail).
+  - **Hyper-V PTP time source** (`/dev/ptp_hyperv` PHC refclock) configured (INFO if not).
+  - **Hyper-V synthetic drivers** (`hv_vmbus`/`hv_storvsc`/`hv_netvsc`) in the recognition line.
+  - Validated live on real Azure Nitro-equivalent hardware — x86 (D2s_v3) and arm64
+    Ampere (D2pls_v5), root + non-root, across the synthetic-only and AN-active (mlx4 /
+    mlx5 VF bonded) states (#444).
+
+### Breaking Changes
+
+- None.
+
 ## [1.6.0] - 2026-06-23
 
 Minor (additive): guest-side EC2 deep checks. A new `AWSCollector` is folded into
