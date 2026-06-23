@@ -36,4 +36,16 @@ type PackagesInfo struct {
 	// "0 updates" result unverified when the metadata is stale/absent rather than
 	// claiming "up to date" on data that was never refreshed.
 	MetadataAgeDays int `json:"metadata_age_days,omitempty"`
+
+	// --- Package-DB / lock health: a state that silently blocks ALL updates ---
+	// DBHealthChecked is true when a DB/lock probe ran for this manager.
+	// DBUpdatesBlocked is set when the package DB is in a state — an interrupted dpkg
+	// (apt), or an unreadable/corrupt rpmdb (dnf/yum/zypper, all rpm-based) — that
+	// makes every update silently fail: the host reports "0 updates" but literally
+	// cannot apply any. This is the false-OK the check exists to catch.
+	// DBBlockReason/DBBlockFix carry the diagnosis and remedy.
+	DBHealthChecked  bool   `json:"db_health_checked"`
+	DBUpdatesBlocked bool   `json:"db_updates_blocked,omitempty"`
+	DBBlockReason    string `json:"db_block_reason,omitempty"`
+	DBBlockFix       string `json:"db_block_fix,omitempty"`
 }
