@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -227,8 +228,8 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 			// plausible range isn't measuring — common on virtual/cloud hwmon (e.g.
 			// AWS EBS NVMe "Composite" returns 0 K). Don't render it as a healthy
 			// "✅ -273°C" (a green check on an impossible reading); show it as
-			// unreported. Same implausible-temp class as the GPU/NVMe SMART gates.
-			if t.TempC < -40 || t.TempC > 150 {
+			// unreported. Shared plausibility logic (see analysis/temp.go).
+			if !analysis.TempPlausible(float64(t.TempC), analysis.TempCeilSilicon) {
 				fmt.Printf("  %-14s %s  not reported  (%s)\n",
 					t.Label+":", output.StatusIcon("info", mode), t.Sensor)
 				continue
