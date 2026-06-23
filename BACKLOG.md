@@ -12,6 +12,103 @@ production incidents people would actually diagnose.
 
 ---
 
+## SUSE / cloud-registration depth (`Subscription` collector hardening + new checks)
+
+**Status: demand-gated — build when a real SUSE/PAYG box or a SUSE-running prospect
+surfaces.** Checks 1 and 6 are partly buildable/validatable today; checks 2–5 are
+SUSE-cloud-specific and have NO local test surface — they can only be built honestly
+against a real Azure (or AWS/GCP) PAYG SLES instance that can actually enter a broken-
+registration state. That makes the metered cloud VM the *only* validation path, not
+speculative tooling — but it is still gated on a real pull (a capture that breaks, or a
+prospect on SUSE).
+
+**Demand signal (external, verified):** Azure's VM-support taxonomy carries a dedicated
+"Kernel Upgrades, Package Management (Yum, Zypper, RPM, DPKG, APT)" escalation lane.
+Digging into *why* SUSE specifically loads that lane: most Azure SLES images are **PAYG**,
+which do NOT update from public repos — they register on first boot against an Azure-IP-
+locked, attestation-gated, DNS-invisible private update infrastructure. Any drift in the
+billing-attestation metadata, the `cloud-regionsrv-client` packages, or the network egress
+path silently breaks `zypper`, and the box quietly stops receiving security updates. The
+same failure class is documented identically for AWS and GCP PAYG SLES — so these checks
+have cross-cloud value, not Azure-only. (Refs: MS Learn suse-public-cloud-connectivity-
+registration-issues; SUSE "Public Cloud Update Infrastructure 101"; GCP/AWS SLES PAYG docs.)
+
+### What already exists (do NOT rebuild)
+
+`SUSEConnectCollector` (suseconnect_collector.go, check name `Subscription`) already does
+check #1 across SUSE (`SUSEConnect`), RHEL/Oracle/Rocky/Alma (`subscription-manager`), and
+Ubuntu Pro (`pro`). The SUSE false-OK bug — unregistered "Not Registered" misread as
+registered — was already found live on openSUSE Leap 15.6 and is guarded by
+`suseconnect_parse_test.go`. So #1 is a HARDENING target, not a greenfield build.
+
+### The six checks (priority order = strength of demand evidence × host-visibility)
+
+**1. Registration status — EXISTS, harden.** `SUSEConnect --status-text`/cloud-register
+state → Registered / Not-registered / Invalid-credentials (422). Highest-value signal: a
+not-registered or 422 box silently cannot receive security updates. Couldn't-measure rule
+(already partly honored): SUSEConnect absent, or a chost image that omits it, must read as
+*unknown*, NEVER as registered. Hardening work: surface the 422/attestation-failure state
+as a distinct verdict (today it likely collapses to generic not-registered), and add the
+expiry-window WARN.
+
+**2. Repository reachability + staleness — NEW.** Can `zypper` actually refresh, and do
+configured repos resolve? Real symptom is `zypper ref` throwing "Error retrieving metadata
+… script died unexpectedly" / "Resource temporarily unavailable" — a network/attestation
+failure masquerading as a transient error. dsd verdict "repos defined but unreachable"
+turns a cryptic zypper stack trace into a diagnosis. Couldn't-measure: no zypper / not
+SUSE → not-applicable (omit, per the normal rule — this is genuinely n/a, unlike #1's
+unknown).
+
+**3. Cloud-registration package currency — NEW, predictive.** Is `cloud-regionsrv-client`
++ the Azure plugin (`cloud-regionsrv-client-plugin-azure`, `regionServiceClientConfigAzure`)
+present and not ancient? Stale versions are the root cause of the "instance became
+incompatible with the update-infrastructure API" trap — registration looks fine today but
+will break. Genuinely predictive: catches the failure before it bites.
+
+**4. PAYG-vs-BYOS consistency — NEW.** Detect licensing mode and flag dangerous mixed
+states. Registering a PAYG instance against SUSE Customer Center (instead of the cloud
+update infra) creates conflicts that aren't easily solved; a box showing both PAYG billing
+and SCC registration is a catchable misconfiguration.
+
+**5. Update-path egress sanity — NEW, guest-visible slice of a network problem.** Is the
+instance's egress IP in an Azure range, or is traffic forced through a proxy / on-prem
+route / NAT that will black-hole the (DNS-invisible) update servers? dsd can't fix routing
+but can say "your update path looks redirected" — the diagnosis that currently needs a
+support ticket. Scope carefully: this is host-visible egress inference, NOT network-
+control-plane territory (stay inside the network-free principle).
+
+**6. Package-DB / lock health — NEW, cross-distro, validatable TODAY.** Stale zypper locks,
+locked packages, rpm/dpkg DB corruption — all silently block updates. Generalizes across
+the entire "Yum, Zypper, RPM, DPKG, APT" menu item, so it earns its keep on every Linux
+host, not just SUSE. This is the one check with a local test surface right now: CentOS 7
+EOL box (yum/rpm), Debian boxes (dpkg/apt), AlmaLinux CT213.
+
+### Validation environment per check
+
+| Check | Validatable today? | Needs |
+|---|---|---|
+| 1 Registration status | partly (openSUSE Leap, unregistered path tested) | real PAYG SLES for the 422/registered-active states |
+| 2 Repo reachability | no | PAYG SLES, ideally one with broken repos |
+| 3 Cloud-pkg currency | no | PAYG SLES (old image to see the stale case) |
+| 4 PAYG/BYOS consistency | no | PAYG SLES + a BYOS SLES for contrast |
+| 5 Egress sanity | no | PAYG SLES behind a proxy/UDR to see the broken case |
+| 6 Package-DB/lock health | YES | CentOS 7 EOL, Debian 12, AlmaLinux CT213 |
+
+Dual-privilege run applies (registration/repo reads may need root). The metered Azure SLES
+VM is a time-boxed capture session, not a standing box: deploy PAYG SLES + (for contrast)
+openSUSE Leap and a BYOS SLES, capture both privilege levels, tear down. The capture is the
+durable artifact (replayable per ADR-0003); the VM is disposable. SLES carries a per-hour
+software charge on top of compute — capture, don't camp.
+
+### Effort
+
+Check 6 alone: ~0.5–1 day, buildable now. Checks 1-hardening + 2–5: ~2–3 days once a real
+PAYG SLES capture exists, most of it being the capture session and per-state validation,
+not code. Do NOT build 2–5 from this spec — build the one a real broken SUSE box or a
+SUSE-running prospect actually pulls for.
+
+---
+
 ## Post-unexpected-reboot forensics (`PostBoot` collector)
 
 **Status: demand-gated — build when a real unexpected-reboot post-mortem surfaces**
