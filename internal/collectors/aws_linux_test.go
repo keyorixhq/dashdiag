@@ -136,3 +136,24 @@ func TestSubSat(t *testing.T) {
 		t.Error("underflow must saturate to 0 (counter reset mid-window)")
 	}
 }
+
+func TestENASRDActive(t *testing.T) {
+	// ENA Express enabled and carrying traffic → SRD packet counters non-zero.
+	const active = "     tx_pkts: 1000\n     ena_srd_tx_pkts: 42\n     ena_srd_rx_pkts: 7\n"
+	if !enaSRDActive(active) {
+		t.Error("non-zero ena_srd_*_pkts should report ENA Express active")
+	}
+	// SRD counters present but zero (enabled, no eligible traffic yet) → not active.
+	const idle = "     ena_srd_tx_pkts: 0\n     ena_srd_rx_pkts: 0\n"
+	if enaSRDActive(idle) {
+		t.Error("zero SRD counters should NOT report active")
+	}
+	// No SRD counters at all (ENA Express not enabled) → not active.
+	if enaSRDActive("     tx_pkts: 1000\n     rx_pkts: 900\n") {
+		t.Error("absent SRD counters should NOT report active")
+	}
+	// Garbled value must not be ingested.
+	if enaSRDActive("     ena_srd_tx_pkts: not-a-number\n") {
+		t.Error("garbled SRD value should NOT report active")
+	}
+}

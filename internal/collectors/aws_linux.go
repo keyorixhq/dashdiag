@@ -92,7 +92,72 @@ func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.TimeSyncChecked, info.UsesAmazonTimeSync = amazonTimeSyncConfigured()
 	info.SSMInstalled, info.SSMRunning = ssmState(ctx)
 
+	// --- full-coverage tail (recognition/context) ---
+	info.NitroEnclavesPresent, info.NitroEnclavesAllocatorRuns = nitroEnclaveState()
+	info.ENAExpressChecked, info.ENAExpressActive = enaExpressState(ctx)
+
 	return info, nil
+}
+
+// ---------- Nitro Enclaves ----------
+
+// nitroEnclaveState reports whether Nitro Enclaves are available on this instance.
+// /dev/nitro_enclaves exists only when the instance was launched with enclave options
+// and the nitro_enclaves driver is loaded; the allocator service reserves the enclave's
+// CPUs and memory. Informational — surfaces an isolated-compute facility, never a fault.
+func nitroEnclaveState() (present, allocatorRunning bool) {
+	if !fileExists("/dev/nitro_enclaves") {
+		return false, false
+	}
+	present = true
+	if out, err := runCmd(context.Background(), "systemctl", "is-active", "nitro-enclaves-allocator"); err == nil &&
+		strings.TrimSpace(out) == "active" {
+		allocatorRunning = true
+	}
+	return present, allocatorRunning
+}
+
+// ---------- ENA Express (SRD) ----------
+
+// enaExpressState reports whether ENA Express is enabled and carrying traffic. It reads
+// the ENA interfaces' `ethtool -S` independently of the throttle path so it cannot
+// perturb the allowance-counter delta logic. checked is false when no ENA interface was
+// readable, so an unread NIC never reads as "no ENA Express".
+func enaExpressState(ctx context.Context) (checked, active bool) {
+	ifaces := enaInterfaces()
+	if len(ifaces) == 0 {
+		return false, false
+	}
+	for _, iface := range ifaces {
+		out, err := runCmd(ctx, "ethtool", "-S", iface)
+		if err != nil {
+			continue
+		}
+		checked = true
+		if enaSRDActive(out) {
+			return true, true
+		}
+	}
+	return checked, false
+}
+
+// enaSRDActive reports whether ENA Express SRD packet counters are present AND non-zero
+// in `ethtool -S` output — SRD is enabled and actually carrying traffic. A garbled or
+// non-numeric value is ignored (don't ingest hostile tool output).
+func enaSRDActive(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "ena_srd_tx_pkts", "ena_srd_rx_pkts":
+			if n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 64); err == nil && n > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isReplaySource is true when collectors are reading from a replay bundle rather

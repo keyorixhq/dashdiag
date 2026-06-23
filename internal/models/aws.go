@@ -47,6 +47,21 @@ type AWSInfo struct {
 	// CloudMeta handles — this fires earlier, at elevated interruption risk) ---
 	RebalanceChecked     bool `json:"rebalance_checked"`
 	RebalanceRecommended bool `json:"rebalance_recommended,omitempty"`
+
+	// --- Nitro Enclaves (recognition/context) ---
+	// /dev/nitro_enclaves exists when the instance was launched with --enclave-options
+	// and the driver is loaded; the allocator service reserves the enclave's CPUs/memory.
+	// Informational, not a fault — surfaces that an isolated-compute facility is present.
+	NitroEnclavesPresent       bool `json:"nitro_enclaves_present"`
+	NitroEnclavesAllocatorRuns bool `json:"nitro_enclaves_allocator_running,omitempty"`
+
+	// --- ENA Express / SRD (recognition/context) ---
+	// ENA Express moves eligible TCP/UDP traffic onto the SRD transport (lower tail
+	// latency, higher single-flow bandwidth). When enabled, the ENA driver exposes
+	// ena_srd_* counters in `ethtool -S`. ENAExpressChecked is false when no ENA
+	// interface was readable, so an unread NIC never reads as "no ENA Express".
+	ENAExpressChecked bool `json:"ena_express_checked"`
+	ENAExpressActive  bool `json:"ena_express_active,omitempty"` // SRD counters present and carrying packets
 }
 
 // ENAStats holds the allowance-exceeded counters for one ENA interface. Total is

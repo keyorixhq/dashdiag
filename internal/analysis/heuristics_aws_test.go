@@ -140,3 +140,23 @@ func TestCheckAWS_SSMAndTimeSync(t *testing.T) {
 		t.Errorf("non-Amazon time sync should INFO, got %+v", got)
 	}
 }
+
+func TestCheckAWS_TailRecognition(t *testing.T) {
+	// ENA Express active + Nitro Enclaves present fold into the recognition line (no WARN).
+	a := models.AWSInfo{
+		IsEC2: true, InstanceType: "c6gn.medium",
+		ENA:               []models.ENAStats{{Iface: "ens5", Total: map[string]uint64{"bw_in": 0}}},
+		IMDSChecked:       true,
+		ENAExpressChecked: true, ENAExpressActive: true,
+		NitroEnclavesPresent: true,
+	}
+	got := checkAWS(a)
+	if len(got) != 1 || got[0].Level != "INFO" {
+		t.Fatalf("tail recognition = %+v, want one INFO line", got)
+	}
+	for _, want := range []string{"ENA Express active", "Nitro Enclaves present"} {
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("recognition line missing %q: %q", want, got[0].Message)
+		}
+	}
+}
