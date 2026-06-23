@@ -167,11 +167,17 @@ but can say "your update path looks redirected" — the diagnosis that currently
 support ticket. Scope carefully: this is host-visible egress inference, NOT network-
 control-plane territory (stay inside the network-free principle).
 
-**6. Package-DB / lock health — NEW, cross-distro, validatable TODAY.** Stale zypper locks,
-locked packages, rpm/dpkg DB corruption — all silently block updates. Generalizes across
-the entire "Yum, Zypper, RPM, DPKG, APT" menu item, so it earns its keep on every Linux
-host, not just SUSE. This is the one check with a local test surface right now: CentOS 7
-EOL box (yum/rpm), Debian boxes (dpkg/apt), AlmaLinux CT213.
+**6. Package-DB / lock health — ✅ SHIPPED (#457), cross-distro.** In the Packages
+collector: an interrupted dpkg (apt, via `dpkg --audit`) or an unreadable/corrupt rpmdb
+(dnf/yum/zypper — all rpm-based, via `rpm -q rpm` with a transient-lock retry) silently
+blocks EVERY update; WARN + the update count is marked untrustworthy. Runs even when the
+package query itself fails (a blocked DB is the cause), folding that into `query-failed`.
+**Live-validated on Debian + AlmaLinux 9 + openSUSE Leap 16** (pve01 matrix) — which
+caught 3 issues units missed: an rpm fresh-boot false-positive (fixed via retry), db-health
+being dropped when the query errored (fixed), and that a stale `/run/zypp.pid` does NOT
+block modern libzypp (so the zypper-lock check was dropped as a false alarm; zypper routes
+through the rpmdb probe instead). The positive/corruption path is unit-tested, not induced
+live (destructive).
 
 ### Validation environment per check
 
