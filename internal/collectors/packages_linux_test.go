@@ -53,3 +53,15 @@ func TestSupportedMetadataManager(t *testing.T) {
 		}
 	}
 }
+
+func TestPidAlive(t *testing.T) {
+	// PID 1 always exists on a running Linux host; a huge PID and non-numeric do not.
+	if !pidAlive("1") {
+		t.Error("pid 1 should be alive (/proc/1 exists)")
+	}
+	for _, dead := range []string{"4194304", "notanumber", ""} {
+		if pidAlive(dead) {
+			t.Errorf("pidAlive(%q) should be false", dead)
+		}
+	}
+}

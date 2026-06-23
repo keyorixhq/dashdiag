@@ -27,12 +27,17 @@ func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
 }
 
 func checkPackages(pkg models.PackagesInfo) []models.Insight {
+	// Package-DB / lock health first: an interrupted dpkg, unreadable rpmdb, or stale
+	// zypper lock blocks EVERY update, so the security-update count is meaningless
+	// until it's cleared — the false-OK where a host reads "patched" but can't patch.
+	out := checkPackageDBHealth(pkg)
+
 	// Security-update verdict. It may short-circuit (no-security-repo /
 	// query-failed / stale-metadata / fully patched) — but that must NOT gate the
 	// integrity checks below. A fully-patched OR stale-metadata host can still
 	// have broken packages / unmet deps, and those were silently skipped when this
 	// logic early-returned ahead of the integrity check (false-OK).
-	out := checkPackageUpdates(pkg)
+	out = append(out, checkPackageUpdates(pkg)...)
 
 	// Package integrity (deep mode only — populated by PackagesDeepCollector).
 	// Always evaluated, independent of the security-update status above.
@@ -42,6 +47,26 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 
 	out = append(out, checkPackageExtras(pkg)...)
 	return out
+}
+
+// checkPackageDBHealth flags a package database / lock state that silently blocks all
+// updates. It is the strongest false-OK guard in this collector: the security-update
+// count can read a confident "0" while the host literally cannot apply a single update.
+func checkPackageDBHealth(pkg models.PackagesInfo) []models.Insight {
+	if !pkg.DBUpdatesBlocked {
+		return nil
+	}
+	hints := []string{}
+	if pkg.DBBlockFix != "" {
+		hints = append(hints, "to fix: "+pkg.DBBlockFix)
+	}
+	hints = append(hints, "note: the security-update count cannot be trusted until this is cleared — no update can be applied")
+	reason := pkg.DBBlockReason
+	if reason == "" {
+		reason = "the package database is in a state that blocks updates"
+	}
+	return []models.Insight{insight("WARN", "Packages",
+		"package updates are silently blocked: "+reason, hints)}
 }
 
 // checkPackageUpdates turns the security-update scan result into insights. Its

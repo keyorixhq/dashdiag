@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,12 +52,96 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	// "couldn't confirm", not "up to date". Mark it unverified rather than green.
 	markStaleMetadata(info)
 
+	// Package-DB / lock health — a state (interrupted dpkg, unreadable rpmdb, stale
+	// zypper lock) that silently blocks EVERY update, so the security-update count
+	// above is meaningless until it's cleared. Cheap, no-root, runs in fast mode too.
+	info.DBHealthChecked, info.DBUpdatesBlocked, info.DBBlockReason, info.DBBlockFix = pkgDBHealth(ctx, info.PackageManager)
+
 	// Deep mode: run integrity checks (slower operations gated here)
 	if c.Deep {
 		info.Integrity = collectPackageIntegrity(ctx, info.PackageManager)
 	}
 
 	return info, nil
+}
+
+// pkgDBHealth probes the package database / lock for a state that silently blocks all
+// updates. It dispatches on the detected manager; checked is true when a probe ran.
+// Each probe is read-only and works non-root (the worst class is an unprivileged
+// operator getting a false "patched" reading on a host that cannot update).
+func pkgDBHealth(ctx context.Context, pm string) (checked, blocked bool, reason, fix string) {
+	switch pm {
+	case "apt":
+		return aptDBHealth(ctx)
+	case "dnf", "yum":
+		return rpmDBHealth(ctx)
+	case "zypper":
+		return zypperDBHealth()
+	}
+	return false, false, "", ""
+}
+
+// aptDBHealth reports an interrupted dpkg state. `dpkg --audit` lists packages left
+// half-installed/half-configured by an interrupted run; any output means apt/dpkg
+// operations will fail or silently no-op until `dpkg --configure -a` is run. dpkg
+// --audit reads the world-readable status DB, so it works non-root and its exit code
+// is 0 even when it reports problems — the OUTPUT is the signal, not the code.
+func aptDBHealth(ctx context.Context) (checked, blocked bool, reason, fix string) {
+	out, err := runCmd(ctx, "dpkg", "--audit")
+	if err != nil {
+		return false, false, "", "" // dpkg not usable — couldn't measure
+	}
+	if strings.TrimSpace(out) == "" {
+		return true, false, "", ""
+	}
+	return true, true,
+		"dpkg is in an interrupted state (packages left half-configured) — apt/dpkg will fail until reconfigured",
+		"sudo dpkg --configure -a"
+}
+
+// rpmDBHealth reports an unreadable/corrupt or locked rpm database. Querying a known
+// package (`rpm -q rpm`) fails when the rpmdb is corrupt, or blocks→times out when it
+// is locked by another process; either way yum/dnf cannot proceed. A clean DB returns
+// the package NVR with exit 0.
+func rpmDBHealth(ctx context.Context) (checked, blocked bool, reason, fix string) {
+	if _, err := lookPath("rpm"); err != nil {
+		return false, false, "", "" // no rpm to probe with — couldn't measure
+	}
+	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err != nil {
+		return true, true,
+			"the rpm database is not readable (corrupt, or locked by another process) — yum/dnf updates will fail",
+			"sudo rpm --rebuilddb   (after confirming no dnf/yum/packagekit is running)"
+	}
+	return true, false, "", ""
+}
+
+// zypperDBHealth reports a STALE zypper lock: /run/zypp.pid left behind by a zypper
+// process that died uncleanly. zypper refuses to run ("System management is locked by
+// the application with pid N") until it is removed. A lock whose PID is still running
+// is a legitimately-active zypper, not a fault, and is not flagged.
+func zypperDBHealth() (checked, blocked bool, reason, fix string) {
+	raw := readFileTrimmedLocal("/run/zypp.pid")
+	if raw == "" {
+		raw = readFileTrimmedLocal("/var/run/zypp.pid")
+	}
+	if raw == "" {
+		return true, false, "", "" // no lock present — clean
+	}
+	pid := strings.Fields(raw)
+	if len(pid) == 0 || !pidAlive(pid[0]) {
+		return true, true,
+			fmt.Sprintf("a stale zypper lock is held (/run/zypp.pid = %q, process not running) — all zypper operations are blocked", strings.TrimSpace(raw)),
+			"sudo rm -f /run/zypp.pid"
+	}
+	return true, false, "", "" // lock held by a live zypper — transient, not a fault
+}
+
+// pidAlive reports whether the given PID string names a running process (/proc/<pid>).
+func pidAlive(pid string) bool {
+	if _, err := strconv.Atoi(pid); err != nil {
+		return false
+	}
+	return fileExists("/proc/" + pid)
 }
 
 // packageMetadataStaleDays is the age beyond which a cached update index is treated
