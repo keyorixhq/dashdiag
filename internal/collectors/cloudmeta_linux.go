@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -181,15 +182,58 @@ func collectAzure(ctx context.Context, info *models.CloudInfo) bool {
 	info.Available = true
 	info.Provider = "azure"
 
-	// Azure scheduled events for maintenance
+	// Azure Scheduled Events: pending platform maintenance (freeze/reboot/redeploy) or
+	// eviction (preempt/terminate). Parse the JSON properly — the previous string-match
+	// had an operator-precedence bug ((err==nil && Freeze) || Reboot) that ignored the
+	// IMDS error on the Reboot branch and missed Redeploy/Preempt/Terminate entirely.
 	events, err := imdsGet(ctx,
 		"http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01",
 		map[string]string{"Metadata": "true"})
-	if err == nil && strings.Contains(events, "Freeze") || strings.Contains(events, "Reboot") {
-		info.MaintenanceEvent = true
-		info.MaintenanceDetails = "Azure scheduled maintenance event pending"
+	if err == nil {
+		if pending, details := parseAzureScheduledEvents(events); pending {
+			info.MaintenanceEvent = true
+			info.MaintenanceDetails = details
+		}
 	}
 	return true
+}
+
+// azureScheduledEvents mirrors the IMDS /scheduledevents document.
+type azureScheduledEvents struct {
+	Events []struct {
+		EventType   string `json:"EventType"`   // Freeze / Reboot / Redeploy / Preempt / Terminate
+		EventStatus string `json:"EventStatus"` // Scheduled / Started
+		NotBefore   string `json:"NotBefore"`
+	} `json:"Events"`
+}
+
+// parseAzureScheduledEvents reports whether any maintenance/eviction event is pending
+// and a human-readable summary. Returns false on empty/garbled bodies so a failed read
+// never reads as "event pending".
+func parseAzureScheduledEvents(body string) (pending bool, details string) {
+	var se azureScheduledEvents
+	if err := json.Unmarshal([]byte(body), &se); err != nil || len(se.Events) == 0 {
+		return false, ""
+	}
+	var parts []string
+	for _, e := range se.Events {
+		if e.EventType == "" {
+			continue
+		}
+		p := e.EventType
+		if e.EventStatus != "" {
+			p += " (" + e.EventStatus
+			if e.NotBefore != "" {
+				p += ", not before " + e.NotBefore
+			}
+			p += ")"
+		}
+		parts = append(parts, p)
+	}
+	if len(parts) == 0 {
+		return false, ""
+	}
+	return true, strings.Join(parts, "; ")
 }
 
 func collectGCP(ctx context.Context, info *models.CloudInfo) bool {

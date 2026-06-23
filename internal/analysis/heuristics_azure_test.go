@@ -99,3 +99,72 @@ func TestCheckAzure_TimeSyncInfo(t *testing.T) {
 		t.Errorf("non-PTP time sync should INFO, got %+v", got)
 	}
 }
+
+func TestCheckAzure_TempDiskPersistentDataWarns(t *testing.T) {
+	got := checkAzure(models.AzureInfo{
+		IsAzure:         true,
+		TempDiskPresent: true, TempDiskMount: "/mnt/resource", PersistentDataAtRisk: true,
+	})
+	if !hasAWSInsight(got, "WARN", "EPHEMERAL", "/mnt/resource") {
+		t.Errorf("persistent data on temp disk should WARN, got %+v", got)
+	}
+}
+
+func TestCheckAzure_TempDiskNormalIsQuiet(t *testing.T) {
+	// A temp disk used as scratch (no persistent data) must not WARN — it folds into
+	// the recognition line.
+	got := checkAzure(models.AzureInfo{
+		IsAzure:         true,
+		TempDiskPresent: true, TempDiskMount: "/mnt", PersistentDataAtRisk: false,
+	})
+	if len(got) != 1 || got[0].Level != "INFO" {
+		t.Fatalf("normal temp disk = %+v, want one INFO line", got)
+	}
+	if !strings.Contains(got[0].Message, "temp disk at /mnt (ephemeral)") {
+		t.Errorf("recognition should note the ephemeral temp disk: %q", got[0].Message)
+	}
+}
+
+func TestCheckAzure_DataDiskReadWriteCachingWarns(t *testing.T) {
+	got := checkAzure(models.AzureInfo{
+		IsAzure:      true,
+		DisksChecked: true,
+		Disks: []models.AzureDisk{
+			{IsOS: true, Caching: "ReadWrite"},                        // OS disk RW is fine — must not WARN
+			{IsOS: false, Lun: 0, Caching: "None"},                    // fine
+			{IsOS: false, Lun: 3, Name: "logs", Caching: "ReadWrite"}, // hazard
+		},
+	})
+	if !hasAWSInsight(got, "WARN", "LUN 3", "ReadWrite host caching") {
+		t.Errorf("data disk with ReadWrite caching should WARN, got %+v", got)
+	}
+	// Exactly one caching WARN — the OS disk's ReadWrite must not be flagged.
+	warns := 0
+	for _, i := range got {
+		if i.Level == "WARN" && strings.Contains(i.Message, "host caching") {
+			warns++
+		}
+	}
+	if warns != 1 {
+		t.Errorf("want exactly 1 caching WARN (not the OS disk), got %d: %+v", warns, got)
+	}
+}
+
+func TestCheckAzure_UnreadStorageProfileNotClaimedOK(t *testing.T) {
+	// DisksChecked false → no caching insight AND no "host caching OK" in the
+	// recognition line (couldn't-measure, never a silent OK).
+	got := checkAzure(models.AzureInfo{IsAzure: true, DisksChecked: false})
+	if len(got) != 1 || got[0].Level != "INFO" {
+		t.Fatalf("unread profile = %+v, want one recognition line", got)
+	}
+	if strings.Contains(got[0].Message, "host caching OK") {
+		t.Errorf("must not claim caching OK when unmeasured: %q", got[0].Message)
+	}
+}
+
+func TestCheckAzure_DynamicMemoryInRecognition(t *testing.T) {
+	got := checkAzure(models.AzureInfo{IsAzure: true, DynamicMemory: true, DynMemMaxMB: 8192})
+	if len(got) != 1 || !strings.Contains(got[0].Message, "Dynamic Memory enabled (max 8192 MB)") {
+		t.Errorf("DM should appear in recognition line, got %+v", got)
+	}
+}

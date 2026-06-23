@@ -5,15 +5,19 @@ package models
 // miss. Populated only on Azure (gate: DMI chassis asset tag); nil/zero everywhere
 // else so it adds no noise off Azure.
 //
-// Scope is strictly guest-side, no Azure API credentials: kernel/driver topology
-// (the Hyper-V synthetic NICs + Accelerated-Networking SR-IOV VFs) and local daemon
-// state (the Azure Linux agent, the Hyper-V PTP time source). The headline failure it
-// targets is the Accelerated-Networking false-green: AN shows "enabled" in the portal
-// but the VF never attached, so traffic silently rides the slow synthetic path.
+// Scope is strictly guest-side, no authenticated Azure API: kernel/driver topology
+// (the Hyper-V synthetic NICs + Accelerated-Networking SR-IOV VFs), local daemon
+// state (the Azure Linux agent, the Hyper-V PTP time source), the Dynamic-Memory
+// balloon driver, the resource (temp) disk, and host-cache settings read from the
+// unauthenticated link-local Instance Metadata Service (IMDS, 169.254.169.254). The
+// headline failure it targets is the Accelerated-Networking false-green: AN shows
+// "enabled" in the portal but the VF never attached, so traffic silently rides the
+// slow synthetic path.
 //
 // Unlike AWS EBS, Azure exposes no guest-side disk-throttle telemetry (managed disks
 // are SCSI via hv_storvsc, with no vendor log page), so there is deliberately no
-// disk-throttle field here — that signal lives only in the Azure API/metrics.
+// disk-throttle field here — that signal lives only in the Azure API/metrics. Host
+// *cache mode* (below) is config, not telemetry, and IS readable from IMDS.
 type AzureInfo struct {
 	IsAzure bool `json:"is_azure"`
 
@@ -37,6 +41,32 @@ type AzureInfo struct {
 	// --- Hyper-V PTP time source ---
 	TimeSyncChecked bool `json:"time_sync_checked"`
 	UsesHyperVPTP   bool `json:"uses_hyperv_ptp"` // chrony/timesyncd on /dev/ptp_hyperv (PHC refclock)
+
+	// --- Dynamic Memory (Hyper-V ballooning) ---
+	// hv_balloon loaded == the VM was provisioned with Dynamic Memory. Recognition
+	// context only: the driver's presence is a confident guest-side fact; ballooning
+	// *pressure* has no reliable guest-side counter, so it is deliberately not claimed
+	// here (would be a false signal). DynMemMaxMB carries the configured ceiling when
+	// the kernel logged it ("hv_balloon: Max. dynamic memory size: N MB"), else 0.
+	DynamicMemory bool `json:"dynamic_memory"`
+	DynMemMaxMB   int  `json:"dyn_mem_max_mb,omitempty"`
+
+	// --- Resource (temp) disk ---
+	// Azure's local temp/resource disk is ephemeral: its contents are lost on
+	// deallocation or host migration. TempDiskDevice is the WAAgent-managed
+	// /dev/disk/azure/resource target when present (the definitive marker).
+	// PersistentDataAtRisk is set when /etc/fstab mounts non-ephemeral-looking data
+	// onto the temp mount — the classic "I lost my data" footgun.
+	TempDiskPresent      bool   `json:"temp_disk_present"`
+	TempDiskDevice       string `json:"temp_disk_device,omitempty"`
+	TempDiskMount        string `json:"temp_disk_mount,omitempty"`
+	PersistentDataAtRisk bool   `json:"temp_disk_persistent_data_at_risk,omitempty"`
+
+	// --- Managed-disk host caching (from IMDS storageProfile) ---
+	// DisksChecked is false when IMDS could not be read, so an unread storage profile
+	// never reads as "no caching problems" (couldn't-measure, not OK).
+	DisksChecked bool        `json:"disks_checked"`
+	Disks        []AzureDisk `json:"disks,omitempty"`
 }
 
 // ANIface is the state of one Accelerated-Networking SR-IOV VF. Bonded is true when
@@ -49,4 +79,16 @@ type ANIface struct {
 	Synthetic string `json:"synthetic,omitempty"` // the hv_netvsc NIC it is bonded under, if any
 	Bonded    bool   `json:"bonded"`              // enslaved under a synthetic NIC (transparent bonding)
 	Up        bool   `json:"up"`                  // operstate == up
+}
+
+// AzureDisk is one disk's host-cache setting as reported by the IMDS storageProfile.
+// Caching is the Azure host-side cache mode ("None"/"ReadOnly"/"ReadWrite"); it is a
+// control-plane setting, not guest telemetry, but IMDS exposes it to the guest. IsOS
+// distinguishes the OS disk (ReadWrite is the safe default there) from data disks
+// (where ReadWrite host caching is the documented hazard for write-heavy/DB volumes).
+type AzureDisk struct {
+	Name    string `json:"name,omitempty"`
+	IsOS    bool   `json:"is_os"`
+	Lun     int    `json:"lun,omitempty"`     // data-disk LUN (osDisk has none)
+	Caching string `json:"caching,omitempty"` // None / ReadOnly / ReadWrite
 }
