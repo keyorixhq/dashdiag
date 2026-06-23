@@ -101,12 +101,20 @@ az vm create -g dsd-val -n dsd-val --image Ubuntu2204 \
 | A2 | persistent data on temp disk | add `/etc/fstab` line mounting under the temp mount (e.g. `UUID=… /mnt/data ext4 …`) | **WARN** "persistent data under the ephemeral temp disk" | WARN fires; remove line → clears |
 | A3 | managed-disk host cache hazard | the attached data disk with `--data-disk-caching ReadWrite` | **WARN** "data disk LUN N has ReadWrite host caching" | WARN fires for the data disk; OS disk RW **not** flagged |
 | A4 | NVMe `io_timeout` | NVMe size, default kernel cmdline | INFO if `nvme_core.io_timeout` < 60s; recognition "io_timeout=Ns" if tuned | matches `/sys/module/nvme_core/parameters/io_timeout` |
-| A5 | Dynamic Memory | default (Azure standard sizes do NOT enable Hyper-V DM) | **negative** — DM absent, nothing claimed | `dynamic_memory=false`; **note**: positive path not validatable on Azure |
+| A5 | Dynamic Memory | default | recognition: DM state + kernel-logged max | ✅ VALIDATED 2026-06-24 on D2pls_v6: `dynamic_memory=true, dyn_mem_max_mb=4096` — Azure DOES enable Hyper-V DM on this size (earlier "not offered" assumption was wrong; the positive path is validated) |
 | A6 | scheduled-events | IMDS `/metadata/scheduledevents` (usually no event) | no maintenance insight (clean parse) | endpoint parsed, no false event. (Real maintenance event is opportunistic — capture if one ever appears) |
 | A7 | couldn't-measure | run **non-root** (IMDS storageProfile needs no auth) | `disks_checked` consistent root/non-root | diff clean; if IMDS blocked non-root → `disks_checked=false`, never silent-OK |
 
-**Note on A5/A6:** these are best-effort (DM not offered; maintenance events can't be forced).
-Document the negative result; that still closes "does the parser choke on the real response".
+**✅ Validated 2026-06-24 on a real `Standard_D2pls_v6` (swedencentral z1, dual-privilege):**
+- **A3 host-cache hazard FIRED** correctly on a real ReadWrite-cached data disk; `disks_checked=true`
+  ⇒ the IMDS storageProfile parse works against real Azure IMDS (the #450 parser-vs-reality gap is closed).
+- **A5 Dynamic Memory is PRESENT** on Azure (`dynamic_memory=true, dyn_mem_max_mb=4096`) — positive path validated.
+- **A4 NVMe NOT exercised:** D2pls_v6 disks are SCSI (`nvme_present=false`), not NVMe — "v6 ⇒ NVMe" is wrong
+  for the arm Dpls family. The check stays correctly silent. To exercise A4's positive path, use a genuinely
+  NVMe size (`Lsv3`, or an Azure-Boost `Ebsv5`) and confirm `/sys/class/nvme` is populated first.
+- **A1/A2 temp disk:** absent on D2pls_v6 (no `d` in the size) — check correctly silent; use a `d`-suffixed size to exercise.
+- **A6 scheduled-events** parsed clean (no event); **A7 dual-privilege** consistent root/non-root.
+- Capture fixture: `testdata/captures/azure-d2plsv6-20260624.tar.gz` (gitignored) replays these verdicts locally.
 
 ---
 
