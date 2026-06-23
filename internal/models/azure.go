@@ -67,6 +67,16 @@ type AzureInfo struct {
 	// never reads as "no caching problems" (couldn't-measure, not OK).
 	DisksChecked bool        `json:"disks_checked"`
 	Disks        []AzureDisk `json:"disks,omitempty"`
+
+	// --- NVMe I/O timeout (full-coverage tail) ---
+	// Azure v5+ VMs surface managed/local disks as NVMe; the kernel default
+	// nvme_core.io_timeout (30s) can turn a transient managed-disk latency spike into
+	// an I/O error, so Azure recommends raising it (commonly 240s). Checked only when
+	// NVMe is present; NVMeIOTimeoutChecked is false otherwise so a non-NVMe VM stays
+	// silent rather than reading as OK.
+	NVMePresent          bool `json:"nvme_present"`
+	NVMeIOTimeoutChecked bool `json:"nvme_io_timeout_checked"`
+	NVMeIOTimeoutSecs    int  `json:"nvme_io_timeout_secs,omitempty"`
 }
 
 // ANIface is the state of one Accelerated-Networking SR-IOV VF. Bonded is true when
