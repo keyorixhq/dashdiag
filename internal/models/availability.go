@@ -37,6 +37,7 @@ func (i MultipathInfo) IsAvailable() bool      { return i.Available }
 func (i NspawnInfo) IsAvailable() bool         { return i.Available }
 func (i NUMAInfo) IsAvailable() bool           { return i.Available }
 func (i OOMInfo) IsAvailable() bool            { return i.Available }
+func (i PostBootInfo) IsAvailable() bool       { return i.Available }
 func (i PressureInfo) IsAvailable() bool       { return i.Available }
 func (i PVEPerf) IsAvailable() bool            { return i.Available }
 func (i SnapperInfo) IsAvailable() bool        { return i.Available }
