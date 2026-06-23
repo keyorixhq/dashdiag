@@ -271,6 +271,9 @@ func parseAzureStorageProfile(body string) (checked bool, disks []models.AzureDi
 	})
 	for _, d := range sp.DataDisks {
 		lun, _ := strconv.Atoi(d.Lun)
+		if lun < 0 {
+			lun = 0 // a LUN is a non-negative index; clamp garbage/hostile values
+		}
 		disks = append(disks, models.AzureDisk{
 			Name: d.Name, IsOS: false, Lun: lun, Caching: d.Caching,
 		})
