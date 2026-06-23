@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -28,41 +27,69 @@ func (c *PackagesCollector) Name() string           { return "Packages" }
 func (c *PackagesCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
-	var info *models.PackagesInfo
-	var err error
-
-	// Detect package manager
-	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
-		info, err = collectZypper(ctx)
-	} else if _, e := runCmd(ctx, "dnf", "--version"); e == nil {
-		info, err = collectDNF(ctx)
-	} else if _, e := runCmd(ctx, "apt-get", "--version"); e == nil {
-		info, err = collectAPT(ctx)
-	} else {
+	pm := detectPackageManager(ctx)
+	if pm == "" {
 		return &models.PackagesInfo{PackageManager: "unknown"}, nil
 	}
 
-	if err != nil || info == nil {
-		return info, err
+	var info *models.PackagesInfo
+	var qErr error
+	switch pm {
+	case "zypper":
+		info, qErr = collectZypper(ctx)
+	case "dnf":
+		info, qErr = collectDNF(ctx)
+	case "apt":
+		info, qErr = collectAPT(ctx)
+	}
+	if info == nil {
+		info = &models.PackagesInfo{PackageManager: pm}
+	}
+	if info.PackageManager == "" {
+		info.PackageManager = pm
 	}
 
+	// Fold a hard query error into a status rather than returning it: the runner/render
+	// path ignores a collector's Data when it returns an error, which would DROP the
+	// DB-health verdict below — and a blocked/locked/corrupt package DB is exactly what
+	// makes the query fail. Surfacing it as "query-failed" keeps the result (the
+	// existing query-failed handling in checkPackageUpdates renders it).
+	if qErr != nil && info.Status == "" {
+		info.Status = "query-failed"
+		info.StatusReason = "package-manager query failed: " + qErr.Error()
+	}
+
+	// Package-DB health — an interrupted dpkg (apt) or unreadable/corrupt rpmdb
+	// (dnf/yum/zypper, all rpm-based) silently blocks EVERY update. Runs REGARDLESS of
+	// query success (it explains *why* a query failed); cheap, no-root, fast mode too.
+	info.DBHealthChecked, info.DBUpdatesBlocked, info.DBBlockReason, info.DBBlockFix = pkgDBHealth(ctx, pm)
+
 	// A "0 security updates" result is only trustworthy if the update metadata is
-	// fresh. apt never auto-refreshes (we deliberately don't run `apt update`), and
-	// dnf/zypper can be offline or never-refreshed — so stale/absent metadata means
-	// "couldn't confirm", not "up to date". Mark it unverified rather than green.
-	markStaleMetadata(info)
-
-	// Package-DB / lock health — a state (interrupted dpkg, unreadable rpmdb, stale
-	// zypper lock) that silently blocks EVERY update, so the security-update count
-	// above is meaningless until it's cleared. Cheap, no-root, runs in fast mode too.
-	info.DBHealthChecked, info.DBUpdatesBlocked, info.DBBlockReason, info.DBBlockFix = pkgDBHealth(ctx, info.PackageManager)
-
-	// Deep mode: run integrity checks (slower operations gated here)
-	if c.Deep {
-		info.Integrity = collectPackageIntegrity(ctx, info.PackageManager)
+	// fresh; mark it unverified when stale/absent. Skipped on a failed query (a
+	// query-failed status already says "couldn't confirm").
+	if qErr == nil {
+		markStaleMetadata(info)
+		if c.Deep {
+			info.Integrity = collectPackageIntegrity(ctx, info.PackageManager)
+		}
 	}
 
 	return info, nil
+}
+
+// detectPackageManager returns the host's package manager ("zypper"/"dnf"/"apt"), or
+// "" when none is recognised. Probed in the same order as before (zypper, dnf, apt).
+func detectPackageManager(ctx context.Context) string {
+	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
+		return "zypper"
+	}
+	if _, e := runCmd(ctx, "dnf", "--version"); e == nil {
+		return "dnf"
+	}
+	if _, e := runCmd(ctx, "apt-get", "--version"); e == nil {
+		return "apt"
+	}
+	return ""
 }
 
 // pkgDBHealth probes the package database / lock for a state that silently blocks all
@@ -73,10 +100,13 @@ func pkgDBHealth(ctx context.Context, pm string) (checked, blocked bool, reason,
 	switch pm {
 	case "apt":
 		return aptDBHealth(ctx)
-	case "dnf", "yum":
+	case "dnf", "yum", "zypper":
+		// All three are rpm-based (zypper/SLES included) — the package DB that blocks
+		// updates when corrupt is the rpmdb. A stale zypper front-end lock
+		// (/run/zypp.pid) was tried and rejected: a dead-PID lock does NOT block modern
+		// libzypp (verified on Leap 16 — `zypper lr` runs fine with a dead pid present),
+		// so flagging it would be a false alarm.
 		return rpmDBHealth(ctx)
-	case "zypper":
-		return zypperDBHealth()
 	}
 	return false, false, "", ""
 }
@@ -107,41 +137,23 @@ func rpmDBHealth(ctx context.Context) (checked, blocked bool, reason, fix string
 	if _, err := lookPath("rpm"); err != nil {
 		return false, false, "", "" // no rpm to probe with — couldn't measure
 	}
-	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err != nil {
-		return true, true,
-			"the rpm database is not readable (corrupt, or locked by another process) — yum/dnf updates will fail",
-			"sudo rpm --rebuilddb   (after confirming no dnf/yum/packagekit is running)"
+	// A SINGLE failure is usually transient, not corruption: dnf-makecache.timer and
+	// PackageKit briefly hold the rpmdb lock right after boot, so `rpm -q rpm` can fail
+	// for ~a second on a perfectly healthy host (observed live on AlmaLinux 9). Retry
+	// once before asserting the DB is blocked — otherwise a momentary lock reads as a
+	// false "rpmdb corrupt" alarm.
+	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err == nil {
+		return true, false, "", ""
 	}
-	return true, false, "", ""
-}
-
-// zypperDBHealth reports a STALE zypper lock: /run/zypp.pid left behind by a zypper
-// process that died uncleanly. zypper refuses to run ("System management is locked by
-// the application with pid N") until it is removed. A lock whose PID is still running
-// is a legitimately-active zypper, not a fault, and is not flagged.
-func zypperDBHealth() (checked, blocked bool, reason, fix string) {
-	raw := readFileTrimmedLocal("/run/zypp.pid")
-	if raw == "" {
-		raw = readFileTrimmedLocal("/var/run/zypp.pid")
+	if !sleepCtx(ctx, 1500*time.Millisecond) {
+		return true, false, "", "" // ctx cancelled — don't assert blocked on a partial probe
 	}
-	if raw == "" {
-		return true, false, "", "" // no lock present — clean
+	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err == nil {
+		return true, false, "", "" // cleared on retry — it was a transient lock
 	}
-	pid := strings.Fields(raw)
-	if len(pid) == 0 || !pidAlive(pid[0]) {
-		return true, true,
-			fmt.Sprintf("a stale zypper lock is held (/run/zypp.pid = %q, process not running) — all zypper operations are blocked", strings.TrimSpace(raw)),
-			"sudo rm -f /run/zypp.pid"
-	}
-	return true, false, "", "" // lock held by a live zypper — transient, not a fault
-}
-
-// pidAlive reports whether the given PID string names a running process (/proc/<pid>).
-func pidAlive(pid string) bool {
-	if _, err := strconv.Atoi(pid); err != nil {
-		return false
-	}
-	return fileExists("/proc/" + pid)
+	return true, true,
+		"the rpm database is not readable (corrupt, or persistently locked by another process) — yum/dnf updates will fail",
+		"sudo rpm --rebuilddb   (after confirming no dnf/yum/packagekit is running)"
 }
 
 // packageMetadataStaleDays is the age beyond which a cached update index is treated
