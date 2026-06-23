@@ -546,6 +546,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.AWSGuestAvailable() {
 		cols = append(cols, collectors.NewAWSCollector())
 	}
+	// Azure guest deep checks — gate on DMI asset tag (silent on every non-Azure host).
+	if collectors.AzureGuestAvailable() {
+		cols = append(cols, collectors.NewAzureCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
