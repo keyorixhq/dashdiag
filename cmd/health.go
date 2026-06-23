@@ -554,6 +554,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.GCPGuestAvailable() {
 		cols = append(cols, collectors.NewGCPCollector())
 	}
+	// Prior-boot forensics — gate on a readable cross-boot source (journal or wtmp).
+	// Quiet when the prior boot was clean; loud when it was unclean / unmeasurable.
+	if collectors.PostBootAvailable() {
+		cols = append(cols, collectors.NewPostBootCollector())
+	}
 	if collectors.IsAuditdPresent() {
 		cols = append(cols, collectors.NewAuditCollector())
 	}
