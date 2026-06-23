@@ -19,7 +19,7 @@
 #   ./az-find-deploy-zones.sh Standard_D2pls_v5 northeurope
 set -euo pipefail
 
-SKU="${1:-Standard_D2pls_v5}"
+SKU="${1:-Standard_D2pls_v6}"
 REGION="${2:-}"
 
 command -v az >/dev/null || { echo "az CLI not found — run this in Azure Cloud Shell (Bash)."; exit 1; }
