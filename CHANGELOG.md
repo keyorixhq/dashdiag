@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-24
+
+Patch: fixes a bug in v1.8.0's package-DB/lock health check.
+
+### Fixed
+
+- **Package-DB health was starved on slow-apt hosts** (`dsd health --packages`). The apt
+  security-update scan could consume the entire Packages-collector deadline, leaving the
+  DB-health probe context-cancelled — so `db_health_checked` came back false and the check
+  added in v1.8.0 silently did not run. Found by live validation on a real Azure VM (the
+  Packages check duration was exactly the 8s timeout). The fast probe now runs *before* the
+  scan, so it always completes. (#469)
+
 ## [1.8.0] - 2026-06-23
 
 Minor (additive): completes guest-side cloud-depth across **AWS / Azure / GCP**, adds
