@@ -94,7 +94,6 @@ const persistentJournalDir = "/var/log/journal"
 // EACCES, first-boot) with no live machine — mirroring the fixture-driven style
 // of the existing collector tests (oom_linux_test.go, timeline_linux_test.go).
 type pbEnv struct {
-	goos      string
 	isSystemd bool
 	hasWtmp   bool
 
