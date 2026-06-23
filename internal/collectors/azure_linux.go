@@ -4,8 +4,11 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +57,7 @@ func isAzureGuest(sysVendor, productName, assetTag string) bool {
 	return strings.Contains(hay, "microsoft azure")
 }
 
-func (c *AzureCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *AzureCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.AzureInfo{IsAzure: true}
 
 	info.SyntheticNICs, info.AN, info.HasVF = collectAcceleratedNetworking("/sys/class/net")
@@ -67,7 +70,181 @@ func (c *AzureCollector) Collect(_ context.Context) (interface{}, error) {
 	info.WAAgentInstalled, info.WAAgentRunning = waagentState()
 	info.TimeSyncChecked, info.UsesHyperVPTP = azureTimeSyncConfigured()
 
+	info.DynamicMemory, info.DynMemMaxMB = dynamicMemoryState(mods, azureDmesg(ctx))
+	info.TempDiskPresent, info.TempDiskDevice, info.TempDiskMount, info.PersistentDataAtRisk = tempDiskStateFromHost()
+	info.DisksChecked, info.Disks = azureDiskCaching(ctx)
+
 	return info, nil
+}
+
+// ---------- Dynamic Memory (Hyper-V ballooning) ----------
+
+// dynamicMemoryState reports whether Hyper-V Dynamic Memory is enabled — the
+// hv_balloon driver is loaded — and the configured ceiling the kernel logged, if any.
+// Driver presence is a confident guest-side fact. Ballooning *pressure* has no reliable
+// guest-side counter, so it is deliberately NOT inferred here: claiming "memory
+// pressure" off an unreadable signal would be exactly the false-alarm class dsd avoids.
+func dynamicMemoryState(procModules, dmesg string) (enabled bool, maxMB int) {
+	enabled = kernelModulePresent(procModules, "hv_balloon")
+	if !enabled {
+		return false, 0
+	}
+	return true, parseHVBalloonMaxMB(dmesg)
+}
+
+var hvBalloonMaxRe = regexp.MustCompile(`hv_balloon:\s*Max\.\s*dynamic memory size:\s*(\d+)\s*MB`)
+
+// parseHVBalloonMaxMB extracts N from a kernel line like
+// "hv_balloon: Max. dynamic memory size: 8192 MB". Returns 0 if absent or garbled.
+func parseHVBalloonMaxMB(dmesg string) int {
+	m := hvBalloonMaxRe.FindStringSubmatch(dmesg)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+// azureDmesg returns the kernel log best-effort (empty on dmesg_restrict / non-root /
+// unreadable). The DM ceiling is a nice-to-have, never load-bearing — DynamicMemory is
+// determined from /proc/modules, which needs no privilege.
+func azureDmesg(ctx context.Context) string {
+	out, err := runCmd(ctx, "dmesg")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// ---------- Resource (temp) disk ----------
+
+// tempDiskStateFromHost reads the host inputs for tempDiskState: the WAAgent config
+// (for the configured mount point), the live mount table, /etc/fstab, and the
+// WAAgent-managed /dev/disk/azure/resource marker.
+func tempDiskStateFromHost() (present bool, device, mount string, atRisk bool) {
+	return tempDiskState(
+		readFileTrimmedLocal("/etc/waagent.conf"),
+		readFileTrimmedLocal("/proc/mounts"),
+		readFileTrimmedLocal("/etc/fstab"),
+		fileExists("/dev/disk/azure/resource"),
+	)
+}
+
+var resourceMountRe = regexp.MustCompile(`(?m)^\s*ResourceDisk\.MountPoint\s*=\s*(\S+)`)
+
+// tempDiskState locates Azure's ephemeral resource/temp disk and reports whether
+// persistent data is layered onto it. Candidate mount points are the WAAgent-configured
+// one (if any) then the two common defaults (/mnt/resource on agent images, /mnt on
+// cloud-init images); the first with a live mount wins. Presence is also asserted by
+// the /dev/disk/azure/resource marker even when nothing is mounted. atRisk is set when
+// /etc/fstab mounts anything onto a subdirectory of the temp mount — the classic
+// "persistent data on ephemeral storage, lost on host migration" footgun.
+func tempDiskState(waagentConf, procMounts, fstab string, resourceLinkExists bool) (present bool, device, mount string, atRisk bool) {
+	candidates := []string{}
+	if m := resourceMountRe.FindStringSubmatch(waagentConf); m != nil {
+		candidates = append(candidates, strings.TrimRight(m[1], "/"))
+	}
+	candidates = append(candidates, "/mnt/resource", "/mnt")
+
+	for _, cand := range candidates {
+		if dev := deviceMountedAt(procMounts, cand); dev != "" {
+			device, mount = dev, cand
+			present = true
+			break
+		}
+	}
+	if !present && resourceLinkExists {
+		present = true
+	}
+	if mount != "" {
+		atRisk = fstabHasSubmount(fstab, mount)
+	}
+	return present, device, mount, atRisk
+}
+
+// deviceMountedAt returns the device mounted at exactly mountPoint per /proc/mounts, or
+// "" if nothing is mounted there.
+func deviceMountedAt(procMounts, mountPoint string) string {
+	for _, line := range strings.Split(procMounts, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[1] == mountPoint {
+			return f[0]
+		}
+	}
+	return ""
+}
+
+// fstabHasSubmount reports whether /etc/fstab declares a mount whose target is a strict
+// subdirectory of mount (e.g. a database datadir under the ephemeral /mnt). The temp
+// mount line itself is not a submount and does not trip this.
+func fstabHasSubmount(fstab, mount string) bool {
+	prefix := strings.TrimRight(mount, "/") + "/"
+	for _, line := range strings.Split(fstab, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) >= 2 && strings.HasPrefix(f[1], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------- Managed-disk host caching (IMDS storageProfile) ----------
+
+// azStorageProfile mirrors the IMDS compute/storageProfile node. Azure returns numeric
+// fields (lun) as JSON strings, so Lun is decoded as a string and parsed.
+type azStorageProfile struct {
+	OSDisk struct {
+		Name    string `json:"name"`
+		Caching string `json:"caching"`
+	} `json:"osDisk"`
+	DataDisks []struct {
+		Name    string `json:"name"`
+		Lun     string `json:"lun"`
+		Caching string `json:"caching"`
+	} `json:"dataDisks"`
+}
+
+// azureDiskCaching reads the host-cache mode of each disk from the link-local IMDS
+// storageProfile. checked is false on any IMDS/parse error so an unread profile never
+// reads as "no caching problems".
+func azureDiskCaching(ctx context.Context) (checked bool, disks []models.AzureDisk) {
+	body, err := imdsGet(ctx,
+		"http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01&format=json",
+		map[string]string{"Metadata": "true"})
+	if err != nil || body == "" {
+		return false, nil
+	}
+	return parseAzureStorageProfile(body)
+}
+
+// parseAzureStorageProfile turns the IMDS storageProfile JSON into the OS disk followed
+// by each data disk, carrying the host-cache mode. checked is false when the body is
+// not the expected JSON object (couldn't-measure, never a silent OK).
+func parseAzureStorageProfile(body string) (checked bool, disks []models.AzureDisk) {
+	var sp azStorageProfile
+	if err := json.Unmarshal([]byte(body), &sp); err != nil {
+		return false, nil
+	}
+	if sp.OSDisk.Caching == "" && len(sp.DataDisks) == 0 {
+		return false, nil // not a storageProfile object — treat as unread
+	}
+	disks = append(disks, models.AzureDisk{
+		Name: sp.OSDisk.Name, IsOS: true, Caching: sp.OSDisk.Caching,
+	})
+	for _, d := range sp.DataDisks {
+		lun, _ := strconv.Atoi(d.Lun)
+		disks = append(disks, models.AzureDisk{
+			Name: d.Name, IsOS: false, Lun: lun, Caching: d.Caching,
+		})
+	}
+	return true, disks
 }
 
 // ---------- Accelerated Networking (SR-IOV VF datapath) ----------

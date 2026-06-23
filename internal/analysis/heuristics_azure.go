@@ -22,10 +22,59 @@ func checkAzure(a models.AzureInfo) []models.Insight {
 	out = append(out, azureANInsights(a)...)
 	out = append(out, azureWAAgentInsights(a)...)
 	out = append(out, azureTimeSyncInsights(a)...)
+	out = append(out, azureTempDiskInsights(a)...)
+	out = append(out, azureCachingInsights(a)...)
 	if len(out) == 0 {
 		out = append(out, insight("INFO", "Azure", azureRecognitionLine(a), nil))
 	}
 	return out
+}
+
+// azureTempDiskInsights warns only when persistent data is layered onto the ephemeral
+// temp/resource disk — the "lost my data on host migration" footgun. A temp disk that
+// simply exists and is used as scratch is normal and stays quiet (folded into the
+// recognition line), so the common VM is not nagged.
+func azureTempDiskInsights(a models.AzureInfo) []models.Insight {
+	if a.TempDiskPresent && a.PersistentDataAtRisk {
+		return []models.Insight{insight("WARN", "Azure",
+			fmt.Sprintf("/etc/fstab mounts persistent data under the Azure temp/resource disk (%s) — this storage is EPHEMERAL and its contents are lost on deallocation or host migration",
+				a.TempDiskMount),
+			[]string{
+				"to inspect: grep " + a.TempDiskMount + " /etc/fstab",
+				"note: the temp disk is for scratch/swap only; move persistent data to a managed data disk",
+			})}
+	}
+	return nil
+}
+
+// azureCachingInsights flags the one documented host-cache hazard: a DATA disk with
+// ReadWrite host caching. Azure recommends None/ReadOnly for data disks (ReadWrite
+// write-back caching risks consistency for write-heavy/database volumes). The OS disk's
+// ReadWrite default is correct and is never flagged. An unread storage profile
+// (DisksChecked == false) produces no insight and is omitted from the recognition line
+// — never a silent "caching OK".
+func azureCachingInsights(a models.AzureInfo) []models.Insight {
+	if !a.DisksChecked {
+		return nil
+	}
+	var out []models.Insight
+	for _, d := range a.Disks {
+		if !d.IsOS && strings.EqualFold(d.Caching, "ReadWrite") {
+			out = append(out, insight("WARN", "Azure",
+				fmt.Sprintf("data disk LUN %d (%s) has ReadWrite host caching — Azure recommends None or ReadOnly for data disks; ReadWrite write-back caching risks data consistency for write-heavy/database workloads",
+					d.Lun, diskLabel(d)),
+				[]string{"to fix: set the disk's host caching to None (or ReadOnly) in the Azure portal/CLI for write-heavy volumes"}))
+		}
+	}
+	return out
+}
+
+// diskLabel is the disk's name, or a placeholder when IMDS reported none.
+func diskLabel(d models.AzureDisk) string {
+	if d.Name != "" {
+		return d.Name
+	}
+	return "unnamed"
 }
 
 // azureANInsights flags a broken Accelerated-Networking datapath: a VF that is present
@@ -92,6 +141,23 @@ func azureRecognitionLine(a models.AzureInfo) string {
 	}
 	if a.TimeSyncChecked && a.UsesHyperVPTP {
 		parts = append(parts, "Hyper-V PTP time sync")
+	}
+	if a.DynamicMemory {
+		dm := "Dynamic Memory enabled"
+		if a.DynMemMaxMB > 0 {
+			dm = fmt.Sprintf("Dynamic Memory enabled (max %d MB)", a.DynMemMaxMB)
+		}
+		parts = append(parts, dm)
+	}
+	if a.TempDiskPresent && !a.PersistentDataAtRisk {
+		td := "temp disk ephemeral"
+		if a.TempDiskMount != "" {
+			td = "temp disk at " + a.TempDiskMount + " (ephemeral)"
+		}
+		parts = append(parts, td)
+	}
+	if a.DisksChecked && len(a.Disks) > 0 {
+		parts = append(parts, fmt.Sprintf("host caching OK (%d disk(s))", len(a.Disks)))
 	}
 	summary := "guest recognised"
 	if len(parts) > 0 {

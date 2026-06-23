@@ -115,3 +115,136 @@ func TestCollectAcceleratedNetworking_SyntheticOnly(t *testing.T) {
 		t.Errorf("synthetic-only: syn=%v ifaces=%+v hasVF=%v, want [eth0]/none/false", syn, ifaces, hasVF)
 	}
 }
+
+// ---------- Dynamic Memory ----------
+
+func TestDynamicMemoryState(t *testing.T) {
+	const mods = "hv_balloon 24576 0 - Live 0x0000000000000000\nhv_utils 40960 1\n"
+	const dmesg = "[    1.23] hv_vmbus: registering driver hv_balloon\n[    1.45] hv_balloon: Max. dynamic memory size: 8192 MB\n"
+	enabled, maxMB := dynamicMemoryState(mods, dmesg)
+	if !enabled || maxMB != 8192 {
+		t.Errorf("dynamicMemoryState = (%v, %d), want (true, 8192)", enabled, maxMB)
+	}
+
+	// hv_balloon absent → not enabled, no max (even if a stray line exists).
+	if en, mb := dynamicMemoryState("hv_utils 40960 1\n", dmesg); en || mb != 0 {
+		t.Errorf("no hv_balloon: got (%v,%d), want (false,0)", en, mb)
+	}
+
+	// Enabled but dmesg unreadable (dmesg_restrict) → still enabled, max 0.
+	if en, mb := dynamicMemoryState(mods, ""); !en || mb != 0 {
+		t.Errorf("enabled, no dmesg: got (%v,%d), want (true,0)", en, mb)
+	}
+}
+
+func TestParseHVBalloonMaxMB(t *testing.T) {
+	cases := map[string]int{
+		"hv_balloon: Max. dynamic memory size: 16384 MB":       16384,
+		"prefix\nhv_balloon: Max. dynamic memory size: 512 MB": 512,
+		"hv_balloon: Max. dynamic memory size:  0 MB":          0, // clamp non-positive
+		"no balloon line here":                                 0,
+		"hv_balloon: Max. dynamic memory size: garbled MB":     0,
+	}
+	for in, want := range cases {
+		if got := parseHVBalloonMaxMB(in); got != want {
+			t.Errorf("parseHVBalloonMaxMB(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+// ---------- Temp / resource disk ----------
+
+func TestDeviceMountedAt(t *testing.T) {
+	const mounts = "/dev/sda1 / ext4 rw 0 0\n/dev/sdb1 /mnt ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n"
+	if got := deviceMountedAt(mounts, "/mnt"); got != "/dev/sdb1" {
+		t.Errorf("deviceMountedAt(/mnt) = %q, want /dev/sdb1", got)
+	}
+	if got := deviceMountedAt(mounts, "/nonexistent"); got != "" {
+		t.Errorf("deviceMountedAt(missing) = %q, want empty", got)
+	}
+}
+
+func TestFstabHasSubmount(t *testing.T) {
+	// A datadir mounted UNDER the temp mount = persistent data on ephemeral storage.
+	const risky = "UUID=abc /mnt/resource/data ext4 defaults 0 2\n# comment\n/dev/sdb1 /mnt auto defaults 0 0\n"
+	if !fstabHasSubmount(risky, "/mnt") {
+		t.Error("fstabHasSubmount should flag /mnt/resource/data under /mnt")
+	}
+	// The temp mount line itself is NOT a submount.
+	const safe = "/dev/sdb1 /mnt/resource auto defaults,nofail 0 0\n"
+	if fstabHasSubmount(safe, "/mnt/resource") {
+		t.Error("fstabHasSubmount should NOT flag the temp mount line itself")
+	}
+	if fstabHasSubmount("", "/mnt") {
+		t.Error("empty fstab should not flag")
+	}
+}
+
+func TestTempDiskState(t *testing.T) {
+	const waagent = "ResourceDisk.Format=y\nResourceDisk.MountPoint=/mnt/resource\n"
+	const mounts = "/dev/sda1 / ext4 rw 0 0\n/dev/sdb1 /mnt/resource ext4 rw 0 0\n"
+
+	present, dev, mount, atRisk := tempDiskState(waagent, mounts, "", false)
+	if !present || dev != "/dev/sdb1" || mount != "/mnt/resource" || atRisk {
+		t.Errorf("tempDiskState = (%v,%q,%q,%v), want (true,/dev/sdb1,/mnt/resource,false)", present, dev, mount, atRisk)
+	}
+
+	// Persistent data layered onto the temp mount → at risk.
+	const riskyFstab = "UUID=x /mnt/resource/pgdata ext4 defaults 0 2\n"
+	_, _, _, atRisk2 := tempDiskState(waagent, mounts, riskyFstab, false)
+	if !atRisk2 {
+		t.Error("tempDiskState should flag persistent data under the temp mount")
+	}
+
+	// No waagent config, cloud-init image mounts at /mnt.
+	const ci = "/dev/sdb1 /mnt ext4 rw 0 0\n"
+	p3, _, m3, _ := tempDiskState("", ci, "", false)
+	if !p3 || m3 != "/mnt" {
+		t.Errorf("cloud-init default: present=%v mount=%q, want true //mnt", p3, m3)
+	}
+
+	// Nothing mounted but the /dev/disk/azure/resource marker exists → present.
+	p4, dev4, _, _ := tempDiskState("", "/dev/sda1 / ext4 rw 0 0\n", "", true)
+	if !p4 || dev4 != "" {
+		t.Errorf("marker-only: present=%v dev=%q, want true/empty", p4, dev4)
+	}
+
+	// No marker, nothing mounted → absent.
+	if p5, _, _, _ := tempDiskState("", "/dev/sda1 / ext4 rw 0 0\n", "", false); p5 {
+		t.Error("no marker, no mount → should be absent")
+	}
+}
+
+// ---------- Managed-disk host caching (IMDS) ----------
+
+func TestParseAzureStorageProfile(t *testing.T) {
+	// IMDS returns lun as a string; caching is the host-cache mode.
+	const body = `{
+		"osDisk": {"name": "myvm_OsDisk_1", "caching": "ReadWrite"},
+		"dataDisks": [
+			{"name": "data0", "lun": "0", "caching": "None"},
+			{"name": "data1", "lun": "1", "caching": "ReadWrite"}
+		]
+	}`
+	checked, disks := parseAzureStorageProfile(body)
+	if !checked || len(disks) != 3 {
+		t.Fatalf("parseAzureStorageProfile checked=%v disks=%d, want true/3", checked, len(disks))
+	}
+	if !disks[0].IsOS || disks[0].Caching != "ReadWrite" {
+		t.Errorf("OS disk = %+v, want IsOS+ReadWrite", disks[0])
+	}
+	if disks[1].IsOS || disks[1].Lun != 0 || disks[1].Caching != "None" {
+		t.Errorf("data0 = %+v, want data/lun0/None", disks[1])
+	}
+	if disks[2].Lun != 1 || disks[2].Caching != "ReadWrite" {
+		t.Errorf("data1 = %+v, want lun1/ReadWrite", disks[2])
+	}
+
+	// Garbled / non-storageProfile body → couldn't-measure, never a silent OK.
+	if checked, _ := parseAzureStorageProfile("not json"); checked {
+		t.Error("garbled body should be checked=false")
+	}
+	if checked, _ := parseAzureStorageProfile("{}"); checked {
+		t.Error("empty object should be checked=false (couldn't measure)")
+	}
+}
