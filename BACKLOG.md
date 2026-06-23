@@ -207,11 +207,15 @@ SUSE-running prospect actually pulls for.
 
 ## Post-unexpected-reboot forensics (`PostBoot` collector)
 
-**Status: demand-gated — build when a real unexpected-reboot post-mortem surfaces**
-on a test host or a prospect node. Do NOT build speculatively (Principle 3). The
-source-availability scaffolding (`internal/collectors/postboot_source_linux.go`)
-is drafted so the build is short when demand arrives; the scaffold is NOT a build
-trigger.
+**Status: ✅ SHIPPED (#459).** `PostBootCollector` (`internal/collectors/postboot_linux.go`)
+on the source-availability scaffold: reads boot -1 for unclean shutdown / OOM / kernel
+panic, with the FOUND/ABSENT/UNMEASURABLE trichotomy surfaced loud (a missing prior boot is
+the headline, never a silent OK). Gated on a readable cross-boot source (journal or wtmp),
+wired into health, quiet when the prior boot was clean. **Live-validated** on Debian /
+AlmaLinux / openSUSE / Alpine (pve01) — caught + fixed 3 issues (journalctl --grep
+exit-on-no-match → tail-scan; wtmp falsely claiming OOM/panic-clean → disclosed unavailable;
+unclean verdict confirmed both ways on real hosts). Deferred follow-ups (not gaps): IPMI/BMC
+hardware-reset corroboration row, fs-journal-replay-at-this-boot row.
 
 **Demand signal (external):** Azure's own VM-support taxonomy carries dedicated
 escalation paths for *"VM restarted or stopped unexpectedly"* and *"My VM is not
