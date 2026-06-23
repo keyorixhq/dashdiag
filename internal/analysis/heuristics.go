@@ -613,6 +613,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkVMware(*d)
 		}
+	case models.AWSInfo:
+		return checkAWS(d)
+	case *models.AWSInfo:
+		if d != nil {
+			return checkAWS(*d)
+		}
 	case models.AuditInfo:
 		return checkAuditd(d)
 	case *models.AuditInfo:
