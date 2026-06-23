@@ -100,7 +100,7 @@ az vm create -g dsd-val -n dsd-val --image Ubuntu2204 \
 | A1 | temp/resource disk present | default (size has a temp disk) | recognition "temp disk at /mnt(/resource) (ephemeral)" | detected; `temp_disk_present=true` |
 | A2 | persistent data on temp disk | add `/etc/fstab` line mounting under the temp mount (e.g. `UUID=… /mnt/data ext4 …`) | **WARN** "persistent data under the ephemeral temp disk" | WARN fires; remove line → clears |
 | A3 | managed-disk host cache hazard | the attached data disk with `--data-disk-caching ReadWrite` | **WARN** "data disk LUN N has ReadWrite host caching" | WARN fires for the data disk; OS disk RW **not** flagged |
-| A4 | NVMe `io_timeout` | NVMe size, default kernel cmdline | INFO if `nvme_core.io_timeout` < 60s; recognition "io_timeout=Ns" if tuned | matches `/sys/module/nvme_core/parameters/io_timeout` |
+| A4 | NVMe `io_timeout` | **NVMe-ONLY size** (e.g. `Standard_D2as_v6`, x86 — verify `DiskControllerTypes=NVMe` via `az vm list-skus` first; arm Dpls v6 is SCSI) | INFO if `nvme_core.io_timeout` < 60s; recognition "io_timeout=Ns" if tuned | ✅ VALIDATED 2026-06-24 on D2as_v6: `nvme_present=true`, `io_timeout=240` — Azure's NVMe image **pre-tunes io_timeout to 240**, so the check correctly reports *adequate* (no INFO). To see the INFO path you'd need an untuned image (30s default). |
 | A5 | Dynamic Memory | default | recognition: DM state + kernel-logged max | ✅ VALIDATED 2026-06-24 on D2pls_v6: `dynamic_memory=true, dyn_mem_max_mb=4096` — Azure DOES enable Hyper-V DM on this size (earlier "not offered" assumption was wrong; the positive path is validated) |
 | A6 | scheduled-events | IMDS `/metadata/scheduledevents` (usually no event) | no maintenance insight (clean parse) | endpoint parsed, no false event. (Real maintenance event is opportunistic — capture if one ever appears) |
 | A7 | couldn't-measure | run **non-root** (IMDS storageProfile needs no auth) | `disks_checked` consistent root/non-root | diff clean; if IMDS blocked non-root → `disks_checked=false`, never silent-OK |
@@ -109,12 +109,23 @@ az vm create -g dsd-val -n dsd-val --image Ubuntu2204 \
 - **A3 host-cache hazard FIRED** correctly on a real ReadWrite-cached data disk; `disks_checked=true`
   ⇒ the IMDS storageProfile parse works against real Azure IMDS (the #450 parser-vs-reality gap is closed).
 - **A5 Dynamic Memory is PRESENT** on Azure (`dynamic_memory=true, dyn_mem_max_mb=4096`) — positive path validated.
-- **A4 NVMe NOT exercised:** D2pls_v6 disks are SCSI (`nvme_present=false`), not NVMe — "v6 ⇒ NVMe" is wrong
-  for the arm Dpls family. The check stays correctly silent. To exercise A4's positive path, use a genuinely
-  NVMe size (`Lsv3`, or an Azure-Boost `Ebsv5`) and confirm `/sys/class/nvme` is populated first.
 - **A1/A2 temp disk:** absent on D2pls_v6 (no `d` in the size) — check correctly silent; use a `d`-suffixed size to exercise.
 - **A6 scheduled-events** parsed clean (no event); **A7 dual-privilege** consistent root/non-root.
+- D2pls_v6 disks are SCSI (`nvme_present=false`) — "v6 ⇒ NVMe" is wrong for the arm Dpls family — so A4 was
+  exercised on a separate x86 NVMe box (below).
 - Capture fixture: `testdata/captures/azure-d2plsv6-20260624.tar.gz` (gitignored) replays these verdicts locally.
+
+**✅ A4 validated 2026-06-24 on a real `Standard_D2as_v6` (x86, NVMe-only, dual-privilege)** — deploy via
+`scripts/az-validation-vm-create-nvme.sh`:
+- `nvme_present=true`, `nvme_io_timeout_checked=true`, **`io_timeout=240`** — Azure's NVMe-tagged image pre-tunes
+  io_timeout to 240, so the check correctly reports *adequate* (recognition, no INFO). The INFO path would need an
+  untuned 30s-default image.
+- Re-confirmed on x86: A3 host-cache WARN, A5 Dynamic Memory (8192 MB), IMDS storageProfile, AN active, PostBoot
+  first_boot — and the **v1.8.1 package-DB starvation fix** (`db_health_checked=true`). Dual-privilege consistent.
+- Fixture: `testdata/captures/azure-d2asv6-nvme-20260624.tar.gz`.
+
+**Net: A1–A7 all validated** across arm (D2pls_v6) + x86 NVMe (D2as_v6); two real bugs found & fixed
+(package-DB starvation #469/v1.8.1, cloud-init build #470).
 
 ---
 
