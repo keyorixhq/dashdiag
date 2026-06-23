@@ -206,13 +206,14 @@ panel/insight wiring, and four real-target captures.
 
 ---
 
-## Cloud-depth collectors (AWS / Azure)
+## Cloud-depth collectors (AWS / Azure / GCP)
 
 Analog to the existing VMware guest depth (ballooning, vmxnet3/e1000, SCSI timeout).
 Basic cloud *detection* already works and is validated (AWS + Azure captures, NVMe-timeout
-insight). This is the *deep* per-cloud surface. **Status: AWS + Azure high-value cores both
-SHIPPED (v1.6.0 / v1.7.0+#450); only the full-coverage tails remain, demand-gated.** Build
-the specific check a cloud customer/contact pulls for.
+insight). This is the *deep* per-cloud surface. **Status: AWS, Azure, and GCP guest-side
+collectors all SHIPPED (cores + the guest-visible tail). What remains is genuinely NOT
+guest-buildable — it lives in the cloud control plane and would need the provider API,
+which dsd's architecture forbids (guest-side, network-free, no cloud creds).**
 
 ### AWS (Nitro/EC2) — ✅ high-value core SHIPPED (v1.6.0, #443)
 `AWSCollector` (`internal/collectors/aws_linux.go`), gated on EC2 DMI, wired into health.
@@ -225,10 +226,13 @@ Validated live on Graviton arm64 (t4g) + x86 (t3) — see memory `aws-deep-check
 6. ✅ instance-store vs EBS distinguished in device detection
 Bonus beyond the original spec: SSM agent install/run state, spot-rebalance recommendation.
 
-### AWS — full coverage tail (demand-gated, build-on-pull only)
-ENA SR-IOV/express status, Nitro enclave presence, placement-group signals, cloud-init/
-cloud-config validation, EBS volume-type/IOPS-vs-workload mismatch. Treadmill — not a
-state to "finish."
+### AWS — full coverage tail
+- ✅ **Nitro Enclaves** presence + allocator service (#453, recognition)
+- ✅ **ENA Express / SRD** active detection via `ethtool -S ena_srd_*` (#453, recognition)
+- ❌ NOT guest-buildable (control-plane only — need the EC2 API, out of scope): placement-group
+  signals, EBS volume-type / IOPS-vs-workload mismatch, provisioned-IOPS. cloud-init/cloud-config
+  validation is already covered by `CloudInitCollector`. These are not gaps — building them
+  guest-side would mean shipping a guess, not a check.
 
 ### Azure (Hyper-V) — ✅ core SHIPPED (v1.7.0 #444 + #450)
 `AzureCollector` (`internal/collectors/azure_linux.go`), gated on Azure DMI, wired into
@@ -251,18 +255,34 @@ health. Validated live on x86 D2s_v3 + arm64 Ampere D2pls_v5 — see memory
 > Azure IMDS JSON whose exact shape needs confirming on a real Azure VM (root +
 > non-root, x86 + arm64) before they are fully trusted. See `azure-deep-checks-collector`.
 
-### Azure — full coverage tail (demand-gated)
-netvsc synthetic/VF transition detail, host-cache vs disk-cache, Azure NVMe timeout tuning.
+### Azure — full coverage tail
+- ✅ **NVMe `io_timeout` tuning** — INFO when the low 30s default is set on an NVMe VM (#454)
+- (already covered, not duplicated) netvsc synthetic/VF transition = the v1.7.0 AN check;
+  managed-disk host-cache = the #450 caching check.
+
+### GCP (Google Compute Engine) — ✅ SHIPPED (#452)
+`GCPCollector` (`internal/collectors/gcp_linux.go`), gated on the GCE DMI product name,
+wired into health — the GCP analog of AWS/Azure, closing the last detection-only cloud.
+1. ✅ NIC driver gVNIC (gve) vs virtio_net — recognition context
+2. ✅ Google guest agent installed-but-not-running → WARN (SSH-key / OS-Login break)
+3. ✅ Host-maintenance policy — WARN on TERMINATE for a non-preemptible VM; in-progress
+   maintenance-event → WARN
+4. ✅ OS Login enabled — recognition context
+5. ✅ Time-sync on the metadata server — INFO if not
+- ❌ NOT guest-buildable (control-plane only): per-disk performance tier / provisioned IOPS,
+  placement policy. Same EC2-API-equivalent limitation.
 
 ### What's left
-- **Shipped:** AWS core (6/6 + bonuses); **Azure core (6/6 + WAAgent + PTP)** — both clouds'
-  high-value cores are now complete.
-- **Remaining (tail, treadmill):** the full-coverage lists above only — clouds ship new
-  instance types/drivers constantly, so this is never a state to "finish."
-- One open follow-up (not new build): **live-validate the #450 Azure IMDS/ballooning
-  checks** on a real Azure VM before trusting their verdicts.
-- Approach unchanged: build NONE of the tail speculatively; when a cloud customer pulls,
-  build the single check asked for.
+- **Shipped:** AWS (core 6/6 + bonuses + tail), Azure (core 6/6 + WAAgent + PTP + tail),
+  GCP (full collector). All three clouds' guest-side surface is complete.
+- **Genuinely remaining = nothing guest-buildable.** The leftover per-cloud items
+  (placement groups, EBS/PD volume-type & provisioned IOPS, etc.) are control-plane state
+  that needs the provider API — out of scope by design, not a gap.
+- **Open follow-up (not new build) — LIVE VALIDATION debt.** Unit-tested but not yet
+  confirmed on real VMs: the #450 Azure IMDS/ballooning checks, the GCP metadata-derived
+  checks (#452), the AWS ENA-Express SRD counters (#453), and the Azure NVMe io_timeout
+  units/threshold (#454). Validate on real VMs (root + non-root) before the verdicts are
+  fully trusted — classic parser-vs-reality risk.
 
 ---
 
