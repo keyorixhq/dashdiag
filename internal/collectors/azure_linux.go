@@ -73,8 +73,37 @@ func (c *AzureCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.DynamicMemory, info.DynMemMaxMB = dynamicMemoryState(kernelModulePresent(mods, "hv_balloon"), azureDmesg(ctx))
 	info.TempDiskPresent, info.TempDiskDevice, info.TempDiskMount, info.PersistentDataAtRisk = tempDiskStateFromHost()
 	info.DisksChecked, info.Disks = azureDiskCaching(ctx)
+	info.NVMePresent, info.NVMeIOTimeoutChecked, info.NVMeIOTimeoutSecs = azureNVMeIOTimeout()
 
 	return info, nil
+}
+
+// ---------- NVMe I/O timeout (full-coverage tail) ----------
+
+// azureNVMeIOTimeout reports the kernel's nvme_core.io_timeout when this VM has NVMe
+// disks. present is false on a non-NVMe VM (so the check is silent there); checked is
+// false when NVMe is present but the parameter could not be read or parsed, so an
+// unreadable value never reads as "tuned".
+func azureNVMeIOTimeout() (present, checked bool, secs int) {
+	if !nvmeDevicesPresent("/sys/class/nvme") {
+		return false, false, 0
+	}
+	raw := readFileTrimmedLocal("/sys/module/nvme_core/parameters/io_timeout")
+	if raw == "" {
+		return true, false, 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return true, false, 0
+	}
+	return true, true, n
+}
+
+// nvmeDevicesPresent reports whether any NVMe controller is registered under the given
+// sysfs class dir (/sys/class/nvme on a live host).
+func nvmeDevicesPresent(nvmeClassDir string) bool {
+	entries, err := readDirEntries(nvmeClassDir)
+	return err == nil && len(entries) > 0
 }
 
 // ---------- Dynamic Memory (Hyper-V ballooning) ----------

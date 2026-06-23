@@ -249,3 +249,26 @@ func TestParseAzureStorageProfile(t *testing.T) {
 		t.Error("empty object should be checked=false (couldn't measure)")
 	}
 }
+
+func TestNVMeDevicesPresent(t *testing.T) {
+	// A class dir with at least one controller entry → present.
+	dir := filepath.Join(t.TempDir(), "nvme")
+	if err := os.MkdirAll(filepath.Join(dir, "nvme0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !nvmeDevicesPresent(dir) {
+		t.Error("a populated /sys/class/nvme should report NVMe present")
+	}
+	// Empty dir → not present.
+	empty := filepath.Join(t.TempDir(), "empty-nvme")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if nvmeDevicesPresent(empty) {
+		t.Error("an empty /sys/class/nvme should report NVMe absent")
+	}
+	// Missing dir → not present (non-NVMe VM).
+	if nvmeDevicesPresent(filepath.Join(t.TempDir(), "does-not-exist")) {
+		t.Error("a missing /sys/class/nvme should report NVMe absent")
+	}
+}

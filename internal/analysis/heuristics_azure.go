@@ -24,6 +24,7 @@ func checkAzure(a models.AzureInfo) []models.Insight {
 	out = append(out, azureTimeSyncInsights(a)...)
 	out = append(out, azureTempDiskInsights(a)...)
 	out = append(out, azureCachingInsights(a)...)
+	out = append(out, azureNVMeTimeoutInsights(a)...)
 	if len(out) == 0 {
 		out = append(out, insight("INFO", "Azure", azureRecognitionLine(a), nil))
 	}
@@ -122,6 +123,20 @@ func azureTimeSyncInsights(a models.AzureInfo) []models.Insight {
 	return nil
 }
 
+// azureNVMeTimeoutInsights flags the low default nvme_core.io_timeout on an Azure VM
+// that exposes NVMe disks. Azure recommends raising it (commonly 240s) so a transient
+// managed-disk latency spike surfaces as a retry, not an I/O error. INFO, not WARN —
+// it's a tuning recommendation, and the safe-enough values are workload-dependent.
+func azureNVMeTimeoutInsights(a models.AzureInfo) []models.Insight {
+	if a.NVMeIOTimeoutChecked && a.NVMeIOTimeoutSecs > 0 && a.NVMeIOTimeoutSecs < 60 {
+		return []models.Insight{insight("INFO", "Azure",
+			fmt.Sprintf("nvme_core.io_timeout is %ds (kernel default) on an Azure NVMe VM — a transient managed-disk latency spike can surface as an I/O error; Azure recommends raising it (commonly 240s)",
+				a.NVMeIOTimeoutSecs),
+			[]string{"to fix: add 'nvme_core.io_timeout=240' to the kernel cmdline (GRUB_CMDLINE_LINUX), then update-grub + reboot"})}
+	}
+	return nil
+}
+
 // azureRecognitionLine summarises what dsd verified clean, asserting only what it
 // actually observed: the Accelerated-Networking datapath state, the agent, and the
 // time source.
@@ -158,6 +173,9 @@ func azureRecognitionLine(a models.AzureInfo) string {
 	}
 	if a.DisksChecked && len(a.Disks) > 0 {
 		parts = append(parts, fmt.Sprintf("host caching OK (%d disk(s))", len(a.Disks)))
+	}
+	if a.NVMeIOTimeoutChecked && a.NVMeIOTimeoutSecs >= 60 {
+		parts = append(parts, fmt.Sprintf("NVMe io_timeout=%ds", a.NVMeIOTimeoutSecs))
 	}
 	summary := "guest recognised"
 	if len(parts) > 0 {

@@ -168,3 +168,35 @@ func TestCheckAzure_DynamicMemoryInRecognition(t *testing.T) {
 		t.Errorf("DM should appear in recognition line, got %+v", got)
 	}
 }
+
+func TestCheckAzure_LowNVMeTimeoutInfo(t *testing.T) {
+	got := checkAzure(models.AzureInfo{
+		IsAzure: true, NVMePresent: true, NVMeIOTimeoutChecked: true, NVMeIOTimeoutSecs: 30,
+	})
+	if !hasAWSInsight(got, "INFO", "nvme_core.io_timeout is 30s", "240s") {
+		t.Errorf("low NVMe io_timeout should INFO, got %+v", got)
+	}
+}
+
+func TestCheckAzure_AdequateNVMeTimeoutInRecognition(t *testing.T) {
+	got := checkAzure(models.AzureInfo{
+		IsAzure: true, NVMePresent: true, NVMeIOTimeoutChecked: true, NVMeIOTimeoutSecs: 240,
+	})
+	if len(got) != 1 || got[0].Level != "INFO" {
+		t.Fatalf("adequate timeout = %+v, want one recognition line", got)
+	}
+	if !strings.Contains(got[0].Message, "NVMe io_timeout=240s") {
+		t.Errorf("recognition should note the tuned io_timeout: %q", got[0].Message)
+	}
+}
+
+func TestCheckAzure_UnreadNVMeTimeoutNotClaimed(t *testing.T) {
+	// NVMe present but io_timeout unreadable → no INFO and no recognition claim.
+	got := checkAzure(models.AzureInfo{IsAzure: true, NVMePresent: true, NVMeIOTimeoutChecked: false})
+	if len(got) != 1 || got[0].Level != "INFO" {
+		t.Fatalf("unread timeout = %+v, want one recognition line", got)
+	}
+	if strings.Contains(got[0].Message, "io_timeout") {
+		t.Errorf("must not state io_timeout when unmeasured: %q", got[0].Message)
+	}
+}
