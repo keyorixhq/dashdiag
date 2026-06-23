@@ -155,14 +155,13 @@ func GPUDeviceHasMetrics(d models.GPUDevice) bool {
 // hwmon temp*_input is read raw — readSysfsMilliC does a bare ParseInt/1000 with
 // no bounds check — so a virtual GPU, a faulted sensor, or a garbage/sentinel
 // sysfs value can surface as thousands of degrees and fire a false "thermal
-// throttling likely" CRIT. This is the §L/§Q raw-tool implausible-value class
-// applied to GPU thermals (the storage path got nvmeSmartPlausible /
-// sataSmartPlausible; thermals had no equivalent). Real GPU silicon throttles and
-// then hard-shuts-down well below 150°C, so a reading outside [-40, 150]°C is
-// garbage, not an overheat — surface it as unverified, do NOT score it as a CRIT.
-// (0 is handled earlier by GPUDeviceHasMetrics, so it never reaches here.)
+// throttling likely" CRIT. Real GPU silicon throttles and then hard-shuts-down
+// well below 150°C, so a reading outside the silicon range is garbage, not an
+// overheat — surface it as unverified, do NOT score it as a CRIT. (0 is handled
+// earlier by GPUDeviceHasMetrics, so it never reaches here.) Thin typed wrapper
+// over the shared TempPlausible (see temp.go).
 func GPUTempPlausible(c int) bool {
-	return c >= -40 && c <= 150
+	return TempPlausible(float64(c), TempCeilSilicon)
 }
 
 // checkGPUDevice returns the health insights for a single GPU device.

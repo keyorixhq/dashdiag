@@ -20,24 +20,14 @@ import (
 // catches "never measured", this catches "measured garbage". When it returns
 // false the caller must treat the device as health-unverified (route to the
 // "detected but not verified" INFO path), NOT score its fields.
-// nvmeTempSentinel reports whether the temperature reading is the 0-Kelvin
-// "not reported" sentinel (-273°C). Virtual/cloud NVMe (AWS EBS, and other
-// hypervisor-presented volumes) expose no temperature sensor and return 0 K,
-// which the tool prints as "-273 °C". This is "unreported", NOT garbage — it must
-// be distinguished from a device actively reporting an impossible temperature
-// (VMware's 11758°C), which IS garbage and stays rejected.
-func nvmeTempSentinel(dev models.NVMeDevice) bool {
-	return dev.TempC <= -273
-}
-
 // NVMeNoRealData reports whether the SMART log was read but every field is at its
 // not-reported sentinel — a virtual/cloud volume (e.g. AWS EBS) that passes no
-// real SMART telemetry. The 0-Kelvin temp is the tell; a real drive reports a
-// real temperature. Exported so the renderer's inline summary agrees with the
-// heuristic (a no-data drive must not render "healthy"). Distinct from "implausible"
-// (active garbage → WARN) and from "unread" (no nvme-cli → INFO).
+// real SMART telemetry. The 0-Kelvin temp (TempNotReported, see temp.go) is the
+// tell; a real drive reports a real temperature. Exported so the renderer's inline
+// summary agrees with the heuristic (a no-data drive must not render "healthy").
+// Distinct from "implausible" (active garbage → WARN) and "unread" (no nvme-cli → INFO).
 func NVMeNoRealData(dev models.NVMeDevice) bool {
-	return nvmeTempSentinel(dev) &&
+	return TempNotReported(dev.TempC) &&
 		dev.AvailableSparePct == 0 && dev.SpareThresholdPct == 0 &&
 		dev.PercentageUsed == 0 && dev.CriticalWarning == 0 &&
 		dev.MediaErrors == 0 && dev.UnsafeShutdowns == 0 &&
@@ -45,10 +35,10 @@ func NVMeNoRealData(dev models.NVMeDevice) bool {
 }
 
 func nvmeSmartPlausible(dev models.NVMeDevice) bool {
-	// Temperature: NVMe operating/storage range is generously [-40, 125]°C. The
-	// 0-Kelvin sentinel (-273) is "not reported", not garbage (see nvmeTempSentinel)
-	// — exempt it so a virtual/cloud volume isn't rejected as implausible.
-	if !nvmeTempSentinel(dev) && (dev.TempC < -40 || dev.TempC > 125) {
+	// Temperature: NVMe operating/storage range. The 0-Kelvin sentinel (-273) is
+	// "not reported", not garbage — exempt it so a virtual/cloud volume isn't
+	// rejected as implausible (see TempNotReported / TempPlausible in temp.go).
+	if !TempNotReported(dev.TempC) && !TempPlausible(dev.TempC, TempCeilNVMe) {
 		return false
 	}
 	// Percentages are 0–100 by spec (PercentageUsed may report >100 on
@@ -88,9 +78,11 @@ func nvmeSmartPlausible(dev models.NVMeDevice) bool {
 // considered untrustworthy here — a device reporting physically-impossible
 // attributes is not a reliable narrator of its own pass/fail.
 func sataSmartPlausible(dev models.SATADevice) bool {
-	// Temperature: SATA HDD/SSD operating + storage range is generously
-	// [-40, 125]°C; the garbage path reports thousands of degrees.
-	if dev.TempC < -40 || dev.TempC > 125 {
+	// Temperature: SATA HDD/SSD operating + storage range; the garbage path
+	// reports thousands of degrees (see TempPlausible in temp.go). smartctl
+	// reports SATA temp in Celsius (ATA attr 194), so the 0-Kelvin sentinel
+	// doesn't arise here — no exemption, unlike the NVMe path.
+	if !TempPlausible(float64(dev.TempC), TempCeilNVMe) {
 		return false
 	}
 	// Sector counters are bounded by the drive's sector count, and a drive with
