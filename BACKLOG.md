@@ -210,9 +210,9 @@ panel/insight wiring, and four real-target captures.
 
 Analog to the existing VMware guest depth (ballooning, vmxnet3/e1000, SCSI timeout).
 Basic cloud *detection* already works and is validated (AWS + Azure captures, NVMe-timeout
-insight). This is the *deep* per-cloud surface. **Status: AWS high-value core SHIPPED
-(v1.6.0); Azure core PARTIALLY shipped (v1.7.0) — remaining Azure core + both full-coverage
-tails are demand-gated.** Build the specific check a cloud customer/contact pulls for.
+insight). This is the *deep* per-cloud surface. **Status: AWS + Azure high-value cores both
+SHIPPED (v1.6.0 / v1.7.0+#450); only the full-coverage tails remain, demand-gated.** Build
+the specific check a cloud customer/contact pulls for.
 
 ### AWS (Nitro/EC2) — ✅ high-value core SHIPPED (v1.6.0, #443)
 `AWSCollector` (`internal/collectors/aws_linux.go`), gated on EC2 DMI, wired into health.
@@ -230,33 +230,39 @@ ENA SR-IOV/express status, Nitro enclave presence, placement-group signals, clou
 cloud-config validation, EBS volume-type/IOPS-vs-workload mismatch. Treadmill — not a
 state to "finish."
 
-### Azure (Hyper-V) — 🟡 core PARTIALLY shipped (v1.7.0, #444)
+### Azure (Hyper-V) — ✅ core SHIPPED (v1.7.0 #444 + #450)
 `AzureCollector` (`internal/collectors/azure_linux.go`), gated on Azure DMI, wired into
 health. Validated live on x86 D2s_v3 + arm64 Ampere D2pls_v5 — see memory
 `azure-deep-checks-collector`.
 1. ✅ Accelerated Networking active vs silent fallback to synthetic netvsc
 2. ✅ Mellanox VF (SR-IOV) driver health
+3. ✅ Dynamic Memory (hv_balloon) detection + kernel-logged ceiling (#450). NOTE:
+   ballooning *pressure* is deliberately not claimed — no reliable guest-side counter.
+4. ✅ Managed-disk host-cache hazard — data disk with ReadWrite caching, via IMDS
+   storageProfile (#450)
+5. ✅ Temp/resource-disk detection + persistent-data-on-ephemeral WARN (#450)
+6. ✅ Scheduled-events (maintenance/eviction) — fixed the CloudMeta precedence bug +
+   all event types (#450)
 7. ✅ WAAgent health (cloud-init covered by the shared `CloudInitCollector`)
-   ✅ Time-sync via Hyper-V PTP (was a full-coverage item — shipped early)
+   ✅ Time-sync via Hyper-V PTP
 
-**Remaining Azure CORE checks — still genuinely core-value, demand-gated (NOT mere tail):**
-3. Dynamic Memory / ballooning pressure detection (Hyper-V — real, unlike modern Nitro)
-4. Managed-disk cache-mode mismatch (ReadOnly/ReadWrite/None vs workload)
-5. Temp-disk (`/dev/sdb`) detection + "don't store data here" warning
-6. Scheduled-events metadata (maintenance/eviction warnings)
+> ⚠️ The #450 IMDS-derived checks (4 host-cache, 6 scheduled-events) and the
+> ballooning detection are unit-tested but **not yet live-validated** — they parse
+> Azure IMDS JSON whose exact shape needs confirming on a real Azure VM (root +
+> non-root, x86 + arm64) before they are fully trusted. See `azure-deep-checks-collector`.
 
 ### Azure — full coverage tail (demand-gated)
 netvsc synthetic/VF transition detail, host-cache vs disk-cache, Azure NVMe timeout tuning.
 
 ### What's left
-- **Shipped:** AWS core (6/6 + bonuses), Azure core subset (Accelerated Networking, SR-IOV
-  VF, WAAgent, Hyper-V PTP).
-- **Remaining core (build-on-pull):** Azure ballooning, managed-disk cache-mode, temp-disk,
-  scheduled-events (~4 checks, ~2–3 days once a real Azure pull surfaces).
-- **Remaining tail (treadmill):** the full-coverage lists above — clouds ship new instance
-  types/drivers constantly, so this is never a state to "finish."
-- Approach unchanged: build NONE speculatively; when a cloud customer pulls, build the
-  single check asked for and let them reveal which remaining core matters.
+- **Shipped:** AWS core (6/6 + bonuses); **Azure core (6/6 + WAAgent + PTP)** — both clouds'
+  high-value cores are now complete.
+- **Remaining (tail, treadmill):** the full-coverage lists above only — clouds ship new
+  instance types/drivers constantly, so this is never a state to "finish."
+- One open follow-up (not new build): **live-validate the #450 Azure IMDS/ballooning
+  checks** on a real Azure VM before trusting their verdicts.
+- Approach unchanged: build NONE of the tail speculatively; when a cloud customer pulls,
+  build the single check asked for.
 
 ---
 
