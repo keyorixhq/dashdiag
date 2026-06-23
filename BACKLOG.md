@@ -12,6 +12,96 @@ production incidents people would actually diagnose.
 
 ---
 
+## DESIGN NOTE: Cloud-PAYG-update-infra health — the four-question model
+
+**This is a concept formalization, NOT a build authorization.** It writes down the shared
+abstraction that the SUSE and RHEL specs below are both instances of, plus the per-distro
+mapping table, so that whoever builds any one backend does it in a shape the others can
+later share. It explicitly does NOT define an interface or authorize a framework — see
+"What to formalize when" at the end. No code follows from this note alone.
+
+### Why this exists
+
+Research across Azure (and AWS/GCP) shows the update-infra brittleness is a CLASS, not a
+per-distro quirk. Every commercial distro on a cloud uses the same PATTERN: it does not
+update from public repos; it updates from a cloud-operated, IP-locked, entitlement-gated
+private infrastructure, and drift in entitlement / config / network silently stops updates
+— the box looks healthy while quietly missing security patches. The distros differ only in
+WHICH file or command answers each question, not in the questions.
+
+### The four questions (distro-independent)
+
+Every cloud-PAYG host answers the same four. A health surface asks all four; the backend
+fills in the distro-specific probe:
+
+  Q1. ENTITLED?     Am I registered / entitled to an update source at all?
+  Q2. REACHABLE?    Can I actually reach that source right now? (the IP-lock + proxy/UDR class)
+  Q3. EXPIRING?     Is my entitlement going to lapse? (the predictive, silent-time-bomb class)
+  Q4. CONSISTENT?   Am I misconfigured in a way that silently breaks updates or double-bills?
+
+Q3 is the one with unique product value: it is host-visible, network-free, and PREDICTIVE
+— a dated artifact on disk that will break updates on a known future day. The RHUI cert
+(RHEL R2) is the cleanest instance and the strongest single build candidate in this surface.
+
+### Per-distro mapping table (the formalization; also the capture-session grading grid)
+
+Each captured box fills/confirms one column. "?" = unverified, resolve from a real capture.
+
+| | SUSE (SLES PAYG) | RHEL (PAYG) | Oracle Linux (PAYG) | CentOS (OpenLogic) | Ubuntu (PAYG/Pro) |
+|---|---|---|---|---|---|
+| **Q1 Entitled** | `SUSEConnect --status-text` / cloudregister state | `subscription-manager status` + RHUI cert present | preconfigured Oracle public yum (no registration) | OpenLogic repos (no registration) | `pro status` attach state |
+| **Q2 Reachable** | `zypper ref` (script-died / 422) | `yum/dnf check-update` (curl#56 / no-mirrors) | `yum check-update` | `yum check-update` | `apt update` |
+| **Q3 Expiring** | subscription `expires_at` | **RHUI client cert enddate** (`/etc/pki/rhui/*.pem`, ~2yr) | (none — public yum, no client cert) | (none) | Pro contract expiry |
+| **Q4 Consistent** | PAYG+SCC double-register conflict; stale `cloud-regionsrv-client` | PAYG+RHSM double-billing; `rh-cloud.repo` enabled; EUS/non-EUS releasever lock | `/etc/yum/vars/ociregion` must be EMPTY | `/etc/yum/vars/releasever` must NOT exist | (mild) |
+| **Couldn't-measure** | no SUSEConnect/chost image → unknown | non-root cert unreadable → unknown | n/a if not OL PAYG | n/a if not CentOS | no `pro` → unknown |
+| **Brittleness** | high (attestation-gated) | high (cert-expiry adds a time bomb) | low-med | low-med (EOL is the real issue) | low (public mirrors) |
+
+Cross-cloud note: Q1/Q2 failure modes are documented IDENTICALLY on AWS and GCP (different
+endpoints, same IP-lock + entitlement pattern). The abstraction is cloud-independent; only
+the egress-range list in Q2 is cloud-specific.
+
+### How this maps onto existing code (proven pattern, do NOT reinvent)
+
+Two existing structures already implement "detect platform, dispatch per-backend, return a
+common model" — the shape this surface wants, arrived at by accretion from real cases:
+
+- `SUSEConnectCollector` (`Subscription` check) already dispatches Q1 across SUSE/RHEL/
+  Ubuntu by binary presence, returning one `SUSEConnectInfo`. That IS the Q1 backend
+  dispatch, already built and (for SUSE) tested.
+- `AWSCollector` / `AzureCollector` (shipped v1.6.0/v1.7.0) already do cloud DMI-detection +
+  gated wiring into health. That IS the "which cloud am I on" detection the Q2 egress-range
+  check needs — reuse it, don't rebuild cloud detection.
+
+So the eventual surface is NOT greenfield architecture: it's Q1 (exists) + three more
+questions routed through the same dispatch idiom, reusing the same cloud-detection the
+cloud-depth collectors already ship.
+
+### What to formalize WHEN (the discipline line)
+
+- **NOW (this note):** the four-question model + the mapping table. Pure concept + evidence.
+  Zero code, zero risk. Makes every future backend build coherent and shareable.
+- **NOT now:** a `CloudUpdateInfra` interface, backend registry, or dispatch framework.
+  Building the abstraction before two real backends are validated would encode GUESSES
+  about how RHEL/Oracle/CentOS fail into an interface shape, which every real capture would
+  then fight. One backend is too few to factor from (you abstract its quirks); the right
+  shape is DISCOVERED from ≥2 concrete validated cases — exactly as `SUSEConnectCollector`
+  discovered its shape from SUSE-then-RHEL-then-Ubuntu, not by up-front design.
+- **LATER (interface, only after the Azure capture session validates ≥2 backends):** factor
+  the common Q1–Q4 shape out of the real SUSE + RHEL backends once both are proven. The
+  capture session is what produces those concrete cases; the interface follows the evidence.
+
+This mirrors the project's core lesson — real hardware surfaces bugs synthetic tests miss —
+applied to design: real backends surface the right abstraction; designing it from research
+surfaces a plausible-looking wrong one.
+
+### Cross-refs
+- SUSE backend detail: "SUSE / cloud-registration depth" (below).
+- RHEL backend detail: "RHEL / RHUI depth" (below).
+- Capture/validation: `dashdiag-private/planning/AZURE_SLES_CAPTURE_RUNBOOK.md` (the session
+  that produces the ≥2 validated backends this note defers the interface to).
+
+---
+
 ## SUSE / cloud-registration depth (`Subscription` collector hardening + new checks)
 
 **Status: demand-gated — build when a real SUSE/PAYG box or a SUSE-running prospect
