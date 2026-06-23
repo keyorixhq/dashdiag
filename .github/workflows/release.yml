@@ -16,7 +16,7 @@ jobs:
     env:
       SIGN: ${{ secrets.MINISIGN_SECRET_KEY != '' && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with: {fetch-depth: 0}
 
       - uses: actions/setup-go@v6
@@ -112,7 +112,7 @@ jobs:
     if: ${{ vars.HOMEBREW_TAP_ENABLED == 'true' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Generate formula for this tag
         env:
