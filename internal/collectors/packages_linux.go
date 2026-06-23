@@ -32,6 +32,14 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 		return &models.PackagesInfo{PackageManager: "unknown"}, nil
 	}
 
+	// Package-DB health FIRST — it is fast (dpkg --audit / rpm -q) but MUST run before the
+	// slow security-update scan below, which on a host with many pending updates can
+	// consume the entire collector deadline and leave this probe ctx-cancelled. (Observed
+	// live: a fresh Azure Ubuntu's apt scan hit the 8s timeout, so db_health_checked came
+	// back false — the check silently didn't run.) Running it first reserves its budget;
+	// the scan then uses whatever remains.
+	dbChecked, dbBlocked, dbReason, dbFix := pkgDBHealth(ctx, pm)
+
 	var info *models.PackagesInfo
 	var qErr error
 	switch pm {
@@ -59,10 +67,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.StatusReason = "package-manager query failed: " + qErr.Error()
 	}
 
-	// Package-DB health — an interrupted dpkg (apt) or unreadable/corrupt rpmdb
-	// (dnf/yum/zypper, all rpm-based) silently blocks EVERY update. Runs REGARDLESS of
-	// query success (it explains *why* a query failed); cheap, no-root, fast mode too.
-	info.DBHealthChecked, info.DBUpdatesBlocked, info.DBBlockReason, info.DBBlockFix = pkgDBHealth(ctx, pm)
+	info.DBHealthChecked, info.DBUpdatesBlocked, info.DBBlockReason, info.DBBlockFix = dbChecked, dbBlocked, dbReason, dbFix
 
 	// A "0 security updates" result is only trustworthy if the update metadata is
 	// fresh; mark it unverified when stale/absent. Skipped on a failed query (a
