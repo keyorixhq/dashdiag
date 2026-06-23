@@ -119,20 +119,21 @@ func TestCollectAcceleratedNetworking_SyntheticOnly(t *testing.T) {
 // ---------- Dynamic Memory ----------
 
 func TestDynamicMemoryState(t *testing.T) {
-	const mods = "hv_balloon 24576 0 - Live 0x0000000000000000\nhv_utils 40960 1\n"
 	const dmesg = "[    1.23] hv_vmbus: registering driver hv_balloon\n[    1.45] hv_balloon: Max. dynamic memory size: 8192 MB\n"
-	enabled, maxMB := dynamicMemoryState(mods, dmesg)
+
+	// hv_balloon loaded + a kernel-logged ceiling → enabled with the max.
+	enabled, maxMB := dynamicMemoryState(true, dmesg)
 	if !enabled || maxMB != 8192 {
-		t.Errorf("dynamicMemoryState = (%v, %d), want (true, 8192)", enabled, maxMB)
+		t.Errorf("dynamicMemoryState(loaded) = (%v, %d), want (true, 8192)", enabled, maxMB)
 	}
 
-	// hv_balloon absent → not enabled, no max (even if a stray line exists).
-	if en, mb := dynamicMemoryState("hv_utils 40960 1\n", dmesg); en || mb != 0 {
+	// hv_balloon NOT loaded → not enabled, no max (and dmesg is not even consulted).
+	if en, mb := dynamicMemoryState(false, dmesg); en || mb != 0 {
 		t.Errorf("no hv_balloon: got (%v,%d), want (false,0)", en, mb)
 	}
 
-	// Enabled but dmesg unreadable (dmesg_restrict) → still enabled, max 0.
-	if en, mb := dynamicMemoryState(mods, ""); !en || mb != 0 {
+	// Enabled but dmesg unreadable (dmesg_restrict / non-root) → still enabled, max 0.
+	if en, mb := dynamicMemoryState(true, ""); !en || mb != 0 {
 		t.Errorf("enabled, no dmesg: got (%v,%d), want (true,0)", en, mb)
 	}
 }

@@ -70,7 +70,7 @@ func (c *AzureCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.WAAgentInstalled, info.WAAgentRunning = waagentState()
 	info.TimeSyncChecked, info.UsesHyperVPTP = azureTimeSyncConfigured()
 
-	info.DynamicMemory, info.DynMemMaxMB = dynamicMemoryState(mods, azureDmesg(ctx))
+	info.DynamicMemory, info.DynMemMaxMB = dynamicMemoryState(kernelModulePresent(mods, "hv_balloon"), azureDmesg(ctx))
 	info.TempDiskPresent, info.TempDiskDevice, info.TempDiskMount, info.PersistentDataAtRisk = tempDiskStateFromHost()
 	info.DisksChecked, info.Disks = azureDiskCaching(ctx)
 
@@ -79,14 +79,16 @@ func (c *AzureCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // ---------- Dynamic Memory (Hyper-V ballooning) ----------
 
-// dynamicMemoryState reports whether Hyper-V Dynamic Memory is enabled — the
-// hv_balloon driver is loaded — and the configured ceiling the kernel logged, if any.
-// Driver presence is a confident guest-side fact. Ballooning *pressure* has no reliable
-// guest-side counter, so it is deliberately NOT inferred here: claiming "memory
-// pressure" off an unreadable signal would be exactly the false-alarm class dsd avoids.
-func dynamicMemoryState(procModules, dmesg string) (enabled bool, maxMB int) {
-	enabled = kernelModulePresent(procModules, "hv_balloon")
-	if !enabled {
+// dynamicMemoryState reports whether Hyper-V Dynamic Memory is enabled — the caller
+// passes whether the hv_balloon driver is loaded — and the configured ceiling the
+// kernel logged, if any. Driver presence is a confident guest-side fact. Ballooning
+// *pressure* has no reliable guest-side counter, so it is deliberately NOT inferred
+// here: claiming "memory pressure" off an unreadable signal would be exactly the
+// false-alarm class dsd avoids. balloonLoaded is injected (not read here) so this stays
+// a pure unit — kernelModulePresent has a /sys/module fallback that would otherwise
+// couple a test to the host (a GitHub Azure-VM runner has /sys/module/hv_balloon).
+func dynamicMemoryState(balloonLoaded bool, dmesg string) (enabled bool, maxMB int) {
+	if !balloonLoaded {
 		return false, 0
 	}
 	return true, parseHVBalloonMaxMB(dmesg)
