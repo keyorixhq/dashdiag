@@ -23,8 +23,24 @@ type PackagesCollector struct {
 func NewPackagesCollector() *PackagesCollector     { return &PackagesCollector{} }
 func NewPackagesDeepCollector() *PackagesCollector { return &PackagesCollector{Deep: true} }
 
-func (c *PackagesCollector) Name() string           { return "Packages" }
-func (c *PackagesCollector) Timeout() time.Duration { return 8 * time.Second }
+func (c *PackagesCollector) Name() string { return "Packages" }
+
+// Timeout budgets the whole collector. The old flat 8s was too small for RHEL/RHUI:
+// a cold `dnf updateinfo` metadata download alone routinely takes 6s+ (measured live
+// on EC2 RHEL 10), so on a freshly-booted host the security scan either timed out —
+// reporting a false "could not verify security updates" that HID pending critical
+// advisories — or, when it barely fit, starved the deep integrity sub-checks
+// (dnf check / rpm --verify / ldconfig) into false timeout WARNs. Give the scan real
+// headroom (fast), and reserve extra for the integrity sub-checks that run after it
+// (deep). Collectors run concurrently, so this only extends wall-clock on the rare
+// cold/slow-mirror first run — and an honest-but-slow security verdict beats a fast
+// false-negative.
+func (c *PackagesCollector) Timeout() time.Duration {
+	if c.Deep {
+		return 40 * time.Second
+	}
+	return 20 * time.Second
+}
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	pm := detectPackageManager(ctx)
@@ -247,11 +263,18 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 	info.HasSecurityRepo = true
 
+	// Cap the advisory query so a slow/cold RHUI mirror can't consume the whole
+	// collector budget and starve the deep integrity sub-checks (rpm --verify,
+	// ldconfig) that run after it. The cap is generous (cold downloads measured at
+	// 6s live, but a slow region can spike higher) yet bounded, so a wedged mirror
+	// degrades to an honest "could not verify" instead of hanging the collector.
+	scanCtx, scanCancel := context.WithTimeout(ctx, 18*time.Second)
+	defer scanCancel()
 	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4 (RHEL/Rocky)
-	out, err := runCmd(ctx, "dnf", "advisory", "list", "--security", "--quiet")
+	out, err := runCmd(scanCtx, "dnf", "advisory", "list", "--security", "--quiet")
 	if err != nil {
 		// DNF4 fallback: RHEL/Rocky/older Fedora
-		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
+		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", "security", "--quiet")
 	}
 	if err != nil {
 		// The advisory query failed (broken plugin, transient dnf error, permission)
