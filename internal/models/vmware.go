@@ -49,4 +49,23 @@ type VMwareInfo struct {
 	// NVMe always has an eui — neither is affected, so only sd* is examined.)
 	SCSIDisksChecked bool     `json:"scsi_disks_checked"`           // at least one sd* disk was examined
 	DisksNoStableID  []string `json:"disks_no_stable_id,omitempty"` // sd* disks with no wwid → EnableUUID likely off
+
+	// Per-vmxnet3-NIC driver-internal counters from `ethtool -S` that the standard
+	// /sys/class/net statistics (already covered by the Network collector) do NOT
+	// expose: RX buffer-allocation failures and TX/RX ring exhaustion. Non-zero
+	// above a ratio floor means the driver rings are undersized for the workload —
+	// tunable with `ethtool -G`. Empty when no vmxnet3 NIC or ethtool is absent.
+	VMXNETStats []VMXNETStats `json:"vmxnet_stats,omitempty"`
+}
+
+// VMXNETStats holds the vmxnet3-specific drop/exhaustion counters for one NIC,
+// with the total rx/tx packet counts so the verdict can be rate-based (a flat
+// cumulative count would false-WARN on a long-uptime host).
+type VMXNETStats struct {
+	Iface          string `json:"iface"`
+	RxBufAllocFail uint64 `json:"rx_buf_alloc_fail"` // "rx buf alloc fail" — RX buffers couldn't be allocated
+	RxOOB          uint64 `json:"rx_oob"`            // "pkts rx OOB" — RX ring out of buffers
+	TxRingFull     uint64 `json:"tx_ring_full"`      // "ring full" — TX descriptor ring exhausted
+	RxPackets      uint64 `json:"rx_packets"`        // total RX packets (denominator for the rate)
+	TxPackets      uint64 `json:"tx_packets"`        // total TX packets (denominator for the rate)
 }

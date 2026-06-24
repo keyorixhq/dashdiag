@@ -215,6 +215,43 @@ func TestCheckVMwareEnableUUID(t *testing.T) {
 	}
 }
 
+// vmwareVMXNETCheck WARNs when a vmxnet3 NIC's ring/buffer-exhaustion counters
+// exceed the rate floor, and stays silent on a healthy NIC or a trivial flat
+// count on a long-uptime host (rate-gated via nicErrorRateHigh).
+func TestCheckVMwareVMXNET(t *testing.T) {
+	// Healthy: zero counters → silent.
+	healthy := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", RxPackets: 1_000_000, TxPackets: 1_000_000},
+	}}
+	if got := vmwareVMXNETCheck(healthy); got != nil {
+		t.Errorf("healthy vmxnet3 must be silent, got %v", got)
+	}
+
+	// Trivial count on heavy traffic → below the rate floor → silent (no false-WARN
+	// on a long-uptime host).
+	trivial := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", RxBufAllocFail: 50, RxPackets: 1_000_000_000, TxPackets: 1_000_000_000},
+	}}
+	if got := vmwareVMXNETCheck(trivial); got != nil {
+		t.Errorf("trivial count under the floor must be silent, got %v", got)
+	}
+
+	// Sustained exhaustion (well above floor and >0.01% of packets) → WARN naming
+	// the iface and the reason.
+	bad := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", TxRingFull: 50_000, RxBufAllocFail: 40_000, RxPackets: 1_000_000, TxPackets: 1_000_000},
+	}}
+	got := vmwareVMXNETCheck(bad)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("undersized rings = %+v, want one WARN", got)
+	}
+	for _, want := range []string{"ens160", "TX ring exhaustion", "buffer-allocation", "ethtool -G"} {
+		if !strings.Contains(got[0].Message+got[0].Hints[1], want) {
+			t.Errorf("WARN/hints missing %q, got %q / %v", want, got[0].Message, got[0].Hints)
+		}
+	}
+}
+
 // The constraint and timeout checks compose with the existing tools/NIC checks
 // inside checkVMware (and suppress the all-clean INFO line when any WARN fires).
 func TestCheckVMwareConstraintsIntegration(t *testing.T) {
