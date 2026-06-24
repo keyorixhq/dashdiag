@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -584,20 +585,58 @@ func aptHasSecurityRepo() bool {
 	return false
 }
 
+// zypperLocked reports whether zypper output indicates the global zypp lock
+// (/run/zypp.pid) was held by another process — zypper exits 7 (ZYPP_LOCKED) and
+// prints "System management is locked by the application with pid N". Transient and
+// root-independent; the caller retries rather than reporting a false "unverified".
+func zypperLocked(out string) bool {
+	l := strings.ToLower(out)
+	return strings.Contains(l, "is locked by") ||
+		strings.Contains(l, "system management is locked") ||
+		strings.Contains(l, "zypp.pid")
+}
+
 // collectZypper parses `zypper list-patches --category security` for openSUSE/SLES.
 // zypper list-patches exits 0 whether or not patches are available.
 // Security patches are identified by category "security" in the output.
 func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{Checked: true, PackageManager: "zypper"}
 
-	// Check for security patches
-	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
-		"list-patches", "--category", "security")
+	// Check for security patches. zypper holds ONE global lock (/run/zypp.pid); dsd
+	// runs collectors in parallel, so a sibling (SUSEConnect, snapper, another zypper)
+	// can hold it briefly and our query exits 7 (ZYPP_LOCKED). That is transient and
+	// root-INDEPENDENT — retry a few times before giving up. Without this, the loser of
+	// a lock race false-reports "could not verify" while real security patches are
+	// pending (found live on SLES 16: a lock race hid 28 pending security patches, with
+	// a misleading "try running as root" even when already root). Mirrors the
+	// retry-on-transient-lock pattern in rpmDBHealth. Combined output so the lock
+	// message (on stderr) is visible for detection; the table parser below ignores
+	// non-matching lines.
+	var out string
+	var err error
+	locked := false
+	for attempt := 0; attempt < 5; attempt++ {
+		out, err = runCmdCombined(ctx, "zypper", "--non-interactive", "--no-color",
+			"list-patches", "--category", "security")
+		locked = err != nil && zypperLocked(out)
+		if !locked {
+			break
+		}
+		if !sleepCtx(ctx, 800*time.Millisecond) {
+			break // ctx cancelled — don't spin
+		}
+	}
 	if err != nil {
-		// zypper may require root for full repo access. This is NOT "OK" — we
-		// couldn't check, so don't claim a clean result; report it as unverified.
+		// Couldn't check — NOT "OK"; report unverified with the accurate reason.
 		info.Status = "query-failed"
-		info.StatusReason = "zypper list-patches unavailable (try running as root)"
+		switch {
+		case locked:
+			info.StatusReason = "zypper is locked by another process — security updates not verified"
+		case os.Geteuid() != 0:
+			info.StatusReason = "zypper list-patches unavailable — run as root to read security patches"
+		default:
+			info.StatusReason = "zypper list-patches failed — security updates not verified"
+		}
 		return info, nil
 	}
 
@@ -621,9 +660,17 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 			continue
 		}
 		securityNeeded++
+		// Count critical and important SEPARATELY — the other collectors (dnf etc.)
+		// already do, and the heuristic renders critical→CRIT, important→WARN. Lumping
+		// important into CriticalUpdates over-escalated: on SLES 16 (0 critical, 18
+		// important) dsd reported "18 critical … CRIT" when the honest verdict is "18
+		// important … WARN" (found when the count didn't match `zypper lp` severities).
 		severity := strings.TrimSpace(strings.ToLower(fields[3]))
-		if severity == "critical" || severity == "important" {
+		switch severity {
+		case "critical":
 			info.CriticalUpdates++
+		case "important":
+			info.ImportantUpdates++
 		}
 		name := ""
 		if len(fields) >= 2 {
