@@ -660,9 +660,17 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 			continue
 		}
 		securityNeeded++
+		// Count critical and important SEPARATELY — the other collectors (dnf etc.)
+		// already do, and the heuristic renders critical→CRIT, important→WARN. Lumping
+		// important into CriticalUpdates over-escalated: on SLES 16 (0 critical, 18
+		// important) dsd reported "18 critical … CRIT" when the honest verdict is "18
+		// important … WARN" (found when the count didn't match `zypper lp` severities).
 		severity := strings.TrimSpace(strings.ToLower(fields[3]))
-		if severity == "critical" || severity == "important" {
+		switch severity {
+		case "critical":
 			info.CriticalUpdates++
+		case "important":
+			info.ImportantUpdates++
 		}
 		name := ""
 		if len(fields) >= 2 {

@@ -790,6 +790,25 @@ and the PAYG **Subscription** verdict was correct (`OK` registered as root, hone
   guard should be applied. See TRIAGE §U.
 **PR:** #480
 
+### BUG-059 — zypper counts "important" patches as "critical" (severity over-escalation)
+**Found:** AWS EC2 SLES 16.0 — the patch count didn't match `zypper lp` severities (28
+  security = 18 important + 8 moderate + 2 low; **0 critical**), yet dsd reported "18
+  *critical* security update(s)" as **CRIT**.
+**Root cause:** `collectZypper` incremented `CriticalUpdates` for *both* `critical` and
+  `important` severities and never set `ImportantUpdates` — so 18 important patches read
+  as 18 critical, and the heuristic (CriticalUpdates>0 → CRIT) raised CRIT. Every other
+  collector (`collectDNF` etc.) counts the two separately, and the heuristic already
+  renders critical→CRIT / important→WARN — only the zypper path was wrong. This is a
+  false-ALARM-direction bug (overstates severity); it's why RHEL's "8 critical" was
+  genuine but SLES's "18 critical" was not.
+**Affected:** `dsd health` Packages verdict on openSUSE/SLES — important-only patch sets
+  mislabelled "critical" and escalated CRIT instead of WARN.
+**Fix:** count `critical`→`CriticalUpdates`, `important`→`ImportantUpdates` (match the
+  other collectors). Validated live: now reports `WARN 18 important security update(s)`
+  — accurate to the 0-critical/18-important ground truth. Heuristic rendering already
+  guarded by `heuristics_round6_test`.
+**PR:** #480
+
 **Other SLES-16 observations (no bug):** `snapper` is NOT installed on the minimal SLES-16
   cloud image despite a btrfs root with `/.snapshots` — dsd correctly does not false-alarm
   about missing snapshots. The btrfs subvolume layout surfaces as 12 separate Filesystem

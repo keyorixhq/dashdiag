@@ -41,7 +41,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and exit 7 — which dsd misreported as "could not verify (try running as root)", hiding
   pending security patches even when run as root. It now retries on a detected lock and
   reports the accurate reason otherwise. Found live on SLES 16.0, where it consistently
-  hid 28 pending security patches (18 critical/important). (#480)
+  hid 28 pending security patches (18 important). (#480)
+- **zypper counted "important" patches as "critical"** (severity over-escalation on
+  openSUSE/SLES). `collectZypper` lumped both severities into the critical count, so a box
+  with only *important* security patches was reported as "N critical … CRIT" instead of "N
+  important … WARN". Now counted separately, matching the dnf path. Found live on SLES 16
+  (0 critical, 18 important) — dsd now correctly reports `WARN 18 important`. (#480)
 
 ## [1.8.1] - 2026-06-24
 
