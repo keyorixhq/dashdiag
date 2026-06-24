@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-06-24
+
+Patch: a real-hardware / cloud validation sweep — false-OK and false-WARN fixes found by
+running dsd live on AWS EC2 RHEL 10.2 (x86), SLES 16.0 (arm64), and a bare-metal i7-6700
+(pve01). No CLI or `--json` schema changes.
+
 ### Fixed
 
 - **`dsd hardware` reported ECC "OK" on non-ECC hardware** (false-OK). It treated the
