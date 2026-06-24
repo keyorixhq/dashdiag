@@ -234,19 +234,7 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 					t.Label+":", output.StatusIcon("info", mode), t.Sensor)
 				continue
 			}
-			level := "ok"
-			note := ""
-			if t.TempC >= 95 {
-				level = "fail"
-				note = " — throttling"
-			} else if t.TempC >= 85 {
-				level = "warn"
-				note = " — elevated"
-			} else if t.TempC >= 60 && info.CPU.LoadPct < 20 {
-				// High temp at low load = cooling issue (dried paste, blocked vents)
-				level = "warn"
-				note = fmt.Sprintf(" — high at %.0f%% load", info.CPU.LoadPct)
-			}
+			level, note := coreThermalLevel(t.TempC, info.CPU.LoadPct)
 			fmt.Printf("  %-14s %s  %d°C%s  (%s)\n",
 				t.Label+":", output.StatusIcon(level, mode), t.TempC, note, t.Sensor)
 		}
@@ -286,4 +274,23 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 	fmt.Println(sep)
 	fmt.Println(render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
 	_ = os.Stdout.Sync()
+}
+
+// coreThermalLevel grades a per-core CPU temperature for `dsd hardware`. Above the
+// hard ceilings it's throttling/elevated regardless of load. The "warm at low load"
+// rung catches a cooling fault (dried paste, blocked vents, dead fan) where the CPU
+// runs hot while nearly idle — but only at/above 75°C: 50-70°C at idle is normal for
+// a desktop/SFF chip, so the old 60°C threshold false-WARNed on healthy metal (found
+// live on an i7-6700 idling at 61°C). 75°C sits above normal idle yet below the 85°C
+// "elevated" rung, so it fires only when a near-idle core is genuinely hot.
+func coreThermalLevel(tempC int, loadPct float64) (level, note string) {
+	switch {
+	case tempC >= 95:
+		return "fail", " — throttling"
+	case tempC >= 85:
+		return "warn", " — elevated"
+	case tempC >= 75 && loadPct < 20:
+		return "warn", fmt.Sprintf(" — high at %.0f%% load", loadPct)
+	}
+	return "ok", ""
 }

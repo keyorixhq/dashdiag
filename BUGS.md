@@ -813,3 +813,38 @@ and the PAYG **Subscription** verdict was correct (`OK` registered as root, hone
   cloud image despite a btrfs root with `/.snapshots` — dsd correctly does not false-alarm
   about missing snapshots. The btrfs subvolume layout surfaces as 12 separate Filesystem
   rows (cosmetic; all the same underlying fs).
+
+---
+
+## pve01 bare-metal validation (2026-06-24)
+
+First validation of the hardware-sensor collectors on **real bare metal** — every cloud
+guest (Nitro/Hyper-V) hides thermal/EDAC/SMART, so these paths had never run against real
+silicon. Host: pve01, HP ProDesk 600 G2 SFF, **Intel i7-6700** (Skylake), Debian 13 / PVE
+9.1.1, real coretemp + real SATA SMART (LITEONIT SSD + WDC 2 TB HDD). dsd read the real
+sensors correctly (coretemp, SMART PASSED, power-on hours, ECC counters). One false-WARN:
+
+### BUG-060 — `dsd hardware` false-WARNs a normal-temperature CPU at low load
+**Found:** pve01 (i7-6700), live — `dsd hardware`
+**Symptom:** `CPU Thermals` showed `WARN 61°C — high at 10% load` on idle cores at 61°C.
+  **61°C is a normal CPU temperature** (this chip throttles at ~100°C).
+**Root cause:** the per-core thermal grading in `cmd/hardware.go` had a "warm at low load"
+  rung — `tempC >= 60 && load < 20%` → WARN — meant to catch a cooling fault (dried paste,
+  blocked vents, dead fan). The intent is sound but **60°C is a normal idle temp** for a
+  desktop/SFF CPU, so it false-WARNed on healthy metal. It never fired on cloud guests
+  (no coretemp → `TempC==0` → skipped), so it shipped uncaught.
+**Affected:** `dsd hardware` per-core thermal display on any physical machine whose CPU
+  idles in the 60–84°C band. Display-only — the `dsd health` thermal verdict uses the
+  correct 85/95°C thresholds and was not affected.
+**Fix:** raised the "warm at low load" threshold to **75°C** (above normal idle, below the
+  85°C "elevated" rung) and extracted a testable `coreThermalLevel` helper + regression
+  test. Validated live on pve01 (cores OK at 51–61°C; a genuinely hot idle core ≥75°C still
+  WARNs).
+**PR:** #482
+
+**Other pve01 observations (not fixed here):** (1) the WDC HDD at 52°C shows
+  `Temperature WARN` (non-NVMe drives warn ≥50°C) — defensible for a spinning disk but
+  arguably aggressive for an enterprise drive rated to 65°C; left as a tuning judgment.
+  (2) PVE `tap101i0` shows `WARN unknown @ 10000 Mbps` — a tap interface's `operstate` is
+  normally "unknown"; likely a false-WARN on virtualization hosts (many tap/veth NICs).
+  Both logged for a future pass, not blind-fixed.

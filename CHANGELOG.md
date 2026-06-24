@@ -19,6 +19,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   result (a deep-mode false-OK). It now retries on the lock and, if still locked, reports
   "could not verify package integrity — the package manager was locked" (INFO) instead of a
   silent pass. Sibling of #480. (#481)
+- **`dsd hardware` false-WARNed a normal-temperature CPU at low load.** The per-core
+  "CPU Thermals" display flagged any core ≥60°C while CPU load was <20% as "high at N%
+  load" — but 60°C is a normal idle temp, so it false-WARNed on healthy physical CPUs
+  (the rung never fired on cloud guests, which expose no CPU sensor). The "warm at low
+  load" threshold is raised to 75°C (still below the 85°C "elevated" rung), so it only
+  flags a genuinely hot near-idle core (a cooling fault). Found and validated live on a
+  bare-metal i7-6700. (#482)
 
 - **RHEL/RHUI security scan timed out on a cold cache, hiding pending criticals**
   (`dsd health` / `--packages`). The Packages collector ran the dnf security scan,
