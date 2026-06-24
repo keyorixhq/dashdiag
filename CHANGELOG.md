@@ -13,6 +13,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd hardware` reported ECC "OK" on non-ECC hardware** (false-OK). It treated the
+  presence of the `/sys/.../edac/mc` class dir as "ECC available" — but that dir exists on
+  non-ECC systems too — so it showed `ECC (UE): OK 0 uncorrected`, implying memory
+  protection that isn't there. ECC is now reported only when a real memory controller
+  (`mc*`) is registered; otherwise "EDAC not available". Found live on a non-ECC i7-6700. (#483)
+- **`dsd hardware` false-WARNed normal-temperature drives and virtual NICs** (display-only).
+  A SATA/HDD at 52°C (its own SMART reporting 0 over-temp events) warned because the non-NVMe
+  threshold was 50°C — raised to 55°C. And a PVE `tap`/`veth` interface whose link was up
+  (`carrier=1`) warned because its `operstate` reads "unknown" — now falls back to carrier,
+  fixing a false-WARN on every virtualization host. Found live on pve01. (#483)
+
 - **Deep package-integrity check on openSUSE/SLES read clean when zypper was locked**
   (`dsd health deep`). `pkgIntegrityZypper` (`zypper verify`) hit the same global zypp-lock
   race as the security scan: a lock made the check find nothing and read as a clean integrity
