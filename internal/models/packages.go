@@ -15,6 +15,7 @@ type PackageIntegrity struct {
 	RPMVerifyFailed []string `json:"rpm_verify_failed,omitempty"` // rpm --verify anomalies
 	LdconfigOK      bool     `json:"ldconfig_ok"`
 	VerifyTimedOut  bool     `json:"verify_timed_out,omitempty"`
+	VerifyLocked    bool     `json:"verify_locked,omitempty"` // integrity check couldn't run — package manager was locked
 }
 
 // PackagesInfo holds package security advisory data.

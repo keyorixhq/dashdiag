@@ -921,11 +921,36 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 func pkgIntegrityZypper(ctx context.Context, pi *models.PackageIntegrity) {
 	// zypper verify (exit 1 = problems found). It EXITS NON-ZERO when it finds
 	// broken/missing deps, so runCmd would discard the output and the check would
-	// read clean (false-OK, same bug as APT/DNF). runCmdOutput keeps stdout
-	// regardless of exit (zypper writes its resolution to stdout).
-	zCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	// read clean (false-OK, same bug as APT/DNF). Capture stdout+stderr regardless
+	// of exit (zypper writes its resolution to stdout; the zypp-lock message to
+	// stderr).
+	//
+	// zypper holds ONE global lock (/run/zypp.pid); dsd runs collectors in parallel,
+	// so a sibling can hold it and `zypper verify` exits 7 (ZYPP_LOCKED) with empty
+	// stdout — which read as a CLEAN integrity check (a deep-mode false-OK, the
+	// sibling of the security-scan lock race fixed in #480). Retry on the lock, and
+	// if it stays locked report "couldn't verify" rather than a silent clean.
+	zCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	out, _ := runCmdOutput(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
+	var out string
+	var err error
+	locked := false
+	for attempt := 0; attempt < 4; attempt++ {
+		out, err = runCmdCombined(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
+		// exit 1 = "problems found" (err != nil but NOT a lock — parse it); exit 7 =
+		// locked. Only a lock should retry.
+		locked = err != nil && zypperLocked(out)
+		if !locked {
+			break
+		}
+		if !sleepCtx(zCtx, 800*time.Millisecond) {
+			break // ctx cancelled — don't spin
+		}
+	}
+	if locked {
+		pi.VerifyLocked = true // couldn't verify — do NOT read clean
+		return
+	}
 	for _, line := range strings.Split(out, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "broken") || strings.Contains(lower, "missing") {

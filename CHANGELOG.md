@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Deep package-integrity check on openSUSE/SLES read clean when zypper was locked**
+  (`dsd health deep`). `pkgIntegrityZypper` (`zypper verify`) hit the same global zypp-lock
+  race as the security scan: a lock made the check find nothing and read as a clean integrity
+  result (a deep-mode false-OK). It now retries on the lock and, if still locked, reports
+  "could not verify package integrity — the package manager was locked" (INFO) instead of a
+  silent pass. Sibling of #480. (#481)
+
 - **RHEL/RHUI security scan timed out on a cold cache, hiding pending criticals**
   (`dsd health` / `--packages`). The Packages collector ran the dnf security scan,
   `dnf check`, `rpm --verify`, and `ldconfig` under one flat 8s deadline. On a freshly
