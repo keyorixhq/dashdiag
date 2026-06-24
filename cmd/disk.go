@@ -231,10 +231,18 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 		}
 	}
 	for _, d := range info.Drives {
+		// A drive whose SMART could not be read (smartctl/nvme-cli absent, permission,
+		// EBS/virtual disk) carries Error set and Healthy defaulting to false — that is
+		// "couldn't measure", NOT a fault. Counting it raises a false WARN where dsd
+		// health correctly reports INFO. Skip it, mirroring printSMARTLine's early
+		// return on Error. (Found live on EC2 RHEL/EBS with nvme-cli absent.)
+		if d.SMART == nil || d.SMART.Error != "" {
+			continue
+		}
 		// Count wear/media-error drives too, matching the SMART row icon and
 		// checkNVMe — a still-"PASSED" drive with media errors or 90%+ wear must
 		// not let the summary read "healthy".
-		if d.SMART != nil && (!d.SMART.Healthy || d.SMART.MediaErrors > 0 || d.SMART.PercentUsed >= 90) {
+		if !d.SMART.Healthy || d.SMART.MediaErrors > 0 || d.SMART.PercentUsed >= 90 {
 			n++
 		}
 	}
