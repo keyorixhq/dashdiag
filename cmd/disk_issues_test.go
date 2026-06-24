@@ -21,6 +21,11 @@ func TestCountDiskIssuesSMARTWearAndErrors(t *testing.T) {
 		{"passed but media errors", &models.SMARTInfo{Healthy: true, MediaErrors: 3}, 1},
 		{"passed but 90% worn", &models.SMARTInfo{Healthy: true, PercentUsed: 90}, 1},
 		{"passed, 89% worn — under threshold", &models.SMARTInfo{Healthy: true, PercentUsed: 89}, 0},
+		// Unreadable SMART (smartctl/nvme-cli absent, EBS/virtual disk): Error is set and
+		// Healthy defaults to false. That is "couldn't measure", not a fault — it must NOT
+		// count, or the summary raises a false WARN where dsd health reports INFO.
+		{"SMART unreadable — tool absent", &models.SMARTInfo{Error: "smartctl not installed"}, 0},
+		{"no SMART struct", nil, 0},
 	}
 	for _, c := range cases {
 		info := &models.DiskInfo{Drives: []models.PhysicalDrive{{SMART: c.smart}}}
