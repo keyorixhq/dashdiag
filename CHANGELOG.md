@@ -28,6 +28,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `dsd disk` summary raised a false "N disk concern(s)" where `dsd health` correctly
   treats it as INFO ("couldn't measure"). It now skips drives whose SMART could not be
   read; a genuinely failed drive still counts. Found live on AWS EC2 RHEL/EBS. (#477)
+- **RHEL 10 subscription state went undetected; cloud PAYG RHEL would false-alarm.**
+  `dsd health` showed no Subscription section on RHEL 10 because detection only looked at
+  `/usr/bin/subscription-manager` (RHEL 10 ships it in `/usr/sbin`) — so a genuinely
+  *expired* subscription went unwarned. Detection now covers all locations, and the "not
+  registered" verdict is RHUI-aware: PAYG cloud images (AWS/Azure/GCP), where updates work
+  without registration, no longer false-alarm, while a real unregistered host still WARNs
+  and an expired one still CRITs. Found live on AWS EC2 RHEL 10.2. (#479)
 
 ## [1.8.1] - 2026-06-24
 

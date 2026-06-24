@@ -723,6 +723,30 @@ laptop runs nor self-written fixtures reproduce.
   `OK Disk healthy. Checks passed`.
 **PR:** #477
 
+### BUG-057 — RHEL 10 subscription state undetected + RHUI false-alarm (two coupled bugs)
+**Found:** AWS EC2 RHEL 10.2 (RHUI), while checking whether dsd detects Red Hat
+  Lightspeed/`rhc` enrollment (it does not — and a "not enrolled" warning was
+  deliberately not added; non-enrollment is a choice, not a fault).
+**Symptom:** `dsd health` showed *no* Subscription section at all on RHEL 10 — the
+  collector silently never ran.
+**Root cause (A):** `HasSubscriptionManager()` and the collector dispatch checked only
+  `/usr/bin/subscription-manager`. RHEL 10 ships it at `/usr/sbin/` (+ a `/sbin/` compat
+  link), so the gate returned false → the Subscription collector was skipped. A
+  genuinely EXPIRED subscription (security patches actually cut off — the dangerous
+  case) would go unwarned.
+**Root cause (B):** Fixing (A) alone would false-alarm on every AWS/Azure/GCP PAYG RHEL
+  image: those are RHUI-managed, where "not registered" is normal and `dnf` updates work
+  without `subscription-manager` registration. The `unregistered → WARN "security updates
+  may be unavailable"` verdict was RHUI-blind.
+**Affected:** `dsd health` Subscription verdict on RHEL 10 (silent) and on all cloud PAYG
+  RHEL (would false-alarm once detection was fixed).
+**Fix:** Detect `subscription-manager` at all three locations; add `rhuiManaged()`
+  (`/etc/pki/rhui` / `redhat-rhui.repo`) + an `unregistered-rhui` status the heuristic
+  treats as OK. Genuine non-RHUI unregistered still WARNs; expired still CRITs. Validated
+  live with a reversible A/B (RHUI present → `Subscription OK`; RHUI hidden → WARN "not
+  registered"). Unit test added.
+**PR:** #479
+
 **Bonus hardware note (no bug):** the box is Sapphire Rapids (Xeon Platinum 8488C) on
 a CPU-burstable `c7i-flex`, exposing the full AMX + AVX-512 surface on 2 vCPUs. Nitro
 abstracts the physical layer — ECC = Unknown, no EDAC, no real thermal zones, EBS SMART

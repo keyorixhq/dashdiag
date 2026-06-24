@@ -770,6 +770,25 @@ deadline for the cold-cloud case, not the warm-laptop one.
 
 ---
 
+## T. RHEL 10 subscription undetected + RHUI false-alarm — ✅ DONE (fix/rhel-subscription-detect-and-rhui, 2026-06-24)
+
+Same EC2 RHEL 10 box; surfaced while checking whether dsd detects Red Hat
+Lightspeed/`rhc` enrollment (it does not — and a "not enrolled" warning was
+deliberately NOT added: non-enrollment is a choice, not a fault). Two coupled
+bugs, fixed together. Write-up: BUGS.md BUG-057.
+
+| Item | Surface | Status |
+|---|---|---|
+| Detection gap — `subscription-manager` checked only at `/usr/bin`; RHEL 10 ships `/usr/sbin` (+`/sbin`) → Subscription collector silently skipped → an EXPIRED sub goes unwarned. | `internal/collectors/suseconnect_collector.go` (`subscriptionManagerPath()`) | ✅ #479 |
+| RHUI false-alarm — fixing detection alone would WARN "not registered" on every AWS/Azure/GCP PAYG RHEL image (RHUI = updates work unregistered). | `suseconnect_collector.go` (`rhuiManaged()`, `unregistered-rhui`) + `heuristics_firmware.go` (OK case) + `heuristics_round7_test.go` | ✅ #479 |
+
+Class note: binary-presence gates that hardcode `/usr/bin/<tool>` are fragile
+across distro versions/`usr`-merge — prefer checking the real ship locations (or
+`lookPath`). And any "not registered / not subscribed" verdict must be cloud-PAYG
+(RHUI / PAYG marketplace) aware before it WARNs.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
