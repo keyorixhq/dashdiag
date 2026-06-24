@@ -670,3 +670,61 @@ This resolves the earlier-flagged open item. **(#163)**
 INFO, Ubuntu fresh → not flagged; dnf — fedora cleared → INFO, AlmaLinux fresh (2d) →
 not flagged (38 real updates); zypper — glob confirmed against real `repomd.xml`/`solv`
 after `zypper ref`, openSUSE fresh → up to date. No false-stale on healthy hosts.
+
+---
+
+## AWS EC2 RHEL 10.2 — cold-cache validation (2026-06-24)
+
+Live validation on a stock RHEL 10.2 instance on AWS (`c7i-flex.large`, x86_64,
+RHUI repos). The theme is the **cold cache / fresh-boot** state — the moment an
+operator actually runs a health check on a new cloud box — which neither warm
+laptop runs nor self-written fixtures reproduce.
+
+### BUG-055 — RHEL/RHUI security scan times out on a cold cache → false "could not verify" (hiding criticals)
+**Found:** AWS EC2 RHEL 10.2 (RHUI), cold cache (fresh-boot simulation via `dnf clean all`)
+**Symptom:** On the first run against a cold box, `dsd health` reported
+  `Packages INFO: could not verify security updates: dnf advisory/updateinfo unavailable`
+  — while the box actually had **8 Critical advisories pending, including a Critical
+  kernel RHSA**. Other cold runs instead emitted a false `rpm --verify timed out` WARN.
+  Warm runs were always correct.
+**Root cause:** The whole `PackagesCollector` (security scan + `dnf check` + `rpm
+  --verify` + `ldconfig`) ran under one flat **8s** deadline (`Timeout()`). A *cold*
+  `dnf updateinfo` over RHUI takes ~6s (metadata download), so the budget blew —
+  starving either the security scan itself (→ false "could not verify") or the
+  integrity sub-checks that run after it (→ false `rpm --verify timed out`). The
+  same starvation class as the apt-side fix shipped in v1.8.1 (#469, found on Azure);
+  the dnf/RHUI side was only flushed out by a cold cache on real hardware.
+**Affected:** `dsd health` / `dsd health --packages` / `dsd health deep` on RHEL/Rocky/
+  Alma/Fedora cloud images on a cold cache — i.e. the common fresh-boot case.
+**Fix:** `Timeout()` is now Deep-aware (20s fast / 40s deep), reserving room for the
+  integrity sub-checks; the advisory scan is capped at 18s so a wedged mirror degrades
+  to an honest "could not verify" instead of starving the integrity checks or hanging.
+  Validated live: 3× cold-cache runs → correct `CRIT 8 critical security update(s)`,
+  no false integrity WARNs; non-root still degrades honestly (the RHUI client cert
+  `/etc/pki/rhui/product/content-rhel10.crt` is root-only).
+**PR:** #476
+
+### BUG-056 — `dsd disk` counts unreadable SMART as a drive fault (false WARN)
+**Found:** AWS EC2 RHEL 10.2, EBS NVMe volume, `nvme-cli` absent
+**Symptom:** `dsd disk` ended with `WARN 1 disk concern(s) found` on a perfectly
+  healthy box, while `dsd health` rated the same drive INFO — the standalone command
+  disagreed with health on identical data.
+**Root cause:** When SMART can't be read (smartctl/nvme-cli absent, or an EBS/virtual
+  disk with no SMART log), the collector returns a *non-nil* `SMARTInfo` with `Error`
+  set and `Healthy` defaulting to `false`. `countDiskIssues` read `Healthy==false` as
+  a fault and bumped the concern tally — conflating "couldn't measure" with "unhealthy."
+  Sibling of BUG-050 (cmd-vs-health divergence) and BUG-048 (unread-SMART false-OK).
+**Affected:** `dsd disk` summary line on any host without smartctl/nvme-cli or with an
+  EBS/virtual disk — i.e. most cloud guests.
+**Fix:** Skip drives whose `SMART.Error` is set (or nil SMART) before the health check,
+  mirroring `printSMARTLine`'s early return on `Error`. A genuinely FAILED drive
+  (`Healthy` false, *no* Error) still counts, so no real fault is masked. Regression
+  cases added (`cmd/disk_issues_test.go`). Validated live: `dsd disk` now reads
+  `OK Disk healthy. Checks passed`.
+**PR:** #477
+
+**Bonus hardware note (no bug):** the box is Sapphire Rapids (Xeon Platinum 8488C) on
+a CPU-burstable `c7i-flex`, exposing the full AMX + AVX-512 surface on 2 vCPUs. Nitro
+abstracts the physical layer — ECC = Unknown, no EDAC, no real thermal zones, EBS SMART
+unreadable — and dsd degrades honestly on every one (no false-green), confirming the
+cloud-guest honest-degradation paths.
