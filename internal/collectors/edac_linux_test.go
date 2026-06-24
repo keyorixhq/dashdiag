@@ -46,3 +46,20 @@ func TestReadEDACCountsFrom_Absent(t *testing.T) {
 		t.Errorf("absent EDAC = (%v,%d,%d), want (false,0,0)", avail, ce, ue)
 	}
 }
+
+// TestReadEDACCountsFrom_NoControllers covers the false-OK fix: the edac/mc class
+// dir exists on non-ECC hardware (with only power/subsystem/uevent, no mc*), and dsd
+// must NOT report ECC as "available" there — else it shows "ECC OK 0 errors" implying
+// ECC protection that isn't present (found live on a bare-metal non-ECC i7-6700).
+func TestReadEDACCountsFrom_NoControllers(t *testing.T) {
+	root := t.TempDir()
+	for _, e := range []string{"power", "subsystem", "uevent"} {
+		if err := os.MkdirAll(filepath.Join(root, e), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	avail, ce, ue := readEDACCountsFrom(root)
+	if avail || ce != 0 || ue != 0 {
+		t.Errorf("non-ECC (no mc* controllers) = (%v,%d,%d), want (false,0,0)", avail, ce, ue)
+	}
+}

@@ -165,9 +165,14 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 					tempLevel = "warn"
 				}
 			} else {
+				// SATA/SAS (SSD + HDD). 50°C false-WARNed normal warm drives: a 2TB
+				// enterprise HDD running at its normal 52°C (its own SMART reported
+				// 0 over-temp events, lifetime max 58°C) got a WARN. Spinning disks
+				// routinely run 45-55°C in racks/SFF cases. Warn at 55°C (genuinely
+				// warm), fail at 60°C (at/over typical spec). Found live on pve01.
 				if d.TempC >= 60 {
 					tempLevel = "fail"
-				} else if d.TempC >= 50 {
+				} else if d.TempC >= 55 {
 					tempLevel = "warn"
 				}
 			}

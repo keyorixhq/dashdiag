@@ -842,9 +842,38 @@ sensors correctly (coretemp, SMART PASSED, power-on hours, ECC counters). One fa
   WARNs).
 **PR:** #482
 
-**Other pve01 observations (not fixed here):** (1) the WDC HDD at 52°C shows
-  `Temperature WARN` (non-NVMe drives warn ≥50°C) — defensible for a spinning disk but
-  arguably aggressive for an enterprise drive rated to 65°C; left as a tuning judgment.
-  (2) PVE `tap101i0` shows `WARN unknown @ 10000 Mbps` — a tap interface's `operstate` is
-  normally "unknown"; likely a false-WARN on virtualization hosts (many tap/veth NICs).
-  Both logged for a future pass, not blind-fixed.
+### BUG-061 — `dsd hardware` reports ECC "available/OK" on non-ECC hardware (false-OK)
+**Found:** pve01 (i7-6700, non-ECC), live — `dsd hardware` Memory section
+**Symptom:** `ECC (UE): OK 0 uncorrected` / `ECC (CE): OK 0 corrected` on a box with **no
+  ECC at all** (i7-6700 is non-ECC; `dmidecode` → "Error Correction Type: None"; no `mc*`
+  controllers; no edac module). Implies ECC memory protection exists and is healthy when
+  there is none.
+**Root cause:** `readEDACCountsFrom` set `available=true` whenever the
+  `/sys/devices/system/edac/mc` *class* dir existed — but that dir exists on non-ECC
+  hardware too (just `power`/`subsystem`/`uevent`, no `mc*` controller).
+**Affected:** `dsd hardware` ECC reporting on every non-ECC Linux box where the edac core
+  is built in / loaded. False-OK (claims protection that isn't present).
+**Fix:** `available` is true only when a real controller (`mc0`/`mc1`/… with a `ce_count`
+  file) is registered; otherwise dsd renders the honest "EDAC not available". Validated
+  live: `ECC OK 0 uncorrected` → `EDAC not available`. Regression test added.
+**PR:** #483
+
+### BUG-062 — `dsd hardware` false-WARNs a normal-temperature SATA/HDD
+**Found:** pve01, live — WDC 2 TB HDD at 52°C
+**Symptom:** `Temperature WARN 52°C` on a drive running at its **normal** temp — the drive's
+  own SMART reported `Under/Over Temperature Limit Count: 0/0` (never over its limit) and a
+  lifetime max of 58°C. Spinning disks routinely run 45-55°C in racks/SFF cases.
+**Root cause:** non-NVMe drive temp warned at ≥50°C — too aggressive for HDDs.
+**Fix:** raised the non-NVMe warn threshold to **55°C** (fail unchanged at 60°C). The HDD
+  now reads `OK 52°C`. **PR:** #483
+
+### BUG-063 — `dsd hardware` false-WARNs virtual NICs with "unknown" operstate
+**Found:** pve01 (PVE host), live — `tap101i0`
+**Symptom:** `WARN unknown @ 10000 Mbps` on a tap interface whose link is actually **up**
+  (`carrier=1`). tap/tun/veth devices leave `operstate` "unknown" even when up.
+**Root cause:** the NIC state read `operstate` only; anything ≠ "up" → WARN. "unknown" is
+  normal for virtual interfaces.
+**Affected:** `dsd hardware` Network section on **every virtualization host** (PVE, libvirt,
+  Docker) — each tap/veth NIC false-WARNs. Squarely dsd's target environment.
+**Fix:** when `operstate` is "unknown", fall back to `carrier` — `carrier==1` → "up".
+  Validated live: `tap101i0 OK up @ 10000 Mbps`. **PR:** #483
