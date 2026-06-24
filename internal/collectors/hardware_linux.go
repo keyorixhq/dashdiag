@@ -443,6 +443,16 @@ func collectNICs(ctx context.Context, info *models.HardwareInfo) {
 		if b, err := readFile(netDir + "/operstate"); err == nil { // #nosec G304
 			nic.State = strings.TrimSpace(string(b))
 		}
+		// tap/tun/veth and some virtual NICs leave operstate "unknown" even when the
+		// link is up — they don't implement it. Fall back to carrier: carrier==1 means
+		// the link is up. Without this, every virtualization host (PVE/libvirt/Docker)
+		// false-WARNs on its tap/veth interfaces (found live on pve01: tap101i0
+		// operstate=unknown, carrier=1).
+		if nic.State == "unknown" {
+			if b, err := readFile(netDir + "/carrier"); err == nil && strings.TrimSpace(string(b)) == "1" { // #nosec G304
+				nic.State = "up"
+			}
+		}
 		if b, err := readFile(netDir + "/speed"); err == nil { // #nosec G304
 			if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
 				nic.SpeedMbps = n
