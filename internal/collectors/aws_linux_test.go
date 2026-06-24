@@ -4,8 +4,29 @@ package collectors
 
 import (
 	"encoding/binary"
+	"os"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakeFSSource serves scripted file/glob results for the time-sync detection
+// tests. Only ReadFile and Glob are exercised; the rest of the interface is left
+// nil (a call would panic, flagging an unexpected access).
+type fakeFSSource struct {
+	source.Source
+	files map[string]string
+	globs map[string][]string
+}
+
+func (f fakeFSSource) ReadFile(path string) ([]byte, error) {
+	if body, ok := f.files[path]; ok {
+		return []byte(body), nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (f fakeFSSource) Glob(pattern string) ([]string, error) { return f.globs[pattern], nil }
 
 func TestIsAWSGuest(t *testing.T) {
 	cases := []struct {
@@ -155,5 +176,56 @@ func TestENASRDActive(t *testing.T) {
 	// Garbled value must not be ingested.
 	if enaSRDActive("     ena_srd_tx_pkts: not-a-number\n") {
 		t.Error("garbled SRD value should NOT report active")
+	}
+}
+
+// TestAmazonTimeSyncConfigured_DHCPSourcedir reproduces the Amazon Linux 2023
+// layout (validated live on a t4g.micro, 2026-06-24): chrony.conf delegates to
+// `sourcedir /run/chrony.d`, where the DHCP client drops the Amazon Time Sync
+// server (169.254.169.123) — it never appears under /etc. The old detector only
+// grepped /etc/chrony.conf + /etc/chrony/conf.d and false-reported "NTP is not
+// pointed at the Amazon Time Sync Service" on the default EC2 distro.
+func TestAmazonTimeSyncConfigured_DHCPSourcedir(t *testing.T) {
+	fake := fakeFSSource{
+		files: map[string]string{
+			"/etc/chrony.conf":                      "sourcedir /run/chrony.d\nsourcedir /etc/chrony.d\npool 2.amazon.pool.ntp.org iburst\n",
+			"/run/chrony.d/link-local-ipv4.sources": "server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4\n",
+		},
+		globs: map[string][]string{
+			"/run/chrony.d/*.sources": {"/run/chrony.d/link-local-ipv4.sources"},
+		},
+	}
+	defer SetSource(SetSource(fake))
+
+	checked, uses := amazonTimeSyncConfigured()
+	if !checked {
+		t.Fatal("a readable chrony.conf must mark the check as performed")
+	}
+	if !uses {
+		t.Fatal("Amazon Time Sync server in a sourcedir-delegated /run/chrony.d file must be detected (AL2023 DHCP layout) — was a false-negative")
+	}
+}
+
+// TestAmazonTimeSyncConfigured_NotPointed: a host with chrony but no Amazon Time
+// Sync server anywhere (incl. delegated sourcedirs) must report checked-but-not-using,
+// not a false positive.
+func TestAmazonTimeSyncConfigured_NotPointed(t *testing.T) {
+	fake := fakeFSSource{
+		files: map[string]string{
+			"/etc/chrony.conf":              "sourcedir /run/chrony.d\npool 2.pool.ntp.org iburst\n",
+			"/run/chrony.d/generic.sources": "server 10.0.0.1 iburst\n",
+		},
+		globs: map[string][]string{
+			"/run/chrony.d/*.sources": {"/run/chrony.d/generic.sources"},
+		},
+	}
+	defer SetSource(SetSource(fake))
+
+	checked, uses := amazonTimeSyncConfigured()
+	if !checked {
+		t.Fatal("a readable chrony.conf must mark the check as performed")
+	}
+	if uses {
+		t.Fatal("no Amazon Time Sync server present must NOT report uses=true")
 	}
 }
