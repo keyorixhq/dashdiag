@@ -801,7 +801,7 @@ cold-cache scan).
 | Item | Surface | Status |
 |---|---|---|
 | Security-update scan: retry on zypp-lock + accurate failure reason | `internal/collectors/packages_linux.go` (`collectZypper`, `zypperLocked`), `packages_linux_test.go` | ✅ #480 (live-validated 6/6) |
-| **Integrity scan sibling** — `pkgIntegrityZypper` (`zypper verify`, deep mode) hits the same lock and reads CLEAN on a lock error (deep-mode false-OK). Apply the same retry guard. | `packages_linux.go` (`pkgIntegrityZypper`) | ⬜ OPEN (needs a deep-mode lock test) |
+| **Integrity scan sibling** — `pkgIntegrityZypper` (`zypper verify`, deep mode) hit the same lock and read CLEAN on a lock error (deep-mode false-OK). Same retry guard applied; on a persistent lock it now sets `VerifyLocked` → INFO "could not verify package integrity", never silent clean. | `packages_linux.go`, `models/packages.go`, `heuristics_packages.go`, `heuristics_round6_test` | ✅ #481 (same mechanism as live-validated #480; sandbox is t4g-only, no SUSE box to re-validate) |
 
 Class note: any collector shelling a single-global-lock tool (`zypper`, `rpm`/`dpkg`
 DB, `apt`) in dsd's parallel runner can lose a lock race → either retry on the

@@ -333,6 +333,15 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 		))
 	}
 
+	if pi.VerifyLocked {
+		// The integrity check couldn't run because the package manager was locked by
+		// another process — report it as unverified, never a silent clean (false-OK).
+		out = append(out, insight("INFO", "Packages",
+			"could not verify package integrity — the package manager was locked by another process",
+			[]string{"to run manually: zypper verify   (after any running zypper/packagekit finishes)"},
+		))
+	}
+
 	if len(pi.MissingLibs) > 0 {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d missing shared library/libraries detected", len(pi.MissingLibs)),
