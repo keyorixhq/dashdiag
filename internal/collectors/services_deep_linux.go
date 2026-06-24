@@ -68,7 +68,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// 6. Boot offenders (top 5 real services, exclude .device/.socket/.mount)
 	blameOut, err := runCmd(ctx, "systemd-analyze", "blame", "--no-pager")
 	if err == nil {
-		info.BootOffenders = parseBlame(blameOut, 5)
+		info.BootOffenders = parseBlame(blameOut, 5, timerTriggeredExcluder(ctx))
 	}
 
 	// 7. User units (only if user systemd daemon is running)
@@ -240,8 +240,10 @@ func parseJournalVerifyError(out string) string {
 
 // parseBlame parses `systemd-analyze blame` and returns the top N real service
 // offenders, excluding .device, .socket, .mount, .target, and .path units
-// which appear in the output but are not actionable.
-func parseBlame(out string, topN int) []models.BootOffender {
+// which appear in the output but are not actionable. exclude (may be nil) drops
+// units it returns true for — used to remove timer-triggered async jobs that
+// blame lists but which never gated boot (e.g. apt-daily-upgrade.service).
+func parseBlame(out string, topN int, exclude func(string) bool) []models.BootOffender {
 	var offenders []models.BootOffender
 
 	for _, line := range strings.Split(out, "\n") {
@@ -262,6 +264,10 @@ func parseBlame(out string, topN int) []models.BootOffender {
 		// Skip non-service unit types (shared with parseBlameSlowUnits — see
 		// blameSkipSuffixes — so the two blame parsers can't drift apart).
 		if isNonServiceBlameUnit(unitName) {
+			continue
+		}
+		// Skip timer-triggered async jobs — see parseBlameSlowUnits.
+		if exclude != nil && exclude(unitName) {
 			continue
 		}
 
