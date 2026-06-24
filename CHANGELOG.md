@@ -11,6 +11,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **RHEL/RHUI security scan timed out on a cold cache, hiding pending criticals**
+  (`dsd health` / `--packages`). The Packages collector ran the dnf security scan,
+  `dnf check`, `rpm --verify`, and `ldconfig` under one flat 8s deadline. On a freshly
+  booted RHEL/RHUI box a cold `dnf updateinfo` metadata download alone takes ~6s, so
+  the budget blew — reporting a false "could not verify security updates" (which hid 8
+  pending critical advisories, including a Critical kernel RHSA) or a false "rpm
+  --verify timed out" WARN. The collector timeout is now sized for the cold-cloud case
+  (Deep-aware: 20s fast / 40s deep) and the advisory scan is capped so a slow mirror
+  can't starve the integrity checks. Found and validated live on AWS EC2 RHEL 10.2.
+  Companion to the apt-side fix in v1.8.1 (#469). (#476)
+- **`dsd disk` counted unreadable SMART as a disk concern.** When SMART can't be read
+  (no smartctl/nvme-cli, or an EBS/virtual disk with no SMART log), the standalone
+  `dsd disk` summary raised a false "N disk concern(s)" where `dsd health` correctly
+  treats it as INFO ("couldn't measure"). It now skips drives whose SMART could not be
+  read; a genuinely failed drive still counts. Found live on AWS EC2 RHEL/EBS. (#477)
+- **RHEL 10 subscription state went undetected; cloud PAYG RHEL would false-alarm.**
+  `dsd health` showed no Subscription section on RHEL 10 because detection only looked at
+  `/usr/bin/subscription-manager` (RHEL 10 ships it in `/usr/sbin`) — so a genuinely
+  *expired* subscription went unwarned. Detection now covers all locations, and the "not
+  registered" verdict is RHUI-aware: PAYG cloud images (AWS/Azure/GCP), where updates work
+  without registration, no longer false-alarm, while a real unregistered host still WARNs
+  and an expired one still CRITs. Found live on AWS EC2 RHEL 10.2. (#479)
+
 ## [1.8.1] - 2026-06-24
 
 Patch: fixes a bug in v1.8.0's package-DB/lock health check.

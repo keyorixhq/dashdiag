@@ -750,6 +750,45 @@ console DRM device, or any faulted hwmon sensor. Note: this is the false-CRIT
 
 ---
 
+## S. Package security-scan starves on a cold cache → false-negative — ✅ DONE (fix/packages-rhel-rhui-scan-timeout + fix/disk-unreadable-smart, 2026-06-24)
+
+Found live on a stock **AWS EC2 RHEL 10.2** box (`c7i-flex.large`, RHUI), cold
+cache — the fresh-boot state warm laptop runs and self-written fixtures never
+reproduce. Two false verdicts, both fixed and validated on the metal. Full
+write-up: BUGS.md "AWS EC2 RHEL 10.2 — cold-cache validation".
+
+| Item | Surface | Status |
+|---|---|---|
+| BUG-055 — cold `dnf updateinfo` (~6s over RHUI) blows the flat 8s `PackagesCollector` budget → false `could not verify security updates` (hid 8 criticals incl. kernel) or false `rpm --verify timed out`. Same class as the apt-side v1.8.1 #469 fix. | `internal/collectors/packages_linux.go` (`Timeout()` Deep-aware 20s/40s + 18s scan cap) | ✅ #476 |
+| BUG-056 — `dsd disk` counted unreadable SMART (EBS, no nvme-cli) as a drive fault → false `WARN 1 disk concern(s)`, disagreeing with health (INFO). Sibling of BUG-050/048. | `cmd/disk.go` (`countDiskIssues` skips `SMART.Error != ""`), `cmd/disk_issues_test.go` | ✅ #477 |
+
+Class to keep watching (audit play, not a task): any collector that runs a
+slow refresh (package metadata, OVAL, remote probe) under a *shared* collector
+deadline can starve a fast sibling check on a cold/slow host — reserve the fast
+check's budget first (the pattern `pkgDBHealth` already follows), and size the
+deadline for the cold-cloud case, not the warm-laptop one.
+
+---
+
+## T. RHEL 10 subscription undetected + RHUI false-alarm — ✅ DONE (fix/rhel-subscription-detect-and-rhui, 2026-06-24)
+
+Same EC2 RHEL 10 box; surfaced while checking whether dsd detects Red Hat
+Lightspeed/`rhc` enrollment (it does not — and a "not enrolled" warning was
+deliberately NOT added: non-enrollment is a choice, not a fault). Two coupled
+bugs, fixed together. Write-up: BUGS.md BUG-057.
+
+| Item | Surface | Status |
+|---|---|---|
+| Detection gap — `subscription-manager` checked only at `/usr/bin`; RHEL 10 ships `/usr/sbin` (+`/sbin`) → Subscription collector silently skipped → an EXPIRED sub goes unwarned. | `internal/collectors/suseconnect_collector.go` (`subscriptionManagerPath()`) | ✅ #479 |
+| RHUI false-alarm — fixing detection alone would WARN "not registered" on every AWS/Azure/GCP PAYG RHEL image (RHUI = updates work unregistered). | `suseconnect_collector.go` (`rhuiManaged()`, `unregistered-rhui`) + `heuristics_firmware.go` (OK case) + `heuristics_round7_test.go` | ✅ #479 |
+
+Class note: binary-presence gates that hardcode `/usr/bin/<tool>` are fragile
+across distro versions/`usr`-merge — prefer checking the real ship locations (or
+`lookPath`). And any "not registered / not subscribed" verdict must be cloud-PAYG
+(RHUI / PAYG marketplace) aware before it WARNs.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
