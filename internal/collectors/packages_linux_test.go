@@ -53,3 +53,28 @@ func TestSupportedMetadataManager(t *testing.T) {
 		}
 	}
 }
+
+func TestZypperLocked(t *testing.T) {
+	// The real zypp-lock messages (exit 7) — must be detected so collectZypper
+	// retries instead of false-reporting "could not verify" while patches are pending.
+	locked := []string{
+		"System management is locked by the application with pid 4070 (/usr/bin/zypper).",
+		"System management is locked by the application with pid 4215 (zypper).",
+		"error: /run/zypp.pid is held by another process",
+	}
+	for _, s := range locked {
+		if !zypperLocked(s) {
+			t.Errorf("expected lock detected for: %q", s)
+		}
+	}
+	notLocked := []string{
+		"28 patches needed (28 security patches)",
+		"No updates found.",
+		"",
+	}
+	for _, s := range notLocked {
+		if zypperLocked(s) {
+			t.Errorf("expected NOT locked for: %q", s)
+		}
+	}
+}

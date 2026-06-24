@@ -752,3 +752,45 @@ a CPU-burstable `c7i-flex`, exposing the full AMX + AVX-512 surface on 2 vCPUs. 
 abstracts the physical layer — ECC = Unknown, no EDAC, no real thermal zones, EBS SMART
 unreadable — and dsd degrades honestly on every one (no false-green), confirming the
 cloud-guest honest-degradation paths.
+
+---
+
+## AWS EC2 SLES 16.0 (arm64) validation — 2026-06-24
+
+First **enterprise SLES** validation (we previously had only openSUSE Leap). Live on
+a t4g.small Graviton2 running brand-new **SUSE Linux Enterprise Server 16.0** (PAYG via
+`cloud-regionsrv-client`). dsd handled the SLES-16 changes well — correctly detected
+SELinux-enforcing (SLES 16 switched from AppArmor to SELinux), the AWS collector fired,
+and the PAYG **Subscription** verdict was correct (`OK` registered as root, honest
+"not verified" non-root — no RHUI-style false alarm). One real bug found:
+
+### BUG-058 — zypper security-update scan false-negatives under the global zypp lock
+**Found:** AWS EC2 SLES 16.0, live (`dsd health --packages`)
+**Symptom:** dsd reported `Packages INFO: could not verify security updates: zypper
+  list-patches unavailable (try running as root)` — **as root** — while the box had **28
+  pending security patches (18 critical/important)**. On this box it was a *consistent*
+  false-negative (not just occasional). The "try running as root" hint was also wrong: it
+  showed even when already root.
+**Root cause:** zypper holds ONE global lock (`/run/zypp.pid`). dsd runs collectors in
+  parallel, so the Packages collector's `zypper list-patches` races the SUSEConnect
+  collector (and any other zypp user) for the lock; the loser exits 7 (ZYPP_LOCKED:
+  "System management is locked by the application with pid N"). `collectZypper` treated
+  any non-zero exit as "couldn't verify (run as root)", conflating a transient lock with
+  a permission problem. Non-deterministic in isolation (1 of 5 raced) but consistent in
+  the real parallel run. Same false-negative *class* as the RHEL cold-cache scan (BUG-055).
+**Affected:** `dsd health` / `--packages` security-update verdict on any openSUSE/SLES host
+  (security patches silently unreported when a sibling collector holds the zypp lock).
+**Fix:** Retry `list-patches` on a detected zypp-lock (up to 5×, 800ms backoff — mirrors
+  `rpmDBHealth`'s transient-lock retry), and report the *accurate* reason when it still
+  fails (locked / run-as-root / other) instead of the blanket "try running as root".
+  Validated live: pre-fix 3/3 runs false-negative; post-fix **6/6 runs** correctly report
+  `CRIT 18 critical security update(s)`, root AND non-root. Unit test for the lock detector.
+**Sibling (logged, not yet fixed):** `pkgIntegrityZypper` (deep `zypper verify`) hits the
+  same lock and currently reads clean on a lock error (a deep-mode false-OK) — same retry
+  guard should be applied. See TRIAGE §U.
+**PR:** #480
+
+**Other SLES-16 observations (no bug):** `snapper` is NOT installed on the minimal SLES-16
+  cloud image despite a btrfs root with `/.snapshots` — dsd correctly does not false-alarm
+  about missing snapshots. The btrfs subvolume layout surfaces as 12 separate Filesystem
+  rows (cosmetic; all the same underlying fs).

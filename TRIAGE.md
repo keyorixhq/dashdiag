@@ -789,6 +789,28 @@ across distro versions/`usr`-merge — prefer checking the real ship locations (
 
 ---
 
+## U. zypper security scan false-negatives under the global zypp lock — ✅ DONE (security path) / OPEN (integrity path) (fix/zypper-lock-retry-suse, 2026-06-24)
+
+Found live on AWS EC2 **SLES 16.0** (first enterprise-SLES validation). zypper's
+single global lock (`/run/zypp.pid`) + dsd's parallel collectors = a lock race;
+the loser exits 7 (ZYPP_LOCKED) and was misreported as "could not verify (try
+running as root)" — hiding 28 pending security patches, consistently, root and
+non-root. Write-up: BUGS.md BUG-058. Same false-negative class as BUG-055 (RHEL
+cold-cache scan).
+
+| Item | Surface | Status |
+|---|---|---|
+| Security-update scan: retry on zypp-lock + accurate failure reason | `internal/collectors/packages_linux.go` (`collectZypper`, `zypperLocked`), `packages_linux_test.go` | ✅ #480 (live-validated 6/6) |
+| **Integrity scan sibling** — `pkgIntegrityZypper` (`zypper verify`, deep mode) hits the same lock and reads CLEAN on a lock error (deep-mode false-OK). Apply the same retry guard. | `packages_linux.go` (`pkgIntegrityZypper`) | ⬜ OPEN (needs a deep-mode lock test) |
+
+Class note: any collector shelling a single-global-lock tool (`zypper`, `rpm`/`dpkg`
+DB, `apt`) in dsd's parallel runner can lose a lock race → either retry on the
+lock (preferred, as here / `rpmDBHealth`) or serialize that tool's callers. A
+non-zero exit from such a tool must distinguish *locked* from *permission* from
+*real failure* before the verdict text blames the user.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
