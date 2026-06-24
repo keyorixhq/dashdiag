@@ -34,6 +34,9 @@ func TestCheckRHELSubscription(t *testing.T) {
 	assertLevel(t, checkRHELSubscription(models.SUSEConnectInfo{Status: "current"}), "")
 	assertLevel(t, checkRHELSubscription(models.SUSEConnectInfo{Status: "unregistered"}), "WARN")
 	assertLevel(t, checkRHELSubscription(models.SUSEConnectInfo{Status: "expired"}), "CRIT")
+	// RHUI/PAYG cloud image: "not registered" is normal, updates come from RHUI repos
+	// — must NOT warn (else a false alarm on nearly every cloud RHEL host).
+	assertLevel(t, checkRHELSubscription(models.SUSEConnectInfo{Status: "unregistered-rhui"}), "")
 }
 
 func TestCheckUbuntuPro(t *testing.T) {

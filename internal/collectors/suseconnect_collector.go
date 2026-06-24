@@ -8,14 +8,46 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// subscriptionManagerPath returns the subscription-manager binary path, checking
+// every location it ships in. RHEL 10 moved it to /usr/sbin (+ a /sbin compat
+// link); older RHEL/Oracle/Rocky/Alma shipped /usr/bin. Empty string when absent.
+// The old code only checked /usr/bin, so on RHEL 10 the whole Subscription
+// collector was silently skipped — an EXPIRED subscription (security patches
+// actually cut off) went unwarned. (Found live on EC2 RHEL 10.)
+func subscriptionManagerPath() string {
+	for _, p := range []string{
+		"/usr/sbin/subscription-manager", // RHEL 10
+		"/usr/bin/subscription-manager",  // RHEL 8/9, Oracle, Rocky, Alma
+		"/sbin/subscription-manager",     // compat link
+	} {
+		if fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// rhuiManaged reports whether the host gets updates via Red Hat Update
+// Infrastructure (RHUI) — the PAYG model on AWS/Azure/GCP, where dnf works
+// WITHOUT subscription-manager registration. On such a host "not registered" is
+// NORMAL and updates are fully available, so the unregistered verdict must not
+// fire (it would false-alarm on virtually every PAYG cloud RHEL image). Detected
+// by the RHUI client PKI dir / repo file that all cloud RHUI images ship.
+func rhuiManaged() bool {
+	return fileExists("/etc/pki/rhui") ||
+		fileExists("/etc/yum.repos.d/redhat-rhui.repo")
+}
+
 // HasSubscriptionManager returns true when this host uses any enterprise
 // Linux subscription system: SUSE (SUSEConnect), RHEL/Oracle/Rocky
 // (subscription-manager), or Ubuntu Pro (ubuntu-advantage-tools).
 func HasSubscriptionManager() bool {
+	if subscriptionManagerPath() != "" {
+		return true
+	}
 	for _, bin := range []string{
-		"/usr/bin/SUSEConnect",          // SUSE / SLES
-		"/usr/bin/subscription-manager", // RHEL, Oracle, Rocky, Alma
-		"/usr/bin/pro",                  // Ubuntu Pro (ubuntu-advantage-tools)
+		"/usr/bin/SUSEConnect", // SUSE / SLES
+		"/usr/bin/pro",         // Ubuntu Pro (ubuntu-advantage-tools)
 	} {
 		if fileExists(bin) {
 			return true
@@ -50,7 +82,7 @@ func (c *SUSEConnectCollector) Collect(ctx context.Context) (interface{}, error)
 	info := &models.SUSEConnectInfo{ExpiresDays: -1}
 
 	// RHEL / Oracle Linux / Rocky / AlmaLinux
-	if fileExists("/usr/bin/subscription-manager") {
+	if subscriptionManagerPath() != "" {
 		return collectRHELSubscription(ctx, info), nil
 	}
 
@@ -78,7 +110,7 @@ func collectRHELSubscription(ctx context.Context, info *models.SUSEConnectInfo) 
 	if err != nil {
 		// Not registered at all
 		info.Registered = false
-		info.Status = "unregistered"
+		info.Status = unregisteredStatus()
 		return info
 	}
 
@@ -93,12 +125,23 @@ func collectRHELSubscription(ctx context.Context, info *models.SUSEConnectInfo) 
 		info.ExpiresDays = 0
 	case strings.Contains(out, "not registered"):
 		info.Registered = false
-		info.Status = "unregistered"
+		info.Status = unregisteredStatus()
 	default:
 		info.Registered = false
 		info.Status = strings.TrimSpace(out)
 	}
 	return info
+}
+
+// unregisteredStatus distinguishes a host that simply isn't subscription-manager
+// registered (security repos genuinely unavailable → warn) from a RHUI/PAYG cloud
+// host, where "not registered" is normal and updates come from the cloud RHUI
+// repos (→ no warning, or it false-alarms on every AWS/Azure/GCP RHEL image).
+func unregisteredStatus() string {
+	if rhuiManaged() {
+		return "unregistered-rhui"
+	}
+	return "unregistered"
 }
 
 // collectUbuntuPro checks Ubuntu Pro (ubuntu-advantage) status.
