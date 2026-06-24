@@ -220,13 +220,19 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 
 func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
 	switch s.Status {
+	case "unregistered-rhui":
+		// RHUI/PAYG cloud image (AWS/Azure/GCP): "not registered" is the normal
+		// state and updates come from the cloud RHUI repos, so registration is not
+		// required. Silent — warning here would false-alarm on nearly every cloud
+		// RHEL host. (Actual update availability is reported by the Packages check.)
+		return nil
 	case "unregistered":
 		return []models.Insight{insight("WARN", "Subscription",
 			"RHEL/Oracle system is not registered — security updates may be unavailable",
 			[]string{
 				"to fix: subscription-manager register --auto-attach",
 				"to inspect: subscription-manager status",
-				"note: Rocky/AlmaLinux do not require registration",
+				"note: Rocky/AlmaLinux do not require registration; cloud PAYG (RHUI) images do not either",
 			},
 		)}
 	case "expired":
