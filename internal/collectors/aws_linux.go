@@ -546,7 +546,28 @@ func amazonTimeSyncConfigured() (checked, uses bool) {
 		"/etc/chrony/chrony.conf",
 		"/etc/systemd/timesyncd.conf",
 	}
-	for _, pat := range []string{"/etc/chrony/conf.d/*.conf", "/etc/chrony/sources.d/*.sources", "/etc/systemd/timesyncd.conf.d/*.conf"} {
+	globs := []string{
+		"/etc/chrony/conf.d/*.conf",
+		"/etc/chrony/sources.d/*.sources",
+		"/etc/chrony.d/*.conf",       // AL2023 / RHEL drop-in layout
+		"/etc/chrony.d/*.sources",    // AL2023 / RHEL source files
+		"/run/chrony.d/*.sources",    // AL2023 DHCP-supplied Amazon Time Sync server
+		"/run/chrony-dhcp/*.sources", // Debian/Ubuntu DHCP-supplied source files
+		"/etc/systemd/timesyncd.conf.d/*.conf",
+	}
+	// chrony.conf can delegate to arbitrary `sourcedir` directories. AL2023 ships
+	// `sourcedir /run/chrony.d`, where the DHCP client drops the Amazon Time Sync
+	// server (169.254.169.123) at runtime — it never appears under /etc. Honour any
+	// sourcedir we find so we read where the real source actually lives, otherwise we
+	// false-report "not pointed at Amazon Time Sync" on the default EC2 distro.
+	for _, f := range files {
+		for _, line := range strings.Split(readFileTrimmedLocal(f), "\n") {
+			if fields := strings.Fields(line); len(fields) == 2 && fields[0] == "sourcedir" {
+				globs = append(globs, fields[1]+"/*.sources")
+			}
+		}
+	}
+	for _, pat := range globs {
 		if matches, err := activeSource.Glob(pat); err == nil {
 			files = append(files, matches...)
 		}
