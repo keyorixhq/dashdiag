@@ -2101,32 +2101,57 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 	if a.FailedLast24h == 0 {
 		return nil
 	}
+	// keyOnly is true when we authoritatively know password authentication is
+	// disabled (sshd -T read). Failed *password* attempts cannot succeed against a
+	// key-only host, so the flood is internet background noise, not a credible
+	// brute-force threat — report it as INFO, not a cry-wolf WARN. Unknown policy
+	// (SSHConfigChecked false) keeps the WARN: we fail toward warning.
+	keyOnly := a.SSHConfigChecked && !a.PasswordAuthEnabled
+
 	var out []models.Insight
 	if a.FailedLast24h > 1000 {
-		hints := []string{
-			"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
-			"to inspect: lastb | head -20",
-			"to fix:     consider fail2ban or sshguard",
+		if keyOnly {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — all rejected: password authentication is disabled (key-only), so these cannot succeed", a.FailedLast24h),
+				[]string{"no action needed; to silence the log noise: consider fail2ban or sshguard"}))
+		} else {
+			hints := []string{
+				"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
+				"to inspect: lastb | head -20",
+				"to harden: set PasswordAuthentication no (key-only) so these attempts cannot succeed",
+				"to fix:     consider fail2ban or sshguard",
+			}
+			if len(a.TopSources) > 0 {
+				hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
+					a.TopSources[0].Source, a.TopSources[0].Count))
+			}
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
+				hints))
 		}
-		if len(a.TopSources) > 0 {
-			hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
-				a.TopSources[0].Source, a.TopSources[0].Count))
-		}
-		out = append(out, insight("WARN", "Auth",
-			fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
-			hints))
 	} else if a.FailedLast24h > 100 {
 		out = append(out, insight("INFO", "Auth",
 			fmt.Sprintf("%d failed SSH login attempts in 24h", a.FailedLast24h),
 			[]string{"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep Failed"}))
 	}
 	if a.RootAttempts > 0 {
-		out = append(out, insight("WARN", "Auth",
-			fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
-			[]string{
-				"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
-				"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
-			}))
+		// Root password login is impossible when password auth is off entirely, or
+		// when PermitRootLogin is anything other than "yes" (no / prohibit-password /
+		// without-password). In that case the root attempts are futile — INFO, and
+		// the "set PermitRootLogin no" advice would be stale, so drop it.
+		rootPwImpossible := a.SSHConfigChecked && (!a.PasswordAuthEnabled || !a.RootPasswordLoginAllowed)
+		if rootPwImpossible {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — all rejected: root password login is disabled", a.RootAttempts),
+				[]string{"to verify: sshd -T | grep -E 'permitrootlogin|passwordauthentication'"}))
+		} else {
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
+				[]string{
+					"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
+					"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
+				}))
+		}
 	}
 	return out
 }
