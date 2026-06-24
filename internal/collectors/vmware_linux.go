@@ -66,8 +66,35 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	info.SCSITimeouts, info.LowSCSITimeouts = collectSCSITimeouts("/sys/block")
+	info.SCSIDisksChecked, info.DisksNoStableID = collectVMwareDiskIDs("/sys/block")
 
 	return info, nil
+}
+
+// collectVMwareDiskIDs examines SCSI (sd*) disks for a stable hardware ID via
+// /sys/block/sd*/device/wwid. On a vSphere VM with disk.EnableUUID=FALSE the
+// paravirtual-SCSI disks report no SCSI page 0x83, so wwid is empty and there is
+// no /dev/disk/by-id serial — which breaks the vSphere CSI driver and stable
+// device naming. checked is true once any sd* disk was seen (so an NVMe-only
+// guest, where EnableUUID is irrelevant, produces no finding). noStableID lists
+// the sd* disks lacking a wwid.
+func collectVMwareDiskIDs(blockDir string) (checked bool, noStableID []string) {
+	entries, err := readDirEntries(blockDir)
+	if err != nil {
+		return false, nil
+	}
+	for _, e := range entries {
+		dev := e.Name()
+		if !strings.HasPrefix(dev, "sd") {
+			continue // sd* only: IDE/SATA carry an ATA serial and NVMe an eui regardless of EnableUUID
+		}
+		checked = true
+		if readFileTrimmedLocal(filepath.Join(blockDir, dev, "device", "wwid")) == "" {
+			noStableID = append(noStableID, dev)
+		}
+	}
+	sort.Strings(noStableID)
+	return checked, noStableID
 }
 
 // vmwareSCSITimeoutRecommended is VMware's recommended guest SCSI command

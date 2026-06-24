@@ -43,6 +43,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 
 	out = append(out, vmwareResourceConstraints(v)...)
 	out = append(out, vmwareSCSITimeoutCheck(v)...)
+	out = append(out, vmwareEnableUUIDCheck(v)...)
 
 	// open-vm-tools is running but the resource-pressure stat interface did not
 	// answer (old tools / no permission / stat absent), so vmwareResourceConstraints
@@ -133,6 +134,25 @@ func vmwareSCSITimeoutCheck(v models.VMwareInfo) []models.Insight {
 		[]string{
 			"to fix now: echo 180 > /sys/block/sdX/device/timeout   (per disk, non-persistent)",
 			"to persist: install open-vm-tools (ships a udev rule) or add a udev rule setting timeout=180",
+		})}
+}
+
+// vmwareEnableUUIDCheck flags SCSI disks that expose no stable hardware ID — the
+// signature of disk.EnableUUID=FALSE on a vSphere VM. Without page 0x83, the
+// disks have no /dev/disk/by-id serial, so the vSphere CSI driver and by-id
+// device naming cannot identify them and k8s persistent volumes can mis-bind.
+// Silent when no SCSI disks were examined (e.g. an NVMe-only guest) or when all
+// of them carry an ID.
+func vmwareEnableUUIDCheck(v models.VMwareInfo) []models.Insight {
+	if !v.SCSIDisksChecked || len(v.DisksNoStableID) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "VMware",
+		fmt.Sprintf("disk.EnableUUID appears disabled — SCSI disk(s) %s expose no stable hardware ID (no SCSI page 0x83), so /dev/disk/by-id naming and the vSphere CSI driver cannot identify them; k8s persistent volumes can mis-bind",
+			strings.Join(v.DisksNoStableID, ", ")),
+		[]string{
+			"to fix: set disk.EnableUUID = TRUE in the VM's Advanced Configuration (vSphere), then reboot the guest",
+			"note: required for the vSphere CSI driver and stable by-id device naming; the VM default is often off",
 		})}
 }
 
