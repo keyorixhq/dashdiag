@@ -98,10 +98,19 @@ func TestCheckHugePages(t *testing.T) {
 }
 
 func TestCheckCPUFreq(t *testing.T) {
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}), "") // unavailable
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}), "")
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000}), "WARN")
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}), "WARN")
+	loaded := defaultThresh
+	loaded.CPULoadPct = 60 // CPU under load — a freq stuck below max is real throttling
+	idle := defaultThresh
+	idle.CPULoadPct = 3 // idle — min freq is normal, not throttling
+
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}, defaultThresh), "") // unavailable
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}, defaultThresh), "")
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000}, defaultThresh), "WARN")
+	// Throttle WARN only fires under load...
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}, loaded), "WARN")
+	// ...not on an IDLE box parked at min freq (the false-WARN fix), nor when load is unknown.
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 80, CurrentMHz: 600, MaxMHz: 3000}, idle), "")
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 80, CurrentMHz: 600, MaxMHz: 3000}, defaultThresh), "")
 }
 
 func TestCheckDBus(t *testing.T) {

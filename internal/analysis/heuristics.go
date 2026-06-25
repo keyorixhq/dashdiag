@@ -686,10 +686,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 			return checkHugePages(*d)
 		}
 	case models.CPUFreqInfo:
-		return checkCPUFreq(d)
+		return checkCPUFreq(d, thresh)
 	case *models.CPUFreqInfo:
 		if d != nil {
-			return checkCPUFreq(*d)
+			return checkCPUFreq(*d, thresh)
 		}
 	case models.LaunchdInfo:
 		return checkLaunchd(d)
@@ -2409,7 +2409,7 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 	return out
 }
 
-func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
+func checkCPUFreq(f models.CPUFreqInfo, thresh Thresholds) []models.Insight {
 	if f.Governor == "" {
 		return nil // cpufreq not available
 	}
@@ -2431,9 +2431,14 @@ func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
 		))
 	}
 
-	// Heavy throttling — current frequency well below max despite not being powersave
-	// Usually caused by thermal throttling or power limit
-	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 {
+	// Heavy throttling — current frequency well below max despite not being powersave.
+	// ThrottledPct = (max - current)/max from a single instantaneous read, so an IDLE
+	// box on a dynamic governor (schedutil/ondemand) parks cores at min freq and reads
+	// 70-80% "throttled" while being perfectly healthy. Only flag when the CPU is
+	// actually under load (>=20%, same idle cutoff as the thermal check) — there, a
+	// frequency stuck well below max is a genuine thermal/power-throttle signal.
+	// thresh.CPULoadPct==0 means load is unknown → don't fire (can't tell idle apart).
+	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 && thresh.CPULoadPct >= 20 {
 		out = append(out, insight("WARN", "CPUFreq",
 			fmt.Sprintf("CPU running at %d MHz (%d%% below max %d MHz) — possible thermal or power throttle",
 				f.CurrentMHz, int(f.ThrottledPct), f.MaxMHz),
