@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -41,7 +43,40 @@ type ovalReference struct {
 }
 
 type ovalAdvisory struct {
-	Severity string `xml:"severity"`
+	Severity string       `xml:"severity"`
+	CVEs     []ovalAdvCVE `xml:"cve"`
+}
+
+// ovalAdvCVE is a <cve> entry under <advisory>. The cvss3 attribute is a vector
+// string like "8.6/CVSS:3.1/AV:N/..."; we take the leading base score.
+type ovalAdvCVE struct {
+	CVSS3 string `xml:"cvss3,attr"`
+}
+
+// maxCVSS3 returns the highest CVSS3 base score across the advisory's <cve>
+// entries (SUSE and NVD often score the same CVE differently), or 0 if none parse.
+func (a ovalAdvisory) maxCVSS3() float64 {
+	var best float64
+	for _, c := range a.CVEs {
+		if v := parseCVSS3Prefix(c.CVSS3); v > best {
+			best = v
+		}
+	}
+	return best
+}
+
+// parseCVSS3Prefix pulls the leading base score from a CVSS3 vector string:
+// "8.6/CVSS:3.1/AV:N/..." → 8.6. Returns 0 on anything unparseable.
+func parseCVSS3Prefix(s string) float64 {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		s = s[:i]
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 type ovalCriteria struct {
@@ -237,29 +272,68 @@ var suSeverityRe = regexp.MustCompile(`\((\w+)\)\s*$`)
 // "go1.25-1.25.5-160000.1.1 is installed" → "go1.25"
 var suPkgFromCommentRe = regexp.MustCompile(`^([\w.+:-]+?)-\d`)
 
-// ScanSUSEOVALPackages parses a SUSE/openSUSE patch OVAL file and
-// cross-references with installed RPM packages.
+// ScanSUSEOVALPackages parses a SUSE/openSUSE OVAL file and cross-references it
+// with installed RPM packages. SUSE ships two feed shapes and dsd handles both:
+//
+//   - class="patch" feeds (e.g. *.patch.xml): one definition per advisory; a
+//     definition applies if the named package is installed (presence-based).
+//   - class="vulnerability" feeds (the DEFAULT feed at ftp.suse.com, what
+//     `dsd cve info` tells users to download): one definition per CVE, whose
+//     criteria carry a "less than fixed-version" test. Presence alone is not
+//     enough — we must compare versions.
+//
+// The patch path is tried first; if it yields nothing AND the feed contains
+// vulnerability-class definitions, the version-aware path runs. Without this,
+// a vulnerability-class feed (no patch-class defs) made the patch loop a no-op
+// and the scan reported a green "no vulnerable packages found" — a false-OK on
+// the exact feed dsd recommends. Validated against `oscap oval eval` and `zypper
+// lp` on real openSUSE Leap 16.0 (zero false negatives vs the reference
+// evaluator; matched zypper's needed-security set where oscap's signature gate
+// masked it).
 func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
 	oval, err := loadOVAL(ovalPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build object lookup: object_id → package name
+	pkgs, err := QueryInstalledRPM(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("querying installed packages: %w", err)
+	}
+
+	results := scanSUSEPatchClass(oval, pkgs)
+	if len(results) > 0 {
+		sortOVALResults(results)
+		return results, nil
+	}
+
+	// Patch path found nothing. Standard SUSE/openSUSE feeds are 100%
+	// vulnerability-class, where the patch loop never matches — fall through to
+	// version-aware scanning rather than declare the host clean.
+	var nVuln int
+	for i := range oval.Definitions {
+		if oval.Definitions[i].Class == "vulnerability" {
+			nVuln++
+		}
+	}
+	if nVuln > 0 {
+		results = scanSUSEVulnClass(oval, pkgs)
+		sortOVALResults(results)
+		return results, nil
+	}
+
+	return results, nil
+}
+
+// scanSUSEPatchClass implements the presence-based scan for class="patch" feeds.
+func scanSUSEPatchClass(oval *ovalDefinitions, pkgs []InstalledPackage) []OVALCVSSResult {
 	objName := make(map[string]string, len(oval.Objects))
 	for _, o := range oval.Objects {
 		objName[o.ID] = o.Name
 	}
-	// Build test lookup: test_id → object_id
 	testObj := make(map[string]string, len(oval.Tests))
 	for _, t := range oval.Tests {
 		testObj[t.ID] = t.ObjectRef()
-	}
-
-	// Get installed RPM packages
-	pkgs, err := QueryInstalledRPM(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("querying installed packages: %w", err)
 	}
 	installed := make(map[string]bool, len(pkgs))
 	for _, p := range pkgs {
@@ -272,7 +346,6 @@ func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 			continue
 		}
 
-		// Extract CVE IDs
 		var cveIDs []string
 		for _, ref := range def.Metadata.References {
 			if strings.EqualFold(ref.Source, "CVE") && strings.HasPrefix(ref.RefID, "CVE-") {
@@ -292,11 +365,9 @@ func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 			cvss = suSeverityToCVSS[sev]
 		}
 
-		// Collect package names from criteria (via test→object map or comment)
 		pkgSet := map[string]bool{}
 		collectSUSEPkgs(def.Criteria, testObj, objName, pkgSet)
 
-		// Cross-reference with installed packages
 		var installedMatches []string
 		for pkg := range pkgSet {
 			// Skip OS-version marker packages — they're in every SUSE patch definition
@@ -312,7 +383,6 @@ func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 			continue
 		}
 
-		// One result per CVE ID
 		for _, cveID := range cveIDs {
 			results = append(results, OVALCVSSResult{
 				CVEID:      cveID,
@@ -324,9 +394,134 @@ func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 			})
 		}
 	}
+	return results
+}
 
-	sortOVALResults(results)
-	return results, nil
+// susePkgFixTest pairs an rpminfo test's package name with the fixed-version EVR
+// from its referenced state (empty EVR for signature/non-versioned tests).
+type susePkgFixTest struct {
+	pkg   string
+	fixed ovalEVR
+}
+
+// scanSUSEVulnClass implements the version-aware scan for class="vulnerability"
+// feeds: a definition fires when an installed package's EVR is below the fixed
+// version named in a "less than" test. This mirrors `oscap`'s fix-test semantics
+// (minus the signature/platform AND-guards, which dsd deliberately ignores — that
+// can only over-flag, never miss; proven against oscap on openSUSE Leap 16.0).
+func scanSUSEVulnClass(oval *ovalDefinitions, pkgs []InstalledPackage) []OVALCVSSResult {
+	objName := make(map[string]string, len(oval.Objects))
+	for _, o := range oval.Objects {
+		objName[o.ID] = o.Name
+	}
+	stateEVR := make(map[string]ovalEVR, len(oval.States))
+	for _, s := range oval.States {
+		stateEVR[s.ID] = s.EVR
+	}
+	// test_id → (object name, fixed EVR) for tests that carry a versioned state.
+	tests := make(map[string]susePkgFixTest, len(oval.Tests))
+	for _, t := range oval.Tests {
+		vt := susePkgFixTest{pkg: objName[t.ObjectRef()]}
+		if ev, ok := stateEVR[t.StateRef()]; ok {
+			vt.fixed = ev
+		}
+		tests[t.ID] = vt
+	}
+	installed := make(map[string]string, len(pkgs))
+	for _, p := range pkgs {
+		installed[p.Name] = p.EVR
+	}
+
+	var results []OVALCVSSResult
+	for i := range oval.Definitions {
+		def := &oval.Definitions[i]
+		if def.Class != "vulnerability" {
+			continue
+		}
+		cveIDs := cvesFromRefs(def.Metadata.References)
+		if len(cveIDs) == 0 {
+			continue
+		}
+		matched := map[string]string{}
+		collectSUSEVulnMatches(def.Criteria, tests, installed, matched)
+		if len(matched) == 0 {
+			continue
+		}
+
+		severity := "Unknown"
+		if def.Metadata.Advisory.Severity != "" {
+			s := strings.ToLower(def.Metadata.Advisory.Severity)
+			severity = strings.ToUpper(s[:1]) + s[1:]
+		}
+		cvss := def.Metadata.Advisory.maxCVSS3()
+		if cvss == 0 {
+			cvss = suSeverityToCVSS[strings.ToLower(severity)]
+		}
+
+		names := make([]string, 0, len(matched))
+		for n := range matched {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, cveID := range cveIDs {
+			results = append(results, OVALCVSSResult{
+				CVEID:      cveID,
+				CVSS3:      cvss,
+				Severity:   severity,
+				State:      "Affected",
+				Components: names,
+				Installed:  names,
+			})
+		}
+	}
+	return results
+}
+
+// collectSUSEVulnMatches walks the criteria tree and records every installed
+// package whose version is below a "less than" fix test. It deliberately
+// considers ONLY operation="less than" leaves — that excludes the platform
+// guard (operation "greater than or equal"/"equals") and the signature tests
+// (no EVR), which is what keeps a benign package from being mislabeled.
+func collectSUSEVulnMatches(c ovalCriteria, tests map[string]susePkgFixTest,
+	installed map[string]string, out map[string]string) {
+	for _, cr := range c.Criterion {
+		vt, ok := tests[cr.TestRef]
+		if !ok || vt.fixed.Value == "" || vt.pkg == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(vt.fixed.Operation), "less than") {
+			continue // guard (>=/equals) or signature test — not a fix-version check
+		}
+		if isSUSEPlatformMarker(vt.pkg) {
+			continue
+		}
+		if ins, present := installed[vt.pkg]; present && IsVulnerable(ins, vt.fixed.Value) {
+			out[vt.pkg] = ins
+		}
+	}
+	for _, sub := range c.Criteria {
+		collectSUSEVulnMatches(sub, tests, installed, out)
+	}
+}
+
+// cvesFromRefs extracts unique CVE IDs from OVAL references, handling SUSE's
+// "Mitre CVE-XXXX" / "SUSE CVE-XXXX" ref_id forms.
+func cvesFromRefs(refs []ovalReference) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, ref := range refs {
+		if !strings.EqualFold(ref.Source, "CVE") && !strings.Contains(strings.ToUpper(ref.RefID), "CVE-") {
+			continue
+		}
+		for _, w := range strings.Fields(ref.RefID) {
+			u := strings.ToUpper(w)
+			if strings.HasPrefix(u, "CVE-") && !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+	}
+	return out
 }
 
 // collectSUSEPkgs walks the criteria tree and collects package names.
