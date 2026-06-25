@@ -2067,6 +2067,23 @@ func checkCeph(c models.CephInfo) []models.Insight {
 	return nil
 }
 
+// cloudFirewallLabels maps a cloud provider id to a human label, the name of its
+// network-firewall construct, and a one-line "where to verify it" hint. Used to
+// frame an empty host ruleset on a cloud guest honestly (the protection lives in
+// a layer dsd cannot read from inside the instance).
+func cloudFirewallLabels(provider string) (label, term, where string) {
+	switch provider {
+	case "aws":
+		return "AWS EC2", "Security Group", "check the instance's Security Group rules in the EC2 console or `aws ec2 describe-security-groups`"
+	case "azure":
+		return "Azure", "Network Security Group (NSG)", "check the NIC/subnet NSG in the Azure portal or `az network nsg rule list`"
+	case "gcp":
+		return "GCP", "VPC firewall rules", "check the VPC firewall in the GCP console or `gcloud compute firewall-rules list`"
+	default:
+		return "cloud", "cloud network firewall", "check your provider's network firewall / security group configuration"
+	}
+}
+
 func checkFirewall(f models.FirewallInfo) []models.Insight {
 	if !f.Available {
 		// The firewall state could not be read (query failed — typically a non-root
@@ -2094,6 +2111,20 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox",
 				[]string{"to inspect: pve-firewall status", "to inspect: cat /etc/pve/firewall/cluster.fw"},
 			)}
+		}
+		// On a cloud guest the network firewall is the provider's Security Group /
+		// NSG / VPC rules — a layer dsd cannot read from inside the instance. An
+		// empty host ruleset is expected there if you rely on the cloud firewall, so
+		// don't assert "host unprotected" (a false alarm that reads as cloud-naive):
+		// surface it as INFO and point at the layer dsd can't see.
+		if f.CloudGuest {
+			label, term, where := cloudFirewallLabels(f.CloudProvider)
+			return []models.Insight{insight("INFO", "Firewall",
+				fmt.Sprintf("%s has no active host rules — on %s, network filtering is typically enforced by the %s, which dsd cannot see from inside the guest", f.Backend, label, term),
+				[]string{
+					"to verify: " + where,
+					fmt.Sprintf("note: no host rules is expected if you rely on the %s; otherwise add ufw/nft/iptables rules", term),
+				})}
 		}
 		return []models.Insight{insight("WARN", "Firewall",
 			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),

@@ -917,6 +917,33 @@ func TestPVEFirewallNoFalsePositive(t *testing.T) {
 	}
 }
 
+// On a cloud guest an empty host ruleset must NOT assert "unprotected" (the
+// protection lives in the provider Security Group / NSG, a layer dsd can't read
+// from inside the instance). It downgrades to INFO and names that layer.
+// Credibility fix found on an AWS EC2 Debian box (2026-06-25).
+func TestCloudGuestFirewallNoFalseUnprotected(t *testing.T) {
+	for _, tc := range []struct{ provider, want string }{
+		{"aws", "Security Group"},
+		{"azure", "Network Security Group"},
+		{"gcp", "VPC firewall"},
+	} {
+		fw := models.FirewallInfo{Available: true, Backend: "iptables", Active: false, CloudGuest: true, CloudProvider: tc.provider}
+		got := checkFirewall(fw)
+		if hasLevel(got, "WARN") {
+			t.Errorf("%s guest with empty ruleset must not WARN 'unprotected', got %+v", tc.provider, got)
+		}
+		if !hasInsight(got, "INFO", tc.want) {
+			t.Errorf("%s guest expected INFO naming %q, got %+v", tc.provider, tc.want, got)
+		}
+	}
+
+	// Control: a non-cloud host with the same empty ruleset still WARNs.
+	plain := models.FirewallInfo{Available: true, Backend: "iptables", Active: false}
+	if !hasLevel(checkFirewall(plain), "WARN") {
+		t.Errorf("non-cloud empty ruleset should still WARN, got %+v", checkFirewall(plain))
+	}
+}
+
 // BUG-018: PermitRootLogin=yes is INFO on PVE (required), CRIT elsewhere.
 func TestPVESSHRootLoginDowngraded(t *testing.T) {
 	pve := models.SecurityInfo{IsPVE: true, SSHPermitRoot: true}
