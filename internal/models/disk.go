@@ -23,6 +23,21 @@ type SMARTInfo struct {
 	Error           string `json:"error,omitempty"` // if smartctl unavailable
 }
 
+// NoRealTelemetry reports a SMART verdict that PASSED but carries only
+// not-reported sentinels (no temperature, zero spare/wear/errors/hours/cycles) —
+// the signature of a virtual/cloud block device (e.g. AWS EBS) that answers the
+// SMART health query but passes through no real on-device telemetry. Rendering
+// such a drive as a confident "PASSED" overstates what was actually measured;
+// the standalone `dsd disk` view should mirror `dsd health`, which already flags
+// this case (NVMeNoRealData). A genuine drive always reports a temperature and a
+// non-zero spare, so this never matches a real (even brand-new) disk.
+func (s SMARTInfo) NoRealTelemetry() bool {
+	return s.Healthy &&
+		s.Temperature <= 0 && s.AvailableSpare == 0 && s.PercentUsed == 0 &&
+		s.MediaErrors == 0 && s.PowerOnHours == 0 && s.PowerCycles == 0 &&
+		s.UnsafeShutdowns == 0
+}
+
 // PhysicalDrive is a block device detected on the system.
 type PhysicalDrive struct {
 	Name   string     `json:"name"` // e.g. "nvme0n1", "sda"

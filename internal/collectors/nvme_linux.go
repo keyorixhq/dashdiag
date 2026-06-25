@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,25 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// nvmeUnreadReason classifies why `nvme smart-log` failed, so the heuristic can
+// give correct remediation rather than always blaming a missing nvme-cli.
+//
+// The euid check comes FIRST and deliberately so: the smart-log ioctl is
+// root-gated, so a non-root failure is "needs root" regardless of whether
+// nvme-cli is on $PATH — and on many distros (SUSE, RHEL) the `nvme` binary
+// lives in /usr/sbin, which a non-root $PATH omits, so a lookPath probe would
+// wrongly report "absent" for a tool that is in fact installed. Only once we're
+// privileged does an absent binary become the real explanation.
+func nvmeUnreadReason() string {
+	if os.Geteuid() != 0 {
+		return "needs_root"
+	}
+	if _, err := lookPath("nvme"); err != nil {
+		return "tool_absent"
+	}
+	return "error"
+}
 
 // NVMeCollector reads NVMe SMART health via `nvme smart-log`.
 // nvme-cli is an acceptable wrapper — raw SMART ioctl requires CGO.
@@ -45,7 +65,9 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 		// Read SMART log via nvme-cli
 		out, err := runCmd(ctx, "nvme", "smart-log", dev.Name, "--output-format=normal")
 		if err != nil {
-			// nvme-cli not installed — store basic info only
+			// SMART unread — record WHY so the heuristic gives the right
+			// remediation instead of a blanket "nvme-cli not installed".
+			dev.SmartUnreadReason = nvmeUnreadReason()
 			info.Devices = append(info.Devices, *dev)
 			continue
 		}

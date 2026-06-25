@@ -192,21 +192,53 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		}
 	}
 
-	// NVMe drives detected via sysfs but with no SMART log read (nvme-cli absent,
-	// common on minimal cloud/ARM images). Surface this rather than letting the
-	// drive default to a confident "healthy" — health was never verified.
-	var unread []string
+	// NVMe drives detected via sysfs but with no SMART log read. Surface this
+	// rather than letting the drive default to a confident "healthy" — health was
+	// never verified. Split by WHY it was unread so the remediation is correct: a
+	// root-gated read on a non-root run must NOT say "install nvme-cli" (the tool
+	// is usually already there; the user just needs sudo). Validated on a SLES 16
+	// arm64 EC2 box where nvme-cli was installed but health wrongly told the
+	// non-root operator to install it.
+	var unreadRoot, unreadAbsent, unreadErr []string
 	for _, dev := range n.Devices {
-		if !dev.SmartRead {
-			unread = append(unread, dev.Name)
+		if dev.SmartRead {
+			continue
+		}
+		switch dev.SmartUnreadReason {
+		case "needs_root":
+			unreadRoot = append(unreadRoot, dev.Name)
+		case "error":
+			unreadErr = append(unreadErr, dev.Name)
+		default: // "tool_absent" or empty (older captures) → historical default
+			unreadAbsent = append(unreadAbsent, dev.Name)
 		}
 	}
-	if len(unread) > 0 {
+	if len(unreadRoot) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — running unprivileged (nvme smart-log needs root)",
+				len(unreadRoot), strings.Join(unreadRoot, ", ")),
+			[]string{
+				"to fix: re-run as root — NVMe SMART reads require privilege (sudo dsd health)",
+				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+	if len(unreadAbsent) > 0 {
 		out = append(out, insight("INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme-cli not installed",
-				len(unread), strings.Join(unread, ", ")),
+				len(unreadAbsent), strings.Join(unreadAbsent, ", ")),
 			[]string{
-				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli)",
+				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli  /  zypper install nvme-cli)",
+				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+	if len(unreadErr) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme smart-log failed",
+				len(unreadErr), strings.Join(unreadErr, ", ")),
+			[]string{
+				"to inspect: nvme smart-log " + unreadErr[0],
 				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
 			},
 		))
