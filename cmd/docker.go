@@ -99,6 +99,11 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	}
 
 	issues := info.UnhealthyCount + info.CrashLoopCount
+	// Daemon reachable but containers couldn't be listed — never read as healthy
+	// (matches checkDocker, which WARNs on Status=="error").
+	if info.Status == "error" {
+		issues++
+	}
 	if info.StoppedCount > 0 && info.RunningCount == 0 {
 		issues++
 	}

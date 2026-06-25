@@ -123,6 +123,19 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		return out
 	}
 
+	// The daemon was reachable (Available) but enumerating containers failed — the
+	// counts/Containers are empty, so the sub-checks below would emit nothing and
+	// the host would read "Docker healthy". Surface the failure instead of letting
+	// an un-enumerated daemon pass as all-clean (false-OK).
+	if d.Status == "error" {
+		reason := d.StatusReason
+		if reason == "" {
+			reason = "Docker daemon is reachable but its containers could not be listed — health not verified"
+		}
+		return []models.Insight{insight("WARN", "Docker", reason,
+			[]string{"to inspect: docker ps -a", "to inspect: journalctl -u docker --since '10 min ago'"})}
+	}
+
 	out = append(out, checkDockerContainers(d)...)
 	out = append(out, checkDockerResources(d)...)
 	out = append(out, checkDockerSecurity(d)...)
