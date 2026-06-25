@@ -975,4 +975,4 @@ non-root `Drives` line gave a wrong remediation.
   fails for a non-root caller is `needs_root`. Resolves the Debian case without regressing the
   SLES/RHEL `/usr/sbin` case the original ordering guarded. Regression guard added
   (`nvme_unread_reason_linux_test.go`, euid-independent). Verified live on the box: non-root
-  and root now both report "nvme-cli not installed". **PR:** _pending_
+  and root now both report "nvme-cli not installed". **PR:** #523
