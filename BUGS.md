@@ -971,4 +971,4 @@ data.
   falling back to the legacy one-per-row reconstruction only for older fixtures that lack it
   (`resolveMockInsights`). Round-trip regression guard added (`capture_insights_test.go`)
   asserting the weak-MAC WARN survives. Verified end-to-end against the EC2 capture: all six
-  Hardening insights now replay. **PR:** _pending_
+  Hardening insights now replay. **PR:** #525
