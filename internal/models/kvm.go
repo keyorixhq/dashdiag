@@ -9,6 +9,13 @@ const (
 	KVMShutOff  KVMVMState = "shut off"
 	KVMCrashed  KVMVMState = "crashed"
 	KVMShutDown KVMVMState = "shut down"
+	// Abnormal non-running states virsh dominfo can report that aren't a clean
+	// "shut off": a guest stuck suspended-to-RAM, wedged mid-shutdown, or in the
+	// legacy idle/blocked states. Not running, not cleanly stopped → a fault.
+	KVMPMSuspended KVMVMState = "pmsuspended"
+	KVMInShutdown  KVMVMState = "in shutdown"
+	KVMIdle        KVMVMState = "idle"
+	KVMBlocked     KVMVMState = "blocked"
 )
 
 // KVMVM holds status for a single libvirt domain.
@@ -54,6 +61,8 @@ type KVMInfo struct {
 	VMsPaused        int              `json:"vms_paused"`
 	VMsCrashed       int              `json:"vms_crashed"`
 	VMsDownAutostart int              `json:"vms_down_autostart"` // shut off with autostart=yes
+	VMsAbnormal      int              `json:"vms_abnormal"`       // pmsuspended / in shutdown / idle / blocked
+	VMsUnreadable    int              `json:"vms_unreadable"`     // virsh dominfo failed — state unknown
 	NetworksInactive int              `json:"networks_inactive"`
 	PoolsInactive    int              `json:"pools_inactive"`
 	PoolsNearFull    int              `json:"pools_near_full"` // >85% used

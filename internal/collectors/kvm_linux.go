@@ -204,6 +204,12 @@ func updateKVMCounts(info *models.KVMInfo, vm *models.KVMVM) {
 		if vm.AutoStart {
 			info.VMsDownAutostart++
 		}
+	case models.KVMPMSuspended, models.KVMInShutdown, models.KVMIdle, models.KVMBlocked:
+		info.VMsAbnormal++
+	case "":
+		// virsh dominfo failed (kvmDomInfo couldn't read State) — the domain is
+		// defined but its state is unknown. Don't let it pass as healthy.
+		info.VMsUnreadable++
 	}
 	if vm.DiskIOError {
 		info.DiskIOErrors++

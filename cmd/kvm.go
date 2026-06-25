@@ -109,7 +109,8 @@ func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.Out
 	fmt.Println()
 	fmt.Println(sep)
 	issues := info.VMsCrashed + info.VMsDownAutostart + info.NetworksInactive +
-		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused
+		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused +
+		info.VMsAbnormal + info.VMsUnreadable
 	// libvirt up but domains couldn't be enumerated — never let an empty VM list
 	// read as healthy (matches checkKVM, which WARNs on enum-failed).
 	if info.Status == "enum-failed" {
