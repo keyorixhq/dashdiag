@@ -413,6 +413,23 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		}
 	}
 
+	// Permissive = policy loaded but enforcement OFF (denials logged, not blocked).
+	// Gated on SELinuxPresent only (independent of SELINUXTYPE). Without this it
+	// rendered a green "OK SELinux permissive" — a false sense of protection, and
+	// inconsistent with AppArmor complain mode (the identical non-enforcing posture)
+	// which is flagged below. INFO, not WARN: permissive is the Amazon Linux default,
+	// so it shouldn't flip the health verdict on every AL2023 host — but it must not
+	// read as OK either.
+	if mac.SELinuxPresent && mac.SELinuxMode == "permissive" {
+		out = append(out, insight("INFO", "KernelSec",
+			"SELinux is permissive — policy is loaded but NOT enforcing (denials are logged, not blocked)",
+			[]string{
+				"note: permissive provides audit only, not protection (the Amazon Linux default)",
+				"to enforce after reviewing audit.log for would-be denials: setenforce 1, then set SELINUX=enforcing in /etc/selinux/config",
+			},
+		))
+	}
+
 	if !seActive && !aaActive {
 		if aaIndeterminate {
 			return append(out, insight("INFO", "KernelSec",
