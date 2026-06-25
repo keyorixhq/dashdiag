@@ -11,6 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-06-25
+
+Patch: a false-OK / false-WARN sweep across the CVE, security, and docker verdict
+paths — found by running dsd live against real openSUSE Leap 16.0 (oscap- and
+zypper-validated) and a SLES 16 / arm64 EC2 box. No CLI or `--json` schema changes.
+
+### Fixed
+
+- **`dsd cve --oval-scan` reported "no vulnerable packages" on the standard SUSE/openSUSE
+  feed** (false-OK). The scanner only processed `class="patch"` OVAL definitions, but the
+  default feed at `ftp.suse.com` (the one `dsd cve info` tells users to download) is 100%
+  `class="vulnerability"` — so the scan matched nothing and showed a green all-clear on a
+  host `zypper` confirmed needed 31 security patches. Added a version-aware vulnerability-class
+  scan (an installed package below a `less than` fixed-version test), unioned with the patch
+  path. Also hardened the parser dispatch to detect the vendor by file *content* so a SUSE
+  feed saved under a neutral filename no longer silently routes to the RHEL parser and finds
+  nothing. Validated against `oscap oval eval` as oracle (zero false negatives) and `zypper
+  lp`; the long-deferred OVAL boolean-tree concern is confirmed safe (over-flags only). (#511)
+- **`dsd security` reported "Firewall: none detected" on a host with an empty ruleset**
+  (false-OK). A host with nftables/iptables installed but no active rules — the same state
+  `dsd health` correctly WARNs on as "installed but no rules are active — host is
+  unprotected" — was conflated with "no firewall tooling at all". `dsd security` now records
+  firewall tooling as present-but-empty and surfaces the "unprotected" warning, mirroring the
+  health verdict. (#509)
+- **`dsd` false-WARNed on a container socket it couldn't read** (non-root). A non-root run
+  that found a docker/podman/crio socket it lacked permission to read raised a WARN — a false
+  alarm about a runtime it simply couldn't measure — and hardcoded a "systemctl status docker"
+  hint even for a podman socket. The permission-denied case now degrades to INFO ("couldn't
+  measure"), matching the firewall/firmware non-root pattern, with the correct runtime-specific
+  fix. Genuine daemon-down states still WARN. Found on a SLES 16 / arm64 rootless-podman box. (#508)
+
 ## [1.8.2] - 2026-06-24
 
 Patch: a real-hardware / cloud validation sweep — false-OK and false-WARN fixes found by
