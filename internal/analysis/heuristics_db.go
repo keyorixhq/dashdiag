@@ -265,6 +265,13 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 			fmt.Sprintf("connections at %d/%d — approaching maxconns (new connections refused at the limit)",
 				m.CurrConnections, m.MaxConnections),
 			[]string{"to inspect: echo stats | nc " + m.Addr + "  (curr_connections)", "to fix: raise -c (max connections)"}))
+	} else if !m.MaxConnsRead {
+		// stats were read but neither plain stats nor `stats settings` exposed a
+		// maxconns value — the connection-saturation check above couldn't run. Say
+		// so honestly rather than passing clean (mirrors checkRedis / checkMySQL).
+		out = append(out, insight("INFO", "Memcached",
+			"Memcached metrics were read, but max_connections could not be — connection-saturation was not assessed",
+			[]string{"to inspect: echo stats settings | nc " + m.Addr + "  (look for maxconns)"}))
 	}
 
 	return out
