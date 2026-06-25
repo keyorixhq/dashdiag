@@ -282,14 +282,15 @@ var suPkgFromCommentRe = regexp.MustCompile(`^([\w.+:-]+?)-\d`)
 //     criteria carry a "less than fixed-version" test. Presence alone is not
 //     enough — we must compare versions.
 //
-// The patch path is tried first; if it yields nothing AND the feed contains
-// vulnerability-class definitions, the version-aware path runs. Without this,
-// a vulnerability-class feed (no patch-class defs) made the patch loop a no-op
-// and the scan reported a green "no vulnerable packages found" — a false-OK on
-// the exact feed dsd recommends. Validated against `oscap oval eval` and `zypper
-// lp` on real openSUSE Leap 16.0 (zero false negatives vs the reference
-// evaluator; matched zypper's needed-security set where oscap's signature gate
-// masked it).
+// Both class shapes are scanned and their findings unioned: the standard feed
+// (the DEFAULT at ftp.suse.com, what `dsd cve info` tells users to download) is
+// 100% vulnerability-class, where the patch loop matches nothing — so before
+// this, the scan reported a green "no vulnerable packages found" false-OK on
+// that exact feed. The two scanners process disjoint definition sets, so the
+// union can't double-count within a class. Validated against `oscap oval eval`
+// and `zypper lp` on real openSUSE Leap 16.0 (zero false negatives vs the
+// reference evaluator; matched zypper's needed-security set where oscap's
+// signature gate masked it).
 func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
 	oval, err := loadOVAL(ovalPath)
 	if err != nil {
@@ -301,28 +302,34 @@ func ScanSUSEOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 		return nil, fmt.Errorf("querying installed packages: %w", err)
 	}
 
+	// Scan BOTH class shapes and union, rather than early-returning on the first
+	// non-empty one — a feed that mixes patch- and vulnerability-class defs is
+	// then fully covered instead of having one half silently dropped.
+	// "Never under-report" is the invariant for a security scan.
 	results := scanSUSEPatchClass(oval, pkgs)
-	if len(results) > 0 {
-		sortOVALResults(results)
-		return results, nil
-	}
-
-	// Patch path found nothing. Standard SUSE/openSUSE feeds are 100%
-	// vulnerability-class, where the patch loop never matches — fall through to
-	// version-aware scanning rather than declare the host clean.
-	var nVuln int
-	for i := range oval.Definitions {
-		if oval.Definitions[i].Class == "vulnerability" {
-			nVuln++
-		}
-	}
-	if nVuln > 0 {
-		results = scanSUSEVulnClass(oval, pkgs)
-		sortOVALResults(results)
-		return results, nil
-	}
-
+	results = append(results, scanSUSEVulnClass(oval, pkgs)...)
+	results = dedupOVALByCVE(results)
+	sortOVALResults(results)
 	return results, nil
+}
+
+// dedupOVALByCVE collapses results sharing a CVE ID — possible only if a feed
+// carries the same CVE in both a patch and a vulnerability definition — keeping
+// the first occurrence and preserving order.
+func dedupOVALByCVE(in []OVALCVSSResult) []OVALCVSSResult {
+	if len(in) < 2 {
+		return in
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]OVALCVSSResult, 0, len(in))
+	for _, r := range in {
+		if seen[r.CVEID] {
+			continue
+		}
+		seen[r.CVEID] = true
+		out = append(out, r)
+	}
+	return out
 }
 
 // scanSUSEPatchClass implements the presence-based scan for class="patch" feeds.

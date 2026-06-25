@@ -78,6 +78,50 @@ func TestScanSUSEVulnClass_FlagsVersionGapIgnoringGuards(t *testing.T) {
 	}
 }
 
+// TestScanSUSEVulnClass_KernelEqualsLeafStillCaught guards the adversarial
+// finding: SUSE kernel CVEs carry an exact-version "equals" leaf ALONGSIDE the
+// "less than fixed" leaf (the livepatch/flavor pattern). dsd matches only the
+// "less than" leaf, but every real kernel-default vuln def on Leap 16.0 has one,
+// so the kernel is still flagged — no equals-only false negative.
+func TestScanSUSEVulnClass_KernelEqualsLeafStillCaught(t *testing.T) {
+	oval := &ovalDefinitions{
+		Definitions: []ovalDefinition{{
+			ID: "oval:test:def:k", Class: "vulnerability",
+			Metadata: ovalMetadata{References: []ovalReference{{Source: "CVE", RefID: "Mitre CVE-2025-7777"}}},
+			Criteria: ovalCriteria{Criteria: []ovalCriteria{{Criterion: []ovalCriterion{
+				{TestRef: "tst:keq"}, // exact-version equals leaf (dsd ignores)
+				{TestRef: "tst:klt"}, // less-than fix leaf (dsd matches)
+			}}}},
+		}},
+		Tests: []ovalRPMTest{
+			{ID: "tst:keq", Object: ovalObjectRef{Ref: "obj:k"}, State: ovalStateRef{Ref: "ste:keq"}},
+			{ID: "tst:klt", Object: ovalObjectRef{Ref: "obj:k"}, State: ovalStateRef{Ref: "ste:klt"}},
+		},
+		Objects: []ovalRPMObject{{ID: "obj:k", Name: "kernel-default"}},
+		States: []ovalRPMState{
+			{ID: "ste:keq", EVR: ovalEVR{Value: "6.4.0-150600.1", Operation: "equals"}},
+			{ID: "ste:klt", EVR: ovalEVR{Value: "6.4.0-150600.9", Operation: "less than"}},
+		},
+	}
+	pkgs := []InstalledPackage{{Name: "kernel-default", EVR: "0:6.4.0-150600.3"}}
+	got := scanSUSEVulnClass(oval, pkgs)
+	if len(got) != 1 || got[0].CVEID != "CVE-2025-7777" {
+		t.Fatalf("kernel below fixed must be flagged via the less-than leaf, got %+v", got)
+	}
+}
+
+func TestDedupOVALByCVE(t *testing.T) {
+	in := []OVALCVSSResult{
+		{CVEID: "CVE-1", CVSS3: 9.0},
+		{CVEID: "CVE-2", CVSS3: 7.0},
+		{CVEID: "CVE-1", CVSS3: 5.0}, // dup from the other class path → dropped
+	}
+	got := dedupOVALByCVE(in)
+	if len(got) != 2 || got[0].CVEID != "CVE-1" || got[1].CVEID != "CVE-2" {
+		t.Errorf("dedupOVALByCVE = %+v, want [CVE-1 CVE-2]", got)
+	}
+}
+
 func TestScanSUSEVulnClass_PatchedHostIsClean(t *testing.T) {
 	oval := buildSUSEVulnDef("1.0-2")
 	// foo installed AT the fixed version → not below → not vulnerable.
