@@ -189,9 +189,21 @@ type OVALCVSSResult struct {
 }
 
 // ScanOVALPackages parses an OVAL file and cross-references with installed
-// packages. Automatically detects whether to use the RHEL, Ubuntu/Debian,
-// or SUSE parser based on the OVAL file path.
+// packages. It detects the vendor (RHEL, Ubuntu/Debian, or SUSE) by sniffing
+// the file CONTENT first, falling back to the path. Content wins because a
+// path-only guess silently routes a renamed SUSE feed (e.g. saved as
+// "oval.xml") to the RHEL parser, which finds nothing and reports a green
+// "no vulnerable packages" — the false-OK this dispatch exists to avoid.
 func ScanOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
+	switch sniffOVALVendor(ovalPath) {
+	case "ubuntu":
+		return ScanUbuntuOVALPackages(ctx, ovalPath)
+	case "suse":
+		return ScanSUSEOVALPackages(ctx, ovalPath)
+	case "rhel":
+		return scanRHELOVALPackages(ctx, ovalPath)
+	}
+	// Content was inconclusive — fall back to the filename hint.
 	if isUbuntuOVAL(ovalPath) {
 		return ScanUbuntuOVALPackages(ctx, ovalPath)
 	}
@@ -199,6 +211,38 @@ func ScanOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, e
 		return ScanSUSEOVALPackages(ctx, ovalPath)
 	}
 	return scanRHELOVALPackages(ctx, ovalPath)
+}
+
+// sniffOVALVendor reads the head of an OVAL file (bzip2-aware) and returns
+// "suse", "ubuntu", "rhel", or "" when the vendor can't be told from content.
+// The markers are vendor namespace/definition-ID prefixes that appear near the
+// top of every real feed.
+func sniffOVALVendor(path string) string {
+	f, err := os.Open(path) // #nosec G304 -- user-supplied path intentional
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck
+
+	var r io.Reader = f
+	if strings.HasSuffix(strings.ToLower(path), ".bz2") {
+		r = bzip2.NewReader(f)
+	}
+	buf := make([]byte, 64*1024)
+	n, _ := io.ReadFull(r, buf)
+	head := strings.ToLower(string(buf[:n]))
+	switch {
+	case strings.Contains(head, "opensuse.security") || strings.Contains(head, "suse.de") ||
+		strings.Contains(head, "org.opensuse") || strings.Contains(head, "suse.linux.enterprise"):
+		return "suse"
+	case strings.Contains(head, "canonical") || strings.Contains(head, "ubuntu.com") ||
+		strings.Contains(head, "com.ubuntu"):
+		return "ubuntu"
+	case strings.Contains(head, "com.redhat") || strings.Contains(head, "redhat.com") ||
+		strings.Contains(head, "rhsa") || strings.Contains(head, "rhel"):
+		return "rhel"
+	}
+	return ""
 }
 
 // isSUSEOVAL returns true when the OVAL file path indicates SUSE/openSUSE origin.
