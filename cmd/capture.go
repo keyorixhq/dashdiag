@@ -62,6 +62,7 @@ Workflow:
 func init() {
 	rootCmd.AddCommand(captureCmd)
 	captureCmd.Flags().String("cve", "", "fold in a `dsd cve --all --json` report from FILE")
+	captureCmd.Flags().Bool("cve-scan", false, "run + record a CVE/advisory scan into the raw bundle (--raw only) so the CVE check replays from the bundle")
 	captureCmd.Flags().String("timeline", "", "fold in a `dsd timeline --json` report from FILE")
 	captureCmd.Flags().Bool("include-identity", false, "keep the real hostname in the fixture (default: redact it, since fixtures are often committed)")
 }

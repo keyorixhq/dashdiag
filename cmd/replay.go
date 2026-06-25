@@ -66,6 +66,7 @@ func init() {
 	replayCmd.Flags().Bool("json", false, "JSON output")
 	replayCmd.Flags().Bool("gpu", false, "include GPU collector")
 	replayCmd.Flags().Bool("pkg", false, "include package collector")
+	replayCmd.Flags().Bool("cve", false, "include the CVE collector (reads the scan recorded by capture --raw --cve-scan)")
 	replayCmd.Flags().Bool("deep", false, "include deep collectors")
 	replayCmd.Flags().Bool("report", false, "write a shareable markdown report of the captured host")
 	replayCmd.Flags().Bool("report-html", false, "write a self-contained HTML report (printable to PDF) of the captured host")
@@ -87,7 +88,7 @@ func loadBundle(path string) (*source.Bundle, error) {
 // source swapped to a Replay over it, then restores the previous source. It is
 // the one place replay drives runHealthOnce, so the normal and --diff paths use
 // an identical pipeline (and the same flag handling).
-func replayBundle(b *source.Bundle, deep, pkg, gpu bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
+func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
 	prev := collectors.SetSource(source.NewReplay(b))
 	defer collectors.SetSource(prev)
 
@@ -101,7 +102,7 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu bool) ([]runner.Result, []mod
 		platform.Detect(), output.ModePlain,
 		!deep,    // terse unless deep: drilldown's extra reads aren't in the bundle
 		pkg, gpu, // includePackages, includeGPU
-		false, deep, false, false, // tls, deep, firmware, cve
+		false, deep, false, cve, // tls, deep, firmware, cve
 		nil,
 	)
 	return results, insights, snap
@@ -117,18 +118,19 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	gpu, _ := cmd.Flags().GetBool("gpu")
 	pkg, _ := cmd.Flags().GetBool("pkg")
 	deep, _ := cmd.Flags().GetBool("deep")
+	cve, _ := cmd.Flags().GetBool("cve")
 	force, _ := cmd.Flags().GetBool("force")
 	diffPath, _ := cmd.Flags().GetString("diff")
 
 	if diffPath != "" {
-		return runReplayDiff(b, diffPath, deep, pkg, gpu, jsonOut, force)
+		return runReplayDiff(b, diffPath, deep, pkg, gpu, cve, jsonOut, force)
 	}
 
 	if err := replayPlatformGuard(b, force); err != nil {
 		return err
 	}
 
-	results, insights, snap := replayBundle(b, deep, pkg, gpu)
+	results, insights, snap := replayBundle(b, deep, pkg, gpu, cve)
 
 	// Keep the captured host's identity active through the render below too
 	// (replayBundle restored it on return).
@@ -173,12 +175,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 // runReplayDiff replays a baseline capture and the current capture through the
 // same pipeline and prints what changed between them — the support workflow:
 // "diff a customer's healthy capture against the one taken when it broke".
-func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, jsonOut, force bool) error {
+func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, cve, jsonOut, force bool) error {
 	base, err := loadBundle(baselinePath)
 	if err != nil {
 		return fmt.Errorf("loading baseline bundle: %w", err)
 	}
-	return renderCaptureDiff(base, current, deep, pkg, gpu, jsonOut, force)
+	return renderCaptureDiff(base, current, deep, pkg, gpu, cve, jsonOut, force)
 }
 
 // replayPlatformGuard refuses to replay a bundle captured on a different OS family
@@ -203,15 +205,15 @@ func replayPlatformGuard(b *source.Bundle, force bool) error {
 // renderCaptureDiff replays two bundles through the identical health pipeline and
 // writes the per-check delta to stdout (human or JSON). Shared by `replay --diff`
 // and the top-level `dsd diff` command.
-func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, jsonOut, force bool) error {
+func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, cve, jsonOut, force bool) error {
 	if err := replayPlatformGuard(current, force); err != nil {
 		return err
 	}
 	if err := replayPlatformGuard(base, force); err != nil {
 		return err
 	}
-	_, _, baseSnap := replayBundle(base, deep, pkg, gpu)
-	_, _, curSnap := replayBundle(current, deep, pkg, gpu)
+	_, _, baseSnap := replayBundle(base, deep, pkg, gpu, cve)
+	_, _, curSnap := replayBundle(current, deep, pkg, gpu, cve)
 
 	if base.Manifest.Host != "" || current.Manifest.Host != "" {
 		fmt.Fprintf(os.Stderr, "diffing baseline %s (%s) → current %s (%s)\n\n",
