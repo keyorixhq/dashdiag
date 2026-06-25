@@ -50,7 +50,18 @@ type SecurityInfo struct {
 	FirewallType     string   `json:"firewall_type,omitempty"`     // firewalld, ufw, nftables, iptables
 	FirewallZone     string   `json:"firewall_zone,omitempty"`     // active zone (firewalld only)
 	FirewallServices []string `json:"firewall_services,omitempty"` // allowed services
-	SSHAllowed       bool     `json:"ssh_allowed"`                 // SSH reachable through firewall
+	// FirewallToolingPresent is true when a firewall backend (nftables/iptables)
+	// is installed but has no active ruleset. That is the "host is unprotected"
+	// misconfiguration the health Firewall check WARNs on — distinct from no
+	// tooling at all. Lets `dsd security` mirror that verdict instead of reporting
+	// a benign "none detected".
+	FirewallToolingPresent bool `json:"firewall_tooling_present,omitempty"`
+	// FirewallUnreadable is true when a firewall backend is installed but its
+	// ruleset could not be read (typically a non-root run — nft/iptables need
+	// CAP_NET_ADMIN). The state is unknown, so the renderer reports "not verified"
+	// rather than "none detected", which would falsely imply no firewall exists.
+	FirewallUnreadable bool `json:"firewall_unreadable,omitempty"`
+	SSHAllowed         bool `json:"ssh_allowed"` // SSH reachable through firewall
 
 	// Privilege escalation
 	SudoNopasswd          []string `json:"sudo_nopasswd,omitempty"`           // users/groups with NOPASSWD

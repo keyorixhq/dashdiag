@@ -5,11 +5,34 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// sbinToolPath reports whether a tool that commonly lives in an sbin directory
+// (nft, iptables, …) is installed, returning its resolved path or "". It is a
+// DETECTION gate, not an exec path: callers invoke the tool by bare name so the
+// capture/replay command key stays stable. It tries $PATH first (lookPath), then
+// the standard sbin locations — which matters for unprivileged runs, where
+// /usr/sbin and /sbin are typically absent from $PATH, so a plain lookPath miss
+// would make the caller wrongly conclude the tool is "not installed" instead of
+// "installed but needs root to read". Both component reads are source-routed
+// (lookPath + fileExists), so capture/replay stays hermetic.
+func sbinToolPath(name string) string {
+	if p, err := lookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/local/sbin"} {
+		cand := filepath.Join(dir, name)
+		if fileExists(cand) {
+			return cand
+		}
+	}
+	return ""
+}
 
 type FirewallCollector struct{}
 
@@ -24,14 +47,15 @@ func (c *FirewallCollector) Collect(ctx context.Context) (interface{}, error) {
 	// info in place; their (info, nil) return is kept only for the callers
 	// in the security collector that reuse the same parsing.
 	switch {
-	case lookPathOK("nft"):
+	case sbinToolPath("nft") != "":
 		_, _ = collectNFTables(ctx, info)
-	case lookPathOK("iptables"):
+	case sbinToolPath("iptables") != "":
 		_, _ = collectIPTables(ctx, info)
 	default:
-		// No firewall userspace tooling on PATH (minimal container/image). We cannot
-		// read the kernel's netfilter state, so report it unverified rather than let
-		// !Available pass as a silent "no firewall problems".
+		// No firewall userspace tooling found on $PATH or in the standard sbin
+		// dirs (minimal container/image). We cannot read the kernel's netfilter
+		// state, so report it unverified rather than let !Available pass as a
+		// silent "no firewall problems".
 		info.Status = "unverified"
 		info.StatusReason = "no firewall tooling (nft/iptables) found — firewall state not verified"
 	}
@@ -59,6 +83,13 @@ func pveFirewallActive(ctx context.Context) bool {
 }
 
 func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {
+	// Invoke by bare name (NOT the sbinToolPath result): runCmd records the literal
+	// command name as the capture/replay key, so an absolute path here would change
+	// the key and make every pre-existing bundle replay as a false "could not read
+	// ruleset". A bare-name exec is still correct — on a non-root run where sbin is
+	// off $PATH it fails to launch, which the err path below turns into the honest
+	// "run as root?" not-verified reason. The sbinToolPath gate in Collect() is what
+	// tells us the binary exists.
 	out, err := runCmd(ctx, "nft", "list", "ruleset")
 	if err != nil {
 		// nft is installed but the ruleset read failed — dominant case is a non-root
@@ -116,6 +147,7 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 }
 
 func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.FirewallInfo, error) {
+	// Bare name keeps the replay key stable (see collectNFTables).
 	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
 	if err != nil {
 		// iptables installed but the list read failed (non-root EPERM, most often) —
