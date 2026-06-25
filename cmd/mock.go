@@ -50,11 +50,27 @@ type MockFixture struct {
 	OS      string    `yaml:"os"`
 	Version string    `yaml:"version"`
 	Rows    []MockRow `yaml:"rows"`
+	// Insights is the COMPLETE insight list (every finding, in emit order),
+	// mirroring dsd health --json `insights[]`. A single check (e.g. Hardening)
+	// commonly emits several insights; the per-row Message/Hints can hold only one,
+	// so capturing just the rows silently dropped the rest. When this list is
+	// present, dsd mock renders the full set; when absent (older fixtures) it falls
+	// back to reconstructing one insight per non-OK row.
+	Insights []MockInsight `yaml:"insights,omitempty"`
 	// Optional standalone report sections captured from other commands.
 	// Stored as raw JSON so mock can decode them back into the exact model
 	// types the live collectors return and replay via the real print funcs.
 	CVEJSON      string `yaml:"cve,omitempty"`      // dsd cve --all --json
 	TimelineJSON string `yaml:"timeline,omitempty"` // dsd timeline --json
+}
+
+// MockInsight is one captured finding, mirroring the JSON insight shape so the
+// full set survives a capture→mock round-trip (not just one per check).
+type MockInsight struct {
+	Check   string   `yaml:"check"`
+	Level   string   `yaml:"level"`
+	Message string   `yaml:"message"`
+	Hints   []string `yaml:"hints,omitempty"`
 }
 
 // MockRow defines one output row.
@@ -130,16 +146,10 @@ func runMock(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "System health — read only checks, usually under 5s\n")
 	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
 
-	// Convert fixture rows to runner.Result + models.Insight
+	// Convert fixture rows to runner.Result for the table; insights are resolved
+	// separately so the COMPLETE captured set (not one per row) is rendered.
 	var results []runner.Result
-	var insights []models.Insight
-
 	for _, row := range fix.Rows {
-		level := strings.ToUpper(row.Level)
-		if level == "" {
-			level = "OK"
-		}
-
 		// runner.Result — carries the name for ordering.
 		// If the row preserved raw disk data, decode it back to the real model
 		// type so the renderer sees exactly what a live collector would return.
@@ -152,17 +162,9 @@ func runMock(cmd *cobra.Command, args []string) error {
 			Name: row.Name,
 			Data: data,
 		})
-
-		// Only emit an insight for non-OK rows
-		if level != "OK" {
-			insights = append(insights, models.Insight{
-				Level:   level,
-				Check:   row.Name,
-				Message: row.Message,
-				Hints:   row.Hints,
-			})
-		}
 	}
+
+	insights := resolveMockInsights(fix)
 
 	mode := output.ModeHuman
 	r := render.NewRenderer(mode)
@@ -182,6 +184,47 @@ func runMock(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// resolveMockInsights returns the insights to render for a fixture. It prefers the
+// COMPLETE captured list (fix.Insights — every finding, in emit order), which is
+// what makes a multi-insight check (e.g. Hardening: weak MACs + NOPASSWD + X11)
+// replay faithfully. Older fixtures have no insights list, so it falls back to
+// reconstructing one insight per non-OK row (the historical, lossy behavior — but
+// the only thing those fixtures recorded).
+func resolveMockInsights(fix MockFixture) []models.Insight {
+	if len(fix.Insights) > 0 {
+		out := make([]models.Insight, 0, len(fix.Insights))
+		for _, ins := range fix.Insights {
+			lvl := strings.ToUpper(ins.Level)
+			if lvl == "" || lvl == "OK" {
+				continue
+			}
+			out = append(out, models.Insight{
+				Level:   lvl,
+				Check:   ins.Check,
+				Message: ins.Message,
+				Hints:   ins.Hints,
+			})
+		}
+		return out
+	}
+
+	// Fallback: reconstruct one insight per non-OK row (pre-insights fixtures).
+	var out []models.Insight
+	for _, row := range fix.Rows {
+		level := strings.ToUpper(row.Level)
+		if level == "" || level == "OK" {
+			continue
+		}
+		out = append(out, models.Insight{
+			Level:   level,
+			Check:   row.Name,
+			Message: row.Message,
+			Hints:   row.Hints,
+		})
+	}
+	return out
 }
 
 // mockReplayCVE decodes a captured `dsd cve --all --json` report and renders it

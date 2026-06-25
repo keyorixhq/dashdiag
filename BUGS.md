@@ -947,3 +947,28 @@ data.
   gated to "binary truly absent" so a present-but-unreadable nft can't be masked as a false
   "active". Regression guard added (`firewall_barename_linux_test.go`). Verified live across
   both privilege levels, incl. with `/etc/nftables.conf` present. **PR:** #509
+
+## AWS EC2 Debian 13 (arm64 / t4g.small) validation — 2026-06-25
+
+### BUG-069 — `dsd capture`→`dsd mock` silently dropped all but one insight per check
+**Found:** while turning the AWS EC2 Debian 13 (arm64) capture into a fixture
+**Symptom:** a fixture captured from a host with several `Hardening` findings (SSH weak
+  MACs, NOPASSWD sudo, password-never-expires, X11/AgentForwarding, LoginGraceTime)
+  replayed via `dsd mock` showing only ONE of them. The **SSH weak-MAC WARN — the single
+  most security-relevant finding — vanished**. `dsd health --json` itself was complete; the
+  loss happened in the capture→fixture conversion.
+**Root cause:** `dsd capture` built `insightMap[check] = highest-severity insight` — one
+  insight per check name — and `dsd mock` reconstructed the insight list one-per-row. Any
+  check that emits multiple insights kept only its top one (and among equal-severity ties,
+  whichever was seen first — here NOPASSWD won over the equally-WARN weak-MAC). Every
+  multi-insight check (Hardening, Logs, …) was lossy; demos/screenshots built from fixtures
+  silently under-reported findings.
+**Affected:** `dsd mock` output for any fixture captured from a host with multi-insight
+  checks — i.e. all of them in practice. Marketing screenshots and doc fixtures understated
+  what dsd actually finds.
+**Fix:** capture now preserves the COMPLETE insight list (`MockFixture.Insights`, every
+  finding in emit order, mirroring `--json insights[]`); `dsd mock` renders that full set,
+  falling back to the legacy one-per-row reconstruction only for older fixtures that lack it
+  (`resolveMockInsights`). Round-trip regression guard added (`capture_insights_test.go`)
+  asserting the weak-MAC WARN survives. Verified end-to-end against the EC2 capture: all six
+  Hardening insights now replay. **PR:** _pending_
