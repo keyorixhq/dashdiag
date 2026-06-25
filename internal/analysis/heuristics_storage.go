@@ -755,6 +755,20 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 				"note: do not restart the cluster until sync completes",
 			},
 		))
+	case "Unconnected", "Timeout", "BrokenPipe", "NetworkFailure", "ProtocolError", "TearDown":
+		// The peer link is down or failing — replication isn't active, so the
+		// resource has no redundancy. These were previously unhandled (no default
+		// case), so a dead replication link read as healthy. (Connected and the
+		// benign transients VerifyS/T / Ahead / Behind / PausedSync are deliberately
+		// not flagged here to avoid false alarms.)
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: connection state %s — peer link down/failing, replication not active", name, res.ConnState),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: ping <peer-ip>; check the replication network",
+				"note: the resource is running without redundancy until the link recovers",
+			},
+		))
 	}
 
 	// Disk state — local disk health
@@ -794,6 +808,18 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 			[]string{
 				fmt.Sprintf("to inspect: drbdadm status %s", name),
 				"note: disk will sync automatically when peer connection is restored",
+			},
+		))
+	case "Diskless", "DUnknown":
+		// No usable local backing device (lost disk, or never attached). Previously
+		// unhandled → read healthy. WARN rather than CRIT because a deliberate
+		// diskless client is a valid (if unusual) configuration.
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: local disk state %s — no usable local backing device, serving over the network only", name, res.LocalDisk),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: dmesg | grep -i drbd   (check whether the backing device failed)",
+				fmt.Sprintf("to reattach (if intended): drbdadm attach %s", name),
 			},
 		))
 	}
