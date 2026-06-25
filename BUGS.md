@@ -1020,3 +1020,32 @@ non-root `Drives` line gave a wrong remediation.
   (`resolveMockInsights`). Round-trip regression guard added (`capture_insights_test.go`)
   asserting the weak-MAC WARN survives. Verified end-to-end against the EC2 capture: all six
   Hardening insights now replay. **PR:** #525
+
+## AWS EC2 Fedora 43 Cloud (arm64 / t4g.small) validation — 2026-06-26
+
+A stock Fedora 43 Cloud arm64 Graviton box — btrfs root, SELinux enforcing, dnf.
+First RPM/SELinux/btrfs-default surface in the EC2 arm64 sweep. The privilege-pair
+pass otherwise degraded honestly, but a CRIT false-alarm fired non-root.
+
+### BUG-070 — non-root `dsd health` false-CRITs a healthy btrfs as "DEGRADED — missing device"
+**Found:** AWS EC2 Fedora 43 Cloud (arm64), non-root `dsd health`, healthy single-device btrfs root
+**Symptom:** non-root `dsd health` reported `Disk ❌ CRIT btrfs / is DEGRADED — 1 missing
+  device(s), data at risk` (exit 2) on a perfectly healthy single-device btrfs. Raw
+  `btrfs filesystem show` as root: `Total devices 1`, the device present, 0 errors. As ROOT
+  dsd was clean (`Disk ✅`). A CRIT false-alarm — the loudest, worst class — on the DEFAULT
+  filesystem of Fedora, openSUSE, SteamOS, so the unprivileged blast radius is large.
+**Root cause:** run unprivileged, `btrfs filesystem show` cannot OPEN the block devices, so it
+  prints every present device as `devid 1 size 0 used 0 path /dev/nvme0n1p3 MISSING` — its REAL
+  path with a `MISSING` suffix. The collector's regex matched `MISSING` → `MissingDevs++` →
+  status "degraded" → CRIT. The device wasn't gone; btrfs just couldn't read it without root.
+  A genuinely-absent device is instead shown with the `<missing disk>` placeholder path.
+**Affected:** non-root `dsd health` / `dsd disk` on ANY host with a btrfs filesystem — a
+  spurious DEGRADED CRIT (exit 2) for every unprivileged run.
+**Fix:** `applyBtrfsShow` now distinguishes a real `/dev` path flagged `MISSING` under a
+  non-root run (the "couldn't open device" artifact → new `DevReadUnverified` flag, volume
+  "unverified", NOT counted as missing) from the genuine `<missing disk>` placeholder (still a
+  DEGRADED CRIT, even non-root, so a real fault is never hidden). As root a real-path MISSING is
+  still counted (root CAN open devices, so it'd be anomalous — no false-OK). The heuristic emits
+  an honest INFO "btrfs <mount> device state could not be verified — run as root" instead of the
+  CRIT. Regression guards added (collector + heuristic) using the exact Fedora output. Verified
+  live: non-root CRIT → INFO, root stays `Disk ✅`. **PR:** #526
