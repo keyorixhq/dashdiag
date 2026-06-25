@@ -947,3 +947,32 @@ data.
   gated to "binary truly absent" so a present-but-unreadable nft can't be masked as a false
   "active". Regression guard added (`firewall_barename_linux_test.go`). Verified live across
   both privilege levels, incl. with `/etc/nftables.conf` present. **PR:** #509
+
+## AWS EC2 Debian 13 (arm64 / t4g.small) validation — 2026-06-25
+
+A fresh-boot Graviton (t4g.small) Debian 13 box. Privilege-pair pass (non-root +
+root JSON diff) was otherwise clean — the degradation contract held — but the
+non-root `Drives` line gave a wrong remediation.
+
+### BUG-067 — non-root NVMe SMART blamed privilege when nvme-cli was simply absent
+**Found:** AWS EC2 Debian 13 (arm64), non-root `dsd health`, `nvme-cli` not installed
+**Symptom:** non-root `dsd health` reported `Drives ℹ️ … SMART health not read (/dev/nvme0)
+  — running unprivileged (nvme smart-log needs root)` with the hint "re-run as root (sudo
+  dsd health)". But `sudo` does NOT help — `nvme-cli` is not installed at all; the root run
+  correctly said "nvme-cli not installed". A misleading remediation, not a verdict bug (both
+  stay INFO, no false-OK), but exactly the honesty class dsd exists to avoid.
+**Root cause:** `nvmeUnreadReason()` checked `os.Geteuid() != 0` FIRST and returned
+  `needs_root` for any non-root failure — deliberately, to avoid a false "absent" on SUSE/RHEL
+  where `nvme` lives in `/usr/sbin` (off a non-root `$PATH`, so a bare `lookPath` would miss an
+  installed tool). The ordering overcorrected: when the binary is genuinely absent everywhere,
+  a non-root run still blamed privilege.
+**Affected:** non-root `dsd health` `Drives` remediation on any host without `nvme-cli`
+  installed — tells the operator to `sudo` when the real fix is `apt/dnf/zypper install
+  nvme-cli`.
+**Fix:** reorder `nvmeUnreadReason()` to test genuine ABSENCE first via `sbinToolPath("nvme")`
+  (the same `$PATH`+sbin-dirs probe BUG-066 introduced) — a miss there means the binary is
+  truly not on the box → `tool_absent` regardless of privilege; only a *present* tool that
+  fails for a non-root caller is `needs_root`. Resolves the Debian case without regressing the
+  SLES/RHEL `/usr/sbin` case the original ordering guarded. Regression guard added
+  (`nvme_unread_reason_linux_test.go`, euid-independent). Verified live on the box: non-root
+  and root now both report "nvme-cli not installed". **PR:** _pending_
