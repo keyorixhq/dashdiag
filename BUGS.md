@@ -971,4 +971,4 @@ A fresh-boot Graviton (t4g.small) Debian 13 box, privilege-pair pass.
   the provider construct (Security Group / NSG / VPC firewall) dsd can't see and how to verify
   it — without false-greening (it still says "add rules if you don't rely on the cloud
   firewall"). Non-cloud hosts still WARN. Regression guard added (`TestCloudGuestFirewall…`).
-  Verified live on the box: the WARN became an honest cloud-aware INFO. **PR:** _pending_
+  Verified live on the box: the WARN became an honest cloud-aware INFO. **PR:** #524
