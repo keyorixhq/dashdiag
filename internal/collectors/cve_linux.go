@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -383,18 +384,46 @@ func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
 	defer cancel()
 
 	if _, err := lookPath("zypper"); err == nil {
-		return scanAllZypper(ctx)
+		return markCVEStaleMetadata(scanAllZypper(ctx))
 	}
 	if _, err := lookPath("dnf"); err == nil {
-		return scanAllDNF(ctx)
+		return markCVEStaleMetadata(scanAllDNF(ctx))
 	}
 	if _, err := lookPath("apt-get"); err == nil {
-		return scanAllApt(ctx)
+		return markCVEStaleMetadata(scanAllApt(ctx))
 	}
 	if _, err := lookPath("pacman"); err == nil {
-		return scanAllPacman(ctx)
+		return scanAllPacman(ctx) // pacman has no cached-index age concept here
 	}
 	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
+}
+
+// markCVEStaleMetadata downgrades a clean "no pending advisories" CVE result to
+// unverified when the package index is stale or absent. A cold/never-refreshed
+// cache reports zero CVEs not because the host is patched but because it has no
+// advisory data — which would otherwise read as a confident "no CVEs" (a security
+// false-OK, the #476 cold-cache class). Mirrors the packages collector's
+// markStaleMetadata; the "exposure NOT verified" reason routes checkCVEHealth to
+// an honest INFO. Only the clean (Total==0) path is touched — real findings and
+// already-failed scans pass through unchanged.
+func markCVEStaleMetadata(r *models.CVEAllResult) *models.CVEAllResult {
+	if r == nil || r.Total > 0 || r.PackageManager == "" {
+		return r
+	}
+	reason := strings.ToLower(r.StatusReason)
+	clean := strings.Contains(reason, "up to date") ||
+		strings.Contains(reason, "no pending") ||
+		strings.Contains(reason, "no vulnerable")
+	if !clean {
+		return r // a failed/other reason already handled by cveScanUnavailable
+	}
+	age, found := packageMetadataAgeDays(r.PackageManager)
+	if !found {
+		r.StatusReason = "update metadata absent — CVE exposure NOT verified; refresh the index (e.g. apt update / dnf makecache / zypper refresh) and rescan"
+	} else if age > packageMetadataStaleDays {
+		r.StatusReason = fmt.Sprintf("update metadata is %d days old (stale) — CVE exposure NOT verified; refresh the index and rescan", age)
+	}
+	return r
 }
 
 // scanAllZypper uses `zypper list-patches --category security` to find all

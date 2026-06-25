@@ -291,7 +291,8 @@ func cveScanUnavailable(r models.CVEAllResult) bool {
 	}
 	reason := strings.ToLower(r.StatusReason)
 	return strings.Contains(reason, "failed") ||
-		strings.Contains(reason, "install arch-audit")
+		strings.Contains(reason, "install arch-audit") ||
+		strings.Contains(reason, "not verified") // stale/absent index → couldn't confirm "no CVEs"
 }
 
 func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
