@@ -877,3 +877,67 @@ sensors correctly (coretemp, SMART PASSED, power-on hours, ECC counters). One fa
   Docker) — each tap/veth NIC false-WARNs. Squarely dsd's target environment.
 **Fix:** when `operstate` is "unknown", fall back to `carrier` — `carrier==1` → "up".
   Validated live: `tap101i0 OK up @ 10000 Mbps`. **PR:** #483
+
+---
+
+## AWS EC2 SLES 16.0 (arm64) — firewall + container-runtime sweep (2026-06-25)
+
+Second pass on a t4g.small SLES 16.0 box (rootless podman installed, nftables installed
+but unconfigured), running `dsd` as both non-root and root and diffing — the dual-privilege
+methodology. Three false-WARN/false-OK bugs, all in the "couldn't measure surfaced as a
+verdict" class, two of them divergences between `dsd security` and `dsd health` on identical
+data.
+
+### BUG-064 — permission-denied container socket false-WARNs (non-root measurement gap)
+**Found:** AWS EC2 SLES 16.0 (arm64), non-root (`dsd health`)
+**Symptom:** non-root `dsd health` raised `Docker ⚠️ WARN: podman socket found at
+  /run/podman/podman.sock but permission denied`, with the remediation `systemctl status
+  docker` — a false alarm about a runtime it merely couldn't read, and naming the wrong
+  runtime (the socket is podman's). As root the check correctly drops away (podman has
+  nothing to report).
+**Root cause:** `checkDocker` emitted a WARN for any unavailable runtime carrying a
+  `StatusReason`. The `SocketPermDenied` branch was dead code — its comment promised to
+  "surface specific fix" but it only `return`ed. A non-root measurement gap was rendered as
+  a fault.
+**Affected:** non-root `dsd health` on any host with a permission-gated docker/podman/crio
+  socket (rootless podman is the common case) — an unprivileged operator alarmed about
+  something dsd couldn't measure.
+**Fix:** permission-denied now degrades to INFO ("couldn't measure"), matching the
+  `checkFirewall`/`checkFirmware` non-root pattern; dropped the wrong-runtime hint
+  (`collectSocketPermReason` already carries the correct `usermod -aG <runtime>` fix).
+  Genuine daemon-down stays WARN. Regression test added. Verified live: Docker line now
+  reads INFO non-root. **PR:** #508
+
+### BUG-065 — `dsd security` reports "Firewall: none detected" on an unprotected host
+**Found:** AWS EC2 SLES 16.0 (arm64), root (`dsd security` vs `dsd health`)
+**Symptom:** with nftables installed but an **empty ruleset**, `dsd security` printed a
+  benign "Firewall: none detected" (no warning), while `dsd health` correctly WARNed
+  "nftables is installed but no rules are active — host is unprotected". Same data, two
+  verdicts — security under-reported the genuinely-unprotected misconfiguration.
+**Root cause:** `detectNFTables`/`detectIPTables` returned false when the ruleset was empty
+  (`TotalRules==0`), so `parseFirewall` fell through to `FirewallActive=false` and the
+  renderer's neutral "none detected" — conflating "tooling present but no rules" with "no
+  firewall tooling at all".
+**Affected:** `dsd security` on any host where nft/iptables is installed with no active
+  rules — false reassurance about an unprotected host.
+**Fix:** record `FirewallToolingPresent` when the binary is present but the ruleset is empty;
+  the renderer surfaces ⚠️ "<backend> installed but no active rules — host is unprotected",
+  mirroring the health verdict. Verified live: security and health now agree. **PR:** #509
+
+### BUG-066 — nft/iptables in sbin missed on non-root → "no tooling" instead of "not verified"
+**Found:** AWS EC2 SLES 16.0 (arm64), non-root (`dsd health` + `dsd security`)
+**Symptom:** non-root `dsd health` reported `Firewall ℹ️ no firewall tooling (nft/iptables)
+  found` and `dsd security` reported "Firewall: none detected" — both implying no firewall
+  exists — on a box where nftables IS installed (`/usr/sbin/nft`, `/sbin/nft`). The honest
+  state is "installed but unreadable without root".
+**Root cause:** `nft`/`iptables` live in `/sbin` + `/usr/sbin`, absent from a typical
+  non-root `$PATH`. `lookPath`/bare-name exec failed for unprivileged runs, so dsd concluded
+  the tooling was *not installed* rather than *installed but unreadable*.
+**Affected:** non-root `dsd health` / `dsd security` firewall verdict on any distro that
+  keeps net tools in sbin and omits sbin from the user `$PATH` (SLES and others) — a
+  misleading "no firewall" in place of an honest "couldn't verify".
+**Fix:** new `sbinToolPath()` resolves via `$PATH` then the standard sbin dirs (both lookups
+  source-routed for capture/replay), and the tools are invoked by absolute path so a non-root
+  run reaches the binary and gets the honest EPERM → "could not read ruleset (run as root?)"
+  (health) / "state not verified — run as root" (security), driven by a new
+  `FirewallUnreadable` flag. Verified live across both privilege levels. **PR:** #509
