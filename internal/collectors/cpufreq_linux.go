@@ -48,6 +48,15 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 		info.CPUCount = len(cpus)
 	}
 
+	// Battery present → portable device (laptop / handheld such as the Steam Deck),
+	// where 'powersave' is the correct power-saving choice rather than a server
+	// misconfiguration. Same detection as the battery collector.
+	if bats, _ := glob("/sys/class/power_supply/BAT*"); len(bats) > 0 {
+		info.HasBattery = true
+	} else if bats, _ := glob("/sys/class/power_supply/battery"); len(bats) > 0 {
+		info.HasBattery = true
+	}
+
 	// Throttle percentage: how far below max we are
 	if info.MaxMHz > 0 && info.CurrentMHz > 0 {
 		info.ThrottledPct = float64(info.MaxMHz-info.CurrentMHz) / float64(info.MaxMHz) * 100

@@ -100,8 +100,19 @@ func TestCheckHugePages(t *testing.T) {
 func TestCheckCPUFreq(t *testing.T) {
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}), "") // unavailable
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}), "")
+	// powersave on a server (no battery) → WARN (performance left on the table).
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000}), "WARN")
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}), "WARN")
+
+	// powersave on a BATTERY device (laptop / Steam Deck) → INFO, never WARN:
+	// powersave is the correct governor there. Found on the AMD-laptop capture.
+	bat := checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 2096, MaxMHz: 4280, HasBattery: true})
+	if hasLevel(bat, "WARN") {
+		t.Errorf("powersave on battery must NOT WARN, got %+v", bat)
+	}
+	if !hasLevel(bat, "INFO") {
+		t.Errorf("powersave on battery should INFO, got %+v", bat)
+	}
 }
 
 func TestCheckDBus(t *testing.T) {

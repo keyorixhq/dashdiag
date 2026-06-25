@@ -2415,20 +2415,30 @@ func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
 	}
 	var out []models.Insight
 
-	// powersave governor on a server — leaves performance on the table
+	// powersave governor on a server — leaves performance on the table.
 	// schedutil/ondemand are fine (responsive). powersave caps at min freq.
+	// On a battery device (laptop / Steam Deck) powersave is the CORRECT, deliberate
+	// governor, so it's an INFO there, not a "performance limited" WARN.
 	if f.Governor == "powersave" {
-		out = append(out, insight("WARN", "CPUFreq",
-			fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
-				f.CurrentMHz, f.MaxMHz),
-			[]string{
-				"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to fix: cpupower frequency-set -g performance",
-				"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
-				"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
-			},
-		))
+		if f.HasBattery {
+			out = append(out, insight("INFO", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' (%d MHz, max %d MHz) — expected on a battery device for power saving",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{"on AC and want full speed: cpupower frequency-set -g performance (or 'schedutil')"},
+			))
+		} else {
+			out = append(out, insight("WARN", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{
+					"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to fix: cpupower frequency-set -g performance",
+					"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+					"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
+				},
+			))
+		}
 	}
 
 	// Heavy throttling — current frequency well below max despite not being powersave
