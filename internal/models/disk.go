@@ -98,6 +98,12 @@ type BtrfsVolume struct {
 	// Status stays "healthy" — which would read as a silent OK even though corruption/
 	// I/O counters were never inspected. Lets the verdict say "counters not read".
 	StatsRead bool `json:"stats_read,omitempty"`
+	// DevReadUnverified is true when `btrfs filesystem show` flagged a REAL device path
+	// MISSING on a non-root run — btrfs couldn't open the block device for lack of
+	// privilege (it prints `size 0 ... MISSING`), which is NOT a missing device. The
+	// verdict then says "device state unverified — run as root" instead of a false
+	// DEGRADED CRIT. (A genuinely absent device shows the `<missing disk>` placeholder.)
+	DevReadUnverified bool `json:"dev_read_unverified,omitempty"`
 }
 
 // BtrfsDev is one device in a btrfs filesystem.

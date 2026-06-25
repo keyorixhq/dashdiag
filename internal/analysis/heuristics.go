@@ -1137,6 +1137,20 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 			},
 		)}
 	}
+	// btrfs run unprivileged can't open the block devices, so `btrfs filesystem show`
+	// prints every present device as `size 0 ... MISSING` — the device-state read
+	// failed, it is NOT a missing device. Surface that honestly as INFO rather than the
+	// false DEGRADED CRIT it used to raise (every btrfs filesystem on a non-root run).
+	if v.DevReadUnverified {
+		return []models.Insight{insight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s device state could not be verified — run as root (devices show unreadable without privilege)", v.MountPoint),
+			[]string{
+				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: sudo btrfs device stats %s", v.MountPoint),
+				"note: an unprivileged `btrfs filesystem show` reports present devices as MISSING — not an actual fault",
+			},
+		)}
+	}
 	// `btrfs device stats` couldn't be read, so the per-device read/write/corruption
 	// counters were never inspected — Status defaulted to "healthy". Don't pass that
 	// as a clean OK. (When errors WERE found, StatsRead is true, so this won't fire.)

@@ -22,6 +22,10 @@ func TestCheckBtrfsVolume(t *testing.T) {
 		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: true}, ""},
 		{"missing device is CRIT", models.BtrfsVolume{MountPoint: "/data", MissingDevs: 1}, "CRIT"},
 		{"stats unread is INFO not silent OK", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: false}, "INFO"},
+		// Non-root "device unreadable" artifact must be INFO, never the DEGRADED CRIT
+		// (false-CRIT found on the Fedora EC2 box: unprivileged btrfs shows present
+		// devices as MISSING). MissingDevs stays 0; DevReadUnverified drives the INFO.
+		{"non-root unverified device state is INFO not CRIT", models.BtrfsVolume{MountPoint: "/", DevReadUnverified: true, StatsRead: false}, "INFO"},
 		{
 			name: "device I/O errors are CRIT",
 			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{ReadErrs: 5}}},
