@@ -1049,3 +1049,30 @@ pass otherwise degraded honestly, but a CRIT false-alarm fired non-root.
   an honest INFO "btrfs <mount> device state could not be verified — run as root" instead of the
   CRIT. Regression guards added (collector + heuristic) using the exact Fedora output. Verified
   live: non-root CRIT → INFO, root stays `Disk ✅`. **PR:** #526
+
+## AWS EC2 Alpine 3.22 (x86_64 / t3.small) validation — 2026-06-26
+
+A stock Alpine Linux 3.22 EC2 box — **musl + busybox + OpenRC, no systemd, no
+glibc**. The non-systemd surface nothing else in the matrix currently covers.
+Degradation was honest throughout (systemd/DBus rows correctly absent, firewall
+"no tooling" not a false "unprotected", nvme "needs root" correct per BUG-067),
+but OOM detection was silently dead.
+
+### BUG-071 — OOM detection dead on Alpine/busybox even as root (`dmesg --time-format` unsupported)
+**Found:** AWS EC2 Alpine 3.22 (x86_64), root `dsd health`
+**Symptom:** the OOM check reported `OOM ℹ️ not verified — kernel log unreadable (journalctl -k
+  and dmesg both failed)` even as root — yet `doas dmesg` worked fine and `/dev/kmsg` was
+  readable. So OOM-kill detection was entirely unavailable on Alpine (and any busybox host),
+  not just unprivileged. Honestly reported (INFO, not a false-OK "0 kills"), but a real
+  coverage gap on the default OOM signal.
+**Root cause:** the OOM collector's dmesg fallback called `dmesg --time-format iso` (util-linux
+  syntax). Alpine's `dmesg` is **busybox**, which doesn't support `--time-format`, so the call
+  errored and the collector concluded the kernel log was unreadable — despite a bare `dmesg`
+  working. (journalctl is absent on Alpine, so the dmesg path was the only one.)
+**Affected:** `dsd health` OOM section on every busybox/non-systemd host (Alpine, and busybox
+  embedded systems) — OOM kills undetectable even with privilege.
+**Fix:** when `dmesg --time-format iso` fails, retry **bare `dmesg`** before giving up (the same
+  two-step pattern kernel_security.go already uses). Plain dmesg's boot-relative timestamps are
+  already handled conservatively by filterOOMRecent. Regression guard added
+  (`oom_busybox_dmesg_test.go`, a fake busybox source: iso-flag fails, bare dmesg succeeds).
+  Verified live on the Alpine box: `OOM ✅ 0 events` at root (was "not verified"). **PR:** _pending_
