@@ -11,6 +11,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-06-25
+
+Patch: two false-verdict fixes found running dsd live on Amazon Linux 2023 arm64
+(AWS). No CLI or `--json` schema change.
+
+### Fixed
+
+- **SELinux permissive showed a green "OK".** `dsd health` rendered "KernelSec OK —
+  SELinux permissive" on hosts in permissive mode (the Amazon Linux 2023 default).
+  Permissive means the policy is loaded but enforcement is OFF — denials are logged,
+  not blocked — so SELinux provides no active protection. That's a false sense of
+  security, and inconsistent with AppArmor complain mode (the identical non-enforcing
+  posture), which dsd already flags. Now an honest INFO ("policy loaded but NOT
+  enforcing"); INFO, not WARN, so it doesn't flip the verdict on every AL2023 host. (#520)
+- **`vm.swappiness` WARNed the kernel default on every server.** The general-server
+  check flagged `swappiness > 30`, which catches the universal kernel default of 60 —
+  so every stock server WARNed on its default. But swappiness only changes behaviour
+  when the host actually swaps; on a box with RAM headroom (or no swap device) the
+  value is academic. The check now fires only when the host is actually swapping
+  (gated on swap usage / paging). The role-specific k8s/database/Elasticsearch
+  swappiness WARNs are unchanged. (#521)
+
 ## [1.9.0] - 2026-06-25
 
 Minor (additive): hermetic, replay-stable CVE checks + an air-gapped OVAL fallback,
