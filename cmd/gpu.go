@@ -315,8 +315,11 @@ func printGPUNoDriver(noDriver []models.GPUDetected, mode output.OutputMode) {
 	}
 }
 
-func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
-	crits, warns := 0, 0
+// gpuConcerns counts CRIT/WARN devices using the SAME thresholds as
+// analysis.checkGPUDevice. Kept as one pure function so the standalone `dsd gpu`
+// verdict can't drift from `dsd health` (the sibling-divergence class, #275) —
+// pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
+func gpuConcerns(info *models.GPUInfo) (crits, warns int) {
 	for _, dev := range info.Devices {
 		// A temperature only drives a thermal verdict when it's physically plausible
 		// — a garbage hwmon read (thousands of °C) must NOT count as a CRIT (§L/§Q,
@@ -336,6 +339,11 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 			warns++
 		}
 	}
+	return crits, warns
+}
+
+func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
+	crits, warns := gpuConcerns(info)
 	n := len(info.NoDriver)
 	// Every detected device exposed ZERO health metrics (e.g. an older Intel iGPU
 	// with no hwmon temperature — verified live on a MacBookAir4,2 / HD 3000). We
