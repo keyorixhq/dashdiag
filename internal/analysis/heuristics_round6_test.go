@@ -23,7 +23,11 @@ func TestCheckPackages(t *testing.T) {
 		// clean 0-updates OK (dnf/zypper/apt errored; zypper used to claim Status:OK).
 		{"query failed is INFO (unverified, not clean)", models.PackagesInfo{SecurityUpdates: 0, Status: "query-failed", PackageManager: "dnf", StatusReason: "dnf advisory/updateinfo unavailable"}, "INFO"},
 		{"ESM-only updates is WARN", models.PackagesInfo{SecurityUpdates: 0, ESMUpdates: 3}, "WARN"},
-		{"critical updates is CRIT", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 1, PackageManager: "apt"}, "CRIT"},
+		// dnf/zypper expose a REAL per-advisory severity, so a Critical update is a CRIT.
+		{"critical updates is CRIT (dnf real severity)", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 1, PackageManager: "dnf"}, "CRIT"},
+		// apt has NO CVSS — "Critical" is inferred from the package name, so it must
+		// NOT mint a hard CRIT (would CRIT a host just because openssl has an update).
+		{"apt critical is WARN not CRIT (name-inferred, no CVSS)", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 3, PackageManager: "apt"}, "WARN"},
 		{"important updates is WARN", models.PackagesInfo{SecurityUpdates: 5, ImportantUpdates: 1, PackageManager: "apt"}, "WARN"},
 	}
 	for _, tt := range tests {
