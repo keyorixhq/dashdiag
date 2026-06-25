@@ -58,11 +58,14 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 		info.MaskedUnits = parseMaskedUnits(maskedOut)
 	}
 
-	// 5. Journal integrity
-	verifyOut, err := runCmd(ctx, "journalctl", "--verify")
-	if err != nil {
+	// 5. Journal integrity — verify only ARCHIVED journals. `journalctl --verify`
+	// over the ACTIVE journal races with the live writer and reports false
+	// corruption from the unflushed tail (systemd#35916), which flagged "Journal
+	// corruption detected" on essentially every running systemd host (and
+	// disagreed with `dsd logs`, which already verifies archived-only). Reuse the
+	// logs collector's archived-only check so the two paths agree.
+	if fileExists(journalVarPath) && hasCorruptArchived(journalVarPath) {
 		info.JournalHealthy = false
-		info.JournalLastValid = parseJournalVerifyError(verifyOut + err.Error())
 	}
 
 	// 6. Boot offenders (top 5 real services, exclude .device/.socket/.mount)
@@ -225,17 +228,6 @@ func parseMaskedUnits(out string) []string {
 		}
 	}
 	return units
-}
-
-// parseJournalVerifyError extracts the "last valid entry" timestamp from
-// `journalctl --verify` error output when corruption is detected.
-func parseJournalVerifyError(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "last valid entry") || strings.Contains(line, "PASS") {
-			return strings.TrimSpace(line)
-		}
-	}
-	return ""
 }
 
 // parseBlame parses `systemd-analyze blame` and returns the top N real service
