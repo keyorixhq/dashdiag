@@ -270,6 +270,20 @@ func printAllCVEs(r *models.CVEAllResult) {
 
 	fmt.Printf("Found %d pending security advisory(ies)\n\n", r.Total)
 
+	// apt publishes no per-package CVSS, so the CRITICAL/IMPORTANT/… buckets below
+	// are INFERRED from the package name (aptPackageSeverity), not a real rating —
+	// the guess over-states some (openssl → CRITICAL) and under-states others
+	// (rsync → LOW, despite real critical rsync CVEs). Surface that, matching the
+	// honest framing `dsd health --cve` already uses, so the red label isn't read
+	// as a confirmed verdict. dnf/zypper expose a real severity and need no caveat.
+	if r.PackageManager == "apt" {
+		fmt.Println(render.StyleWarn.Render(
+			"⚠️  apt exposes no CVSS — the severities below are INFERRED from package name,"))
+		fmt.Println(render.StyleWarn.Render(
+			"   not a confirmed rating. Confirm via the Ubuntu/Debian security tracker."))
+		fmt.Println()
+	}
+
 	if r.KEVCount > 0 {
 		fmt.Println(render.StyleCrit.Render(
 			fmt.Sprintf("🔴 %d actively exploited (CISA KEV): %s",
