@@ -1082,8 +1082,20 @@ func sshAllowedUFW(out string, port int) bool {
 // config-file probe remains only as a fallback for when the nft binary is
 // unavailable on PATH.
 func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := lookPath("nft"); err == nil {
-		if out, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
+	// Resolve via sbin too — nft lives in /sbin or /usr/sbin, off a non-root
+	// $PATH. Invoking by absolute path lets an unprivileged run reach the binary
+	// and get the honest EPERM (unreadable) rather than a "not installed" miss.
+	if nft := sbinToolPath("nft"); nft != "" {
+		out, err := runCmd(ctx, nft, "list", "ruleset")
+		if err != nil {
+			// nft installed but the ruleset is unreadable (non-root EPERM). State
+			// unknown — record it so the renderer says "not verified" instead of a
+			// clean-looking "none detected". Mirrors the health Firewall INFO.
+			info.FirewallUnreadable = true
+			if info.FirewallType == "" {
+				info.FirewallType = "nftables"
+			}
+		} else {
 			fw := &models.FirewallInfo{}
 			parseNFTRuleset(out, fw)
 			if fw.TotalRules > 0 {
@@ -1123,11 +1135,17 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 // distros) the legacy ip_tables kernel module is never loaded, so that proc
 // file is absent even though the iptables-nft wrapper can list a full ruleset.
 func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := lookPath("iptables"); err != nil {
+	ipt := sbinToolPath("iptables") // sbin-aware (see detectNFTables)
+	if ipt == "" {
 		return false
 	}
-	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
+	out, err := runCmd(ctx, ipt, "-L", "-n", "--line-numbers")
 	if err != nil {
+		// iptables installed but unreadable (non-root EPERM) — state unknown.
+		info.FirewallUnreadable = true
+		if info.FirewallType == "" {
+			info.FirewallType = "iptables"
+		}
 		return false
 	}
 	fw := &models.FirewallInfo{}

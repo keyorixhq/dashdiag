@@ -288,6 +288,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		fmt.Printf("\nFirewall: %s installed but no active rules — host is unprotected\n",
 			info.FirewallType)
 		fmt.Printf("  %s  no active firewall rules\n", asciiOr("warn", "⚠️ ", mode))
+	} else if info.FirewallUnreadable {
+		// Tooling installed but ruleset unreadable (non-root) — state unknown.
+		// Report "not verified", not "none detected" (which implies no firewall).
+		fmt.Printf("\nFirewall: %s state not verified — run as root to read the ruleset\n",
+			info.FirewallType)
 	} else {
 		fmt.Println("\nFirewall: none detected")
 	}
