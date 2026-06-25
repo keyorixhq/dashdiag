@@ -318,6 +318,14 @@ func printSMARTLine(s *models.SMARTInfo, mode output.OutputMode) {
 		fmt.Printf("             SMART: %s\n", s.Error)
 		return
 	}
+	// A virtual/cloud volume (e.g. AWS EBS) answers the SMART health query with
+	// PASSED but passes through no real telemetry — don't render it as a confident
+	// "PASSED". Mirrors `dsd health`, which already flags this (NVMeNoRealData).
+	if s.NoRealTelemetry() {
+		fmt.Printf("             %s SMART: no real telemetry — virtual/cloud volume (e.g. AWS EBS); on-device health not measurable\n",
+			asciiOr("info", "ℹ️ ", mode))
+		return
+	}
 	icon := asciiOr("ok", "✅", mode)
 	if !s.Healthy {
 		icon = asciiOr("fail", "❌", mode)
