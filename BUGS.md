@@ -937,7 +937,13 @@ data.
   keeps net tools in sbin and omits sbin from the user `$PATH` (SLES and others) — a
   misleading "no firewall" in place of an honest "couldn't verify".
 **Fix:** new `sbinToolPath()` resolves via `$PATH` then the standard sbin dirs (both lookups
-  source-routed for capture/replay), and the tools are invoked by absolute path so a non-root
-  run reaches the binary and gets the honest EPERM → "could not read ruleset (run as root?)"
-  (health) / "state not verified — run as root" (security), driven by a new
-  `FirewallUnreadable` flag. Verified live across both privilege levels. **PR:** #509
+  source-routed for capture/replay) and is used as a DETECTION gate — so a non-root run knows
+  the binary exists instead of concluding "no tooling". The tools are still invoked by BARE
+  name (an absolute path would change the capture/replay command key and break replay of every
+  pre-existing bundle — caught in adversarial review before merge); a bare-name exec that
+  fails to launch on a sbin-less non-root `$PATH` is treated as the honest "could not read
+  ruleset (run as root?)" (health) / "state not verified — run as root" (security), driven by
+  a new `FirewallUnreadable` flag. The security collector's on-disk-config fallback was also
+  gated to "binary truly absent" so a present-but-unreadable nft can't be masked as a false
+  "active". Regression guard added (`firewall_barename_linux_test.go`). Verified live across
+  both privilege levels, incl. with `/etc/nftables.conf` present. **PR:** #509
