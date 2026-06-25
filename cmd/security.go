@@ -282,6 +282,12 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("  %s  allowed: %s\n", asciiOr("ok", "✅", mode), strings.Join(info.FirewallServices, ", "))
 		}
 		fmt.Printf("  %s  SSH accessible\n", sshIcon)
+	} else if info.FirewallToolingPresent {
+		// Tooling installed but no active ruleset — host is unprotected. Mirror
+		// the health Firewall WARN rather than reporting a benign "none detected".
+		fmt.Printf("\nFirewall: %s installed but no active rules — host is unprotected\n",
+			info.FirewallType)
+		fmt.Printf("  %s  no active firewall rules\n", asciiOr("warn", "⚠️ ", mode))
 	} else {
 		fmt.Println("\nFirewall: none detected")
 	}

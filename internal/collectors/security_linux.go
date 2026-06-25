@@ -1092,6 +1092,13 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 				info.SSHAllowed = sshAllowedNFT(out, sshPort(info))
 				return true
 			}
+			// nft is installed but the ruleset is empty — tooling present, host
+			// unprotected. Record it so the renderer mirrors the health Firewall
+			// WARN instead of a benign "none detected".
+			info.FirewallToolingPresent = true
+			if info.FirewallType == "" {
+				info.FirewallType = "nftables"
+			}
 		}
 	}
 	// Fallback: nft binary missing — infer from on-disk config. We can't read
@@ -1130,6 +1137,12 @@ func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
 		info.FirewallType = "iptables"
 		info.SSHAllowed = sshAllowedIPT(out, sshPort(info))
 		return true
+	}
+	// iptables installed but no rules — tooling present, host unprotected. Only
+	// claim the backend name if nft didn't already (nft is the modern default).
+	info.FirewallToolingPresent = true
+	if info.FirewallType == "" {
+		info.FirewallType = "iptables"
 	}
 	return false
 }
