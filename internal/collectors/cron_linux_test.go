@@ -5,8 +5,59 @@ package collectors
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// TestParseCrontabFileQuality pins the cron-quality scan against two false
+// positives found on a real host: run-parts SCRIPTS in /etc/cron.daily/ etc. were
+// mis-parsed as crontabs ("relative path" WARN), and Debian's empty
+// /etc/cron.d/.placeholder got a "no MAILTO" WARN despite having no jobs.
+func TestParseCrontabFileQuality(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) string {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// 1. A run-parts script (path under cron.daily) — shell content, NOT a crontab.
+	//    Previously its `if [ -d … ] && [ -e … ]; then` line false-flagged a
+	//    relative path. Must now be skipped entirely.
+	script := write("etc/cron.daily/logrotate",
+		"#!/bin/sh\n\ntest -x /usr/sbin/logrotate || exit 0\nif [ -d /var/lib/logrotate ] && [ -e /etc/logrotate.conf ]; then\n  /usr/sbin/logrotate /etc/logrotate.conf\nfi\n")
+	if got := parseCrontabFile(script, script); got != nil {
+		t.Errorf("run-parts script must yield no quality issues, got %+v", got)
+	}
+
+	// 2. Empty placeholder in /etc/cron.d — no jobs → no MAILTO false flag.
+	ph := write("etc/cron.d/.placeholder", "# Debian places this here so the dir ships in the package\n")
+	if got := parseCrontabFile(ph, ph); got != nil {
+		t.Errorf("empty placeholder must yield no issues, got %+v", got)
+	}
+
+	// 3. A real /etc/cron.d job with no MAILTO and a relative command → both flags.
+	real := write("etc/cron.d/myjob", "30 3 * * 0 root foo --run\n")
+	got := parseCrontabFile(real, real)
+	if got == nil || len(got) != 1 {
+		t.Fatalf("real cron.d job = %+v, want one CronJob with issues", got)
+	}
+	joined := strings.Join(got[0].Issues, " | ")
+	if !strings.Contains(joined, "MAILTO") || !strings.Contains(joined, "relative path") {
+		t.Errorf("real job should flag MAILTO + relative path, got %q", joined)
+	}
+
+	// 4. A well-formed cron.d job (PATH + MAILTO + an absolute cmd that exists) → clean.
+	clean := write("etc/cron.d/clean", "MAILTO=root\nPATH=/usr/bin:/bin\n0 2 * * * root /bin/sh -c true\n")
+	if got := parseCrontabFile(clean, clean); got != nil {
+		t.Errorf("well-formed cron.d job must be clean, got %+v", got)
+	}
+}
 
 // TestAnyProcessNamedIn verifies the portable /proc/<pid>/comm scan that replaced
 // `pgrep -x` (which busybox matches against argv[0] incl. path, missing a running

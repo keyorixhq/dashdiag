@@ -182,13 +182,18 @@ func parseCrontabFile(path, source string) []models.CronJob {
 		return nil
 	}
 
-	// System crontabs in /etc/cron.{hourly,daily,weekly,monthly}/ are run-parts
-	// scripts — they intentionally have no MAILTO or PATH header. Skip MAILTO
-	// check for these; only check /etc/cron.d/* and user crontabs.
-	isRunParts := strings.Contains(path, "/cron.hourly/") ||
+	// /etc/cron.{hourly,daily,weekly,monthly}/ hold run-parts SCRIPTS, not
+	// crontab-format files: no "schedule user command" lines, no PATH/MAILTO
+	// header. Parsing them as crontabs mis-reads shell-script lines as cron jobs
+	// (e.g. `if [ -x foo ] && [ -e bar ]; then` → a "relative path" false-WARN),
+	// and their PATH/MAILTO come from the run-parts invocation in /etc/crontab.
+	// Skip them entirely; quality checks only apply to /etc/cron.d/* + crontabs.
+	if strings.Contains(path, "/cron.hourly/") ||
 		strings.Contains(path, "/cron.daily/") ||
 		strings.Contains(path, "/cron.weekly/") ||
-		strings.Contains(path, "/cron.monthly/")
+		strings.Contains(path, "/cron.monthly/") {
+		return nil
+	}
 
 	var hasPath, hasMailto bool
 	for _, line := range strings.Split(string(data), "\n") {
@@ -204,6 +209,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 	// Collect unique issues across all lines in this file
 	issueSet := map[string]bool{}
 	var missingCmd string
+	var hasJobs bool
 
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -221,6 +227,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 		if cmd == "" {
 			continue
 		}
+		hasJobs = true
 
 		// Relative path without PATH set (only flag once per file)
 		if !hasPath && !strings.HasPrefix(cmd, "/") {
@@ -236,8 +243,10 @@ func parseCrontabFile(path, source string) []models.CronJob {
 		}
 	}
 
-	// MAILTO check — only for /etc/cron.d/ and user crontabs, not run-parts dirs
-	if !isRunParts && !hasMailto {
+	// MAILTO check — only when the file actually has a cron job whose errors could
+	// be lost. An empty or comment-only file (e.g. Debian's /etc/cron.d/.placeholder)
+	// has no jobs, so flagging "no MAILTO" on it is a false positive.
+	if !hasMailto && hasJobs {
 		issueSet["no MAILTO set — errors go to local mailbox unread"] = true
 	}
 
