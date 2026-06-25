@@ -32,6 +32,13 @@ type SysctlInfo struct {
 	// Zero when unavailable (non-Linux, read error).
 	UptimeSeconds int64 `json:"uptime_seconds,omitempty"`
 
+	// SwapActive is injected by the analysis pre-scan (not collected here): true
+	// when swap is configured AND actually in use / being paged. The general-server
+	// vm.swappiness check gates on it — swappiness only matters when the host is
+	// actually swapping, so flagging the kernel-default 60 on a box that isn't
+	// swapping is noise.
+	SwapActive bool `json:"swap_active,omitempty"`
+
 	Status       string `json:"status"`
 	StatusReason string `json:"status_reason"`
 }
