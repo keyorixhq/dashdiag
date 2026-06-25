@@ -25,8 +25,18 @@ func checkMongoDB(m models.MongoDBInfo) []models.Insight {
 
 	var out []models.Insight
 
-	// A replica set with no PRIMARY rejects all writes — a live outage.
-	if m.IsReplicaSet && !m.HasPrimary {
+	// rs.status() couldn't be read (it's auth-gated separately) — we can't judge
+	// primary/quorum. Say so honestly instead of firing the no-primary CRIT off an
+	// unset HasPrimary (which would cry wolf on a healthy set).
+	if m.IsReplicaSet && !m.ReplStatusRead {
+		out = append(out, insight("INFO", "MongoDB",
+			fmt.Sprintf("replica set %q detected, but rs.status() could not be read — primary/quorum not verified", m.ReplicaSetName),
+			[]string{
+				"note: rs.status() may need credentials even when db.hello() does not",
+				"to inspect: mongosh --quiet --eval 'rs.status()'",
+			}))
+	} else if m.IsReplicaSet && !m.HasPrimary {
+		// A replica set with no PRIMARY rejects all writes — a live outage.
 		out = append(out, insight("CRIT", "MongoDB",
 			fmt.Sprintf("replica set %q has NO PRIMARY — writes are failing (election in progress or quorum lost)", m.ReplicaSetName),
 			[]string{
