@@ -11,6 +11,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-25
+
+Minor (additive): hermetic, replay-stable CVE checks + an air-gapped OVAL fallback,
+plus a false-OK/false-CRIT sweep across the CVE, package, disk, and timeline paths —
+found by running dsd live on real SLES 16 and Ubuntu 26.04, both **arm64** (AWS).
+No `dsd health --json` schema change.
+
+### Added
+
+- **Hermetic, replay-stable CVE checks.** `dsd capture --raw --cve-scan` records the
+  CVE/advisory verdict into the bundle, and `dsd replay --cve` / `dsd diff --cve`
+  reproduce it from there — no live scan against the replaying machine. CVE data is
+  time-varying (feeds/advisories change daily), so freezing the result is the
+  correct snapshot semantic: replay/diff show "what the host was exposed to at
+  capture time", and `dsd diff --cve` can show CVE-exposure deltas between two
+  captures. A bundle captured without `--cve-scan` surfaces an honest "not captured"
+  message. Validated capturing a real SLES 16 host and replaying it in a Debian
+  container with no zypper. (#515)
+- **`dsd health --cve` OVAL fallback for no-package-manager hosts.** When no
+  supported package manager is installed but a staged OVAL feed is present
+  (`/var/lib/dsd/oval/`), the CVE check falls back to scanning that feed instead of
+  reporting no signal. Deliberately scoped to the stable no-PM case — it does not
+  fall back on a package manager that merely failed this run (transient failures
+  would flap the verdict). (#514)
+
+### Fixed
+
+- **`dsd health` raised a false CRIT (exit 2) on apt hosts.** The Packages check
+  minted a hard "N critical security update(s) (apt)" CRIT whenever a pending update
+  matched an internal critical-name list (kernel/openssl/glibc/…) — but apt embeds
+  no per-package CVSS, so that "Critical" is a package-name guess, not a rating. A
+  host CI-failed merely because openssl had a pending update. Now folds to a WARN
+  with "severity inferred from package name; apt exposes no CVSS"; dnf/zypper keep
+  the real-severity CRIT. (#517)
+- **`dsd cve --all` displayed apt name-inferred severity as confirmed.** It showed
+  "🔴 CRITICAL: openssl" with no qualification on apt; now carries the same
+  "severity inferred — apt exposes no CVSS" caveat the health verdict uses (the
+  guess over-states openssl and under-states rsync). (#516)
+- **`dsd timeline` flagged a benign arm64 boot message as CRIT.** "PCI: OF: of_root
+  node is NULL, cannot create PCI host bridge node" is logged at err level on every
+  arm64 / ACPI cloud boot (no device-tree; PCI comes via ACPI) with zero impact.
+  A narrow benign-by-platform allowlist downgrades it to INFO in both the dmesg and
+  journald paths; catastrophe keywords and other errs still CRIT. (#518)
+- **`dsd` NVMe SMART remediation + EBS virtual-volume.** Non-root runs reported
+  "nvme-cli not installed" (and told the user to install it) when nvme-cli was in
+  fact present and the real blocker was privilege — now says "run as root". And
+  `dsd disk` showed "OK SMART: PASSED" for an AWS EBS volume that exposes no real
+  telemetry; it now reports "no real telemetry — virtual/cloud volume", mirroring
+  `dsd health`. (#513)
+
 ## [1.8.3] - 2026-06-25
 
 Patch: a false-OK / false-WARN sweep across the CVE, security, and docker verdict
