@@ -947,3 +947,28 @@ data.
   gated to "binary truly absent" so a present-but-unreadable nft can't be masked as a false
   "active". Regression guard added (`firewall_barename_linux_test.go`). Verified live across
   both privilege levels, incl. with `/etc/nftables.conf` present. **PR:** #509
+
+## AWS EC2 Debian 13 (arm64 / t4g.small) validation — 2026-06-25
+
+A fresh-boot Graviton (t4g.small) Debian 13 box, privilege-pair pass.
+
+### BUG-068 — "host unprotected" firewall WARN ignores the cloud Security Group layer
+**Found:** AWS EC2 Debian 13 (arm64), root `dsd health`, no host iptables/nft rules
+**Symptom:** `dsd health` reported `Firewall ⚠️ iptables is installed but no rules are active
+  — host is unprotected`. True at the host level, but on EC2 the actual network firewall is
+  the **Security Group** — a layer dsd cannot read from inside the guest. A flat "unprotected"
+  on a normally-configured cloud instance reads as cloud-naive and is a credibility hit in
+  exactly the demo a prospect is watching (sibling framing to the PVE-firewall BUG-017 and the
+  NVMe-timeout-on-virt false-WARN).
+**Root cause:** `checkFirewall` asserted "unprotected" on any empty host ruleset with no
+  awareness of the cloud-guest context, even though the provider Security Group / NSG / VPC
+  firewall is the real (and unreadable-from-inside) enforcement layer.
+**Affected:** `dsd health` / `dsd security` firewall verdict on any AWS/Azure/GCP guest that
+  relies on the cloud network firewall (the common case) — a false WARN.
+**Fix:** the firewall collector now flags `CloudGuest`/`CloudProvider` via the existing
+  DMI-based guest gates (`AWSGuestAvailable`/`AzureGuestAvailable`/`GCPGuestAvailable` — cheap,
+  no root, no IMDS). On a detected cloud guest an empty host ruleset is INFO, not WARN, naming
+  the provider construct (Security Group / NSG / VPC firewall) dsd can't see and how to verify
+  it — without false-greening (it still says "add rules if you don't rely on the cloud
+  firewall"). Non-cloud hosts still WARN. Regression guard added (`TestCloudGuestFirewall…`).
+  Verified live on the box: the WARN became an honest cloud-aware INFO. **PR:** #524
