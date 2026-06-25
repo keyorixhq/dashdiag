@@ -1048,4 +1048,4 @@ pass otherwise degraded honestly, but a CRIT false-alarm fired non-root.
   still counted (root CAN open devices, so it'd be anomalous — no false-OK). The heuristic emits
   an honest INFO "btrfs <mount> device state could not be verified — run as root" instead of the
   CRIT. Regression guards added (collector + heuristic) using the exact Fedora output. Verified
-  live: non-root CRIT → INFO, root stays `Disk ✅`. **PR:** _pending_
+  live: non-root CRIT → INFO, root stays `Disk ✅`. **PR:** #526
