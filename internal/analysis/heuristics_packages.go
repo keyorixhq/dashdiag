@@ -134,7 +134,18 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	// distro-correct fix commands
 	fixCmd, inspectCmd := packageFixCommands(pkg.PackageManager)
 
-	if pkg.CriticalUpdates > 0 {
+	if pkg.PackageManager == "apt" {
+		// apt embeds no per-package CVSS, so collectAPT INFERS "Critical" from the
+		// package name (kernel/openssl/glibc/…). A name guess must NOT mint a hard
+		// CRIT health verdict — that would CRIT a host (exit 2) merely because
+		// openssl has a pending update. Fold apt security updates into a WARN with
+		// the honest caveat, matching checkCVEHealth's apt path. dnf/zypper expose a
+		// real per-advisory severity, so their CriticalUpdates keeps the CRIT below.
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) available (apt) — severity inferred from package name; apt exposes no CVSS", pkg.SecurityUpdates),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		))
+	} else if pkg.CriticalUpdates > 0 {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
 			[]string{
