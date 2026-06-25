@@ -31,6 +31,7 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 		return info, nil // cpufreq not available (VM, container, or old kernel)
 	}
 	info.Governor = gov
+	info.ScalingDriver = strings.TrimSpace(readSysfsStr(base + "/scaling_driver"))
 
 	// Frequencies are in kHz — convert to MHz
 	if v := readSysfsKHz(base + "/scaling_cur_freq"); v > 0 {

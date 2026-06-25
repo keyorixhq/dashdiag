@@ -12,7 +12,14 @@ type CPUFreqInfo struct {
 	// Steam Deck). On such portable devices 'powersave' is the correct, deliberate
 	// governor, not a server misconfiguration — so the analysis layer downgrades
 	// the "performance limited" WARN to INFO.
-	HasBattery   bool   `json:"has_battery,omitempty"`
-	Status       string `json:"status,omitempty"`
-	StatusReason string `json:"status_reason,omitempty"`
+	HasBattery bool `json:"has_battery,omitempty"`
+	// ScalingDriver is the cpufreq driver (scaling_driver). intel_pstate and
+	// amd-pstate (active mode) expose only performance/powersave governors, and
+	// their 'powersave' is DYNAMIC (scales to load via EPP) — the modern default,
+	// not a capped/limited state. Only the legacy drivers (acpi-cpufreq,
+	// cppc_cpufreq, cpufreq-dt) cap 'powersave' at min freq, so only there is the
+	// "performance limited" WARN valid.
+	ScalingDriver string `json:"scaling_driver,omitempty"`
+	Status        string `json:"status,omitempty"`
+	StatusReason  string `json:"status_reason,omitempty"`
 }
