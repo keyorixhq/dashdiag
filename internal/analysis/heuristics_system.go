@@ -247,10 +247,15 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		}
 
 	default: // general production server \u2014 flag values clearly suboptimal for any server role
-		if sysctl.VMSwappiness > 30 {
+		// swappiness=60 is the universal kernel default and is harmless on a host
+		// with RAM headroom (it never swaps). Only flag a high value when the host
+		// is ACTUALLY swapping \u2014 the only time swappiness changes behaviour. Without
+		// this gate every stock server WARNed on its default. (SwapActive is injected
+		// by the analysis pre-scan from SwapInfo.)
+		if sysctl.VMSwappiness > 30 && sysctl.SwapActive {
 			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("vm.swappiness=%d is high for a server (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
-				[]string{"to inspect: cat /proc/sys/vm/swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				fmt.Sprintf("vm.swappiness=%d is high and the host is actively swapping (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
+				[]string{"to inspect: cat /proc/sys/vm/swappiness; vmstat 1 5", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		// NOTE: no general net.core.rmem_max check here. The kernel default

@@ -15,23 +15,30 @@ import (
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	// Pre-scan results to extract context shared across checks.
-	selinuxEnforcing, zfsPoolsPresent := prescanContext(results, &thresh)
+	selinuxEnforcing, zfsPoolsPresent, swapActive := prescanContext(results, &thresh)
 
 	// Inject SELinux enforcing state + ZFS-pool presence into SystemdInfo for
-	// cross-check hints / failure-severity gating (§O.2).
+	// cross-check hints / failure-severity gating (§O.2); inject swap-activity into
+	// SysctlInfo so the general-server vm.swappiness check only fires when the host
+	// is actually swapping.
 	for i, r := range results {
-		if r.Name == "Systemd" {
-			switch d := r.Data.(type) {
-			case *models.SystemdInfo:
-				if d != nil {
-					d.SELinuxEnforcing = selinuxEnforcing
-					d.ZFSPoolsPresent = zfsPoolsPresent
-				}
-			case models.SystemdInfo:
+		switch d := r.Data.(type) {
+		case *models.SystemdInfo:
+			if d != nil {
 				d.SELinuxEnforcing = selinuxEnforcing
 				d.ZFSPoolsPresent = zfsPoolsPresent
-				results[i].Data = d
 			}
+		case models.SystemdInfo:
+			d.SELinuxEnforcing = selinuxEnforcing
+			d.ZFSPoolsPresent = zfsPoolsPresent
+			results[i].Data = d
+		case *models.SysctlInfo:
+			if d != nil {
+				d.SwapActive = swapActive
+			}
+		case models.SysctlInfo:
+			d.SwapActive = swapActive
+			results[i].Data = d
 		}
 	}
 
@@ -63,7 +70,9 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 // checkSystemd for double-layer hints) and whether the host imports any ZFS
 // pools of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
 // zfs-import unit is benign when the ZFS HBA is passed through to a VM).
-func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforcing, zfsPoolsPresent bool) {
+//
+//nolint:cyclop // flat type-switch dispatch — each case extracts one shared field; splitting would obscure it
+func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforcing, zfsPoolsPresent, swapActive bool) {
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -107,9 +116,24 @@ func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforci
 			if d != nil && len(d.ZFSPools) > 0 {
 				zfsPoolsPresent = true
 			}
+		case models.SwapInfo:
+			if swapInUse(d) {
+				swapActive = true
+			}
+		case *models.SwapInfo:
+			if d != nil && swapInUse(*d) {
+				swapActive = true
+			}
 		}
 	}
-	return selinuxEnforcing, zfsPoolsPresent
+	return selinuxEnforcing, zfsPoolsPresent, swapActive
+}
+
+// swapInUse reports whether swap is configured AND actually being used or paged —
+// the only condition under which vm.swappiness affects behaviour. Used to gate the
+// general-server swappiness check so the kernel default doesn't WARN an idle box.
+func swapInUse(s models.SwapInfo) bool {
+	return s.TotalGB > 0 && (s.UsedPct > 0 || s.PagesInPerSec > 0 || s.PagesOutPerSec > 0)
 }
 
 // hostInitSystem returns the init system ("systemd", "openrc", "unknown") so the
