@@ -16,20 +16,26 @@ import (
 )
 
 // nvmeUnreadReason classifies why `nvme smart-log` failed, so the heuristic can
-// give correct remediation rather than always blaming a missing nvme-cli.
+// give correct remediation rather than always blaming a missing nvme-cli — or,
+// conversely, telling a non-root operator to "re-run as root" when sudo cannot
+// help because nvme-cli is not installed at all.
 //
-// The euid check comes FIRST and deliberately so: the smart-log ioctl is
-// root-gated, so a non-root failure is "needs root" regardless of whether
-// nvme-cli is on $PATH — and on many distros (SUSE, RHEL) the `nvme` binary
-// lives in /usr/sbin, which a non-root $PATH omits, so a lookPath probe would
-// wrongly report "absent" for a tool that is in fact installed. Only once we're
-// privileged does an absent binary become the real explanation.
+// Genuine ABSENCE is checked first, via sbinToolPath rather than a plain
+// lookPath: on many distros (SUSE, RHEL) the `nvme` binary lives in /usr/sbin,
+// which a non-root $PATH omits, so a bare lookPath would wrongly report "absent"
+// for an installed tool — sbinToolPath also probes the sbin dirs, so a miss
+// there means the binary truly is not on the box. Only once we know the tool
+// exists does privilege become the explanation: the smart-log ioctl is
+// root-gated, so a non-root failure with the tool present is "needs root".
+// (Validated 2026-06-25 on an arm64 Debian 13 EC2 box where nvme-cli was absent
+// yet the non-root run wrongly told the operator to sudo; and earlier on SLES 16
+// arm64 where nvme-cli was present in /usr/sbin and must NOT read as absent.)
 func nvmeUnreadReason() string {
+	if sbinToolPath("nvme") == "" {
+		return "tool_absent"
+	}
 	if os.Geteuid() != 0 {
 		return "needs_root"
-	}
-	if _, err := lookPath("nvme"); err != nil {
-		return "tool_absent"
 	}
 	return "error"
 }

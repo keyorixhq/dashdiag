@@ -66,7 +66,32 @@ func (c *FirewallCollector) Collect(ctx context.Context) (interface{}, error) {
 	if IsPVEHost() && pveFirewallActive(ctx) {
 		info.PVEFirewallActive = true
 	}
+
+	// On a cloud guest (AWS/Azure/GCP) the network firewall is the provider's
+	// Security Group / NSG / VPC rules — a layer dsd cannot read from inside the
+	// instance. Record that so the heuristic does not assert "host unprotected"
+	// on an empty host ruleset (a false alarm that reads as cloud-naive). DMI-only
+	// detection: cheap, no root, no IMDS round-trip.
+	if p := cloudGuestProvider(); p != "" {
+		info.CloudGuest = true
+		info.CloudProvider = p
+	}
 	return info, nil
+}
+
+// cloudGuestProvider returns "aws"/"azure"/"gcp" if this host is a detected cloud
+// VM, else "". Uses the existing DMI-based guest gates (no IMDS, no privilege).
+func cloudGuestProvider() string {
+	switch {
+	case AWSGuestAvailable():
+		return "aws"
+	case AzureGuestAvailable():
+		return "azure"
+	case GCPGuestAvailable():
+		return "gcp"
+	default:
+		return ""
+	}
 }
 
 // lookPathOK reports whether a binary is found on PATH.
