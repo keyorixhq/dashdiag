@@ -1075,4 +1075,4 @@ but OOM detection was silently dead.
   two-step pattern kernel_security.go already uses). Plain dmesg's boot-relative timestamps are
   already handled conservatively by filterOOMRecent. Regression guard added
   (`oom_busybox_dmesg_test.go`, a fake busybox source: iso-flag fails, bare dmesg succeeds).
-  Verified live on the Alpine box: `OOM ✅ 0 events` at root (was "not verified"). **PR:** _pending_
+  Verified live on the Alpine box: `OOM ✅ 0 events` at root (was "not verified"). **PR:** #529
