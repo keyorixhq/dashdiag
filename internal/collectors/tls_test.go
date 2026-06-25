@@ -41,3 +41,43 @@ func TestExpiryDays_FreshlyExpiredIsNegative(t *testing.T) {
 		t.Errorf("a cert expired a minute ago must be negative, got %d", d)
 	}
 }
+
+// TestParseCertFileUncheckable verifies the false-OK fix: a file with a garbled
+// CERTIFICATE block is reported as Uncheckable, never silently dropped.
+func TestParseCertFileUncheckable(t *testing.T) {
+	dir := t.TempDir()
+	garbled := dir + "/bad.crt"
+	if err := osWriteFile(garbled, "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydA==\n-----END CERTIFICATE-----\n"); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(garbled, time.Now())
+	if len(certs) != 0 {
+		t.Errorf("garbled cert should yield no parsed certs, got %d", len(certs))
+	}
+	if len(unc) != 1 {
+		t.Fatalf("garbled CERTIFICATE block must be Uncheckable, got %d", len(unc))
+	}
+}
+
+// TestParseCertFileNotYetValid verifies a cert whose NotBefore is in the future
+// is flagged NotYetValid (would otherwise read healthy on its far-off expiry).
+func TestParseCertFileNotYetValid(t *testing.T) {
+	now := time.Now()
+	// Valid from +2 days, expires +100 days (short enough to dodge the >365d root skip).
+	pemBytes := makeTestCertPEM(t, now.Add(48*time.Hour), now.Add(100*24*time.Hour))
+	dir := t.TempDir()
+	p := dir + "/future.crt"
+	if err := osWriteFileBytes(p, pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(p, now)
+	if len(unc) != 0 {
+		t.Fatalf("valid PEM should not be uncheckable, got %v", unc)
+	}
+	if len(certs) != 1 {
+		t.Fatalf("expected 1 cert, got %d", len(certs))
+	}
+	if !certs[0].NotYetValid {
+		t.Error("cert with future NotBefore must be NotYetValid")
+	}
+}

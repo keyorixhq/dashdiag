@@ -32,8 +32,9 @@ func (c *TLSCollector) Collect(ctx context.Context) (interface{}, error) {
 			return info, nil
 		default:
 		}
-		certs := scanCertPath(path, now)
+		certs, uncheckable := scanCertPath(path, now)
 		info.Certs = append(info.Certs, certs...)
+		info.Uncheckable = append(info.Uncheckable, uncheckable...)
 	}
 
 	for _, cert := range info.Certs {
@@ -71,9 +72,12 @@ func tlsCertPaths() []string {
 	}
 }
 
-// scanCertPath walks path and parses any PEM certificate files.
-func scanCertPath(root string, now time.Time) []models.CertInfo {
+// scanCertPath walks path and parses any PEM certificate files, returning both
+// the parsed certs and any files that could NOT be read/parsed (so an unreadable
+// or garbled cert never silently disappears into a clean "0 expired" verdict).
+func scanCertPath(root string, now time.Time) ([]models.CertInfo, []models.TLSUncheckable) {
 	var results []models.CertInfo
+	var uncheckable []models.TLSUncheckable
 
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -84,11 +88,12 @@ func scanCertPath(root string, now time.Time) []models.CertInfo {
 		if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".cert" {
 			return nil
 		}
-		certs := parseCertFile(path, now)
+		certs, unc := parseCertFile(path, now)
 		results = append(results, certs...)
+		uncheckable = append(uncheckable, unc...)
 		return nil
 	})
-	return results
+	return results, uncheckable
 }
 
 // expiryDays returns whole days from now until notAfter — positive while the
@@ -105,14 +110,18 @@ func expiryDays(notAfter, now time.Time) int {
 	return days
 }
 
-// parseCertFile reads a PEM file and extracts certificate expiry info.
-func parseCertFile(path string, now time.Time) []models.CertInfo {
+// parseCertFile reads a PEM file and extracts certificate expiry info. A file
+// that can't be read (permission denied, etc.) or a CERTIFICATE block that won't
+// parse (truncated/garbled) is returned as Uncheckable — never silently dropped,
+// which would let an unverified cert read as a healthy "0 expired".
+func parseCertFile(path string, now time.Time) ([]models.CertInfo, []models.TLSUncheckable) {
 	data, err := readFile(filepath.Clean(path)) // #nosec G304 -- path from hardcoded list
 	if err != nil {
-		return nil
+		return nil, []models.TLSUncheckable{{Path: path, Error: err.Error()}}
 	}
 
 	var results []models.CertInfo
+	var uncheckable []models.TLSUncheckable
 	for len(data) > 0 {
 		var block *pem.Block
 		block, data = pem.Decode(data)
@@ -120,10 +129,11 @@ func parseCertFile(path string, now time.Time) []models.CertInfo {
 			break
 		}
 		if block.Type != "CERTIFICATE" {
-			continue
+			continue // a key / non-cert block (e.g. in /etc/ssl/private) — not an error
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
+			uncheckable = append(uncheckable, models.TLSUncheckable{Path: path, Error: "unparseable certificate: " + err.Error()})
 			continue
 		}
 
@@ -148,7 +158,8 @@ func parseCertFile(path string, now time.Time) []models.CertInfo {
 			ExpiresIn:    daysLeft,
 			NotAfter:     cert.NotAfter.Format("2006-01-02"),
 			IsSelfSigned: selfSigned,
+			NotYetValid:  now.Before(cert.NotBefore),
 		})
 	}
-	return results
+	return results, uncheckable
 }
