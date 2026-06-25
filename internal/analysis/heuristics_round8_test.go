@@ -74,7 +74,9 @@ func TestCheckKernelSecurity(t *testing.T) {
 		mac  models.KernelSecurityInfo
 		want string
 	}{
-		{"valid permissive policy is clean", cleanPolicy, ""},
+		// Permissive (even with a valid policy) is NOT enforcing → INFO, never a
+		// silent OK that implies SELinux is protecting the host.
+		{"valid permissive policy is INFO (not enforcing)", cleanPolicy, "INFO"},
 		{
 			// Enforcing with zero denials deliberately emits a dontaudit advisory:
 			// "zero denials does not mean clean" — dontaudit rules can hide denials.
@@ -103,6 +105,13 @@ func TestCheckKernelSecurity(t *testing.T) {
 			name: "apparmor complain mode is WARN",
 			mac:  models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce", AppArmorComplain: 2},
 			want: "WARN",
+		},
+		{
+			// SELinux permissive = loaded but NOT enforcing — must surface (INFO),
+			// never read as a green OK (false sense of protection). The AL2023 default.
+			name: "selinux permissive is INFO not OK",
+			mac:  models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "permissive"},
+			want: "INFO",
 		},
 		{
 			name: "apparmor denials is WARN",
