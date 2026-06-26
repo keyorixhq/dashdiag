@@ -44,6 +44,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	out = append(out, vmwareResourceConstraints(v)...)
 	out = append(out, vmwareSCSITimeoutCheck(v)...)
 	out = append(out, vmwareEnableUUIDCheck(v)...)
+	out = append(out, vmwareVMXNETCheck(v)...)
 
 	// open-vm-tools is running but the resource-pressure stat interface did not
 	// answer (old tools / no permission / stat absent), so vmwareResourceConstraints
@@ -188,6 +189,39 @@ func vmwareEnableUUIDCheck(v models.VMwareInfo) []models.Insight {
 			"to fix: set disk.EnableUUID = TRUE in the VM's Advanced Configuration (vSphere), then reboot the guest",
 			"note: required for the vSphere CSI driver and stable by-id device naming; the VM default is often off",
 		})}
+}
+
+// vmwareVMXNETCheck flags vmxnet3 NICs whose driver-internal counters show the
+// rings are undersized for the traffic: RX buffer-allocation failures, RX ring
+// out-of-buffer, or TX ring exhaustion. Rate-gated (nicErrorRateHigh: an absolute
+// floor AND a fraction of total packets) so a flat cumulative count on a
+// long-uptime host doesn't false-WARN. These counters are vmxnet3-specific and
+// not covered by the generic Network collector's rx/tx_errors/dropped check.
+func vmwareVMXNETCheck(v models.VMwareInfo) []models.Insight {
+	var out []models.Insight
+	for _, s := range v.VMXNETStats {
+		var reasons []string
+		if nicErrorRateHigh(s.RxBufAllocFail, s.RxPackets) {
+			reasons = append(reasons, fmt.Sprintf("RX buffer-allocation failures (%d)", s.RxBufAllocFail))
+		}
+		if nicErrorRateHigh(s.RxOOB, s.RxPackets) {
+			reasons = append(reasons, fmt.Sprintf("RX ring out-of-buffer (%d)", s.RxOOB))
+		}
+		if nicErrorRateHigh(s.TxRingFull, s.TxPackets) {
+			reasons = append(reasons, fmt.Sprintf("TX ring exhaustion (%d)", s.TxRingFull))
+		}
+		if len(reasons) == 0 {
+			continue
+		}
+		out = append(out, insight("WARN", "VMware",
+			fmt.Sprintf("vmxnet3 %s: %s — the driver rings are undersized for the traffic and packets are being dropped",
+				s.Iface, strings.Join(reasons, ", ")),
+			[]string{
+				fmt.Sprintf("to inspect: ethtool -S %s | grep -E 'buf alloc fail|ring full|rx OOB'", s.Iface),
+				fmt.Sprintf("to fix: raise the ring size — ethtool -G %s rx 4096 tx 4096 (cap shown by ethtool -g %s)", s.Iface, s.Iface),
+			}))
+	}
+	return out
 }
 
 // vmwareNICSummary lists the distinct NIC drivers in use (e.g. "vmxnet3") for

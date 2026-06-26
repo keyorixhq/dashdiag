@@ -246,6 +246,42 @@ func TestCollectVMwareDiskIDsNVMeOnly(t *testing.T) {
 	}
 }
 
+func TestParseVMXNETStats(t *testing.T) {
+	// Verbatim slice of `ethtool -S ens160` (vmxnet3) from the real tenant, with
+	// the counts altered to non-zero so the parser's field mapping is exercised.
+	const out = `NIC statistics:
+       TSO pkts tx: 307
+       ucast pkts tx: 998733
+       pkts tx err: 0
+       pkts tx discard: 0
+       drv dropped tx total: 0
+          hdr err: 0
+       ring full: 7
+       LRO pkts rx: 116401
+       pkts rx OOB: 3
+       pkts rx err: 0
+       drv dropped rx total: 0
+          err: 0
+       rx buf alloc fail: 11
+          xdp drops: 0`
+	s := parseVMXNETStats(out)
+	if s.RxBufAllocFail != 11 {
+		t.Errorf("RxBufAllocFail = %d, want 11", s.RxBufAllocFail)
+	}
+	if s.RxOOB != 3 {
+		t.Errorf("RxOOB = %d, want 3", s.RxOOB)
+	}
+	if s.TxRingFull != 7 {
+		t.Errorf("TxRingFull = %d, want 7 (the 'ring full' line)", s.TxRingFull)
+	}
+
+	// Healthy (all zero) → all fields zero.
+	zero := parseVMXNETStats("       rx buf alloc fail: 0\n       ring full: 0\n       pkts rx OOB: 0\n")
+	if zero.RxBufAllocFail != 0 || zero.TxRingFull != 0 || zero.RxOOB != 0 {
+		t.Errorf("all-zero parse should be zero, got %+v", zero)
+	}
+}
+
 func TestCollectSCSITimeoutsMissingDir(t *testing.T) {
 	timeouts, low := collectSCSITimeouts(filepath.Join(t.TempDir(), "nope"))
 	if timeouts != nil || low != nil {
