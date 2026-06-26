@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -130,6 +131,78 @@ func TestCheckAuth(t *testing.T) {
 	// Auth source unreadable (e.g. non-root, no journal/auth.log access): must
 	// surface as INFO, not pass silently as a clean "0 failures" (false-OK).
 	assertLevel(t, checkAuth(models.AuthInfo{Available: true, Checked: false}), "INFO")
+}
+
+// TestCheckAuthConfigAware verifies the brute-force verdict is downgraded from
+// WARN to INFO when sshd is authoritatively known (sshd -T) to reject the
+// attempts: failed *password* attempts cannot succeed on a key-only host, so
+// they are noise, not a credible threat. Found on the VMware tenant: dsd WARNed
+// purely on the attempt count without checking PasswordAuthentication.
+func TestCheckAuthConfigAware(t *testing.T) {
+	maxLevel := func(ins []models.Insight) string {
+		out := ""
+		for _, i := range ins {
+			if i.Level == "WARN" {
+				return "WARN" // highest we produce here
+			}
+			if i.Level == "INFO" {
+				out = "INFO"
+			}
+		}
+		return out
+	}
+
+	base := models.AuthInfo{Available: true, Checked: true, FailedLast24h: 1500, RootAttempts: 20}
+
+	// Unknown policy (config not read) → fail toward warning: keep WARN.
+	if got := maxLevel(checkAuth(base)); got != "WARN" {
+		t.Errorf("unknown policy: want WARN, got %q", got)
+	}
+
+	// Key-only (password auth off, authoritatively): both the brute-force flood
+	// and the root attempts are futile → no WARN, INFO only.
+	keyOnly := base
+	keyOnly.SSHConfigChecked = true
+	keyOnly.PasswordAuthEnabled = false
+	if got := maxLevel(checkAuth(keyOnly)); got != "INFO" {
+		t.Errorf("key-only host: want INFO (downgraded), got %q: %+v", got, checkAuth(keyOnly))
+	}
+
+	// Password auth ON + root login allowed (the VMware tenant minus the
+	// without-password nuance) → genuine exposure, keep WARN.
+	pwOpen := base
+	pwOpen.SSHConfigChecked = true
+	pwOpen.PasswordAuthEnabled = true
+	pwOpen.RootPasswordLoginAllowed = true
+	if got := maxLevel(checkAuth(pwOpen)); got != "WARN" {
+		t.Errorf("password-open host: want WARN, got %q", got)
+	}
+
+	// Password auth ON for users but PermitRootLogin without-password (the actual
+	// tenant): user brute-force WARN stays, but the root attempts are futile and
+	// must be an INFO, not a WARN with stale "set PermitRootLogin no" advice.
+	tenant := base
+	tenant.SSHConfigChecked = true
+	tenant.PasswordAuthEnabled = true
+	tenant.RootPasswordLoginAllowed = false
+	ins := checkAuth(tenant)
+	var sawUserWARN, sawRootINFO, sawRootWARN bool
+	for _, i := range ins {
+		switch {
+		case i.Level == "WARN" && strings.Contains(i.Message, "brute force"):
+			sawUserWARN = true
+		case i.Level == "INFO" && strings.Contains(i.Message, "root"):
+			sawRootINFO = true
+		case i.Level == "WARN" && strings.Contains(i.Message, "root"):
+			sawRootWARN = true
+		}
+	}
+	if !sawUserWARN {
+		t.Errorf("tenant: expected brute-force WARN to remain, got: %+v", ins)
+	}
+	if !sawRootINFO || sawRootWARN {
+		t.Errorf("tenant: root attempts should be INFO (futile, without-password), not WARN, got: %+v", ins)
+	}
 }
 
 func TestCheckBattery(t *testing.T) {
