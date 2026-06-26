@@ -26,3 +26,38 @@ func TestCoreThermalLevel(t *testing.T) {
 		}
 	}
 }
+
+// Guards `dsd hardware`'s drive-temperature grading, including the implausible-
+// SMART rejection. The 11759°C case is the real value a VMware virtual NVMe drive
+// reported live — the standalone command used to grade it as a thermal CRIT while
+// `dsd health` correctly rejected the same SMART (§L). plausible=false must drive
+// the "rejected" render, never a CRIT.
+func TestDriveThermalLevel(t *testing.T) {
+	cases := []struct {
+		name      string
+		temp      int
+		nvme      bool
+		level     string
+		plausible bool
+	}{
+		{"nvme normal 40C", 40, true, "ok", true},
+		{"nvme warm 72C warns", 72, true, "warn", true},
+		{"nvme hot 85C fails", 85, true, "fail", true},
+		{"sata normal 52C ok (was a false WARN)", 52, false, "ok", true},
+		{"sata warm 56C warns", 56, false, "warn", true},
+		{"sata 61C fails", 61, false, "fail", true},
+		// The live VMware vNVMe garbage — must be rejected, not graded CRIT.
+		{"vmware vNVMe 11759C is implausible", 11759, true, "info", false},
+		{"just over the 125C ceiling is implausible", 126, true, "info", false},
+		{"125C ceiling is still plausible", 125, true, "fail", true},
+	}
+	for _, c := range cases {
+		level, plausible := driveThermalLevel(c.temp, c.nvme)
+		if plausible != c.plausible {
+			t.Errorf("%s: driveThermalLevel(%d,%v) plausible=%v want %v", c.name, c.temp, c.nvme, plausible, c.plausible)
+		}
+		if level != c.level {
+			t.Errorf("%s: driveThermalLevel(%d,%v) level=%q want %q", c.name, c.temp, c.nvme, level, c.level)
+		}
+	}
+}
