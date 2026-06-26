@@ -9,13 +9,17 @@
 # have caught the 3491877946276% wear-garbage (#J): it exits 0 and is valid JSON
 # — only a range check flags it.
 #
-# Runs over SSH against the bare-metal testbed (PLATFORM_COVERAGE row 19).
+# Runs over SSH against the bare-metal testbed (PLATFORM_COVERAGE row 19) — pve01,
+# the always-on HP ProDesk (i7-6700, real SATA SMART + coretemp). The old default
+# (.7) pointed at a host that no longer exists, so the smoke test silently
+# "couldn't reach the testbed" and got skipped at release time; pve01 is reachable
+# from the dev Mac on the LAN.
 # Override host: HW_HOST=root@192.168.10.x bash scripts/hardware-smoke.sh
 # Build+push a fresh binary first with: PUSH=1 bash scripts/hardware-smoke.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HW_HOST="${HW_HOST:-root@192.168.10.7}"
+HW_HOST="${HW_HOST:-root@192.168.10.20}"
 REMOTE_BIN="${REMOTE_BIN:-/usr/local/bin/dsd}"
 PASS=0; FAIL=0; SKIP=0
 
