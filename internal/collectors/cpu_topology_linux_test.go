@@ -2,7 +2,28 @@
 
 package collectors
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
+// TestReadCPUAvailabilityRoutesThroughSource guards replay fidelity for the #545
+// CPU-offline insight: the sysfs/cmdline reads must go through the active Source so
+// `dsd replay` reproduces the CAPTURED host's CPU topology, not the replaying
+// machine's. Under replay against an EMPTY bundle every read misses (ErrNotRecorded)
+// → zeros. If readCPUAvailability reverted to os.ReadFile it would read the live
+// host's /sys and return a non-zero present count, and this test would fail.
+func TestReadCPUAvailabilityRoutesThroughSource(t *testing.T) {
+	empty := source.NewReplay(source.NewRecorder(source.Live{}).Bundle())
+	defer SetSource(SetSource(empty))
+
+	present, online, smt, isolated := readCPUAvailability()
+	if present != 0 || online != 0 || smt != "" || isolated {
+		t.Fatalf("empty-bundle replay must yield zeros (reads must route through Source); got present=%d online=%d smt=%q isolated=%v — reading the live host?",
+			present, online, smt, isolated)
+	}
+}
 
 func TestParseCPURangeCount(t *testing.T) {
 	cases := []struct {
