@@ -481,7 +481,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
-	issues := countSecurityIssues(info)
+	// Verdict derived from the SAME heuristic `dsd health` uses (checkSecurity), so
+	// the two can't diverge (BUG-072). The count is now WARN/CRIT insights rather
+	// than a separate item tally — grouped like health (e.g. "3 unexpected ports"
+	// is one concern).
+	issues := analysis.SecurityConcernCount(*info)
 	switch {
 	case issues > 0:
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
@@ -511,30 +515,6 @@ func printSecItem(label string, ok bool, goodVal, badVal string, mode output.Out
 	} else {
 		fmt.Printf("  %s   %-28s %s\n", asciiOr("warn", "⚠️", mode), label+":", badVal)
 	}
-}
-
-func countSecurityIssues(info *models.SecurityInfo) int {
-	n := 0
-	if info.SSHPermitRoot {
-		n++
-	}
-	if info.SSHPasswordAuth {
-		n++
-	}
-	if info.FailedLogins >= 5 {
-		n++
-	}
-	for _, p := range info.ListeningPorts {
-		if !p.Expected && (!info.IsPVE || !analysis.IsPVEServicePort(p.Port)) {
-			n++
-		}
-	}
-	n += len(info.SudoNopasswd)
-	n += len(info.SUIDBinaries)
-	if info.SELinuxDenials >= 10 {
-		n++
-	}
-	return n
 }
 
 // wellKnownPort maps common port numbers to service names.
