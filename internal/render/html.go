@@ -253,7 +253,26 @@ const htmlReportTemplate = `<!DOCTYPE html>
   footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line);
     color: var(--muted); font-size: 12px; }
   footer a { color: var(--muted); }
-  @media print { body { background: #fff; } .wrap { max-width: none; } .issue, table { break-inside: avoid; } }
+  /* Print / Save-as-PDF: this report's intended hand-off path (no native PDF
+     engine — keeps dsd a single static binary). Tuned so a browser print yields
+     a clean deliverable: A4 margins, colour-correct status badges, and section-
+     aware page breaks. */
+  @media print {
+    @page { size: A4; margin: 14mm; }
+    html, body { background: #fff; }
+    /* print-color-adjust:exact is the load-bearing rule — without it the white-on-
+       colour status tags (.tag/.st) and the verdict/code blocks wash out to blank
+       white boxes in the PDF. */
+    body { font-size: 12px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .verdict, .chip, .tag, .st, .issue, .issue pre, th, .cve-group {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .wrap { max-width: none; margin: 0; padding: 0; }
+    h1, h2 { break-after: avoid; }            /* never strand a heading at a page foot */
+    h2 { margin-top: 20px; }
+    .verdict, .issue, table, tr, .cve-list li { break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+    footer { margin-top: 24px; }
+  }
 </style>
 </head>
 <body>
