@@ -95,6 +95,87 @@ func TestCmdHealthConsistency_KVM(t *testing.T) {
 	}
 }
 
+func TestCmdHealthConsistency_Net(t *testing.T) {
+	cases := []struct {
+		name string
+		info models.NetworkInfo
+	}{
+		{"healthy", models.NetworkInfo{GatewayPingMs: 1}},
+		// #275: cmd flagged latency only >200ms; health (and now cmd) WARN >50ms.
+		{"slow gateway", models.NetworkInfo{GatewayPingMs: 120}},
+		// #275: cmd flagged conntrack only >=80%; aligned to health's >=60%.
+		{"conntrack high", models.NetworkInfo{GatewayPingMs: 1, ConntrackUsedPct: 72}},
+		{"dns failed", models.NetworkInfo{GatewayPingMs: 1, DNSFailed: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmdConcern := netConcerns(&tc.info) > 0
+			healthConcern := healthHasConcern(t, "Network", &tc.info)
+			if cmdConcern != healthConcern {
+				t.Errorf("Network verdict divergence: `dsd net` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
+func TestCmdHealthConsistency_K8s(t *testing.T) {
+	// Detected + APIReachable so the health heuristic actually evaluates the cluster
+	// (kubectl present but no successful query reads as "not verified", not healthy).
+	base := models.K8sInfo{Detected: true, APIReachable: true}
+	mk := func(mut func(*models.K8sInfo)) models.K8sInfo { i := base; mut(&i); return i }
+	cases := []struct {
+		name string
+		info models.K8sInfo
+	}{
+		{"healthy", base},
+		// #275: cmd verdict previously ignored these; checkK8s WARNs.
+		{"workloads down", mk(func(i *models.K8sInfo) { i.WorkloadsDown = 1 })},
+		{"pvc not bound", mk(func(i *models.K8sInfo) { i.PVCsNotBound = 1 })},
+		{"warning events", mk(func(i *models.K8sInfo) { i.Events = make([]models.K8sEvent, 1) })},
+		{"crash looping", mk(func(i *models.K8sInfo) { i.CrashLooping = 1 })},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmdConcern := k8sHasConcern(&tc.info)
+			healthConcern := healthHasConcern(t, "K8s", &tc.info)
+			if cmdConcern != healthConcern {
+				t.Errorf("K8s verdict divergence: `dsd k8s` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
+// NOTE: this covers the conditions BOTH paths evaluate. `countSecurityIssues`
+// (cmd) is currently a NARROWER tally than checkSecurity (health): health also
+// WARNs on StrictModes-disabled, PermitEmptyPasswords, weak SSH MACs, and
+// password-never-expires, which the cmd tally does not count — a real
+// sibling-divergence this guard surfaced (BUGS.md / see PR discussion). Closing
+// it changes `dsd security`'s "N concerns" count, so it's a deliberate follow-up,
+// not folded in here. The healthy fixture sets SSHStrictModes (a real host has it
+// enabled by default) so it isn't tripped by that specific gap.
+func TestCmdHealthConsistency_Security(t *testing.T) {
+	cases := []struct {
+		name string
+		info models.SecurityInfo
+	}{
+		{"healthy", models.SecurityInfo{SSHStrictModes: true}},
+		{"ssh password auth", models.SecurityInfo{SSHStrictModes: true, SSHPasswordAuth: true}},
+		{"ssh permit root", models.SecurityInfo{SSHStrictModes: true, SSHPermitRoot: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmdConcern := countSecurityIssues(&tc.info) > 0
+			healthConcern := healthHasConcern(t, "Security", &tc.info)
+			if cmdConcern != healthConcern {
+				t.Errorf("Security verdict divergence: `dsd security` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
 func TestCmdHealthConsistency_Docker(t *testing.T) {
 	cases := []struct {
 		name string

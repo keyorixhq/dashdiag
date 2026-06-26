@@ -164,6 +164,46 @@ func netMark(level string, mode output.OutputMode) string {
 	return ""
 }
 
+// netConcerns counts the actionable issues in the standalone `dsd net` verdict,
+// kept as one pure function so its thresholds can't drift from `dsd health`'s
+// checkNetwork (the sibling-divergence class, #275 — gateway latency >50ms,
+// conntrack ≥60%, packet-loss via GatewayPacketLossLevel). Pinned by the cmd↔
+// health consistency test (cmd_health_consistency_test.go).
+func netConcerns(info *models.NetworkInfo) int {
+	issues := 0
+	issues += countSteamOSWifiIssues(info.SteamOSWifi)
+	if info.PrimaryInterfaceDown {
+		issues++
+	}
+	// Thresholds mirror checkNetwork so `dsd net` and `dsd health` agree on the
+	// same data (elevated latency >50ms; packet-loss WARN at >=10%).
+	if info.GatewayPingMs > 50 || info.GatewayPingMs < 0 {
+		issues++
+	}
+	if analysis.GatewayPacketLossLevel(info.GatewayPacketLossPct) != "" {
+		issues++
+	}
+	if info.DNSFailed {
+		issues++
+	}
+	if info.CloseWaitCount > 100 {
+		issues++
+	}
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("listen_overflow", info.ListenOverflows, info.UptimeSec)) {
+		issues++
+	}
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("syn_retrans", info.SynRetransCount, info.UptimeSec)) {
+		issues++
+	}
+	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec)) {
+		issues++
+	}
+	if info.ConntrackUsedPct >= 60 {
+		issues++
+	}
+	return issues
+}
+
 func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // report renderer — each branch is a distinct display condition
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
@@ -316,37 +356,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
-	issues := 0
-	issues += countSteamOSWifiIssues(info.SteamOSWifi)
-	if info.PrimaryInterfaceDown {
-		issues++
-	}
-	// Thresholds mirror checkNetwork so `dsd net` and `dsd health` agree on the
-	// same data (elevated latency >50ms; packet-loss WARN at >=10%).
-	if info.GatewayPingMs > 50 || info.GatewayPingMs < 0 {
-		issues++
-	}
-	if analysis.GatewayPacketLossLevel(info.GatewayPacketLossPct) != "" {
-		issues++
-	}
-	if info.DNSFailed {
-		issues++
-	}
-	if info.CloseWaitCount > 100 {
-		issues++
-	}
-	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("listen_overflow", info.ListenOverflows, info.UptimeSec)) {
-		issues++
-	}
-	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("syn_retrans", info.SynRetransCount, info.UptimeSec)) {
-		issues++
-	}
-	if tcpCounterIsIssue(analysis.DeepTCPCounterLevel("retrans_fail", info.RetransFailCount, info.UptimeSec)) {
-		issues++
-	}
-	if info.ConntrackUsedPct >= 60 {
-		issues++
-	}
+	issues := netConcerns(info)
 
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Network healthy. Checks passed%s", netMark("ok", mode), timing)))

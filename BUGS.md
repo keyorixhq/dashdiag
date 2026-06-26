@@ -1076,3 +1076,29 @@ but OOM detection was silently dead.
   already handled conservatively by filterOOMRecent. Regression guard added
   (`oom_busybox_dmesg_test.go`, a fake busybox source: iso-flag fails, bare dmesg succeeds).
   Verified live on the Alpine box: `OOM ✅ 0 events` at root (was "not verified"). **PR:** #529
+
+## cmd↔health consistency guard — extension to net/k8s/security — 2026-06-26
+
+Extending the cmd↔health verdict-consistency guard (#528) to net/k8s/security
+(see [[#528]]). net and k8s aligned cleanly; the guard surfaced a real security
+divergence below.
+
+### BUG-072 — `dsd security` verdict undercounts SSH hardening vs `dsd health`
+**Found:** extending the cmd↔health consistency guard to security (2026-06-26); corroborated
+  by the live Alpine 3.22 run where `dsd health` WARNed weak-MAC + password-never-expires.
+**Symptom:** `dsd security`'s "N concern(s)" verdict (`countSecurityIssues`) tallies a NARROWER
+  set than `dsd health`'s `checkSecurity`: cmd counts SSHPermitRoot, SSHPasswordAuth, failed
+  logins, unexpected ports, NOPASSWD sudo, SUID, SELinux denials — but NOT StrictModes-disabled,
+  PermitEmptyPasswords (a health CRIT!), weak SSH MACs, or password-never-expires, all of which
+  checkSecurity WARNs/CRITs on. So `dsd security` can summarize "healthy / fewer concerns" while
+  `dsd health` flags real SSH hardening issues on the same host — the sibling-divergence class
+  (#235/#275/#335) again, in security.
+**Affected:** `dsd security` summary verdict on any host with those SSH hardening gaps — the
+  detail section may even print the weak MAC while the verdict reads healthy.
+**Fix (deferred — deliberate):** the durable fix is to derive `dsd security`'s verdict from the
+  `checkSecurity` insights (count WARN/CRIT) rather than maintain the parallel `countSecurityIssues`
+  tally — which removes the drift by construction. Not folded into the guard PR because it changes
+  `dsd security`'s user-visible concern count, and the StrictModes condition needs the collector's
+  unread-default (non-root) verified first to avoid a false concern. The consistency test currently
+  covers the conditions both paths share (PermitRoot/PasswordAuth) so those can't drift; closing
+  the rest is the tracked follow-up. **PR:** _guard #530; fix pending_
