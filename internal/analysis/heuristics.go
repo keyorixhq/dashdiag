@@ -845,6 +845,11 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 		out = append(out, ins)
 	}
 
+	// Allocated-but-offline vCPUs — a hot-added vCPU the guest never onlined.
+	if ins, ok := cpuOfflineInsight(cpu); ok {
+		out = append(out, ins)
+	}
+
 	// CPU iowait — CPU is idle but blocked waiting for I/O.
 	// High iowait with normal/low CPU usage means load is I/O-driven, not compute-driven.
 	// This is the canonical "high load average but CPU is not busy" pattern.
@@ -951,6 +956,42 @@ func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, boo
 			"note: steal time indicates host over-provisioning — consider VM migration",
 		},
 	), true
+}
+
+// cpuOfflineInsight flags allocated-but-offline vCPUs: present > online. The common
+// cause is a VMware/cloud CPU hot-add the guest never onlined — Debian/Ubuntu lack
+// the auto-online udev rule RHEL ships, so the VM runs on a fraction of its
+// allocation with no other signal (found live: a 14-vCPU VMware guest running on 2).
+// Gated against the two intentional causes so it doesn't false-WARN: SMT
+// force-disabled (sibling threads parked for a security mitigation) and
+// isolcpus/nohz_full (cores deliberately isolated) → INFO, not WARN. ok=false when
+// availability wasn't read (non-Linux) or all present CPUs are online.
+func cpuOfflineInsight(cpu models.CPUInfo) (models.Insight, bool) {
+	if cpu.PresentCPUs <= 0 || cpu.OnlineCPUs <= 0 || cpu.PresentCPUs <= cpu.OnlineCPUs {
+		return models.Insight{}, false
+	}
+	offline := cpu.PresentCPUs - cpu.OnlineCPUs
+	switch {
+	case cpu.SMTControl == "off" || cpu.SMTControl == "forceoff":
+		return insight("INFO", "CPU Load",
+			fmt.Sprintf("%d of %d CPUs are offline because SMT is disabled — the hyperthread siblings are parked (a security mitigation, expected)", offline, cpu.PresentCPUs),
+			[]string{"to inspect: cat /sys/devices/system/cpu/smt/control"},
+		), true
+	case cpu.CPUsIsolated:
+		return insight("INFO", "CPU Load",
+			fmt.Sprintf("%d of %d CPUs are offline/isolated — isolcpus or nohz_full is set on the kernel cmdline (intentional)", offline, cpu.PresentCPUs),
+			[]string{"to inspect: cat /proc/cmdline"},
+		), true
+	default:
+		return insight("WARN", "CPU Load",
+			fmt.Sprintf("%d of %d allocated vCPUs are offline — the guest is using only %d; a hot-added vCPU the OS never onlined (Debian/Ubuntu lack the auto-online udev rule), so the VM runs on a fraction of its allocation", offline, cpu.PresentCPUs, cpu.OnlineCPUs),
+			[]string{
+				"to online now: for c in /sys/devices/system/cpu/cpu[0-9]*/online; do echo 1 > $c; done   (as root)",
+				`to persist: a udev rule — SUBSYSTEM=="cpu", ACTION=="add", TEST=="online", ATTR{online}=="0", ATTR{online}="1"`,
+				"note: if the offline CPUs are intentional (isolcpus / SMT off), this can be ignored",
+			},
+		), true
+	}
 }
 
 // pluralize returns "<n> <singular>" when n == 1, otherwise "<n> <plural>".

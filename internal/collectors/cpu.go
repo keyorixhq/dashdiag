@@ -334,6 +334,10 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
+	// CPU availability (present vs online, SMT, isolcpus) — Linux sysfs; zero values
+	// on other platforms. Lets the heuristic flag allocated-but-offline vCPUs.
+	present, online, smt, isolated := readCPUAvailability()
+
 	return &models.CPUInfo{
 		LoadAvg1:          load1,
 		LoadAvg5:          load5,
@@ -346,6 +350,10 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		RunQueue:          runQueue,
 		ProcsBlocked:      procsBlocked,
 		ContextSwitchRate: ctxSwitchRate,
+		PresentCPUs:       present,
+		OnlineCPUs:        online,
+		SMTControl:        smt,
+		CPUsIsolated:      isolated,
 	}, nil
 }
 

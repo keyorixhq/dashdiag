@@ -34,4 +34,13 @@ type CPUInfo struct {
 	// attribute high steal to a configured cap (host-throttled) rather than to
 	// host over-provisioning (§N.4). 0 = no known limit. Internal enrichment only.
 	HostCPULimitMHz int `json:"-"`
+
+	// CPU availability — used to flag allocated-but-unused vCPUs: a hot-added vCPU
+	// the guest never onlined (present > online with no SMT-off / isolcpus reason),
+	// which leaves a VM running on a fraction of its allocation with no other signal.
+	// 0 / "" = not read (non-Linux or sysfs unavailable).
+	PresentCPUs  int    `json:"present_cpus,omitempty"`  // /sys/devices/system/cpu/present count (allocated)
+	OnlineCPUs   int    `json:"online_cpus,omitempty"`   // /sys/devices/system/cpu/online count (actually used)
+	SMTControl   string `json:"smt_control,omitempty"`   // smt/control: on|off|forceoff|notsupported
+	CPUsIsolated bool   `json:"cpus_isolated,omitempty"` // isolcpus= / nohz_full= in /proc/cmdline (offline is intentional)
 }
