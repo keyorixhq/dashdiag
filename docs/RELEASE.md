@@ -45,6 +45,18 @@ not reachable from GitHub Actions, and may be offline). If the box is down, skip
 it explicitly and note it in the release — don't let a downed testbed silently
 mean "untested hardware paths."
 
+> **Why this stays a live LAN script and isn't a replay-based CI gate** (considered
+> 2026-06-26, rejected): a replay bundle would sit in the redundant middle of two
+> guards that already exist. The garbage-*value* parsing class (the `3491877946276%`
+> wear bug) is already covered in CI by unit tests with the real garbage bytes
+> (`heuristics_container_drives_test.go`: 11758 °C, the 0 K sentinel) plus the
+> raw-tool fuzz corpus — portable, every PR. A *brand-new* garbage value from a real
+> sensor needs live hardware, which only this script can surface. A replay snapshot
+> is no better than the unit tests for regressions (also fixed inputs) and can't see
+> a new sensor value (also a snapshot), so it adds neither — for the cost of a
+> committed binary fixture, CI plumbing, and a health-vs-`dsd hardware` shape
+> workaround. Keep both layers: unit/fuzz in CI + this script on real hardware.
+
 ## Cutting a Release
 
 ```bash
