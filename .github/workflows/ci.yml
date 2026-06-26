@@ -231,7 +231,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
@@ -255,3 +255,30 @@ jobs:
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
       - name: Assert non-root never escalates a verdict vs root
         run: DSD="$RUNNER_TEMP/dsd" ./scripts/check-nonroot-invariant.sh
+
+  # Non-systemd / musl coverage. Every other job runs on ubuntu/debian/macOS
+  # (systemd + glibc), so the musl + busybox + OpenRC surface is otherwise
+  # untested in CI — yet dsd keeps hitting bugs there: DBus/journald phantom
+  # warnings (BUG-051), systemctl hints on OpenRC (BUG-054), and the OOM
+  # `dmesg --time-format` busybox-incompatibility (BUG-071, this session). Build a
+  # static binary (CGO_ENABLED=0 → runs on musl) and assert `dsd health` runs
+  # HONESTLY in a stock alpine container: no panic, valid JSON, and the non-root
+  # run never escalates a verdict beyond root. Cheap (one container), closes a
+  # recurring blind spot.
+  alpine-musl-smoke:
+    name: Alpine (musl/busybox) honesty smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Build static dsd (musl-compatible)
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
+      - name: Run honesty smoke in alpine:latest
+        run: |
+          docker run --rm \
+            -v "$RUNNER_TEMP/dsd:/usr/local/bin/dsd:ro" \
+            -v "$PWD/scripts/alpine-smoke.sh:/alpine-smoke.sh:ro" \
+            alpine:latest sh /alpine-smoke.sh
