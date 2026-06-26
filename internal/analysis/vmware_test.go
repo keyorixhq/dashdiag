@@ -182,10 +182,18 @@ func TestVMwareResourceConstraintsBinding(t *testing.T) {
 	cpuBind.HostMHzPerCPU = 2993
 	onlyLevel(t, vmwareResourceConstraints(cpuBind), "WARN", "1500 MHz")
 
-	// Capacity unknown (no vCPU/RAM context) → keep the conservative WARN.
+	// Capacity unknown (no vCPU/host-clock context, e.g. `stat speed` unavailable):
+	// keep the conservative WARN, but it must NOT assert throttling as fact — it can
+	// only say the limit couldn't be sized. (Found live: lumping unknown-capacity in
+	// with proven-binding false-WARNed "the guest is throttled regardless of host
+	// load" on a VCD tenant whose limit actually sat at/above capacity.)
 	unknown := base()
 	unknown.CPULimitMHz = 6000
-	onlyLevel(t, vmwareResourceConstraints(unknown), "WARN", "6000 MHz")
+	uIns := vmwareResourceConstraints(unknown)
+	onlyLevel(t, uIns, "WARN", "could not be determined")
+	if strings.Contains(uIns[0].Message, "is throttled") {
+		t.Errorf("unknown-capacity WARN must not assert throttling as fact: %q", uIns[0].Message)
+	}
 }
 
 // FALSE_OK_SWEEP #33: open-vm-tools running but the stat interface didn't answer →
