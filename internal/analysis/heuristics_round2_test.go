@@ -87,6 +87,10 @@ func TestCheckThermal(t *testing.T) {
 		{"normal temp is clean", models.ThermalInfo{CPUTempC: 50, Source: "hwmon"}, ""},
 		{"elevated is WARN", models.ThermalInfo{CPUTempC: 87, Source: "hwmon"}, "WARN"},
 		{"throttling is CRIT", models.ThermalInfo{CPUTempC: 96, Source: "hwmon"}, "CRIT"},
+		// A faulted/virtual sensor reporting garbage must NOT fire the throttling CRIT
+		// — reject it as unverified (WARN), like the VMware vNVMe 11758°C class.
+		{"implausibly high is WARN not CRIT", models.ThermalInfo{CPUTempC: 11758, Source: "hwmon"}, "WARN"},
+		{"implausibly low (negative offset) is WARN", models.ThermalInfo{CPUTempC: -60, Source: "k10temp"}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
