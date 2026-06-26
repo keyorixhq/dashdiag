@@ -100,34 +100,74 @@ func vmwareResourceConstraints(v models.VMwareInfo) []models.Insight {
 			}))
 	}
 	if v.MemLimitMB > 0 {
-		if binding, known := vmwareMemLimitBinding(v); known && !binding {
-			out = append(out, insight("INFO", "VMware",
-				fmt.Sprintf("a host memory limit of %d MB is configured but it is at/above this VM's RAM (%d MB), so it is currently non-binding", v.MemLimitMB, v.TotalRAMMB),
-				[]string{"note: it would only cause ballooning/swap if this VM's RAM were raised above the limit"}))
-		} else {
-			out = append(out, insight("WARN", "VMware",
-				fmt.Sprintf("a host-imposed memory limit of %d MB is set on this VM — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB),
-				[]string{
-					"to inspect: vmware-toolbox-cmd stat memlimit",
-					"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
-				}))
-		}
+		out = append(out, vmwareMemLimitInsight(v))
 	}
 	if v.CPULimitMHz > 0 {
-		if binding, known := vmwareCPULimitBinding(v); known && !binding {
-			out = append(out, insight("INFO", "VMware",
-				fmt.Sprintf("a host CPU limit of %d MHz is configured but it is at/above this VM's capacity (%d vCPU × %d MHz), so it is currently non-binding", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU),
-				[]string{"note: it would only throttle the guest if the limit were lowered below capacity, or capacity raised above it — watch CPU steal"}))
-		} else {
-			out = append(out, insight("WARN", "VMware",
-				fmt.Sprintf("a host-imposed CPU limit of %d MHz is set on this VM — the guest is throttled below its vCPU capacity regardless of host load", v.CPULimitMHz),
-				[]string{
-					"to inspect: vmware-toolbox-cmd stat cpulimit",
-					"note: a CPU limit is an invisible cause of guest slowness — remove it in vSphere unless intentional",
-				}))
-		}
+		out = append(out, vmwareCPULimitInsight(v))
 	}
 	return out
+}
+
+// vmwareMemLimitInsight classifies a configured host memory limit three ways:
+// proven non-binding (limit ≥ RAM) → INFO; proven binding (limit < RAM) → WARN;
+// RAM unknown → WARN that surfaces the limit WITHOUT asserting it paginates,
+// since it can't be sized. Lumping "RAM unknown" in with "proven binding" (the old
+// two-way else) over-claimed harm whenever the limit was actually inert.
+func vmwareMemLimitInsight(v models.VMwareInfo) models.Insight {
+	binding, known := vmwareMemLimitBinding(v)
+	switch {
+	case known && !binding:
+		return insight("INFO", "VMware",
+			fmt.Sprintf("a host memory limit of %d MB is configured but it is at/above this VM's RAM (%d MB), so it is currently non-binding", v.MemLimitMB, v.TotalRAMMB),
+			[]string{"note: it would only cause ballooning/swap if this VM's RAM were raised above the limit"})
+	case known: // && binding
+		return insight("WARN", "VMware",
+			fmt.Sprintf("a host memory limit of %d MB is set below this VM's RAM (%d MB) — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB, v.TotalRAMMB),
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat memlimit",
+				"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
+			})
+	default: // RAM unknown — can't tell whether the limit bites
+		return insight("WARN", "VMware",
+			fmt.Sprintf("a host memory limit of %d MB is configured on this VM; this VM's RAM could not be read, so whether the limit is currently binding could not be determined", v.MemLimitMB),
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat memlimit; cat /proc/meminfo",
+				"note: the limit only paginates the guest if it sits below the VM's RAM",
+			})
+	}
+}
+
+// vmwareCPULimitInsight classifies a configured host CPU limit three ways:
+// proven non-binding (limit ≥ capacity) → INFO; proven binding (limit < capacity)
+// → confident WARN naming the capacity; capacity unknown (no `vmware-toolbox-cmd
+// stat speed`, e.g. an older capture or open-vm-tools without the stat) → WARN that
+// surfaces the limit but does NOT assert throttling. The unknown case previously
+// reused the proven-binding text ("the guest is throttled … regardless of host
+// load") — a false-WARN whenever the limit actually sat at/above capacity (the
+// VCD-tenant auto-scaled-limit case, found live; reproduced offline on a bundle
+// that predates the `stat speed` capture, so its capacity reads unknown).
+func vmwareCPULimitInsight(v models.VMwareInfo) models.Insight {
+	binding, known := vmwareCPULimitBinding(v)
+	switch {
+	case known && !binding:
+		return insight("INFO", "VMware",
+			fmt.Sprintf("a host CPU limit of %d MHz is configured but it is at/above this VM's capacity (%d vCPU × %d MHz), so it is currently non-binding", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU),
+			[]string{"note: it would only throttle the guest if the limit were lowered below capacity, or capacity raised above it — watch CPU steal"})
+	case known: // && binding
+		return insight("WARN", "VMware",
+			fmt.Sprintf("a host CPU limit of %d MHz is set below this VM's capacity (%d vCPU × %d MHz = %d MHz) — the guest is throttled regardless of host load", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU, v.NumVCPU*v.HostMHzPerCPU),
+			[]string{
+				"to inspect: vmware-toolbox-cmd stat cpulimit",
+				"note: a CPU limit below capacity is an invisible cause of guest slowness — remove it in vSphere unless intentional",
+			})
+	default: // capacity unknown — can't tell whether the limit throttles
+		return insight("WARN", "VMware",
+			fmt.Sprintf("a host CPU limit of %d MHz is configured on this VM; its per-vCPU host clock is unknown (vmware-toolbox-cmd stat speed unavailable), so whether it currently throttles the guest could not be determined", v.CPULimitMHz),
+			[]string{
+				"to size it: vmware-toolbox-cmd stat speed   (per-vCPU MHz; capacity = vCPUs × this)",
+				"note: the limit only throttles if it sits below the VM's capacity — upgrade/repair open-vm-tools so dsd can confirm",
+			})
+	}
 }
 
 // vmwareMemLimitBinding reports whether a configured memory limit can actually
