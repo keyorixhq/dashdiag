@@ -8,17 +8,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-func checkKVM(kvm models.KVMInfo) []models.Insight {
+// checkKVMVMs covers the per-domain state verdicts (crashed, abnormal/stuck,
+// unreadable, paused, shut-off-with-autostart, disk I/O). Split out of checkKVM
+// to keep each under the funlen limit; the two compose into the full KVM verdict.
+func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	var out []models.Insight
-	if !kvm.Detected {
-		return out
-	}
-	// libvirt is up but its domains couldn't be enumerated — surface that rather than
-	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
-	if kvm.Status == "enum-failed" {
-		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
-			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
-	}
 	// Crashed VMs — always CRIT
 	for _, vm := range kvm.VMs {
 		if vm.State == models.KVMCrashed {
@@ -33,6 +27,35 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 			out = append(out, insight("CRIT", "KVM",
 				fmt.Sprintf("VM %s is in CRASHED state", vm.Name), hints))
 		}
+	}
+	// Abnormal non-running states (pmsuspended / in shutdown / idle / blocked) —
+	// not running and not cleanly stopped, so they'd otherwise read as healthy.
+	if kvm.VMsAbnormal > 0 {
+		var names []string
+		for _, vm := range kvm.VMs {
+			switch vm.State {
+			case models.KVMPMSuspended, models.KVMInShutdown, models.KVMIdle, models.KVMBlocked:
+				names = append(names, fmt.Sprintf("%s (%s)", vm.Name, vm.State))
+			}
+		}
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) in an abnormal state: %s — not running and not cleanly stopped",
+				kvm.VMsAbnormal, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: virsh dominfo <name>",
+				"to recover: virsh dompmwakeup <name> (pmsuspended), or virsh destroy then virsh start",
+			},
+		))
+	}
+	// State could not be read (virsh dominfo failed) — couldn't verify, not healthy.
+	if kvm.VMsUnreadable > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) defined but their state could not be read (virsh dominfo failed) — true state unknown", kvm.VMsUnreadable),
+			[]string{
+				"to inspect: virsh dominfo <name>",
+				"note: a transient libvirt error or permission issue hid the VM's real state",
+			},
+		))
 	}
 	// Paused VMs — WARN
 	if kvm.VMsPaused > 0 {
@@ -72,6 +95,22 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
+	return out
+}
+
+func checkKVM(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
+	if !kvm.Detected {
+		return out
+	}
+	// libvirt is up but its domains couldn't be enumerated — surface that rather than
+	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
+	if kvm.Status == "enum-failed" {
+		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
+			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
+	}
+	out = append(out, checkKVMVMs(kvm)...)
+
 	// Inactive networks — WARN
 	if kvm.NetworksInactive > 0 {
 		out = append(out, insight("WARN", "KVM",

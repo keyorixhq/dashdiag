@@ -66,6 +66,21 @@ func TestCheckKVM(t *testing.T) {
 			kvm:  models.KVMInfo{Detected: true, VMsDownAutostart: 1, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMShutOff, AutoStart: true}}},
 			want: "WARN",
 		},
+		{
+			name: "pmsuspended VM is WARN (was silent false-OK)",
+			kvm:  models.KVMInfo{Detected: true, VMsAbnormal: 1, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMPMSuspended}}},
+			want: "WARN",
+		},
+		{
+			name: "in-shutdown VM is WARN",
+			kvm:  models.KVMInfo{Detected: true, VMsAbnormal: 1, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMInShutdown}}},
+			want: "WARN",
+		},
+		{
+			name: "unreadable VM state is WARN (dominfo failed, not healthy)",
+			kvm:  models.KVMInfo{Detected: true, VMsUnreadable: 1, VMs: []models.KVMVM{{Name: "vm1", State: ""}}},
+			want: "WARN",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

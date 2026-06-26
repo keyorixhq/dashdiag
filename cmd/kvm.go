@@ -79,7 +79,8 @@ func runKVM(cmd *cobra.Command, _ []string) error {
 // Pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
 func kvmConcerns(info *models.KVMInfo) int {
 	issues := info.VMsCrashed + info.VMsDownAutostart + info.NetworksInactive +
-		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused
+		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused +
+		info.VMsAbnormal + info.VMsUnreadable
 	// libvirt up but domains couldn't be enumerated — never let an empty VM list
 	// read as healthy (matches checkKVM, which WARNs on enum-failed).
 	if info.Status == "enum-failed" {
