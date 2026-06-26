@@ -11,6 +11,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-06-26
+
+Patch: a sweep of false-verdict fixes found running dsd live on a real VMware Cloud
+Director tenant and a cross-distro guest fleet (Ubuntu 24.04, CentOS Stream 8,
+CentOS 7). Three of them fire on every default RHEL-family or older-kernel host —
+well beyond VMware — and were each producing a false CRITICAL/WARN on stock systems.
+No CLI or `--json` schema change.
+
+### Fixed
+
+- **LVM false-CRIT on every default RHEL-family install.** `dsd health` CRIT'd a volume
+  group that was 100% *allocated* — but a fully-allocated VG (root+swap taking the whole
+  VG, 0 free extents) is the normal default layout on CentOS/RHEL/AlmaLinux/Rocky and
+  LVM Ubuntu, with the filesystem itself only ~40% used. VG free extents aren't a health
+  signal; filesystem fill (Disk check) and thin-pool data% are. Now INFO ("fully
+  allocated — normal"), and `dsd disk` agrees. Found live on CentOS Stream 8. (#541)
+- **journald "all logs lost" false-WARN when rsyslog persists.** `dsd health` WARNed
+  "volatile journald — all logs lost on reboot" whenever `/var/log/journal` was absent,
+  ignoring a running rsyslog/syslog-ng writing `/var/log/messages`. RHEL/CentOS 7 (and
+  many distros) ship volatile journald + rsyslog by default, so logs survive — only the
+  journalctl boot history is lost. Now INFO when a text fallback persists; WARN only with
+  no fallback. Found live on CentOS 7. (#542)
+- **`net.core.somaxconn` flipped older boxes to CRITICAL on the kernel default.**
+  `dsd health` hard-CRIT'd somaxconn < 512, but 128 is the historical kernel default
+  (<5.4; CentOS 7 / RHEL 7). somaxconn is the listen() backlog — a tuning parameter that
+  degrades a high-connection server under load but never fails the system. Now a single
+  WARN framed as a tuning recommendation, never CRIT. Found live on CentOS 7. (#543)
+- **`dsd hardware` false-CRIT on implausible NVMe SMART temperature.** The health/Drives
+  path already rejected a VMware virtual NVMe reporting 11759°C (§L), but the standalone
+  `dsd hardware` thermal renderer lacked the same plausibility gate and showed
+  "Temperature: CRIT 11759°C". Now rejected as "SMART sensor unreliable", matching
+  `dsd health`. Invisible unprivileged; only root + smartctl exposed it. Found live on
+  real VMware vNVMe. (#538)
+- **VMware non-binding resource limit false-WARN.** A configured CPU or memory limit at
+  or above the VM's capacity is inert — it can never throttle or balloon — yet dsd WARNed
+  "throttled below capacity" / "RAM ballooned/swapped". Now INFO ("configured but
+  non-binding") when proven ≥ capacity; WARN only when it can actually bite. Found live
+  on a VCD tenant whose cpu_limit auto-scaled to == capacity. (#539)
+
+### Added
+
+- **`dsd health` attributes CPU steal to a configured vSphere CPU limit.** On a VMware
+  guest with high CPU steal and a known host CPU limit, the steal insight now points at
+  the configured cap ("remove the limit in vSphere — migrating won't help") instead of
+  the generic "host over-provisioned, migrate" remediation, which is wrong for a
+  configured limit. (#536)
+- **`dsd health --report-html` saves a clean PDF via browser print.** Print-quality CSS
+  (colour-correct status badges, A4 margins, section-aware page breaks) so the
+  self-contained HTML report prints to a polished PDF. No native PDF dependency. (#537)
+
+### Internal
+
+- The cmd↔health consistency guard now covers `dsd steamos` — the last standalone command
+  with a parallel concern tally, pinning its verdict to `dsd health`. (#535)
+
 ## [1.9.2] - 2026-06-26
 
 Patch: a sweep of false-verdict fixes found running dsd live across an AWS EC2
