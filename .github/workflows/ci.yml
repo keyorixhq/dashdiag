@@ -231,4 +231,27 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh
+
+  # Non-root invariant guard for the recurring "non-root false verdict" bug class
+  # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
+  # different output unprivileged; a buggy collector reads that as a false CRIT/WARN.
+  # Run dsd as root AND non-root on the same healthy box (with a real loopback btrfs
+  # mounted) and fail if any check raises a WARN/CRIT non-root that root doesn't —
+  # the whole point being that CI otherwise runs everything as root, so this branch
+  # was never exercised. NOTE: the deterministic BUG-070 guard is the btrfs unit
+  # test (the `MISSING` artifact is btrfs-progs-version-specific and may not
+  # reproduce here); this job guards the broader class on every push.
+  nonroot-invariant:
+    name: Non-root verdict invariant
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Build dsd
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
+      - name: Assert non-root never escalates a verdict vs root
+        run: DSD="$RUNNER_TEMP/dsd" ./scripts/check-nonroot-invariant.sh

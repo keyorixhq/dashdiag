@@ -12,9 +12,14 @@ type MongoDBInfo struct {
 	ReplicaSetName string `json:"replica_set_name,omitempty"`
 
 	MetricsRead bool `json:"metrics_read"`
-	HasPrimary  bool `json:"has_primary,omitempty"`
-	DownMembers int  `json:"down_members,omitempty"`
-	Members     int  `json:"members,omitempty"`
+	// ReplStatusRead is true only when rs.status() actually returned. It can throw
+	// (auth-gated separately from db.hello()) even on a healthy primary, so without
+	// this flag HasPrimary defaults false and the no-primary CRIT fires from a
+	// FAILED read — a false-CRIT crying wolf on a healthy set.
+	ReplStatusRead bool `json:"repl_status_read,omitempty"`
+	HasPrimary     bool `json:"has_primary,omitempty"`
+	DownMembers    int  `json:"down_members,omitempty"`
+	Members        int  `json:"members,omitempty"`
 
 	ConnCurrent   int `json:"conn_current,omitempty"`
 	ConnAvailable int `json:"conn_available,omitempty"`

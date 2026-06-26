@@ -131,6 +131,28 @@ func TestParseLeadingInt(t *testing.T) {
 	}
 }
 
+func TestCPUCountFromProc(t *testing.T) {
+	// Two logical CPUs (real /proc/cpuinfo shape, trimmed).
+	cpuinfo := "processor\t: 0\nmodel name\t: Xeon\n\nprocessor\t: 1\nmodel name\t: Xeon\n"
+	if got := cpuCountFromProc(cpuinfo); got != 2 {
+		t.Errorf("cpuCountFromProc = %d, want 2", got)
+	}
+	if got := cpuCountFromProc(""); got != 0 {
+		t.Errorf("cpuCountFromProc(empty) = %d, want 0", got)
+	}
+}
+
+func TestMemTotalMBFromProc(t *testing.T) {
+	// Real /proc/meminfo MemTotal line (kB → MB). 1965940 kB ≈ 1919 MB.
+	meminfo := "MemTotal:        1965940 kB\nMemFree:          257000 kB\n"
+	if got := memTotalMBFromProc(meminfo); got != 1919 {
+		t.Errorf("memTotalMBFromProc = %d, want 1919", got)
+	}
+	if got := memTotalMBFromProc("MemFree: 100 kB"); got != 0 {
+		t.Errorf("memTotalMBFromProc(no MemTotal) = %d, want 0", got)
+	}
+}
+
 func TestCollectSCSITimeouts(t *testing.T) {
 	root := t.TempDir()
 	// sda below the recommendation, sdb compliant, vda (virtio-blk) must be
@@ -164,6 +186,63 @@ func TestCollectSCSITimeouts(t *testing.T) {
 	}
 	if len(low) != 1 || low[0] != "sda" {
 		t.Errorf("low = %v, want [sda] (sdb is compliant at 180s)", low)
+	}
+}
+
+func TestCollectVMwareDiskIDs(t *testing.T) {
+	root := t.TempDir()
+	// Mirrors the real tenant: IDE/SATA disks (sda/sde) carry a wwid; the pvscsi
+	// "Virtual disk" disks (sdb/sdc/sdd) have an EMPTY wwid — the disk.EnableUUID=
+	// FALSE signature. nvme0n1 / vda must be ignored (not sd*).
+	mk := func(dev, wwid string, hasFile bool) {
+		dir := filepath.Join(root, dev, "device")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if hasFile {
+			if err := os.WriteFile(filepath.Join(dir, "wwid"), []byte(wwid), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	mk("sda", "naa.5000c29cfc4431c4\n", true) // SATA — has ID
+	mk("sde", "naa.5000c292640bd534\n", true) // SATA — has ID
+	mk("sdb", "", true)                       // pvscsi — empty wwid file (EnableUUID off)
+	mk("sdc", "", false)                      // pvscsi — no wwid file at all
+	mk("sdd", "", true)                       // pvscsi boot disk — empty wwid
+	mk("nvme0n1", "eui.469d\n", true)         // NVMe — must be ignored (not sd*)
+
+	checked, noID := collectVMwareDiskIDs(root)
+
+	if !checked {
+		t.Error("checked = false, want true (sd* disks present)")
+	}
+	want := []string{"sdb", "sdc", "sdd"}
+	if len(noID) != len(want) {
+		t.Fatalf("noStableID = %v, want %v", noID, want)
+	}
+	for i, w := range want {
+		if noID[i] != w {
+			t.Errorf("noStableID[%d] = %q, want %q (sorted)", i, noID[i], w)
+		}
+	}
+	for _, d := range noID {
+		if d == "sda" || d == "sde" || d == "nvme0n1" {
+			t.Errorf("%q has an ID (or isn't SCSI) and must not be flagged", d)
+		}
+	}
+}
+
+func TestCollectVMwareDiskIDsNVMeOnly(t *testing.T) {
+	// An NVMe-only guest has no sd* disks → checked=false → no EnableUUID finding
+	// (the flag is irrelevant without SCSI disks).
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "nvme0n1", "device"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	checked, noID := collectVMwareDiskIDs(root)
+	if checked || noID != nil {
+		t.Errorf("NVMe-only: got checked=%v noID=%v, want false/nil", checked, noID)
 	}
 }
 

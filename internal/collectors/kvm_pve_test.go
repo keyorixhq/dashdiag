@@ -78,3 +78,43 @@ func writePidFile(t *testing.T, dir, name, pid string) {
 		t.Fatal(err)
 	}
 }
+
+// TestUpdateKVMCounts pins the state→counter mapping, including the false-OK
+// fixes: abnormal states (pmsuspended/in shutdown/idle/blocked) and an empty
+// state (virsh dominfo failed) must be counted, not silently treated as healthy.
+func TestUpdateKVMCounts(t *testing.T) {
+	cases := []struct {
+		state                     models.KVMVMState
+		autostart                 bool
+		wantAbnormal, wantUnread  int
+		wantRunning, wantDownAuto int
+	}{
+		{models.KVMRunning, false, 0, 0, 1, 0},
+		{models.KVMPMSuspended, false, 1, 0, 0, 0},
+		{models.KVMInShutdown, false, 1, 0, 0, 0},
+		{models.KVMIdle, false, 1, 0, 0, 0},
+		{models.KVMBlocked, false, 1, 0, 0, 0},
+		{"", false, 0, 1, 0, 0}, // dominfo failed → unreadable, not healthy
+		{models.KVMShutOff, true, 0, 0, 0, 1},
+		{models.KVMShutOff, false, 0, 0, 0, 0}, // deliberately stopped, no autostart → silent
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.state), func(t *testing.T) {
+			info := &models.KVMInfo{}
+			vm := &models.KVMVM{Name: "vm", State: tc.state, AutoStart: tc.autostart}
+			updateKVMCounts(info, vm)
+			if info.VMsAbnormal != tc.wantAbnormal {
+				t.Errorf("VMsAbnormal = %d, want %d", info.VMsAbnormal, tc.wantAbnormal)
+			}
+			if info.VMsUnreadable != tc.wantUnread {
+				t.Errorf("VMsUnreadable = %d, want %d", info.VMsUnreadable, tc.wantUnread)
+			}
+			if info.VMsRunning != tc.wantRunning {
+				t.Errorf("VMsRunning = %d, want %d", info.VMsRunning, tc.wantRunning)
+			}
+			if info.VMsDownAutostart != tc.wantDownAuto {
+				t.Errorf("VMsDownAutostart = %d, want %d", info.VMsDownAutostart, tc.wantDownAuto)
+			}
+		})
+	}
+}

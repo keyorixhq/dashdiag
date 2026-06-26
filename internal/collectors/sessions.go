@@ -66,39 +66,47 @@ func parseSessions(out string) *models.SessionsInfo {
 			continue
 		}
 
-		sess := models.Session{
-			User: fields[0],
-			TTY:  fields[1],
+		sess := models.Session{User: fields[0]}
+
+		// Resolve the variable columns after USER. The canonical layout is
+		// TTY [FROM] LOGIN@ IDLE JCPU PCPU WHAT, but two columns can be blank and
+		// strings.Fields collapses them:
+		//   - FROM is blank for a local console login (the original case).
+		//   - TTY is blank for a PTY-LESS session — a non-interactive `ssh host cmd`
+		//     or an sshd priv-sep entry shows up as `<blank> 1.2.3.4 ...`. Reading
+		//     fields[1] as the TTY then stored the FROM IP as the TTY and lost the
+		//     remote attribution entirely (RemoteCount stayed 0 — a false-OK).
+		// rest is the slice starting at LOGIN@ once TTY/FROM are consumed.
+		var rest []string
+		switch {
+		case isTTYName(fields[1]):
+			sess.TTY = fields[1]
+			if looksLikeHost(fields[2]) { // FROM present (host/IP, or "-")
+				sess.From = fields[2]
+				rest = fields[3:]
+			} else { // FROM column blank — local console
+				rest = fields[2:]
+			}
+		case looksLikeHost(fields[1]):
+			// TTY column blank — fields[1] is the FROM (pty-less session).
+			sess.From = fields[1]
+			rest = fields[2:]
+		default:
+			// Unrecognised fields[1] — treat it as the TTY (prior behaviour).
+			sess.TTY = fields[1]
+			rest = fields[2:]
 		}
 
-		// Detect whether FROM column is present.
-		// FROM is present when field[2] looks like an IP or hostname (not a time).
-		// A time looks like "10:00" or "09:00am" — contains ":" or "am"/"pm".
-		// An IP or hostname contains "." or ":" (IPv6) but not "am/pm".
-		fromCandidate := fields[2]
-		hasFrom := looksLikeHost(fromCandidate)
-
-		if hasFrom {
-			sess.From = fromCandidate
-			// LOGIN@=fields[3], IDLE=fields[4]
-			if len(fields) > 3 {
-				sess.LoginAt = fields[3]
-			}
-			if len(fields) > 4 {
-				sess.Idle = fields[4]
-				sess.IdleSec = parseIdleSec(fields[4])
-			}
-			if len(fields) > 7 {
-				sess.Command = strings.Join(fields[7:], " ")
-			}
-		} else {
-			// No FROM column — local terminal
-			sess.LoginAt = fields[2]
-			sess.Idle = fields[3]
-			sess.IdleSec = parseIdleSec(fields[3])
-			if len(fields) > 6 {
-				sess.Command = strings.Join(fields[6:], " ")
-			}
+		// rest = LOGIN@ IDLE JCPU PCPU WHAT...
+		if len(rest) > 0 {
+			sess.LoginAt = rest[0]
+		}
+		if len(rest) > 1 {
+			sess.Idle = rest[1]
+			sess.IdleSec = parseIdleSec(rest[1])
+		}
+		if len(rest) > 4 {
+			sess.Command = strings.Join(rest[4:], " ")
 		}
 
 		info.Sessions = append(info.Sessions, sess)
@@ -129,6 +137,25 @@ func parseSessions(out string) *models.SessionsInfo {
 		info.UniqueIPs = append(info.UniqueIPs, ip)
 	}
 	return info
+}
+
+// isTTYName reports whether a `w` column value is a terminal name rather than a
+// FROM host or a LOGIN@ stamp. Used to tell whether the TTY column is present:
+// it is blank for a pty-less session, where the next field is the FROM host.
+// Covers Linux (tty1, ttyS0, pts/0, console) and macOS (ttys000), plus an X
+// display seat (":0", ":0.0" — colon followed by a digit, distinct from an IPv6
+// FROM like "::1").
+func isTTYName(s string) bool {
+	switch {
+	case strings.HasPrefix(s, "tty"), strings.HasPrefix(s, "pts"):
+		return true
+	case s == "console":
+		return true
+	case len(s) >= 2 && s[0] == ':' && s[1] >= '0' && s[1] <= '9':
+		return true
+	default:
+		return false
+	}
 }
 
 // looksLikeHost returns true when the `w` FROM-column candidate is a hostname or

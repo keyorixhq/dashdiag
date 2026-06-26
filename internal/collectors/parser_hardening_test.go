@@ -77,6 +77,103 @@ func TestParseSessionsDotlessRemoteHost(t *testing.T) {
 	}
 }
 
+// TestParseSessionsEmptyTTY covers the column-alignment bug found on the real
+// VMware tenant: `w -h` prints a BLANK TTY column for a pty-less session (a
+// non-interactive `ssh host cmd` / sshd priv-sep entry). strings.Fields collapses
+// it, so the FROM IP was read as the TTY and RemoteCount stayed 0 (a false-OK).
+func TestParseSessionsEmptyTTY(t *testing.T) {
+	t.Parallel()
+	// Verbatim `w -h` from the tenant: line 1 has a TTY, line 2 (the SSH command
+	// session) has a BLANK TTY column, so FROM/LOGIN@/IDLE/WHAT shift one left.
+	out := "" +
+		"andrei   tty1     -                Thu22    1:29m  0.09s  0.05s -bash\n" +
+		"andrei            79.117.192.102   19:44   13:30m  0.00s  0.03s sshd: andrei [priv]\n"
+	info := parseSessions(out)
+
+	if len(info.Sessions) != 2 {
+		t.Fatalf("session count: got %d, want 2", len(info.Sessions))
+	}
+	// Local console line parsed as before.
+	if info.Sessions[0].TTY != "tty1" || info.Sessions[0].From != "-" {
+		t.Errorf("local line: got TTY=%q From=%q, want tty1 / -", info.Sessions[0].TTY, info.Sessions[0].From)
+	}
+	// The pty-less SSH line: blank TTY, FROM is the IP — and it counts as remote.
+	s := info.Sessions[1]
+	if s.TTY != "" {
+		t.Errorf("pty-less session TTY: got %q, want empty (blank column)", s.TTY)
+	}
+	if s.From != "79.117.192.102" {
+		t.Errorf("pty-less session From: got %q, want the IP", s.From)
+	}
+	if s.LoginAt != "19:44" || s.Idle != "13:30m" {
+		t.Errorf("pty-less session LOGIN@/IDLE misaligned: got %q / %q", s.LoginAt, s.Idle)
+	}
+	if s.Command != "sshd: andrei [priv]" {
+		t.Errorf("pty-less session WHAT: got %q", s.Command)
+	}
+	if info.RemoteCount != 1 {
+		t.Errorf("RemoteCount: got %d, want 1 (the empty-TTY false-OK)", info.RemoteCount)
+	}
+}
+
+// TestParseSessionsColumnLayouts pins each `w -h` column shape so the empty-TTY
+// fix can't regress the others.
+func TestParseSessionsColumnLayouts(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name                string
+		line                string
+		wantTTY, wantFrom   string
+		wantLogin, wantWhat string
+		wantRemote          bool
+	}{
+		{
+			name:    "interactive pts with IP", // TTY + FROM present
+			line:    "andrei   pts/0    192.168.1.5      10:00    0.00s  0.01s  0.00s -bash",
+			wantTTY: "pts/0", wantFrom: "192.168.1.5", wantLogin: "10:00", wantWhat: "-bash", wantRemote: true,
+		},
+		{
+			name:    "local console blank FROM", // TTY present, FROM column absent
+			line:    "root     tty1     -                09:00    55:12  0.02s  0.00s -bash",
+			wantTTY: "tty1", wantFrom: "-", wantLogin: "09:00", wantWhat: "-bash", wantRemote: false,
+		},
+		{
+			name:    "X display seat", // ":0" must read as a TTY, not an IPv6 FROM
+			line:    "andrei   :0       -                08:00    ?xdm?  1:23   0.00s /usr/lib/gdm",
+			wantTTY: ":0", wantFrom: "-", wantLogin: "08:00", wantWhat: "/usr/lib/gdm", wantRemote: false,
+		},
+		{
+			name:    "pty-less SSH blank TTY", // the bug
+			line:    "andrei            10.0.0.9         19:44   13:30m  0.00s  0.03s sshd: andrei [priv]",
+			wantTTY: "", wantFrom: "10.0.0.9", wantLogin: "19:44", wantWhat: "sshd: andrei [priv]", wantRemote: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := parseSessions(tc.line + "\n")
+			if len(info.Sessions) != 1 {
+				t.Fatalf("session count: got %d, want 1", len(info.Sessions))
+			}
+			s := info.Sessions[0]
+			if s.TTY != tc.wantTTY {
+				t.Errorf("TTY: got %q, want %q", s.TTY, tc.wantTTY)
+			}
+			if s.From != tc.wantFrom {
+				t.Errorf("From: got %q, want %q", s.From, tc.wantFrom)
+			}
+			if s.LoginAt != tc.wantLogin {
+				t.Errorf("LoginAt: got %q, want %q", s.LoginAt, tc.wantLogin)
+			}
+			if s.Command != tc.wantWhat {
+				t.Errorf("Command: got %q, want %q", s.Command, tc.wantWhat)
+			}
+			if (info.RemoteCount > 0) != tc.wantRemote {
+				t.Errorf("remote: got RemoteCount=%d, want remote=%v", info.RemoteCount, tc.wantRemote)
+			}
+		})
+	}
+}
+
 // TestParseLVMFloat covers LVM's "<"/">" approximate-size markers, which a plain
 // ParseFloat reads as 0 — a false "volume full" signal.
 func TestParseLVMFloat(t *testing.T) {

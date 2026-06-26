@@ -21,6 +21,12 @@ type NVMeDevice struct {
 	// fields are zero-defaults — NOT a confirmed-healthy drive. Without this the
 	// renderer/heuristic can't tell "verified healthy" from "never checked".
 	SmartRead bool `json:"smart_read"`
+	// SmartUnreadReason classifies WHY SmartRead is false so the heuristic gives
+	// the correct remediation instead of a blanket "nvme-cli not installed":
+	// "needs_root" (the smart-log ioctl is root-gated — the common non-root
+	// case), "tool_absent" (nvme-cli genuinely missing), or "error" (present and
+	// privileged but the read still failed). Empty when SmartRead is true.
+	SmartUnreadReason string `json:"smart_unread_reason,omitempty"`
 }
 
 // SATADevice holds SMART health data for a SATA/SAS drive.

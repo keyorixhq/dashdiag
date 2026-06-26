@@ -23,12 +23,31 @@ func (c *CVEHealthCollector) Name() string           { return "CVE" }
 func (c *CVEHealthCollector) Timeout() time.Duration { return 60 * time.Second }
 
 func (c *CVEHealthCollector) Collect(ctx context.Context) (interface{}, error) {
-	res := ScanAllCVEs(ctx)
-	if res == nil {
-		return &models.CVEAllResult{}, nil
+	// Cache the FULL CVE verdict (package-manager/OVAL scan + KEV enrichment) so
+	// it is frozen into a capture bundle and replays from there. CVE inputs —
+	// `rpm -qa`, the OVAL feed, the KEV catalog — aren't individually routed
+	// through Source, and CVE data is time-varying (feeds/advisories change
+	// daily), so freezing the RESULT is both the hermetic AND the correct-snapshot
+	// behavior: `dsd replay`/`dsd diff` reproduce "what this host was exposed to
+	// at capture time", not today's feed. On a live run this is a transparent
+	// pass-through (Live.Cached just runs the scan).
+	var out *models.CVEAllResult
+	err := cachedJSON("cve/health", func() (any, error) {
+		res := ScanAllCVEs(ctx)
+		if res == nil {
+			res = &models.CVEAllResult{}
+		}
+		// Cross-reference pending advisories against the CISA KEV catalog. No-op
+		// when no sidecar catalog is present — keeps air-gapped hosts working.
+		EnrichCVEAllWithKEV(res)
+		return res, nil
+	}, &out)
+	if err != nil || out == nil {
+		// Replaying a bundle captured without --cve-scan: nothing recorded. Surface
+		// it honestly rather than running a live scan against the replaying machine.
+		return &models.CVEAllResult{
+			StatusReason: "CVE scan not captured in this bundle (re-capture with: dsd capture --raw --cve-scan)",
+		}, nil
 	}
-	// Cross-reference pending advisories against the CISA KEV catalog. No-op when
-	// no sidecar catalog is present — keeps air-gapped hosts working.
-	EnrichCVEAllWithKEV(res)
-	return res, nil
+	return out, nil
 }

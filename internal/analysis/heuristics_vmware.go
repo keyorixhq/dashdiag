@@ -43,6 +43,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 
 	out = append(out, vmwareResourceConstraints(v)...)
 	out = append(out, vmwareSCSITimeoutCheck(v)...)
+	out = append(out, vmwareEnableUUIDCheck(v)...)
 
 	// open-vm-tools is running but the resource-pressure stat interface did not
 	// answer (old tools / no permission / stat absent), so vmwareResourceConstraints
@@ -98,22 +99,56 @@ func vmwareResourceConstraints(v models.VMwareInfo) []models.Insight {
 			}))
 	}
 	if v.MemLimitMB > 0 {
-		out = append(out, insight("WARN", "VMware",
-			fmt.Sprintf("a host-imposed memory limit of %d MB is set on this VM — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB),
-			[]string{
-				"to inspect: vmware-toolbox-cmd stat memlimit",
-				"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
-			}))
+		if binding, known := vmwareMemLimitBinding(v); known && !binding {
+			out = append(out, insight("INFO", "VMware",
+				fmt.Sprintf("a host memory limit of %d MB is configured but it is at/above this VM's RAM (%d MB), so it is currently non-binding", v.MemLimitMB, v.TotalRAMMB),
+				[]string{"note: it would only cause ballooning/swap if this VM's RAM were raised above the limit"}))
+		} else {
+			out = append(out, insight("WARN", "VMware",
+				fmt.Sprintf("a host-imposed memory limit of %d MB is set on this VM — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB),
+				[]string{
+					"to inspect: vmware-toolbox-cmd stat memlimit",
+					"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
+				}))
+		}
 	}
 	if v.CPULimitMHz > 0 {
-		out = append(out, insight("WARN", "VMware",
-			fmt.Sprintf("a host-imposed CPU limit of %d MHz is set on this VM — the guest is throttled below its vCPU capacity regardless of host load", v.CPULimitMHz),
-			[]string{
-				"to inspect: vmware-toolbox-cmd stat cpulimit",
-				"note: a CPU limit is an invisible cause of guest slowness — remove it in vSphere unless intentional",
-			}))
+		if binding, known := vmwareCPULimitBinding(v); known && !binding {
+			out = append(out, insight("INFO", "VMware",
+				fmt.Sprintf("a host CPU limit of %d MHz is configured but it is at/above this VM's capacity (%d vCPU × %d MHz), so it is currently non-binding", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU),
+				[]string{"note: it would only throttle the guest if the limit were lowered below capacity, or capacity raised above it — watch CPU steal"}))
+		} else {
+			out = append(out, insight("WARN", "VMware",
+				fmt.Sprintf("a host-imposed CPU limit of %d MHz is set on this VM — the guest is throttled below its vCPU capacity regardless of host load", v.CPULimitMHz),
+				[]string{
+					"to inspect: vmware-toolbox-cmd stat cpulimit",
+					"note: a CPU limit is an invisible cause of guest slowness — remove it in vSphere unless intentional",
+				}))
+		}
 	}
 	return out
+}
+
+// vmwareMemLimitBinding reports whether a configured memory limit can actually
+// bite — it must sit below the guest's RAM, else the VM can never reach it. A 2%
+// margin absorbs reporting rounding. known=false means RAM is unknown, so the
+// caller keeps the conservative WARN rather than hiding a possibly-real limit.
+func vmwareMemLimitBinding(v models.VMwareInfo) (binding, known bool) {
+	if v.TotalRAMMB <= 0 {
+		return false, false
+	}
+	return v.MemLimitMB < int(float64(v.TotalRAMMB)*0.98), true
+}
+
+// vmwareCPULimitBinding reports whether a configured CPU limit can actually bite —
+// it must sit below the VM's capacity (vCPUs × per-vCPU host clock). 2% margin for
+// rounding. known=false (capacity unknown) → caller keeps the WARN.
+func vmwareCPULimitBinding(v models.VMwareInfo) (binding, known bool) {
+	capacity := v.NumVCPU * v.HostMHzPerCPU
+	if capacity <= 0 {
+		return false, false
+	}
+	return v.CPULimitMHz < int(float64(capacity)*0.98), true
 }
 
 // vmwareSCSITimeoutCheck flags SCSI disks whose command timeout is below
@@ -133,6 +168,25 @@ func vmwareSCSITimeoutCheck(v models.VMwareInfo) []models.Insight {
 		[]string{
 			"to fix now: echo 180 > /sys/block/sdX/device/timeout   (per disk, non-persistent)",
 			"to persist: install open-vm-tools (ships a udev rule) or add a udev rule setting timeout=180",
+		})}
+}
+
+// vmwareEnableUUIDCheck flags SCSI disks that expose no stable hardware ID — the
+// signature of disk.EnableUUID=FALSE on a vSphere VM. Without page 0x83, the
+// disks have no /dev/disk/by-id serial, so the vSphere CSI driver and by-id
+// device naming cannot identify them and k8s persistent volumes can mis-bind.
+// Silent when no SCSI disks were examined (e.g. an NVMe-only guest) or when all
+// of them carry an ID.
+func vmwareEnableUUIDCheck(v models.VMwareInfo) []models.Insight {
+	if !v.SCSIDisksChecked || len(v.DisksNoStableID) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "VMware",
+		fmt.Sprintf("disk.EnableUUID appears disabled — SCSI disk(s) %s expose no stable hardware ID (no SCSI page 0x83), so /dev/disk/by-id naming and the vSphere CSI driver cannot identify them; k8s persistent volumes can mis-bind",
+			strings.Join(v.DisksNoStableID, ", ")),
+		[]string{
+			"to fix: set disk.EnableUUID = TRUE in the VM's Advanced Configuration (vSphere), then reboot the guest",
+			"note: required for the vSphere CSI driver and stable by-id device naming; the VM default is often off",
 		})}
 }
 

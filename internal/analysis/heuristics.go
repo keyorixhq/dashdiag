@@ -15,23 +15,38 @@ import (
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	// Pre-scan results to extract context shared across checks.
-	selinuxEnforcing, zfsPoolsPresent := prescanContext(results, &thresh)
+	prescan := prescanContext(results, &thresh)
 
 	// Inject SELinux enforcing state + ZFS-pool presence into SystemdInfo for
-	// cross-check hints / failure-severity gating (§O.2).
+	// cross-check hints / failure-severity gating (§O.2); inject swap-activity into
+	// SysctlInfo so the general-server vm.swappiness check only fires when the host
+	// is actually swapping; inject a host-imposed VMware CPU limit into CPUInfo so
+	// the steal heuristic can attribute high steal to the configured cap (§N.4).
 	for i, r := range results {
-		if r.Name == "Systemd" {
-			switch d := r.Data.(type) {
-			case *models.SystemdInfo:
-				if d != nil {
-					d.SELinuxEnforcing = selinuxEnforcing
-					d.ZFSPoolsPresent = zfsPoolsPresent
-				}
-			case models.SystemdInfo:
-				d.SELinuxEnforcing = selinuxEnforcing
-				d.ZFSPoolsPresent = zfsPoolsPresent
-				results[i].Data = d
+		switch d := r.Data.(type) {
+		case *models.SystemdInfo:
+			if d != nil {
+				d.SELinuxEnforcing = prescan.selinuxEnforcing
+				d.ZFSPoolsPresent = prescan.zfsPoolsPresent
 			}
+		case models.SystemdInfo:
+			d.SELinuxEnforcing = prescan.selinuxEnforcing
+			d.ZFSPoolsPresent = prescan.zfsPoolsPresent
+			results[i].Data = d
+		case *models.SysctlInfo:
+			if d != nil {
+				d.SwapActive = prescan.swapActive
+			}
+		case models.SysctlInfo:
+			d.SwapActive = prescan.swapActive
+			results[i].Data = d
+		case *models.CPUInfo:
+			if d != nil {
+				d.HostCPULimitMHz = prescan.vmwareCPULimitMHz
+			}
+		case models.CPUInfo:
+			d.HostCPULimitMHz = prescan.vmwareCPULimitMHz
+			results[i].Data = d
 		}
 	}
 
@@ -57,13 +72,27 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	return insights
 }
 
+// prescanResult holds the cross-check context prescanContext extracts in one
+// pass over the collector results, before the per-check pass runs.
+type prescanResult struct {
+	selinuxEnforcing  bool // SELinux is enforcing (checkSystemd double-layer hints)
+	zfsPoolsPresent   bool // host imports ZFS pools of its own (§O.2 import-unit severity)
+	swapActive        bool // swap is configured AND in use (gates vm.swappiness check)
+	vmwareCPULimitMHz int  // host-imposed VMware CPU cap, MHz (§N.4 steal attribution); 0 = none/unknown
+}
+
 // prescanContext walks the collector results once to extract context shared
 // across checks before the per-check pass runs. It writes the package manager
 // and CPU load into thresh, and returns the SELinux-enforcing state (used by
-// checkSystemd for double-layer hints) and whether the host imports any ZFS
-// pools of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
-// zfs-import unit is benign when the ZFS HBA is passed through to a VM).
-func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforcing, zfsPoolsPresent bool) {
+// checkSystemd for double-layer hints), whether the host imports any ZFS pools
+// of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
+// zfs-import unit is benign when the ZFS HBA is passed through to a VM), and a
+// host-imposed VMware CPU limit so the steal heuristic can attribute high steal
+// to a configured cap rather than host over-provisioning (§N.4).
+//
+//nolint:cyclop // flat type-switch dispatch — each case extracts one shared field; splitting would obscure it
+func prescanContext(results []runner.Result, thresh *Thresholds) prescanResult {
+	var p prescanResult
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -85,31 +114,54 @@ func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforci
 			}
 		case models.KernelSecurityInfo:
 			if d.SELinuxPresent && d.SELinuxMode == "enforcing" {
-				selinuxEnforcing = true
+				p.selinuxEnforcing = true
 			}
 		case *models.KernelSecurityInfo:
 			if d != nil && d.SELinuxPresent && d.SELinuxMode == "enforcing" {
-				selinuxEnforcing = true
+				p.selinuxEnforcing = true
 			}
 		case models.ZFSInfo:
 			if len(d.Pools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case *models.ZFSInfo:
 			if d != nil && len(d.Pools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case models.DiskInfo:
 			if len(d.ZFSPools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case *models.DiskInfo:
 			if d != nil && len(d.ZFSPools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
+			}
+		case models.SwapInfo:
+			if swapInUse(d) {
+				p.swapActive = true
+			}
+		case *models.SwapInfo:
+			if d != nil && swapInUse(*d) {
+				p.swapActive = true
+			}
+		case models.VMwareInfo:
+			if d.StatAvailable && d.CPULimitMHz > 0 {
+				p.vmwareCPULimitMHz = d.CPULimitMHz
+			}
+		case *models.VMwareInfo:
+			if d != nil && d.StatAvailable && d.CPULimitMHz > 0 {
+				p.vmwareCPULimitMHz = d.CPULimitMHz
 			}
 		}
 	}
-	return selinuxEnforcing, zfsPoolsPresent
+	return p
+}
+
+// swapInUse reports whether swap is configured AND actually being used or paged —
+// the only condition under which vm.swappiness affects behaviour. Used to gate the
+// general-server swappiness check so the kernel default doesn't WARN an idle box.
+func swapInUse(s models.SwapInfo) bool {
+	return s.TotalGB > 0 && (s.UsedPct > 0 || s.PagesInPerSec > 0 || s.PagesOutPerSec > 0)
 }
 
 // hostInitSystem returns the init system ("systemd", "openrc", "unknown") so the
@@ -686,10 +738,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 			return checkHugePages(*d)
 		}
 	case models.CPUFreqInfo:
-		return checkCPUFreq(d)
+		return checkCPUFreq(d, thresh)
 	case *models.CPUFreqInfo:
 		if d != nil {
-			return checkCPUFreq(*d)
+			return checkCPUFreq(*d, thresh)
 		}
 	case models.LaunchdInfo:
 		return checkLaunchd(d)
@@ -786,25 +838,16 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// Only meaningful on virtual machines (bare metal always shows 0).
 	// > 10%: host is over-provisioned — neighbours are competing for physical CPUs.
 	// > 20%: severe — application latency will be unpredictable.
-	if cpu.StealPct >= 20 {
-		out = append(out, insight("CRIT", "CPU Load/Steal",
-			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", cpu.StealPct),
-			[]string{
-				"to inspect: top -b -n1 | grep Cpu",
-				"to inspect: vmstat 1 5  (look at the 'st' column)",
-				"note: steal > 20%% means the host is severely over-provisioned",
-				"note: escalate to your cloud provider or migrate to a less-loaded host",
-			},
-		))
-	} else if cpu.StealPct >= 10 {
-		out = append(out, insight("WARN", "CPU Load/Steal",
-			fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", cpu.StealPct),
-			[]string{
-				"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
-				"to inspect: vmstat 1 5",
-				"note: steal time indicates host over-provisioning — consider VM migration",
-			},
-		))
+	// When a host CPU limit is known (VMware stat channel, threaded in by the
+	// pre-scan), the steal is attributed to that configured cap instead — the
+	// remediation is to remove the limit in vSphere, NOT migrate the VM (§N.4).
+	if ins, ok := cpuStealInsight(cpu.StealPct, cpu.HostCPULimitMHz); ok {
+		out = append(out, ins)
+	}
+
+	// Allocated-but-offline vCPUs — a hot-added vCPU the guest never onlined.
+	if ins, ok := cpuOfflineInsight(cpu); ok {
+		out = append(out, ins)
 	}
 
 	// CPU iowait — CPU is idle but blocked waiting for I/O.
@@ -861,6 +904,94 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	}
 
 	return out
+}
+
+// cpuStealInsight builds the CPU-steal insight for a given steal percentage,
+// returning ok=false below the WARN floor (10%). When hostCPULimitMHz > 0 a host
+// CPU cap is known to be configured on this VM (e.g. a VMware vSphere limit read
+// via open-vm-tools), so the steal is attributed to that cap — the guest is being
+// throttled to its limit, which presents in the guest as steal time. That changes
+// the remediation from the generic "migrate to a less-loaded host" (which does NOT
+// help against a configured limit) to "remove the limit in vSphere" (§N.4). The
+// severity still tracks the steal magnitude (≥20% CRIT, ≥10% WARN).
+func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, bool) {
+	level := ""
+	switch {
+	case stealPct >= 20:
+		level = "CRIT"
+	case stealPct >= 10:
+		level = "WARN"
+	default:
+		return models.Insight{}, false
+	}
+
+	if hostCPULimitMHz > 0 {
+		return insight(level, "CPU Load/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% with a host CPU limit of %d MHz configured on this VM — the guest is being throttled to its configured cap, not losing CPU to noisy neighbours",
+				stealPct, hostCPULimitMHz),
+			[]string{
+				"to fix: remove or raise the VM's CPU limit in vSphere (Edit Settings → CPU → Limit = Unlimited)",
+				"to inspect: vmware-toolbox-cmd stat cpulimit",
+				"note: migrating the VM will NOT help — this is a configured cap, not host contention",
+			},
+		), true
+	}
+
+	if level == "CRIT" {
+		return insight("CRIT", "CPU Load/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", stealPct),
+			[]string{
+				"to inspect: top -b -n1 | grep Cpu",
+				"to inspect: vmstat 1 5  (look at the 'st' column)",
+				"note: steal > 20%% means the host is severely over-provisioned",
+				"note: escalate to your cloud provider or migrate to a less-loaded host",
+			},
+		), true
+	}
+	return insight("WARN", "CPU Load/Steal",
+		fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", stealPct),
+		[]string{
+			"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
+			"to inspect: vmstat 1 5",
+			"note: steal time indicates host over-provisioning — consider VM migration",
+		},
+	), true
+}
+
+// cpuOfflineInsight flags allocated-but-offline vCPUs: present > online. The common
+// cause is a VMware/cloud CPU hot-add the guest never onlined — Debian/Ubuntu lack
+// the auto-online udev rule RHEL ships, so the VM runs on a fraction of its
+// allocation with no other signal (found live: a 14-vCPU VMware guest running on 2).
+// Gated against the two intentional causes so it doesn't false-WARN: SMT
+// force-disabled (sibling threads parked for a security mitigation) and
+// isolcpus/nohz_full (cores deliberately isolated) → INFO, not WARN. ok=false when
+// availability wasn't read (non-Linux) or all present CPUs are online.
+func cpuOfflineInsight(cpu models.CPUInfo) (models.Insight, bool) {
+	if cpu.PresentCPUs <= 0 || cpu.OnlineCPUs <= 0 || cpu.PresentCPUs <= cpu.OnlineCPUs {
+		return models.Insight{}, false
+	}
+	offline := cpu.PresentCPUs - cpu.OnlineCPUs
+	switch {
+	case cpu.SMTControl == "off" || cpu.SMTControl == "forceoff":
+		return insight("INFO", "CPU Load",
+			fmt.Sprintf("%d of %d CPUs are offline because SMT is disabled — the hyperthread siblings are parked (a security mitigation, expected)", offline, cpu.PresentCPUs),
+			[]string{"to inspect: cat /sys/devices/system/cpu/smt/control"},
+		), true
+	case cpu.CPUsIsolated:
+		return insight("INFO", "CPU Load",
+			fmt.Sprintf("%d of %d CPUs are offline/isolated — isolcpus or nohz_full is set on the kernel cmdline (intentional)", offline, cpu.PresentCPUs),
+			[]string{"to inspect: cat /proc/cmdline"},
+		), true
+	default:
+		return insight("WARN", "CPU Load",
+			fmt.Sprintf("%d of %d allocated vCPUs are offline — the guest is using only %d; a hot-added vCPU the OS never onlined (Debian/Ubuntu lack the auto-online udev rule), so the VM runs on a fraction of its allocation", offline, cpu.PresentCPUs, cpu.OnlineCPUs),
+			[]string{
+				"to online now: for c in /sys/devices/system/cpu/cpu[0-9]*/online; do echo 1 > $c; done   (as root)",
+				`to persist: a udev rule — SUBSYSTEM=="cpu", ACTION=="add", TEST=="online", ATTR{online}=="0", ATTR{online}="1"`,
+				"note: if the offline CPUs are intentional (isolcpus / SMT off), this can be ignored",
+			},
+		), true
+	}
 }
 
 // pluralize returns "<n> <singular>" when n == 1, otherwise "<n> <plural>".
@@ -967,7 +1098,32 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	if mem.EDACAvailable {
 		out = append(out, eccInsights(mem.CorrectedErrors, mem.UncorrectedErrors, "Memory")...)
 	}
+	out = append(out, memHotplugInsights(mem)...)
 	return out
+}
+
+// memHotplugInsights flags hot-added RAM the guest isn't using: memory blocks
+// left offline while auto-onlining is disabled. This is the cross-platform
+// "I grew the VM to 16 GB but it still shows 8" bug (VMware hot-add, KVM
+// virtio-mem, Hyper-V Dynamic Memory, cloud vertical scaling). Gated on
+// auto-online being OFF as well, so it does NOT fire on memory a balloon /
+// virtio-mem driver intentionally offlined (where auto-online is irrelevant) —
+// keeping it to the high-confidence misconfiguration.
+func memHotplugInsights(mem models.MemoryInfo) []models.Insight {
+	if !mem.MemHotplugChecked || mem.OfflineMemoryBlocks == 0 || mem.AutoOnlineBlocks {
+		return nil
+	}
+	amount := fmt.Sprintf("%d memory block(s)", mem.OfflineMemoryBlocks)
+	if mem.OfflineMemoryMB > 0 {
+		amount = fmt.Sprintf("%.1f GB (%d block(s))", float64(mem.OfflineMemoryMB)/1024, mem.OfflineMemoryBlocks)
+	}
+	return []models.Insight{insight("WARN", "Memory",
+		fmt.Sprintf("%s of RAM is offline and auto-onlining is disabled — hot-added memory the guest sees but is not using", amount),
+		[]string{
+			"to use it now: for f in /sys/devices/system/memory/memory*/state; do echo online > $f; done",
+			"to persist: echo online > /sys/devices/system/memory/auto_online_blocks (or kernel arg memhp_default_state=online)",
+			"note: common after growing a VM's RAM (VMware hot-add / cloud vertical scaling) without onlining the new blocks",
+		})}
 }
 
 // eccInsights turns EDAC corrected/uncorrected counts into insights. Shared by
@@ -1110,6 +1266,20 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
 				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
 				"to fix:     reattach missing device and run: btrfs device scan",
+			},
+		)}
+	}
+	// btrfs run unprivileged can't open the block devices, so `btrfs filesystem show`
+	// prints every present device as `size 0 ... MISSING` — the device-state read
+	// failed, it is NOT a missing device. Surface that honestly as INFO rather than the
+	// false DEGRADED CRIT it used to raise (every btrfs filesystem on a non-root run).
+	if v.DevReadUnverified {
+		return []models.Insight{insight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s device state could not be verified — run as root (devices show unreadable without privilege)", v.MountPoint),
+			[]string{
+				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: sudo btrfs device stats %s", v.MountPoint),
+				"note: an unprivileged `btrfs filesystem show` reports present devices as MISSING — not an actual fault",
 			},
 		)}
 	}
@@ -2043,6 +2213,23 @@ func checkCeph(c models.CephInfo) []models.Insight {
 	return nil
 }
 
+// cloudFirewallLabels maps a cloud provider id to a human label, the name of its
+// network-firewall construct, and a one-line "where to verify it" hint. Used to
+// frame an empty host ruleset on a cloud guest honestly (the protection lives in
+// a layer dsd cannot read from inside the instance).
+func cloudFirewallLabels(provider string) (label, term, where string) {
+	switch provider {
+	case "aws":
+		return "AWS EC2", "Security Group", "check the instance's Security Group rules in the EC2 console or `aws ec2 describe-security-groups`"
+	case "azure":
+		return "Azure", "Network Security Group (NSG)", "check the NIC/subnet NSG in the Azure portal or `az network nsg rule list`"
+	case "gcp":
+		return "GCP", "VPC firewall rules", "check the VPC firewall in the GCP console or `gcloud compute firewall-rules list`"
+	default:
+		return "cloud", "cloud network firewall", "check your provider's network firewall / security group configuration"
+	}
+}
+
 func checkFirewall(f models.FirewallInfo) []models.Insight {
 	if !f.Available {
 		// The firewall state could not be read (query failed — typically a non-root
@@ -2070,6 +2257,20 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox",
 				[]string{"to inspect: pve-firewall status", "to inspect: cat /etc/pve/firewall/cluster.fw"},
 			)}
+		}
+		// On a cloud guest the network firewall is the provider's Security Group /
+		// NSG / VPC rules — a layer dsd cannot read from inside the instance. An
+		// empty host ruleset is expected there if you rely on the cloud firewall, so
+		// don't assert "host unprotected" (a false alarm that reads as cloud-naive):
+		// surface it as INFO and point at the layer dsd can't see.
+		if f.CloudGuest {
+			label, term, where := cloudFirewallLabels(f.CloudProvider)
+			return []models.Insight{insight("INFO", "Firewall",
+				fmt.Sprintf("%s has no active host rules — on %s, network filtering is typically enforced by the %s, which dsd cannot see from inside the guest", f.Backend, label, term),
+				[]string{
+					"to verify: " + where,
+					fmt.Sprintf("note: no host rules is expected if you rely on the %s; otherwise add ufw/nft/iptables rules", term),
+				})}
 		}
 		return []models.Insight{insight("WARN", "Firewall",
 			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),
@@ -2101,32 +2302,57 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 	if a.FailedLast24h == 0 {
 		return nil
 	}
+	// keyOnly is true when we authoritatively know password authentication is
+	// disabled (sshd -T read). Failed *password* attempts cannot succeed against a
+	// key-only host, so the flood is internet background noise, not a credible
+	// brute-force threat — report it as INFO, not a cry-wolf WARN. Unknown policy
+	// (SSHConfigChecked false) keeps the WARN: we fail toward warning.
+	keyOnly := a.SSHConfigChecked && !a.PasswordAuthEnabled
+
 	var out []models.Insight
 	if a.FailedLast24h > 1000 {
-		hints := []string{
-			"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
-			"to inspect: lastb | head -20",
-			"to fix:     consider fail2ban or sshguard",
+		if keyOnly {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — all rejected: password authentication is disabled (key-only), so these cannot succeed", a.FailedLast24h),
+				[]string{"no action needed; to silence the log noise: consider fail2ban or sshguard"}))
+		} else {
+			hints := []string{
+				"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
+				"to inspect: lastb | head -20",
+				"to harden: set PasswordAuthentication no (key-only) so these attempts cannot succeed",
+				"to fix:     consider fail2ban or sshguard",
+			}
+			if len(a.TopSources) > 0 {
+				hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
+					a.TopSources[0].Source, a.TopSources[0].Count))
+			}
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
+				hints))
 		}
-		if len(a.TopSources) > 0 {
-			hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
-				a.TopSources[0].Source, a.TopSources[0].Count))
-		}
-		out = append(out, insight("WARN", "Auth",
-			fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
-			hints))
 	} else if a.FailedLast24h > 100 {
 		out = append(out, insight("INFO", "Auth",
 			fmt.Sprintf("%d failed SSH login attempts in 24h", a.FailedLast24h),
 			[]string{"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep Failed"}))
 	}
 	if a.RootAttempts > 0 {
-		out = append(out, insight("WARN", "Auth",
-			fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
-			[]string{
-				"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
-				"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
-			}))
+		// Root password login is impossible when password auth is off entirely, or
+		// when PermitRootLogin is anything other than "yes" (no / prohibit-password /
+		// without-password). In that case the root attempts are futile — INFO, and
+		// the "set PermitRootLogin no" advice would be stale, so drop it.
+		rootPwImpossible := a.SSHConfigChecked && (!a.PasswordAuthEnabled || !a.RootPasswordLoginAllowed)
+		if rootPwImpossible {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — all rejected: root password login is disabled", a.RootAttempts),
+				[]string{"to verify: sshd -T | grep -E 'permitrootlogin|passwordauthentication'"}))
+		} else {
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
+				[]string{
+					"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
+					"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
+				}))
+		}
 	}
 	return out
 }
@@ -2409,31 +2635,66 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 	return out
 }
 
-func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
+// isDynamicPstateDriver reports whether the cpufreq scaling driver is intel_pstate
+// or amd-pstate (active mode), where the 'powersave' governor is a dynamic,
+// load-scaling EPP mode (the modern default) — NOT the min-frequency cap that the
+// legacy acpi-cpufreq/cppc_cpufreq drivers impose. Used so the powersave WARN
+// doesn't false-fire on essentially every modern Intel/AMD bare-metal server.
+func isDynamicPstateDriver(driver string) bool {
+	d := strings.ToLower(strings.TrimSpace(driver))
+	return d == "intel_pstate" ||
+		strings.HasPrefix(d, "amd-pstate") ||
+		strings.HasPrefix(d, "amd_pstate")
+}
+
+func checkCPUFreq(f models.CPUFreqInfo, thresh Thresholds) []models.Insight {
 	if f.Governor == "" {
 		return nil // cpufreq not available
 	}
 	var out []models.Insight
 
-	// powersave governor on a server — leaves performance on the table
-	// schedutil/ondemand are fine (responsive). powersave caps at min freq.
+	// The 'powersave' WARN's premise — "capped at min frequency" — only holds for
+	// the LEGACY drivers (acpi-cpufreq, cppc_cpufreq, cpufreq-dt). intel_pstate and
+	// amd-pstate (active mode) expose only performance/powersave governors, and
+	// their 'powersave' is DYNAMIC (scales to load via EPP) — the modern default,
+	// not performance-limited. So:
+	//   - pstate driver  → no finding (healthy default; WARNing it false-alarms on
+	//     essentially every modern Intel/AMD bare-metal server)
+	//   - battery device → INFO (laptop / Steam Deck — powersave is deliberate)
+	//   - legacy driver on a server → WARN (genuinely capped at min freq)
 	if f.Governor == "powersave" {
-		out = append(out, insight("WARN", "CPUFreq",
-			fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
-				f.CurrentMHz, f.MaxMHz),
-			[]string{
-				"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to fix: cpupower frequency-set -g performance",
-				"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
-				"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
-			},
-		))
+		switch {
+		case isDynamicPstateDriver(f.ScalingDriver):
+			// silent — dynamic powersave is the recommended default, not a problem
+		case f.HasBattery:
+			out = append(out, insight("INFO", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' (%d MHz, max %d MHz) — expected on a battery device for power saving",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{"on AC and want full speed: cpupower frequency-set -g performance (or 'schedutil')"},
+			))
+		default:
+			out = append(out, insight("WARN", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{
+					"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to fix: cpupower frequency-set -g performance",
+					"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+					"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
+				},
+			))
+		}
 	}
 
-	// Heavy throttling — current frequency well below max despite not being powersave
-	// Usually caused by thermal throttling or power limit
-	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 {
+	// Heavy throttling — current frequency well below max despite not being powersave.
+	// ThrottledPct = (max - current)/max from a single instantaneous read, so an IDLE
+	// box on a dynamic governor (schedutil/ondemand) parks cores at min freq and reads
+	// 70-80% "throttled" while being perfectly healthy. Only flag when the CPU is
+	// actually under load (>=20%, same idle cutoff as the thermal check) — there, a
+	// frequency stuck well below max is a genuine thermal/power-throttle signal.
+	// thresh.CPULoadPct==0 means load is unknown → don't fire (can't tell idle apart).
+	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 && thresh.CPULoadPct >= 20 {
 		out = append(out, insight("WARN", "CPUFreq",
 			fmt.Sprintf("CPU running at %d MHz (%d%% below max %d MHz) — possible thermal or power throttle",
 				f.CurrentMHz, int(f.ThrottledPct), f.MaxMHz),

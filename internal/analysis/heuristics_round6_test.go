@@ -23,7 +23,11 @@ func TestCheckPackages(t *testing.T) {
 		// clean 0-updates OK (dnf/zypper/apt errored; zypper used to claim Status:OK).
 		{"query failed is INFO (unverified, not clean)", models.PackagesInfo{SecurityUpdates: 0, Status: "query-failed", PackageManager: "dnf", StatusReason: "dnf advisory/updateinfo unavailable"}, "INFO"},
 		{"ESM-only updates is WARN", models.PackagesInfo{SecurityUpdates: 0, ESMUpdates: 3}, "WARN"},
-		{"critical updates is CRIT", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 1, PackageManager: "apt"}, "CRIT"},
+		// dnf/zypper expose a REAL per-advisory severity, so a Critical update is a CRIT.
+		{"critical updates is CRIT (dnf real severity)", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 1, PackageManager: "dnf"}, "CRIT"},
+		// apt has NO CVSS — "Critical" is inferred from the package name, so it must
+		// NOT mint a hard CRIT (would CRIT a host just because openssl has an update).
+		{"apt critical is WARN not CRIT (name-inferred, no CVSS)", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 3, PackageManager: "apt"}, "WARN"},
 		{"important updates is WARN", models.PackagesInfo{SecurityUpdates: 5, ImportantUpdates: 1, PackageManager: "apt"}, "WARN"},
 	}
 	for _, tt := range tests {
@@ -98,10 +102,40 @@ func TestCheckHugePages(t *testing.T) {
 }
 
 func TestCheckCPUFreq(t *testing.T) {
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}), "") // unavailable
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}), "")
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000}), "WARN")
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}), "WARN")
+	loaded := defaultThresh
+	loaded.CPULoadPct = 60 // CPU under load — a freq stuck below max is real throttling
+	idle := defaultThresh
+	idle.CPULoadPct = 3 // idle — min freq is normal, not throttling
+
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}, defaultThresh), "") // unavailable
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}, defaultThresh), "")
+	// powersave on a legacy-driver server (acpi-cpufreq, no battery) → WARN (capped at min freq).
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000, ScalingDriver: "acpi-cpufreq"}, defaultThresh), "WARN")
+	// Throttle WARN only fires under load...
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}, loaded), "WARN")
+	// ...not on an IDLE box parked at min freq (the false-WARN fix), nor when load is unknown.
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 80, CurrentMHz: 600, MaxMHz: 3000}, idle), "")
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 80, CurrentMHz: 600, MaxMHz: 3000}, defaultThresh), "")
+
+	// powersave on a BATTERY device (laptop / Steam Deck) → INFO, never WARN.
+	// Found on the AMD-laptop capture (legacy/empty driver + battery).
+	bat := checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 2096, MaxMHz: 4280, HasBattery: true}, defaultThresh)
+	if hasLevel(bat, "WARN") {
+		t.Errorf("powersave on battery must NOT WARN, got %+v", bat)
+	}
+	if !hasLevel(bat, "INFO") {
+		t.Errorf("powersave on battery should INFO, got %+v", bat)
+	}
+
+	// powersave on intel_pstate / amd-pstate (active mode) → DYNAMIC, the modern
+	// default → no finding at all (not WARN, not INFO). This is the false-WARN that
+	// would otherwise fire on nearly every modern Intel/AMD bare-metal server.
+	for _, drv := range []string{"intel_pstate", "amd-pstate-epp", "amd-pstate"} {
+		got := checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 1200, MaxMHz: 3600, ScalingDriver: drv}, defaultThresh)
+		if hasLevel(got, "WARN") || hasLevel(got, "INFO") {
+			t.Errorf("powersave on %s (dynamic) must be silent, got %+v", drv, got)
+		}
+	}
 }
 
 func TestCheckDBus(t *testing.T) {

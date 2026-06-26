@@ -108,7 +108,10 @@ func (c *MemcachedCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.MetricsRead = true
 	kv := parseMemcachedStats(stats)
 	info.CurrConnections = atoiSafe(kv["curr_connections"])
-	info.MaxConnections = atoiSafe(kv["max_connections"])
+	if mc := atoiSafe(kv["max_connections"]); mc > 0 {
+		info.MaxConnections = mc
+		info.MaxConnsRead = true
+	}
 	info.UsedBytes = atoi64(kv["bytes"])
 	info.LimitMaxBytes = atoi64(kv["limit_maxbytes"])
 	info.Evictions = atoi64(kv["evictions"])
@@ -126,9 +129,12 @@ func (c *MemcachedCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 	// max_connections isn't in plain "stats" on every build — fall back to settings.
-	if info.MaxConnections == 0 {
+	if !info.MaxConnsRead {
 		if settings, ok := memcachedCmd(ctx, network, addr, "stats settings", true); ok {
-			info.MaxConnections = atoiSafe(parseMemcachedStats(settings)["maxconns"])
+			if mc := atoiSafe(parseMemcachedStats(settings)["maxconns"]); mc > 0 {
+				info.MaxConnections = mc
+				info.MaxConnsRead = true
+			}
 		}
 	}
 	return info, nil

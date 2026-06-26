@@ -66,8 +66,35 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	info.SCSITimeouts, info.LowSCSITimeouts = collectSCSITimeouts("/sys/block")
+	info.SCSIDisksChecked, info.DisksNoStableID = collectVMwareDiskIDs("/sys/block")
 
 	return info, nil
+}
+
+// collectVMwareDiskIDs examines SCSI (sd*) disks for a stable hardware ID via
+// /sys/block/sd*/device/wwid. On a vSphere VM with disk.EnableUUID=FALSE the
+// paravirtual-SCSI disks report no SCSI page 0x83, so wwid is empty and there is
+// no /dev/disk/by-id serial — which breaks the vSphere CSI driver and stable
+// device naming. checked is true once any sd* disk was seen (so an NVMe-only
+// guest, where EnableUUID is irrelevant, produces no finding). noStableID lists
+// the sd* disks lacking a wwid.
+func collectVMwareDiskIDs(blockDir string) (checked bool, noStableID []string) {
+	entries, err := readDirEntries(blockDir)
+	if err != nil {
+		return false, nil
+	}
+	for _, e := range entries {
+		dev := e.Name()
+		if !strings.HasPrefix(dev, "sd") {
+			continue // sd* only: IDE/SATA carry an ATA serial and NVMe an eui regardless of EnableUUID
+		}
+		checked = true
+		if readFileTrimmedLocal(filepath.Join(blockDir, dev, "device", "wwid")) == "" {
+			noStableID = append(noStableID, dev)
+		}
+	}
+	sort.Strings(noStableID)
+	return checked, noStableID
 }
 
 // vmwareSCSITimeoutRecommended is VMware's recommended guest SCSI command
@@ -99,6 +126,43 @@ func collectVMwareStat(ctx context.Context, info *models.VMwareInfo) {
 	if limit, limited := vmwareStatLimit(ctx, toolbox, "cpulimit"); limited {
 		info.CPULimitMHz = limit
 	}
+	// Capacity context so the heuristic can tell a binding limit from an inert one
+	// (§N). `stat speed` is the per-vCPU host clock; combined with the vCPU count
+	// and RAM it yields CPU/memory capacity. All source-routed (replay-faithful).
+	if speed, ok := vmwareStatMB(ctx, toolbox, "speed"); ok {
+		info.HostMHzPerCPU = speed
+	}
+	info.NumVCPU = cpuCountFromProc(readFileTrimmedLocal("/proc/cpuinfo"))
+	info.TotalRAMMB = memTotalMBFromProc(readFileTrimmedLocal("/proc/meminfo"))
+}
+
+// cpuCountFromProc counts the logical CPUs in /proc/cpuinfo content (one
+// "processor" line each). Read via the source layer so it's replay-faithful.
+func cpuCountFromProc(cpuinfo string) int {
+	n := 0
+	for _, line := range strings.Split(cpuinfo, "\n") {
+		if strings.HasPrefix(line, "processor") {
+			n++
+		}
+	}
+	return n
+}
+
+// memTotalMBFromProc parses MemTotal (kB) from /proc/meminfo content and returns
+// it in MB. 0 when not found.
+func memTotalMBFromProc(meminfo string) int {
+	for _, line := range strings.Split(meminfo, "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if kb, ok := parseLeadingInt(fields[1]); ok {
+				return kb / 1024
+			}
+		}
+	}
+	return 0
 }
 
 // vmwareToolboxPath locates vmware-toolbox-cmd, "" when absent.
