@@ -77,11 +77,22 @@ validated (AWS + Azure captures, NVMe-timeout insight).
 These found BUG-040–052; re-run after any collector/heuristic change:
 
 1. **False-OK sweep** — "couldn't verify" must never render as OK/green.
-   7 grep-able anti-patterns in agent memory `false-ok-bug-class`.
+   7 grep-able anti-patterns in agent memory `false-ok-bug-class`. **Now partially
+   automated:** the non-root subclass (a privileged tool degrading to a false
+   OK/CRIT unprivileged — BUG-064/066/067/070) is CI-guarded by the **non-root
+   verdict invariant** job (#527, `scripts/check-nonroot-invariant.sh`): runs
+   `dsd health` root + non-root and fails if any check escalates non-root. Still
+   re-run the manual sweep for the root-path false-OKs it can't see.
 2. **Stale-signal recency gate** — cumulative counters (NRestarts, pstore)
    reported as current. Ask "where else?" — BUG-047/049 hid one file away.
 3. **Sibling divergence diff** — same fact, two code paths, two verdicts
    (BUG-050 `cmd/disk.go` vs health thresholds). Diff cmd/* against analysis/.
+   **Now CI-guarded:** the deterministic **cmd↔health consistency** test
+   (#528/#530, `cmd/cmd_health_consistency_test.go`) pins every standalone
+   command's verdict (gpu/kvm/docker/net/k8s/security) to its `dsd health`
+   counterpart on the same model — it's what surfaced + fixed BUG-072 (`dsd
+   security` undercounting SSH hardening). `dsd security` now derives its verdict
+   from `checkSecurity` directly (#532), so that pair can't drift by construction.
 4. **Zero-vs-unreported ambiguity** — a numeric `0` for "attribute/sensor not
    exposed" renders identically to a measured `0`. Distinct from the false-OK
    sweep (#1): here the *verdict* is usually correct, but the displayed/JSON
