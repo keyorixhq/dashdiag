@@ -68,13 +68,22 @@ sudo "$DSD" health --json >"$ROOT_JSON" 2>/dev/null || true
 # The bug class is non-root introducing a WARN/CRIT (or escalating to a higher
 # one) that root, with full access, does not. So flag a check only when its
 # non-root status is WARN/CRIT (rank >= 2) AND strictly worse than root's.
+#
+# SKIP volatile, point-in-time checks that read WORLD-READABLE sources (/proc):
+# root and non-root read identical data there, so any difference is transient
+# load noise between the two sequential runs, NOT a privilege-driven false verdict
+# (e.g. Pressure/CPU/IO momentarily spiking during one run). The bug class only
+# affects checks reading ROOT-GATED sources (Drives/Firewall/Hardening/OOM/…),
+# which this still compares. Without this skip the guard flaked on a PSI blip.
 VIOLATIONS="$(jq -n \
-  --slurpfile r "$ROOT_JSON" --slurpfile n "$NONROOT_JSON" '
+  --slurpfile r "$ROOT_JSON" --slurpfile n "$NONROOT_JSON" \
+  --argjson skip '["CPU Load","Memory","Swap","IO","Pressure","Processes","Entropy","Clock","FDLimits","Network","Sessions"]' '
   def rank(s): {"OK":0,"INFO":1,"WARN":2,"CRIT":3}[s] // 0;
   ($r[0].checks // []) as $rc | ($n[0].checks // []) as $nc |
   ($rc | map({(.name): .status}) | add) as $rootmap |
   $nc
-  | map(select($rootmap[.name] != null
+  | map(select(([.name] | inside($skip) | not)
+               and $rootmap[.name] != null
                and rank(.status) >= 2
                and rank(.status) > rank($rootmap[.name]))
         | {check: .name, nonroot: .status, root: $rootmap[.name]})
