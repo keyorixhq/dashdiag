@@ -130,3 +130,44 @@ func hintsContain(hints []string, sub string) bool {
 	}
 	return false
 }
+
+// TestCPUOfflineInsight covers the allocated-but-offline vCPU check, including the
+// gating that keeps it from false-warning on intentional offlining (SMT-off /
+// isolcpus). The 14-present/2-online case is the real VMware hot-add-not-onlined
+// state found live.
+func TestCPUOfflineInsight(t *testing.T) {
+	cases := []struct {
+		name    string
+		cpu     models.CPUInfo
+		wantOK  bool
+		wantLvl string
+		wantMsg string
+	}{
+		{"all online → silent", models.CPUInfo{PresentCPUs: 8, OnlineCPUs: 8}, false, "", ""},
+		{"not read (non-linux) → silent", models.CPUInfo{}, false, "", ""},
+		{"hot-add not onlined → WARN", models.CPUInfo{PresentCPUs: 14, OnlineCPUs: 2, SMTControl: "on"}, true, "WARN", "allocated vCPUs are offline"},
+		{"SMT off → INFO not WARN", models.CPUInfo{PresentCPUs: 8, OnlineCPUs: 4, SMTControl: "off"}, true, "INFO", "SMT is disabled"},
+		{"SMT forceoff → INFO", models.CPUInfo{PresentCPUs: 8, OnlineCPUs: 4, SMTControl: "forceoff"}, true, "INFO", "SMT is disabled"},
+		{"isolcpus → INFO not WARN", models.CPUInfo{PresentCPUs: 16, OnlineCPUs: 12, CPUsIsolated: true}, true, "INFO", "isolcpus"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ins, ok := cpuOfflineInsight(tc.cpu)
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v want %v", ok, tc.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if ins.Level != tc.wantLvl {
+				t.Errorf("level=%q want %q (%q)", ins.Level, tc.wantLvl, ins.Message)
+			}
+			if !strings.Contains(ins.Message, tc.wantMsg) {
+				t.Errorf("message %q missing %q", ins.Message, tc.wantMsg)
+			}
+			if ins.Check != "CPU Load" {
+				t.Errorf("check=%q want CPU Load", ins.Check)
+			}
+		})
+	}
+}
