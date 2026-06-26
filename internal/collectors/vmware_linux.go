@@ -99,6 +99,43 @@ func collectVMwareStat(ctx context.Context, info *models.VMwareInfo) {
 	if limit, limited := vmwareStatLimit(ctx, toolbox, "cpulimit"); limited {
 		info.CPULimitMHz = limit
 	}
+	// Capacity context so the heuristic can tell a binding limit from an inert one
+	// (§N). `stat speed` is the per-vCPU host clock; combined with the vCPU count
+	// and RAM it yields CPU/memory capacity. All source-routed (replay-faithful).
+	if speed, ok := vmwareStatMB(ctx, toolbox, "speed"); ok {
+		info.HostMHzPerCPU = speed
+	}
+	info.NumVCPU = cpuCountFromProc(readFileTrimmedLocal("/proc/cpuinfo"))
+	info.TotalRAMMB = memTotalMBFromProc(readFileTrimmedLocal("/proc/meminfo"))
+}
+
+// cpuCountFromProc counts the logical CPUs in /proc/cpuinfo content (one
+// "processor" line each). Read via the source layer so it's replay-faithful.
+func cpuCountFromProc(cpuinfo string) int {
+	n := 0
+	for _, line := range strings.Split(cpuinfo, "\n") {
+		if strings.HasPrefix(line, "processor") {
+			n++
+		}
+	}
+	return n
+}
+
+// memTotalMBFromProc parses MemTotal (kB) from /proc/meminfo content and returns
+// it in MB. 0 when not found.
+func memTotalMBFromProc(meminfo string) int {
+	for _, line := range strings.Split(meminfo, "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if kb, ok := parseLeadingInt(fields[1]); ok {
+				return kb / 1024
+			}
+		}
+	}
+	return 0
 }
 
 // vmwareToolboxPath locates vmware-toolbox-cmd, "" when absent.
