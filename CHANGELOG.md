@@ -11,6 +11,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-06-26
+
+Minor (additive): four new guest-side checks plus the broadest false-verdict sweep
+yet — 20 fixes spanning containers, databases, storage, cloud, and VMware, found
+across a live VMware Cloud Director tenant and a cross-distro guest fleet (Ubuntu,
+CentOS Stream 8, CentOS 7). No `dsd health --json` schema break (new fields are
+additive `omitempty`).
+
+### Added
+
+- **`CPU Load` flags allocated-but-offline vCPUs.** A VMware/cloud CPU hot-add the
+  guest never onlined — Debian/Ubuntu lack the auto-online udev rule RHEL ships — runs
+  the VM on a fraction of its allocation with no other signal (found live: 14 vCPUs
+  allocated, 2 online). Gated against intentional offlining (SMT-off, isolcpus). (#545)
+- **`Memory` flags hot-added RAM the guest never onlined** — offline memory blocks with
+  auto-onlining disabled; gated against balloon/virtio-mem. (#491)
+- **VMware: `disk.EnableUUID=FALSE` detection** — paravirtual-SCSI disks with no stable
+  hardware ID break the vSphere CSI driver and `/dev/disk/by-id`. (#489)
+- **VMware: vmxnet3 ring/buffer exhaustion** via `ethtool -S` (RX buf-alloc fail, RX
+  OOB, TX ring full), rate-gated so a flat count on a long-uptime host doesn't WARN. (#490)
+
+### Fixed — false-verdict sweep
+
+- **kvm** — stuck / unreadable VM states no longer read as healthy (#498)
+- **docker** — daemon reachable but containers unlistable now WARNs, not silent OK (#499)
+- **mysql** — stopped replication CRITs instead of false-OK on a NULL lag (#495)
+- **mongodb** — no-primary CRIT suppressed when `rs.status()` couldn't be read (#496)
+- **drbd** — connection-failure / diskless states flagged, not read healthy (#502)
+- **redis / memcached** — connection-saturation no longer skipped on a 0-limit parse (#507)
+- **tls** — unreadable / garbled certs surfaced instead of silent green (#497)
+- **nfs** — a prompt statfs error WARNs instead of reading the mount healthy (#504)
+- **cve** — a stale / absent package index no longer reports "no CVEs" (security false-OK) (#505)
+- **thermal** — implausible CPU temps rejected instead of false-CRIT throttling (#501)
+- **gpu** — APU shared-RAM "VRAM" no longer false-WARNs; a metric-less GPU isn't masked (#503)
+- **cpufreq** — no false "possible throttle" on an idle CPU at min freq (#506); no powersave
+  WARN on a dynamic intel_pstate / amd-pstate driver (#494)
+- **cloud** — IMDS reads fail on a non-2xx HTTP status instead of ingesting the error body (#500)
+- **services** — no false "journal corruption detected" on the active (live-written) journal (#492)
+- **systemd** — timer-triggered jobs excluded from the "slow boot unit" WARN (#487)
+- **cron** — no quality false-positives on run-parts scripts / empty files (#493)
+- **sessions** — a blank TTY column in `w -h` (pty-less SSH) no longer reads as a false-OK (#488)
+- **auth** — SSH brute-force verdict is config-aware (no false-WARN on key-only hosts) (#486)
+- **k8s** — node role derived from labels, not taints (k3s control-plane mislabeled "worker") (#485)
+
+### Internal
+
+- Release smoke-test default host pointed at a live pve node (#534).
+
 ## [1.9.3] - 2026-06-26
 
 Patch: a sweep of false-verdict fixes found running dsd live on a real VMware Cloud
