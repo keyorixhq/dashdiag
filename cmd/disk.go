@@ -246,15 +246,11 @@ func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 			n++
 		}
 	}
-	// LVM: full VGs (≤5% free = CRIT) or degraded RAID
+	// LVM: degraded RAID. A fully-allocated VG is NOT a concern — it's the normal
+	// default-install layout (root+swap take the whole VG); filesystem fill is the
+	// real signal, scored elsewhere. Matches dsd health, which emits only INFO for
+	// it (§O.1 widened — found live on CentOS Stream 8).
 	if lvmInfo != nil {
-		for _, vg := range lvmInfo.VGs {
-			// A thin-pool-backed VG is ~fully allocated to its pool by design;
-			// its free space is not a usage signal (§O.1) — match dsd health.
-			if vg.FreePct <= 5 && !analysis.VGBacksThinPool(lvmInfo.ThinPools, vg.Name) {
-				n++
-			}
-		}
 		for _, r := range lvmInfo.RaidLVs {
 			if r.Degraded {
 				n++
@@ -384,21 +380,16 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	for _, vg := range lvm.VGs {
 		icon := asciiOr("ok", "✅", mode)
 		note := ""
-		// Classify identically to dsd health (analysis.LVMVGFullLevel) so the two
-		// commands never disagree on the same VG (BUG-050 class). A thin-pool-backed
-		// VG is ~fully allocated to its pool by design, so its free space is not a
-		// usage signal — leave it OK and let the thin-pool rows carry the verdict (§O.1).
-		if !analysis.VGBacksThinPool(lvm.ThinPools, vg.Name) {
-			switch analysis.LVMVGFullLevel(vg.FreePct) {
-			case "CRIT":
-				icon = asciiOr("fail", "❌", mode)
-				note = "  ← CRIT: VG almost full"
-			case "WARN":
-				icon = asciiOr("warn", "⚠️ ", mode)
-				note = "  ← low on space"
-			}
-		} else {
+		// A fully-allocated VG is the normal default-install layout (root+swap take
+		// the whole VG), NOT a near-full disk — so it stays OK here, matching dsd
+		// health, which emits only an INFO note for it. Real pressure is the
+		// filesystem fill, scored elsewhere. Thin-pool-backed VGs are allocation-by-
+		// design too; their data%/meta% rows carry the verdict (§O.1 widened — found
+		// live on CentOS Stream 8 where VG `cs` was 100% allocated, root FS at 38%).
+		if analysis.VGBacksThinPool(lvm.ThinPools, vg.Name) {
 			note = "  (thin-pool backed — allocation by design)"
+		} else if analysis.LVMVGFullLevel(vg.FreePct) != "" {
+			note = "  (fully allocated — normal; see filesystem usage)"
 		}
 		fmt.Printf("  %s  %-20s %.1fGB total  %.1fGB free  (%.0f%%)%s\n",
 			icon, vg.Name, vg.SizeGB, vg.FreeGB, vg.FreePct, note)
