@@ -504,9 +504,12 @@ func TestSysctlSomaxconnThresholds(t *testing.T) {
 		val  int
 		want string
 	}{
+		// somaxconn is a tuning param, not a fault — WARN at most, never CRIT. 128 (the
+		// historical kernel default on CentOS 7 / RHEL 7) must not flip the verdict.
 		{"ok", 4096, ""},
-		{"warn", 800, "WARN"},
-		{"crit", 256, "CRIT"},
+		{"low is WARN", 800, "WARN"},
+		{"historical default 128 is WARN, not CRIT", 128, "WARN"},
+		{"very low is still only WARN", 256, "WARN"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
