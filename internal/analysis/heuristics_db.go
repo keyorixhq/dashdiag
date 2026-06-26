@@ -138,8 +138,21 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 			[]string{"to inspect: mysqladmin --socket=" + my.SocketPath + " status"}))
 	}
 
+	// Replication stopped — the worst replica state. Seconds_Behind_Master reads
+	// NULL here, so the lag check below would report 0s and the replica would look
+	// healthy while serving ever-staler data. CRIT, ahead of the lag WARN.
+	if my.IsReplica && my.ReplStopped {
+		out = append(out, insight("CRIT", "MySQL",
+			"replication is STOPPED on this replica — it is serving stale data and not following the primary",
+			[]string{
+				"to inspect: SHOW SLAVE STATUS\\G  (Slave_IO_Running / Slave_SQL_Running should both be 'Yes')",
+				"to inspect: check Last_IO_Error / Last_SQL_Error for the cause",
+				"to fix: resolve the error, then START SLAVE  (MySQL 8.4+: START REPLICA)",
+			}))
+	}
+
 	// Replica falling behind.
-	if my.IsReplica && my.SecondsBehind > 300 {
+	if my.IsReplica && !my.ReplStopped && my.SecondsBehind > 300 {
 		out = append(out, insight("WARN", "MySQL",
 			fmt.Sprintf("replica is %ds behind the primary — replication lag growing", my.SecondsBehind),
 			[]string{
@@ -265,6 +278,13 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 			fmt.Sprintf("connections at %d/%d — approaching maxconns (new connections refused at the limit)",
 				m.CurrConnections, m.MaxConnections),
 			[]string{"to inspect: echo stats | nc " + m.Addr + "  (curr_connections)", "to fix: raise -c (max connections)"}))
+	} else if !m.MaxConnsRead {
+		// stats were read but neither plain stats nor `stats settings` exposed a
+		// maxconns value — the connection-saturation check above couldn't run. Say
+		// so honestly rather than passing clean (mirrors checkRedis / checkMySQL).
+		out = append(out, insight("INFO", "Memcached",
+			"Memcached metrics were read, but max_connections could not be — connection-saturation was not assessed",
+			[]string{"to inspect: echo stats settings | nc " + m.Addr + "  (look for maxconns)"}))
 	}
 
 	return out

@@ -73,7 +73,7 @@ func FuzzParseBlame(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, out string) {
-		_ = parseBlame(out, 5)
+		_ = parseBlame(out, 5, nil)
 	})
 }
 

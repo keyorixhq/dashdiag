@@ -23,6 +23,11 @@ type MySQLInfo struct {
 	ConnStatsRead bool `json:"conn_stats_read,omitempty"`
 	IsReplica     bool `json:"is_replica,omitempty"`
 	SecondsBehind int  `json:"seconds_behind,omitempty"` // replica lag (Seconds_Behind_Master)
+	// ReplStopped is true when this is a replica whose replication is NOT running
+	// (Slave_IO_Running or Slave_SQL_Running is not "Yes"). In that state
+	// Seconds_Behind_Master reads NULL, so the lag check alone reports 0s and the
+	// replica looks healthy while silently serving ever-staler data — a false-OK.
+	ReplStopped bool `json:"repl_stopped,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
 }

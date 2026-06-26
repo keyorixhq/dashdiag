@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -25,6 +26,43 @@ func TestCheckMemory_ECC(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assertLevel(t, checkMemory(tc.mem, defaultThresh, noCtr), tc.want)
 		})
+	}
+}
+
+// memHotplugInsights flags hot-added RAM the guest isn't using: offline memory
+// blocks while auto-onlining is disabled. Gated so it never fires on intentional
+// balloon/virtio-mem offlining (auto-online irrelevant there) or healthy hosts.
+func TestMemHotplugInsights(t *testing.T) {
+	// The bug: offline blocks AND auto-online off → WARN naming the amount.
+	bug := models.MemoryInfo{MemHotplugChecked: true, OfflineMemoryBlocks: 4, OfflineMemoryMB: 8192, AutoOnlineBlocks: false}
+	got := memHotplugInsights(bug)
+	if len(got) != 1 || got[0].Level != "WARN" || got[0].Check != "Memory" {
+		t.Fatalf("offline+auto-off = %+v, want one WARN on Memory", got)
+	}
+	for _, want := range []string{"8.0 GB", "auto-onlining is disabled", "hot-added"} {
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("WARN missing %q, got %q", want, got[0].Message)
+		}
+	}
+
+	// Auto-onlining ON but blocks offline → balloon/virtio-mem territory, NOT a
+	// misconfiguration → silent.
+	if got := memHotplugInsights(models.MemoryInfo{MemHotplugChecked: true, OfflineMemoryBlocks: 4, AutoOnlineBlocks: true}); got != nil {
+		t.Errorf("auto-online on must be silent (intentional offline), got %v", got)
+	}
+	// No offline blocks → silent even with auto-online off.
+	if got := memHotplugInsights(models.MemoryInfo{MemHotplugChecked: true, OfflineMemoryBlocks: 0, AutoOnlineBlocks: false}); got != nil {
+		t.Errorf("no offline blocks must be silent, got %v", got)
+	}
+	// Hotplug sysfs absent → silent.
+	if got := memHotplugInsights(models.MemoryInfo{MemHotplugChecked: false, OfflineMemoryBlocks: 4}); got != nil {
+		t.Errorf("unchecked must be silent, got %v", got)
+	}
+
+	// Block count only (size unknown) → still WARNs, naming blocks not GB.
+	noSize := memHotplugInsights(models.MemoryInfo{MemHotplugChecked: true, OfflineMemoryBlocks: 2, OfflineMemoryMB: 0, AutoOnlineBlocks: false})
+	if len(noSize) != 1 || !strings.Contains(noSize[0].Message, "2 memory block(s)") {
+		t.Errorf("size-unknown = %+v, want WARN naming '2 memory block(s)'", noSize)
 	}
 }
 

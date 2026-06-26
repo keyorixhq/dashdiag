@@ -64,8 +64,12 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	// package collector. Default stays terse (the validated, byte-stable path).
 	deep, _ := cmd.Flags().GetBool("deep")
 	pkg, _ := cmd.Flags().GetBool("pkg")
+	// --cve-scan records the CVE/advisory verdict into the bundle so the CVE check
+	// replays from the captured snapshot (CVE data is time-varying; freezing it is
+	// the point). Off by default — the scan can be slow and most captures don't need it.
+	cveScan, _ := cmd.Flags().GetBool("cve-scan")
 	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, output.ModePlain,
-		!deep /*terse*/, pkg, gpu, false /*tls*/, deep, false /*firmware*/, false /*cve*/, nil)
+		!deep /*terse*/, pkg, gpu, false /*tls*/, deep, false /*firmware*/, cveScan /*cve*/, nil)
 
 	b := rec.Bundle()
 	b.Manifest = source.Manifest{

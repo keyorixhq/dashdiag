@@ -877,3 +877,230 @@ sensors correctly (coretemp, SMART PASSED, power-on hours, ECC counters). One fa
   Docker) — each tap/veth NIC false-WARNs. Squarely dsd's target environment.
 **Fix:** when `operstate` is "unknown", fall back to `carrier` — `carrier==1` → "up".
   Validated live: `tap101i0 OK up @ 10000 Mbps`. **PR:** #483
+
+---
+
+## AWS EC2 SLES 16.0 (arm64) — firewall + container-runtime sweep (2026-06-25)
+
+Second pass on a t4g.small SLES 16.0 box (rootless podman installed, nftables installed
+but unconfigured), running `dsd` as both non-root and root and diffing — the dual-privilege
+methodology. Three false-WARN/false-OK bugs, all in the "couldn't measure surfaced as a
+verdict" class, two of them divergences between `dsd security` and `dsd health` on identical
+data.
+
+### BUG-064 — permission-denied container socket false-WARNs (non-root measurement gap)
+**Found:** AWS EC2 SLES 16.0 (arm64), non-root (`dsd health`)
+**Symptom:** non-root `dsd health` raised `Docker ⚠️ WARN: podman socket found at
+  /run/podman/podman.sock but permission denied`, with the remediation `systemctl status
+  docker` — a false alarm about a runtime it merely couldn't read, and naming the wrong
+  runtime (the socket is podman's). As root the check correctly drops away (podman has
+  nothing to report).
+**Root cause:** `checkDocker` emitted a WARN for any unavailable runtime carrying a
+  `StatusReason`. The `SocketPermDenied` branch was dead code — its comment promised to
+  "surface specific fix" but it only `return`ed. A non-root measurement gap was rendered as
+  a fault.
+**Affected:** non-root `dsd health` on any host with a permission-gated docker/podman/crio
+  socket (rootless podman is the common case) — an unprivileged operator alarmed about
+  something dsd couldn't measure.
+**Fix:** permission-denied now degrades to INFO ("couldn't measure"), matching the
+  `checkFirewall`/`checkFirmware` non-root pattern; dropped the wrong-runtime hint
+  (`collectSocketPermReason` already carries the correct `usermod -aG <runtime>` fix).
+  Genuine daemon-down stays WARN. Regression test added. Verified live: Docker line now
+  reads INFO non-root. **PR:** #508
+
+### BUG-065 — `dsd security` reports "Firewall: none detected" on an unprotected host
+**Found:** AWS EC2 SLES 16.0 (arm64), root (`dsd security` vs `dsd health`)
+**Symptom:** with nftables installed but an **empty ruleset**, `dsd security` printed a
+  benign "Firewall: none detected" (no warning), while `dsd health` correctly WARNed
+  "nftables is installed but no rules are active — host is unprotected". Same data, two
+  verdicts — security under-reported the genuinely-unprotected misconfiguration.
+**Root cause:** `detectNFTables`/`detectIPTables` returned false when the ruleset was empty
+  (`TotalRules==0`), so `parseFirewall` fell through to `FirewallActive=false` and the
+  renderer's neutral "none detected" — conflating "tooling present but no rules" with "no
+  firewall tooling at all".
+**Affected:** `dsd security` on any host where nft/iptables is installed with no active
+  rules — false reassurance about an unprotected host.
+**Fix:** record `FirewallToolingPresent` when the binary is present but the ruleset is empty;
+  the renderer surfaces ⚠️ "<backend> installed but no active rules — host is unprotected",
+  mirroring the health verdict. Verified live: security and health now agree. **PR:** #509
+
+### BUG-066 — nft/iptables in sbin missed on non-root → "no tooling" instead of "not verified"
+**Found:** AWS EC2 SLES 16.0 (arm64), non-root (`dsd health` + `dsd security`)
+**Symptom:** non-root `dsd health` reported `Firewall ℹ️ no firewall tooling (nft/iptables)
+  found` and `dsd security` reported "Firewall: none detected" — both implying no firewall
+  exists — on a box where nftables IS installed (`/usr/sbin/nft`, `/sbin/nft`). The honest
+  state is "installed but unreadable without root".
+**Root cause:** `nft`/`iptables` live in `/sbin` + `/usr/sbin`, absent from a typical
+  non-root `$PATH`. `lookPath`/bare-name exec failed for unprivileged runs, so dsd concluded
+  the tooling was *not installed* rather than *installed but unreadable*.
+**Affected:** non-root `dsd health` / `dsd security` firewall verdict on any distro that
+  keeps net tools in sbin and omits sbin from the user `$PATH` (SLES and others) — a
+  misleading "no firewall" in place of an honest "couldn't verify".
+**Fix:** new `sbinToolPath()` resolves via `$PATH` then the standard sbin dirs (both lookups
+  source-routed for capture/replay) and is used as a DETECTION gate — so a non-root run knows
+  the binary exists instead of concluding "no tooling". The tools are still invoked by BARE
+  name (an absolute path would change the capture/replay command key and break replay of every
+  pre-existing bundle — caught in adversarial review before merge); a bare-name exec that
+  fails to launch on a sbin-less non-root `$PATH` is treated as the honest "could not read
+  ruleset (run as root?)" (health) / "state not verified — run as root" (security), driven by
+  a new `FirewallUnreadable` flag. The security collector's on-disk-config fallback was also
+  gated to "binary truly absent" so a present-but-unreadable nft can't be masked as a false
+  "active". Regression guard added (`firewall_barename_linux_test.go`). Verified live across
+  both privilege levels, incl. with `/etc/nftables.conf` present. **PR:** #509
+
+## AWS EC2 Debian 13 (arm64 / t4g.small) validation — 2026-06-25
+
+A fresh-boot Graviton (t4g.small) Debian 13 box. Privilege-pair pass (non-root +
+root JSON diff) was otherwise clean — the degradation contract held — but the
+non-root `Drives` line gave a wrong remediation.
+
+### BUG-067 — non-root NVMe SMART blamed privilege when nvme-cli was simply absent
+**Found:** AWS EC2 Debian 13 (arm64), non-root `dsd health`, `nvme-cli` not installed
+**Symptom:** non-root `dsd health` reported `Drives ℹ️ … SMART health not read (/dev/nvme0)
+  — running unprivileged (nvme smart-log needs root)` with the hint "re-run as root (sudo
+  dsd health)". But `sudo` does NOT help — `nvme-cli` is not installed at all; the root run
+  correctly said "nvme-cli not installed". A misleading remediation, not a verdict bug (both
+  stay INFO, no false-OK), but exactly the honesty class dsd exists to avoid.
+**Root cause:** `nvmeUnreadReason()` checked `os.Geteuid() != 0` FIRST and returned
+  `needs_root` for any non-root failure — deliberately, to avoid a false "absent" on SUSE/RHEL
+  where `nvme` lives in `/usr/sbin` (off a non-root `$PATH`, so a bare `lookPath` would miss an
+  installed tool). The ordering overcorrected: when the binary is genuinely absent everywhere,
+  a non-root run still blamed privilege.
+**Affected:** non-root `dsd health` `Drives` remediation on any host without `nvme-cli`
+  installed — tells the operator to `sudo` when the real fix is `apt/dnf/zypper install
+  nvme-cli`.
+**Fix:** reorder `nvmeUnreadReason()` to test genuine ABSENCE first via `sbinToolPath("nvme")`
+  (the same `$PATH`+sbin-dirs probe BUG-066 introduced) — a miss there means the binary is
+  truly not on the box → `tool_absent` regardless of privilege; only a *present* tool that
+  fails for a non-root caller is `needs_root`. Resolves the Debian case without regressing the
+  SLES/RHEL `/usr/sbin` case the original ordering guarded. Regression guard added
+  (`nvme_unread_reason_linux_test.go`, euid-independent). Verified live on the box: non-root
+  and root now both report "nvme-cli not installed". **PR:** #523
+
+### BUG-068 — "host unprotected" firewall WARN ignores the cloud Security Group layer
+**Found:** AWS EC2 Debian 13 (arm64), root `dsd health`, no host iptables/nft rules
+**Symptom:** `dsd health` reported `Firewall ⚠️ iptables is installed but no rules are active
+  — host is unprotected`. True at the host level, but on EC2 the actual network firewall is
+  the **Security Group** — a layer dsd cannot read from inside the guest. A flat "unprotected"
+  on a normally-configured cloud instance reads as cloud-naive and is a credibility hit in
+  exactly the demo a prospect is watching (sibling framing to the PVE-firewall BUG-017 and the
+  NVMe-timeout-on-virt false-WARN).
+**Root cause:** `checkFirewall` asserted "unprotected" on any empty host ruleset with no
+  awareness of the cloud-guest context, even though the provider Security Group / NSG / VPC
+  firewall is the real (and unreadable-from-inside) enforcement layer.
+**Affected:** `dsd health` / `dsd security` firewall verdict on any AWS/Azure/GCP guest that
+  relies on the cloud network firewall (the common case) — a false WARN.
+**Fix:** the firewall collector now flags `CloudGuest`/`CloudProvider` via the existing
+  DMI-based guest gates (`AWSGuestAvailable`/`AzureGuestAvailable`/`GCPGuestAvailable` — cheap,
+  no root, no IMDS). On a detected cloud guest an empty host ruleset is INFO, not WARN, naming
+  the provider construct (Security Group / NSG / VPC firewall) dsd can't see and how to verify
+  it — without false-greening (it still says "add rules if you don't rely on the cloud
+  firewall"). Non-cloud hosts still WARN. Regression guard added (`TestCloudGuestFirewall…`).
+  Verified live on the box: the WARN became an honest cloud-aware INFO. **PR:** #524
+
+### BUG-069 — `dsd capture`→`dsd mock` silently dropped all but one insight per check
+**Found:** while turning the AWS EC2 Debian 13 (arm64) capture into a fixture
+**Symptom:** a fixture captured from a host with several `Hardening` findings (SSH weak
+  MACs, NOPASSWD sudo, password-never-expires, X11/AgentForwarding, LoginGraceTime)
+  replayed via `dsd mock` showing only ONE of them. The **SSH weak-MAC WARN — the single
+  most security-relevant finding — vanished**. `dsd health --json` itself was complete; the
+  loss happened in the capture→fixture conversion.
+**Root cause:** `dsd capture` built `insightMap[check] = highest-severity insight` — one
+  insight per check name — and `dsd mock` reconstructed the insight list one-per-row. Any
+  check that emits multiple insights kept only its top one (and among equal-severity ties,
+  whichever was seen first — here NOPASSWD won over the equally-WARN weak-MAC). Every
+  multi-insight check (Hardening, Logs, …) was lossy; demos/screenshots built from fixtures
+  silently under-reported findings.
+**Affected:** `dsd mock` output for any fixture captured from a host with multi-insight
+  checks — i.e. all of them in practice. Marketing screenshots and doc fixtures understated
+  what dsd actually finds.
+**Fix:** capture now preserves the COMPLETE insight list (`MockFixture.Insights`, every
+  finding in emit order, mirroring `--json insights[]`); `dsd mock` renders that full set,
+  falling back to the legacy one-per-row reconstruction only for older fixtures that lack it
+  (`resolveMockInsights`). Round-trip regression guard added (`capture_insights_test.go`)
+  asserting the weak-MAC WARN survives. Verified end-to-end against the EC2 capture: all six
+  Hardening insights now replay. **PR:** #525
+
+## AWS EC2 Fedora 43 Cloud (arm64 / t4g.small) validation — 2026-06-26
+
+A stock Fedora 43 Cloud arm64 Graviton box — btrfs root, SELinux enforcing, dnf.
+First RPM/SELinux/btrfs-default surface in the EC2 arm64 sweep. The privilege-pair
+pass otherwise degraded honestly, but a CRIT false-alarm fired non-root.
+
+### BUG-070 — non-root `dsd health` false-CRITs a healthy btrfs as "DEGRADED — missing device"
+**Found:** AWS EC2 Fedora 43 Cloud (arm64), non-root `dsd health`, healthy single-device btrfs root
+**Symptom:** non-root `dsd health` reported `Disk ❌ CRIT btrfs / is DEGRADED — 1 missing
+  device(s), data at risk` (exit 2) on a perfectly healthy single-device btrfs. Raw
+  `btrfs filesystem show` as root: `Total devices 1`, the device present, 0 errors. As ROOT
+  dsd was clean (`Disk ✅`). A CRIT false-alarm — the loudest, worst class — on the DEFAULT
+  filesystem of Fedora, openSUSE, SteamOS, so the unprivileged blast radius is large.
+**Root cause:** run unprivileged, `btrfs filesystem show` cannot OPEN the block devices, so it
+  prints every present device as `devid 1 size 0 used 0 path /dev/nvme0n1p3 MISSING` — its REAL
+  path with a `MISSING` suffix. The collector's regex matched `MISSING` → `MissingDevs++` →
+  status "degraded" → CRIT. The device wasn't gone; btrfs just couldn't read it without root.
+  A genuinely-absent device is instead shown with the `<missing disk>` placeholder path.
+**Affected:** non-root `dsd health` / `dsd disk` on ANY host with a btrfs filesystem — a
+  spurious DEGRADED CRIT (exit 2) for every unprivileged run.
+**Fix:** `applyBtrfsShow` now distinguishes a real `/dev` path flagged `MISSING` under a
+  non-root run (the "couldn't open device" artifact → new `DevReadUnverified` flag, volume
+  "unverified", NOT counted as missing) from the genuine `<missing disk>` placeholder (still a
+  DEGRADED CRIT, even non-root, so a real fault is never hidden). As root a real-path MISSING is
+  still counted (root CAN open devices, so it'd be anomalous — no false-OK). The heuristic emits
+  an honest INFO "btrfs <mount> device state could not be verified — run as root" instead of the
+  CRIT. Regression guards added (collector + heuristic) using the exact Fedora output. Verified
+  live: non-root CRIT → INFO, root stays `Disk ✅`. **PR:** #526
+
+## AWS EC2 Alpine 3.22 (x86_64 / t3.small) validation — 2026-06-26
+
+A stock Alpine Linux 3.22 EC2 box — **musl + busybox + OpenRC, no systemd, no
+glibc**. The non-systemd surface nothing else in the matrix currently covers.
+Degradation was honest throughout (systemd/DBus rows correctly absent, firewall
+"no tooling" not a false "unprotected", nvme "needs root" correct per BUG-067),
+but OOM detection was silently dead.
+
+### BUG-071 — OOM detection dead on Alpine/busybox even as root (`dmesg --time-format` unsupported)
+**Found:** AWS EC2 Alpine 3.22 (x86_64), root `dsd health`
+**Symptom:** the OOM check reported `OOM ℹ️ not verified — kernel log unreadable (journalctl -k
+  and dmesg both failed)` even as root — yet `doas dmesg` worked fine and `/dev/kmsg` was
+  readable. So OOM-kill detection was entirely unavailable on Alpine (and any busybox host),
+  not just unprivileged. Honestly reported (INFO, not a false-OK "0 kills"), but a real
+  coverage gap on the default OOM signal.
+**Root cause:** the OOM collector's dmesg fallback called `dmesg --time-format iso` (util-linux
+  syntax). Alpine's `dmesg` is **busybox**, which doesn't support `--time-format`, so the call
+  errored and the collector concluded the kernel log was unreadable — despite a bare `dmesg`
+  working. (journalctl is absent on Alpine, so the dmesg path was the only one.)
+**Affected:** `dsd health` OOM section on every busybox/non-systemd host (Alpine, and busybox
+  embedded systems) — OOM kills undetectable even with privilege.
+**Fix:** when `dmesg --time-format iso` fails, retry **bare `dmesg`** before giving up (the same
+  two-step pattern kernel_security.go already uses). Plain dmesg's boot-relative timestamps are
+  already handled conservatively by filterOOMRecent. Regression guard added
+  (`oom_busybox_dmesg_test.go`, a fake busybox source: iso-flag fails, bare dmesg succeeds).
+  Verified live on the Alpine box: `OOM ✅ 0 events` at root (was "not verified"). **PR:** #529
+
+## cmd↔health consistency guard — extension to net/k8s/security — 2026-06-26
+
+Extending the cmd↔health verdict-consistency guard (#528) to net/k8s/security
+(see [[#528]]). net and k8s aligned cleanly; the guard surfaced a real security
+divergence below.
+
+### BUG-072 — `dsd security` verdict undercounts SSH hardening vs `dsd health`
+**Found:** extending the cmd↔health consistency guard to security (2026-06-26); corroborated
+  by the live Alpine 3.22 run where `dsd health` WARNed weak-MAC + password-never-expires.
+**Symptom:** `dsd security`'s "N concern(s)" verdict (`countSecurityIssues`) tallies a NARROWER
+  set than `dsd health`'s `checkSecurity`: cmd counts SSHPermitRoot, SSHPasswordAuth, failed
+  logins, unexpected ports, NOPASSWD sudo, SUID, SELinux denials — but NOT StrictModes-disabled,
+  PermitEmptyPasswords (a health CRIT!), weak SSH MACs, or password-never-expires, all of which
+  checkSecurity WARNs/CRITs on. So `dsd security` can summarize "healthy / fewer concerns" while
+  `dsd health` flags real SSH hardening issues on the same host — the sibling-divergence class
+  (#235/#275/#335) again, in security.
+**Affected:** `dsd security` summary verdict on any host with those SSH hardening gaps — the
+  detail section may even print the weak MAC while the verdict reads healthy.
+**Fix:** `dsd security`'s verdict now derives from the SAME heuristic `dsd health` uses — new
+  exported `analysis.SecurityConcernCount` counts the WARN/CRIT insights `checkSecurity` raises —
+  replacing the parallel `countSecurityIssues` tally (deleted). The two can no longer diverge by
+  construction. Verified safe at non-root: the collector defaults `SSHStrictModes=true` (only
+  flips false when sshd config is actually read and says `StrictModes no`), so a non-root run
+  where the config is unreadable does NOT gain a false StrictModes concern. Side effect (accepted):
+  the `dsd security` "N concern(s)" count is now grouped like health (e.g. 3 unexpected ports = 1
+  concern, not 3). Consistency test extended to the previously-missed conditions (StrictModes,
+  PermitEmptyPasswords) as a revert guard. **PR:** _guard #530; fix #532_

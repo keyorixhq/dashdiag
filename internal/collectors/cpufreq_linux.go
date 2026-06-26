@@ -31,6 +31,7 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 		return info, nil // cpufreq not available (VM, container, or old kernel)
 	}
 	info.Governor = gov
+	info.ScalingDriver = strings.TrimSpace(readSysfsStr(base + "/scaling_driver"))
 
 	// Frequencies are in kHz — convert to MHz
 	if v := readSysfsKHz(base + "/scaling_cur_freq"); v > 0 {
@@ -46,6 +47,15 @@ func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
 	// CPU count from present list
 	if cpus, _ := glob("/sys/devices/system/cpu/cpu[0-9]*"); len(cpus) > 0 {
 		info.CPUCount = len(cpus)
+	}
+
+	// Battery present → portable device (laptop / handheld such as the Steam Deck),
+	// where 'powersave' is the correct power-saving choice rather than a server
+	// misconfiguration. Same detection as the battery collector.
+	if bats, _ := glob("/sys/class/power_supply/BAT*"); len(bats) > 0 {
+		info.HasBattery = true
+	} else if bats, _ := glob("/sys/class/power_supply/battery"); len(bats) > 0 {
+		info.HasBattery = true
 	}
 
 	// Throttle percentage: how far below max we are

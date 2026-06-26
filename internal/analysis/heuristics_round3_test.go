@@ -27,6 +27,14 @@ func TestCheckDRBDResource(t *testing.T) {
 		{"local disk failed is CRIT", models.DRBDResource{ConnState: "Connected", LocalDisk: "Failed"}, "CRIT"},
 		{"inconsistent not syncing is CRIT", models.DRBDResource{ConnState: "Connected", LocalDisk: "Inconsistent"}, "CRIT"},
 		{"outdated is WARN", models.DRBDResource{ConnState: "Connected", LocalDisk: "Outdated"}, "WARN"},
+		// Previously-unhandled states that read as healthy (false-OK fixes):
+		{"network failure is WARN", models.DRBDResource{ConnState: "NetworkFailure", LocalDisk: "UpToDate"}, "WARN"},
+		{"timeout is WARN", models.DRBDResource{ConnState: "Timeout", LocalDisk: "UpToDate"}, "WARN"},
+		{"unconnected is WARN", models.DRBDResource{ConnState: "Unconnected", LocalDisk: "UpToDate"}, "WARN"},
+		{"diskless is WARN", models.DRBDResource{ConnState: "Connected", LocalDisk: "Diskless"}, "WARN"},
+		// Benign transient states must NOT be flagged (no false-WARN).
+		{"online verify is clean", models.DRBDResource{ConnState: "VerifyS", LocalDisk: "UpToDate"}, ""},
+		{"congestion (Ahead) is clean", models.DRBDResource{ConnState: "Ahead", LocalDisk: "UpToDate"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

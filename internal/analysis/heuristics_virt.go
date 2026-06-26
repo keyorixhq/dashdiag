@@ -149,15 +149,23 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
 
 	if !d.Available {
+		// 7h: socket found but permission denied. This is a non-root
+		// measurement gap, not a fault — degrade to INFO ("couldn't
+		// measure"), never WARN. collectSocketPermReason already carries
+		// the runtime-specific fix (usermod -aG <runtime>), so don't append
+		// a generic "systemctl status docker" hint that names the wrong
+		// runtime for podman/crio.
+		if d.SocketPermDenied {
+			if d.StatusReason != "" {
+				out = append(out, insight("INFO", "Docker", d.StatusReason, nil))
+			}
+			return out
+		}
 		if d.StatusReason != "" {
 			out = append(out, insight("WARN", "Docker",
 				d.StatusReason,
 				[]string{"to inspect: systemctl status docker"},
 			))
-		}
-		// 7h: socket found but permission denied — surface specific fix
-		if d.SocketPermDenied {
-			return out
 		}
 		return out
 	}

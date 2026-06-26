@@ -182,6 +182,12 @@ func parseJournalLine(line string) *models.TimelineEvent {
 	if isNoisyJournalEntry(unit, msg) {
 		return nil
 	}
+	// The same benign-by-platform kernel errs (e.g. arm64 of_root PCI) also arrive
+	// via journald — downgrade them here too, or they'd CRIT from this path even
+	// after the dmesg copy was downgraded (the two don't always dedup).
+	if level == "CRIT" && isBenignKernelErr(strings.ToLower(msg)) {
+		level = "INFO"
+	}
 
 	return &models.TimelineEvent{
 		TimestampUnix: ts.Unix(),
@@ -320,6 +326,28 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	return events, nil
 }
 
+// benignKernelErrs are substrings (lowercase) of kernel messages logged at err
+// level that are normal-by-platform with no operational impact — present on every
+// boot of the relevant platform. Kept deliberately narrow: each entry must be a
+// message that is benign whenever it appears on a booted, running system.
+var benignKernelErrs = []string{
+	// arm64 / ACPI cloud guests (AWS Nitro, etc.): the kernel has no device-tree
+	// root, so it can't build a DT-based PCI host bridge node — PCI is enumerated
+	// via ACPI (MCFG) instead. Logged at err at ~0.01s on every such boot.
+	"of_root node is null",
+}
+
+// isBenignKernelErr reports whether a lowercased kernel message matches a known
+// benign-by-platform err-level pattern (so the timeline shouldn't flag it CRIT).
+func isBenignKernelErr(msgLower string) bool {
+	for _, b := range benignKernelErrs {
+		if strings.Contains(msgLower, b) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseDmesgLine parses one dmesg -T line into a TimelineEvent.
 // Format: "[Mon Jan 02 15:04:05 2006] message"
 func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
@@ -375,6 +403,12 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
 		strings.Contains(msgLower, "bug:") {
 		level = "CRIT"
+	}
+	// A few messages the kernel logs at err level are benign-by-platform — present
+	// on every boot with zero operational impact. Downgrade so the timeline doesn't
+	// cry CRIT on a normal box (the catastrophe keywords above still win).
+	if level == "CRIT" && isBenignKernelErr(msgLower) {
+		level = "INFO"
 	}
 
 	// Extract subsystem from first word group in brackets: "[ 1234.567] EXT4-fs..."

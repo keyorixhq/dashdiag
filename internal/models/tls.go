@@ -8,6 +8,10 @@ type CertInfo struct {
 	ExpiresIn    int    `json:"expires_in_days"` // negative = already expired
 	NotAfter     string `json:"not_after"`
 	IsSelfSigned bool   `json:"self_signed"`
+	// NotYetValid is true when NotBefore is in the future (clock skew, a freshly
+	// minted cert deployed early, or the wrong cert installed) — TLS handshakes
+	// against it fail, yet its expiry is far off so it would otherwise read OK.
+	NotYetValid bool `json:"not_yet_valid,omitempty"`
 }
 
 // TLSInfo holds all certificate findings.

@@ -8,6 +8,22 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// SecurityConcernCount returns the number of WARN/CRIT security insights that
+// checkSecurity raises for sec. It is the single source of truth for the
+// standalone `dsd security` verdict so it CANNOT diverge from `dsd health` (the
+// sibling-divergence class — BUG-072: the old hand-tallied countSecurityIssues
+// omitted StrictModes/PermitEmptyPasswords/weak-MACs/password-never-expires that
+// checkSecurity flags). INFO-level findings are not concerns and aren't counted.
+func SecurityConcernCount(sec models.SecurityInfo) int {
+	n := 0
+	for _, ins := range checkSecurity(sec) {
+		if ins.Level == "WARN" || ins.Level == "CRIT" {
+			n++
+		}
+	}
+	return n
+}
+
 func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,cyclop // security checks are a flat list of independent conditions; splitting would harm readability
 	var out []models.Insight
 

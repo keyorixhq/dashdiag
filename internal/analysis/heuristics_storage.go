@@ -192,21 +192,53 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		}
 	}
 
-	// NVMe drives detected via sysfs but with no SMART log read (nvme-cli absent,
-	// common on minimal cloud/ARM images). Surface this rather than letting the
-	// drive default to a confident "healthy" — health was never verified.
-	var unread []string
+	// NVMe drives detected via sysfs but with no SMART log read. Surface this
+	// rather than letting the drive default to a confident "healthy" — health was
+	// never verified. Split by WHY it was unread so the remediation is correct: a
+	// root-gated read on a non-root run must NOT say "install nvme-cli" (the tool
+	// is usually already there; the user just needs sudo). Validated on a SLES 16
+	// arm64 EC2 box where nvme-cli was installed but health wrongly told the
+	// non-root operator to install it.
+	var unreadRoot, unreadAbsent, unreadErr []string
 	for _, dev := range n.Devices {
-		if !dev.SmartRead {
-			unread = append(unread, dev.Name)
+		if dev.SmartRead {
+			continue
+		}
+		switch dev.SmartUnreadReason {
+		case "needs_root":
+			unreadRoot = append(unreadRoot, dev.Name)
+		case "error":
+			unreadErr = append(unreadErr, dev.Name)
+		default: // "tool_absent" or empty (older captures) → historical default
+			unreadAbsent = append(unreadAbsent, dev.Name)
 		}
 	}
-	if len(unread) > 0 {
+	if len(unreadRoot) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — running unprivileged (nvme smart-log needs root)",
+				len(unreadRoot), strings.Join(unreadRoot, ", ")),
+			[]string{
+				"to fix: re-run as root — NVMe SMART reads require privilege (sudo dsd health)",
+				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+	if len(unreadAbsent) > 0 {
 		out = append(out, insight("INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme-cli not installed",
-				len(unread), strings.Join(unread, ", ")),
+				len(unreadAbsent), strings.Join(unreadAbsent, ", ")),
 			[]string{
-				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli)",
+				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli  /  zypper install nvme-cli)",
+				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+			},
+		))
+	}
+	if len(unreadErr) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme smart-log failed",
+				len(unreadErr), strings.Join(unreadErr, ", ")),
+			[]string{
+				"to inspect: nvme smart-log " + unreadErr[0],
 				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
 			},
 		))
@@ -582,14 +614,24 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 			))
 			continue
 		}
-		if lv := LVMVGFullLevel(vg.FreePct); lv != "" && !VGBacksThinPool(l.ThinPools, vg.Name) {
-			out = append(out, insight(lv, "LVM",
-				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
+		// A fully-allocated VG is NOT a fault — it's the universal default-install
+		// layout: root+swap (or the thin `data` pool) take the whole VG, leaving 0
+		// free extents by design. The §O.1 fix carved out thin-pool-backed VGs, but
+		// the same is true for plain LVM — a default CentOS/RHEL/Alma/Rocky/Ubuntu
+		// install leaves VFree=0 with the root filesystem only ~40% used. The number
+		// that signals real pressure is the FILESYSTEM fill (scored by the Disk
+		// check) and the thin pool's data/metadata fill (scored above) — never the
+		// VG's free extents. So a near-full VG is INFO ("no room to extend/snapshot
+		// without adding a PV"), not a CRIT/WARN that falsely flips the verdict on
+		// every stock install. (§O.1 widened — found live on a CentOS Stream 8 guest
+		// whose VG `cs` was 100% allocated with the root FS at 38%.)
+		if LVMVGFullLevel(vg.FreePct) != "" && !VGBacksThinPool(l.ThinPools, vg.Name) {
+			out = append(out, insight("INFO", "LVM",
+				fmt.Sprintf("volume group %s is fully allocated (%.0f%% used, %.1f GB free of %.1f GB) — normal for a default install; each LV's filesystem fill is what matters (see Disk)",
 					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),
 				[]string{
-					fmt.Sprintf("to inspect: vgs %s", vg.Name),
-					fmt.Sprintf("to inspect: pvs | grep %s", vg.Name),
-					"to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>",
+					"note: a fully-allocated VG is the standard layout (root+swap take the whole VG) — not a fault on its own",
+					fmt.Sprintf("to grow an LV or snapshot later, add a PV: pvcreate /dev/<disk> && vgextend %s /dev/<disk>", vg.Name),
 				},
 			))
 		}
@@ -755,6 +797,20 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 				"note: do not restart the cluster until sync completes",
 			},
 		))
+	case "Unconnected", "Timeout", "BrokenPipe", "NetworkFailure", "ProtocolError", "TearDown":
+		// The peer link is down or failing — replication isn't active, so the
+		// resource has no redundancy. These were previously unhandled (no default
+		// case), so a dead replication link read as healthy. (Connected and the
+		// benign transients VerifyS/T / Ahead / Behind / PausedSync are deliberately
+		// not flagged here to avoid false alarms.)
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: connection state %s — peer link down/failing, replication not active", name, res.ConnState),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: ping <peer-ip>; check the replication network",
+				"note: the resource is running without redundancy until the link recovers",
+			},
+		))
 	}
 
 	// Disk state — local disk health
@@ -794,6 +850,18 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 			[]string{
 				fmt.Sprintf("to inspect: drbdadm status %s", name),
 				"note: disk will sync automatically when peer connection is restored",
+			},
+		))
+	case "Diskless", "DUnknown":
+		// No usable local backing device (lost disk, or never attached). Previously
+		// unhandled → read healthy. WARN rather than CRIT because a deliberate
+		// diskless client is a valid (if unusual) configuration.
+		out = append(out, insight("WARN", "DRBD",
+			fmt.Sprintf("%s: local disk state %s — no usable local backing device, serving over the network only", name, res.LocalDisk),
+			[]string{
+				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				"to inspect: dmesg | grep -i drbd   (check whether the backing device failed)",
+				fmt.Sprintf("to reattach (if intended): drbdadm attach %s", name),
 			},
 		))
 	}
