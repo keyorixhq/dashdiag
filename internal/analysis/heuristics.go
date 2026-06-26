@@ -15,29 +15,37 @@ import (
 
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	// Pre-scan results to extract context shared across checks.
-	selinuxEnforcing, zfsPoolsPresent, swapActive := prescanContext(results, &thresh)
+	prescan := prescanContext(results, &thresh)
 
 	// Inject SELinux enforcing state + ZFS-pool presence into SystemdInfo for
 	// cross-check hints / failure-severity gating (§O.2); inject swap-activity into
 	// SysctlInfo so the general-server vm.swappiness check only fires when the host
-	// is actually swapping.
+	// is actually swapping; inject a host-imposed VMware CPU limit into CPUInfo so
+	// the steal heuristic can attribute high steal to the configured cap (§N.4).
 	for i, r := range results {
 		switch d := r.Data.(type) {
 		case *models.SystemdInfo:
 			if d != nil {
-				d.SELinuxEnforcing = selinuxEnforcing
-				d.ZFSPoolsPresent = zfsPoolsPresent
+				d.SELinuxEnforcing = prescan.selinuxEnforcing
+				d.ZFSPoolsPresent = prescan.zfsPoolsPresent
 			}
 		case models.SystemdInfo:
-			d.SELinuxEnforcing = selinuxEnforcing
-			d.ZFSPoolsPresent = zfsPoolsPresent
+			d.SELinuxEnforcing = prescan.selinuxEnforcing
+			d.ZFSPoolsPresent = prescan.zfsPoolsPresent
 			results[i].Data = d
 		case *models.SysctlInfo:
 			if d != nil {
-				d.SwapActive = swapActive
+				d.SwapActive = prescan.swapActive
 			}
 		case models.SysctlInfo:
-			d.SwapActive = swapActive
+			d.SwapActive = prescan.swapActive
+			results[i].Data = d
+		case *models.CPUInfo:
+			if d != nil {
+				d.HostCPULimitMHz = prescan.vmwareCPULimitMHz
+			}
+		case models.CPUInfo:
+			d.HostCPULimitMHz = prescan.vmwareCPULimitMHz
 			results[i].Data = d
 		}
 	}
@@ -64,15 +72,27 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	return insights
 }
 
+// prescanResult holds the cross-check context prescanContext extracts in one
+// pass over the collector results, before the per-check pass runs.
+type prescanResult struct {
+	selinuxEnforcing  bool // SELinux is enforcing (checkSystemd double-layer hints)
+	zfsPoolsPresent   bool // host imports ZFS pools of its own (§O.2 import-unit severity)
+	swapActive        bool // swap is configured AND in use (gates vm.swappiness check)
+	vmwareCPULimitMHz int  // host-imposed VMware CPU cap, MHz (§N.4 steal attribution); 0 = none/unknown
+}
+
 // prescanContext walks the collector results once to extract context shared
 // across checks before the per-check pass runs. It writes the package manager
 // and CPU load into thresh, and returns the SELinux-enforcing state (used by
-// checkSystemd for double-layer hints) and whether the host imports any ZFS
-// pools of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
-// zfs-import unit is benign when the ZFS HBA is passed through to a VM).
+// checkSystemd for double-layer hints), whether the host imports any ZFS pools
+// of its own (gates zfs-import-*.service failure severity, §O.2 — a failed
+// zfs-import unit is benign when the ZFS HBA is passed through to a VM), and a
+// host-imposed VMware CPU limit so the steal heuristic can attribute high steal
+// to a configured cap rather than host over-provisioning (§N.4).
 //
 //nolint:cyclop // flat type-switch dispatch — each case extracts one shared field; splitting would obscure it
-func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforcing, zfsPoolsPresent, swapActive bool) {
+func prescanContext(results []runner.Result, thresh *Thresholds) prescanResult {
+	var p prescanResult
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -94,39 +114,47 @@ func prescanContext(results []runner.Result, thresh *Thresholds) (selinuxEnforci
 			}
 		case models.KernelSecurityInfo:
 			if d.SELinuxPresent && d.SELinuxMode == "enforcing" {
-				selinuxEnforcing = true
+				p.selinuxEnforcing = true
 			}
 		case *models.KernelSecurityInfo:
 			if d != nil && d.SELinuxPresent && d.SELinuxMode == "enforcing" {
-				selinuxEnforcing = true
+				p.selinuxEnforcing = true
 			}
 		case models.ZFSInfo:
 			if len(d.Pools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case *models.ZFSInfo:
 			if d != nil && len(d.Pools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case models.DiskInfo:
 			if len(d.ZFSPools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case *models.DiskInfo:
 			if d != nil && len(d.ZFSPools) > 0 {
-				zfsPoolsPresent = true
+				p.zfsPoolsPresent = true
 			}
 		case models.SwapInfo:
 			if swapInUse(d) {
-				swapActive = true
+				p.swapActive = true
 			}
 		case *models.SwapInfo:
 			if d != nil && swapInUse(*d) {
-				swapActive = true
+				p.swapActive = true
+			}
+		case models.VMwareInfo:
+			if d.StatAvailable && d.CPULimitMHz > 0 {
+				p.vmwareCPULimitMHz = d.CPULimitMHz
+			}
+		case *models.VMwareInfo:
+			if d != nil && d.StatAvailable && d.CPULimitMHz > 0 {
+				p.vmwareCPULimitMHz = d.CPULimitMHz
 			}
 		}
 	}
-	return selinuxEnforcing, zfsPoolsPresent, swapActive
+	return p
 }
 
 // swapInUse reports whether swap is configured AND actually being used or paged —
@@ -810,25 +838,11 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	// Only meaningful on virtual machines (bare metal always shows 0).
 	// > 10%: host is over-provisioned — neighbours are competing for physical CPUs.
 	// > 20%: severe — application latency will be unpredictable.
-	if cpu.StealPct >= 20 {
-		out = append(out, insight("CRIT", "CPU Load/Steal",
-			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", cpu.StealPct),
-			[]string{
-				"to inspect: top -b -n1 | grep Cpu",
-				"to inspect: vmstat 1 5  (look at the 'st' column)",
-				"note: steal > 20%% means the host is severely over-provisioned",
-				"note: escalate to your cloud provider or migrate to a less-loaded host",
-			},
-		))
-	} else if cpu.StealPct >= 10 {
-		out = append(out, insight("WARN", "CPU Load/Steal",
-			fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", cpu.StealPct),
-			[]string{
-				"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
-				"to inspect: vmstat 1 5",
-				"note: steal time indicates host over-provisioning — consider VM migration",
-			},
-		))
+	// When a host CPU limit is known (VMware stat channel, threaded in by the
+	// pre-scan), the steal is attributed to that configured cap instead — the
+	// remediation is to remove the limit in vSphere, NOT migrate the VM (§N.4).
+	if ins, ok := cpuStealInsight(cpu.StealPct, cpu.HostCPULimitMHz); ok {
+		out = append(out, ins)
 	}
 
 	// CPU iowait — CPU is idle but blocked waiting for I/O.
@@ -885,6 +899,58 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	}
 
 	return out
+}
+
+// cpuStealInsight builds the CPU-steal insight for a given steal percentage,
+// returning ok=false below the WARN floor (10%). When hostCPULimitMHz > 0 a host
+// CPU cap is known to be configured on this VM (e.g. a VMware vSphere limit read
+// via open-vm-tools), so the steal is attributed to that cap — the guest is being
+// throttled to its limit, which presents in the guest as steal time. That changes
+// the remediation from the generic "migrate to a less-loaded host" (which does NOT
+// help against a configured limit) to "remove the limit in vSphere" (§N.4). The
+// severity still tracks the steal magnitude (≥20% CRIT, ≥10% WARN).
+func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, bool) {
+	level := ""
+	switch {
+	case stealPct >= 20:
+		level = "CRIT"
+	case stealPct >= 10:
+		level = "WARN"
+	default:
+		return models.Insight{}, false
+	}
+
+	if hostCPULimitMHz > 0 {
+		return insight(level, "CPU Load/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% with a host CPU limit of %d MHz configured on this VM — the guest is being throttled to its configured cap, not losing CPU to noisy neighbours",
+				stealPct, hostCPULimitMHz),
+			[]string{
+				"to fix: remove or raise the VM's CPU limit in vSphere (Edit Settings → CPU → Limit = Unlimited)",
+				"to inspect: vmware-toolbox-cmd stat cpulimit",
+				"note: migrating the VM will NOT help — this is a configured cap, not host contention",
+			},
+		), true
+	}
+
+	if level == "CRIT" {
+		return insight("CRIT", "CPU Load/Steal",
+			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", stealPct),
+			[]string{
+				"to inspect: top -b -n1 | grep Cpu",
+				"to inspect: vmstat 1 5  (look at the 'st' column)",
+				"note: steal > 20%% means the host is severely over-provisioned",
+				"note: escalate to your cloud provider or migrate to a less-loaded host",
+			},
+		), true
+	}
+	return insight("WARN", "CPU Load/Steal",
+		fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", stealPct),
+		[]string{
+			"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
+			"to inspect: vmstat 1 5",
+			"note: steal time indicates host over-provisioning — consider VM migration",
+		},
+	), true
 }
 
 // pluralize returns "<n> <singular>" when n == 1, otherwise "<n> <plural>".

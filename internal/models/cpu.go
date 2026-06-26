@@ -27,4 +27,11 @@ type CPUInfo struct {
 	ContextSwitchRate float64 `json:"context_switch_rate"`
 	Status            string  `json:"status"`
 	StatusReason      string  `json:"status_reason"`
+	// HostCPULimitMHz is a host-imposed CPU cap (MHz) configured on this VM, when
+	// one is known — e.g. a VMware vSphere CPU limit read via the open-vm-tools
+	// stat channel. It is NOT measured by the CPU collector; ApplyThresholds'
+	// pre-scan injects it from the VMware result so the steal heuristic can
+	// attribute high steal to a configured cap (host-throttled) rather than to
+	// host over-provisioning (§N.4). 0 = no known limit. Internal enrichment only.
+	HostCPULimitMHz int `json:"-"`
 }
