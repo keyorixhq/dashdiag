@@ -202,3 +202,58 @@ func TestCmdHealthConsistency_Docker(t *testing.T) {
 		})
 	}
 }
+
+// `dsd steamos` keeps its own hand-tally (steamOSConcernCount) for the summary
+// line while `dsd health` evaluates the same SteamOSInfo through checkSteamOS —
+// the exact two-paths-on-one-model shape this file guards. All fixtures set
+// Detected:true (checkSteamOS no-ops otherwise, and the cmd only runs on a real
+// SteamOS host) plus a verified-good RAUC/readonly baseline, so each case isolates
+// one condition. If a future threshold edit moves only one path, this fails.
+func TestCmdHealthConsistency_SteamOS(t *testing.T) {
+	secureBootOn := true
+	// healthy: every condition the tally counts is in its OK state.
+	base := models.SteamOSInfo{
+		Detected: true, RAUCAvailable: true,
+		RAUCBootedStatus: "good", RAUCInactiveStatus: "good",
+		ReadonlyKnown: true, ReadonlyEnabled: true,
+	}
+	mk := func(mut func(*models.SteamOSInfo)) models.SteamOSInfo { i := base; mut(&i); return i }
+	cases := []struct {
+		name string
+		info models.SteamOSInfo
+	}{
+		{"healthy", base},
+		// Booted RAUC slot bad — updates won't install (CRIT in both paths).
+		{"rauc booted bad", mk(func(i *models.SteamOSInfo) { i.RAUCBootedStatus = "bad" })},
+		// Writable rootfs — the #1 "an update broke my packages" cause (CRIT).
+		{"readonly disabled", mk(func(i *models.SteamOSInfo) { i.ReadonlyEnabled = false })},
+		// /var filling at the 70% boundary the tally and levelPct(70,85) share (WARN).
+		{"var filling", mk(func(i *models.SteamOSInfo) { i.VarUsedPct = 75 })},
+		// In Game Mode but gamescope crashed — device stuck (CRIT).
+		{"gamemode no gamescope", mk(func(i *models.SteamOSInfo) {
+			i.SessionMode = "gamemode"
+			i.GamescopeActive = false
+		})},
+		// Secure Boot enabled on a non-Deck handheld — blocks USB recovery (WARN).
+		{"secure boot enabled", mk(func(i *models.SteamOSInfo) {
+			i.SecureBootApplicable = true
+			i.SecureBootEnabled = &secureBootOn
+		})},
+		// A Remote Play primary (non-optional) port unbound — Steam down / RP off (WARN).
+		{"remote play unbound", mk(func(i *models.SteamOSInfo) {
+			i.RemotePlay = &models.SteamOSRemotePlay{
+				Ports: []models.RemotePlayPort{{Protocol: "udp", Port: 27031, Bound: false}},
+			}
+		})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmdConcern := steamOSConcernCount(&tc.info) > 0
+			healthConcern := healthHasConcern(t, "SteamOS", &tc.info)
+			if cmdConcern != healthConcern {
+				t.Errorf("SteamOS verdict divergence: `dsd steamos` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
