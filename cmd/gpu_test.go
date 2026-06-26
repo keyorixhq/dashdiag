@@ -46,6 +46,20 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 	if got := gpuSummaryLine(healthy, "", output.ModePlain); !strings.Contains(got, "Checks passed") {
 		t.Errorf("a GPU with real metrics should report Checks passed, got: %q", got)
 	}
+
+	// MIXED: one readable GPU + one metricless. The readable one must NOT mask the
+	// unmeasured device behind a plain "Checks passed" (the multi-GPU false-OK fix).
+	mixed := &models.GPUInfo{Devices: []models.GPUDevice{
+		{Name: "RTX 3070", TempC: 50, MemTotalMB: 8192},
+		{Name: "Intel GPU (0116)", Vendor: "intel", DRMDriver: "i915"},
+	}}
+	got = gpuSummaryLine(mixed, "", output.ModePlain)
+	if strings.Contains(got, "Checks passed") {
+		t.Errorf("mixed readable+metricless must NOT claim 'Checks passed', got: %q", got)
+	}
+	if !strings.Contains(got, "no health metrics") {
+		t.Errorf("mixed case should report the unmeasured GPU, got: %q", got)
+	}
 }
 
 // TestGPUSummaryLineImplausibleTemp guards the §L/§Q raw-tool implausible-value
