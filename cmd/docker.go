@@ -78,6 +78,11 @@ func runDocker(cmd *cobra.Command, _ []string) error {
 // consistency test (cmd_health_consistency_test.go).
 func dockerConcerns(info *models.DockerInfo) int {
 	issues := info.UnhealthyCount + info.CrashLoopCount
+	// Daemon reachable but containers couldn't be listed — never read as healthy
+	// (matches checkDocker, which WARNs on Status=="error").
+	if info.Status == "error" {
+		issues++
+	}
 	if info.StoppedCount > 0 && info.RunningCount == 0 {
 		issues++
 	}
