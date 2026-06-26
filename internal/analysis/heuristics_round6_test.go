@@ -104,8 +104,30 @@ func TestCheckHugePages(t *testing.T) {
 func TestCheckCPUFreq(t *testing.T) {
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: ""}), "") // unavailable
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "performance"}), "")
-	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000}), "WARN")
+	// powersave on a legacy-driver server (acpi-cpufreq, no battery) → WARN
+	// (genuinely capped at min freq).
+	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 800, MaxMHz: 3000, ScalingDriver: "acpi-cpufreq"}), "WARN")
 	assertLevel(t, checkCPUFreq(models.CPUFreqInfo{Governor: "schedutil", ThrottledPct: 50, CurrentMHz: 1500, MaxMHz: 3000}), "WARN")
+
+	// powersave on a BATTERY device (laptop / Steam Deck) → INFO, never WARN.
+	// Found on the AMD-laptop capture (legacy/empty driver + battery).
+	bat := checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 2096, MaxMHz: 4280, HasBattery: true})
+	if hasLevel(bat, "WARN") {
+		t.Errorf("powersave on battery must NOT WARN, got %+v", bat)
+	}
+	if !hasLevel(bat, "INFO") {
+		t.Errorf("powersave on battery should INFO, got %+v", bat)
+	}
+
+	// powersave on intel_pstate / amd-pstate (active mode) → DYNAMIC, the modern
+	// default → no finding at all (not WARN, not INFO). This is the false-WARN that
+	// would otherwise fire on nearly every modern Intel/AMD bare-metal server.
+	for _, drv := range []string{"intel_pstate", "amd-pstate-epp", "amd-pstate"} {
+		got := checkCPUFreq(models.CPUFreqInfo{Governor: "powersave", CurrentMHz: 1200, MaxMHz: 3600, ScalingDriver: drv})
+		if hasLevel(got, "WARN") || hasLevel(got, "INFO") {
+			t.Errorf("powersave on %s (dynamic) must be silent, got %+v", drv, got)
+		}
+	}
 }
 
 func TestCheckDBus(t *testing.T) {

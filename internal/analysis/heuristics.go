@@ -2635,26 +2635,56 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 	return out
 }
 
+// isDynamicPstateDriver reports whether the cpufreq scaling driver is intel_pstate
+// or amd-pstate (active mode), where the 'powersave' governor is a dynamic,
+// load-scaling EPP mode (the modern default) — NOT the min-frequency cap that the
+// legacy acpi-cpufreq/cppc_cpufreq drivers impose. Used so the powersave WARN
+// doesn't false-fire on essentially every modern Intel/AMD bare-metal server.
+func isDynamicPstateDriver(driver string) bool {
+	d := strings.ToLower(strings.TrimSpace(driver))
+	return d == "intel_pstate" ||
+		strings.HasPrefix(d, "amd-pstate") ||
+		strings.HasPrefix(d, "amd_pstate")
+}
+
 func checkCPUFreq(f models.CPUFreqInfo) []models.Insight {
 	if f.Governor == "" {
 		return nil // cpufreq not available
 	}
 	var out []models.Insight
 
-	// powersave governor on a server — leaves performance on the table
-	// schedutil/ondemand are fine (responsive). powersave caps at min freq.
+	// The 'powersave' WARN's premise — "capped at min frequency" — only holds for
+	// the LEGACY drivers (acpi-cpufreq, cppc_cpufreq, cpufreq-dt). intel_pstate and
+	// amd-pstate (active mode) expose only performance/powersave governors, and
+	// their 'powersave' is DYNAMIC (scales to load via EPP) — the modern default,
+	// not performance-limited. So:
+	//   - pstate driver  → no finding (healthy default; WARNing it false-alarms on
+	//     essentially every modern Intel/AMD bare-metal server)
+	//   - battery device → INFO (laptop / Steam Deck — powersave is deliberate)
+	//   - legacy driver on a server → WARN (genuinely capped at min freq)
 	if f.Governor == "powersave" {
-		out = append(out, insight("WARN", "CPUFreq",
-			fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
-				f.CurrentMHz, f.MaxMHz),
-			[]string{
-				"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to fix: cpupower frequency-set -g performance",
-				"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
-				"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
-				"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
-			},
-		))
+		switch {
+		case isDynamicPstateDriver(f.ScalingDriver):
+			// silent — dynamic powersave is the recommended default, not a problem
+		case f.HasBattery:
+			out = append(out, insight("INFO", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' (%d MHz, max %d MHz) — expected on a battery device for power saving",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{"on AC and want full speed: cpupower frequency-set -g performance (or 'schedutil')"},
+			))
+		default:
+			out = append(out, insight("WARN", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{
+					"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to fix: cpupower frequency-set -g performance",
+					"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+					"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
+				},
+			))
+		}
 	}
 
 	// Heavy throttling — current frequency well below max despite not being powersave
