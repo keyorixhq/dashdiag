@@ -112,6 +112,15 @@ These found BUG-040–052; re-run after any collector/heuristic change:
    absent ones, the zeros (non-root) or the garbage (root) drive a false CRIT.
    §E.4's "honest representation needs a schema decision" still holds for the
    benign cosmetic case; §L is the not-benign case and is READY to fix now.
+5. **Non-systemd / musl assumptions** — collectors that shell `systemctl`/
+   `journalctl` (or assume glibc tooling) mis-verdict or crash on OpenRC/busybox/
+   musl: BUG-051 (DBus/journald phantom warnings), BUG-054 (systemctl fix-hints on
+   Alpine), BUG-071 (OOM `dmesg --time-format` rejected by busybox dmesg). **Now
+   CI-guarded:** the `alpine-musl-smoke` job (#551, `scripts/alpine-smoke.sh`) runs
+   `dsd health` in `alpine:latest` and asserts no panic / valid JSON / no non-root
+   escalation — the surface every other CI job (systemd+glibc) never touched. When
+   adding a collector that calls a systemd/glibc tool, confirm the busybox/OpenRC
+   fallback and let this job exercise it.
 
 ---
 
