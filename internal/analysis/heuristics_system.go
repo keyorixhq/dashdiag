@@ -700,6 +700,33 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 	return out
 }
 
+// journalVolatileInsight describes a volatile journald (no /var/log/journal).
+// "all logs lost on reboot" is only true when there's ALSO no text-log fallback:
+// RHEL/CentOS 7 (and many distros) ship volatile journald BUT a running rsyslog
+// that persists everything to /var/log/messages, so logs are NOT lost — only the
+// journalctl boot history is. Claiming "all logs lost" there is a false WARN on
+// every default install (found live on CentOS 7: rsyslog active, /var/log/messages
+// 2569 lines). Gate severity on the fallback the collector already detects.
+func journalVolatileInsight(logs models.LogsInfo) models.Insight {
+	if logs.JournalNoTextFallback {
+		return insight("WARN", "Logs",
+			"journald is volatile AND no text-log fallback (rsyslog/syslog-ng) is running — logs are lost on reboot",
+			[]string{
+				"to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal",
+				"to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
+				"or install a syslog daemon: dnf/apt/zypper install rsyslog",
+			},
+		)
+	}
+	return insight("INFO", "Logs",
+		"journald is volatile (no /var/log/journal) — the journalctl boot history is lost on reboot, but a syslog daemon persists text logs to /var/log, so logs survive",
+		[]string{
+			"note: text logs (e.g. /var/log/messages) survive reboots via rsyslog/syslog-ng",
+			"to keep journalctl history too: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
+		},
+	)
+}
+
 func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 	var out []models.Insight
 	if logs.JournalCorrupt {
@@ -719,13 +746,7 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 		))
 	}
 	if logs.JournalVolatile {
-		out = append(out, insight("WARN", "Logs",
-			"journald logs are volatile — all logs lost on reboot (no /var/log/journal/)",
-			[]string{
-				"to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal",
-				"to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
-			},
-		))
+		out = append(out, journalVolatileInsight(logs))
 	}
 	if logs.JournalRateLimited {
 		out = append(out, insight("WARN", "Logs",
@@ -737,7 +758,10 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 			},
 		))
 	}
-	if logs.JournalNoTextFallback {
+	if logs.JournalNoTextFallback && !logs.JournalVolatile {
+		// Persistent journald but no text fallback — logs survive (in the journal)
+		// yet need journalctl to read. When journald is ALSO volatile, the merged
+		// WARN above already covers it, so don't double-message.
 		out = append(out, insight("INFO", "Logs",
 			"no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read",
 			[]string{

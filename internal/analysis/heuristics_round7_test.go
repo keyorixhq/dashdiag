@@ -70,8 +70,12 @@ func TestCheckJournalConfig(t *testing.T) {
 	}{
 		{"clean is empty", models.LogsInfo{}, ""},
 		{"archived-journal corruption is WARN (§O.3, not CRIT — historical, not current loss)", models.LogsInfo{JournalCorrupt: true}, "WARN"},
-		{"volatile journal is WARN", models.LogsInfo{JournalVolatile: true}, "WARN"},
-		{"no text fallback is INFO", models.LogsInfo{JournalNoTextFallback: true}, "INFO"},
+		// Volatile journald alone (rsyslog/syslog-ng still persisting) is INFO, not WARN:
+		// logs survive in /var/log, only journalctl boot history is lost (found live on
+		// CentOS 7 — false "all logs lost" WARN). It's a WARN only with NO text fallback.
+		{"volatile journal + text fallback is INFO", models.LogsInfo{JournalVolatile: true}, "INFO"},
+		{"volatile journal + no fallback is WARN (logs really lost)", models.LogsInfo{JournalVolatile: true, JournalNoTextFallback: true}, "WARN"},
+		{"no text fallback (persistent journald) is INFO", models.LogsInfo{JournalNoTextFallback: true}, "INFO"},
 		{"log disk >=90 is CRIT", models.LogsInfo{LogDiskUsedPct: 95, LogDiskMount: "/var"}, "CRIT"},
 		{"log disk >=80 is WARN", models.LogsInfo{LogDiskUsedPct: 85, LogDiskMount: "/var"}, "WARN"},
 	}
