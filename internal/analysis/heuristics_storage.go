@@ -614,14 +614,24 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 			))
 			continue
 		}
-		if lv := LVMVGFullLevel(vg.FreePct); lv != "" && !VGBacksThinPool(l.ThinPools, vg.Name) {
-			out = append(out, insight(lv, "LVM",
-				fmt.Sprintf("volume group %s is %.0f%% full (%.1f GB free of %.1f GB)",
+		// A fully-allocated VG is NOT a fault — it's the universal default-install
+		// layout: root+swap (or the thin `data` pool) take the whole VG, leaving 0
+		// free extents by design. The §O.1 fix carved out thin-pool-backed VGs, but
+		// the same is true for plain LVM — a default CentOS/RHEL/Alma/Rocky/Ubuntu
+		// install leaves VFree=0 with the root filesystem only ~40% used. The number
+		// that signals real pressure is the FILESYSTEM fill (scored by the Disk
+		// check) and the thin pool's data/metadata fill (scored above) — never the
+		// VG's free extents. So a near-full VG is INFO ("no room to extend/snapshot
+		// without adding a PV"), not a CRIT/WARN that falsely flips the verdict on
+		// every stock install. (§O.1 widened — found live on a CentOS Stream 8 guest
+		// whose VG `cs` was 100% allocated with the root FS at 38%.)
+		if LVMVGFullLevel(vg.FreePct) != "" && !VGBacksThinPool(l.ThinPools, vg.Name) {
+			out = append(out, insight("INFO", "LVM",
+				fmt.Sprintf("volume group %s is fully allocated (%.0f%% used, %.1f GB free of %.1f GB) — normal for a default install; each LV's filesystem fill is what matters (see Disk)",
 					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),
 				[]string{
-					fmt.Sprintf("to inspect: vgs %s", vg.Name),
-					fmt.Sprintf("to inspect: pvs | grep %s", vg.Name),
-					"to add PV:  pvcreate /dev/<new-disk> && vgextend <vg> /dev/<new-disk>",
+					"note: a fully-allocated VG is the standard layout (root+swap take the whole VG) — not a fault on its own",
+					fmt.Sprintf("to grow an LV or snapshot later, add a PV: pvcreate /dev/<disk> && vgextend %s /dev/<disk>", vg.Name),
 				},
 			))
 		}

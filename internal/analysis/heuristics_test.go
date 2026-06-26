@@ -791,8 +791,10 @@ func TestCheckLVMVGFreeSpace(t *testing.T) {
 		wantLevel string
 	}{
 		{"healthy — plenty free", 100, 40, true, ""},
-		{"WARN — 91% used (9% free)", 100, 9, true, "WARN"},
-		{"CRIT — 99% used (1% free)", 100, 1, true, "CRIT"},
+		// §O.1 widened (found live on CentOS Stream 8): a fully-allocated active VG is
+		// the normal default-install layout, so INFO — never WARN/CRIT that flips the verdict.
+		{"fully allocated 91% — INFO not WARN", 100, 9, true, "INFO"},
+		{"fully allocated 99% — INFO not CRIT", 100, 1, true, "INFO"},
 		{"no mounted LVs — inactive VG — always INFO", 100, 1, false, "INFO"},
 	}
 	for _, tc := range cases {
