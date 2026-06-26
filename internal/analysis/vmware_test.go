@@ -239,6 +239,37 @@ func TestCheckVMwareSCSITimeout(t *testing.T) {
 	}
 }
 
+// vmwareEnableUUIDCheck WARNs when SCSI disks lack a stable hardware ID (the
+// disk.EnableUUID=FALSE signature), naming the affected disks; silent when no
+// SCSI disks were examined or all carry an ID.
+func TestCheckVMwareEnableUUID(t *testing.T) {
+	// SCSI disks examined, some without a stable ID → WARN naming them.
+	v := models.VMwareInfo{
+		IsGuest:          true,
+		SCSIDisksChecked: true,
+		DisksNoStableID:  []string{"sdb", "sdd"},
+	}
+	got := vmwareEnableUUIDCheck(v)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("disks without ID = %+v, want one WARN", got)
+	}
+	for _, want := range []string{"EnableUUID", "sdb", "sdd", "CSI"} {
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("WARN missing %q, got %q", want, got[0].Message)
+		}
+	}
+
+	// All SCSI disks carry an ID → silent (EnableUUID on).
+	if got := vmwareEnableUUIDCheck(models.VMwareInfo{IsGuest: true, SCSIDisksChecked: true}); got != nil {
+		t.Errorf("all disks with ID must be silent, got %v", got)
+	}
+
+	// No SCSI disks examined (NVMe-only) → silent even if the slice were non-empty.
+	if got := vmwareEnableUUIDCheck(models.VMwareInfo{IsGuest: true, SCSIDisksChecked: false, DisksNoStableID: []string{"sdb"}}); got != nil {
+		t.Errorf("unchecked SCSI must be silent, got %v", got)
+	}
+}
+
 // The constraint and timeout checks compose with the existing tools/NIC checks
 // inside checkVMware (and suppress the all-clean INFO line when any WARN fires).
 func TestCheckVMwareConstraintsIntegration(t *testing.T) {

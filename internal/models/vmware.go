@@ -50,4 +50,13 @@ type VMwareInfo struct {
 	// stun without its filesystem going read-only; the kernel default is 30s.
 	SCSITimeouts    map[string]int `json:"scsi_timeouts,omitempty"`     // disk -> timeout seconds
 	LowSCSITimeouts []string       `json:"low_scsi_timeouts,omitempty"` // disks below the 180s recommendation
+
+	// disk.EnableUUID — when FALSE on a vSphere VM, paravirtual-SCSI disks expose
+	// no SCSI page 0x83 / stable hardware ID, so /dev/disk/by-id and the vSphere
+	// CSI driver cannot reliably identify them (k8s persistent volumes mis-bind).
+	// Detected guest-side: a SCSI sd* disk with an empty /sys/.../device/wwid is the
+	// EnableUUID=FALSE signature. (IDE/SATA disks carry an ATA serial regardless;
+	// NVMe always has an eui — neither is affected, so only sd* is examined.)
+	SCSIDisksChecked bool     `json:"scsi_disks_checked"`           // at least one sd* disk was examined
+	DisksNoStableID  []string `json:"disks_no_stable_id,omitempty"` // sd* disks with no wwid → EnableUUID likely off
 }
