@@ -119,6 +119,10 @@ func TestCheckCVEHealthUnavailableFiresInfo(t *testing.T) {
 		{"dnf failed", models.CVEAllResult{PackageManager: "dnf", StatusReason: "dnf advisory list failed"}},
 		{"apt failed (lock/broken sources)", models.CVEAllResult{PackageManager: "apt", StatusReason: "apt-get --simulate upgrade failed: exit status 100"}},
 		{"arch-audit not installed", models.CVEAllResult{PackageManager: "pacman", StatusReason: "install arch-audit for CVE scanning: pacman -S arch-audit"}},
+		// Cold/stale index: zero advisories but the cache was never refreshed, so
+		// "no CVEs" was never actually confirmed — must be INFO, not silent clean
+		// (the security cold-cache false-OK fix).
+		{"stale index, exposure not verified", models.CVEAllResult{PackageManager: "dnf", StatusReason: "update metadata is 40 days old (stale) — CVE exposure NOT verified; refresh the index and rescan"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
