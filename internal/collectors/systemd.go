@@ -156,7 +156,25 @@ func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 		return nil, totalBoot
 	}
 
-	return parseBlameSlowUnits(string(blameOut)), totalBoot
+	return parseBlameSlowUnits(string(blameOut), timerTriggeredExcluder(ctx)), totalBoot
+}
+
+// timerTriggeredExcluder returns a predicate that reports whether a unit is
+// started by a .timer — i.e. a scheduled job, not part of the boot transaction.
+// `systemd-analyze blame` lists such units by their activation duration even
+// though they run on a schedule well after boot; apt-daily-upgrade.service
+// routinely shows 20-30s in blame on Debian/Ubuntu while running post-boot via
+// apt-daily-upgrade.timer. Without this they false-WARN as "slow boot unit" on
+// essentially every Debian/Ubuntu host. Fails open (returns false → unit kept)
+// when systemctl can't be queried, so we never hide a genuine boot offender.
+func timerTriggeredExcluder(ctx context.Context) func(string) bool {
+	return func(unit string) bool {
+		out, err := runCmd(ctx, "systemctl", "show", "-p", "TriggeredBy", "--value", unit)
+		if err != nil {
+			return false
+		}
+		return strings.Contains(out, ".timer")
+	}
 }
 
 // blameSkipSuffixes are systemd unit types that appear in `systemd-analyze
@@ -179,7 +197,9 @@ func isNonServiceBlameUnit(name string) bool {
 
 // parseBlameSlowUnits parses `systemd-analyze blame` output into the top 3 slow
 // service units (≥5s), skipping cloud-init and other infrastructure noise.
-func parseBlameSlowUnits(blameOut string) []models.SlowUnit {
+// exclude (may be nil) drops units it returns true for — used to remove
+// timer-triggered async jobs that blame lists but which never gated boot.
+func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.SlowUnit {
 	var slow []models.SlowUnit
 	for _, line := range strings.Split(blameOut, "\n") {
 		line = strings.TrimSpace(line)
@@ -202,6 +222,11 @@ func parseBlameSlowUnits(blameOut string) []models.SlowUnit {
 		// these are waits, not fixable slow services, and .device units are VM
 		// console noise) and known infrastructure (cloud-init) units.
 		if !strings.Contains(name, ".") || isNonServiceBlameUnit(name) || cloudInitUnits[name] {
+			continue
+		}
+		// Timer-triggered jobs (apt-daily*, fstrim, man-db, …) appear in blame with
+		// large durations but run on a schedule, not during boot — not boot offenders.
+		if exclude != nil && exclude(name) {
 			continue
 		}
 		slow = append(slow, models.SlowUnit{Name: name, Duration: dur})
