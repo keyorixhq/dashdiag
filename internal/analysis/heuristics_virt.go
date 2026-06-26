@@ -8,17 +8,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-func checkKVM(kvm models.KVMInfo) []models.Insight {
+// checkKVMVMs covers the per-domain state verdicts (crashed, abnormal/stuck,
+// unreadable, paused, shut-off-with-autostart, disk I/O). Split out of checkKVM
+// to keep each under the funlen limit; the two compose into the full KVM verdict.
+func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	var out []models.Insight
-	if !kvm.Detected {
-		return out
-	}
-	// libvirt is up but its domains couldn't be enumerated — surface that rather than
-	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
-	if kvm.Status == "enum-failed" {
-		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
-			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
-	}
 	// Crashed VMs — always CRIT
 	for _, vm := range kvm.VMs {
 		if vm.State == models.KVMCrashed {
@@ -33,6 +27,35 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 			out = append(out, insight("CRIT", "KVM",
 				fmt.Sprintf("VM %s is in CRASHED state", vm.Name), hints))
 		}
+	}
+	// Abnormal non-running states (pmsuspended / in shutdown / idle / blocked) —
+	// not running and not cleanly stopped, so they'd otherwise read as healthy.
+	if kvm.VMsAbnormal > 0 {
+		var names []string
+		for _, vm := range kvm.VMs {
+			switch vm.State {
+			case models.KVMPMSuspended, models.KVMInShutdown, models.KVMIdle, models.KVMBlocked:
+				names = append(names, fmt.Sprintf("%s (%s)", vm.Name, vm.State))
+			}
+		}
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) in an abnormal state: %s — not running and not cleanly stopped",
+				kvm.VMsAbnormal, strings.Join(firstN(names, 3), ", ")),
+			[]string{
+				"to inspect: virsh dominfo <name>",
+				"to recover: virsh dompmwakeup <name> (pmsuspended), or virsh destroy then virsh start",
+			},
+		))
+	}
+	// State could not be read (virsh dominfo failed) — couldn't verify, not healthy.
+	if kvm.VMsUnreadable > 0 {
+		out = append(out, insight("WARN", "KVM",
+			fmt.Sprintf("%d VM(s) defined but their state could not be read (virsh dominfo failed) — true state unknown", kvm.VMsUnreadable),
+			[]string{
+				"to inspect: virsh dominfo <name>",
+				"note: a transient libvirt error or permission issue hid the VM's real state",
+			},
+		))
 	}
 	// Paused VMs — WARN
 	if kvm.VMsPaused > 0 {
@@ -72,6 +95,22 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
+	return out
+}
+
+func checkKVM(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
+	if !kvm.Detected {
+		return out
+	}
+	// libvirt is up but its domains couldn't be enumerated — surface that rather than
+	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
+	if kvm.Status == "enum-failed" {
+		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
+			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
+	}
+	out = append(out, checkKVMVMs(kvm)...)
+
 	// Inactive networks — WARN
 	if kvm.NetworksInactive > 0 {
 		out = append(out, insight("WARN", "KVM",
@@ -110,17 +149,38 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
 
 	if !d.Available {
+		// 7h: socket found but permission denied. This is a non-root
+		// measurement gap, not a fault — degrade to INFO ("couldn't
+		// measure"), never WARN. collectSocketPermReason already carries
+		// the runtime-specific fix (usermod -aG <runtime>), so don't append
+		// a generic "systemctl status docker" hint that names the wrong
+		// runtime for podman/crio.
+		if d.SocketPermDenied {
+			if d.StatusReason != "" {
+				out = append(out, insight("INFO", "Docker", d.StatusReason, nil))
+			}
+			return out
+		}
 		if d.StatusReason != "" {
 			out = append(out, insight("WARN", "Docker",
 				d.StatusReason,
 				[]string{"to inspect: systemctl status docker"},
 			))
 		}
-		// 7h: socket found but permission denied — surface specific fix
-		if d.SocketPermDenied {
-			return out
-		}
 		return out
+	}
+
+	// The daemon was reachable (Available) but enumerating containers failed — the
+	// counts/Containers are empty, so the sub-checks below would emit nothing and
+	// the host would read "Docker healthy". Surface the failure instead of letting
+	// an un-enumerated daemon pass as all-clean (false-OK).
+	if d.Status == "error" {
+		reason := d.StatusReason
+		if reason == "" {
+			reason = "Docker daemon is reachable but its containers could not be listed — health not verified"
+		}
+		return []models.Insight{insight("WARN", "Docker", reason,
+			[]string{"to inspect: docker ps -a", "to inspect: journalctl -u docker --since '10 min ago'"})}
 	}
 
 	out = append(out, checkDockerContainers(d)...)

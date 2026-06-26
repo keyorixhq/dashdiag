@@ -34,14 +34,23 @@ func TestCheckLVMThinBackedVGNotFull(t *testing.T) {
 		}
 	}
 
-	// Regression: a real near-full VG that does NOT back a thin pool still CRITs.
+	// §O.1 widened (found live on CentOS Stream 8): a fully-allocated PLAIN VG is the
+	// normal default-install layout (root+swap take the whole VG; the root FS was 38%
+	// used), so it must be INFO ("non-binding"), NOT a CRIT/WARN that falsely flips
+	// the verdict. Real pressure is the filesystem fill (Disk check), not VG extents.
 	plain := models.LVMInfo{
 		VGs: []models.LVMVG{
 			{Name: "vg0", SizeGB: 100, FreeGB: 1, FreePct: 1, HasMountedLV: true},
 		},
 	}
-	if !hasInsightMsg(checkLVM(plain), "CRIT", "volume group vg0") {
-		t.Errorf("§O.1: a genuinely near-full non-thin VG must still CRIT, got: %+v", checkLVM(plain))
+	plainIns := checkLVM(plain)
+	if !hasInsightMsg(plainIns, "INFO", "volume group vg0") {
+		t.Errorf("a fully-allocated plain VG must be INFO, got: %+v", plainIns)
+	}
+	for _, i := range plainIns {
+		if i.Level == "CRIT" || i.Level == "WARN" {
+			t.Errorf("a fully-allocated plain VG must not raise a CRIT/WARN, got %s: %q", i.Level, i.Message)
+		}
 	}
 
 	// Regression: thin pool data exhaustion is the real CRIT and is unaffected.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -68,10 +69,24 @@ func collectK8sNodes(ctx context.Context, bin string, info *models.K8sInfo) {
 	if err != nil {
 		return
 	}
+	nodes, notReady, ok := parseK8sNodes(data)
+	if !ok {
+		return
+	}
+	info.APIReachable = true // a `get nodes` that parsed means the API answered
+	info.Nodes = append(info.Nodes, nodes...)
+	info.NodesNotReady += notReady
+}
+
+// parseK8sNodes parses `kubectl get nodes -o json` into node info. Returned
+// separately from collectK8sNodes so the role/status logic is unit-testable
+// without shelling out. ok is false when the payload doesn't parse.
+func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bool) {
 	var result struct {
 		Items []struct {
 			Metadata struct {
-				Name string `json:"name"`
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
 			} `json:"metadata"`
 			Status struct {
 				NodeInfo struct {
@@ -90,19 +105,33 @@ func collectK8sNodes(ctx context.Context, bin string, info *models.K8sInfo) {
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
-		return
+		return nil, 0, false
 	}
-	info.APIReachable = true // a `get nodes` that parsed means the API answered
 	for _, item := range result.Items {
 		node := models.K8sNodeInfo{
 			Name:       item.Metadata.Name,
 			Version:    item.Status.NodeInfo.KubeletVersion,
 			Conditions: map[string]string{},
 		}
-		// Roles from taints
-		for _, t := range item.Spec.Taints {
-			if strings.Contains(t.Key, "control-plane") || strings.Contains(t.Key, "master") {
-				node.Roles = "control-plane"
+		// Roles come from node-role.kubernetes.io/<role> labels — the same
+		// source kubectl uses for its ROLES column. Taints are NOT a reliable
+		// signal: a single-node k3s control-plane is untainted (it schedules
+		// workloads by default), which would otherwise mislabel it "worker".
+		var roles []string
+		for k := range item.Metadata.Labels {
+			if r := strings.TrimPrefix(k, "node-role.kubernetes.io/"); r != k && r != "" {
+				roles = append(roles, r)
+			}
+		}
+		sort.Strings(roles)
+		node.Roles = strings.Join(roles, ",")
+		// Fallback: derive control-plane from taints when labels are absent,
+		// then default to worker so the field is never empty.
+		if node.Roles == "" {
+			for _, t := range item.Spec.Taints {
+				if strings.Contains(t.Key, "control-plane") || strings.Contains(t.Key, "master") {
+					node.Roles = "control-plane"
+				}
 			}
 		}
 		if node.Roles == "" {
@@ -115,12 +144,13 @@ func collectK8sNodes(ctx context.Context, bin string, info *models.K8sInfo) {
 					node.Status = "Ready"
 				} else {
 					node.Status = "NotReady"
-					info.NodesNotReady++
+					notReady++
 				}
 			}
 		}
-		info.Nodes = append(info.Nodes, node)
+		nodes = append(nodes, node)
 	}
+	return nodes, notReady, true
 }
 
 // ── pods ──────────────────────────────────────────────────────────────────────

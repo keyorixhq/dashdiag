@@ -164,10 +164,18 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	printK8sSummary(info, timing, mode)
 }
 
-func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
+// k8sHasConcern reports whether the standalone `dsd k8s` verdict flags a problem,
+// kept as one pure function so it can't drift from `dsd health`'s k8s heuristics
+// (the sibling-divergence class, #275 — WorkloadsDown/PVCsNotBound/Events must
+// count). Pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
+func k8sHasConcern(info *models.K8sInfo) bool {
 	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady +
 		info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
-	if issues == 0 && info.HighRestarts == 0 {
+	return issues > 0 || info.HighRestarts > 0
+}
+
+func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
+	if !k8sHasConcern(info) {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 		return
 	}

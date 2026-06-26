@@ -102,17 +102,29 @@ func parseMySQLReplica(q func(string) (string, bool), info *models.MySQLInfo) {
 		return
 	}
 	info.IsReplica = true
+	ioRunning, sqlRunning := true, true // assume running unless a "not Yes" is seen
 	for _, line := range strings.Split(out, "\n") {
 		k, v, found := strings.Cut(strings.TrimSpace(line), ":")
 		if !found {
 			continue
 		}
-		if strings.TrimSpace(k) == "Seconds_Behind_Master" {
-			if sb := strings.TrimSpace(v); sb != "" && sb != "NULL" {
-				info.SecondsBehind = atoiSafe(sb)
+		key, val := strings.TrimSpace(k), strings.TrimSpace(v)
+		switch key {
+		case "Seconds_Behind_Master":
+			// NULL means replication is not running — handled via the thread states
+			// below, which is the authoritative signal.
+			if val != "" && val != "NULL" {
+				info.SecondsBehind = atoiSafe(val)
 			}
+		// Slave_* on MariaDB / MySQL ≤8 (SHOW SLAVE STATUS); Replica_* is the MySQL 8.4+
+		// renaming — accept both so a stopped thread is caught on either.
+		case "Slave_IO_Running", "Replica_IO_Running":
+			ioRunning = strings.EqualFold(val, "Yes")
+		case "Slave_SQL_Running", "Replica_SQL_Running":
+			sqlRunning = strings.EqualFold(val, "Yes")
 		}
 	}
+	info.ReplStopped = !ioRunning || !sqlRunning
 }
 
 // lastField returns the last whitespace-separated field of s (the value column

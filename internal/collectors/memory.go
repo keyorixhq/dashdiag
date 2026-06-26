@@ -100,6 +100,10 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 	// only by the heavier `dsd hardware`.
 	info.EDACAvailable, info.CorrectedErrors, info.UncorrectedErrors = readEDACCounts()
 
+	// Memory hot-plug onlining — catches hot-added RAM the guest never onlined
+	// (and so isn't using). Cheap sysfs read; zero on non-hotplug kernels / non-Linux.
+	info.MemHotplugChecked, info.OfflineMemoryBlocks, info.OfflineMemoryMB, info.AutoOnlineBlocks = readMemHotplug()
+
 	// Container memory limit overrides total
 	if c.ContainerCtx.MemLimitMB > 0 {
 		info.TotalGB = c.ContainerCtx.MemLimitMB / 1024

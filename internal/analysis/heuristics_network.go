@@ -23,6 +23,17 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			out = append(out, insight("CRIT", "NFS",
 				fmt.Sprintf("mount %s is STALE — processes accessing it will hang in D-state", m.Mount),
 				hints))
+		} else if !m.Healthy {
+			// statfs returned promptly with a non-ESTALE/EIO error (e.g. EACCES after
+			// an export-permission change). The collector marks the mount unhealthy and
+			// the `dsd net` renderer shows it as "error", but checkNFS keyed only on
+			// Stale — so dsd health emitted nothing and the mount read green (false-OK).
+			out = append(out, insight("WARN", "NFS",
+				fmt.Sprintf("mount %s is not responding normally (statfs error) — check exports/permissions", m.Mount),
+				[]string{
+					fmt.Sprintf("to inspect: stat -f %s", m.Mount),
+					fmt.Sprintf("to inspect: showmount -e %s   (verify the export still grants this client)", m.Server),
+				}))
 		}
 		for _, warn := range m.OptionsWarnings {
 			out = append(out, insight("WARN", "NFS",

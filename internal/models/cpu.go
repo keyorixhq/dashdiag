@@ -27,4 +27,20 @@ type CPUInfo struct {
 	ContextSwitchRate float64 `json:"context_switch_rate"`
 	Status            string  `json:"status"`
 	StatusReason      string  `json:"status_reason"`
+	// HostCPULimitMHz is a host-imposed CPU cap (MHz) configured on this VM, when
+	// one is known — e.g. a VMware vSphere CPU limit read via the open-vm-tools
+	// stat channel. It is NOT measured by the CPU collector; ApplyThresholds'
+	// pre-scan injects it from the VMware result so the steal heuristic can
+	// attribute high steal to a configured cap (host-throttled) rather than to
+	// host over-provisioning (§N.4). 0 = no known limit. Internal enrichment only.
+	HostCPULimitMHz int `json:"-"`
+
+	// CPU availability — used to flag allocated-but-unused vCPUs: a hot-added vCPU
+	// the guest never onlined (present > online with no SMT-off / isolcpus reason),
+	// which leaves a VM running on a fraction of its allocation with no other signal.
+	// 0 / "" = not read (non-Linux or sysfs unavailable).
+	PresentCPUs  int    `json:"present_cpus,omitempty"`  // /sys/devices/system/cpu/present count (allocated)
+	OnlineCPUs   int    `json:"online_cpus,omitempty"`   // /sys/devices/system/cpu/online count (actually used)
+	SMTControl   string `json:"smt_control,omitempty"`   // smt/control: on|off|forceoff|notsupported
+	CPUsIsolated bool   `json:"cpus_isolated,omitempty"` // isolcpus= / nohz_full= in /proc/cmdline (offline is intentional)
 }

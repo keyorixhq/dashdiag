@@ -73,6 +73,22 @@ func runKVM(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// kvmConcerns counts the actionable issues in the standalone `dsd kvm` verdict,
+// kept as one pure function so it can't drift from `dsd health`'s checkKVM (the
+// sibling-divergence class, #275 — e.g. enum-failed must not read as healthy).
+// Pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
+func kvmConcerns(info *models.KVMInfo) int {
+	issues := info.VMsCrashed + info.VMsDownAutostart + info.NetworksInactive +
+		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused +
+		info.VMsAbnormal + info.VMsUnreadable
+	// libvirt up but domains couldn't be enumerated — never let an empty VM list
+	// read as healthy (matches checkKVM, which WARNs on enum-failed).
+	if info.Status == "enum-failed" {
+		issues++
+	}
+	return issues
+}
+
 func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.OutputMode) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
@@ -108,13 +124,7 @@ func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.Out
 
 	fmt.Println()
 	fmt.Println(sep)
-	issues := info.VMsCrashed + info.VMsDownAutostart + info.NetworksInactive +
-		info.PoolsNearFull + info.PoolsInactive + info.DiskIOErrors + info.VMsPaused
-	// libvirt up but domains couldn't be enumerated — never let an empty VM list
-	// read as healthy (matches checkKVM, which WARNs on enum-failed).
-	if info.Status == "enum-failed" {
-		issues++
-	}
+	issues := kvmConcerns(info)
 	if issues == 0 {
 		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sKVM healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
 	} else {

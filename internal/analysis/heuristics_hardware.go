@@ -49,6 +49,20 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	if t.CPUTempC == 0 || t.Source == "" {
 		return nil // no thermal data available on this platform
 	}
+	// A faulted/virtual hwmon sensor can report an impossible value (the VMware
+	// vNVMe 11758°C class, or a negative k10temp offset). readHwmonTemps does a bare
+	// ParseFloat with no bounds, so reject implausible readings as unverified rather
+	// than firing a false "thermal throttling active" CRIT — same gate the dsd
+	// hardware display path and every drive-temp verdict already apply.
+	if !TempPlausible(t.CPUTempC, TempCeilSilicon) {
+		return []models.Insight{insight("WARN", "CPU Thermal",
+			fmt.Sprintf("implausible CPU temperature %g°C (source: %s) — sensor likely faulted; reading rejected, health unverified", t.CPUTempC, t.Source),
+			[]string{
+				"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+				"to inspect: sensors  (compare against a second source)",
+			},
+		)}
+	}
 	hints := []string{
 		"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
 		"to inspect: check cooling and airflow",

@@ -16,6 +16,9 @@ func TestCheckDocker(t *testing.T) {
 	assertLevel(t, checkDocker(models.DockerInfo{Available: false}), "") // absent, no reason
 	assertLevel(t, checkDocker(models.DockerInfo{Available: false, StatusReason: "docker not running"}), "WARN")
 	assertLevel(t, checkDocker(models.DockerInfo{Available: true, CrashLooping: []string{"web"}}), "CRIT") // delegates
+	// Daemon reachable but enumeration failed → WARN, never a silent "healthy"
+	// (the false-OK fix). Empty Containers must not read green when Status=="error".
+	assertLevel(t, checkDocker(models.DockerInfo{Available: true, Status: "error", StatusReason: "docker API error listing containers"}), "WARN")
 }
 
 func TestCheckIPMI(t *testing.T) {

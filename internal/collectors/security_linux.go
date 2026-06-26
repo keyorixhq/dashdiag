@@ -1082,20 +1082,48 @@ func sshAllowedUFW(out string, port int) bool {
 // config-file probe remains only as a fallback for when the nft binary is
 // unavailable on PATH.
 func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := lookPath("nft"); err == nil {
-		if out, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
-			fw := &models.FirewallInfo{}
-			parseNFTRuleset(out, fw)
-			if fw.TotalRules > 0 {
-				info.FirewallActive = true
+	// The sbin-aware gate matters for non-root runs: nft lives in /sbin or
+	// /usr/sbin, off a typical non-root $PATH, so a plain lookPath would miss it
+	// and we'd wrongly fall through to the config probe / "none detected". runCmd
+	// is invoked by BARE name (not the resolved path) to keep the capture/replay
+	// key stable; on a non-root run the bare-name exec fails to launch, which we
+	// treat as unreadable below.
+	if nft := sbinToolPath("nft"); nft != "" {
+		out, err := runCmd(ctx, "nft", "list", "ruleset")
+		if err != nil {
+			// nft installed but the ruleset is unreadable (non-root EPERM, or the
+			// binary is off a non-root $PATH). State unknown — record it so the
+			// renderer says "not verified" instead of a clean-looking "none
+			// detected", and do NOT fall through to the on-disk-config probe: the
+			// binary IS present, so inferring "active" from a config file we can't
+			// confirm is loaded would be a false-OK.
+			info.FirewallUnreadable = true
+			if info.FirewallType == "" {
 				info.FirewallType = "nftables"
-				info.SSHAllowed = sshAllowedNFT(out, sshPort(info))
-				return true
 			}
+			return false
 		}
+		fw := &models.FirewallInfo{}
+		parseNFTRuleset(out, fw)
+		if fw.TotalRules > 0 {
+			info.FirewallActive = true
+			info.FirewallType = "nftables"
+			info.SSHAllowed = sshAllowedNFT(out, sshPort(info))
+			return true
+		}
+		// nft is installed but the ruleset is empty — tooling present, host
+		// unprotected. Record it (renderer mirrors the health Firewall WARN) and
+		// return: an empty LIVE ruleset is authoritative, so don't let the on-disk
+		// config probe upgrade this to a misleading "active".
+		info.FirewallToolingPresent = true
+		if info.FirewallType == "" {
+			info.FirewallType = "nftables"
+		}
+		return false
 	}
-	// Fallback: nft binary missing — infer from on-disk config. We can't read
-	// the ruleset here, so leave SSH reachability conservatively "allowed".
+	// Fallback: nft binary not found on $PATH or in sbin — infer from on-disk
+	// config. We can't read the ruleset here, so leave SSH reachability
+	// conservatively "allowed".
 	entries, _ := glob("/etc/nftables.conf")
 	if len(entries) == 0 {
 		entries, _ = glob("/etc/nftables.d/*.nft")
@@ -1116,11 +1144,18 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 // distros) the legacy ip_tables kernel module is never loaded, so that proc
 // file is absent even though the iptables-nft wrapper can list a full ruleset.
 func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if _, err := lookPath("iptables"); err != nil {
+	if sbinToolPath("iptables") == "" { // sbin-aware gate (see detectNFTables)
 		return false
 	}
+	// Bare name keeps the replay key stable (see detectNFTables); a non-root
+	// launch failure is treated as unreadable below.
 	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
 	if err != nil {
+		// iptables installed but unreadable (non-root EPERM) — state unknown.
+		info.FirewallUnreadable = true
+		if info.FirewallType == "" {
+			info.FirewallType = "iptables"
+		}
 		return false
 	}
 	fw := &models.FirewallInfo{}
@@ -1130,6 +1165,12 @@ func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
 		info.FirewallType = "iptables"
 		info.SSHAllowed = sshAllowedIPT(out, sshPort(info))
 		return true
+	}
+	// iptables installed but no rules — tooling present, host unprotected. Only
+	// claim the backend name if nft didn't already (nft is the modern default).
+	info.FirewallToolingPresent = true
+	if info.FirewallType == "" {
+		info.FirewallType = "iptables"
 	}
 	return false
 }

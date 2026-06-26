@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -74,7 +75,17 @@ func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
 	if err != nil || out == "" {
 		return nil
 	}
+	return applyBtrfsShow(out, mount, os.Geteuid() != 0)
+}
 
+// applyBtrfsShow parses `btrfs filesystem show` output into a BtrfsVolume. Split
+// from parseBtrfsShow so the MISSING-device logic is unit-testable. nonRoot says
+// whether the producing run lacked privilege — which matters because btrfs, run
+// unprivileged, cannot open the block devices and prints EVERY present device as
+// `size 0 ... MISSING` with its REAL path. That is "couldn't read the device",
+// not "device is gone", and must NOT raise a DEGRADED CRIT. A genuinely absent
+// device is shown with the `<missing disk>` placeholder path, which we still flag.
+func applyBtrfsShow(out, mount string, nonRoot bool) *models.BtrfsVolume {
 	vol := &models.BtrfsVolume{MountPoint: mount, Status: "healthy"}
 
 	for _, line := range strings.Split(out, "\n") {
@@ -85,7 +96,23 @@ func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
 		if m := btrfsShowDevRe.FindStringSubmatch(line); m != nil {
 			devID, _ := strconv.Atoi(m[1])
 			path := m[2]
-			missing := m[3] != "" || strings.Contains(path, "missing")
+			// A genuinely-absent device is the literal `<missing disk>` placeholder
+			// (captured as "<missing"); a real /dev path with the MISSING suffix means
+			// btrfs couldn't OPEN the device.
+			placeholderMissing := strings.Contains(path, "missing")
+			unreadable := m[3] != "" && !placeholderMissing
+
+			// Real-path MISSING on a non-root run = the unprivileged "can't open device"
+			// artifact, not a missing device. Don't count it; flag the volume so the
+			// verdict degrades to an honest "unverified — run as root", not a false CRIT.
+			if unreadable && nonRoot {
+				vol.DevReadUnverified = true
+				vol.Devices = append(vol.Devices, models.BtrfsDev{DevID: devID, Path: path})
+				vol.TotalDevices++
+				continue
+			}
+
+			missing := placeholderMissing || unreadable
 			vol.TotalDevices++
 			if missing {
 				vol.MissingDevs++
@@ -104,6 +131,9 @@ func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
 	if vol.MissingDevs > 0 {
 		vol.Status = "degraded"
 		vol.StatusReason = "missing device(s) — filesystem running in degraded mode"
+	} else if vol.DevReadUnverified {
+		vol.Status = "unverified"
+		vol.StatusReason = "device state could not be read without root"
 	}
 	return vol
 }

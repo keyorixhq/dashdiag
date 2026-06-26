@@ -504,9 +504,12 @@ func TestSysctlSomaxconnThresholds(t *testing.T) {
 		val  int
 		want string
 	}{
+		// somaxconn is a tuning param, not a fault — WARN at most, never CRIT. 128 (the
+		// historical kernel default on CentOS 7 / RHEL 7) must not flip the verdict.
 		{"ok", 4096, ""},
-		{"warn", 800, "WARN"},
-		{"crit", 256, "CRIT"},
+		{"low is WARN", 800, "WARN"},
+		{"historical default 128 is WARN, not CRIT", 128, "WARN"},
+		{"very low is still only WARN", 256, "WARN"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -791,8 +794,10 @@ func TestCheckLVMVGFreeSpace(t *testing.T) {
 		wantLevel string
 	}{
 		{"healthy — plenty free", 100, 40, true, ""},
-		{"WARN — 91% used (9% free)", 100, 9, true, "WARN"},
-		{"CRIT — 99% used (1% free)", 100, 1, true, "CRIT"},
+		// §O.1 widened (found live on CentOS Stream 8): a fully-allocated active VG is
+		// the normal default-install layout, so INFO — never WARN/CRIT that flips the verdict.
+		{"fully allocated 91% — INFO not WARN", 100, 9, true, "INFO"},
+		{"fully allocated 99% — INFO not CRIT", 100, 1, true, "INFO"},
 		{"no mounted LVs — inactive VG — always INFO", 100, 1, false, "INFO"},
 	}
 	for _, tc := range cases {
@@ -914,6 +919,33 @@ func TestPVEFirewallNoFalsePositive(t *testing.T) {
 	plain := models.FirewallInfo{Available: true, Backend: "nftables", Active: false}
 	if !hasLevel(checkFirewall(plain), "WARN") {
 		t.Errorf("empty ruleset without pve-firewall should WARN, got %+v", checkFirewall(plain))
+	}
+}
+
+// On a cloud guest an empty host ruleset must NOT assert "unprotected" (the
+// protection lives in the provider Security Group / NSG, a layer dsd can't read
+// from inside the instance). It downgrades to INFO and names that layer.
+// Credibility fix found on an AWS EC2 Debian box (2026-06-25).
+func TestCloudGuestFirewallNoFalseUnprotected(t *testing.T) {
+	for _, tc := range []struct{ provider, want string }{
+		{"aws", "Security Group"},
+		{"azure", "Network Security Group"},
+		{"gcp", "VPC firewall"},
+	} {
+		fw := models.FirewallInfo{Available: true, Backend: "iptables", Active: false, CloudGuest: true, CloudProvider: tc.provider}
+		got := checkFirewall(fw)
+		if hasLevel(got, "WARN") {
+			t.Errorf("%s guest with empty ruleset must not WARN 'unprotected', got %+v", tc.provider, got)
+		}
+		if !hasInsight(got, "INFO", tc.want) {
+			t.Errorf("%s guest expected INFO naming %q, got %+v", tc.provider, tc.want, got)
+		}
+	}
+
+	// Control: a non-cloud host with the same empty ruleset still WARNs.
+	plain := models.FirewallInfo{Available: true, Backend: "iptables", Active: false}
+	if !hasLevel(checkFirewall(plain), "WARN") {
+		t.Errorf("non-cloud empty ruleset should still WARN, got %+v", checkFirewall(plain))
 	}
 }
 
