@@ -133,6 +133,61 @@ func TestCheckVMwareResourceConstraints(t *testing.T) {
 	}
 }
 
+// §N (found live on a real VCD guest): a configured limit that sits AT/ABOVE the
+// VM's capacity is inert — it can never throttle/balloon — so it must be INFO
+// ("non-binding"), not a WARN claiming active harm. A limit BELOW capacity is a
+// real WARN. When capacity is unknown the conservative WARN is kept. Values are
+// the real measured ones: cpu_limit auto-scaled to 6000 == 2×2993 capacity;
+// mem_limit 2048 sat above 1920 MB RAM.
+func TestVMwareResourceConstraintsBinding(t *testing.T) {
+	base := func() models.VMwareInfo {
+		return models.VMwareInfo{IsGuest: true, ToolsInstalled: true, ToolsRunning: true, StatAvailable: true}
+	}
+	onlyLevel := func(t *testing.T, ins []models.Insight, want, mustContain string) {
+		t.Helper()
+		if len(ins) != 1 {
+			t.Fatalf("want exactly one insight, got %d: %+v", len(ins), ins)
+		}
+		if ins[0].Level != want {
+			t.Errorf("level=%s want %s (msg: %q)", ins[0].Level, want, ins[0].Message)
+		}
+		if !strings.Contains(ins[0].Message, mustContain) {
+			t.Errorf("message %q missing %q", ins[0].Message, mustContain)
+		}
+	}
+
+	// Non-binding memory limit (≥ RAM) → INFO, not WARN.
+	memInert := base()
+	memInert.MemLimitMB = 2048
+	memInert.TotalRAMMB = 1920
+	onlyLevel(t, vmwareResourceConstraints(memInert), "INFO", "non-binding")
+
+	// Binding memory limit (< RAM) → WARN.
+	memBind := base()
+	memBind.MemLimitMB = 1000
+	memBind.TotalRAMMB = 2048
+	onlyLevel(t, vmwareResourceConstraints(memBind), "WARN", "1000 MB")
+
+	// Non-binding CPU limit (== capacity, the real auto-scaled case) → INFO.
+	cpuInert := base()
+	cpuInert.CPULimitMHz = 6000
+	cpuInert.NumVCPU = 2
+	cpuInert.HostMHzPerCPU = 2993
+	onlyLevel(t, vmwareResourceConstraints(cpuInert), "INFO", "non-binding")
+
+	// Binding CPU limit (well below capacity) → WARN.
+	cpuBind := base()
+	cpuBind.CPULimitMHz = 1500
+	cpuBind.NumVCPU = 2
+	cpuBind.HostMHzPerCPU = 2993
+	onlyLevel(t, vmwareResourceConstraints(cpuBind), "WARN", "1500 MHz")
+
+	// Capacity unknown (no vCPU/RAM context) → keep the conservative WARN.
+	unknown := base()
+	unknown.CPULimitMHz = 6000
+	onlyLevel(t, vmwareResourceConstraints(unknown), "WARN", "6000 MHz")
+}
+
 // FALSE_OK_SWEEP #33: open-vm-tools running but the stat interface didn't answer →
 // resource-pressure (ballooning/host-swap/caps) is unverified, NOT a clean OK.
 func TestCheckVMwareStatUnavailable(t *testing.T) {

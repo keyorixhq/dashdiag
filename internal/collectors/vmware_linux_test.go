@@ -131,6 +131,28 @@ func TestParseLeadingInt(t *testing.T) {
 	}
 }
 
+func TestCPUCountFromProc(t *testing.T) {
+	// Two logical CPUs (real /proc/cpuinfo shape, trimmed).
+	cpuinfo := "processor\t: 0\nmodel name\t: Xeon\n\nprocessor\t: 1\nmodel name\t: Xeon\n"
+	if got := cpuCountFromProc(cpuinfo); got != 2 {
+		t.Errorf("cpuCountFromProc = %d, want 2", got)
+	}
+	if got := cpuCountFromProc(""); got != 0 {
+		t.Errorf("cpuCountFromProc(empty) = %d, want 0", got)
+	}
+}
+
+func TestMemTotalMBFromProc(t *testing.T) {
+	// Real /proc/meminfo MemTotal line (kB → MB). 1965940 kB ≈ 1919 MB.
+	meminfo := "MemTotal:        1965940 kB\nMemFree:          257000 kB\n"
+	if got := memTotalMBFromProc(meminfo); got != 1919 {
+		t.Errorf("memTotalMBFromProc = %d, want 1919", got)
+	}
+	if got := memTotalMBFromProc("MemFree: 100 kB"); got != 0 {
+		t.Errorf("memTotalMBFromProc(no MemTotal) = %d, want 0", got)
+	}
+}
+
 func TestCollectSCSITimeouts(t *testing.T) {
 	root := t.TempDir()
 	// sda below the recommendation, sdb compliant, vda (virtio-blk) must be

@@ -35,6 +35,16 @@ type VMwareInfo struct {
 	MemLimitMB    int  `json:"mem_limit_mb,omitempty"`  // host-imposed memory cap, MB (0 = unlimited)
 	CPULimitMHz   int  `json:"cpu_limit_mhz,omitempty"` // host-imposed CPU cap, MHz (0 = unlimited)
 
+	// Capacity context, used to tell a BINDING limit (below the VM's capacity, so
+	// it actually throttles) from a NON-binding one (at/above capacity — inert,
+	// common when a limit is inherited or auto-scales with the VM). Without this a
+	// configured-but-inert limit false-WARNs "throttled/ballooned" (§N, found live:
+	// a VCD tenant where cpu_limit auto-scaled to == capacity and mem_limit sat
+	// above RAM). 0 = unknown → keep the WARN (don't hide a possibly-real limit).
+	NumVCPU       int `json:"num_vcpu,omitempty"`         // vCPU count (/proc/cpuinfo)
+	HostMHzPerCPU int `json:"host_mhz_per_cpu,omitempty"` // per-vCPU host clock (`stat speed`); CPU capacity = NumVCPU × this
+	TotalRAMMB    int `json:"total_ram_mb,omitempty"`     // guest RAM, MB (/proc/meminfo MemTotal)
+
 	// SCSI disk command timeouts (seconds), per /sys/block/sd*/device/timeout.
 	// VMware recommends 180s so a guest survives a vMotion / storage-failover
 	// stun without its filesystem going read-only; the kernel default is 30s.
