@@ -3,7 +3,6 @@
 package collectors
 
 import (
-	"os"
 	"strconv"
 	"strings"
 )
@@ -46,9 +45,13 @@ func cmdlineHasCPUIsolation(cmdline string) bool {
 // isolcpus/nohz_full (cores deliberately isolated). The heuristic uses these to
 // flag a hot-added vCPU the guest never onlined — present > online with no reason —
 // without false-warning on the intentional cases. All world-readable, no root.
+//
+// Reads route through the active Source (readFile), so `dsd capture` records the
+// captured host's CPU topology and `dsd replay` reproduces its present/online/SMT/
+// isolation verdict instead of reading the replaying machine's CPUs.
 func readCPUAvailability() (present, online int, smt string, isolated bool) {
 	read := func(p string) string {
-		b, err := os.ReadFile(p)
+		b, err := readFile(p)
 		if err != nil {
 			return ""
 		}
