@@ -366,6 +366,13 @@ ext4 still CRIT; full read-only ext4 still WARN; image-fs inode-full clean.
 
 ## L. NVMe SMART implausible-value → false end-of-life CRIT (VMware virtual NVMe) — ✅ DONE (fix/nvme-smart-plausibility-L, 2026-06-18)
 
+> **Sibling found + fixed live 2026-06-26 (PR #538):** the `health`/Drives gate held
+> on the real 11759°C / spare-1% vNVMe, but the standalone **`dsd hardware`** thermal
+> renderer had NO plausibility gate → false `Temperature: CRIT 11759°C`. cmd↔health
+> divergence, invisible non-root (SMART read fails), only root+smartctl exposed it —
+> run-as-both caught it. Fixed via `driveThermalLevel()` + `TempPlausible`/`TempCeilNVMe`,
+> validated on the live drive. See memory `vmware-vcd-tenant-guest`.
+
 Fixed by a plausibility gate in `checkNVMe` (`nvmeSmartPlausible`): a device whose
 SMART log was read (`SmartRead:true`) but is physically impossible (temp ∉
 [-40,125]°C, spare/threshold ∉ [0,100], counters > sane ceiling) is routed to a
@@ -488,7 +495,30 @@ active→clean.
 
 ---
 
-## N. VMware live-guest probe checklist — BLOCKED (needs a VMware guest; tenant returned 2026-06-18)
+## N. VMware live-guest probe checklist — PARTIALLY CLOSED (live session 2026-06-26; active-limit items remain tenant-blocked)
+
+> **2026-06-26 live session** (real VCD guest `ubuntumin`, ssh andrei@5.35.120.132:2222;
+> memory `vmware-vcd-tenant-guest`):
+> - ✅ **§N.1/§N.2 settled** — collector bails to `stat_available:false` on probe failure,
+>   heuristic gates on it (logic-proven + already unit-tested); confirmed live the read
+>   works non-root. No zero-vs-unread false-negative.
+> - ✅ **At-rest detection confirmed on real hardware** — cpu/mem limit, balloon
+>   cross-checked byte-exact vs `vmware-toolbox-cmd stat`; emulated NICs; SCSI timeouts.
+> - ✅ **§L sibling found+fixed** (PR #538, `dsd hardware` thermal false-CRIT — see §L).
+> - 🆕 **NEW bug found+fixed (PR #539):** dsd false-WARNed on a NON-BINDING limit —
+>   cpu_limit auto-scaled to == capacity (2 vCPU × 2993 MHz; steal stayed 0 under load),
+>   mem_limit 2048 ≥ RAM 1919. Now INFO "non-binding" when provably ≥ capacity; WARN
+>   otherwise. §O "right reading, wrong context" class.
+> - 🔴 **§N.3 / §N.4 ACTIVE remain BLOCKED — tenant constraint, now DEFINITIVE:** the VCD
+>   "Edit Compute" role exposes NO Reservation/Limit/Shares fields, and limits **auto-scale
+>   with capacity** (added a 2nd vCPU → cpu_limit auto-went 3000→6000, stayed non-binding).
+>   So steal/balloon cannot be induced here. §N.4 feature is unit-proven (#536) + at-rest
+>   live-confirmed; active validation needs **admin vSphere or our own lab**, NOT this tenant.
+>   Don't re-attempt the add-vCPU workaround — proven dead end.
+> - 🟡 **Hot-add diagnosis** explored + SHELVED — guest-side detection ambiguous on small
+>   VMs (single NUMA node expected regardless); low-confidence, not worth building.
+> - ⬜ **§N.5 (PVSCSI readable-SMART)** not done this session (smartmontools now installed;
+>   NVMe path validated, the SATA/PVSCSI sd*-drive SMART parse still to confirm).
 
 Items identified during the 2026-06-18 VCD session that need a *live VMware guest*
 to validate and weren't closable then — either gated by tenant role (couldn't edit

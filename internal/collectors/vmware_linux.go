@@ -22,8 +22,15 @@ type VMwareCollector struct{}
 
 func NewVMwareCollector() *VMwareCollector { return &VMwareCollector{} }
 
-func (c *VMwareCollector) Name() string           { return "VMware" }
-func (c *VMwareCollector) Timeout() time.Duration { return 3 * time.Second }
+func (c *VMwareCollector) Name() string { return "VMware" }
+
+// 8s, not 3s: the collector makes several external calls (up to four
+// vmware-toolbox-cmd stat RPCs plus an ethtool -S per vmxnet3 NIC). On a small,
+// CPU-contended guest (e.g. 1 vCPU also running k8s) fork/exec latency under the
+// old 3s budget intermittently cancelled the later calls — dropping the NIC/disk
+// findings. The individual commands normally return in tens of ms, so the larger
+// budget only matters when the host is starved.
+func (c *VMwareCollector) Timeout() time.Duration { return 8 * time.Second }
 
 const dmiIDDir = "/sys/class/dmi/id"
 
@@ -60,14 +67,114 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.PVSCSILoaded = kernelModulePresent(mods, "vmw_pvscsi")
 	info.BalloonLoaded = kernelModulePresent(mods, "vmw_balloon")
 
-	// Host-imposed resource pressure/limits — only readable when tools run.
+	// Fast, reliable collectors first (sysfs reads + a quick ethtool exec). These
+	// run before collectVMwareStat because the vmware-toolbox-cmd RPC it uses can
+	// hang intermittently and exhaust this collector's context deadline — which
+	// would otherwise cancel the ethtool command below (file reads ignore ctx, but
+	// exec respects it). Ordering the flaky RPC last means a hang only starves
+	// itself, not the disk/NIC checks.
+	info.SCSITimeouts, info.LowSCSITimeouts = collectSCSITimeouts("/sys/block")
+	info.SCSIDisksChecked, info.DisksNoStableID = collectVMwareDiskIDs("/sys/block")
+	info.VMXNETStats = collectVMXNETStats(ctx, info.NICDrivers, "/sys/class/net")
+
+	// Host-imposed resource pressure/limits — only readable when tools run, via a
+	// vmware-toolbox-cmd RPC that can hang; kept last (see above).
 	if info.ToolsRunning {
 		collectVMwareStat(ctx, info)
 	}
 
-	info.SCSITimeouts, info.LowSCSITimeouts = collectSCSITimeouts("/sys/block")
-
 	return info, nil
+}
+
+// collectVMXNETStats reads vmxnet3 driver-internal drop/exhaustion counters via
+// `ethtool -S` for each vmxnet3 NIC: RX buffer-allocation failures, RX ring
+// out-of-buffer, and TX ring full. These are NOT in the standard
+// /sys/class/net statistics (rx/tx_errors/dropped, already handled by the
+// Network collector). The total rx/tx packet counts come from sysfs so the
+// analysis layer can rate-gate them. Skipped silently when ethtool is absent.
+func collectVMXNETStats(ctx context.Context, nicDrivers map[string]string, netDir string) []models.VMXNETStats {
+	ifaces := make([]string, 0, len(nicDrivers))
+	for iface, drv := range nicDrivers {
+		if drv == "vmxnet3" {
+			ifaces = append(ifaces, iface)
+		}
+	}
+	sort.Strings(ifaces)
+
+	var out []models.VMXNETStats
+	for _, iface := range ifaces {
+		raw, err := runCmd(ctx, "ethtool", "-S", iface)
+		if err != nil {
+			continue
+		}
+		s := parseVMXNETStats(raw)
+		s.Iface = iface
+		s.RxPackets = readCounterFile(filepath.Join(netDir, iface, "statistics", "rx_packets"))
+		s.TxPackets = readCounterFile(filepath.Join(netDir, iface, "statistics", "tx_packets"))
+		out = append(out, s)
+	}
+	return out
+}
+
+// parseVMXNETStats extracts the vmxnet3-specific counters from `ethtool -S`
+// output ("       rx buf alloc fail: 0", "       ring full: 0", …).
+func parseVMXNETStats(raw string) models.VMXNETStats {
+	var s models.VMXNETStats
+	for _, line := range strings.Split(raw, "\n") {
+		name, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseUint(strings.TrimSpace(val), 10, 64)
+		if err != nil {
+			continue
+		}
+		switch strings.TrimSpace(name) {
+		case "rx buf alloc fail":
+			s.RxBufAllocFail = n
+		case "pkts rx OOB":
+			s.RxOOB = n
+		case "ring full":
+			s.TxRingFull = n
+		}
+	}
+	return s
+}
+
+// readCounterFile parses an unsigned integer from a sysfs counter file, 0 on any
+// error (absent file / unreadable / non-numeric).
+func readCounterFile(path string) uint64 {
+	n, err := strconv.ParseUint(readFileTrimmedLocal(path), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// collectVMwareDiskIDs examines SCSI (sd*) disks for a stable hardware ID via
+// /sys/block/sd*/device/wwid. On a vSphere VM with disk.EnableUUID=FALSE the
+// paravirtual-SCSI disks report no SCSI page 0x83, so wwid is empty and there is
+// no /dev/disk/by-id serial — which breaks the vSphere CSI driver and stable
+// device naming. checked is true once any sd* disk was seen (so an NVMe-only
+// guest, where EnableUUID is irrelevant, produces no finding). noStableID lists
+// the sd* disks lacking a wwid.
+func collectVMwareDiskIDs(blockDir string) (checked bool, noStableID []string) {
+	entries, err := readDirEntries(blockDir)
+	if err != nil {
+		return false, nil
+	}
+	for _, e := range entries {
+		dev := e.Name()
+		if !strings.HasPrefix(dev, "sd") {
+			continue // sd* only: IDE/SATA carry an ATA serial and NVMe an eui regardless of EnableUUID
+		}
+		checked = true
+		if readFileTrimmedLocal(filepath.Join(blockDir, dev, "device", "wwid")) == "" {
+			noStableID = append(noStableID, dev)
+		}
+	}
+	sort.Strings(noStableID)
+	return checked, noStableID
 }
 
 // vmwareSCSITimeoutRecommended is VMware's recommended guest SCSI command
@@ -99,6 +206,43 @@ func collectVMwareStat(ctx context.Context, info *models.VMwareInfo) {
 	if limit, limited := vmwareStatLimit(ctx, toolbox, "cpulimit"); limited {
 		info.CPULimitMHz = limit
 	}
+	// Capacity context so the heuristic can tell a binding limit from an inert one
+	// (§N). `stat speed` is the per-vCPU host clock; combined with the vCPU count
+	// and RAM it yields CPU/memory capacity. All source-routed (replay-faithful).
+	if speed, ok := vmwareStatMB(ctx, toolbox, "speed"); ok {
+		info.HostMHzPerCPU = speed
+	}
+	info.NumVCPU = cpuCountFromProc(readFileTrimmedLocal("/proc/cpuinfo"))
+	info.TotalRAMMB = memTotalMBFromProc(readFileTrimmedLocal("/proc/meminfo"))
+}
+
+// cpuCountFromProc counts the logical CPUs in /proc/cpuinfo content (one
+// "processor" line each). Read via the source layer so it's replay-faithful.
+func cpuCountFromProc(cpuinfo string) int {
+	n := 0
+	for _, line := range strings.Split(cpuinfo, "\n") {
+		if strings.HasPrefix(line, "processor") {
+			n++
+		}
+	}
+	return n
+}
+
+// memTotalMBFromProc parses MemTotal (kB) from /proc/meminfo content and returns
+// it in MB. 0 when not found.
+func memTotalMBFromProc(meminfo string) int {
+	for _, line := range strings.Split(meminfo, "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if kb, ok := parseLeadingInt(fields[1]); ok {
+				return kb / 1024
+			}
+		}
+	}
+	return 0
 }
 
 // vmwareToolboxPath locates vmware-toolbox-cmd, "" when absent.

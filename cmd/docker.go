@@ -71,6 +71,41 @@ func runDocker(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// dockerConcerns counts the actionable issues in the standalone `dsd docker`
+// verdict, kept as one pure function so it can't drift from `dsd health`'s docker
+// heuristics (the sibling-divergence class, #275 — e.g. root-user containers,
+// which checkDockerSecurity WARNs on, must count). Pinned by the cmd↔health
+// consistency test (cmd_health_consistency_test.go).
+func dockerConcerns(info *models.DockerInfo) int {
+	issues := info.UnhealthyCount + info.CrashLoopCount
+	// Daemon reachable but containers couldn't be listed — never read as healthy
+	// (matches checkDocker, which WARNs on Status=="error").
+	if info.Status == "error" {
+		issues++
+	}
+	if info.StoppedCount > 0 && info.RunningCount == 0 {
+		issues++
+	}
+	issues += info.OOMEvents
+	for _, q := range info.PodmanQuadlets {
+		if q.Failed {
+			issues++
+		}
+	}
+	if info.ContainersWithSecrets > 0 {
+		issues++
+	}
+	if info.SocketMountedCount > 0 {
+		issues++
+	}
+	// Root-user containers — matches checkDockerSecurity (WARN), which the
+	// standalone verdict previously ignored.
+	if info.RunningAsRootCount > 0 {
+		issues++
+	}
+	return issues
+}
+
 func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
@@ -98,27 +133,7 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 		printDockerLogDriver(info.LogDriver, mode)
 	}
 
-	issues := info.UnhealthyCount + info.CrashLoopCount
-	if info.StoppedCount > 0 && info.RunningCount == 0 {
-		issues++
-	}
-	issues += info.OOMEvents
-	for _, q := range info.PodmanQuadlets {
-		if q.Failed {
-			issues++
-		}
-	}
-	if info.ContainersWithSecrets > 0 {
-		issues++
-	}
-	if info.SocketMountedCount > 0 {
-		issues++
-	}
-	// Root-user containers — matches checkDockerSecurity (WARN), which the
-	// standalone verdict previously ignored.
-	if info.RunningAsRootCount > 0 {
-		issues++
-	}
+	issues := dockerConcerns(info)
 
 	fmt.Println()
 	fmt.Println(sep)

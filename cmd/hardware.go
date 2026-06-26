@@ -157,26 +157,12 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 
 		// Temperature
 		if d.TempC > 0 {
-			tempLevel := "ok"
-			if d.Type == "nvme" {
-				if d.TempC >= 80 {
-					tempLevel = "fail"
-				} else if d.TempC >= 70 {
-					tempLevel = "warn"
-				}
+			if level, plausible := driveThermalLevel(d.TempC, d.Type == "nvme"); !plausible {
+				fmt.Printf("  %-14s %s  implausible (%d°C) — SMART sensor unreliable, rejected\n",
+					"Temperature:", output.StatusIcon("info", mode), d.TempC)
 			} else {
-				// SATA/SAS (SSD + HDD). 50°C false-WARNed normal warm drives: a 2TB
-				// enterprise HDD running at its normal 52°C (its own SMART reported
-				// 0 over-temp events, lifetime max 58°C) got a WARN. Spinning disks
-				// routinely run 45-55°C in racks/SFF cases. Warn at 55°C (genuinely
-				// warm), fail at 60°C (at/over typical spec). Found live on pve01.
-				if d.TempC >= 60 {
-					tempLevel = "fail"
-				} else if d.TempC >= 55 {
-					tempLevel = "warn"
-				}
+				fmt.Printf("  %-14s %s  %d°C\n", "Temperature:", output.StatusIcon(level, mode), d.TempC)
 			}
-			fmt.Printf("  %-14s %s  %d°C\n", "Temperature:", output.StatusIcon(tempLevel, mode), d.TempC)
 		}
 
 		// Power-on hours
@@ -298,4 +284,34 @@ func coreThermalLevel(tempC int, loadPct float64) (level, note string) {
 		return "warn", fmt.Sprintf(" — high at %.0f%% load", loadPct)
 	}
 	return "ok", ""
+}
+
+// driveThermalLevel grades a drive temperature for `dsd hardware`. It first
+// rejects implausible SMART readings — a VMware virtual NVMe reporting 11759°C
+// (found live on real vNVMe) is garbage, not a measurement — returning
+// plausible=false so the caller shows "rejected" rather than a thermal CRIT.
+// This mirrors how `dsd health`'s Drives check rejects the same data (§L); without
+// it the standalone command false-CRITs on a reading health correctly discards,
+// and the divergence only surfaces with root + smartctl (invisible unprivileged).
+// NVMe and SATA/SAS use different thresholds (see the inline note history).
+func driveThermalLevel(tempC int, isNVMe bool) (level string, plausible bool) {
+	if !analysis.TempPlausible(float64(tempC), analysis.TempCeilNVMe) {
+		return "info", false
+	}
+	if isNVMe {
+		switch {
+		case tempC >= 80:
+			return "fail", true
+		case tempC >= 70:
+			return "warn", true
+		}
+		return "ok", true
+	}
+	switch {
+	case tempC >= 60:
+		return "fail", true
+	case tempC >= 55:
+		return "warn", true
+	}
+	return "ok", true
 }

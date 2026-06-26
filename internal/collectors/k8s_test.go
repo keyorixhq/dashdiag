@@ -10,6 +10,70 @@ import (
 // Characterization tests for the K8s collector's pure helpers. k8s.go is
 // platform-neutral (no build tag), so these run on every OS.
 
+func TestParseK8sNodesRoles(t *testing.T) {
+	cases := []struct {
+		name      string
+		json      string
+		wantRole  string
+		wantStat  string
+		wantNotRd int
+	}{
+		{
+			// k3s single-node control-plane: role lives in a label and the node
+			// is UNTAINTED (k3s schedules workloads on it). The old taint-based
+			// logic mislabeled this "worker" — the bug found on the VMware k3s rig.
+			name: "k3s untainted control-plane (label)",
+			json: `{"items":[{"metadata":{"name":"ubuntumin","labels":{
+				"node-role.kubernetes.io/control-plane":"true",
+				"node-role.kubernetes.io/master":"true",
+				"kubernetes.io/hostname":"ubuntumin"}},
+				"status":{"nodeInfo":{"kubeletVersion":"v1.35.5+k3s1"},
+				"conditions":[{"type":"Ready","status":"True"}]},"spec":{}}]}`,
+			wantRole: "control-plane,master",
+			wantStat: "Ready",
+		},
+		{
+			name: "plain worker (no role label)",
+			json: `{"items":[{"metadata":{"name":"w1","labels":{"kubernetes.io/hostname":"w1"}},
+				"status":{"nodeInfo":{"kubeletVersion":"v1.30.0"},
+				"conditions":[{"type":"Ready","status":"True"}]},"spec":{}}]}`,
+			wantRole: "worker",
+			wantStat: "Ready",
+		},
+		{
+			// No labels at all → fall back to taint-derived control-plane.
+			name: "taint fallback when labels absent",
+			json: `{"items":[{"metadata":{"name":"cp"},
+				"status":{"nodeInfo":{"kubeletVersion":"v1.30.0"},
+				"conditions":[{"type":"Ready","status":"False"}]},
+				"spec":{"taints":[{"key":"node-role.kubernetes.io/control-plane"}]}}]}`,
+			wantRole:  "control-plane",
+			wantStat:  "NotReady",
+			wantNotRd: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nodes, notReady, ok := parseK8sNodes([]byte(tc.json))
+			if !ok {
+				t.Fatal("parseK8sNodes returned ok=false for valid JSON")
+			}
+			if len(nodes) != 1 {
+				t.Fatalf("got %d nodes, want 1", len(nodes))
+			}
+			if nodes[0].Roles != tc.wantRole {
+				t.Errorf("role = %q, want %q", nodes[0].Roles, tc.wantRole)
+			}
+			if nodes[0].Status != tc.wantStat {
+				t.Errorf("status = %q, want %q", nodes[0].Status, tc.wantStat)
+			}
+			if notReady != tc.wantNotRd {
+				t.Errorf("notReady = %d, want %d", notReady, tc.wantNotRd)
+			}
+		})
+	}
+}
+
 func TestK8sTruncate(t *testing.T) {
 	tests := []struct {
 		s    string

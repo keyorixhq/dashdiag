@@ -133,6 +133,61 @@ func TestCheckVMwareResourceConstraints(t *testing.T) {
 	}
 }
 
+// §N (found live on a real VCD guest): a configured limit that sits AT/ABOVE the
+// VM's capacity is inert — it can never throttle/balloon — so it must be INFO
+// ("non-binding"), not a WARN claiming active harm. A limit BELOW capacity is a
+// real WARN. When capacity is unknown the conservative WARN is kept. Values are
+// the real measured ones: cpu_limit auto-scaled to 6000 == 2×2993 capacity;
+// mem_limit 2048 sat above 1920 MB RAM.
+func TestVMwareResourceConstraintsBinding(t *testing.T) {
+	base := func() models.VMwareInfo {
+		return models.VMwareInfo{IsGuest: true, ToolsInstalled: true, ToolsRunning: true, StatAvailable: true}
+	}
+	onlyLevel := func(t *testing.T, ins []models.Insight, want, mustContain string) {
+		t.Helper()
+		if len(ins) != 1 {
+			t.Fatalf("want exactly one insight, got %d: %+v", len(ins), ins)
+		}
+		if ins[0].Level != want {
+			t.Errorf("level=%s want %s (msg: %q)", ins[0].Level, want, ins[0].Message)
+		}
+		if !strings.Contains(ins[0].Message, mustContain) {
+			t.Errorf("message %q missing %q", ins[0].Message, mustContain)
+		}
+	}
+
+	// Non-binding memory limit (≥ RAM) → INFO, not WARN.
+	memInert := base()
+	memInert.MemLimitMB = 2048
+	memInert.TotalRAMMB = 1920
+	onlyLevel(t, vmwareResourceConstraints(memInert), "INFO", "non-binding")
+
+	// Binding memory limit (< RAM) → WARN.
+	memBind := base()
+	memBind.MemLimitMB = 1000
+	memBind.TotalRAMMB = 2048
+	onlyLevel(t, vmwareResourceConstraints(memBind), "WARN", "1000 MB")
+
+	// Non-binding CPU limit (== capacity, the real auto-scaled case) → INFO.
+	cpuInert := base()
+	cpuInert.CPULimitMHz = 6000
+	cpuInert.NumVCPU = 2
+	cpuInert.HostMHzPerCPU = 2993
+	onlyLevel(t, vmwareResourceConstraints(cpuInert), "INFO", "non-binding")
+
+	// Binding CPU limit (well below capacity) → WARN.
+	cpuBind := base()
+	cpuBind.CPULimitMHz = 1500
+	cpuBind.NumVCPU = 2
+	cpuBind.HostMHzPerCPU = 2993
+	onlyLevel(t, vmwareResourceConstraints(cpuBind), "WARN", "1500 MHz")
+
+	// Capacity unknown (no vCPU/RAM context) → keep the conservative WARN.
+	unknown := base()
+	unknown.CPULimitMHz = 6000
+	onlyLevel(t, vmwareResourceConstraints(unknown), "WARN", "6000 MHz")
+}
+
 // FALSE_OK_SWEEP #33: open-vm-tools running but the stat interface didn't answer →
 // resource-pressure (ballooning/host-swap/caps) is unverified, NOT a clean OK.
 func TestCheckVMwareStatUnavailable(t *testing.T) {
@@ -181,6 +236,74 @@ func TestCheckVMwareSCSITimeout(t *testing.T) {
 	}
 	if strings.Contains(got[0].Message, "sdb") {
 		t.Errorf("compliant disk sdb must not appear, got %q", got[0].Message)
+	}
+}
+
+// vmwareEnableUUIDCheck WARNs when SCSI disks lack a stable hardware ID (the
+// disk.EnableUUID=FALSE signature), naming the affected disks; silent when no
+// SCSI disks were examined or all carry an ID.
+func TestCheckVMwareEnableUUID(t *testing.T) {
+	// SCSI disks examined, some without a stable ID → WARN naming them.
+	v := models.VMwareInfo{
+		IsGuest:          true,
+		SCSIDisksChecked: true,
+		DisksNoStableID:  []string{"sdb", "sdd"},
+	}
+	got := vmwareEnableUUIDCheck(v)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("disks without ID = %+v, want one WARN", got)
+	}
+	for _, want := range []string{"EnableUUID", "sdb", "sdd", "CSI"} {
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("WARN missing %q, got %q", want, got[0].Message)
+		}
+	}
+
+	// All SCSI disks carry an ID → silent (EnableUUID on).
+	if got := vmwareEnableUUIDCheck(models.VMwareInfo{IsGuest: true, SCSIDisksChecked: true}); got != nil {
+		t.Errorf("all disks with ID must be silent, got %v", got)
+	}
+
+	// No SCSI disks examined (NVMe-only) → silent even if the slice were non-empty.
+	if got := vmwareEnableUUIDCheck(models.VMwareInfo{IsGuest: true, SCSIDisksChecked: false, DisksNoStableID: []string{"sdb"}}); got != nil {
+		t.Errorf("unchecked SCSI must be silent, got %v", got)
+	}
+}
+
+// vmwareVMXNETCheck WARNs when a vmxnet3 NIC's ring/buffer-exhaustion counters
+// exceed the rate floor, and stays silent on a healthy NIC or a trivial flat
+// count on a long-uptime host (rate-gated via nicErrorRateHigh).
+func TestCheckVMwareVMXNET(t *testing.T) {
+	// Healthy: zero counters → silent.
+	healthy := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", RxPackets: 1_000_000, TxPackets: 1_000_000},
+	}}
+	if got := vmwareVMXNETCheck(healthy); got != nil {
+		t.Errorf("healthy vmxnet3 must be silent, got %v", got)
+	}
+
+	// Trivial count on heavy traffic → below the rate floor → silent (no false-WARN
+	// on a long-uptime host).
+	trivial := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", RxBufAllocFail: 50, RxPackets: 1_000_000_000, TxPackets: 1_000_000_000},
+	}}
+	if got := vmwareVMXNETCheck(trivial); got != nil {
+		t.Errorf("trivial count under the floor must be silent, got %v", got)
+	}
+
+	// Sustained exhaustion (well above floor and >0.01% of packets) → WARN naming
+	// the iface and the reason.
+	bad := models.VMwareInfo{IsGuest: true, VMXNETStats: []models.VMXNETStats{
+		{Iface: "ens160", TxRingFull: 50_000, RxBufAllocFail: 40_000, RxPackets: 1_000_000, TxPackets: 1_000_000},
+	}}
+	got := vmwareVMXNETCheck(bad)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("undersized rings = %+v, want one WARN", got)
+	}
+	for _, want := range []string{"ens160", "TX ring exhaustion", "buffer-allocation", "ethtool -G"} {
+		if !strings.Contains(got[0].Message+got[0].Hints[1], want) {
+			t.Errorf("WARN/hints missing %q, got %q / %v", want, got[0].Message, got[0].Hints)
+		}
 	}
 }
 

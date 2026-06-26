@@ -90,6 +90,66 @@ func TestApplyBtrfsDevStatsGenFlushOnly(t *testing.T) {
 	}
 }
 
+// realNonRootBtrfsShow is the EXACT output of `btrfs filesystem show /` run as a
+// non-root user on a healthy single-device Fedora 43 cloud box (arm64 EC2). btrfs
+// cannot open the block device without privilege, so it prints the present device
+// as `size 0 ... MISSING` with its real path — NOT an actual missing device.
+const realNonRootBtrfsShow = `Label: 'fedora'  uuid: 509da459-91c3-45b9-9a77-dfeeb214752c
+	Total devices 1 FS bytes used 744.21MiB
+	devid    1 size 0 used 0 path /dev/nvme0n1p3 MISSING
+`
+
+// realGenuineMissingBtrfsShow is a two-device filesystem with devid 2 genuinely
+// absent — btrfs uses the `<missing disk>` placeholder path. This IS a real fault.
+const realGenuineMissingBtrfsShow = `Label: none  uuid: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+	Total devices 2 FS bytes used 1.00GiB
+	devid    1 size 2.00GiB used 1.00GiB path /dev/sdb
+	devid    2 size 0 used 0 path <missing disk> MISSING
+`
+
+// A real device flagged MISSING under a NON-ROOT run must NOT count as a missing
+// device (it's the unprivileged "can't open device" artifact) — the false-CRIT
+// found on the Fedora EC2 box. The volume is "unverified", missing count zero.
+func TestApplyBtrfsShow_NonRootUnreadableIsNotMissing(t *testing.T) {
+	vol := applyBtrfsShow(realNonRootBtrfsShow, "/", true /*nonRoot*/)
+	if vol == nil {
+		t.Fatal("expected a volume, got nil")
+	}
+	if vol.MissingDevs != 0 {
+		t.Errorf("non-root unreadable device must NOT count as missing, got MissingDevs=%d", vol.MissingDevs)
+	}
+	if !vol.DevReadUnverified {
+		t.Error("non-root real-path MISSING must set DevReadUnverified")
+	}
+	if vol.Status == "degraded" {
+		t.Errorf("status must not be degraded for the non-root artifact, got %q", vol.Status)
+	}
+}
+
+// The SAME output seen as ROOT would be anomalous (root can open present devices),
+// so a real-path MISSING is not suppressed — we don't hide a potential real fault.
+func TestApplyBtrfsShow_RootRealPathMissingStillCounts(t *testing.T) {
+	vol := applyBtrfsShow(realNonRootBtrfsShow, "/", false /*root*/)
+	if vol.MissingDevs != 1 {
+		t.Errorf("as root, a real-path MISSING is not the privilege artifact — want MissingDevs=1, got %d", vol.MissingDevs)
+	}
+	if vol.DevReadUnverified {
+		t.Error("root run must not set DevReadUnverified")
+	}
+}
+
+// A genuinely-absent device (`<missing disk>` placeholder) is a real DEGRADED fault
+// regardless of privilege — must still be counted even on a non-root run.
+func TestApplyBtrfsShow_GenuineMissingCountsEvenNonRoot(t *testing.T) {
+	vol := applyBtrfsShow(realGenuineMissingBtrfsShow, "/mnt", true /*nonRoot*/)
+	if vol.MissingDevs != 1 {
+		t.Errorf("genuine `<missing disk>` must count as missing even non-root, got MissingDevs=%d", vol.MissingDevs)
+	}
+	if vol.Status != "degraded" {
+		t.Errorf("genuine missing device must be degraded, got %q", vol.Status)
+	}
+}
+
 // TestApplyBtrfsDevStatsUnmappedPath is the false-OK regression guard: a non-zero
 // error counter whose device path does NOT match any device from `btrfs filesystem
 // show` (multi-device path-format mismatch, /dev/mapper/LUKS names, or an empty

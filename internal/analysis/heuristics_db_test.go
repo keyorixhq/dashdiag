@@ -94,6 +94,17 @@ func TestCheckMySQL(t *testing.T) {
 	if !insightWithMsg(lag, "WARN", "behind the primary") {
 		t.Errorf("replica lag should WARN, got %+v", lag)
 	}
+
+	// Replication STOPPED → CRIT (the false-OK fix). Seconds_Behind_Master reads
+	// NULL → SecondsBehind 0, so the lag WARN alone would miss it; ReplStopped must
+	// fire a CRIT and suppress the (meaningless 0s) lag WARN.
+	stopped := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 100, ThreadsConnected: 5, IsReplica: true, ReplStopped: true, SecondsBehind: 0})
+	if !insightWithMsg(stopped, "CRIT", "replication is STOPPED") {
+		t.Errorf("stopped replication should CRIT, got %+v", stopped)
+	}
+	if insightWithMsg(stopped, "WARN", "behind the primary") {
+		t.Errorf("stopped replica must not also emit the lag WARN, got %+v", stopped)
+	}
 }
 
 func TestCheckRedis(t *testing.T) {

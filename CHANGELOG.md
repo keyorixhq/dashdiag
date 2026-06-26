@@ -11,6 +11,211 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-06-26
+
+Patch: a sweep of false-verdict fixes found running dsd live on a real VMware Cloud
+Director tenant and a cross-distro guest fleet (Ubuntu 24.04, CentOS Stream 8,
+CentOS 7). Three of them fire on every default RHEL-family or older-kernel host —
+well beyond VMware — and were each producing a false CRITICAL/WARN on stock systems.
+No CLI or `--json` schema change.
+
+### Fixed
+
+- **LVM false-CRIT on every default RHEL-family install.** `dsd health` CRIT'd a volume
+  group that was 100% *allocated* — but a fully-allocated VG (root+swap taking the whole
+  VG, 0 free extents) is the normal default layout on CentOS/RHEL/AlmaLinux/Rocky and
+  LVM Ubuntu, with the filesystem itself only ~40% used. VG free extents aren't a health
+  signal; filesystem fill (Disk check) and thin-pool data% are. Now INFO ("fully
+  allocated — normal"), and `dsd disk` agrees. Found live on CentOS Stream 8. (#541)
+- **journald "all logs lost" false-WARN when rsyslog persists.** `dsd health` WARNed
+  "volatile journald — all logs lost on reboot" whenever `/var/log/journal` was absent,
+  ignoring a running rsyslog/syslog-ng writing `/var/log/messages`. RHEL/CentOS 7 (and
+  many distros) ship volatile journald + rsyslog by default, so logs survive — only the
+  journalctl boot history is lost. Now INFO when a text fallback persists; WARN only with
+  no fallback. Found live on CentOS 7. (#542)
+- **`net.core.somaxconn` flipped older boxes to CRITICAL on the kernel default.**
+  `dsd health` hard-CRIT'd somaxconn < 512, but 128 is the historical kernel default
+  (<5.4; CentOS 7 / RHEL 7). somaxconn is the listen() backlog — a tuning parameter that
+  degrades a high-connection server under load but never fails the system. Now a single
+  WARN framed as a tuning recommendation, never CRIT. Found live on CentOS 7. (#543)
+- **`dsd hardware` false-CRIT on implausible NVMe SMART temperature.** The health/Drives
+  path already rejected a VMware virtual NVMe reporting 11759°C (§L), but the standalone
+  `dsd hardware` thermal renderer lacked the same plausibility gate and showed
+  "Temperature: CRIT 11759°C". Now rejected as "SMART sensor unreliable", matching
+  `dsd health`. Invisible unprivileged; only root + smartctl exposed it. Found live on
+  real VMware vNVMe. (#538)
+- **VMware non-binding resource limit false-WARN.** A configured CPU or memory limit at
+  or above the VM's capacity is inert — it can never throttle or balloon — yet dsd WARNed
+  "throttled below capacity" / "RAM ballooned/swapped". Now INFO ("configured but
+  non-binding") when proven ≥ capacity; WARN only when it can actually bite. Found live
+  on a VCD tenant whose cpu_limit auto-scaled to == capacity. (#539)
+
+### Added
+
+- **`dsd health` attributes CPU steal to a configured vSphere CPU limit.** On a VMware
+  guest with high CPU steal and a known host CPU limit, the steal insight now points at
+  the configured cap ("remove the limit in vSphere — migrating won't help") instead of
+  the generic "host over-provisioned, migrate" remediation, which is wrong for a
+  configured limit. (#536)
+- **`dsd health --report-html` saves a clean PDF via browser print.** Print-quality CSS
+  (colour-correct status badges, A4 margins, section-aware page breaks) so the
+  self-contained HTML report prints to a polished PDF. No native PDF dependency. (#537)
+
+### Internal
+
+- The cmd↔health consistency guard now covers `dsd steamos` — the last standalone command
+  with a parallel concern tally, pinning its verdict to `dsd health`. (#535)
+
+## [1.9.2] - 2026-06-26
+
+Patch: a sweep of false-verdict fixes found running dsd live across an AWS EC2
+matrix (Debian 13 + Fedora 43 on arm64/Graviton, Alpine 3.22 on x86_64), plus CI
+guards against the two recurring verdict-bug classes. No CLI or `--json` schema
+change. One user-visible behavior change — see Changed.
+
+### Fixed
+
+- **NVMe SMART remediation misled non-root operators.** A non-root `dsd health` said
+  "SMART not read — run as root" even when `nvme-cli` wasn't installed (sudo wouldn't
+  help). It now names the missing package when the tool is genuinely absent, and only
+  blames privilege when the tool is present. (#523)
+- **Cloud guests falsely flagged "host unprotected."** An empty host firewall ruleset
+  on an AWS/Azure/GCP guest no longer raises a WARN — on a cloud instance the network
+  firewall is the provider Security Group / NSG / VPC firewall, which dsd cannot see
+  from inside the guest. Surfaced as INFO naming that layer. (#524)
+- **`dsd capture` silently dropped insights.** A captured fixture replayed via
+  `dsd mock` kept only one insight per check, losing the rest (e.g. the SSH weak-MAC
+  WARN). The complete insight set is now preserved. (#525)
+- **Healthy btrfs false-CRIT when run non-root.** `dsd health` reported a healthy
+  single-device btrfs as "DEGRADED — missing device" unprivileged, because
+  `btrfs filesystem show` prints present devices as MISSING when it can't open them
+  without root. Now an honest "device state unverified — run as root" INFO; a genuinely
+  absent device still CRITs. Default filesystem on Fedora/openSUSE/SteamOS. (#526)
+- **OOM detection dead on Alpine/busybox.** OOM-kill detection reported "kernel log
+  unreadable" even as root, because the dmesg fallback used a util-linux flag busybox
+  rejects. Now falls back to bare `dmesg`. (#529)
+- **`dsd security` under-reported SSH hardening.** Its verdict omitted StrictModes,
+  PermitEmptyPasswords, weak SSH MACs, and password-never-expires that `dsd health`
+  flags — so it could read "healthy" while `dsd health` WARNed on the same host. The
+  verdict now derives from the same `checkSecurity` heuristic, so the two cannot
+  diverge. (#532)
+
+### Changed
+
+- **`dsd security`'s concern count is now grouped like `dsd health`** — e.g. three
+  unexpected listening ports count as one concern, not three. A consequence of the
+  verdict now deriving from the shared heuristic. (#532)
+
+### Internal
+
+- New CI job asserts the **non-root verdict invariant** (a non-root run must never
+  raise a WARN/CRIT that root doesn't), and a deterministic **cmd↔health consistency**
+  guard pins every standalone command's verdict to its `dsd health` counterpart —
+  closing the two recurring verdict-bug classes at the source. (#527, #528, #530, #531)
+
+## [1.9.1] - 2026-06-25
+
+Patch: two false-verdict fixes found running dsd live on Amazon Linux 2023 arm64
+(AWS). No CLI or `--json` schema change.
+
+### Fixed
+
+- **SELinux permissive showed a green "OK".** `dsd health` rendered "KernelSec OK —
+  SELinux permissive" on hosts in permissive mode (the Amazon Linux 2023 default).
+  Permissive means the policy is loaded but enforcement is OFF — denials are logged,
+  not blocked — so SELinux provides no active protection. That's a false sense of
+  security, and inconsistent with AppArmor complain mode (the identical non-enforcing
+  posture), which dsd already flags. Now an honest INFO ("policy loaded but NOT
+  enforcing"); INFO, not WARN, so it doesn't flip the verdict on every AL2023 host. (#520)
+- **`vm.swappiness` WARNed the kernel default on every server.** The general-server
+  check flagged `swappiness > 30`, which catches the universal kernel default of 60 —
+  so every stock server WARNed on its default. But swappiness only changes behaviour
+  when the host actually swaps; on a box with RAM headroom (or no swap device) the
+  value is academic. The check now fires only when the host is actually swapping
+  (gated on swap usage / paging). The role-specific k8s/database/Elasticsearch
+  swappiness WARNs are unchanged. (#521)
+
+## [1.9.0] - 2026-06-25
+
+Minor (additive): hermetic, replay-stable CVE checks + an air-gapped OVAL fallback,
+plus a false-OK/false-CRIT sweep across the CVE, package, disk, and timeline paths —
+found by running dsd live on real SLES 16 and Ubuntu 26.04, both **arm64** (AWS).
+No `dsd health --json` schema change.
+
+### Added
+
+- **Hermetic, replay-stable CVE checks.** `dsd capture --raw --cve-scan` records the
+  CVE/advisory verdict into the bundle, and `dsd replay --cve` / `dsd diff --cve`
+  reproduce it from there — no live scan against the replaying machine. CVE data is
+  time-varying (feeds/advisories change daily), so freezing the result is the
+  correct snapshot semantic: replay/diff show "what the host was exposed to at
+  capture time", and `dsd diff --cve` can show CVE-exposure deltas between two
+  captures. A bundle captured without `--cve-scan` surfaces an honest "not captured"
+  message. Validated capturing a real SLES 16 host and replaying it in a Debian
+  container with no zypper. (#515)
+- **`dsd health --cve` OVAL fallback for no-package-manager hosts.** When no
+  supported package manager is installed but a staged OVAL feed is present
+  (`/var/lib/dsd/oval/`), the CVE check falls back to scanning that feed instead of
+  reporting no signal. Deliberately scoped to the stable no-PM case — it does not
+  fall back on a package manager that merely failed this run (transient failures
+  would flap the verdict). (#514)
+
+### Fixed
+
+- **`dsd health` raised a false CRIT (exit 2) on apt hosts.** The Packages check
+  minted a hard "N critical security update(s) (apt)" CRIT whenever a pending update
+  matched an internal critical-name list (kernel/openssl/glibc/…) — but apt embeds
+  no per-package CVSS, so that "Critical" is a package-name guess, not a rating. A
+  host CI-failed merely because openssl had a pending update. Now folds to a WARN
+  with "severity inferred from package name; apt exposes no CVSS"; dnf/zypper keep
+  the real-severity CRIT. (#517)
+- **`dsd cve --all` displayed apt name-inferred severity as confirmed.** It showed
+  "🔴 CRITICAL: openssl" with no qualification on apt; now carries the same
+  "severity inferred — apt exposes no CVSS" caveat the health verdict uses (the
+  guess over-states openssl and under-states rsync). (#516)
+- **`dsd timeline` flagged a benign arm64 boot message as CRIT.** "PCI: OF: of_root
+  node is NULL, cannot create PCI host bridge node" is logged at err level on every
+  arm64 / ACPI cloud boot (no device-tree; PCI comes via ACPI) with zero impact.
+  A narrow benign-by-platform allowlist downgrades it to INFO in both the dmesg and
+  journald paths; catastrophe keywords and other errs still CRIT. (#518)
+- **`dsd` NVMe SMART remediation + EBS virtual-volume.** Non-root runs reported
+  "nvme-cli not installed" (and told the user to install it) when nvme-cli was in
+  fact present and the real blocker was privilege — now says "run as root". And
+  `dsd disk` showed "OK SMART: PASSED" for an AWS EBS volume that exposes no real
+  telemetry; it now reports "no real telemetry — virtual/cloud volume", mirroring
+  `dsd health`. (#513)
+
+## [1.8.3] - 2026-06-25
+
+Patch: a false-OK / false-WARN sweep across the CVE, security, and docker verdict
+paths — found by running dsd live against real openSUSE Leap 16.0 (oscap- and
+zypper-validated) and a SLES 16 / arm64 EC2 box. No CLI or `--json` schema changes.
+
+### Fixed
+
+- **`dsd cve --oval-scan` reported "no vulnerable packages" on the standard SUSE/openSUSE
+  feed** (false-OK). The scanner only processed `class="patch"` OVAL definitions, but the
+  default feed at `ftp.suse.com` (the one `dsd cve info` tells users to download) is 100%
+  `class="vulnerability"` — so the scan matched nothing and showed a green all-clear on a
+  host `zypper` confirmed needed 31 security patches. Added a version-aware vulnerability-class
+  scan (an installed package below a `less than` fixed-version test), unioned with the patch
+  path. Also hardened the parser dispatch to detect the vendor by file *content* so a SUSE
+  feed saved under a neutral filename no longer silently routes to the RHEL parser and finds
+  nothing. Validated against `oscap oval eval` as oracle (zero false negatives) and `zypper
+  lp`; the long-deferred OVAL boolean-tree concern is confirmed safe (over-flags only). (#511)
+- **`dsd security` reported "Firewall: none detected" on a host with an empty ruleset**
+  (false-OK). A host with nftables/iptables installed but no active rules — the same state
+  `dsd health` correctly WARNs on as "installed but no rules are active — host is
+  unprotected" — was conflated with "no firewall tooling at all". `dsd security` now records
+  firewall tooling as present-but-empty and surfaces the "unprotected" warning, mirroring the
+  health verdict. (#509)
+- **`dsd` false-WARNed on a container socket it couldn't read** (non-root). A non-root run
+  that found a docker/podman/crio socket it lacked permission to read raised a WARN — a false
+  alarm about a runtime it simply couldn't measure — and hardcoded a "systemctl status docker"
+  hint even for a podman socket. The permission-denied case now degrades to INFO ("couldn't
+  measure"), matching the firewall/firmware non-root pattern, with the correct runtime-specific
+  fix. Genuine daemon-down states still WARN. Found on a SLES 16 / arm64 rootless-podman box. (#508)
+
 ## [1.8.2] - 2026-06-24
 
 Patch: a real-hardware / cloud validation sweep — false-OK and false-WARN fixes found by

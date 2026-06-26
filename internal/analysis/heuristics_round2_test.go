@@ -22,6 +22,10 @@ func TestCheckBtrfsVolume(t *testing.T) {
 		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: true}, ""},
 		{"missing device is CRIT", models.BtrfsVolume{MountPoint: "/data", MissingDevs: 1}, "CRIT"},
 		{"stats unread is INFO not silent OK", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: false}, "INFO"},
+		// Non-root "device unreadable" artifact must be INFO, never the DEGRADED CRIT
+		// (false-CRIT found on the Fedora EC2 box: unprivileged btrfs shows present
+		// devices as MISSING). MissingDevs stays 0; DevReadUnverified drives the INFO.
+		{"non-root unverified device state is INFO not CRIT", models.BtrfsVolume{MountPoint: "/", DevReadUnverified: true, StatsRead: false}, "INFO"},
 		{
 			name: "device I/O errors are CRIT",
 			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{ReadErrs: 5}}},
@@ -83,6 +87,10 @@ func TestCheckThermal(t *testing.T) {
 		{"normal temp is clean", models.ThermalInfo{CPUTempC: 50, Source: "hwmon"}, ""},
 		{"elevated is WARN", models.ThermalInfo{CPUTempC: 87, Source: "hwmon"}, "WARN"},
 		{"throttling is CRIT", models.ThermalInfo{CPUTempC: 96, Source: "hwmon"}, "CRIT"},
+		// A faulted/virtual sensor reporting garbage must NOT fire the throttling CRIT
+		// — reject it as unverified (WARN), like the VMware vNVMe 11758°C class.
+		{"implausibly high is WARN not CRIT", models.ThermalInfo{CPUTempC: 11758, Source: "hwmon"}, "WARN"},
+		{"implausibly low (negative offset) is WARN", models.ThermalInfo{CPUTempC: -60, Source: "k10temp"}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,13 +208,20 @@ func TestCheckNFS(t *testing.T) {
 		},
 		{
 			name: "mount option warning is WARN",
-			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", OptionsWarnings: []string{"soft without timeo"}}}},
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Healthy: true, OptionsWarnings: []string{"soft without timeo"}}}},
+			want: "WARN",
+		},
+		{
+			// statfs returned a prompt non-ESTALE error → !Healthy && !Stale. Must
+			// WARN, not read green (the false-OK fix).
+			name: "unhealthy mount (statfs error) is WARN",
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Server: "10.0.0.5", Healthy: false, Stale: false}}, RpcbindActive: true},
 			want: "WARN",
 		},
 		{"high retransmission rate is WARN", models.NFSInfo{RetransPerMin: 200, RPCCalls: 2000}, "WARN"},
 		{
 			name: "rpcbind inactive with mounts is WARN",
-			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs"}}, RpcbindActive: false},
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Healthy: true}}, RpcbindActive: false},
 			want: "WARN",
 		},
 	}

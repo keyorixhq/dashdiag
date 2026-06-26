@@ -134,7 +134,18 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	// distro-correct fix commands
 	fixCmd, inspectCmd := packageFixCommands(pkg.PackageManager)
 
-	if pkg.CriticalUpdates > 0 {
+	if pkg.PackageManager == "apt" {
+		// apt embeds no per-package CVSS, so collectAPT INFERS "Critical" from the
+		// package name (kernel/openssl/glibc/…). A name guess must NOT mint a hard
+		// CRIT health verdict — that would CRIT a host (exit 2) merely because
+		// openssl has a pending update. Fold apt security updates into a WARN with
+		// the honest caveat, matching checkCVEHealth's apt path. dnf/zypper expose a
+		// real per-advisory severity, so their CriticalUpdates keeps the CRIT below.
+		out = append(out, insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) available (apt) — severity inferred from package name; apt exposes no CVSS", pkg.SecurityUpdates),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		))
+	} else if pkg.CriticalUpdates > 0 {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
 			[]string{
@@ -417,6 +428,20 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 				[]string{
 					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
 					"to fix: renew soon — certbot renew or manual replacement",
+				},
+			))
+		}
+	}
+
+	// Not yet valid — TLS handshakes fail now even though expiry is far off, so it
+	// would otherwise read healthy. CRIT.
+	for _, cert := range tls.Certs {
+		if cert.NotYetValid {
+			out = append(out, insight("CRIT", "TLS",
+				fmt.Sprintf("certificate is NOT YET VALID (NotBefore in the future): %s (%s)", cert.Subject, cert.Path),
+				[]string{
+					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
+					"note: check the host clock (NTP) and that the correct, current cert is installed",
 				},
 			))
 		}

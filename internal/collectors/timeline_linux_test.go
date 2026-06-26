@@ -183,6 +183,19 @@ func TestParseDmesgLine(t *testing.T) {
 			wantLevel: "WARN",
 		},
 		{
+			// Benign-by-platform err: arm64/ACPI cloud guests log this at err on every
+			// boot (no device-tree). Must downgrade to INFO, not a timeline CRIT.
+			name:      "arm64 of_root PCI err is benign → INFO",
+			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: OF: of_root node is NULL, cannot create PCI host bridge node",
+			wantLevel: "INFO",
+		},
+		{
+			// Guard: a real PCI err (not on the benign list) still CRITs.
+			name:      "real PCI err stays CRIT",
+			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: Fatal: bus configuration error",
+			wantLevel: "CRIT",
+		},
+		{
 			name:      "two-digit day, warn",
 			line:      "kern  :warn  : [Wed Jun 04 10:30:00 2025] usb 1-1: device descriptor read",
 			wantLevel: "WARN", wantUnit: "usb 1-1",

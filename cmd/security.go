@@ -282,6 +282,17 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("  %s  allowed: %s\n", asciiOr("ok", "✅", mode), strings.Join(info.FirewallServices, ", "))
 		}
 		fmt.Printf("  %s  SSH accessible\n", sshIcon)
+	} else if info.FirewallToolingPresent {
+		// Tooling installed but no active ruleset — host is unprotected. Mirror
+		// the health Firewall WARN rather than reporting a benign "none detected".
+		fmt.Printf("\nFirewall: %s installed but no active rules — host is unprotected\n",
+			info.FirewallType)
+		fmt.Printf("  %s  no active firewall rules\n", asciiOr("warn", "⚠️ ", mode))
+	} else if info.FirewallUnreadable {
+		// Tooling installed but ruleset unreadable (non-root) — state unknown.
+		// Report "not verified", not "none detected" (which implies no firewall).
+		fmt.Printf("\nFirewall: %s state not verified — run as root to read the ruleset\n",
+			info.FirewallType)
 	} else {
 		fmt.Println("\nFirewall: none detected")
 	}
@@ -470,7 +481,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
-	issues := countSecurityIssues(info)
+	// Verdict derived from the SAME heuristic `dsd health` uses (checkSecurity), so
+	// the two can't diverge (BUG-072). The count is now WARN/CRIT insights rather
+	// than a separate item tally — grouped like health (e.g. "3 unexpected ports"
+	// is one concern).
+	issues := analysis.SecurityConcernCount(*info)
 	switch {
 	case issues > 0:
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
@@ -500,30 +515,6 @@ func printSecItem(label string, ok bool, goodVal, badVal string, mode output.Out
 	} else {
 		fmt.Printf("  %s   %-28s %s\n", asciiOr("warn", "⚠️", mode), label+":", badVal)
 	}
-}
-
-func countSecurityIssues(info *models.SecurityInfo) int {
-	n := 0
-	if info.SSHPermitRoot {
-		n++
-	}
-	if info.SSHPasswordAuth {
-		n++
-	}
-	if info.FailedLogins >= 5 {
-		n++
-	}
-	for _, p := range info.ListeningPorts {
-		if !p.Expected && (!info.IsPVE || !analysis.IsPVEServicePort(p.Port)) {
-			n++
-		}
-	}
-	n += len(info.SudoNopasswd)
-	n += len(info.SUIDBinaries)
-	if info.SELinuxDenials >= 10 {
-		n++
-	}
-	return n
 }
 
 // wellKnownPort maps common port numbers to service names.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -379,10 +380,33 @@ func isKali() bool {
 
 // ScanAllCVEs scans all pending security advisories with CVE assignments.
 // This is the "fresh install" use case — shows everything vulnerable at once.
+//
+// When NO supported package manager is installed AND a staged OVAL feed is
+// present, it falls back to scanning that feed (the minimal / air-gapped host
+// with a pre-downloaded feed but no advisory tool). The package manager stays
+// the primary source whenever one exists: it knows the enabled repos and what's
+// actually pending, where an OVAL feed over-reports every historical CVE whose
+// fix outranks the installed version. Crucially the fallback does NOT trigger on
+// a package manager that merely *failed* this run — those failures are often
+// transient (cold metadata, a lock, load), so falling back on them would make
+// the CVE verdict flap between the package manager and OVAL run-to-run. A
+// transient failure stays the honest "scan failed → couldn't verify" INFO.
 func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second) // 120s: list + CVE enrichment both need time
 	defer cancel()
 
+	res := scanAllViaPackageManager(ctx)
+	if cveNoPackageManager(res) {
+		if oval := scanAllViaOVAL(ctx); oval != nil {
+			return oval
+		}
+	}
+	return res
+}
+
+// scanAllViaPackageManager runs the distro's native advisory scan (the primary,
+// authoritative source on a connected host).
+func scanAllViaPackageManager(ctx context.Context) *models.CVEAllResult {
 	if _, err := lookPath("zypper"); err == nil {
 		return markCVEStaleMetadata(scanAllZypper(ctx))
 	}
@@ -424,6 +448,64 @@ func markCVEStaleMetadata(r *models.CVEAllResult) *models.CVEAllResult {
 		r.StatusReason = fmt.Sprintf("update metadata is %d days old (stale) — CVE exposure NOT verified; refresh the index and rescan", age)
 	}
 	return r
+}
+
+// cveNoPackageManager reports whether no supported package-manager advisory
+// source exists at all — the stable, unambiguous condition for falling back to a
+// staged OVAL feed. It deliberately does NOT trigger on a package manager that
+// is present but reported "0 pending" (authoritative — don't override with the
+// noisier OVAL view) or that merely failed this run (often transient — falling
+// back would flap the verdict between the package manager and OVAL). Validated on
+// SLES 16 arm64, where a cold-cache zypper failure on the first run briefly
+// tripped a broader "failed" trigger before this was narrowed to no-PM.
+func cveNoPackageManager(r *models.CVEAllResult) bool {
+	return r == nil || r.PackageManager == ""
+}
+
+// scanAllViaOVAL scans a staged OVAL sidecar feed and shapes the result like a
+// package-manager scan so health renders it identically. Returns nil when no
+// feed is staged or the scan errors (caller keeps the package-manager result).
+func scanAllViaOVAL(ctx context.Context) *models.CVEAllResult {
+	ovalPath := cvedata.FindOVALFile(readDistroID())
+	if ovalPath == "" {
+		return nil
+	}
+	results, err := cvedata.ScanOVALPackages(ctx, ovalPath)
+	if err != nil {
+		return nil
+	}
+	return ovalToCVEAllResult(results, ovalPath)
+}
+
+// ovalToCVEAllResult buckets OVAL CVSS findings into the CVEAllResult shape the
+// health heuristic consumes (Critical ≥9.0 → CRIT, Important ≥7.0 → WARN, the
+// same thresholds as `dsd cve --oval-scan`).
+func ovalToCVEAllResult(results []cvedata.OVALCVSSResult, ovalPath string) *models.CVEAllResult {
+	out := &models.CVEAllResult{
+		PackageManager: "oval:" + filepath.Base(ovalPath),
+		FixCommand:     fixCommand(),
+		StatusReason:   "package manager unavailable — scanned staged OVAL feed " + filepath.Base(ovalPath),
+	}
+	for _, r := range results {
+		adv := models.CVEAdvisory{
+			ID:       r.CVEID,
+			CVEs:     r.CVEID,
+			Severity: r.Severity,
+			Summary:  strings.Join(r.Installed, ", "),
+		}
+		switch {
+		case r.CVSS3 >= 9.0:
+			out.Critical = append(out.Critical, adv)
+		case r.CVSS3 >= 7.0:
+			out.Important = append(out.Important, adv)
+		case r.CVSS3 >= 4.0:
+			out.Moderate = append(out.Moderate, adv)
+		default:
+			out.Low = append(out.Low, adv)
+		}
+	}
+	out.Total = len(out.Critical) + len(out.Important) + len(out.Moderate) + len(out.Low)
+	return out
 }
 
 // scanAllZypper uses `zypper list-patches --category security` to find all

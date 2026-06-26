@@ -35,9 +35,47 @@ type VMwareInfo struct {
 	MemLimitMB    int  `json:"mem_limit_mb,omitempty"`  // host-imposed memory cap, MB (0 = unlimited)
 	CPULimitMHz   int  `json:"cpu_limit_mhz,omitempty"` // host-imposed CPU cap, MHz (0 = unlimited)
 
+	// Capacity context, used to tell a BINDING limit (below the VM's capacity, so
+	// it actually throttles) from a NON-binding one (at/above capacity — inert,
+	// common when a limit is inherited or auto-scales with the VM). Without this a
+	// configured-but-inert limit false-WARNs "throttled/ballooned" (§N, found live:
+	// a VCD tenant where cpu_limit auto-scaled to == capacity and mem_limit sat
+	// above RAM). 0 = unknown → keep the WARN (don't hide a possibly-real limit).
+	NumVCPU       int `json:"num_vcpu,omitempty"`         // vCPU count (/proc/cpuinfo)
+	HostMHzPerCPU int `json:"host_mhz_per_cpu,omitempty"` // per-vCPU host clock (`stat speed`); CPU capacity = NumVCPU × this
+	TotalRAMMB    int `json:"total_ram_mb,omitempty"`     // guest RAM, MB (/proc/meminfo MemTotal)
+
 	// SCSI disk command timeouts (seconds), per /sys/block/sd*/device/timeout.
 	// VMware recommends 180s so a guest survives a vMotion / storage-failover
 	// stun without its filesystem going read-only; the kernel default is 30s.
 	SCSITimeouts    map[string]int `json:"scsi_timeouts,omitempty"`     // disk -> timeout seconds
 	LowSCSITimeouts []string       `json:"low_scsi_timeouts,omitempty"` // disks below the 180s recommendation
+
+	// disk.EnableUUID — when FALSE on a vSphere VM, paravirtual-SCSI disks expose
+	// no SCSI page 0x83 / stable hardware ID, so /dev/disk/by-id and the vSphere
+	// CSI driver cannot reliably identify them (k8s persistent volumes mis-bind).
+	// Detected guest-side: a SCSI sd* disk with an empty /sys/.../device/wwid is the
+	// EnableUUID=FALSE signature. (IDE/SATA disks carry an ATA serial regardless;
+	// NVMe always has an eui — neither is affected, so only sd* is examined.)
+	SCSIDisksChecked bool     `json:"scsi_disks_checked"`           // at least one sd* disk was examined
+	DisksNoStableID  []string `json:"disks_no_stable_id,omitempty"` // sd* disks with no wwid → EnableUUID likely off
+
+	// Per-vmxnet3-NIC driver-internal counters from `ethtool -S` that the standard
+	// /sys/class/net statistics (already covered by the Network collector) do NOT
+	// expose: RX buffer-allocation failures and TX/RX ring exhaustion. Non-zero
+	// above a ratio floor means the driver rings are undersized for the workload —
+	// tunable with `ethtool -G`. Empty when no vmxnet3 NIC or ethtool is absent.
+	VMXNETStats []VMXNETStats `json:"vmxnet_stats,omitempty"`
+}
+
+// VMXNETStats holds the vmxnet3-specific drop/exhaustion counters for one NIC,
+// with the total rx/tx packet counts so the verdict can be rate-based (a flat
+// cumulative count would false-WARN on a long-uptime host).
+type VMXNETStats struct {
+	Iface          string `json:"iface"`
+	RxBufAllocFail uint64 `json:"rx_buf_alloc_fail"` // "rx buf alloc fail" — RX buffers couldn't be allocated
+	RxOOB          uint64 `json:"rx_oob"`            // "pkts rx OOB" — RX ring out of buffers
+	TxRingFull     uint64 `json:"tx_ring_full"`      // "ring full" — TX descriptor ring exhausted
+	RxPackets      uint64 `json:"rx_packets"`        // total RX packets (denominator for the rate)
+	TxPackets      uint64 `json:"tx_packets"`        // total TX packets (denominator for the rate)
 }
