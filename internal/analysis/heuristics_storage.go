@@ -769,10 +769,13 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 				"note: data is not being replicated — single point of failure",
 			},
 		))
-	case "WFConnection":
-		// Waiting for connection — peer may be down or network issue
+	case "WFConnection", "Connecting":
+		// Waiting for connection — peer may be down or network issue. DRBD 8.x
+		// reports "WFConnection"; DRBD 9.x reports "Connecting" for the same state
+		// (a node retrying an unreachable peer sits here indefinitely), so both map
+		// to the same waiting-for-peer WARN.
 		out = append(out, insight("WARN", "DRBD",
-			fmt.Sprintf("%s: waiting for peer connection (WFConnection) — peer may be down", name),
+			fmt.Sprintf("%s: waiting for peer connection (%s) — peer may be down", name, res.ConnState),
 			[]string{
 				fmt.Sprintf("to inspect: drbdadm status %s", name),
 				"to inspect: ping <peer-ip>",

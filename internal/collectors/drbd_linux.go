@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"math"
 	"strconv"
@@ -29,7 +30,7 @@ func NewDRBDCollector() *DRBDCollector { return &DRBDCollector{} }
 func (c *DRBDCollector) Name() string           { return "DRBD" }
 func (c *DRBDCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *DRBDCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.DRBDInfo{}
 
 	f, err := openFile("/proc/drbd")
@@ -41,11 +42,104 @@ func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
 	info = parseDRBDProc(f)
 
 	if len(info.Resources) == 0 {
-		// Module loaded (version header present) but no configured resources —
-		// nothing to monitor. Absent, gate off (no phantom "DRBD ✅ OK" row).
+		// DRBD 9.x publishes only a version/transport header in /proc/drbd — all
+		// per-resource state moved to netlink (`drbdsetup status`), so the 8.x-style
+		// /proc/drbd parse finds nothing. Without this fallback a real DRBD 9 host
+		// with a broken/diskless/disconnected resource reads as absent (silent
+		// false-OK). Only attempt it when the module reports v9 — on 8.x an empty
+		// parse genuinely means "no configured resources" and there's nothing to ask.
+		if strings.HasPrefix(info.Version, "9") {
+			if r9 := collectDRBD9(ctx, info.Version); r9 != nil && len(r9.Resources) > 0 {
+				return r9, nil
+			}
+		}
+		// Module loaded but no configured resources (or v9 status unreadable, e.g.
+		// non-root: netlink needs CAP_NET_ADMIN). Absent, gate off — no phantom
+		// "DRBD ✅ OK" row, so nothing falsely claims health.
 		return nil, nil
 	}
 	return info, nil
+}
+
+// collectDRBD9 reads DRBD 9.x resource state from `drbdsetup status --json all`
+// (netlink) and maps it onto the shared DRBDInfo/DRBDResource model so the same
+// checkDRBDResource verdict logic applies. Returns nil if drbdsetup is absent or
+// fails (e.g. unprivileged — netlink status needs root).
+func collectDRBD9(ctx context.Context, version string) *models.DRBDInfo {
+	out, err := runCmd(ctx, "drbdsetup", "status", "--json", "all")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return nil
+	}
+	return parseDRBD9JSON([]byte(out), version)
+}
+
+// drbd9Resource mirrors the subset of `drbdsetup status --json` we consume.
+type drbd9Resource struct {
+	Name    string `json:"name"`
+	Role    string `json:"role"`
+	Devices []struct {
+		Minor     int    `json:"minor"`
+		DiskState string `json:"disk-state"`
+	} `json:"devices"`
+	Connections []struct {
+		ConnectionState string `json:"connection-state"`
+		PeerDevices     []struct {
+			ReplicationState string  `json:"replication-state"`
+			PeerDiskState    string  `json:"peer-disk-state"`
+			PercentInSync    float64 `json:"percent-in-sync"`
+			OutOfSync        int64   `json:"out-of-sync"`
+		} `json:"peer_devices"`
+	} `json:"connections"`
+}
+
+// parseDRBD9JSON converts drbdsetup's JSON into DRBDInfo. Extracted from the exec
+// path so the field/state mapping is unit-testable against real tool output.
+func parseDRBD9JSON(data []byte, version string) *models.DRBDInfo {
+	var raw []drbd9Resource
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	info := &models.DRBDInfo{Version: version}
+	for _, r := range raw {
+		res := models.DRBDResource{LocalRole: r.Role}
+		if len(r.Devices) > 0 {
+			res.Minor = r.Devices[0].Minor
+			res.LocalDisk = r.Devices[0].DiskState
+		}
+		applyDRBD9Connection(&res, r)
+		info.Resources = append(info.Resources, res)
+	}
+	return info
+}
+
+// applyDRBD9Connection folds a resource's connections/peer-devices into the flat
+// DRBDResource. DRBD 9 splits connection-state (link) from replication-state
+// (sync), unlike 8.x's single cs: field. The 8.x heuristic keys sync handling on
+// ConnState == SyncSource/SyncTarget, so an active resync (connection Connected,
+// replication SyncTarget/SyncSource) is surfaced as that sync state; otherwise the
+// worst non-Connected connection-state wins, so a down link still flags.
+func applyDRBD9Connection(res *models.DRBDResource, r drbd9Resource) {
+	for _, c := range r.Connections {
+		// A failing/missing link is the strongest signal — take the first one and
+		// keep it (don't let a later healthy peer overwrite it).
+		if c.ConnectionState != "Connected" && res.ConnState == "" {
+			res.ConnState = c.ConnectionState
+		}
+		for _, pd := range c.PeerDevices {
+			if pd.PeerDiskState != "" {
+				res.RemoteDisk = pd.PeerDiskState
+			}
+			switch pd.ReplicationState {
+			case "SyncSource", "SyncTarget":
+				res.ConnState = pd.ReplicationState
+				res.SyncPct = pd.PercentInSync
+				res.SyncKBLeft = pd.OutOfSync
+			}
+		}
+	}
+	if res.ConnState == "" {
+		res.ConnState = "Connected"
+	}
 }
 
 // parseDRBDProc parses /proc/drbd content into DRBDInfo. Extracted from Collect so
