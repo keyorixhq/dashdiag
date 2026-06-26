@@ -147,14 +147,13 @@ func TestCmdHealthConsistency_K8s(t *testing.T) {
 	}
 }
 
-// NOTE: this covers the conditions BOTH paths evaluate. `countSecurityIssues`
-// (cmd) is currently a NARROWER tally than checkSecurity (health): health also
-// WARNs on StrictModes-disabled, PermitEmptyPasswords, weak SSH MACs, and
-// password-never-expires, which the cmd tally does not count — a real
-// sibling-divergence this guard surfaced (BUGS.md / see PR discussion). Closing
-// it changes `dsd security`'s "N concerns" count, so it's a deliberate follow-up,
-// not folded in here. The healthy fixture sets SSHStrictModes (a real host has it
-// enabled by default) so it isn't tripped by that specific gap.
+// `dsd security`'s verdict now derives from the SAME heuristic health uses
+// (analysis.SecurityConcernCount → checkSecurity, the BUG-072 fix), so the two
+// cannot diverge by construction. These cases include the ones the OLD hand-tallied
+// countSecurityIssues silently MISSED (StrictModes-disabled, PermitEmptyPasswords)
+// — they now register as concerns in both paths. That's the regression guard: if
+// anyone reverts `dsd security` to a parallel tally, those diverge again and fail.
+// (healthy sets SSHStrictModes, enabled by default on a real host.)
 func TestCmdHealthConsistency_Security(t *testing.T) {
 	cases := []struct {
 		name string
@@ -163,10 +162,13 @@ func TestCmdHealthConsistency_Security(t *testing.T) {
 		{"healthy", models.SecurityInfo{SSHStrictModes: true}},
 		{"ssh password auth", models.SecurityInfo{SSHStrictModes: true, SSHPasswordAuth: true}},
 		{"ssh permit root", models.SecurityInfo{SSHStrictModes: true, SSHPermitRoot: true}},
+		// Previously missed by countSecurityIssues — now counted via checkSecurity:
+		{"strictmodes disabled", models.SecurityInfo{SSHStrictModes: false}},
+		{"permit empty passwords", models.SecurityInfo{SSHStrictModes: true, SSHPermitEmptyPwd: true}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmdConcern := countSecurityIssues(&tc.info) > 0
+			cmdConcern := analysis.SecurityConcernCount(tc.info) > 0
 			healthConcern := healthHasConcern(t, "Security", &tc.info)
 			if cmdConcern != healthConcern {
 				t.Errorf("Security verdict divergence: `dsd security` concern=%v but `dsd health` concern=%v",

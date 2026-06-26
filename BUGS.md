@@ -1095,10 +1095,12 @@ divergence below.
   (#235/#275/#335) again, in security.
 **Affected:** `dsd security` summary verdict on any host with those SSH hardening gaps — the
   detail section may even print the weak MAC while the verdict reads healthy.
-**Fix (deferred — deliberate):** the durable fix is to derive `dsd security`'s verdict from the
-  `checkSecurity` insights (count WARN/CRIT) rather than maintain the parallel `countSecurityIssues`
-  tally — which removes the drift by construction. Not folded into the guard PR because it changes
-  `dsd security`'s user-visible concern count, and the StrictModes condition needs the collector's
-  unread-default (non-root) verified first to avoid a false concern. The consistency test currently
-  covers the conditions both paths share (PermitRoot/PasswordAuth) so those can't drift; closing
-  the rest is the tracked follow-up. **PR:** _guard #530; fix pending_
+**Fix:** `dsd security`'s verdict now derives from the SAME heuristic `dsd health` uses — new
+  exported `analysis.SecurityConcernCount` counts the WARN/CRIT insights `checkSecurity` raises —
+  replacing the parallel `countSecurityIssues` tally (deleted). The two can no longer diverge by
+  construction. Verified safe at non-root: the collector defaults `SSHStrictModes=true` (only
+  flips false when sshd config is actually read and says `StrictModes no`), so a non-root run
+  where the config is unreadable does NOT gain a false StrictModes concern. Side effect (accepted):
+  the `dsd security` "N concern(s)" count is now grouped like health (e.g. 3 unexpected ports = 1
+  concern, not 3). Consistency test extended to the previously-missed conditions (StrictModes,
+  PermitEmptyPasswords) as a revert guard. **PR:** _guard #530; fix #532_
