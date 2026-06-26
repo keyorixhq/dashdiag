@@ -143,15 +143,16 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,funlen // workload-profile switch — each case is a distinct set of checks, splitting would harm readability
 	var out []models.Insight
 
-	// somaxconn — always checked
-	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 512 {
-		out = append(out, insight("CRIT", "Sysctl",
-			fmt.Sprintf("net.core.somaxconn=%d is critically low (< 512)", sysctl.NetSomaxconn),
-			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
-		))
-	} else if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
+	// somaxconn — the listen() backlog: a TUNING parameter, not a fault. 128 is the
+	// historical kernel default (<5.4; e.g. CentOS 7 / RHEL 7) and only matters for a
+	// high-connection server under load, where it degrades (SYN-backlog drops) but
+	// never fails the system. So WARN at most — never CRIT. The old hard CRIT (<512)
+	// flipped every default CentOS 7 / RHEL 7 / older box to CRITICAL on an untouched
+	// OS default (found live on CentOS 7; the codebase already treats 128 as a
+	// historical default, see correlate.go sysctlAllAtStockDefaults).
+	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
 		out = append(out, insight("WARN", "Sysctl",
-			fmt.Sprintf("net.core.somaxconn=%d is low (< 1024)", sysctl.NetSomaxconn),
+			fmt.Sprintf("net.core.somaxconn=%d is low for a high-connection server — kernels <5.4 default to 128; raise to 4096 if this host serves many concurrent connections", sysctl.NetSomaxconn),
 			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
 		))
 	}

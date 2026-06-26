@@ -135,8 +135,8 @@ func TestCheckSysctl(t *testing.T) {
 		want string
 	}{
 		{"clean is empty", models.SysctlInfo{}, ""},
-		{"somaxconn critically low is CRIT", models.SysctlInfo{NetSomaxconn: 256}, "CRIT"},
-		{"somaxconn low is WARN", models.SysctlInfo{NetSomaxconn: 800}, "WARN"},
+		{"somaxconn low is WARN, not CRIT (tuning param, not a fault)", models.SysctlInfo{NetSomaxconn: 256}, "WARN"},
+		{"somaxconn historical default 128 is WARN", models.SysctlInfo{NetSomaxconn: 128}, "WARN"},
 		{"PID table near full is CRIT", models.SysctlInfo{KernelPIDMax: 1000, PIDCount: 950}, "CRIT"},
 		{"PID table high is WARN", models.SysctlInfo{KernelPIDMax: 1000, PIDCount: 850}, "WARN"},
 		{"elasticsearch low max_map_count is CRIT", models.SysctlInfo{Workload: "elasticsearch", VMMaxMapCount: 1000}, "CRIT"},
