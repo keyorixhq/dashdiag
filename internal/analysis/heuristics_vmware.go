@@ -8,6 +8,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// VMwareInsights is the exported entry point for the standalone `dsd vmware`
+// command. It returns exactly what `dsd health` evaluates for a VMware guest (it
+// IS checkVMware), so the two verdicts cannot drift — the same single source of
+// truth behind the cmd↔health consistency invariant (cmd_health_consistency_test.go).
+func VMwareInsights(v models.VMwareInfo) []models.Insight { return checkVMware(v) }
+
 // checkVMware reports guest-side configuration health for a Linux VMware guest:
 // open-vm-tools presence/state and paravirtual NIC drivers. Silent on every
 // non-VMware host (the collector only runs behind the DMI gate). When everything

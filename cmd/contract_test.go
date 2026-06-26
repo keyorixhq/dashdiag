@@ -31,6 +31,7 @@ var exitCodeContract = map[string]string{
 	// Should gate but not wired yet — tracked follow-up (these can produce findings).
 	"cis":       "todo: compliance pass/fail not yet mapped to the exit code",
 	"kvm":       "todo: VM error diagnostics not yet wired",
+	"vmware":    "todo: guest-config findings not yet wired to the exit code",
 	"pve":       "todo: node/task errors not yet wired",
 	"proc":      "todo: assess whether D-state / fd leaks should gate",
 	"processes": "todo: assess whether zombie/hung detection should gate",
@@ -126,7 +127,7 @@ var jsonContract = map[string]string{
 	"cron": "json", "cve": "json", "fleet": "json", "steamos": "json",
 	"tls": "json", "timeline": "json", "cis": "json", "kvm": "json",
 	"pve": "json", "proc": "json", "processes": "json", "inventory": "json",
-	"db": "json",
+	"db": "json", "vmware": "json",
 
 	"baseline":   "exempt: save/diff utility, no data payload",
 	"compare":    "exempt: report diff utility",
