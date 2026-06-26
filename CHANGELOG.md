@@ -11,6 +11,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-06-26
+
+Patch: a sweep of false-verdict fixes found running dsd live across an AWS EC2
+matrix (Debian 13 + Fedora 43 on arm64/Graviton, Alpine 3.22 on x86_64), plus CI
+guards against the two recurring verdict-bug classes. No CLI or `--json` schema
+change. One user-visible behavior change — see Changed.
+
+### Fixed
+
+- **NVMe SMART remediation misled non-root operators.** A non-root `dsd health` said
+  "SMART not read — run as root" even when `nvme-cli` wasn't installed (sudo wouldn't
+  help). It now names the missing package when the tool is genuinely absent, and only
+  blames privilege when the tool is present. (#523)
+- **Cloud guests falsely flagged "host unprotected."** An empty host firewall ruleset
+  on an AWS/Azure/GCP guest no longer raises a WARN — on a cloud instance the network
+  firewall is the provider Security Group / NSG / VPC firewall, which dsd cannot see
+  from inside the guest. Surfaced as INFO naming that layer. (#524)
+- **`dsd capture` silently dropped insights.** A captured fixture replayed via
+  `dsd mock` kept only one insight per check, losing the rest (e.g. the SSH weak-MAC
+  WARN). The complete insight set is now preserved. (#525)
+- **Healthy btrfs false-CRIT when run non-root.** `dsd health` reported a healthy
+  single-device btrfs as "DEGRADED — missing device" unprivileged, because
+  `btrfs filesystem show` prints present devices as MISSING when it can't open them
+  without root. Now an honest "device state unverified — run as root" INFO; a genuinely
+  absent device still CRITs. Default filesystem on Fedora/openSUSE/SteamOS. (#526)
+- **OOM detection dead on Alpine/busybox.** OOM-kill detection reported "kernel log
+  unreadable" even as root, because the dmesg fallback used a util-linux flag busybox
+  rejects. Now falls back to bare `dmesg`. (#529)
+- **`dsd security` under-reported SSH hardening.** Its verdict omitted StrictModes,
+  PermitEmptyPasswords, weak SSH MACs, and password-never-expires that `dsd health`
+  flags — so it could read "healthy" while `dsd health` WARNed on the same host. The
+  verdict now derives from the same `checkSecurity` heuristic, so the two cannot
+  diverge. (#532)
+
+### Changed
+
+- **`dsd security`'s concern count is now grouped like `dsd health`** — e.g. three
+  unexpected listening ports count as one concern, not three. A consequence of the
+  verdict now deriving from the shared heuristic. (#532)
+
+### Internal
+
+- New CI job asserts the **non-root verdict invariant** (a non-root run must never
+  raise a WARN/CRIT that root doesn't), and a deterministic **cmd↔health consistency**
+  guard pins every standalone command's verdict to its `dsd health` counterpart —
+  closing the two recurring verdict-bug classes at the source. (#527, #528, #530, #531)
+
 ## [1.9.1] - 2026-06-25
 
 Patch: two false-verdict fixes found running dsd live on Amazon Linux 2023 arm64
