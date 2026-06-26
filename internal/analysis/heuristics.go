@@ -1098,7 +1098,32 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	if mem.EDACAvailable {
 		out = append(out, eccInsights(mem.CorrectedErrors, mem.UncorrectedErrors, "Memory")...)
 	}
+	out = append(out, memHotplugInsights(mem)...)
 	return out
+}
+
+// memHotplugInsights flags hot-added RAM the guest isn't using: memory blocks
+// left offline while auto-onlining is disabled. This is the cross-platform
+// "I grew the VM to 16 GB but it still shows 8" bug (VMware hot-add, KVM
+// virtio-mem, Hyper-V Dynamic Memory, cloud vertical scaling). Gated on
+// auto-online being OFF as well, so it does NOT fire on memory a balloon /
+// virtio-mem driver intentionally offlined (where auto-online is irrelevant) —
+// keeping it to the high-confidence misconfiguration.
+func memHotplugInsights(mem models.MemoryInfo) []models.Insight {
+	if !mem.MemHotplugChecked || mem.OfflineMemoryBlocks == 0 || mem.AutoOnlineBlocks {
+		return nil
+	}
+	amount := fmt.Sprintf("%d memory block(s)", mem.OfflineMemoryBlocks)
+	if mem.OfflineMemoryMB > 0 {
+		amount = fmt.Sprintf("%.1f GB (%d block(s))", float64(mem.OfflineMemoryMB)/1024, mem.OfflineMemoryBlocks)
+	}
+	return []models.Insight{insight("WARN", "Memory",
+		fmt.Sprintf("%s of RAM is offline and auto-onlining is disabled — hot-added memory the guest sees but is not using", amount),
+		[]string{
+			"to use it now: for f in /sys/devices/system/memory/memory*/state; do echo online > $f; done",
+			"to persist: echo online > /sys/devices/system/memory/auto_online_blocks (or kernel arg memhp_default_state=online)",
+			"note: common after growing a VM's RAM (VMware hot-add / cloud vertical scaling) without onlining the new blocks",
+		})}
 }
 
 // eccInsights turns EDAC corrected/uncorrected counts into insights. Shared by
