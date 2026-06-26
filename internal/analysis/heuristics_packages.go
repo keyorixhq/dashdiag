@@ -432,5 +432,19 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 		}
 	}
 
+	// Not yet valid — TLS handshakes fail now even though expiry is far off, so it
+	// would otherwise read healthy. CRIT.
+	for _, cert := range tls.Certs {
+		if cert.NotYetValid {
+			out = append(out, insight("CRIT", "TLS",
+				fmt.Sprintf("certificate is NOT YET VALID (NotBefore in the future): %s (%s)", cert.Subject, cert.Path),
+				[]string{
+					fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", cert.Path),
+					"note: check the host clock (NTP) and that the correct, current cert is installed",
+				},
+			))
+		}
+	}
+
 	return out
 }

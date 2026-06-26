@@ -43,6 +43,9 @@ func TestCheckTLS(t *testing.T) {
 	// An unreadable cert must WARN, not read as healthy — even when it's the ONLY
 	// thing found (no checkable certs).
 	assertLevel(t, checkTLS(models.TLSInfo{Uncheckable: []models.TLSUncheckable{{Path: "/x.pem", Error: "permission denied"}}}), "WARN")
+	// A not-yet-valid cert (NotBefore in the future) breaks handshakes now even
+	// though its expiry is far off → CRIT, not a silent healthy.
+	assertLevel(t, checkTLS(models.TLSInfo{Certs: []models.CertInfo{{Path: "/c.pem", Subject: "cn=x", ExpiresIn: 200, NotYetValid: true}}}), "CRIT")
 }
 
 func TestCheckKVM(t *testing.T) {
