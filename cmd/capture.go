@@ -62,6 +62,7 @@ Workflow:
 func init() {
 	rootCmd.AddCommand(captureCmd)
 	captureCmd.Flags().String("cve", "", "fold in a `dsd cve --all --json` report from FILE")
+	captureCmd.Flags().Bool("cve-scan", false, "run + record a CVE/advisory scan into the raw bundle (--raw only) so the CVE check replays from the bundle")
 	captureCmd.Flags().String("timeline", "", "fold in a `dsd timeline --json` report from FILE")
 	captureCmd.Flags().Bool("include-identity", false, "keep the real hostname in the fixture (default: redact it, since fixtures are often committed)")
 }
@@ -170,6 +171,11 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		OS:      input.OS,
 		Version: input.Version,
 		Rows:    rows,
+		// Preserve the COMPLETE insight list (every finding, in emit order), not
+		// just the one-per-check summary the rows carry. Without this a multi-insight
+		// check (e.g. Hardening: weak MACs + NOPASSWD + X11) silently lost all but
+		// its highest-severity finding on capture. dsd mock renders this full set.
+		Insights: captureInsights(input.Insights),
 	}
 
 	// Optionally fold in standalone report sections from other commands.
@@ -258,6 +264,23 @@ func buildFixtureRow(c captureCheck, insightMap map[string]captureInsight) MockR
 		row.Hints = ins.Hints
 	}
 	return row
+}
+
+// captureInsights converts the full JSON insight list into fixture insights,
+// preserving every finding and its emit order. This is what makes a capture
+// faithful for multi-insight checks (Hardening, Logs, …) — the per-row Message
+// can hold only one, so the rows alone are lossy.
+func captureInsights(insights []captureInsight) []MockInsight {
+	if len(insights) == 0 {
+		return nil
+	}
+	out := make([]MockInsight, 0, len(insights))
+	for _, ins := range insights {
+		// captureInsight and MockInsight share the same fields (differing only in
+		// json vs yaml tags), so a direct conversion is exact and avoids drift.
+		out = append(out, MockInsight(ins))
+	}
+	return out
 }
 
 func severityRank(level string) int {

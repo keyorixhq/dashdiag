@@ -90,6 +90,7 @@ func parseMongoEval(out string, info *models.MongoDBInfo) {
 		HP  bool   `json:"hp"`
 		DM  int    `json:"dm"`
 		MN  int    `json:"mn"`
+		RE  string `json:"re"` // rs.status() error text, if it threw
 	}
 	if json.Unmarshal([]byte(line), &r) != nil {
 		info.StatusReason = "mongo metrics response could not be parsed"
@@ -102,8 +103,15 @@ func parseMongoEval(out string, info *models.MongoDBInfo) {
 	if r.Set != "" {
 		info.IsReplicaSet = true
 		info.ReplicaSetName = r.Set
-		info.HasPrimary = r.HP
-		info.DownMembers = r.DM
-		info.Members = r.MN
+		// rs.status() can throw even on a healthy primary (it's auth-gated
+		// separately from db.hello()/serverStatus()). Only trust HasPrimary/down/
+		// members when it actually returned — otherwise the no-primary CRIT would
+		// fire from a FAILED read, crying wolf on a healthy set (false-CRIT).
+		info.ReplStatusRead = r.RE == ""
+		if info.ReplStatusRead {
+			info.HasPrimary = r.HP
+			info.DownMembers = r.DM
+			info.Members = r.MN
+		}
 	}
 }

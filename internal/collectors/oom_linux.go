@@ -37,8 +37,17 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 	out, err := runCmd(ctx, "journalctl", "-k", "--since", "24 hours ago",
 		"--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process")
 	if err != nil {
-		// journalctl not available — try dmesg fallback
+		// journalctl not available — try dmesg fallback (util-linux: ISO timestamps).
 		out, err = runCmd(ctx, "dmesg", "--time-format", "iso")
+		if err != nil {
+			// busybox dmesg (Alpine and other non-systemd hosts) doesn't support
+			// --time-format, so the call above errors even though `dmesg` itself works
+			// fine as root. Retry plain dmesg — its boot-relative timestamps are handled
+			// conservatively by filterOOMRecent below. Without this, OOM detection was
+			// DEAD on Alpine even as root (found on an Alpine 3.22 EC2 box): the section
+			// read "not verified" though dmesg was fully readable.
+			out, err = runCmd(ctx, "dmesg")
+		}
 		if err != nil {
 			// Neither journalctl nor dmesg is readable (e.g. non-systemd host with
 			// kernel.dmesg_restrict=1 and no root) — we could NOT check for OOM kills.

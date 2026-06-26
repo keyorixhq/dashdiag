@@ -71,7 +71,7 @@ func TestParseBlameSlowUnits(t *testing.T) {
       6.200s postgresql.service
         850ms chronyd.service`
 
-	got := parseBlameSlowUnits(openSUSEBlame)
+	got := parseBlameSlowUnits(openSUSEBlame, nil)
 
 	// After filtering, only real slow SERVICE units (≥5s) survive:
 	//   - cloud-final.service (slowest) → dropped (cloud-init infrastructure)
@@ -107,5 +107,45 @@ func TestParseBlameSlowUnits(t *testing.T) {
 		if isNonServiceBlameUnit(u.Name) {
 			t.Errorf("non-service unit leaked into slow-boot units: %q", u.Name)
 		}
+	}
+}
+
+// TestParseBlameSlowUnitsExcludesTimers pins the fix for the universal
+// Debian/Ubuntu false-WARN: `systemd-analyze blame` lists timer-triggered jobs
+// (apt-daily-upgrade.service runs ~28s post-boot via apt-daily-upgrade.timer) by
+// activation duration, but they never gated boot. Found on the real VMware k3s
+// tenant, where blame's top two entries were both apt-daily timers.
+func TestParseBlameSlowUnitsExcludesTimers(t *testing.T) {
+	t.Parallel()
+
+	// Verbatim top of `systemd-analyze blame` from the tenant (Ubuntu 24.04):
+	// the two apt-daily timers outrank the real service, and both exceed the
+	// 12.2s total boot time — proof they ran async, post-boot.
+	const blame = `27.945s apt-daily-upgrade.service
+23.587s apt-daily.service
+14.447s k3s.service
+ 3.348s motd-news.service`
+
+	// Exclude timer-triggered units (what the production excluder detects).
+	timers := map[string]bool{
+		"apt-daily-upgrade.service": true,
+		"apt-daily.service":         true,
+	}
+	got := parseBlameSlowUnits(blame, func(u string) bool { return timers[u] })
+
+	if len(got) != 1 || got[0].Name != "k3s.service" {
+		t.Fatalf("want only k3s.service after timer exclusion, got %+v", got)
+	}
+	for _, u := range got {
+		if timers[u.Name] {
+			t.Errorf("timer-triggered job leaked into slow-boot units: %q", u.Name)
+		}
+	}
+
+	// Without the excluder (nil), the legacy behaviour returns the timer jobs —
+	// confirms the fix is the excluder, not an unrelated parse change.
+	legacy := parseBlameSlowUnits(blame, nil)
+	if len(legacy) == 0 || legacy[0].Name != "apt-daily-upgrade.service" {
+		t.Fatalf("nil excluder should preserve legacy (unfiltered) output, got %+v", legacy)
 	}
 }

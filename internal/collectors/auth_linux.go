@@ -114,6 +114,20 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 			Count:  s.v,
 		})
 	}
+
+	// Read the effective sshd auth policy so the brute-force verdict can be
+	// config-aware. Reuse the security collector's SSH parser (same package) and
+	// trust it ONLY when it came from `sshd -T` (the fully merged, authoritative
+	// config) — the file-parse fallback leaves PasswordAuthentication at its zero
+	// value when the directive is absent, which is indistinguishable from an
+	// explicit "no", and acting on that would risk a false "you're safe" downgrade.
+	var sec models.SecurityInfo
+	parseSSHConfig(&sec)
+	if sec.SSHAuditSource == "sshd -T" {
+		info.SSHConfigChecked = true
+		info.PasswordAuthEnabled = sec.SSHPasswordAuth
+		info.RootPasswordLoginAllowed = sec.SSHRootLogin // PermitRootLogin yes
+	}
 	return info, nil
 }
 

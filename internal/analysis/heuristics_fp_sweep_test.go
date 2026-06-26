@@ -73,7 +73,7 @@ func TestDNSInternalOnlyNotCrit(t *testing.T) {
 func TestNFSRpcbindV4OnlyNotFlagged(t *testing.T) {
 	v4only := models.NFSInfo{
 		RpcbindActive: false,
-		Mounts:        []models.NFSMount{{Mount: "/data", FSType: "nfs4"}},
+		Mounts:        []models.NFSMount{{Mount: "/data", FSType: "nfs4", Healthy: true}},
 	}
 	if got := checkNFS(v4only); fpHasLevel(got, "WARN") {
 		t.Errorf("NFSv4-only host without rpcbind must not WARN, got %+v", got)

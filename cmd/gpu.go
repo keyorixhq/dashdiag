@@ -267,7 +267,10 @@ func gpuHints(info *models.GPUInfo, steamOS bool, mode output.OutputMode) []stri
 				hints = append(hints, "   → Raise the power cap or improve cooling if more performance is needed")
 			}
 		}
-		if dev.VRAMUsedPct >= 90 {
+		// !IsAPU guard to match checkGPUDevice and gpuSummaryLine: an APU's small
+		// shared-RAM VRAM carveout fills to 90%+ by design, so this is a false-WARN
+		// on a Steam Deck / AMD APU at normal load (the two verdict paths exclude APUs).
+		if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
 			hints = append(hints,
 				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", asciiOr("warn", "⚠️ ", mode), dev.VRAMUsedPct),
 				"   → Reduce texture/resolution settings or close GPU-heavy apps")
@@ -315,8 +318,11 @@ func printGPUNoDriver(noDriver []models.GPUDetected, mode output.OutputMode) {
 	}
 }
 
-func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
-	crits, warns := 0, 0
+// gpuConcerns counts CRIT/WARN devices using the SAME thresholds as
+// analysis.checkGPUDevice. Kept as one pure function so the standalone `dsd gpu`
+// verdict can't drift from `dsd health` (the sibling-divergence class, #275) —
+// pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
+func gpuConcerns(info *models.GPUInfo) (crits, warns int) {
 	for _, dev := range info.Devices {
 		// A temperature only drives a thermal verdict when it's physically plausible
 		// — a garbage hwmon read (thousands of °C) must NOT count as a CRIT (§L/§Q,
@@ -336,17 +342,22 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 			warns++
 		}
 	}
+	return crits, warns
+}
+
+func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
+	crits, warns := gpuConcerns(info)
 	n := len(info.NoDriver)
 	// Every detected device exposed ZERO health metrics (e.g. an older Intel iGPU
 	// with no hwmon temperature — verified live on a MacBookAir4,2 / HD 3000). We
 	// measured nothing, so we must not claim "healthy. Checks passed".
-	metricless := len(info.Devices) > 0
+	metriclessCount := 0
 	for _, dev := range info.Devices {
-		if analysis.GPUDeviceHasMetrics(dev) {
-			metricless = false
-			break
+		if !analysis.GPUDeviceHasMetrics(dev) {
+			metriclessCount++
 		}
 	}
+	metricless := len(info.Devices) > 0 && metriclessCount == len(info.Devices)
 	switch {
 	case crits > 0:
 		return render.StyleCrit.Render(fmt.Sprintf("%s %d GPU issue(s) found%s", asciiOr("fail", "❌", mode), crits, timing))
@@ -356,6 +367,10 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 		return render.StyleWarn.Render(fmt.Sprintf("%s %d GPU(s) detected, no driver loaded%s", asciiOr("warn", "⚠️ ", mode), n, timing))
 	case metricless:
 		return render.StyleInfo.Render(fmt.Sprintf("%s GPU detected — no health metrics exposed (driver reports no temperature/utilization); health not verified%s", asciiOr("info", "ℹ️ ", mode), timing))
+	case metriclessCount > 0:
+		// Some GPUs are healthy but at least one exposed no metrics — don't let the
+		// readable one(s) mask the unmeasured device with a plain "Checks passed".
+		return render.StyleInfo.Render(fmt.Sprintf("%s GPU(s) healthy, but %d exposed no health metrics (not verified)%s", asciiOr("info", "ℹ️ ", mode), metriclessCount, timing))
 	case n > 0:
 		return render.StyleWarn.Render(fmt.Sprintf("%s active GPU healthy — %d GPU(s) without driver%s", asciiOr("ok", "✅", mode), n, timing))
 	default:

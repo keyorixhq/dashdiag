@@ -143,15 +143,16 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,funlen // workload-profile switch — each case is a distinct set of checks, splitting would harm readability
 	var out []models.Insight
 
-	// somaxconn — always checked
-	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 512 {
-		out = append(out, insight("CRIT", "Sysctl",
-			fmt.Sprintf("net.core.somaxconn=%d is critically low (< 512)", sysctl.NetSomaxconn),
-			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
-		))
-	} else if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
+	// somaxconn — the listen() backlog: a TUNING parameter, not a fault. 128 is the
+	// historical kernel default (<5.4; e.g. CentOS 7 / RHEL 7) and only matters for a
+	// high-connection server under load, where it degrades (SYN-backlog drops) but
+	// never fails the system. So WARN at most — never CRIT. The old hard CRIT (<512)
+	// flipped every default CentOS 7 / RHEL 7 / older box to CRITICAL on an untouched
+	// OS default (found live on CentOS 7; the codebase already treats 128 as a
+	// historical default, see correlate.go sysctlAllAtStockDefaults).
+	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
 		out = append(out, insight("WARN", "Sysctl",
-			fmt.Sprintf("net.core.somaxconn=%d is low (< 1024)", sysctl.NetSomaxconn),
+			fmt.Sprintf("net.core.somaxconn=%d is low for a high-connection server — kernels <5.4 default to 128; raise to 4096 if this host serves many concurrent connections", sysctl.NetSomaxconn),
 			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
 		))
 	}
@@ -247,10 +248,15 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		}
 
 	default: // general production server \u2014 flag values clearly suboptimal for any server role
-		if sysctl.VMSwappiness > 30 {
+		// swappiness=60 is the universal kernel default and is harmless on a host
+		// with RAM headroom (it never swaps). Only flag a high value when the host
+		// is ACTUALLY swapping \u2014 the only time swappiness changes behaviour. Without
+		// this gate every stock server WARNed on its default. (SwapActive is injected
+		// by the analysis pre-scan from SwapInfo.)
+		if sysctl.VMSwappiness > 30 && sysctl.SwapActive {
 			out = append(out, insight("WARN", "Sysctl",
-				fmt.Sprintf("vm.swappiness=%d is high for a server (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
-				[]string{"to inspect: cat /proc/sys/vm/swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				fmt.Sprintf("vm.swappiness=%d is high and the host is actively swapping (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
+				[]string{"to inspect: cat /proc/sys/vm/swappiness; vmstat 1 5", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		// NOTE: no general net.core.rmem_max check here. The kernel default
@@ -411,6 +417,23 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				},
 			))
 		}
+	}
+
+	// Permissive = policy loaded but enforcement OFF (denials logged, not blocked).
+	// Gated on SELinuxPresent only (independent of SELINUXTYPE). Without this it
+	// rendered a green "OK SELinux permissive" — a false sense of protection, and
+	// inconsistent with AppArmor complain mode (the identical non-enforcing posture)
+	// which is flagged below. INFO, not WARN: permissive is the Amazon Linux default,
+	// so it shouldn't flip the health verdict on every AL2023 host — but it must not
+	// read as OK either.
+	if mac.SELinuxPresent && mac.SELinuxMode == "permissive" {
+		out = append(out, insight("INFO", "KernelSec",
+			"SELinux is permissive — policy is loaded but NOT enforcing (denials are logged, not blocked)",
+			[]string{
+				"note: permissive provides audit only, not protection (the Amazon Linux default)",
+				"to enforce after reviewing audit.log for would-be denials: setenforce 1, then set SELINUX=enforcing in /etc/selinux/config",
+			},
+		))
 	}
 
 	if !seActive && !aaActive {
@@ -678,6 +701,33 @@ func checkJournalHealthInsights(logs models.LogsInfo) []models.Insight {
 	return out
 }
 
+// journalVolatileInsight describes a volatile journald (no /var/log/journal).
+// "all logs lost on reboot" is only true when there's ALSO no text-log fallback:
+// RHEL/CentOS 7 (and many distros) ship volatile journald BUT a running rsyslog
+// that persists everything to /var/log/messages, so logs are NOT lost — only the
+// journalctl boot history is. Claiming "all logs lost" there is a false WARN on
+// every default install (found live on CentOS 7: rsyslog active, /var/log/messages
+// 2569 lines). Gate severity on the fallback the collector already detects.
+func journalVolatileInsight(logs models.LogsInfo) models.Insight {
+	if logs.JournalNoTextFallback {
+		return insight("WARN", "Logs",
+			"journald is volatile AND no text-log fallback (rsyslog/syslog-ng) is running — logs are lost on reboot",
+			[]string{
+				"to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal",
+				"to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
+				"or install a syslog daemon: dnf/apt/zypper install rsyslog",
+			},
+		)
+	}
+	return insight("INFO", "Logs",
+		"journald is volatile (no /var/log/journal) — the journalctl boot history is lost on reboot, but a syslog daemon persists text logs to /var/log, so logs survive",
+		[]string{
+			"note: text logs (e.g. /var/log/messages) survive reboots via rsyslog/syslog-ng",
+			"to keep journalctl history too: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
+		},
+	)
+}
+
 func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 	var out []models.Insight
 	if logs.JournalCorrupt {
@@ -697,13 +747,7 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 		))
 	}
 	if logs.JournalVolatile {
-		out = append(out, insight("WARN", "Logs",
-			"journald logs are volatile — all logs lost on reboot (no /var/log/journal/)",
-			[]string{
-				"to fix:     mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal",
-				"to persist: echo 'Storage=persistent' >> /etc/systemd/journald.conf && systemctl restart systemd-journald",
-			},
-		))
+		out = append(out, journalVolatileInsight(logs))
 	}
 	if logs.JournalRateLimited {
 		out = append(out, insight("WARN", "Logs",
@@ -715,7 +759,10 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 			},
 		))
 	}
-	if logs.JournalNoTextFallback {
+	if logs.JournalNoTextFallback && !logs.JournalVolatile {
+		// Persistent journald but no text fallback — logs survive (in the journal)
+		// yet need journalctl to read. When journald is ALSO volatile, the merged
+		// WARN above already covers it, so don't double-message.
 		out = append(out, insight("INFO", "Logs",
 			"no text log fallback detected (rsyslog/syslog-ng not running) — logs require journalctl to read",
 			[]string{

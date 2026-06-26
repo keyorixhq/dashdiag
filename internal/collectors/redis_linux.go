@@ -109,10 +109,15 @@ func collectRedisMetrics(ctx context.Context, conn []string, info *models.RedisI
 		info.LastSaveKnown = true
 		info.LastSaveOK = v == "ok"
 	}
-	// maxclients is a config, not in INFO.
+	// maxclients is a config, not in INFO. Only trust the read when a real value
+	// parsed: an empty/garbled reply yields 0, which would otherwise set
+	// MaxClientsRead=true and silently defeat the "client-saturation not assessed"
+	// INFO in checkRedis (the value-0 false-OK gap).
 	if c, e := runCmd(ctx, "redis-cli", append(append([]string{}, conn...), "CONFIG", "GET", "maxclients")...); e == nil {
-		info.MaxClientsRead = true
-		info.MaxClients = atoiSafe(lastField(strings.TrimSpace(c)))
+		if mc := atoiSafe(lastField(strings.TrimSpace(c))); mc > 0 {
+			info.MaxClients = mc
+			info.MaxClientsRead = true
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -66,6 +67,15 @@ func imdsGetLive(ctx context.Context, url string, headers map[string]string) (st
 		return "", err
 	}
 	defer resp.Body.Close()
+	// A non-2xx response (404 for an absent key, 403, a captive-portal/proxy page,
+	// a redirect) is NOT metadata. Returning its body as a value made callers treat
+	// an error page as the field — e.g. GCP's maintenance-event check false-WARNed
+	// on any non-"NONE" error body, and the on-host-maintenance check recorded
+	// checked=true with a garbage policy (false-OK). Fail closed so callers degrade
+	// to "couldn't verify" instead.
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("imds %s: HTTP %d", url, resp.StatusCode)
+	}
 	buf := make([]byte, 4096)
 	n, _ := resp.Body.Read(buf)
 	return strings.TrimSpace(string(buf[:n])), nil

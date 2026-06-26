@@ -74,7 +74,9 @@ func TestCheckKernelSecurity(t *testing.T) {
 		mac  models.KernelSecurityInfo
 		want string
 	}{
-		{"valid permissive policy is clean", cleanPolicy, ""},
+		// Permissive (even with a valid policy) is NOT enforcing → INFO, never a
+		// silent OK that implies SELinux is protecting the host.
+		{"valid permissive policy is INFO (not enforcing)", cleanPolicy, "INFO"},
 		{
 			// Enforcing with zero denials deliberately emits a dontaudit advisory:
 			// "zero denials does not mean clean" — dontaudit rules can hide denials.
@@ -105,6 +107,13 @@ func TestCheckKernelSecurity(t *testing.T) {
 			want: "WARN",
 		},
 		{
+			// SELinux permissive = loaded but NOT enforcing — must surface (INFO),
+			// never read as a green OK (false sense of protection). The AL2023 default.
+			name: "selinux permissive is INFO not OK",
+			mac:  models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "permissive"},
+			want: "INFO",
+		},
+		{
 			name: "apparmor denials is WARN",
 			mac:  models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce", AppArmorDenials: 3},
 			want: "WARN",
@@ -126,13 +135,16 @@ func TestCheckSysctl(t *testing.T) {
 		want string
 	}{
 		{"clean is empty", models.SysctlInfo{}, ""},
-		{"somaxconn critically low is CRIT", models.SysctlInfo{NetSomaxconn: 256}, "CRIT"},
-		{"somaxconn low is WARN", models.SysctlInfo{NetSomaxconn: 800}, "WARN"},
+		{"somaxconn low is WARN, not CRIT (tuning param, not a fault)", models.SysctlInfo{NetSomaxconn: 256}, "WARN"},
+		{"somaxconn historical default 128 is WARN", models.SysctlInfo{NetSomaxconn: 128}, "WARN"},
 		{"PID table near full is CRIT", models.SysctlInfo{KernelPIDMax: 1000, PIDCount: 950}, "CRIT"},
 		{"PID table high is WARN", models.SysctlInfo{KernelPIDMax: 1000, PIDCount: 850}, "WARN"},
 		{"elasticsearch low max_map_count is CRIT", models.SysctlInfo{Workload: "elasticsearch", VMMaxMapCount: 1000}, "CRIT"},
 		{"k8s high swappiness is WARN", models.SysctlInfo{Workload: "k8s", VMSwappiness: 30}, "WARN"},
-		{"default high swappiness is WARN", models.SysctlInfo{Workload: "", VMSwappiness: 40}, "WARN"},
+		// General server: high swappiness alone is NOT flagged — the kernel default
+		// (60) is harmless on a host that isn't swapping. Only WARN when actually swapping.
+		{"high swappiness, not swapping is silent", models.SysctlInfo{Workload: "", VMSwappiness: 60}, ""},
+		{"high swappiness AND swapping is WARN", models.SysctlInfo{Workload: "", VMSwappiness: 60, SwapActive: true}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

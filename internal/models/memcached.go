@@ -9,14 +9,19 @@ type MemcachedInfo struct {
 	Addr     string `json:"addr,omitempty"`
 	Version  string `json:"version,omitempty"`
 
-	MetricsRead     bool  `json:"metrics_read"`
-	CurrConnections int   `json:"curr_connections,omitempty"`
-	MaxConnections  int   `json:"max_connections,omitempty"`
-	UsedBytes       int64 `json:"used_bytes,omitempty"`
-	LimitMaxBytes   int64 `json:"limit_max_bytes,omitempty"`
-	Evictions       int64 `json:"evictions,omitempty"`    // cumulative since start
-	EvictingNow     bool  `json:"evicting_now,omitempty"` // evictions rose during a short sample
-	CurrItems       int64 `json:"curr_items,omitempty"`
+	MetricsRead     bool `json:"metrics_read"`
+	CurrConnections int  `json:"curr_connections,omitempty"`
+	MaxConnections  int  `json:"max_connections,omitempty"`
+	// MaxConnsRead is true only when a real max_connections/maxconns value was
+	// parsed (from plain stats or the `stats settings` fallback). Without it a
+	// build that exposes neither left MaxConnections=0 and the connection-saturation
+	// check silently couldn't run — a green verdict with one metric unassessed.
+	MaxConnsRead  bool  `json:"max_conns_read,omitempty"`
+	UsedBytes     int64 `json:"used_bytes,omitempty"`
+	LimitMaxBytes int64 `json:"limit_max_bytes,omitempty"`
+	Evictions     int64 `json:"evictions,omitempty"`    // cumulative since start
+	EvictingNow   bool  `json:"evicting_now,omitempty"` // evictions rose during a short sample
+	CurrItems     int64 `json:"curr_items,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
 }

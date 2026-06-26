@@ -228,13 +228,16 @@ func TestCheckSnapper_Space(t *testing.T) {
 }
 
 func TestCheckPackages_ManagerVariants(t *testing.T) {
-	// Exercise the distro fix-command switch arms.
-	for _, pm := range []string{"dnf", "zypper", "pacman", "yum", "brew", "apt"} {
+	// Exercise the distro fix-command switch arms. apt is excluded: it has no CVSS,
+	// so its "Critical" is name-inferred and must fold to WARN (asserted below).
+	for _, pm := range []string{"dnf", "zypper", "pacman", "yum", "brew"} {
 		got := checkPackages(models.PackagesInfo{SecurityUpdates: 3, CriticalUpdates: 1, PackageManager: pm})
 		if !hasLevel(got, "CRIT") {
 			t.Errorf("pm=%s: expected CRIT, got %+v", pm, got)
 		}
 	}
+	// apt name-inferred "Critical" must NOT mint a CRIT — WARN with the caveat.
+	assertLevel(t, checkPackages(models.PackagesInfo{SecurityUpdates: 3, CriticalUpdates: 1, PackageManager: "apt"}), "WARN")
 	// Plain security updates (no critical/important) is a WARN.
 	assertLevel(t, checkPackages(models.PackagesInfo{SecurityUpdates: 4, PackageManager: "apt"}), "WARN")
 }

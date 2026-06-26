@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,31 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// nvmeUnreadReason classifies why `nvme smart-log` failed, so the heuristic can
+// give correct remediation rather than always blaming a missing nvme-cli — or,
+// conversely, telling a non-root operator to "re-run as root" when sudo cannot
+// help because nvme-cli is not installed at all.
+//
+// Genuine ABSENCE is checked first, via sbinToolPath rather than a plain
+// lookPath: on many distros (SUSE, RHEL) the `nvme` binary lives in /usr/sbin,
+// which a non-root $PATH omits, so a bare lookPath would wrongly report "absent"
+// for an installed tool — sbinToolPath also probes the sbin dirs, so a miss
+// there means the binary truly is not on the box. Only once we know the tool
+// exists does privilege become the explanation: the smart-log ioctl is
+// root-gated, so a non-root failure with the tool present is "needs root".
+// (Validated 2026-06-25 on an arm64 Debian 13 EC2 box where nvme-cli was absent
+// yet the non-root run wrongly told the operator to sudo; and earlier on SLES 16
+// arm64 where nvme-cli was present in /usr/sbin and must NOT read as absent.)
+func nvmeUnreadReason() string {
+	if sbinToolPath("nvme") == "" {
+		return "tool_absent"
+	}
+	if os.Geteuid() != 0 {
+		return "needs_root"
+	}
+	return "error"
+}
 
 // NVMeCollector reads NVMe SMART health via `nvme smart-log`.
 // nvme-cli is an acceptable wrapper — raw SMART ioctl requires CGO.
@@ -45,7 +71,9 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 		// Read SMART log via nvme-cli
 		out, err := runCmd(ctx, "nvme", "smart-log", dev.Name, "--output-format=normal")
 		if err != nil {
-			// nvme-cli not installed — store basic info only
+			// SMART unread — record WHY so the heuristic gives the right
+			// remediation instead of a blanket "nvme-cli not installed".
+			dev.SmartUnreadReason = nvmeUnreadReason()
 			info.Devices = append(info.Devices, *dev)
 			continue
 		}
