@@ -203,6 +203,49 @@ func TestCmdHealthConsistency_Docker(t *testing.T) {
 	}
 }
 
+// `dsd vmware` derives its concern tally from analysis.VMwareInsights — the SAME
+// checkVMware `dsd health` dispatches to — so the two are consistent by construction.
+// This guard documents that invariant and fails if a future change re-derives the
+// tally from model fields (the drift trap) or unwires the health dispatch. Cases
+// cover the demo path incl. the non-binding limit that must be INFO in BOTH paths.
+func TestCmdHealthConsistency_VMware(t *testing.T) {
+	base := func() models.VMwareInfo {
+		return models.VMwareInfo{IsGuest: true, ToolsInstalled: true, ToolsRunning: true, StatAvailable: true}
+	}
+	cases := []struct {
+		name string
+		mut  func(*models.VMwareInfo)
+	}{
+		{"clean paravirtual", func(v *models.VMwareInfo) { v.NICDrivers = map[string]string{"ens192": "vmxnet3"} }},
+		{"tools not installed", func(v *models.VMwareInfo) { v.ToolsInstalled = false; v.ToolsRunning = false }},
+		{"emulated NIC", func(v *models.VMwareInfo) {
+			v.EmulatedNICs = []string{"ens33"}
+			v.NICDrivers = map[string]string{"ens33": "e1000"}
+		}},
+		{"low SCSI timeout", func(v *models.VMwareInfo) {
+			v.LowSCSITimeouts = []string{"sda"}
+			v.SCSITimeouts = map[string]int{"sda": 30}
+		}},
+		{"EnableUUID off", func(v *models.VMwareInfo) { v.SCSIDisksChecked = true; v.DisksNoStableID = []string{"sdb"} }},
+		{"ballooning", func(v *models.VMwareInfo) { v.BalloonMB = 256 }},
+		{"binding CPU limit", func(v *models.VMwareInfo) { v.CPULimitMHz = 1500; v.NumVCPU = 2; v.HostMHzPerCPU = 2993 }},
+		// §N: a limit at/above capacity is INFO — must be a non-concern in BOTH paths.
+		{"non-binding mem limit", func(v *models.VMwareInfo) { v.MemLimitMB = 2048; v.TotalRAMMB = 1920 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := base()
+			tc.mut(&info)
+			cmdConcern := vmwareConcerns(&info) > 0
+			healthConcern := healthHasConcern(t, "VMware", &info)
+			if cmdConcern != healthConcern {
+				t.Errorf("VMware verdict divergence: `dsd vmware` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
 // `dsd steamos` keeps its own hand-tally (steamOSConcernCount) for the summary
 // line while `dsd health` evaluates the same SteamOSInfo through checkSteamOS —
 // the exact two-paths-on-one-model shape this file guards. All fixtures set
