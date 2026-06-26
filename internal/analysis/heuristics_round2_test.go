@@ -208,13 +208,20 @@ func TestCheckNFS(t *testing.T) {
 		},
 		{
 			name: "mount option warning is WARN",
-			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", OptionsWarnings: []string{"soft without timeo"}}}},
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Healthy: true, OptionsWarnings: []string{"soft without timeo"}}}},
+			want: "WARN",
+		},
+		{
+			// statfs returned a prompt non-ESTALE error → !Healthy && !Stale. Must
+			// WARN, not read green (the false-OK fix).
+			name: "unhealthy mount (statfs error) is WARN",
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Server: "10.0.0.5", Healthy: false, Stale: false}}, RpcbindActive: true},
 			want: "WARN",
 		},
 		{"high retransmission rate is WARN", models.NFSInfo{RetransPerMin: 200, RPCCalls: 2000}, "WARN"},
 		{
 			name: "rpcbind inactive with mounts is WARN",
-			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs"}}, RpcbindActive: false},
+			nfs:  models.NFSInfo{Mounts: []models.NFSMount{{Mount: "/mnt/nfs", Healthy: true}}, RpcbindActive: false},
 			want: "WARN",
 		},
 	}
