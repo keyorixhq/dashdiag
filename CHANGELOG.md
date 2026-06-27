@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`dsd guest` — one auto-detecting tenant-health command.** Run it anywhere; it
+  detects whether you're inside a **container** (Docker/Podman/LXC/Kubernetes), a
+  **VM** (VMware / KVM / Proxmox), or on **bare metal**, and adapts — so a user who
+  can't tell a VM from a container doesn't have to. Resolves the innermost layer
+  first (a container on a VM reports as the container, noting the VM beneath when
+  visible). Two-block framing throughout: what the tenant can fix vs. host-imposed
+  pressure that's evidence for whoever runs the platform.
+  - **Container view** surfaces the "why is my container slow/dying" signals: cgroup
+    CPU throttling (`nr_throttled`/`nr_periods`) and OOM-kills (`memory.events`),
+    plus no-limit / runs-as-root / writable-rootfs config checks.
+  - **VMware view**: open-vm-tools, paravirtual NICs, SCSI timeout, `disk.EnableUUID`,
+    host CPU/memory limits + ballooning (non-binding limits correctly INFO, not a
+    false throttling claim).
+  - **KVM/Proxmox view**: qemu-guest-agent, VirtIO-vs-emulated NIC/disk, CPU steal as
+    host-overcommit evidence.
+  - The verdict shares the same heuristic as `dsd health` (no drift). `dsd vmware`
+    and `dsd kvm-guest` remain as hidden specializations (still functional, out of
+    `--help`).
+
 ## [1.10.0] - 2026-06-26
 
 Minor (additive): four new guest-side checks plus the broadest false-verdict sweep
