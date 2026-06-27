@@ -33,6 +33,7 @@ var exitCodeContract = map[string]string{
 	"kvm":       "todo: VM error diagnostics not yet wired",
 	"vmware":    "todo: guest-config findings not yet wired to the exit code",
 	"kvm-guest": "todo: guest-config findings not yet wired to the exit code",
+	"guest":     "todo: guest/tenant findings not yet wired to the exit code",
 	"pve":       "todo: node/task errors not yet wired",
 	"proc":      "todo: assess whether D-state / fd leaks should gate",
 	"processes": "todo: assess whether zombie/hung detection should gate",
@@ -128,7 +129,7 @@ var jsonContract = map[string]string{
 	"cron": "json", "cve": "json", "fleet": "json", "steamos": "json",
 	"tls": "json", "timeline": "json", "cis": "json", "kvm": "json",
 	"pve": "json", "proc": "json", "processes": "json", "inventory": "json",
-	"db": "json", "vmware": "json", "kvm-guest": "json",
+	"db": "json", "vmware": "json", "kvm-guest": "json", "guest": "json",
 
 	"baseline":   "exempt: save/diff utility, no data payload",
 	"compare":    "exempt: report diff utility",

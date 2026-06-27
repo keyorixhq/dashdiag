@@ -24,8 +24,9 @@ func init() {
 }
 
 var vmwareCmd = &cobra.Command{
-	Use:   "vmware",
-	Short: "VMware guest health — guest tools, paravirtual NICs, SCSI timeouts, EnableUUID, host limits/ballooning",
+	Use:    "vmware",
+	Hidden: true, // superseded by `dsd guest` (auto-detects); kept working, out of help
+	Short:  "VMware guest health — guest tools, paravirtual NICs, SCSI timeouts, EnableUUID, host limits/ballooning",
 	Long: "Guest-side health for a Linux VM running under VMware (vSphere / VMware Cloud / VCD).\n\n" +
 		"Splits findings into what YOU can fix from inside the guest (NIC type, SCSI\n" +
 		"timeout, disk.EnableUUID, guest tools) and host-side pressure that is evidence\n" +

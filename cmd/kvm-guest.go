@@ -24,8 +24,9 @@ func init() {
 }
 
 var kvmGuestCmd = &cobra.Command{
-	Use:   "kvm-guest",
-	Short: "KVM/Proxmox guest health — guest agent, paravirtual NIC/disk, CPU steal (the tenant view)",
+	Use:    "kvm-guest",
+	Hidden: true, // superseded by `dsd guest` (auto-detects); kept working, out of help
+	Short:  "KVM/Proxmox guest health — guest agent, paravirtual NIC/disk, CPU steal (the tenant view)",
 	Long: "Guest-side health for a Linux VM running under QEMU/KVM (Proxmox VE, oVirt, libvirt).\n\n" +
 		"This is the tenant view — for someone handed a VM with no hypervisor console.\n" +
 		"(The node operator's view is `dsd kvm`.) Findings split into what YOU can fix\n" +
