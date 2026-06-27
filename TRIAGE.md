@@ -931,6 +931,14 @@ a throttled Docker container (throttle 100% correctly flagged), real Proxmox VM 
   engine as the layered health view below. Demand/usability-driven.
 - **Cloud guests fold-in**: extend `dsd guest` to AWS/Azure/GCP (collectors already
   exist — they fold into `dsd health` only today). Demand-gated (§C).
+- **CRX / vSphere Pods (vSphere with Tanzu)** — DEMAND-GATED, build only if a customer
+  runs it. CRX is VMware's live Photon-based micro-VM runtime for vSphere Pods (one
+  container per paravirtual micro-VM). `dsd guest` likely already gives partial coverage
+  (a vSphere Pod = container cgroups inside a VMware-DMI paravirtual VM, both of which it
+  detects) — **validate on a real vSphere-Pod env before building anything bespoke**.
+  Project Bonneville + Photon Platform explicitly OUT (EOL/discontinued, ~zero install
+  base). The current VCD-tenant pilot is traditional IaaS, NOT Tanzu — so this is not its
+  stack.
 - **`dsd health --layered`** (#556, **OPEN PR**): groups the flat health report into
   Hardware / Platform / OS layers led by a severity tally; KVMGuest/VMware/PVE sit in
   the Platform layer. **DECISION PENDING (user):** retune layer boundaries + whether to
