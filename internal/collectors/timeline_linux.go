@@ -335,6 +335,11 @@ var benignKernelErrs = []string{
 	// root, so it can't build a DT-based PCI host bridge node — PCI is enumerated
 	// via ACPI (MCFG) instead. Logged at err at ~0.01s on every such boot.
 	"of_root node is null",
+	// VMs (VMware, QEMU/KVM) and many physical boards: firmware leaves the PIIX4
+	// SMBus controller's base address unset, so the i2c driver can't bind it.
+	// Logged at err on every boot of the affected platform; no operational impact
+	// on anything dsd diagnoses (it's an unused legacy SMBus, not a real fault).
+	"smbus base address uninitialized",
 }
 
 // isBenignKernelErr reports whether a lowercased kernel message matches a known
