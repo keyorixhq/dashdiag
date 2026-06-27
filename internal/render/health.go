@@ -238,7 +238,7 @@ var healthLayers = []healthLayer{
 		title: "Platform", subtitle: "the hypervisor / cloud platform layer",
 		hint: "dsd vmware", hintFor: "VMware",
 		members: []string{
-			"VMware", "AWS", "Azure", "GCP", "CloudMeta", "CloudInit", "PVE",
+			"VMware", "KVMGuest", "AWS", "Azure", "GCP", "CloudMeta", "CloudInit", "PVE",
 		},
 	},
 	{
