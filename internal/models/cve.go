@@ -54,6 +54,12 @@ type CVEAllResult struct {
 	StatusReason     string        `json:"status_reason,omitempty"`
 	SubscriptionNote string        `json:"subscription_note,omitempty"` // RHEL registration hint
 
+	// ScanFailed marks a scan that could NOT determine exposure (the package
+	// manager errored, or the scanner tool is absent). Total==0 then means
+	// "unknown", NOT "up to date" — the renderer must not show a green ✅, or an
+	// operator on a host that can't reach its repos reads a failed scan as clean.
+	ScanFailed bool `json:"scan_failed,omitempty"`
+
 	// CISA KEV enrichment — populated when a KEV catalog is available locally.
 	// KEVCount is the number of pending advisories whose CVE IDs appear in the
 	// CISA Known Exploited Vulnerabilities catalog. KEVCVEs lists those CVE IDs.
