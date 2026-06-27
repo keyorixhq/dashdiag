@@ -60,11 +60,15 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 		printLine(mode, "ok", "Daemon", info.DaemonName+" active")
 	} else if info.AnacronPresent {
 		printLine(mode, "info", "Daemon", "anacron only (no persistent cron daemon)")
+	} else if info.SystemdTimers > 0 {
+		// No cron daemon, but systemd timers handle scheduling — a legitimate modern
+		// setup (Photon and other systemd-only images ship no cron at all). Not a
+		// fault, so INFO not WARN. Mirrors checkCron's heuristic so cmd↔health agree.
+		printLine(mode, "info", "Daemon",
+			fmt.Sprintf("no cron daemon — %d systemd timer(s) handle scheduling", info.SystemdTimers))
 	} else {
-		printLine(mode, "warn", "Daemon", "not running")
-		if info.SystemdTimers > 0 {
-			fmt.Printf("     ℹ️  %d systemd timer(s) active\n", info.SystemdTimers)
-		}
+		printLine(mode, "warn", "Daemon",
+			"not running — no cron daemon, anacron, or systemd timers; scheduled jobs will not run")
 	}
 
 	if info.AnacronPresent {
@@ -127,10 +131,13 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 		}
 	}
 
-	// Next steps for failures
-	if human && (len(info.Failures) > 0 || !info.DaemonActive) {
+	// Next steps. Only suggest enabling crond when nothing schedules jobs (no
+	// daemon, no anacron, no timers) — on a timers-only or anacron host that advice
+	// is noise (and wrong: the host deliberately has no cron).
+	noScheduler := !info.DaemonActive && !info.AnacronPresent && info.SystemdTimers == 0
+	if human && (len(info.Failures) > 0 || noScheduler) {
 		fmt.Fprintln(os.Stdout, "\nNext:")
-		if !info.DaemonActive {
+		if noScheduler {
 			fmt.Fprintln(os.Stdout, "  → "+analysis.PlatformServiceCmdSudo("systemctl enable --now crond"))
 		}
 		if len(info.Failures) > 0 {
