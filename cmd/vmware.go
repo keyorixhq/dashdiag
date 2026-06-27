@@ -154,8 +154,8 @@ func printVMwareReport(w io.Writer, info *models.VMwareInfo, elapsed time.Durati
 		}
 	}
 
-	printVMwareBlock(w, "Your VM — you can fix these", guest, mode)
-	printVMwareBlock(w, "Host-side — evidence to share with your cloud provider", host, mode)
+	printGuestBlock(w, "Your VM — you can fix these", guest, mode)
+	printGuestBlock(w, "Host-side — evidence to share with your cloud provider", host, mode)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, sep)
@@ -169,10 +169,10 @@ func printVMwareReport(w io.Writer, info *models.VMwareInfo, elapsed time.Durati
 	}
 }
 
-// printVMwareBlock prints one titled group of findings (with their fix hints),
+// printGuestBlock prints one titled group of findings (with their fix hints),
 // or a short "all clear" line when the group is empty so the operator sees that
 // dsd actually checked that side rather than silently omitting it.
-func printVMwareBlock(w io.Writer, title string, ins []models.Insight, mode output.OutputMode) {
+func printGuestBlock(w io.Writer, title string, ins []models.Insight, mode output.OutputMode) {
 	arrow := "→"
 	if mode == output.ModePlain {
 		arrow = "->"

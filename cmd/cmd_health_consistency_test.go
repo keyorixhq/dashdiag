@@ -246,6 +246,57 @@ func TestCmdHealthConsistency_VMware(t *testing.T) {
 	}
 }
 
+// `dsd kvm-guest` derives its tally from analysis.KVMGuestInsights — the SAME
+// checkKVMGuest `dsd health` dispatches to — so the two agree by construction. Cases
+// cover the guest-fixable WARNs, the host-side steal WARN, and the INFO-only states
+// (clean, qga-channel-absent, low steal, non-kvm clock) that must be non-concerns in
+// BOTH paths.
+func TestCmdHealthConsistency_KVMGuest(t *testing.T) {
+	base := func() models.KVMGuestInfo {
+		return models.KVMGuestInfo{
+			IsGuest: true, QGAChannelPresent: true, QGAInstalled: true, QGARunning: true,
+			Clocksource: "kvm-clock",
+		}
+	}
+	cases := []struct {
+		name string
+		mut  func(*models.KVMGuestInfo)
+	}{
+		{"clean paravirtual", func(v *models.KVMGuestInfo) { v.NICDrivers = map[string]string{"eth0": "virtio_net"} }},
+		{"qga not running", func(v *models.KVMGuestInfo) { v.QGARunning = false }},
+		// Host hasn't enabled the channel → INFO, not a concern in either path.
+		{"qga channel absent", func(v *models.KVMGuestInfo) {
+			v.QGAChannelPresent = false
+			v.QGAInstalled = false
+			v.QGARunning = false
+		}},
+		{"emulated NIC", func(v *models.KVMGuestInfo) {
+			v.EmulatedNICs = []string{"eth0"}
+			v.NICDrivers = map[string]string{"eth0": "e1000"}
+		}},
+		{"emulated disk", func(v *models.KVMGuestInfo) {
+			v.EmulatedDisks = []string{"sda"}
+			v.DiskBuses = map[string]string{"sda": "sata"}
+		}},
+		{"high steal", func(v *models.KVMGuestInfo) { v.StealPct = 15 }},
+		{"low steal", func(v *models.KVMGuestInfo) { v.StealPct = 2 }},
+		// Non-kvm clocksource → INFO, not a concern.
+		{"tsc clocksource", func(v *models.KVMGuestInfo) { v.Clocksource = "tsc" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := base()
+			tc.mut(&info)
+			cmdConcern := kvmGuestConcerns(&info) > 0
+			healthConcern := healthHasConcern(t, "KVMGuest", &info)
+			if cmdConcern != healthConcern {
+				t.Errorf("KVMGuest verdict divergence: `dsd kvm-guest` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
 // `dsd steamos` keeps its own hand-tally (steamOSConcernCount) for the summary
 // line while `dsd health` evaluates the same SteamOSInfo through checkSteamOS —
 // the exact two-paths-on-one-model shape this file guards. All fixtures set
