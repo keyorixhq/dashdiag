@@ -151,53 +151,216 @@ func (r *Renderer) PrintAllMock(results []runner.Result, insights []models.Insig
 
 // PrintAll renders rows from real collector results.
 func (r *Renderer) PrintAll(results []runner.Result, insights []models.Insight) {
-	sorted := sortedResults(results)
-	for _, res := range sorted {
+	for _, res := range sortedResults(results) {
 		// Hide rows where the collector signals it has nothing to show on
 		// this platform (e.g. Systemd on macOS, KernelSec without SELinux/AppArmor).
 		if shouldHideRow(res, insights) {
 			continue
 		}
+		r.printRow(res, insights)
+	}
+}
 
-		ins := insightForResult(res.Name, insights)
-		level := "OK"
-		msg := ""
-		if ins != nil {
-			level = ins.Level
-			msg = ins.Message
+// printRow renders one collector's summary line (name, status icon, and either
+// its worst insight message or its OK inline data) plus any detail block. Extracted
+// from PrintAll so the layered renderer reuses the exact same row formatting.
+func (r *Renderer) printRow(res runner.Result, insights []models.Insight) {
+	ins := insightForResult(res.Name, insights)
+	level := "OK"
+	msg := ""
+	if ins != nil {
+		level = ins.Level
+		msg = ins.Message
+	}
+
+	// Inline data for OK rows — lets the admin judge at a glance.
+	// Only shown when the check is OK (WARN/CRIT already have a message).
+	if level == "OK" {
+		msg = inlineData(res)
+	}
+
+	icon := output.StatusIcon(levelToStatusKey(level), r.mode)
+	name := fmt.Sprintf("%-12s", res.Name)
+
+	var line string
+	switch r.mode {
+	case output.ModeHuman:
+		styledName := StyleBold.Render(name)
+		styledIcon := styleForStatus(level).Render(icon)
+		if msg != "" {
+			line = fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
+		} else {
+			line = fmt.Sprintf("%s %s", styledName, styledIcon)
 		}
-
-		// Inline data for OK rows — lets the admin judge at a glance.
-		// Only shown when the check is OK (WARN/CRIT already have a message).
-		if level == "OK" {
-			msg = inlineData(res)
+	default:
+		if msg != "" {
+			line = fmt.Sprintf("%s %s  %s", name, icon, msg)
+		} else {
+			line = fmt.Sprintf("%s %s", name, icon)
 		}
+	}
+	fmt.Fprintln(os.Stdout, line)
 
-		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
-		name := fmt.Sprintf("%-12s", res.Name)
+	if ins != nil && ins.Details != nil && (r.mode == output.ModeHuman || r.mode == output.ModePlain) {
+		r.renderDetails(ins.Details)
+	}
+}
 
-		var line string
-		switch r.mode {
-		case output.ModeHuman:
-			styledName := StyleBold.Render(name)
-			styledIcon := styleForStatus(level).Render(icon)
-			if msg != "" {
-				line = fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
-			} else {
-				line = fmt.Sprintf("%s %s", styledName, styledIcon)
+// healthLayer groups collectors by level of abstraction for `--layered` output.
+type healthLayer struct {
+	title    string
+	subtitle string
+	hint     string   // optional "zoom in" command shown when a member is present
+	hintFor  string   // collector name that triggers hint (e.g. "VMware" → dsd vmware)
+	members  []string // collector names in this layer
+}
+
+// healthLayers is the abstraction stack for `dsd health --layered`: the machine's
+// resources, the platform it runs on, then the OS + services on top. Lower layers
+// are more root-cause-y, so they print first — a cause reads above its symptoms.
+// This is a PRESENTATION grouping only (the --json schema is unchanged); it's a
+// flat, deliberately-easy-to-retune table. Any collector not listed here falls
+// into a trailing "Other" group, so nothing is ever hidden.
+var healthLayers = []healthLayer{
+	{
+		title: "Hardware & storage", subtitle: "your machine's resources & devices",
+		members: []string{
+			"CPU Load", "CPU Thermal", "CPUFreq", "Memory", "Swap", "GPU",
+			"Disk", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD", "Multipath",
+			"iSCSI", "HBA", "Ceph", "Battery", "IPMI", "NUMA", "InfiniBand",
+			"SRIOV", "HugePages", "Hardware",
+		},
+	},
+	{
+		title: "Platform", subtitle: "the host / cloud you run on",
+		hint: "dsd vmware", hintFor: "VMware",
+		members: []string{
+			"VMware", "AWS", "Azure", "GCP", "CloudMeta", "CloudInit", "PVE",
+		},
+	},
+	{
+		title: "OS & services", subtitle: "Linux configuration & workloads",
+		members: []string{
+			"Systemd", "Processes", "FDLimits", "Entropy", "Clock", "Logs",
+			"Sysctl", "Network", "Firewall", "KernelSec", "Hardening", "Packages",
+			"Subscription", "Auth", "Auditd", "Snapshots", "Bonding", "VLAN",
+			"Nspawn", "Pressure", "OOM", "TLS", "Docker", "Containerd", "K8s",
+			"Launchd", "Sessions", "PostBoot", "Cron",
+		},
+	},
+}
+
+// PrintAllLayered renders the same rows as PrintAll, grouped into the abstraction
+// stack (Hardware & storage → Platform → OS & services), led by a one-line
+// severity tally. Behind `dsd health --layered`; the default output and every
+// machine format (--json/--yaml/--report) are untouched.
+func (r *Renderer) PrintAllLayered(results []runner.Result, insights []models.Insight) {
+	r.printLayeredVerdict(insights)
+
+	sorted := sortedResults(results)
+	assigned := make(map[string]bool)
+
+	for _, layer := range healthLayers {
+		member := make(map[string]bool, len(layer.members))
+		for _, m := range layer.members {
+			member[m] = true
+		}
+		var rows []runner.Result
+		present := false
+		for _, res := range sorted {
+			if !member[res.Name] {
+				continue
 			}
-		default:
-			if msg != "" {
-				line = fmt.Sprintf("%s %s  %s", name, icon, msg)
-			} else {
-				line = fmt.Sprintf("%s %s", name, icon)
+			assigned[res.Name] = true // claim it so "Other" can't, even if hidden
+			present = true
+			if !shouldHideRow(res, insights) {
+				rows = append(rows, res)
 			}
 		}
-		fmt.Fprintln(os.Stdout, line)
-
-		if ins != nil && ins.Details != nil && (r.mode == output.ModeHuman || r.mode == output.ModePlain) {
-			r.renderDetails(ins.Details)
+		r.printLayerHeader(layer.title, layer.subtitle)
+		if len(rows) == 0 {
+			none := "bare metal — no hypervisor/cloud layer"
+			if layer.title != "Platform" {
+				none = "nothing to report"
+			}
+			r.printLayerNote(none)
+			continue
 		}
+		for _, res := range rows {
+			r.printRow(res, insights)
+		}
+		if layer.hint != "" && present {
+			for _, res := range rows {
+				if res.Name == layer.hintFor {
+					r.printLayerNote("→ full detail: " + layer.hint)
+					break
+				}
+			}
+		}
+	}
+
+	// Anything unmapped (a new collector not yet placed) surfaces here rather than
+	// vanishing — a visible nudge to add it to a layer.
+	var other []runner.Result
+	for _, res := range sorted {
+		if !assigned[res.Name] && !shouldHideRow(res, insights) {
+			other = append(other, res)
+		}
+	}
+	if len(other) > 0 {
+		r.printLayerHeader("Other", "unclassified")
+		for _, res := range other {
+			r.printRow(res, insights)
+		}
+	}
+}
+
+func (r *Renderer) printLayeredVerdict(insights []models.Insight) {
+	crit, warn, info := 0, 0, 0
+	for _, in := range insights {
+		switch in.Level {
+		case "CRIT":
+			crit++
+		case "WARN":
+			warn++
+		case "INFO":
+			info++
+		}
+	}
+	tally := fmt.Sprintf("%d critical · %d warnings · %d info", crit, warn, info)
+	fmt.Fprintln(os.Stdout)
+	if r.mode != output.ModeHuman {
+		fmt.Fprintln(os.Stdout, tally)
+		return
+	}
+	style := StyleOK
+	switch {
+	case crit > 0:
+		style = styleForStatus("CRIT")
+	case warn > 0:
+		style = styleForStatus("WARN")
+	}
+	fmt.Fprintln(os.Stdout, style.Render(tally))
+}
+
+func (r *Renderer) printLayerHeader(title, subtitle string) {
+	bar := "━━ " + title
+	if subtitle != "" {
+		bar += "  ·  " + subtitle
+	}
+	fmt.Fprintln(os.Stdout)
+	if r.mode == output.ModeHuman {
+		fmt.Fprintln(os.Stdout, StyleBold.Render(bar))
+	} else {
+		fmt.Fprintln(os.Stdout, bar)
+	}
+}
+
+func (r *Renderer) printLayerNote(note string) {
+	if r.mode == output.ModeHuman {
+		fmt.Fprintln(os.Stdout, "  "+StyleDim.Render(note))
+	} else {
+		fmt.Fprintln(os.Stdout, "  "+note)
 	}
 }
 
