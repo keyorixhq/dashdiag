@@ -3,6 +3,8 @@ package collectors
 import (
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // Per-connection socket-activated sshd instances (sshd@.service template, the
@@ -65,6 +67,24 @@ func TestDropSysupdateIf(t *testing.T) {
 	got = dropSysupdateIf(append([]string(nil), failed...), false)
 	if !containsUnit(got, "systemd-sysupdate.service") {
 		t.Error("configured sysupdate failure must be kept (could be a real update failure)")
+	}
+}
+
+// `dsd services deep` must suppress the same failed-unit noise the health
+// SystemdCollector does, so the two never give opposite verdicts on the same host
+// (observed live on Photon: services deep CRIT'd "47 failed units" — transient
+// sshd@<conn> instances + cloud-config — while health read Systemd OK).
+func TestFilterBenignFailedUnits(t *testing.T) {
+	t.Parallel()
+	units := []models.SystemdUnit{
+		{Name: "sshd@0-10.0.0.1:22-10.0.0.2:5000.service"},
+		{Name: "sshd@1-10.0.0.1:22-10.0.0.2:5001.service"},
+		{Name: "cloud-config.service"},
+		{Name: "my-app.service"}, // a genuine failure — must survive
+	}
+	got := filterBenignFailedUnits(units)
+	if len(got) != 1 || got[0].Name != "my-app.service" {
+		t.Fatalf("want only my-app.service to survive, got %+v", got)
 	}
 }
 

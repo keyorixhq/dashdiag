@@ -148,20 +148,49 @@ func containsUnit(units []string, name string) bool {
 	return false
 }
 
+// unitIgnored reports whether a unit name is in the ignore set, matching both the
+// literal name and its template form (container-getty@1.service →
+// container-getty@.service; sshd@<conn>.service → sshd@.service).
+func unitIgnored(u string, ignore map[string]bool) bool {
+	if ignore[u] {
+		return true
+	}
+	if at := strings.Index(u, "@"); at >= 0 {
+		if dot := strings.LastIndex(u, "."); dot > at {
+			if ignore[u[:at+1]+u[dot:]] { // e.g. "container-getty@.service"
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func filterUnits(units []string, ignore map[string]bool) []string {
 	out := units[:0]
 	for _, u := range units {
-		if ignore[u] {
+		if !unitIgnored(u, ignore) {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// filterBenignFailedUnits removes environmental-noise failed units — the SAME set
+// the health SystemdCollector suppresses — from a `dsd services deep` failed-unit
+// list. Without it the two verdicts diverge sharply: a long-lived / cloned VM
+// accrues dozens of transient sshd@<conn> units, so `dsd services deep`
+// false-CRIT'd "47 failed units" while `dsd health` correctly read Systemd OK
+// (observed live on VMware Photon OS). Shares cloudInitUnits + the benign
+// systemd-sysupdate rule so the paths cannot drift.
+func filterBenignFailedUnits(units []models.SystemdUnit) []models.SystemdUnit {
+	sysupdateBenign := sysupdateUnconfigured()
+	out := units[:0]
+	for _, u := range units {
+		if unitIgnored(u.Name, cloudInitUnits) {
 			continue
 		}
-		// Handle template instances: container-getty@1.service matches container-getty@.service
-		if at := strings.Index(u, "@"); at >= 0 {
-			if dot := strings.LastIndex(u, "."); dot > at {
-				templateKey := u[:at+1] + u[dot:] // e.g. "container-getty@.service"
-				if ignore[templateKey] {
-					continue
-				}
-			}
+		if sysupdateBenign && u.Name == "systemd-sysupdate.service" {
+			continue
 		}
 		out = append(out, u)
 	}
