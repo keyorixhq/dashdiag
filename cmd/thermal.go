@@ -58,7 +58,15 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 
 	info, ok := result.Data.(*models.ThermalInfo)
 	if !ok || info == nil {
-		return result.Err
+		if result.Err != nil {
+			return result.Err
+		}
+		// The collector returns nil (not an empty struct) when no sensor exists, so
+		// the section gates cleanly out of `dsd health`. But the standalone command
+		// must still say something — otherwise `dsd thermal` on a VM/cloud guest with
+		// no thermal zone prints nothing at all, which reads like a crash. Render the
+		// same "not available" message printThermalReport uses for an empty source.
+		info = &models.ThermalInfo{}
 	}
 	recordResultSeverity([]runner.Result{result})
 

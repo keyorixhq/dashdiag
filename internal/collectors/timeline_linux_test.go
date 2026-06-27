@@ -190,6 +190,13 @@ func TestParseDmesgLine(t *testing.T) {
 			wantLevel: "INFO",
 		},
 		{
+			// Benign-by-platform err: VMs/boards log the PIIX4 SMBus base-address
+			// message at err on every boot (unset by firmware). Downgrade to INFO.
+			name:      "PIIX4 SMBus uninitialized err is benign → INFO",
+			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] piix4_smbus 0000:00:07.3: SMBus base address uninitialized - upgrade BIOS or use force_addr=0xaddr",
+			wantLevel: "INFO",
+		},
+		{
 			// Guard: a real PCI err (not on the benign list) still CRITs.
 			name:      "real PCI err stays CRIT",
 			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: Fatal: bus configuration error",

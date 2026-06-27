@@ -143,16 +143,24 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 	// Frequency
 	if freq != nil {
 		fmt.Println("\nFrequency")
-		cpuLine(noIcon, "Governor:", freq.Governor)
-		cpuLine(noIcon, "Current:", fmt.Sprintf("%d MHz", freq.CurrentMHz))
-		if freq.MaxMHz > 0 {
-			cpuLine(noIcon, "Max (boost):", fmt.Sprintf("%d MHz", freq.MaxMHz))
-		}
-		underLoad := cpu != nil && cpu.UsagePct > 30
-		if freq.ThrottledPct > 5 && underLoad {
-			cpuLine(cpuIcon(freq.ThrottledPct, 20, 50, mode), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
+		// No cpufreq interface (common on VMware/KVM/cloud guests, where the host
+		// owns scaling): the struct is all-zero. Say so honestly rather than print
+		// "0 MHz" / a blank governor / a "✅ Throttled 0.0%" that reads as a verified
+		// pass when nothing was actually measured.
+		if freq.Governor == "" && freq.CurrentMHz == 0 && freq.MaxMHz == 0 {
+			cpuLine(noIcon, "Scaling:", "unavailable — no cpufreq interface (normal on VMs/cloud guests; the host controls frequency)")
 		} else {
-			cpuLine(asciiOr("ok", "✅", mode), "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
+			cpuLine(noIcon, "Governor:", freq.Governor)
+			cpuLine(noIcon, "Current:", fmt.Sprintf("%d MHz", freq.CurrentMHz))
+			if freq.MaxMHz > 0 {
+				cpuLine(noIcon, "Max (boost):", fmt.Sprintf("%d MHz", freq.MaxMHz))
+			}
+			underLoad := cpu != nil && cpu.UsagePct > 30
+			if freq.ThrottledPct > 5 && underLoad {
+				cpuLine(cpuIcon(freq.ThrottledPct, 20, 50, mode), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
+			} else {
+				cpuLine(asciiOr("ok", "✅", mode), "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
+			}
 		}
 	}
 

@@ -760,6 +760,13 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 			if line == "" {
 				continue
 			}
+			// Benign-by-platform kernel errs (e.g. PIIX4 SMBus uninitialized on a
+			// VM, arm64 of_root PCI) are logged at err on every boot with no real
+			// fault — don't count them, or the summary shows a red "❌ Errors: 1"
+			// for a harmless boot message next to an otherwise-healthy verdict.
+			if isBenignKernelErr(strings.ToLower(line)) {
+				continue
+			}
 			info.ErrorCount++
 			// Extract message part (after host and unit) for deduplication
 			key := logMessageKey(line)
@@ -779,9 +786,10 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 		"--no-pager", "-q", "--output=short")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(warnOut), "\n") {
-			if line != "" {
-				info.WarningCount++
+			if line == "" || isBenignKernelErr(strings.ToLower(line)) {
+				continue // benign-by-platform errs were excluded from ErrorCount too
 			}
+			info.WarningCount++
 		}
 		// Subtract errors from warning count (journalctl -p warning includes everything <= warning)
 		info.WarningCount -= info.ErrorCount
