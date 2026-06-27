@@ -36,7 +36,7 @@ type Profile struct {
 	AppArmorActive bool
 
 	// Package manager
-	PackageManager string // "apt", "dnf", "yum", "zypper", "pacman", "brew", "unknown"
+	PackageManager string // "apt", "dnf", "tdnf", "yum", "zypper", "pacman", "brew", "unknown"
 
 	// Log paths (distro-resolved)
 	SyslogPath   string // "/var/log/syslog" or "/var/log/messages" or ""
@@ -268,6 +268,9 @@ func detectPackageManager() string {
 	for _, pm := range []struct{ bin, name string }{
 		{"apt-get", "apt"},
 		{"dnf", "dnf"},
+		// tdnf BEFORE yum: VMware Photon OS ships a `yum` shim that wraps tdnf, so a
+		// yum-first probe mislabels Photon as "yum". tdnf is the real manager there.
+		{"tdnf", "tdnf"},
 		{"yum", "yum"},
 		{"zypper", "zypper"},
 		{"pacman", "pacman"},

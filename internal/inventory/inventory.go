@@ -161,7 +161,7 @@ func countPackages(pm string) int {
 		return countDpkg("/var/lib/dpkg/status")
 	case "pacman":
 		return countDir("/var/lib/pacman/local")
-	case "dnf", "yum", "zypper":
+	case "dnf", "tdnf", "yum", "zypper":
 		return countRPM()
 	default:
 		return 0
