@@ -351,7 +351,18 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 // updateinfo parsers in cve_linux.go. A failed query is surfaced as "query-failed"
 // (an unverified result), never a silent clean 0 (the false-OK this closes).
 func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
-	info := &models.PackagesInfo{Checked: true, PackageManager: "tdnf", HasSecurityRepo: true}
+	info := &models.PackagesInfo{Checked: true, PackageManager: "tdnf"}
+
+	// No enabled repos → `tdnf updateinfo` returns nothing because there is no
+	// advisory source, not because the host is patched. Report "couldn't verify"
+	// (query-failed → INFO) rather than a silent clean 0 — the false-OK guard a
+	// post-Broadcom-migration host (dead packages.vmware.com repos) needs.
+	if !tdnfHasEnabledRepo(ctx) {
+		info.Status = "query-failed"
+		info.StatusReason = "no enabled tdnf repositories — security updates cannot be determined (check: tdnf repolist)"
+		return info, nil
+	}
+	info.HasSecurityRepo = true
 
 	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
 	entries, parsed := parseTDNFUpdateInfoJSON(out)

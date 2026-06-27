@@ -1214,6 +1214,16 @@ func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
 func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "tdnf"}
 
+	// No enabled repos → `tdnf updateinfo` returns nothing not because the host is
+	// patched but because there is no advisory source. Report it as NOT verified
+	// (routes checkCVEHealth to an INFO) rather than a confident "up to date" — the
+	// false-OK the Broadcom repo migration (packages.vmware.com → packages.broadcom.com)
+	// can otherwise produce.
+	if !tdnfHasEnabledRepo(ctx) {
+		result.StatusReason = "no enabled tdnf repositories — CVE exposure NOT verified (check: tdnf repolist)"
+		return result
+	}
+
 	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
@@ -1340,6 +1350,59 @@ func enrichTDNFAdvisoryWithCVEs(ctx context.Context, byID map[string]*models.CVE
 // bare PHSA advisory ID (e.g. "patch:PHSA-2026-5.0-0874" → "PHSA-2026-5.0-0874").
 func tdnfTrimPatchPrefix(id string) string {
 	return strings.TrimSpace(strings.TrimPrefix(id, "patch:"))
+}
+
+// tdnfRepo mirrors one record of `tdnf -j repolist`.
+type tdnfRepo struct {
+	Repo    string `json:"Repo"`
+	Enabled bool   `json:"Enabled"`
+}
+
+// tdnfHasEnabledRepo reports whether tdnf has at least one enabled repository.
+// With zero enabled repos, `tdnf updateinfo` returns empty regardless of the host's
+// real patch state — so the security/CVE scanners must treat that as "couldn't
+// verify", not a clean result. Conservative on read failure: returns true (assume
+// repos present) so a transient `tdnf repolist` hiccup does NOT masquerade as
+// "no repos" — the updateinfo path handles genuine query failures. Only a
+// successfully-read, genuinely-empty enabled set returns false.
+func tdnfHasEnabledRepo(ctx context.Context) bool {
+	if out, err := runCmd(ctx, "tdnf", "-j", "repolist"); err == nil {
+		if n, ok := parseTDNFEnabledReposJSON(out); ok {
+			return n > 0
+		}
+	}
+	if out, err := runCmd(ctx, "tdnf", "repolist"); err == nil {
+		return parseTDNFEnabledReposText(out) > 0
+	}
+	return true // couldn't read repolist at all — don't assert "no repos"
+}
+
+// parseTDNFEnabledReposJSON counts enabled repos in `tdnf -j repolist` output.
+// ok=false on a JSON parse error so the caller falls back to text.
+func parseTDNFEnabledReposJSON(out string) (enabled int, ok bool) {
+	var repos []tdnfRepo
+	if err := json.Unmarshal([]byte(out), &repos); err != nil {
+		return 0, false
+	}
+	for _, r := range repos {
+		if r.Enabled {
+			enabled++
+		}
+	}
+	return enabled, true
+}
+
+// parseTDNFEnabledReposText counts enabled repos in plain `tdnf repolist` output
+// (a header row plus one line per repo; the status column reads "enabled").
+func parseTDNFEnabledReposText(out string) int {
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && f[len(f)-1] == "enabled" {
+			n++
+		}
+	}
+	return n
 }
 
 // photonMajor returns the Photon major version from VERSION_ID (e.g. "5"), used

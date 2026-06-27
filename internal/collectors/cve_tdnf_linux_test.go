@@ -79,3 +79,37 @@ func TestTDNFDescriptionCVEExtraction(t *testing.T) {
 		t.Errorf("want both CVEs extracted, got %v", got)
 	}
 }
+
+// Captured verbatim from `tdnf -j repolist` on VMware Photon OS 5.0.
+const tdnfRepolistJSONFixture = `[{"Repo":"photon-updates","RepoName":"VMware Photon Linux 5.0 (x86_64) Updates","Enabled":true}]`
+
+func TestParseTDNFEnabledReposJSON(t *testing.T) {
+	n, ok := parseTDNFEnabledReposJSON(tdnfRepolistJSONFixture)
+	if !ok || n != 1 {
+		t.Fatalf("want 1 enabled repo, got n=%d ok=%v", n, ok)
+	}
+	// All repos disabled → 0 (the false-OK condition the gate guards).
+	if n, ok := parseTDNFEnabledReposJSON(`[{"Repo":"x","RepoName":"X","Enabled":false}]`); !ok || n != 0 {
+		t.Errorf("disabled-only must be 0 enabled, got n=%d ok=%v", n, ok)
+	}
+	// Empty repo set → 0.
+	if n, ok := parseTDNFEnabledReposJSON(`[]`); !ok || n != 0 {
+		t.Errorf("empty repolist must be 0, got n=%d ok=%v", n, ok)
+	}
+	// Garbage → ok=false so the caller falls back to text.
+	if _, ok := parseTDNFEnabledReposJSON("not json"); ok {
+		t.Error("non-JSON must report ok=false")
+	}
+}
+
+func TestParseTDNFEnabledReposText(t *testing.T) {
+	const out = "repo id             repo name                                status\n" +
+		"photon-updates      VMware Photon Linux 5.0 (x86_64) Updates enabled\n"
+	if got := parseTDNFEnabledReposText(out); got != 1 {
+		t.Fatalf("want 1 enabled repo from text, got %d", got)
+	}
+	// Header-only (no enabled repos) → 0.
+	if got := parseTDNFEnabledReposText("repo id  repo name  status\n"); got != 0 {
+		t.Errorf("header-only must be 0, got %d", got)
+	}
+}
