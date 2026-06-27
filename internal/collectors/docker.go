@@ -57,8 +57,13 @@ func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
 			}
 		}
 		info.Status = "unavailable"
-		info.StatusReason = "no Docker or Podman socket found"
-		// Check if Docker is installed but daemon not running
+		// StatusReason is reserved for an installed-but-unusable runtime (the renderer
+		// and health inline treat a non-empty reason as "installed but not running").
+		// Only Docker qualifies: it needs a running daemon, so an installed dockerd
+		// with no socket is a real fault. Podman is daemonless — "no socket" is its
+		// normal idle state, NOT a fault — so a host with nothing usable (incl. idle
+		// Podman) leaves StatusReason empty and reads as a benign "no runtime detected"
+		// rather than a false "installed but not running" WARN.
 		if dockerInstalled() {
 			info.StatusReason = "Docker installed but daemon not running"
 			if c.isRHEL10Plus() {
