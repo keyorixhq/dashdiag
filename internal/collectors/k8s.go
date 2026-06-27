@@ -155,6 +155,33 @@ func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bo
 
 // ── pods ──────────────────────────────────────────────────────────────────────
 
+// podAge renders a pod's age from its RFC3339 creationTimestamp in kubectl's
+// compact short form (e.g. "24s", "5m", "3h", "13d"). Returns "" if the timestamp
+// is absent or unparseable, so the column simply blanks rather than showing junk.
+// Uses NowViaSource so the value is stable under capture/replay (capture-time now).
+func podAge(creationTimestamp string) string {
+	if creationTimestamp == "" {
+		return ""
+	}
+	created, err := time.Parse(time.RFC3339, creationTimestamp)
+	if err != nil {
+		return ""
+	}
+	d := NowViaSource().Sub(created)
+	switch {
+	case d < 0:
+		return "0s"
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours())/24)
+	}
+}
+
 func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 	data, err := k8sRunJSON(ctx, bin, "get", "pods", "-A", "-o", "json")
 	if err != nil {
@@ -166,6 +193,7 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 				Name              string `json:"name"`
 				Namespace         string `json:"namespace"`
 				DeletionTimestamp string `json:"deletionTimestamp"`
+				CreationTimestamp string `json:"creationTimestamp"`
 			} `json:"metadata"`
 			Spec struct {
 				Containers []struct {
@@ -212,6 +240,7 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 			Namespace:   item.Metadata.Namespace,
 			Name:        item.Metadata.Name,
 			Status:      item.Status.Phase,
+			Age:         podAge(item.Metadata.CreationTimestamp),
 			Terminating: item.Metadata.DeletionTimestamp != "",
 		}
 		if len(item.Spec.Containers) > 0 {
