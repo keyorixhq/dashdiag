@@ -55,41 +55,27 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 		))
 	}
 
-	selinuxEnforcing := sys.SELinuxEnforcing // set by ApplyThresholds pre-scan
-	for _, unit := range sys.FailedUnits {
-		// zfs-import-{scan,cache}.service failing is expected/benign on a host that
-		// imports no ZFS pools of its own — e.g. the ZFS HBA is passed through to a
-		// VM, or ZFS is installed but unused. Only a real CRIT when the host actually
-		// has imported pools. ZFSPoolsPresent is set by the ApplyThresholds pre-scan
-		// from the ZFS/Disk collectors (§O.2).
-		if isZFSImportUnit(unit) && !sys.ZFSPoolsPresent {
-			out = append(out, insight("INFO", "Systemd",
-				fmt.Sprintf("unit %s has failed, but no ZFS pools are imported on this host — expected when ZFS is passed through to a VM or unused", unit),
-				[]string{
-					fmt.Sprintf("to inspect: systemctl status %s", unit),
-					"to verify:  zpool list  (empty = no host pools, so the import failure is benign)",
-					fmt.Sprintf("to disable: systemctl disable %s  (if this host never imports pools)", unit),
-				},
-			))
-			continue
-		}
-		hints := []string{
-			fmt.Sprintf("to inspect: systemctl status %s", unit),
-			fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit),
-		}
-		// SELinux double-layer hint — the most common invisible failure cause.
-		// Permission errors from SELinux produce no output in journalctl -u;
-		// admins check standard permissions and config and find nothing wrong.
-		if selinuxEnforcing {
-			hints = append(hints,
-				"note: SELinux is enforcing — check AVC denials if permissions look correct",
-				fmt.Sprintf("to check SELinux: ausearch -m avc -ts recent -c %s", unitBaseName(unit)),
-			)
-		}
+	// Booted into emergency/rescue mode — the system did not reach its default
+	// target. `systemctl is-system-running` reports "maintenance" when
+	// rescue.target/emergency.target is the active target (e.g. a root/fstab fsck
+	// failure dropped the host to an emergency shell — the Dell VxRail /
+	// cloned-appliance fingerprint). Only "maintenance" fires here; "degraded" (a
+	// failed unit on an otherwise-normal boot) is already covered by the per-unit
+	// CRITs below, so it must NOT double-fire.
+	if sys.SystemState == "maintenance" {
 		out = append(out, insight("CRIT", "Systemd",
-			fmt.Sprintf("unit %s has failed", unit),
-			hints,
+			"system is in emergency/rescue mode — the boot did not complete (a maintenance shell is active, not the default target)",
+			[]string{
+				"to inspect: journalctl -b -p err --no-pager",
+				"to inspect: systemctl --failed",
+				"common cause: a root/fstab filesystem failed its boot-time fsck — check systemctl status systemd-fsck-root.service",
+				"to resume normal boot once fixed: systemctl default   (or reboot)",
+			},
 		))
+	}
+
+	for _, unit := range sys.FailedUnits {
+		out = append(out, failedUnitInsight(unit, sys.SELinuxEnforcing, sys.ZFSPoolsPresent))
 	}
 
 	// Modified unit files not yet reloaded — the running service is using stale
@@ -327,6 +313,59 @@ func slowBootFix(unit string) []string {
 func isZFSImportUnit(unit string) bool {
 	base := unitBaseName(unit) // strips ".service" and any "@instance"
 	return base == "zfs-import-scan" || base == "zfs-import-cache" || base == "zfs-import"
+}
+
+// failedUnitInsight classifies one failed systemd unit into a single insight:
+// a targeted repair hint for boot-filesystem units (fsck/remount), a benign INFO
+// for ZFS-import units on a host with no imported pools, or the generic
+// "unit failed" CRIT (with an SELinux-AVC hint when SELinux is enforcing).
+func failedUnitInsight(unit string, selinuxEnforcing, zfsPoolsPresent bool) models.Insight {
+	// Boot-time filesystem units (root remount, fsck) get a targeted repair hint —
+	// a failed fsck/remount is the classic cause of a host stuck in emergency mode.
+	if isBootFilesystemUnit(unit) {
+		return insight("CRIT", "Systemd",
+			fmt.Sprintf("boot filesystem unit %s failed — a filesystem check/remount did not complete at boot (can drop the host into emergency mode)", unit),
+			[]string{
+				fmt.Sprintf("to inspect: systemctl status %s", unit),
+				fmt.Sprintf("to inspect: journalctl -u %s -b --no-pager", unit),
+				"to find the device: blkid ; cat /etc/fstab",
+				"to repair (offline/unmounted): e2fsck -y <device>   (xfs_repair for XFS)",
+			})
+	}
+	// zfs-import-{scan,cache}.service failing is expected/benign on a host that
+	// imports no ZFS pools of its own (ZFS HBA passed through to a VM, or unused).
+	if isZFSImportUnit(unit) && !zfsPoolsPresent {
+		return insight("INFO", "Systemd",
+			fmt.Sprintf("unit %s has failed, but no ZFS pools are imported on this host — expected when ZFS is passed through to a VM or unused", unit),
+			[]string{
+				fmt.Sprintf("to inspect: systemctl status %s", unit),
+				"to verify:  zpool list  (empty = no host pools, so the import failure is benign)",
+				fmt.Sprintf("to disable: systemctl disable %s  (if this host never imports pools)", unit),
+			})
+	}
+	hints := []string{
+		fmt.Sprintf("to inspect: systemctl status %s", unit),
+		fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit),
+	}
+	// SELinux double-layer hint — permission errors from SELinux produce no output
+	// in journalctl -u, so admins check standard permissions and find nothing wrong.
+	if selinuxEnforcing {
+		hints = append(hints,
+			"note: SELinux is enforcing — check AVC denials if permissions look correct",
+			fmt.Sprintf("to check SELinux: ausearch -m avc -ts recent -c %s", unitBaseName(unit)),
+		)
+	}
+	return insight("CRIT", "Systemd", fmt.Sprintf("unit %s has failed", unit), hints)
+}
+
+// isBootFilesystemUnit reports whether a unit is a boot-time filesystem check or
+// root remount — systemd-remount-fs, systemd-fsck-root, or a systemd-fsck@<dev>
+// instance. A failure here means a filesystem could not be checked/mounted at
+// boot, the classic cause of a host stuck in emergency mode.
+func isBootFilesystemUnit(unit string) bool {
+	return unit == "systemd-remount-fs.service" ||
+		unit == "systemd-fsck-root.service" ||
+		strings.HasPrefix(unit, "systemd-fsck@")
 }
 
 // unitBaseName extracts the base name from a systemd unit for use in ausearch -c.

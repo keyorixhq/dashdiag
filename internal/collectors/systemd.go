@@ -136,7 +136,20 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 		StuckUnits:         nil,
 		SlowUnits:          slowUnits,
 		TotalBootSec:       totalBoot,
+		SystemState:        systemRunningState(ctx),
 	}, nil
+}
+
+// systemRunningState returns the overall system state from
+// `systemctl is-system-running` (running / degraded / maintenance / starting / …).
+// The command exits non-zero for any non-"running" state but still prints the word
+// to stdout, so runCmdOutput is used to keep that output regardless of exit. The
+// key signal is "maintenance" — the system booted into rescue.target/emergency.target
+// rather than its default target (a failed boot, e.g. an fsck failure dropping the
+// host to an emergency shell).
+func systemRunningState(ctx context.Context) string {
+	out, _ := runCmdOutput(ctx, "systemctl", "is-system-running")
+	return strings.TrimSpace(out)
 }
 
 // collectBootTimes runs systemd-analyze blame and returns the top 3 slow units
