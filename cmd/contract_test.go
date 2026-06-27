@@ -26,7 +26,7 @@ var exitCodeContract = map[string]string{
 	"docker": "gates", "k8s": "gates", "security": "gates", "services": "gates",
 	"logs": "gates", "hardware": "gates", "thermal": "gates", "gpu": "gates",
 	"cron": "gates", "cve": "gates", "fleet": "gates", "steamos": "gates",
-	"tls": "gates", "db": "gates",
+	"tls": "gates", "db": "gates", "containerd": "gates",
 
 	// Should gate but not wired yet — tracked follow-up (these can produce findings).
 	"cis":       "todo: compliance pass/fail not yet mapped to the exit code",
@@ -130,6 +130,7 @@ var jsonContract = map[string]string{
 	"tls": "json", "timeline": "json", "cis": "json", "kvm": "json",
 	"pve": "json", "proc": "json", "processes": "json", "inventory": "json",
 	"db": "json", "vmware": "json", "kvm-guest": "json", "guest": "json",
+	"containerd": "json",
 
 	"baseline":   "exempt: save/diff utility, no data payload",
 	"compare":    "exempt: report diff utility",
