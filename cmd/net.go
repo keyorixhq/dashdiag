@@ -148,17 +148,23 @@ func runNet(cmd *cobra.Command, _ []string) error {
 // Silent on a healthy host (all files readable); loud only when networkd would
 // silently ignore a config file.
 func printNetworkdReport(info *models.NetworkdConfigInfo, mode output.OutputMode) {
-	if len(info.UnreadableFiles) == 0 {
-		fmt.Printf("\nsystemd-networkd config: %s %d file(s), all readable by networkd\n",
+	if len(info.UnreadableFiles) == 0 && len(info.FailedLinks) == 0 {
+		fmt.Printf("\nsystemd-networkd: %s %d config file(s) readable, all links configured\n",
 			netMark("ok", mode), info.TotalFiles)
 		return
 	}
-	fmt.Printf("\nsystemd-networkd config (%d file(s))\n", info.TotalFiles)
+	fmt.Printf("\nsystemd-networkd (%d config file(s))\n", info.TotalFiles)
 	for _, f := range info.UnreadableFiles {
 		fmt.Printf("  %s %s — mode %s, not readable by networkd (needs 0644) → silently ignored\n",
 			netMark("warn", mode), f.Path, f.Mode)
 	}
-	fmt.Printf("  to fix: chmod 644 %s\n", info.UnreadableFiles[0].Path)
+	if len(info.UnreadableFiles) > 0 {
+		fmt.Printf("  to fix: chmod 644 %s\n", info.UnreadableFiles[0].Path)
+	}
+	for _, l := range info.FailedLinks {
+		fmt.Printf("  %s %s — SETUP=failed (operational: %s) → config did not apply\n",
+			netMark("warn", mode), l.Name, l.Operational)
+	}
 }
 
 // netMark returns the status marker for a net report line. In --plain mode it

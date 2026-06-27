@@ -16,21 +16,42 @@ import (
 // the host needed. VMware Photon OS (networkd by default, root-created 0600 files)
 // is the prime victim — a documented Photon footgun.
 func checkNetworkdConfig(info models.NetworkdConfigInfo) []models.Insight {
-	if !info.Detected || len(info.UnreadableFiles) == 0 {
+	if !info.Detected {
 		return nil
 	}
-	paths := make([]string, 0, len(info.UnreadableFiles))
-	for _, f := range info.UnreadableFiles {
-		paths = append(paths, fmt.Sprintf("%s (mode %s)", f.Path, f.Mode))
+	var out []models.Insight
+
+	if len(info.UnreadableFiles) > 0 {
+		paths := make([]string, 0, len(info.UnreadableFiles))
+		for _, f := range info.UnreadableFiles {
+			paths = append(paths, fmt.Sprintf("%s (mode %s)", f.Path, f.Mode))
+		}
+		out = append(out, insight("WARN", "Networkd",
+			fmt.Sprintf("%d systemd-networkd config file(s) not readable by networkd (need mode 0644) — silently ignored, so the network they configure may not be applied", len(info.UnreadableFiles)),
+			[]string{
+				"affected: " + strings.Join(paths, ", "),
+				"networkd runs as an unprivileged user and skips files without the world-read bit — no error is printed to the console",
+				"to fix: chmod 644 " + info.UnreadableFiles[0].Path,
+				"to verify: networkctl status",
+			},
+		))
 	}
-	n := len(info.UnreadableFiles)
-	return []models.Insight{insight("WARN", "Networkd",
-		fmt.Sprintf("%d systemd-networkd config file(s) not readable by networkd (need mode 0644) — silently ignored, so the network they configure may not be applied", n),
-		[]string{
-			"affected: " + strings.Join(paths, ", "),
-			"networkd runs as an unprivileged user and skips files without the world-read bit — no error is printed to the console",
-			"to fix: chmod 644 " + info.UnreadableFiles[0].Path,
-			"to verify: networkctl status",
-		},
-	)}
+
+	if len(info.FailedLinks) > 0 {
+		names := make([]string, 0, len(info.FailedLinks))
+		for _, l := range info.FailedLinks {
+			names = append(names, fmt.Sprintf("%s (operational: %s)", l.Name, l.Operational))
+		}
+		out = append(out, insight("WARN", "Networkd",
+			fmt.Sprintf("%d systemd-networkd link(s) failed to configure (SETUP=failed) — the network config did not apply", len(info.FailedLinks)),
+			[]string{
+				"affected: " + strings.Join(names, ", "),
+				"networkd accepted the link's config but could not apply it (bad directive, conflicting address/route, or an ignored config file)",
+				"to inspect: networkctl status " + info.FailedLinks[0].Name,
+				"to reload after a fix: networkctl reload && networkctl reconfigure " + info.FailedLinks[0].Name,
+			},
+		))
+	}
+
+	return out
 }

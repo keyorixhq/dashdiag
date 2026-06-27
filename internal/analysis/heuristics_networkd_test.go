@@ -33,8 +33,26 @@ func TestCheckNetworkdConfigWarnsOnUnreadable(t *testing.T) {
 	}
 }
 
-// Healthy host (all files readable) and non-networkd host (Detected=false) stay
-// quiet — no false alarm.
+// A managed link networkd failed to configure (SETUP=failed) → WARN naming the
+// link. SETUP=failed is the unambiguous "config did not apply" signal.
+func TestCheckNetworkdConfigWarnsOnFailedLink(t *testing.T) {
+	info := models.NetworkdConfigInfo{
+		Detected:    true,
+		TotalFiles:  2,
+		FailedLinks: []models.NetworkdLink{{Name: "eth1", Setup: "failed", Operational: "no-carrier"}},
+	}
+	got := checkNetworkdConfig(info)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("want 1 WARN, got %+v", got)
+	}
+	joined := got[0].Message + " " + strings.Join(got[0].Hints, " ")
+	if !strings.Contains(joined, "eth1") || !strings.Contains(got[0].Message, "SETUP=failed") {
+		t.Errorf("insight should name the failed link + reason: %q / %v", got[0].Message, got[0].Hints)
+	}
+}
+
+// Healthy host (all files readable, all links configured) and non-networkd host
+// (Detected=false) stay quiet — no false alarm.
 func TestCheckNetworkdConfigQuietWhenClean(t *testing.T) {
 	if got := checkNetworkdConfig(models.NetworkdConfigInfo{Detected: true, TotalFiles: 3}); len(got) != 0 {
 		t.Errorf("clean host must be quiet, got %+v", got)

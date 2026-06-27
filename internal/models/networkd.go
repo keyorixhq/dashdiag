@@ -12,10 +12,22 @@ type NetworkdConfigInfo struct {
 	Detected        bool                 `json:"detected"`
 	TotalFiles      int                  `json:"total_files"`
 	UnreadableFiles []NetworkdConfigFile `json:"unreadable_files,omitempty"`
+	// FailedLinks are managed links whose networkd SETUP (AdministrativeState)
+	// is "failed" — networkd tried to apply their config and could not. A bad
+	// .network directive, a conflicting address/route, or the unreadable-file
+	// case above all surface here as the effect.
+	FailedLinks []NetworkdLink `json:"failed_links,omitempty"`
 }
 
 // NetworkdConfigFile is one config file systemd-networkd cannot read (wrong perms).
 type NetworkdConfigFile struct {
 	Path string `json:"path"`
 	Mode string `json:"mode"` // octal permission bits, e.g. "0600"
+}
+
+// NetworkdLink is one systemd-networkd-managed link's state, from `networkctl`.
+type NetworkdLink struct {
+	Name        string `json:"name"`
+	Setup       string `json:"setup"`       // AdministrativeState: configured/configuring/failed/unmanaged/…
+	Operational string `json:"operational"` // OperationalState: routable/degraded/no-carrier/off/…
 }
