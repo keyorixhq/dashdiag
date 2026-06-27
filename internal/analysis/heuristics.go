@@ -370,6 +370,12 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 		if d != nil {
 			return checkClock(*d, thresh)
 		}
+	case models.NetworkdConfigInfo:
+		return checkNetworkdConfig(d)
+	case *models.NetworkdConfigInfo:
+		if d != nil {
+			return checkNetworkdConfig(*d)
+		}
 	}
 	return applyOneExtended(data, thresh)
 }

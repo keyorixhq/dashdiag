@@ -256,6 +256,19 @@ func printAllCVEs(r *models.CVEAllResult) {
 	fmt.Printf("Security advisory scan   (via %s)\n", r.PackageManager)
 	fmt.Println(sep)
 
+	if r.ScanFailed {
+		// The scan could not run — exposure is UNKNOWN, not clean. A green ✅
+		// here would tell an operator on a host that can't reach its repos that
+		// it's up to date (false-OK). Surface it as an unverified warning.
+		reason := r.StatusReason
+		if reason == "" {
+			reason = "security advisory scan could not run — CVE exposure NOT verified"
+		}
+		fmt.Printf("⚠️  %s\n", reason)
+		fmt.Println(sep)
+		return
+	}
+
 	if r.StatusReason != "" && r.Total == 0 {
 		fmt.Printf("✅  %s\n", r.StatusReason)
 		fmt.Println(sep)

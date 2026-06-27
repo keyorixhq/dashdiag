@@ -111,11 +111,18 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
 	if !info.Available {
+		// A StatusReason means a runtime IS installed but unusable (e.g. "Docker
+		// installed but daemon not running"). Don't then print "No container runtime
+		// detected" — that flatly contradicts "installed". Only the truly-nothing case
+		// gets the green "no runtime" verdict.
 		if info.StatusReason != "" {
 			fmt.Printf("\n  %s  %s\n", asciiOr("warn", "⚠️ ", mode), info.StatusReason)
-		} else {
-			fmt.Printf("\n  %s  Docker/Podman not available on this system\n", asciiOr("info", "ℹ️ ", mode))
+			fmt.Println()
+			fmt.Println(sep)
+			fmt.Println(render.StyleWarn.Render(asciiOr("warn", "⚠️ ", mode) + " Container runtime installed but not running" + timing))
+			return
 		}
+		fmt.Printf("\n  %s  Docker/Podman not available on this system\n", asciiOr("info", "ℹ️ ", mode))
 		fmt.Println()
 		fmt.Println(sep)
 		fmt.Println(render.StyleOK.Render(asciiOr("ok", "✅", mode) + " No container runtime detected" + timing))

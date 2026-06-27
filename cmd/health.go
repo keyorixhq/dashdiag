@@ -542,6 +542,12 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())
 	}
+	// systemd-networkd config-file permission audit — gate on config files being
+	// present (the collector confirms networkd is the active manager). Catches the
+	// Photon footgun where a 0600 .network file is silently ignored → no network.
+	if collectors.NetworkdAvailable() {
+		cols = append(cols, collectors.NewNetworkdConfigCollector())
+	}
 	// QEMU/KVM (Proxmox/oVirt/libvirt) guest config — gate on DMI vendor (QEMU).
 	// Silent on bare metal, VMware, and the clouds (which carry their own vendors).
 	if collectors.KVMGuestAvailable() {

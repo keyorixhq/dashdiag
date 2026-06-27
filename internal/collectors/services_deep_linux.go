@@ -29,7 +29,12 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	failedOut, err := runCmd(ctx, "systemctl", "list-units",
 		"--failed", "--plain", "--no-legend", "--no-pager")
 	if err == nil {
-		info.FailedUnits = parseFailedUnits(failedOut)
+		// Filter environmental noise (transient sshd@<conn> instances, cloud-init
+		// units, benign unconfigured systemd-sysupdate) the SAME way the health
+		// SystemdCollector does, so `dsd services deep` and `dsd health` agree — and
+		// before the per-unit journal/show enrichment below, so we don't fetch logs
+		// for dozens of noise units.
+		info.FailedUnits = filterBenignFailedUnits(parseFailedUnits(failedOut))
 	}
 
 	// 2. Last journal lines + exit code per failed unit (parallel, capped)
