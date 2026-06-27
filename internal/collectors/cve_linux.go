@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +42,8 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 		result = checkCVEApt(ctx, cveID)
 	case hasCmd("pacman"):
 		result = checkCVEPacman(ctx, cveID)
+	case hasCmd("tdnf"):
+		result = checkCVETDNF(ctx, cveID)
 	default:
 		result = &models.CVEResult{
 			CVE:          cveID,
@@ -149,6 +152,8 @@ func fixCommand() string {
 		return "apt-get upgrade"
 	case hasCmd("pacman"):
 		return "pacman -Syu"
+	case hasCmd("tdnf"):
+		return "tdnf update --security"
 	}
 	return ""
 }
@@ -418,6 +423,9 @@ func scanAllViaPackageManager(ctx context.Context) *models.CVEAllResult {
 	}
 	if _, err := lookPath("pacman"); err == nil {
 		return scanAllPacman(ctx) // pacman has no cached-index age concept here
+	}
+	if _, err := lookPath("tdnf"); err == nil {
+		return markCVEStaleMetadata(scanAllTDNF(ctx))
 	}
 	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
 }
@@ -1136,6 +1144,223 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 		len(result.Moderate) + len(result.Low)
 	result.FixCommand = "pacman -Syu"
 	return result
+}
+
+// tdnfUpdateInfoEntry mirrors one record of `tdnf -j updateinfo list --security`.
+// Photon emits one entry per affected package; many share an UpdateID (a PHSA
+// advisory), so callers dedupe by UpdateID. tdnf carries NO per-advisory CVSS
+// severity (only Type == "Security"), so these fold to a single WARN at the
+// health layer rather than a name/guess-minted CRIT — see pmInfersSeverity.
+type tdnfUpdateInfoEntry struct {
+	Type     string   `json:"Type"`
+	UpdateID string   `json:"UpdateID"`
+	Packages []string `json:"Packages"`
+}
+
+// checkCVETDNF checks a specific CVE on VMware Photon OS via tdnf. Photon ships
+// no per-CVE query, so we scan `tdnf updateinfo info --security` (which lists CVE
+// IDs in each advisory's Description) for the requested CVE. Found → vulnerable
+// with the advisory/package; scan ran clean and absent → not affected; scan
+// failed → UNKNOWN (never a silent NOT_AFFECTED — the false-OK).
+func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
+	result := &models.CVEResult{CVE: cveID, PackageManager: "tdnf"}
+
+	out, err := runCmd(ctx, "tdnf", "updateinfo", "info", "--security")
+	if err != nil && strings.TrimSpace(out) == "" {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "tdnf updateinfo failed — CVE exposure NOT verified for " + cveID
+		result.FallbackURL = "https://github.com/vmware/photon/wiki/Security-Update-" + photonMajor()
+		return result
+	}
+
+	cveUpper := strings.ToUpper(cveID)
+	var pkgs []models.CVEPackage
+	curPkg, curAdvisory := "", ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Name :"):
+			curPkg = strings.TrimSpace(strings.TrimPrefix(line, "Name :"))
+		case strings.HasPrefix(line, "Update ID :"):
+			curAdvisory = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, "Update ID :")))
+		case strings.HasPrefix(line, "Description :"):
+			if strings.Contains(strings.ToUpper(line), cveUpper) {
+				pkgs = append(pkgs, models.CVEPackage{
+					Name:     strings.TrimSuffix(curPkg, ".rpm"),
+					Advisory: curAdvisory,
+				})
+			}
+		}
+	}
+
+	if len(pkgs) > 0 {
+		result.Status = models.CVEVulnerable
+		result.AffectedPackages = pkgs
+		result.FixCommand = "tdnf update --security"
+		result.FixAdvisory = pkgs[0].Advisory
+	} else {
+		result.Status = models.CVENotAffected
+		result.StatusReason = "tdnf: no pending Photon security advisory references " + cveID
+	}
+	return result
+}
+
+// scanAllTDNF lists all pending Photon security advisories via tdnf. It prefers
+// the JSON output (`tdnf -j updateinfo list --security`) and falls back to the
+// plain-text table. Advisories are deduped by PHSA ID and enriched with their CVE
+// IDs from `tdnf updateinfo info`. Photon publishes no CVSS, so every advisory is
+// bucketed as Important (WARN-worthy, never a false CRIT) — the health layer
+// renders the no-CVSS caveat (see checkCVEHealth's tdnf branch).
+func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
+	result := &models.CVEAllResult{PackageManager: "tdnf"}
+
+	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
+	entries, parsed := parseTDNFUpdateInfoJSON(out)
+	if !parsed {
+		// JSON unavailable/garbled (older tdnf, refresh noise) — fall back to text.
+		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", "--security")
+		entries = parseTDNFUpdateInfoText(textOut)
+		if len(entries) == 0 && textErr != nil && err != nil {
+			result.StatusReason = "tdnf updateinfo failed: " + err.Error()
+			return result
+		}
+	}
+
+	if len(entries) == 0 {
+		result.StatusReason = "no pending security advisories — system is up to date"
+		result.FixCommand = "tdnf update --security"
+		return result
+	}
+
+	// Dedupe by advisory ID, aggregating the affected packages.
+	byID := map[string]*models.CVEAdvisory{}
+	var order []string
+	for _, e := range entries {
+		id := tdnfTrimPatchPrefix(e.UpdateID)
+		if id == "" {
+			continue
+		}
+		adv, ok := byID[id]
+		if !ok {
+			adv = &models.CVEAdvisory{ID: id, Severity: "Important"}
+			byID[id] = adv
+			order = append(order, id)
+		}
+		for _, p := range e.Packages {
+			pkg := strings.TrimSuffix(p, ".rpm")
+			if adv.Summary == "" {
+				adv.Summary = pkg
+			} else if !strings.Contains(adv.Summary, pkg) {
+				adv.Summary += ", " + pkg
+			}
+		}
+	}
+
+	enrichTDNFAdvisoryWithCVEs(ctx, byID)
+
+	for _, id := range order {
+		result.Important = append(result.Important, *byID[id])
+	}
+	result.Total = len(result.Important)
+	result.FixCommand = "tdnf update --security"
+	return result
+}
+
+// parseTDNFUpdateInfoJSON extracts the advisory records from `tdnf -j` output.
+// tdnf may prefix the JSON with a metadata-refresh line, so it isolates the array
+// between the first '[' and last ']'. Returns parsed=false when no JSON array is
+// present so the caller can fall back to the text parser.
+func parseTDNFUpdateInfoJSON(out string) (entries []tdnfUpdateInfoEntry, parsed bool) {
+	start := strings.Index(out, "[")
+	end := strings.LastIndex(out, "]")
+	if start < 0 || end <= start {
+		return nil, false
+	}
+	if err := json.Unmarshal([]byte(out[start:end+1]), &entries); err != nil {
+		return nil, false
+	}
+	return entries, true
+}
+
+// parseTDNFUpdateInfoText parses the plain `tdnf updateinfo list --security` table:
+//
+//	patch:PHSA-2026-5.0-0874 Security zlib-1.3.2-1.ph5.x86_64.rpm
+func parseTDNFUpdateInfoText(out string) []tdnfUpdateInfoEntry {
+	var entries []tdnfUpdateInfoEntry
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || !strings.HasPrefix(fields[0], "patch:") {
+			continue
+		}
+		entries = append(entries, tdnfUpdateInfoEntry{
+			Type:     fields[1],
+			UpdateID: fields[0],
+			Packages: []string{fields[len(fields)-1]},
+		})
+	}
+	return entries
+}
+
+// enrichTDNFAdvisoryWithCVEs populates each advisory's CVEs field from
+// `tdnf updateinfo info --security`, whose Description carries the CVE IDs
+// (e.g. "Security fixes for {'CVE-2026-27171'}"). Best-effort — leaves CVEs
+// empty when the info query fails.
+func enrichTDNFAdvisoryWithCVEs(ctx context.Context, byID map[string]*models.CVEAdvisory) {
+	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := runCmd(eCtx, "tdnf", "updateinfo", "info", "--security")
+	if err != nil && strings.TrimSpace(out) == "" {
+		return
+	}
+	curID := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Update ID :"):
+			curID = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, "Update ID :")))
+		case strings.HasPrefix(line, "Description :") && curID != "":
+			adv, ok := byID[curID]
+			if !ok {
+				continue
+			}
+			for _, cve := range cveIDPattern.FindAllString(line, -1) {
+				if !strings.Contains(adv.CVEs, cve) {
+					if adv.CVEs == "" {
+						adv.CVEs = cve
+					} else {
+						adv.CVEs += ", " + cve
+					}
+				}
+			}
+		}
+	}
+}
+
+// tdnfTrimPatchPrefix strips tdnf's "patch:" prefix from an Update ID, leaving the
+// bare PHSA advisory ID (e.g. "patch:PHSA-2026-5.0-0874" → "PHSA-2026-5.0-0874").
+func tdnfTrimPatchPrefix(id string) string {
+	return strings.TrimSpace(strings.TrimPrefix(id, "patch:"))
+}
+
+// photonMajor returns the Photon major version from VERSION_ID (e.g. "5"), used
+// to build the per-release security-advisory wiki URL. Defaults to "5".
+func photonMajor() string {
+	data, err := readFile("/etc/os-release")
+	if err != nil {
+		return "5"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "VERSION_ID=") {
+			v := strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), `"`)
+			if i := strings.Index(v, "."); i > 0 {
+				return v[:i]
+			}
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return "5"
 }
 
 // archAuditSeverity maps arch-audit severity strings to dsd standard severities.

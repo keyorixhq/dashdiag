@@ -83,22 +83,114 @@ var cloudInitUnits = map[string]bool{
 	// tmpfiles-clean fails in unprivileged LXC — no access to protected dirs
 	"systemd-tmpfiles-clean.service": true,
 	"systemd-tmpfiles-clean.timer":   true,
+	// Per-connection socket-activated sshd instances (sshd@.service template,
+	// the default on Photon/Fedora). A connection dropped before auth completes —
+	// a port scan, a TCP/LB health probe, kex_exchange_identification — leaves the
+	// transient unit "failed" (status 255) until it is garbage-collected. These
+	// accumulate into a pile of false CRITs that have nothing to do with the SSH
+	// daemon's health (sshd.service / ssh.service are checked separately and are
+	// NOT filtered here). Matched via filterUnits' template-instance collapsing
+	// (sshd@<addr:port-addr:port>.service → sshd@.service).
+	"sshd@.service": true,
+	"ssh@.service":  true,
+}
+
+// dropBenignSysupdate removes systemd-sysupdate.service from the failed-units
+// list when no transfer definitions are configured on disk. systemd ships
+// systemd-sysupdate.timer enabled, but with no *.transfer files in
+// /etc/sysupdate.d or /usr/lib/sysupdate.d the service exits 1 ("No transfer
+// definitions found") on every timer firing and sits permanently "failed" — a
+// benign default state (verified on VMware Photon OS 5.0, which enables the timer
+// but ships zero transfers, so dsd false-CRIT'd on every box). The suppression is
+// reason-aware, NOT unconditional: when transfers ARE configured the service can
+// fail for a real reason (a failed update), and that failure is kept.
+func dropBenignSysupdate(failed []string) []string {
+	return dropSysupdateIf(failed, sysupdateUnconfigured())
+}
+
+// dropSysupdateIf removes systemd-sysupdate.service from failed only when
+// unconfigured is true. Split out (impure glob in dropBenignSysupdate, pure list
+// logic here) so the suppression rule is unit-testable without touching the real
+// filesystem.
+func dropSysupdateIf(failed []string, unconfigured bool) []string {
+	const unit = "systemd-sysupdate.service"
+	if !unconfigured || !containsUnit(failed, unit) {
+		return failed
+	}
+	out := failed[:0]
+	for _, u := range failed {
+		if u != unit {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// sysupdateUnconfigured reports whether systemd-sysupdate has no transfer
+// definitions on disk — in which case its only possible outcome is the benign
+// "No transfer definitions found" failure (there is no update for it to apply, so
+// suppressing it cannot hide a real update failure).
+func sysupdateUnconfigured() bool {
+	for _, dir := range []string{"/etc/sysupdate.d", "/usr/lib/sysupdate.d"} {
+		if matches, _ := glob(dir + "/*.transfer"); len(matches) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func containsUnit(units []string, name string) bool {
+	for _, u := range units {
+		if u == name {
+			return true
+		}
+	}
+	return false
+}
+
+// unitIgnored reports whether a unit name is in the ignore set, matching both the
+// literal name and its template form (container-getty@1.service →
+// container-getty@.service; sshd@<conn>.service → sshd@.service).
+func unitIgnored(u string, ignore map[string]bool) bool {
+	if ignore[u] {
+		return true
+	}
+	if at := strings.Index(u, "@"); at >= 0 {
+		if dot := strings.LastIndex(u, "."); dot > at {
+			if ignore[u[:at+1]+u[dot:]] { // e.g. "container-getty@.service"
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {
 	out := units[:0]
 	for _, u := range units {
-		if ignore[u] {
+		if !unitIgnored(u, ignore) {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// filterBenignFailedUnits removes environmental-noise failed units — the SAME set
+// the health SystemdCollector suppresses — from a `dsd services deep` failed-unit
+// list. Without it the two verdicts diverge sharply: a long-lived / cloned VM
+// accrues dozens of transient sshd@<conn> units, so `dsd services deep`
+// false-CRIT'd "47 failed units" while `dsd health` correctly read Systemd OK
+// (observed live on VMware Photon OS). Shares cloudInitUnits + the benign
+// systemd-sysupdate rule so the paths cannot drift.
+func filterBenignFailedUnits(units []models.SystemdUnit) []models.SystemdUnit {
+	sysupdateBenign := sysupdateUnconfigured()
+	out := units[:0]
+	for _, u := range units {
+		if unitIgnored(u.Name, cloudInitUnits) {
 			continue
 		}
-		// Handle template instances: container-getty@1.service matches container-getty@.service
-		if at := strings.Index(u, "@"); at >= 0 {
-			if dot := strings.LastIndex(u, "."); dot > at {
-				templateKey := u[:at+1] + u[dot:] // e.g. "container-getty@.service"
-				if ignore[templateKey] {
-					continue
-				}
-			}
+		if sysupdateBenign && u.Name == "systemd-sysupdate.service" {
+			continue
 		}
 		out = append(out, u)
 	}
@@ -126,6 +218,7 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	failedRaw, failedErr := listUnits(ctx, "failed")
 	failed := filterUnits(failedRaw, cloudInitUnits)
+	failed = dropBenignSysupdate(failed)
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{

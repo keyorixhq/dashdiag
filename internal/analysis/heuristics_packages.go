@@ -21,6 +21,8 @@ func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
 		return "pacman -Syu", "checkupdates"
 	case "yum":
 		return "yum update --security", "yum updateinfo list security"
+	case "tdnf":
+		return "tdnf update --security", "tdnf updateinfo list --security"
 	default:
 		return "apt-get upgrade", "apt list --upgradable 2>/dev/null | grep -i security"
 	}
@@ -108,7 +110,8 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 			reason = "update metadata is stale — cannot confirm packages are up to date"
 		}
 		refresh := map[string]string{
-			"apt": "apt update", "dnf": "dnf makecache", "yum": "yum makecache", "zypper": "zypper refresh",
+			"apt": "apt update", "dnf": "dnf makecache", "yum": "yum makecache",
+			"zypper": "zypper refresh", "tdnf": "tdnf makecache",
 		}[pkg.PackageManager]
 		hints := []string{"note: this is an unverified result, not a clean bill of health"}
 		if refresh != "" {
@@ -131,39 +134,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		return nil
 	}
 
-	// distro-correct fix commands
-	fixCmd, inspectCmd := packageFixCommands(pkg.PackageManager)
-
-	if pkg.PackageManager == "apt" {
-		// apt embeds no per-package CVSS, so collectAPT INFERS "Critical" from the
-		// package name (kernel/openssl/glibc/…). A name guess must NOT mint a hard
-		// CRIT health verdict — that would CRIT a host (exit 2) merely because
-		// openssl has a pending update. Fold apt security updates into a WARN with
-		// the honest caveat, matching checkCVEHealth's apt path. dnf/zypper expose a
-		// real per-advisory severity, so their CriticalUpdates keeps the CRIT below.
-		out = append(out, insight("WARN", "Packages",
-			fmt.Sprintf("%d security update(s) available (apt) — severity inferred from package name; apt exposes no CVSS", pkg.SecurityUpdates),
-			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
-		))
-	} else if pkg.CriticalUpdates > 0 {
-		out = append(out, insight("CRIT", "Packages",
-			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
-			[]string{
-				fmt.Sprintf("to inspect: %s", inspectCmd),
-				fmt.Sprintf("to fix: %s", fixCmd),
-			},
-		))
-	} else if pkg.ImportantUpdates > 0 {
-		out = append(out, insight("WARN", "Packages",
-			fmt.Sprintf("%d important security update(s) available (%s)", pkg.ImportantUpdates, pkg.PackageManager),
-			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
-		))
-	} else {
-		out = append(out, insight("WARN", "Packages",
-			fmt.Sprintf("%d security update(s) available (%s)", pkg.SecurityUpdates, pkg.PackageManager),
-			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
-		))
-	}
+	out = append(out, securityUpdateInsight(pkg)...)
 
 	// Ubuntu ESM: surface Pro-gated security updates as INFO so the admin
 	// knows real CVEs exist even without a Pro subscription.
@@ -178,6 +149,50 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	}
 
 	return out
+}
+
+// securityUpdateInsight renders the single security-update verdict for a
+// confirmed, non-empty scan. Package managers that publish NO per-package CVSS
+// (apt: severity inferred from the package name; tdnf/Photon: not rated at all)
+// fold to one honest WARN — a name guess or vendor "Security" tag must NOT mint a
+// hard CRIT (exit 2). Managers that DO expose a real per-advisory severity
+// (dnf/zypper/yum) keep the CriticalUpdates→CRIT path.
+func securityUpdateInsight(pkg models.PackagesInfo) []models.Insight {
+	fixCmd, inspectCmd := packageFixCommands(pkg.PackageManager)
+
+	switch {
+	case pkg.PackageManager == "apt":
+		return []models.Insight{insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) available (apt) — severity inferred from package name; apt exposes no CVSS", pkg.SecurityUpdates),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		)}
+	case pkg.PackageManager == "tdnf":
+		// VMware Photon OS: PHSA advisories are vendor-confirmed but carry no CVSS.
+		// (Before tdnf support, Photon read as an "unknown" package manager and these
+		// advisories were INVISIBLE — a silent false-OK on VMware's own distro.)
+		return []models.Insight{insight("WARN", "Packages",
+			fmt.Sprintf("%d pending security update(s) (tdnf) — Photon advisories carry no CVSS, so severity is not scored", pkg.SecurityUpdates),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		)}
+	case pkg.CriticalUpdates > 0:
+		return []models.Insight{insight("CRIT", "Packages",
+			fmt.Sprintf("%d critical security update(s) available (%s)", pkg.CriticalUpdates, pkg.PackageManager),
+			[]string{
+				fmt.Sprintf("to inspect: %s", inspectCmd),
+				fmt.Sprintf("to fix: %s", fixCmd),
+			},
+		)}
+	case pkg.ImportantUpdates > 0:
+		return []models.Insight{insight("WARN", "Packages",
+			fmt.Sprintf("%d important security update(s) available (%s)", pkg.ImportantUpdates, pkg.PackageManager),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		)}
+	default:
+		return []models.Insight{insight("WARN", "Packages",
+			fmt.Sprintf("%d security update(s) available (%s)", pkg.SecurityUpdates, pkg.PackageManager),
+			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		)}
+	}
 }
 
 func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
@@ -245,7 +260,8 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 	// scan never measured, and don't let a name guess mint a hard CRIT — fold the
 	// name-matched advisories into a single honest WARN. Managers that do expose a
 	// real severity/CVSS (dnf/zypper/…) keep the CVSS-based CRIT/WARN below.
-	if r.PackageManager == "apt" {
+	switch r.PackageManager {
+	case "apt":
 		if n := len(r.Critical) + len(r.Important); n > 0 {
 			return []models.Insight{insight("WARN", "CVE",
 				fmt.Sprintf("%d security-relevant package update(s) pending (apt) — severity inferred from package name; apt exposes no CVSS", n),
@@ -255,7 +271,20 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 				}),
 			)}
 		}
-	} else {
+	case "tdnf":
+		// VMware Photon OS: PHSA advisories are vendor-confirmed but carry no CVSS,
+		// so fold to a single honest WARN (never a CRIT). scanAllTDNF buckets every
+		// advisory as Important for exactly this path.
+		if n := len(r.Critical) + len(r.Important); n > 0 {
+			return []models.Insight{insight("WARN", "CVE",
+				fmt.Sprintf("%d pending Photon security advisory(ies) (tdnf) — no CVSS published, so severity is not scored", n),
+				withFix([]string{
+					"to review the list: dsd cve --all",
+					"note: Photon advisories (PHSA) do not publish a CVSS band; see the Photon security advisories",
+				}),
+			)}
+		}
+	default:
 		if len(r.Critical) > 0 {
 			return []models.Insight{insight("CRIT", "CVE",
 				fmt.Sprintf("%d critical security advisory(ies) — %s rates these Critical", len(r.Critical), r.PackageManager),

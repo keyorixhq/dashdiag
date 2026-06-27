@@ -66,6 +66,8 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 		info, qErr = collectDNF(ctx)
 	case "apt":
 		info, qErr = collectAPT(ctx)
+	case "tdnf":
+		info, qErr = collectTDNF(ctx)
 	}
 	if info == nil {
 		info = &models.PackagesInfo{PackageManager: pm}
@@ -111,6 +113,11 @@ func detectPackageManager(ctx context.Context) string {
 	if _, e := runCmd(ctx, "apt-get", "--version"); e == nil {
 		return "apt"
 	}
+	// tdnf — VMware Photon OS (vCSA/Tanzu/appliances). Probed last: it is
+	// Photon-specific, so the rpm-family managers above never co-exist with it.
+	if _, e := runCmd(ctx, "tdnf", "--version"); e == nil {
+		return "tdnf"
+	}
 	return ""
 }
 
@@ -122,9 +129,9 @@ func pkgDBHealth(ctx context.Context, pm string) (checked, blocked bool, reason,
 	switch pm {
 	case "apt":
 		return aptDBHealth(ctx)
-	case "dnf", "yum", "zypper":
-		// All three are rpm-based (zypper/SLES included) — the package DB that blocks
-		// updates when corrupt is the rpmdb. A stale zypper front-end lock
+	case "dnf", "yum", "zypper", "tdnf":
+		// All are rpm-based (zypper/SLES and Photon/tdnf included) — the package DB
+		// that blocks updates when corrupt is the rpmdb. A stale zypper front-end lock
 		// (/run/zypp.pid) was tried and rejected: a dead-PID lock does NOT block modern
 		// libzypp (verified on Leap 16 — `zypper lr` runs fine with a dead pid present),
 		// so flagging it would be a false alarm.
@@ -208,7 +215,7 @@ func markStaleMetadata(info *models.PackagesInfo) {
 
 func supportedMetadataManager(pm string) bool {
 	switch pm {
-	case "apt", "dnf", "yum", "zypper":
+	case "apt", "dnf", "yum", "zypper", "tdnf":
 		return true
 	}
 	return false
@@ -227,6 +234,8 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 		globs = []string{"/var/cache/dnf/*/repodata/repomd.xml", "/var/cache/yum/*/repodata/repomd.xml"}
 	case "zypper":
 		globs = []string{"/var/cache/zypp/raw/*/repodata/repomd.xml", "/var/cache/zypp/solv/*/solv"}
+	case "tdnf":
+		globs = []string{"/var/cache/tdnf/*/repodata/repomd.xml"}
 	default:
 		return -1, false
 	}
@@ -330,6 +339,43 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 			Name:     pkg,
 			Severity: sev,
 			Advisory: advisory,
+		})
+	}
+	return info, nil
+}
+
+// collectTDNF counts pending Photon (VMware Photon OS) security advisories via
+// tdnf. Photon publishes advisories as PHSA notices with no per-package CVSS, so
+// every pending advisory is classed Important (WARN-worthy) — never a name- or
+// guess-minted Critical. Mirrors collectDNF's shape; reuses the shared tdnf
+// updateinfo parsers in cve_linux.go. A failed query is surfaced as "query-failed"
+// (an unverified result), never a silent clean 0 (the false-OK this closes).
+func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
+	info := &models.PackagesInfo{Checked: true, PackageManager: "tdnf", HasSecurityRepo: true}
+
+	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
+	entries, parsed := parseTDNFUpdateInfoJSON(out)
+	if !parsed {
+		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", "--security")
+		entries = parseTDNFUpdateInfoText(textOut)
+		if len(entries) == 0 && textErr != nil && err != nil {
+			info.Status = "query-failed"
+			info.StatusReason = "tdnf updateinfo unavailable"
+			return info, nil
+		}
+	}
+
+	for _, e := range entries {
+		pkg := ""
+		if len(e.Packages) > 0 {
+			pkg = strings.TrimSuffix(e.Packages[0], ".rpm")
+		}
+		info.SecurityUpdates++
+		info.ImportantUpdates++ // Photon advisories carry no CVSS — never Critical
+		info.Updates = append(info.Updates, models.PackageUpdate{
+			Name:     pkg,
+			Severity: "Important",
+			Advisory: tdnfTrimPatchPrefix(e.UpdateID),
 		})
 	}
 	return info, nil

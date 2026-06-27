@@ -3,7 +3,90 @@ package collectors
 import (
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// Per-connection socket-activated sshd instances (sshd@.service template, the
+// default on Photon/Fedora) go "failed" when a connection drops before auth — a
+// port scan, an LB/TCP health probe, kex_exchange_identification. They are not a
+// daemon fault and must be filtered out of the failed-units verdict via the
+// template-instance collapsing, while the real sshd.service is kept. (Found live
+// on VMware Photon OS, where dsd health raised 4 false CRITs from probe-closed
+// connections.)
+func TestFilterUnitsDropsPerConnectionSSHD(t *testing.T) {
+	t.Parallel()
+	units := []string{
+		"sshd@0-192.168.30.229:22-192.168.30.10:52934.service",
+		"sshd@1-192.168.30.229:22-192.168.30.10:42008.service",
+		"sshd.service",    // the real daemon — must be kept
+		"my-real.service", // unrelated genuine failure — must be kept
+	}
+	got := filterUnits(units, cloudInitUnits)
+	for _, u := range got {
+		if strings.HasPrefix(u, "sshd@") {
+			t.Errorf("per-connection sshd instance leaked through filter: %q", u)
+		}
+	}
+	if !contains(got, "sshd.service") {
+		t.Error("real sshd.service daemon unit was wrongly filtered")
+	}
+	if !contains(got, "my-real.service") {
+		t.Error("unrelated genuine failed unit was wrongly filtered")
+	}
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// systemd ships systemd-sysupdate.timer enabled, but with no transfer
+// definitions configured the service exits 1 ("No transfer definitions found")
+// every firing and sits permanently "failed" — a benign default state (verified
+// live on VMware Photon OS 5.0, where dsd false-CRIT'd on it). Suppress ONLY when
+// unconfigured; a real update failure (transfers present) must survive.
+func TestDropSysupdateIf(t *testing.T) {
+	t.Parallel()
+	failed := []string{"systemd-sysupdate.service", "real.service"}
+
+	// Unconfigured (no transfers) → benign, drop it; keep the real failure.
+	got := dropSysupdateIf(append([]string(nil), failed...), true)
+	if containsUnit(got, "systemd-sysupdate.service") {
+		t.Error("unconfigured sysupdate should be suppressed")
+	}
+	if !containsUnit(got, "real.service") {
+		t.Error("a genuine failed unit must never be suppressed")
+	}
+
+	// Configured (transfers present) → a sysupdate failure is real, keep it.
+	got = dropSysupdateIf(append([]string(nil), failed...), false)
+	if !containsUnit(got, "systemd-sysupdate.service") {
+		t.Error("configured sysupdate failure must be kept (could be a real update failure)")
+	}
+}
+
+// `dsd services deep` must suppress the same failed-unit noise the health
+// SystemdCollector does, so the two never give opposite verdicts on the same host
+// (observed live on Photon: services deep CRIT'd "47 failed units" — transient
+// sshd@<conn> instances + cloud-config — while health read Systemd OK).
+func TestFilterBenignFailedUnits(t *testing.T) {
+	t.Parallel()
+	units := []models.SystemdUnit{
+		{Name: "sshd@0-10.0.0.1:22-10.0.0.2:5000.service"},
+		{Name: "sshd@1-10.0.0.1:22-10.0.0.2:5001.service"},
+		{Name: "cloud-config.service"},
+		{Name: "my-app.service"}, // a genuine failure — must survive
+	}
+	got := filterBenignFailedUnits(units)
+	if len(got) != 1 || got[0].Name != "my-app.service" {
+		t.Fatalf("want only my-app.service to survive, got %+v", got)
+	}
+}
 
 func TestParseUnitList(t *testing.T) {
 	t.Parallel()
