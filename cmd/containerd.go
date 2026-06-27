@@ -38,15 +38,26 @@ func runContainerd(cmd *cobra.Command, _ []string) error {
 			outputFmt = "json"
 		}
 		mode := output.DetectMode(plain, false, outputFmt)
+
+		// containerd IS running but managed by a Kubernetes distro (k3s/RKE2) at a
+		// bundle socket — don't say "not detected" (a false negative). Point the user
+		// at `dsd k8s`, which covers this runtime via its OS-layer checks.
+		status, reason, line := "not-detected",
+			"containerd socket not found — not installed or not running",
+			"containerd not detected — socket not found (not installed or not running)"
+		if collectors.ContainerdK8sManaged() {
+			status = "k8s-managed"
+			reason = "containerd is running but Kubernetes-managed (k3s/RKE2) — run `dsd k8s` for workload health"
+			line = "containerd is running but Kubernetes-managed (k3s/RKE2) — run `dsd k8s` for workload health"
+		}
+
 		if mode == output.ModeJSON {
 			return outputJSON(os.Stdout, &models.ContainerdInfo{
-				Available: false, Status: "not-detected",
-				StatusReason: "containerd socket not found — not installed or not running",
+				Available: false, Status: status, StatusReason: reason,
 			})
 		}
 		fmt.Println()
-		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) +
-			"containerd not detected — socket not found (not installed or not running)"))
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) + line))
 		return nil
 	}
 

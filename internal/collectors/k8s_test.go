@@ -3,6 +3,7 @@ package collectors
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
@@ -199,5 +200,33 @@ func TestCNIBinsPresentIn(t *testing.T) {
 	}
 	if checked, ok := cniBinsPresentIn(empty); !checked || ok {
 		t.Errorf("empty dir: checked=%v ok=%v, want checked=true ok=false", checked, ok)
+	}
+}
+
+// TestPodAge: pod AGE column was blank because the collector never parsed
+// metadata.creationTimestamp (found live on k3s-dsd, where kubectl showed "13d").
+// podAge renders kubectl's compact short form and blanks on absent/garbage input.
+func TestPodAge(t *testing.T) {
+	if got := podAge(""); got != "" {
+		t.Errorf("empty timestamp should yield empty age, got %q", got)
+	}
+	if got := podAge("not-a-timestamp"); got != "" {
+		t.Errorf("unparseable timestamp should yield empty age, got %q", got)
+	}
+	now := NowViaSource()
+	cases := []struct {
+		ago  time.Duration
+		want string
+	}{
+		{90 * time.Second, "1m"},
+		{2 * time.Hour, "2h"},
+		{49 * time.Hour, "2d"},
+		{-time.Hour, "0s"}, // clock skew / future creation clamps to 0s, never negative
+	}
+	for _, c := range cases {
+		ts := now.Add(-c.ago).Format(time.RFC3339)
+		if got := podAge(ts); got != c.want {
+			t.Errorf("podAge(%s ago) = %q, want %q", c.ago, got, c.want)
+		}
 	}
 }

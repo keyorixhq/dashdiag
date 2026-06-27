@@ -35,9 +35,31 @@ var containerdSocketCandidates = []string{
 	"/var/run/containerd/containerd.sock",
 }
 
-// ContainerdAvailable returns true when a containerd socket is reachable.
+// k8sManagedContainerdSockets are containerd sockets owned by a Kubernetes distro
+// (k3s/RKE2 bundle their own containerd at a private path). They are deliberately
+// NOT in containerdSocketCandidates: that runtime is Kubernetes-managed — `dsd k8s`
+// already covers it via its OS-layer checks, it speaks through the bundled `k3s ctr`
+// (no standalone `ctr`), and its only namespace is k8s.io. The standalone containerd
+// command should point the user at `dsd k8s` rather than report "not detected"
+// (a false negative — containerd IS running) or half-report k8s internals.
+var k8sManagedContainerdSockets = []string{
+	"/run/k3s/containerd/containerd.sock",
+}
+
+// ContainerdAvailable returns true when a standalone containerd socket is reachable.
 func ContainerdAvailable() bool {
 	return detectContainerdSocket() != ""
+}
+
+// ContainerdK8sManaged reports whether containerd is running but managed by a
+// Kubernetes distro (k3s/RKE2) — present at a bundle socket, not a standalone one.
+func ContainerdK8sManaged() bool {
+	for _, path := range k8sManagedContainerdSockets {
+		if dialReachable("unix", path, 300*time.Millisecond) {
+			return true
+		}
+	}
+	return false
 }
 
 // detectContainerdSocket returns the first connectable containerd socket path.

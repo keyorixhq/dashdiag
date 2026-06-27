@@ -11,6 +11,9 @@ import (
 // Linux-only. Keeps cmd/health.go gate compilable on darwin/windows.
 func ContainerdAvailable() bool { return false }
 
+// ContainerdK8sManaged always returns false on non-Linux (containerd is Linux-only).
+func ContainerdK8sManaged() bool { return false }
+
 // ContainerdCollector is a no-op on non-Linux.
 type ContainerdCollector struct{}
 
