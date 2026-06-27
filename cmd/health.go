@@ -542,6 +542,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())
 	}
+	// QEMU/KVM (Proxmox/oVirt/libvirt) guest config — gate on DMI vendor (QEMU).
+	// Silent on bare metal, VMware, and the clouds (which carry their own vendors).
+	if collectors.KVMGuestAvailable() {
+		cols = append(cols, collectors.NewKVMGuestCollector())
+	}
 	// EC2 guest deep checks — gate on DMI vendor (silent on every non-EC2 host).
 	if collectors.AWSGuestAvailable() {
 		cols = append(cols, collectors.NewAWSCollector())

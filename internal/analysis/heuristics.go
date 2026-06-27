@@ -665,6 +665,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkVMware(*d)
 		}
+	case models.KVMGuestInfo:
+		return checkKVMGuest(d)
+	case *models.KVMGuestInfo:
+		if d != nil {
+			return checkKVMGuest(*d)
+		}
 	case models.AWSInfo:
 		return checkAWS(d)
 	case *models.AWSInfo:
