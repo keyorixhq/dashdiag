@@ -5,6 +5,44 @@ import (
 	"testing"
 )
 
+// Per-connection socket-activated sshd instances (sshd@.service template, the
+// default on Photon/Fedora) go "failed" when a connection drops before auth — a
+// port scan, an LB/TCP health probe, kex_exchange_identification. They are not a
+// daemon fault and must be filtered out of the failed-units verdict via the
+// template-instance collapsing, while the real sshd.service is kept. (Found live
+// on VMware Photon OS, where dsd health raised 4 false CRITs from probe-closed
+// connections.)
+func TestFilterUnitsDropsPerConnectionSSHD(t *testing.T) {
+	t.Parallel()
+	units := []string{
+		"sshd@0-192.168.30.229:22-192.168.30.10:52934.service",
+		"sshd@1-192.168.30.229:22-192.168.30.10:42008.service",
+		"sshd.service",    // the real daemon — must be kept
+		"my-real.service", // unrelated genuine failure — must be kept
+	}
+	got := filterUnits(units, cloudInitUnits)
+	for _, u := range got {
+		if strings.HasPrefix(u, "sshd@") {
+			t.Errorf("per-connection sshd instance leaked through filter: %q", u)
+		}
+	}
+	if !contains(got, "sshd.service") {
+		t.Error("real sshd.service daemon unit was wrongly filtered")
+	}
+	if !contains(got, "my-real.service") {
+		t.Error("unrelated genuine failed unit was wrongly filtered")
+	}
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func TestParseUnitList(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

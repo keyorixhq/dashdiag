@@ -83,6 +83,16 @@ var cloudInitUnits = map[string]bool{
 	// tmpfiles-clean fails in unprivileged LXC — no access to protected dirs
 	"systemd-tmpfiles-clean.service": true,
 	"systemd-tmpfiles-clean.timer":   true,
+	// Per-connection socket-activated sshd instances (sshd@.service template,
+	// the default on Photon/Fedora). A connection dropped before auth completes —
+	// a port scan, a TCP/LB health probe, kex_exchange_identification — leaves the
+	// transient unit "failed" (status 255) until it is garbage-collected. These
+	// accumulate into a pile of false CRITs that have nothing to do with the SSH
+	// daemon's health (sshd.service / ssh.service are checked separately and are
+	// NOT filtered here). Matched via filterUnits' template-instance collapsing
+	// (sshd@<addr:port-addr:port>.service → sshd@.service).
+	"sshd@.service": true,
+	"ssh@.service":  true,
 }
 
 func filterUnits(units []string, ignore map[string]bool) []string {
