@@ -517,6 +517,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 		"list-patches", "--category", "security")
 	if err != nil && len(out) == 0 {
 		result.StatusReason = "zypper list-patches failed: " + err.Error()
+		result.ScanFailed = true
 		return result
 	}
 
@@ -582,7 +583,8 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
 	}
 	if err != nil && len(out) == 0 {
-		result.StatusReason = "dnf advisory list failed"
+		result.StatusReason = "dnf advisory list failed — could not verify CVE exposure (no repo access?)"
+		result.ScanFailed = true
 		return result
 	}
 	if strings.TrimSpace(out) == "" {
@@ -884,6 +886,7 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 	}
 	result.FixCommand = "apt-get upgrade"
 	result.StatusReason = aptScanStatusReason(result.Total, err)
+	result.ScanFailed = result.Total == 0 && err != nil
 	return result
 }
 
@@ -1055,6 +1058,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 
 	if !hasCmd("arch-audit") {
 		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
+		result.ScanFailed = true
 		return result
 	}
 
@@ -1062,6 +1066,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 	out, err := runCmd(ctx, "arch-audit", "-u")
 	if err != nil && len(out) == 0 {
 		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.ScanFailed = true
 		return result
 	}
 
