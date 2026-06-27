@@ -906,3 +906,39 @@ non-zero exit from such a tool must distinguish *locked* from *permission* from
   IPMI (consumer SFF), so §B/server-grade gaps remain open.
 - BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
   duplicated with diverging counts (13 vs 14) — delete the older pair.
+
+---
+
+## S. Tenant-health command (`dsd guest`) — ✅ SHIPPED (container/VM auto-detect); v2 + cloud fold-in deferred
+
+`dsd guest` (#559) unifies the per-platform guest commands into one auto-detecting
+**tenant** command: container (Docker/Podman/LXC/k8s) → VM (VMware #555 / KVM #557) →
+bare metal. Resolves the **innermost** layer first (a container on a VM reports as the
+container, noting the VM beneath when DMI is visible — masked in hardened/OrbStack
+containers, degrades honestly). Two-block guest-vs-host framing; verdict shares the
+`dsd health` heuristic (cmd↔health guards added, §E). `dsd vmware`/`dsd kvm-guest` are
+now `Hidden` specializations (out of `--help`, still functional; Cobra suggests
+`guest`). Container view flags the "why is my container slow/dying" signals — cgroup
+CPU-throttle (`nr_throttled/nr_periods`) + OOM-kills (`memory.events`). Live-validated:
+a throttled Docker container (throttle 100% correctly flagged), real Proxmox VM 101
+(healthy), bare-metal Mac. Pairing rule: `dsd kvm` = you run the hypervisor; `dsd guest`
+= you're inside one.
+
+**Open / deferred:**
+- **v2 — multi-layer descent** (deferred, agreed): a container *on* a VM — attribute the
+  constraint to the right owner (your cgroup quota vs the VM being CPU-starved by the
+  hypervisor; container → VM → hypervisor → hardware, each layer's owner labelled). Same
+  engine as the layered health view below. Demand/usability-driven.
+- **Cloud guests fold-in**: extend `dsd guest` to AWS/Azure/GCP (collectors already
+  exist — they fold into `dsd health` only today). Demand-gated (§C).
+- **`dsd health --layered`** (#556, **OPEN PR**): groups the flat health report into
+  Hardware / Platform / OS layers led by a severity tally; KVMGuest/VMware/PVE sit in
+  the Platform layer. **DECISION PENDING (user):** retune layer boundaries + whether to
+  make it the default (`--flat` to opt out). Non-breaking (behind `--layered`), `--json`
+  schema untouched. Green; nothing depends on it.
+- **`dsd pve` node/guests/cluster tiering**: the Proxmox node-**operator** view (vs the
+  guest/tenant view above) — "this node / your guests / cluster" tiers. NOT vmware's
+  you-vs-provider split (a PVE node IS the provider). Proxmox = VMware-refugee market;
+  deprioritized vs the VMware pilot.
+- **#503 — GPU APU verification**: needs the user's AMD laptop (no cloud substitute) —
+  the last unverified check from the v1.10.0 regression pass.
