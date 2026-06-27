@@ -232,7 +232,10 @@ var healthLayers = []healthLayer{
 		},
 	},
 	{
-		title: "Platform", subtitle: "the host / cloud you run on",
+		// The virtualization layer — whether this host CONSUMES it (a guest under
+		// VMware/AWS/Azure/GCP) or PROVIDES it (a Proxmox node IS the hypervisor).
+		// Both are "the platform," viewed from opposite sides.
+		title: "Platform", subtitle: "the hypervisor / cloud platform layer",
 		hint: "dsd vmware", hintFor: "VMware",
 		members: []string{
 			"VMware", "AWS", "Azure", "GCP", "CloudMeta", "CloudInit", "PVE",
