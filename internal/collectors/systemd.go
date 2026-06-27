@@ -95,6 +95,59 @@ var cloudInitUnits = map[string]bool{
 	"ssh@.service":  true,
 }
 
+// dropBenignSysupdate removes systemd-sysupdate.service from the failed-units
+// list when no transfer definitions are configured on disk. systemd ships
+// systemd-sysupdate.timer enabled, but with no *.transfer files in
+// /etc/sysupdate.d or /usr/lib/sysupdate.d the service exits 1 ("No transfer
+// definitions found") on every timer firing and sits permanently "failed" — a
+// benign default state (verified on VMware Photon OS 5.0, which enables the timer
+// but ships zero transfers, so dsd false-CRIT'd on every box). The suppression is
+// reason-aware, NOT unconditional: when transfers ARE configured the service can
+// fail for a real reason (a failed update), and that failure is kept.
+func dropBenignSysupdate(failed []string) []string {
+	return dropSysupdateIf(failed, sysupdateUnconfigured())
+}
+
+// dropSysupdateIf removes systemd-sysupdate.service from failed only when
+// unconfigured is true. Split out (impure glob in dropBenignSysupdate, pure list
+// logic here) so the suppression rule is unit-testable without touching the real
+// filesystem.
+func dropSysupdateIf(failed []string, unconfigured bool) []string {
+	const unit = "systemd-sysupdate.service"
+	if !unconfigured || !containsUnit(failed, unit) {
+		return failed
+	}
+	out := failed[:0]
+	for _, u := range failed {
+		if u != unit {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// sysupdateUnconfigured reports whether systemd-sysupdate has no transfer
+// definitions on disk — in which case its only possible outcome is the benign
+// "No transfer definitions found" failure (there is no update for it to apply, so
+// suppressing it cannot hide a real update failure).
+func sysupdateUnconfigured() bool {
+	for _, dir := range []string{"/etc/sysupdate.d", "/usr/lib/sysupdate.d"} {
+		if matches, _ := glob(dir + "/*.transfer"); len(matches) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func containsUnit(units []string, name string) bool {
+	for _, u := range units {
+		if u == name {
+			return true
+		}
+	}
+	return false
+}
+
 func filterUnits(units []string, ignore map[string]bool) []string {
 	out := units[:0]
 	for _, u := range units {
@@ -136,6 +189,7 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	failedRaw, failedErr := listUnits(ctx, "failed")
 	failed := filterUnits(failedRaw, cloudInitUnits)
+	failed = dropBenignSysupdate(failed)
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{

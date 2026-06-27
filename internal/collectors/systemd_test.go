@@ -43,6 +43,31 @@ func contains(s []string, v string) bool {
 	return false
 }
 
+// systemd ships systemd-sysupdate.timer enabled, but with no transfer
+// definitions configured the service exits 1 ("No transfer definitions found")
+// every firing and sits permanently "failed" — a benign default state (verified
+// live on VMware Photon OS 5.0, where dsd false-CRIT'd on it). Suppress ONLY when
+// unconfigured; a real update failure (transfers present) must survive.
+func TestDropSysupdateIf(t *testing.T) {
+	t.Parallel()
+	failed := []string{"systemd-sysupdate.service", "real.service"}
+
+	// Unconfigured (no transfers) → benign, drop it; keep the real failure.
+	got := dropSysupdateIf(append([]string(nil), failed...), true)
+	if containsUnit(got, "systemd-sysupdate.service") {
+		t.Error("unconfigured sysupdate should be suppressed")
+	}
+	if !containsUnit(got, "real.service") {
+		t.Error("a genuine failed unit must never be suppressed")
+	}
+
+	// Configured (transfers present) → a sysupdate failure is real, keep it.
+	got = dropSysupdateIf(append([]string(nil), failed...), false)
+	if !containsUnit(got, "systemd-sysupdate.service") {
+		t.Error("configured sysupdate failure must be kept (could be a real update failure)")
+	}
+}
+
 func TestParseUnitList(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
