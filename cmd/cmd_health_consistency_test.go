@@ -297,6 +297,54 @@ func TestCmdHealthConsistency_KVMGuest(t *testing.T) {
 	}
 }
 
+// `dsd guest` (container case) counts WARN/CRIT from analysis.ContainerGuestInsights
+// — the SAME checkContainerGuest `dsd health` dispatches to — so the tally can't
+// drift. INFO-level states (no CPU limit, writable rootfs, recognition) must be
+// non-concerns in both paths.
+func TestCmdHealthConsistency_ContainerGuest(t *testing.T) {
+	base := func() models.ContainerGuestInfo {
+		// A clean container: limits set, non-root, read-only root, no throttle/OOM.
+		return models.ContainerGuestInfo{
+			InContainer: true, Runtime: "docker", CgroupV2: true,
+			MemLimitBytes: 128 << 20, CPUQuotaCores: 1.0,
+		}
+	}
+	concerns := func(v models.ContainerGuestInfo) int {
+		n := 0
+		for _, in := range analysis.ContainerGuestInsights(v) {
+			if in.Level == "WARN" || in.Level == "CRIT" {
+				n++
+			}
+		}
+		return n
+	}
+	cases := []struct {
+		name string
+		mut  func(*models.ContainerGuestInfo)
+	}{
+		{"clean", func(v *models.ContainerGuestInfo) {}},
+		{"no mem limit", func(v *models.ContainerGuestInfo) { v.MemLimitBytes = 0 }},
+		{"runs as root", func(v *models.ContainerGuestInfo) { v.RunAsRoot = true }},
+		{"cpu throttled", func(v *models.ContainerGuestInfo) { v.ThrottledPct = 40 }},
+		{"oom killed", func(v *models.ContainerGuestInfo) { v.OOMKills = 3 }},
+		// INFO-only states — non-concerns in both paths:
+		{"no cpu limit", func(v *models.ContainerGuestInfo) { v.CPUQuotaCores = 0 }},
+		{"writable rootfs", func(v *models.ContainerGuestInfo) { v.WritableRootfs = true }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := base()
+			tc.mut(&info)
+			cmdConcern := concerns(info) > 0
+			healthConcern := healthHasConcern(t, "ContainerGuest", &info)
+			if cmdConcern != healthConcern {
+				t.Errorf("ContainerGuest divergence: `dsd guest` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
+
 // `dsd steamos` keeps its own hand-tally (steamOSConcernCount) for the summary
 // line while `dsd health` evaluates the same SteamOSInfo through checkSteamOS —
 // the exact two-paths-on-one-model shape this file guards. All fixtures set
