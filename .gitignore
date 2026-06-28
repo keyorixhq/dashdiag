@@ -34,3 +34,6 @@ marketing-assets/**/baselines/
 
 # Local AI/dev context — not tracked in the public repo
 CLAUDE.md
+
+# transient binary built by scripts/check-replay-fidelity.sh
+.dsd-fidelity.*

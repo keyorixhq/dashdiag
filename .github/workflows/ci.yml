@@ -113,6 +113,28 @@ jobs:
           done
           echo "✅ deep replay is hermetic: 3 --deep replays byte-identical (modulo timestamp/duration)"
 
+  # Cross-environment replay FIDELITY guard (complements replay-hermetic above).
+  # The double-replay job proves two replays in the SAME environment agree; it is
+  # blind to a collector that reads live ENVIRONMENT state at replay time
+  # (container-context, adjtimex/clock-sync, kernel, arch) because capture-env ==
+  # replay-env hides the divergence. That gap shipped a real bug: a captured "NTP
+  # not synchronized" CRIT replayed as a green "host: synced" OK inside a container
+  # (#586). This job replays a committed bundle captured on a DISTINCTIVE host
+  # (verdicts differ from any runner) inside a container and asserts every check's
+  # status matches the checked-in golden — drift means a collector reads live state
+  # under replay. See fixtures/replay-fidelity/README.md.
+  replay-fidelity:
+    name: Replay fidelity (cross-env golden)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Replay distinctive fixtures in a container, assert golden verdicts
+        run: ./scripts/check-replay-fidelity.sh
+
   # SSDLC Layer 1 (ADR-0007): the .golangci.yml gosec config previously only ran
   # locally / pre-push — nothing gated PRs. This is the PR security gate.
   lint:
@@ -231,7 +253,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
