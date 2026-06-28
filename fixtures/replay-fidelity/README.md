@@ -30,6 +30,20 @@ because:
 If any check's replayed status drifts from `*.golden.json`, a collector is
 reading live state under replay — fail loud.
 
+## `debian13-vmware-nonroot`
+
+The **same** VMware Debian guest, captured **unprivileged** (no root). It guards
+the other direction of the non-root false-verdict class: a privileged check that
+de-escalates to a green **OK** when it can't read its root-gated source, instead of
+honestly degrading to **INFO**. The live `nonroot-invariant` CI job only catches
+non-root *escalation* (a WARN/CRIT non-root that root doesn't), and can't catch
+de-escalation reliably because a healthy CI runner has no root-gated WARN/CRIT to
+begin with. This fixture does: as root the box is `KernelSec=WARN` (AppArmor
+complain) and `Hardening=WARN` (password-never-expires from `/etc/shadow`); its
+golden pins those to **`KernelSec=INFO`, `Hardening=INFO`, `OOM=INFO`,
+`Firewall=INFO`** — the honest "couldn't measure" verdicts. A collector that
+regresses to OK there flips INFO→OK and fails the golden.
+
 ### Regenerating the golden (only after an *intended* verdict change)
 
 ```bash
