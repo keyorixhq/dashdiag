@@ -76,7 +76,12 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 	}
 
 	// Recent failures
-	if len(info.Failures) == 0 {
+	if len(info.Failures) == 0 && !info.FailureScanOK {
+		// Neither journalctl nor /var/log/cron* was readable — an empty list means
+		// "couldn't look", not "no failures". Don't render the green "none" (false-OK);
+		// mirrors the health heuristic's "failure history not readable" INFO.
+		printLine(mode, "info", "Failures (24h)", "not readable — recent job failures could be hidden (run as root / check journalctl)")
+	} else if len(info.Failures) == 0 {
 		printLine(mode, "ok", "Failures (24h)", "none")
 	} else {
 		printLine(mode, "warn", "Failures (24h)", fmt.Sprintf("%d job(s)", len(info.Failures)))

@@ -103,10 +103,20 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 		issues++
 	}
 	issues += len(info.CrashLoops)
-	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Logs healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
-	} else {
+	switch {
+	case issues > 0:
 		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s %d log issue(s) found%s", asciiOr("fail", "❌", mode), issues, timing)))
+	case info.ErrorCountUnverified:
+		// The journal error scan failed AND no /var/log fallback — error history was
+		// never read. "Checks passed" would be a false-OK; say it wasn't verified.
+		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%s Logs partially checked — error history NOT verified (journal scan failed, no text-log fallback)%s", asciiOr("info", "ℹ️ ", mode), timing)))
+	case info.NeedsRoot:
+		// Non-root: OOM kills / segfaults via /dev/kmsg and auth-log analysis are
+		// root-gated and may be incomplete — don't assert a clean "Checks passed".
+		// Mirrors the health Logs verdict, which renders INFO (not OK) when non-root.
+		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%s Logs OK so far, but limited — run as root for OOM/segfault detection via /dev/kmsg and auth-log analysis%s", asciiOr("info", "ℹ️ ", mode), timing)))
+	default:
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Logs healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	}
 }
 
