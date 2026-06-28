@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"context"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,7 +184,215 @@ func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 		return info, nil
 	}
 	parseIPTList(out, info)
+
+	// When the INPUT policy is DROP, correlate listening services against the ACCEPT
+	// rules to find ports that are exposed (bound 0.0.0.0/::) but unreachable — the
+	// classic "service up but firewall drops it" footgun (common on Photon, which
+	// ships a default-DROP iptables ruleset). Conservative: only flags when the
+	// ruleset is fully parseable (see correlateBlockedListeners).
+	if info.DefaultDrop {
+		correlateBlockedListeners(ctx, info)
+	}
 	return info, nil
+}
+
+// correlateBlockedListeners populates info.BlockedListeners with TCP ports that
+// listen on all interfaces but have no INPUT ACCEPT rule under a DROP policy.
+// Re-reads the INPUT chain with `-nvL` (the -v is essential: it exposes the `in`
+// interface column so an `-i lo -j ACCEPT` rule isn't misread as a blanket accept).
+// Bails (leaves BlockedListeners nil) the moment the ruleset contains anything it
+// can't fully reason about — a custom-chain jump, an ipset/blanket ACCEPT — so a
+// reachable service is never mis-flagged as blocked.
+func correlateBlockedListeners(ctx context.Context, info *models.FirewallInfo) {
+	out, err := runCmd(ctx, "iptables", "-t", "filter", "-nvL", "INPUT")
+	if err != nil {
+		return
+	}
+	accepted, determinable := parseIPTInputAccept(out)
+	if !determinable {
+		return
+	}
+	var blocked []int
+	for _, port := range listeningExposedTCPPorts() {
+		if !accepted[port] {
+			blocked = append(blocked, port)
+		}
+	}
+	info.BlockedListeners = blocked
+}
+
+// iptNonAcceptTargets are INPUT targets that never accept a packet, so a rule with
+// one cannot make a port reachable. Any OTHER non-ACCEPT target is a jump to a
+// custom chain we don't follow → the ruleset becomes indeterminable.
+var iptNonAcceptTargets = map[string]bool{
+	"DROP": true, "REJECT": true, "LOG": true, "RETURN": true, "MARK": true,
+	"NFLOG": true, "AUDIT": true, "ULOG": true, "TRACE": true, "CONNMARK": true,
+	"TCPMSS": true, "NOTRACK": true, "CT": true, "NFQUEUE": true,
+}
+
+// parseIPTInputAccept parses `iptables -nvL INPUT` and returns the set of TCP
+// destination ports explicitly ACCEPTed for NEW inbound, plus determinable=false
+// if any rule could permit traffic in a way it can't enumerate (a custom-chain
+// jump, or a non-lo ACCEPT with no explicit dport — blanket/ipset/source-scoped).
+// Columns (-nvL): pkts bytes target prot opt in out source destination [matches].
+func parseIPTInputAccept(out string) (accepted map[int]bool, determinable bool) {
+	accepted = map[int]bool{}
+	determinable = true
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Chain ") || strings.HasPrefix(line, "pkts ") {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 9 {
+			continue
+		}
+		target, in := f[2], f[5]
+		tail := strings.Join(f[9:], " ")
+		if target != "ACCEPT" {
+			if !iptNonAcceptTargets[target] {
+				determinable = false // jump to a custom chain we don't follow
+			}
+			continue
+		}
+		if in == "lo" {
+			continue // loopback-only ACCEPT grants no external reachability
+		}
+		if ports := iptAcceptedDports(tail); len(ports) > 0 {
+			for _, p := range ports {
+				accepted[p] = true
+			}
+			continue
+		}
+		// A no-dport ACCEPT that only matches established/related reply traffic does
+		// not open a listener to NEW connections — ignore it.
+		if iptEstablishedOnly(tail) {
+			continue
+		}
+		// A non-lo ACCEPT with no parseable dport (blanket accept, ipset, or
+		// source-scoped) could permit arbitrary inbound — we can't prove any port is
+		// blocked, so stop here rather than risk a false alarm.
+		determinable = false
+	}
+	return accepted, determinable
+}
+
+// iptEstablishedOnly reports whether a rule's match tail is a conntrack
+// established/related state rule with no NEW state (reply traffic only).
+func iptEstablishedOnly(tail string) bool {
+	l := strings.ToLower(tail)
+	if !strings.Contains(l, "state") { // covers "ctstate" and "state"
+		return false
+	}
+	return !strings.Contains(l, "new")
+}
+
+// iptAcceptedDports extracts TCP destination ports from a rule match tail:
+//
+//	"tcp dpt:22"                         → [22]
+//	"tcp dpts:8000:8002"                 → [8000,8001,8002]
+//	"multiport dports 80,443,8080"       → [80,443,8080]
+func iptAcceptedDports(tail string) []int {
+	var ports []int
+	fields := strings.Fields(tail)
+	for i, tok := range fields {
+		switch {
+		case strings.HasPrefix(tok, "dpt:"):
+			if p, err := strconv.Atoi(strings.TrimPrefix(tok, "dpt:")); err == nil {
+				ports = append(ports, p)
+			}
+		case strings.HasPrefix(tok, "dpts:"):
+			lo, hi, ok := parsePortRange(strings.TrimPrefix(tok, "dpts:"))
+			if ok && hi-lo <= 1024 { // bound the expansion; huge ranges are effectively "many"
+				for p := lo; p <= hi; p++ {
+					ports = append(ports, p)
+				}
+			}
+		case tok == "dports" && i+1 < len(fields):
+			for _, part := range strings.Split(fields[i+1], ",") {
+				if lo, hi, ok := parsePortRange(part); ok {
+					for p := lo; p <= hi && p-lo <= 1024; p++ {
+						ports = append(ports, p)
+					}
+				} else if p, err := strconv.Atoi(part); err == nil {
+					ports = append(ports, p)
+				}
+			}
+		}
+	}
+	return ports
+}
+
+// parsePortRange parses "8000:8002" into (8000, 8002, true); a bare number is not
+// a range (returns ok=false).
+func parsePortRange(s string) (lo, hi int, ok bool) {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	lo, err1 := strconv.Atoi(parts[0])
+	hi, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || hi < lo {
+		return 0, 0, false
+	}
+	return lo, hi, true
+}
+
+// listeningExposedTCPPorts returns TCP ports in LISTEN state bound to all
+// interfaces (0.0.0.0 or ::) from /proc/net/tcp{,6}. Loopback-bound listeners
+// (127.0.0.1/::1) are excluded — they are not externally exposed regardless of the
+// firewall. Source-routed reads so capture/replay stays faithful.
+func listeningExposedTCPPorts() []int {
+	seen := map[int]bool{}
+	var ports []int
+	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		data, err := readFile(path)
+		if err != nil {
+			continue
+		}
+		for _, p := range parseProcNetTCPListeners(string(data)) {
+			if !seen[p] {
+				seen[p] = true
+				ports = append(ports, p)
+			}
+		}
+	}
+	sort.Ints(ports)
+	return ports
+}
+
+// parseProcNetTCPListeners returns the ports in /proc/net/tcp{,6} content that are
+// in LISTEN state (0A) and bound to the wildcard address (0.0.0.0 / ::).
+func parseProcNetTCPListeners(data string) []int {
+	var ports []int
+	for _, line := range strings.Split(data, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[3] != "0A" { // 0A = TCP_LISTEN
+			continue
+		}
+		parts := strings.SplitN(f[1], ":", 2)
+		if len(parts) != 2 || !isAllZeroHexAddr(parts[0]) {
+			continue // bound to a specific address (incl. loopback) — not 0.0.0.0/::
+		}
+		if port, err := strconv.ParseInt(parts[1], 16, 32); err == nil {
+			ports = append(ports, int(port))
+		}
+	}
+	return ports
+}
+
+// isAllZeroHexAddr reports whether a /proc/net/tcp local-address hex string is the
+// wildcard bind (0.0.0.0 → "00000000", :: → 32 zeros).
+func isAllZeroHexAddr(h string) bool {
+	if h == "" {
+		return false
+	}
+	for _, c := range h {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseIPTList parses `iptables -L -n --line-numbers` output into a

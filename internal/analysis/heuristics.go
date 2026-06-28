@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
@@ -2298,7 +2299,32 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 				"note: consider enabling ufw, firewalld, or writing iptables/nft rules",
 			})}
 	}
+	// Services listening on all interfaces but dropped by the INPUT policy — the
+	// "service up but unreachable" footgun (common on Photon's default-DROP iptables).
+	// Only set when the ruleset was fully parseable, so this never mis-flags a
+	// reachable service. The 0.0.0.0 bind signals the service intends to be reachable,
+	// so the firewall block is a likely misconfiguration → WARN.
+	if len(f.BlockedListeners) > 0 {
+		return []models.Insight{insight("WARN", "Firewall",
+			fmt.Sprintf("%d service(s) listen on all interfaces but the INPUT policy is DROP with no rule permitting them — unreachable from outside: port(s) %s",
+				len(f.BlockedListeners), joinInts(f.BlockedListeners)),
+			[]string{
+				"these services bound 0.0.0.0 (intent to be reachable) but the firewall drops new inbound to them",
+				"to allow a port: iptables -A INPUT -p tcp --dport <PORT> -j ACCEPT  (then persist the rule)",
+				"to inspect: iptables -nvL INPUT ; ss -ltn",
+				"note: ignore if the service is meant to be internal-only",
+			})}
+	}
 	return nil
+}
+
+// joinInts renders a sorted int slice as "22, 80, 443".
+func joinInts(xs []int) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = strconv.Itoa(x)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func checkAuth(a models.AuthInfo) []models.Insight {
