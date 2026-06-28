@@ -9,14 +9,20 @@ import (
 
 // Manifest is the bundle's metadata header.
 type Manifest struct {
-	Format  string `json:"format"`
-	Host    string `json:"host,omitempty"`
-	OS      string `json:"os,omitempty"`
-	GOOS    string `json:"goos,omitempty"` // capture-time runtime.GOOS — for the replay platform-match guard
-	Kernel  string `json:"kernel,omitempty"`
-	DsdVer  string `json:"dsd_version,omitempty"`
-	Created string `json:"created,omitempty"`
-	Note    string `json:"note,omitempty"`
+	Format string `json:"format"`
+	Host   string `json:"host,omitempty"`
+	OS     string `json:"os,omitempty"`
+	GOOS   string `json:"goos,omitempty"` // capture-time runtime.GOOS — for the replay platform-match guard
+	// DistroID / InitSystem are the captured host's /etc/os-release ID and init system,
+	// so `dsd replay`'s fix-hint adaptation reflects the CAPTURED host's package manager
+	// / init system, not the box doing the replay. Empty in older bundles → replay falls
+	// back to live detection.
+	DistroID   string `json:"distro_id,omitempty"`
+	InitSystem string `json:"init_system,omitempty"`
+	Kernel     string `json:"kernel,omitempty"`
+	DsdVer     string `json:"dsd_version,omitempty"`
+	Created    string `json:"created,omitempty"`
+	Note       string `json:"note,omitempty"`
 }
 
 // PlatformFamily returns the captured host's OS family ("linux", "darwin",
