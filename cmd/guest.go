@@ -176,6 +176,29 @@ func guestConcerns(view guestView) int {
 	return n
 }
 
+// hostPressureUnverified reports whether a finding says host pressure couldn't be
+// measured (e.g. the VMware stat interface was unavailable — old tools / no perms).
+// That case is an INFO (no concern), so the verdict is still "healthy" — but a
+// "no host pressure" claim in the all-clear line would over-state an unverified
+// negative, the same false-OK class this command exists to avoid.
+func hostPressureUnverified(insights []models.Insight) bool {
+	for _, in := range insights {
+		if strings.Contains(in.Message, "NOT verified") {
+			return true
+		}
+	}
+	return false
+}
+
+// healthySummary returns the all-clear line, but demotes a "no host pressure" claim
+// to an honest "host pressure not verified" when the stats were unavailable.
+func healthySummary(base string, insights []models.Insight) string {
+	if hostPressureUnverified(insights) && strings.Contains(base, "no host pressure") {
+		return strings.Replace(base, "no host pressure", "host pressure not verified (stats unavailable — see above)", 1)
+	}
+	return base
+}
+
 func printGuestView(w io.Writer, view guestView, mode output.OutputMode) {
 	sep := strings.Repeat("─", 60)
 	fmt.Fprintln(w)
@@ -199,7 +222,7 @@ func printGuestView(w io.Writer, view guestView, mode output.OutputMode) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, sep)
 	if guestConcerns(view) == 0 {
-		fmt.Fprintln(w, render.StyleOK.Render(asciiOr("ok", "✅ ", mode)+view.healthyMsg))
+		fmt.Fprintln(w, render.StyleOK.Render(asciiOr("ok", "✅ ", mode)+healthySummary(view.healthyMsg, view.insights)))
 	} else {
 		fmt.Fprintln(w, render.StyleWarn.Render(fmt.Sprintf("%s%d issue(s) found",
 			asciiOr("warn", "⚠️  ", mode), guestConcerns(view))))

@@ -161,9 +161,10 @@ func printVMwareReport(w io.Writer, info *models.VMwareInfo, elapsed time.Durati
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, sep)
 	if vmwareConcerns(info) == 0 {
-		fmt.Fprintln(w, render.StyleOK.Render(fmt.Sprintf(
-			"%sVMware guest healthy — guest tools running, paravirtual drivers in use, no host pressure%s",
-			asciiOr("ok", "✅ ", mode), timing)))
+		base := healthySummary(
+			"VMware guest healthy — guest tools running, paravirtual drivers in use, no host pressure",
+			analysis.VMwareInsights(*info))
+		fmt.Fprintln(w, render.StyleOK.Render(fmt.Sprintf("%s%s%s", asciiOr("ok", "✅ ", mode), base, timing)))
 	} else {
 		fmt.Fprintln(w, render.StyleWarn.Render(fmt.Sprintf(
 			"%s%d VMware config issue(s) found%s", asciiOr("warn", "⚠️  ", mode), vmwareConcerns(info), timing)))
