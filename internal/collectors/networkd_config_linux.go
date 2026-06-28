@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,17 +69,17 @@ func (c *NetworkdConfigCollector) Collect(ctx context.Context) (interface{}, err
 		}
 	}
 
-	info.FailedLinks = collectNetworkdFailedLinks(ctx)
+	info.FailedLinks, info.StuckLinks = classifyNetworkdLinks(collectNetworkdLinks(ctx), systemUptimeSeconds())
 	return info, nil
 }
 
-// collectNetworkdFailedLinks returns networkd-managed links whose SETUP state is
-// "failed". Prefers the structured `networkctl --json=short list` (systemd 249+);
-// falls back to the column output of `networkctl list`. Returns nil on any read
-// error (networkctl absent / older) — the perms audit still stands on its own.
-func collectNetworkdFailedLinks(ctx context.Context) []models.NetworkdLink {
+// collectNetworkdLinks returns ALL networkd-tracked links. Prefers the structured
+// `networkctl --json=short list` (systemd 249+); falls back to the column output of
+// `networkctl list`. Returns nil on any read error (networkctl absent / older) — the
+// perms audit still stands on its own.
+func collectNetworkdLinks(ctx context.Context) []models.NetworkdLink {
 	if out, err := runCmd(ctx, "networkctl", "--json=short", "list"); err == nil {
-		if links := parseNetworkctlJSON(out); links != nil {
+		if links := parseNetworkctlLinksJSON(out); links != nil {
 			return links
 		}
 	}
@@ -86,7 +87,25 @@ func collectNetworkdFailedLinks(ctx context.Context) []models.NetworkdLink {
 	if err != nil {
 		return nil
 	}
-	return parseNetworkctlColumns(out)
+	return parseNetworkctlLinksColumns(out)
+}
+
+// classifyNetworkdLinks splits links into FAILED (networkd gave up applying config)
+// and STUCK (still SETUP=configuring/pending long after boot — it never finished).
+// The uptime gate is what makes "configuring" a real fault rather than a boot
+// transient: links normally reach configured/routable within networkd-wait-online's
+// ~120s window, so one still configuring well past boot is genuinely stuck.
+func classifyNetworkdLinks(links []models.NetworkdLink, uptimeSec float64) (failed, stuck []models.NetworkdLink) {
+	const bootSettleSec = 300 // 5 min — comfortably past wait-online's ~120s timeout
+	for _, l := range links {
+		switch {
+		case networkdSetupFailed(l.Setup):
+			failed = append(failed, l)
+		case networkdSetupConfiguring(l.Setup) && uptimeSec > bootSettleSec:
+			stuck = append(stuck, l)
+		}
+	}
+	return failed, stuck
 }
 
 // networkctlJSON mirrors the fields of `networkctl --json=short list` we read.
@@ -98,44 +117,61 @@ type networkctlJSON struct {
 	} `json:"Interfaces"`
 }
 
-// parseNetworkctlJSON returns the failed-SETUP links from --json output. Returns
-// nil (not empty) on a parse error so the caller falls back to column parsing.
-func parseNetworkctlJSON(out string) []models.NetworkdLink {
+// parseNetworkctlLinksJSON returns ALL links from --json output. Returns nil (not
+// empty) on a parse error so the caller falls back to column parsing.
+func parseNetworkctlLinksJSON(out string) []models.NetworkdLink {
 	var doc networkctlJSON
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		return nil
 	}
-	failed := []models.NetworkdLink{}
+	links := make([]models.NetworkdLink, 0, len(doc.Interfaces))
 	for _, i := range doc.Interfaces {
-		if networkdSetupFailed(i.AdministrativeState) {
-			failed = append(failed, models.NetworkdLink{
-				Name: i.Name, Setup: i.AdministrativeState, Operational: i.OperationalState,
-			})
-		}
+		links = append(links, models.NetworkdLink{
+			Name: i.Name, Setup: i.AdministrativeState, Operational: i.OperationalState,
+		})
 	}
-	return failed
+	return links
 }
 
-// parseNetworkctlColumns parses `networkctl list --no-legend` rows:
+// parseNetworkctlLinksColumns parses ALL `networkctl list --no-legend` rows:
 //
 //	2 eth0 ether routable configured
 //
 // SETUP is the last field, OPERATIONAL the one before it.
-func parseNetworkctlColumns(out string) []models.NetworkdLink {
-	var failed []models.NetworkdLink
+func parseNetworkctlLinksColumns(out string) []models.NetworkdLink {
+	var links []models.NetworkdLink
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
 		if len(f) < 5 {
 			continue
 		}
-		setup := f[len(f)-1]
-		if networkdSetupFailed(setup) {
-			failed = append(failed, models.NetworkdLink{
-				Name: f[1], Setup: setup, Operational: f[len(f)-2],
-			})
-		}
+		links = append(links, models.NetworkdLink{
+			Name: f[1], Setup: f[len(f)-1], Operational: f[len(f)-2],
+		})
 	}
-	return failed
+	return links
+}
+
+// networkdSetupConfiguring reports whether a SETUP state means networkd is still
+// trying to bring the link up (it hasn't reached configured/routable).
+func networkdSetupConfiguring(setup string) bool {
+	s := strings.ToLower(strings.TrimSpace(setup))
+	return s == "configuring" || s == "pending"
+}
+
+// systemUptimeSeconds returns the host uptime from /proc/uptime (source-routed), or
+// 0 if unreadable (which makes the uptime-gated stuck check conservatively skip).
+func systemUptimeSeconds() float64 {
+	data, err := readFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(fields[0], 64)
+	return v
 }
 
 // networkdSetupFailed reports whether a SETUP/AdministrativeState value means

@@ -5,6 +5,8 @@ package collectors
 import (
 	"os"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // systemd-networkd runs as an unprivileged dynamic user, so it can only read a
@@ -38,27 +40,51 @@ const networkctlJSONFixture = `{"Interfaces":[` +
 	`{"Index":3,"Name":"eth1","Type":"ether","MTU":1500,"OperationalState":"no-carrier","AdministrativeState":"failed"}` +
 	`]}`
 
-func TestParseNetworkctlJSON(t *testing.T) {
-	got := parseNetworkctlJSON(networkctlJSONFixture)
-	if len(got) != 1 {
-		t.Fatalf("want 1 failed link, got %d: %+v", len(got), got)
+func TestParseNetworkctlLinksJSON(t *testing.T) {
+	got := parseNetworkctlLinksJSON(networkctlJSONFixture)
+	if len(got) != 3 { // ALL links now (lo, eth0, eth1) — classification happens later
+		t.Fatalf("want 3 links, got %d: %+v", len(got), got)
 	}
-	if got[0].Name != "eth1" || got[0].Setup != "failed" || got[0].Operational != "no-carrier" {
-		t.Errorf("unexpected failed link: %+v", got[0])
+	failed, _ := classifyNetworkdLinks(got, 99999)
+	if len(failed) != 1 || failed[0].Name != "eth1" || failed[0].Operational != "no-carrier" {
+		t.Errorf("eth1 should classify as failed: %+v", failed)
 	}
 	// Garbage → nil so the caller falls back to column parsing.
-	if parseNetworkctlJSON("not json") != nil {
+	if parseNetworkctlLinksJSON("not json") != nil {
 		t.Error("non-JSON must return nil (triggers column fallback)")
 	}
 }
 
 // Real `networkctl list --no-legend` columns: IDX LINK TYPE OPERATIONAL SETUP.
-func TestParseNetworkctlColumns(t *testing.T) {
+func TestParseNetworkctlLinksColumns(t *testing.T) {
 	const out = "  1 lo   loopback carrier    unmanaged\n" +
 		"  2 eth0 ether    routable   configured\n" +
 		"  3 eth1 ether    no-carrier failed\n"
-	got := parseNetworkctlColumns(out)
-	if len(got) != 1 || got[0].Name != "eth1" || got[0].Setup != "failed" {
-		t.Fatalf("want only eth1 failed, got %+v", got)
+	got := parseNetworkctlLinksColumns(out)
+	if len(got) != 3 {
+		t.Fatalf("want 3 links, got %+v", got)
+	}
+	failed, _ := classifyNetworkdLinks(got, 99999)
+	if len(failed) != 1 || failed[0].Name != "eth1" {
+		t.Fatalf("want only eth1 failed, got %+v", failed)
+	}
+}
+
+// A link stuck in SETUP=configuring is a STUCK fault only once boot has settled
+// (uptime gate) — at boot it's a normal transient and must not flag.
+func TestClassifyNetworkdLinks_StuckUptimeGated(t *testing.T) {
+	links := []models.NetworkdLink{
+		{Name: "eth0", Setup: "configured", Operational: "routable"},
+		{Name: "eth1", Setup: "configuring", Operational: "no-carrier"},
+		{Name: "lo", Setup: "unmanaged", Operational: "carrier"},
+	}
+	// Fresh boot (uptime 30s) — configuring is a transient, not stuck.
+	if _, stuck := classifyNetworkdLinks(links, 30); len(stuck) != 0 {
+		t.Errorf("configuring at boot must NOT be stuck, got %+v", stuck)
+	}
+	// Long after boot — still configuring = genuinely stuck.
+	_, stuck := classifyNetworkdLinks(links, 6000)
+	if len(stuck) != 1 || stuck[0].Name != "eth1" {
+		t.Fatalf("configuring long after boot must be stuck, got %+v", stuck)
 	}
 }

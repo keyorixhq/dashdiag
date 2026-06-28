@@ -61,3 +61,19 @@ func TestCheckNetworkdConfigQuietWhenClean(t *testing.T) {
 		t.Errorf("non-networkd host must be quiet, got %+v", got)
 	}
 }
+
+// A link stuck in SETUP=configuring long after boot → WARN naming it.
+func TestCheckNetworkdConfigWarnsOnStuckLink(t *testing.T) {
+	info := models.NetworkdConfigInfo{
+		Detected:   true,
+		StuckLinks: []models.NetworkdLink{{Name: "eth1", Setup: "configuring", Operational: "no-carrier"}},
+	}
+	got := checkNetworkdConfig(info)
+	if len(got) != 1 || got[0].Level != "WARN" {
+		t.Fatalf("want 1 WARN for stuck link, got %+v", got)
+	}
+	joined := got[0].Message + " " + strings.Join(got[0].Hints, " ")
+	if !strings.Contains(joined, "eth1") || !strings.Contains(got[0].Message, "stuck") {
+		t.Errorf("insight should name the stuck link: %q / %v", got[0].Message, got[0].Hints)
+	}
+}

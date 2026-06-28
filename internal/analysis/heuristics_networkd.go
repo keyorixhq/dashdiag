@@ -53,5 +53,21 @@ func checkNetworkdConfig(info models.NetworkdConfigInfo) []models.Insight {
 		))
 	}
 
+	if len(info.StuckLinks) > 0 {
+		names := make([]string, 0, len(info.StuckLinks))
+		for _, l := range info.StuckLinks {
+			names = append(names, fmt.Sprintf("%s (operational: %s)", l.Name, l.Operational))
+		}
+		out = append(out, insight("WARN", "Networkd",
+			fmt.Sprintf("%d systemd-networkd link(s) stuck in SETUP=configuring long after boot — never reached configured/routable", len(info.StuckLinks)),
+			[]string{
+				"affected: " + strings.Join(names, ", "),
+				"networkd is still trying to bring the link up (common causes: no DHCP offer, or an address/route it can't apply)",
+				"to inspect: networkctl status " + info.StuckLinks[0].Name,
+				"to inspect: journalctl -u systemd-networkd -b --no-pager | tail -50",
+			},
+		))
+	}
+
 	return out
 }
