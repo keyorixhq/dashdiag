@@ -28,6 +28,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// 1. Failed units
 	failedOut, err := runCmd(ctx, "systemctl", "list-units",
 		"--failed", "--plain", "--no-legend", "--no-pager")
+	info.FailedUnitsQueried = err == nil // false on non-systemd hosts / systemctl error
 	if err == nil {
 		// Filter environmental noise (transient sshd@<conn> instances, cloud-init
 		// units, benign unconfigured systemd-sysupdate) the SAME way the health

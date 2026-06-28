@@ -210,7 +210,11 @@ func printServicesDeep(info *models.ServicesDeepInfo, mode output.OutputMode) {
 func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 	human := mode == output.ModeHuman
 
-	if len(info.FailedUnits) == 0 {
+	if len(info.FailedUnits) == 0 && !info.FailedUnitsQueried {
+		// systemctl couldn't be queried (non-systemd host, or it errored) — an empty
+		// list means "couldn't look", not "none". Don't render the green "none".
+		printLine(mode, "info", "Failed units", "not queried — systemctl unavailable (non-systemd host?)")
+	} else if len(info.FailedUnits) == 0 {
 		printLine(mode, "ok", "Failed units", "none")
 	} else {
 		printLine(mode, "fail", "Failed units", fmt.Sprintf("%d", len(info.FailedUnits)))
