@@ -38,7 +38,7 @@ Linux distributions (plus macOS) the tool has been run on, by package/init famil
 | 11 | openSUSE Tumbleweed | SUSE/zypper | v0.5.x | VM | T2 | `captures/tumbleweed-data/` | |
 | 12 | SLES 16 | SUSE/zypper | v0.5.x | VM | T2 | `captures/sles16-final-data/` | incl. podman variant |
 | 13 | Arch Linux | Arch/pacman | v0.6.11 | OrbStack (arch-dsd) | T2 | `captures/arch-data/` | captured 2026-06-10; covers Manjaro at family level |
-| 14 | Gentoo | source/portage | v0.6.11 | OrbStack (gentoo-dsd) | T2 | `captures/gentoo-data/` | captured 2026-06-10 |
+| 14 | Gentoo | source/portage | dev (`604eb99`) | **real VMware/vCD guest** (UEFI) + pve01 VM 110 | T2 | `captures/gentoo-data/` (06-10) + local `gentoo-vmware-20260628.tar.gz` | **First Gentoo on real VMware (2026-06-28):** a systemd/UEFI `di-amd64-console` qcow2 → VMDK → hand-built OVA → vCD import, boots under OVMF (generic dracut initramfs carries every VMware controller). `dsd health` two-pass (root vs non-root) **clean** — no false-OK. Surfaced + fixed the Portage/`emerge` remediation-hint gap (BUG-073, #611). OrbStack `gentoo-dsd` (06-10 capture) retired; rig now **pve01 VM 110** (stopped) |
 | 15 | NixOS 25.05 | independent | v0.5.x | PVE VM (212) | T2 | `captures/nixos-25-05-data/` | |
 | 16 | Alpine | independent/musl/OpenRC | v0.6.11 | PVE LXC (CT210) | T2 | `captures/alpine-data/` | captured 2026-06-10; non-systemd |
 | 17 | Amazon Linux 2023 | RHEL-family/dnf | v0.6.11 | real EC2 (t3.micro) | T2 | `captures/amazonlinux2023-data/` | captured 2026-06-10; AWS-native distro, cloud-aware NVMe handling verified; runs clean on both kernel-6.1 (LTS) and kernel-6.18 |
