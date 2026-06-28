@@ -151,6 +151,7 @@ func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	if runtime.GOOS == "linux" {
 		c.collectLinuxExtras(result)
+		result.ImmutableRootFS = hostRootImmutable()
 	}
 
 	return result, nil

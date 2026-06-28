@@ -80,8 +80,13 @@ type DiskInfo struct {
 	BtrfsVolumes      []BtrfsVolume `json:"btrfs_volumes,omitempty"`
 	IOStats           []DiskIOStat  `json:"io_stats,omitempty"` // deep only
 	SteamOS           *SteamOSDisk  `json:"steamos,omitempty"`  // SteamOS-only partition layout (Spec 19)
-	Status            string        `json:"status"`
-	StatusReason      string        `json:"status_reason"`
+	// ImmutableRootFS is true when the host mounts / read-only BY DESIGN (ostree,
+	// transactional-update/MicroOS, SteamOS). Internal plumbing only (json:"-", out of
+	// the --json contract; recomputed by the collector on replay) — lets the
+	// read-only-mount heuristic skip the expected ro root instead of false-WARNing.
+	ImmutableRootFS bool   `json:"-"`
+	Status          string `json:"status"`
+	StatusReason    string `json:"status_reason"`
 }
 
 // BtrfsVolume holds health data for a mounted btrfs filesystem.
