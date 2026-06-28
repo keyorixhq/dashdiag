@@ -460,6 +460,20 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 				"note: import with: zpool import -F <pool>  (force recovery, may lose data)",
 			},
 		))
+	case "SUSPENDED":
+		// SUSPENDED is the most severe operational state: too many devices were lost
+		// and the pool's I/O is halted (failmode=wait), so every read/write blocks. It
+		// was missing from this switch — and a pool can suspend before it records any
+		// R/W/C error counter, so the vdev-error path doesn't catch it either → it
+		// rendered green. Treat it as a hard CRIT.
+		out = append(out, insight("CRIT", "ZFS",
+			fmt.Sprintf("ZFS pool %s is SUSPENDED — I/O is halted (too many devices lost); all access to the pool blocks", pool.Name),
+			[]string{
+				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+				"note: restore the missing devices, then: zpool clear " + pool.Name,
+			},
+		))
 	case "REMOVED", "UNAVAIL", "OFFLINE":
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s state: %s", pool.Name, pool.State),

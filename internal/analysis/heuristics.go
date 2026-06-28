@@ -1402,49 +1402,13 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 			[]string{"to inspect: zpool list", "to inspect: zpool status"},
 		))
 	}
-	// ZFS pool health
-	for _, p := range disk.ZFSPools {
-		switch p.State {
-		case "DEGRADED":
-			out = append(out, insight("CRIT", "Disk",
-				fmt.Sprintf("ZFS pool %s is DEGRADED — data protection compromised", p.Name),
-				[]string{
-					fmt.Sprintf("to inspect: zpool status %s", p.Name),
-					fmt.Sprintf("to fix:     zpool online %s <device>  (if device is available)", p.Name),
-				},
-			))
-		case "FAULTED", "OFFLINE":
-			out = append(out, insight("CRIT", "Disk",
-				fmt.Sprintf("ZFS pool %s is %s — pool may be inaccessible", p.Name, p.State),
-				[]string{fmt.Sprintf("to inspect: zpool status %s", p.Name)},
-			))
-		}
-		// `zpool status` couldn't be read — per-vdev error counts and scrub age were
-		// never populated (they sit at 0 / -1, which would read as "no errors" and
-		// trigger a false "never scrubbed"). Surface it unverified and skip those
-		// checks rather than passing the zero values as clean.
-		if p.StatusReadFailed {
-			out = append(out, insight("INFO", "Disk",
-				fmt.Sprintf("ZFS pool %s: error/scrub status unread — `zpool status` failed; vdev errors not verified", p.Name),
-				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", p.Name)},
-			))
-			continue
-		}
-		if ins, ok := zfsVdevErrorInsight(p, "Disk"); ok {
-			out = append(out, ins)
-		}
-		if p.ScrubAgeDays < 0 {
-			out = append(out, insight("INFO", "Disk",
-				fmt.Sprintf("ZFS pool %s has never been scrubbed — schedule regular scrubs", p.Name),
-				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
-			))
-		} else if p.ScrubAgeDays > 30 {
-			out = append(out, insight("INFO", "Disk",
-				fmt.Sprintf("ZFS pool %s last scrubbed %d days ago — consider running scrub", p.Name, p.ScrubAgeDays),
-				[]string{fmt.Sprintf("to fix: zpool scrub %s", p.Name)},
-			))
-		}
-	}
+	// ZFS pool health is scored by checkZFS (the dedicated ZFSCollector), NOT here.
+	// Both collectors gate on the `zpool` binary, so whenever the DiskCollector sees
+	// ZFS pools the ZFSCollector has also run — scoring them here too produced TWO
+	// insights per pool (a "Disk" one and a "ZFS" one) AND a verdict flip, because
+	// "never scrubbed" was INFO on this path but WARN in checkZFS. checkZFS is the
+	// richer scorer (SUSPENDED/REMOVED/UNAVAIL states, vdev errors, StatusReadFailed,
+	// scrub age), so it owns ZFS; this path defers to avoid the double-score.
 	return out
 }
 
