@@ -40,16 +40,23 @@ func TestDiskExtrasZFSListReadFailedIsInfo(t *testing.T) {
 	}
 }
 
-func TestDiskExtrasZFSStatusUnreadSkipsScrub(t *testing.T) {
-	// A status-unread pool in the disk path must surface "unread" and NOT the false
-	// "never been scrubbed" that the -1 default would otherwise trigger.
-	got := checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{
-		{Name: "tank", State: "ONLINE", ScrubAgeDays: -1, StatusReadFailed: true},
-	}})
-	if !hasInsightMsg(got, "INFO", "status unread") {
-		t.Errorf("expected a 'status unread' INFO, got %+v", got)
+func TestZFSStatusUnreadSkipsScrub(t *testing.T) {
+	// A status-unread pool must surface "could not be read" and NOT the false "never
+	// been scrubbed" that the -1 default would otherwise trigger. This is now owned by
+	// checkZFS (checkZFSPool); checkDiskExtras must NOT also score it (the dedup —
+	// otherwise the pool is double-reported).
+	pool := models.ZFSPool{Name: "tank", State: "ONLINE", ScrubAgeDays: -1, StatusReadFailed: true}
+
+	got := checkZFSPool(pool)
+	if !hasInsightMsg(got, "INFO", "could not be read") {
+		t.Errorf("checkZFSPool must surface status unread, got %+v", got)
 	}
-	if hasInsightMsg(got, "INFO", "never been scrubbed") {
+	if hasInsightMsg(got, "WARN", "never been scrubbed") {
 		t.Errorf("must not claim 'never been scrubbed' when status was unread, got %+v", got)
+	}
+
+	// checkDiskExtras must stay out of per-pool ZFS scoring (no double-report).
+	if d := checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{pool}}); len(d) != 0 {
+		t.Errorf("checkDiskExtras must not score ZFS pools (deferred to checkZFS), got %+v", d)
 	}
 }

@@ -170,8 +170,13 @@ func TestCheckDisk_Boot(t *testing.T) {
 }
 
 func TestCheckDiskExtras_ZFS(t *testing.T) {
-	assertLevel(t, checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "DEGRADED"}}}), "CRIT")
-	assertLevel(t, checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "ONLINE", ScrubAgeDays: -1}}}), "INFO")
+	// ZFS pools are now scored only by checkZFS (the dedicated collector), not by
+	// checkDiskExtras — both gate on `zpool`, so scoring here too double-reported every
+	// pool. checkDiskExtras must stay silent on ZFS; checkZFSPool carries the verdicts.
+	assertLevel(t, checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "DEGRADED"}}}), "")
+	assertLevel(t, checkDiskExtras(models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "ONLINE", ScrubAgeDays: -1}}}), "")
+	// The verdicts moved to checkZFSPool.
+	assertLevel(t, checkZFSPool(models.ZFSPool{Name: "tank", State: "DEGRADED"}), "CRIT")
 }
 
 func TestCheckDockerContainers_ArchMismatch(t *testing.T) {

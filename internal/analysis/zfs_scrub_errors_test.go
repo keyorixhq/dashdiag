@@ -33,3 +33,33 @@ func TestCheckZFSPool_ScrubErrors(t *testing.T) {
 		}
 	}
 }
+
+// A SUSPENDED pool (I/O halted, the most severe state) must be a hard CRIT — it was
+// missing from the state switch and a pool can suspend before recording any error
+// counter, so it previously rendered green (false-OK).
+func TestCheckZFSPool_Suspended(t *testing.T) {
+	got := checkZFSPool(models.ZFSPool{Name: "tank", State: "SUSPENDED"})
+	found := false
+	for _, ins := range got {
+		if ins.Level == "CRIT" && strings.Contains(ins.Message, "SUSPENDED") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SUSPENDED pool must CRIT, got %+v", got)
+	}
+}
+
+// checkDiskExtras must NOT score ZFS pools (the dedicated checkZFS owns them) — else
+// every pool is double-scored, with a never-scrubbed verdict flip (Disk INFO vs ZFS
+// WARN). A never-scrubbed pool in DiskInfo must yield no ZFS "Disk" insight here.
+func TestCheckDiskExtras_NoZFSDoubleScore(t *testing.T) {
+	got := checkDiskExtras(models.DiskInfo{
+		ZFSPools: []models.ZFSPool{{Name: "tank", State: "ONLINE", ScrubAgeDays: -1}},
+	})
+	for _, ins := range got {
+		if strings.Contains(ins.Message, "ZFS pool") {
+			t.Errorf("checkDiskExtras must not emit ZFS insights (double-score); got %q", ins.Message)
+		}
+	}
+}
