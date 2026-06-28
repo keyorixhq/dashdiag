@@ -861,6 +861,37 @@ non-zero exit from such a tool must distinguish *locked* from *permission* from
 
 ---
 
+## V. Audit + fleet sweep 2026-06-28 — 6 fixed, suspects deferred
+
+A 3-agent false-OK audit of the recent Photon (#558–#582) + `dsd guest` (#555–#559)
+batches plus a live pve01 fleet run (Ubuntu/Alma/Alpine/Arch LXCs + Debian/openSUSE
+VMs, root & non-root). **6 confirmed bugs fixed** (#583 IO low-util false-CRIT, #584
+vCPU-offline container false-WARN, #585 cgroupns=host false-OK, #587 net StuckLinks
+render, #588 fstab nofail false-alarm, #589 vmware/guest "no host pressure" over-claim).
+Clean: #556 layered view (presentational), #575 honesty flags, #564 docker/containerd/
+tdnf, #567/#570/#577/#581 boot/storage guards, the root-vs-non-root invariant.
+
+Deferred lower-priority suspects (READY/low — not yet built):
+- **networkd link-state gated on `/etc` config presence** — `NetworkdAvailable()` only
+  globs `/etc/systemd/network/*`, so a host whose networkd config lives in `/run` or
+  `/usr/lib` gets no FailedLinks/StuckLinks check at all (off-target silent miss). Gate
+  the link-state part on `systemctl is-active systemd-networkd` instead.
+- **#558 sshd@ suppression is unconditional** — `unitIgnored` drops every
+  `sshd@<conn>.service` by name; a systemic per-connection sshd runtime failure (status
+  ≠ 255) on a socket-activated host would be fully suppressed. Narrow to the benign
+  signature (255 / "dropped before auth").
+- **ContainerGuest cgroup-v1 OOM/throttle gap** — dynamic OOM/throttle reads are gated
+  on `CgroupV2`; a v1 container being OOM-killed/throttled yields no signal (mitigated:
+  green fallback is suppressed because v1 never sets CPUQuotaCores). v1 is legacy.
+- **containerd "failed" display icon understates severity** — `printContainerd` renders
+  `ServiceState=="failed"` with the WARN icon while `checkContainerd` + the exit code
+  are CRIT. Display-only; not a false-OK.
+- **PostBoot "unclean shutdown" WARN on freshly-started LXCs** — fired on `pct start`ed
+  containers (no kernel boot / shutdown record). Suspect container false-alarm; confirm
+  whether PostBoot should gate off `InContainer`.
+
+---
+
 ## Housekeeping
 
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
@@ -939,11 +970,12 @@ a throttled Docker container (throttle 100% correctly flagged), real Proxmox VM 
   Project Bonneville + Photon Platform explicitly OUT (EOL/discontinued, ~zero install
   base). The current VCD-tenant pilot is traditional IaaS, NOT Tanzu — so this is not its
   stack.
-- **`dsd health --layered`** (#556, **OPEN PR**): groups the flat health report into
-  Hardware / Platform / OS layers led by a severity tally; KVMGuest/VMware/PVE sit in
-  the Platform layer. **DECISION PENDING (user):** retune layer boundaries + whether to
-  make it the default (`--flat` to opt out). Non-breaking (behind `--layered`), `--json`
-  schema untouched. Green; nothing depends on it.
+- **`dsd health --layered`** (#556, ✅ MERGED 2026-06-28 as the opt-in `--layered`
+  flag): groups the flat health report into Hardware / Platform / OS layers led by a
+  severity tally; KVMGuest/VMware/KVM-host/PVE/clouds sit in the Platform layer.
+  Boundaries retuned so every health-registered collector maps to a layer (closed a gap
+  where DBus + others fell into "Other"); CI-guarded. Non-breaking, `--json` untouched.
+  Possible future follow-up (no demand yet): make it the default (`--flat` to opt out).
 - **`dsd pve` node/guests/cluster tiering**: the Proxmox node-**operator** view (vs the
   guest/tenant view above) — "this node / your guests / cluster" tiers. NOT vmware's
   you-vs-provider split (a PVE node IS the provider). Proxmox = VMware-refugee market;
