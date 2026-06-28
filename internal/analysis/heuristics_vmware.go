@@ -187,10 +187,28 @@ func vmwareMemLimitBinding(v models.VMwareInfo) (binding, known bool) {
 	return v.MemLimitMB < int(float64(v.TotalRAMMB)*0.98), true
 }
 
+const (
+	// Plausible per-vCPU host clock band (MHz) for `vmware-toolbox-cmd stat speed`.
+	// No real host core runs below ~0.5 GHz or above ~10 GHz. A value outside this
+	// is garbage (an unexpected tool format / unit), and capacity = vCPUs × clock
+	// would then flip the binding verdict — inventing a false "the host is throttling
+	// you" from a garbage-high clock, or hiding a real throttle from a garbage-low
+	// one. The headline pilot demo rides on this verdict, and `stat speed` is the one
+	// input we cannot validate live (the trial tenant blocks inducing CPU limits), so
+	// an implausible clock is treated as "capacity unknown" → the honest WARN that
+	// surfaces the limit without asserting throttling, never a confident false verdict.
+	minPlausibleHostMHz = 500
+	maxPlausibleHostMHz = 10000
+)
+
 // vmwareCPULimitBinding reports whether a configured CPU limit can actually bite —
 // it must sit below the VM's capacity (vCPUs × per-vCPU host clock). 2% margin for
-// rounding. known=false (capacity unknown) → caller keeps the WARN.
+// rounding. known=false (capacity unknown, incl. an implausible per-vCPU clock) →
+// caller keeps the conservative WARN without asserting throttling.
 func vmwareCPULimitBinding(v models.VMwareInfo) (binding, known bool) {
+	if v.HostMHzPerCPU < minPlausibleHostMHz || v.HostMHzPerCPU > maxPlausibleHostMHz {
+		return false, false // garbage `stat speed` — don't size capacity from it
+	}
 	capacity := v.NumVCPU * v.HostMHzPerCPU
 	if capacity <= 0 {
 		return false, false
