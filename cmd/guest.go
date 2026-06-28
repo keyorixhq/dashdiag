@@ -135,11 +135,12 @@ func containerGuestView(ctx context.Context) guestView {
 	if info.UnderlyingVM != "" {
 		id += "  →  on a " + info.UnderlyingVM + " VM"
 	}
-	// On cgroup v1 throttle/OOM aren't measured, so the all-clear line must not claim
-	// "no throttling or OOM-kills" (the unverified-negative false-OK; cf. #589).
+	// Claim "no throttling or OOM-kills" only when those signals were actually read —
+	// v2 (read inline) or v1 with readable counters. On a v1 host where the counters
+	// couldn't be read, drop the claim (the unverified-negative false-OK; cf. #589).
 	healthyMsg := "container healthy — limits set, non-root, no throttling or OOM-kills"
-	if !info.CgroupV2 {
-		healthyMsg = "container healthy — limits set, non-root (throttle/OOM not measured on cgroup v1)"
+	if !info.CgroupV2 && !info.CgroupV1Measured {
+		healthyMsg = "container healthy — limits set, non-root (throttle/OOM not readable on this cgroup v1 host)"
 	}
 	return guestView{
 		identity:   id,

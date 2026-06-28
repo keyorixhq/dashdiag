@@ -6,21 +6,34 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-// TestCheckContainerGuest_CgroupV1Unmeasured: on cgroup v1 the throttle/OOM counters
-// aren't collected, so the verdict must say so rather than implying they were measured
-// (the unverified-negative false-OK). On v2 no such note appears.
-func TestCheckContainerGuest_CgroupV1Unmeasured(t *testing.T) {
-	v1 := models.ContainerGuestInfo{
-		InContainer: true, CgroupV2: false,
-		MemLimitBytes: 256 << 20, // limited + non-root → no WARNs, so the summary would otherwise read green
+// TestCheckContainerGuest_CgroupV1: on cgroup v1 the throttle/OOM counters now ARE
+// read (from the per-controller dirs). When the read succeeded the verdict behaves
+// like v2 (no "unverified" note; real throttle still WARNs); only when the read
+// FAILED is the signal flagged unverified — never a silent "no throttling" false-OK.
+func TestCheckContainerGuest_CgroupV1(t *testing.T) {
+	base := models.ContainerGuestInfo{InContainer: true, CgroupV2: false, MemLimitBytes: 256 << 20}
+
+	// Read failed (CgroupV1Measured false) → unverified INFO.
+	if !hasInsightMsg(checkContainerGuest(base), "INFO", "could not be read on this cgroup v1 host") {
+		t.Errorf("unmeasured v1 container must flag throttle/OOM unverified, got %+v", checkContainerGuest(base))
 	}
-	got := checkContainerGuest(v1)
-	if !hasInsightMsg(got, "INFO", "not measured on this host (cgroup v1)") {
-		t.Errorf("cgroup v1 container must flag throttle/OOM as unmeasured, got %+v", got)
+
+	// Read succeeded, nothing wrong → no unverified note (behaves like v2).
+	measured := base
+	measured.CgroupV1Measured = true
+	if hasInsightMsg(checkContainerGuest(measured), "INFO", "cgroup v1") {
+		t.Errorf("measured v1 container must NOT flag unverified, got %+v", checkContainerGuest(measured))
+	}
+
+	// Read succeeded AND throttled → real WARN fires (the signal is now actionable).
+	throttled := measured
+	throttled.ThrottledPct = 80
+	if !hasInsightMsg(checkContainerGuest(throttled), "WARN", "throttled") {
+		t.Errorf("a measured, throttled v1 container must WARN, got %+v", checkContainerGuest(throttled))
 	}
 
 	v2 := models.ContainerGuestInfo{InContainer: true, CgroupV2: true, MemLimitBytes: 256 << 20, CPUQuotaCores: 2}
 	if hasInsightMsg(checkContainerGuest(v2), "INFO", "cgroup v1") {
-		t.Errorf("cgroup v2 container must not emit the v1-unmeasured note")
+		t.Errorf("cgroup v2 container must not emit any v1 note")
 	}
 }
