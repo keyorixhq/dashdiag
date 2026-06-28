@@ -60,14 +60,20 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 		}
 		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
 	}
-	// On NixOS the imperative fix hints (/etc/sysctl.d, /etc/ssh/sshd_config,
-	// apt/dnf/zypper) don't apply — rewrite them to the configuration.nix form.
+	return AdaptHostHints(insights)
+}
+
+// AdaptHostHints rewrites fix-hint text to the host so the suggested command actually
+// runs there: NixOS → configuration.nix; Gentoo → emerge; dnf/zypper/tdnf hosts get
+// apt-first install hints re-led with their own tool; and Linux/systemd remedies are
+// adapted for macOS / OpenRC. Applied once at the end of Analyze for `dsd health`, and
+// by the exported guest *Insights wrappers so the standalone commands adapt too.
+func AdaptHostHints(insights []models.Insight) []models.Insight {
 	if hostIsNixOS() {
 		insights = nixosifyHints(insights)
 	}
 	// On Gentoo the package-install fix hints (apt/dnf/zypper install …) name the
-	// wrong tool — the host uses Portage. Rewrite them to their `emerge` form so
-	// the suggested command actually runs. (Found live on a Gentoo/VMware guest.)
+	// wrong tool — the host uses Portage. Rewrite to `emerge`. (Found on a Gentoo guest.)
 	if hostIsGentoo() {
 		insights = gentooifyHints(insights)
 	}
@@ -78,12 +84,20 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	if hostIsTransactional() {
 		insights = transactionalifyHints(insights)
 	}
+	// Many install hints are written apt-first ("apt install X (RHEL/SUSE: dnf/zypper
+	// install X)"). On a dnf/zypper/tdnf host, lead with the host's own tool so the
+	// command is copy-pasteable. (Found live: open-vm-tools on an AlmaLinux/VMware
+	// guest.) After transactionalify — on an immutable SUSE that already rewrote the
+	// hint to `transactional-update pkg install`, rePkgInstall no longer matches, so
+	// this is a no-op there; on a normal dnf/zypper/tdnf host it leads with that tool.
+	if pm := hostInstallPM(); pm != "" {
+		insights = distroifyInstallHints(insights, pm)
+	}
 	// Remedy text is generated in its Linux/systemd form; rewrite commands that
 	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
 	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
 	// fixes only the "to inspect/to fix" line. (TRIAGE §A.)
-	insights = adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
-	return insights
+	return adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
 }
 
 // prescanResult holds the cross-check context prescanContext extracts in one
@@ -367,6 +381,63 @@ func gentooifyHints(insights []models.Insight) []models.Insight {
 		}
 	}
 	return insights
+}
+
+// hostInstallPM maps the host distro to the package-install command its admin
+// actually uses, so apt-first fix hints can be rewritten to lead with the right tool.
+// Returns "" to leave hints unchanged: Debian/Ubuntu (apt is already first), distros
+// with a dedicated rewriter (Gentoo→emerge, NixOS), and unknown distros (don't guess).
+func hostInstallPM() string {
+	id := strings.ToLower(cvedata.DetectDistroID())
+	switch {
+	case id == "" || strings.Contains(id, "gentoo") || strings.Contains(id, "nixos"):
+		return ""
+	case strings.Contains(id, "photon"):
+		return "tdnf"
+	case strings.Contains(id, "suse") || strings.Contains(id, "sle"):
+		return "zypper"
+	case idMatchesAny(id, "rhel", "centos", "almalinux", "alma", "rocky", "fedora", "oracle", "ol", "amzn", "rhpkg"):
+		return "dnf"
+	default:
+		return "" // debian/ubuntu (apt-first already correct) or unknown
+	}
+}
+
+func idMatchesAny(id string, subs ...string) bool {
+	for _, s := range subs {
+		if strings.Contains(id, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// distroifyInstallHints rewrites each insight's package-install fix hint to lead with
+// the host's package manager (pm), preserving any trailing "&& <cmd>" action. Hints
+// with no install suggestion (notes, inspect lines, config edits) pass through.
+func distroifyInstallHints(insights []models.Insight, pm string) []models.Insight {
+	for i := range insights {
+		hints := insights[i].Hints
+		for j := range hints {
+			hints[j] = distroFixHint(hints[j], pm)
+		}
+	}
+	return insights
+}
+
+// distroFixHint rewrites one install hint to "to fix: <pm> install <pkg>", preserving
+// any trailing "&& <cmd>" action. Returns the hint unchanged when it carries no
+// package-install suggestion (mirrors gentooFixHint).
+func distroFixHint(hint, pm string) string {
+	m := rePkgInstall.FindStringSubmatch(hint)
+	if m == nil {
+		return hint
+	}
+	out := "to fix: " + pm + " install " + m[1]
+	if idx := strings.Index(hint, "&&"); idx >= 0 {
+		out += " " + strings.TrimSpace(hint[idx:])
+	}
+	return out
 }
 
 // gentooFixHint rewrites a single install hint to "to fix (Gentoo): emerge <pkg>",

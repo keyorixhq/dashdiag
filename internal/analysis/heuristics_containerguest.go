@@ -15,7 +15,7 @@ const (
 // case). It returns exactly what `dsd health` would evaluate (checkContainerGuest),
 // so the standalone verdict can't drift.
 func ContainerGuestInsights(v models.ContainerGuestInfo) []models.Insight {
-	return checkContainerGuest(v)
+	return AdaptHostHints(checkContainerGuest(v))
 }
 
 // checkContainerGuest reports guest-side health for a workload inside a container.
