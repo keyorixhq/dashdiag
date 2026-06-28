@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-06-29
+
 Minor (additive): completes the guest-side **cloud** command set and unifies it under
 `dsd guest`. No `dsd health --json` schema break (new fields are additive).
 
@@ -41,6 +43,8 @@ Minor (additive): completes the guest-side **cloud** command set and unifies it 
   dnf/zypper install …)" hints now rewrite to their Portage form
   (`to fix (Gentoo): emerge <pkg>`) on Gentoo hosts, instead of naming package
   managers Gentoo doesn't have; a trailing `&& <service-enable>` is preserved (#611).
+- Package-install fix hints now lead with the host's own package manager and apply to the
+  standalone `dsd guest` / `dsd vmware` renderers too, not just `dsd health` (#621).
 
 ## [1.11.0] - 2026-06-28
 
