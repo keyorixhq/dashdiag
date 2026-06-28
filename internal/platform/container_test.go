@@ -174,6 +174,11 @@ func TestDetectContainer_CgroupV2_HostNamespace(t *testing.T) {
 	if cc.CPULimitCores != 2.0 {
 		t.Errorf("host-ns container CPULimitCores = %f, want 2.0", cc.CPULimitCores)
 	}
+	// CgroupV2Dir must point at the container's own sub-path, so dynamic reads
+	// (memory.events/cpu.stat) hit the container's cgroup, not the host root.
+	if cc.CgroupV2Dir != leaf {
+		t.Errorf("host-ns CgroupV2Dir = %q, want sub-path %q (else oom_kills/throttle read the host root → false-OK)", cc.CgroupV2Dir, leaf)
+	}
 }
 
 // A private cgroup namespace reports "0::/" — resolution must collapse to base,
@@ -195,6 +200,9 @@ func TestDetectContainer_CgroupV2_PrivateNamespace(t *testing.T) {
 
 	if cc.MemLimitMB != 256 {
 		t.Errorf("private-ns container MemLimitMB = %f, want 256 (base)", cc.MemLimitMB)
+	}
+	if cc.CgroupV2Dir != cgroupDir {
+		t.Errorf("private-ns CgroupV2Dir = %q, want base %q", cc.CgroupV2Dir, cgroupDir)
 	}
 }
 

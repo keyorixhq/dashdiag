@@ -40,11 +40,19 @@ func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error
 		RunAsRoot:     os.Geteuid() == 0,
 	}
 
-	// Dynamic cgroup-v2 signals not carried by ContainerContext.
+	// Dynamic cgroup-v2 signals not carried by ContainerContext. Read from the
+	// container's OWN cgroup dir (resolved via /proc/self/cgroup), not the bare
+	// /sys/fs/cgroup base: under --cgroupns=host the base is the host root cgroup,
+	// so reading memory.events/cpu.stat there reports the host's values (0 oom_kills,
+	// 0 throttled) and a throttled/OOM-killed container would falsely read healthy.
 	if info.CgroupV2 {
-		info.MemCurrentBytes = parseInt64(readFileTrimmedLocal(filepath.Join(cgroupV2Base, "memory.current")))
-		info.OOMKills = cgroupKeyedValue(readFileTrimmedLocal(filepath.Join(cgroupV2Base, "memory.events")), "oom_kill")
-		info.ThrottledPct = cgroupThrottledPct(readFileTrimmedLocal(filepath.Join(cgroupV2Base, "cpu.stat")))
+		cgDir := cc.CgroupV2Dir
+		if cgDir == "" {
+			cgDir = cgroupV2Base
+		}
+		info.MemCurrentBytes = parseInt64(readFileTrimmedLocal(filepath.Join(cgDir, "memory.current")))
+		info.OOMKills = cgroupKeyedValue(readFileTrimmedLocal(filepath.Join(cgDir, "memory.events")), "oom_kill")
+		info.ThrottledPct = cgroupThrottledPct(readFileTrimmedLocal(filepath.Join(cgDir, "cpu.stat")))
 	}
 
 	info.WritableRootfs = rootfsWritable(readFileTrimmedLocal("/proc/mounts"))
