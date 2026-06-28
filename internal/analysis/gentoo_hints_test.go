@@ -127,3 +127,30 @@ func TestGentooifyHints(t *testing.T) {
 		t.Errorf("logs hints = %#v", out[1].Hints)
 	}
 }
+
+// distroifyInstallHints must rewrite apt-first package-install hints to lead with the
+// host's package manager (dnf/zypper/tdnf), preserving any trailing && action — so the
+// suggested command is copy-pasteable on RHEL/SUSE (found live: the open-vm-tools hint
+// led with apt on an AlmaLinux/VMware guest).
+func TestDistroifyInstallHints(t *testing.T) {
+	in := []models.Insight{{Hints: []string{
+		"to fix: apt install open-vm-tools   (RHEL/SUSE: dnf/zypper install open-vm-tools)",
+		"to fix: apt install qemu-guest-agent && systemctl enable --now qemu-guest-agent",
+		"to inspect: cat /proc/mounts", // no install suggestion — must pass through
+	}}}
+	got := distroifyInstallHints(in, "dnf")[0].Hints
+	if got[0] != "to fix: dnf install open-vm-tools" {
+		t.Errorf("hint[0] = %q, want dnf-led", got[0])
+	}
+	if got[1] != "to fix: dnf install qemu-guest-agent && systemctl enable --now qemu-guest-agent" {
+		t.Errorf("hint[1] = %q, want dnf-led with && action preserved", got[1])
+	}
+	if got[2] != "to inspect: cat /proc/mounts" {
+		t.Errorf("non-install hint must pass through, got %q", got[2])
+	}
+	// zypper host.
+	z := distroifyInstallHints([]models.Insight{{Hints: []string{"to fix: apt install rsyslog  OR  dnf install rsyslog"}}}, "zypper")[0].Hints[0]
+	if z != "to fix: zypper install rsyslog" {
+		t.Errorf("zypper rewrite = %q", z)
+	}
+}

@@ -16,7 +16,9 @@ const kvmGuestStealWarnPct = 10.0
 // KVMGuestInsights is the exported entry point for `dsd kvm-guest`. It returns
 // exactly what `dsd health` evaluates for a KVM/Proxmox guest (it IS checkKVMGuest),
 // so the standalone verdict can't drift from health (cmd↔health consistency).
-func KVMGuestInsights(v models.KVMGuestInfo) []models.Insight { return checkKVMGuest(v) }
+func KVMGuestInsights(v models.KVMGuestInfo) []models.Insight {
+	return AdaptHostHints(checkKVMGuest(v))
+}
 
 // checkKVMGuest reports guest-side configuration health for a Linux VM under
 // QEMU/KVM (Proxmox/oVirt/libvirt). The KVM analog of checkVMware: things a tenant
