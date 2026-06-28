@@ -548,6 +548,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.NetworkdAvailable() {
 		cols = append(cols, collectors.NewNetworkdConfigCollector())
 	}
+	// Unexpected read-only root (errors=remount-ro trip / failed fsck). Self-guarding
+	// against immutable distros; emits a row only on the fault.
+	cols = append(cols, collectors.NewRootFSCollector())
 	// QEMU/KVM (Proxmox/oVirt/libvirt) guest config — gate on DMI vendor (QEMU).
 	// Silent on bare metal, VMware, and the clouds (which carry their own vendors).
 	if collectors.KVMGuestAvailable() {
