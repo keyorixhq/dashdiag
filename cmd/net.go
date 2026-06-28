@@ -148,7 +148,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 // Silent on a healthy host (all files readable); loud only when networkd would
 // silently ignore a config file.
 func printNetworkdReport(info *models.NetworkdConfigInfo, mode output.OutputMode) {
-	if len(info.UnreadableFiles) == 0 && len(info.FailedLinks) == 0 {
+	if len(info.UnreadableFiles) == 0 && len(info.FailedLinks) == 0 && len(info.StuckLinks) == 0 {
 		fmt.Printf("\nsystemd-networkd: %s %d config file(s) readable, all links configured\n",
 			netMark("ok", mode), info.TotalFiles)
 		return
@@ -163,6 +163,10 @@ func printNetworkdReport(info *models.NetworkdConfigInfo, mode output.OutputMode
 	}
 	for _, l := range info.FailedLinks {
 		fmt.Printf("  %s %s — SETUP=failed (operational: %s) → config did not apply\n",
+			netMark("warn", mode), l.Name, l.Operational)
+	}
+	for _, l := range info.StuckLinks {
+		fmt.Printf("  %s %s — SETUP=configuring long after boot (operational: %s) → never reached configured/routable\n",
 			netMark("warn", mode), l.Name, l.Operational)
 	}
 }
