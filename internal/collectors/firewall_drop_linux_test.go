@@ -5,6 +5,8 @@ package collectors
 import (
 	"reflect"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // Verbatim `iptables -t filter -nvL INPUT` from VMware Photon OS 5.0 — the default
@@ -86,5 +88,63 @@ func TestIsAllZeroHexAddr(t *testing.T) {
 	}
 	if isAllZeroHexAddr("0100007F") || isAllZeroHexAddr("") {
 		t.Error("loopback / empty must be false")
+	}
+}
+
+// Verbatim shape of `nft list ruleset` (captured via an isolated netns on pve01,
+// nftables v1.1.3): the policy sits on the `type … hook input … policy drop` line,
+// and accepts span lo / ct-state / literal dport / inline set / range.
+const nftInputClean = `table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iif "lo" accept
+		ct state established,related accept
+		tcp dport 22 accept
+		tcp dport { 80, 443 } accept
+		tcp dport 8000-8002 accept
+	}
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		tcp dport 9999 accept
+	}
+}`
+
+func TestParseNFTInputAccept_Clean(t *testing.T) {
+	accepted, determinable := parseNFTInputAccept(nftInputClean)
+	if !determinable {
+		t.Fatal("a lo/ct-state/literal-dport ruleset is fully parseable")
+	}
+	for _, p := range []int{22, 80, 443, 8000, 8001, 8002} {
+		if !accepted[p] {
+			t.Errorf("port %d should be accepted, got %v", p, accepted)
+		}
+	}
+	// 9999 is in the FORWARD chain, not input — must not count as input-accepted.
+	if accepted[9999] {
+		t.Error("forward-chain accept must not be treated as input-accepted")
+	}
+}
+
+func TestParseNFTRulesetDetectsDefaultDrop(t *testing.T) {
+	var info models.FirewallInfo
+	parseNFTRuleset(nftInputClean, &info)
+	if !info.DefaultDrop {
+		t.Fatal("policy drop on the `type … hook input` line must set DefaultDrop")
+	}
+}
+
+// Any accept the parser can't pin to an explicit dport → bail (flags nothing).
+func TestParseNFTInputAccept_Bails(t *testing.T) {
+	cases := map[string]string{
+		"source-scoped accept": "ip saddr 10.0.0.0/8 accept",
+		"named set":            "tcp dport @allowed accept",
+		"jump to chain":        "jump my-custom-chain",
+		"bare accept":          "accept",
+	}
+	for name, rule := range cases {
+		rs := "table inet filter {\n chain input {\n  type filter hook input priority filter; policy drop;\n  tcp dport 22 accept\n  " + rule + "\n }\n}"
+		if _, determinable := parseNFTInputAccept(rs); determinable {
+			t.Errorf("%s: must make the ruleset indeterminable", name)
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,7 +128,160 @@ func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 		return info, nil
 	}
 	parseNFTRuleset(out, info)
+
+	// Same "service up but unreachable" correlation as the iptables path, for the
+	// nftables backend. Only when an input base chain has policy drop, and only when
+	// the ruleset is fully parseable (see parseNFTInputAccept).
+	if info.DefaultDrop {
+		correlateBlockedListenersNFT(out, info)
+	}
 	return info, nil
+}
+
+// correlateBlockedListenersNFT populates info.BlockedListeners from an nftables
+// ruleset: TCP ports listening on all interfaces with no accept rule under an
+// input policy-drop chain. Reuses the parsed `nft list ruleset` output (no second
+// command). Bails (leaves BlockedListeners nil) the moment the ruleset has anything
+// it can't fully reason about (a jump/goto, a named set, or any accept that isn't
+// lo / established / an explicit tcp dport) so a reachable service is never flagged.
+func correlateBlockedListenersNFT(ruleset string, info *models.FirewallInfo) {
+	accepted, determinable := parseNFTInputAccept(ruleset)
+	if !determinable {
+		return
+	}
+	var blocked []int
+	for _, port := range listeningExposedTCPPorts() {
+		if !accepted[port] {
+			blocked = append(blocked, port)
+		}
+	}
+	info.BlockedListeners = blocked
+}
+
+// nftDportRe captures the dport argument of an nft rule: a literal port, a range
+// (8000-8002), or an inline set ({ 80, 443 }). A named set (dport @foo) or a vmap
+// matches nothing here → the caller treats the accept as unparseable and bails.
+var nftDportRe = regexp.MustCompile(`dport\s+(\{[^}]*\}|[0-9]+-[0-9]+|[0-9]+)`)
+
+// parseNFTInputAccept scans the input base chain(s) of an `nft list ruleset` and
+// returns the set of explicitly-accepted TCP dports, plus determinable=false if any
+// accept rule could permit inbound in a way it can't enumerate (a jump/goto, a
+// source/ipset/named-set accept, a no-dport accept). Conservative by construction:
+// only lo, established/related state, and literal `tcp dport …` accepts are
+// understood; everything else bails. Mirrors the iptables parseIPTInputAccept.
+func parseNFTInputAccept(ruleset string) (accepted map[int]bool, determinable bool) {
+	accepted = map[int]bool{}
+	determinable = true
+	inInput := false
+	for _, raw := range strings.Split(ruleset, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "table "):
+			continue
+		case strings.HasPrefix(line, "chain "):
+			inInput = false // new chain — not known to be input until its type line
+			continue
+		case strings.HasPrefix(line, "type "):
+			inInput = strings.Contains(line, "hook input") // chain config line
+			continue
+		case strings.HasPrefix(line, "}"):
+			inInput = false
+			continue
+		}
+		if !inInput {
+			continue
+		}
+		// A rule line inside an input base chain.
+		if hasField(line, "jump") || hasField(line, "goto") {
+			determinable = false // dispatch to a chain we don't follow
+			continue
+		}
+		if !hasField(line, "accept") {
+			continue // drop / counter / log / return — does not accept
+		}
+		if strings.Contains(line, `iif "lo"`) || strings.Contains(line, `iifname "lo"`) {
+			continue // loopback-only accept grants no external reachability
+		}
+		if ports := nftAcceptedDports(line); len(ports) > 0 {
+			for _, p := range ports {
+				accepted[p] = true
+			}
+			continue
+		}
+		// ct state established/related accept (no dport) is reply traffic only.
+		if strings.Contains(line, "ct state") && !strings.Contains(line, "new") {
+			continue
+		}
+		// An accept we can't pin to a dport (saddr, named set @x, vmap, bare accept)
+		// could permit arbitrary inbound — bail rather than risk a false alarm.
+		determinable = false
+	}
+	return accepted, determinable
+}
+
+// nftAcceptedDports extracts the literal TCP dports from one nft accept rule:
+//
+//	tcp dport 22 accept            → [22]
+//	tcp dport { 80, 443 } accept   → [80,443]
+//	tcp dport 8000-8002 accept     → [8000,8001,8002]
+//
+// Returns empty for a named set (dport @set) so the caller bails.
+func nftAcceptedDports(line string) []int {
+	m := nftDportRe.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+	arg := m[1]
+	var ports []int
+	if strings.HasPrefix(arg, "{") {
+		arg = strings.Trim(arg, "{}")
+		for _, part := range strings.Split(arg, ",") {
+			ports = append(ports, expandNFTPortElem(strings.TrimSpace(part))...)
+		}
+		return ports
+	}
+	return expandNFTPortElem(arg)
+}
+
+// expandNFTPortElem parses one dport element — a single port or an N-M range
+// (bounded to 1024 to cap expansion of a huge range).
+func expandNFTPortElem(s string) []int {
+	if lo, hi, ok := parseNFTRange(s); ok {
+		var ports []int
+		for p := lo; p <= hi && p-lo <= 1024; p++ {
+			ports = append(ports, p)
+		}
+		return ports
+	}
+	if p, err := strconv.Atoi(s); err == nil {
+		return []int{p}
+	}
+	return nil
+}
+
+// parseNFTRange parses "8000-8002" → (8000, 8002, true); a bare number is not a
+// range. (nft renders ranges with '-', unlike iptables' ':'.)
+func parseNFTRange(s string) (lo, hi int, ok bool) {
+	parts := strings.SplitN(s, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	lo, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+	hi, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err1 != nil || err2 != nil || hi < lo {
+		return 0, 0, false
+	}
+	return lo, hi, true
+}
+
+// hasField reports whether w appears as a whitespace-separated token in line.
+func hasField(line, w string) bool {
+	for _, f := range strings.Fields(line) {
+		if f == w {
+			return true
+		}
+	}
+	return false
 }
 
 // parseNFTRuleset parses `nft list ruleset` output into a FirewallInfo. Split
@@ -163,6 +317,16 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 			}
 			info.Chains = append(info.Chains, ch)
 		} else if line != "" && !strings.HasSuffix(line, "{") && !strings.HasPrefix(line, "}") {
+			// In real `nft list ruleset`, an input base chain's policy sits on its
+			// `type filter hook input priority …; policy drop;` line — NOT the
+			// `chain input {` line the block above inspects — so DefaultDrop was never
+			// detected for nftables. Catch it here.
+			if strings.Contains(line, "hook input") && strings.Contains(line, "policy drop") {
+				info.DefaultDrop = true
+				if n := len(info.Chains); n > 0 {
+					info.Chains[n-1].Policy = "drop"
+				}
+			}
 			info.TotalRules++
 		}
 	}
