@@ -36,6 +36,58 @@ func TestFilterUnitsDropsPerConnectionSSHD(t *testing.T) {
 	}
 }
 
+// The blanket sshd@ suppression must NOT hide a per-connection instance that failed
+// for a real reason (ExecMainStatus other than 255 / 0). filterNonBenignSSHD adds
+// those back; benign 255 (dropped before auth) and unreadable status stay suppressed.
+func TestFilterNonBenignSSHD(t *testing.T) {
+	t.Parallel()
+	units := []string{
+		"sshd@0-1.2.3.4:22-5.6.7.8:5000.service", // benign: dropped before auth (255)
+		"sshd@1-1.2.3.4:22-5.6.7.8:5001.service", // REAL fault: status 1
+		"sshd.service",                           // not a per-connection instance — ignored here
+		"other.service",                          // not sshd — ignored
+		"ssh@2-x.service",                        // benign: success (0)
+	}
+	status := map[string]string{
+		"sshd@0-1.2.3.4:22-5.6.7.8:5000.service": "255",
+		"sshd@1-1.2.3.4:22-5.6.7.8:5001.service": "1",
+		"ssh@2-x.service":                        "0",
+	}
+	got := filterNonBenignSSHD(units, func(u string) (string, bool) {
+		s, ok := status[u]
+		return s, ok
+	})
+	if len(got) != 1 || got[0] != "sshd@1-1.2.3.4:22-5.6.7.8:5001.service" {
+		t.Fatalf("only the non-255 sshd@ instance should be surfaced, got %v", got)
+	}
+}
+
+// An unreadable status leaves the instance suppressed (fail-safe — never re-floods).
+func TestFilterNonBenignSSHD_UnreadableStaysSuppressed(t *testing.T) {
+	t.Parallel()
+	units := []string{"sshd@0-a.service"}
+	got := filterNonBenignSSHD(units, func(string) (string, bool) { return "", false })
+	if len(got) != 0 {
+		t.Errorf("unreadable status must stay suppressed, got %v", got)
+	}
+}
+
+func TestIsSSHDConnInstance(t *testing.T) {
+	t.Parallel()
+	yes := []string{"sshd@0-1.2.3.4:22-5.6.7.8:5000.service", "ssh@1-x.service"}
+	no := []string{"sshd.service", "sshd@.service", "ssh@.service", "mysshd@0.service", "other.service"}
+	for _, u := range yes {
+		if !isSSHDConnInstance(u) {
+			t.Errorf("%q should be a per-connection sshd instance", u)
+		}
+	}
+	for _, u := range no {
+		if isSSHDConnInstance(u) {
+			t.Errorf("%q should NOT be a per-connection sshd instance", u)
+		}
+	}
+}
+
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {
