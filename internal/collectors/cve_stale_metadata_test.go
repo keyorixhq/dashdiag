@@ -3,10 +3,12 @@
 package collectors
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // TestMarkCVEStaleMetadataSetsScanFailed: when markCVEStaleMetadata downgrades a
@@ -34,5 +36,24 @@ func TestMarkCVEStaleMetadataSetsScanFailed(t *testing.T) {
 	withFindings := &models.CVEAllResult{PackageManager: "brew", Total: 3}
 	if got := markCVEStaleMetadata(withFindings); got.ScanFailed {
 		t.Error("a result with findings (Total>0) must not be marked ScanFailed")
+	}
+}
+
+// TestScanAllViaPackageManagerNoPM: when NO supported package manager is present,
+// the dispatch fallback must mark ScanFailed — dsd couldn't scan at all, so it must
+// not render the green ✅ that reads as "no CVEs / you're fine" (false-OK found by
+// auditing the `cve --all` family). An empty replay source makes every lookPath miss,
+// so this is deterministic regardless of what's installed on the test host.
+func TestScanAllViaPackageManagerNoPM(t *testing.T) {
+	defer SetSource(SetSource(source.NewReplay(source.NewBundle())))
+	res := scanAllViaPackageManager(context.Background())
+	if res == nil {
+		t.Fatal("expected a result, got nil")
+	}
+	if !res.ScanFailed {
+		t.Errorf("no-package-manager fallback must set ScanFailed (else green ✅ false-OK); reason=%q", res.StatusReason)
+	}
+	if !strings.Contains(res.StatusReason, "NOT verified") {
+		t.Errorf("no-package-manager reason should say NOT verified, got %q", res.StatusReason)
 	}
 }
