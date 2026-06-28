@@ -62,6 +62,43 @@ func TestPrintGuestView_ContainerTwoBlock(t *testing.T) {
 	}
 }
 
+// dsd guest now auto-detects cloud: an EC2 guest renders the same two-block split
+// the standalone dsd aws produces, through the shared guest renderer.
+func TestPrintGuestView_AWSCloudTwoBlock(t *testing.T) {
+	view := guestView{
+		identity:   "🟧 EC2 guest — m5.large",
+		insights:   analysis.AWSInsights(*ec2Info()),
+		hostSide:   awsInsightProviderSide,
+		recognized: isAWSRecognitionLine,
+		guestTitle: "Your instance — you can fix these",
+		hostTitle:  "AWS-imposed limits — evidence to share with AWS support",
+		healthyMsg: "EC2 guest healthy",
+	}
+	var buf bytes.Buffer
+	printGuestView(&buf, view, output.ModePlain)
+	out := buf.String()
+
+	gi := strings.Index(out, "Your instance")
+	hi := strings.Index(out, "AWS-imposed limits")
+	if gi < 0 || hi < 0 || gi > hi {
+		t.Fatalf("both blocks present, instance before provider:\n%s", out)
+	}
+	guestBlock, hostBlock := out[gi:hi], out[hi:]
+	for _, want := range []string{"IMDSv1", "amazon-ssm-agent"} {
+		if !strings.Contains(guestBlock, want) {
+			t.Errorf("self-serve block missing %q", want)
+		}
+	}
+	for _, want := range []string{"allowance", "EBS"} {
+		if !strings.Contains(hostBlock, want) {
+			t.Errorf("provider block missing %q", want)
+		}
+	}
+	if strings.Contains(hostBlock, "IMDSv1") {
+		t.Error("IMDSv1 (self-serve) leaked into the provider block")
+	}
+}
+
 func TestPrintGuestView_HealthyContainer(t *testing.T) {
 	info := models.ContainerGuestInfo{
 		InContainer: true, Runtime: "kubernetes", CgroupV2: true,

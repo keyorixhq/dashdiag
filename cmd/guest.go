@@ -75,17 +75,84 @@ func runGuest(cmd *cobra.Command, _ []string) error {
 
 // detectGuestView resolves the INNERMOST isolation layer first — a container on a
 // VM reports as the container (its limits bite first), with the VM noted as a
-// breadcrumb. Then VM, then bare metal.
+// breadcrumb. Then cloud (the most specific VM view — AWS/Azure/GCP, each gated on
+// its own DMI so they don't overlap and KVM-guest already excludes the clouds), then
+// a generic VMware/KVM VM, then bare metal.
 func detectGuestView(ctx context.Context) (guestView, bool) {
 	switch {
 	case collectors.ContainerGuestAvailable():
 		return containerGuestView(ctx), true
+	case collectors.AWSGuestAvailable():
+		return awsGuestView(ctx), true
+	case collectors.AzureGuestAvailable():
+		return azureGuestView(ctx), true
+	case collectors.GCPGuestAvailable():
+		return gcpGuestView(ctx), true
 	case collectors.VMwareGuestAvailable():
 		return vmwareGuestView(ctx), true
 	case collectors.KVMGuestAvailable():
 		return kvmGuestView(ctx), true
 	default:
 		return guestView{}, false
+	}
+}
+
+func awsGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewAWSCollector()).(*models.AWSInfo)
+	itype := info.InstanceType
+	if itype == "" {
+		itype = "instance"
+	}
+	return guestView{
+		identity:   "🟧 EC2 guest — " + itype,
+		jsonData:   info,
+		insights:   analysis.AWSInsights(*info),
+		hostSide:   awsInsightProviderSide,
+		recognized: isAWSRecognitionLine,
+		guestTitle: "Your instance — you can fix these",
+		hostTitle:  "AWS-imposed limits — evidence to share with AWS support",
+		healthyMsg: "EC2 guest healthy — no guest-side throttling or posture issues found",
+	}
+}
+
+func azureGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewAzureCollector()).(*models.AzureInfo)
+	an := "unknown"
+	switch {
+	case info.HasVF:
+		an = "active"
+	case len(info.SyntheticNICs) > 0:
+		an = "synthetic path (no VF)"
+	}
+	return guestView{
+		identity:   "🔷 Azure VM   (Accelerated Networking: " + an + ")",
+		jsonData:   info,
+		insights:   analysis.AzureInsights(*info),
+		hostSide:   azureInsightProviderSide,
+		recognized: isAzureRecognitionLine,
+		guestTitle: "Your VM — you can fix these",
+		hostTitle:  "Accelerated networking — evidence to share with Azure support",
+		healthyMsg: "Azure VM healthy — no guest-side config or datapath issues found",
+	}
+}
+
+func gcpGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewGCPCollector()).(*models.GCPInfo)
+	net := "synthetic"
+	if info.UsesGVNIC {
+		net = "gVNIC"
+	} else if info.NICDriver != "" {
+		net = info.NICDriver
+	}
+	return guestView{
+		identity:   "🟥 GCE VM   (networking: " + net + ")",
+		jsonData:   info,
+		insights:   analysis.GCPInsights(*info),
+		hostSide:   gcpInsightProviderSide,
+		recognized: isGCPRecognitionLine,
+		guestTitle: "Your VM — you can fix these",
+		hostTitle:  "Host-side — Google Cloud activity to correlate",
+		healthyMsg: "GCE guest healthy — no guest-side config or host-maintenance issues found",
 	}
 }
 
