@@ -196,6 +196,43 @@ func TestVMwareResourceConstraintsBinding(t *testing.T) {
 	}
 }
 
+// An implausible `vmware-toolbox-cmd stat speed` (per-vCPU clock) must NOT be used
+// to size CPU capacity — it would flip the headline pilot verdict. This guards the
+// believer-moment false-positive: a garbage-HIGH clock inflates capacity so a
+// non-binding limit reads "the guest is throttled" (invented), and a garbage-LOW
+// clock shrinks capacity so a real throttle is hidden. Both must degrade to the
+// honest "could not be determined" WARN, never assert throttling.
+func TestVMwareCPULimitImplausibleSpeed(t *testing.T) {
+	base := models.VMwareInfo{IsGuest: true, ToolsInstalled: true, ToolsRunning: true, StatAvailable: true}
+
+	for _, speed := range []int{100, 99999, 0, 200000} {
+		v := base
+		v.CPULimitMHz = 6000 // a 6000 MHz limit on a 2-vCPU ~3GHz host is NON-binding
+		v.NumVCPU = 2
+		v.HostMHzPerCPU = speed
+		ins := vmwareResourceConstraints(v)
+		if len(ins) != 1 {
+			t.Fatalf("speed=%d: want 1 insight, got %d", speed, len(ins))
+		}
+		if ins[0].Level != "WARN" || !strings.Contains(ins[0].Message, "could not be determined") {
+			t.Errorf("speed=%d: implausible clock must give the unknown-capacity WARN, got %s: %q", speed, ins[0].Level, ins[0].Message)
+		}
+		if strings.Contains(ins[0].Message, "is throttled") || strings.Contains(ins[0].Message, "non-binding") {
+			t.Errorf("speed=%d: implausible clock must not assert binding OR non-binding: %q", speed, ins[0].Message)
+		}
+	}
+
+	// Sanity: a plausible clock still classifies normally (non-binding here).
+	v := base
+	v.CPULimitMHz = 6000
+	v.NumVCPU = 2
+	v.HostMHzPerCPU = 2993 // capacity 5986 ≈ 6000 → non-binding
+	ins := vmwareResourceConstraints(v)
+	if len(ins) != 1 || ins[0].Level != "INFO" {
+		t.Errorf("plausible clock should classify (non-binding INFO here), got %+v", ins)
+	}
+}
+
 // FALSE_OK_SWEEP #33: open-vm-tools running but the stat interface didn't answer →
 // resource-pressure (ballooning/host-swap/caps) is unverified, NOT a clean OK.
 func TestCheckVMwareStatUnavailable(t *testing.T) {
