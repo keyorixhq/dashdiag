@@ -233,4 +233,12 @@ func TestDetectContainer_CgroupV1_HostNamespace(t *testing.T) {
 	if cc.MemLimitMB != 128 {
 		t.Errorf("host-ns v1 MemLimitMB = %f, want 128 (sub-path)", cc.MemLimitMB)
 	}
+	// The per-controller dirs must resolve to the container's own sub-path so the
+	// collector reads its memory.oom_control / cpu.stat, not the host root's.
+	if cc.CgroupV1MemDir != leaf {
+		t.Errorf("CgroupV1MemDir = %q, want %q", cc.CgroupV1MemDir, leaf)
+	}
+	if want := filepath.Join(cgroupDir, "cpu", subPath); cc.CgroupV1CPUDir != want {
+		t.Errorf("CgroupV1CPUDir = %q, want %q (resolved from the cpu,cpuacct line)", cc.CgroupV1CPUDir, want)
+	}
 }

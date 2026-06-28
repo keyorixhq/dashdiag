@@ -55,6 +55,19 @@ func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error
 		info.MemCurrentBytes = parseInt64(readFileTrimmedLocal(filepath.Join(cgDir, "memory.current")))
 		info.OOMKills = cgroupKeyedValue(readFileTrimmedLocal(filepath.Join(cgDir, "memory.events")), "oom_kill")
 		info.ThrottledPct = cgroupThrottledPct(readFileTrimmedLocal(filepath.Join(cgDir, "cpu.stat")))
+	} else if cc.InContainer {
+		// cgroup v1: the same signals live under per-controller dirs. cpu.stat carries
+		// the SAME nr_periods/nr_throttled keys as v2; OOM-kills are the `oom_kill`
+		// counter in the memory controller's memory.oom_control (kernel ≥4.13).
+		cpuStat := readFileTrimmedLocal(filepath.Join(cc.CgroupV1CPUDir, "cpu.stat"))
+		oomCtl := readFileTrimmedLocal(filepath.Join(cc.CgroupV1MemDir, "memory.oom_control"))
+		info.MemCurrentBytes = parseInt64(readFileTrimmedLocal(filepath.Join(cc.CgroupV1MemDir, "memory.usage_in_bytes")))
+		info.OOMKills = cgroupKeyedValue(oomCtl, "oom_kill")
+		info.ThrottledPct = cgroupThrottledPct(cpuStat)
+		// Measured only if a counter file was actually readable — if both are absent
+		// (old kernel / controller not mounted) we stay honest ("not measured"), not a
+		// silent 0 = healthy.
+		info.CgroupV1Measured = cpuStat != "" || oomCtl != ""
 	}
 
 	info.WritableRootfs = rootfsWritable(readFileTrimmedLocal("/proc/mounts"))

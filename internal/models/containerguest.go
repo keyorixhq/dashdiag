@@ -12,6 +12,11 @@ type ContainerGuestInfo struct {
 	InContainer bool   `json:"in_container"`
 	Runtime     string `json:"runtime,omitempty"` // docker / podman / kubernetes / lxc / container
 	CgroupV2    bool   `json:"cgroup_v2"`
+	// CgroupV1Measured is true when, on a cgroup v1 host, the throttle/OOM counters
+	// (cpu.stat / memory.oom_control under the per-controller dirs) were actually
+	// readable. When false on a v1 container they're unverified — the verdict must say
+	// so, not imply "no throttling or OOM-kills". Always false on v2 (v2 reads inline).
+	CgroupV1Measured bool `json:"cgroup_v1_measured,omitempty"`
 
 	// Memory limit + usage (cgroup). LimitBytes 0 = no limit set (memory.max == max).
 	MemLimitBytes   int64 `json:"mem_limit_bytes"`

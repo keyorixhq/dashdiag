@@ -22,6 +22,11 @@ type ContainerContext struct {
 	// host root cgroup, so reading it there yields the host's values (0 oom_kills,
 	// 0 throttled) — a false-OK. Empty on cgroup v1 / non-container.
 	CgroupV2Dir string
+	// CgroupV1MemDir / CgroupV1CPUDir are the process's own cgroup v1 controller dirs
+	// (memory, cpu), resolved via /proc/self/cgroup. Set only for cgroup v1. Consumers
+	// reading dynamic v1 counters (memory.oom_control, cpu.stat) use these. Empty on v2.
+	CgroupV1MemDir string
+	CgroupV1CPUDir string
 }
 
 func DetectContainerContext() ContainerContext {
@@ -92,9 +97,13 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers,
 	} else {
 		cc.CgroupVersion = 1
 		memDir := filepath.Join(cgroupBase, "memory")
+		cpuDir := filepath.Join(cgroupBase, "cpu")
 		if cc.InContainer {
 			memDir = cgroupV1ControllerDir(cgroupBase, procSelfCgroup, "memory")
+			cpuDir = cgroupV1ControllerDir(cgroupBase, procSelfCgroup, "cpu")
 		}
+		cc.CgroupV1MemDir = memDir
+		cc.CgroupV1CPUDir = cpuDir
 		cc.MemLimitMB = parseCgroupV1Memory(filepath.Join(memDir, "memory.limit_in_bytes"))
 	}
 
