@@ -12,6 +12,11 @@ import (
 // non-preemptible VM (the operator likely expected live migration). Silent on every
 // non-GCP host (the collector only runs behind the DMI gate). When everything it could
 // verify is clean it emits one INFO recognition line.
+// GCPInsights is the exported entry point for the standalone `dsd gcp` command. It
+// returns exactly what `dsd health` evaluates for a GCE guest (it IS checkGCP), so
+// the two verdicts cannot drift — the cmd↔health consistency invariant.
+func GCPInsights(g models.GCPInfo) []models.Insight { return checkGCP(g) }
+
 func checkGCP(g models.GCPInfo) []models.Insight {
 	if !g.IsGCP {
 		return nil

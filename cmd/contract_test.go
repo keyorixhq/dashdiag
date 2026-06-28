@@ -36,6 +36,7 @@ var exitCodeContract = map[string]string{
 	"guest":     "todo: guest/tenant findings not yet wired to the exit code",
 	"aws":       "todo: EC2 guest-config findings not yet wired to the exit code",
 	"azure":     "todo: Azure guest-config findings not yet wired to the exit code",
+	"gcp":       "todo: GCE guest-config findings not yet wired to the exit code",
 	"pve":       "todo: node/task errors not yet wired",
 	"proc":      "todo: assess whether D-state / fd leaks should gate",
 	"processes": "todo: assess whether zombie/hung detection should gate",
@@ -132,7 +133,7 @@ var jsonContract = map[string]string{
 	"tls": "json", "timeline": "json", "cis": "json", "kvm": "json",
 	"pve": "json", "proc": "json", "processes": "json", "inventory": "json",
 	"db": "json", "vmware": "json", "kvm-guest": "json", "guest": "json",
-	"containerd": "json", "aws": "json", "azure": "json",
+	"containerd": "json", "aws": "json", "azure": "json", "gcp": "json",
 
 	"baseline":   "exempt: save/diff utility, no data payload",
 	"compare":    "exempt: report diff utility",
