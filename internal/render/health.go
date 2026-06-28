@@ -1089,7 +1089,18 @@ func inlineISCSI(data interface{}) string {
 	if i == nil || !i.Available || len(i.Sessions) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d session(s)  logged in", len(i.Sessions))
+	// Count actually-LOGGED_IN sessions, not the total — a FAILED/reconnecting session
+	// must not read as "logged in" next to a CRIT icon (mirrors inlineHBA online/total).
+	loggedIn := 0
+	for _, s := range i.Sessions {
+		if strings.EqualFold(s.State, "LOGGED_IN") {
+			loggedIn++
+		}
+	}
+	if loggedIn == len(i.Sessions) {
+		return fmt.Sprintf("%d session(s)  logged in", loggedIn)
+	}
+	return fmt.Sprintf("%d/%d logged in", loggedIn, len(i.Sessions))
 }
 
 func inlineInfiniBand(data interface{}) string {

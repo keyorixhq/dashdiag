@@ -57,6 +57,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"LVMInfo.VGReadFailed":          "analysis/san_unverified_test.go",
 	"LVMInfo.PVReadFailed":          "analysis/san_unverified_test.go",
 	"LVMInfo.RaidReadFailed":        "analysis/heuristics_round7_test.go",
+	"DRBDInfo.Unverified":           "analysis/san_unverified_test.go (DRBD 9 non-root → INFO 'needs root', not silent omission)",
 
 	// PVE — API/section verified flags; folded by the PVE heuristic.
 	"PVEInfo.APIReachable":     "analysis/pve_apireachable_test.go",

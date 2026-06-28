@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -52,10 +53,17 @@ func (c *DRBDCollector) Collect(ctx context.Context) (interface{}, error) {
 			if r9 := collectDRBD9(ctx, info.Version); r9 != nil && len(r9.Resources) > 0 {
 				return r9, nil
 			}
+			// v9 module loaded but netlink returned no resources. Unprivileged, that's
+			// almost certainly because `drbdsetup status` needs CAP_NET_ADMIN — the
+			// state is UNKNOWN, not absent. Surface "needs root" rather than silently
+			// omitting DRBD (which would hide a split-brain/diskless resource). As root,
+			// an empty result genuinely means no configured resources → gate off.
+			if os.Geteuid() != 0 {
+				return &models.DRBDInfo{Version: info.Version, Unverified: true}, nil
+			}
 		}
-		// Module loaded but no configured resources (or v9 status unreadable, e.g.
-		// non-root: netlink needs CAP_NET_ADMIN). Absent, gate off — no phantom
-		// "DRBD ✅ OK" row, so nothing falsely claims health.
+		// Module loaded but no configured resources (root, or 8.x empty). Absent, gate
+		// off — no phantom "DRBD ✅ OK" row, so nothing falsely claims health.
 		return nil, nil
 	}
 	return info, nil
