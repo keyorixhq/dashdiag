@@ -883,11 +883,13 @@ false-verdicts** on root-gated storage sources — the run-as-both rule's target
 - ✅ **HBA stale link-failure counter, NVMe unparseable hint, IO hotplug 100%-util**
   (#606): three edge/stale-signal false-alarms.
 
-**Deferred (documented, READY/low):** iSCSI *non-root* degradation — `iscsiadm`'s common
-error is exit-21 "no sessions" even as root, so a euid-based "needs root" would
-false-signal on the very common open-iscsi-installed-no-targets host. No safe
-discriminator without exit-code plumbing through runCmd; worth doing if a real
-non-root iSCSI-permission failure mode is confirmed on hardware. **Clean (verified):**
+**iSCSI non-root degradation — ✅ FIXED (#612, 2026-06-29).** The deferral worry (that
+iscsiadm doesn't fail non-root) was DISPROVEN live on VM101: with an *active* session,
+non-root `iscsiadm -m session -P 1` fails on root-only per-session sysfs fields
+(`session*/username`, 0400) with the SAME exit 21 as no-sessions — so an active session
+was silently omitted non-root (a real false-OK). Discriminator: `/sys/class/iscsi_session/`
+is world-readable, so its `session*` dir count tells "sessions present but need root"
+(→ INFO) from "genuinely none" (→ silent). Live-validated old-vs-new. **Clean (verified):**
 RAID/mdstat, LVM parsers, the prior SMART/image-fs/EBS gates; ZFS-installed-no-pools
 "OK" is correct (like RAID-absent, no pools = nothing to fault).
 
@@ -911,10 +913,12 @@ tdnf, #567/#570/#577/#581 boot/storage guards, the root-vs-non-root invariant.
   blanket suppression, query `ExecMainStatus` and add back any `sshd@<conn>` instance
   that failed non-255 (a real per-connection fault); capped at 20. Both health +
   `services deep`.
-- ✅ **ContainerGuest cgroup-v1 OOM/throttle gap** — #594: a v1 container now emits an
-  honest "throttle/OOM not measured on cgroup v1" INFO and `dsd guest` drops the
-  "no throttling or OOM-kills" claim. *Remaining future work (legacy, no v1 host to
-  validate): actually read the v1 per-controller counters (memory.oom_control, cpu.stat).*
+- ✅ **ContainerGuest cgroup-v1 OOM/throttle gap** — #594 made it honest ("not
+  measured"); **#615 now reads the real v1 counters** (cpu.stat / memory.oom_control via
+  the resolved per-controller dirs, exposed as ContainerContext.CgroupV1MemDir/CPUDir),
+  so a throttled/OOM-killed v1 container is actionably detected (WARN). CgroupV1Measured
+  keeps it honest when the counter files can't be read. Unit-validated (no v1 host
+  exists — modern distros default v2).
 - ✅ **containerd "failed" display icon** — #591: renders CRIT, matching the verdict/exit.
 - ✅ **PostBoot "unclean shutdown" on LXCs** — #592: `PostBootAvailable()` returns false
   in a container (prior-boot kernel forensics don't apply). Live-validated.
