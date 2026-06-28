@@ -169,6 +169,14 @@ func collectVMwareDiskIDs(blockDir string) (checked bool, noStableID []string) {
 			continue // sd* only: IDE/SATA carry an ATA serial and NVMe an eui regardless of EnableUUID
 		}
 		checked = true
+		// No stable ID means: wwid empty, absent, OR unreadable — all three are the
+		// EnableUUID=FALSE signature, NOT something to ignore. Validated on a real
+		// vSphere paravirtual disk (192.168.30.231): the wwid file exists 0444 but the
+		// READ fails with ENXIO ("No such device or address") because there is no SCSI
+		// page 0x83 — identically as root and non-root. So a read error here is the
+		// signal, not a measurement gap: do not "fix" this by skipping read failures,
+		// or real EnableUUID-off detection breaks. A disk WITH a stable ID (SATA/LSI)
+		// returns its naa./eui. string and is correctly not flagged (lsi-clean capture).
 		if readFileTrimmedLocal(filepath.Join(blockDir, dev, "device", "wwid")) == "" {
 			noStableID = append(noStableID, dev)
 		}

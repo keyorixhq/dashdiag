@@ -207,10 +207,14 @@ func TestCollectVMwareDiskIDs(t *testing.T) {
 	}
 	mk("sda", "naa.5000c29cfc4431c4\n", true) // SATA — has ID
 	mk("sde", "naa.5000c292640bd534\n", true) // SATA — has ID
-	mk("sdb", "", true)                       // pvscsi — empty wwid file (EnableUUID off)
-	mk("sdc", "", false)                      // pvscsi — no wwid file at all
-	mk("sdd", "", true)                       // pvscsi boot disk — empty wwid
-	mk("nvme0n1", "eui.469d\n", true)         // NVMe — must be ignored (not sd*)
+	// sdb/sdc/sdd model the three real EnableUUID=FALSE manifestations, all → flagged:
+	// empty file, no file, and (on real vSphere, 192.168.30.231) a present-but-ENXIO
+	// read — readFileTrimmedLocal collapses all three to "" by design (see the
+	// collector comment: a read error IS the no-page-0x83 signal, not a gap to skip).
+	mk("sdb", "", true)               // pvscsi — empty wwid file (EnableUUID off)
+	mk("sdc", "", false)              // pvscsi — no wwid file at all (≡ the ENXIO read-error case)
+	mk("sdd", "", true)               // pvscsi boot disk — empty wwid
+	mk("nvme0n1", "eui.469d\n", true) // NVMe — must be ignored (not sd*)
 
 	checked, noID := collectVMwareDiskIDs(root)
 
