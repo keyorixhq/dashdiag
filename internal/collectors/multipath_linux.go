@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -52,14 +53,42 @@ func (c *MultipathCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// IsMultipathPresent returns true when multipathd is running.
+// IsMultipathPresent returns true when multipath is genuinely in use: the multipathd
+// daemon is running, OR there are dm-multipath maps in sysfs. The binary being
+// installed is NOT enough — multipath-tools is frequently pulled in as a dependency
+// on hosts with no SAN, daemon never started, no maps. There a non-root probe
+// (root-only socket / devmapper ioctl) can fail → a spurious "multipath path health
+// could NOT be verified" WARN on a host with no multipath at all. Gating on
+// daemon-running OR maps-present registers the collector only where multipath exists,
+// while still covering a degraded host whose maps persist after multipathd stopped.
 func IsMultipathPresent() bool {
-	// Check if multipathd socket exists or process is running
 	if _, err := lookPath("multipathd"); err != nil {
 		return false
 	}
-	// Verify it's actually running (multipathd show paths fails if daemon is stopped)
-	return true
+	return anyProcessNamed("multipathd") || multipathMapsPresent("/sys/block")
+}
+
+// multipathMapsPresent reports whether any device-mapper device in sysBlockDir is a
+// multipath map (its dm/uuid starts with "mpath-"). sysfs is world-readable, so this
+// detects real multipath regardless of privilege or daemon state.
+func multipathMapsPresent(sysBlockDir string) bool {
+	entries, err := readDirEntries(sysBlockDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "dm-") {
+			continue
+		}
+		uuid, err := readFile(filepath.Join(sysBlockDir, e.Name(), "dm", "uuid"))
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(string(uuid)), "mpath-") {
+			return true
+		}
+	}
+	return false
 }
 
 // parseMultipathShow parses "multipathd show paths format %d %t %s %m" output.
