@@ -731,6 +731,13 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 // Corosync clusters — a split brain or disconnection means the HA layer
 // is no longer protecting against node failure.
 func checkDRBD(d models.DRBDInfo) []models.Insight {
+	if d.Unverified {
+		// DRBD 9 present but resource state unreadable (netlink needs root). Say so —
+		// never omit (a split-brain/diskless resource must not hide behind silence).
+		return []models.Insight{insight("INFO", "DRBD",
+			"DRBD 9 present — resource state needs root (drbdsetup status uses netlink/CAP_NET_ADMIN)",
+			[]string{"to verify: sudo drbdsetup status --json all   (or run dsd as root)"})}
+	}
 	out := make([]models.Insight, 0, len(d.Resources))
 	for _, res := range d.Resources {
 		out = append(out, checkDRBDResource(res)...)

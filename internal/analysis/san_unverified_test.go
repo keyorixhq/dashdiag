@@ -26,6 +26,19 @@ func TestMultipathPathsUnreadableIsWarn(t *testing.T) {
 	}
 }
 
+// A DRBD 9 host whose resource state can't be read (netlink needs root) must say
+// "needs root", not silently omit DRBD (which would hide a split-brain/diskless res).
+func TestDRBDUnverifiedIsInfoNotSilent(t *testing.T) {
+	got := checkDRBD(models.DRBDInfo{Version: "9.1.0", Unverified: true})
+	if !hasInsightMsg(got, "INFO", "needs root") {
+		t.Errorf("unverified DRBD 9 must emit a needs-root INFO, got %+v", got)
+	}
+	// Verified, no resources → clean (genuinely no configured resources).
+	if got := checkDRBD(models.DRBDInfo{Version: "9.1.0"}); len(got) != 0 {
+		t.Errorf("verified DRBD with no resources must be clean, got %+v", got)
+	}
+}
+
 func TestLVMQueryFailuresAreInfo(t *testing.T) {
 	cases := []struct {
 		name string
