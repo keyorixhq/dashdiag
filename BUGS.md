@@ -1104,3 +1104,35 @@ divergence below.
   the `dsd security` "N concern(s)" count is now grouped like health (e.g. 3 unexpected ports = 1
   concern, not 3). Consistency test extended to the previously-missed conditions (StrictModes,
   PermitEmptyPasswords) as a revert guard. **PR:** _guard #530; fix #532_
+
+---
+
+## Gentoo on real VMware/vCD — first validation (2026-06-28)
+
+First Gentoo guest validated on **real VMware**. A Gentoo `di-amd64-console` (systemd,
+UEFI) qcow2 was converted to a stream-optimized VMDK + a hand-built OVA, imported to the
+vCD tenant, and **boots under UEFI/OVMF** — the generic dracut initramfs carries every
+VMware storage controller (`mptspi`/`mptsas`/`vmw_pvscsi`) with XFS + AHCI + NVMe built
+into the kernel, so the KVM-built image's virtio dependency was a non-issue. The
+`dsd health` **two-pass (root vs non-root) was clean**: every privileged check (Hardening
+SSH-root-login, Firewall, OOM, LVM, Logs, PostBoot) degrades to an explicit "could not
+verify / run as root" unprivileged — none to a false-OK. The VMware collector correctly
+flagged all four real guest-config issues (no open-vm-tools, e1000, 30s SCSI timeout,
+`disk.EnableUUID` off). One finding below.
+
+### BUG-073 — package-install fix hints name the wrong tool on Gentoo (omit `emerge`)
+**Found:** Gentoo-on-real-VMware validation, vCD tenant guest (2026-06-28)
+**Symptom:** `dsd health` remediation hints read `to fix: apt install <pkg>  (RHEL/SUSE:
+  dnf/zypper install <pkg>)` on a Gentoo host — naming package managers the host doesn't
+  have. Hit live on the open-vm-tools and rsyslog "to fix" lines.
+**Root cause:** the install-suggestion hint strings are hardcoded apt/dnf/zypper across
+  ~12 sites in `internal/analysis`; none emit `emerge`, and the detected package manager
+  was never routed into the remedy text.
+**Affected:** every `to fix: <pm> install …` hint on Gentoo. Cosmetic/UX only — the
+  diagnosis and verdict are correct; just the suggested command names the wrong tool.
+**Fix:** host-gated `gentooifyHints` pass (mirrors the existing `nixosifyHints`) rewriting
+  any package-install hint to `to fix (Gentoo): emerge <pkg>`, preserving a trailing
+  `&& <service-enable>`. Gated on `/etc/os-release ID=gentoo`, so no other host is
+  affected. Tests in `internal/analysis/gentoo_hints_test.go`. Out of scope: the
+  standalone `dsd gpu`/`dsd kvm` printf hints (separate surface).
+**Commit:** `d9968e3` (PR #611)

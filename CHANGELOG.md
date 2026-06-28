@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gentoo remediation hints** — `dsd health` "to fix: apt install … (RHEL/SUSE:
+  dnf/zypper install …)" hints now rewrite to their Portage form
+  (`to fix (Gentoo): emerge <pkg>`) on Gentoo hosts, instead of naming package
+  managers Gentoo doesn't have; a trailing `&& <service-enable>` is preserved.
+  Host-gated on `/etc/os-release ID=gentoo`, mirroring the existing NixOS hint
+  rewriting. Diagnosis/verdict were already correct — this fixes only the remedy
+  text. Found live running `dsd health` on a Gentoo guest on real VMware/vCD (#611).
+
 ## [1.11.0] - 2026-06-28
 
 Minor (additive): new guest/tenant + platform commands and Photon-OS depth, plus the
