@@ -250,27 +250,36 @@ func guestConcerns(view guestView) int {
 	return n
 }
 
-// hostPressureUnverified reports whether a finding says host pressure couldn't be
-// measured (e.g. the VMware stat interface was unavailable — old tools / no perms).
-// That case is an INFO (no concern), so the verdict is still "healthy" — but a
-// "no host pressure" claim in the all-clear line would over-state an unverified
-// negative, the same false-OK class this command exists to avoid.
-func hostPressureUnverified(insights []models.Insight) bool {
+// someCheckUnverified reports whether a finding says a check could NOT be measured
+// (the VMware stat interface unavailable, AWS EBS performance stats needing root or
+// failing to read, etc.). Those are INFO (no concern), so the verdict stays
+// "healthy" — but a clean all-clear line would over-state an unverified negative,
+// the false-OK class these commands exist to avoid. Keyed on the honest
+// couldn't-measure phrasings the heuristics emit (we own the strings).
+func someCheckUnverified(insights []models.Insight) bool {
 	for _, in := range insights {
-		if strings.Contains(in.Message, "NOT verified") {
+		m := in.Message
+		if strings.Contains(m, "NOT verified") || strings.Contains(m, "need root") ||
+			strings.Contains(m, "could not read") || strings.Contains(m, "could not verify") {
 			return true
 		}
 	}
 	return false
 }
 
-// healthySummary returns the all-clear line, but demotes a "no host pressure" claim
-// to an honest "host pressure not verified" when the stats were unavailable.
+// healthySummary returns the all-clear line, but never lets it imply an unverified
+// check came back clean. VMware keeps its specific "host pressure not verified"
+// phrasing; every other platform (AWS/Azure/GCP) gets a generic caveat so e.g.
+// "EC2 guest healthy — no guest-side throttling" doesn't claim no throttling when
+// the EBS throttle check needed root and never ran.
 func healthySummary(base string, insights []models.Insight) string {
-	if hostPressureUnverified(insights) && strings.Contains(base, "no host pressure") {
+	if !someCheckUnverified(insights) {
+		return base
+	}
+	if strings.Contains(base, "no host pressure") {
 		return strings.Replace(base, "no host pressure", "host pressure not verified (stats unavailable — see above)", 1)
 	}
-	return base
+	return base + " — but some checks could not be verified (see above)"
 }
 
 func printGuestView(w io.Writer, view guestView, mode output.OutputMode) {
