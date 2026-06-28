@@ -135,6 +135,12 @@ func containerGuestView(ctx context.Context) guestView {
 	if info.UnderlyingVM != "" {
 		id += "  →  on a " + info.UnderlyingVM + " VM"
 	}
+	// On cgroup v1 throttle/OOM aren't measured, so the all-clear line must not claim
+	// "no throttling or OOM-kills" (the unverified-negative false-OK; cf. #589).
+	healthyMsg := "container healthy — limits set, non-root, no throttling or OOM-kills"
+	if !info.CgroupV2 {
+		healthyMsg = "container healthy — limits set, non-root (throttle/OOM not measured on cgroup v1)"
+	}
 	return guestView{
 		identity:   id,
 		jsonData:   info,
@@ -143,7 +149,7 @@ func containerGuestView(ctx context.Context) guestView {
 		recognized: isContainerRecognitionLine,
 		guestTitle: "Your container — you can fix these",
 		hostTitle:  "Resource limits — enforced against you",
-		healthyMsg: "container healthy — limits set, non-root, no throttling or OOM-kills",
+		healthyMsg: healthyMsg,
 	}
 }
 
