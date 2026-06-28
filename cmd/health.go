@@ -548,6 +548,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.NetworkdAvailable() {
 		cols = append(cols, collectors.NewNetworkdConfigCollector())
 	}
+	// /etc/fstab UUID/PARTUUID drift — gate on /etc/fstab present. Catches the
+	// cloned-VM / replaced-disk boot failure where fstab names an old filesystem id.
+	if collectors.FstabAvailable() {
+		cols = append(cols, collectors.NewFstabDriftCollector())
+	}
 	// QEMU/KVM (Proxmox/oVirt/libvirt) guest config — gate on DMI vendor (QEMU).
 	// Silent on bare metal, VMware, and the clouds (which carry their own vendors).
 	if collectors.KVMGuestAvailable() {
