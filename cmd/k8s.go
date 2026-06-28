@@ -81,6 +81,19 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 		return
 	}
 
+	// kubectl/k3s present but no cluster query succeeded (API down, bad kubeconfig,
+	// insufficient RBAC). Every count is 0 because the cluster was never reached —
+	// don't render that as "✅ Cluster healthy" (false-OK). Mirrors the health
+	// heuristic (checkK8s → "cluster API was unreachable — health NOT verified").
+	if !info.APIReachable {
+		fmt.Printf("\nKubernetes Health  (via %s)\n", info.KubeBin)
+		fmt.Println()
+		fmt.Println(sep)
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) +
+			" cluster API unreachable — cluster health NOT verified (check: kubectl get nodes; kubeconfig/RBAC/API server up?)"))
+		return
+	}
+
 	fmt.Printf("\nKubernetes Health  (via %s)\n", info.KubeBin)
 
 	// Nodes
