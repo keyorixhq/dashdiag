@@ -96,6 +96,7 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, 
 	// Report the CAPTURED host's identity (from the manifest), not the replaying
 	// machine's — so the snapshot/JSON carry the right hostname/OS (e.g. dsd diff).
 	defer platform.SetIdentity(b.Manifest.Host, b.Manifest.OS)()
+	defer platform.SetReplayPlatform(b.Manifest.DistroID, b.Manifest.InitSystem, b.Manifest.GOOS)()
 
 	// Container-context, cloud, and profile come from the bundle (recorded at
 	// capture) so a captured container's cgroup limits, a cloud guest's cloud-aware
@@ -139,6 +140,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	// Keep the captured host's identity active through the render below too
 	// (replayBundle restored it on return).
 	defer platform.SetIdentity(b.Manifest.Host, b.Manifest.OS)()
+	defer platform.SetReplayPlatform(b.Manifest.DistroID, b.Manifest.InitSystem, b.Manifest.GOOS)()
 
 	if b.Manifest.Host != "" {
 		fmt.Fprintf(os.Stderr, "replaying: %s  OS: %s  kernel: %s  captured: %s\n\n",

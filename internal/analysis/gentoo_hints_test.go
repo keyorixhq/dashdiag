@@ -4,7 +4,24 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
+
+// On `dsd replay`, fix hints must reflect the CAPTURED host (via the replay-platform
+// override), not the box doing the replay — so replaying an AlmaLinux capture on a
+// Debian/macOS box still shows "dnf install", not apt. Drives effective* through
+// AdaptHostHints end to end.
+func TestAdaptHostHints_ReplayOverride(t *testing.T) {
+	restore := platform.SetReplayPlatform("almalinux", "systemd", "linux")
+	defer restore()
+	in := []models.Insight{{Hints: []string{
+		"to fix: apt install open-vm-tools   (RHEL/SUSE: dnf/zypper install open-vm-tools)",
+	}}}
+	got := AdaptHostHints(in)[0].Hints[0]
+	if got != "to fix: dnf install open-vm-tools" {
+		t.Errorf("replay override (almalinux) must yield a dnf-led hint, got %q", got)
+	}
+}
 
 var gentooFixHintCases = []struct {
 	name string

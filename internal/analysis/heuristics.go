@@ -97,7 +97,7 @@ func AdaptHostHints(insights []models.Insight) []models.Insight {
 	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
 	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
 	// fixes only the "to inspect/to fix" line. (TRIAGE §A.)
-	return adaptHintsToPlatform(insights, runtime.GOOS, hostInitSystem())
+	return adaptHintsToPlatform(insights, effectiveGOOS(), effectiveInitSystem())
 }
 
 // prescanResult holds the cross-check context prescanContext extracts in one
@@ -196,6 +196,32 @@ func swapInUse(s models.SwapInfo) bool {
 // hint adapter can pick the right service command. Indirection keeps
 // adaptHintsToPlatform unit-testable without the real host.
 var hostInitSystem = func() string { return platform.Detect().InitSystem }
+
+// effectiveDistroID / effectiveGOOS / effectiveInitSystem return the CAPTURED host's
+// values when replaying a bundle (platform.SetReplayPlatform pins them from the
+// manifest), else live detection. This makes the fix-hint adaptation reflect the
+// captured host on `dsd replay`, not the box doing the replay — so "to fix: dnf
+// install X" stays dnf when replaying an AlmaLinux capture on a Debian box.
+func effectiveDistroID() string {
+	if id := platform.ReplayDistroID(); id != "" {
+		return id
+	}
+	return cvedata.DetectDistroID()
+}
+
+func effectiveGOOS() string {
+	if g := platform.ReplayGOOS(); g != "" {
+		return g
+	}
+	return runtime.GOOS
+}
+
+func effectiveInitSystem() string {
+	if i := platform.ReplayInitSystem(); i != "" {
+		return i
+	}
+	return hostInitSystem()
+}
 
 // adaptHintsToPlatform rewrites each hint's platform-specific command for goos +
 // initSystem. Pure dispatch over adaptHint so it can be tested per platform.
@@ -307,7 +333,7 @@ var (
 
 // hostIsNixOS reports whether the running host is NixOS, per /etc/os-release.
 func hostIsNixOS() bool {
-	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "nixos")
+	return strings.Contains(strings.ToLower(effectiveDistroID()), "nixos")
 }
 
 // nixosifyHints rewrites every insight's fix hints into their configuration.nix
@@ -368,7 +394,7 @@ var rePkgInstall = regexp.MustCompile(`\b(?:apt-get|apt|dnf|yum|tdnf|zypper)\s+i
 
 // hostIsGentoo reports whether the running host is Gentoo, per /etc/os-release.
 func hostIsGentoo() bool {
-	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "gentoo")
+	return strings.Contains(strings.ToLower(effectiveDistroID()), "gentoo")
 }
 
 // gentooifyHints rewrites every insight's package-install fix hints to their
@@ -388,7 +414,7 @@ func gentooifyHints(insights []models.Insight) []models.Insight {
 // Returns "" to leave hints unchanged: Debian/Ubuntu (apt is already first), distros
 // with a dedicated rewriter (Gentoo→emerge, NixOS), and unknown distros (don't guess).
 func hostInstallPM() string {
-	id := strings.ToLower(cvedata.DetectDistroID())
+	id := strings.ToLower(effectiveDistroID())
 	switch {
 	case id == "" || strings.Contains(id, "gentoo") || strings.Contains(id, "nixos"):
 		return ""
@@ -461,7 +487,7 @@ func gentooFixHint(hint string) string {
 // `zypper install`. All such IDs carry "micro" (opensuse-leap-micro, opensuse-microos,
 // sle-micro, sl-micro).
 func hostIsTransactional() bool {
-	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "micro")
+	return strings.Contains(strings.ToLower(effectiveDistroID()), "micro")
 }
 
 // transactionalifyHints rewrites every insight's package-install fix hints to the

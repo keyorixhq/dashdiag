@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -73,14 +74,16 @@ func runCaptureRaw(cmd *cobra.Command) error {
 
 	b := rec.Bundle()
 	b.Manifest = source.Manifest{
-		Format:  source.FormatVersion,
-		Host:    hostnameOr("host"),
-		OS:      osPretty(),
-		GOOS:    runtime.GOOS,
-		Kernel:  kernelRelease(),
-		DsdVer:  version.Version,
-		Created: time.Now().UTC().Format(time.RFC3339),
-		Note:    "dsd capture --raw",
+		Format:     source.FormatVersion,
+		Host:       hostnameOr("host"),
+		OS:         osPretty(),
+		GOOS:       runtime.GOOS,
+		DistroID:   cvedata.DetectDistroID(),
+		InitSystem: profile.InitSystem,
+		Kernel:     kernelRelease(),
+		DsdVer:     version.Version,
+		Created:    time.Now().UTC().Format(time.RFC3339),
+		Note:       "dsd capture --raw",
 	}
 
 	// Embed the rendered health JSON — the report these inputs produced — so the
