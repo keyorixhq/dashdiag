@@ -334,9 +334,9 @@ func nixosFixHint(hint string) (string, bool) {
 func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	switch d := data.(type) {
 	case models.CPUInfo:
-		return checkCPU(d, thresh)
+		return checkCPU(d, thresh, ctrCtx)
 	case *models.CPUInfo:
-		return checkCPU(*d, thresh)
+		return checkCPU(*d, thresh, ctrCtx)
 	case models.MemoryInfo:
 		return checkMemory(d, thresh, ctrCtx)
 	case *models.MemoryInfo:
@@ -822,7 +822,7 @@ func insight(level, check, message string, hints []string) models.Insight {
 	return models.Insight{Level: level, Check: check, Message: message, Hints: hints}
 }
 
-func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
+func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
 
 	// Choose the right metric for the threshold:
@@ -877,8 +877,15 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds) []models.Insight {
 	}
 
 	// Allocated-but-offline vCPUs — a hot-added vCPU the guest never onlined.
-	if ins, ok := cpuOfflineInsight(cpu); ok {
-		out = append(out, ins)
+	// Skipped in a container: lxcfs/cgroup present a cpuset-limited core count as
+	// "online" against the host's full "present" set, so a correctly-allocated
+	// container (e.g. cores=2 on an 8-core host) looks like 6 offline vCPUs. The
+	// container can't online host CPUs anyway, so the WARN and its remediation are
+	// both wrong inside one.
+	if !ctrCtx.InContainer {
+		if ins, ok := cpuOfflineInsight(cpu); ok {
+			out = append(out, ins)
+		}
 	}
 
 	// CPU iowait — CPU is idle but blocked waiting for I/O.
@@ -1015,7 +1022,7 @@ func cpuOfflineInsight(cpu models.CPUInfo) (models.Insight, bool) {
 		), true
 	default:
 		return insight("WARN", "CPU Load",
-			fmt.Sprintf("%d of %d allocated vCPUs are offline — the guest is using only %d; a hot-added vCPU the OS never onlined (Debian/Ubuntu lack the auto-online udev rule), so the VM runs on a fraction of its allocation", offline, cpu.PresentCPUs, cpu.OnlineCPUs),
+			fmt.Sprintf("%d of %d allocated vCPUs are offline — the guest is using only %d; a hot-added vCPU the OS never onlined (some distros lack the auto-online udev rule RHEL ships), so the VM runs on a fraction of its allocation", offline, cpu.PresentCPUs, cpu.OnlineCPUs),
 			[]string{
 				"to online now: for c in /sys/devices/system/cpu/cpu[0-9]*/online; do echo 1 > $c; done   (as root)",
 				`to persist: a udev rule — SUBSYSTEM=="cpu", ACTION=="add", TEST=="online", ATTR{online}=="0", ATTR{online}="1"`,
