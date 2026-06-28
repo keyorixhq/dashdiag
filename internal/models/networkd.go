@@ -17,6 +17,11 @@ type NetworkdConfigInfo struct {
 	// .network directive, a conflicting address/route, or the unreadable-file
 	// case above all surface here as the effect.
 	FailedLinks []NetworkdLink `json:"failed_links,omitempty"`
+	// StuckLinks are managed links still in SETUP=configuring/pending long after boot
+	// (uptime-gated) — networkd never finished bringing them up (bad DHCP, an address
+	// it can't apply, …). Distinct from FailedLinks: networkd hasn't given up, it's
+	// stuck. The uptime gate keeps boot-time transients from showing here.
+	StuckLinks []NetworkdLink `json:"stuck_links,omitempty"`
 }
 
 // NetworkdConfigFile is one config file systemd-networkd cannot read (wrong perms).
