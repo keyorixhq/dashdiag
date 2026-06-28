@@ -106,7 +106,10 @@ func printContainerd(info *models.ContainerdInfo, mode output.OutputMode) {
 	case "active":
 		printLine(mode, "ok", "Service", "active")
 	case "failed":
-		printLine(mode, "warn", "Service", "failed")
+		// CRIT, not WARN: checkContainerd classifies a failed containerd service as
+		// CRIT and the exit code reflects that — the standalone display must not
+		// under-state it.
+		printLine(mode, "fail", "Service", "failed")
 	case "", "unknown":
 		printLine(mode, "info", "Service", "state unknown")
 	default:
