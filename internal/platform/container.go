@@ -15,6 +15,13 @@ type ContainerContext struct {
 	CPULimitCores float64
 	MemLimitMB    float64
 	CgroupVersion int
+	// CgroupV2Dir is the directory holding the process's OWN cgroup v2 interface
+	// files (resolved via /proc/self/cgroup). Set only for cgroup v2. Consumers
+	// reading dynamic v2 files (memory.current, memory.events, cpu.stat) must use
+	// this, not the bare /sys/fs/cgroup base: under --cgroupns=host the base is the
+	// host root cgroup, so reading it there yields the host's values (0 oom_kills,
+	// 0 throttled) — a false-OK. Empty on cgroup v1 / non-container.
+	CgroupV2Dir string
 }
 
 func DetectContainerContext() ContainerContext {
@@ -79,6 +86,7 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers,
 		if cc.InContainer {
 			cgDir = cgroupV2SelfDir(cgroupBase, procSelfCgroup)
 		}
+		cc.CgroupV2Dir = cgDir
 		cc.MemLimitMB = parseCgroupV2Memory(filepath.Join(cgDir, "memory.max"))
 		cc.CPULimitCores = parseCgroupV2CPU(filepath.Join(cgDir, "cpu.max"))
 	} else {
