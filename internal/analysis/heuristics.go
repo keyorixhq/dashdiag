@@ -377,6 +377,12 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 		if d != nil {
 			return checkNetworkdConfig(*d)
 		}
+	case models.RootFSInfo:
+		return checkRootFS(d)
+	case *models.RootFSInfo:
+		if d != nil {
+			return checkRootFS(*d)
+		}
 	case models.FstabInfo:
 		return checkFstab(d)
 	case *models.FstabInfo:
