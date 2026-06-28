@@ -79,3 +79,60 @@ func TestPrintAllLayered_BareMetal(t *testing.T) {
 		t.Errorf("must not show the VMware hint with no VMware collector present")
 	}
 }
+
+// TestHealthLayers_NoOverlap: no collector may be listed in more than one layer.
+// An overlap is a latent bug — the row would render under whichever layer the
+// scan reaches first, masking the duplicate listing.
+func TestHealthLayers_NoOverlap(t *testing.T) {
+	seen := map[string]string{}
+	for _, layer := range healthLayers {
+		for _, m := range layer.members {
+			if prev, dup := seen[m]; dup {
+				t.Errorf("collector %q listed in both %q and %q", m, prev, layer.title)
+			}
+			seen[m] = layer.title
+		}
+	}
+}
+
+// TestHealthLayers_CoverRegisteredCollectors guards against the "Other" dumping
+// ground silently growing: every collector that `dsd health` can register must be
+// mapped to a layer. The canonical names below mirror the Name() of each collector
+// in cmd.buildHealthCollectors (kept here, not imported, to avoid a render→cmd
+// dependency). DBus is the canary — it is registered unconditionally, so a gap here
+// puts it in "Other" on every Linux host. When you add a health collector, add its
+// Name() to a layer and to this list.
+func TestHealthLayers_CoverRegisteredCollectors(t *testing.T) {
+	covered := map[string]bool{}
+	for _, layer := range healthLayers {
+		for _, m := range layer.members {
+			covered[m] = true
+		}
+	}
+	// Names returned by Name() for every collector cmd.buildHealthCollectors wires in.
+	registered := []string{
+		// always / core
+		"CPU Load", "Memory", "Disk", "Swap", "IO", "Network", "Clock", "FDLimits",
+		"Processes", "Systemd", "DBus", "Sysctl", "KernelSec", "Entropy", "Logs",
+		"Hardening", "CPU Thermal", "Battery", "Launchd", "Drives", "OOM", "Firewall",
+		"Auth", "HugePages", "Sessions",
+		// gate-detected platform / storage
+		"Fstab", "Root FS",
+		"Snapshots", "Subscription", "Packages", "RAID", "ZFS", "LVM", "DRBD", "PVE",
+		"Bonding", "IPMI", "HBA", "Pressure", "Multipath", "Ceph", "CloudMeta",
+		"CloudInit", "VMware", "Networkd", "KVMGuest", "AWS", "Azure", "GCP",
+		"PostBoot", "Auditd", "NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
+		"Docker", "Containerd", "K8s", "KVM", "SteamOS", "CPUFreq",
+		// flag-gated
+		"GPU", "TLS", "CPUDeep", "Firmware", "CVE",
+		// gate-detected service workloads
+		"Postgres", "MySQL", "Redis", "Memcached", "Nginx", "Apache", "HAProxy",
+		"RabbitMQ", "Elasticsearch", "MongoDB", "Kafka", "Prometheus", "Alertmanager",
+		"Grafana", "Traefik", "Envoy",
+	}
+	for _, name := range registered {
+		if !covered[name] {
+			t.Errorf("collector %q is registered by dsd health but maps to no layer (would fall into Other)", name)
+		}
+	}
+}

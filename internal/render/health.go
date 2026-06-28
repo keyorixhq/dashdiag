@@ -225,30 +225,40 @@ var healthLayers = []healthLayer{
 	{
 		title: "Hardware & storage", subtitle: "your machine's resources & devices",
 		members: []string{
-			"CPU Load", "CPU Thermal", "CPUFreq", "Memory", "Swap", "GPU",
-			"Disk", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD", "Multipath",
-			"iSCSI", "HBA", "Ceph", "Battery", "IPMI", "NUMA", "InfiniBand",
-			"SRIOV", "HugePages", "Hardware",
+			"CPU Load", "CPU Thermal", "CPUFreq", "CPUDeep", "Memory", "Swap", "GPU",
+			"Disk", "Fstab", "Root FS", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD",
+			"Multipath", "iSCSI", "HBA", "Ceph", "Battery", "IPMI", "NUMA",
+			"InfiniBand", "SRIOV", "HugePages", "Firmware", "Hardware",
 		},
 	},
 	{
 		// The virtualization layer — whether this host CONSUMES it (a guest under
-		// VMware/AWS/Azure/GCP) or PROVIDES it (a Proxmox node IS the hypervisor).
+		// VMware/AWS/Azure/GCP) or PROVIDES it (a KVM/Proxmox node IS the hypervisor).
 		// Both are "the platform," viewed from opposite sides.
 		title: "Platform", subtitle: "the hypervisor / cloud platform layer",
 		hint: "dsd vmware", hintFor: "VMware",
 		members: []string{
-			"VMware", "KVMGuest", "AWS", "Azure", "GCP", "CloudMeta", "CloudInit", "PVE",
+			"VMware", "KVMGuest", "ContainerGuest", "AWS", "Azure", "GCP",
+			"CloudMeta", "CloudInit", "KVM", "PVE",
 		},
 	},
 	{
 		title: "OS & services", subtitle: "Linux configuration & workloads",
 		members: []string{
-			"Systemd", "Processes", "FDLimits", "Entropy", "Clock", "Logs",
-			"Sysctl", "Network", "Firewall", "KernelSec", "Hardening", "Packages",
-			"Subscription", "Auth", "Auditd", "Snapshots", "Bonding", "VLAN",
-			"Nspawn", "Pressure", "OOM", "TLS", "Docker", "Containerd", "K8s",
-			"Launchd", "Sessions", "PostBoot", "Cron",
+			// Core OS / kernel / config
+			"Systemd", "DBus", "Processes", "Proc", "FDLimits", "Entropy", "Clock",
+			"Logs", "Sysctl", "KernelSec", "Hardening", "Packages", "Subscription",
+			"Auth", "Auditd", "Snapshots", "Pressure", "OOM", "Nspawn", "Launchd",
+			"Sessions", "PostBoot", "Cron", "Timeline", "CVE", "SteamOS",
+			// Networking
+			"Network", "Networkd", "NetworkDeep", "DNS", "DNS resolver", "NFS",
+			"BIND", "Firewall", "Bonding", "VLAN", "TLS",
+			// Containers / orchestration
+			"Docker", "Containerd", "K8s",
+			// Service workloads (gate-detected; silent when absent)
+			"Services", "ServicesDeep", "Postgres", "MySQL", "Redis", "Memcached",
+			"Nginx", "Apache", "HAProxy", "RabbitMQ", "Elasticsearch", "MongoDB",
+			"Kafka", "Prometheus", "Alertmanager", "Grafana", "Traefik", "Envoy",
 		},
 	},
 }
