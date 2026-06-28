@@ -655,6 +655,16 @@ func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *model
 	return out
 }
 
+// ioAwaitActiveUtilFloor is the minimum utilization at which a high await time is
+// a meaningful signal. Await (average service time per I/O) is computed over the
+// I/Os that occurred in the window; on a near-idle device a handful of slow I/Os
+// produce a large await that says nothing about drive health. A genuinely failing
+// or contended drive is, by definition, busy — its slow I/Os keep it occupied, so
+// elevated await coincides with elevated util. Below this floor we treat high await
+// as measurement noise rather than degradation (avoids a false "failing drive" CRIT
+// on an essentially-idle disk — e.g. 24ms await at 4% util on a shared LXC host).
+const ioAwaitActiveUtilFloor = 20.0
+
 // ruleIOSingleDeviceDegradation fires when one device has critically high
 // latency while peer devices on the same system are healthy. This pattern
 // points to a single failing or contended drive rather than a storage
@@ -662,7 +672,7 @@ func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *model
 //
 // Required signals (raw IOInfo, not insights):
 //   - At least 2 devices in io.Devices
-//   - Exactly 1 device with AwaitMs > 20.0 OR UtilPct > 85.0
+//   - Exactly 1 device that is (await > 20ms AND util >= floor) OR util > 85%
 //   - At least 1 peer device with AwaitMs < 5.0 AND UtilPct < 60.0
 func ruleIOSingleDeviceDegradation(io *models.IOInfo) (Correlation, bool) {
 	if io == nil || len(io.Devices) < 2 {
@@ -672,7 +682,8 @@ func ruleIOSingleDeviceDegradation(io *models.IOInfo) (Correlation, bool) {
 	var degraded []models.IODeviceInfo
 	var healthy []models.IODeviceInfo
 	for _, d := range io.Devices {
-		if d.AwaitMs > 20.0 || d.UtilPct > 85.0 {
+		highAwaitWhileActive := d.AwaitMs > 20.0 && d.UtilPct >= ioAwaitActiveUtilFloor
+		if highAwaitWhileActive || d.UtilPct > 85.0 {
 			degraded = append(degraded, d)
 		} else if d.AwaitMs < 5.0 && d.UtilPct < 60.0 {
 			healthy = append(healthy, d)
