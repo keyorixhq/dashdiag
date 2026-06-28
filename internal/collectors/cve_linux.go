@@ -449,11 +449,17 @@ func markCVEStaleMetadata(r *models.CVEAllResult) *models.CVEAllResult {
 	if !clean {
 		return r // a failed/other reason already handled by cveScanUnavailable
 	}
+	// Both downgrades produce an "exposure NOT verified" result — mark ScanFailed so
+	// the renderer shows an unverified ⚠️, not the green ✅ the clean Total==0 path
+	// gets. Without this a 781-day-stale apt index reads as "you're fine" (the #565
+	// false-OK class — found live on Ubuntu 24.04 with a cold cache).
 	age, found := packageMetadataAgeDays(r.PackageManager)
 	if !found {
 		r.StatusReason = "update metadata absent — CVE exposure NOT verified; refresh the index (e.g. apt update / dnf makecache / zypper refresh) and rescan"
+		r.ScanFailed = true
 	} else if age > packageMetadataStaleDays {
 		r.StatusReason = fmt.Sprintf("update metadata is %d days old (stale) — CVE exposure NOT verified; refresh the index and rescan", age)
+		r.ScanFailed = true
 	}
 	return r
 }
