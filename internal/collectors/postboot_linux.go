@@ -9,29 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
-	"github.com/keyorixhq/dashdiag/internal/platform"
 )
-
-// inContainerHermetic reports whether we run in a container, routed through the
-// active source so the decision is RECORDED at capture and REPLAYED from the bundle.
-// PostBoot gates on it: replay must reflect the CAPTURED host's nature, not the
-// replaying machine's — otherwise replaying a VM/bare-metal capture inside a
-// container silently drops the collector (the cross-env class the clock fix #586
-// closed). An older bundle with no recording falls back to "not a container" so a
-// VM/bare-metal capture still runs prior-boot forensics under replay; a live
-// container run records true and skips exactly as #592 intended.
-func inContainerHermetic() bool {
-	data, err := activeSource.Cached("platform/in-container", func() ([]byte, error) {
-		if platform.DetectContainerContext().InContainer {
-			return []byte{'1'}, nil
-		}
-		return []byte{'0'}, nil
-	})
-	if err != nil {
-		return false
-	}
-	return len(data) == 1 && data[0] == '1'
-}
 
 // PostBootCollector answers "what happened to the box across the last reboot, and could
 // we even tell?". It first decides what evidence is readable (assessPostBootSource — the
@@ -57,7 +35,7 @@ func (c *PostBootCollector) Timeout() time.Duration { return 8 * time.Second }
 func PostBootAvailable() bool {
 	// Hermetic container check: under replay this reflects the CAPTURED host, so a VM
 	// capture replayed inside a container still reports prior-boot forensics (#586 class).
-	if inContainerHermetic() {
+	if ContainerContextViaSource().InContainer {
 		return false
 	}
 	return lookPathOK("journalctl") || fileExists("/var/log/wtmp")

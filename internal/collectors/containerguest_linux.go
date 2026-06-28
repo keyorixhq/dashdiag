@@ -23,14 +23,16 @@ func (c *ContainerGuestCollector) Name() string           { return "ContainerGue
 func (c *ContainerGuestCollector) Timeout() time.Duration { return 3 * time.Second }
 
 // ContainerGuestAvailable reports whether dsd is running inside a container.
+// Via the source so a container capture registers the collector under replay
+// (and a non-container capture does not), reflecting the captured host.
 func ContainerGuestAvailable() bool {
-	return platform.DetectContainerContext().InContainer
+	return ContainerContextViaSource().InContainer
 }
 
 const cgroupV2Base = "/sys/fs/cgroup"
 
 func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error) {
-	cc := platform.DetectContainerContext()
+	cc := ContainerContextViaSource()
 	info := &models.ContainerGuestInfo{
 		InContainer:   cc.InContainer,
 		Runtime:       containerRuntime(cc),
