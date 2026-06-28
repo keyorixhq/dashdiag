@@ -13,6 +13,12 @@ import (
 // the spot rebalance recommendation, Amazon Time Sync, and the SSM agent. Silent on
 // every non-EC2 host (the collector only runs behind the DMI gate). When everything
 // it could verify is clean it emits one INFO recognition line.
+// AWSInsights is the exported entry point for the standalone `dsd aws` command. It
+// returns exactly what `dsd health` evaluates for an EC2 guest (it IS checkAWS), so
+// the two verdicts cannot drift — the cmd↔health consistency invariant, satisfied by
+// construction rather than a re-derived tally.
+func AWSInsights(a models.AWSInfo) []models.Insight { return checkAWS(a) }
+
 func checkAWS(a models.AWSInfo) []models.Insight {
 	if !a.IsEC2 {
 		return nil

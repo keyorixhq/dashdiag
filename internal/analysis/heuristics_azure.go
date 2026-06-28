@@ -14,6 +14,11 @@ import (
 // synthetic path — plus the Azure Linux agent and the Hyper-V PTP time source. Silent
 // on every non-Azure host (the collector only runs behind the DMI gate). When
 // everything it could verify is clean it emits one INFO recognition line.
+// AzureInsights is the exported entry point for the standalone `dsd azure` command.
+// It returns exactly what `dsd health` evaluates for an Azure guest (it IS
+// checkAzure), so the two verdicts cannot drift — the cmd↔health consistency invariant.
+func AzureInsights(a models.AzureInfo) []models.Insight { return checkAzure(a) }
+
 func checkAzure(a models.AzureInfo) []models.Insight {
 	if !a.IsAzure {
 		return nil
