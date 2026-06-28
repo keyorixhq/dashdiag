@@ -861,6 +861,38 @@ non-zero exit from such a tool must distinguish *locked* from *permission* from
 
 ---
 
+## W. Storage-HA collector audit 2026-06-28 — ✅ 10 fixed across 6 PRs
+
+A 3-agent audit of the storage-HA collectors (ZFS/LVM/RAID · DRBD/multipath/iSCSI/HBA
+· Ceph/Drives/IO/Disk) + live pve01/VM101 validation. Dominant theme: **non-root
+false-verdicts** on root-gated storage sources — the run-as-both rule's target class.
+
+- ✅ **Ceph non-root false-CRIT → INFO** (#598): unprivileged `ceph health` fails (admin
+  keyring root-only) → was a false "cluster unreachable" CRIT on a healthy node. Live-
+  validated on pve01 (dummy ceph.conf, old CRIT vs new INFO).
+- ✅ **DRBD-9 non-root silent omission → needs-root INFO** + **iSCSI failed-session
+  label** (#600): v9 netlink needs CAP_NET_ADMIN → returned nil (no row, hid split-
+  brain); iSCSI inline read "N logged in" beside a CRIT icon.
+- ✅ **Multipath non-root false-WARN** (#602): `IsMultipathPresent` only checked the
+  binary; now gates on daemon-running OR sysfs `mpath-` maps. Live-validated on VM101.
+- ✅ **`dsd disk` non-root false-OK** (#603): ignored ZFS/LVM `*ReadFailed` → printed
+  "Disk healthy" while health said "could not verify". 3-way summary. Live on pve01.
+- ✅ **ZFS SUSPENDED CRIT + double-scoring/verdict-flip** (#604): SUSPENDED state was
+  absent from the switch (rendered green); ZFS scored by both DiskCollector and
+  ZFSCollector with never-scrubbed INFO-vs-WARN flip. Live file-zpool old-vs-new.
+- ✅ **HBA stale link-failure counter, NVMe unparseable hint, IO hotplug 100%-util**
+  (#606): three edge/stale-signal false-alarms.
+
+**Deferred (documented, READY/low):** iSCSI *non-root* degradation — `iscsiadm`'s common
+error is exit-21 "no sessions" even as root, so a euid-based "needs root" would
+false-signal on the very common open-iscsi-installed-no-targets host. No safe
+discriminator without exit-code plumbing through runCmd; worth doing if a real
+non-root iSCSI-permission failure mode is confirmed on hardware. **Clean (verified):**
+RAID/mdstat, LVM parsers, the prior SMART/image-fs/EBS gates; ZFS-installed-no-pools
+"OK" is correct (like RAID-absent, no pools = nothing to fault).
+
+---
+
 ## V. Audit + fleet sweep 2026-06-28 — ✅ 11 fixed (6 confirmed + 5 suspects)
 
 A 3-agent false-OK audit of the recent Photon (#558–#582) + `dsd guest` (#555–#559)
