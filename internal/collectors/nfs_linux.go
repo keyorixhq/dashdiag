@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,7 +36,7 @@ func (c *NFSCollector) Collect(ctx context.Context) (interface{}, error) {
 	for i := range mounts {
 		m := &mounts[i]
 		nfsCheckMount(ctx, m)
-		nfsCheckServer(ctx, m)
+		nfsCheckServer(m)
 		nfsAuditOptions(m)
 		if m.Stale {
 			info.StaleMounts++
@@ -137,47 +136,29 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 
 // ── server reachability ───────────────────────────────────────────────────────
 
-func nfsCheckServer(ctx context.Context, m *models.NFSMount) {
+func nfsCheckServer(m *models.NFSMount) {
 	if m.Server == "" || m.Server == "127.0.0.1" || m.Server == "localhost" {
 		// Loopback — always reachable; port check still useful
 		m.ServerReachable = true
 	} else {
-		m.ServerReachable = nfsPingServer(ctx, m.Server)
+		m.ServerReachable = nfsPingServer(m.Server)
 	}
-	m.NFSPortOpen = nfsCheckPort(ctx, m.Server, 2049)
+	m.NFSPortOpen = nfsCheckPort(m.Server, 2049)
 }
 
 // nfsPingServer does a TCP connect to port 111 (rpcbind) as a reachability probe.
 // ICMP ping requires CAP_NET_RAW; TCP connect works without special privileges.
-func nfsPingServer(ctx context.Context, server string) bool {
-	d := net.Dialer{Timeout: 1 * time.Second}
-	connCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-	conn, err := d.DialContext(connCtx, "tcp", server+":111")
-	if err == nil {
-		conn.Close() //nolint:errcheck
-		return true
-	}
-	// Fallback: try port 2049 directly
-	conn2, err2 := d.DialContext(connCtx, "tcp", server+":2049")
-	if err2 == nil {
-		conn2.Close() //nolint:errcheck
-		return true
-	}
-	return false
+// Routed through the source (dialReachable → dialOutcome) so the probe replays from
+// the bundle instead of dialing the replaying machine under `dsd replay`.
+func nfsPingServer(server string) bool {
+	// Fallback to 2049 directly if rpcbind (111) is closed.
+	return dialReachable("tcp", server+":111", time.Second) ||
+		dialReachable("tcp", server+":2049", time.Second)
 }
 
-// nfsCheckPort tests TCP connectivity to a specific port.
-func nfsCheckPort(ctx context.Context, server string, port int) bool {
-	d := net.Dialer{Timeout: 1 * time.Second}
-	connCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-	conn, err := d.DialContext(connCtx, "tcp", fmt.Sprintf("%s:%d", server, port))
-	if err != nil {
-		return false
-	}
-	conn.Close() //nolint:errcheck
-	return true
+// nfsCheckPort tests TCP connectivity to a specific port (routed through source).
+func nfsCheckPort(server string, port int) bool {
+	return dialReachable("tcp", fmt.Sprintf("%s:%d", server, port), time.Second)
 }
 
 // ── mount option audit ────────────────────────────────────────────────────────
