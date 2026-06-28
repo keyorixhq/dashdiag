@@ -134,7 +134,11 @@ func TestCheckHBA(t *testing.T) {
 	assertLevel(t, checkHBA(models.HBAInfo{}), "") // no ports
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online"}}}), "")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Offline"}}}), "CRIT")
-	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 5}}}), "WARN")
+	// A few historical link failures (cable reseat / switch reboot at install) on a
+	// cumulative since-boot counter must NOT warn — only a genuinely flapping link does.
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 5}}}), "")
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 11}}}), "WARN")
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LossOfSync: 150}}}), "WARN")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: ""}}}), "WARN") // unreadable state must not read healthy
 }
 

@@ -2072,7 +2072,15 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 				},
 			))
 		}
-		if p.LinkFailures > 0 || p.LossOfSync > 100 {
+		// link_failure_count / loss_of_sync_count are cumulative since-boot sysfs
+		// counters that never decay, so a single historical transient (a cable reseat
+		// or switch reboot at install) would pin a permanent WARN on an otherwise
+		// healthy fabric with LinkFailures > 0. Require a non-trivial count (matching
+		// the existing LossOfSync threshold) so only a genuinely flapping link warns.
+		// (A two-snapshot rate would be more precise but needs real FC hardware to
+		// validate; this static threshold strictly reduces the historical-transient
+		// false-alarm.)
+		if p.LinkFailures > 10 || p.LossOfSync > 100 {
 			out = append(out, insight("WARN", "HBA",
 				fmt.Sprintf("FC port %s: %d link failures, %d loss-of-sync — check fibre and SFP",
 					p.Name, p.LinkFailures, p.LossOfSync),
