@@ -32,17 +32,30 @@ const networkdConfigDir = "/etc/systemd/network"
 // networkdConfigGlobs covers all three systemd-networkd config file types.
 var networkdConfigGlobs = []string{"*.network", "*.link", "*.netdev"}
 
-// NetworkdAvailable reports whether there is any systemd-networkd config file to
-// audit. Cheap, file-only gate (the collector confirms networkd is the *active*
-// manager before judging — a wrong-perm file is harmless if networkd isn't the
-// one reading it).
+// NetworkdAvailable reports whether the networkd collector has anything to do:
+// either a config file in /etc to perm-audit, OR networkd is the active network
+// manager (its config may live in /run or /usr/lib, where the link-state checks —
+// failed/stuck links — still apply). Without the is-active fallback a networkd host
+// that keeps no config under /etc got no link-state check at all, so a failed/stuck
+// link went unreported. The collector re-confirms is-active before judging, so the
+// fallback can only add coverage, never a false alarm.
 func NetworkdAvailable() bool {
 	for _, g := range networkdConfigGlobs {
 		if m, _ := glob(networkdConfigDir + "/" + g); len(m) > 0 {
 			return true
 		}
 	}
-	return false
+	return networkdIsActive()
+}
+
+// networkdIsActive reports whether systemd-networkd is the active network manager.
+// Errors (no systemctl / inactive) → false, so non-systemd and NetworkManager hosts
+// stay silent.
+func networkdIsActive() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := runCmd(ctx, "systemctl", "is-active", "systemd-networkd")
+	return err == nil
 }
 
 func (c *NetworkdConfigCollector) Collect(ctx context.Context) (interface{}, error) {
