@@ -64,7 +64,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 		outputFmt = "json"
 	}
 	mode := output.DetectMode(plain, false, outputFmt)
-	ctrCtx := platform.DetectContainerContext()
+	ctrCtx := collectors.ContainerContextViaSource()
 
 	label := "Network health"
 	var col runner.Collector = collectors.NewNetworkCollector()

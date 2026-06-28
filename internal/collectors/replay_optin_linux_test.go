@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -78,26 +79,28 @@ func TestTLSEndpointReplaysFromBundle(t *testing.T) {
 	}
 }
 
-func TestPostBootContainerContextReplaysFromBundle(t *testing.T) {
+func TestContainerContextReplaysFromBundle(t *testing.T) {
 	// Captured on a NON-container host: stays not-in-container under replay, so a VM
 	// capture replayed inside the guard's container still runs PostBoot (#586 class,
 	// regressed by #592 which read container-context live at replay time).
-	seedReplay(t, "platform/in-container", []byte{'0'})
-	if inContainerHermetic() {
+	nonCtr, _ := json.Marshal(platform.ContainerContext{InContainer: false})
+	seedReplay(t, "platform/container-context", nonCtr)
+	if ContainerContextViaSource().InContainer {
 		t.Error("recorded non-container must replay as not-in-container")
 	}
 
-	// Captured INSIDE a container: stays in-container on replay (faithful).
-	seedReplay(t, "platform/in-container", []byte{'1'})
-	if !inContainerHermetic() {
-		t.Error("recorded container must replay as in-container")
+	// Captured INSIDE a container with a cgroup CPU limit: both replay faithfully.
+	ctr, _ := json.Marshal(platform.ContainerContext{InContainer: true, CPULimitCores: 2})
+	seedReplay(t, "platform/container-context", ctr)
+	if cc := ContainerContextViaSource(); !cc.InContainer || cc.CPULimitCores != 2 {
+		t.Errorf("recorded container must replay in-container with its cgroup limit, got %+v", cc)
 	}
 
-	// Recording gap (old bundle): fall back to not-in-container so the gated collector
-	// still runs for a VM/bare-metal capture under replay.
+	// Recording gap (old bundle): fall back to the zero value (not-container), matching
+	// the prior hardcoded replay behavior so existing bundles/goldens are unaffected.
 	prev := SetSource(source.NewReplay(source.NewRecorder(source.Live{}).Bundle()))
 	t.Cleanup(func() { SetSource(prev) })
-	if inContainerHermetic() {
+	if ContainerContextViaSource().InContainer {
 		t.Error("un-recorded container-context must fall back to not-in-container")
 	}
 }

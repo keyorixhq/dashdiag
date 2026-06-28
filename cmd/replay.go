@@ -97,9 +97,12 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, 
 	// machine's — so the snapshot/JSON carry the right hostname/OS (e.g. dsd diff).
 	defer platform.SetIdentity(b.Manifest.Host, b.Manifest.OS)()
 
-	// Neutral platform values — this is the replaying host, not the captured one.
+	// Container-context comes from the bundle (recorded at capture) so a captured
+	// container's cgroup limits / throttle context replay faithfully instead of the
+	// old hardcoded bare-metal zero value. Other platform values are neutral — this
+	// is the replaying host, not the captured one.
 	results, insights, snap, _ := runHealthOnce(
-		context.Background(), platform.ContainerContext{}, platform.CloudEnvironment(0),
+		context.Background(), collectors.ContainerContextViaSource(), platform.CloudEnvironment(0),
 		platform.Detect(), output.ModePlain,
 		!deep,    // terse unless deep: drilldown's extra reads aren't in the bundle
 		pkg, gpu, // includePackages, includeGPU
