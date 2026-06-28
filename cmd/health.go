@@ -116,8 +116,8 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 	}
 
 	ctrCtx := collectors.ContainerContextViaSource()
-	cloudEnv := platform.DetectCloudEnvironment()
-	profile := platform.Detect()
+	cloudEnv := collectors.CloudEnvironmentViaSource()
+	profile := collectors.ProfileViaSource()
 	debug.Logf(ctx, "Platform", "%s", profile.DebugLine())
 
 	watchFlag, _ := cmd.Flags().GetBool("watch")

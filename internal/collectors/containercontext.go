@@ -23,3 +23,35 @@ func ContainerContextViaSource() platform.ContainerContext {
 	}
 	return cc
 }
+
+// CloudEnvironmentViaSource returns the detected cloud (AWS/Azure/GCP/none) routed
+// through the active source. It feeds ApplyThresholds (cloud-aware verdicts, e.g.
+// the NVMe-timeout downgrade on virtual-disk cloud guests), so under replay it must
+// reflect the CAPTURED host — `dsd replay` previously hardcoded "none", so a cloud
+// capture lost its cloud context on replay. Gap fallback = none (the prior hardcoded
+// value), so existing bundles/goldens are unaffected.
+func CloudEnvironmentViaSource() platform.CloudEnvironment {
+	var ce platform.CloudEnvironment
+	if err := cachedJSON("platform/cloud-env", func() (any, error) {
+		return platform.DetectCloudEnvironment(), nil
+	}, &ce); err != nil {
+		return platform.CloudEnvironment(0)
+	}
+	return ce
+}
+
+// ProfileViaSource returns the normalized platform profile (distro, init system,
+// package manager, security module, …) routed through the active source. It feeds
+// buildHealthCollectors and distro-specific collector behavior, so under replay it
+// must reflect the CAPTURED host — `dsd replay` previously called platform.Detect()
+// live, so a Debian capture replayed on an Alpine box ran Alpine's profile. Gap
+// fallback = a live Detect() (the prior behavior), so existing bundles are unaffected.
+func ProfileViaSource() platform.Profile {
+	var p platform.Profile
+	if err := cachedJSON("platform/profile", func() (any, error) {
+		return platform.Detect(), nil
+	}, &p); err != nil {
+		return platform.Detect()
+	}
+	return p
+}
