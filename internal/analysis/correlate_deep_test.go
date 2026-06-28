@@ -38,6 +38,17 @@ func TestRuleIOSingleDeviceDegradation(t *testing.T) {
 	if _, ok := ruleIOSingleDeviceDegradation(io(deg, mid)); ok {
 		t.Error("no healthy peer should not fire")
 	}
+	// High await on an essentially-idle device is measurement noise, not a failing
+	// drive — must NOT fire (regression: 24ms await @ 4% util false-CRIT on an LXC).
+	idleSlow := models.IODeviceInfo{Name: "sdb", AwaitMs: 24, UtilPct: 4}
+	if _, ok := ruleIOSingleDeviceDegradation(io(idleSlow, healthy)); ok {
+		t.Error("high await at idle util should not fire (await is noise below the active floor)")
+	}
+	// High await WITH meaningful utilization still fires (a busy, slow drive).
+	busySlow := models.IODeviceInfo{Name: "sdb", AwaitMs: 24, UtilPct: 35}
+	if _, ok := ruleIOSingleDeviceDegradation(io(busySlow, healthy)); !ok {
+		t.Error("high await at active util should still fire (real degraded drive)")
+	}
 	if _, ok := ruleIOSingleDeviceDegradation(nil); ok {
 		t.Error("nil IOInfo should not fire")
 	}
