@@ -74,6 +74,16 @@ func checkContainerGuest(v models.ContainerGuestInfo) []models.Insight {
 			[]string{"to inspect: cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.max"}))
 	}
 
+	// cgroup v1: the throttle/OOM counters aren't collected (memory.oom_control /
+	// cpu.stat live under per-controller v1 dirs, not the unified v2 tree), so a
+	// throttled or OOM-killed v1 container shows no WARN. Surface that those signals
+	// are unverified rather than letting the summary imply they were measured.
+	if v.InContainer && !v.CgroupV2 {
+		out = append(out, insight("INFO", "ContainerGuest",
+			"CPU-throttle and OOM-kill not measured on this host (cgroup v1) — those signals are unverified",
+			[]string{"note: cgroup v2 hosts report throttle/OOM directly from the unified hierarchy"}))
+	}
+
 	if len(out) == 0 {
 		out = append(out, insight("INFO", "ContainerGuest",
 			fmt.Sprintf("%s container — memory + CPU limits set, non-root, no throttling or OOM-kills%s",
