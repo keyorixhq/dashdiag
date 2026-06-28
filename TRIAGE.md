@@ -31,6 +31,15 @@ Shared work: a platform-aware hint helper (GOOS + init-system branch — init
 detection already exists from the Alpine hardening pass). Fix the helper once,
 route all hints through it, validate on macOS + CT210 in one pass.
 
+**Follow-up — ✅ DONE (#611, 2026-06-28):** Gentoo/Portage sub-case. The
+*package-install* fix hints (`apt/dnf/zypper install …`) still named the wrong
+tool on Gentoo — they hardcode apt/dnf/zypper across ~12 sites and never emit
+`emerge`. Added a host-gated `gentooifyHints` rewrite (mirrors `nixosifyHints`)
+turning any install hint into `to fix (Gentoo): emerge <pkg>` (trailing
+`&& <service-enable>` preserved), gated on `/etc/os-release ID=gentoo`. Found
+live on the first Gentoo-on-real-VMware validation (BUGS.md BUG-073). Out of
+scope: the `dsd gpu`/`dsd kvm` printf hints (separate surface).
+
 ---
 
 ## B. ARM real-hardware validation — BLOCKED (needs aarch64 server)
