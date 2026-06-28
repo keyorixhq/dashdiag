@@ -95,31 +95,37 @@ var cloudInitUnits = map[string]bool{
 	"ssh@.service":  true,
 }
 
-// dropBenignSysupdate removes systemd-sysupdate.service from the failed-units
-// list when no transfer definitions are configured on disk. systemd ships
-// systemd-sysupdate.timer enabled, but with no *.transfer files in
-// /etc/sysupdate.d or /usr/lib/sysupdate.d the service exits 1 ("No transfer
-// definitions found") on every timer firing and sits permanently "failed" — a
-// benign default state (verified on VMware Photon OS 5.0, which enables the timer
-// but ships zero transfers, so dsd false-CRIT'd on every box). The suppression is
-// reason-aware, NOT unconditional: when transfers ARE configured the service can
-// fail for a real reason (a failed update), and that failure is kept.
+// benignSysupdateUnits are the systemd-sysupdate units that fail with "No transfer
+// definitions found" (exit 1) and sit permanently "failed" when no *.transfer files
+// are configured. systemd ships BOTH the apply timer (systemd-sysupdate.service)
+// AND the reboot variant (systemd-sysupdate-reboot.service) enabled; on a default
+// VMware Photon OS box, with zero transfers, EITHER can be the one in the failed
+// list, so both must be covered (the -reboot sibling was missed initially and
+// false-CRIT'd live).
+var benignSysupdateUnits = map[string]bool{
+	"systemd-sysupdate.service":        true,
+	"systemd-sysupdate-reboot.service": true,
+}
+
+// dropBenignSysupdate removes the benign systemd-sysupdate units from the
+// failed-units list when no transfer definitions are configured on disk. The
+// suppression is reason-aware, NOT unconditional: when transfers ARE configured the
+// service can fail for a real reason (a failed update), and that failure is kept.
 func dropBenignSysupdate(failed []string) []string {
 	return dropSysupdateIf(failed, sysupdateUnconfigured())
 }
 
-// dropSysupdateIf removes systemd-sysupdate.service from failed only when
+// dropSysupdateIf removes the benign systemd-sysupdate units from failed only when
 // unconfigured is true. Split out (impure glob in dropBenignSysupdate, pure list
 // logic here) so the suppression rule is unit-testable without touching the real
 // filesystem.
 func dropSysupdateIf(failed []string, unconfigured bool) []string {
-	const unit = "systemd-sysupdate.service"
-	if !unconfigured || !containsUnit(failed, unit) {
+	if !unconfigured {
 		return failed
 	}
 	out := failed[:0]
 	for _, u := range failed {
-		if u != unit {
+		if !benignSysupdateUnits[u] {
 			out = append(out, u)
 		}
 	}
@@ -189,7 +195,7 @@ func filterBenignFailedUnits(units []models.SystemdUnit) []models.SystemdUnit {
 		if unitIgnored(u.Name, cloudInitUnits) {
 			continue
 		}
-		if sysupdateBenign && u.Name == "systemd-sysupdate.service" {
+		if sysupdateBenign && benignSysupdateUnits[u.Name] {
 			continue
 		}
 		out = append(out, u)

@@ -52,21 +52,24 @@ func contains(s []string, v string) bool {
 // unconfigured; a real update failure (transfers present) must survive.
 func TestDropSysupdateIf(t *testing.T) {
 	t.Parallel()
-	failed := []string{"systemd-sysupdate.service", "real.service"}
+	// BOTH sysupdate units (apply + reboot variant) fail "No transfer definitions
+	// found" when unconfigured — the -reboot sibling was missed at first and
+	// false-CRIT'd live on Photon, so both must be covered.
+	failed := []string{"systemd-sysupdate.service", "systemd-sysupdate-reboot.service", "real.service"}
 
-	// Unconfigured (no transfers) → benign, drop it; keep the real failure.
+	// Unconfigured (no transfers) → both benign units dropped; real failure kept.
 	got := dropSysupdateIf(append([]string(nil), failed...), true)
-	if containsUnit(got, "systemd-sysupdate.service") {
-		t.Error("unconfigured sysupdate should be suppressed")
+	if containsUnit(got, "systemd-sysupdate.service") || containsUnit(got, "systemd-sysupdate-reboot.service") {
+		t.Errorf("unconfigured sysupdate units (incl. -reboot) should be suppressed, got %v", got)
 	}
 	if !containsUnit(got, "real.service") {
 		t.Error("a genuine failed unit must never be suppressed")
 	}
 
-	// Configured (transfers present) → a sysupdate failure is real, keep it.
+	// Configured (transfers present) → a sysupdate failure is real, keep both.
 	got = dropSysupdateIf(append([]string(nil), failed...), false)
-	if !containsUnit(got, "systemd-sysupdate.service") {
-		t.Error("configured sysupdate failure must be kept (could be a real update failure)")
+	if !containsUnit(got, "systemd-sysupdate.service") || !containsUnit(got, "systemd-sysupdate-reboot.service") {
+		t.Error("configured sysupdate failures must be kept (could be a real update failure)")
 	}
 }
 
