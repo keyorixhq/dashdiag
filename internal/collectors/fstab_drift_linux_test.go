@@ -54,23 +54,27 @@ UUID=aa-bb /var btrfs subvol=/@/var,defaults 0 0`
 	}
 }
 
-// Conservative skips: device paths, LABEL=, pseudo/network filesystems, and noauto
-// entries are never flagged; a tag class with no present-device set is not judged.
+// Conservative skips: device paths, LABEL=, pseudo/network filesystems, and
+// noauto/nofail entries are never flagged; a tag class with no present-device set
+// is not judged.
 func TestParseFstabDrifts_ConservativeSkips(t *testing.T) {
 	const fstab = `LABEL=mydata /data ext4 defaults 0 2
 tmpfs /tmp tmpfs defaults 0 0
 server:/export /mnt/nfs nfs defaults 0 0
 //host/share /mnt/cifs cifs defaults 0 0
 UUID=detached /backup ext4 noauto 0 0
+UUID=optional /usb ext4 nofail 0 0
+UUID=combo /opt ext4 defaults,nofail,x-systemd.device-timeout=5 0 2
 UUID=unknowable /x ext4 defaults 0 2`
 	// byUUID empty → the UUID= classes can't be verified → no flags at all.
 	if d := parseFstabDrifts(fstab, nil, nil); len(d) != 0 {
 		t.Fatalf("nothing verifiable / all skipped — want 0 drifts, got %+v", d)
 	}
-	// With a populated set, the noauto entry is still skipped; only the genuinely
-	// absent auto entry drifts.
+	// With a populated set, the noauto and nofail entries are still skipped (a nofail
+	// device that's absent does not fail boot); only the genuinely absent auto entry
+	// drifts.
 	got := parseFstabDrifts(fstab, map[string]bool{"something-else": true}, nil)
 	if len(got) != 1 || got[0].MountPoint != "/x" {
-		t.Fatalf("only the non-noauto absent UUID should drift, got %+v", got)
+		t.Fatalf("only the non-noauto/non-nofail absent UUID should drift, got %+v", got)
 	}
 }
