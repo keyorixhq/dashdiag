@@ -2550,6 +2550,15 @@ func checkVLAN(v models.VLANInfo) []models.Insight {
 }
 
 func checkISCSI(i models.ISCSIInfo) []models.Insight {
+	// Active sessions exist but their state couldn't be read unprivileged (the per-
+	// session sysfs fields iscsiadm reads are root-only). Say "needs root" — never
+	// silently omit, which would hide a failed/reconnecting session (the run-as-both
+	// rule).
+	if i.NeedsRoot {
+		return []models.Insight{insight("INFO", "iSCSI",
+			"iSCSI session(s) present but their state needs root (iscsiadm reads root-only sysfs fields)",
+			[]string{"to verify: sudo iscsiadm -m session -P 1   (or run dsd as root)"})}
+	}
 	if !i.Available || len(i.Sessions) == 0 {
 		return nil
 	}

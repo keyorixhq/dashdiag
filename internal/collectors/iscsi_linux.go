@@ -30,7 +30,14 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 	// FailedCount could never increment (a failed/reconnecting session read as fine).
 	out, err := runCmd(ctx, "iscsiadm", "-m", "session", "-P", "1")
 	if err != nil {
-		// No sessions or daemon not running — initiator installed but not in use.
+		// iscsiadm failed. Tell "no sessions" (benign, silent) apart from "sessions
+		// exist but their state needs root": `-P 1` reads per-session sysfs fields that
+		// are mode 0400 (e.g. session*/username), so unprivileged it fails with the
+		// SAME exit 21 as no-sessions. /sys/class/iscsi_session/ itself is world-
+		// readable, so its session* dir count is the honest discriminator.
+		if iscsiSessionDirCount() > 0 {
+			return &models.ISCSIInfo{Available: true, NeedsRoot: true}, nil
+		}
 		// open-iscsi ships by default on Ubuntu/Debian with zero targets logged in,
 		// so an empty initiator is "absent" (matches the VLAN gate), not a phantom OK.
 		return nil, nil
@@ -52,6 +59,15 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 func IsISCSIPresent() bool {
 	_, err := lookPath("iscsiadm")
 	return err == nil
+}
+
+// iscsiSessionDirCount counts active iSCSI sessions via sysfs
+// (/sys/class/iscsi_session/session*), which is world-readable — so it works
+// unprivileged even when `iscsiadm -P 1` can't read the per-session 0400 fields.
+// Used to tell "no sessions" from "sessions present but unreadable as non-root".
+func iscsiSessionDirCount() int {
+	m, _ := glob("/sys/class/iscsi_session/session*")
+	return len(m)
 }
 
 // parseISCSISessions parses `iscsiadm -m session -P 1` output, which groups state

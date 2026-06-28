@@ -61,3 +61,22 @@ func TestLVMQueryFailuresAreInfo(t *testing.T) {
 		t.Errorf("clean LVM must be silent, got %+v", got)
 	}
 }
+
+// Active iSCSI sessions whose state can't be read unprivileged (iscsiadm's per-session
+// sysfs fields are root-only) must surface "needs root", never be silently omitted —
+// else a failed/reconnecting session is invisible to a non-root health run.
+func TestISCSINeedsRootIsInfoNotSilent(t *testing.T) {
+	got := checkISCSI(models.ISCSIInfo{Available: true, NeedsRoot: true})
+	if !hasInsightMsg(got, "INFO", "needs root") {
+		t.Errorf("iSCSI NeedsRoot must emit a needs-root INFO, got %+v", got)
+	}
+	// Genuinely no sessions (not NeedsRoot) → silent.
+	if got := checkISCSI(models.ISCSIInfo{Available: true}); len(got) != 0 {
+		t.Errorf("no sessions must be silent, got %+v", got)
+	}
+	// A real failed session still CRITs (unchanged).
+	fail := models.ISCSIInfo{Available: true, Sessions: []models.ISCSISession{{State: "FAILED"}}, FailedCount: 1}
+	if !hasInsightMsg(checkISCSI(fail), "CRIT", "not logged in") {
+		t.Errorf("a failed session must still CRIT, got %+v", checkISCSI(fail))
+	}
+}
