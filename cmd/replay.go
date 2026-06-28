@@ -68,6 +68,7 @@ func init() {
 	replayCmd.Flags().Bool("pkg", false, "include package collector")
 	replayCmd.Flags().Bool("cve", false, "include the CVE collector (reads the scan recorded by capture --raw --cve-scan)")
 	replayCmd.Flags().Bool("deep", false, "include deep collectors")
+	replayCmd.Flags().Bool("layered", false, "group findings by abstraction layer (hardware / platform / OS & services)")
 	replayCmd.Flags().Bool("report", false, "write a shareable markdown report of the captured host")
 	replayCmd.Flags().Bool("report-html", false, "write a self-contained HTML report (printable to PDF) of the captured host")
 	replayCmd.Flags().Bool("force", false, "replay even when the bundle's OS differs from this machine (output will NOT be faithful)")
@@ -150,7 +151,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	renderer := render.NewRenderer(output.ModeHuman)
-	renderer.PrintAll(results, insights)
+	if layered, _ := cmd.Flags().GetBool("layered"); layered {
+		renderer.PrintAllLayered(results, insights)
+	} else {
+		renderer.PrintAll(results, insights)
+	}
 	_ = renderer.PrintSummary(insights, 0)
 
 	// --report / --report-html: write shareable report(s) of the CAPTURED host.

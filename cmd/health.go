@@ -49,6 +49,7 @@ func init() {
 	healthCmd.Flags().Bool("story", false, "human-readable narrative of current state")
 	healthCmd.Flags().Bool("weekly", false, "show weekly usage report")
 	healthCmd.Flags().Bool("yaml", false, "YAML output")
+	healthCmd.Flags().Bool("layered", false, "group findings by abstraction layer (hardware / platform / OS & services)")
 	healthCmd.Flags().String("post-mortem", "", "generate post-mortem for given incident ID")
 }
 
@@ -232,7 +233,11 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 			_, _ = os.Stdout.Write(data)
 		}
 	default:
-		renderer.PrintAll(results, insights)
+		if layered, _ := cmd.Flags().GetBool("layered"); layered {
+			renderer.PrintAllLayered(results, insights)
+		} else {
+			renderer.PrintAll(results, insights)
+		}
 		renderer.PrintCorrelations(correlations)
 		// Deep mode: show top processes with cgroup scope
 		if deepFlag {
