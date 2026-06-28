@@ -13,6 +13,12 @@ package cmd
 //
 // Deterministic (pure model in → verdict out), so it's a unit test, not a flaky
 // live CI job — the right home for a cross-cutting verdict invariant.
+//
+// SCOPE: this guards WARN/CRIT *concern* parity only. It deliberately does NOT cover
+// the "unverified-state false-OK" class (a renderer showing green OK while health
+// shows an INFO "not verified") — an INFO collapses to "no concern" on BOTH sides, so
+// concern-parity is structurally blind to it. That class is guarded at the rendered-
+// output level in falseok_verdict_test.go.
 
 import (
 	"testing"
