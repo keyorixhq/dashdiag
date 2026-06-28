@@ -36,29 +36,49 @@ func parseSELinuxEnforce(data string) string {
 	return ""
 }
 
+// resolveSELinuxMode is the pure decision behind collectSELinux, and the BUG-074
+// regression surface: prefer the mode from the world-readable `enforce` node, fall
+// back to `getenforce`, and — when NEITHER yields a mode — report present-but-
+// "unknown" if the SELinux fs is mounted (loaded but unreadable) rather than a false
+// "not present"/"not enforced". The enforce-node value MUST win over an absent
+// getenforce: that getenforce-absent-on-a-non-root-PATH case (Leap Micro `nobody`,
+// Tumbleweed `andrei`) is exactly the false-OK this guards. Inputs are "" when the
+// corresponding source was unreadable.
+func resolveSELinuxMode(enforceMode, getenforceMode string, fsMounted bool) (present bool, mode string) {
+	mode = enforceMode
+	if mode == "" {
+		mode = getenforceMode
+	}
+	if mode == "" {
+		if fsMounted {
+			return true, "unknown"
+		}
+		return false, ""
+	}
+	return true, mode
+}
+
 func collectSELinux(ctx context.Context) (present bool, mode string, denials int) {
 	// Read the world-readable enforce node FIRST. It works for any user, unlike
 	// `getenforce`, which may be missing from a minimal or non-root PATH (e.g.
 	// openSUSE Leap Micro's `nobody`). A getenforce-only probe there returned
 	// present=false → a false "kernel security module not enforced" verdict while
 	// SELinux was actually enforcing — the exact non-root false-OK this avoids.
+	var enforceMode, getenforceMode string
 	if data, err := readFile("/sys/fs/selinux/enforce"); err == nil { // #nosec G304
-		mode = parseSELinuxEnforce(string(data))
+		enforceMode = parseSELinuxEnforce(string(data))
 	}
-	if mode == "" {
+	if enforceMode == "" {
 		if out, err := runCmd(ctx, "getenforce"); err == nil {
-			mode = parseSELinuxMode(out)
+			getenforceMode = parseSELinuxMode(out)
 		}
 	}
-	if mode == "" {
-		// Mode unreadable by every method. If the SELinux filesystem is mounted,
-		// SELinux IS loaded — report present-but-"unknown" so the verdict says "mode
-		// unreadable, re-run as root", never a false "not enforced". If the fs isn't
-		// mounted at all, SELinux is genuinely absent.
-		if fileExists("/sys/fs/selinux") {
-			return true, "unknown", 0
-		}
+	present, mode = resolveSELinuxMode(enforceMode, getenforceMode, fileExists("/sys/fs/selinux"))
+	if !present {
 		return false, "", 0
+	}
+	if mode != "enforcing" {
+		return present, mode, 0
 	}
 	present = true
 	if mode != "enforcing" {
