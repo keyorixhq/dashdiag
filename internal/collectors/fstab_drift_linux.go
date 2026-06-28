@@ -60,7 +60,8 @@ func lowerDirNameSet(dir string) map[string]bool {
 // from the present-device sets. CONSERVATIVE: only UUID=/PARTUUID= specs are
 // checked — device paths (/dev/...), LABEL=, and pseudo/network filesystems are
 // skipped (not a verifiable id), `noauto` entries are skipped (not mounted at
-// boot), and a tag class is only judged when its set is non-empty (so a host with
+// boot) as are `nofail` entries (an absent nofail device does not fail boot), and
+// a tag class is only judged when its set is non-empty (so a host with
 // no /dev/disk/by-partuuid never false-flags PARTUUID= entries). Result: a flagged
 // entry is unambiguously a configured-but-absent device, never a reachable mount.
 func parseFstabDrifts(fstab string, byUUID, byPart map[string]bool) []models.FstabDrift {
@@ -81,6 +82,12 @@ func parseFstabDrifts(fstab string, byUUID, byPart map[string]bool) []models.Fst
 		}
 		if hasMountOpt(opts, "noauto") {
 			continue // not mounted at boot — not a boot-failure risk
+		}
+		if hasMountOpt(opts, "nofail") {
+			continue // nofail tolerates an absent device — boot proceeds, so the
+			// "this mount will fail at boot" WARN would be a false alarm. nofail is
+			// exactly what admins set for optional/removable devices (USB, backup
+			// disks, network targets) that are legitimately absent at times.
 		}
 
 		var set map[string]bool
