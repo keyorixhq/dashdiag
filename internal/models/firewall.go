@@ -16,6 +16,12 @@ type FirewallInfo struct {
 	Chains      []FirewallChain `json:"chains,omitempty"`
 	TotalRules  int             `json:"total_rules"`
 	DefaultDrop bool            `json:"default_drop"` // INPUT policy is DROP/REJECT
+	// BlockedListeners are TCP ports listening on all interfaces (0.0.0.0/::) that
+	// the iptables INPUT policy DROP has no rule permitting — the service intends to
+	// be reachable but the firewall silently drops new inbound to it. Populated ONLY
+	// when every INPUT ACCEPT rule was parseable (no custom chain / ipset /
+	// blanket-accept), so a reachable service is never mis-flagged.
+	BlockedListeners []int `json:"blocked_listeners,omitempty"`
 	// PVEFirewallActive is true on Proxmox VE hosts where the pve-firewall
 	// service is the active firewall manager. pve-firewall loads its rules
 	// dynamically, so an empty base ruleset is not "unprotected".
