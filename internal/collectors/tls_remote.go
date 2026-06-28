@@ -15,7 +15,23 @@ import (
 // chain, and returns CertInfo for each cert (leaf first).
 // Uses a 5-second dial+handshake timeout. Skips verification so expired certs
 // are still readable (we want to *report* expired, not refuse to connect).
+//
+// Routed through the source so a `tls --endpoint` probe is recorded by capture and
+// replayed from the bundle instead of dialing the replaying machine (which can't
+// reach the captured host's endpoint). Each cert's ExpiresIn is computed at capture
+// time and frozen in the recording, so replay reproduces the captured host's view;
+// a recording gap surfaces as the dial error, never a live re-dial.
 func CheckRemoteEndpoint(ctx context.Context, endpoint string) ([]models.CertInfo, error) {
+	var certs []models.CertInfo
+	if err := cachedJSON("tls-endpoint/"+endpoint, func() (any, error) {
+		return checkRemoteEndpointLive(ctx, endpoint)
+	}, &certs); err != nil {
+		return nil, err
+	}
+	return certs, nil
+}
+
+func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.CertInfo, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

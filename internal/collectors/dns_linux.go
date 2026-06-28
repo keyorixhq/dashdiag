@@ -116,31 +116,58 @@ func detectDNSManager(ctx context.Context, info *models.DNSResolverInfo) {
 	}
 }
 
-// runDNSProbe tests external and internal resolution with a timeout.
+// dnsProbeResult is the recorded outcome of the live resolution test, so it
+// replays from the bundle (see runDNSProbe).
+type dnsProbeResult struct {
+	ExternalLatencyMs  int    `json:"external_latency_ms"`
+	ExternalResolvesOK bool   `json:"external_resolves_ok"`
+	ResolvTestError    string `json:"resolv_test_error"`
+	InternalResolvesOK bool   `json:"internal_resolves_ok"`
+}
+
+// runDNSProbe tests external and internal resolution with a timeout. Routed
+// through the source (cachedJSON) so a `dsd net dns` probe is recorded by capture
+// and replayed from the bundle instead of re-resolving on the replaying machine —
+// otherwise a host with broken DNS would falsely read healthy when its capture is
+// replayed on a machine that resolves fine. A recording gap leaves the zero value
+// (ExternalResolvesOK=false), which the heuristic reports as unverified, not OK.
 func runDNSProbe(ctx context.Context, info *models.DNSResolverInfo) {
+	var pr dnsProbeResult
+	_ = cachedJSON("dns/resolve-probe", func() (any, error) {
+		return runDNSProbeLive(ctx), nil
+	}, &pr)
+	info.ExternalLatencyMs = pr.ExternalLatencyMs
+	info.ExternalResolvesOK = pr.ExternalResolvesOK
+	info.ResolvTestError = pr.ResolvTestError
+	info.InternalResolvesOK = pr.InternalResolvesOK
+}
+
+func runDNSProbeLive(ctx context.Context) dnsProbeResult {
 	// Cap probe to 5 seconds regardless of collector timeout
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	var pr dnsProbeResult
 	// External resolution test using the system resolver
 	start := time.Now()
 	r := &net.Resolver{PreferGo: true}
 	addrs, err := r.LookupHost(probeCtx, "google.com")
-	info.ExternalLatencyMs = int(time.Since(start).Milliseconds())
+	pr.ExternalLatencyMs = int(time.Since(start).Milliseconds())
 
 	if err == nil && len(addrs) > 0 {
-		info.ExternalResolvesOK = true
+		pr.ExternalResolvesOK = true
 	} else if err != nil {
-		info.ResolvTestError = err.Error()
+		pr.ResolvTestError = err.Error()
 	}
 
 	// Internal: can we resolve our own hostname?
 	hostname, _ := os.Hostname()
 	if hostname != "" {
 		if _, err := r.LookupHost(probeCtx, hostname); err == nil {
-			info.InternalResolvesOK = true
+			pr.InternalResolvesOK = true
 		}
 	}
+	return pr
 }
 
 // analyzeDNSQuality sets quality flags based on parsed config.
