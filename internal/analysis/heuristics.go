@@ -71,6 +71,13 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	if hostIsGentoo() {
 		insights = gentooifyHints(insights)
 	}
+	// On a transactional/immutable SUSE (MicroOS / Leap Micro / SLE Micro) the root is
+	// read-only — `zypper install` won't persist; packages go in via
+	// `transactional-update pkg install` + reboot. Rewrite install hints accordingly.
+	// (Found live on a Leap Micro / VMware guest.)
+	if hostIsTransactional() {
+		insights = transactionalifyHints(insights)
+	}
 	// Remedy text is generated in its Linux/systemd form; rewrite commands that
 	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
 	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
@@ -375,6 +382,40 @@ func gentooFixHint(hint string) string {
 		out += " " + strings.TrimSpace(hint[idx:])
 	}
 	return out
+}
+
+// hostIsTransactional reports whether the host is a transactional/immutable SUSE —
+// openSUSE MicroOS, Leap Micro, or SLE/SL Micro — where the root is read-only and
+// packages are installed via `transactional-update pkg install` + reboot, not live
+// `zypper install`. All such IDs carry "micro" (opensuse-leap-micro, opensuse-microos,
+// sle-micro, sl-micro).
+func hostIsTransactional() bool {
+	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "micro")
+}
+
+// transactionalifyHints rewrites every insight's package-install fix hints to the
+// transactional-update form. Hints carrying no install suggestion pass through.
+func transactionalifyHints(insights []models.Insight) []models.Insight {
+	for i := range insights {
+		hints := insights[i].Hints
+		for j := range hints {
+			hints[j] = transactionalFixHint(hints[j])
+		}
+	}
+	return insights
+}
+
+// transactionalFixHint rewrites a single install hint to its transactional-update
+// form. The "&& <service-enable>" tail is intentionally dropped: on a transactional
+// system the install lands in a new snapshot that takes effect only after a reboot,
+// so enabling the service in the same breath would not work. Returns the hint
+// unchanged when it carries no package-install suggestion.
+func transactionalFixHint(hint string) string {
+	m := rePkgInstall.FindStringSubmatch(hint)
+	if m == nil {
+		return hint
+	}
+	return "to fix (transactional): transactional-update pkg install " + m[1] + " (then reboot)"
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
@@ -1297,7 +1338,11 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// captured this but never surfaced it (a serious missed condition). The
 		// on-disk-fstype allowlist avoids flagging inherently/intentionally ro
 		// mounts (squashfs, iso9660, overlay, ro bind mounts).
-		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) {
+		// On an immutable OS (ostree / transactional-update / MicroOS / Leap Micro /
+		// SteamOS) the root is a read-only snapshot BY DESIGN, not an error remount —
+		// skip the WARN for `/` there (collector sets ImmutableRootFS, replay-faithful).
+		immutableRoot := fs.Mount == "/" && disk.ImmutableRootFS
+		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableRoot {
 			out = append(out, insight("WARN", "Disk",
 				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
 				[]string{

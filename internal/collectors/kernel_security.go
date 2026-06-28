@@ -24,12 +24,42 @@ func parseSELinuxMode(out string) string {
 	return strings.ToLower(strings.TrimSpace(out))
 }
 
+// parseSELinuxEnforce maps the /sys/fs/selinux/enforce node ("1"/"0") to a mode.
+// Returns "" for anything else (unreadable/garbled) so the caller can fall back.
+func parseSELinuxEnforce(data string) string {
+	switch strings.TrimSpace(data) {
+	case "1":
+		return "enforcing"
+	case "0":
+		return "permissive"
+	}
+	return ""
+}
+
 func collectSELinux(ctx context.Context) (present bool, mode string, denials int) {
-	out, err := runCmd(ctx, "getenforce")
-	if err != nil {
+	// Read the world-readable enforce node FIRST. It works for any user, unlike
+	// `getenforce`, which may be missing from a minimal or non-root PATH (e.g.
+	// openSUSE Leap Micro's `nobody`). A getenforce-only probe there returned
+	// present=false → a false "kernel security module not enforced" verdict while
+	// SELinux was actually enforcing — the exact non-root false-OK this avoids.
+	if data, err := readFile("/sys/fs/selinux/enforce"); err == nil { // #nosec G304
+		mode = parseSELinuxEnforce(string(data))
+	}
+	if mode == "" {
+		if out, err := runCmd(ctx, "getenforce"); err == nil {
+			mode = parseSELinuxMode(out)
+		}
+	}
+	if mode == "" {
+		// Mode unreadable by every method. If the SELinux filesystem is mounted,
+		// SELinux IS loaded — report present-but-"unknown" so the verdict says "mode
+		// unreadable, re-run as root", never a false "not enforced". If the fs isn't
+		// mounted at all, SELinux is genuinely absent.
+		if fileExists("/sys/fs/selinux") {
+			return true, "unknown", 0
+		}
 		return false, "", 0
 	}
-	mode = parseSELinuxMode(out)
 	present = true
 	if mode != "enforcing" {
 		return present, mode, 0

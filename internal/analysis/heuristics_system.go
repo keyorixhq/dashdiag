@@ -408,7 +408,8 @@ func extractAVCProcessNames(samples []string) []string {
 }
 
 func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
-	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled"
+	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled" && mac.SELinuxMode != "unknown"
+	seIndeterminate := mac.SELinuxPresent && mac.SELinuxMode == "unknown"
 	aaActive := mac.AppArmorPresent && mac.AppArmorMode != "disabled" && mac.AppArmorMode != "unknown"
 	aaIndeterminate := mac.AppArmorPresent && mac.AppArmorMode == "unknown"
 
@@ -476,6 +477,12 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	}
 
 	if !seActive && !aaActive {
+		if seIndeterminate {
+			return append(out, insight("INFO", "KernelSec",
+				"SELinux present but mode unreadable — re-run as root",
+				nil,
+			))
+		}
 		if aaIndeterminate {
 			return append(out, insight("INFO", "KernelSec",
 				"AppArmor present but mode unreadable — re-run as root",
