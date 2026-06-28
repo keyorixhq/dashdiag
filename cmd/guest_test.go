@@ -99,6 +99,25 @@ func TestPrintGuestView_AWSCloudTwoBlock(t *testing.T) {
 	}
 }
 
+// The cloud commands must not claim a clean headline when it wasn't checked: an
+// EC2 'healthy' summary with EBS throttling unverified (needs root) gets a caveat.
+func TestHealthySummary_CloudUnverifiedCaveat(t *testing.T) {
+	base := "EC2 guest healthy — no guest-side throttling or posture issues found"
+	for _, msg := range []string{
+		"EBS performance stats need root — run dsd as root to check whether EBS IOPS/throughput is being throttled",
+		"could not read EBS performance stats (...) — EBS throttling NOT verified",
+	} {
+		got := healthySummary(base, []models.Insight{{Level: "INFO", Message: msg}})
+		if !strings.Contains(got, "could not be verified") {
+			t.Errorf("unverified EBS (%q) must caveat the clean summary, got: %q", msg, got)
+		}
+	}
+	// A genuinely-clean instance keeps the plain summary.
+	if got := healthySummary(base, nil); got != base {
+		t.Errorf("clean summary must be unchanged, got: %q", got)
+	}
+}
+
 func TestPrintGuestView_HealthyContainer(t *testing.T) {
 	info := models.ContainerGuestInfo{
 		InContainer: true, Runtime: "kubernetes", CgroupV2: true,
