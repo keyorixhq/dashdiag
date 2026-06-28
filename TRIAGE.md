@@ -861,7 +861,7 @@ non-zero exit from such a tool must distinguish *locked* from *permission* from
 
 ---
 
-## V. Audit + fleet sweep 2026-06-28 — 6 fixed, suspects deferred
+## V. Audit + fleet sweep 2026-06-28 — ✅ 11 fixed (6 confirmed + 5 suspects)
 
 A 3-agent false-OK audit of the recent Photon (#558–#582) + `dsd guest` (#555–#559)
 batches plus a live pve01 fleet run (Ubuntu/Alma/Alpine/Arch LXCs + Debian/openSUSE
@@ -871,24 +871,21 @@ render, #588 fstab nofail false-alarm, #589 vmware/guest "no host pressure" over
 Clean: #556 layered view (presentational), #575 honesty flags, #564 docker/containerd/
 tdnf, #567/#570/#577/#581 boot/storage guards, the root-vs-non-root invariant.
 
-Deferred lower-priority suspects (READY/low — not yet built):
-- **networkd link-state gated on `/etc` config presence** — `NetworkdAvailable()` only
-  globs `/etc/systemd/network/*`, so a host whose networkd config lives in `/run` or
-  `/usr/lib` gets no FailedLinks/StuckLinks check at all (off-target silent miss). Gate
-  the link-state part on `systemctl is-active systemd-networkd` instead.
-- **#558 sshd@ suppression is unconditional** — `unitIgnored` drops every
-  `sshd@<conn>.service` by name; a systemic per-connection sshd runtime failure (status
-  ≠ 255) on a socket-activated host would be fully suppressed. Narrow to the benign
-  signature (255 / "dropped before auth").
-- **ContainerGuest cgroup-v1 OOM/throttle gap** — dynamic OOM/throttle reads are gated
-  on `CgroupV2`; a v1 container being OOM-killed/throttled yields no signal (mitigated:
-  green fallback is suppressed because v1 never sets CPUQuotaCores). v1 is legacy.
-- **containerd "failed" display icon understates severity** — `printContainerd` renders
-  `ServiceState=="failed"` with the WARN icon while `checkContainerd` + the exit code
-  are CRIT. Display-only; not a false-OK.
-- **PostBoot "unclean shutdown" WARN on freshly-started LXCs** — fired on `pct start`ed
-  containers (no kernel boot / shutdown record). Suspect container false-alarm; confirm
-  whether PostBoot should gate off `InContainer`.
+**The 5 deferred suspects were then all fixed too:**
+- ✅ **networkd link-state gated on `/etc` config presence** — #593: `NetworkdAvailable()`
+  falls back to `systemctl is-active systemd-networkd`, so a host with config in `/run`
+  (netplan) or `/usr/lib` still gets the failed/stuck-link checks. Live-proven old-vs-new.
+- ✅ **sshd@ suppression too broad** — #596: additive, fail-safe narrowing — after the
+  blanket suppression, query `ExecMainStatus` and add back any `sshd@<conn>` instance
+  that failed non-255 (a real per-connection fault); capped at 20. Both health +
+  `services deep`.
+- ✅ **ContainerGuest cgroup-v1 OOM/throttle gap** — #594: a v1 container now emits an
+  honest "throttle/OOM not measured on cgroup v1" INFO and `dsd guest` drops the
+  "no throttling or OOM-kills" claim. *Remaining future work (legacy, no v1 host to
+  validate): actually read the v1 per-controller counters (memory.oom_control, cpu.stat).*
+- ✅ **containerd "failed" display icon** — #591: renders CRIT, matching the verdict/exit.
+- ✅ **PostBoot "unclean shutdown" on LXCs** — #592: `PostBootAvailable()` returns false
+  in a container (prior-boot kernel forensics don't apply). Live-validated.
 
 ---
 
