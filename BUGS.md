@@ -1136,3 +1136,55 @@ flagged all four real guest-config issues (no open-vm-tools, e1000, 30s SCSI tim
   affected. Tests in `internal/analysis/gentoo_hints_test.go`. Out of scope: the
   standalone `dsd gpu`/`dsd kvm` printf hints (separate surface).
 **Commit:** `d9968e3` (PR #611)
+
+---
+
+## openSUSE Leap Micro on real VMware/vCD — immutable/transactional validation (2026-06-28)
+
+First **immutable/transactional** OS validated on real VMware: openSUSE Leap Micro 6.2
+(`ID=opensuse-leap-micro`, `/sbin/transactional-update`, root mounted `ro` on a btrfs
+snapshot subvol). The `dsd health` two-pass (root vs `nobody`) surfaced three findings —
+one a genuine non-root false-OK. All fixed in PR #620, validated live (root + non-root).
+
+### BUG-074 — non-root SELinux reads "not enforced" while SELinux is enforcing (false-OK)
+**Found:** Leap Micro two-pass (root vs nobody), vCD tenant guest (2026-06-28)
+**Symptom:** as root, `KernelSec` reports "SELinux enforcing"; as a non-root user it reports
+  **"kernel security module not enforced"** — telling an unprivileged operator security is
+  OFF when it is enforcing.
+**Root cause:** `collectSELinux` probed only `getenforce`, which is absent from Leap Micro's
+  non-root PATH; on failure it returned `present=false` → the "not enforced" verdict. The
+  authoritative source, `/sys/fs/selinux/enforce`, is world-readable (`nobody` reads `1`).
+**Affected:** every non-root `dsd health` on a SELinux host where `getenforce` isn't on PATH.
+  A same-level INFO→INFO **semantic** flip, so the non-root verdict-invariant CI (which diffs
+  severity) does not catch it.
+**Fix:** read the world-readable `/sys/fs/selinux/enforce` first (works for any user); fall
+  back to `getenforce`; if the mode is genuinely unreadable but the SELinux fs is mounted,
+  report present-but-`"unknown"` → "SELinux present but mode unreadable — re-run as root",
+  never a false "not enforced". Mirrors the existing AppArmor "unknown" handling.
+**Commit:** `92a5a48` (PR #620)
+
+### BUG-075 — read-only root false-WARNs as an I/O-error remount on every immutable OS
+**Found:** Leap Micro validation (2026-06-28)
+**Symptom:** `Disk WARN: filesystem / (btrfs …) is mounted READ-ONLY — the kernel likely
+  remounted it after an I/O error` on every MicroOS / Leap Micro / SLE Micro host, where the
+  read-only btrfs snapshot root is read-only BY DESIGN.
+**Root cause:** the read-only-mount check (`isWritableOnDiskFS`) knew nothing about the
+  immutable-OS family; the RootFS collector already suppressed its own CRIT via
+  `rootImmutableByDesign`, but the Disk heuristic didn't.
+**Affected:** `dsd health` Disk verdict on every ostree / transactional-update / SteamOS host.
+**Fix:** the disk collector sets `DiskInfo.ImmutableRootFS` (reusing `rootImmutableByDesign`;
+  internal `json:"-"`, recomputed by the collector on replay → no schema change) and the
+  heuristic skips the WARN for `/` there.
+**Commit:** `92a5a48` (PR #620)
+
+### BUG-076 — package-install hints suggest live `zypper install` on a read-only root
+**Found:** Leap Micro validation (2026-06-28)
+**Symptom:** fix hints read `zypper install <pkg>`, but on a transactional system the root is
+  read-only — a live `zypper install` won't persist; packages go in via
+  `transactional-update pkg install <pkg>` + reboot.
+**Affected:** every package-install hint on openSUSE MicroOS / Leap Micro / SLE Micro.
+  Cosmetic/UX (sibling of BUG-073).
+**Fix:** host-gated `transactionalifyHints` rewrites install hints to
+  `to fix (transactional): transactional-update pkg install <pkg> (then reboot)`, gated on a
+  `*-micro` distro ID; mirrors the NixOS/Gentoo hint passes and reuses `rePkgInstall`.
+**Commit:** `92a5a48` (PR #620)

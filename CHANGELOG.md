@@ -20,6 +20,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Host-gated on `/etc/os-release ID=gentoo`, mirroring the existing NixOS hint
   rewriting. Diagnosis/verdict were already correct — this fixes only the remedy
   text. Found live running `dsd health` on a Gentoo guest on real VMware/vCD (#611).
+- **SELinux status for non-root** — `dsd health` no longer reports "kernel security
+  module not enforced" to an unprivileged user when SELinux is enforcing. The check
+  read only `getenforce` (absent from a minimal/non-root PATH, e.g. openSUSE Leap
+  Micro's `nobody`) and on failure concluded "not enforced" — a security-relevant
+  false reassurance. It now reads the world-readable `/sys/fs/selinux/enforce` first,
+  and reports "mode unreadable, re-run as root" rather than a false "not enforced"
+  when the mode genuinely can't be read (#620).
+- **Immutable / transactional OS awareness** — on an immutable OS (ostree,
+  transactional-update/MicroOS, openSUSE Leap Micro, SteamOS) `dsd health` no longer
+  false-WARNs the read-only root as a possible I/O-error remount, and package-install
+  fix hints rewrite to `transactional-update pkg install <pkg> (then reboot)` instead
+  of suggesting a live `zypper install` that the read-only root won't persist (#620).
+  Found live on an openSUSE Leap Micro guest on real VMware/vCD.
 
 ## [1.11.0] - 2026-06-28
 
