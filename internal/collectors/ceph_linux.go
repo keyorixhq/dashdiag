@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -29,6 +30,14 @@ func (c *CephCollector) Collect(ctx context.Context) (interface{}, error) {
 		if fileExists("/etc/ceph/ceph.conf") {
 			info.Configured = true
 			info.StatusReason = "ceph health detail failed — cluster unreachable"
+			// The admin keyring (/etc/ceph/ceph.client.admin.keyring) is root-only, so
+			// an unprivileged `ceph health` fails on a perfectly healthy node. Don't let
+			// that escalate to a false "cluster unreachable" CRIT — mark it needs-root so
+			// the verdict degrades to "could not verify" (the run-as-both rule).
+			if os.Geteuid() != 0 {
+				info.NeedsRoot = true
+				info.StatusReason = "ceph health needs root (admin keyring is root-only) — cluster state not verified"
+			}
 		}
 		return info, nil
 	}

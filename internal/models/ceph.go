@@ -13,7 +13,11 @@ type CephInfo struct {
 	// Configured is true when /etc/ceph/ceph.conf exists (the host is set up for a
 	// cluster) but `ceph health` could not be obtained — i.e. a configured cluster
 	// is unreachable, as opposed to a host that merely has the ceph client binary.
-	Configured   bool      `json:"configured,omitempty"`
+	Configured bool `json:"configured,omitempty"`
+	// NeedsRoot is true when `ceph health` failed but the run is unprivileged — the
+	// admin keyring is root-only, so the failure is "could not verify", NOT proof the
+	// cluster is unreachable. Keeps a healthy cluster from false-CRITing for non-root.
+	NeedsRoot    bool      `json:"needs_root,omitempty"`
 	Health       string    `json:"health"` // HEALTH_OK, HEALTH_WARN, HEALTH_ERR
 	OSDTotal     int       `json:"osd_total"`
 	OSDUp        int       `json:"osd_up"`

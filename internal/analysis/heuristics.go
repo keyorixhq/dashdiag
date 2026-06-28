@@ -2206,6 +2206,14 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 
 func checkCeph(c models.CephInfo) []models.Insight {
 	if !c.Available {
+		// Unprivileged run: `ceph health` failed only because the admin keyring is
+		// root-only, not because the cluster is down. Surface "could not verify",
+		// never a false CRIT (the run-as-both rule).
+		if c.NeedsRoot {
+			return []models.Insight{insight("INFO", "Ceph",
+				"Ceph cluster state not verified — `ceph health` needs root (admin keyring is root-only)",
+				[]string{"to verify: sudo ceph -s   (or run dsd as root)"})}
+		}
 		// Configured for a cluster but `ceph health` failed → the cluster is
 		// unreachable from a node that's part of it. That's a real outage and must
 		// surface, not be silently gated off like a bare client binary.
