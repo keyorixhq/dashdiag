@@ -383,6 +383,12 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 		if d != nil {
 			return checkRootFS(*d)
 		}
+	case models.FstabInfo:
+		return checkFstab(d)
+	case *models.FstabInfo:
+		if d != nil {
+			return checkFstab(*d)
+		}
 	}
 	return applyOneExtended(data, thresh)
 }

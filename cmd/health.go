@@ -548,6 +548,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.NetworkdAvailable() {
 		cols = append(cols, collectors.NewNetworkdConfigCollector())
 	}
+	// /etc/fstab UUID/PARTUUID drift — gate on /etc/fstab present. Catches the
+	// cloned-VM / replaced-disk boot failure where fstab names an old filesystem id.
+	if collectors.FstabAvailable() {
+		cols = append(cols, collectors.NewFstabDriftCollector())
+	}
 	// Unexpected read-only root (errors=remount-ro trip / failed fsck). Self-guarding
 	// against immutable distros; emits a row only on the fault.
 	cols = append(cols, collectors.NewRootFSCollector())
