@@ -427,7 +427,10 @@ func scanAllViaPackageManager(ctx context.Context) *models.CVEAllResult {
 	if _, err := lookPath("tdnf"); err == nil {
 		return markCVEStaleMetadata(scanAllTDNF(ctx))
 	}
-	return &models.CVEAllResult{StatusReason: "no supported package manager found"}
+	return &models.CVEAllResult{
+		StatusReason: "no supported package manager found — CVE exposure NOT verified",
+		ScanFailed:   true,
+	}
 }
 
 // markCVEStaleMetadata downgrades a clean "no pending advisories" CVE result to
@@ -1227,6 +1230,7 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 	// can otherwise produce.
 	if !tdnfHasEnabledRepo(ctx) {
 		result.StatusReason = "no enabled tdnf repositories — CVE exposure NOT verified (check: tdnf repolist)"
+		result.ScanFailed = true
 		return result
 	}
 
@@ -1238,6 +1242,7 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
 			result.StatusReason = "tdnf updateinfo failed: " + err.Error()
+			result.ScanFailed = true
 			return result
 		}
 	}
