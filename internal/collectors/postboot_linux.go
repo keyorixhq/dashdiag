@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // PostBootCollector answers "what happened to the box across the last reboot, and could
@@ -26,7 +27,16 @@ func (c *PostBootCollector) Timeout() time.Duration { return 8 * time.Second }
 // PostBootAvailable gates the collector: it can only say anything where there is a
 // potential cross-boot source — a journal (journalctl) or wtmp. On a host with neither
 // it is genuinely n/a and omitted (the ONE case where omitting is correct).
+//
+// Skipped in a container: prior-boot forensics are about THIS system's kernel boot,
+// but a container shares the host kernel and never reboots independently — its wtmp
+// reflects container start/stop and a `pct stop`/SIGKILL teardown reads as an
+// "unclean shutdown" that is not a host fault. Found live: freshly-started LXCs
+// false-WARNed "the previous shutdown was unclean".
 func PostBootAvailable() bool {
+	if platform.DetectContainerContext().InContainer {
+		return false
+	}
 	return lookPathOK("journalctl") || fileExists("/var/log/wtmp")
 }
 
