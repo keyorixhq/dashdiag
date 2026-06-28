@@ -105,6 +105,24 @@ func TestContainerContextReplaysFromBundle(t *testing.T) {
 	}
 }
 
+func TestCloudEnvAndProfileReplayFromBundle(t *testing.T) {
+	// A cloud capture's cloud-env feeds ApplyThresholds (cloud-aware verdicts); it
+	// must replay from the bundle, not the replaying machine (replay hardcoded none).
+	ce, _ := json.Marshal(platform.EnvAWSNVMe)
+	seedReplay(t, "platform/cloud-env", ce)
+	if got := CloudEnvironmentViaSource(); got != platform.EnvAWSNVMe {
+		t.Errorf("CloudEnvironmentViaSource = %v, want the recorded EnvAWSNVMe", got)
+	}
+
+	// The captured host's distro must replay, not the replaying machine's (replay
+	// previously called platform.Detect() live).
+	prof, _ := json.Marshal(platform.Profile{Distro: "alpine", InitSystem: "openrc"})
+	seedReplay(t, "platform/profile", prof)
+	if got := ProfileViaSource(); got.Distro != "alpine" || got.InitSystem != "openrc" {
+		t.Errorf("ProfileViaSource = %+v, want the recorded alpine/openrc", got)
+	}
+}
+
 func TestDNSProbeReplaysFromBundle(t *testing.T) {
 	// Captured on a host with BROKEN external DNS — must replay broken even though
 	// the replaying machine resolves fine.
