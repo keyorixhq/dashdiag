@@ -197,6 +197,13 @@ func TestParseDmesgLine(t *testing.T) {
 			wantLevel: "INFO",
 		},
 		{
+			// Benign-by-environment err: systemd-nsresourced logs this at err in any
+			// container (no securityfs mount) and on minimal hosts; BPF LSM is optional.
+			name:      "bpf-lsm securityfs err is benign → INFO",
+			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] systemd-nsresourced[123]: bpf-lsm support not available, as securityfs is not mounted.",
+			wantLevel: "INFO",
+		},
+		{
 			// Guard: a real PCI err (not on the benign list) still CRITs.
 			name:      "real PCI err stays CRIT",
 			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: Fatal: bus configuration error",

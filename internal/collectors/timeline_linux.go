@@ -326,10 +326,11 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	return events, nil
 }
 
-// benignKernelErrs are substrings (lowercase) of kernel messages logged at err
-// level that are normal-by-platform with no operational impact — present on every
-// boot of the relevant platform. Kept deliberately narrow: each entry must be a
-// message that is benign whenever it appears on a booted, running system.
+// benignKernelErrs are substrings (lowercase) of kernel and early-boot daemon
+// messages logged at err level that are normal-by-platform with no operational
+// impact — present on every boot of the relevant platform/environment. Kept
+// deliberately narrow: each entry must be a message that is benign whenever it
+// appears on a booted, running system.
 var benignKernelErrs = []string{
 	// arm64 / ACPI cloud guests (AWS Nitro, etc.): the kernel has no device-tree
 	// root, so it can't build a DT-based PCI host bridge node — PCI is enumerated
@@ -340,6 +341,10 @@ var benignKernelErrs = []string{
 	// Logged at err on every boot of the affected platform; no operational impact
 	// on anything dsd diagnoses (it's an unused legacy SMBus, not a real fault).
 	"smbus base address uninitialized",
+	// Containers (no securityfs mount) and minimal hosts: systemd-nsresourced logs
+	// this at err when BPF LSM can't be used because securityfs isn't mounted. BPF
+	// LSM is optional and securityfs-absent is normal in a container — not a fault.
+	"bpf-lsm support not available",
 }
 
 // isBenignKernelErr reports whether a lowercased kernel message matches a known
