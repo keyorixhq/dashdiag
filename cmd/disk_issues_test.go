@@ -34,3 +34,22 @@ func TestCountDiskIssuesSMARTWearAndErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestDiskHasUnverifiedReads: a ZFS/LVM read-failure (commonly non-root) must be
+// recognized so the summary won't claim a clean "Disk healthy" — mirroring dsd
+// health's INFO. A read failure is NOT a counted concern (it's "couldn't measure").
+func TestDiskHasUnverifiedReads(t *testing.T) {
+	if diskHasUnverifiedReads(&models.DiskInfo{}, &models.LVMInfo{}) {
+		t.Error("no read failures must report no unverified reads")
+	}
+	if !diskHasUnverifiedReads(&models.DiskInfo{ZFSListReadFailed: true}, nil) {
+		t.Error("ZFSListReadFailed must count as an unverified read")
+	}
+	if !diskHasUnverifiedReads(nil, &models.LVMInfo{VGReadFailed: true}) {
+		t.Error("LVM VGReadFailed must count as an unverified read")
+	}
+	// An unverified read must NOT inflate the concern tally (stays INFO, not WARN).
+	if got := countDiskIssues(&models.DiskInfo{ZFSListReadFailed: true}, &models.LVMInfo{VGReadFailed: true}); got != 0 {
+		t.Errorf("unverified reads must not be counted as concerns, got %d", got)
+	}
+}

@@ -80,11 +80,37 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	fmt.Println()
 	fmt.Println(sep)
 	issues := countDiskIssues(info, lvmInfo)
-	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sDisk healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
-	} else {
+	switch {
+	case issues > 0:
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s%d disk concern(s) found%s", asciiOr("warn", "⚠️  ", mode), issues, timing)))
+	case diskHasUnverifiedReads(info, lvmInfo):
+		// Reads failed (ZFS/LVM, commonly non-root) — checks that DID run passed, but
+		// some couldn't run. Don't claim "healthy. Checks passed" (the false-OK dsd
+		// health avoids with an INFO); say so explicitly instead.
+		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%sDisk: checks passed, but some state could not be verified — run as root%s", asciiOr("info", "ℹ️  ", mode), timing)))
+	default:
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sDisk healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
 	}
+}
+
+// diskHasUnverifiedReads reports whether any ZFS/LVM read failed (so the summary
+// must not claim a clean "healthy" — the reads that failed were never checked). Keyed
+// on the same *ReadFailed flags dsd health folds to INFO, so the two agree non-root.
+func diskHasUnverifiedReads(info *models.DiskInfo, lvmInfo *models.LVMInfo) bool {
+	if info != nil {
+		if info.ZFSListReadFailed {
+			return true
+		}
+		for _, p := range info.ZFSPools {
+			if p.StatusReadFailed {
+				return true
+			}
+		}
+	}
+	if lvmInfo != nil && (lvmInfo.VGReadFailed || lvmInfo.PVReadFailed || lvmInfo.LVReadFailed || lvmInfo.RaidReadFailed) {
+		return true
+	}
+	return false
 }
 
 func printDiskDrives(info *models.DiskInfo, mode output.OutputMode) {
@@ -146,6 +172,13 @@ func printDiskBtrfs(info *models.DiskInfo, mode output.OutputMode) {
 
 func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 	if len(info.ZFSPools) == 0 {
+		// A live ZFS mount exists but `zpool list` errored (commonly non-root: /dev/zfs
+		// needs privilege) → no pools parsed. Surface "could not verify" so the summary
+		// can't read green, mirroring dsd health's INFO. Silent otherwise (no ZFS).
+		if info.ZFSListReadFailed {
+			fmt.Printf("\nZFS Pools\n  %s  pools could not be listed — run as root (zpool needs /dev/zfs)\n",
+				asciiOr("info", "ℹ️", mode))
+		}
 		return
 	}
 	fmt.Printf("\nZFS Pools (%d)\n", len(info.ZFSPools))
@@ -370,7 +403,17 @@ func outputJSON(w io.Writer, v interface{}) error {
 }
 
 func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
-	if lvm == nil || (len(lvm.VGs) == 0 && len(lvm.ThinPools) == 0 && len(lvm.Snapshots) == 0 && len(lvm.RaidLVs) == 0) {
+	if lvm == nil {
+		return
+	}
+	if len(lvm.VGs) == 0 && len(lvm.ThinPools) == 0 && len(lvm.Snapshots) == 0 && len(lvm.RaidLVs) == 0 {
+		// vgs/pvs/lvs errored (commonly non-root: LVM metadata locks) → nothing parsed.
+		// Surface "could not verify" so the summary can't read green (mirrors dsd
+		// health's INFO). Silent when there's genuinely no LVM (no error).
+		if lvm.VGReadFailed || lvm.PVReadFailed || lvm.LVReadFailed || lvm.RaidReadFailed {
+			fmt.Printf("\nLVM\n  %s  LVM state could not be read — run as root (vgs/pvs/lvs need metadata access)\n",
+				asciiOr("info", "ℹ️", mode))
+		}
 		return
 	}
 
