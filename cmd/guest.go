@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +21,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(guestCmd)
+	guestCmd.Flags().Bool("report-html", false,
+		"write a self-contained two-block HTML report (co-brandable leave-behind, printable to PDF)")
 }
 
 var guestCmd = &cobra.Command{
@@ -64,6 +67,15 @@ func runGuest(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
+		path, err := writeGuestReportHTML(view)
+		if err != nil {
+			return fmt.Errorf("writing report: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "📄 HTML report saved: %s\n", path)
+		return nil
+	}
+
 	if mode == output.ModeJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -71,6 +83,54 @@ func runGuest(cmd *cobra.Command, _ []string) error {
 	}
 	printGuestView(os.Stdout, view, mode)
 	return nil
+}
+
+// splitGuestInsights sorts a view's insights into the self-serve and host/provider
+// blocks (recognition lines folded away), the shared split behind both the terminal
+// render and the HTML report.
+func splitGuestInsights(view guestView) (guest, host []models.Insight) {
+	for _, in := range view.insights {
+		if view.recognized(in.Message) {
+			continue
+		}
+		if view.hostSide(in.Message) {
+			host = append(host, in)
+		} else {
+			guest = append(guest, in)
+		}
+	}
+	return guest, host
+}
+
+// writeGuestReportHTML renders the two-block view to a self-contained HTML file in
+// the working dir and returns its path — the co-brandable leave-behind.
+func writeGuestReportHTML(view guestView) (string, error) {
+	guest, host := splitGuestInsights(view)
+	level, text := "ok", healthySummary(view.healthyMsg, view.insights)
+	if c := guestConcerns(view); c > 0 {
+		level, text = "warn", fmt.Sprintf("%d issue(s) found", c)
+		for _, in := range view.insights {
+			if in.Level == "CRIT" {
+				level = "crit"
+				break
+			}
+		}
+	}
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "guest"
+	}
+	now := time.Now()
+	htmlStr := render.GuestReportHTML(view.identity, hostname, now.Format("2006-01-02 15:04 MST"),
+		[]render.GuestReportBlock{
+			{Title: view.guestTitle, Issues: guest},
+			{Title: view.hostTitle, Issues: host},
+		}, level, text)
+	filename := fmt.Sprintf("dsd-guest-report-%s-%s.html", hostname, now.Format("20060102-150405"))
+	if err := os.WriteFile(filename, []byte(htmlStr), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
+		return "", err
+	}
+	return filename, nil
 }
 
 // detectGuestView resolves the INNERMOST isolation layer first — a container on a
@@ -287,18 +347,7 @@ func printGuestView(w io.Writer, view guestView, mode output.OutputMode) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, view.identity)
 
-	var guest, host []models.Insight
-	for _, in := range view.insights {
-		if view.recognized(in.Message) {
-			continue
-		}
-		if view.hostSide(in.Message) {
-			host = append(host, in)
-		} else {
-			guest = append(guest, in)
-		}
-	}
-
+	guest, host := splitGuestInsights(view)
 	printGuestBlock(w, view.guestTitle, guest, mode)
 	printGuestBlock(w, view.hostTitle, host, mode)
 

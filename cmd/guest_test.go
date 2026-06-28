@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -115,6 +116,34 @@ func TestHealthySummary_CloudUnverifiedCaveat(t *testing.T) {
 	// A genuinely-clean instance keeps the plain summary.
 	if got := healthySummary(base, nil); got != base {
 		t.Errorf("clean summary must be unchanged, got: %q", got)
+	}
+}
+
+// dsd guest --report-html writes a self-contained two-block HTML leave-behind.
+func TestWriteGuestReportHTML_AWS(t *testing.T) {
+	t.Chdir(t.TempDir())
+	view := guestView{
+		identity:   "🟧 EC2 guest — m5.large",
+		insights:   analysis.AWSInsights(*ec2Info()),
+		hostSide:   awsInsightProviderSide,
+		recognized: isAWSRecognitionLine,
+		guestTitle: "Your instance — you can fix these",
+		hostTitle:  "AWS-imposed limits — evidence to share with AWS support",
+		healthyMsg: "EC2 guest healthy",
+	}
+	path, err := writeGuestReportHTML(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, want := range []string{"Your instance", "AWS-imposed limits", "IMDSv1", "EBS", "issue(s) found", "<!DOCTYPE html>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report missing %q", want)
+		}
 	}
 }
 
