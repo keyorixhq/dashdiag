@@ -51,7 +51,7 @@ func TestCheckCPU_StealIOwaitRunQueue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertLevel(t, checkCPU(tt.cpu, defaultThresh), tt.want)
+			assertLevel(t, checkCPU(tt.cpu, defaultThresh, platform.ContainerContext{}), tt.want)
 		})
 	}
 }
@@ -98,7 +98,7 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertLevel(t, checkCPU(tt.cpu, defaultThresh), tt.want)
+			assertLevel(t, checkCPU(tt.cpu, defaultThresh, platform.ContainerContext{}), tt.want)
 		})
 	}
 }
@@ -187,7 +187,7 @@ func TestCheckDockerContainers_ArchMismatch(t *testing.T) {
 // Found live on a real 1-vCPU VMware guest (load ~1.0, RunQueue 9 → was CRIT).
 func TestCheckCPU_RunQueueSpikeOnLoadedSingleCPUNoCrit(t *testing.T) {
 	cpu := models.CPUInfo{NumCPU: 1, RunQueue: 9, LoadAvg1: 1.0} // load 1× (saturated, not 9×)
-	got := checkCPU(cpu, defaultThresh)
+	got := checkCPU(cpu, defaultThresh, platform.ContainerContext{})
 	for _, ins := range got {
 		if ins.Check == "CPU Load/RunQueue" && ins.Level == "CRIT" {
 			t.Errorf("a 1× load with a 9-deep instantaneous run queue must not CRIT, got %+v", ins)

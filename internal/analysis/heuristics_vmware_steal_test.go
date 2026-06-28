@@ -171,3 +171,28 @@ func TestCPUOfflineInsight(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckCPUOfflineGatedInContainer: the hot-add-not-onlined WARN must be
+// suppressed inside a container, where lxcfs presents a cpuset-limited core count
+// as "online" against the host's full "present" set (regression: a cores=2 LXC on
+// an 8-core host false-WARNed "6 of 8 allocated vCPUs are offline").
+func TestCheckCPUOfflineGatedInContainer(t *testing.T) {
+	cpu := models.CPUInfo{PresentCPUs: 8, OnlineCPUs: 2, SMTControl: "on"}
+	fired := func(ins []models.Insight) bool {
+		for _, in := range ins {
+			if strings.Contains(in.Message, "allocated vCPUs are offline") {
+				return true
+			}
+		}
+		return false
+	}
+
+	bare := checkCPU(cpu, defaultThresh, platform.ContainerContext{})
+	if !fired(bare) {
+		t.Fatalf("on bare metal the offline-vCPU WARN should fire, got %+v", bare)
+	}
+	inCtr := checkCPU(cpu, defaultThresh, platform.ContainerContext{InContainer: true})
+	if fired(inCtr) {
+		t.Errorf("in a container the offline-vCPU WARN must be suppressed, got %+v", inCtr)
+	}
+}
