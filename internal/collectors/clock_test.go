@@ -2,10 +2,12 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"runtime"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestClockCollector_ReturnsResult(t *testing.T) {
@@ -35,4 +37,36 @@ func TestAdjtimexSync_Linux(t *testing.T) {
 	// On a healthy system with NTP, synced should be true.
 	// We don't assert synced==true because CI hosts may not have NTP.
 	t.Logf("adjtimex: synced=%v offsetMs=%.3f source=%s", synced, offsetMs, source)
+}
+
+// TestClockReplayReproducesCapturedSyncState guards the replay-fidelity gap found
+// on the VMware Debian capture: the host was live "NTP not synchronized" (CRIT),
+// but replaying the bundle inside a container reported "host: synced" (OK) because
+// the container short-circuit and the adjtimex(2) syscall were read live at replay
+// time, not captured. With the clock/state key recorded, replay must reproduce the
+// CAPTURED unsynced verdict regardless of the replaying machine's own clock.
+func TestClockReplayReproducesCapturedSyncState(t *testing.T) {
+	rec := source.NewRecorder(source.Live{})
+	captured := clockState{Synced: false, OffsetMs: -1, Source: "adjtimex"}
+	blob, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := rec.Cached("clock/state", func() ([]byte, error) { return blob, nil }); err != nil {
+		t.Fatalf("seed record: %v", err)
+	}
+
+	prev := SetSource(source.NewReplay(rec.Bundle()))
+	defer SetSource(prev)
+
+	info := &models.ClockInfo{}
+	if _, err := (&ClockCollector{}).collectLinux(info); err != nil {
+		t.Fatalf("collectLinux: %v", err)
+	}
+	if info.Synced {
+		t.Error("replay reported Synced=true, but the captured state was unsynced — replay is not hermetic")
+	}
+	if info.Source != "adjtimex" {
+		t.Errorf("replay Source = %q, want captured %q", info.Source, "adjtimex")
+	}
 }

@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"runtime"
 	"strings"
 	"time"
@@ -40,19 +41,45 @@ func (c *ClockCollector) collectDarwin(ctx context.Context, info *models.ClockIn
 	return info, nil
 }
 
-func (c *ClockCollector) collectLinux(info *models.ClockInfo) (interface{}, error) {
-	if platform.DetectContainerContext().InContainer {
-		info.Synced = true
-		info.Source = "host"
-		info.OffsetMs = -1
-		return info, nil
-	}
+// clockState is the live NTP-sync state, serialised through the active source so
+// `dsd capture`/`dsd replay` reproduce the CAPTURED host's verdict rather than the
+// replaying machine's. Two non-hermetic inputs are folded in here: the container
+// short-circuit (DetectContainerContext) and the adjtimex(2) syscall. Without
+// routing them through Source, replaying a bare-metal/VM capture inside a
+// container — or on a machine whose own clock is synced — silently flipped an
+// unsynced clock to "host: synced", masking the captured host's real CRIT.
+type clockState struct {
+	Synced   bool    `json:"synced"`
+	OffsetMs float64 `json:"offset_ms"`
+	Source   string  `json:"source"`
+}
 
-	// Read NTP sync state directly from the kernel via adjtimex(2).
-	// This works with all NTP daemons (chrony, systemd-timesyncd, ntpd)
-	// because they all drive the kernel clock through this syscall.
-	// No external tools, no locale issues, no parsing.
-	info.Synced, info.OffsetMs, info.Source = adjtimexSync()
+// liveClockState reads the NTP sync state from the live system. In a container
+// the kernel clock is the host's, so we report it as synced from "host". Outside
+// a container we read directly from the kernel via adjtimex(2) — this works with
+// all NTP daemons (chrony, systemd-timesyncd, ntpd) because they all drive the
+// kernel clock through this syscall. No external tools, no locale issues.
+func liveClockState() clockState {
+	if platform.DetectContainerContext().InContainer {
+		return clockState{Synced: true, OffsetMs: -1, Source: "host"}
+	}
+	synced, offsetMs, source := adjtimexSync()
+	return clockState{Synced: synced, OffsetMs: offsetMs, Source: source}
+}
+
+func (c *ClockCollector) collectLinux(info *models.ClockInfo) (interface{}, error) {
+	// Route the live read through Source so it is recorded by capture and replayed
+	// faithfully. On replay of a bundle predating this key, Cached returns
+	// ErrNotRecorded and we fall back to a live read (never block a live run).
+	var st clockState
+	if b, err := activeSource.Cached("clock/state", func() ([]byte, error) {
+		return json.Marshal(liveClockState())
+	}); err == nil {
+		_ = json.Unmarshal(b, &st)
+	} else {
+		st = liveClockState()
+	}
+	info.Synced, info.OffsetMs, info.Source = st.Synced, st.OffsetMs, st.Source
 
 	// Detect RTC in local timezone — causes kernel to report unsync even when
 	// NTP is working (Linux Mint, dual-boot with Windows default configuration).
