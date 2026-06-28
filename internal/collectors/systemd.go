@@ -208,6 +208,66 @@ func filterBenignFailedUnits(units []models.SystemdUnit) []models.SystemdUnit {
 // units in this state" — collapsing the two into an empty list reads a transient
 // systemctl failure (e.g. the 3s Timeout tripping under load, exactly when units
 // are likely failing) as a silent healthy verdict.
+// sshdConnInstancePrefixes are the socket-activated per-connection sshd templates
+// whose instances are otherwise suppressed wholesale (cloudInitUnits["sshd@.service"]).
+var sshdConnInstancePrefixes = []string{"sshd@", "ssh@"}
+
+// isSSHDConnInstance reports whether u is a per-connection sshd template INSTANCE
+// (sshd@<conn>.service) rather than the bare template or the main daemon unit.
+func isSSHDConnInstance(u string) bool {
+	for _, p := range sshdConnInstancePrefixes {
+		if strings.HasPrefix(u, p) && len(u) > len(p) && u[len(p)] != '.' {
+			return true
+		}
+	}
+	return false
+}
+
+// sshdMaxInspect caps how many failed sshd@ instances we query for exit status, so a
+// port-scanned host with a large benign pile doesn't trigger a systemctl-show storm.
+const sshdMaxInspect = 20
+
+// nonBenignSSHDInstances returns the per-connection sshd@ instances in units that
+// failed for a REAL reason — an ExecMainStatus other than 255 (the dropped-before-auth
+// signature of a scan / LB probe / kex abort) or 0. The blanket sshd@ suppression
+// rightly hides that benign pile, but would also hide a genuine per-connection fault
+// (e.g. an unreadable host key fails every connection with a different status). This
+// adds those back. Additive and fail-safe: a status that can't be read is left
+// suppressed (the prior behaviour), so it can only surface more, never re-flood.
+func nonBenignSSHDInstances(ctx context.Context, units []string) []string {
+	return filterNonBenignSSHD(units, func(u string) (string, bool) {
+		s, err := runCmd(ctx, "systemctl", "show", u, "-p", "ExecMainStatus", "--value")
+		return strings.TrimSpace(s), err == nil
+	})
+}
+
+// filterNonBenignSSHD is the pure core of nonBenignSSHDInstances: given a status
+// lookup (ExecMainStatus, ok), it returns the sshd@ instances that failed non-benign.
+// statusOf returning ok=false (unreadable) leaves the instance suppressed (fail-safe).
+func filterNonBenignSSHD(units []string, statusOf func(string) (status string, ok bool)) []string {
+	var out []string
+	inspected := 0
+	for _, u := range units {
+		if !isSSHDConnInstance(u) {
+			continue
+		}
+		if inspected >= sshdMaxInspect {
+			break
+		}
+		inspected++
+		status, ok := statusOf(u)
+		if !ok {
+			continue // can't read → leave suppressed
+		}
+		switch status {
+		case "", "0", "255": // success / dropped-before-auth → benign
+		default:
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func listUnits(ctx context.Context, state string) ([]string, error) {
 	out, err := runCmd(ctx, "systemctl", "list-units",
 		"--state="+state, "--no-legend", "--no-pager", "--plain")
@@ -225,6 +285,9 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 	failedRaw, failedErr := listUnits(ctx, "failed")
 	failed := filterUnits(failedRaw, cloudInitUnits)
 	failed = dropBenignSysupdate(failed)
+	// The blanket sshd@ suppression hides the benign dropped-before-auth pile, but
+	// would also hide a real per-connection sshd fault — add those (non-255) back.
+	failed = append(failed, nonBenignSSHDInstances(ctx, failedRaw)...)
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{

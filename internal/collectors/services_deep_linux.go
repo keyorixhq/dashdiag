@@ -35,7 +35,17 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 		// SystemdCollector does, so `dsd services deep` and `dsd health` agree — and
 		// before the per-unit journal/show enrichment below, so we don't fetch logs
 		// for dozens of noise units.
-		info.FailedUnits = filterBenignFailedUnits(parseFailedUnits(failedOut))
+		parsed := parseFailedUnits(failedOut)
+		info.FailedUnits = filterBenignFailedUnits(parsed)
+		// Add back any sshd@<conn> instance that failed for a real (non-255) reason,
+		// matching the health SystemdCollector so the two verdicts agree.
+		names := make([]string, len(parsed))
+		for i, u := range parsed {
+			names[i] = u.Name
+		}
+		for _, name := range nonBenignSSHDInstances(ctx, names) {
+			info.FailedUnits = append(info.FailedUnits, models.SystemdUnit{Name: name})
+		}
 	}
 
 	// 2. Last journal lines + exit code per failed unit (parallel, capped)
