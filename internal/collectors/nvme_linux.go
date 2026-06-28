@@ -82,6 +82,13 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 		// exit-0 run with unparseable output must NOT mark the all-zero health fields
 		// as real (which would read as a healthy drive).
 		dev.SmartRead = parseNVMeSmartLog(out, dev)
+		if !dev.SmartRead {
+			// nvme-cli ran (exit 0) but its output was unparseable (banner-only /
+			// unexpected format). Mark it "error", not the empty default — else the
+			// heuristic gives the wrong "nvme-cli not installed" hint for a tool that
+			// clearly IS installed and just ran.
+			dev.SmartUnreadReason = "error"
+		}
 
 		// Detect mount points from /proc/mounts
 		dev.MountPoints, dev.HasLinux = nvmeMountPoints(base)

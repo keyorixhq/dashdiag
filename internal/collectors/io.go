@@ -153,7 +153,16 @@ func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	result := &models.IOInfo{Devices: make([]models.IODeviceInfo, 0, len(after))}
 	for name, afterStat := range after {
-		result.Devices = append(result.Devices, computeDelta(name, before[name], afterStat))
+		beforeStat, seen := before[name]
+		if !seen {
+			// Device appeared only in the 2nd sample (hotplugged/renamed within the 1s
+			// window). A zero-value `before` makes every delta equal the full
+			// since-boot counters → util clamps to 100% and the rates balloon → a false
+			// "disk at 100% utilization" WARN. Skip it: only score a device both
+			// samples observed (it'll be scored normally on the next run).
+			continue
+		}
+		result.Devices = append(result.Devices, computeDelta(name, beforeStat, afterStat))
 	}
 	// Map iteration is randomized — sort for deterministic, diffable output
 	// (TRIAGE §I; this was the intermittent device reorder the replay guard caught).
