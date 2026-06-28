@@ -49,6 +49,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.FirewallUnreadable":  "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
 
 	// Storage — heuristic folds an unreadable read to INFO/WARN, never OK.
+	"CephInfo.NeedsRoot":            "analysis/heuristics_round3_test.go (configured+non-root → INFO, not false 'unreachable' CRIT)",
 	"DiskInfo.ZFSListReadFailed":    "analysis/zfs_btrfs_unverified_test.go",
 	"ZFSInfo.ListReadFailed":        "analysis/zfs_btrfs_unverified_test.go",
 	"ZFSPool.StatusReadFailed":      "analysis/zfs_btrfs_unverified_test.go + heuristics_security_storage_test.go",

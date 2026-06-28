@@ -86,6 +86,7 @@ func TestCheckCeph(t *testing.T) {
 	}{
 		{"unavailable + not configured is silent (client binary only)", models.CephInfo{Available: false}, ""},
 		{"unavailable + configured is CRIT (cluster unreachable)", models.CephInfo{Available: false, Configured: true}, "CRIT"},
+		{"configured but non-root is INFO not CRIT (keyring root-only)", models.CephInfo{Available: false, Configured: true, NeedsRoot: true}, "INFO"},
 		{"healthy is clean", models.CephInfo{Available: true, Health: "HEALTH_OK", OSDTotal: 3, OSDUp: 3}, ""},
 		{"health err is CRIT", models.CephInfo{Available: true, Health: "HEALTH_ERR"}, "CRIT"},
 		{"health warn is WARN", models.CephInfo{Available: true, Health: "HEALTH_WARN"}, "WARN"},
