@@ -117,6 +117,10 @@ cd dashdiag && make install
 | `dsd k8s` | Kubernetes nodes, pods, restarts, OS-layer checks | ~15s |
 | `dsd kvm` | libvirt VMs, networks, storage pools, disk errors | ~5s |
 | `dsd pve` | Proxmox VE — VMs/CTs, storage, cluster quorum, backups | ~15s |
+| `dsd guest` | Tenant health — auto-detects container/VM/cloud; splits what you fix vs. evidence for your provider | ~5s |
+| `dsd aws` | EC2 guest — ENA/EBS silent throttles, IMDS posture, spot rebalance, SSM | ~10s |
+| `dsd azure` | Azure VM — Accelerated Networking, waagent, host caching, temp disk | ~10s |
+| `dsd gcp` | GCE guest — guest agent, host-maintenance policy, OS Login, time sync | ~10s |
 | `dsd timeline` | Unified incident timeline — journal + dmesg + load | ~5s |
 | `dsd fleet` | Run `dsd health` across many hosts over SSH — one aggregated table | varies |
 | `dsd security` | SSH config, SELinux/AppArmor, sudoers, failed logins | ~3s |
@@ -258,25 +262,36 @@ link failure counts, active slave tracking.
 
 ---
 
-## Virtualization-aware
+## Tenant-side: containers, VMs & cloud
 
-`dsd` detects the platform it runs on and adds guest-specific checks. On a VMware guest it
-confirms the hypervisor is recognised, then flags the guest-side misconfigurations that
-quietly cost performance and safe backups:
+Inside a container, a VM, or a cloud instance, the real question is *"am I a healthy
+tenant — and what's the host's fault?"* `dsd guest` answers it. It auto-detects the layer
+(Docker/Podman/LXC/Kubernetes · VMware/KVM/Proxmox · **AWS / Azure / GCE**) and splits
+findings into **what you can fix** vs. **evidence to hand whoever runs your platform**:
 
 ```bash
-$ sudo dsd health    # on a VMware guest
+$ dsd guest    # on a VMware VM, an EC2 instance, a container — auto-detected
 
-VMware       ⚠️  open-vm-tools not installed — no time sync, quiesced backups,
-                 graceful shutdown, or memory ballooning
-                 → to fix: apt install open-vm-tools
-VMware       ⚠️  NIC on an emulated driver (e1000) — vmxnet3 (paravirtual) gives
-                 higher throughput at lower host CPU
+🟧 EC2 guest — m5.large
+
+── Your instance — you can fix these ───────────────────────
+  ⚠️  IMDSv1 is enabled — instance credentials reachable via a token-less request
+       → aws ec2 modify-instance-metadata-options --http-tokens required
+
+── AWS-imposed limits — evidence to share with AWS support ──
+  ⚠️  EBS nvme1n1: volume IOPS limit exceeded — IO is being throttled right now
+       → raise provisioned IOPS (gp3/io2), or use a larger / EBS-optimized instance
 ```
 
-When everything's in order it says so — `VMware guest (VMware7,1) — open-vm-tools running,
-paravirtual NIC drivers in use` — so you can see at a glance that dsd recognised the
-platform. Detection is automatic and silent on bare metal.
+The split is the point: you self-serve what you own, and the tickets you *do* open arrive
+pre-attributed to the host, with proof. Platform-specific entry points exist too —
+`dsd vmware`, `dsd aws`, `dsd azure`, `dsd gcp` — each catching the *silent* failures the
+provider's own console won't surface (a CPU/memory limit throttling you, EBS/ENA throttles,
+Azure Accelerated-Networking that reads "enabled" but never attached). `dsd guest
+--report-html` writes a self-contained, printable report to share.
+
+Detection is automatic and silent on bare metal, and the same guest-side checks fold into
+`dsd health` so a full snapshot flags them in context.
 
 ---
 

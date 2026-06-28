@@ -11,15 +11,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Minor (additive): completes the guest-side **cloud** command set and unifies it under
+`dsd guest`. No `dsd health --json` schema break (new fields are additive).
+
+### Added
+
+- **`dsd aws` / `dsd azure` / `dsd gcp`** — guest-side cloud health as focused two-block
+  commands (the cloud analog of `dsd vmware`): findings split into **what you can fix**
+  (IMDSv2 posture, Accelerated Networking, the guest agent, time sync) vs. **evidence for
+  your provider** (EBS/ENA silent throttles, an Azure Accelerated-Networking false-green,
+  an in-progress GCE host-maintenance event). Verdicts share the `dsd health` heuristic so
+  the standalone command and the full snapshot can't drift (#610, #613).
+- **`dsd guest` now auto-detects cloud** — resolves container → AWS/Azure/GCE →
+  VMware/KVM → bare metal, so one command covers any tenant layer (#617).
+- **`dsd guest --report-html`** — a self-contained, printable two-block HTML report a
+  tenant can hand whoever runs their platform (#619).
+- **cgroup-v1 CPU-throttle / OOM-kill counters** in the container/guest view — read where
+  present instead of always reporting "unmeasured" (#615).
+
 ### Fixed
 
+- A cloud all-clear summary no longer implies a headline check came back clean when it
+  could not be verified — e.g. `dsd aws` non-root, where the EBS performance stats need
+  root, now caveats instead of claiming "no guest-side throttling" (#618).
+- `dsd disk` surfaces active iSCSI sessions that need root rather than a silent false-OK
+  (#612).
+- Immutable-OS + non-root SELinux false-verdicts on openSUSE Leap Micro (#620).
 - **Gentoo remediation hints** — `dsd health` "to fix: apt install … (RHEL/SUSE:
   dnf/zypper install …)" hints now rewrite to their Portage form
   (`to fix (Gentoo): emerge <pkg>`) on Gentoo hosts, instead of naming package
-  managers Gentoo doesn't have; a trailing `&& <service-enable>` is preserved.
-  Host-gated on `/etc/os-release ID=gentoo`, mirroring the existing NixOS hint
-  rewriting. Diagnosis/verdict were already correct — this fixes only the remedy
-  text. Found live running `dsd health` on a Gentoo guest on real VMware/vCD (#611).
+  managers Gentoo doesn't have; a trailing `&& <service-enable>` is preserved (#611).
 
 ## [1.11.0] - 2026-06-28
 
