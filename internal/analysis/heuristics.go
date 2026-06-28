@@ -65,6 +65,12 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	if hostIsNixOS() {
 		insights = nixosifyHints(insights)
 	}
+	// On Gentoo the package-install fix hints (apt/dnf/zypper install …) name the
+	// wrong tool — the host uses Portage. Rewrite them to their `emerge` form so
+	// the suggested command actually runs. (Found live on a Gentoo/VMware guest.)
+	if hostIsGentoo() {
+		insights = gentooifyHints(insights)
+	}
 	// Remedy text is generated in its Linux/systemd form; rewrite commands that
 	// don't exist on this platform (ss on macOS; systemctl on OpenRC/Alpine) so the
 	// hint is runnable where dsd actually runs. Diagnosis is already correct; this
@@ -328,6 +334,47 @@ func nixosFixHint(hint string) (string, bool) {
 		return fmt.Sprintf("to fix (NixOS): services.journald.extraConfig = %q; in configuration.nix, then nixos-rebuild switch", m[1]), false
 	}
 	return hint, false
+}
+
+// rePkgInstall captures the package name from the first distro package-install
+// suggestion embedded in a fix hint. Anchored on the manager keyword immediately
+// before `install` so compound strings like "dnf/apt/zypper install rsyslog"
+// still match (at "zypper install rsyslog"); apt-get is listed before apt so the
+// longer keyword wins. One package token is captured — the install hints dsd
+// emits are single-package, and the few wrong-category atoms on Gentoo (e.g.
+// akmod-nvidia) are still a better pointer than apt/dnf/zypper.
+var rePkgInstall = regexp.MustCompile(`\b(?:apt-get|apt|dnf|yum|tdnf|zypper)\s+install\s+([A-Za-z0-9][A-Za-z0-9._+-]*)`)
+
+// hostIsGentoo reports whether the running host is Gentoo, per /etc/os-release.
+func hostIsGentoo() bool {
+	return strings.Contains(strings.ToLower(cvedata.DetectDistroID()), "gentoo")
+}
+
+// gentooifyHints rewrites every insight's package-install fix hints to their
+// Portage `emerge` equivalent. Hints carrying no install suggestion (notes,
+// inspect lines, sysctl/sshd edits) pass through untouched.
+func gentooifyHints(insights []models.Insight) []models.Insight {
+	for i := range insights {
+		for j, h := range insights[i].Hints {
+			insights[i].Hints[j] = gentooFixHint(h)
+		}
+	}
+	return insights
+}
+
+// gentooFixHint rewrites a single install hint to "to fix (Gentoo): emerge <pkg>",
+// preserving any trailing "&& <cmd>" action (e.g. enabling a service). Returns the
+// hint unchanged when it carries no package-install suggestion.
+func gentooFixHint(hint string) string {
+	m := rePkgInstall.FindStringSubmatch(hint)
+	if m == nil {
+		return hint
+	}
+	out := "to fix (Gentoo): emerge " + m[1]
+	if idx := strings.Index(hint, "&&"); idx >= 0 {
+		out += " " + strings.TrimSpace(hint[idx:])
+	}
+	return out
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
