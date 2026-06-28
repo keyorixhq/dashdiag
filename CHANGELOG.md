@@ -11,8 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-06-28
+
+Minor (additive): new guest/tenant + platform commands and Photon-OS depth, plus the
+two largest false-verdict audits yet — the **non-root false-verdict class** closed
+across container, Photon/guest, and storage-HA collectors (a green/CRIT verdict that
+flips or vanishes for an unprivileged operator). No `dsd health --json` schema break
+(new fields are additive, out of the frozen 1.x contract).
+
 ### Added
 
+- **`dsd health --layered`** — opt-in (`--layered`) view that regroups the flat health
+  report into **Hardware & storage → Platform (hypervisor/cloud) → OS & services**, led
+  by a severity tally; the Platform layer leads with a `→ dsd vmware` zoom-in. Default
+  output and every machine format (`--json`/`--yaml`/`--report`) are unchanged (#556).
 - **`dsd guest` — one auto-detecting tenant-health command.** Run it anywhere; it
   detects whether you're inside a **container** (Docker/Podman/LXC/Kubernetes), a
   **VM** (VMware / KVM / Proxmox), or on **bare metal**, and adapts — so a user who
@@ -30,7 +42,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     host-overcommit evidence.
   - The verdict shares the same heuristic as `dsd health` (no drift). `dsd vmware`
     and `dsd kvm-guest` remain as hidden specializations (still functional, out of
-    `--help`).
+    `--help`) (#555, #557, #559).
+- **`dsd containerd`** — standalone containerd diagnostics (socket / service state /
+  version / namespace + container counts); also detects k3s-managed containerd (#564, #569).
+- **Photon OS / systemd depth:** tdnf CVE + security-update scanning (#558);
+  systemd-networkd config-file-perm + failed/stuck-link health (#562, #582);
+  emergency/rescue-boot + targeted fsck-failure remediation (#567); unexpected
+  read-only-root detection (#581); fstab UUID/PARTUUID drift — cloned-VM/replaced-disk
+  boot failure (#579); iptables & nftables default-DROP ↔ listener correlation (#573, #580).
+
+### Fixed
+
+- **Non-root false-verdict sweep** (root-gated sources — the run-as-both rule's target):
+  - **Ceph** non-root `ceph health` (root-only keyring) no longer false-CRITs "cluster
+    unreachable" — now INFO "needs root" (#598).
+  - **DRBD 9** non-root (netlink needs CAP_NET_ADMIN) no longer silently omits DRBD —
+    now INFO "needs root" (#600).
+  - **Multipath** SAN-less host (package installed, no maps) no longer false-WARNs
+    non-root; gated on the daemon running OR sysfs maps present (#602).
+  - **`dsd disk`** no longer prints "Disk healthy" when ZFS/LVM reads fail non-root —
+    surfaces "could not verify", matching `dsd health` (#603).
+  - **CPU** offline-vCPU WARN suppressed in containers (a cpuset limit ≠ an un-onlined
+    vCPU) (#584); **cgroup-v2** container throttle/OOM read from the self-cgroup dir,
+    so a `--cgroupns=host` container's signals no longer read as 0 (#585).
+  - **sshd@** a real (non-255) per-connection failure is surfaced, not blanket-suppressed (#596).
+- **Storage / resource false-verdicts:** ZFS **SUSPENDED** pool now CRIT + ZFS no longer
+  double-scored in health (#604); IO "failing drive" CRIT no longer fires on a high-await
+  *idle* device (#583); HBA stale link-failure counter, NVMe unparseable-output hint, IO
+  hotplug 100%-util edge (#606).
+- **Honest "couldn't verify" instead of green/over-claim:** PostBoot skipped in
+  containers (#592); cgroup-v1 throttle/OOM marked unmeasured (#594); networkd
+  link-state runs when active even with config outside `/etc` (#593); `dsd vmware`/`dsd
+  guest` drop the "no host pressure" claim when stats are unavailable (#589); `dsd net`
+  no longer says "all links configured" with a stuck link (#587); fstab `nofail` device
+  no longer false-WARNs "will fail at boot" (#588); containerd failed service renders
+  CRIT not WARN (#591); cron no false-WARN when systemd timers handle scheduling (#563).
+- **Photon false-OK closure:** `dsd cve --all` / tdnf scans no longer render green on a
+  stale/absent index or no-enabled-repos (#565, #570, #572, #574); systemd-sysupdate-
+  reboot benign false-CRIT (#577); `dsd services deep` "Failed units: none" when
+  systemctl is unqueryable (#576); k8s/cron/logs standalone verdicts when the probe
+  never ran (#575); docker "installed but not running" false-WARN (#568).
+- **Replay hermeticity:** opt-in probes (NFS/tls/dns), container-context, cloud-env +
+  platform profile, the NTP-sync verdict, and CPU topology now replay from the bundle
+  instead of the replaying machine (#553, #586, #595, #599, #601).
 
 ## [1.10.0] - 2026-06-26
 
