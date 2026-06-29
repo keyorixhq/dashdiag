@@ -11,10 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Two themes, both found validating dsd on real-VMware vCloud Director guests:
-(1) non-systemd remedy-hint hardening (Artix/OpenRC, Devuan/sysvinit); (2) Oracle
-Linux 9.8 + 10.1 on real VMware — a new maintenance/patch-effectiveness check family
-plus honest-messaging fixes. No `dsd health --json` schema change.
+## [1.15.0] - 2026-06-30
+
+Minor (additive): a RHEL/Oracle-family **maintenance & patch-effectiveness** check
+family for `dsd health` (kdump-armed, tuned profile, kernel reboot-to-apply, Ksplice,
+stale-library service restart), plus non-systemd remedy-hint hardening and a set of
+honest-messaging fixes — all found validating dsd on real-VMware vCloud Director guests
+(Oracle Linux 9.8 + 10.1, Artix/OpenRC, Devuan/sysvinit). No `dsd health --json` schema
+change.
 
 ### Added
 
