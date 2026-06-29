@@ -1686,6 +1686,12 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 		if !strings.Contains(line, "type=AVC") {
 			continue
 		}
+		// Enforced denials only — a permissive=1 record was logged but not blocked,
+		// so it must not appear among the grouped findings the Hardening verdict
+		// surfaces (consistent with the denial COUNT, which also excludes it).
+		if avcIsPermissive(line) {
+			continue
+		}
 		// Timestamp check
 		if idx := strings.Index(line, "msg=audit("); idx >= 0 {
 			rest := line[idx+10:]
