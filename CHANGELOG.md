@@ -11,6 +11,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-06-29
+
+Minor (additive): a SELinux / immutable-OS verdict-correctness pass (found on Leap
+Micro, Tumbleweed, and ostree/CoreOS-family hosts) plus the AlmaLinux-VMware
+validation fixes, one additive flag, and three new false-verdict CI guards. No
+`dsd health --json` schema break.
+
+### Added
+
+- **`--report-html` on `dsd aws` / `dsd azure` / `dsd gcp` / `dsd vmware`** — the
+  co-brandable two-block HTML leave-behind, symmetric with `dsd guest --report-html` (#628).
+
+### Fixed
+
+- **SELinux / immutable-OS verdict correctness:**
+  - SELinux *booleans* (`getsebool`) are no longer misread as a "non-enforcing" policy
+    state (#634); a `permissive=1` AVC is no longer counted as an enforced denial (#637);
+    the duplicate SELinux-denial verdict across KernelSec + Hardening is collapsed (#638).
+  - ostree/immutable hosts: read-only infra mounts (`/sysroot`, `/boot`, `/usr`) no
+    longer false-WARN (#636), and package-install hints use `rpm-ostree install`, not
+    `dnf` (#635).
+- **`dsd replay` adapts fix-hints to the CAPTURED host, not the replaying box** — the
+  manifest now records distro/init system, so replaying e.g. an AlmaLinux capture on a
+  Debian box shows `dnf install`, not `apt` (#625).
+- **`dsd disk`** no longer false-counts a 100%-full read-only image filesystem
+  (iso9660/squashfs/erofs/cramfs) as a concern — it reached `checkDisk` but not
+  `dsd disk` until now (#629).
+
+### Internal (new regression guards)
+
+- Off-CI storage-HA non-root invariant (Ceph/DRBD/iSCSI/multipath must surface "needs
+  root", never false-CRIT or silence) (#631); a `--cgroupns=host` container-honesty CI
+  smoke guarding the cgroup self-dir read (#632); the correlation engine must not fire
+  on idle/empty input (#633); a BUG-074 SELinux enforce-resolution guard (#626).
+
 ## [1.12.0] - 2026-06-29
 
 Minor (additive): completes the guest-side **cloud** command set and unifies it under
