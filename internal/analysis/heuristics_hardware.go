@@ -126,6 +126,42 @@ func isSteamOSHost() bool {
 	return false
 }
 
+// hostIsOstree reports whether the host boots an ostree-managed immutable root —
+// Fedora CoreOS, Silverblue, Kinoite, IoT, or RHEL CoreOS — where /usr is
+// read-only and packages are layered via `rpm-ostree install <pkg>` + reboot,
+// not live `dnf install`. Detected from /etc/os-release (routed through the
+// active source for replay fidelity, same as isSteamOSHost): the immutable
+// variants carry a VARIANT_ID of coreos/silverblue/kinoite/iot/sericea/onyx, or
+// ID fedora-coreos / rhcos. Plain Fedora (VARIANT_ID=workstation/server/cloud)
+// is mutable and must NOT match — it uses dnf. (Found on Fedora CoreOS, where
+// the open-vm-tools/rsyslog fix hints said `dnf install`, which cannot persist
+// on the read-only /usr, 2026-06-29.)
+func hostIsOstree() bool {
+	data, err := collectors.ReadFileViaSource("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		val = strings.ToLower(strings.Trim(val, `"'`))
+		switch key {
+		case "ID":
+			if val == "fedora-coreos" || val == "rhcos" {
+				return true
+			}
+		case "VARIANT_ID":
+			switch val {
+			case "coreos", "silverblue", "kinoite", "iot", "sericea", "onyx":
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func checkGPU(gpu models.GPUInfo) []models.Insight {
 	if len(gpu.Devices) == 0 && gpu.Status == "" {
 		return nil // no GPU or driver not loaded — skip silently
