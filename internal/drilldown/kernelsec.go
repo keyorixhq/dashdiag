@@ -20,34 +20,56 @@ func PoliciesNotEnforcing(ctx context.Context) (*models.Details, error) {
 }
 
 func policiesLinux(ctx context.Context) (*models.Details, error) {
+	return buildPolicyTable(appArmorComplainProfiles(ctx), selinuxEnforceMode(ctx)), nil
+}
+
+// selinuxEnforceMode returns the global SELinux mode in lowercase
+// ("enforcing"/"permissive"/"disabled"), or "" when SELinux is not present
+// (getenforce absent or failed).
+func selinuxEnforceMode(ctx context.Context) string {
+	out, err := runCmd(ctx, "getenforce")
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(out))
+}
+
+// buildPolicyTable renders the "not in enforcing mode" detail from the two MAC
+// signals that actually represent NON-enforcing policy:
+//   - AppArmor profiles in complain mode
+//   - SELinux running globally in permissive (or disabled) mode
+//
+// It deliberately does NOT enumerate SELinux booleans. A boolean set to "on" is
+// a normal policy choice — most of the ~64 booleans that report "on" are
+// default-on — not a relaxation of enforcement. The old code listed every
+// on-boolean as "SELinux policy relaxed" under a "not in enforcing mode" header
+// and appended an AppArmor `aa-status | grep complain` hint, so on a fully
+// SELinux-enforcing host (getenforce=Enforcing) it claimed ~64 healthy policies
+// were "not enforcing" and pointed at an AppArmor tool that does not apply.
+// (Found on Fedora CoreOS, 2026-06-29.) The genuine non-enforcing SELinux state
+// is permissive mode / permissive domains, captured here via the global mode.
+func buildPolicyTable(appArmorComplain []string, selinuxMode string) *models.Details {
 	var rows [][]string
 
-	// Check AppArmor profiles in complain mode (BUG-023).
-	for _, profile := range appArmorComplainProfiles(ctx) {
+	for _, profile := range appArmorComplain {
 		rows = append(rows, []string{profile, "complain", "AppArmor profile not enforcing"})
 	}
 
-	// Check SELinux booleans explicitly set to ON — these are relaxed policies
-	// and worth surfacing. "off" booleans are the normal default for 200+ booleans
-	// and produce useless noise; we never list them.
-	seboolOut, _ := runCmd(ctx, "getsebool", "-a")
-	for _, line := range strings.Split(seboolOut, "\n") {
-		if strings.Contains(line, " on") {
-			parts := strings.SplitN(line, " --> ", 2)
-			if len(parts) == 2 && strings.TrimSpace(parts[1]) == "on" {
-				rows = append(rows, []string{strings.TrimSpace(parts[0]), "on", "SELinux policy relaxed"})
-			}
-		}
+	switch selinuxMode {
+	case "permissive":
+		rows = append(rows, []string{"SELinux", "permissive", "global policy logs but does not enforce"})
+	case "disabled":
+		rows = append(rows, []string{"SELinux", "disabled", "no SELinux enforcement"})
 	}
 
 	if len(rows) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	const maxRows = 5
 	note := ""
 	if len(rows) > maxRows {
-		note = fmt.Sprintf("... and %d more — run: aa-status | grep complain", len(rows)-maxRows)
+		note = fmt.Sprintf("... and %d more — review AppArmor complain profiles (aa-status) and SELinux mode (getenforce)", len(rows)-maxRows)
 		rows = rows[:maxRows]
 	}
 
@@ -57,7 +79,7 @@ func policiesLinux(ctx context.Context) (*models.Details, error) {
 		Columns: []string{"POLICY", "MODE", "NOTE"},
 		Rows:    rows,
 		Note:    note,
-	}, nil
+	}
 }
 
 // appArmorComplainProfiles returns the names of AppArmor profiles in complain
