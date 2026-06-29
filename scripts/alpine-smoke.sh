@@ -15,7 +15,11 @@
 set -eu
 
 DSD="${DSD:-/usr/local/bin/dsd}"
-apk add --no-cache jq >/dev/null
+# openrc installs /sbin/openrc, the marker dsd uses to detect the init system.
+# Without it a bare alpine container has pid1=sh → init detected as "unknown" → the
+# hint adapter is (correctly) a no-op, so the OpenRC hint rewriting this job means
+# to cover never actually runs. Installing openrc makes this a real OpenRC surface.
+apk add --no-cache jq openrc >/dev/null
 adduser -D tester 2>/dev/null || true
 
 PASS=0
@@ -69,6 +73,23 @@ if [ "$(echo "$VIOL" | jq 'length')" -gt 0 ]; then
   echo "$VIOL" | jq -r '.[] | "  - \(.check): non-root=\(.nonroot)  root=\(.root)"'
 else
   ok "no non-root verdict escalation"
+fi
+
+# 4. No systemd-only command leaked into a remediation hint (BUG-054 class — the
+#    recurring non-systemd hint gap: Gentoo, Artix #644, Devuan #646). On this
+#    OpenRC host the adapter rewrites `systemctl <verb>`→rc-service and drops
+#    timedatectl/journalctl, so any `to fix:`/`to inspect:` line still naming one of
+#    them is a hint FORM the adapter does not yet handle — a leak. (Prose `note:`
+#    lines that merely mention these are not commands, so they are not checked.)
+LEAK=$(jq -r '[.insights[]?.hints[]?
+               | select(test("^to (fix|inspect):"))
+               | select(test("\\b(systemctl|timedatectl|journalctl)\\b"))]
+              | unique | .[]' /tmp/root.json 2>/dev/null || true)
+if [ -n "$LEAK" ]; then
+  bad "systemd-only command leaked into a hint on OpenRC (adapter missed this form — add a rewrite in adaptHint):"
+  echo "$LEAK" | sed 's/^/    /'
+else
+  ok "no systemd-only command leaked into hints"
 fi
 
 echo ""
