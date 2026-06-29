@@ -3,6 +3,7 @@ package drilldown
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,61 @@ func TestParseAAStatusJSON(t *testing.T) {
 func TestParseAAStatusJSONRejectsNonJSON(t *testing.T) {
 	if _, ok := parseAAStatusJSON("apparmor module is loaded.\n23 profiles are in complain mode."); ok {
 		t.Error("plain text must not parse as the JSON shape")
+	}
+}
+
+// TestBuildPolicyTableSELinuxEnforcingIsClean guards the Fedora CoreOS
+// regression (2026-06-29): on a fully SELinux-enforcing host with no AppArmor,
+// the "not in enforcing mode" detail must be EMPTY. The old code enumerated
+// every SELinux boolean reporting "on" as "SELinux policy relaxed", so an
+// enforcing host showed ~64 healthy booleans as non-enforcing policies plus an
+// AppArmor `aa-status` hint that does not apply to SELinux.
+func TestBuildPolicyTableSELinuxEnforcingIsClean(t *testing.T) {
+	if d := buildPolicyTable(nil, "enforcing"); d != nil {
+		t.Errorf("enforcing SELinux + no AppArmor must yield no table, got %+v", d)
+	}
+}
+
+// TestBuildPolicyTableNeverListsBooleans is the structural guard: a boolean set
+// to "on" is not a relaxed policy and must never appear. We assert no row uses
+// the old "on" mode or "SELinux policy relaxed" note, across the genuinely
+// non-enforcing states.
+func TestBuildPolicyTableNeverListsBooleans(t *testing.T) {
+	for _, mode := range []string{"enforcing", "permissive", "disabled", ""} {
+		d := buildPolicyTable([]string{"sbuild"}, mode)
+		if d == nil {
+			continue
+		}
+		for _, row := range d.Rows {
+			if row[1] == "on" || strings.Contains(row[2], "policy relaxed") {
+				t.Errorf("mode %q: leaked a boolean-style row %v", mode, row)
+			}
+		}
+		if strings.Contains(d.Note, "aa-status | grep complain") {
+			t.Errorf("mode %q: note still hardcodes the AppArmor-only hint: %q", mode, d.Note)
+		}
+	}
+}
+
+func TestBuildPolicyTableSELinuxPermissive(t *testing.T) {
+	d := buildPolicyTable(nil, "permissive")
+	if d == nil {
+		t.Fatal("permissive SELinux must surface a row")
+	}
+	if len(d.Rows) != 1 || d.Rows[0][0] != "SELinux" || d.Rows[0][1] != "permissive" {
+		t.Errorf("unexpected permissive row: %+v", d.Rows)
+	}
+}
+
+func TestBuildPolicyTableAppArmorComplain(t *testing.T) {
+	d := buildPolicyTable([]string{"Xorg", "sbuild"}, "enforcing")
+	if d == nil || len(d.Rows) != 2 {
+		t.Fatalf("expected 2 AppArmor complain rows, got %+v", d)
+	}
+	for _, row := range d.Rows {
+		if row[1] != "complain" {
+			t.Errorf("AppArmor row must be complain mode: %v", row)
+		}
 	}
 }
 
