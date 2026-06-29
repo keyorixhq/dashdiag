@@ -17,6 +17,14 @@ import (
 // Source-routed helpers (readFile/runCmd*/glob/hasCmd) so capture → replay is
 // faithful. See internal/models/maintenance.go for the recorded fields.
 
+// maintenanceInContainer reports whether dsd is running inside a container. The
+// kdump / kernel-reboot / Ksplice checks are HOST-kernel concerns — a container
+// shares the host's kernel (so `uname -r` shows the host's, which it can't reboot
+// or kdump), making those checks meaningless and a quasi-false-OK inside a
+// container. Replay-safe (routes through Source). ServiceRestart stays — a
+// container's own processes can still map a library replaced on disk.
+func maintenanceInContainer() bool { return ContainerContextViaSource().InContainer }
+
 // ── Kdump ────────────────────────────────────────────────────────────────────
 
 type KdumpCollector struct{}
@@ -36,7 +44,7 @@ func KdumpAvailable() bool {
 }
 
 func (c *KdumpCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KdumpAvailable() {
+	if !KdumpAvailable() || maintenanceInContainer() {
 		return &models.KdumpInfo{}, nil
 	}
 	info := &models.KdumpInfo{Available: true}
@@ -124,16 +132,20 @@ func kernelNVRAToUname(nvra string) string {
 }
 
 func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KernelPatchAvailable() {
+	if !KernelPatchAvailable() || maintenanceInContainer() {
 		return &models.KernelPatchInfo{}, nil
 	}
-	info := &models.KernelPatchInfo{Available: true}
+	info := &models.KernelPatchInfo{}
 	if b, err := readFile("/proc/sys/kernel/osrelease"); err == nil {
 		info.Running = strings.TrimSpace(string(b))
 	}
-	// --last orders by install time (newest first); rpm exits non-zero when ANY
-	// queried package is absent, so use runCmdOutput to keep the installed lines.
-	out, _ := runCmdOutput(ctx, "rpm", "-q", "--last", "kernel-uek", "kernel-core", "kernel")
+	// RHEL/Oracle family: the running uname and the kernel package NVRA line up, so
+	// compare directly against the newest-INSTALLED kernel (--last orders by install
+	// time; rpm exits non-zero when a queried package is absent, so runCmdOutput to
+	// keep the installed lines).
+	// kernel-uek-core is the actual UEK package on Oracle Linux (the `kernel-uek`
+	// meta is often absent); kernel-core is EL9+ RHCK; kernel is EL7 / the meta.
+	out, _ := runCmdOutput(ctx, "rpm", "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
@@ -143,9 +155,29 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 		info.LatestInstalled = kernelNVRAToUname(fields[0])
 		break
 	}
-	if info.Running != "" && info.LatestInstalled != "" && info.Running != info.LatestInstalled {
-		info.RebootNeeded = true
+	if info.LatestInstalled != "" {
+		info.Available = true
+		info.RebootNeeded = info.Running != "" && info.Running != info.LatestInstalled
+		return info, nil
 	}
+	// SUSE (kernel-default): the package NVRA and uname don't line up (uname carries
+	// the `-default` flavor), so use zypper's own signal instead of parsing versions.
+	if hasCmd("zypper") {
+		if z, _ := runCmdOutput(ctx, "zypper", "needs-rebooting"); z != "" {
+			low := strings.ToLower(z)
+			switch {
+			case strings.Contains(low, "reboot is suggested"):
+				info.Available, info.RebootNeeded = true, true
+				return info, nil
+			case strings.Contains(low, "probably not necessary"), strings.Contains(low, "reboot is not"):
+				info.Available = true
+				return info, nil
+			}
+		}
+	}
+	// No recognized kernel-package signal (e.g. a distro family we don't cover yet) —
+	// leave Available=false so health does NOT show a misleading "Kernel OK" having
+	// checked nothing.
 	return info, nil
 }
 
@@ -162,7 +194,7 @@ func KspliceAvailable() bool {
 }
 
 func (c *KspliceCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KspliceAvailable() {
+	if !KspliceAvailable() || maintenanceInContainer() {
 		return &models.KspliceInfo{}, nil
 	}
 	info := &models.KspliceInfo{Available: true}

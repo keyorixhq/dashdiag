@@ -76,6 +76,16 @@ func TestCheckKernelPatch(t *testing.T) {
 	if !hasInsightMsg(got, "WARN", "still running") {
 		t.Errorf("must name the running kernel: %+v", got)
 	}
+	// SUSE (zypper) path: reboot needed but no specific newer version known → WARN
+	// with the generic message, NOT an empty "(%s)".
+	suse := models.KernelPatchInfo{Available: true, Running: "6.4.0-150600-default", LatestInstalled: "", RebootNeeded: true}
+	gs := checkKernelPatch(suse)
+	if !hasInsightMsg(gs, "WARN", "reboot to apply") {
+		t.Errorf("SUSE reboot-needed must WARN: %+v", gs)
+	}
+	if hasInsightMsg(gs, "WARN", "newer kernel ()") {
+		t.Errorf("must not emit an empty '(%%s)' when LatestInstalled is unknown: %+v", gs)
+	}
 }
 
 func TestCheckKsplice(t *testing.T) {
