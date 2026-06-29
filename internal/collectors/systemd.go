@@ -44,11 +44,32 @@ func parseUnitList(r io.Reader) []string {
 	return units
 }
 
-var cloudInitUnits = map[string]bool{
+// cloudInitServiceUnits are the cloud-init provisioning services. They are split
+// out of cloudInitUnits because their failure is benign ONLY inside a container
+// (LXC/Docker), where cloud-init cannot run and systemd marks them failed. On a
+// real VM or bare metal a failed cloud-config/cloud-final is a GENUINE
+// provisioning error — swallowing it unconditionally read green on a host whose
+// cloud-init had actually failed (false-OK found on a VMware Photon VM). The
+// failed-unit verdict therefore suppresses these only when InContainer; the
+// log-crash and boot-blame NOISE filters still suppress them unconditionally
+// (they filter chatter, not health verdicts) via cloudInitOrNoiseUnit.
+var cloudInitServiceUnits = map[string]bool{
 	"cloud-final.service":      true,
 	"cloud-config.service":     true,
 	"cloud-init.service":       true,
 	"cloud-init-local.service": true,
+}
+
+// cloudInitOrNoiseUnit reports whether a unit is environmental noise for the
+// log-crash and boot-blame filters, which suppress cloud-init unconditionally
+// (a slow or chatty cloud-init there is not a swallowed failure). Checks the
+// general noise set and the cloud-init services split out of it, both with
+// template-instance matching.
+func cloudInitOrNoiseUnit(u string) bool {
+	return unitIgnored(u, cloudInitUnits) || unitIgnored(u, cloudInitServiceUnits)
+}
+
+var cloudInitUnits = map[string]bool{
 	// Live ISO artifacts — fail on installed systems, not a real error
 	"casper-md5check.service": true,
 	"casper.service":          true,
@@ -171,6 +192,19 @@ func unitIgnored(u string, ignore map[string]bool) bool {
 	return false
 }
 
+// suppressCloudInitNoise removes benign cloud-init / LXC noise from a failed-unit
+// list. The general noise set is always removed; the cloud-init SERVICES are
+// removed only inContainer — on a VM / bare metal their failure is a real
+// provisioning error that must surface (the false-OK this fixes). Pure so the
+// container/non-container behaviour is unit-tested without a real host.
+func suppressCloudInitNoise(failedRaw []string, inContainer bool) []string {
+	failed := filterUnits(failedRaw, cloudInitUnits)
+	if inContainer {
+		failed = filterUnits(failed, cloudInitServiceUnits)
+	}
+	return failed
+}
+
 func filterUnits(units []string, ignore map[string]bool) []string {
 	out := units[:0]
 	for _, u := range units {
@@ -188,11 +222,17 @@ func filterUnits(units []string, ignore map[string]bool) []string {
 // false-CRIT'd "47 failed units" while `dsd health` correctly read Systemd OK
 // (observed live on VMware Photon OS). Shares cloudInitUnits + the benign
 // systemd-sysupdate rule so the paths cannot drift.
-func filterBenignFailedUnits(units []models.SystemdUnit) []models.SystemdUnit {
+func filterBenignFailedUnits(units []models.SystemdUnit, inContainer bool) []models.SystemdUnit {
 	sysupdateBenign := sysupdateUnconfigured()
 	out := units[:0]
 	for _, u := range units {
 		if unitIgnored(u.Name, cloudInitUnits) {
+			continue
+		}
+		// Cloud-init service failure is benign only in a container (see
+		// cloudInitServiceUnits) — on a real VM it must surface, matching the
+		// health SystemdCollector path.
+		if inContainer && unitIgnored(u.Name, cloudInitServiceUnits) {
 			continue
 		}
 		if sysupdateBenign && benignSysupdateUnits[u.Name] {
@@ -283,7 +323,7 @@ func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	failedRaw, failedErr := listUnits(ctx, "failed")
-	failed := filterUnits(failedRaw, cloudInitUnits)
+	failed := suppressCloudInitNoise(failedRaw, ContainerContextViaSource().InContainer)
 	failed = dropBenignSysupdate(failed)
 	// The blanket sshd@ suppression hides the benign dropped-before-auth pile, but
 	// would also hide a real per-connection sshd fault — add those (non-255) back.
@@ -396,7 +436,7 @@ func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.Sl
 		// Skip non-service units (device/mount/socket/etc. — see blameSkipSuffixes;
 		// these are waits, not fixable slow services, and .device units are VM
 		// console noise) and known infrastructure (cloud-init) units.
-		if !strings.Contains(name, ".") || isNonServiceBlameUnit(name) || cloudInitUnits[name] {
+		if !strings.Contains(name, ".") || isNonServiceBlameUnit(name) || cloudInitOrNoiseUnit(name) {
 			continue
 		}
 		// Timer-triggered jobs (apt-daily*, fstrim, man-db, …) appear in blame with
