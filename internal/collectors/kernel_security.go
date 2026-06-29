@@ -101,7 +101,13 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	if err != nil {
 		return present, mode, -1
 	}
-	denials = strings.Count(jout, "avc:  denied")
+	for _, line := range strings.Split(jout, "\n") {
+		// Enforced denials only — exclude permissive=1 (logged, not blocked),
+		// matching the audit-log and ausearch paths.
+		if strings.Contains(line, "avc:  denied") && !avcIsPermissive(line) {
+			denials++
+		}
+	}
 	return present, mode, denials
 }
 
@@ -153,13 +159,29 @@ func countAVCsFromAuditLog(window time.Duration) (int, bool) {
 	return count, true
 }
 
-// isRecentAVCDenial reports whether an audit.log line is a SELinux AVC *denial*
-// whose audit(EPOCH.ms:serial) timestamp is after cutoff. It requires both
+// avcIsPermissive reports whether an AVC audit line was logged in a permissive
+// domain (permissive=1) — the operation was ALLOWED and only logged, so it is
+// NOT an enforcement failure and must not drive a health verdict. Permissive
+// domains (e.g. bootupd_t on Fedora/RHEL during early boot) routinely emit these
+// on a fully-enforcing host, and a global permissive mode stamps every AVC this
+// way. Counting them produced a false denial-flood CRIT on Fedora CoreOS
+// (2026-06-29). Modern SELinux stamps every AVC with permissive=0/1; a line
+// without the field (older kernels) is treated as enforced (not permissive).
+func avcIsPermissive(line string) bool {
+	return strings.Contains(line, "permissive=1")
+}
+
+// isRecentAVCDenial reports whether an audit.log line is an *enforced* SELinux
+// AVC denial whose audit(EPOCH.ms:serial) timestamp is after cutoff. It requires
 // "type=AVC" and "denied" so an `avc: granted` record (logged by an auditallow
-// policy rule) is NOT counted as a denial — the verdict and the journald fallback
-// both mean denials, so the audit-log path must too.
+// policy rule) is NOT counted, and excludes permissive=1 records (logged but not
+// enforced) — the verdict means "operations SELinux actually blocked", so every
+// counting path must agree.
 func isRecentAVCDenial(line string, cutoff time.Time) bool {
 	if !strings.Contains(line, "type=AVC") || !strings.Contains(line, "denied") {
+		return false
+	}
+	if avcIsPermissive(line) {
 		return false
 	}
 	// Parse Unix timestamp from: msg=audit(1715000000.000:1)
@@ -484,6 +506,12 @@ func collectAVCSamples(n int) []string {
 		if !strings.Contains(line, "type=AVC") {
 			continue
 		}
+		// Only sample enforced denials — the count excludes permissive=1, so the
+		// shown "sample AVC" must too (else count says 0 / N enforced but a
+		// permissive line is displayed).
+		if avcIsPermissive(line) {
+			continue
+		}
 		// Parse timestamp to stay within 1h window
 		idx := strings.Index(line, "msg=audit(")
 		if idx >= 0 {
@@ -535,9 +563,10 @@ func countAVCsViaAusearch(window time.Duration) (int, bool) {
 
 	count := 0
 	for _, line := range strings.Split(out, "\n") {
-		// Count denials only — exclude `avc: granted` (auditallow) records, matching
-		// the audit-log path and the verdict's meaning.
-		if strings.Contains(line, "type=AVC") && strings.Contains(line, "denied") {
+		// Count enforced denials only — exclude `avc: granted` (auditallow) records
+		// and permissive=1 (logged, not blocked), matching the audit-log path and
+		// the verdict's meaning.
+		if strings.Contains(line, "type=AVC") && strings.Contains(line, "denied") && !avcIsPermissive(line) {
 			count++
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -129,5 +130,17 @@ func TestIsRecentAVCDenial(t *testing.T) {
 	}
 	if isRecentAVCDenial("type=AVC denied but no msg=audit timestamp", before) {
 		t.Error("a line without a parseable audit timestamp must NOT count")
+	}
+	// permissive=1 means the AVC was logged but NOT enforced (a permissive domain,
+	// or global permissive mode) — it blocked nothing, so it must not count toward
+	// the denial verdict. Real Fedora CoreOS first-boot bootupd_t line.
+	permissive := `type=AVC msg=audit(1715000000.018:107): avc:  denied  { search } for  pid=1479 comm="lsblk" name="mount" dev="tmpfs" ino=400 scontext=system_u:system_r:bootupd_t:s0 tcontext=system_u:object_r:mount_var_run_t:s0 tclass=dir permissive=1`
+	if isRecentAVCDenial(permissive, before) {
+		t.Error("a permissive=1 AVC (logged, not enforced) must NOT count as a denial")
+	}
+	// Same record but enforced (permissive=0) must still count.
+	enforced := strings.Replace(permissive, "permissive=1", "permissive=0", 1)
+	if !isRecentAVCDenial(enforced, before) {
+		t.Error("an enforced (permissive=0) AVC denial must count")
 	}
 }
