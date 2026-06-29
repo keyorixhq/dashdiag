@@ -290,9 +290,19 @@ func effectiveInitSystem() string {
 
 // adaptHintsToPlatform rewrites each hint's platform-specific command for goos +
 // initSystem. Pure dispatch over adaptHint so it can be tested per platform.
+// nonSystemdInits are the init systems whose service-management and time tooling
+// differ from systemd, so systemd-form remedy/inspect lines must be rewritten.
+func isNonSystemdInit(initSystem string) bool {
+	switch initSystem {
+	case "openrc", "sysvinit", "runit":
+		return true
+	}
+	return false
+}
+
 func adaptHintsToPlatform(insights []models.Insight, goos, initSystem string) []models.Insight {
-	if goos != "darwin" && initSystem != "openrc" {
-		return insights // Linux/systemd: hints already correct
+	if goos != "darwin" && !isNonSystemdInit(initSystem) {
+		return insights // systemd (or unknown init): hints already correct / can't improve
 	}
 	for i := range insights {
 		if len(insights[i].Hints) == 0 {
@@ -313,11 +323,35 @@ var (
 	// macOS has no `ss`; lsof is the listening-socket equivalent.
 	reSSPortGrep = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp \| grep :(\d+)$`)
 	reSSListen   = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp$`)
-	// OpenRC (Alpine/Gentoo) uses rc-service / rc-update, not systemctl.
+	// Non-systemd inits (OpenRC/sysvinit/runit) don't have systemctl/timedatectl.
 	reSystemctlAction  = regexp.MustCompile(`^to fix: systemctl (restart|start|stop) (\S+)$`)
 	reSystemctlEnable  = regexp.MustCompile(`^to fix: systemctl enable --now (\S+)$`)
 	reSystemctlDisable = regexp.MustCompile(`^to fix: systemctl disable (\S.*)$`)
+	reSystemctlStatus  = regexp.MustCompile(`^to inspect: systemctl status (\S.*)$`)
+	reTimedatectl      = regexp.MustCompile(`^to inspect: timedatectl status$`)
+	// Embedded "&& systemctl restart <unit>" tail in a multi-step "to fix:" hint.
+	reEmbeddedRestart = regexp.MustCompile(`&& systemctl restart (\S+)$`)
 )
+
+// serviceCmd maps a systemd service action (start/stop/restart/status) to the
+// equivalent on a non-systemd init. Returns "" for an init with no clean
+// equivalent of that verb (caller then leaves the line or drops it).
+func serviceCmd(verb, unit, initSystem string) string {
+	switch initSystem {
+	case "openrc":
+		return fmt.Sprintf("rc-service %s %s", unit, verb)
+	case "sysvinit":
+		return fmt.Sprintf("service %s %s", unit, verb)
+	case "runit":
+		// runit's sv uses up/down for start/stop; restart/status are the same word.
+		v := map[string]string{"start": "up", "stop": "down", "restart": "restart", "status": "status"}[verb]
+		if v == "" {
+			return ""
+		}
+		return fmt.Sprintf("sv %s %s", v, unit)
+	}
+	return ""
+}
 
 // adaptHint rewrites a single hint for the platform, or returns drop=true when no
 // runnable equivalent exists (the diagnosis still stands; only the remedy line is
@@ -332,19 +366,69 @@ func adaptHint(hint, goos, initSystem string) (string, bool) {
 		}
 		return hint, false
 	}
-	if initSystem == "openrc" {
-		if m := reSystemctlAction.FindStringSubmatch(hint); m != nil {
-			return fmt.Sprintf("to fix: rc-service %s %s", m[2], m[1]), false
-		}
-		if m := reSystemctlEnable.FindStringSubmatch(hint); m != nil {
-			return fmt.Sprintf("to fix: rc-update add %s && rc-service %s start", m[1], m[1]), false
-		}
-		if m := reSystemctlDisable.FindStringSubmatch(hint); m != nil {
-			return fmt.Sprintf("to fix: rc-update del %s", m[1]), false
-		}
-		return hint, false
+	if isNonSystemdInit(initSystem) {
+		return adaptNonSystemdHint(hint, initSystem)
 	}
 	return hint, false
+}
+
+// adaptNonSystemdHint rewrites systemd-form service/time commands for OpenRC,
+// sysvinit, or runit. enable/disable are init-specific (rc-update / update-rc.d /
+// runit symlink); start/stop/restart/status route through serviceCmd. A
+// timedatectl inspect line is dropped (no portable non-systemd equivalent; the
+// chronyc/ntpq/date lines beside it remain).
+func adaptNonSystemdHint(hint, initSystem string) (string, bool) {
+	if m := reSystemctlAction.FindStringSubmatch(hint); m != nil {
+		if c := serviceCmd(m[1], m[2], initSystem); c != "" {
+			return "to fix: " + c, false
+		}
+	}
+	if m := reSystemctlStatus.FindStringSubmatch(hint); m != nil {
+		// systemctl status may name several units; the per-unit tools take one.
+		unit := strings.Fields(m[1])[0]
+		if c := serviceCmd("status", unit, initSystem); c != "" {
+			return "to inspect: " + c, false
+		}
+	}
+	if reTimedatectl.MatchString(hint) {
+		return "", true // no portable equivalent — drop the line
+	}
+	if m := reEmbeddedRestart.FindStringSubmatch(hint); m != nil {
+		if c := serviceCmd("restart", m[1], initSystem); c != "" {
+			return reEmbeddedRestart.ReplaceAllString(hint, "&& "+c), false
+		}
+	}
+	if m := reSystemctlEnable.FindStringSubmatch(hint); m != nil {
+		return enableHint(m[1], initSystem), false
+	}
+	if m := reSystemctlDisable.FindStringSubmatch(hint); m != nil {
+		return disableHint(m[1], initSystem), false
+	}
+	return hint, false
+}
+
+func enableHint(unit, initSystem string) string {
+	switch initSystem {
+	case "openrc":
+		return fmt.Sprintf("to fix: rc-update add %s && rc-service %s start", unit, unit)
+	case "sysvinit":
+		return fmt.Sprintf("to fix: update-rc.d %s enable && service %s start", unit, unit)
+	case "runit":
+		return fmt.Sprintf("to fix: ln -s /etc/sv/%s /var/service/", unit)
+	}
+	return "to fix: systemctl enable --now " + unit
+}
+
+func disableHint(unit, initSystem string) string {
+	switch initSystem {
+	case "openrc":
+		return "to fix: rc-update del " + unit
+	case "sysvinit":
+		return "to fix: update-rc.d " + unit + " disable"
+	case "runit":
+		return "to fix: rm /var/service/" + unit
+	}
+	return "to fix: systemctl disable " + unit
 }
 
 // PlatformServiceCmd rewrites a systemd service-management command (e.g.
