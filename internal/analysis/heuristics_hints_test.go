@@ -26,9 +26,21 @@ func TestAdaptHint(t *testing.T) {
 		{"openrc enable --now", "to fix: systemctl enable --now rpcbind", "linux", "openrc", "to fix: rc-update add rpcbind && rc-service rpcbind start"},
 		{"openrc disable", "to fix: systemctl disable NetworkManager-wait-online.service", "linux", "openrc", "to fix: rc-update del NetworkManager-wait-online.service"},
 		{"openrc leaves ss hint (ss exists on linux)", "to inspect: ss -tlnp", "linux", "openrc", "to inspect: ss -tlnp"},
+		// sysvinit (Devuan): systemctl → service / update-rc.d (found live on Devuan 6).
+		{"sysvinit restart", "to fix: systemctl restart sshd", "linux", "sysvinit", "to fix: service sshd restart"},
+		{"sysvinit status inspect (first of several units)", "to inspect: systemctl status chronyd ntpd", "linux", "sysvinit", "to inspect: service chronyd status"},
+		{"sysvinit enable --now", "to fix: systemctl enable --now rpcbind", "linux", "sysvinit", "to fix: update-rc.d rpcbind enable && service rpcbind start"},
+		{"sysvinit disable", "to fix: systemctl disable foo.service", "linux", "sysvinit", "to fix: update-rc.d foo.service disable"},
+		{"sysvinit embedded restart tail", "to fix: echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd", "linux", "sysvinit", "to fix: echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && service sshd restart"},
+		// runit (Void): systemctl → sv (start/stop map to up/down).
+		{"runit restart", "to fix: systemctl restart nginx", "linux", "runit", "to fix: sv restart nginx"},
+		{"runit start→up", "to fix: systemctl start nginx", "linux", "runit", "to fix: sv up nginx"},
+		{"runit status inspect", "to inspect: systemctl status nginx", "linux", "runit", "to inspect: sv status nginx"},
 		// systemd/linux: untouched (handled by the early return in adaptHintsToPlatform,
 		// but adaptHint itself is a no-op too)
 		{"linux systemd passthrough", "to fix: systemctl restart sshd", "linux", "systemd", "to fix: systemctl restart sshd"},
+		// unknown init: leave systemd form alone rather than guess wrong
+		{"unknown init passthrough", "to fix: systemctl restart sshd", "linux", "unknown", "to fix: systemctl restart sshd"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -40,6 +52,23 @@ func TestAdaptHint(t *testing.T) {
 				t.Errorf("adaptHint(%q, %s, %s) = %q, want %q", c.hint, c.goos, c.init, got, c.want)
 			}
 		})
+	}
+}
+
+// timedatectl has no portable non-systemd equivalent, so its inspect line is
+// DROPPED on OpenRC/sysvinit/runit (the chronyc/ntpq/date lines beside it stay) —
+// rather than left as a command that does not exist there. (Found live on Devuan,
+// where the Clock CRIT suggested `timedatectl status` on a host with no systemctl.)
+func TestAdaptHintDropsTimedatectl(t *testing.T) {
+	for _, init := range []string{"openrc", "sysvinit", "runit"} {
+		got, drop := adaptHint("to inspect: timedatectl status", "linux", init)
+		if !drop {
+			t.Errorf("%s: timedatectl inspect line should be dropped, got %q", init, got)
+		}
+	}
+	// On systemd it must survive.
+	if _, drop := adaptHint("to inspect: timedatectl status", "linux", "systemd"); drop {
+		t.Error("timedatectl must NOT be dropped on systemd")
 	}
 }
 

@@ -25,7 +25,7 @@ type Profile struct {
 	IsSteamOS     bool   // ID=steamos OR VARIANT_ID=steamdeck
 
 	// Init system
-	InitSystem string // "systemd", "openrc", "unknown"
+	InitSystem string // "systemd", "openrc", "runit", "sysvinit", "unknown"
 
 	// Networking
 	NetworkStack string // "networkmanager", "networkd", "netplan", "ifupdown", "unknown"
@@ -155,15 +155,55 @@ func setLogPaths(p *Profile) {
 	}
 }
 
-// detectInitSystem identifies the init system from well-known runtime markers.
+// detectInitSystem identifies the init system, most specific first. File markers
+// alone are NOT enough to tell sysvinit/openrc/runit apart: Devuan ships the runit
+// PACKAGE (so /etc/runit and even /run/runit exist) while sysvinit is still PID1,
+// and OpenRC uses sysvinit for /sbin/init too. So after the unambiguous systemd
+// and openrc-binary markers, the actual PID1 identity from /proc/1/comm is the
+// ground truth (verified live on a sysvinit Devuan that had /run/runit present).
+// Returns "unknown" when none match (the hint adapter then leaves systemd-form
+// remedies alone rather than guessing wrong).
 func detectInitSystem() string {
-	if fileExists("/run/systemd/private") {
+	return classifyInit(
+		fileExists("/run/systemd/private"),
+		fileExists("/sbin/openrc"),
+		fileExists("/etc/inittab"),
+		pid1Comm(),
+	)
+}
+
+// classifyInit is the pure decision behind detectInitSystem. systemd and openrc
+// are caught by their unambiguous markers; otherwise PID1 identity decides, so a
+// sysvinit host carrying the runit package (/run/runit present, PID1 still "init")
+// is classified sysvinit, not runit — the trap found live on Devuan.
+func classifyInit(hasSystemdPriv, hasOpenrcBin, hasInittab bool, pid1 string) string {
+	if hasSystemdPriv {
 		return "systemd"
 	}
-	if fileExists("/sbin/openrc") {
-		return "openrc"
+	if hasOpenrcBin {
+		return "openrc" // OpenRC runs on a sysvinit PID1; its binary is the marker.
+	}
+	switch pid1 {
+	case "systemd":
+		return "systemd"
+	case "runit", "runit-init":
+		return "runit"
+	case "init":
+		if hasInittab {
+			return "sysvinit"
+		}
 	}
 	return "unknown"
+}
+
+// pid1Comm returns the command name of PID 1 from /proc/1/comm (world-readable,
+// so it works non-root). "" when unreadable (non-Linux / no procfs).
+func pid1Comm() string {
+	data, err := os.ReadFile("/proc/1/comm")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // detectNetworkStack identifies the active network management layer, in priority
