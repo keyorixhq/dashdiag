@@ -217,10 +217,14 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 		if fs.TotalGB == 0 {
 			continue
 		}
+		// Inherently read-only image fs (iso9660/squashfs/erofs/cramfs) are 100%-full by
+		// design — show the row (transparent) but never a fault icon, matching the
+		// verdict (#382). Otherwise the usage/inode thresholds apply.
+		imageFS := analysis.IsInherentlyReadOnlyFS(fs.FSType)
 		icon := asciiOr("ok", "✅", mode)
-		if fs.UsedPct >= analysis.DefaultDiskCritPct {
+		if !imageFS && fs.UsedPct >= analysis.DefaultDiskCritPct {
 			icon = asciiOr("fail", "❌", mode)
-		} else if fs.UsedPct >= analysis.DefaultDiskWarnPct {
+		} else if !imageFS && fs.UsedPct >= analysis.DefaultDiskWarnPct {
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		roNote := ""
@@ -229,7 +233,7 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 		}
 		fmt.Printf("  %s  %-22s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
 			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
-		if fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
+		if !imageFS && fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
 			fmt.Printf("       %s  inodes at %.0f%%\n", asciiOr("warn", "⚠️ ", mode), fs.InodesUsedPct)
 		}
 	}
@@ -249,6 +253,13 @@ func printDiskIO(info *models.DiskInfo) {
 func countDiskIssues(info *models.DiskInfo, lvmInfo *models.LVMInfo) int {
 	n := 0
 	for _, fs := range info.Filesystems {
+		// Inherently read-only image filesystems (iso9660/squashfs/erofs/cramfs) are
+		// packed to 100% at build time — normal, not a fault, and no admin action frees
+		// space. Skip them, mirroring checkDisk (#382) so `dsd disk` and `dsd health`
+		// agree (a full /cdrom or snap squashfs must not concern either).
+		if analysis.IsInherentlyReadOnlyFS(fs.FSType) {
+			continue
+		}
 		if fs.UsedPct >= analysis.DefaultDiskWarnPct || fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
 			n++
 		}

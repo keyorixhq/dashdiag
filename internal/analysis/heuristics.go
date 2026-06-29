@@ -1376,7 +1376,7 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// scoring for these to avoid a guaranteed false CRIT on every live-USB
 		// /cdrom, snap-backed squashfs, or AppImage mount. The read-only
 		// remount check below still runs (handled by its own fstype allowlist).
-		inherentRO := isInherentlyReadOnlyFS(fs.FSType)
+		inherentRO := IsInherentlyReadOnlyFS(fs.FSType)
 		if !inherentRO {
 			if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
 				hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
@@ -1466,14 +1466,14 @@ func isWritableOnDiskFS(fsType string) bool {
 	return false
 }
 
-// isInherentlyReadOnlyFS reports whether a filesystem type is read-only by
+// IsInherentlyReadOnlyFS reports whether a filesystem type is read-only by
 // design (immutable image/packed formats). Such filesystems are full by
 // construction: they are packed to capacity at build time and there is no
 // admin action that can free space. A 100%-used iso9660 (live-USB /cdrom),
 // squashfs (snap/AppImage backing), or erofs/cramfs image is the normal,
 // healthy state — not a disk-pressure condition. Reporting it as CRIT/WARN
 // is a false positive, so usage-level scoring skips these types.
-func isInherentlyReadOnlyFS(fsType string) bool {
+func IsInherentlyReadOnlyFS(fsType string) bool {
 	switch fsType {
 	case "iso9660", "squashfs", "erofs", "cramfs":
 		return true

@@ -405,3 +405,35 @@ func TestCmdHealthConsistency_SteamOS(t *testing.T) {
 		})
 	}
 }
+
+// TestCmdHealthConsistency_Disk pins `dsd disk`'s filesystem verdict (countDiskIssues)
+// to `dsd health`'s Disk check on the same FilesystemInfo. Disk is where the sibling-
+// divergence class was first found (BUG-050); it aggregates several checks (Drives/ZFS/
+// LVM are scored under their own checks + tested separately), so this guards the clean
+// 1:1 dimension — filesystem usage/inode + the read-only-image-fs skip (#382), which had
+// reached checkDisk but NOT dsd disk's countDiskIssues until this change.
+func TestCmdHealthConsistency_Disk(t *testing.T) {
+	cases := []struct {
+		name string
+		fs   models.FilesystemInfo
+	}{
+		{"clean ext4", models.FilesystemInfo{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 20, UsedPct: 20}},
+		{"full ext4 crit", models.FilesystemInfo{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 96, UsedPct: 96}},
+		{"inodes full", models.FilesystemInfo{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 10, UsedPct: 10, InodesUsedPct: 97}},
+		// Read-only image filesystems are 100%-full by design — a concern in NEITHER
+		// path (#382). Was a `dsd disk`-only false-alarm before this change.
+		{"squashfs 100 (image)", models.FilesystemInfo{Mount: "/snap/x", FSType: "squashfs", TotalGB: 1, UsedGB: 1, UsedPct: 100}},
+		{"iso9660 100 (cdrom)", models.FilesystemInfo{Mount: "/cdrom", FSType: "iso9660", TotalGB: 1, UsedGB: 1, UsedPct: 100}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &models.DiskInfo{Filesystems: []models.FilesystemInfo{tc.fs}}
+			cmdConcern := countDiskIssues(info, nil) > 0
+			healthConcern := healthHasConcern(t, "Disk", info)
+			if cmdConcern != healthConcern {
+				t.Errorf("Disk verdict divergence: `dsd disk` concern=%v but `dsd health` concern=%v",
+					cmdConcern, healthConcern)
+			}
+		})
+	}
+}
