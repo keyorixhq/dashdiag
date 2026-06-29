@@ -21,6 +21,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(vmwareCmd)
+	vmwareCmd.Flags().Bool("report-html", false,
+		"write a self-contained two-block HTML report (co-brandable leave-behind, printable to PDF)")
 }
 
 var vmwareCmd = &cobra.Command{
@@ -55,6 +57,15 @@ func runVMware(cmd *cobra.Command, _ []string) error {
 		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) +
 			"not running under VMware — this host's DMI does not match a VMware guest"))
 		fmt.Println("   (dsd vmware is for Linux VMs on vSphere / VMware Cloud / VCD)")
+		return nil
+	}
+
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
+		path, err := writeGuestReportHTML(vmwareGuestView(ctx))
+		if err != nil {
+			return fmt.Errorf("writing report: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "📄 HTML report saved: %s\n", path)
 		return nil
 	}
 

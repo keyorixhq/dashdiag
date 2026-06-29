@@ -21,6 +21,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(azureCmd)
+	azureCmd.Flags().Bool("report-html", false,
+		"write a self-contained two-block HTML report (co-brandable leave-behind, printable to PDF)")
 }
 
 var azureCmd = &cobra.Command{
@@ -55,6 +57,15 @@ func runAzure(cmd *cobra.Command, _ []string) error {
 		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) +
 			"not running on Azure — this host's DMI does not match an Azure VM"))
 		fmt.Println("   (dsd azure is for Linux VMs on Microsoft Azure)")
+		return nil
+	}
+
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
+		path, err := writeGuestReportHTML(azureGuestView(ctx))
+		if err != nil {
+			return fmt.Errorf("writing report: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "📄 HTML report saved: %s\n", path)
 		return nil
 	}
 

@@ -21,6 +21,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(gcpCmd)
+	gcpCmd.Flags().Bool("report-html", false,
+		"write a self-contained two-block HTML report (co-brandable leave-behind, printable to PDF)")
 }
 
 var gcpCmd = &cobra.Command{
@@ -55,6 +57,15 @@ func runGCP(cmd *cobra.Command, _ []string) error {
 		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) +
 			"not running on GCE — this host's DMI does not match a Google Compute Engine VM"))
 		fmt.Println("   (dsd gcp is for Linux VMs on Google Compute Engine)")
+		return nil
+	}
+
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
+		path, err := writeGuestReportHTML(gcpGuestView(ctx))
+		if err != nil {
+			return fmt.Errorf("writing report: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "📄 HTML report saved: %s\n", path)
 		return nil
 	}
 
