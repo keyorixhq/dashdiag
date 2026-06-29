@@ -583,8 +583,60 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 
 // collectLinuxExtras populates physical drives, SMART, ZFS pools, and I/O stats.
 // Called from the cross-platform Collect() when on Linux.
+// enrichDeviceSizes fills FilesystemInfo.DeviceSizeGB for each filesystem from
+// the backing block device's /sys/class/block/<kname>/size, so the analysis layer
+// can spot a device grown larger than the filesystem on it (resize forgotten).
+func enrichDeviceSizes(filesystems []models.FilesystemInfo) {
+	for i := range filesystems {
+		if b, ok := deviceSizeBytes(filesystems[i].Device); ok {
+			filesystems[i].DeviceSizeGB = float64(b) / 1e9
+		}
+	}
+}
+
+// deviceSizeBytes returns the size in bytes of the block device at devPath (a
+// /dev/... path), read from sysfs (512-byte sectors). false when the path isn't a
+// resolvable block device. Source-routed for replay fidelity.
+func deviceSizeBytes(devPath string) (int64, bool) {
+	kname := deviceKernelName(devPath)
+	if kname == "" {
+		return 0, false
+	}
+	data, err := readFile("/sys/class/block/" + kname + "/size") // #nosec G304 -- sysfs, kname is a basename
+	if err != nil {
+		return 0, false
+	}
+	sectors, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil || sectors <= 0 {
+		return 0, false
+	}
+	return sectors * 512, true // sysfs size is always 512-byte sectors
+}
+
+// deviceKernelName maps a /dev path to its sysfs kernel name (sda2, nvme0n1p2,
+// dm-0). Direct nodes resolve by basename; symlinks (e.g. /dev/mapper/vg-lv → dm-0,
+// /dev/disk/by-uuid/... ) are resolved one hop via readlink. "" when it can't be
+// mapped to a /sys/class/block entry (don't guess).
+func deviceKernelName(devPath string) string {
+	if !strings.HasPrefix(devPath, "/dev/") {
+		return ""
+	}
+	base := devPath[strings.LastIndex(devPath, "/")+1:]
+	if base != "" && fileExists("/sys/class/block/"+base) {
+		return base
+	}
+	if target, err := readLink(devPath); err == nil && target != "" {
+		rb := target[strings.LastIndex(target, "/")+1:]
+		if rb != "" && fileExists("/sys/class/block/"+rb) {
+			return rb
+		}
+	}
+	return ""
+}
+
 func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 	result.Drives = collectPhysicalDrives()
+	enrichDeviceSizes(result.Filesystems)
 
 	// SMART — run for each physical drive (non-blocking, max 3s per drive)
 	for i := range result.Drives {

@@ -1546,6 +1546,7 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 				},
 			))
 		}
+		out = append(out, checkDiskGrowth(fs)...)
 	}
 	out = append(out, checkDiskExtras(disk)...)
 	return out
@@ -1575,6 +1576,59 @@ func isWritableOnDiskFS(fsType string) bool {
 		return true
 	}
 	return false
+}
+
+// diskGrowthMinGapGB and diskGrowthMinGapFrac are the thresholds for flagging a
+// filesystem that wasn't resized after its device grew. BOTH must be exceeded: a
+// >=10% relative gap is well above normal filesystem metadata overhead (~1-2% for
+// ext4, less for xfs), and a >=1 GB absolute gap keeps small disks and rounding
+// from ever tripping it.
+const (
+	diskGrowthMinGapGB   = 1.0
+	diskGrowthMinGapFrac = 0.10
+)
+
+// checkDiskGrowth flags a filesystem whose backing device (partition / LV) is
+// meaningfully larger than the filesystem on it — the classic "grew the VMDK/EBS
+// volume (or lvextend'd) but forgot resize2fs/xfs_growfs", leaving the extra
+// space unusable until someone notices the disk "full" at the old size. A
+// universal VM/cloud ops mistake, not distro-specific. Conservative on purpose
+// (see thresholds); DeviceSizeGB==0 means the device size is unknown (non-Linux,
+// or no sysfs node) and is skipped — never guessed.
+func checkDiskGrowth(fs models.FilesystemInfo) []models.Insight {
+	if fs.DeviceSizeGB <= 0 || fs.TotalGB <= 0 || !isWritableOnDiskFS(fs.FSType) {
+		return nil
+	}
+	gap := fs.DeviceSizeGB - fs.TotalGB
+	if gap < diskGrowthMinGapGB || gap < diskGrowthMinGapFrac*fs.DeviceSizeGB {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Disk",
+		fmt.Sprintf("filesystem %s (%s) is %.0f GB but its device %s is %.0f GB — the device was grown but the filesystem was not resized, so ~%.0f GB is unusable",
+			fs.Mount, fs.FSType, fs.TotalGB, fs.Device, fs.DeviceSizeGB, gap),
+		diskGrowthHints(fs))}
+}
+
+// diskGrowthHints returns the filesystem-appropriate online-grow command. The
+// device is already the right size (that is what the check detected), so only the
+// filesystem needs growing — no growpart/parted step.
+func diskGrowthHints(fs models.FilesystemInfo) []string {
+	switch {
+	case strings.HasPrefix(fs.FSType, "ext"):
+		return []string{
+			fmt.Sprintf("to fix: resize2fs %s", fs.Device),
+			"note: resize2fs grows an ext2/3/4 filesystem online to fill its device",
+		}
+	case fs.FSType == "xfs":
+		return []string{
+			fmt.Sprintf("to fix: xfs_growfs %s", fs.Mount),
+			"note: XFS grows online (mounted) and can only grow, never shrink",
+		}
+	case fs.FSType == "btrfs":
+		return []string{fmt.Sprintf("to fix: btrfs filesystem resize max %s", fs.Mount)}
+	default:
+		return []string{fmt.Sprintf("to fix: grow the %s filesystem on %s to fill the device", fs.FSType, fs.Device)}
+	}
 }
 
 // IsInherentlyReadOnlyFS reports whether a filesystem type is read-only by
