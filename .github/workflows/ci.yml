@@ -253,7 +253,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
@@ -304,3 +304,27 @@ jobs:
             -v "$RUNNER_TEMP/dsd:/usr/local/bin/dsd:ro" \
             -v "$PWD/scripts/alpine-smoke.sh:/alpine-smoke.sh:ro" \
             alpine:latest sh /alpine-smoke.sh
+
+  # The container-context honesty guard. dsd reads cgroup-v2 counters from the
+  # container's OWN cgroup dir; under --cgroupns=host the bare /sys/fs/cgroup is the
+  # HOST ROOT, so a regression reading the base sees 0 throttled periods and a
+  # throttled container false-reads healthy (#585). No other CI job exercises the
+  # --cgroupns=host path. Saturates a fractional CPU quota and asserts dsd guest
+  # DETECTS the throttling.
+  container-cgroupns-smoke:
+    name: Container honesty smoke (cgroupns=host throttle)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Build static dsd
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
+      - name: Run container-honesty smoke (--cgroupns=host, throttled)
+        run: |
+          docker run --rm --cgroupns=host --cpus=0.3 \
+            -v "$RUNNER_TEMP/dsd:/usr/local/bin/dsd:ro" \
+            -v "$PWD/scripts/container-honesty-smoke.sh:/smoke.sh:ro" \
+            debian:13 sh /smoke.sh
