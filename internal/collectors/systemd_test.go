@@ -137,9 +137,55 @@ func TestFilterBenignFailedUnits(t *testing.T) {
 		{Name: "cloud-config.service"},
 		{Name: "my-app.service"}, // a genuine failure — must survive
 	}
-	got := filterBenignFailedUnits(units)
+	// In a container, cloud-init can't run, so its failure is benign noise.
+	got := filterBenignFailedUnits(append([]models.SystemdUnit(nil), units...), true)
 	if len(got) != 1 || got[0].Name != "my-app.service" {
-		t.Fatalf("want only my-app.service to survive, got %+v", got)
+		t.Fatalf("in container: want only my-app.service to survive, got %+v", got)
+	}
+	// On a VM / bare metal, a failed cloud-config IS a real provisioning error and
+	// must NOT be swallowed (the false-OK this guards).
+	got = filterBenignFailedUnits(append([]models.SystemdUnit(nil), units...), false)
+	if !containsSystemdUnit(got, "cloud-config.service") {
+		t.Errorf("on a VM, failed cloud-config.service must surface, got %+v", got)
+	}
+	if !containsSystemdUnit(got, "my-app.service") {
+		t.Error("a genuine failed unit must never be suppressed")
+	}
+	if containsSystemdUnit(got, "sshd@0-10.0.0.1:22-10.0.0.2:5000.service") {
+		t.Error("transient sshd@ instances are benign everywhere and must stay suppressed")
+	}
+}
+
+func containsSystemdUnit(units []models.SystemdUnit, name string) bool {
+	for _, u := range units {
+		if u.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// suppressCloudInitNoise is the health SystemdCollector's failed-unit filter.
+// Same contract as above on the []string side: cloud-init services surface on a
+// VM, are suppressed in a container; sshd@/LXC noise is suppressed everywhere.
+func TestSuppressCloudInitNoise(t *testing.T) {
+	t.Parallel()
+	raw := []string{"cloud-config.service", "cloud-final.service", "console-getty.service", "real.service"}
+
+	vm := suppressCloudInitNoise(append([]string(nil), raw...), false)
+	if !containsUnit(vm, "cloud-config.service") || !containsUnit(vm, "cloud-final.service") {
+		t.Errorf("on a VM, failed cloud-init services must surface, got %v", vm)
+	}
+	if !containsUnit(vm, "real.service") {
+		t.Error("a genuine failed unit must survive")
+	}
+	if containsUnit(vm, "console-getty.service") {
+		t.Error("LXC-noise unit must stay suppressed even on a VM")
+	}
+
+	ctr := suppressCloudInitNoise(append([]string(nil), raw...), true)
+	if containsUnit(ctr, "cloud-config.service") || containsUnit(ctr, "cloud-final.service") {
+		t.Errorf("in a container, cloud-init service failures are benign and must be suppressed, got %v", ctr)
 	}
 }
 

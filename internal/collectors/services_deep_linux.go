@@ -36,7 +36,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 		// before the per-unit journal/show enrichment below, so we don't fetch logs
 		// for dozens of noise units.
 		parsed := parseFailedUnits(failedOut)
-		info.FailedUnits = filterBenignFailedUnits(parsed)
+		info.FailedUnits = filterBenignFailedUnits(parsed, ContainerContextViaSource().InContainer)
 		// Add back any sshd@<conn> instance that failed for a real (non-255) reason,
 		// matching the health SystemdCollector so the two verdicts agree.
 		names := make([]string, len(parsed))
