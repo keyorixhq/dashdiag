@@ -407,6 +407,7 @@ func extractAVCProcessNames(samples []string) []string {
 	return procs
 }
 
+//nolint:funlen // flat registry of independent SELinux/AppArmor checks — splitting would harm readability
 func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []models.Insight {
 	seActive := mac.SELinuxPresent && mac.SELinuxMode != "disabled" && mac.SELinuxMode != "unknown"
 	seIndeterminate := mac.SELinuxPresent && mac.SELinuxMode == "unknown"
@@ -478,12 +479,23 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 
 	if !seActive && !aaActive {
 		if seIndeterminate {
+			// selinuxfs is mounted but the *world-readable* enforce node yielded no
+			// mode — an unusual/transient state (policy mid-load, odd container view),
+			// NOT a privilege gap. Re-running as root would NOT help (non-root can
+			// read the same node), so don't suggest it — point at the node instead.
+			// (Contrast AppArmor below, whose mode lives in a root-only node.)
 			return append(out, insight("INFO", "KernelSec",
-				"SELinux present but mode unreadable — re-run as root",
-				nil,
+				"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
+				[]string{
+					"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
+					"to inspect: getenforce  /  sestatus",
+				},
 			))
 		}
 		if aaIndeterminate {
+			// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
+			// is root-only — so here "unknown" genuinely IS a privilege gap and
+			// re-running as root resolves it.
 			return append(out, insight("INFO", "KernelSec",
 				"AppArmor present but mode unreadable — re-run as root",
 				nil,
