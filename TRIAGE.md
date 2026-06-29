@@ -11,6 +11,24 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## R. Oracle Linux real-VMware validation + RHEL-family deep checks — ✅ DONE (2026-06-29)
+
+Clean two-pass validation of `dsd` on OL 9.8 (RHCK) and OL 10.1 (UEK) guests on real
+VMware vCloud Director. Verdicts honest throughout. Three remediation-/message-accuracy
+fixes + one guard, plus a gap-analysis that shipped five new RHEL/Oracle deep checks.
+
+| Item | Surface | Result |
+|---|---|---|
+| BUG-084 — CIS auditd hint hardcoded Debian path/cmd on RHEL | `internal/cis` (rules + remediation) | fix #649 + source-scan guard #650 |
+| BUG-085 — Drives "running unprivileged" when root on a virtual disk | `nvme_linux.go` + `heuristics_storage.go` | fix #651 (record `SmartUnreadReason`) |
+| BUG-086 — SELinux "mode unreadable → re-run as root" (privilege won't help) | `heuristics_system.go` | fix #652 (AppArmor asymmetry pinned) |
+| 5 new maintenance checks: Kdump / Tuned / Kernel-reboot / Ksplice / ServiceRestart | new `maintenance_linux.go` + `heuristics_maintenance.go` | feat #653 (2 live catches: tuned, stale-libs) |
+
+Both OL guests fully captured (`~/proj/dashdiag-captures/oraclelinux{9,10}-vmware-vcd-full-*`).
+vCD OVAs fixed + staged (`~/proj/dashdiag-ova/`; OL10 needs x86-64-v3 EVC). Memory:
+`oracle-linux9-uek-validation`. **No open follow-ups** (Ksplice live-validation gated on
+a Ksplice box; `needs-restarting`-via-dnf-utils deferred — native /proc scan used).
+
 ## A. Fix-hint platform correctness — ✅ DONE (#218, 2026-06-13)
 
 All four items shipped in #218 and validated live (macOS native + Alpine/OpenRC

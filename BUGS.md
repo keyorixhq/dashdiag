@@ -1255,3 +1255,63 @@ mainstream distro shape" class; the non-root→root invariant held throughout.
   embedded-restart, and adds pacman/apk install hints. CI Alpine smoke now asserts no
   leaked systemd commands in hints.
 **Commit:** PRs #644, #646, #647
+
+## Oracle Linux 9.8 + 10.1 on real VMware/vCD — CIS / Drives / SELinux + maintenance checks (2026-06-29)
+
+Validated `dsd` two-pass (root + non-root) on clean OL 9.8 (RHCK) and OL 10.1 (UEK)
+guests on real VMware vCloud Director. Verdicts were honest throughout (no false-OK);
+the bugs below were remediation-/message-accuracy defects, plus a gap-analysis that
+drove five new checks.
+
+### BUG-084 — `dsd cis` auditd remediation hardcoded Debian path/command on RHEL
+**Found:** Oracle Linux 9.8, real VMware vCD
+**Symptom:** CIS rules 4.1.1/4.1.2 advised `apt install auditd` and `cp
+  /usr/share/doc/auditd/examples/stig.rules …` — a package/path absent on RHEL-family;
+  the real sample rules live at `/usr/share/audit/sample-rules/30-stig.rules` and the
+  package installs via `dnf install audit`.
+**Root cause:** `dsd cis` renders `CISResult.Remediation` directly and does NOT route
+  through `analysis.AdaptHostHints` (the apt→dnf hint adapter `dsd health` uses), so a
+  hardcoded apt-ism leaked verbatim. A verdict-focused validation can't catch it — the
+  CIS verdict was correct; only the prose was wrong.
+**Affected:** `dsd cis` on every RHEL/SUSE/Arch host
+**Fix:** thread the detected package manager into `cis.Evaluate`; rewrite the two
+  auditd hints per family. **Guard:** `TestRulesHaveNoHardcodedDistroHints` fails the
+  build if a CIS rule inlines a package-install command or distro path (the helper in
+  `remediation.go` is the only sanctioned home).
+**Commit:** PRs #649 (fix), #650 (guard)
+
+### BUG-085 — Drives claimed "running unprivileged" when run as root on a virtual disk
+**Found:** Oracle Linux 9, real VMware vCD (virtual `/dev/sda`)
+**Symptom:** As **root**, the SMART-unread INFO led with "running unprivileged
+  (smartctl needs root)" — false; the operator was root and smartctl was installed.
+**Root cause:** the SATA unread-SMART path lumped every cause into one message. A
+  VMware virtual disk exposes no SMART even to root, but shared the "needs root"
+  wording. `runCmd` also discards stdout on a non-zero exit, so the non-root
+  permission JSON was lost — the reason had to come from `smartctl --scan-open`'s
+  per-device `open_error`.
+**Affected:** `dsd health` / `dsd disk` Drives on any virtual/cloud disk
+**Fix:** record `SmartUnreadReason` (`needs_root` vs `no_smart`) like the NVMe path;
+  root+virtual → "no SMART data exposed (virtual disk / USB / RAID)", non-root-blocked
+  → "running unprivileged". Verdict unchanged (INFO). Verified live both ways.
+**Commit:** PR #651
+
+### BUG-086 — SELinux "mode unreadable" advised "re-run as root" (privilege wouldn't help)
+**Found:** post-OL guard sweep
+**Symptom:** when SELinux mode read `unknown`, KernelSec said "re-run as root."
+**Root cause:** the enforce state comes from the **world-readable**
+  `/sys/fs/selinux/enforce` (the BUG-074 privilege-independent source) — if it can't
+  be read, root can't either, so the advice is useless. Same false-privilege class as
+  BUG-085.
+**Affected:** `dsd health` KernelSec on hosts with an indeterminate SELinux mode (rare)
+**Fix:** reword to "enforce state could not be read." AppArmor's mode lives in a
+  root-only node, so it correctly KEEPS "re-run as root" — tests pin both sides.
+**Commit:** PR #652
+
+### Gap analysis → 5 new RHEL/Oracle maintenance checks (not bugs — missing coverage)
+Mapping deep-check gaps against the live OL boxes surfaced five silent-failure classes
+dsd didn't cover, shipped as gated checks (#653): **Kdump** (enabled but not armed →
+no dump), **Tuned** (active≠recommended profile — caught OL9 on `balanced`), **Kernel**
+(newer kernel installed than running → reboot to apply), **Ksplice** (Oracle live
+patches pending), **ServiceRestart** (procs on `(deleted)` libs after update — caught
+live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO partial).
+**Commit:** PR #653
