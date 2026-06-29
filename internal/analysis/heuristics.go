@@ -84,6 +84,15 @@ func AdaptHostHints(insights []models.Insight) []models.Insight {
 	if hostIsTransactional() {
 		insights = transactionalifyHints(insights)
 	}
+	// On an ostree-managed immutable host (Fedora CoreOS / Silverblue / Kinoite /
+	// IoT / RHEL CoreOS) /usr is read-only — `dnf install` cannot persist; packages
+	// are layered via `rpm-ostree install` + reboot. Rewrite install hints
+	// accordingly. After this the hint no longer matches rePkgInstall, so the
+	// dnf-lead distroifyInstallHints below is a no-op here. (Found live on a Fedora
+	// CoreOS / VMware guest where open-vm-tools/rsyslog hints said `dnf install`.)
+	if hostIsOstree() {
+		insights = ostreeifyHints(insights)
+	}
 	// Many install hints are written apt-first ("apt install X (RHEL/SUSE: dnf/zypper
 	// install X)"). On a dnf/zypper/tdnf host, lead with the host's own tool so the
 	// command is copy-pasteable. (Found live: open-vm-tools on an AlmaLinux/VMware
@@ -513,6 +522,32 @@ func transactionalFixHint(hint string) string {
 		return hint
 	}
 	return "to fix (transactional): transactional-update pkg install " + m[1] + " (then reboot)"
+}
+
+// ostreeifyHints rewrites every insight's package-install fix hint to its
+// rpm-ostree layering form. Hints carrying no install suggestion (notes, inspect
+// lines, sysctl/sshd edits) pass through untouched.
+func ostreeifyHints(insights []models.Insight) []models.Insight {
+	for i := range insights {
+		hints := insights[i].Hints
+		for j := range hints {
+			hints[j] = ostreeFixHint(hints[j])
+		}
+	}
+	return insights
+}
+
+// ostreeFixHint rewrites a single install hint to its rpm-ostree form. As with
+// the transactional rewrite, the "&& <service-enable>" tail is dropped: a layered
+// package only takes effect after the next boot, so enabling the service in the
+// same breath would not work. Returns the hint unchanged when it carries no
+// package-install suggestion.
+func ostreeFixHint(hint string) string {
+	m := rePkgInstall.FindStringSubmatch(hint)
+	if m == nil {
+		return hint
+	}
+	return "to fix (ostree): rpm-ostree install " + m[1] + " (then reboot)"
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
