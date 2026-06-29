@@ -38,6 +38,38 @@ func TestNVMeUnreadReasonMessages(t *testing.T) {
 	}
 }
 
+// TestSATAUnreadReasonMessages verifies the SATA SMART-unread INFO distinguishes a
+// real privilege failure ("re-run as root") from a device that simply exposes no
+// SMART (virtual disk / USB bridge / RAID-HBA member). Lumping them made a VMware
+// virtual /dev/sda read as ROOT wrongly say "running unprivileged" (found on a real
+// VMware OL9 vCD guest). Empty reason (older captures) must not falsely blame root.
+func TestSATAUnreadReasonMessages(t *testing.T) {
+	cases := []struct {
+		name      string
+		reason    string
+		wantMsg   string
+		wantNotIn string
+	}{
+		{"needs_root names privilege", "needs_root", "running unprivileged", "no SMART data exposed"},
+		{"no_smart names the device, not privilege", "no_smart", "no SMART data exposed", "running unprivileged"},
+		{"empty reason does not falsely blame privilege", "", "no SMART data exposed", "running unprivileged"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := models.NVMeInfo{SATADevices: []models.SATADevice{
+				{Name: "/dev/sda", SmartRead: false, SmartUnreadReason: tc.reason},
+			}}
+			got := checkNVMe(info)
+			if !insightWithMsg(got, "INFO", tc.wantMsg) {
+				t.Errorf("expected INFO containing %q, got %+v", tc.wantMsg, got)
+			}
+			if tc.wantNotIn != "" && insightWithMsg(got, "INFO", tc.wantNotIn) {
+				t.Errorf("message must NOT contain %q for reason %q, got %+v", tc.wantNotIn, tc.reason, got)
+			}
+		})
+	}
+}
+
 // TestSMARTNoRealTelemetry covers the virtual/cloud-volume detection used by the
 // standalone `dsd disk` view (Finding B): an EBS-style PASSED-but-all-sentinel
 // SMART must be recognized as "no real telemetry", while a genuine drive (real

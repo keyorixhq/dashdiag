@@ -285,9 +285,10 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 
 	var scan struct {
 		Devices []struct {
-			Name     string `json:"name"`
-			Type     string `json:"type"`
-			Protocol string `json:"protocol"`
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			Protocol  string `json:"protocol"`
+			OpenError string `json:"open_error"`
 		} `json:"devices"`
 	}
 	if err := jsonUnmarshal([]byte(out), &scan); err != nil {
@@ -311,10 +312,27 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 			dev.Type = proto
 		}
 
+		// `--scan-open` reports a per-device open_error when it couldn't open the
+		// device. Classify from it directly: the follow-up `-a` exits non-zero and
+		// runCmd drops its stdout, so the permission message would otherwise be lost
+		// and a non-root read mis-classified as a generic "error". A permission
+		// failure → needs_root ("re-run as root"); any other open error → error.
+		if d.OpenError != "" {
+			dev.Error = "smartctl: " + d.OpenError
+			if strings.Contains(strings.ToLower(d.OpenError), "permission denied") {
+				dev.SmartUnreadReason = "needs_root"
+			} else {
+				dev.SmartUnreadReason = "error"
+			}
+			info.SATADevices = append(info.SATADevices, dev)
+			continue
+		}
+
 		// Read SMART data
 		smartOut, err := runCmd(ctx, "smartctl", "--json=c", "-a", d.Name)
 		if err != nil && smartOut == "" {
 			dev.Error = "smartctl failed"
+			dev.SmartUnreadReason = "error"
 			info.SATADevices = append(info.SATADevices, dev)
 			continue
 		}
@@ -332,6 +350,11 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 // a "drive may be failing" CRIT on a drive whose SMART was simply never read.
 func applySATASmartJSON(out string, dev *models.SATADevice) {
 	var smart struct {
+		Smartctl struct {
+			Messages []struct {
+				String string `json:"string"`
+			} `json:"messages"`
+		} `json:"smartctl"`
 		ModelName   string `json:"model_name"`
 		SmartStatus *struct {
 			Passed bool `json:"passed"`
@@ -360,6 +383,19 @@ func applySATASmartJSON(out string, dev *models.SATADevice) {
 	if smart.SmartStatus != nil {
 		dev.SmartRead = true
 		dev.SmartOK = smart.SmartStatus.Passed
+	} else {
+		// smartctl ran but emitted no SMART verdict. Classify WHY from its own
+		// message stream (`--json=c` reports errors there even on failure) so the
+		// analysis layer can tell "re-run as root" from "this device exposes no
+		// SMART" (virtual disk / USB bridge / RAID-HBA member). A permission error
+		// only appears unprivileged; a virtual disk reads SMART-less even as root.
+		dev.SmartUnreadReason = "no_smart"
+		for _, m := range smart.Smartctl.Messages {
+			if strings.Contains(strings.ToLower(m.String), "permission denied") {
+				dev.SmartUnreadReason = "needs_root"
+				break
+			}
+		}
 	}
 	if smart.ATAAttributes != nil {
 		for _, attr := range smart.ATAAttributes.Table {

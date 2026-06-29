@@ -54,13 +54,35 @@ func TestApplySATASmartJSON(t *testing.T) {
 			t.Fatalf("got SmartRead=%v SmartOK=%v, want true,false", d.SmartRead, d.SmartOK)
 		}
 	})
-	t.Run("no smart_status — unread, no false verdict", func(t *testing.T) {
+	t.Run("no smart_status — unread, classified no_smart (virtual disk)", func(t *testing.T) {
 		var d models.SATADevice
 		// Realistic smartctl output for a drive behind a controller: JSON present,
 		// no smart_status object.
 		applySATASmartJSON(`{"model_name":"VMware Virtual disk","temperature":{"current":0}}`, &d)
 		if d.SmartRead {
 			t.Fatalf("SmartRead=true with no smart_status — would fire a false CRIT")
+		}
+		if d.SmartUnreadReason != "no_smart" {
+			t.Fatalf("reason=%q, want no_smart — a SMART-less device must not read as a privilege failure", d.SmartUnreadReason)
+		}
+	})
+	t.Run("permission denied — classified needs_root", func(t *testing.T) {
+		var d models.SATADevice
+		// `smartctl --json=c` still emits JSON on a non-root open failure, with the
+		// error in smartctl.messages and no smart_status.
+		applySATASmartJSON(`{"smartctl":{"messages":[{"string":"Smartctl open device: /dev/sda failed: Permission denied"}]}}`, &d)
+		if d.SmartRead {
+			t.Fatalf("SmartRead=true on a permission error")
+		}
+		if d.SmartUnreadReason != "needs_root" {
+			t.Fatalf("reason=%q, want needs_root", d.SmartUnreadReason)
+		}
+	})
+	t.Run("verdict present — no unread reason", func(t *testing.T) {
+		var d models.SATADevice
+		applySATASmartJSON(`{"smart_status":{"passed":true}}`, &d)
+		if d.SmartUnreadReason != "" {
+			t.Fatalf("reason=%q, want empty when SMART was read", d.SmartUnreadReason)
 		}
 	})
 	t.Run("garbled JSON — unread", func(t *testing.T) {
