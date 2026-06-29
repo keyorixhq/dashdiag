@@ -641,51 +641,9 @@ func sshConfigUnverified(sec models.SecurityInfo) bool {
 	return sec.SSHConfigUnreadable && sec.SSHAuditSource == ""
 }
 
-// auditInstallCmd returns the package-manager-appropriate command to install the
-// audit daemon. The CIS rule set is authored Ubuntu-first, but `dsd cis` runs on
-// any distro — an apt command is wrong (and absent) on RHEL/SUSE/Arch hosts.
-func auditInstallCmd(pkgMgr string) string {
-	switch pkgMgr {
-	case "dnf", "yum", "tdnf":
-		return "dnf install audit && systemctl enable --now auditd"
-	case "zypper":
-		return "zypper install audit && systemctl enable --now auditd"
-	case "pacman":
-		return "pacman -S audit && systemctl enable --now auditd"
-	default: // apt and unknown
-		return "apt install auditd && systemctl enable --now auditd"
-	}
-}
-
-// auditRulesCmd returns the command to seed audit rules from the distro's shipped
-// sample rules. The sample-rules path differs by family: Debian/Ubuntu ship them
-// under /usr/share/doc/auditd/examples, RHEL/SUSE under /usr/share/audit/sample-rules
-// (verified on Oracle Linux 9 / the audit package). A Debian path on a RHEL host
-// points at a file that does not exist.
-func auditRulesCmd(pkgMgr string) string {
-	switch pkgMgr {
-	case "dnf", "yum", "tdnf", "zypper", "pacman":
-		return "install rules: cp /usr/share/audit/sample-rules/30-stig.rules /etc/audit/rules.d/ && augenrules --load"
-	default: // apt and unknown
-		return "install rules: cp /usr/share/doc/auditd/examples/stig.rules /etc/audit/rules.d/ && augenrules --load"
-	}
-}
-
-// adaptRemediation rewrites a result's remediation for the host's package manager.
-// Most CIS remediations are package-manager-agnostic; the auditd rules (4.1.1/4.1.2)
-// are the exception — their commands and file paths are Debian-specific by default.
-func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
-	if res.Status != models.CISFail {
-		return res
-	}
-	switch res.ID {
-	case "4.1.1":
-		res.Remediation = auditInstallCmd(pkgMgr)
-	case "4.1.2":
-		res.Remediation = auditRulesCmd(pkgMgr)
-	}
-	return res
-}
+// Distro-specific remediation helpers (auditInstallCmd/auditRulesCmd/
+// adaptRemediation) live in remediation.go — the single sanctioned home for
+// package-manager commands and sample-rule paths. See the note there.
 
 func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, stig bool, pkgMgr string) models.CISReport {
 	framework := "CIS"
