@@ -19,15 +19,18 @@ plus honest-messaging fixes. No `dsd health --json` schema change.
 ### Added
 
 - **RHEL/Oracle-family maintenance & patch-effectiveness checks** in `dsd health`,
-  each gated and silent off RHEL/Fedora/Oracle hosts (#653):
+  each gated and silent off RHEL/Fedora/Oracle hosts (#653, #655). The host-kernel
+  checks (Kdump/Kernel/Ksplice) gate off inside a container, where `uname -r` is the
+  host's kernel:
   - **Kdump** — verifies crash-dump capture is actually *armed* (crash kernel loaded
     and `crashkernel=` memory reserved), not merely that `kdump.service` is enabled;
     an enabled-but-unarmed kdump produces no dump on a panic.
   - **Tuned** — flags an inactive tuned, or an active profile that disagrees with
     tuned's own recommendation (e.g. a VM left on `balanced` instead of
     `virtual-guest` — caught live on Oracle Linux 9).
-  - **Kernel** — a newer kernel package is installed than the running one → reboot to
-    apply (still exposed to any kernel CVE the update fixed).
+  - **Kernel** — a newer kernel is installed than the running one → reboot to apply
+    (still exposed to any kernel CVE the update fixed). Finds Oracle's `kernel-uek-core`
+    and RHEL `kernel-core`/`kernel`; covers SUSE via `zypper needs-rebooting`.
   - **Ksplice** — Oracle zero-downtime live patches available but not applied.
   - **ServiceRestart** — processes still mapping shared libraries replaced on disk by
     an update (`(deleted)` in `/proc/<pid>/maps`) — the real reason a host stays
