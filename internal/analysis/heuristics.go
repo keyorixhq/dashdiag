@@ -1189,6 +1189,36 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkDNS(*d)
 		}
+	case models.KdumpInfo:
+		return checkKdump(d)
+	case *models.KdumpInfo:
+		if d != nil {
+			return checkKdump(*d)
+		}
+	case models.TunedInfo:
+		return checkTuned(d)
+	case *models.TunedInfo:
+		if d != nil {
+			return checkTuned(*d)
+		}
+	case models.KernelPatchInfo:
+		return checkKernelPatch(d)
+	case *models.KernelPatchInfo:
+		if d != nil {
+			return checkKernelPatch(*d)
+		}
+	case models.KspliceInfo:
+		return checkKsplice(d)
+	case *models.KspliceInfo:
+		if d != nil {
+			return checkKsplice(*d)
+		}
+	case models.ServiceRestartInfo:
+		return checkServiceRestart(d)
+	case *models.ServiceRestartInfo:
+		if d != nil {
+			return checkServiceRestart(*d)
+		}
 	}
 	return nil
 }

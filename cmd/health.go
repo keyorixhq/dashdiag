@@ -543,6 +543,24 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.CloudInitAvailable() {
 		cols = append(cols, collectors.NewCloudInitCollector())
 	}
+	// RHEL/Oracle-family maintenance & patch-effectiveness checks. Each gates on its
+	// own subsystem (kdump.service / tuned / rpm / Ksplice), so all stay silent on
+	// hosts that don't run them.
+	if collectors.KdumpAvailable() {
+		cols = append(cols, collectors.NewKdumpCollector())
+	}
+	if collectors.TunedAvailable() {
+		cols = append(cols, collectors.NewTunedCollector())
+	}
+	if collectors.KernelPatchAvailable() {
+		cols = append(cols, collectors.NewKernelPatchCollector())
+	}
+	if collectors.KspliceAvailable() {
+		cols = append(cols, collectors.NewKspliceCollector())
+	}
+	if collectors.ServiceRestartAvailable() {
+		cols = append(cols, collectors.NewServiceRestartCollector())
+	}
 	// VMware guest config — gate on DMI vendor (silent on every non-VMware host).
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())
