@@ -11,6 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-06-29
+
+Minor (additive): a new universal disk-capacity check plus a cloud-init
+false-OK fix, both found and live-validated on a real VMware Photon guest, and a
+new false-verdict CI guard. No `dsd health --json` schema break.
+
+### Added
+
+- **`dsd disk` / `dsd health` flag a device grown but filesystem not resized** —
+  the universal VM/cloud mistake of expanding a VMDK/EBS volume (or `lvextend`-ing
+  an LV) without `growpart`/`resize2fs`/`xfs_growfs` inside the guest, leaving the
+  extra space unusable. WARNs with the filesystem-appropriate grow command;
+  conservative thresholds (≥10% and ≥1 GB gap) so normal metadata overhead and
+  small disks never false-alarm. Covers partitions and LVs (#641).
+
+### Fixed
+
+- **Failed cloud-init services now surface on a VM instead of being swallowed.**
+  `cloud-config`/`cloud-final`/`cloud-init` were suppressed unconditionally (an
+  ignore set meant for LXC/live-ISO, where they fail benignly), so a genuinely
+  failed cloud-init on a real VM read green — a false-OK. They are now suppressed
+  only inside a container; on a VM / bare metal the failure is reported (#640).
+
+### Internal
+
+- **Container-vs-host suppression invariant** — a CI guard (mirroring the non-root
+  invariant) over the systemd failed-unit suppression surface: the unconditional
+  ignore set is pinned, and container-conditional suppressors may only relax in a
+  container, never swallow a real failure off-container. Catches the environment-
+  blind false-OK class that produced #640 before it can recur (#642).
+
 ## [1.13.0] - 2026-06-29
 
 Minor (additive): a SELinux / immutable-OS verdict-correctness pass (found on Leap
