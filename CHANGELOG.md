@@ -11,12 +11,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Non-systemd remedy-hint hardening, found validating dsd on real Artix (OpenRC) and
-Devuan (sysvinit) VMware guests. Verdicts were already correct on these hosts; this
-fixes the suggested *commands*. No `dsd health --json` schema change.
+Two themes, both found validating dsd on real-VMware vCloud Director guests:
+(1) non-systemd remedy-hint hardening (Artix/OpenRC, Devuan/sysvinit); (2) Oracle
+Linux 9.8 + 10.1 on real VMware — a new maintenance/patch-effectiveness check family
+plus honest-messaging fixes. No `dsd health --json` schema change.
+
+### Added
+
+- **RHEL/Oracle-family maintenance & patch-effectiveness checks** in `dsd health`,
+  each gated and silent off RHEL/Fedora/Oracle hosts (#653):
+  - **Kdump** — verifies crash-dump capture is actually *armed* (crash kernel loaded
+    and `crashkernel=` memory reserved), not merely that `kdump.service` is enabled;
+    an enabled-but-unarmed kdump produces no dump on a panic.
+  - **Tuned** — flags an inactive tuned, or an active profile that disagrees with
+    tuned's own recommendation (e.g. a VM left on `balanced` instead of
+    `virtual-guest` — caught live on Oracle Linux 9).
+  - **Kernel** — a newer kernel package is installed than the running one → reboot to
+    apply (still exposed to any kernel CVE the update fixed).
+  - **Ksplice** — Oracle zero-downtime live patches available but not applied.
+  - **ServiceRestart** — processes still mapping shared libraries replaced on disk by
+    an update (`(deleted)` in `/proc/<pid>/maps`) — the real reason a host stays
+    vulnerable after a glibc/openssl update until restarted (caught live). Non-root
+    degrades to an honest "partial scan", never a clean OK.
 
 ### Fixed
 
+- **`dsd cis` auditd remediation adapts to the host package manager.** Rules 4.1.1/
+  4.1.2 hardcoded Debian forms (`apt install auditd`, a `/usr/share/doc/auditd/…`
+  sample-rules path absent on RHEL); now distro-correct (`dnf install audit`,
+  `/usr/share/audit/sample-rules/30-stig.rules` on RHEL/SUSE). Verdicts unchanged
+  (#649).
+- **`dsd health`/`disk` Drives: no false "running unprivileged" when run as root.** A
+  SMART-less virtual disk read as root wrongly told the operator they were
+  unprivileged; now classifies the cause (`needs_root` vs a device that exposes no
+  SMART — virtual disk / USB bridge / RAID-HBA member) and messages accurately. Found
+  on a real VMware Oracle Linux 9 guest (#651).
+- **SELinux "mode unreadable" no longer advises "re-run as root."** The enforce state
+  comes from the world-readable `/sys/fs/selinux/enforce`, so privilege wouldn't help;
+  reworded to an honest "enforce state could not be read." AppArmor — whose mode lives
+  in a root-only node — correctly keeps the "re-run as root" advice (#652).
 - **Remedy hints adapt to OpenRC / sysvinit / runit, not just systemd.** Init
   detection now recognizes sysvinit (Devuan/antiX/MX) and runit (Void) — previously
   both fell through to "unknown" and kept systemd-form hints — using PID1 identity
@@ -29,6 +62,11 @@ fixes the suggested *commands*. No `dsd health --json` schema change.
 
 ### Internal
 
+- **CI guards the CIS distro-hint class.** A source-scan test fails the build if any
+  `dsd cis` rule hardcodes a package-manager command or distro-specific path —
+  package-install hints must go through the per-manager remediation helper. `dsd cis`
+  renders remediations directly (it doesn't route through the hint adapter), so this
+  was the one place that could silently leak an apt-ism onto a RHEL host (#650).
 - **CI now guards the non-systemd hint gap.** The Alpine (musl/busybox) honesty
   smoke installs `openrc` so it is a genuine OpenRC surface (a bare container was
   detected as init "unknown", so the adapter never ran) and asserts no
