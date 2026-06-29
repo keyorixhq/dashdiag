@@ -23,6 +23,7 @@ fixes + one guard, plus a gap-analysis that shipped five new RHEL/Oracle deep ch
 | BUG-085 — Drives "running unprivileged" when root on a virtual disk | `nvme_linux.go` + `heuristics_storage.go` | fix #651 (record `SmartUnreadReason`) |
 | BUG-086 — SELinux "mode unreadable → re-run as root" (privilege won't help) | `heuristics_system.go` | fix #652 (AppArmor asymmetry pinned) |
 | 5 new maintenance checks: Kdump / Tuned / Kernel-reboot / Ksplice / ServiceRestart | new `maintenance_linux.go` + `heuristics_maintenance.go` | feat #653 (2 live catches: tuned, stale-libs) |
+| BUG-087 — #653 cross-distro quasi-false-OK (container, OL `kernel-uek-core`, SUSE `kernel-default`) | `maintenance_linux.go` | fix #655 (found running #653 on pve Alma-LXC + OL-UEK VM 121) |
 
 Both OL guests fully captured (`~/proj/dashdiag-captures/oraclelinux{9,10}-vmware-vcd-full-*`).
 vCD OVAs fixed + staged (`~/proj/dashdiag-ova/`; OL10 needs x86-64-v3 EVC). Memory:

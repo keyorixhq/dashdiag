@@ -1315,3 +1315,20 @@ no dump), **Tuned** (active≠recommended profile — caught OL9 on `balanced`),
 patches pending), **ServiceRestart** (procs on `(deleted)` libs after update — caught
 live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO partial).
 **Commit:** PR #653
+
+### BUG-087 — #653 maintenance checks: cross-distro quasi-false-OK (found on the pve fleet)
+**Found:** running #653 on pve01 — AlmaLinux LXC (CT213) + Oracle Linux UEK VM (121)
+**Symptom (three):** (a) on an **Alma LXC** the Kernel check reported the *host's*
+  `6.17-pve` kernel as "Kernel OK" — a container can't reboot its own (host) kernel;
+  (b) on a standard **OL UEK** host the Kernel check silently no-op'd — Oracle packages
+  UEK as `kernel-uek-core`, which the query missed (it had `kernel-uek`/`kernel-core`);
+  (c) on **SUSE** the check would show a fake "OK" — `kernel-default`'s NVRA doesn't
+  line up with `uname` (the `-default` flavor), so the rpm-compare can't match.
+**Root cause:** host-kernel checks weren't container-gated; the kernel-package name set
+  was RHEL-incomplete; SUSE's kernel versioning needs a different signal.
+**Affected:** `dsd health` Kdump/Kernel/Ksplice in containers; Kernel on OL UEK + SUSE
+**Fix:** gate Kdump/Kernel/Ksplice off in a container (`ContainerContextViaSource`);
+  add `kernel-uek-core` to the query; cover SUSE via `zypper needs-rebooting`; leave the
+  check unavailable (no row) rather than show a "Kernel OK" that checked nothing.
+  Validated: CT213 → rows gone; OL9 UEK VM 121 → Kernel row restored.
+**Commit:** PR #655
