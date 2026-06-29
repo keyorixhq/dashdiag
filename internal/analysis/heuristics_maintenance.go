@@ -1,0 +1,127 @@
+package analysis
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+)
+
+// Verdicts for the RHEL/Oracle-family maintenance collectors (see
+// internal/collectors/maintenance_linux.go). All gate to nil when the subsystem is
+// absent, so they add zero noise on hosts that don't run kdump/tuned/rpm/Ksplice.
+
+// checkKdump flags the silent-failure case: kdump is enabled but not actually armed
+// (no crash kernel loaded / no memory reserved), so a real panic produces no dump.
+func checkKdump(d models.KdumpInfo) []models.Insight {
+	if !d.Available || !d.Enabled {
+		return nil // not installed, or admin deliberately left it off — not a fault
+	}
+	if d.ServiceState == "failed" {
+		return []models.Insight{insight("WARN", "Kdump",
+			"kdump.service is enabled but FAILED — no crash dump will be captured on a kernel panic",
+			[]string{
+				"to inspect: kdumpctl status   (or: systemctl status kdump)",
+				"to inspect: journalctl -u kdump -b",
+			})}
+	}
+	if !d.CrashLoaded || d.ReservedBytes == 0 {
+		reason := "the crash kernel is not loaded"
+		fix := "kdumpctl reset && systemctl restart kdump"
+		if d.Crashkernel == "" {
+			reason = "no crashkernel= memory reservation on the kernel cmdline"
+			fix = "grubby --update-kernel=ALL --args='crashkernel=1G-64G:448M,64G-:512M', then reboot"
+		}
+		return []models.Insight{insight("WARN", "Kdump",
+			"kdump is enabled but "+reason+" — a kernel panic will produce NO crash dump",
+			[]string{
+				"to inspect: cat /sys/kernel/kexec_crash_loaded   (1 = armed)",
+				"to inspect: kdumpctl status",
+				"to fix: " + fix,
+			})}
+	}
+	return nil
+}
+
+// checkTuned flags an inactive tuned, or an active profile that disagrees with
+// tuned's own recommendation for the host (e.g. a VM left on "balanced" instead of
+// "virtual-guest").
+func checkTuned(d models.TunedInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	if !d.Active {
+		return []models.Insight{insight("INFO", "Tuned",
+			"tuned is installed but not active — no performance profile is applied",
+			[]string{"to fix: systemctl enable --now tuned"})}
+	}
+	if d.Profile != "" && d.Recommended != "" && d.Profile != d.Recommended {
+		return []models.Insight{insight("INFO", "Tuned",
+			fmt.Sprintf("tuned active profile %q differs from the recommended %q for this system", d.Profile, d.Recommended),
+			[]string{
+				fmt.Sprintf("note: tuned recommends %q for this hardware (e.g. virtual-guest tunes a VM for its hypervisor)", d.Recommended),
+				fmt.Sprintf("to fix: tuned-adm profile %s", d.Recommended),
+			})}
+	}
+	return nil
+}
+
+// checkKernelPatch flags "patched but still running the old kernel": a newer kernel
+// package is installed than the one currently booted.
+func checkKernelPatch(d models.KernelPatchInfo) []models.Insight {
+	if !d.Available || !d.RebootNeeded {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Kernel",
+		fmt.Sprintf("a newer kernel (%s) is installed but the system is still running %s — reboot to apply", d.LatestInstalled, d.Running),
+		[]string{
+			"note: until you reboot you are running the OLD kernel — any kernel CVE the update fixed is still exposed",
+			"to inspect: rpm -q --last kernel-uek kernel-core kernel | head",
+			"to fix: reboot  (schedule a maintenance window)",
+		})}
+}
+
+// checkKsplice flags Oracle Ksplice live patches that are available but not applied
+// (the running kernel is exposed despite a patch existing).
+func checkKsplice(d models.KspliceInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	if d.CheckUnverified {
+		return []models.Insight{insight("INFO", "Ksplice",
+			"Ksplice is installed but its update status could not be read",
+			[]string{"to inspect: uptrack-show   (or: uptrack-upgrade -n)"})}
+	}
+	if d.PendingUpdates > 0 {
+		return []models.Insight{insight("WARN", "Ksplice",
+			fmt.Sprintf("%d Ksplice live patch(es) available but not applied — the running kernel is still exposed", d.PendingUpdates),
+			[]string{
+				"to fix: uptrack-upgrade -y   (applies live, no reboot)",
+				"to inspect: uptrack-show",
+			})}
+	}
+	return nil
+}
+
+// checkServiceRestart flags processes mapping shared libraries that were replaced on
+// disk by an update — until restarted they run the old (possibly vulnerable) code.
+func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	if d.StaleCount > 0 {
+		msg := fmt.Sprintf("%d process(es) are using libraries that were updated on disk (%s) — until restarted they run the OLD code",
+			d.StaleCount, strings.Join(d.StaleNames, ", "))
+		return []models.Insight{insight("WARN", "ServiceRestart", msg, []string{
+			"note: after a glibc/openssl security update, unrestarted services stay vulnerable until restarted",
+			"to inspect: needs-restarting -s   (dnf-utils), or: lsof +c0 -d DEL 2>/dev/null | grep '\\.so'",
+			"to fix: systemctl restart <unit> for each, or reboot",
+		})}
+	}
+	if d.NeedsRoot {
+		return []models.Insight{insight("INFO", "ServiceRestart",
+			"stale-library scan was partial — run as root to check every process for libraries updated underneath it",
+			[]string{"to fix: re-run as root (sudo dsd health)"})}
+	}
+	return nil
+}

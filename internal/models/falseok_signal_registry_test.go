@@ -78,6 +78,10 @@ var guardedUnverifiedSignals = map[string]string{
 	"CloudInitInfo.StatusUnverified":    "analysis/firmware_cloudinit_unverified_test.go",
 	"SteamOSInfo.UpdateServerReachable": "analysis/steamos_test.go + heuristics_round9_test.go",
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
+
+	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.
+	"ServiceRestartInfo.NeedsRoot": "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
+	"KspliceInfo.CheckUnverified":  "analysis/heuristics_maintenance_test.go (uptrack status unread → INFO 'could not be read', not OK)",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

@@ -45,3 +45,8 @@ func (i SysctlInfo) IsAvailable() bool         { return i.Available }
 func (i SystemdInfo) IsAvailable() bool        { return i.Available }
 func (i ThermalInfo) IsAvailable() bool        { return i.Available }
 func (i UserUnitsInfo) IsAvailable() bool      { return i.Available }
+func (i KdumpInfo) IsAvailable() bool          { return i.Available }
+func (i TunedInfo) IsAvailable() bool          { return i.Available }
+func (i KernelPatchInfo) IsAvailable() bool    { return i.Available }
+func (i KspliceInfo) IsAvailable() bool        { return i.Available }
+func (i ServiceRestartInfo) IsAvailable() bool { return i.Available }

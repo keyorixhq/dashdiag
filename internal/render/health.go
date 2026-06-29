@@ -56,6 +56,8 @@ var displayOrder = []string{
 	"Clock", "Logs", "Sysctl",
 	// Security
 	"KernelSec", "Hardening", "Packages",
+	// RHEL/Oracle maintenance & patch-effectiveness
+	"Kdump", "Tuned", "Kernel", "Ksplice", "ServiceRestart",
 	// Platform-specific
 	"Subscription", "Snapshots", "Battery", "Launchd", "PVE",
 	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
@@ -411,6 +413,16 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 		return diskInline(res.Data)
 	case "Network":
 		return networkInline(res.Data)
+	case "Kdump":
+		return inlineKdump(res.Data)
+	case "Tuned":
+		return inlineTuned(res.Data)
+	case "Kernel":
+		return inlineKernelPatch(res.Data)
+	case "Ksplice":
+		return inlineKsplice(res.Data)
+	case "ServiceRestart":
+		return inlineServiceRestart(res.Data)
 	case "Entropy":
 		return inlineEntropy(res.Data)
 	case "FDLimits":
