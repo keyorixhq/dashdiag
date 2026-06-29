@@ -1471,10 +1471,15 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// on-disk-fstype allowlist avoids flagging inherently/intentionally ro
 		// mounts (squashfs, iso9660, overlay, ro bind mounts).
 		// On an immutable OS (ostree / transactional-update / MicroOS / Leap Micro /
-		// SteamOS) the root is a read-only snapshot BY DESIGN, not an error remount —
-		// skip the WARN for `/` there (collector sets ImmutableRootFS, replay-faithful).
-		immutableRoot := fs.Mount == "/" && disk.ImmutableRootFS
-		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableRoot {
+		// SteamOS) the immutable-infrastructure mounts are read-only snapshots BY
+		// DESIGN, not error remounts — skip the WARN for them (collector sets
+		// ImmutableRootFS, replay-faithful). On a transactional/SteamOS host that is
+		// `/` itself; on ostree (Fedora CoreOS/Silverblue) `/` stays writable but the
+		// physical root `/sysroot`, plus `/boot` and the `/usr` bind, are mounted ro —
+		// so a "/-only" suppression false-WARNed those on FCOS (2026-06-29). A genuine
+		// I/O-error remount of a DATA mount (e.g. /var, /home) still WARNs everywhere.
+		immutableInfra := disk.ImmutableRootFS && isImmutableInfraMount(fs.Mount)
+		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra {
 			out = append(out, insight("WARN", "Disk",
 				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
 				[]string{
@@ -1488,6 +1493,21 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 	}
 	out = append(out, checkDiskExtras(disk)...)
 	return out
+}
+
+// isImmutableInfraMount reports whether a mount point is part of an immutable
+// OS's read-only infrastructure (as opposed to a writable data mount). On
+// ostree (Fedora CoreOS/Silverblue/Kinoite/IoT) the physical root `/sysroot`,
+// `/boot`, and the `/usr` bind are ro by design; on transactional-update/MicroOS
+// and SteamOS `/` itself is the ro snapshot. These never indicate an error
+// remount on an immutable host. Data mounts (/var, /home, …) are deliberately
+// excluded so a real ro-remount of writable state still WARNs.
+func isImmutableInfraMount(mount string) bool {
+	switch mount {
+	case "/", "/sysroot", "/usr", "/boot", "/boot/efi", "/efi":
+		return true
+	}
+	return false
 }
 
 // isWritableOnDiskFS reports whether a filesystem type is a normal read-write
