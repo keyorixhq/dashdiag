@@ -313,10 +313,16 @@ var (
 	// macOS has no `ss`; lsof is the listening-socket equivalent.
 	reSSPortGrep = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp \| grep :(\d+)$`)
 	reSSListen   = regexp.MustCompile(`^to inspect: ss -t(?:u)?lnp$`)
-	// OpenRC (Alpine/Gentoo) uses rc-service / rc-update, not systemctl.
+	// OpenRC (Alpine/Gentoo/Artix) uses rc-service / rc-update, not systemctl.
 	reSystemctlAction  = regexp.MustCompile(`^to fix: systemctl (restart|start|stop) (\S+)$`)
 	reSystemctlEnable  = regexp.MustCompile(`^to fix: systemctl enable --now (\S+)$`)
 	reSystemctlDisable = regexp.MustCompile(`^to fix: systemctl disable (\S.*)$`)
+	// Non-systemd hosts have none of these inspect tools (systemctl/journalctl/
+	// timedatectl come with systemd). Rewrite `systemctl status <svc>` to rc-service;
+	// drop the rest (no runnable equivalent — the diagnosis still stands).
+	reSystemctlStatus = regexp.MustCompile(`^to inspect: systemctl status (\S.*)$`)
+	reTimedatectl     = regexp.MustCompile(`^to inspect: timedatectl(?:\s.*)?$`)
+	reJournalctl      = regexp.MustCompile(`^to inspect: journalctl(?:\s.*)?$`)
 )
 
 // adaptHint rewrites a single hint for the platform, or returns drop=true when no
@@ -341,6 +347,18 @@ func adaptHint(hint, goos, initSystem string) (string, bool) {
 		}
 		if m := reSystemctlDisable.FindStringSubmatch(hint); m != nil {
 			return fmt.Sprintf("to fix: rc-update del %s", m[1]), false
+		}
+		if m := reSystemctlStatus.FindStringSubmatch(hint); m != nil {
+			svc := strings.Fields(m[1])
+			// systemd-only units (systemd-resolved, systemd-journald, …) have no
+			// OpenRC equivalent — drop. Otherwise inspect the first service via OpenRC.
+			if len(svc) == 0 || strings.HasPrefix(svc[0], "systemd-") {
+				return "", true
+			}
+			return "to inspect: rc-service " + svc[0] + " status", false
+		}
+		if reTimedatectl.MatchString(hint) || reJournalctl.MatchString(hint) {
+			return "", true // no timedatectl/journalctl without systemd
 		}
 		return hint, false
 	}
@@ -489,6 +507,10 @@ func hostInstallPM() string {
 		return "zypper"
 	case idMatchesAny(id, "rhel", "centos", "almalinux", "alma", "rocky", "fedora", "oracle", "ol", "amzn", "rhpkg"):
 		return "dnf"
+	case idMatchesAny(id, "arch", "artix", "manjaro", "endeavouros", "garuda", "arcolinux"):
+		return "pacman"
+	case strings.Contains(id, "alpine"):
+		return "apk"
 	default:
 		return "" // debian/ubuntu (apt-first already correct) or unknown
 	}
@@ -524,11 +546,24 @@ func distroFixHint(hint, pm string) string {
 	if m == nil {
 		return hint
 	}
-	out := "to fix: " + pm + " install " + m[1]
+	out := "to fix: " + pmInstallCmd(pm, m[1])
 	if idx := strings.Index(hint, "&&"); idx >= 0 {
 		out += " " + strings.TrimSpace(hint[idx:])
 	}
 	return out
+}
+
+// pmInstallCmd renders the package-install command for a package manager. Most use
+// "<pm> install <pkg>"; pacman (Arch family) and apk (Alpine) use their own verbs.
+func pmInstallCmd(pm, pkg string) string {
+	switch pm {
+	case "pacman":
+		return "pacman -S " + pkg
+	case "apk":
+		return "apk add " + pkg
+	default: // apt, apt-get, dnf, yum, tdnf, zypper
+		return pm + " install " + pkg
+	}
 }
 
 // gentooFixHint rewrites a single install hint to "to fix (Gentoo): emerge <pkg>",
