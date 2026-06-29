@@ -1184,3 +1184,74 @@ one a genuine non-root false-OK. All fixed in PR #620, validated live (root + no
   `to fix (transactional): transactional-update pkg install <pkg> (then reboot)`, gated on a
   `*-micro` distro ID; mirrors the NixOS/Gentoo hint passes.
 **Commit:** `92a5a48` (PR #620)
+
+## Fedora CoreOS on real VMware/vCD — ostree/immutable validation (2026-06-29)
+
+Hand-repackaged the FCOS VMware OVA (ustar, Ignition baked) for vCD; two-pass
+(root + non-root) on the live guest. Five defects, all the "collector assumes a
+mainstream distro shape" class; the non-root→root invariant held throughout.
+
+### BUG-077 — SELinux booleans rendered as a "non-enforcing" policy on an enforcing host
+**Symptom:** on `getenforce`=Enforcing, KernelSec printed "Security policies not in
+  enforcing mode" listing ~64 enabled SELinux booleans as "policy relaxed", with an
+  AppArmor `aa-status` hint that doesn't apply.
+**Fix:** `buildPolicyTable` reports only genuinely non-enforcing MAC state (AppArmor
+  complain profiles, SELinux permissive/disabled mode); booleans are no longer an input.
+**Commit:** PR #634
+
+### BUG-078 — `dnf install` hints on an ostree/immutable host
+**Symptom:** open-vm-tools / rsyslog fix hints said `dnf install`, which can't persist on
+  the read-only `/usr` of an ostree host.
+**Fix:** `ostreeifyHints` (AdaptHostHints chain) rewrites install hints to
+  `rpm-ostree install <pkg> (then reboot)`, gated on `/etc/os-release` ostree variants.
+**Commit:** PR #635
+
+### BUG-079 — read-only `/sysroot` + `/boot` false-WARN on an ostree root
+**Symptom:** `Disk WARN: filesystem /sysroot … mounted READ-ONLY — kernel likely remounted
+  after an I/O error` on FCOS, where those mounts are ro by design. The #620 immutable fix
+  only covered `/`; ostree keeps `/` writable but `/sysroot`/`/boot`/`/usr` ro.
+**Fix:** broadened the suppression to the immutable-infra mount set when `ImmutableRootFS`;
+  data mounts (`/var`,`/home`) still WARN.
+**Commit:** PR #636
+
+### BUG-080 — `permissive=1` AVCs counted as enforced denials (false denial-flood CRIT)
+**Symptom:** 12 first-boot `bootupd_t` AVCs, all `permissive=1` (logged, not enforced),
+  drove a CRIT (KernelSec ≥10) plus a contradictory Hardening WARN.
+**Fix:** a shared `avcIsPermissive` excludes `permissive=1` from every denial-counting path
+  (audit.log, ausearch, journald, sample, grouping).
+**Commit:** PR #637
+
+### BUG-081 — duplicate SELinux-denial verdict (KernelSec CRIT + Hardening WARN)
+**Symptom:** `dsd health` runs both collectors, so the same denials produced a CRIT and a
+  WARN for one event.
+**Fix:** `dedupeSELinuxDenials` post-pass keeps the KernelSec verdict, folds in Hardening's
+  grouped fix-hints, drops the duplicate. Standalone `dsd security` unaffected.
+**Commit:** PR #638
+
+## VMware Photon OS (redeployed) — cloud-init false-OK (2026-06-29)
+
+### BUG-082 — a genuinely failed cloud-init service reads green on a VM
+**Found:** Photon 5.0 redeploy validation (2026-06-29)
+**Symptom:** `cloud-config`/`cloud-final`/`cloud-init` were in the unconditional
+  `cloudInitUnits` ignore set (meant for LXC/live-ISO), so a failed cloud-init service on a
+  real VM was filtered out of the failed-units list and Systemd read OK — a false-OK.
+**Fix:** split the cloud-init services into `cloudInitServiceUnits`, suppressed in the
+  failed-unit verdict only when `InContainer`; on a VM the failure surfaces. Guarded by a
+  container-vs-host suppression invariant (#642).
+**Commit:** PR #640 (guard #642)
+
+## Devuan (sysvinit) + Artix (OpenRC) on real VMware — non-systemd hints (2026-06-29)
+
+### BUG-083 — systemd-only remedy commands on non-systemd inits
+**Found:** Artix/OpenRC and Devuan/sysvinit validation (2026-06-29)
+**Symptom:** dsd suggested `systemctl status chronyd ntpd`, `timedatectl status`,
+  `systemctl restart sshd`, `journalctl …` on hosts with no systemd. Init detection only
+  knew systemd+openrc; sysvinit (Devuan) and runit (Void) fell through to "unknown" and
+  were never adapted; even openrc left the `status`/`timedatectl`/`journalctl` inspect
+  forms. (Trap: Devuan ships the runit *package*, so /run/runit exists while sysvinit is
+  PID1 — a file-marker check mis-detected runit.)
+**Fix:** init detection is PID1-based (`classifyInit`/`/proc/1/comm`); the adapter covers
+  openrc/sysvinit/runit (`serviceCmd`) + status-inspect + timedatectl/journalctl drop +
+  embedded-restart, and adds pacman/apk install hints. CI Alpine smoke now asserts no
+  leaked systemd commands in hints.
+**Commit:** PRs #644, #646, #647

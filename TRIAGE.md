@@ -40,6 +40,18 @@ turning any install hint into `to fix (Gentoo): emerge <pkg>` (trailing
 live on the first Gentoo-on-real-VMware validation (BUGS.md BUG-073). Out of
 scope: the `dsd gpu`/`dsd kvm` printf hints (separate surface).
 
+**Follow-up — ✅ DONE (#644/#646/#647, 2026-06-29):** completed the BUG-054 class
+across every non-systemd init. Init detection now recognizes **sysvinit** (Devuan)
+and **runit** (Void) via PID1 identity (`classifyInit`/`/proc/1/comm`), not just
+systemd+openrc — with the runit-package-on-sysvinit trap guarded. The adapter
+covers openrc/sysvinit/runit (`serviceCmd`) and the previously-missed `systemctl
+status` / `timedatectl` / `journalctl` inspect forms + embedded `&& systemctl
+restart` tails, plus pacman/apk install hints (#644). The Alpine CI smoke is now a
+genuine OpenRC surface (`apk add openrc`) and **asserts no leaked
+systemctl/timedatectl/journalctl in hints** (#647) — the systemic guard for this
+recurring (cosmetic) class. Found live on Artix (OpenRC) + Devuan (sysvinit),
+BUGS.md BUG-083.
+
 ---
 
 ## B. ARM real-hardware validation — BLOCKED (needs aarch64 server)

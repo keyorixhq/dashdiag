@@ -11,6 +11,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Non-systemd remedy-hint hardening, found validating dsd on real Artix (OpenRC) and
+Devuan (sysvinit) VMware guests. Verdicts were already correct on these hosts; this
+fixes the suggested *commands*. No `dsd health --json` schema change.
+
+### Fixed
+
+- **Remedy hints adapt to OpenRC / sysvinit / runit, not just systemd.** Init
+  detection now recognizes sysvinit (Devuan/antiX/MX) and runit (Void) — previously
+  both fell through to "unknown" and kept systemd-form hints — using PID1 identity
+  (`/proc/1/comm`) so a sysvinit host carrying the runit *package* isn't mistaken
+  for runit (#646). The hint adapter rewrites `systemctl <verb>`/`systemctl status`
+  to the host's tool (`rc-service` / `service` / `sv`) and drops `timedatectl` /
+  `journalctl` inspect lines (no portable equivalent); `systemctl status systemd-*`
+  units drop too (#644, #646). Install hints cover Arch (`pacman -S`) and Alpine
+  (`apk add`) (#644).
+
+### Internal
+
+- **CI now guards the non-systemd hint gap.** The Alpine (musl/busybox) honesty
+  smoke installs `openrc` so it is a genuine OpenRC surface (a bare container was
+  detected as init "unknown", so the adapter never ran) and asserts no
+  `systemctl`/`timedatectl`/`journalctl` leaks into remedy hints — catching the next
+  missed hint form on the common Clock/SSH/Network/Logs paths (#647).
+
 ## [1.14.0] - 2026-06-29
 
 Minor (additive): a new universal disk-capacity check plus a cloud-init
