@@ -191,3 +191,32 @@ func TestDetectSELinuxFromPaths_ConfigDisabled(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+// classifyInit must use PID1 identity, not file markers, to tell sysvinit from
+// runit: Devuan ships the runit package (so /run/runit exists) while sysvinit is
+// PID1. A marker-only check mis-classified that host as runit and emitted `sv …`
+// hints instead of `service …` (found live on Devuan 6, 2026-06-29).
+func TestClassifyInit(t *testing.T) {
+	cases := []struct {
+		name                            string
+		systemdPriv, openrcBin, inittab bool
+		pid1                            string
+		want                            string
+	}{
+		{"systemd", true, false, false, "systemd", "systemd"},
+		{"openrc binary (sysvinit pid1)", false, true, true, "init", "openrc"},
+		{"devuan sysvinit with runit package", false, false, true, "init", "sysvinit"},
+		{"runit as pid1", false, false, false, "runit", "runit"},
+		{"runit-init pid1 variant", false, false, false, "runit-init", "runit"},
+		{"sysvinit but no inittab → unknown", false, false, false, "init", "unknown"},
+		{"systemd via pid1 fallback", false, false, false, "systemd", "systemd"},
+		{"nothing known", false, false, false, "", "unknown"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := classifyInit(c.systemdPriv, c.openrcBin, c.inittab, c.pid1); got != c.want {
+				t.Errorf("classifyInit(%v,%v,%v,%q) = %q, want %q", c.systemdPriv, c.openrcBin, c.inittab, c.pid1, got, c.want)
+			}
+		})
+	}
+}
