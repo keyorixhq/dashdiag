@@ -60,7 +60,63 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 		}
 		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
 	}
+	insights = dedupeSELinuxDenials(insights)
 	return AdaptHostHints(insights)
+}
+
+// dedupeSELinuxDenials collapses the two SELinux-denial verdicts that `dsd health`
+// would otherwise emit for the same audit data. `dsd health` runs both the
+// KernelSec collector (authoritative tiered severity: CRIT/WARN, with the
+// audit2allow workflow hints) and the security collector (Hardening: a flat WARN,
+// but with the more actionable grouped scontext→tcontext fix hints). Reading the
+// same enforced-denial count, they emitted a CRIT and a WARN for the identical
+// event — contradictory and duplicative. Keep the KernelSec insight (its severity
+// is the correct one), fold in the Hardening insight's unique hints, and drop the
+// Hardening denial insight. Only `dsd health` reaches here; standalone
+// `dsd security` calls checkSecurity directly (not ApplyThresholds), so it keeps
+// its own denial report.
+func dedupeSELinuxDenials(insights []models.Insight) []models.Insight {
+	isDenial := func(ins models.Insight, check string) bool {
+		return ins.Check == check &&
+			strings.Contains(ins.Message, "SELinux denial") &&
+			strings.Contains(ins.Message, "last hour")
+	}
+	var hardeningHints []string
+	haveKernelSec, haveHardening := false, false
+	for _, ins := range insights {
+		switch {
+		case isDenial(ins, "KernelSec"):
+			haveKernelSec = true
+		case isDenial(ins, "Hardening"):
+			hardeningHints = ins.Hints
+			haveHardening = true
+		}
+	}
+	if !haveKernelSec || !haveHardening {
+		return insights // not both present — nothing to collapse
+	}
+	out := make([]models.Insight, 0, len(insights))
+	for _, ins := range insights {
+		if isDenial(ins, "Hardening") {
+			continue // drop the duplicate verdict
+		}
+		if isDenial(ins, "KernelSec") {
+			// Fold the Hardening insight's grouped-fix hints in, skipping any line
+			// KernelSec already carries.
+			have := make(map[string]bool, len(ins.Hints))
+			for _, h := range ins.Hints {
+				have[h] = true
+			}
+			for _, h := range hardeningHints {
+				if !have[h] {
+					ins.Hints = append(ins.Hints, h)
+					have[h] = true
+				}
+			}
+		}
+		out = append(out, ins)
+	}
+	return out
 }
 
 // AdaptHostHints rewrites fix-hint text to the host so the suggested command actually
