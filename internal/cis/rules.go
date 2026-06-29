@@ -308,8 +308,9 @@ func buildRules() []Rule {
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1")
 				if sec.AuditRules == -1 {
+					// remediation is rewritten per package manager in Evaluate
 					return failr(r, "auditd not installed or not running",
-						"apt install auditd && systemctl enable --now auditd")
+						auditInstallCmd("apt"))
 				}
 				return pass(r)
 			}},
@@ -323,8 +324,9 @@ func buildRules() []Rule {
 					return skipr(r, "auditd not available")
 				}
 				if sec.AuditRules == 0 {
+					// remediation is rewritten per package manager in Evaluate
 					return failr(r, "auditd running but no rules loaded",
-						"install rules: cp /usr/share/doc/auditd/examples/stig.rules /etc/audit/rules.d/ && augenrules --load")
+						auditRulesCmd("apt"))
 				}
 				return pass(r)
 			}},
@@ -639,7 +641,53 @@ func sshConfigUnverified(sec models.SecurityInfo) bool {
 	return sec.SSHConfigUnreadable && sec.SSHAuditSource == ""
 }
 
-func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, stig bool) models.CISReport {
+// auditInstallCmd returns the package-manager-appropriate command to install the
+// audit daemon. The CIS rule set is authored Ubuntu-first, but `dsd cis` runs on
+// any distro — an apt command is wrong (and absent) on RHEL/SUSE/Arch hosts.
+func auditInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install audit && systemctl enable --now auditd"
+	case "zypper":
+		return "zypper install audit && systemctl enable --now auditd"
+	case "pacman":
+		return "pacman -S audit && systemctl enable --now auditd"
+	default: // apt and unknown
+		return "apt install auditd && systemctl enable --now auditd"
+	}
+}
+
+// auditRulesCmd returns the command to seed audit rules from the distro's shipped
+// sample rules. The sample-rules path differs by family: Debian/Ubuntu ship them
+// under /usr/share/doc/auditd/examples, RHEL/SUSE under /usr/share/audit/sample-rules
+// (verified on Oracle Linux 9 / the audit package). A Debian path on a RHEL host
+// points at a file that does not exist.
+func auditRulesCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf", "zypper", "pacman":
+		return "install rules: cp /usr/share/audit/sample-rules/30-stig.rules /etc/audit/rules.d/ && augenrules --load"
+	default: // apt and unknown
+		return "install rules: cp /usr/share/doc/auditd/examples/stig.rules /etc/audit/rules.d/ && augenrules --load"
+	}
+}
+
+// adaptRemediation rewrites a result's remediation for the host's package manager.
+// Most CIS remediations are package-manager-agnostic; the auditd rules (4.1.1/4.1.2)
+// are the exception — their commands and file paths are Debian-specific by default.
+func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
+	if res.Status != models.CISFail {
+		return res
+	}
+	switch res.ID {
+	case "4.1.1":
+		res.Remediation = auditInstallCmd(pkgMgr)
+	case "4.1.2":
+		res.Remediation = auditRulesCmd(pkgMgr)
+	}
+	return res
+}
+
+func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, stig bool, pkgMgr string) models.CISReport {
 	framework := "CIS"
 	if stig {
 		framework = "STIG"
@@ -678,7 +726,7 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 			}
 		}
 
-		result := rule.Check(sec, ks)
+		result := adaptRemediation(rule.Check(sec, ks), pkgMgr)
 
 		// SSH config-derived rules read fields that fall back to OpenSSH defaults
 		// when sshd_config couldn't be read (non-root: `sshd -T` needs root and

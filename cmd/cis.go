@@ -14,6 +14,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
@@ -74,7 +75,7 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	report := cis.Evaluate(sec, ks, level, stig)
+	report := cis.Evaluate(sec, ks, level, stig, platform.Detect().PackageManager)
 	report.Hostname, _ = os.Hostname()
 	if stig {
 		report.Profile = fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", level)
