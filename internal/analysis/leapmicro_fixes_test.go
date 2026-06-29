@@ -13,11 +13,27 @@ import (
 func TestKernelSecSELinuxUnknownIsHonestNotFalseNotEnforced(t *testing.T) {
 	mac := models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "unknown"}
 	got := checkKernelSecurity(mac, defaultThresh)
-	if !hasInsightMsg(got, "INFO", "SELinux present but mode unreadable") {
-		t.Errorf("want 'mode unreadable' INFO, got %#v", got)
+	if !hasInsightMsg(got, "INFO", "enforce state could not be read") {
+		t.Errorf("want 'enforce state could not be read' INFO, got %#v", got)
 	}
 	if hasInsightMsg(got, "INFO", "not enforced") {
 		t.Errorf("present-but-unknown SELinux must NOT report 'not enforced': %#v", got)
+	}
+	// SELinux's enforce node is world-readable, so an unknown mode is NOT a
+	// privilege gap — re-running as root would not help, so don't claim it would.
+	if hasInsightMsg(got, "INFO", "re-run as root") {
+		t.Errorf("SELinux-indeterminate must NOT advise 're-run as root' (enforce node is world-readable): %#v", got)
+	}
+}
+
+// AppArmor's mode lives in a root-only node, so an "unknown" mode there IS a
+// privilege gap — it must keep advising "re-run as root" (the asymmetry the
+// SELinux fix above must not break).
+func TestKernelSecAppArmorUnknownStillAdvisesRoot(t *testing.T) {
+	mac := models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "unknown"}
+	got := checkKernelSecurity(mac, defaultThresh)
+	if !hasInsightMsg(got, "INFO", "re-run as root") {
+		t.Errorf("AppArmor-indeterminate (root-only profiles node) should advise re-run as root: %#v", got)
 	}
 }
 
