@@ -24,7 +24,7 @@ func TestEvaluateSSHUnverifiedSkipped(t *testing.T) {
 	// Unverified: config-derived SSH rules must be Skipped in BOTH directions —
 	// 5.2.6 (X11) would default to PASS, 5.2.7 (MaxAuthTries) would default to FAIL.
 	unver := models.SecurityInfo{SSHConfigUnreadable: true, SSHAuditSource: ""}
-	repUnver := Evaluate(unver, ks, 1, false)
+	repUnver := Evaluate(unver, ks, 1, false, "apt")
 	for _, id := range []string{"5.2.6", "5.2.7"} {
 		if r, ok := find(repUnver, id); !ok || r.Status != models.CISSkipped {
 			t.Errorf("%s with unverified SSH config: status=%v ok=%v, want Skipped", id, r.Status, ok)
@@ -32,7 +32,7 @@ func TestEvaluateSSHUnverifiedSkipped(t *testing.T) {
 	}
 	// Verified via sshd -T: the same rules evaluate normally, not skipped.
 	ver := models.SecurityInfo{SSHAuditSource: "sshd -T"}
-	if r, ok := find(Evaluate(ver, ks, 1, false), "5.2.6"); !ok || r.Status == models.CISSkipped {
+	if r, ok := find(Evaluate(ver, ks, 1, false, "apt"), "5.2.6"); !ok || r.Status == models.CISSkipped {
 		t.Errorf("5.2.6 with verified SSH config must evaluate, got status=%v ok=%v", r.Status, ok)
 	}
 }

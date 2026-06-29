@@ -3,6 +3,7 @@ package cis
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -301,7 +302,7 @@ func TestEvaluate(t *testing.T) {
 	ks := models.KernelSecurityInfo{}
 
 	t.Run("CIS L1 excludes STIG-only and L2", func(t *testing.T) {
-		rep := Evaluate(sec, ks, 1, false)
+		rep := Evaluate(sec, ks, 1, false, "apt")
 		if rep.Framework != "CIS" {
 			t.Errorf("Framework = %q, want CIS", rep.Framework)
 		}
@@ -317,7 +318,7 @@ func TestEvaluate(t *testing.T) {
 	})
 
 	t.Run("CIS L2 includes the L2 rule", func(t *testing.T) {
-		rep := Evaluate(sec, ks, 2, false)
+		rep := Evaluate(sec, ks, 2, false, "apt")
 		ids := resultIDs(rep)
 		if !ids["C2"] {
 			t.Errorf("L2 run should include C2; got %v", ids)
@@ -326,7 +327,7 @@ func TestEvaluate(t *testing.T) {
 	})
 
 	t.Run("STIG mode swaps IDs and excludes CIS-only", func(t *testing.T) {
-		rep := Evaluate(sec, ks, 1, true)
+		rep := Evaluate(sec, ks, 1, true, "apt")
 		if rep.Framework != "STIG" {
 			t.Errorf("Framework = %q, want STIG", rep.Framework)
 		}
@@ -367,7 +368,7 @@ func TestEvaluate_StigSupersedesBoth(t *testing.T) {
 			Description: "stig", Check: mk("V-9", models.CISFail)}, // strict STIG verdict
 	}
 
-	rep := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, true)
+	rep := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, true, "apt")
 	count, status := 0, models.CISStatus("")
 	for _, r := range rep.Results {
 		if r.ID == "V-9" {
@@ -404,9 +405,51 @@ func assertTally(t *testing.T, rep models.CISReport) {
 // ── smoke: the real registry evaluates without panicking on this host ────────
 
 func TestEvaluateRealRegistry(t *testing.T) {
-	rep := Evaluate(models.SecurityInfo{AuditRules: -1}, models.KernelSecurityInfo{}, 2, false)
+	rep := Evaluate(models.SecurityInfo{AuditRules: -1}, models.KernelSecurityInfo{}, 2, false, "apt")
 	if len(rep.Results) == 0 {
 		t.Fatal("real registry produced no results")
 	}
 	assertTally(t, rep)
+}
+
+// The auditd remediation hints (4.1.1 install, 4.1.2 sample-rules path) are
+// Debian-shaped by default, but `dsd cis` runs cross-distro. On a dnf host the
+// apt command and the /usr/share/doc/auditd Debian path don't exist — they must
+// be rewritten to the dnf command and the RHEL /usr/share/audit/sample-rules path.
+func TestEvaluate_AuditRemediationAdaptsToPackageManager(t *testing.T) {
+	// AuditRules == -1 → 4.1.1 fails (install); AuditRules == 0 → 4.1.2 fails (rules).
+	find := func(rep models.CISReport, id string) (models.CISResult, bool) {
+		for _, r := range rep.Results {
+			if r.ID == id {
+				return r, true
+			}
+		}
+		return models.CISResult{}, false
+	}
+
+	// dnf host: both auditd remediations must be RHEL-shaped.
+	repInstall := Evaluate(models.SecurityInfo{AuditRules: -1}, models.KernelSecurityInfo{}, 1, false, "dnf")
+	if r, ok := find(repInstall, "4.1.1"); !ok {
+		t.Fatal("4.1.1 not present")
+	} else if !strings.Contains(r.Remediation, "dnf install audit") {
+		t.Errorf("4.1.1 remediation = %q, want dnf install", r.Remediation)
+	}
+
+	repRules := Evaluate(models.SecurityInfo{AuditRules: 0}, models.KernelSecurityInfo{}, 1, false, "dnf")
+	if r, ok := find(repRules, "4.1.2"); !ok {
+		t.Fatal("4.1.2 not present")
+	} else {
+		if !strings.Contains(r.Remediation, "/usr/share/audit/sample-rules/") {
+			t.Errorf("4.1.2 remediation = %q, want RHEL sample-rules path", r.Remediation)
+		}
+		if strings.Contains(r.Remediation, "/usr/share/doc/auditd") {
+			t.Errorf("4.1.2 remediation still has the Debian path: %q", r.Remediation)
+		}
+	}
+
+	// apt host keeps the Debian forms.
+	repApt := Evaluate(models.SecurityInfo{AuditRules: 0}, models.KernelSecurityInfo{}, 1, false, "apt")
+	if r, ok := find(repApt, "4.1.2"); ok && !strings.Contains(r.Remediation, "/usr/share/doc/auditd") {
+		t.Errorf("apt 4.1.2 remediation = %q, want Debian path", r.Remediation)
+	}
 }
