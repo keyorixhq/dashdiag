@@ -277,7 +277,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 	}
 
 	// SATA/SAS drives
-	var sataUnread, sataImplausible []string
+	var sataNeedsRoot, sataNoSmart, sataImplausible []string
 	for _, dev := range n.SATADevices {
 		// smartctl could not read this drive's SMART — it errored (permission /
 		// non-root, transient) or returned no smart_status (USB bridge, RAID/HBA
@@ -286,8 +286,16 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		// as healthy, a non-root false-OK validated on pve01 (smartctl needs root, so
 		// an unprivileged `dsd health` read "2 drives healthy" while SMART was never
 		// read). Never a confident "drive may be failing" CRIT on an unverified drive.
+		// Split by WHY: a permission failure says "re-run as root", a SMART-less
+		// device (virtual disk / USB / RAID member) must NOT — claiming "running
+		// unprivileged" while actually root is a false explanation (found on a real
+		// VMware OL9 guest: virtual /dev/sda read SMART-less as root).
 		if dev.Error != "" || !dev.SmartRead {
-			sataUnread = append(sataUnread, dev.Name)
+			if dev.SmartUnreadReason == "needs_root" {
+				sataNeedsRoot = append(sataNeedsRoot, dev.Name)
+			} else {
+				sataNoSmart = append(sataNoSmart, dev.Name)
+			}
 			continue
 		}
 		// Read succeeded but the values are physically impossible (garbage raw ATA
@@ -349,14 +357,24 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			},
 		))
 	}
-	if len(sataUnread) > 0 {
+	if len(sataNeedsRoot) > 0 {
 		out = append(out, insight("INFO", "Drives",
-			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — running unprivileged (smartctl needs root), or a drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART, or a virtual disk",
-				len(sataUnread), strings.Join(sataUnread, ", ")),
+			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — running unprivileged (smartctl needs root)",
+				len(sataNeedsRoot), strings.Join(sataNeedsRoot, ", ")),
 			[]string{
 				"to fix: re-run as root — SMART reads require privilege (sudo dsd health)",
 				"to inspect: smartctl -a <device>  (try -d sat / -d cciss,N for controllers)",
 				"note: drive presence is known; SMART health, wear, and errors are unverified",
+			},
+		))
+	}
+	if len(sataNoSmart) > 0 {
+		out = append(out, insight("INFO", "Drives",
+			fmt.Sprintf("%d SATA/SAS drive(s) detected but no SMART data exposed (%s) — a virtual disk, or a drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART through",
+				len(sataNoSmart), strings.Join(sataNoSmart, ", ")),
+			[]string{
+				"to inspect: smartctl -a " + sataNoSmart[0] + "  (try -d sat / -d cciss,N for controllers)",
+				"note: drive presence is known; SMART health, wear, and errors are unverified — virtual disks expose none",
 			},
 		))
 	}

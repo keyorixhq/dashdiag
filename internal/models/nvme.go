@@ -41,7 +41,15 @@ type SATADevice struct {
 	// make `smartctl --json -a` emit JSON with no smart_status. Without this, a
 	// missing verdict defaulted SmartOK=false and fired a false "drive may be
 	// failing" CRIT (sibling of the NVMe SmartRead guard, BUG-048).
-	SmartRead           bool     `json:"smart_read"`
+	SmartRead bool `json:"smart_read"`
+	// SmartUnreadReason classifies WHY SMART was not read when SmartRead is false,
+	// so the analysis layer gives an accurate remediation instead of lumping every
+	// cause under "running unprivileged". One of: "needs_root" (smartctl hit a
+	// permission error — re-run as root), "no_smart" (smartctl ran but the device
+	// exposes no smart_status: virtual disk, USB bridge, RAID/HBA member), "error"
+	// (smartctl failed to run). Empty on older captures. Recorded (not derived from
+	// a live euid) so replay stays faithful — mirrors the NVMe field above.
+	SmartUnreadReason   string   `json:"smart_unread_reason,omitempty"`
 	SmartOK             bool     `json:"smart_ok"`
 	PowerOnHours        int64    `json:"power_on_hours"`
 	ReallocatedSectors  int      `json:"reallocated_sectors"`
