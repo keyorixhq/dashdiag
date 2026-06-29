@@ -68,6 +68,12 @@ type FilesystemInfo struct {
 	ReadOnly      bool    `json:"read_only"`
 	Status        string  `json:"status"`
 	StatusReason  string  `json:"status_reason"`
+	// DeviceSizeGB is the size of the backing block device (partition / LV), read
+	// from /sys/class/block/<kname>/size, in decimal GB. 0 when unknown (non-Linux,
+	// or a device with no sysfs size node). A DeviceSizeGB meaningfully larger than
+	// TotalGB means the disk/partition/LV was grown but the filesystem was never
+	// resized (growpart/resize2fs/xfs_growfs forgotten) — the extra space is unusable.
+	DeviceSizeGB float64 `json:"device_size_gb,omitempty"`
 }
 
 type DiskInfo struct {
