@@ -72,11 +72,16 @@ func checkKernelPatch(d models.KernelPatchInfo) []models.Insight {
 	if !d.Available || !d.RebootNeeded {
 		return nil
 	}
-	return []models.Insight{insight("WARN", "Kernel",
-		fmt.Sprintf("a newer kernel (%s) is installed but the system is still running %s — reboot to apply", d.LatestInstalled, d.Running),
+	// RHEL/Oracle knows the exact newer kernel; the SUSE (zypper) path only knows a
+	// reboot is needed.
+	msg := "a kernel / core-library update has been installed but not yet applied — reboot to apply (you may still be running the pre-update, possibly-vulnerable kernel)"
+	if d.LatestInstalled != "" {
+		msg = fmt.Sprintf("a newer kernel (%s) is installed but the system is still running %s — reboot to apply", d.LatestInstalled, d.Running)
+	}
+	return []models.Insight{insight("WARN", "Kernel", msg,
 		[]string{
 			"note: until you reboot you are running the OLD kernel — any kernel CVE the update fixed is still exposed",
-			"to inspect: rpm -q --last kernel-uek kernel-core kernel | head",
+			"to inspect: rpm -q --last kernel-uek kernel-core kernel | head   (SUSE: zypper needs-rebooting)",
 			"to fix: reboot  (schedule a maintenance window)",
 		})}
 }
