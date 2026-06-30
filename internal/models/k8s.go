@@ -84,6 +84,16 @@ type K8sInfo struct {
 	StatusReason string      `json:"status_reason,omitempty"`
 }
 
+// RancherInfo reports Rancher management-plane health on a cluster where Rancher is
+// installed (the cattle-system namespace exists). Silent on clusters without Rancher.
+type RancherInfo struct {
+	Available      bool `json:"available"`      // cattle-system namespace present
+	ServerReady    int  `json:"server_ready"`   // ready replicas of the rancher deployment
+	ServerDesired  int  `json:"server_desired"` // desired replicas
+	WebhookReady   int  `json:"webhook_ready"`
+	WebhookDesired int  `json:"webhook_desired"`
+}
+
 // K8sOSLayer holds OS-level diagnostics for the k8s node.
 type K8sOSLayer struct {
 	KubeletActive      bool     `json:"kubelet_active"`

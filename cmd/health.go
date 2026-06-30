@@ -712,6 +712,11 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 			cols = append(cols, collectors.NewK8sCollector())
 		}
 	}
+	// Rancher management plane — gated on kubectl; silent unless the cattle-system
+	// namespace exists (queried in Collect), so it costs one query on non-Rancher nodes.
+	if collectors.RancherAvailable() {
+		cols = append(cols, collectors.NewRancherCollector())
+	}
 	// KVM/libvirt — gate on virsh availability
 	if collectors.KVMAvailable() {
 		cols = append(cols, collectors.NewKVMCollector())

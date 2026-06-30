@@ -927,3 +927,28 @@ func k8sFirstLine(s string) string {
 	}
 	return s
 }
+
+// checkRancher flags a degraded Rancher management plane: the rancher server or its
+// admission webhook with fewer ready replicas than desired. Silent when Rancher is
+// absent or fully ready. Downstream-cluster management and the UI ride on these, so a
+// not-ready Rancher server is a real (if not always urgent) operational gap.
+func checkRancher(d models.RancherInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	var out []models.Insight
+	if d.ServerDesired > 0 && d.ServerReady < d.ServerDesired {
+		out = append(out, insight("WARN", "Rancher",
+			fmt.Sprintf("Rancher server has %d/%d replicas ready — the management plane is degraded; downstream cluster management and the UI may be unavailable", d.ServerReady, d.ServerDesired),
+			[]string{
+				"to inspect: kubectl -n cattle-system get pods -l app=rancher",
+				"to inspect: kubectl -n cattle-system logs deploy/rancher",
+			}))
+	}
+	if d.WebhookDesired > 0 && d.WebhookReady < d.WebhookDesired {
+		out = append(out, insight("WARN", "Rancher",
+			fmt.Sprintf("rancher-webhook has %d/%d replicas ready — admission webhooks may reject or stall cluster changes", d.WebhookReady, d.WebhookDesired),
+			[]string{"to inspect: kubectl -n cattle-system get pods -l app=rancher-webhook"}))
+	}
+	return out
+}

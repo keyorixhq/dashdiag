@@ -951,6 +951,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkK8s(d)
 	case *models.K8sInfo:
 		return checkK8s(*d)
+	case models.RancherInfo:
+		return checkRancher(d)
+	case *models.RancherInfo:
+		if d != nil {
+			return checkRancher(*d)
+		}
 	case models.KVMInfo:
 		return checkKVM(d)
 	case *models.KVMInfo:
