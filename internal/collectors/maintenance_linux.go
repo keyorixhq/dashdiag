@@ -117,7 +117,16 @@ func NewKernelPatchCollector() *KernelPatchCollector   { return &KernelPatchColl
 func (c *KernelPatchCollector) Name() string           { return "Kernel" }
 func (c *KernelPatchCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func KernelPatchAvailable() bool { return hasCmd("rpm") }
+func KernelPatchAvailable() bool { return hasCmd("rpm") || debianRebootMechanism() }
+
+// debianRebootMechanism reports whether the host uses Ubuntu/Debian's
+// /run/reboot-required signal — written by update-notifier-common /
+// unattended-upgrades after a kernel or core-library update. A minimal Debian
+// without that hook has no such signal, so we don't claim to check it there.
+func debianRebootMechanism() bool {
+	return fileExists("/usr/share/update-notifier/notify-reboot-required") ||
+		fileExists("/run/reboot-required")
+}
 
 // kernelNVRAToUname strips the package-name prefix off a kernel NVRA so it matches
 // `uname -r` (e.g. "kernel-uek-6.12.0-203.el10uek.x86_64" → "6.12.0-203.el10uek.x86_64").
@@ -139,41 +148,51 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 	if b, err := readFile("/proc/sys/kernel/osrelease"); err == nil {
 		info.Running = strings.TrimSpace(string(b))
 	}
-	// RHEL/Oracle family: the running uname and the kernel package NVRA line up, so
-	// compare directly against the newest-INSTALLED kernel (--last orders by install
-	// time; rpm exits non-zero when a queried package is absent, so runCmdOutput to
-	// keep the installed lines).
-	// kernel-uek-core is the actual UEK package on Oracle Linux (the `kernel-uek`
-	// meta is often absent); kernel-core is EL9+ RHCK; kernel is EL7 / the meta.
-	out, _ := runCmdOutput(ctx, "rpm", "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		fields := strings.Fields(line)
-		if len(fields) == 0 || strings.Contains(line, "not installed") || strings.HasPrefix(line, "package ") {
-			continue
+	if hasCmd("rpm") {
+		// RHEL/Oracle family: the running uname and the kernel package NVRA line up, so
+		// compare directly against the newest-INSTALLED kernel (--last orders by install
+		// time; rpm exits non-zero when a queried package is absent, so runCmdOutput to
+		// keep the installed lines). kernel-uek-core is the actual UEK package on Oracle
+		// Linux (the `kernel-uek` meta is often absent); kernel-core is EL9+ RHCK.
+		out, _ := runCmdOutput(ctx, "rpm", "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			fields := strings.Fields(line)
+			if len(fields) == 0 || strings.Contains(line, "not installed") || strings.HasPrefix(line, "package ") {
+				continue
+			}
+			info.LatestInstalled = kernelNVRAToUname(fields[0])
+			break
 		}
-		info.LatestInstalled = kernelNVRAToUname(fields[0])
-		break
-	}
-	if info.LatestInstalled != "" {
-		info.Available = true
-		info.RebootNeeded = info.Running != "" && info.Running != info.LatestInstalled
-		return info, nil
-	}
-	// SUSE (kernel-default): the package NVRA and uname don't line up (uname carries
-	// the `-default` flavor), so use zypper's own signal instead of parsing versions.
-	if hasCmd("zypper") {
-		if z, _ := runCmdOutput(ctx, "zypper", "needs-rebooting"); z != "" {
-			low := strings.ToLower(z)
-			switch {
-			case strings.Contains(low, "reboot is suggested"):
-				info.Available, info.RebootNeeded = true, true
-				return info, nil
-			case strings.Contains(low, "probably not necessary"), strings.Contains(low, "reboot is not"):
-				info.Available = true
-				return info, nil
+		if info.LatestInstalled != "" {
+			info.Available = true
+			info.RebootNeeded = info.Running != "" && info.Running != info.LatestInstalled
+			return info, nil
+		}
+		// SUSE (kernel-default): the package NVRA and uname don't line up (uname carries
+		// the `-default` flavor), so use zypper's own signal instead of parsing versions.
+		if hasCmd("zypper") {
+			if z, _ := runCmdOutput(ctx, "zypper", "needs-rebooting"); z != "" {
+				low := strings.ToLower(z)
+				switch {
+				case strings.Contains(low, "reboot is suggested"):
+					info.Available, info.RebootNeeded = true, true
+					return info, nil
+				case strings.Contains(low, "probably not necessary"), strings.Contains(low, "reboot is not"):
+					info.Available = true
+					return info, nil
+				}
 			}
 		}
+	}
+	// Debian/Ubuntu: the canonical signal is /run/reboot-required, written by
+	// update-notifier-common / unattended-upgrades after a kernel or core-library
+	// update. The package NVRA→uname comparison above is RHEL-specific, so this file
+	// is the right (and simpler) signal here.
+	if debianRebootMechanism() {
+		info.Available = true
+		info.RebootNeeded = fileExists("/run/reboot-required")
+		return info, nil
 	}
 	// No recognized kernel-package signal (e.g. a distro family we don't cover yet) —
 	// leave Available=false so health does NOT show a misleading "Kernel OK" having
@@ -240,7 +259,10 @@ func NewServiceRestartCollector() *ServiceRestartCollector { return &ServiceRest
 func (c *ServiceRestartCollector) Name() string            { return "ServiceRestart" }
 func (c *ServiceRestartCollector) Timeout() time.Duration  { return 8 * time.Second }
 
-func ServiceRestartAvailable() bool { return hasCmd("rpm") }
+// ServiceRestartAvailable: the /proc/<pid>/maps "(deleted)" scan is package-manager
+// agnostic, so gate on any mainstream Linux (rpm OR dpkg) — Ubuntu/Debian have the
+// exact same "patched but not restarted" problem after an apt glibc/openssl update.
+func ServiceRestartAvailable() bool { return hasCmd("rpm") || hasCmd("dpkg") }
 
 // mapsHasDeletedLib reports whether a /proc/<pid>/maps body maps a shared library
 // whose on-disk file was replaced (the kernel marks the stale mapping "(deleted)").
