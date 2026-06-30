@@ -37,3 +37,6 @@ CLAUDE.md
 
 # transient binary built by scripts/check-replay-fidelity.sh
 .dsd-fidelity.*
+
+# throwaway build artifacts + local test binaries/captures (CLAUDE.md convention)
+.scratch/
