@@ -1237,6 +1237,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkKernelRetention(*d)
 		}
+	case models.LivePatchInfo:
+		return checkLivePatch(d)
+	case *models.LivePatchInfo:
+		if d != nil {
+			return checkLivePatch(*d)
+		}
 	}
 	return nil
 }

@@ -162,3 +162,24 @@ func TestCheckKernelRetention(t *testing.T) {
 		t.Errorf("unbounded but few kernels should be silent, got %+v", got)
 	}
 }
+
+func TestCheckLivePatch(t *testing.T) {
+	if got := checkLivePatch(models.LivePatchInfo{Available: false}); got != nil {
+		t.Error("no livepatch loaded must be nil (silent)")
+	}
+	// loaded + all enabled → silent (healthy: kernel is live-patched)
+	healthy := models.LivePatchInfo{Available: true, PatchesLoaded: 2, PatchesEnabled: 2}
+	if got := checkLivePatch(healthy); len(got) != 0 {
+		t.Errorf("all-enabled livepatches must be silent, got %+v", got)
+	}
+	// loaded but disabled → WARN (kernel running un-patched code)
+	disabled := models.LivePatchInfo{Available: true, PatchesLoaded: 1, PatchesEnabled: 0, DisabledPatches: []string{"klp_fix"}}
+	if !hasInsightMsg(checkLivePatch(disabled), "WARN", "NOT enabled") {
+		t.Error("disabled livepatch must WARN")
+	}
+	// stuck in transition → WARN
+	stuck := models.LivePatchInfo{Available: true, PatchesLoaded: 1, PatchesEnabled: 1, TransitioningPatches: []string{"klp_fix"}}
+	if !hasInsightMsg(checkLivePatch(stuck), "WARN", "transition") {
+		t.Error("transitioning livepatch must WARN")
+	}
+}

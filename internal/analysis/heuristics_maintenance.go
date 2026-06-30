@@ -186,3 +186,37 @@ func kernelRetentionHints(pm string) []string {
 		return []string{"to clean: sudo apt autoremove --purge"}
 	}
 }
+
+// checkLivePatch flags kernel live-patches that are loaded but not actually protecting
+// the kernel — disabled (the running kernel executes the UN-patched code) or stuck in
+// transition. Silent when all loaded patches are enabled, or when none are loaded.
+func checkLivePatch(d models.LivePatchInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	var out []models.Insight
+	if len(d.DisabledPatches) > 0 {
+		out = append(out, insight("WARN", "LivePatch",
+			fmt.Sprintf("%d kernel livepatch(es) loaded but NOT enabled (%s) — the running kernel is executing the UN-patched code for those fixes despite live patching being set up",
+				len(d.DisabledPatches), strings.Join(firstN(d.DisabledPatches, 3), ", ")),
+			[]string{"to inspect: cat /sys/kernel/livepatch/*/enabled", livePatchInspectHint(d.Tool)}))
+	}
+	if len(d.TransitioningPatches) > 0 {
+		out = append(out, insight("WARN", "LivePatch",
+			fmt.Sprintf("%d kernel livepatch(es) stuck in transition (%s) — some tasks have not migrated to the patched code, so the fix is only partially active",
+				len(d.TransitioningPatches), strings.Join(firstN(d.TransitioningPatches, 3), ", ")),
+			[]string{"to inspect: cat /sys/kernel/livepatch/*/transition"}))
+	}
+	return out
+}
+
+func livePatchInspectHint(tool string) string {
+	switch tool {
+	case "klp":
+		return "to inspect: klp -v patches"
+	case "kpatch":
+		return "to inspect: kpatch list"
+	default:
+		return "to inspect: dmesg | grep -i livepatch"
+	}
+}

@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Kernel live-patching check** (`LivePatch` in `dsd health`). Reads the generic livepatch
+  sysfs (`/sys/kernel/livepatch/` — used by SUSE `klp`, RHEL kpatch, and Ubuntu Livepatch
+  alike): confirms the running kernel is being live-patched, and flags patches loaded but
+  **not enabled** (the kernel is executing the un-patched code) or stuck mid-transition.
+  Host-kernel concern → gated off in containers (a container shares the host kernel and
+  can't be live-patched). Silent on hosts not using live patching. Validated live against a
+  real loaded livepatch module.
+
 - **Pacemaker/Corosync HA-cluster check** (`HACluster` in `dsd health`). On a host running
   the cluster stack it reports lost quorum (CRIT), offline nodes (CRIT), failed resources
   (CRIT), stopped resources (WARN), and — the classic "it failed over and corrupted the

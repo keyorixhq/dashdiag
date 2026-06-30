@@ -466,3 +466,51 @@ func parseInstallonlyLimit(conf string) (policy string, unbounded bool) {
 	}
 	return "", false
 }
+
+// ── Kernel live patching (klp / kpatch / generic livepatch sysfs) ────────────
+
+type LivePatchCollector struct{ cc platform.ContainerContext }
+
+func NewLivePatchCollector(cc platform.ContainerContext) *LivePatchCollector {
+	return &LivePatchCollector{cc: cc}
+}
+func (c *LivePatchCollector) Name() string           { return "LivePatch" }
+func (c *LivePatchCollector) Timeout() time.Duration { return 3 * time.Second }
+
+// LivePatchAvailable is true when at least one kernel livepatch is loaded
+// (/sys/kernel/livepatch/<name>/). A kernel can support livepatch with none loaded —
+// there's then nothing to verify, so the check stays silent.
+func LivePatchAvailable() bool {
+	dirs, _ := glob("/sys/kernel/livepatch/*")
+	return len(dirs) > 0
+}
+
+func (c *LivePatchCollector) Collect(_ context.Context) (interface{}, error) {
+	if maintenanceSkip(LivePatchAvailable(), c.cc.InContainer) {
+		return &models.LivePatchInfo{}, nil
+	}
+	info := &models.LivePatchInfo{}
+	dirs, _ := glob("/sys/kernel/livepatch/*")
+	for _, p := range dirs {
+		info.PatchesLoaded++
+		name := p[strings.LastIndex(p, "/")+1:]
+		// enabled=1 means the patch is active; 0 means loaded-but-not-applied (the kernel
+		// runs the OLD code). transition=1 means tasks are still migrating to the patch.
+		if en, err := readFile(p + "/enabled"); err == nil && strings.TrimSpace(string(en)) == "1" {
+			info.PatchesEnabled++
+		} else {
+			info.DisabledPatches = append(info.DisabledPatches, name)
+		}
+		if tr, err := readFile(p + "/transition"); err == nil && strings.TrimSpace(string(tr)) == "1" {
+			info.TransitioningPatches = append(info.TransitioningPatches, name)
+		}
+	}
+	info.Available = info.PatchesLoaded > 0
+	switch {
+	case hasCmd("klp"):
+		info.Tool = "klp"
+	case hasCmd("kpatch"):
+		info.Tool = "kpatch"
+	}
+	return info, nil
+}

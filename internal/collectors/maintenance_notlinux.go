@@ -76,3 +76,15 @@ func (c *KernelRetentionCollector) Collect(context.Context) (interface{}, error)
 	return &models.KernelRetentionInfo{}, nil
 }
 func KernelRetentionAvailable() bool { return false }
+
+type LivePatchCollector struct{}
+
+func NewLivePatchCollector(platform.ContainerContext) *LivePatchCollector {
+	return &LivePatchCollector{}
+}
+func (c *LivePatchCollector) Name() string           { return "LivePatch" }
+func (c *LivePatchCollector) Timeout() time.Duration { return time.Second }
+func (c *LivePatchCollector) Collect(context.Context) (interface{}, error) {
+	return &models.LivePatchInfo{}, nil
+}
+func LivePatchAvailable() bool { return false }
