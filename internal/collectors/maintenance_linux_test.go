@@ -2,7 +2,54 @@
 
 package collectors
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
+)
+
+// TestMaintenanceSkip pins the host-kernel gate, including the #655 regression:
+// kdump/kernel/Ksplice are host-kernel concerns, so they must skip inside a
+// container EVEN when the subsystem looks present (a container can't reboot or
+// kdump the host kernel it shares). Dropping the container term would silently
+// reintroduce the "Kernel OK reported the host's kernel" false-OK.
+func TestMaintenanceSkip(t *testing.T) {
+	cases := []struct {
+		name        string
+		available   bool
+		inContainer bool
+		wantSkip    bool
+	}{
+		{"present on a host → run", true, false, false},
+		{"present in a container → SKIP (host-kernel concern)", true, true, true},
+		{"absent on a host → skip", false, false, true},
+		{"absent in a container → skip", false, true, true},
+	}
+	for _, c := range cases {
+		if got := maintenanceSkip(c.available, c.inContainer); got != c.wantSkip {
+			t.Errorf("%s: maintenanceSkip(%v,%v)=%v, want %v", c.name, c.available, c.inContainer, got, c.wantSkip)
+		}
+	}
+}
+
+// TestHostKernelCollectorsGateOffInContainer is the end-to-end pin: with the
+// container context injected (now a constructor param, not hidden global state),
+// the three host-kernel collectors report Available=false; ServiceRestart, which
+// is per-process and stays valid in a container, is not gated here.
+func TestHostKernelCollectorsGateOffInContainer(t *testing.T) {
+	inCtr := platform.ContainerContext{InContainer: true}
+	if v, _ := NewKdumpCollector(inCtr).Collect(context.Background()); v.(*models.KdumpInfo).Available {
+		t.Error("Kdump must gate off in a container")
+	}
+	if v, _ := NewKernelPatchCollector(inCtr).Collect(context.Background()); v.(*models.KernelPatchInfo).Available {
+		t.Error("Kernel must gate off in a container")
+	}
+	if v, _ := NewKspliceCollector(inCtr).Collect(context.Background()); v.(*models.KspliceInfo).Available {
+		t.Error("Ksplice must gate off in a container")
+	}
+}
 
 func TestKernelNVRAToUname(t *testing.T) {
 	cases := map[string]string{

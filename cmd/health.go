@@ -547,16 +547,16 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// own subsystem (kdump.service / tuned / rpm / Ksplice), so all stay silent on
 	// hosts that don't run them.
 	if collectors.KdumpAvailable() {
-		cols = append(cols, collectors.NewKdumpCollector())
+		cols = append(cols, collectors.NewKdumpCollector(ctrCtx))
 	}
 	if collectors.TunedAvailable() {
 		cols = append(cols, collectors.NewTunedCollector())
 	}
 	if collectors.KernelPatchAvailable() {
-		cols = append(cols, collectors.NewKernelPatchCollector())
+		cols = append(cols, collectors.NewKernelPatchCollector(ctrCtx))
 	}
 	if collectors.KspliceAvailable() {
-		cols = append(cols, collectors.NewKspliceCollector())
+		cols = append(cols, collectors.NewKspliceCollector(ctrCtx))
 	}
 	if collectors.ServiceRestartAvailable() {
 		cols = append(cols, collectors.NewServiceRestartCollector())

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // RHEL/Oracle-family maintenance & patch-effectiveness collectors. Each is gated
@@ -17,21 +18,28 @@ import (
 // Source-routed helpers (readFile/runCmd*/glob/hasCmd) so capture → replay is
 // faithful. See internal/models/maintenance.go for the recorded fields.
 
-// maintenanceInContainer reports whether dsd is running inside a container. The
-// kdump / kernel-reboot / Ksplice checks are HOST-kernel concerns — a container
-// shares the host's kernel (so `uname -r` shows the host's, which it can't reboot
-// or kdump), making those checks meaningless and a quasi-false-OK inside a
-// container. Replay-safe (routes through Source). ServiceRestart stays — a
-// container's own processes can still map a library replaced on disk.
-func maintenanceInContainer() bool { return ContainerContextViaSource().InContainer }
+// The kdump / kernel-reboot / Ksplice checks are HOST-kernel concerns — a container
+// shares the host's kernel (so `uname -r` shows the host's, which it can't reboot or
+// kdump), making those checks meaningless and a quasi-false-OK inside a container.
+// So each of those three collectors carries the ContainerContext (computed once in
+// cmd/health.go, replay-safe) and gates off when InContainer — passed in (not
+// fetched from global state) so the gate is deterministic and unit-testable.
+// ServiceRestart deliberately does NOT gate: a container's own processes can still
+// map a library replaced on disk.
+
+// maintenanceSkip is the single gate decision shared by the three host-kernel
+// collectors: skip when the subsystem is absent OR we're in a container. Centralised
+// (one place to get right) and pure (the container regression — #655 — is pinned by
+// TestMaintenanceSkip without faking the host's filesystem).
+func maintenanceSkip(available, inContainer bool) bool { return !available || inContainer }
 
 // ── Kdump ────────────────────────────────────────────────────────────────────
 
-type KdumpCollector struct{}
+type KdumpCollector struct{ cc platform.ContainerContext }
 
-func NewKdumpCollector() *KdumpCollector         { return &KdumpCollector{} }
-func (c *KdumpCollector) Name() string           { return "Kdump" }
-func (c *KdumpCollector) Timeout() time.Duration { return 3 * time.Second }
+func NewKdumpCollector(cc platform.ContainerContext) *KdumpCollector { return &KdumpCollector{cc: cc} }
+func (c *KdumpCollector) Name() string                               { return "Kdump" }
+func (c *KdumpCollector) Timeout() time.Duration                     { return 3 * time.Second }
 
 // KdumpAvailable is true when the host ships kdump (kexec-tools) — i.e. the
 // kdump.service unit exists. Gating on the unit (not on the kernel's kexec sysfs,
@@ -44,7 +52,7 @@ func KdumpAvailable() bool {
 }
 
 func (c *KdumpCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KdumpAvailable() || maintenanceInContainer() {
+	if maintenanceSkip(KdumpAvailable(), c.cc.InContainer) {
 		return &models.KdumpInfo{}, nil
 	}
 	info := &models.KdumpInfo{Available: true}
@@ -111,9 +119,11 @@ func (c *TunedCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // ── Kernel reboot-to-apply ───────────────────────────────────────────────────
 
-type KernelPatchCollector struct{}
+type KernelPatchCollector struct{ cc platform.ContainerContext }
 
-func NewKernelPatchCollector() *KernelPatchCollector   { return &KernelPatchCollector{} }
+func NewKernelPatchCollector(cc platform.ContainerContext) *KernelPatchCollector {
+	return &KernelPatchCollector{cc: cc}
+}
 func (c *KernelPatchCollector) Name() string           { return "Kernel" }
 func (c *KernelPatchCollector) Timeout() time.Duration { return 5 * time.Second }
 
@@ -141,7 +151,7 @@ func kernelNVRAToUname(nvra string) string {
 }
 
 func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KernelPatchAvailable() || maintenanceInContainer() {
+	if maintenanceSkip(KernelPatchAvailable(), c.cc.InContainer) {
 		return &models.KernelPatchInfo{}, nil
 	}
 	info := &models.KernelPatchInfo{}
@@ -202,9 +212,11 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 
 // ── Ksplice (Oracle live patching) ───────────────────────────────────────────
 
-type KspliceCollector struct{}
+type KspliceCollector struct{ cc platform.ContainerContext }
 
-func NewKspliceCollector() *KspliceCollector       { return &KspliceCollector{} }
+func NewKspliceCollector(cc platform.ContainerContext) *KspliceCollector {
+	return &KspliceCollector{cc: cc}
+}
 func (c *KspliceCollector) Name() string           { return "Ksplice" }
 func (c *KspliceCollector) Timeout() time.Duration { return 6 * time.Second }
 
@@ -213,7 +225,7 @@ func KspliceAvailable() bool {
 }
 
 func (c *KspliceCollector) Collect(ctx context.Context) (interface{}, error) {
-	if !KspliceAvailable() || maintenanceInContainer() {
+	if maintenanceSkip(KspliceAvailable(), c.cc.InContainer) {
 		return &models.KspliceInfo{}, nil
 	}
 	info := &models.KspliceInfo{Available: true}
