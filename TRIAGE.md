@@ -11,6 +11,28 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## X. NixOS full validation + `/nix/store` ro-bind false-WARN — ✅ DONE (2026-06-30)
+
+First proper SSH-driven two-pass (root + non-root) + capture on real NixOS 25.05
+(prior NixOS coverage was the `nixosifyHints` path + a console-only VM, never a deep
+pass). Fresh scripted install (live ISO → `nixos-install` with SSH + pve01 key in
+`configuration.nix`) on **pve01 VM 212 `nixos-test`** (192.168.10.47). Distro handling
+was already solid — NixOS detected, all remedy hints route through `nixosifyHints`
+(`…configuration.nix; nixos-rebuild switch`). One false-alarm found + fixed:
+
+**BUG-091 — `/nix/store` ro bind WARNed as an I/O-error remount** (fixed #673). NixOS
+binds `/nix/store` read-only off the rw root for immutability; `checkDisk` only
+suppressed the ro-remount WARN for `ImmutableRootFS` (ostree/transactional/SteamOS),
+which NixOS isn't. Fix is distro-agnostic (sibling to §K): a ro mount whose backing
+**device is also mounted rw elsewhere** is an intentional ro bind (a kernel error
+remount flips the whole device → `/` would be ro too), so it's suppressed; a ro mount
+of a device not mounted rw anywhere still WARNs. `heuristics.go checkDisk` + real-bytes
+unit test `nixos_nix_store_ro_test.go`. Capture
+`~/proj/dashdiag-captures/nixos-2505-20260630.tar.gz` replays the bug pre-fix, clean
+post-fix. Memory `nixos-validation-vm`.
+
+---
+
 ## R. Oracle Linux real-VMware validation + RHEL-family deep checks — ✅ DONE (2026-06-29)
 
 Clean two-pass validation of `dsd` on OL 9.8 (RHCK) and OL 10.1 (UEK) guests on real
