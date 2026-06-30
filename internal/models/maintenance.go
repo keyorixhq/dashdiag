@@ -45,6 +45,20 @@ type KernelPatchInfo struct {
 	CheckUnverified bool `json:"check_unverified,omitempty"`
 }
 
+// LivePatchInfo reports kernel live-patching state from the generic livepatch sysfs
+// (/sys/kernel/livepatch/ — used by SUSE klp, RHEL kpatch, and Ubuntu Livepatch alike).
+// The silent failure it catches: a livepatch loaded but NOT enabled, or stuck mid-
+// transition — the running kernel still executes the UN-patched code despite live
+// patching being set up. Host-kernel concern: gated off inside containers.
+type LivePatchInfo struct {
+	Available            bool     `json:"available"` // at least one livepatch is loaded
+	PatchesLoaded        int      `json:"patches_loaded"`
+	PatchesEnabled       int      `json:"patches_enabled"`
+	DisabledPatches      []string `json:"disabled_patches,omitempty"`      // loaded but enabled=0
+	TransitioningPatches []string `json:"transitioning_patches,omitempty"` // transition=1 (not yet fully applied)
+	Tool                 string   `json:"tool,omitempty"`                  // "klp" / "kpatch" if the CLI is present
+}
+
 // KspliceInfo captures Oracle Ksplice (zero-downtime kernel patching) state:
 // whether live patches are pending-but-unapplied (the running kernel is exposed
 // despite a patch being available). Silent on hosts without Ksplice installed.
