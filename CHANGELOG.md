@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **RKE2 (Rancher Kubernetes Engine 2) detection** in `dsd k8s` / `dsd health`. RKE2's
+  kubectl lives off-PATH at `/var/lib/rancher/rke2/bin/kubectl` with a root-only kubeconfig,
+  so an RKE2 node previously reported "k8s not detected"; it's now recognized (carrying the
+  `--kubeconfig` so cluster queries reach the API) and health-checked like any cluster. New
+  `distribution` field reports `rke2`/`k3s`/`microk8s`/`kubeadm`. Validated live on real
+  SLES 16 + RKE2 v1.35.6.
+
 - **Kernel retention / `/boot`-filling check** (`KernelRetention` in `dsd health`). Flags the
   classic silent failure where old kernels accumulate on a small, separate `/boot` partition
   until it fills and the *next* kernel update fails mid-write — and the leading indicator, an
