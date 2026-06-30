@@ -220,3 +220,21 @@ func livePatchInspectHint(tool string) string {
 		return "to inspect: dmesg | grep -i livepatch"
 	}
 }
+
+// checkTransactional flags a staged-but-not-booted transactional update — the booted
+// btrfs snapshot differs from the default (next-boot) snapshot. On MicroOS / SLE Micro
+// the running system stays on the OLD snapshot until reboot, so any security/kernel
+// update in the new snapshot is NOT yet active — and `zypper needs-rebooting` misses it
+// (it checks the unchanged running snapshot). Silent on a clean transactional host.
+func checkTransactional(d models.TransactionalInfo) []models.Insight {
+	if !d.Available || !d.RebootPending {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Transactional",
+		fmt.Sprintf("a transactional update is staged but NOT active — the system is running snapshot %d while the default (next boot) is snapshot %d. Any security/kernel update in the new snapshot is not applied until you reboot",
+			d.BootedSnapshot, d.DefaultSnapshot),
+		[]string{
+			"to inspect: snapper list   (the booted '*' snapshot differs from the default '+')",
+			"to apply: reboot   (boots into the new default snapshot)",
+		})}
+}

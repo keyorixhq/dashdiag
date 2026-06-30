@@ -54,3 +54,4 @@ func (i KspliceInfo) IsAvailable() bool         { return i.Available }
 func (i ServiceRestartInfo) IsAvailable() bool  { return i.Available }
 func (i KernelRetentionInfo) IsAvailable() bool { return i.Available }
 func (i LivePatchInfo) IsAvailable() bool       { return i.Available }
+func (i TransactionalInfo) IsAvailable() bool   { return i.Available }

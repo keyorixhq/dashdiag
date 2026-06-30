@@ -88,3 +88,15 @@ func (c *LivePatchCollector) Collect(context.Context) (interface{}, error) {
 	return &models.LivePatchInfo{}, nil
 }
 func LivePatchAvailable() bool { return false }
+
+type TransactionalCollector struct{}
+
+func NewTransactionalCollector(platform.ContainerContext) *TransactionalCollector {
+	return &TransactionalCollector{}
+}
+func (c *TransactionalCollector) Name() string           { return "Transactional" }
+func (c *TransactionalCollector) Timeout() time.Duration { return time.Second }
+func (c *TransactionalCollector) Collect(context.Context) (interface{}, error) {
+	return &models.TransactionalInfo{}, nil
+}
+func TransactionalAvailable() bool { return false }
