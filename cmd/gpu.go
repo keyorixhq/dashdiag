@@ -335,10 +335,15 @@ func gpuConcerns(info *models.GPUInfo) (crits, warns int) {
 		// skip the memory-pressure tiers for them, matching checkGPU.
 		case dev.Unreadable || (plausEdge && dev.TempC >= 90) || (plausJunc && dev.TempJunctionC >= 100) || (dev.MemUsedPct >= 95 && !dev.IsAPU):
 			crits++
+		// NOTE: high UtilPct alone is NOT a concern — a GPU at 95–100% util is just
+		// busy (like a CPU under load). checkGPUDevice treats sustained load as an INFO
+		// correlation signal (util≥80 AND power≥80), never a WARN; counting bare util
+		// here made `dsd gpu` falsely report "GPU elevated" on a working GPU while
+		// `dsd health` stayed clean (the #275 sibling-divergence class, BUG-089).
 		case !plausEdge || !plausJunc ||
 			(plausEdge && dev.TempC >= 80) || (plausJunc && dev.TempJunctionC >= 90) || dev.Throttling ||
 			(dev.MemUsedPct >= 85 && !dev.IsAPU) || (dev.VRAMUsedPct >= 90 && !dev.IsAPU) ||
-			dev.UtilPct >= 95 || dev.PowerDPMLevel == "low":
+			dev.PowerDPMLevel == "low":
 			warns++
 		}
 	}
