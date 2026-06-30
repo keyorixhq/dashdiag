@@ -717,6 +717,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.RancherAvailable() {
 		cols = append(cols, collectors.NewRancherCollector())
 	}
+	// Pacemaker/Corosync HA cluster — gated on the cluster stack being installed.
+	if collectors.HAAvailable() {
+		cols = append(cols, collectors.NewHACollector())
+	}
 	// KVM/libvirt — gate on virsh availability
 	if collectors.KVMAvailable() {
 		cols = append(cols, collectors.NewKVMCollector())

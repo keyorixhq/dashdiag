@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Pacemaker/Corosync HA-cluster check** (`HACluster` in `dsd health`). On a host running
+  the cluster stack it reports lost quorum (CRIT), offline nodes (CRIT), failed resources
+  (CRIT), stopped resources (WARN), and — the classic "it failed over and corrupted the
+  data" footgun — **STONITH/fencing disabled or unconfigured** (WARN). Reads `crm_mon
+  --output-as=xml` + `corosync-quorumtool`; honest non-root degradation (running but
+  status-unreadable → INFO, not a false healthy). Silent on non-cluster hosts. Validated
+  live on a real pacemaker 3.0.0 cluster; parser unit-tested against real crm_mon XML.
+
 - **Rancher management-plane check** (`Rancher` in `dsd health`). On a cluster where Rancher
   (SUSE's Kubernetes management platform) is installed — detected by the `cattle-system`
   namespace — it reports a degraded mgmt plane: the `rancher` server or `rancher-webhook`
