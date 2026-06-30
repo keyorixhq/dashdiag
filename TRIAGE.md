@@ -900,6 +900,15 @@ lock (preferred, as here / `rpmDBHealth`) or serialize that tool's callers. A
 non-zero exit from such a tool must distinguish *locked* from *permission* from
 *real failure* before the verdict text blames the user.
 
+**Guard (post-BUG-088):** `collectors/zypper_lock_test.go::TestZypperCallsAreLockAware`
+is a completeness tripwire (same idiom as `exec_locale_test.go`) — it enumerates every
+`zypper` EXECUTION site and fails CI if a new one isn't registered in `zypperLockHandling`
+with its lock strategy, forcing the author to retry-on-lock + decide on the exit code (not
+stdout text) or document why it's lock-exempt. Registering the 9 existing sites surfaced
+two non-urgent follow-ups (honest-degrade, NOT false-OK): `cve_linux.go` `lp` uses `runCmd`
+(drops stdout on a non-zero exit → could under-report a CVE as Unknown), and `scanAllZypper`
+`list-patches` (`health --cve`) isn't lock-retry-hardened (degrades to honest ScanFailed).
+
 ---
 
 ## W. Storage-HA collector audit 2026-06-28 — ✅ 10 fixed across 6 PRs
