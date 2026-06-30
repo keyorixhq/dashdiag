@@ -1629,6 +1629,19 @@ func eccInsights(corrected, uncorrected int64, check string) []models.Insight {
 
 func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
+	// A device mounted read-write at any mountpoint cannot also have been dropped to
+	// read-only by a kernel I/O-error remount — that flips the whole block device to
+	// ro at once. So a read-only mount whose backing device is ALSO mounted
+	// read-write elsewhere is an intentional read-only BIND mount, not an error
+	// remount (e.g. NixOS binds /nix/store ro off the rw root for immutability;
+	// found on NixOS 25.05, 2026-06-30). Collect the rw device set up front so the
+	// ro check below can exclude these without hardcoding any distro.
+	rwDevices := make(map[string]bool)
+	for _, fs := range disk.Filesystems {
+		if !fs.ReadOnly && isWritableOnDiskFS(fs.FSType) {
+			rwDevices[fs.Device] = true
+		}
+	}
 	for _, fs := range disk.Filesystems {
 		// Inherently read-only image filesystems (iso9660, squashfs, erofs,
 		// cramfs) are packed to capacity at build time — 100% used is their
@@ -1704,7 +1717,10 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// so a "/-only" suppression false-WARNed those on FCOS (2026-06-29). A genuine
 		// I/O-error remount of a DATA mount (e.g. /var, /home) still WARNs everywhere.
 		immutableInfra := disk.ImmutableRootFS && isImmutableInfraMount(fs.Mount)
-		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra {
+		// A ro mount of a device that is mounted rw elsewhere is an intentional ro
+		// bind, not an I/O-error remount (see rwDevices comment above).
+		roBindOfRWDevice := fs.ReadOnly && rwDevices[fs.Device]
+		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra && !roBindOfRWDevice {
 			out = append(out, insight("WARN", "Disk",
 				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
 				[]string{

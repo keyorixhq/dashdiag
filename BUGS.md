@@ -1412,3 +1412,35 @@ live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO 
   result → ScanFailed, with a distinct "locked" reason. Unit-tested per exit code
   (`cve_zypper_linux_test.go`); registered in the zypper-lock tripwire.
 **Commit:** (this PR)
+
+## NixOS 25.05 (Warbler) — first full SSH-driven validation (2026-06-30)
+
+First proper two-pass (root + non-root) + capture validation on real NixOS, after a
+fresh scripted install (live ISO → `nixos-install` with SSH + pve01 key baked into
+`configuration.nix`) on pve01 VM 212. dsd's distro handling was already strong —
+NixOS detected, and every remedy hint correctly routed through `nixosifyHints`
+(`…in configuration.nix, then nixos-rebuild switch`, never editing files NixOS would
+clobber). One false-alarm found and fixed.
+
+### BUG-091 — `/nix/store` read-only bind false-WARNed as an I/O-error remount
+**Found:** live on NixOS 25.05, the deep validation pass (2026-06-30).
+**Symptom:** `dsd health` raised `Disk WARN: filesystem /nix/store (ext4 …) is mounted
+  READ-ONLY — the kernel likely remounted it after an I/O error` on a perfectly
+  healthy NixOS host. NixOS bind-mounts `/nix/store` **read-only off the read-write
+  root** for immutability/tamper-protection — by design, not a fault. `dmesg` had zero
+  I/O errors.
+**Root cause:** the writable-fs-mounted-ro check (`checkDisk`) only suppressed the WARN
+  for ostree/transactional/SteamOS immutable infra (`ImmutableRootFS`), which NixOS is
+  not. It never considered that the SAME backing device (`/dev/disk/by-uuid/407cadeb…`)
+  was mounted **rw** at `/` and **ro** at `/nix/store` — a topology a kernel I/O-error
+  remount cannot produce (an error remount flips the whole block device to ro at once,
+  so `/` would be ro too). That signature is unique to an intentional ro bind.
+**Affected:** NixOS (every host — `/nix/store` is always a ro bind), and any host with a
+  ro bind mount of an otherwise-rw filesystem.
+**Fix:** in `checkDisk`, build the set of devices mounted rw (writable on-disk fstypes)
+  up front; a ro mount whose device is in that set is an intentional ro bind →
+  suppressed. Distro-agnostic (no NixOS special-case). A genuine error remount — a ro
+  mount whose device is **not** mounted rw anywhere — still WARNs. Real-bytes unit test
+  `nixos_nix_store_ro_test.go` (the captured bundle `nixos-2505-20260630.tar.gz` replays
+  the bug pre-fix and clean post-fix).
+**Commit:** (this PR)
