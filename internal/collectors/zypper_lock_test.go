@@ -46,8 +46,8 @@ var zypperLockHandling = map[string]string{
 	// a false-OK green — it fails closed or surfaces an explicit unverified/failed state.
 	"packages_linux.go:--version": "detection only (is zypper present?) — no verdict derived from the output; lock-exempt.",
 	"packages_linux.go:repos":     "zypperHasSecurityRepo: a lock-loss errors → returns false ('no security repo'). Fail-CLOSED (pessimistic WARN, not a false-OK); the primary security scan (list-patches) already retries the lock, so this secondary signal is not retry-hardened.",
-	"cve_linux.go:lp":             "checkCVEZypper (standalone `dsd cve <id>`, no concurrent zypper): `err != nil && len(out)==0` → CVEUnknown, so a lock degrades to honest Unknown, never a false NotAffected. NOTE: uses runCmd (drops stdout on a non-zero exit) — a separate under-report risk if `zypper lp` ever exits non-zero WITH a patch table; tracked apart from the lock class.",
-	"cve_linux.go:list-patches":   "scanAllZypper (folded into `health --cve`, runs concurrently): a lock-loss → ScanFailed=true (CVEAllResult.ScanFailed, registered in the false-OK tripwire) → honest 'scan failed', never a false 'no CVEs'. Not retry-hardened — a retry would just upgrade an honest fail to a result.",
+	"cve_linux.go:lp":             "checkCVEZypper (standalone `dsd cve <id>`): runCmdOutput KEEPS the patch table on a non-zero exit (`zypper lp` exits non-zero when patches are needed), so a vulnerable system reads CVEVulnerable, not a false Unknown; a lock (exit 7, empty stdout) still degrades to honest CVEUnknown via the `err && empty` guard (cve_zypper_linux_test.go).",
+	"cve_linux.go:list-patches":   "scanAllZypper (folded into `health --cve`): runCmdCombined + zypperLocked retry ×5, mirroring collectZypper — keeps the table on a non-zero exit (was a missed-CVE under-report under runCmd) and retries the lock; only an EMPTY result → ScanFailed (CVEAllResult.ScanFailed, registered in the false-OK tripwire), with a distinct 'locked' reason (cve_zypper_linux_test.go).",
 
 	// ✅ Deep advisory, fail-open accepted: a lock-loss skips a low-severity *advisory*
 	// (not a health verdict). Documented acceptance, not a hardened path.

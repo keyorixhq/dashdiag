@@ -1383,4 +1383,32 @@ live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO 
   and the all-stopped rule from `dockerConcerns`. Extended the consistency guard to
   boundary-cover every concern-condition in gpu/docker/net/k8s (net/k8s agreed — pure
   coverage gain), so these can't silently re-diverge.
+**Commit:** #663
+
+### BUG-090 — CVE zypper scans dropped the patch table on a non-zero exit (missed-CVE under-report)
+**Found:** auditing the two zypper CVE call sites flagged by the #662 lock tripwire
+  registry (2026-06-30).
+**Symptom:** `zypper lp` / `zypper list-patches` EXIT NON-ZERO when patches are
+  applicable (`ZYPPER_EXIT_INF_*_UPDATE_NEEDED`), writing the patch table to stdout.
+  Both CVE collectors used plain `runCmd`, which DISCARDS stdout on a non-zero exit —
+  so a SUSE system that genuinely HAD pending security patches read as:
+  - `dsd cve <id>` → **CVEUnknown** ("zypper lp failed") instead of **VULNERABLE**;
+  - `dsd health --cve` / `dsd cve --all` → **ScanFailed** ("list-patches failed")
+    instead of listing the advisories.
+  Either way a vulnerable host under-reported its exposure. `scanAllZypper` also had
+  no zypp-lock retry (the BUG-088 class), so a sibling zypper collector holding the
+  lock flapped it to "failed" too.
+**Root cause:** `runCmd` drops findings-bearing stdout when a tool signals via a
+  non-zero exit — the same class as the #366/#480/#481 apt/dnf/zypper false-OKs. The
+  CVE paths never adopted the `runCmdOutput`/`runCmdCombined` fix the package collector
+  already uses.
+**Affected:** `dsd cve <id>` and `dsd health --cve` / `dsd cve --all` on SUSE/openSUSE
+  whenever security patches are actually pending.
+**Fix:** `checkCVEZypper` → `runCmdOutput` (keeps the table on a non-zero exit; a real
+  lock/permission failure still arrives as err with empty stdout → honest CVEUnknown).
+  `scanAllZypper` → `runCmdCombined` + `zypperLocked` retry ×5 mirroring `collectZypper`,
+  checking the lock BEFORE emptiness (the combined output folds the lock message in, so
+  a len==0 test would miss it → a false "no CVEs"); only a genuinely empty/non-table
+  result → ScanFailed, with a distinct "locked" reason. Unit-tested per exit code
+  (`cve_zypper_linux_test.go`); registered in the zypper-lock tripwire.
 **Commit:** (this PR)
