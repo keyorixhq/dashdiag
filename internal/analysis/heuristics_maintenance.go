@@ -141,3 +141,48 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 	}
 	return nil
 }
+
+// checkKernelRetention flags old kernels at risk of filling /boot (the next kernel
+// update can fail mid-write), and the unbounded-retention policy that leads there.
+func checkKernelRetention(d models.KernelRetentionInfo) []models.Insight {
+	if !d.Available {
+		return nil
+	}
+	// Concrete risk: a small, near-full /boot with several kernels. A /boot on a roomy
+	// root fs reports a large BootTotalGB and never trips this.
+	if d.BootTotalGB > 0 && d.BootTotalGB < 2.0 && d.InstalledKernels >= 3 && d.BootUsedPct >= 80 {
+		level := "WARN"
+		if d.BootUsedPct >= 90 {
+			level = "CRIT"
+		}
+		return []models.Insight{insight(level, "KernelRetention",
+			fmt.Sprintf("/boot is %.0f%% full with %d kernels installed — the next kernel update can fail mid-write; remove old kernels",
+				d.BootUsedPct, d.InstalledKernels),
+			kernelRetentionHints(d.PackageManager))}
+	}
+	// Leading indicator: unbounded retention policy + a growing pile (before /boot bites).
+	if d.Unbounded && d.InstalledKernels >= 5 {
+		return []models.Insight{insight("WARN", "KernelRetention",
+			fmt.Sprintf("kernel retention is unbounded (%s) and %d kernels are installed — they keep accumulating and will eventually fill /boot",
+				d.RetentionPolicy, d.InstalledKernels),
+			kernelRetentionHints(d.PackageManager))}
+	}
+	return nil
+}
+
+func kernelRetentionHints(pm string) []string {
+	switch pm {
+	case "zypper":
+		return []string{
+			"to clean: sudo purge-kernels",
+			"to bound: set multiversion.kernels = latest,latest-1,running in /etc/zypp/zypp.conf",
+		}
+	case "dnf":
+		return []string{
+			"to clean: sudo dnf remove --oldinstallonly",
+			"to bound: set installonly_limit=3 in /etc/dnf/dnf.conf",
+		}
+	default:
+		return []string{"to clean: sudo apt autoremove --purge"}
+	}
+}

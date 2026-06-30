@@ -68,3 +68,19 @@ type ServiceRestartInfo struct {
 	NeedsRoot  bool     `json:"needs_root,omitempty"` // non-root could only scan own processes
 	ToolUsed   string   `json:"tool_used,omitempty"`  // "proc-maps" or "needs-restarting"
 }
+
+// KernelRetentionInfo flags the "old kernels filling /boot" risk. The concrete failure
+// is a small, separate /boot partition near-full with several installed kernels: the
+// NEXT kernel update can fail mid-write (a classic, silent SLES/RHEL outage). The
+// leading indicator is an unbounded retention policy — zypper `multiversion.kernels`
+// set to/including `all`, or dnf `installonly_limit=0` — which lets kernels pile up.
+// Host-kernel concern: gated off inside containers (they share the host kernel, no /boot).
+type KernelRetentionInfo struct {
+	Available        bool    `json:"available"`
+	PackageManager   string  `json:"package_manager,omitempty"`  // "zypper" / "dnf" / "apt"
+	InstalledKernels int     `json:"installed_kernels"`          // kernel images occupying /boot
+	RetentionPolicy  string  `json:"retention_policy,omitempty"` // e.g. "latest,latest-1,running" or "installonly_limit=3"
+	Unbounded        bool    `json:"unbounded"`                  // policy keeps "all" / no limit → kernels accumulate
+	BootTotalGB      float64 `json:"boot_total_gb"`              // size of the fs holding /boot (small ⇒ separate /boot at risk)
+	BootUsedPct      float64 `json:"boot_used_pct"`
+}

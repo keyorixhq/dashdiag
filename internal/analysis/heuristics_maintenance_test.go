@@ -131,3 +131,34 @@ func TestCheckServiceRestart(t *testing.T) {
 		t.Errorf("partial non-root scan must INFO, not silently pass")
 	}
 }
+
+func TestCheckKernelRetention(t *testing.T) {
+	if got := checkKernelRetention(models.KernelRetentionInfo{Available: false}); got != nil {
+		t.Errorf("absent must be nil")
+	}
+	// A /boot on a roomy root fs is never a concern, even with many kernels.
+	roomy := models.KernelRetentionInfo{Available: true, PackageManager: "zypper", InstalledKernels: 6, BootTotalGB: 30, BootUsedPct: 8}
+	if got := checkKernelRetention(roomy); len(got) != 0 {
+		t.Errorf("roomy /boot must be silent, got %+v", got)
+	}
+	// Small separate /boot, near full, several kernels → WARN.
+	full := models.KernelRetentionInfo{Available: true, PackageManager: "dnf", InstalledKernels: 4, BootTotalGB: 0.5, BootUsedPct: 85}
+	if !hasInsightMsg(checkKernelRetention(full), "WARN", "next kernel update can fail") {
+		t.Errorf("small near-full /boot with kernels must WARN: %+v", checkKernelRetention(full))
+	}
+	// ≥90% → CRIT.
+	crit := models.KernelRetentionInfo{Available: true, PackageManager: "dnf", InstalledKernels: 5, BootTotalGB: 0.5, BootUsedPct: 93}
+	if !hasInsightMsg(checkKernelRetention(crit), "CRIT", "next kernel update") {
+		t.Errorf("near-full /boot must CRIT at ≥90%%: %+v", checkKernelRetention(crit))
+	}
+	// Unbounded retention + a growing pile → WARN even on a roomy /boot.
+	unb := models.KernelRetentionInfo{Available: true, PackageManager: "zypper", Unbounded: true, RetentionPolicy: "all", InstalledKernels: 6, BootTotalGB: 30, BootUsedPct: 20}
+	if !hasInsightMsg(checkKernelRetention(unb), "WARN", "unbounded") {
+		t.Errorf("unbounded retention with a pile must WARN: %+v", checkKernelRetention(unb))
+	}
+	// Unbounded but only a couple kernels → not yet a concern.
+	few := models.KernelRetentionInfo{Available: true, PackageManager: "zypper", Unbounded: true, InstalledKernels: 2, BootTotalGB: 30, BootUsedPct: 20}
+	if got := checkKernelRetention(few); len(got) != 0 {
+		t.Errorf("unbounded but few kernels should be silent, got %+v", got)
+	}
+}
