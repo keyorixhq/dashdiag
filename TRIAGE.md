@@ -11,6 +11,23 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## ZA. kubeadm validation + `sudo dsd` can't reach the API — ✅ DONE (2026-07-01)
+
+Second "beyond k3s" target: real **kubeadm** v1.31 (canonical reference, static-pod
+control plane, flannel CNI) on **pve01 VM 109 `kubeadm-test`** (Debian 13, 192.168.10.52).
+Confirmed BUG-093 doesn't over-fire (no `EtcdIsVoter` on kubeadm) and dsd honestly flagged
+a genuinely-degraded coredns. Found + fixed **BUG-094**: `k8sDetectBin` had kubeconfig
+detection for k3s/RKE2 but not kubeadm's **`/etc/kubernetes/admin.conf`**, so `sudo dsd
+k8s`/`health` ran bare kubectl → localhost:8080 → "API unreachable" on a healthy cluster
+(non-root via `~/.kube/config` worked — inverted privilege). Fix appends
+`--kubeconfig=/etc/kubernetes/admin.conf` for plain kubectl, gated to root with no
+kubeconfig of its own (non-root path untouched). Pure helper + table test
+`kubeadm_kubeconfig_test.go`; capture `kubeadm-debian-20260701.tar.gz`. Memory
+`kubeadm-validation-vm`. (Trixie gotcha: k8s apt repo's v3 signature is rejected by sqv →
+`[trusted=yes]`; conntrack/socat needed for kubeadm preflight.)
+
+---
+
 ## Z. RKE2 "beyond k3s" validation + `EtcdIsVoter` false-CRIT — ✅ DONE (2026-07-01)
 
 First live validation of the k8s OS-layer on a real **RKE2** cluster (RKE2 detection
