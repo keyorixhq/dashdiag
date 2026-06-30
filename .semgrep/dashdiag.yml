@@ -82,6 +82,40 @@ rules:
       - pattern-not: os.Open("/sys/" + ...)
       - pattern-not: os.ReadDir("/sys/" + ...)
 
+  - id: dsd-collector-raw-fs-bypasses-source
+    languages: [go]
+    severity: ERROR
+    message: >
+      A collector touches the filesystem / runs a command through raw os.* /
+      exec.* instead of the Source-routed helpers (readFile, statFile,
+      fileExists, glob, readLink, runCmd, runCmdOutput, hasCmd, lookPath). Raw
+      access reads the LIVE machine — it works perfectly live but SILENTLY
+      breaks `dsd capture` -> `dsd replay`: the bundle is ignored and replay
+      reads the replaying host, not the captured one (the hardest replay bug to
+      notice — it only shows under replay). Route it through the helpers in
+      fsaccess.go / collector.go so capture and replay stay byte-faithful.
+      Suppress ONLY for genuinely live-only, non-replayable intent with
+      `// nosemgrep: dsd-collector-raw-fs-bypasses-source -- <why it is live-only>`.
+    paths:
+      include:
+        - internal/collectors/
+      exclude:
+        - "*_test.go"
+        - collector.go
+        - fsaccess.go
+    patterns:
+      - pattern-either:
+          - pattern: os.ReadFile(...)
+          - pattern: os.Open(...)
+          - pattern: os.OpenFile(...)
+          - pattern: os.ReadDir(...)
+          - pattern: os.Stat(...)
+          - pattern: os.Lstat(...)
+          - pattern: os.Readlink(...)
+          - pattern: exec.Command(...)
+          - pattern: exec.CommandContext(...)
+          - pattern: exec.LookPath(...)
+
   - id: dsd-ssh-scp-without-host-validation
     languages: [go]
     severity: ERROR

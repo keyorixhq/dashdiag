@@ -931,6 +931,7 @@ func isRHEL10Plus() bool {
 // live-environment hint — neither side is meaningful under replay, and FileMeta
 // deliberately does not carry uid/gid.
 func collectSocketPermReason(socketPath, runtime string) string {
+	// nosemgrep: dsd-collector-raw-fs-bypasses-source -- live operator hint (socket GID vs live os.Getgroups); not meaningful under replay, FileMeta carries no uid/gid (see func doc)
 	fi, err := os.Stat(socketPath)
 	if err != nil {
 		return fmt.Sprintf("%s socket found at %s but permission denied", runtime, socketPath)
