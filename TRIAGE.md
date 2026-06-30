@@ -11,6 +11,23 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## Z. RKE2 "beyond k3s" validation + `EtcdIsVoter` false-CRIT — ✅ DONE (2026-07-01)
+
+First live validation of the k8s OS-layer on a real **RKE2** cluster (RKE2 detection
+#667 + Rancher mgmt-plane check #668 were fixture-only). Single-node RKE2 v1.35.6 on
+**pve01 VM 108 `rke2-test`** (Debian 13 cloud-init, 192.168.10.51). dsd auto-found the
+RKE2 kubeconfig, read nodes/pods, k8s-aware sysctl checks correct, Rancher check
+correctly silent (RKE2 ≠ Rancher). Found + fixed **BUG-093**: `checkK8sNodes`
+(`heuristics_virt.go`) blanket-CRIT'd any node condition that was `True` except `Ready`,
+so RKE2/k3s-etcd's **`EtcdIsVoter=True`** (which means *healthy* etcd voter) false-CRIT'd
+every etcd control-plane node. Fix = allowlist the standard problem conditions
+(MemoryPressure/DiskPressure/PIDPressure/NetworkUnavailable); never assume an unknown
+condition is bad-when-True. Default-sqlite k3s has no etcd conditions → only "beyond
+k3s" exposed it. Test `k8s_node_conditions_test.go`; capture `rke2-debian-20260701.tar.gz`.
+Memory `rke2-validation-vm`. (kubeadm remains a possible follow-up.)
+
+---
+
 ## Y. Host service collectors detect containerized processes — ✅ DONE (2026-07-01)
 
 Validated the minimal-footprint "Docker host, no systemd" use case on **pve01 VM 106
