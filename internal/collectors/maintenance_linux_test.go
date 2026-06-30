@@ -8,7 +8,54 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestSUSERebootSignalExitCodes guards BUG-088: the SUSE Kernel row keyed on
+// `zypper needs-rebooting` STDOUT, but under root a sibling zypper collector holds
+// the zypp lock so needs-rebooting fails fast with exit 7 and EMPTY stdout → the
+// whole Kernel row was silently dropped under root (proven via a capture bundle on
+// real SLES 16). The fix keys on the EXIT CODE and surfaces a held lock as
+// "couldn't determine" instead of dropping the row. Each subtest scripts one exit.
+func TestSUSERebootSignalExitCodes(t *testing.T) {
+	cases := []struct {
+		name               string
+		exit               int
+		ctxDone            bool // expired ctx so the locked path doesn't really sleep 4s
+		wantOK, wantReboot bool
+		wantUnverified     bool
+	}{
+		{name: "exit0_no_reboot", exit: 0, wantOK: true},
+		{name: "exit102_reboot_needed", exit: 102, wantOK: true, wantReboot: true},
+		{name: "exit7_locked_is_unverified_not_dropped", exit: 7, ctxDone: true, wantOK: true, wantUnverified: true},
+		{name: "other_error_falls_through", exit: 4, wantOK: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := fakeRunSource{run: func(name string, _ []string) source.Result {
+				return source.Result{ExitCode: tc.exit}
+			}}
+			defer SetSource(SetSource(fake))
+
+			ctx := context.Background()
+			if tc.ctxDone {
+				c, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = c
+			}
+			ok, reboot, unverified := suseRebootSignal(ctx)
+			if ok != tc.wantOK || reboot != tc.wantReboot || unverified != tc.wantUnverified {
+				t.Fatalf("exit %d: got (ok=%v reboot=%v unverified=%v), want (ok=%v reboot=%v unverified=%v)",
+					tc.exit, ok, reboot, unverified, tc.wantOK, tc.wantReboot, tc.wantUnverified)
+			}
+			// The critical invariant: a held lock must NEVER read as a clean reboot=false
+			// OK row — it must be flagged unverified so health shows INFO, not "Kernel OK".
+			if tc.exit == 7 && !unverified {
+				t.Fatal("ZYPP_LOCKED (exit 7) must surface as unverified, never a silent OK")
+			}
+		})
+	}
+}
 
 // TestMaintenanceSkip pins the host-kernel gate, including the #655 regression:
 // kdump/kernel/Ksplice are host-kernel concerns, so they must skip inside a

@@ -86,6 +86,12 @@ func TestCheckKernelPatch(t *testing.T) {
 	if hasInsightMsg(gs, "WARN", "newer kernel ()") {
 		t.Errorf("must not emit an empty '(%%s)' when LatestInstalled is unknown: %+v", gs)
 	}
+	// BUG-088: SUSE zypp lock held the whole budget → reboot status genuinely unknown.
+	// Must surface INFO "could not be determined", never a silent OK (nil) or a WARN.
+	unv := checkKernelPatch(models.KernelPatchInfo{Available: true, CheckUnverified: true, RebootNeeded: false})
+	if !hasInsightMsg(unv, "INFO", "could not be determined") {
+		t.Errorf("zypp-locked kernel must surface INFO 'could not be determined', not a clean OK: %+v", unv)
+	}
 }
 
 func TestCheckKsplice(t *testing.T) {

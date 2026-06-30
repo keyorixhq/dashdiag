@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -182,16 +183,9 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 		// SUSE (kernel-default): the package NVRA and uname don't line up (uname carries
 		// the `-default` flavor), so use zypper's own signal instead of parsing versions.
 		if hasCmd("zypper") {
-			if z, _ := runCmdOutput(ctx, "zypper", "needs-rebooting"); z != "" {
-				low := strings.ToLower(z)
-				switch {
-				case strings.Contains(low, "reboot is suggested"):
-					info.Available, info.RebootNeeded = true, true
-					return info, nil
-				case strings.Contains(low, "probably not necessary"), strings.Contains(low, "reboot is not"):
-					info.Available = true
-					return info, nil
-				}
+			if ok, rebootNeeded, unverified := suseRebootSignal(ctx); ok {
+				info.Available, info.RebootNeeded, info.CheckUnverified = true, rebootNeeded, unverified
+				return info, nil
 			}
 		}
 	}
@@ -208,6 +202,45 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 	// leave Available=false so health does NOT show a misleading "Kernel OK" having
 	// checked nothing.
 	return info, nil
+}
+
+// suseRebootSignal maps `zypper needs-rebooting` to a reboot verdict by its EXIT
+// CODE — robust to C-locale wording shifts the old stdout-text match couldn't see:
+//
+//	0   → no reboot needed
+//	102 → ZYPPER_EXIT_INF_REBOOT_NEEDED (a kernel/core-lib update awaits a reboot)
+//	7   → ZYPP_LOCKED (the one global zypp lock is held)
+//
+// The lock matters because `dsd health` runs the package collector's `zypper verify`
+// concurrently under root; it holds the lock, so needs-rebooting fails fast with
+// EMPTY stdout (exit 7). The previous code keyed on stdout text → read empty → the
+// whole Kernel row was silently DROPPED under root only (BUG-088, the lock-race
+// sibling of the #480 integrity false-OK). Retry the lock like the package collector
+// does; if it stays locked for the whole budget, report unverified (surfaced as INFO
+// "couldn't determine") rather than dropping the row or implying "Kernel OK".
+//
+// Returns ok=false for a non-lock zypper error so the caller falls through to other
+// distro signals instead of asserting an unverified SUSE row on a misread.
+func suseRebootSignal(ctx context.Context) (ok, rebootNeeded, unverified bool) {
+	for attempt := 0; attempt < 5; attempt++ {
+		out, err := runCmdCombined(ctx, "zypper", "needs-rebooting")
+		var ce *cmdError
+		isExit := errors.As(err, &ce)
+		switch {
+		case err == nil: // exit 0
+			return true, false, false
+		case isExit && ce.code == 102:
+			return true, true, false
+		}
+		locked := (isExit && ce.code == 7) || zypperLocked(out)
+		if !locked {
+			return false, false, false // non-lock error — let the caller fall through
+		}
+		if !sleepCtx(ctx, 800*time.Millisecond) {
+			break // ctx cancelled — don't spin
+		}
+	}
+	return true, false, true // locked the whole budget — honest "couldn't measure"
 }
 
 // ── Ksplice (Oracle live patching) ───────────────────────────────────────────
