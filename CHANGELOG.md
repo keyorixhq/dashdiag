@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **CVE zypper scans under-reported when security patches were actually pending** (BUG-090).
+  `zypper lp`/`list-patches` exit non-zero when patches are applicable (writing the table
+  to stdout), but the CVE collectors used `runCmd`, which drops stdout on a non-zero exit —
+  so `dsd cve <id>` read CVEUnknown and `dsd health --cve` read "scan failed" on a host that
+  genuinely had pending security patches. Now keep the table (`runCmdOutput`/`runCmdCombined`)
+  and retry the zypp lock, mirroring the package collector; only a genuinely empty result is
+  reported as failed (with a distinct "locked" reason).
+
 - **`dsd gpu` and `dsd docker` standalone verdicts diverged from `dsd health`** (BUG-089,
   the #275 sibling-divergence class). `dsd gpu` reported "GPU elevated" on a GPU at ≥95%
   utilization (a busy GPU is not a fault — `dsd health` correctly stayed clean), and

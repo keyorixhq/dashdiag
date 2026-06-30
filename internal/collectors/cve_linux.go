@@ -163,7 +163,13 @@ func fixCommand() string {
 func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "zypper"}
 
-	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+	// runCmdOutput, not runCmd: `zypper lp` EXITS NON-ZERO when patches are applicable
+	// (ZYPPER_EXIT_INF_*_UPDATE_NEEDED), writing the patch table to stdout — runCmd
+	// would discard that on the non-zero exit, so a genuinely-VULNERABLE system read as
+	// CVEUnknown ("zypper lp failed") instead of CVEVulnerable. Same exit-code-carries-
+	// findings reason collectZypper / pkgIntegrityZypper use combined output. A real
+	// failure (lock/permission) still arrives as err WITH empty stdout → handled below.
+	out, err := runCmdOutput(ctx, "zypper", "--non-interactive", "--no-color",
 		"lp", "--cve="+cveID)
 
 	lower := strings.ToLower(out)
@@ -530,16 +536,47 @@ func ovalToCVEAllResult(results []cvedata.OVALCVSSResult, ovalPath string) *mode
 func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "zypper"}
 
-	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
-		"list-patches", "--category", "security")
-	if err != nil && len(out) == 0 {
-		result.StatusReason = "zypper list-patches failed: " + err.Error()
+	// runCmdCombined + lock retry, mirroring the package collector's collectZypper
+	// (#480): `zypper list-patches` shares the one global zypp lock and EXITS NON-ZERO
+	// when patches are applicable (writing the table to stdout). Plain runCmd dropped
+	// that output on the non-zero exit, so a system WITH pending security patches read
+	// as ScanFailed (a missed-CVE under-report); and a sibling collector holding the
+	// lock (exit 7) made it flap to "failed" instead of retrying. Keep the output and
+	// retry the lock; only an EMPTY result is a genuine failure.
+	var out string
+	var err error
+	locked := false
+	for attempt := 0; attempt < 5; attempt++ {
+		out, err = runCmdCombined(ctx, "zypper", "--non-interactive", "--no-color",
+			"list-patches", "--category", "security")
+		locked = err != nil && zypperLocked(out)
+		if !locked {
+			break
+		}
+		if !sleepCtx(ctx, 800*time.Millisecond) {
+			break // ctx cancelled — don't spin
+		}
+	}
+	if locked {
+		// Held the whole retry budget — a sibling zypper collector has the lock. Check
+		// this BEFORE emptiness: runCmdCombined folds the lock message (stderr) into out,
+		// so out is non-empty, and a len(out)==0 test would miss it → a false "no CVEs".
+		result.StatusReason = "zypper is locked by another process — security patches not scanned"
 		result.ScanFailed = true
 		return result
 	}
 
 	lower := strings.ToLower(out)
-	if strings.Contains(lower, "no patch") || strings.Contains(lower, "nothing to do") {
+	hasNoPatchMsg := strings.Contains(lower, "no patch") || strings.Contains(lower, "nothing to do")
+	// A non-lock error with NEITHER the patch table NOR a "no patches" message is a
+	// genuine failure (tool absent, permission, broken repo) — never a clean "no CVEs".
+	// An error WITH the table is the patches-needed exit (100/101): keep parsing it.
+	if err != nil && !strings.Contains(out, "|") && !hasNoPatchMsg {
+		result.StatusReason = "zypper list-patches failed: " + err.Error()
+		result.ScanFailed = true
+		return result
+	}
+	if hasNoPatchMsg {
 		result.StatusReason = "no pending security patches — system is up to date"
 		result.FixCommand = "zypper patch --category security"
 		return result
