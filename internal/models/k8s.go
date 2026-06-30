@@ -75,6 +75,9 @@ type K8sInfo struct {
 	// Detected && !APIReachable as "health not verified".
 	APIReachable bool   `json:"api_reachable"`
 	KubeBin      string `json:"kube_bin"`
+	// Distribution is the Kubernetes flavor in use ("rke2", "k3s", "microk8s",
+	// "kubeadm"), best-effort from on-disk markers. Empty when undetermined.
+	Distribution string `json:"distribution,omitempty"`
 	// OS-layer deep checks (only populated when --deep and running on k8s node)
 	OSLayer      *K8sOSLayer `json:"os_layer,omitempty"`
 	Status       string      `json:"status,omitempty"`

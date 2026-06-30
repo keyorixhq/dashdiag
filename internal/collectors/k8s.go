@@ -38,6 +38,7 @@ func (c *K8sCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info.Detected = true
 	info.KubeBin = bin
+	info.Distribution = k8sDistribution()
 
 	// Nodes with conditions
 	collectK8sNodes(ctx, bin, info)
@@ -661,6 +662,16 @@ func K8sAvailable() bool {
 // k8sDetectBin returns the kubectl binary to use, or "" if none found.
 // Checks both PATH and common installation locations since sudo may strip PATH.
 func k8sDetectBin() string {
+	// RKE2 (Rancher's enterprise K8s, the typical Rancher/SLES substrate) ships its own
+	// kubectl under /var/lib/rancher/rke2/bin and its kubeconfig is root-only at
+	// /etc/rancher/rke2/rke2.yaml — plain `kubectl` on the host can't find the cluster
+	// without it. Detect it explicitly and carry the --kubeconfig so k8sRun reaches the
+	// API (k8sRun splits the bin on whitespace, so the flag rides along). Checked before
+	// the generic kubectl paths because an RKE2 node often also has a bare /usr/local/bin
+	// kubectl that would otherwise be picked WITHOUT the kubeconfig and fail every query.
+	if fileExists("/var/lib/rancher/rke2/bin/kubectl") {
+		return "/var/lib/rancher/rke2/bin/kubectl --kubeconfig=/etc/rancher/rke2/rke2.yaml"
+	}
 	// Direct path checks first (sudo safe paths)
 	directPaths := []struct{ bin, bin2 string }{
 		{"/usr/local/bin/k3s", "k3s"},
@@ -690,6 +701,24 @@ func k8sDetectBin() string {
 	}
 	if _, err := lookPath("kubectl"); err == nil {
 		return "kubectl"
+	}
+	return ""
+}
+
+// k8sDistribution returns the Kubernetes distribution in use ("rke2", "k3s",
+// "microk8s", "kubeadm") from on-disk markers, or "" when undetermined. Order
+// matters: RKE2 also lays down /var/lib/rancher, so check its rke2-specific path
+// before the k3s one.
+func k8sDistribution() string {
+	switch {
+	case fileExists("/var/lib/rancher/rke2") || fileExists("/etc/rancher/rke2/rke2.yaml"):
+		return "rke2"
+	case fileExists("/var/lib/rancher/k3s") || fileExists("/etc/rancher/k3s/k3s.yaml"):
+		return "k3s"
+	case fileExists("/var/snap/microk8s") || fileExists("/snap/bin/microk8s"):
+		return "microk8s"
+	case fileExists("/etc/kubernetes/manifests") || fileExists("/var/lib/kubelet/config.yaml"):
+		return "kubeadm"
 	}
 	return ""
 }
