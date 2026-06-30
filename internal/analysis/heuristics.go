@@ -1219,6 +1219,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkServiceRestart(*d)
 		}
+	case models.KernelRetentionInfo:
+		return checkKernelRetention(d)
+	case *models.KernelRetentionInfo:
+		if d != nil {
+			return checkKernelRetention(*d)
+		}
 	}
 	return nil
 }

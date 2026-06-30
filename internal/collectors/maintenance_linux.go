@@ -365,3 +365,104 @@ func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error
 	info.NeedsRoot = nonRoot && deniedOthers
 	return info, nil
 }
+
+// ── Kernel retention / /boot space ───────────────────────────────────────────
+
+type KernelRetentionCollector struct{ cc platform.ContainerContext }
+
+func NewKernelRetentionCollector(cc platform.ContainerContext) *KernelRetentionCollector {
+	return &KernelRetentionCollector{cc: cc}
+}
+func (c *KernelRetentionCollector) Name() string           { return "KernelRetention" }
+func (c *KernelRetentionCollector) Timeout() time.Duration { return 5 * time.Second }
+
+// KernelRetentionAvailable gates on a recognized kernel package manager.
+func KernelRetentionAvailable() bool { return hasCmd("rpm") || hasCmd("dpkg") }
+
+func (c *KernelRetentionCollector) Collect(_ context.Context) (interface{}, error) {
+	if maintenanceSkip(KernelRetentionAvailable(), c.cc.InContainer) {
+		return &models.KernelRetentionInfo{}, nil
+	}
+	info := &models.KernelRetentionInfo{}
+
+	// Count kernel images occupying /boot. The bare `vmlinuz`/`initrd` symlinks have no
+	// version suffix and are excluded — this counts the per-version images, the
+	// cross-distro proxy for what actually fills /boot regardless of package naming.
+	imgs, _ := glob("/boot/vmlinuz-*")
+	info.InstalledKernels = len(imgs)
+
+	switch {
+	case hasCmd("zypper"):
+		info.PackageManager = "zypper"
+		if b, err := readFile("/etc/zypp/zypp.conf"); err == nil {
+			info.RetentionPolicy, info.Unbounded = parseMultiversionKernels(string(b))
+		}
+	case hasCmd("dnf") || hasCmd("yum"):
+		info.PackageManager = "dnf"
+		if b, err := readFile("/etc/dnf/dnf.conf"); err == nil {
+			info.RetentionPolicy, info.Unbounded = parseInstallonlyLimit(string(b))
+		}
+	case hasCmd("dpkg"):
+		info.PackageManager = "apt"
+		// apt has no built-in retention limit; old kernels are cleared by `apt autoremove`.
+		// Don't claim a policy is unbounded — just report the boot-space risk below.
+	}
+
+	// /boot space. statFs follows the mount, so a SEPARATE small /boot reports a small
+	// BootTotalGB (the at-risk case), while a /boot on a roomy root reports the root
+	// size — large, so the heuristic never trips on it.
+	if st, err := statFs("/boot"); err == nil && st.Blocks > 0 {
+		info.BootTotalGB = float64(st.Blocks) * float64(st.Bsize) / (1 << 30)
+		info.BootUsedPct = (1 - float64(st.Bavail)/float64(st.Blocks)) * 100
+	}
+
+	info.Available = info.InstalledKernels > 0 && info.PackageManager != ""
+	return info, nil
+}
+
+// parseMultiversionKernels extracts zypper's `multiversion.kernels` value. "all" (alone
+// or in the comma list) means libzypp keeps EVERY installed kernel — unbounded growth.
+// An absent/empty setting is NOT unbounded: without multiversion, zypper removes the
+// superseded kernel on update (keeps one).
+func parseMultiversionKernels(conf string) (policy string, unbounded bool) {
+	for _, line := range strings.Split(conf, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "multiversion.kernels") {
+			continue
+		}
+		_, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		policy = strings.TrimSpace(val)
+		for _, tok := range strings.Split(policy, ",") {
+			if strings.EqualFold(strings.TrimSpace(tok), "all") {
+				unbounded = true
+			}
+		}
+		return policy, unbounded
+	}
+	return "", false
+}
+
+// parseInstallonlyLimit extracts dnf's installonly_limit (kernels to keep). 0 means
+// "keep all" — unbounded growth. The dnf default is 3 when unset.
+func parseInstallonlyLimit(conf string) (policy string, unbounded bool) {
+	for _, line := range strings.Split(conf, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "installonly_limit") {
+			continue
+		}
+		_, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		v := strings.TrimSpace(val)
+		policy = "installonly_limit=" + v
+		if n, err := strconv.Atoi(v); err == nil && n == 0 {
+			unbounded = true
+		}
+		return policy, unbounded
+	}
+	return "", false
+}

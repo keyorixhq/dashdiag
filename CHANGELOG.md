@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Kernel retention / `/boot`-filling check** (`KernelRetention` in `dsd health`). Flags the
+  classic silent failure where old kernels accumulate on a small, separate `/boot` partition
+  until it fills and the *next* kernel update fails mid-write — and the leading indicator, an
+  unbounded retention policy (zypper `multiversion.kernels` including `all`, or dnf
+  `installonly_limit=0`). Cross-distro (zypper / dnf / apt); host-kernel concern, gated off in
+  containers and silent on a roomy `/boot`. Validated on real SLES 16.
+
 ### Fixed
 
 - **CVE zypper scans under-reported when security patches were actually pending** (BUG-090).

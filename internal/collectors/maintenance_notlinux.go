@@ -64,3 +64,15 @@ func (c *ServiceRestartCollector) Collect(context.Context) (interface{}, error) 
 	return &models.ServiceRestartInfo{}, nil
 }
 func ServiceRestartAvailable() bool { return false }
+
+type KernelRetentionCollector struct{}
+
+func NewKernelRetentionCollector(platform.ContainerContext) *KernelRetentionCollector {
+	return &KernelRetentionCollector{}
+}
+func (c *KernelRetentionCollector) Name() string           { return "KernelRetention" }
+func (c *KernelRetentionCollector) Timeout() time.Duration { return time.Second }
+func (c *KernelRetentionCollector) Collect(context.Context) (interface{}, error) {
+	return &models.KernelRetentionInfo{}, nil
+}
+func KernelRetentionAvailable() bool { return false }

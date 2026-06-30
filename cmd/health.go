@@ -561,6 +561,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.ServiceRestartAvailable() {
 		cols = append(cols, collectors.NewServiceRestartCollector())
 	}
+	if collectors.KernelRetentionAvailable() {
+		cols = append(cols, collectors.NewKernelRetentionCollector(ctrCtx))
+	}
 	// VMware guest config — gate on DMI vendor (silent on every non-VMware host).
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())

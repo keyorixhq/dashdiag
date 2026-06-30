@@ -142,3 +142,37 @@ func TestCountKsplicePending(t *testing.T) {
 		t.Errorf("two pending = %d, want 2", got)
 	}
 }
+
+func TestParseMultiversionKernels(t *testing.T) {
+	cases := []struct {
+		name      string
+		conf      string
+		policy    string
+		unbounded bool
+	}{
+		{"bounded", "multiversion.kernels = latest,latest-1,running\n", "latest,latest-1,running", false},
+		{"all is unbounded", "multiversion.kernels = latest,all\n", "latest,all", true},
+		{"absent", "# zypp.conf\nsolver.onlyRequires = true\n", "", false},
+		{"commented out", "# multiversion.kernels = all\n", "", false},
+		// the `multiversion = provides:...` line must NOT be mistaken for the policy
+		{"provides line ignored", "multiversion = provides:multiversion(kernel)\nmultiversion.kernels = latest,running\n", "latest,running", false},
+	}
+	for _, tc := range cases {
+		p, u := parseMultiversionKernels(tc.conf)
+		if p != tc.policy || u != tc.unbounded {
+			t.Errorf("%s: got (%q,%v) want (%q,%v)", tc.name, p, u, tc.policy, tc.unbounded)
+		}
+	}
+}
+
+func TestParseInstallonlyLimit(t *testing.T) {
+	if p, u := parseInstallonlyLimit("installonly_limit=3\n"); p != "installonly_limit=3" || u {
+		t.Errorf("limit 3 → bounded, got (%q,%v)", p, u)
+	}
+	if _, u := parseInstallonlyLimit("installonly_limit=0\n"); !u {
+		t.Error("limit 0 must be unbounded")
+	}
+	if p, u := parseInstallonlyLimit("# installonly_limit=0\n"); p != "" || u {
+		t.Errorf("commented limit ignored, got (%q,%v)", p, u)
+	}
+}
