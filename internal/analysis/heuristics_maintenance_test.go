@@ -183,3 +183,18 @@ func TestCheckLivePatch(t *testing.T) {
 		t.Error("transitioning livepatch must WARN")
 	}
 }
+
+func TestCheckTransactional(t *testing.T) {
+	if got := checkTransactional(models.TransactionalInfo{Available: false}); got != nil {
+		t.Error("non-transactional host must be nil")
+	}
+	// clean transactional host (booted == default) → silent
+	if got := checkTransactional(models.TransactionalInfo{Available: true, BootedSnapshot: 3, DefaultSnapshot: 3}); len(got) != 0 {
+		t.Errorf("booted==default must be silent, got %+v", got)
+	}
+	// staged update (default != booted) → WARN
+	pending := models.TransactionalInfo{Available: true, RebootPending: true, BootedSnapshot: 3, DefaultSnapshot: 4}
+	if !hasInsightMsg(checkTransactional(pending), "WARN", "staged but NOT active") {
+		t.Error("a staged transactional update (default != booted) must WARN")
+	}
+}

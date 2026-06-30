@@ -1243,6 +1243,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkLivePatch(*d)
 		}
+	case models.TransactionalInfo:
+		return checkTransactional(d)
+	case *models.TransactionalInfo:
+		if d != nil {
+			return checkTransactional(*d)
+		}
 	}
 	return nil
 }

@@ -514,3 +514,65 @@ func (c *LivePatchCollector) Collect(_ context.Context) (interface{}, error) {
 	}
 	return info, nil
 }
+
+// ── Transactional pending-reboot (MicroOS / SLE Micro / transactional-update) ─
+
+type TransactionalCollector struct{ cc platform.ContainerContext }
+
+func NewTransactionalCollector(cc platform.ContainerContext) *TransactionalCollector {
+	return &TransactionalCollector{cc: cc}
+}
+func (c *TransactionalCollector) Name() string           { return "Transactional" }
+func (c *TransactionalCollector) Timeout() time.Duration { return 4 * time.Second }
+
+func isTransactionalHost() bool {
+	return fileExists("/usr/sbin/transactional-update") || fileExists("/sbin/transactional-update")
+}
+
+// TransactionalAvailable gates on a transactional/immutable host.
+func TransactionalAvailable() bool { return isTransactionalHost() }
+
+func (c *TransactionalCollector) Collect(ctx context.Context) (interface{}, error) {
+	if maintenanceSkip(TransactionalAvailable(), c.cc.InContainer) {
+		return &models.TransactionalInfo{}, nil
+	}
+	info := &models.TransactionalInfo{Available: true}
+	// Booted snapshot — the btrfs subvol currently MOUNTED at / (findmnt). MicroOS/SLE
+	// Micro boot the btrfs DEFAULT subvol, so the kernel cmdline carries no subvol —
+	// the mounted subvol is the real "what am I running" answer. Default (next-boot)
+	// snapshot — btrfs get-default. Both report a ".snapshots/N/snapshot" path.
+	if out, err := runCmdOutput(ctx, "findmnt", "-no", "FSROOT", "/"); err == nil {
+		info.BootedSnapshot = snapshotNumberFromPath(out)
+	}
+	if out, err := runCmdOutput(ctx, "btrfs", "subvolume", "get-default", "/"); err == nil {
+		info.DefaultSnapshot = snapshotNumberFromPath(out)
+	}
+	// Only assert a pending reboot when BOTH numbers were read and they differ — a
+	// missing read (non-root btrfs) leaves RebootPending false rather than a false alarm.
+	if info.BootedSnapshot > 0 && info.DefaultSnapshot > 0 && info.BootedSnapshot != info.DefaultSnapshot {
+		info.RebootPending = true
+	}
+	return info, nil
+}
+
+// snapshotNumberFromPath extracts N from a btrfs snapshot path ".snapshots/N/snapshot"
+// — the form in both `findmnt -no FSROOT /` (e.g. "/@/.snapshots/2/snapshot") and
+// `btrfs subvolume get-default /` (e.g. "ID 269 ... path @/.snapshots/2/snapshot"),
+// verified on real openSUSE MicroOS 6.x. Returns 0 when no such path is present.
+func snapshotNumberFromPath(s string) int {
+	const marker = ".snapshots/"
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return 0
+	}
+	rest := s[i+len(marker):]
+	j := strings.IndexByte(rest, '/')
+	if j < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(rest[:j])
+	if err != nil {
+		return 0
+	}
+	return n
+}

@@ -567,6 +567,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.LivePatchAvailable() {
 		cols = append(cols, collectors.NewLivePatchCollector(ctrCtx))
 	}
+	if collectors.TransactionalAvailable() {
+		cols = append(cols, collectors.NewTransactionalCollector(ctrCtx))
+	}
 	// VMware guest config — gate on DMI vendor (silent on every non-VMware host).
 	if collectors.VMwareGuestAvailable() {
 		cols = append(cols, collectors.NewVMwareCollector())

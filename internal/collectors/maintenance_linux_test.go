@@ -176,3 +176,19 @@ func TestParseInstallonlyLimit(t *testing.T) {
 		t.Errorf("commented limit ignored, got (%q,%v)", p, u)
 	}
 }
+
+func TestSnapshotNumberFromPath(t *testing.T) {
+	cases := map[string]int{
+		// verbatim real openSUSE MicroOS 6.x output:
+		"/@/.snapshots/2/snapshot\n":                               2, // findmnt -no FSROOT / (booted)
+		"ID 269 gen 43 top level 257 path @/.snapshots/2/snapshot": 2, // btrfs subvolume get-default /
+		"@/.snapshots/137/snapshot":                                137,
+		"no snapshot here":                                         0,
+		".snapshots//snapshot":                                     0, // malformed
+	}
+	for in, want := range cases {
+		if got := snapshotNumberFromPath(in); got != want {
+			t.Errorf("snapshotNumberFromPath(%q) = %d, want %d", in, got, want)
+		}
+	}
+}

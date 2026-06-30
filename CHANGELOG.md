@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Transactional pending-reboot check** (`Transactional` in `dsd health`) for immutable hosts
+  (openSUSE MicroOS, SUSE Linux Micro / SLE Micro, transactional-update server). `transactional-update`
+  applies changes to a NEW btrfs snapshot that becomes the default at next boot; the running system
+  stays on the OLD snapshot until reboot — so a staged security/kernel update is invisible to the
+  usual signals (`zypper needs-rebooting` checks the unchanged running snapshot → a silent false-OK).
+  This flags the honest signal: the **booted** subvol (`findmnt`) differs from the **default** subvol
+  (`btrfs get-default`) → reboot pending (WARN). Gated on a transactional host, container-gated, silent
+  when up to date. Signal formats verified against real MicroOS 6.x.
+
 - **Kernel live-patching check** (`LivePatch` in `dsd health`). Reads the generic livepatch
   sysfs (`/sys/kernel/livepatch/` — used by SUSE `klp`, RHEL kpatch, and Ubuntu Livepatch
   alike): confirms the running kernel is being live-patched, and flags patches loaded but

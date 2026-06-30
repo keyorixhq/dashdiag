@@ -45,6 +45,20 @@ type KernelPatchInfo struct {
 	CheckUnverified bool `json:"check_unverified,omitempty"`
 }
 
+// TransactionalInfo reports pending-reboot state on a transactional/immutable host
+// (openSUSE MicroOS, SUSE Linux Micro / SLE Micro, transactional-update server). On
+// these, `transactional-update` applies changes to a NEW btrfs snapshot that becomes the
+// default at next boot; the RUNNING system stays on the OLD snapshot until reboot. So a
+// staged security/kernel update is INVISIBLE to the usual reboot signals — `zypper
+// needs-rebooting` checks the running snapshot, which is unchanged — a silent "patched
+// but not active". The honest signal is: the default snapshot != the booted snapshot.
+type TransactionalInfo struct {
+	Available       bool `json:"available"`      // a transactional host (transactional-update present)
+	RebootPending   bool `json:"reboot_pending"` // default snapshot != booted snapshot
+	BootedSnapshot  int  `json:"booted_snapshot,omitempty"`
+	DefaultSnapshot int  `json:"default_snapshot,omitempty"`
+}
+
 // LivePatchInfo reports kernel live-patching state from the generic livepatch sysfs
 // (/sys/kernel/livepatch/ — used by SUSE klp, RHEL kpatch, and Ubuntu Livepatch alike).
 // The silent failure it catches: a livepatch loaded but NOT enabled, or stuck mid-
