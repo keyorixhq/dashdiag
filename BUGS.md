@@ -1355,4 +1355,32 @@ live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO 
   false-OK signal tripwire; unit-tested per exit code (`maintenance_linux_test.go`).
   Validated live: three root runs → Kernel OK restored; the re-captured bundle now
   records `needs-rebooting exit:0` (the retry obtained the lock).
+**Commit:** #661
+
+### BUG-089 — `dsd gpu` / `dsd docker` verdicts diverged from `dsd health` (two cases)
+**Found:** extending the cmd↔health consistency guard (`cmd_health_consistency_test.go`)
+  to cover every concern-condition, not just the ~4 per command it previously exercised
+  (2026-06-30). Two previously-untested conditions surfaced live divergences — the same
+  sibling-divergence class as #275/BUG-050 (a standalone `dsd <cmd>` verdict disagreeing
+  with `dsd health` on identical data because each path tallies concerns independently).
+**Symptom (two):**
+  (a) **GPU** — `dsd gpu` reported "GPU elevated" (WARN) on a GPU at ≥95% utilization,
+      while `dsd health` stayed clean. A GPU at 95–100% util is just *busy* (like a CPU
+      under load); `checkGPUDevice` correctly treats sustained load as an INFO
+      correlation signal (util≥80 AND power≥80), never a WARN. `gpuConcerns` wrongly
+      counted bare `UtilPct≥95` → a false-WARN on a working GPU.
+  (b) **Docker** — `dsd docker` reported a concern when containers existed but were ALL
+      stopped (`StoppedCount>0 && RunningCount==0`), while `dsd health` stayed clean.
+      A stopped container is a state, not a fault (it may be intentionally stopped), and
+      a container that died badly is already caught by UnhealthyCount / CrashLooping /
+      exit-code checks. `checkDocker` has no all-stopped rule; `dockerConcerns` did.
+**Root cause:** both cmd tallies carried a concern condition that the health heuristic
+  (correctly) does not — the exact drift the consistency guard exists to catch, in
+  conditions the guard didn't yet exercise.
+**Affected:** `dsd gpu` (busy GPU), `dsd docker` (all containers stopped). Standalone
+  commands only; `dsd health` was always correct.
+**Fix:** align both cmd tallies to health — drop bare `UtilPct≥95` from `gpuConcerns`
+  and the all-stopped rule from `dockerConcerns`. Extended the consistency guard to
+  boundary-cover every concern-condition in gpu/docker/net/k8s (net/k8s agreed — pure
+  coverage gain), so these can't silently re-diverge.
 **Commit:** (this PR)

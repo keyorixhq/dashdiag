@@ -59,6 +59,19 @@ func TestCmdHealthConsistency_GPU(t *testing.T) {
 		{"APU vram 92 (carve-out)", models.GPUDevice{TempC: 50, VRAMUsedPct: 92, IsAPU: true}},
 		// A real discrete GPU at 92% VRAM IS a concern in both paths.
 		{"discrete vram 92", models.GPUDevice{TempC: 50, VRAMUsedPct: 92}},
+		// §L/§Q: a garbage hwmon temp (thousands of °C) must be a concern (unverified
+		// sensor WARN) in BOTH paths — and crucially never a false thermal CRIT.
+		{"implausible temp (garbage sensor)", models.GPUDevice{TempC: 11000}},
+		// Driver-reported throttling, util maxed, and an unreadable device — all
+		// previously-untested gpuConcerns conditions that mirror checkGPUDevice.
+		{"throttling", models.GPUDevice{TempC: 50, Throttling: true}},
+		{"util maxed", models.GPUDevice{TempC: 50, UtilPct: 96}},
+		{"unreadable device", models.GPUDevice{Unreadable: true}},
+		{"discrete mem 96", models.GPUDevice{TempC: 50, MemUsedPct: 96}},
+		{"power dpm low", models.GPUDevice{TempC: 50, PowerDPMLevel: "low"}},
+		// Busy GPU (high util, low power) is NOT a fault in EITHER path — pins the
+		// BUG-089 fix so a future edit can't re-add a bare-util WARN to `dsd gpu`.
+		{"busy but healthy (util 100, low power)", models.GPUDevice{TempC: 55, UtilPct: 100, PowerDrawW: 30}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,6 +125,12 @@ func TestCmdHealthConsistency_Net(t *testing.T) {
 		// #275: cmd flagged conntrack only >=80%; aligned to health's >=60%.
 		{"conntrack high", models.NetworkInfo{GatewayPingMs: 1, ConntrackUsedPct: 72}},
 		{"dns failed", models.NetworkInfo{GatewayPingMs: 1, DNSFailed: true}},
+		// Primary interface down → checkNetwork WARNs (heuristics_network.go:428).
+		{"primary interface down", models.NetworkInfo{PrimaryInterfaceDown: true, GatewayPingMs: 1}},
+		// Gateway packet loss — both paths share analysis.GatewayPacketLossLevel (≥10% WARN).
+		{"gateway packet loss", models.NetworkInfo{GatewayPingMs: 1, GatewayPacketLossPct: 15}},
+		// CLOSE_WAIT leak — cmd flags >100; checkNetwork WARNs >100 (heuristics_network.go:485).
+		{"close_wait leak", models.NetworkInfo{GatewayPingMs: 1, CloseWaitCount: 150}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,6 +159,11 @@ func TestCmdHealthConsistency_K8s(t *testing.T) {
 		{"pvc not bound", mk(func(i *models.K8sInfo) { i.PVCsNotBound = 1 })},
 		{"warning events", mk(func(i *models.K8sInfo) { i.Events = make([]models.K8sEvent, 1) })},
 		{"crash looping", mk(func(i *models.K8sInfo) { i.CrashLooping = 1 })},
+		// Previously-untested k8sHasConcern terms — pin each against checkK8s.
+		{"nodes not ready", mk(func(i *models.K8sInfo) { i.NodesNotReady = 1 })},
+		{"pods pending", mk(func(i *models.K8sInfo) { i.Pending = 1 })},
+		{"pods not ready", mk(func(i *models.K8sInfo) { i.PodsNotReady = 1 })},
+		{"high restarts", mk(func(i *models.K8sInfo) { i.HighRestarts = 1 })},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -196,6 +220,22 @@ func TestCmdHealthConsistency_Docker(t *testing.T) {
 		// #275: root-user containers — checkDockerSecurity WARNs; the standalone
 		// verdict previously ignored them.
 		{"root containers", models.DockerInfo{Available: true, RunningCount: 1, RunningAsRootCount: 1}},
+		// Daemon reachable but enumeration failed → checkDocker WARNs on Status=="error".
+		{"status error", models.DockerInfo{Available: true, Status: "error"}},
+		// Crash-looping container — health iterates the CrashLooping list, cmd reads the count.
+		{"crash looping", models.DockerInfo{Available: true, RunningCount: 1, CrashLooping: []string{"c1"}, CrashLoopCount: 1}},
+		// Failed systemd-managed Podman quadlet → checkPodmanQuadlets WARNs. Collector-
+		// realistic: a failed quadlet carries State=="failed" (a bare Failed:true with an
+		// empty State is the "unverified" case, which checkPodmanQuadlets treats as INFO).
+		{"podman quadlet failed", models.DockerInfo{Available: true, Runtime: "podman", RunningCount: 1,
+			PodmanQuadlets: []models.PodmanQuadlet{{Name: "app", ServiceUnit: "app.service", Failed: true, State: "failed"}}}},
+		// Plaintext env secrets → checkDockerSecurity WARNs.
+		{"plaintext secrets", models.DockerInfo{Available: true, RunningCount: 1, ContainersWithSecrets: 1}},
+		// docker.sock mounted into a container → checkDockerSecurity WARNs.
+		{"socket mounted", models.DockerInfo{Available: true, RunningCount: 1, SocketMountedCount: 1}},
+		// Containers present but ALL stopped — dockerConcerns counts it; this case pins
+		// whether checkDocker agrees (the previously-untested condition).
+		{"all stopped", models.DockerInfo{Available: true, RunningCount: 0, StoppedCount: 2}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

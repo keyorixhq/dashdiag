@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`dsd gpu` and `dsd docker` standalone verdicts diverged from `dsd health`** (BUG-089,
+  the #275 sibling-divergence class). `dsd gpu` reported "GPU elevated" on a GPU at ≥95%
+  utilization (a busy GPU is not a fault — `dsd health` correctly stayed clean), and
+  `dsd docker` reported a concern when containers were all stopped (a state, not a fault).
+  Both cmd tallies are now aligned to the health heuristic, and the cmd↔health consistency
+  guard was extended to boundary-cover every concern-condition in gpu/docker/net/k8s so
+  they can't silently re-diverge.
 - **SUSE Kernel reboot-to-apply check silently dropped under root** (BUG-088, found
   validating dsd on real SLES 16 on VMware vCloud Director). The check keyed on the
   stdout text of `zypper needs-rebooting`, but `dsd health` runs the package

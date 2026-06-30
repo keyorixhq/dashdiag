@@ -83,9 +83,11 @@ func dockerConcerns(info *models.DockerInfo) int {
 	if info.Status == "error" {
 		issues++
 	}
-	if info.StoppedCount > 0 && info.RunningCount == 0 {
-		issues++
-	}
+	// NOTE: "containers present but all stopped" is NOT counted — a stopped container
+	// is a state, not a fault (it may be intentionally stopped), and a container that
+	// died badly is already caught by UnhealthyCount / CrashLooping / exit-code checks.
+	// checkDocker (health) has no all-stopped rule either; counting it here made
+	// `dsd docker` report a concern while `dsd health` stayed clean (#275 class, BUG-089).
 	issues += info.OOMEvents
 	for _, q := range info.PodmanQuadlets {
 		if q.Failed {
