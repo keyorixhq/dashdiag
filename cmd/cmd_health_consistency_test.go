@@ -101,6 +101,15 @@ func TestCmdHealthConsistency_KVM(t *testing.T) {
 		// #275: libvirt up but `virsh list` failed — must not read as healthy.
 		{"enum-failed", models.KVMInfo{Detected: true, Status: "enum-failed"}},
 		{"pool near full", models.KVMInfo{Detected: true, PoolsNearFull: 1}},
+		// Previously-untested kvmConcerns counters — each is read directly by checkKVM/
+		// checkKVMVMs (no list iteration needed, unlike the crashed-VM CRIT above).
+		{"paused vm", models.KVMInfo{Detected: true, VMsPaused: 1}},
+		{"abnormal vm", models.KVMInfo{Detected: true, VMsAbnormal: 1}},
+		{"unreadable vm", models.KVMInfo{Detected: true, VMsUnreadable: 1}},
+		{"down autostart vm", models.KVMInfo{Detected: true, VMsDownAutostart: 1}},
+		{"disk io errors", models.KVMInfo{Detected: true, DiskIOErrors: 1}},
+		{"networks inactive", models.KVMInfo{Detected: true, NetworksInactive: 1}},
+		{"pools inactive", models.KVMInfo{Detected: true, PoolsInactive: 1}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -432,6 +441,18 @@ func TestCmdHealthConsistency_SteamOS(t *testing.T) {
 			i.RemotePlay = &models.SteamOSRemotePlay{
 				Ports: []models.RemotePlayPort{{Protocol: "udp", Port: 27031, Bound: false}},
 			}
+		})},
+		// Previously-untested steamOSConcernCount conditions — each mirrors checkSteamOS.
+		{"rauc inactive bad", mk(func(i *models.SteamOSInfo) { i.RAUCInactiveStatus = "bad" })},
+		{"channel config missing", mk(func(i *models.SteamOSInfo) { i.ChannelConfigMissing = true })},
+		{"home filling", mk(func(i *models.SteamOSInfo) { i.HomeUsedPct = 88 })},
+		{"update server unreachable", mk(func(i *models.SteamOSInfo) { i.UpdateServerKnown = true; i.UpdateServerReachable = false })},
+		{"flatpak bloat", mk(func(i *models.SteamOSInfo) { i.FlatpakDataGB = 25 })},
+		{"remote play firewall blocking", mk(func(i *models.SteamOSInfo) {
+			i.RemotePlay = &models.SteamOSRemotePlay{FirewallBlocking: true}
+		})},
+		{"remote play ap isolation", mk(func(i *models.SteamOSInfo) {
+			i.RemotePlay = &models.SteamOSRemotePlay{ARPChecked: true, APIsolationSuspected: true}
 		})},
 	}
 	for _, tc := range cases {
