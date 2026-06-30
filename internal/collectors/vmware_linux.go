@@ -393,9 +393,15 @@ func procCommRunning(name string) (running, ok bool) {
 		if err != nil {
 			continue
 		}
-		if strings.TrimSpace(string(comm)) == name {
-			return true, true
+		if strings.TrimSpace(string(comm)) != name {
+			continue
 		}
+		// Ignore a match that lives in a container — it's visible in the host PID
+		// namespace but belongs to the Docker/k8s collector, not a host service check.
+		if pidIsContainerizedIn("/proc", e.Name()) {
+			continue
+		}
+		return true, true
 	}
 	return false, true
 }
