@@ -71,6 +71,18 @@ systemctl/timedatectl/journalctl in hints** (#647) — the systemic guard for th
 recurring (cosmetic) class. Found live on Artix (OpenRC) + Devuan (sysvinit),
 BUGS.md BUG-083.
 
+**Live-confirmed on real Void (runit), 2026-06-30:** the `runit` path was previously
+only reasoned-about via Devuan's runit-package-on-sysvinit *trap* (runit pkg present
+but sysvinit is PID1); Void is the first guest where **runit is actually PID1**. Did a
+full scratch install (live ISO → scripted `xbps` chroot) onto **pve01 VM 105
+`void-test`** (192.168.10.46) and ran the two-pass (root + non-root): **CLEAN, no
+false-OK**. Remedy hints correctly emit `sv status chronyd` / `sv restart sshd` (runit),
+no leaked systemd. root vs non-root differ only on Firewall (WARN→INFO) and OOM
+(OK→INFO) — both degrade honestly toward INFO. Hermetic capture replays faithfully at
+`~/proj/dashdiag-captures/void-runit-20260630.tar.gz`. Rig is now in the CLAUDE.md test
+matrix; memory `void-linux-validation-vm`. No code change — the #644/#646 init work
+already handled runit; this closes the "runit-as-PID1 never tested on real Void" gap.
+
 ---
 
 ## B. ARM real-hardware validation — BLOCKED (needs aarch64 server)
