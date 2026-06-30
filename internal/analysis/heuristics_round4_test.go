@@ -122,6 +122,23 @@ func TestCheckBonding(t *testing.T) {
 			b:    models.BondingInfo{Bonds: []models.BondInterface{{Name: "bond0", DownSlaves: 2, Slaves: []models.BondSlave{slave("eth0", "down"), slave("eth1", "down")}}}},
 			want: "CRIT",
 		},
+		{
+			// The false-OK: every slave MII-up (DownSlaves 0) but LACP not aggregating.
+			name: "802.3ad MII-up but not aggregating is WARN",
+			b: models.BondingInfo{Bonds: []models.BondInterface{{
+				Name: "bond0", ModeShort: "802.3ad", NotAggregating: true,
+				Slaves: []models.BondSlave{slave("eth0", "up"), slave("eth1", "up")},
+			}}},
+			want: "WARN",
+		},
+		{
+			name: "802.3ad aggregating is clean",
+			b: models.BondingInfo{Bonds: []models.BondInterface{{
+				Name: "bond0", ModeShort: "802.3ad", NotAggregating: false,
+				Slaves: []models.BondSlave{slave("eth0", "up"), slave("eth1", "up")},
+			}}},
+			want: "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
