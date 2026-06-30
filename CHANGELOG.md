@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Rancher management-plane check** (`Rancher` in `dsd health`). On a cluster where Rancher
+  (SUSE's Kubernetes management platform) is installed — detected by the `cattle-system`
+  namespace — it reports a degraded mgmt plane: the `rancher` server or `rancher-webhook`
+  deployment with fewer ready replicas than desired (WARN). Silent on non-Rancher clusters
+  and when fully ready; a failed/non-root query leaves it silent rather than inventing a
+  verdict. Validated on a real Rancher install atop RKE2 on SLES 16.
+
 - **RKE2 (Rancher Kubernetes Engine 2) detection** in `dsd k8s` / `dsd health`. RKE2's
   kubectl lives off-PATH at `/var/lib/rancher/rke2/bin/kubectl` with a root-only kubeconfig,
   so an RKE2 node previously reported "k8s not detected"; it's now recognized (carrying the

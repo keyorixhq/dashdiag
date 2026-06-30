@@ -32,6 +32,7 @@ func (i HugePagesInfo) IsAvailable() bool       { return i.Available }
 func (i IPMIInfo) IsAvailable() bool            { return i.Available }
 func (i ISCSIInfo) IsAvailable() bool           { return i.Available }
 func (i KernelSecurityInfo) IsAvailable() bool  { return i.Available }
+func (i RancherInfo) IsAvailable() bool         { return i.Available }
 func (i LogsInfo) IsAvailable() bool            { return i.Available }
 func (i MultipathInfo) IsAvailable() bool       { return i.Available }
 func (i NspawnInfo) IsAvailable() bool          { return i.Available }
