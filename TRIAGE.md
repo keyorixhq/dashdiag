@@ -11,6 +11,22 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## Y. Host service collectors detect containerized processes — ✅ DONE (2026-07-01)
+
+Validated the minimal-footprint "Docker host, no systemd" use case on **pve01 VM 106
+`alpine-docker`** (Alpine 3.22 OpenRC/musl + Docker). Core path clean (OpenRC hints,
+Docker folded into health, honest non-root). Found + fixed **BUG-092**: host service
+collectors that detect via a `/proc/<pid>/comm` scan (`procCommRunning` → Nginx/Apache/
+HAProxy; `anyProcessNamed` → BIND, + host daemons) matched **containerized** processes
+visible in the host PID namespace and ran host-level checks against them (a misleading
+`Nginx INFO "needs root"` here; a wrong host verdict on another service). Choke-point
+fix: both scanners skip a match whose cgroup says it's a container, via a shared
+`pidIsContainerizedIn` reusing `parseCgroupPath`. Distro-agnostic, host daemons
+unaffected, unreadable-cgroup→host. Test `containerized_proc_linux_test.go`; capture
+`alpine-docker-20260701.tar.gz`. Memory `alpine-docker-validation-vm`.
+
+---
+
 ## X. NixOS full validation + `/nix/store` ro-bind false-WARN — ✅ DONE (2026-06-30)
 
 First proper SSH-driven two-pass (root + non-root) + capture on real NixOS 25.05

@@ -1444,3 +1444,36 @@ clobber). One false-alarm found and fixed.
   `nixos_nix_store_ro_test.go` (the captured bundle `nixos-2505-20260630.tar.gz` replays
   the bug pre-fix and clean post-fix).
 **Commit:** (this PR)
+
+## Alpine + Docker — "no-systemd Docker host" validation (2026-07-01)
+
+First validation of the minimal-footprint Docker-host use case: Alpine 3.22 (OpenRC,
+musl) + Docker on pve01 VM 106. dsd's core path was clean — Alpine detected, OpenRC-
+native hints (`rc-service …`), Docker folded into health (socket-mount CRIT + root-user
+WARN caught), no false LVM/k8s/bonding, two-pass honest (Docker CRIT→INFO under non-root,
+no false-OK). One class of defect found and fixed.
+
+### BUG-092 — host service collectors detect containerized processes as host services
+**Found:** live on the Alpine Docker host. `dsd health` reported
+  `Nginx INFO — config not validated (the config test needs root to read the config)`
+  while running as **root** — the nginx was actually inside a container (`nginx:alpine`),
+  not on the host, and the "needs root" reason was wrong (the real reason: no host nginx).
+**Root cause:** host service collectors detect their service by scanning `/proc/<pid>/comm`
+  via two shared helpers — `procCommRunning` (Nginx/Apache/HAProxy) and `anyProcessNamed`
+  (BIND, + host daemons cron/multipathd/rpcbind/auditd). On a Docker host the container's
+  processes are visible in the **host PID namespace**, so the scan matched the container's
+  `nginx`/`named` and then ran a host-level check (`nginx -t`, etc.) against a service that
+  isn't on the host — a misleading INFO here, but on another service (a containerized DB or
+  resolver) it could yield a genuinely wrong host-level verdict. Container health is already
+  the Docker/k8s collector's job.
+**Affected:** any Docker/Podman/k8s host running a service (nginx/apache/haproxy/named/…)
+  in a container while dsd reads the host. Real bytes: the container's nginx had cgroup
+  `0::/docker/4d41585046dd…`.
+**Fix:** both process-scan helpers now skip a match whose cgroup says it lives in a
+  container, via a shared `pidIsContainerizedIn(procDir, pid)` that reuses the existing
+  `parseCgroupPath` (classifies `/docker/`, `libpod-`, `/kubepods/` → container/k8s/pod).
+  Distro-agnostic, choke-point fix (no per-collector special-casing). An unreadable cgroup
+  defaults to **host** (never hide a real host service). Host daemons are unaffected (they
+  run under `/system.slice/…` / root cgroup → host scope). Real-bytes unit test
+  `containerized_proc_linux_test.go`; capture `alpine-docker-20260701.tar.gz` replays clean.
+**Commit:** (this PR)

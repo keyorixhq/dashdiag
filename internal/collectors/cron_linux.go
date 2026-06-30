@@ -104,9 +104,16 @@ func anyProcessNamedIn(procDir string, names ...string) bool {
 		if err != nil {
 			continue // process exited or comm unreadable — skip
 		}
-		if want[strings.TrimSpace(string(data))] {
-			return true
+		if !want[strings.TrimSpace(string(data))] {
+			continue
 		}
+		// A containerized match (e.g. a BIND/named in a container) is visible in the
+		// host PID namespace but is not a host service — skip it; container health is
+		// the Docker/k8s collector's job.
+		if pidIsContainerizedIn(procDir, e.Name()) {
+			continue
+		}
+		return true
 	}
 	return false
 }

@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
@@ -424,7 +423,34 @@ func readCgroupOOMKills(path string) int {
 // cgroupScope reads /proc/<pid>/cgroup and returns a human-readable scope label.
 // Format: "system:<service>", "container:<id-prefix>", "user:<uid>", "kernel", "init", or "unknown".
 func cgroupScope(pid int) string {
-	data, err := readFile(fmt.Sprintf("/proc/%d/cgroup", pid)) // #nosec G304
+	return cgroupScopeIn("/proc", strconv.Itoa(pid))
+}
+
+// scopeIsContainer reports whether a parseCgroupPath scope label denotes a container
+// (Docker/Podman/Kubernetes pod) as opposed to the host (kernel/init/system:/user:).
+func scopeIsContainer(scope string) bool {
+	return strings.HasPrefix(scope, "container") ||
+		strings.HasPrefix(scope, "k8s") ||
+		strings.HasPrefix(scope, "pod:")
+}
+
+// pidIsContainerizedIn reports whether <procDir>/<pid> belongs to a container rather
+// than the host, by classifying its cgroup. Host service collectors (Nginx/Apache/
+// HAProxy/BIND…) use it to ignore containerized processes that are visible in the host
+// PID namespace: running a host-level check such as `nginx -t` against a service that
+// actually lives in a container misreports (found on an Alpine Docker host, 2026-07-01
+// — a container's nginx was flagged as a host nginx with a bogus "needs root" config
+// message). Container health belongs to the Docker/k8s collector. An unreadable cgroup
+// → false (treat as host; never hide a real host service because its cgroup was
+// unreadable). procDir is parameterized so process-scan callers classify against the
+// same /proc they enumerated (and tests against a fixture tree).
+func pidIsContainerizedIn(procDir, pid string) bool {
+	return scopeIsContainer(cgroupScopeIn(procDir, pid))
+}
+
+// cgroupScopeIn reads <procDir>/<pid>/cgroup and returns the human-readable scope.
+func cgroupScopeIn(procDir, pid string) string {
+	data, err := readFile(filepath.Join(procDir, pid, "cgroup")) // #nosec G304
 	if err != nil {
 		return ""
 	}
