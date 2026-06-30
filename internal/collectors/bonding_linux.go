@@ -93,6 +93,20 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 			bond.ActiveSlave = strings.TrimSpace(strings.TrimPrefix(line, "Currently Active Slave:"))
 			continue
 		}
+		// 802.3ad bond-level aggregator info (header section, before any slave). The
+		// "Partner Mac Address" is the LACP partner's system MAC — all-zero means no
+		// partner was ever heard. "Number of ports" is the active aggregator's member
+		// count. Both are absent on non-LACP modes, so this is a no-op there.
+		if currentSlave == nil && strings.HasPrefix(line, "Partner Mac Address:") {
+			bond.PartnerMAC = strings.TrimSpace(strings.TrimPrefix(line, "Partner Mac Address:"))
+			continue
+		}
+		if currentSlave == nil && strings.HasPrefix(line, "Number of ports:") {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "Number of ports:"))); err == nil {
+				bond.AggregatorPorts = n
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "Slave Interface:") {
 			if currentSlave != nil {
 				bond.Slaves = append(bond.Slaves, *currentSlave)
@@ -128,6 +142,12 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 			}
 			continue
 		}
+		if strings.HasPrefix(line, "Aggregator ID:") {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "Aggregator ID:"))); err == nil {
+				currentSlave.AggregatorID = n
+			}
+			continue
+		}
 	}
 	if currentSlave != nil {
 		bond.Slaves = append(bond.Slaves, *currentSlave)
@@ -144,7 +164,55 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 	// for a fully-down bond — a false-OK in the machine-readable contract.
 	bond.Degraded = bond.DownSlaves > 0
 	bond.AllDown = bond.DownSlaves > 0 && bond.DownSlaves == len(bond.Slaves)
+	bond.NotAggregating = lacpNotAggregating(bond)
 	return bond, nil
+}
+
+// lacpNotAggregating reports whether an 802.3ad (LACP) bond has MII-up slaves that
+// are NOT actually aggregating — the false-OK an MII-only check misses. A bond whose
+// links are all "up" still carries no traffic if LACP never negotiated: the partner
+// switch isn't speaking LACP (no partner MAC heard), or only some links joined the
+// active aggregator (the rest sit in their own aggregator, unbundled). Signals, any of:
+//   - Partner MAC is all-zero (00:00:00:00:00:00) — no LACP partner was ever heard.
+//   - The active aggregator holds fewer ports than there are up slaves (partial bundle).
+//   - Up slaves report more than one distinct aggregator ID (links failed to merge).
+//
+// All three degrade safely to "no signal" when the /proc data lacks LACP fields (older
+// kernels, non-LACP modes), so this never fires outside 802.3ad.
+func lacpNotAggregating(bond models.BondInterface) bool {
+	if bond.ModeShort != "802.3ad" {
+		return false
+	}
+	upSlaves := len(bond.Slaves) - bond.DownSlaves
+	if upSlaves == 0 {
+		return false // an all-down bond is already CRIT via AllDown; don't double-flag
+	}
+
+	if isZeroMAC(bond.PartnerMAC) {
+		return true
+	}
+	if bond.AggregatorPorts > 0 && bond.AggregatorPorts < upSlaves {
+		return true
+	}
+
+	aggIDs := make(map[int]struct{})
+	for _, s := range bond.Slaves {
+		if s.State != "down" && s.AggregatorID > 0 {
+			aggIDs[s.AggregatorID] = struct{}{}
+		}
+	}
+	return len(aggIDs) > 1
+}
+
+// isZeroMAC reports whether a MAC string is present but all zeros (e.g.
+// "00:00:00:00:00:00") — the kernel's "no LACP partner heard" sentinel. An empty
+// string (field absent) is NOT treated as zero, so absence is never a false signal.
+func isZeroMAC(mac string) bool {
+	mac = strings.TrimSpace(mac)
+	if mac == "" {
+		return false
+	}
+	return strings.Trim(mac, "0:") == ""
 }
 
 func shortMode(mode string) string {

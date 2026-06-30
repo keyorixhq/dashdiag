@@ -71,6 +71,140 @@ Link Failure Count: 0
 Permanent HW addr: 00:11:22:33:44:66
 `
 
+// Real capture (Debian 13, kernel 6.12) of a NEGOTIATED 802.3ad bond: both slaves up,
+// both in the same aggregator (ID 1), a non-zero LACP partner MAC. The kernel prints the
+// "Active Aggregator Info" block with Partner Mac Address + Number of ports when an
+// aggregator is selected. This must NOT be flagged as not-aggregating.
+const bondFileLACPNegotiated = `Ethernet Channel Bonding Driver: v6.12.90+deb13.1-cloud-amd64
+
+Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+Transmit Hash Policy: layer2 (0)
+MII Status: up
+MII Polling Interval (ms): 100
+Up Delay (ms): 0
+Down Delay (ms): 0
+Peer Notification Delay (ms): 0
+
+802.3ad info
+LACP active: on
+LACP rate: fast
+Min links: 0
+Aggregator selection policy (ad_select): stable
+Active Aggregator Info:
+	Aggregator ID: 1
+	Number of ports: 2
+	Actor Key: 15
+	Partner Key: 15
+	Partner Mac Address: 9a:b7:ad:28:22:15
+
+Slave Interface: veth0a
+MII Status: up
+Speed: 10000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: f6:6f:c4:c7:43:30
+Slave queue ID: 0
+Aggregator ID: 1
+Actor Churn State: none
+Partner Churn State: none
+
+Slave Interface: veth1a
+MII Status: up
+Speed: 10000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: aa:3d:87:ae:c1:b4
+Slave queue ID: 0
+Aggregator ID: 1
+Actor Churn State: none
+Partner Churn State: none
+`
+
+// Real capture of the FALSE-OK: an 802.3ad bond whose slaves are both MII-"up" but LACP
+// never negotiated (the peer stopped speaking LACP). Both links stay up, so an MII-only
+// check reads healthy — yet the slaves landed in DIFFERENT aggregators (1 and 2) and the
+// LACP partner MAC is all-zero, so the bond carries no traffic and has no redundancy.
+// This kernel omits the top-level "Active Aggregator Info" block when nothing is
+// aggregating, so the per-slave Aggregator ID mismatch is the signal.
+const bondFileLACPNotAggregating = `Ethernet Channel Bonding Driver: v6.12.90+deb13.1-cloud-amd64
+
+Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+Transmit Hash Policy: layer2 (0)
+MII Status: up
+MII Polling Interval (ms): 100
+Up Delay (ms): 0
+Down Delay (ms): 0
+Peer Notification Delay (ms): 0
+
+802.3ad info
+LACP active: on
+LACP rate: fast
+Min links: 0
+Aggregator selection policy (ad_select): stable
+
+Slave Interface: veth0a
+MII Status: up
+Speed: 10000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: f6:6f:c4:c7:43:30
+Slave queue ID: 0
+Aggregator ID: 1
+Actor Churn State: none
+Partner Churn State: churned
+details partner lacp pdu:
+    system priority: 65535
+    system mac address: 00:00:00:00:00:00
+    port state: 0
+
+Slave Interface: veth1a
+MII Status: up
+Speed: 10000 Mbps
+Duplex: full
+Link Failure Count: 1
+Permanent HW addr: aa:3d:87:ae:c1:b4
+Slave queue ID: 0
+Aggregator ID: 2
+Actor Churn State: monitoring
+Partner Churn State: monitoring
+details partner lacp pdu:
+    system priority: 65535
+    system mac address: 00:00:00:00:00:00
+    port state: 0
+`
+
+// Older-kernel format: a single "Active Aggregator Info" block carries Partner Mac
+// Address + Number of ports. Both slaves are MII-up and in aggregator 1, but the partner
+// MAC is all-zero (no partner heard) and only 1 port is in the aggregator while 2 slaves
+// are up. Exercises the zero-partner-MAC + partial-aggregator signals.
+const bondFileLACPZeroPartner = `Ethernet Channel Bonding Driver: v5.15
+
+Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+MII Status: up
+MII Polling Interval (ms): 100
+
+802.3ad info
+LACP rate: slow
+Active Aggregator Info:
+	Aggregator ID: 1
+	Number of ports: 1
+	Partner Mac Address: 00:00:00:00:00:00
+
+Slave Interface: eth0
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 0
+Aggregator ID: 1
+
+Slave Interface: eth1
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 0
+Aggregator ID: 1
+`
+
 func TestParseBondFile(t *testing.T) {
 	t.Run("802.3ad with one slave down", func(t *testing.T) {
 		bond, err := parseBondFileContent("bond0", bondFileActive)
@@ -123,6 +257,83 @@ func TestParseBondFile(t *testing.T) {
 			t.Errorf("DownSlaves = %d, want 0", bond.DownSlaves)
 		}
 	})
+
+	t.Run("802.3ad negotiated — not flagged", func(t *testing.T) {
+		bond, err := parseBondFileContent("bond0", bondFileLACPNegotiated)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if bond.DownSlaves != 0 || bond.Degraded {
+			t.Errorf("DownSlaves=%d Degraded=%v, want 0/false", bond.DownSlaves, bond.Degraded)
+		}
+		if bond.PartnerMAC != "9a:b7:ad:28:22:15" {
+			t.Errorf("PartnerMAC = %q, want 9a:b7:ad:28:22:15", bond.PartnerMAC)
+		}
+		if bond.AggregatorPorts != 2 {
+			t.Errorf("AggregatorPorts = %d, want 2", bond.AggregatorPorts)
+		}
+		if bond.Slaves[0].AggregatorID != 1 || bond.Slaves[1].AggregatorID != 1 {
+			t.Errorf("aggregator IDs = %d/%d, want 1/1", bond.Slaves[0].AggregatorID, bond.Slaves[1].AggregatorID)
+		}
+		if bond.NotAggregating {
+			t.Error("NotAggregating = true, want false (bond is fully negotiated)")
+		}
+	})
+
+	t.Run("802.3ad MII-up but not aggregating — aggregator mismatch", func(t *testing.T) {
+		bond, err := parseBondFileContent("bond0", bondFileLACPNotAggregating)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// The false-OK precondition: every slave is MII-up, so the MII/Degraded checks
+		// see nothing wrong.
+		if bond.DownSlaves != 0 || bond.Degraded || bond.AllDown {
+			t.Fatalf("DownSlaves=%d Degraded=%v AllDown=%v, want 0/false/false — the bond LOOKS healthy by MII",
+				bond.DownSlaves, bond.Degraded, bond.AllDown)
+		}
+		if bond.Slaves[0].AggregatorID != 1 || bond.Slaves[1].AggregatorID != 2 {
+			t.Errorf("aggregator IDs = %d/%d, want 1/2 (split = not aggregating)",
+				bond.Slaves[0].AggregatorID, bond.Slaves[1].AggregatorID)
+		}
+		if !bond.NotAggregating {
+			t.Error("NotAggregating = false, want true (slaves MII-up but in different aggregators)")
+		}
+	})
+
+	t.Run("802.3ad zero partner MAC + partial aggregator", func(t *testing.T) {
+		bond, err := parseBondFileContent("bond0", bondFileLACPZeroPartner)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if bond.DownSlaves != 0 {
+			t.Fatalf("DownSlaves = %d, want 0 (both MII-up)", bond.DownSlaves)
+		}
+		if bond.PartnerMAC != "00:00:00:00:00:00" {
+			t.Errorf("PartnerMAC = %q, want 00:00:00:00:00:00", bond.PartnerMAC)
+		}
+		if !bond.NotAggregating {
+			t.Error("NotAggregating = false, want true (zero partner MAC = no LACP partner heard)")
+		}
+	})
+}
+
+func TestIsZeroMAC(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"00:00:00:00:00:00", true},
+		{"  00:00:00:00:00:00  ", true},
+		{"", false}, // absent field is not a signal
+		{"9a:b7:ad:28:22:15", false},
+		{"00:aa:bb:cc:dd:ee", false},
+		{"00:00:00:00:00:01", false},
+	}
+	for _, c := range cases {
+		if got := isZeroMAC(c.in); got != c.want {
+			t.Errorf("isZeroMAC(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
 }
 
 func TestShortMode(t *testing.T) {

@@ -2363,6 +2363,18 @@ func containsStr(ss []string, s string) bool {
 
 // ── New heuristics: Bonding, IPMI, OOM, HBA, Pressure, Multipath ──────────
 
+// isZeroMACHeuristic reports whether a MAC string is present but all zeros — the
+// kernel's "no LACP partner heard" sentinel. Mirrors the collector's isZeroMAC so the
+// bonding heuristic can distinguish "no partner" from "partial aggregation" without
+// importing the linux-only collector package. Empty (field absent) is not zero.
+func isZeroMACHeuristic(mac string) bool {
+	mac = strings.TrimSpace(mac)
+	if mac == "" {
+		return false
+	}
+	return strings.Trim(mac, "0:") == ""
+}
+
 func checkBonding(b models.BondingInfo) []models.Insight {
 	if len(b.Bonds) == 0 {
 		return nil
@@ -2377,6 +2389,27 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
 					"to inspect: ip link show",
 					"note:       bonding provides no benefit with a single slave",
+				},
+			))
+		}
+		// 802.3ad (LACP) bond whose links are MII-up but not actually aggregating. The
+		// MII/DownSlaves checks above read this as healthy — every slave is "up" — yet the
+		// bond carries no traffic because LACP never negotiated (the switch ports aren't in
+		// a matching LACP port-channel, or only some links joined the aggregator). This is
+		// the dangerous false-OK: green link state over a dead bond and zero redundancy.
+		if bond.NotAggregating {
+			reason := "links carry no traffic and there is no redundancy"
+			cause := "the switch ports are not configured in a matching LACP port-channel"
+			if !isZeroMACHeuristic(bond.PartnerMAC) {
+				cause = "some links failed to join the active aggregator"
+			}
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s: 802.3ad (LACP) bond is link-up but NOT aggregating — %s (%s)",
+					bond.Name, reason, cause),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s   (check Partner Mac Address + per-slave Aggregator ID)", bond.Name),
+					"to inspect: verify the switch ports are in one LACP (802.3ad) port-channel / bond",
+					"to inspect: confirm lacp_rate and that both ends agree on active/passive LACP",
 				},
 			))
 		}
