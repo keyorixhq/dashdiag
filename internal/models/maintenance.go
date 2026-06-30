@@ -38,6 +38,11 @@ type KernelPatchInfo struct {
 	Running         string `json:"running,omitempty"`
 	LatestInstalled string `json:"latest_installed,omitempty"`
 	RebootNeeded    bool   `json:"reboot_needed"`
+	// CheckUnverified is set on SUSE when `zypper needs-rebooting` could not be read
+	// because the zypp lock was held (exit 7) for the whole retry budget — a sibling
+	// zypper collector contends for it under root. Surfaced as INFO ("couldn't
+	// determine"), never a silent drop or a false "Kernel OK". See BUG-088.
+	CheckUnverified bool `json:"check_unverified,omitempty"`
 }
 
 // KspliceInfo captures Oracle Ksplice (zero-downtime kernel patching) state:

@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **SUSE Kernel reboot-to-apply check silently dropped under root** (BUG-088, found
+  validating dsd on real SLES 16 on VMware vCloud Director). The check keyed on the
+  stdout text of `zypper needs-rebooting`, but `dsd health` runs the package
+  collector's `zypper verify` concurrently, which holds the global zypp lock — so
+  needs-rebooting failed fast with exit 7 (ZYPP_LOCKED) and empty stdout, and the whole
+  Kernel row vanished (root only; non-root never contended). Now keys on the exit code
+  (0 / 102 / 7) and retries the lock; if it stays locked it reports "reboot status
+  could not be determined" (INFO) rather than dropping the row or implying "Kernel OK".
+
 ## [1.15.0] - 2026-06-30
 
 Minor (additive): a RHEL/Oracle-family **maintenance & patch-effectiveness** check

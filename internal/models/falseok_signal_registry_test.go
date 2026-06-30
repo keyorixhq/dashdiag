@@ -80,8 +80,9 @@ var guardedUnverifiedSignals = map[string]string{
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
 
 	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.
-	"ServiceRestartInfo.NeedsRoot": "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
-	"KspliceInfo.CheckUnverified":  "analysis/heuristics_maintenance_test.go (uptrack status unread → INFO 'could not be read', not OK)",
+	"ServiceRestartInfo.NeedsRoot":    "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
+	"KspliceInfo.CheckUnverified":     "analysis/heuristics_maintenance_test.go (uptrack status unread → INFO 'could not be read', not OK)",
+	"KernelPatchInfo.CheckUnverified": "analysis/heuristics_maintenance_test.go + collectors/maintenance_linux_test.go (BUG-088: SUSE zypp lock held the whole budget → INFO 'could not be determined', never a silent drop or 'Kernel OK')",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

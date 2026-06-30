@@ -1332,3 +1332,27 @@ live on OL10 after `dnf reinstall glibc`, 30 services; non-root → honest INFO 
   check unavailable (no row) rather than show a "Kernel OK" that checked nothing.
   Validated: CT213 → rows gone; OL9 UEK VM 121 → Kernel row restored.
 **Commit:** PR #655
+
+### BUG-088 — SUSE Kernel check silently dropped under root (zypp-lock race)
+**Found:** validating dsd on real SLES 16 (VMware vCloud Director tenant, 2026-06-30).
+**Symptom:** `dsd health` showed the Kernel reboot-to-apply row as **non-root** (Kernel
+  OK), but the row **vanished entirely when run as root** — no Kernel check at all, on
+  every root run. A check that disappears under privilege is the dangerous silent-drop
+  class: the root operator gets no signal and assumes nothing's wrong.
+**Root cause (proven via a `capture --raw` bundle):** the #655 SUSE path keyed on the
+  **stdout text** of `zypper needs-rebooting`. dsd runs the package collector's
+  `zypper verify` concurrently, which holds the one global zypp lock (`/run/zypp.pid`);
+  needs-rebooting then fails fast with **exit 7 (ZYPP_LOCKED)** and EMPTY stdout (the
+  lock error is on stderr). Empty stdout → no text match → `Available` stayed false →
+  the row was dropped. Non-root never hit it: the locking zypper collectors fail fast
+  unprivileged, so there's no contention. The capture recorded `needs-rebooting exit:7`.
+  This is the lock-race sibling of the #480 `zypper verify` integrity false-OK.
+**Affected:** `dsd health` Kernel check on SUSE/openSUSE, root runs only.
+**Fix:** key on the **exit code** (0 → no reboot, 102 → reboot needed, 7 → locked) via a
+  `suseRebootSignal` helper that retries the lock like the package collector does; if it
+  stays locked for the whole budget, surface `CheckUnverified` → INFO "could not be
+  determined" rather than dropping the row or implying "Kernel OK". Registered in the
+  false-OK signal tripwire; unit-tested per exit code (`maintenance_linux_test.go`).
+  Validated live: three root runs → Kernel OK restored; the re-captured bundle now
+  records `needs-rebooting exit:0` (the retry obtained the lock).
+**Commit:** (this PR)

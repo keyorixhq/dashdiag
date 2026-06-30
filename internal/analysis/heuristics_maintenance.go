@@ -69,7 +69,18 @@ func checkTuned(d models.TunedInfo) []models.Insight {
 // checkKernelPatch flags "patched but still running the old kernel": a newer kernel
 // package is installed than the one currently booted.
 func checkKernelPatch(d models.KernelPatchInfo) []models.Insight {
-	if !d.Available || !d.RebootNeeded {
+	if !d.Available {
+		return nil
+	}
+	// SUSE: the zypp lock was held for the whole retry budget (a sibling zypper
+	// collector contends for it under root), so reboot status is genuinely unknown.
+	// Surface it honestly (INFO) rather than dropping the row or implying "Kernel OK".
+	if d.CheckUnverified {
+		return []models.Insight{insight("INFO", "Kernel",
+			"kernel reboot-needed status could not be determined — the package manager (zypp) was locked by another process",
+			[]string{"to inspect: zypper needs-rebooting   (re-run when no other zypper/PackageKit process holds the lock)"})}
+	}
+	if !d.RebootNeeded {
 		return nil
 	}
 	// RHEL/Oracle knows the exact newer kernel; the SUSE (zypper) and Debian/Ubuntu
