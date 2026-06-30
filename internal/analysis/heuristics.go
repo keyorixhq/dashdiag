@@ -957,6 +957,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkRancher(*d)
 		}
+	case models.HAInfo:
+		return checkHA(d)
+	case *models.HAInfo:
+		if d != nil {
+			return checkHA(*d)
+		}
 	case models.KVMInfo:
 		return checkKVM(d)
 	case *models.KVMInfo:
