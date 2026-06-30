@@ -1477,3 +1477,39 @@ no false-OK). One class of defect found and fixed.
   run under `/system.slice/…` / root cgroup → host scope). Real-bytes unit test
   `containerized_proc_linux_test.go`; capture `alpine-docker-20260701.tar.gz` replays clean.
 **Commit:** (this PR)
+
+## RKE2 (Rancher Kubernetes Engine 2) — first live "beyond k3s" validation (2026-07-01)
+
+First validation of the k8s OS-layer on a real **RKE2** cluster (the freshly-shipped
+RKE2 detection #667 + Rancher mgmt-plane check #668 had only been fixture-tested). Built
+a single-node RKE2 v1.35.6 cluster on pve01 VM 108 (Debian 13). dsd correctly auto-found
+the RKE2 kubeconfig (`/var/lib/rancher/rke2/bin/kubectl --kubeconfig=/etc/rancher/rke2/
+rke2.yaml`), read nodes/pods, applied k8s-aware sysctl checks (inotify watches, swappiness),
+and the Rancher mgmt-plane check correctly stayed silent (RKE2 ≠ Rancher). One false-CRIT
+found and fixed.
+
+### BUG-093 — node condition `EtcdIsVoter=True` false-CRIT'd as a fault
+**Found:** live on the RKE2 node — `dsd health` raised
+  `K8s CRIT — node rke2-test: EtcdIsVoter condition True — workloads may be evicted`
+  on a perfectly healthy single-node control plane.
+**Root cause:** `checkK8sNodes` (`heuristics_virt.go`) blanket-CRIT'd **any** node
+  condition whose status was `True`, except `Ready`. That holds for the standard
+  Kubernetes pressure conditions (MemoryPressure/DiskPressure/PIDPressure) and
+  NetworkUnavailable — but RKE2/k3s managed-etcd nodes add **`EtcdIsVoter`**, where
+  `True` means the node is a HEALTHY voting member of the etcd cluster (the node's own
+  condition message: *"Node is a voting member of the etcd cluster"*). dsd assumed
+  every True condition was bad → a false-CRIT on every RKE2 (and k3s-with-embedded-etcd)
+  control-plane node.
+**Why k3s never caught it:** the existing k3s rig runs the default **sqlite** datastore,
+  which has no etcd node conditions at all — exactly the gap that going "beyond k3s" to
+  RKE2 exposed.
+**Affected:** every RKE2 node, and k3s clusters using embedded etcd (`--cluster-init`).
+**Fix:** replace the blanket "any True condition" rule with an **allowlist** of the
+  standard node-problem conditions (`MemoryPressure`, `DiskPressure`, `PIDPressure`,
+  `NetworkUnavailable`); a condition outside the set is never assumed bad-when-True, so
+  distro/vendor conditions (EtcdIsVoter, EtcdSnapshotMissing, …) with their own polarity
+  can't generate false-CRITs. Real-bytes unit test `k8s_node_conditions_test.go` (the
+  live RKE2 node's exact conditions); a genuine MemoryPressure=True still CRITs.
+  Verified live: `K8s` dropped CRIT→WARN (only the transient bootstrap warning events
+  remain); capture `rke2-debian-20260701.tar.gz`.
+**Commit:** (this PR)

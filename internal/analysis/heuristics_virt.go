@@ -590,7 +590,12 @@ func checkK8sNodes(k models.K8sInfo) []models.Insight {
 	}
 	for _, node := range k.Nodes {
 		for cond, status := range node.Conditions {
-			if cond == "Ready" || status != "True" {
+			// Only the standard node-pressure/unavailable conditions are faults when
+			// True. Distros add conditions with the OPPOSITE polarity — RKE2/k3s set
+			// "EtcdIsVoter"=True to mean the node is a HEALTHY etcd voter — so blanket-
+			// CRITing any True condition false-CRIT'd every RKE2 etcd node (found live
+			// 2026-07-01). Never raise on a condition whose meaning we don't know.
+			if status != "True" || !nodeProblemConditions[cond] {
 				continue
 			}
 			out = append(out, insight("CRIT", "K8s",
@@ -602,6 +607,18 @@ func checkK8sNodes(k models.K8sInfo) []models.Insight {
 		}
 	}
 	return out
+}
+
+// nodeProblemConditions are the standard Kubernetes node conditions that signal a
+// fault when their status is True (eviction pressure or an unconfigured network).
+// Conditions outside this set — distro/vendor additions such as RKE2/k3s
+// "EtcdIsVoter" or "EtcdSnapshotMissing" — carry their own polarity, so dsd does not
+// assume True means broken for them.
+var nodeProblemConditions = map[string]bool{
+	"MemoryPressure":     true,
+	"DiskPressure":       true,
+	"PIDPressure":        true,
+	"NetworkUnavailable": true,
 }
 
 func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
