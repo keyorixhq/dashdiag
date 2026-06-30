@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-07-01
+
+Minor (additive): a **SUSE / Rancher enterprise** check suite for `dsd health`, each gated,
+container-aware, and live-validated against the *real* software — RKE2 detection (real RKE2
+v1.35.6 on SLES 16), Rancher management-plane (real Rancher atop RKE2), Pacemaker/Corosync HA
+incl. the STONITH-disabled split-brain footgun (real pacemaker 3.0.0 cluster), kernel
+live-patching (real loaded livepatch), transactional pending-reboot for MicroOS / SLE Micro
+(real MicroOS 6.x), and kernel-retention / `/boot`-filling. Plus a set of honest-messaging /
+false-OK fixes on SUSE and cross-distro (BUG-088/089/090/091). No `dsd health --json` schema change.
+
 ### Added
 
 - **Transactional pending-reboot check** (`Transactional` in `dsd health`) for immutable hosts
@@ -84,6 +94,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Kernel row vanished (root only; non-root never contended). Now keys on the exit code
   (0 / 102 / 7) and retries the lock; if it stays locked it reports "reboot status
   could not be determined" (INFO) rather than dropping the row or implying "Kernel OK".
+- **`/nix/store` read-only bind mount false-WARNed as an I/O-error remount** (BUG-091, found
+  live on NixOS 25.05). A kernel I/O-error remount flips the whole block device to read-only
+  at once, so a read-only mount whose backing device is *also* mounted read-write elsewhere can
+  only be an intentional read-only bind (NixOS binds `/nix/store` ro off the rw root) — not an
+  error. `dsd disk` no longer warns on it; a genuine error-remount of a data mount still does.
 
 ## [1.15.0] - 2026-06-30
 
