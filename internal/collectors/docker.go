@@ -302,6 +302,8 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			RunsAsRoot:          det.runsAsRoot,
 			User:                det.user,
 			DockerSocketMounted: det.socketMounted,
+			LogDriver:           det.logDriver,
+			LogMaxSizeSet:       det.logMaxSizeSet,
 		}
 		if state != "running" && det.exitCode != 0 {
 			ci.ExitCode = det.exitCode
@@ -322,6 +324,8 @@ type containerDetailResult struct {
 	socketMounted bool
 	running       bool
 	startedAt     time.Time
+	logDriver     string // this container's own HostConfig.LogConfig.Type
+	logMaxSizeSet bool   // this container's own log-opts max-size
 }
 
 // crashLoopStableWindow is how long a container with a high lifetime restart count
@@ -359,7 +363,11 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 			User string   `json:"User"`
 		} `json:"Config"`
 		HostConfig struct {
-			Binds []string `json:"Binds"`
+			Binds     []string `json:"Binds"`
+			LogConfig struct {
+				Type   string            `json:"Type"`
+				Config map[string]string `json:"Config"`
+			} `json:"LogConfig"`
 		} `json:"HostConfig"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
@@ -379,6 +387,7 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 		}
 	}
 	startedAt, _ := time.Parse(time.RFC3339Nano, detail.State.StartedAt)
+	_, logMaxSizeSet := detail.HostConfig.LogConfig.Config["max-size"]
 	return containerDetailResult{
 		health:        h,
 		restarts:      detail.RestartCount,
@@ -389,6 +398,8 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 		socketMounted: socketMounted,
 		running:       detail.State.Running,
 		startedAt:     startedAt,
+		logDriver:     detail.HostConfig.LogConfig.Type,
+		logMaxSizeSet: logMaxSizeSet,
 	}
 }
 
@@ -611,6 +622,18 @@ func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo
 	} else {
 		// No daemon.json → all defaults → json-file, unbounded
 		ld.Driver = "json-file"
+	}
+
+	// A container is only unbounded when its OWN effective log config (from its
+	// inspect, already resolved at container-create time) is json-file with no
+	// max-size. The daemon default alone can't answer this — a per-container
+	// --log-opt or Compose's `logging:` stanza commonly overrides it, and would
+	// otherwise be double-counted as unbounded (a real false-WARN this codebase
+	// has hit before with global-vs-per-instance config drift).
+	for _, c := range info.Containers {
+		if c.LogDriver == "json-file" && !c.LogMaxSizeSet {
+			ld.UnboundedContainers = append(ld.UnboundedContainers, c.Name)
+		}
 	}
 
 	// Scan container log files under /var/lib/docker/containers/*/

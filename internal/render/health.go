@@ -253,7 +253,7 @@ var healthLayers = []healthLayer{
 			"Auth", "Auditd", "Snapshots", "Pressure", "OOM", "Nspawn", "Launchd",
 			"Sessions", "PostBoot", "Cron", "Timeline", "CVE", "SteamOS",
 			// Networking
-			"Network", "Networkd", "NetworkDeep", "DNS", "DNS resolver", "NFS",
+			"Network", "Networkd", "DNS", "DNS resolver", "NFS",
 			"BIND", "Firewall", "Bonding", "VLAN", "TLS",
 			// Containers / orchestration
 			"Docker", "Containerd", "K8s",

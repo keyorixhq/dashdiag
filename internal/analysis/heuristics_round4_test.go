@@ -81,6 +81,26 @@ func TestCheckKVM(t *testing.T) {
 			kvm:  models.KVMInfo{Detected: true, VMsUnreadable: 1, VMs: []models.KVMVM{{Name: "vm1", State: ""}}},
 			want: "WARN",
 		},
+		{
+			name: "missing backing disk file (deep) is CRIT",
+			kvm:  models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMShutOff, MissingDiskPath: "/var/lib/libvirt/images/vm1.qcow2"}}},
+			want: "CRIT",
+		},
+		{
+			name: "emulated NIC (deep) is WARN",
+			kvm:  models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedNICs: []string{"52:54:00:11:22:33 (e1000)"}}}},
+			want: "WARN",
+		},
+		{
+			name: "emulated disk bus (deep) is WARN",
+			kvm:  models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedDisks: []string{"sdb (sata)"}}}},
+			want: "WARN",
+		},
+		{
+			name: "all-VirtIO VM (deep, no findings) is clean",
+			kvm:  models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning}}},
+			want: "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

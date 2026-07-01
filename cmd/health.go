@@ -461,7 +461,6 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 		collectors.NewDiskCollector(ctrCtx),
 		collectors.NewSwapCollector(ctrCtx),
 		collectors.NewIOCollector(),
-		collectors.NewNetworkCollector(),
 		collectors.NewClockCollector(),
 		collectors.NewFDLimitsCollector(),
 		collectors.NewProcessesCollector(),
@@ -472,6 +471,16 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 		collectors.NewEntropyCollector(),
 		collectors.NewLogsCollectorWithProfile(profile),
 		collectors.NewSecurityCollectorWithProfile(profile),
+	}
+	// Network — in deep mode use NetworkDeepCollector so the deep TCP counters
+	// (TIME_WAIT, SYN-retrans, conntrack, gateway jitter) are gathered and judged
+	// by checkNetwork — it already reads these fields zero-value-safe (comment at
+	// heuristics_network.go: "only populated when NetworkDeepCollector is used"),
+	// they were just never collected in `dsd health`, only `dsd net deep`.
+	if includeDeep {
+		cols = append(cols, collectors.NewNetworkDeepCollector())
+	} else {
+		cols = append(cols, collectors.NewNetworkCollector())
 	}
 	// SUSE-specific collectors — only on SUSE/openSUSE hosts
 	if collectors.IsSUSEHost() {
@@ -639,8 +648,12 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// Docker/Podman — gate on socket availability (no root required for detection).
 	// Also include when Podman quadlets are present: those are systemd-managed and
 	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
+	// In deep mode also enable Deep for the log-driver check (per-container unbounded
+	// json-file logging) — otherwise collected only by `dsd docker --deep`.
 	if sock, _ := collectors.DetectContainerSocket(); sock != "" || collectors.PodmanQuadletsPresent() {
-		cols = append(cols, collectors.NewDockerCollectorWithProfile(profile))
+		dockerCol := collectors.NewDockerCollectorWithProfile(profile)
+		dockerCol.Deep = includeDeep
+		cols = append(cols, dockerCol)
 	}
 	// Containerd standalone — only when containerd socket is present AND no k8s layer.
 	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
@@ -731,9 +744,16 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.HAAvailable() {
 		cols = append(cols, collectors.NewHACollector())
 	}
-	// KVM/libvirt — gate on virsh availability
+	// KVM/libvirt — gate on virsh availability. In deep mode use the deep collector
+	// so the per-VM XML config checks (emulated NIC/disk devices, missing backing
+	// file) are gathered and judged — they were otherwise collected only by
+	// `dsd kvm --deep` and never surfaced in health.
 	if collectors.KVMAvailable() {
-		cols = append(cols, collectors.NewKVMCollector())
+		if includeDeep {
+			cols = append(cols, collectors.NewKVMDeepCollector())
+		} else {
+			cols = append(cols, collectors.NewKVMCollector())
+		}
 	}
 	// SteamOS / Steam Deck — gate on os-release (zero cost off-SteamOS)
 	if collectors.SteamOSAvailable() {
@@ -746,7 +766,13 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 		cols = append(cols, collectors.NewCPUFreqCollector())
 	}
 	if includeGPU {
-		cols = append(cols, collectors.NewGPUCollector())
+		// Deep mode adds PowerDPMLevel (checkGPUDevice only WARNs it under real load,
+		// UtilPct >= 50 — otherwise it's collected only by `dsd gpu --deep`).
+		if includeDeep {
+			cols = append(cols, collectors.NewGPUDeepCollector())
+		} else {
+			cols = append(cols, collectors.NewGPUCollector())
+		}
 	}
 	if includeTLS {
 		cols = append(cols, collectors.NewTLSCollector())

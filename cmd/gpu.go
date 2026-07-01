@@ -212,7 +212,7 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 
 	if dev.PowerDPMLevel != "" {
 		icon := asciiOr("ok", "✅", mode)
-		if dev.PowerDPMLevel == "low" {
+		if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
 		lines = append(lines, fmt.Sprintf("    %s DPM level:   %s", icon, dev.PowerDPMLevel))
@@ -275,9 +275,9 @@ func gpuHints(info *models.GPUInfo, steamOS bool, mode output.OutputMode) []stri
 				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", asciiOr("warn", "⚠️ ", mode), dev.VRAMUsedPct),
 				"   → Reduce texture/resolution settings or close GPU-heavy apps")
 		}
-		if dev.PowerDPMLevel == "low" {
+		if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
 			hints = append(hints,
-				fmt.Sprintf("%s GPU stuck in low-power DPM mode — performance capped", asciiOr("warn", "⚠️ ", mode)),
+				fmt.Sprintf("%s GPU stuck in low-power DPM mode under load (%d%% util) — performance capped", asciiOr("warn", "⚠️ ", mode), dev.UtilPct),
 				"   → echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level")
 		}
 	}
@@ -343,7 +343,10 @@ func gpuConcerns(info *models.GPUInfo) (crits, warns int) {
 		case !plausEdge || !plausJunc ||
 			(plausEdge && dev.TempC >= 80) || (plausJunc && dev.TempJunctionC >= 90) || dev.Throttling ||
 			(dev.MemUsedPct >= 85 && !dev.IsAPU) || (dev.VRAMUsedPct >= 90 && !dev.IsAPU) ||
-			dev.PowerDPMLevel == "low":
+			// DPM at "low" only counts under real load (UtilPct >= 50, matches
+			// checkGPUDevice) — many power profiles legitimately park an idle GPU
+			// at "low", which is correct behavior, not a concern.
+			(dev.PowerDPMLevel == "low" && dev.UtilPct >= 50):
 			warns++
 		}
 	}

@@ -95,6 +95,43 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
+	out = append(out, checkKVMVMsXMLDeep(kvm)...)
+	return out
+}
+
+// checkKVMVMsXMLDeep covers the deep-only (`dsd kvm --deep` / `dsd health --deep`)
+// per-VM XML config checks: emulated NIC/disk devices and a missing backing-file.
+// Split out of checkKVMVMs to keep it under the funlen limit.
+func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
+	for _, vm := range kvm.VMs {
+		if vm.MissingDiskPath != "" {
+			out = append(out, insight("CRIT", "KVM",
+				fmt.Sprintf("VM %s's disk image is missing: %s — the VM cannot start", vm.Name, vm.MissingDiskPath),
+				[]string{
+					fmt.Sprintf("to inspect: virsh domblklist %s", vm.Name),
+					"note: the backing file was moved, deleted, or is on an unmounted volume",
+				},
+			))
+		}
+		if len(vm.EmulatedNICs) > 0 {
+			out = append(out, insight("WARN", "KVM",
+				fmt.Sprintf("VM %s: NIC(s) on an emulated driver (%s) — switch to VirtIO (virtio-net) for higher throughput at lower host CPU",
+					vm.Name, strings.Join(vm.EmulatedNICs, ", ")),
+				[]string{fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<interface'", vm.Name)},
+			))
+		}
+		if len(vm.EmulatedDisks) > 0 {
+			out = append(out, insight("WARN", "KVM",
+				fmt.Sprintf("VM %s: disk(s) on an emulated bus (%s) — switch to VirtIO Block/SCSI; emulated IDE/SATA is a common cause of slow guest I/O",
+					vm.Name, strings.Join(vm.EmulatedDisks, ", ")),
+				[]string{
+					fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<disk'", vm.Name),
+					"note: changing the boot disk's bus may need the guest's bootloader/initramfs to include virtio_blk/virtio_scsi",
+				},
+			))
+		}
+	}
 	return out
 }
 
@@ -395,13 +432,17 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			hints,
 		))
 	}
-	// Log driver unbounded (deep mode only)
-	if d.LogDriver != nil && d.LogDriver.Driver == "json-file" && !d.LogDriver.MaxSizeSet {
+	// Log driver unbounded (deep mode only). Keyed on the per-container
+	// UnboundedContainers list, not the daemon-wide default: a per-container
+	// --log-opt (or Compose's `logging:` stanza) commonly overrides the daemon
+	// default, and checking only the daemon default false-WARNed those containers.
+	if d.LogDriver != nil && len(d.LogDriver.UnboundedContainers) > 0 {
 		out = append(out, insight("WARN", "Docker",
-			"log driver is json-file with no max-size — container logs grow unbounded",
+			fmt.Sprintf("%d container(s) logging json-file with no max-size — logs grow unbounded: %s",
+				len(d.LogDriver.UnboundedContainers), strings.Join(firstN(d.LogDriver.UnboundedContainers, 3), ", ")),
 			[]string{
-				"to fix: add to /etc/docker/daemon.json: {\"log-opts\":{\"max-size\":\"100m\",\"max-file\":\"3\"}}",
-				"to fix: systemctl restart docker",
+				"to fix (daemon-wide): add to /etc/docker/daemon.json: {\"log-opts\":{\"max-size\":\"100m\",\"max-file\":\"3\"}}, then systemctl restart docker",
+				"to fix (per-container): add --log-opt max-size=100m --log-opt max-file=3 (or Compose's logging: stanza), then recreate the container",
 			},
 		))
 	}

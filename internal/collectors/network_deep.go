@@ -16,7 +16,11 @@ type NetworkDeepCollector struct{}
 
 func NewNetworkDeepCollector() *NetworkDeepCollector { return &NetworkDeepCollector{} }
 
-func (c *NetworkDeepCollector) Name() string           { return "NetworkDeep" }
+// Name matches NetworkCollector's — same "Network" section, just enriched with
+// deep-only fields. A distinct name here would silently break render's
+// insight/inline-data lookup (both keyed on Result.Name), the exact
+// "qualified-check rollup" false-OK class documented elsewhere in this codebase.
+func (c *NetworkDeepCollector) Name() string           { return "Network" }
 func (c *NetworkDeepCollector) Timeout() time.Duration { return 30 * time.Second }
 
 func (c *NetworkDeepCollector) Collect(ctx context.Context) (any, error) {

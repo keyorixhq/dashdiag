@@ -68,7 +68,12 @@ func TestCmdHealthConsistency_GPU(t *testing.T) {
 		{"util maxed", models.GPUDevice{TempC: 50, UtilPct: 96}},
 		{"unreadable device", models.GPUDevice{Unreadable: true}},
 		{"discrete mem 96", models.GPUDevice{TempC: 50, MemUsedPct: 96}},
-		{"power dpm low", models.GPUDevice{TempC: 50, PowerDPMLevel: "low"}},
+		// DPM "low" while idle is legitimate power-saving, not a concern, in EITHER
+		// path — a power profile parking an idle GPU at "low" must not false-WARN.
+		{"power dpm low but idle", models.GPUDevice{TempC: 50, PowerDPMLevel: "low", UtilPct: 5}},
+		// DPM "low" under real load (util >= 50) IS a concern in both paths — the GPU
+		// failed to ramp up under demand.
+		{"power dpm low under load", models.GPUDevice{TempC: 50, PowerDPMLevel: "low", UtilPct: 60}},
 		// Busy GPU (high util, low power) is NOT a fault in EITHER path — pins the
 		// BUG-089 fix so a future edit can't re-add a bare-util WARN to `dsd gpu`.
 		{"busy but healthy (util 100, low power)", models.GPUDevice{TempC: 55, UtilPct: 100, PowerDrawW: 30}},

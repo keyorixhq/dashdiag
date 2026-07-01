@@ -29,6 +29,12 @@ type KVMVM struct {
 	UsedMemMB    int        `json:"used_mem_mb"`
 	DiskIOError  bool       `json:"disk_io_error"`
 	LastLogError string     `json:"last_log_error,omitempty"` // from /var/log/libvirt/qemu/
+
+	// Deep-only: parsed from `virsh dumpxml` (works for shut-off VMs too, since it
+	// reads the persistent definition rather than live device state).
+	EmulatedNICs    []string `json:"emulated_nics,omitempty"`     // "<mac> (<model>)" on a non-VirtIO NIC model
+	EmulatedDisks   []string `json:"emulated_disks,omitempty"`    // "<dev> (<bus>)" on a non-VirtIO disk bus
+	MissingDiskPath string   `json:"missing_disk_path,omitempty"` // file-backed disk whose backing file is gone
 }
 
 // KVMNetwork holds status for a libvirt virtual network.

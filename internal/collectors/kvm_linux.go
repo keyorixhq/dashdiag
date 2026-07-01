@@ -5,6 +5,8 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"encoding/xml"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -48,7 +50,7 @@ func (c *KVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	parseVirshVersion(verOut, info)
 
 	// Collect in parallel-ish order (sequential is fine — each call is fast)
-	kvmCollectVMs(ctx, info)
+	kvmCollectVMs(ctx, info, c.Deep)
 	kvmCollectNetworks(ctx, info)
 	kvmCollectPools(ctx, info)
 
@@ -76,7 +78,7 @@ func parseVirshVersion(out string, info *models.KVMInfo) {
 
 // ── VM collection ─────────────────────────────────────────────────────────────
 
-func kvmCollectVMs(ctx context.Context, info *models.KVMInfo) {
+func kvmCollectVMs(ctx context.Context, info *models.KVMInfo, deep bool) {
 	out, err := runCmd(ctx, "virsh", "list", "--all", "--name")
 	if err != nil {
 		// libvirt was detected (virsh version --daemon succeeded) but enumeration
@@ -99,8 +101,89 @@ func kvmCollectVMs(ctx context.Context, info *models.KVMInfo) {
 		vm := kvmDomInfo(ctx, name)
 		kvmCheckDiskErrors(ctx, &vm)
 		kvmReadLastLogError(&vm)
+		if deep {
+			// dumpxml reads the persistent domain definition, so this works for
+			// shut-off VMs too — the whole point of the originally-scoped "XML
+			// config check for non-running VMs" (dsd kvm --deep).
+			kvmCollectXMLDeep(ctx, &vm)
+		}
 		updateKVMCounts(info, &vm)
 		info.VMs = append(info.VMs, vm)
+	}
+}
+
+// kvmDomainXML is the minimal libvirt domain XML shape needed for the deep
+// config check: disk bus/backing-file and NIC model.
+type kvmDomainXML struct {
+	Devices struct {
+		Disks []struct {
+			Device string `xml:"device,attr"` // "disk" vs "cdrom"/"floppy"
+			Source struct {
+				File string `xml:"file,attr"` // only set for plain file-backed disks
+			} `xml:"source"`
+			Target struct {
+				Dev string `xml:"dev,attr"`
+				Bus string `xml:"bus,attr"`
+			} `xml:"target"`
+		} `xml:"disk"`
+		Interfaces []struct {
+			Mac struct {
+				Address string `xml:"address,attr"`
+			} `xml:"mac"`
+			Model struct {
+				Type string `xml:"type,attr"`
+			} `xml:"model"`
+		} `xml:"interface"`
+	} `xml:"devices"`
+}
+
+// kvmEmulatedNICModels/kvmEmulatedDiskBuses are explicit allowlists of known
+// emulated (non-VirtIO) device models/buses. Explicit, not "anything that
+// isn't virtio", so an unrecognized or future model/bus name is silently
+// ignored rather than misclassified as emulated — the false-WARN guard.
+var kvmEmulatedNICModels = map[string]bool{
+	"e1000": true, "e1000e": true, "rtl8139": true, "pcnet": true, "ne2k_pci": true,
+}
+
+var kvmEmulatedDiskBuses = map[string]bool{"ide": true, "sata": true}
+
+// kvmCollectXMLDeep parses `virsh dumpxml` for vm and fills its deep-only
+// fields (emulated NIC/disk detection + missing backing-file detection).
+// Silent on any read/parse failure — say nothing rather than guess.
+func kvmCollectXMLDeep(ctx context.Context, vm *models.KVMVM) {
+	out, err := runCmd(ctx, "virsh", "dumpxml", vm.Name)
+	if err != nil {
+		return
+	}
+	var dom kvmDomainXML
+	if xml.Unmarshal([]byte(out), &dom) != nil {
+		return
+	}
+
+	for _, ifc := range dom.Devices.Interfaces {
+		if !kvmEmulatedNICModels[ifc.Model.Type] {
+			continue
+		}
+		id := ifc.Mac.Address
+		if id == "" {
+			id = ifc.Model.Type
+		}
+		vm.EmulatedNICs = append(vm.EmulatedNICs, fmt.Sprintf("%s (%s)", id, ifc.Model.Type))
+	}
+
+	for _, disk := range dom.Devices.Disks {
+		if disk.Device != "disk" {
+			continue // cdrom/floppy — an emulated IDE/SATA bus there is normal
+		}
+		if kvmEmulatedDiskBuses[disk.Target.Bus] {
+			vm.EmulatedDisks = append(vm.EmulatedDisks, fmt.Sprintf("%s (%s)", disk.Target.Dev, disk.Target.Bus))
+		}
+		// Missing backing file — only for plain file-backed disks. Network/block
+		// sources (rbd, nbd, LVM) never populate Source.File, so they're silently
+		// skipped rather than guessed at.
+		if vm.MissingDiskPath == "" && disk.Source.File != "" && !fileExists(disk.Source.File) {
+			vm.MissingDiskPath = disk.Source.File
+		}
 	}
 }
 
