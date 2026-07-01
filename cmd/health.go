@@ -529,6 +529,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.IsMultipathPresent() {
 		cols = append(cols, collectors.NewMultipathCollector())
 	}
+	// Hardware RAID controllers (MegaRAID/PERC via storcli/perccli, HPE via ssacli)
+	if collectors.IsHWRaidPresent() {
+		cols = append(cols, collectors.NewHWRaidCollector())
+	}
 	// Medium priority: Ceph, Firewall, Auth, CloudMeta, Auditd
 	if collectors.IsCephPresent() {
 		cols = append(cols, collectors.NewCephCollector())

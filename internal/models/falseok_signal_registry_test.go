@@ -83,6 +83,10 @@ var guardedUnverifiedSignals = map[string]string{
 	"ServiceRestartInfo.NeedsRoot":    "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
 	"KspliceInfo.CheckUnverified":     "analysis/heuristics_maintenance_test.go (uptrack status unread → INFO 'could not be read', not OK)",
 	"KernelPatchInfo.CheckUnverified": "analysis/heuristics_maintenance_test.go + collectors/maintenance_linux_test.go (BUG-088: SUSE zypp lock held the whole budget → INFO 'could not be determined', never a silent drop or 'Kernel OK')",
+
+	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
+	"HWRaidInfo.NeedsRoot":  "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
+	"HWRaidInfo.ReadFailed": "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

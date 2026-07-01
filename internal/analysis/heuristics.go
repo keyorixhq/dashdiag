@@ -1045,6 +1045,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkMultipath(*d)
 		}
+	case models.HWRaidInfo:
+		return checkHWRaid(d)
+	case *models.HWRaidInfo:
+		if d != nil {
+			return checkHWRaid(*d)
+		}
 	case models.CephInfo:
 		return checkCeph(d)
 	case *models.CephInfo:

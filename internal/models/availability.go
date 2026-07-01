@@ -36,6 +36,7 @@ func (i RancherInfo) IsAvailable() bool         { return i.Available }
 func (i HAInfo) IsAvailable() bool              { return i.Available }
 func (i LogsInfo) IsAvailable() bool            { return i.Available }
 func (i MultipathInfo) IsAvailable() bool       { return i.Available }
+func (i HWRaidInfo) IsAvailable() bool          { return i.Available }
 func (i NspawnInfo) IsAvailable() bool          { return i.Available }
 func (i NUMAInfo) IsAvailable() bool            { return i.Available }
 func (i OOMInfo) IsAvailable() bool             { return i.Available }
