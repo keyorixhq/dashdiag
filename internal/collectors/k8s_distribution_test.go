@@ -37,6 +37,10 @@ func TestK8sDistribution(t *testing.T) {
 		// RKE2 also lays down /var/lib/rancher, so its marker must win over k3s.
 		{"rke2 beats k3s", []string{"/var/lib/rancher/rke2", "/var/lib/rancher/k3s"}, "rke2"},
 		{"k3s", []string{"/etc/rancher/k3s/k3s.yaml"}, "k3s"},
+		{"k0s", []string{"/var/lib/k0s"}, "k0s"},
+		// k0s runs its own kubelet (writes /var/lib/kubelet/config.yaml), so its marker
+		// must win over the kubeadm one or a k0s node misdetects as kubeadm.
+		{"k0s beats kubeadm", []string{"/var/lib/k0s", "/var/lib/kubelet/config.yaml"}, "k0s"},
 		{"kubeadm", []string{"/etc/kubernetes/manifests"}, "kubeadm"},
 		{"unknown", nil, ""},
 	}
@@ -63,6 +67,19 @@ func TestK8sDetectBinRKE2(t *testing.T) {
 		"/var/lib/rancher/rke2/bin/kubectl": true,
 	}}))
 	want := "/var/lib/rancher/rke2/bin/kubectl --kubeconfig=/etc/rancher/rke2/rke2.yaml"
+	if got := k8sDetectBin(); got != want {
+		t.Errorf("k8sDetectBin() = %q, want %q", got, want)
+	}
+}
+
+// k0s installs a single /usr/local/bin/k0s binary and NO standalone kubectl, so dsd was
+// blind to k0s clusters (k8s not detected at all — a false-negative found live on a real
+// k0s v1.36 node). Detection must wrap it as `k0s kubectl`.
+func TestK8sDetectBinK0s(t *testing.T) {
+	defer SetSource(SetSource(pathSetSource{exists: map[string]bool{
+		"/usr/local/bin/k0s": true,
+	}}))
+	want := "/usr/local/bin/k0s kubectl"
 	if got := k8sDetectBin(); got != want {
 		t.Errorf("k8sDetectBin() = %q, want %q", got, want)
 	}

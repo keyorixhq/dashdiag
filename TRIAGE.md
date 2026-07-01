@@ -11,6 +11,20 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## ZB. k0s validation + dsd blind to k0s clusters — ✅ DONE (2026-07-01)
+
+Third "beyond k3s" target: real **k0s** v1.36.2 (Mirantis single-binary k8s) on **pve01
+VM 111 `k0s-test`** (Debian 13, 192.168.10.53). Found + fixed **BUG-095**: k0s ships only
+`/usr/local/bin/k0s` (no standalone kubectl; wraps it as `k0s kubectl`), which `k8sDetectBin`
+didn't know → `K8sAvailable()` false → the entire K8s collector skipped → **no K8s section
+at all** on a running control plane (a silent false-negative). Fix adds k0s to `k8sDetectBin`
+(→ `k0s kubectl`) and `k8sDistribution` (`/var/lib/k0s` marker, before kubeadm since k0s
+also writes /var/lib/kubelet/config.yaml). Detection tests added. Verified live (node Ready,
+pods healthy, distribution=k0s, no EtcdIsVoter false-CRIT, honest non-root). Capture
+`k0s-debian-20260701.tar.gz`. Memory `k0s-validation-vm`.
+
+---
+
 ## ZA. kubeadm validation + `sudo dsd` can't reach the API — ✅ DONE (2026-07-01)
 
 Second "beyond k3s" target: real **kubeadm** v1.31 (canonical reference, static-pod

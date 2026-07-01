@@ -676,6 +676,8 @@ func k8sDetectBin() string {
 	directPaths := []struct{ bin, bin2 string }{
 		{"/usr/local/bin/k3s", "k3s"},
 		{"/usr/bin/k3s", "k3s"},
+		{"/usr/local/bin/k0s", "k0s"},
+		{"/usr/bin/k0s", "k0s"},
 		{"/usr/local/bin/kubectl", "kubectl"},
 		{"/usr/bin/kubectl", "kubectl"},
 		{"/snap/bin/microk8s", "microk8s"},
@@ -683,18 +685,21 @@ func k8sDetectBin() string {
 	}
 	for _, p := range directPaths {
 		if fileExists(p.bin) {
-			if p.bin2 == "k3s" {
-				return p.bin + " kubectl"
+			// k3s/k0s/microk8s are single-binary distros with no standalone kubectl —
+			// they wrap it as `<bin> kubectl` (which also carries their embedded, often
+			// root-only, kubeconfig). A plain kubectl gets the kubeadm admin.conf flag.
+			if p.bin2 == "kubectl" {
+				return p.bin + kubeadmKubeconfigFlag()
 			}
-			if p.bin2 == "microk8s" {
-				return p.bin + " kubectl"
-			}
-			return p.bin + kubeadmKubeconfigFlag()
+			return p.bin + " kubectl"
 		}
 	}
 	// Fall back to PATH lookup
 	if _, err := lookPath("k3s"); err == nil {
 		return "k3s kubectl"
+	}
+	if _, err := lookPath("k0s"); err == nil {
+		return "k0s kubectl"
 	}
 	if _, err := lookPath("microk8s"); err == nil {
 		return "microk8s kubectl"
@@ -731,16 +736,19 @@ func kubeadmKubeconfigFlagFor(euid int, kubeconfigEnv string, rootKubeExists, ad
 	return " --kubeconfig=/etc/kubernetes/admin.conf"
 }
 
-// k8sDistribution returns the Kubernetes distribution in use ("rke2", "k3s",
-// "microk8s", "kubeadm") from on-disk markers, or "" when undetermined. Order
-// matters: RKE2 also lays down /var/lib/rancher, so check its rke2-specific path
-// before the k3s one.
+// k8sDistribution returns the Kubernetes distribution in use ("rke2", "k3s", "k0s",
+// "microk8s", "kubeadm") from on-disk markers, or "" when undetermined. Order matters:
+// RKE2 also lays down /var/lib/rancher, so check its rke2-specific path before the k3s
+// one; k0s runs its own kubelet (creating /var/lib/kubelet/config.yaml), so check its
+// /var/lib/k0s marker before the kubeadm one or it would misdetect as kubeadm.
 func k8sDistribution() string {
 	switch {
 	case fileExists("/var/lib/rancher/rke2") || fileExists("/etc/rancher/rke2/rke2.yaml"):
 		return "rke2"
 	case fileExists("/var/lib/rancher/k3s") || fileExists("/etc/rancher/k3s/k3s.yaml"):
 		return "k3s"
+	case fileExists("/var/lib/k0s") || fileExists("/etc/k0s"):
+		return "k0s"
 	case fileExists("/var/snap/microk8s") || fileExists("/snap/bin/microk8s"):
 		return "microk8s"
 	case fileExists("/etc/kubernetes/manifests") || fileExists("/var/lib/kubelet/config.yaml"):
