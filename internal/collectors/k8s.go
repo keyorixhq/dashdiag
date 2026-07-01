@@ -689,7 +689,7 @@ func k8sDetectBin() string {
 			if p.bin2 == "microk8s" {
 				return p.bin + " kubectl"
 			}
-			return p.bin
+			return p.bin + kubeadmKubeconfigFlag()
 		}
 	}
 	// Fall back to PATH lookup
@@ -700,9 +700,35 @@ func k8sDetectBin() string {
 		return "microk8s kubectl"
 	}
 	if _, err := lookPath("kubectl"); err == nil {
-		return "kubectl"
+		return "kubectl" + kubeadmKubeconfigFlag()
 	}
 	return ""
+}
+
+// kubeadmKubeconfigFlag returns " --kubeconfig=/etc/kubernetes/admin.conf" when a plain
+// kubectl on a kubeadm control-plane node would otherwise have no kubeconfig. kubeadm
+// writes its admin credential to /etc/kubernetes/admin.conf (root-readable, 0600) but
+// — unlike k3s/RKE2 — does NOT place one at /root/.kube/config. So `sudo dsd k8s` /
+// `sudo dsd health` ran bare kubectl, which falls back to localhost:8080 and reports
+// the API "unreachable" on a perfectly healthy cluster (found live on a kubeadm node,
+// 2026-07-01; the operator's own non-root run via ~/.kube/config worked fine). Gated to
+// root (admin.conf is root-only) and skipped when root already has its own kubeconfig,
+// so the non-root path is untouched. kubectl reads admin.conf to authenticate; its
+// content is never captured (we record kubectl's output, not the credential).
+func kubeadmKubeconfigFlag() string {
+	return kubeadmKubeconfigFlagFor(os.Geteuid(), os.Getenv("KUBECONFIG"),
+		fileExists("/root/.kube/config"), fileExists("/etc/kubernetes/admin.conf"))
+}
+
+// kubeadmKubeconfigFlagFor is the pure decision behind kubeadmKubeconfigFlag. Returns
+// the admin.conf flag only as root (admin.conf is root-only), only when root has no
+// kubeconfig of its own (KUBECONFIG env or /root/.kube/config), and only when admin.conf
+// actually exists.
+func kubeadmKubeconfigFlagFor(euid int, kubeconfigEnv string, rootKubeExists, adminConfExists bool) string {
+	if euid != 0 || kubeconfigEnv != "" || rootKubeExists || !adminConfExists {
+		return ""
+	}
+	return " --kubeconfig=/etc/kubernetes/admin.conf"
 }
 
 // k8sDistribution returns the Kubernetes distribution in use ("rke2", "k3s",

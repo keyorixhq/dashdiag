@@ -1513,3 +1513,34 @@ found and fixed.
   Verified live: `K8s` dropped CRIT→WARN (only the transient bootstrap warning events
   remain); capture `rke2-debian-20260701.tar.gz`.
 **Commit:** (this PR)
+
+## kubeadm — second "beyond k3s" validation (2026-07-01)
+
+Validated the k8s OS-layer on a real **kubeadm** v1.31 cluster (the canonical reference
+distribution; static-pod control plane, flannel CNI) on pve01 VM 109. Confirmed BUG-093
+does NOT over-fire (kubeadm has no `EtcdIsVoter` condition — different control-plane
+shape), and dsd honestly reported a genuinely-degraded coredns. One root-access gap found
+and fixed.
+
+### BUG-094 — `sudo dsd k8s`/`health` can't reach a kubeadm cluster (no admin.conf detection)
+**Found:** live on the kubeadm node — `sudo dsd k8s` reported
+  `cluster API unreachable — cluster health NOT verified` on a healthy cluster, while the
+  operator's **non-root** `dsd k8s` (via `~/.kube/config`) worked fine. The privilege
+  polarity is inverted from the usual: non-root saw the cluster, root didn't.
+**Root cause:** `k8sDetectBin` resolves a kubeconfig for k3s (`/etc/rancher/k3s/…`) and
+  RKE2 (`--kubeconfig=/etc/rancher/rke2/rke2.yaml`) but for generic/kubeadm it returned
+  bare `kubectl`. kubeadm writes its admin credential to **`/etc/kubernetes/admin.conf`**
+  (root-readable, 0600) and copies it to the *operator's* `~/.kube/config` — but never to
+  `/root/.kube/config`. So `sudo kubectl` has no kubeconfig, falls back to localhost:8080,
+  and every cluster query fails → dsd reads "API unreachable" on a healthy cluster (the
+  most common invocation, `sudo dsd health`, is exactly the broken one).
+**Affected:** every kubeadm (and generic-kubectl) control-plane node when dsd runs as
+  root without a root kubeconfig — i.e. the default `sudo dsd health` path.
+**Fix:** `kubeadmKubeconfigFlag()` appends `--kubeconfig=/etc/kubernetes/admin.conf` to a
+  plain-kubectl invocation **only** as root (admin.conf is root-only), and only when root
+  has no kubeconfig of its own (`KUBECONFIG` env / `/root/.kube/config`) — so the non-root
+  operator path is untouched. kubectl reads admin.conf to authenticate; its content is
+  never captured (we record kubectl's output, not the credential). Pure decision extracted
+  to `kubeadmKubeconfigFlagFor` + table test `kubeadm_kubeconfig_test.go`. Verified live:
+  `sudo dsd k8s` now reads the cluster via admin.conf; capture `kubeadm-debian-20260701.tar.gz`.
+**Commit:** (this PR)
