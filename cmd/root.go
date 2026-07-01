@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,7 @@ var rootCmd = &cobra.Command{
 		"  dsd <area>     focus one area, e.g. dsd disk, dsd net, dsd security, dsd docker\n\n" +
 		"◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		applyBrand(cmd)
 		plain, _ := cmd.Flags().GetBool("plain")
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		outPath, _ := cmd.Flags().GetString("out")
@@ -54,6 +56,19 @@ var rootCmd = &cobra.Command{
 // Design session required before implementation. See BACKLOG.md §Strategic Discussions.
 // Estimated scope: ~10 days.
 
+// applyBrand reads the --brand/--logo persistent flags and sets the HTML-report brand.
+// Called from the root PersistentPreRun (covers every command that inherits it); a
+// command that blanks PersistentPreRun (e.g. replay) calls this itself. The render
+// package also falls back to DSD_BRAND_* env vars, so a report is branded whether the
+// operator passed a flag or exported the env.
+func applyBrand(cmd *cobra.Command) {
+	company, _ := cmd.Flags().GetString("brand")
+	logo, _ := cmd.Flags().GetString("logo")
+	if company != "" || logo != "" {
+		render.SetBrand(render.Brand{Company: company, Logo: logo})
+	}
+}
+
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	// Help = the command's description (Long, else Short) followed by usage.
@@ -76,6 +91,11 @@ func init() {
 	f.Bool("plain", false, "plain text output (no colour, machine-friendly)")
 	f.Bool("json", false, "JSON output (machine-readable)")
 	f.String("out", "", "write output to file")
+	// White-label the HTML reports (--report-html) with a company name + logo, so an
+	// MSP/consultancy can hand a client a report under its own brand. Also settable via
+	// DSD_BRAND_COMPANY / DSD_BRAND_LOGO env vars.
+	f.String("brand", "", "company name to white-label HTML reports with (or set DSD_BRAND_COMPANY)")
+	f.String("logo", "", "path to a logo image embedded in HTML reports (or set DSD_BRAND_LOGO)")
 	f.Bool("watch", false, "watch mode — refresh periodically")
 	f.Bool("share", false, "share report via URL")
 	f.Bool("qr", false, "display share URL as QR code")
