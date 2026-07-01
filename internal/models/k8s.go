@@ -97,8 +97,10 @@ type RancherInfo struct {
 // K8sOSLayer holds OS-level diagnostics for the k8s node.
 type K8sOSLayer struct {
 	KubeletActive      bool     `json:"kubelet_active"`
+	KubeletChecked     bool     `json:"kubelet_checked"` // false on a kubectl-only client host (no on-disk node marker) — state not applicable
 	KubeletErrors      []string `json:"kubelet_errors,omitempty"`
 	ContainerdActive   bool     `json:"containerd_active"`
+	ContainerdChecked  bool     `json:"containerd_checked"` // same gate as KubeletChecked
 	IPForwardEnabled   bool     `json:"ip_forward_enabled"`
 	IPForwardChecked   bool     `json:"ip_forward_checked"`    // false when /proc unreadable — state unknown, not disabled
 	KubeForwardChain   bool     `json:"kube_forward_chain"`    // iptables/nft KUBE-FORWARD rule
@@ -108,6 +110,7 @@ type K8sOSLayer struct {
 	CNIBinsOK          bool     `json:"cni_bins_ok"`           // /opt/cni/bin/ populated
 	CNIChecked         bool     `json:"cni_checked"`           // false when /opt/cni/bin unreadable (permission) — state unknown
 	FirewalldMasquOK   bool     `json:"firewalld_masq_ok"`     // masquerade enabled if firewalld
+	FirewalldChecked   bool     `json:"firewalld_checked"`     // false unless firewalld.service is actually active — state not applicable
 	CertExpirySoon     bool     `json:"cert_expiry_soon"`      // true when a cert expires within 30d — companion flag so 0 days (within 24h) isn't read as the zero-value "none"
 	CertExpirySoonDays int      `json:"cert_expiry_soon_days"` // days to soonest expiry when CertExpirySoon; 0 = within 24h. Meaningless unless CertExpirySoon
 	CertExpiredNames   []string `json:"cert_expired_names,omitempty"`

@@ -852,9 +852,53 @@ func parseK8sEventAgeSeconds(s string) (int, bool) {
 	return total, true
 }
 
+// checkK8sNodeDaemons emits insights for the node's local kubelet/containerd/firewalld
+// state — split out from checkK8sOSLayer to keep it under the funlen limit.
+func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
+	var out []models.Insight
+
+	// Gate on KubeletChecked/ContainerdChecked: these are only set when an on-disk
+	// node marker was found (rke2/k3s/k0s/microk8s/kubeadm). A kubectl-only client host
+	// (e.g. a laptop pointed at a remote cluster) never has kubelet/containerd
+	// installed at all — that must NOT read as "kubelet down".
+	if l.KubeletChecked && !l.KubeletActive {
+		out = append(out, insight("CRIT", "K8s",
+			"kubelet is not running on this node — pods cannot be scheduled or managed here",
+			[]string{
+				"to inspect: sudo systemctl status kubelet k3s k3s-agent rke2-server rke2-agent k0scontroller k0sworker",
+				"to inspect: sudo journalctl -u kubelet -u k3s -n 50 --no-pager",
+			},
+		))
+	}
+
+	if l.ContainerdChecked && !l.ContainerdActive {
+		out = append(out, insight("CRIT", "K8s",
+			"container runtime is not active on this node — no containers can be started here",
+			[]string{
+				"to inspect: sudo systemctl status containerd",
+				"to fix (k3s/RKE2/k0s/MicroK8s): the runtime is bundled — restart the node service instead",
+			},
+		))
+	}
+
+	// Firewalld masquerade only matters when flannel is the configured CNI (its
+	// requirement); FirewalldChecked is only true when firewalld.service itself is
+	// active, so a host without firewalld (the k3s/RKE2 default) never false-fires.
+	if l.FirewalldChecked && l.FlannelInUse && !l.FirewalldMasquOK {
+		out = append(out, insight("WARN", "K8s",
+			"firewalld is active without masquerade enabled — flannel pod networking across nodes will fail",
+			[]string{
+				"to fix: sudo firewall-cmd --add-masquerade --permanent && sudo firewall-cmd --reload",
+			},
+		))
+	}
+
+	return out
+}
+
 // checkK8sOSLayer emits insights for OS-level k8s node health.
 func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
-	var out []models.Insight
+	out := checkK8sNodeDaemons(l)
 
 	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
 	// at its false zero value, which must not be reported as a real "disabled".

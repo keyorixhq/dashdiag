@@ -57,7 +57,7 @@ func (c *K8sCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	// OS-layer deep checks (only on k8s nodes, only with --deep)
 	if c.Deep {
-		info.OSLayer = collectK8sOSLayer(ctx, bin)
+		info.OSLayer = collectK8sOSLayer(ctx, bin, info.Distribution)
 	}
 
 	return info, nil
@@ -561,8 +561,17 @@ func detectKubeForward(ctx context.Context) (checked, present bool) {
 	return false, false // neither tool available — unknown
 }
 
-func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
+func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
+
+	// KubeletChecked/ContainerdChecked gate on an on-disk node marker (k8sDistribution,
+	// computed by the caller), NOT on live daemon state. A host running `kubectl`
+	// against a remote cluster (e.g. a laptop with a cloud kubeconfig) has neither
+	// kubelet nor containerd installed at all — that must read as "not applicable",
+	// never as a false "kubelet down" CRIT. Only a host actually provisioned as a node
+	// (rke2/k3s/k0s/microk8s/kubeadm markers present) gets a real verdict here.
+	layer.KubeletChecked = distribution != ""
+	layer.ContainerdChecked = distribution != ""
 
 	// kubelet. Most distros embed/wrap the kubelet under a distro-specific unit rather
 	// than a standalone kubelet.service: k3s → k3s / k3s-agent; RKE2 → rke2-server /
@@ -623,9 +632,16 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	// Track whether a tool actually ran so the verdict can say "unknown" vs "missing".
 	layer.KubeForwardChecked, layer.KubeForwardChain = detectKubeForward(ctx)
 
-	// firewalld masquerade (Flannel requirement)
-	masqOut, _ := runCmd(ctx, "firewall-cmd", "--query-masquerade")
-	layer.FirewalldMasquOK = strings.TrimSpace(masqOut) == "yes"
+	// firewalld masquerade (Flannel requirement). Gate on firewalld actually being
+	// active first (same pattern as docker.go's collectFirewalldCheck) — most k3s/RKE2
+	// nodes never run firewalld at all, and `firewall-cmd --query-masquerade` fails
+	// the same way whether firewalld is absent or just off. Without the gate, "absent"
+	// and "on but misconfigured" collapse to the same false-negative FirewalldMasquOK.
+	if out, err := runCmd(ctx, "systemctl", "is-active", "firewalld"); err == nil && strings.TrimSpace(out) == "active" {
+		layer.FirewalldChecked = true
+		masqOut, _ := runCmd(ctx, "firewall-cmd", "--query-masquerade")
+		layer.FirewalldMasquOK = strings.TrimSpace(masqOut) == "yes"
+	}
 
 	// Certificate expiry
 	certDirs := []string{
