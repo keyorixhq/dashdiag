@@ -19,6 +19,15 @@ func TestCheckDocker(t *testing.T) {
 	// Daemon reachable but enumeration failed → WARN, never a silent "healthy"
 	// (the false-OK fix). Empty Containers must not read green when Status=="error".
 	assertLevel(t, checkDocker(models.DockerInfo{Available: true, Status: "error", StatusReason: "docker API error listing containers"}), "WARN")
+	// Log driver (deep-only): only WARN when a container's OWN effective log
+	// config is unbounded — a daemon-wide "no max-size" default must NOT WARN if
+	// every container overrides it per-container (Compose's `logging:` stanza is
+	// the common case), and a genuinely-unbounded container must WARN regardless
+	// of what the daemon default is.
+	assertLevel(t, checkDocker(models.DockerInfo{Available: true,
+		LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: false}}), "") // daemon-wide only, no container list — silent
+	assertLevel(t, checkDocker(models.DockerInfo{Available: true,
+		LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: false, UnboundedContainers: []string{"web"}}}), "WARN")
 }
 
 func TestCheckIPMI(t *testing.T) {

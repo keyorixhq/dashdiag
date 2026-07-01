@@ -299,10 +299,15 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 			[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
 		))
 	}
-	// DPM stuck low (deep-only field) — performance capped after failed power management.
-	if dev.PowerDPMLevel == "low" {
+	// DPM stuck low (deep-only field) — performance capped after failed power
+	// management. Gated on UtilPct: many power profiles (laptop battery-saver,
+	// tuned, an idle desktop) legitimately park DPM at "low" while idle — that's
+	// correct behavior, not a fault. Only a genuine workload (UtilPct >= 50, the
+	// same load-evidence bar used by the sustained-compute-load INFO below)
+	// pinned at "low" indicates the GPU failed to ramp up under demand.
+	if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
 		out = append(out, insight("WARN", "GPU",
-			fmt.Sprintf("%s stuck in low-power DPM mode — performance capped", prefix),
+			fmt.Sprintf("%s stuck in low-power DPM mode under load (%d%% util) — performance capped", prefix, dev.UtilPct),
 			[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
 		))
 	}

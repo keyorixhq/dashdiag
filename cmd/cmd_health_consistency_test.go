@@ -68,7 +68,12 @@ func TestCmdHealthConsistency_GPU(t *testing.T) {
 		{"util maxed", models.GPUDevice{TempC: 50, UtilPct: 96}},
 		{"unreadable device", models.GPUDevice{Unreadable: true}},
 		{"discrete mem 96", models.GPUDevice{TempC: 50, MemUsedPct: 96}},
-		{"power dpm low", models.GPUDevice{TempC: 50, PowerDPMLevel: "low"}},
+		// DPM "low" while idle is legitimate power-saving, not a concern, in EITHER
+		// path — a power profile parking an idle GPU at "low" must not false-WARN.
+		{"power dpm low but idle", models.GPUDevice{TempC: 50, PowerDPMLevel: "low", UtilPct: 5}},
+		// DPM "low" under real load (util >= 50) IS a concern in both paths — the GPU
+		// failed to ramp up under demand.
+		{"power dpm low under load", models.GPUDevice{TempC: 50, PowerDPMLevel: "low", UtilPct: 60}},
 		// Busy GPU (high util, low power) is NOT a fault in EITHER path — pins the
 		// BUG-089 fix so a future edit can't re-add a bare-util WARN to `dsd gpu`.
 		{"busy but healthy (util 100, low power)", models.GPUDevice{TempC: 55, UtilPct: 100, PowerDrawW: 30}},
@@ -110,6 +115,13 @@ func TestCmdHealthConsistency_KVM(t *testing.T) {
 		{"disk io errors", models.KVMInfo{Detected: true, DiskIOErrors: 1}},
 		{"networks inactive", models.KVMInfo{Detected: true, NetworksInactive: 1}},
 		{"pools inactive", models.KVMInfo{Detected: true, PoolsInactive: 1}},
+		// Deep-only per-VM XML findings — found live-testing against a real libvirt
+		// host (2026-07-01): `dsd kvm --deep` said "healthy" while `dsd health --deep`
+		// correctly WARNed/CRITed on the same VM. kvmConcerns previously never read
+		// these three fields at all.
+		{"missing disk file (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMShutOff, MissingDiskPath: "/var/lib/libvirt/images/vm1.qcow2"}}}},
+		{"emulated nic (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedNICs: []string{"aa:bb (e1000)"}}}}},
+		{"emulated disk (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedDisks: []string{"sda (sata)"}}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

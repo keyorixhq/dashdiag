@@ -23,7 +23,8 @@ type GPUCollector struct {
 	Deep bool
 }
 
-func NewGPUCollector() *GPUCollector { return &GPUCollector{} }
+func NewGPUCollector() *GPUCollector     { return &GPUCollector{} }
+func NewGPUDeepCollector() *GPUCollector { return &GPUCollector{Deep: true} }
 
 func (c *GPUCollector) Name() string           { return "GPU" }
 func (c *GPUCollector) Timeout() time.Duration { return 10 * time.Second }

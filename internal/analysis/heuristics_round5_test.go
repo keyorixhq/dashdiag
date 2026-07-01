@@ -131,6 +131,10 @@ func TestCheckGPU(t *testing.T) {
 		{"real overheat 105C still CRIT", dev(models.GPUDevice{Name: "card0", TempC: 105}), "CRIT"},
 		{"real junction 110C still CRIT", dev(models.GPUDevice{Name: "card0", TempC: 50, TempJunctionC: 110}), "CRIT"},
 		{"150C boundary still scored as CRIT", dev(models.GPUDevice{Name: "card0", TempC: 150}), "CRIT"},
+		// DPM stuck "low" (deep-only field) only WARNs under real load — an idle GPU
+		// legitimately parked at "low" by a power profile must stay silent.
+		{"DPM low but idle is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, PowerDPMLevel: "low", UtilPct: 10}), ""},
+		{"DPM low under load is WARN", dev(models.GPUDevice{Name: "card0", TempC: 50, PowerDPMLevel: "low", UtilPct: 60}), "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

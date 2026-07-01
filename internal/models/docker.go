@@ -33,6 +33,8 @@ type ContainerInfo struct {
 	DockerSocketMounted bool     `json:"docker_socket_mounted,omitempty"` // docker.sock in HostConfig.Binds
 	ImageArch           string   `json:"image_arch,omitempty"`            // 7i: image architecture
 	ArchMismatch        bool     `json:"arch_mismatch,omitempty"`         // 7i: image arch != host arch
+	LogDriver           string   `json:"log_driver,omitempty"`            // this container's own HostConfig.LogConfig.Type
+	LogMaxSizeSet       bool     `json:"log_max_size_set,omitempty"`      // this container's own log-opts max-size (per-container override)
 }
 
 // DockerContainerLogFile holds per-container log file size info.
@@ -43,12 +45,17 @@ type DockerContainerLogFile struct {
 
 // DockerLogDriverInfo holds log driver config and per-container log sizes.
 type DockerLogDriverInfo struct {
-	Driver           string                   `json:"driver"`       // json-file, journald, local, none
-	MaxSizeSet       bool                     `json:"max_size_set"` // log-opts.max-size present
-	MaxFileSet       bool                     `json:"max_file_set"` // log-opts.max-file present
+	Driver           string                   `json:"driver"`       // daemon default: json-file, journald, local, none
+	MaxSizeSet       bool                     `json:"max_size_set"` // daemon default log-opts.max-size present
+	MaxFileSet       bool                     `json:"max_file_set"` // daemon default log-opts.max-file present
 	DaemonJSONExists bool                     `json:"daemon_json_exists"`
 	ContainerLogs    []DockerContainerLogFile `json:"container_logs,omitempty"`
 	LargeLogCount    int                      `json:"large_log_count,omitempty"` // >500MB
+	// UnboundedContainers are containers whose OWN effective log config (from
+	// their inspect, not the daemon default) is json-file with no max-size — the
+	// daemon default alone can't tell you this, since a per-container --log-opt
+	// (or Compose's `logging:` stanza) commonly overrides it per container.
+	UnboundedContainers []string `json:"unbounded_containers,omitempty"`
 }
 
 // DockerEvent is a recent system event from the Docker/Podman daemon.

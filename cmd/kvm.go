@@ -86,6 +86,19 @@ func kvmConcerns(info *models.KVMInfo) int {
 	if info.Status == "enum-failed" {
 		issues++
 	}
+	// Deep-only per-VM XML findings (emulated NIC/disk, missing backing file) —
+	// matches checkKVMVMsXMLDeep, which emits one insight per finding per VM.
+	for _, vm := range info.VMs {
+		if vm.MissingDiskPath != "" {
+			issues++
+		}
+		if len(vm.EmulatedNICs) > 0 {
+			issues++
+		}
+		if len(vm.EmulatedDisks) > 0 {
+			issues++
+		}
+	}
 	return issues
 }
 
@@ -156,6 +169,15 @@ func printKVMVMs(info *models.KVMInfo, mode output.OutputMode) {
 		}
 		if vm.LastLogError != "" {
 			fmt.Printf("       last log error: %s\n", vm.LastLogError)
+		}
+		if vm.MissingDiskPath != "" {
+			fmt.Printf("       %sdisk image missing: %s\n", asciiOr("fail", "❌ ", mode), vm.MissingDiskPath)
+		}
+		if len(vm.EmulatedNICs) > 0 {
+			fmt.Printf("       %sNIC(s) on emulated driver: %s\n", asciiOr("warn", "⚠️  ", mode), strings.Join(vm.EmulatedNICs, ", "))
+		}
+		if len(vm.EmulatedDisks) > 0 {
+			fmt.Printf("       %sdisk(s) on emulated bus: %s\n", asciiOr("warn", "⚠️  ", mode), strings.Join(vm.EmulatedDisks, ", "))
 		}
 	}
 }
