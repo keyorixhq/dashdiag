@@ -1544,3 +1544,25 @@ and fixed.
   to `kubeadmKubeconfigFlagFor` + table test `kubeadm_kubeconfig_test.go`. Verified live:
   `sudo dsd k8s` now reads the cluster via admin.conf; capture `kubeadm-debian-20260701.tar.gz`.
 **Commit:** (this PR)
+
+## k0s — third "beyond k3s" validation (2026-07-01)
+
+Validated on a real **k0s** v1.36.2 single-node cluster (Mirantis's single-binary k8s) on
+pve01 VM 111. One false-NEGATIVE found and fixed; no EtcdIsVoter false-CRIT; two-pass
+honest (K8s WARN→INFO non-root).
+
+### BUG-095 — dsd is blind to a k0s cluster (no k0s in kubectl detection)
+**Found:** live on the k0s node — `dsd health` showed **no K8s section at all** on a
+  running control plane. k0s installs a single `/usr/local/bin/k0s` binary and NO standalone
+  `kubectl` (it wraps it as `k0s kubectl`), and `k8sDetectBin` only knew k3s/RKE2/kubectl/
+  microk8s → found nothing → `K8sAvailable()` false → the whole K8s collector was skipped.
+  A running Kubernetes control plane whose health is entirely unchecked — a silent
+  false-negative (worse than a false verdict: no verdict).
+**Affected:** every k0s node (controller / controller+worker).
+**Fix:** add k0s to `k8sDetectBin` (direct paths `/usr/local/bin/k0s`, `/usr/bin/k0s`, and
+  the PATH fallback) returning `<bin> kubectl`, and to `k8sDistribution` (marker
+  `/var/lib/k0s`, checked BEFORE kubeadm since k0s also writes /var/lib/kubelet/config.yaml).
+  Detection tests `TestK8sDetectBinK0s` + `k0s`/`k0s beats kubeadm` distribution cases.
+  Verified live: `dsd k8s` now reads the cluster via `k0s kubectl` (node Ready, pods healthy,
+  distribution=k0s); capture `k0s-debian-20260701.tar.gz`.
+**Commit:** (this PR)
