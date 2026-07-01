@@ -212,6 +212,37 @@ func TestCheckK8sOSLayer(t *testing.T) {
 		// the zero-value "none" (the 0-day false-OK — flag-gated, days==0 is valid).
 		{"cert expiring today (0 days) is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoon = true; l.CertExpirySoonDays = 0; return l }(), "WARN"},
 		{"kubelet errors is WARN", func() models.K8sOSLayer { l := ok; l.KubeletErrors = []string{"failed to pull image"}; return l }(), "WARN"},
+		{"kubelet down on a confirmed node is CRIT", func() models.K8sOSLayer { l := ok; l.KubeletChecked = true; l.KubeletActive = false; return l }(), "CRIT"},
+		// A kubectl-only client host (no on-disk node marker) has no kubelet at all —
+		// KubeletChecked stays false, must NOT read as "kubelet down".
+		{"kubelet absent on an unchecked (remote-client) host is not CRIT", func() models.K8sOSLayer { l := ok; l.KubeletChecked = false; l.KubeletActive = false; return l }(), ""},
+		{"containerd down on a confirmed node is CRIT", func() models.K8sOSLayer { l := ok; l.ContainerdChecked = true; l.ContainerdActive = false; return l }(), "CRIT"},
+		{"containerd absent on an unchecked host is not CRIT", func() models.K8sOSLayer { l := ok; l.ContainerdChecked = false; l.ContainerdActive = false; return l }(), ""},
+		{"firewalld active without masquerade on flannel is WARN", func() models.K8sOSLayer {
+			l := ok
+			l.FirewalldChecked = true
+			l.FlannelInUse = true
+			l.FirewalldMasquOK = false
+			return l
+		}(), "WARN"},
+		// firewalld not running at all (the k3s/RKE2 default) must NOT WARN even
+		// though FirewalldMasquOK is the zero-value false.
+		{"firewalld not active is not WARN", func() models.K8sOSLayer {
+			l := ok
+			l.FirewalldChecked = false
+			l.FlannelInUse = true
+			l.FirewalldMasquOK = false
+			return l
+		}(), ""},
+		// firewalld active+misconfigured but flannel isn't the CNI — masquerade isn't
+		// flannel's requirement here, must NOT WARN.
+		{"firewalld misconfigured but non-flannel CNI is not WARN", func() models.K8sOSLayer {
+			l := ok
+			l.FirewalldChecked = true
+			l.FlannelInUse = false
+			l.FirewalldMasquOK = false
+			return l
+		}(), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
