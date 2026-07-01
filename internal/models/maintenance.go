@@ -70,6 +70,7 @@ type LivePatchInfo struct {
 	PatchesEnabled       int      `json:"patches_enabled"`
 	DisabledPatches      []string `json:"disabled_patches,omitempty"`      // loaded but enabled=0
 	TransitioningPatches []string `json:"transitioning_patches,omitempty"` // transition=1 (not yet fully applied)
+	UnverifiedPatches    []string `json:"unverified_patches,omitempty"`    // enabled-state unreadable (non-root / lockdown) — NOT assumed disabled
 	Tool                 string   `json:"tool,omitempty"`                  // "klp" / "kpatch" if the CLI is present
 }
 

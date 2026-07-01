@@ -207,6 +207,15 @@ func checkLivePatch(d models.LivePatchInfo) []models.Insight {
 				len(d.TransitioningPatches), strings.Join(firstN(d.TransitioningPatches, 3), ", ")),
 			[]string{"to inspect: cat /sys/kernel/livepatch/*/transition"}))
 	}
+	// Loaded patches whose enabled-state we couldn't read (non-root / kernel lockdown):
+	// surface as INFO so the operator re-runs as root, NOT a WARN — we never measured
+	// these, and asserting they're disabled would be a non-root false-alarm.
+	if len(d.UnverifiedPatches) > 0 {
+		out = append(out, insight("INFO", "LivePatch",
+			fmt.Sprintf("%d kernel livepatch(es) loaded but their enabled-state could not be read (%s) — re-run as root to confirm they are active",
+				len(d.UnverifiedPatches), strings.Join(firstN(d.UnverifiedPatches, 3), ", ")),
+			[]string{"to inspect: sudo cat /sys/kernel/livepatch/*/enabled"}))
+	}
 	return out
 }
 
