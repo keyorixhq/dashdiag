@@ -22,6 +22,7 @@ type GuestReportBlock struct {
 func GuestReportHTML(identity, hostname, generated string, blocks []GuestReportBlock, verdictLevel, verdictText string) string {
 	var b strings.Builder
 	b.WriteString(guestReportHead)
+	b.WriteString(brandBarHTML())
 	fmt.Fprintf(&b, "<h1>%s</h1>\n", html.EscapeString(identity))
 	fmt.Fprintf(&b, `<div class="meta"><b>Host:</b> <code>%s</code> &nbsp;·&nbsp; <b>Generated:</b> %s</div>`+"\n",
 		html.EscapeString(hostname), html.EscapeString(generated))
@@ -53,8 +54,24 @@ func GuestReportHTML(identity, hostname, generated string, blocks []GuestReportB
 			b.WriteString("</div>\n")
 		}
 	}
-	b.WriteString(guestReportFoot)
+	b.WriteString(guestFooterHTML())
 	return b.String()
+}
+
+// guestFooterHTML returns the guest report's footer + closing tags, branded when a
+// company is set ("Prepared by X · powered by DashDiag") and the default dsd footer
+// otherwise. Keeps a subtle DashDiag attribution in both cases.
+func guestFooterHTML() string {
+	if company := activeBrand().Company; company != "" {
+		return fmt.Sprintf(`<footer>
+  Prepared by <b>%s</b> · powered by <a href="https://dashdiag.sh">DashDiag</a>.
+</footer>
+</div>
+</body>
+</html>
+`, html.EscapeString(company))
+	}
+	return guestReportFoot
 }
 
 func verdictClass(level string) string {
@@ -73,7 +90,7 @@ const guestReportHead = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DashDiag Guest Report</title>
+<title>Guest Health Report</title>
 <style>
   :root {
     --crit: #c0392b; --crit-bg: #fdecea;
@@ -91,6 +108,9 @@ const guestReportHead = `<!DOCTYPE html>
   .meta { color: var(--muted); font-size: 13px; }
   .meta b { color: var(--ink); font-weight: 600; }
   .meta code { background: #eef1f3; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .brandbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .brand-logo { max-height: 44px; max-width: 220px; object-fit: contain; }
+  .brand-name { font-size: 18px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
   .verdict { margin: 20px 0; padding: 16px 20px; border-radius: 10px; border-left: 6px solid; }
   .verdict .badge { font-weight: 700; font-size: 16px; }
   .verdict.crit { background: var(--crit-bg); border-color: var(--crit); } .verdict.crit .badge { color: var(--crit); }

@@ -114,6 +114,7 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, 
 }
 
 func runReplay(cmd *cobra.Command, args []string) error {
+	applyBrand(cmd) // replay blanks PersistentPreRun, so apply --brand/--logo here
 	b, err := loadBundle(args[0])
 	if err != nil {
 		return fmt.Errorf("loading bundle: %w", err)
