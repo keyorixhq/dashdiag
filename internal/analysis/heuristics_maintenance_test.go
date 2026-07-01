@@ -182,6 +182,19 @@ func TestCheckLivePatch(t *testing.T) {
 	if !hasInsightMsg(checkLivePatch(stuck), "WARN", "transition") {
 		t.Error("transitioning livepatch must WARN")
 	}
+	// Non-root false-alarm guard: a loaded patch whose enabled-state couldn't be read must
+	// degrade to INFO ("re-run as root"), NOT a WARN. The patch may well be active — we
+	// never measured it — so asserting it's disabled would be a false-alarm under non-root.
+	unverified := models.LivePatchInfo{Available: true, PatchesLoaded: 1, UnverifiedPatches: []string{"klp_fix"}}
+	got := checkLivePatch(unverified)
+	if !hasInsightMsg(got, "INFO", "could not be read") {
+		t.Error("unverified livepatch must INFO (re-run as root)")
+	}
+	for _, in := range got {
+		if in.Level == "WARN" || in.Level == "CRIT" {
+			t.Errorf("unverified livepatch must NOT WARN/CRIT — that is a non-root false-alarm; got %s %q", in.Level, in.Message)
+		}
+	}
 }
 
 func TestCheckTransactional(t *testing.T) {

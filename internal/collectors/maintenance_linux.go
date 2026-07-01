@@ -485,6 +485,31 @@ func LivePatchAvailable() bool {
 	return len(dirs) > 0
 }
 
+// livePatchState is the verdict for a single livepatch's "enabled" sysfs attribute.
+type livePatchState int
+
+const (
+	livePatchEnabled    livePatchState = iota // enabled=1, the patch is active
+	livePatchDisabled                         // enabled=0, loaded but NOT applied (kernel runs old code)
+	livePatchUnverified                       // could not read enabled (non-root / kernel lockdown / SELinux)
+)
+
+// classifyLivePatchEnabled interprets a livepatch "enabled" attribute. A READ ERROR is
+// "unverified", NOT disabled: on most kernels the attribute is world-readable (0644), but
+// where it isn't (lockdown, SELinux, a future root-only build) a non-root run can't read
+// it — and reporting an unreadable patch as "disabled" would false-WARN a healthy, active
+// patch as unprotected. Honest degradation: unverified, surfaced as INFO ("re-run as
+// root"), never a WARN that asserts a state we never measured.
+func classifyLivePatchEnabled(content string, readErr error) livePatchState {
+	if readErr != nil {
+		return livePatchUnverified
+	}
+	if strings.TrimSpace(content) == "1" {
+		return livePatchEnabled
+	}
+	return livePatchDisabled
+}
+
 func (c *LivePatchCollector) Collect(_ context.Context) (interface{}, error) {
 	if maintenanceSkip(LivePatchAvailable(), c.cc.InContainer) {
 		return &models.LivePatchInfo{}, nil
@@ -496,10 +521,14 @@ func (c *LivePatchCollector) Collect(_ context.Context) (interface{}, error) {
 		name := p[strings.LastIndex(p, "/")+1:]
 		// enabled=1 means the patch is active; 0 means loaded-but-not-applied (the kernel
 		// runs the OLD code). transition=1 means tasks are still migrating to the patch.
-		if en, err := readFile(p + "/enabled"); err == nil && strings.TrimSpace(string(en)) == "1" {
+		en, enErr := readFile(p + "/enabled")
+		switch classifyLivePatchEnabled(string(en), enErr) {
+		case livePatchEnabled:
 			info.PatchesEnabled++
-		} else {
+		case livePatchDisabled:
 			info.DisabledPatches = append(info.DisabledPatches, name)
+		case livePatchUnverified:
+			info.UnverifiedPatches = append(info.UnverifiedPatches, name)
 		}
 		if tr, err := readFile(p + "/transition"); err == nil && strings.TrimSpace(string(tr)) == "1" {
 			info.TransitioningPatches = append(info.TransitioningPatches, name)

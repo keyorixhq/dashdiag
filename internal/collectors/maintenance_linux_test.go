@@ -4,12 +4,43 @@ package collectors
 
 import (
 	"context"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestClassifyLivePatchEnabled guards the non-root false-alarm: an unreadable "enabled"
+// sysfs attribute (EACCES under a non-root run, or kernel lockdown) must classify as
+// UNVERIFIED, never disabled. Reporting an unreadable-but-healthy patch as disabled would
+// WARN that the kernel runs un-patched code when it doesn't. The error is injected because
+// the test runs as root (in CI's container too), where root bypasses the permission bits —
+// so a real 0400 file would read fine; the pure classifier is what makes this testable.
+func TestClassifyLivePatchEnabled(t *testing.T) {
+	eacces := &os.PathError{Op: "open", Path: "/sys/kernel/livepatch/klp_fix/enabled", Err: syscall.EACCES}
+	cases := []struct {
+		name    string
+		content string
+		err     error
+		want    livePatchState
+	}{
+		{"enabled", "1\n", nil, livePatchEnabled},
+		{"disabled", "0\n", nil, livePatchDisabled},
+		{"disabled no newline", "0", nil, livePatchDisabled},
+		{"permission denied is unverified", "", eacces, livePatchUnverified},
+		{"any read error is unverified", "", os.ErrNotExist, livePatchUnverified},
+		// A read error must win even if stale/garbled content came back alongside it.
+		{"error beats content", "1", eacces, livePatchUnverified},
+	}
+	for _, c := range cases {
+		if got := classifyLivePatchEnabled(c.content, c.err); got != c.want {
+			t.Errorf("%s: classifyLivePatchEnabled(%q, %v) = %d, want %d", c.name, c.content, c.err, got, c.want)
+		}
+	}
+}
 
 // TestSUSERebootSignalExitCodes guards BUG-088: the SUSE Kernel row keyed on
 // `zypper needs-rebooting` STDOUT, but under root a sibling zypper collector holds
