@@ -11,6 +11,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`dsd migrate baseline` + `dsd migrate certify`** — landing-zone certification for a
+  hypervisor/cloud migration. Capture a baseline on the source guest, migrate with any
+  mover, then certify the landed guest: PASS / PASS-WITH-WARNINGS / FAIL plus the checks
+  that regressed (drivers fallen back to emulated, guest tools stale, cloud-init that did
+  not run, an unresized disk, drifted security posture). Read-only on both sides — dsd
+  never moves data. A source-only check that gates off after the move (e.g. VMware guest
+  tools) is not counted as a regression. Live-validated on a real VMware guest (#685).
+- **Hardware RAID controller check** in `dsd health` — reads storcli/perccli (LSI/Broadcom
+  MegaRAID + Dell PERC, JSON) and ssacli/hpssacli (HPE Smart Array). A degraded/offline
+  virtual drive or a failed physical disk behind the controller → CRIT; rebuild, predictive
+  failure, and a bad cache battery/BBU → WARN. Gated on a controller CLI being present;
+  root-gated output degrades to an honest INFO, never a green verdict (#683).
+- **White-label HTML reports** — `--brand "Company"` / `--logo <path>` (or the
+  `DSD_BRAND_COMPANY` / `DSD_BRAND_LOGO` env vars) put a company name and embedded logo on
+  the `--report-html` output, with a "Prepared by … · powered by DashDiag" footer. The logo
+  is embedded so the report stays a single self-contained file (#688).
+
+### Fixed
+- **802.3ad (LACP) bond that is link-up but not aggregating** is now flagged — a bond whose
+  slaves are all MII-"up" yet carry no traffic and provide no redundancy because LACP never
+  negotiated (no partner, or slaves split across aggregators). Previously read as healthy (#678).
+- **Kernel livepatch** whose `enabled` state cannot be read (non-root / lockdown) is now
+  reported as UNVERIFIED, not "disabled" — the old behaviour false-WARNed a healthy patch
+  as unprotected on a non-root run (#681).
+- **Replay hermeticity**: the systemd presence gate is routed through the captured source,
+  so replaying a systemd guest's bundle on a non-systemd host no longer drops the Systemd
+  check (a false-PASS in `dsd replay` / `dsd diff` / `dsd migrate certify`) (#685).
+- Host service collectors no longer report a containerized process as a host service (#677).
+- Kubernetes checks corrected across distros beyond k3s: RKE2 `EtcdIsVoter` false-CRIT
+  (#679), kubeadm admin.conf reachability (#680), k0s detection (#682), and OS-layer
+  kubelet/containerd detection on RKE2/k0s/MicroK8s (#684).
+- NixOS `/nix/store` read-only bind mount no longer false-WARNs as an I/O-error remount (#673).
+
 ## [1.16.0] - 2026-07-01
 
 Minor (additive): a **SUSE / Rancher enterprise** check suite for `dsd health`, each gated,
