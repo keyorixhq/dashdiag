@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-02
+
+Minor (additive): a session closing the "decorative `--deep`" gap across five collectors —
+a deep-only field that was collected but never judged into a verdict, or never reached by
+`dsd health --deep` at all (only reachable via the standalone `dsd <cmd> --deep`). K8s
+OS-layer (#686) and GPU/KVM/Docker/Network (#687) all now produce real WARN/CRIT insights in
+`dsd health --deep`. Plus the `dsd migrate` landing-zone-certification command, a hardware
+RAID controller check, white-label HTML reports, and a round of false-verdict fixes (LACP
+bonding, livepatch, replay hermeticity, k8s cross-distro, NixOS). No `dsd health --json`
+schema change.
+
 ### Added
 - **`dsd migrate baseline` + `dsd migrate certify`** — landing-zone certification for a
   hypervisor/cloud migration. Capture a baseline on the source guest, migrate with any
@@ -28,6 +39,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `DSD_BRAND_COMPANY` / `DSD_BRAND_LOGO` env vars) put a company name and embedded logo on
   the `--report-html` output, with a "Prepared by … · powered by DashDiag" footer. The logo
   is embedded so the report stays a single self-contained file (#688).
+- **K8s OS-layer checks now judged, not just collected** — `dsd health --deep` now WARNs/CRITs
+  on a down kubelet or container runtime and on firewalld active-without-masquerade, gated on
+  on-disk node evidence so a kubectl-only remote-client host never false-fires. Live-validated
+  across RKE2/kubeadm/k0s/MicroK8s, including a live stop-kubelet/confirm-CRIT/restart cycle (#686).
+- **KVM per-VM XML deep-config check** (`dsd health --deep` / `dsd kvm --deep`): flags a VM
+  whose backing disk image has gone missing (CRIT — the VM cannot start) and devices on an
+  emulated (non-VirtIO) NIC/disk model (WARN — a common cause of slow guest I/O). Reads
+  `virsh dumpxml`, so it works even on a shut-off VM. Live-validated against a real libvirt
+  host (#687).
+- **GPU DPM-stuck-low-under-load check** wired into `dsd health --deep`: an AMD GPU pinned in
+  low-power mode while genuinely under load (util ≥50%) now WARNs; an idle GPU correctly
+  parked at "low" by a power profile stays silent (#687).
+- **Docker unbounded-log-driver check** wired into `dsd health --deep`: a container logging
+  json-file with no `max-size` bound now WARNs — checked per-container, so a container with
+  its own `--log-opt max-size` or a Compose `logging:` stanza is correctly excluded (#687).
+- **Network deep TCP-health checks** (TIME_WAIT, SYN retransmissions, listen-queue overflow,
+  retransmit failures, conntrack-table fill) are now included in `dsd health --deep`, not just
+  the standalone `dsd net deep` (#687).
 
 ### Fixed
 - **802.3ad (LACP) bond that is link-up but not aggregating** is now flagged — a bond whose
@@ -44,6 +73,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (#679), kubeadm admin.conf reachability (#680), k0s detection (#682), and OS-layer
   kubelet/containerd detection on RKE2/k0s/MicroK8s (#684).
 - NixOS `/nix/store` read-only bind mount no longer false-WARNs as an I/O-error remount (#673).
+- `dsd kvm`'s own verdict tally (`kvmConcerns`) was blind to the new deep XML findings above —
+  `dsd kvm --deep` could say "healthy" while `dsd health --deep` correctly flagged the same VM.
+  Found live-testing the KVM deep-check against a real libvirt host; fixed in the same pass (#687).
 
 ## [1.16.0] - 2026-07-01
 
