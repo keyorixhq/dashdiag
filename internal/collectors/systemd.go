@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
-	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 type SystemdCollector struct{}
@@ -317,8 +316,19 @@ func listUnits(ctx context.Context, state string) ([]string, error) {
 	return parseUnitList(strings.NewReader(out)), nil
 }
 
+// systemdPresentViaSource reports whether systemd is the init system, routed through the
+// active Source so the gate is RECORDED on capture and REPLAYED faithfully. A live
+// platform.SystemdAvailable() probes the replaying host, so replaying a systemd guest's
+// bundle on a non-systemd host (a slim container, macOS, Alpine) dropped the whole
+// Systemd check — and with it any failed units — a false-OK in `dsd replay` / `dsd diff`
+// / `dsd migrate certify`. Found by the migrate-certify live test (a failed unit on the
+// destination went undetected when the bundle was replayed in a non-systemd container).
+func systemdPresentViaSource() bool {
+	return fileExists("/run/systemd/private") || fileExists("/run/systemd/system")
+}
+
 func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
-	if runtime.GOOS == "darwin" || !platform.SystemdAvailable() {
+	if runtime.GOOS == "darwin" || !systemdPresentViaSource() {
 		return &models.SystemdInfo{Available: false}, nil
 	}
 
