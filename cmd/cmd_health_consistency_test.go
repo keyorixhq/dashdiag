@@ -115,6 +115,13 @@ func TestCmdHealthConsistency_KVM(t *testing.T) {
 		{"disk io errors", models.KVMInfo{Detected: true, DiskIOErrors: 1}},
 		{"networks inactive", models.KVMInfo{Detected: true, NetworksInactive: 1}},
 		{"pools inactive", models.KVMInfo{Detected: true, PoolsInactive: 1}},
+		// Deep-only per-VM XML findings — found live-testing against a real libvirt
+		// host (2026-07-01): `dsd kvm --deep` said "healthy" while `dsd health --deep`
+		// correctly WARNed/CRITed on the same VM. kvmConcerns previously never read
+		// these three fields at all.
+		{"missing disk file (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMShutOff, MissingDiskPath: "/var/lib/libvirt/images/vm1.qcow2"}}}},
+		{"emulated nic (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedNICs: []string{"aa:bb (e1000)"}}}}},
+		{"emulated disk (deep)", models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedDisks: []string{"sda (sata)"}}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
