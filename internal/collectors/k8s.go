@@ -498,6 +498,24 @@ func k8sUnitActive(ctx context.Context, units ...string) bool {
 	return false
 }
 
+// k8sBundledContainerdSockPresent reports whether any k8s distro's bundled containerd
+// socket exists — k3s/RKE2 (/run/k3s/containerd/containerd.sock), k0s
+// (/run/k0s/containerd.sock), or MicroK8s (/var/snap/microk8s/common/run/containerd.sock).
+// These distros run containerd embedded (no host containerd.service), so a healthy node
+// would otherwise read as "containerd not active".
+func k8sBundledContainerdSockPresent() bool {
+	for _, sock := range []string{
+		"/run/k3s/containerd/containerd.sock",
+		"/run/k0s/containerd.sock",
+		"/var/snap/microk8s/common/run/containerd.sock",
+	} {
+		if fileExists(sock) {
+			return true
+		}
+	}
+	return false
+}
+
 // cniBinsPresent reports whether CNI plugin binaries are installed and whether the
 // check could be made. kubeadm uses /opt/cni/bin; k3s bundles them under
 // /var/lib/rancher/k3s/data/current/bin — checking only the former false-CRIT'd
@@ -546,13 +564,19 @@ func detectKubeForward(ctx context.Context) (checked, present bool) {
 func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
 
-	// kubelet. k3s embeds the kubelet — there is no kubelet.service, the unit is
-	// k3s.service (server) or k3s-agent.service. The old two-unit `is-active kubelet
-	// k3s` exits non-zero whenever EITHER unit is missing (always, on k3s), so a
-	// running k3s node read as kubelet-inactive. Probe each unit singly instead.
-	layer.KubeletActive = k8sUnitActive(ctx, "kubelet", "k3s", "k3s-agent")
+	// kubelet. Most distros embed/wrap the kubelet under a distro-specific unit rather
+	// than a standalone kubelet.service: k3s → k3s / k3s-agent; RKE2 → rke2-server /
+	// rke2-agent; k0s → k0scontroller / k0sworker; MicroK8s → snap.microk8s.daemon-
+	// kubelite. Probing only kubelet/k3s (the old list) false-read every non-k3s
+	// embedded-kubelet node as "kubelet inactive" (found on live RKE2/k0s/MicroK8s,
+	// 2026-07-01). Probe each known unit singly (k8sUnitActive returns true on the
+	// first active one).
+	layer.KubeletActive = k8sUnitActive(ctx, "kubelet", "k3s", "k3s-agent",
+		"rke2-server", "rke2-agent", "k0scontroller", "k0sworker",
+		"snap.microk8s.daemon-kubelite")
 	if layer.KubeletActive {
 		logOut, _ := runCmd(ctx, "journalctl", "-u", "kubelet", "-u", "k3s",
+			"-u", "rke2-server", "-u", "k0scontroller", "-u", "snap.microk8s.daemon-kubelite",
 			"-n", "30", "--no-pager", "-q")
 		for _, line := range strings.Split(logOut, "\n") {
 			if strings.Contains(strings.ToLower(line), "error") ||
@@ -565,14 +589,14 @@ func collectK8sOSLayer(ctx context.Context, bin string) *models.K8sOSLayer {
 		}
 	}
 
-	// containerd. k3s bundles its own containerd (no containerd.service) reachable at
-	// /run/k3s/containerd/containerd.sock — recognize it so a k3s node isn't reported
-	// as "containerd not active".
-	layer.ContainerdActive = k8sUnitActive(ctx, "containerd")
+	// containerd. Most distros bundle their own containerd rather than the host
+	// containerd.service: k3s/RKE2 → /run/k3s/containerd/containerd.sock; k0s →
+	// /run/k0s/containerd.sock; MicroK8s → snap.microk8s.daemon-containerd unit +
+	// /var/snap/microk8s/common/run/containerd.sock. Recognize all so a healthy node
+	// isn't reported "containerd not active".
+	layer.ContainerdActive = k8sUnitActive(ctx, "containerd", "snap.microk8s.daemon-containerd")
 	if !layer.ContainerdActive {
-		if fileExists("/run/k3s/containerd/containerd.sock") {
-			layer.ContainerdActive = true
-		}
+		layer.ContainerdActive = k8sBundledContainerdSockPresent()
 	}
 
 	// IP forwarding — leave IPForwardChecked false when /proc is unreadable so

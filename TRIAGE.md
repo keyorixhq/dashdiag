@@ -11,6 +11,20 @@ hardware/decision) · **GATED** (demand-gated, build only on pull).
 
 ---
 
+## ZC. k8s OS-layer kubelet/containerd detection k3s-only — ✅ DONE (2026-07-01)
+
+Beyond-k3s OS-layer hardening pass (`dsd k8s --deep`) on the running rigs. Found + fixed
+**BUG-096**: `collectK8sOSLayer` probed only kubelet/k3s units + the k3s containerd socket, so
+`kubelet_active`/`containerd_active` were **false on healthy RKE2/k0s/MicroK8s** (each embeds
+the kubelet under a distinct unit — `rke2-server`/`k0scontroller`/`snap.microk8s.daemon-kubelite`
+— and containerd under a distinct socket). LOW impact (fields are `--json`-only, no verdict
+consumes them yet — no false CRIT/OK), fixed so the data is correct. Generalized the unit list
++ a bundled-containerd-socket helper (`k8sBundledContainerdSockPresent`, unit-tested). Verified
+live: both flags TRUE on RKE2 v1.35.6 / k0s v1.36.2 / MicroK8s v1.35.5. Unit/socket names in
+memories `rke2-`/`k0s-`/`microk8s-validation-vm`.
+
+---
+
 ## ZB. k0s validation + dsd blind to k0s clusters — ✅ DONE (2026-07-01)
 
 Third "beyond k3s" target: real **k0s** v1.36.2 (Mirantis single-binary k8s) on **pve01

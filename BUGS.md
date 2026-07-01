@@ -1566,3 +1566,26 @@ honest (K8s WARN→INFO non-root).
   Verified live: `dsd k8s` now reads the cluster via `k0s kubectl` (node Ready, pods healthy,
   distribution=k0s); capture `k0s-debian-20260701.tar.gz`.
 **Commit:** (this PR)
+
+### BUG-096 — k8s OS-layer kubelet/containerd detection was k3s-only (wrong on RKE2/k0s/MicroK8s)
+**Found:** during the beyond-k3s OS-layer hardening pass — `dsd k8s --deep` reported
+  `kubelet_active=false` and `containerd_active=false` on healthy RKE2, k0s, and MicroK8s
+  nodes (all three of the tested distros that aren't kubeadm/k3s).
+**Root cause:** `collectK8sOSLayer` probed only the systemd units `kubelet`/`k3s`/`k3s-agent`
+  and the containerd socket `/run/k3s/containerd/containerd.sock` — a k3s-specific fix that
+  was never generalized. Every other distro embeds/wraps the kubelet under a different unit
+  (RKE2 `rke2-server`, k0s `k0scontroller`, MicroK8s `snap.microk8s.daemon-kubelite`) and its
+  containerd under a different socket (k0s `/run/k0s/containerd.sock`, MicroK8s
+  `/var/snap/microk8s/common/run/containerd.sock`).
+**Impact:** LOW — these fields are collected into the OS-layer struct and `--json` but no
+  heuristic or renderer currently consumes them, so there was no false CRIT/OK verdict; the
+  bug was an inaccurate `--json` field (a machine consumer would read a healthy kubelet as
+  down) and a "deep check" that silently verified nothing on 3 of 5 distros. Fixed now so the
+  data is correct and the check is real if/when a verdict starts using it.
+**Fix:** generalize the kubelet unit list (add rke2-server/rke2-agent/k0scontroller/k0sworker/
+  snap.microk8s.daemon-kubelite) and the containerd detection (add the
+  snap.microk8s.daemon-containerd unit + a bundled-socket list covering k3s/RKE2, k0s, MicroK8s
+  via `k8sBundledContainerdSockPresent`). Unit/socket names taken from the live nodes; socket
+  helper unit-tested (`k8s_oslayer_containerd_test.go`). Verified live: kubelet_active and
+  containerd_active are now TRUE on all three (RKE2 v1.35.6, k0s v1.36.2, MicroK8s v1.35.5).
+**Commit:** (this PR)
