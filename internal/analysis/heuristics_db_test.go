@@ -54,6 +54,15 @@ func TestCheckPostgres(t *testing.T) {
 	if !insightWithMsg(lag, "WARN", "behind the primary") {
 		t.Errorf("replica lag should WARN, got %+v", lag)
 	}
+
+	// Regression guard: ReplayLagSec climbs unboundedly whenever the PRIMARY is
+	// simply idle (common off-hours) — a replica that has replayed everything it
+	// received (ReplayCaughtUp) must NOT WARN just because that replay happened
+	// a while ago.
+	idlePrimary := checkPostgres(models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true, MaxConnections: 100, ActiveConns: 5, InRecovery: true, ReplayLagSec: 3600, ReplayCaughtUp: true})
+	if insightWithMsg(idlePrimary, "WARN", "behind the primary") {
+		t.Errorf("caught-up replica during an idle primary must not WARN, got %+v", idlePrimary)
+	}
 }
 
 func TestCheckMySQL(t *testing.T) {

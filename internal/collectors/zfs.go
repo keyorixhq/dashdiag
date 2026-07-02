@@ -164,22 +164,76 @@ func mergeZpoolStatus(out string, pools map[string]models.ZFSPool) {
 		// Error counts from vdev table:
 		// "  NAME        STATE     READ WRITE CKSUM"
 		// "  sda         ONLINE       0     0     0"
-		// Parse any line that has numeric error columns
-		if strings.Contains(trimmed, "ONLINE") || strings.Contains(trimmed, "DEGRADED") ||
-			strings.Contains(trimmed, "FAULTED") || strings.Contains(trimmed, "REMOVED") {
-			fields := strings.Fields(trimmed)
-			if len(fields) >= 5 {
-				r := parseZFSInt(fields[len(fields)-3])
-				w := parseZFSInt(fields[len(fields)-2])
-				c := parseZFSInt(fields[len(fields)-1])
-				pool.ReadErrors += r
-				pool.WriteErrors += w
-				pool.CksumErrors += c
-			}
+		if r, w, c, ok := parseZFSVdevErrorLine(trimmed); ok {
+			pool.ReadErrors += r
+			pool.WriteErrors += w
+			pool.CksumErrors += c
 		}
 
 		pools[currentPool] = pool
 	}
+}
+
+// zfsStateTokens are the values zpool status prints in the vdev STATE column.
+var zfsStateTokens = map[string]bool{
+	"ONLINE": true, "DEGRADED": true, "FAULTED": true, "OFFLINE": true,
+	"UNAVAIL": true, "REMOVED": true, "AVAIL": true, "INUSE": true,
+}
+
+// parseZFSVdevErrorLine parses a single (already-trimmed) zpool status vdev
+// line. ok is false when the line isn't a vdev line (no recognized STATE token)
+// or its counters didn't parse (garbled output).
+func parseZFSVdevErrorLine(line string) (read, write, cksum int, ok bool) {
+	fields := strings.Fields(line)
+	stateIdx := -1
+	for i, f := range fields {
+		if zfsStateTokens[f] {
+			stateIdx = i
+			break
+		}
+	}
+	if stateIdx < 0 || stateIdx+3 >= len(fields) {
+		return 0, 0, 0, false
+	}
+	r, okR := parseZFSCount(fields[stateIdx+1])
+	w, okW := parseZFSCount(fields[stateIdx+2])
+	c, okC := parseZFSCount(fields[stateIdx+3])
+	if !okR || !okW || !okC {
+		return 0, 0, 0, false
+	}
+	return r, w, c, true
+}
+
+// parseZFSCount parses a zpool error counter, which is a plain integer or a
+// ZFS-abbreviated value like "1.2K" / "15M" / "3.0G".
+func parseZFSCount(s string) (int, bool) {
+	if n, err := strconv.Atoi(s); err == nil {
+		if n < 0 {
+			return 0, false // a negative error count is garbled output, never a real zpool value
+		}
+		return n, true
+	}
+	if len(s) < 2 {
+		return 0, false
+	}
+	var mult float64
+	switch s[len(s)-1] {
+	case 'K':
+		mult = 1e3
+	case 'M':
+		mult = 1e6
+	case 'G':
+		mult = 1e9
+	case 'T':
+		mult = 1e12
+	default:
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s[:len(s)-1], 64)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return int(n * mult), true
 }
 
 // parseScrubAge extracts the number of days since the last scrub completed.

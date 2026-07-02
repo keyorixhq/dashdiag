@@ -22,6 +22,13 @@ type PostgresInfo struct {
 	IdleInTxn      int     `json:"idle_in_txn,omitempty"`
 	InRecovery     bool    `json:"in_recovery,omitempty"` // a standby/replica
 	ReplayLagSec   float64 `json:"replay_lag_sec,omitempty"`
+	// ReplayCaughtUp is true when the replica has replayed everything it has
+	// received (pg_last_wal_receive_lsn() == pg_last_wal_replay_lsn()).
+	// ReplayLagSec alone climbs unboundedly whenever the PRIMARY is simply
+	// idle — no new transactions means pg_last_xact_replay_timestamp() never
+	// advances — which is indistinguishable from a genuinely falling-behind
+	// replica without this LSN check.
+	ReplayCaughtUp bool `json:"replay_caught_up,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
 }

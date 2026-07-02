@@ -39,7 +39,10 @@ func (c *ServicesCollector) Collect(ctx context.Context) (any, error) {
 
 	info := &models.ServicesInfo{Results: results, Status: "OK"}
 	for _, r := range results {
-		if !r.Reachable && info.Status == "OK" {
+		switch {
+		case r.Status == "CRIT":
+			info.Status = "CRIT"
+		case !r.Reachable && info.Status != "CRIT":
 			info.Status = "WARN"
 		}
 	}

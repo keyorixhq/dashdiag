@@ -143,13 +143,14 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		))
 	}
 
-	// PID table usage — always checked
+	// PID/task table usage — always checked. PIDCount counts tasks (processes AND
+	// threads), matching what kernel.pid_max actually governs.
 	if sysctl.KernelPIDMax > 0 {
 		pidPct := float64(sysctl.PIDCount) / float64(sysctl.KernelPIDMax) * 100
 		if l := levelPct(pidPct, 80, 90); l != "" {
 			out = append(out, insight(l, "Sysctl",
-				fmt.Sprintf("PID table at %.0f%% (%d / %d)", pidPct, sysctl.PIDCount, sysctl.KernelPIDMax),
-				[]string{"to inspect: cat /proc/sys/kernel/pid_max", "to inspect: ps aux | wc -l"},
+				fmt.Sprintf("PID/task table at %.0f%% (%d / %d)", pidPct, sysctl.PIDCount, sysctl.KernelPIDMax),
+				[]string{"to inspect: cat /proc/sys/kernel/pid_max", "to inspect: cat /proc/loadavg  (4th field: running/total tasks)", "to inspect: ps -eLf | wc -l  (includes threads, unlike ps aux)"},
 			))
 		}
 	}
@@ -961,6 +962,33 @@ func checkProcesses(proc models.ProcessInfo, thresh Thresholds) []models.Insight
 			fmt.Sprintf("%d hung (uninterruptible) process(es)", proc.HungCount),
 			[]string{"to inspect: ps aux | grep ' D '"},
 		))
+	}
+	return out
+}
+
+// checkServices surfaces per-configured-service reachability/status problems.
+// Nothing configured (empty Results) is silent, not a false-OK: ApplyThresholds
+// produces no insight either way, and `dsd services` renders its own "no
+// services configured" guidance for that case.
+func checkServices(s models.ServicesInfo) []models.Insight {
+	var out []models.Insight
+	for _, r := range s.Results {
+		addr := fmt.Sprintf("%s:%d", r.Host, r.Port)
+		switch {
+		case r.Status == "CRIT":
+			out = append(out, insight("CRIT", "Services",
+				fmt.Sprintf("%s (%s) returned HTTP %d", r.Name, addr, r.StatusCode),
+				[]string{fmt.Sprintf("to inspect: curl -v %s://%s", r.Protocol, addr)},
+			))
+		case !r.Reachable:
+			msg := fmt.Sprintf("%s (%s) unreachable", r.Name, addr)
+			if r.Error != "" {
+				msg += ": " + r.Error
+			}
+			out = append(out, insight("WARN", "Services", msg,
+				[]string{fmt.Sprintf("to inspect: nc -zv %s %d", r.Host, r.Port)},
+			))
+		}
 	}
 	return out
 }

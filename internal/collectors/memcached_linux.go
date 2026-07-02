@@ -13,13 +13,29 @@ import (
 
 // memcachedCmd routes memcachedCmdLive through the source cache so the socket
 // exchange replays from the bundle instead of re-dialling the replaying machine.
-// Keyed by addr+cmd (each command is issued once per run).
+// Keyed by addr+cmd — safe as long as a given (addr, cmd) pair is issued at
+// most once per run. Collect() issues "stats" TWICE (before/after a sleep, to
+// detect active eviction) — use memcachedCmdSampled for that case so the two
+// temporally-distinct reads get distinct cache keys instead of colliding.
 func memcachedCmd(ctx context.Context, network, addr, cmd string, untilEND bool) (string, bool) {
+	return memcachedCmdSampled(ctx, network, addr, cmd, cmd, untilEND)
+}
+
+// memcachedCmdSampled is memcachedCmd with an explicit cache-key discriminator
+// (sample) distinct from the wire command (cmd) actually sent. Two calls with
+// the same cmd but different sample values are recorded as separate blobs in a
+// capture bundle and replay independently — required when the same protocol
+// command is issued more than once per run to observe a value changing over
+// time (e.g. two "stats" reads a few hundred ms apart). Without this, the
+// Recorder's single blob-per-key store overwrites the first read with the
+// second, and both calls replay identically — collapsing any before/after
+// delta to zero.
+func memcachedCmdSampled(ctx context.Context, network, addr, cmd, sample string, untilEND bool) (string, bool) {
 	var r struct {
 		Out string `json:"out"`
 		Ok  bool   `json:"ok"`
 	}
-	_ = cachedJSON("memcached/"+network+"/"+addr+"/"+cmd, func() (any, error) {
+	_ = cachedJSON("memcached/"+network+"/"+addr+"/"+sample, func() (any, error) {
 		out, ok := memcachedCmdLive(ctx, network, addr, cmd, untilEND)
 		r.Out, r.Ok = out, ok
 		return r, nil
@@ -122,7 +138,7 @@ func (c *MemcachedCollector) Collect(ctx context.Context) (interface{}, error) {
 	// a rising count means it's evicting NOW (working set > cache), which a single
 	// cumulative read can't distinguish from a long-ago blip.
 	time.Sleep(400 * time.Millisecond)
-	if stats2, ok := memcachedCmd(ctx, network, addr, "stats", true); ok {
+	if stats2, ok := memcachedCmdSampled(ctx, network, addr, "stats", "stats#2", true); ok {
 		if e2 := atoi64(parseMemcachedStats(stats2)["evictions"]); e2 > info.Evictions {
 			info.EvictingNow = true
 			info.Evictions = e2

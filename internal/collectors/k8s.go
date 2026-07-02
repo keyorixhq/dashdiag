@@ -658,7 +658,7 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 // checkCertExpiry scans a directory for expiring certificates.
 func checkCertExpiry(dir string, layer *models.K8sOSLayer) {
 	certs, _ := glob(filepath.Join(dir, "*.crt"))
-	now := time.Now()
+	now := NowViaSource() // capture-time under replay/certify, so cert-expiry verdicts stay hermetic
 	for _, certPath := range certs {
 		data, err := readFile(certPath) // #nosec G304
 		if err != nil {

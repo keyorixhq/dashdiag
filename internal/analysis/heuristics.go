@@ -1255,6 +1255,12 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		if d != nil {
 			return checkTransactional(*d)
 		}
+	case models.ServicesInfo:
+		return checkServices(d)
+	case *models.ServicesInfo:
+		if d != nil {
+			return checkServices(*d)
+		}
 	}
 	return nil
 }
@@ -1547,7 +1553,14 @@ func checkDBus(d models.DBusInfo) []models.Insight {
 
 func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
-	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
+	// Inside a memory-limited container whose cgroup usage wasn't measurable,
+	// UsedPct/FreeGB are still derived from host-wide /proc/meminfo while TotalGB is
+	// the container's cgroup ceiling — scoring one against the other would compare
+	// two different things (host pressure vs. a container limit) and produce a
+	// false-OK (idle container, busy host masks nothing) or false-WARN (busy host,
+	// idle container) in either direction. Skip rather than guess.
+	ramUnmeasurable := ctrCtx.InContainer && ctrCtx.MemLimitMB > 0 && !mem.CgroupMemMeasured
+	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" && !ramUnmeasurable {
 		var memHints []string
 		if runtime.GOOS == "darwin" {
 			memHints = []string{"to inspect: vm_stat", "to inspect: top -l 1 | grep PhysMem", "to inspect: ps aux -m | head -10"}
@@ -2492,6 +2505,15 @@ func isUSBNetworkInterface(iface string) bool {
 }
 
 func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
+	// In-band IPMI reads the 0600 root:root BMC device — a non-root sensor-read
+	// failure is expected, not a real IPMI problem. Report it honestly rather
+	// than the WARN below, which would otherwise fire on every non-root
+	// `dsd health` run on a physical server, healthy BMC or not.
+	if ipmi.NeedsRoot {
+		return []models.Insight{insight("INFO", "IPMI",
+			"IPMI hardware detected but sensor read requires root — re-run as root to verify sensor health",
+			[]string{"to inspect: sudo ipmitool sdr"})}
+	}
 	// IPMI hardware is present (the collector is gated on /dev/ipmi*) but the
 	// sensor read failed — surface it rather than stay silent. The collector sets
 	// Status="error" with Available=false here; returning nil on !Available alone
@@ -3079,7 +3101,11 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 				"note: required for CIS/STIG compliance",
 			}))
 	}
-	if a.AuditLogSizeGB > 10 {
+	if a.AuditLogSizeUnreadable {
+		out = append(out, insight("INFO", "Auditd",
+			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
+			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
+	} else if a.AuditLogSizeGB > 10 {
 		out = append(out, insight("WARN", "Auditd",
 			fmt.Sprintf("audit log is %.1f GB — consider log rotation", a.AuditLogSizeGB),
 			[]string{

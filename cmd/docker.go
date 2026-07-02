@@ -105,6 +105,17 @@ func dockerConcerns(info *models.DockerInfo) int {
 	if info.RunningAsRootCount > 0 {
 		issues++
 	}
+	// Log driver (deep-only) — matches checkDocker, which WARNs on either signal.
+	// Without this, `dsd docker --deep` could render red [Log driver] rows under
+	// a green "✅ Docker healthy" summary.
+	if info.LogDriver != nil {
+		if len(info.LogDriver.UnboundedContainers) > 0 {
+			issues++
+		}
+		if info.LogDriver.LargeLogCount > 0 {
+			issues++
+		}
+	}
 	return issues
 }
 

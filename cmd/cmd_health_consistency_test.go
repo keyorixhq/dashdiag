@@ -152,6 +152,10 @@ func TestCmdHealthConsistency_Net(t *testing.T) {
 		{"gateway packet loss", models.NetworkInfo{GatewayPingMs: 1, GatewayPacketLossPct: 15}},
 		// CLOSE_WAIT leak — cmd flags >100; checkNetwork WARNs >100 (heuristics_network.go:485).
 		{"close_wait leak", models.NetworkInfo{GatewayPingMs: 1, CloseWaitCount: 150}},
+		// HIGH TIME_WAIT count — `dsd net --deep` renders the row and `dsd health`
+		// WARN/CRITs via analysis.TimeWaitLevel, but netConcerns never read
+		// TimeWaitCount at all (a red row under a green "✅ Network healthy" summary).
+		{"time_wait high", models.NetworkInfo{GatewayPingMs: 1, TimeWaitCount: 60000}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,6 +189,33 @@ func TestCmdHealthConsistency_K8s(t *testing.T) {
 		{"pods pending", mk(func(i *models.K8sInfo) { i.Pending = 1 })},
 		{"pods not ready", mk(func(i *models.K8sInfo) { i.PodsNotReady = 1 })},
 		{"high restarts", mk(func(i *models.K8sInfo) { i.HighRestarts = 1 })},
+		// HIGH bug fix: `dsd k8s --deep` OS-layer faults (dead kubelet/containerd,
+		// disabled ip_forward, missing CNI, expired certs) previously CRITed in
+		// `dsd health --deep` but rendered "✅ Cluster healthy" here — k8sHasConcern
+		// never read info.OSLayer at all. A nil OSLayer (fast `dsd k8s`, no --deep)
+		// must NOT diverge either — both sides treat it as no additional signal.
+		{"nil OSLayer diverges from neither side", base},
+		{"OSLayer kubelet down", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{KubeletChecked: true, KubeletActive: false}
+		})},
+		{"OSLayer containerd down", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{ContainerdChecked: true, ContainerdActive: false}
+		})},
+		{"OSLayer ip_forward disabled", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: false}
+		})},
+		{"OSLayer cert expired", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{CertExpiredNames: []string{"apiserver"}}
+		})},
+		{"OSLayer cert expiring soon (WARN)", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{CertExpirySoon: true, CertExpirySoonDays: 5}
+		})},
+		{"OSLayer kubelet errors (WARN)", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{KubeletErrors: []string{"failed to start container"}}
+		})},
+		{"OSLayer all clean is not a concern", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{KubeletChecked: true, KubeletActive: true, ContainerdChecked: true, ContainerdActive: true}
+		})},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,6 +288,13 @@ func TestCmdHealthConsistency_Docker(t *testing.T) {
 		// Containers present but ALL stopped — dockerConcerns counts it; this case pins
 		// whether checkDocker agrees (the previously-untested condition).
 		{"all stopped", models.DockerInfo{Available: true, RunningCount: 0, StoppedCount: 2}},
+		// Log driver (deep-only) — checkDocker WARNs on either signal; dockerConcerns
+		// previously never read info.LogDriver at all (a red [Log driver] row under a
+		// green "✅ Docker healthy" summary).
+		{"log driver unbounded", models.DockerInfo{Available: true, RunningCount: 1,
+			LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", UnboundedContainers: []string{"web"}}}},
+		{"log driver large logs", models.DockerInfo{Available: true, RunningCount: 1,
+			LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", LargeLogCount: 2}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

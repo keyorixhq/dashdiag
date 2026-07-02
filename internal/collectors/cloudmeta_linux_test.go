@@ -3,6 +3,9 @@
 package collectors
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -48,5 +51,42 @@ func TestParseAzureScheduledEvents(t *testing.T) {
 		if p, _ := parseAzureScheduledEvents(bad); p {
 			t.Errorf("garbled body %q must not report pending", bad)
 		}
+	}
+}
+
+// TestImdsGetLive_LargeBody is a regression guard: imdsGetLive used to Read()
+// into a single fixed 4096-byte buffer and return only what fit, silently
+// truncating anything larger — Azure's compute/storageProfile document for a
+// multi-data-disk VM routinely exceeds 4KB (each managedDisk.id is a ~200-char
+// ARM resource path), truncating the JSON mid-object and making
+// parseAzureStorageProfile fail closed exactly on the VMs it targets.
+func TestImdsGetLive_LargeBody(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString(`{"dataDisks":[`)
+	for i := 0; i < 40; i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(`{"managedDisk":{"id":"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example-long-name/providers/Microsoft.Compute/disks/disk-` +
+			strings.Repeat("x", 40) + `"},"caching":"ReadWrite"}`)
+	}
+	sb.WriteString(`]}`)
+	body := sb.String()
+	if len(body) <= 4096 {
+		t.Fatalf("test body is only %d bytes, must exceed the old 4096-byte truncation point", len(body))
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	got, err := imdsGetLive(context.Background(), srv.URL, nil)
+	if err != nil {
+		t.Fatalf("imdsGetLive error: %v", err)
+	}
+	if got != body {
+		t.Errorf("response was truncated: got %d bytes, want %d", len(got), len(body))
 	}
 }

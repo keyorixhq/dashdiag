@@ -1114,6 +1114,15 @@ func collectNetworkHealth(ctx context.Context, client *http.Client, info *models
 	// Detect backend: check for netavark nft table (podman) or iptables chains (docker)
 	info.NetworkBackend = detectNetworkBackend(info.Runtime)
 
+	// IP forwarding and firewalld are independent of MTU — run them first so a
+	// /networks API error, a Podman/custom-network-only host (containerMTU==0),
+	// or a host with no discoverable non-virtual interface (hostMTU==0) doesn't
+	// also skip these. They used to sit after the two MTU early-returns below,
+	// so IPForwardChecked never got set and the ip_forward=0 CRIT (all container
+	// networking broken) could never fire on those hosts.
+	collectIPForwarding(info)
+	collectFirewalldCheck(ctx, info)
+
 	// Get container network MTU via API
 	containerMTU := getContainerNetworkMTU(ctx, client)
 	if containerMTU == 0 {
@@ -1133,11 +1142,6 @@ func collectNetworkHealth(ctx context.Context, client *http.Client, info *models
 	if containerMTU > hostMTU {
 		info.MTUMismatch = true
 	}
-	// IP forwarding — required for container outbound traffic
-	collectIPForwarding(info)
-
-	// firewalld nftables backend — breaks Docker iptables rules silently
-	collectFirewalldCheck(ctx, info)
 }
 
 // collectIPForwarding checks /proc/sys/net/ipv4/ip_forward.

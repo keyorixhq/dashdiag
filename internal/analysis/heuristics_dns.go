@@ -12,6 +12,14 @@ import (
 func checkDNS(d models.DNSResolverInfo) []models.Insight {
 	var out []models.Insight
 
+	// Not available on this platform (the non-Linux stub) — every field below is
+	// the zero value, which the first branch would otherwise misread as "no
+	// nameservers configured and resolution failing" and fire a false CRIT. Linux
+	// always sets Available:true, so this never suppresses a real broken host.
+	if !d.Available {
+		return nil
+	}
+
 	// No nameservers at all AND resolution failing: the resolver is unconfigured and
 	// broken. The Manager!="none" guard below would otherwise suppress this entirely,
 	// so a host with an empty /etc/resolv.conf whose live probe failed produced ZERO
@@ -107,7 +115,12 @@ func checkDNSQuality(d models.DNSResolverInfo) []models.Insight {
 			},
 		))
 	}
-	if d.HasLoopback {
+	// HasLoopback fires for ANY loopback nameserver that isn't the systemd-resolved
+	// stub (127.0.0.53) — including a perfectly healthy local caching resolver
+	// (dnsmasq, unbound, pdns-recursor, Pi-hole) that detectDNSManager doesn't know
+	// how to name. Gate on resolution actually failing: a config-shape WARN that
+	// contradicts a successful live probe is a false alarm, not a diagnosis.
+	if d.HasLoopback && !d.ExternalResolvesOK {
 		out = append(out, insight("WARN", "DNS",
 			"loopback nameserver (127.x.x.x) in /etc/resolv.conf but systemd-resolved is not active — DNS may fail",
 			[]string{

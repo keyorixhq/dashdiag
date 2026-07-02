@@ -94,12 +94,19 @@ func collectMySQLMetrics(ctx context.Context, sock string, info *models.MySQLInf
 	parseMySQLReplica(q, info)
 }
 
-// parseMySQLReplica reads SHOW SLAVE STATUS (works on MariaDB and MySQL 8) and
-// records replica lag. Empty output ⇒ not a replica.
+// parseMySQLReplica reads replica status and records replica lag. Empty output
+// ⇒ not a replica. MySQL 8.4 REMOVED "SHOW SLAVE STATUS" entirely in favor of
+// "SHOW REPLICA STATUS" (MariaDB and MySQL ≤8.3 still only understand the old
+// form) — try the old statement first and fall back to the new one, so a
+// stopped or badly-lagging 8.4+ replica isn't silently read as "not a replica"
+// just because the removed statement errored.
 func parseMySQLReplica(q func(string) (string, bool), info *models.MySQLInfo) {
 	out, ok := q("SHOW SLAVE STATUS\\G")
 	if !ok || strings.TrimSpace(out) == "" {
-		return
+		out, ok = q("SHOW REPLICA STATUS\\G")
+		if !ok || strings.TrimSpace(out) == "" {
+			return
+		}
 	}
 	info.IsReplica = true
 	ioRunning, sqlRunning := true, true // assume running unless a "not Yes" is seen
@@ -110,14 +117,16 @@ func parseMySQLReplica(q func(string) (string, bool), info *models.MySQLInfo) {
 		}
 		key, val := strings.TrimSpace(k), strings.TrimSpace(v)
 		switch key {
-		case "Seconds_Behind_Master":
+		// Seconds_Behind_Master on MariaDB / MySQL ≤8.3; Seconds_Behind_Source is
+		// the MySQL 8.4+ renaming.
+		case "Seconds_Behind_Master", "Seconds_Behind_Source":
 			// NULL means replication is not running — handled via the thread states
 			// below, which is the authoritative signal.
 			if val != "" && val != "NULL" {
 				info.SecondsBehind = atoiSafe(val)
 			}
-		// Slave_* on MariaDB / MySQL ≤8 (SHOW SLAVE STATUS); Replica_* is the MySQL 8.4+
-		// renaming — accept both so a stopped thread is caught on either.
+		// Slave_* on MariaDB / MySQL ≤8.3 (SHOW SLAVE STATUS); Replica_* is the
+		// MySQL 8.4+ renaming — accept both so a stopped thread is caught on either.
 		case "Slave_IO_Running", "Replica_IO_Running":
 			ioRunning = strings.EqualFold(val, "Yes")
 		case "Slave_SQL_Running", "Replica_SQL_Running":

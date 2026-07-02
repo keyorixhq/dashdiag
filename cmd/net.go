@@ -239,6 +239,9 @@ func netConcerns(info *models.NetworkInfo) int {
 	if info.ConntrackUsedPct >= 60 {
 		issues++
 	}
+	if analysis.TimeWaitLevel(info.TimeWaitCount) != "" {
+		issues++
+	}
 	return issues
 }
 

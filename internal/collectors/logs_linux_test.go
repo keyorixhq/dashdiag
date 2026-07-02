@@ -3,12 +3,14 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // refNow is a fixed reference time used so age math is deterministic.
@@ -344,3 +346,96 @@ func TestCrashFileTooOld(t *testing.T) {
 		}
 	}
 }
+
+// TestCrashFileFromEntry is a regression guard: crashFileFromEntry must read the
+// REAL on-disk mtime/size via statFile. Before the fix it used readDirEntries'
+// fs.DirEntry.Info(), whose source-fake FileInfo always returns a zero ModTime —
+// crashFileTooOld would then read every file as ~2000 years old, so CoreDumpCount
+// and CrashFiles were permanently 0/empty on every host, every backend.
+func TestCrashFileFromEntry(t *testing.T) {
+	dir := t.TempDir()
+	now := mustTime(t, "2026-06-10T12:00:00Z")
+
+	recentPath := filepath.Join(dir, "core.1234")
+	if err := os.WriteFile(recentPath, []byte("crashdata"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recentMTime := now.Add(-2 * 24 * time.Hour)
+	if err := os.Chtimes(recentPath, recentMTime, recentMTime); err != nil {
+		t.Fatal(err)
+	}
+
+	stalePath := filepath.Join(dir, "core.old")
+	if err := os.WriteFile(stalePath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staleMTime := now.Add(-90 * 24 * time.Hour)
+	if err := os.Chtimes(stalePath, staleMTime, staleMTime); err != nil {
+		t.Fatal(err)
+	}
+
+	cf, ok := crashFileFromEntry(recentPath, now)
+	if !ok {
+		t.Fatalf("recent crash file (mtime -2d) must be kept, got ok=false")
+	}
+	if cf.AgeDays != 2 {
+		t.Errorf("AgeDays = %d, want 2", cf.AgeDays)
+	}
+	if cf.SizeMB <= 0 {
+		t.Errorf("SizeMB = %v, want > 0 (real file size, not the always-zero fake FileInfo)", cf.SizeMB)
+	}
+
+	if _, ok := crashFileFromEntry(stalePath, now); ok {
+		t.Errorf("90-day-old crash file must be dropped as stale, got ok=true")
+	}
+
+	if _, ok := crashFileFromEntry(filepath.Join(dir, "does-not-exist"), now); ok {
+		t.Errorf("missing file must return ok=false")
+	}
+}
+
+// TestHasCorruptArchived_ErrorWithoutFAILIsNotCorrupt is a regression guard:
+// hasCorruptArchived used to treat ANY journalctl error (EACCES on a non-root
+// run, the 5s timeout, journalctl missing) as corruption, because runCmd
+// discards stdout/stderr on a non-zero exit — leaving `err != nil` as the only
+// signal and making the "FAIL" check dead code. Only the verifier's own FAIL
+// marker may report corruption.
+func TestHasCorruptArchived_ErrorWithoutFAILIsNotCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "system.journal~"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		exec func(ctx context.Context, name string, args ...string) (source.Result, error)
+		want bool
+	}{
+		{"EACCES (permission denied, no FAIL text)", func(_ context.Context, _ string, _ ...string) (source.Result, error) {
+			return source.Result{Stderr: []byte("Permission denied"), ExitCode: 1}, &fakeCmdErr{}
+		}, false},
+		{"journalctl missing", func(_ context.Context, _ string, _ ...string) (source.Result, error) {
+			return source.Result{}, &fakeCmdErr{}
+		}, false},
+		{"real corruption (FAIL in output)", func(_ context.Context, _ string, _ ...string) (source.Result, error) {
+			return source.Result{Stdout: []byte("FAIL: /var/log/journal/x/system.journal~ (Bad message)\n"), ExitCode: 1}, &fakeCmdErr{}
+		}, true},
+		{"clean verify, exit 0", func(_ context.Context, _ string, _ ...string) (source.Result, error) {
+			return source.Result{Stdout: []byte("PASS\n")}, nil
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prev := SetSource(source.Live{Exec: tc.exec})
+			defer SetSource(prev)
+			if got := hasCorruptArchived(dir); got != tc.want {
+				t.Errorf("hasCorruptArchived() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// fakeCmdErr is a minimal non-nil error for injected exec results.
+type fakeCmdErr struct{}
+
+func (*fakeCmdErr) Error() string { return "exit status 1" }

@@ -14,6 +14,14 @@ type ContainerdInfo struct {
 	// Status fields for unavailable/error cases
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
+	// SocketPermDenied is true when the socket exists but dialing it was
+	// refused (EACCES) — containerd IS installed and likely running, dsd just
+	// lacks permission. Distinct from a genuinely absent socket (mirrors
+	// DockerInfo.SocketPermDenied): without it, "socket exists but denied" and
+	// "socket doesn't exist at all" collapsed into the same message, and
+	// non-root `dsd containerd` printed "not installed or not running" for a
+	// runtime that was actually right there.
+	SocketPermDenied bool `json:"socket_perm_denied,omitempty"`
 }
 
 // ContainerdNamespace holds container counts for one containerd namespace.

@@ -46,9 +46,14 @@ var k8sManagedContainerdSockets = []string{
 	"/run/k3s/containerd/containerd.sock",
 }
 
-// ContainerdAvailable returns true when a standalone containerd socket is reachable.
+// ContainerdAvailable returns true when a standalone containerd socket is
+// reachable OR present but permission-denied (installed, not absent) — so a
+// non-root `dsd health` still registers the collector and surfaces an honest
+// "needs root" state instead of silently omitting the section (false-OK by
+// omission, matching Docker's identical DetectContainerSocket behavior).
 func ContainerdAvailable() bool {
-	return detectContainerdSocket() != ""
+	path, _ := detectContainerdSocket()
+	return path != ""
 }
 
 // ContainerdK8sManaged reports whether containerd is running but managed by a
@@ -62,14 +67,21 @@ func ContainerdK8sManaged() bool {
 	return false
 }
 
-// detectContainerdSocket returns the first connectable containerd socket path.
-func detectContainerdSocket() string {
-	for _, path := range containerdSocketCandidates {
-		if dialReachable("unix", path, 300*time.Millisecond) {
-			return path
+// detectContainerdSocket returns the first known socket path found (reachable
+// OR permission-denied — distinct from genuinely absent) and whether dialing
+// it was refused. A 0660 root:root socket makes a non-root dial
+// permission-denied, which dialReachable alone collapses into "unreachable" —
+// indistinguishable from containerd simply not being installed.
+func detectContainerdSocket() (path string, permDenied bool) {
+	for _, p := range containerdSocketCandidates {
+		switch dialOutcome("unix", p, 300*time.Millisecond) {
+		case dialOK:
+			return p, false
+		case dialPermission:
+			return p, true
 		}
 	}
-	return ""
+	return "", false
 }
 
 // ContainerdCollector collects health data from a standalone containerd runtime.
@@ -83,10 +95,17 @@ func (c *ContainerdCollector) Timeout() time.Duration { return 10 * time.Second 
 func (c *ContainerdCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ContainerdInfo{}
 
-	info.SocketPath = detectContainerdSocket()
-	if info.SocketPath == "" {
+	socket, permDenied := detectContainerdSocket()
+	info.SocketPath = socket
+	if socket == "" {
 		info.Status = "unavailable"
 		info.StatusReason = "containerd socket not found"
+		return info, nil
+	}
+	if permDenied {
+		info.SocketPermDenied = true
+		info.Status = "unavailable"
+		info.StatusReason = collectSocketPermReason(socket, "containerd")
 		return info, nil
 	}
 	info.Available = true

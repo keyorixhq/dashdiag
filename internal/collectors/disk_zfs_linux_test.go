@@ -29,6 +29,41 @@ errors: No known data errors`
 	}
 }
 
+// TestMergeZpoolStatusAbbreviatedErrors is a regression guard for the ZFS
+// health-VERDICT path (ZFSCollector → mergeZpoolStatus, consumed by checkZFS) —
+// distinct from the `dsd disk` display path already covered by
+// TestParseZFSVdevErrors. Before the fix, mergeZpoolStatus took the raw last-3
+// whitespace fields through a bare Atoi, so an abbreviated count ("1.5K") or a
+// vdev line carrying a trailing note collapsed to 0 and the pool read as a
+// silent healthy verdict despite thousands of repaired/checksum errors.
+func TestMergeZpoolStatusAbbreviatedErrors(t *testing.T) {
+	t.Parallel()
+	pools := map[string]models.ZFSPool{"tank": {Name: "tank"}}
+	const status = `  pool: tank
+ state: DEGRADED
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	tank        DEGRADED     0     0     0
+	  mirror-0  DEGRADED     0     0     0
+	    sda     ONLINE       0     0     0
+	    sdb     FAULTED      0     2  1.5K  too many errors
+	    sdc     ONLINE       0     0     0  (resilvering)
+
+errors: No known data errors`
+	mergeZpoolStatus(status, pools)
+	got := pools["tank"]
+	if got.WriteErrors != 2 {
+		t.Errorf("WriteErrors = %d, want 2", got.WriteErrors)
+	}
+	if got.CksumErrors != 1500 {
+		t.Errorf("CksumErrors = %d, want 1500 (abbreviated \"1.5K\" must not collapse to 0)", got.CksumErrors)
+	}
+	if got.ReadErrors != 0 {
+		t.Errorf("ReadErrors = %d, want 0", got.ReadErrors)
+	}
+}
+
 func TestParseZFSVdevErrors(t *testing.T) {
 	t.Parallel()
 
