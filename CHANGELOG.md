@@ -11,6 +11,114 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-07-02
+
+Patch: an adversarial code-review sweep (13 finder agents — 9 collector domains plus
+cross-cutting false-OK / root-non-root-divergence / replay-hermeticity / cmd↔health
+tally-drift passes) found 41 candidate bugs; 39 confirmed after independent
+re-verification against the real code, all fixed with regression tests. No
+`dsd health --json` schema-breaking change (a handful of new fields are additive and
+`omitempty`).
+
+### Fixed
+- **Pacemaker HA clusters**: `crm_mon` XML parsing only read bare top-level
+  `<resource>` elements — Pacemaker nests clones/groups/bundles, so a FAILED
+  clustered resource (the common HA topology: cloned dlm/fencing, VIP+service
+  groups, containerized bundles) never reached the verdict (#691).
+- **`dsd services` never gated its exit code** — `ApplyThresholds` had no
+  `ServicesInfo` case, so a CI job gating on `dsd services` got a silent pass
+  while a configured service was down or returning 5xx (#691).
+- **Crash-dump detection was dead on every host** — `collectCrashFiles`/
+  `countPstorePanics` read the replay-source-fake `FileInfo`'s always-zero
+  `ModTime`, so every real core dump or pstore panic record computed as ~2000
+  years old and was silently filtered out; `CoreDumpCount` was permanently 0 (#691).
+- **Container memory verdict** used host-wide `/proc/meminfo` for `UsedPct`/
+  `FreeGB` while only `TotalGB` reflected the cgroup limit — a container pinned
+  at its limit on an idle host read healthy, and vice versa. Now recomputed
+  against the container's own `memory.current`/`memory.usage_in_bytes` when
+  readable (#691).
+- **`dsd k8s --deep` OS-layer faults were invisible in the rendered verdict** —
+  a down kubelet/containerd, disabled ip_forward, missing CNI, or an expired
+  API-server cert CRITed in `dsd health --deep` but rendered "✅ Cluster
+  healthy" in `dsd k8s --deep` (the exit code was already correct) (#691).
+- FC HBA link-error counters were parsed as decimal but the kernel prints them
+  in hex — always read as 0, so a flapping SAN link never WARNed (#691).
+- ZFS vdev error counts ≥1000 (`1.05K`, `15M`) collapsed to 0 on the health-verdict
+  path (the `dsd disk` display path already handled this correctly) (#691).
+- `dsd net dns` false-CRITed on macOS/non-Linux — a newer unconditional branch in
+  `checkDNS` bypassed the non-Linux stub's `Manager:"none"` sentinel (#691).
+- A healthy local caching resolver (dnsmasq/unbound/Pi-hole) on 127.0.0.1 false-WARNed
+  even when DNS resolution was actually succeeding (#691).
+- K8s certificate-expiry checks used the live clock instead of the captured/replay
+  clock, flipping verdicts across `dsd replay`/`dsd migrate certify` (#691).
+- Azure IMDS reads were capped at a single 4KB buffer, silently truncating the
+  storage-profile document on multi-data-disk VMs — exactly the VMs the
+  host-caching-hazard check targets (#691).
+- dnf/zypper hosts with no enabled/security repo read as a clean "0 updates"
+  instead of the honest WARN apt already gives; the WARN's remediation hints are
+  now package-manager-aware instead of always Debian/Ubuntu-shaped (#691).
+- CIS rule 4.1.1 (auditd installed and running) FAILed a fully compliant host
+  when `dsd cis` ran non-root, because `auditctl -l`'s EACCES was indistinguishable
+  from "not installed" (#691).
+- Memcached's two-sample eviction check (before/after a 400ms pause) collapsed to
+  one sample under `dsd replay` — both reads shared one cache key, so the
+  before/after delta needed to detect active eviction was unrecoverable (#691).
+- MySQL 8.4 removed `SHOW SLAVE STATUS` in favor of `SHOW REPLICA STATUS` — a
+  stopped or badly-lagging 8.4+ replica silently read as "not a replica" (#691).
+- Container CPU load-pressure ratio divided host-wide `/proc/loadavg` by the
+  container's cgroup CPU limit instead of the real host core count, wildly
+  amplifying a normal host load (e.g. 400-800%) into a false CPU-pressure
+  verdict for an idle container (#691).
+- `journalctl --verify` false-WARNed "archived journal corrupt" on any error
+  (EACCES non-root, timeout, missing binary) instead of only a real FAIL marker (#691).
+- IPMI had no root check — a non-root run got EACCES on the BMC device and
+  WARNed "sensor read failed" even when the hardware was healthy (#691).
+- `dsd net`/`dsd docker` standalone verdicts drifted from `dsd health` on the
+  same data: TIME_WAIT and Docker log-driver signals were rendered but never
+  counted toward the "healthy/concerns" summary (#691).
+- **Replay hermeticity**: journal disk-usage sizing, journal mount-point lookup,
+  TLS certificate-directory scanning, and SUID-binary scanning all did raw
+  filesystem walks that bypassed the `Source` capture/replay abstraction —
+  reading the replaying machine instead of the captured bundle. The semgrep
+  hermeticity rule now also catches `filepath.Walk`/`WalkDir`/`Glob` and
+  `syscall.Statfs` (#691).
+- BIND's `:53` listen check credited any process holding the port (e.g.
+  systemd-resolved, dnsmasq) as "named is listening", suppressing the
+  misconfiguration WARN when `named` itself failed to bind (#691).
+- Gateway packet-loss used only a 2-packet ping sample, so a single routine
+  dropped reply read as 50% loss and jumped straight to CRIT, skipping the
+  10-50% WARN band entirely (#691).
+- Firewall rules scoped to UDP (`udp dport N accept` / `-p udp`) were credited
+  toward TCP port reachability, masking a TCP service genuinely blocked by the
+  firewall (#691).
+- `dsd docker`'s network-health checks (ip_forward, firewalld) sat behind two
+  MTU-only early returns, so a `/networks` API error or a Podman/custom-network
+  host skipped them even though they're independent of MTU (#691).
+- containerd's permission-denied socket (0660 root:root, non-root dsd) was
+  indistinguishable from a genuinely absent one — `dsd containerd` said "not
+  installed or not running" for a runtime that was right there (#691).
+- GCP guest sysfs/DMI detection tightened with a documented false-positive
+  note rather than behavior change (a bare "Google" DMI match is the same
+  established convention used fleet-wide for AWS/DigitalOcean/Hetzner/Oracle) (#691).
+- SUSE's pending-reboot kernel-version comparison used a naive Go string `>`,
+  which breaks on service-pack version numbers (`23.30` sorted before `23.9`) (#691).
+- Homebrew's outdated-formula count (no security metadata exists in brew) was
+  reported as a security WARN like every other package manager; now an honest
+  INFO (#691).
+- Postgres connection-saturation counted background workers (checkpointer,
+  walwriter, autovacuum, wal senders) that don't consume a `max_connections`
+  slot, overstating the ratio (#691).
+- Postgres replica-lag WARNed whenever the primary was simply idle (no new
+  transactions to replay advances the lag clock) — now gated on the
+  last-received-vs-last-replayed WAL position (#691).
+- The PID-exhaustion check counted top-level processes only; `kernel.pid_max`
+  governs the whole task space including threads, understating usage on a
+  thread-heavy (JVM/Go) host (#691).
+- NUMA imbalance detection was disabled entirely by a single memoryless
+  (CPU-only) node instead of excluding it from the comparison (#691).
+- The audit-log-size check had no non-root sentinel — a non-root run couldn't
+  distinguish "log is small" from "couldn't read it" (#691).
+
 ## [1.17.0] - 2026-07-02
 
 Minor (additive): a session closing the "decorative `--deep`" gap across five collectors —
