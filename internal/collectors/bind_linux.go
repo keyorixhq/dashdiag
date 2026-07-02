@@ -131,7 +131,14 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 		if !strings.Contains(line, ":53 ") && !strings.Contains(line, ":53\t") {
 			continue
 		}
-		// Check that it's named, not just dnsmasq / systemd-resolved
+		// Check that it's actually named (not dnsmasq / systemd-resolved / unbound
+		// also on :53) via ss -p's users:(("named",pid=...)) column — matching on
+		// the port alone credited whatever else happened to hold :53, silently
+		// clearing the "named running but not listening" WARN for a real bind
+		// failure (socket-open error, address-specific bind).
+		if !isBindProcess(line) {
+			continue
+		}
 		if strings.HasPrefix(line, "tcp") {
 			info.Port53TCP = true
 		}
@@ -139,6 +146,17 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 			info.Port53UDP = true
 		}
 	}
+}
+
+// isBindProcess reports whether an `ss -tulpn` line's process-owner column
+// (users:(("name",pid=...))) names a BIND server binary.
+func isBindProcess(line string) bool {
+	for _, name := range []string{"named", "bind9", "named-sdb"} {
+		if strings.Contains(line, "\""+name+"\"") {
+			return true
+		}
+	}
+	return false
 }
 
 // bindQueryTest sends a test query to 127.0.0.1 via dig.

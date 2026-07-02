@@ -15,6 +15,7 @@ import (
 
 func osWriteFile(path, content string) error       { return os.WriteFile(path, []byte(content), 0o644) }
 func osWriteFileBytes(path string, b []byte) error { return os.WriteFile(path, b, 0o644) }
+func osMkdirAll(path string) error                 { return os.MkdirAll(path, 0o755) }
 
 // makeTestCertPEM creates a self-signed cert with the given validity window.
 func makeTestCertPEM(t *testing.T, notBefore, notAfter time.Time) []byte {

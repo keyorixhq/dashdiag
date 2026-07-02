@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -171,10 +172,29 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 			p.Namespace, name, p.Ready, p.Status, p.Restarts, restartIcon, p.Age)
 	}
 
+	// OS layer (only populated by `dsd k8s --deep`)
+	if info.OSLayer != nil {
+		fmt.Printf("\n[OS layer]\n")
+		printK8sOSLayer(*info.OSLayer, mode)
+	}
+
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
 	printK8sSummary(info, timing, mode)
+}
+
+// k8sOSLayerInsights runs the node's OS-layer facts through the EXACT heuristic
+// `dsd health` uses on the same data (analysis.CheckK8sOSLayer), rather than
+// re-deriving the concern conditions by hand in cmd/ — the fix for the
+// cmd↔health tally-drift class (#275): a hand-duplicated condition here would
+// silently rot out of sync with the shared heuristic. nil OSLayer (fast mode,
+// or --deep off a k8s node) yields no insights.
+func k8sOSLayerInsights(info *models.K8sInfo) []models.Insight {
+	if info.OSLayer == nil {
+		return nil
+	}
+	return analysis.CheckK8sOSLayer(*info.OSLayer)
 }
 
 // k8sHasConcern reports whether the standalone `dsd k8s` verdict flags a problem,
@@ -184,7 +204,29 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 func k8sHasConcern(info *models.K8sInfo) bool {
 	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady +
 		info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
-	return issues > 0 || info.HighRestarts > 0
+	return issues > 0 || info.HighRestarts > 0 || len(k8sOSLayerInsights(info)) > 0
+}
+
+// printK8sOSLayer renders each OS-layer insight as a line, exactly mirroring what
+// `dsd health --deep` would report for the same node — so a down kubelet/expired
+// cert/disabled ip_forward can never print "✅ Cluster healthy" here while
+// CRITing in dsd health.
+func printK8sOSLayer(l models.K8sOSLayer, mode output.OutputMode) {
+	insights := analysis.CheckK8sOSLayer(l)
+	if len(insights) == 0 {
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  No OS-layer issues")
+		return
+	}
+	for _, ins := range insights {
+		statusKey := "info"
+		switch ins.Level {
+		case "CRIT":
+			statusKey = "fail"
+		case "WARN":
+			statusKey = "warn"
+		}
+		fmt.Printf("  %s  %s\n", output.StatusIcon(statusKey, mode), ins.Message)
+	}
 }
 
 func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
@@ -216,6 +258,9 @@ func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode
 	}
 	if len(info.Events) > 0 {
 		parts = append(parts, fmt.Sprintf("%d warning event(s)", len(info.Events)))
+	}
+	if osIssues := len(k8sOSLayerInsights(info)); osIssues > 0 {
+		parts = append(parts, fmt.Sprintf("%d OS-layer issue(s)", osIssues))
 	}
 	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %s%s", asciiOr("warn", "⚠️ ", mode), strings.Join(parts, ", "), timing)))
 }

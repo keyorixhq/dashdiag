@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -29,11 +30,42 @@ func TestCheckPackages(t *testing.T) {
 		// NOT mint a hard CRIT (would CRIT a host just because openssl has an update).
 		{"apt critical is WARN not CRIT (name-inferred, no CVSS)", models.PackagesInfo{SecurityUpdates: 5, CriticalUpdates: 3, PackageManager: "apt"}, "WARN"},
 		{"important updates is WARN", models.PackagesInfo{SecurityUpdates: 5, ImportantUpdates: 1, PackageManager: "apt"}, "WARN"},
+		// Regression guard: Homebrew has no security metadata — `brew outdated`
+		// lists every outdated formula, not vulnerability-relevant ones. A dev
+		// Mac with routine outdated formulae must NOT get a security WARN.
+		{"brew outdated formulae is INFO not a security WARN", models.PackagesInfo{SecurityUpdates: 3, PackageManager: "brew"}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkPackages(tt.pkg), tt.want)
 		})
+	}
+}
+
+// TestNoSecurityRepoHints is a regression guard: dnf/zypper hosts with no
+// enabled security repo previously fell through this exact WARN with hard-coded
+// apt/Debian/Ubuntu fix hints (both collectors set only StatusReason, never
+// Status, so they never even reached this branch — a separate false-OK also
+// fixed). Confirms the hint text now matches the actual package manager.
+func TestNoSecurityRepoHints(t *testing.T) {
+	dnf := strings.Join(noSecurityRepoHints("dnf"), " ")
+	if !strings.Contains(dnf, "dnf") {
+		t.Errorf("dnf hints should mention dnf, not apt/Debian/Ubuntu: %q", dnf)
+	}
+	zypper := strings.Join(noSecurityRepoHints("zypper"), " ")
+	if !strings.Contains(zypper, "zypper") {
+		t.Errorf("zypper hints should mention zypper, not apt/Debian/Ubuntu: %q", zypper)
+	}
+	apt := strings.Join(noSecurityRepoHints("apt"), " ")
+	if !strings.Contains(apt, "Debian") {
+		t.Errorf("apt/default hints should keep the Debian/Ubuntu wording: %q", apt)
+	}
+
+	// Both dnf and zypper now actually reach this WARN (Status is set by the
+	// collectors, not just StatusReason).
+	for _, pm := range []string{"dnf", "zypper"} {
+		got := checkPackages(models.PackagesInfo{Status: "no-security-repo", PackageManager: pm})
+		assertLevel(t, got, "WARN")
 	}
 }
 
@@ -80,6 +112,21 @@ func TestCheckAuditd(t *testing.T) {
 	assertLevel(t, checkAuditd(models.AuditInfo{Available: true, Running: true}), "")
 	assertLevel(t, checkAuditd(models.AuditInfo{Available: true, Running: false}), "WARN")
 	assertLevel(t, checkAuditd(models.AuditInfo{Available: true, Running: true, AuditLogSizeGB: 15}), "WARN")
+
+	// Regression guard: /var/log/audit/ is 0700 root:root, so a non-root run
+	// can't distinguish "log is small" from "couldn't read it" without this
+	// sentinel — a host with a runaway multi-GB audit log would otherwise read
+	// healthy unprivileged (AuditLogSizeGB stays its zero value) while root
+	// would WARN on the exact same log.
+	unreadable := checkAuditd(models.AuditInfo{Available: true, Running: true, AuditLogSizeUnreadable: true})
+	if !insightWithMsg(unreadable, "INFO", "not verified") {
+		t.Errorf("unreadable audit log size should INFO 'not verified', got %+v", unreadable)
+	}
+	for _, ins := range unreadable {
+		if ins.Level == "WARN" || ins.Level == "CRIT" {
+			t.Errorf("unreadable audit log size must not alarm, got %s: %s", ins.Level, ins.Message)
+		}
+	}
 }
 
 func TestCheckHugePages(t *testing.T) {

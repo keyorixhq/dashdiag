@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -268,6 +269,7 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 
 	// Check repos
 	if reposOk := dnfHasUpdateRepo(ctx); !reposOk {
+		info.Status = "no-security-repo"
 		info.StatusReason = "no enabled dnf repositories found"
 		return info, nil
 	}
@@ -750,9 +752,14 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	info.SecurityUpdates = securityNeeded
 	// CriticalUpdates already set inline per patch
 
-	// Check if security repos are configured
+	// Check if security repos are configured. Without one, `zypper list-patches`
+	// legitimately finds 0 security patches — not because the host is patched,
+	// but because there's no repo to learn about updates from. Set Status (not
+	// just StatusReason) so checkPackageUpdates reports it as an explicit WARN
+	// instead of a silent clean 0 (the same false-OK apt already guards against).
 	info.HasSecurityRepo = zypperHasSecurityRepo(ctx)
 	if !info.HasSecurityRepo {
+		info.Status = "no-security-repo"
 		info.StatusReason = "no security repository configured — add openSUSE security or SLES update repo"
 	}
 
@@ -860,7 +867,7 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 		for _, line := range strings.Split(bootOut, "\n") {
 			if strings.HasPrefix(line, "vmlinuz-") {
 				installedKernel := strings.TrimPrefix(line, "vmlinuz-")
-				if installedKernel != runningKernel && installedKernel > runningKernel {
+				if installedKernel != runningKernel && versionStringGreater(installedKernel, runningKernel) {
 					newerKernelFound = true
 					break
 				}
@@ -874,6 +881,49 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	}
 
 	return risks
+}
+
+// splitVersionTokens splits a version-like string into alternating digit and
+// non-digit runs, e.g. "5.14.21-150500.55.30-default" →
+// ["5", ".", "14", ".", "21-150500.", "55", ".", "30", "-default"].
+func splitVersionTokens(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	isDigit := func(b byte) bool { return b >= '0' && b <= '9' }
+	for i := 0; i < len(s); i++ {
+		if cur.Len() > 0 && isDigit(s[i]) != isDigit(cur.String()[0]) {
+			tokens = append(tokens, cur.String())
+			cur.Reset()
+		}
+		cur.WriteByte(s[i])
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
+}
+
+// versionStringGreater reports whether a is a newer version string than b,
+// comparing digit runs as integers rather than lexicographically. A plain Go
+// string `>` gets SUSE service-pack kernel versions like "...55.30-default"
+// vs "...55.7-default" backwards: '3' < '7' as a character even though 30 > 7
+// numerically, so a genuinely NEWER installed kernel compared as "older" and
+// the pending-reboot warning was suppressed (or fired in reverse) exactly on
+// the SP-update scenario it exists to catch.
+func versionStringGreater(a, b string) bool {
+	ta, tb := splitVersionTokens(a), splitVersionTokens(b)
+	for i := 0; i < len(ta) && i < len(tb); i++ {
+		if ta[i] == tb[i] {
+			continue
+		}
+		na, errA := strconv.Atoi(ta[i])
+		nb, errB := strconv.Atoi(tb[i])
+		if errA == nil && errB == nil {
+			return na > nb
+		}
+		return ta[i] > tb[i]
+	}
+	return len(ta) > len(tb)
 }
 
 // ── Package integrity checks (deep mode) ─────────────────────────────────────

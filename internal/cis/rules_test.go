@@ -453,3 +453,39 @@ func TestEvaluate_AuditRemediationAdaptsToPackageManager(t *testing.T) {
 		t.Errorf("apt 4.1.2 remediation = %q, want Debian path", r.Remediation)
 	}
 }
+
+// TestEvaluate_AuditUnreadableNotFailed is a regression guard: `auditctl -l` is
+// root-only, so a non-root `dsd cis` run gets the SAME AuditRules==-1 sentinel
+// whether auditd is genuinely absent OR installed-and-running-but-unreadable.
+// Rule 4.1.1 ("auditd installed and running") must not FAIL a fully compliant
+// host purely because dsd ran non-root — it must Skip, distinguishable from the
+// real "not installed" FAIL.
+func TestEvaluate_AuditUnreadableNotFailed(t *testing.T) {
+	find := func(rep models.CISReport, id string) (models.CISResult, bool) {
+		for _, r := range rep.Results {
+			if r.ID == id {
+				return r, true
+			}
+		}
+		return models.CISResult{}, false
+	}
+
+	unreadable := Evaluate(models.SecurityInfo{AuditRules: -1, AuditRulesUnreadable: true}, models.KernelSecurityInfo{}, 1, false, "apt")
+	r, ok := find(unreadable, "4.1.1")
+	if !ok {
+		t.Fatal("4.1.1 not present")
+	}
+	if r.Status != models.CISSkipped {
+		t.Errorf("4.1.1 with AuditRulesUnreadable=true: status = %v, want Skipped", r.Status)
+	}
+
+	// Genuinely not installed (AuditRulesUnreadable=false) must still FAIL.
+	notInstalled := Evaluate(models.SecurityInfo{AuditRules: -1, AuditRulesUnreadable: false}, models.KernelSecurityInfo{}, 1, false, "apt")
+	r2, ok := find(notInstalled, "4.1.1")
+	if !ok {
+		t.Fatal("4.1.1 not present")
+	}
+	if r2.Status != models.CISFail {
+		t.Errorf("4.1.1 with AuditRulesUnreadable=false: status = %v, want Fail", r2.Status)
+	}
+}

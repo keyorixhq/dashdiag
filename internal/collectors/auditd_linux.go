@@ -46,9 +46,12 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 	}
 
-	// Audit log size
+	// Audit log size. The 0700 root:root audit dir denies non-root — set an
+	// explicit sentinel so that case isn't confused with a genuinely small log.
 	if fi, err := statFile("/var/log/audit/audit.log"); err == nil {
 		info.AuditLogSizeGB = float64(fi.Size) / (1024 * 1024 * 1024)
+	} else {
+		info.AuditLogSizeUnreadable = true
 	}
 
 	// Recent event count from audit log

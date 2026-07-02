@@ -3,7 +3,65 @@ package collectors
 import (
 	"os"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakeLoadavgSource serves a fixed /proc/loadavg body and falls back to Live
+// for everything else.
+type fakeLoadavgSource struct {
+	source.Live
+	content string
+}
+
+func (f fakeLoadavgSource) ReadFile(path string) ([]byte, error) {
+	if path == "/proc/loadavg" {
+		return []byte(f.content), nil
+	}
+	return f.Live.ReadFile(path)
+}
+
+// TestReadTaskCount is a regression guard: kernel.pid_max governs the WHOLE
+// task space (processes AND threads — every CLONE_THREAD thread gets its own
+// slot under /proc/<pid>/task/<tid>), but countProcDirs() only counts
+// top-level processes via /proc/[0-9]*. On a thread-heavy host (JVM/Go clone
+// storm), that undercounts real PID-space usage, so genuine task exhaustion
+// could read as a small, unconcerning percentage. readTaskCount must use
+// /proc/loadavg's "running/total" field instead.
+func TestReadTaskCount(t *testing.T) {
+	t.Run("well-formed loadavg", func(t *testing.T) {
+		prev := SetSource(fakeLoadavgSource{content: "0.52 0.43 0.32 3/412 8932\n"})
+		defer SetSource(prev)
+		if got := readTaskCount(); got != 412 {
+			t.Errorf("got %d, want 412 (the total tasks field, not the process count)", got)
+		}
+	})
+
+	t.Run("malformed loadavg falls back to process count", func(t *testing.T) {
+		prev := SetSource(fakeLoadavgSource{content: "not loadavg data"})
+		defer SetSource(prev)
+		// Falls back to countProcDirs(); just confirm it doesn't panic and
+		// returns a non-negative count (0 is valid on a host with no /proc glob
+		// match, e.g. this test running on darwin).
+		if got := readTaskCount(); got < 0 {
+			t.Errorf("got %d, want >= 0", got)
+		}
+	})
+
+	t.Run("unreadable loadavg falls back to process count", func(t *testing.T) {
+		prev := SetSource(erroringLoadavgSource{})
+		defer SetSource(prev)
+		if got := readTaskCount(); got < 0 {
+			t.Errorf("got %d, want >= 0", got)
+		}
+	})
+}
+
+type erroringLoadavgSource struct{ source.Live }
+
+func (erroringLoadavgSource) ReadFile(string) ([]byte, error) {
+	return nil, os.ErrPermission
+}
 
 func TestReadIntFile(t *testing.T) {
 	t.Parallel()

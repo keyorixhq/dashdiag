@@ -44,15 +44,65 @@ type crmMonXML struct {
 			Online string `xml:"online,attr"`
 		} `xml:"node"`
 	} `xml:"nodes"`
-	Resources struct {
-		Resource []struct {
-			ID            string `xml:"id,attr"`
-			ResourceAgent string `xml:"resource_agent,attr"`
-			Role          string `xml:"role,attr"`
-			Active        string `xml:"active,attr"`
-			Failed        string `xml:"failed,attr"`
-		} `xml:"resource"`
-	} `xml:"resources"`
+	Resources crmMonResources `xml:"resources"`
+}
+
+// crmMonResource is a single <resource> element, wherever it appears — a bare top-level
+// resource, or nested inside a <clone>, <group>, or <bundle><replica>.
+type crmMonResource struct {
+	ID            string `xml:"id,attr"`
+	ResourceAgent string `xml:"resource_agent,attr"`
+	Role          string `xml:"role,attr"`
+	Active        string `xml:"active,attr"`
+	Failed        string `xml:"failed,attr"`
+}
+
+type crmMonGroup struct {
+	Resource []crmMonResource `xml:"resource"`
+}
+
+type crmMonReplica struct {
+	Resource []crmMonResource `xml:"resource"`
+}
+
+type crmMonBundle struct {
+	Replica []crmMonReplica `xml:"replica"`
+}
+
+type crmMonClone struct {
+	Resource []crmMonResource `xml:"resource"`
+	Group    []crmMonGroup    `xml:"group"`
+}
+
+// crmMonResources mirrors <resources>. Pacemaker nests multi-instance/grouped resources
+// inside <clone>, <group>, and <bundle><replica> wrappers — encoding/xml only matches
+// direct children, so a bare `Resource []struct{...}` silently drops every resource that
+// isn't a top-level singleton. flatten() recovers the full resource list regardless of
+// nesting.
+type crmMonResources struct {
+	Resource []crmMonResource `xml:"resource"`
+	Clone    []crmMonClone    `xml:"clone"`
+	Group    []crmMonGroup    `xml:"group"`
+	Bundle   []crmMonBundle   `xml:"bundle"`
+}
+
+func (r crmMonResources) flatten() []crmMonResource {
+	all := append([]crmMonResource{}, r.Resource...)
+	for _, cl := range r.Clone {
+		all = append(all, cl.Resource...)
+		for _, g := range cl.Group {
+			all = append(all, g.Resource...)
+		}
+	}
+	for _, g := range r.Group {
+		all = append(all, g.Resource...)
+	}
+	for _, b := range r.Bundle {
+		for _, rep := range b.Replica {
+			all = append(all, rep.Resource...)
+		}
+	}
+	return all
 }
 
 func (c *HACollector) Collect(ctx context.Context) (interface{}, error) {
@@ -115,7 +165,7 @@ func applyCrmMon(info *models.HAInfo, x crmMonXML) {
 			info.OfflineNodes = append(info.OfflineNodes, n.Name)
 		}
 	}
-	for _, r := range x.Resources.Resource {
+	for _, r := range x.Resources.flatten() {
 		if strings.HasPrefix(r.ResourceAgent, "stonith:") {
 			info.StonithDevices++
 			continue

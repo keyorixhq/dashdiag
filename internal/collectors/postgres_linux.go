@@ -72,11 +72,24 @@ func (c *PostgresCollector) Collect(ctx context.Context) (interface{}, error) {
 // best-effort: if the query can't run (no peer-auth access), MetricsRead stays
 // false and the heuristic reports "couldn't look" rather than a false OK.
 func collectPostgresMetrics(ctx context.Context, dir string, info *models.PostgresInfo) {
+	// ActiveConns filters to backend_type='client backend' — background workers
+	// (checkpointer, walwriter, autovacuum launcher/workers, wal senders) also
+	// appear in pg_stat_activity but don't consume a max_connections slot.
+	// Counting them systematically overstated the saturation ratio by roughly
+	// the number of background processes, which could trip the WARN threshold
+	// on a small max_connections even when real client usage was safe.
+	// The final column (ReplayCaughtUp) compares last-received vs last-replayed
+	// WAL position: equal means the replica has applied everything it has
+	// received, even if that happened a while ago because the PRIMARY has been
+	// idle — which ReplayLagSec alone can't distinguish from genuinely falling
+	// behind. COALESCE to true on a primary (both sides NULL) since the whole
+	// replica-lag check is gated on pg_is_in_recovery() anyway.
 	const sql = "SELECT current_setting('server_version'), current_setting('max_connections'), " +
-		"(SELECT count(*) FROM pg_stat_activity), " +
+		"(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend'), " +
 		"(SELECT count(*) FROM pg_stat_activity WHERE state='idle in transaction'), " +
 		"pg_is_in_recovery(), " +
-		"COALESCE(EXTRACT(EPOCH FROM (now()-pg_last_xact_replay_timestamp())),-1)"
+		"COALESCE(EXTRACT(EPOCH FROM (now()-pg_last_xact_replay_timestamp())),-1), " +
+		"COALESCE(pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn(), true)"
 
 	base := []string{"-X", "-q", "-t", "-A", "-F", "|", "-h", dir, "-U", "postgres", "-d", "postgres", "-c", sql}
 	var out string
@@ -97,7 +110,7 @@ func collectPostgresMetrics(ctx context.Context, dir string, info *models.Postgr
 
 func parsePostgresRow(row string, info *models.PostgresInfo) {
 	f := strings.Split(row, "|")
-	if len(f) < 6 {
+	if len(f) < 7 {
 		return
 	}
 	info.MetricsRead = true
@@ -109,6 +122,7 @@ func parsePostgresRow(row string, info *models.PostgresInfo) {
 	if lag, e := strconv.ParseFloat(strings.TrimSpace(f[5]), 64); e == nil && lag >= 0 {
 		info.ReplayLagSec = lag
 	}
+	info.ReplayCaughtUp = strings.TrimSpace(f[6]) == "t"
 }
 
 func atoiSafe(s string) int {

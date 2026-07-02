@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -249,6 +250,35 @@ func TestParseAuditctlRules(t *testing.T) {
 	n := parseAuditctlRules(auditctlRules)
 	if n != 3 {
 		t.Errorf("rule count = %d, want 3", n)
+	}
+}
+
+// TestAuditRulesFromOutput is a regression guard: `auditctl -l` is root-only,
+// so a non-root run and a genuinely-not-installed auditd both error with the
+// SAME exit code — auditRulesFromOutput must tell them apart via the "must be
+// root" message so CIS rule 4.1.1 doesn't FAIL a compliant host just because
+// dsd ran non-root.
+func TestAuditRulesFromOutput(t *testing.T) {
+	cases := []struct {
+		name           string
+		out            string
+		err            error
+		wantRules      int
+		wantUnreadable bool
+	}{
+		{"non-root refused", "You must be root to run this program.\n", errors.New("exit status 4"), -1, true},
+		{"binary missing / auditd not running", "", errors.New("exec: \"auditctl\": executable file not found in $PATH"), -1, false},
+		{"empty ruleset", "No rules\n", nil, 0, false},
+		{"empty output", "", nil, 0, false},
+		{"real rules", auditctlRules, nil, 3, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rules, unreadable := auditRulesFromOutput(tc.out, tc.err)
+			if rules != tc.wantRules || unreadable != tc.wantUnreadable {
+				t.Errorf("got (%d, %v), want (%d, %v)", rules, unreadable, tc.wantRules, tc.wantUnreadable)
+			}
+		})
 	}
 }
 

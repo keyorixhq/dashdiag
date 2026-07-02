@@ -285,7 +285,15 @@ func (c *CPUCollector) sampleCPUUsage(ctx context.Context) cpuSample {
 }
 
 func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
-	numCPU := runtime.NumCPU()
+	// hostNumCPU is the REAL host core count — /proc/loadavg is never namespaced
+	// by cgroups/containers, so it always reflects host-wide load regardless of
+	// any CPU limit. numCPU (below) may be overridden to the container's cgroup
+	// limit for capacity-relative fields; LoadPct must keep dividing by the host
+	// count, or a load average that's normal for the HOST reads as wildly
+	// amplified against a small container limit (e.g. host load 4.0 / a 1-core
+	// limit = 400%), corroborating a false CPU-pressure verdict for the container.
+	hostNumCPU := runtime.NumCPU()
+	numCPU := hostNumCPU
 	if c.ContainerCtx.CPULimitCores > 0 {
 		if n := int(c.ContainerCtx.CPULimitCores); n >= 1 {
 			numCPU = n
@@ -344,7 +352,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
 		LoadAvg15:         load15,
 		NumCPU:            numCPU,
 		UsagePct:          usagePct,
-		LoadPct:           load1 / float64(numCPU) * 100,
+		LoadPct:           load1 / float64(hostNumCPU) * 100,
 		StealPct:          stealPct,
 		IOwaitPct:         iowaitPct,
 		RunQueue:          runQueue,

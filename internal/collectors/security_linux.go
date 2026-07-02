@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -669,17 +668,34 @@ func ScanSUIDBinaries(info *models.SecurityInfo) {
 // Called separately as it can be slow on large filesystems.
 func findUnexpectedSUIDs(info *models.SecurityInfo) {
 	for _, root := range suidScanPaths {
-		_ = filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
-			if err != nil || fi.IsDir() {
-				return nil
-			}
-			if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
-				if stat.Mode&syscall.S_ISUID != 0 && !knownSUIDBinaries[path] {
-					info.SUIDBinaries = append(info.SUIDBinaries, path)
-				}
-			}
-			return nil
-		})
+		walkSUIDDir(root, info)
+	}
+}
+
+// walkSUIDDir recursively scans dir via the active source (readDirEntries +
+// statFile), not raw filepath.Walk — which reads the live filesystem directly
+// and so, under `dsd replay`, would scan the REPLAYING machine instead of the
+// captured bundle. statFile's Mode is a portable os.FileMode, which Go's os
+// package already maps from the raw stat mode bits — os.ModeSetuid is set
+// exactly when the Unix setuid bit is, so no syscall.Stat_t is needed.
+func walkSUIDDir(dir string, info *models.SecurityInfo) {
+	entries, err := readDirEntries(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			walkSUIDDir(path, info)
+			continue
+		}
+		fi, err := statFile(path)
+		if err != nil {
+			continue
+		}
+		if fi.Mode&os.ModeSetuid != 0 && !knownSUIDBinaries[path] {
+			info.SUIDBinaries = append(info.SUIDBinaries, path)
+		}
 	}
 }
 
@@ -1358,17 +1374,27 @@ func parseAIDE(info *models.SecurityInfo) {
 }
 
 // parseAuditRules counts active auditd rules via auditctl.
-// Returns -1 when auditctl is unavailable or auditd not running.
+// Returns -1 when auditctl is unavailable or auditd not running. `auditctl -l`
+// is root-only — on EACCES (auditd installed and running, just unreadable by
+// this user) it sets AuditRulesUnreadable instead, so a genuine "not installed"
+// isn't confused with "couldn't check because we're not root".
 func parseAuditRules(ctx context.Context, info *models.SecurityInfo) {
-	out, err := runCmd(ctx, "auditctl", "-l")
+	out, err := runCmdCombined(ctx, "auditctl", "-l")
+	info.AuditRules, info.AuditRulesUnreadable = auditRulesFromOutput(out, err)
+}
+
+// auditRulesFromOutput decides the AuditRules count (or -1) and whether the
+// -1 means "genuinely not installed/running" vs "installed and running but
+// this (non-root) user was refused" from `auditctl -l`'s combined
+// stdout+stderr and exit error. Split out from parseAuditRules so the decision
+// logic is unit-testable without running the real command.
+func auditRulesFromOutput(out string, err error) (rules int, unreadable bool) {
 	if err != nil {
-		info.AuditRules = -1
-		return
+		return -1, strings.Contains(strings.ToLower(out), "must be root")
 	}
 	// "No rules" means auditd running but empty ruleset
 	if strings.Contains(out, "No rules") || strings.TrimSpace(out) == "" {
-		info.AuditRules = 0
-		return
+		return 0, false
 	}
 	count := 0
 	for _, line := range strings.Split(out, "\n") {
@@ -1377,7 +1403,7 @@ func parseAuditRules(ctx context.Context, info *models.SecurityInfo) {
 			count++
 		}
 	}
-	info.AuditRules = count
+	return count, false
 }
 
 // parseSupportconfig detects SUSE's supportconfig diagnostic tool.

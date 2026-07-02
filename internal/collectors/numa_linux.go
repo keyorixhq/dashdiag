@@ -28,22 +28,37 @@ func (c *NUMACollector) Collect(_ context.Context) (interface{}, error) {
 	info.Available = true
 	info.NodeCount = len(nodes)
 
-	var maxMem, minMem float64 = 0, 1 << 62
 	for _, nodePath := range nodes {
-		node := parseNUMANode(nodePath)
-		info.Nodes = append(info.Nodes, node)
-		if node.MemGB > maxMem {
+		info.Nodes = append(info.Nodes, parseNUMANode(nodePath))
+	}
+	info.Imbalanced = numaImbalanced(info.Nodes)
+	return info, nil
+}
+
+// numaImbalanced reports whether the memory-bearing nodes are imbalanced (the
+// max has >40% more memory than the min). Memoryless nodes (CPU-only NUMA
+// domains — common with CXL memory expanders on modern multi-socket systems,
+// or simply an unreadable meminfo) are excluded from the comparison entirely,
+// rather than lowering the min to 0. A single such node used to disable the
+// WHOLE imbalance check (the old "minMem>0" guard), even when the real
+// memory-bearing nodes were wildly imbalanced relative to each other —
+// exactly the asymmetric multi-node box this check exists to catch.
+func numaImbalanced(nodes []models.NUMANode) bool {
+	var maxMem, minMem float64
+	haveMemNode := false
+	for _, node := range nodes {
+		if node.MemGB <= 0 {
+			continue
+		}
+		if !haveMemNode || node.MemGB > maxMem {
 			maxMem = node.MemGB
 		}
-		if node.MemGB < minMem {
+		if !haveMemNode || node.MemGB < minMem {
 			minMem = node.MemGB
 		}
+		haveMemNode = true
 	}
-	// Flag imbalance when max node has >40% more memory than min
-	if minMem > 0 && maxMem/minMem > 1.4 {
-		info.Imbalanced = true
-	}
-	return info, nil
+	return haveMemNode && minMem > 0 && maxMem/minMem > 1.4
 }
 
 // IsNUMAPresent returns true when multiple NUMA nodes exist.

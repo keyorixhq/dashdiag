@@ -158,10 +158,15 @@ func correlateBlockedListenersNFT(ruleset string, info *models.FirewallInfo) {
 	info.BlockedListeners = blocked
 }
 
-// nftDportRe captures the dport argument of an nft rule: a literal port, a range
-// (8000-8002), or an inline set ({ 80, 443 }). A named set (dport @foo) or a vmap
-// matches nothing here → the caller treats the accept as unparseable and bails.
-var nftDportRe = regexp.MustCompile(`dport\s+(\{[^}]*\}|[0-9]+-[0-9]+|[0-9]+)`)
+// nftDportRe captures the dport argument of a TCP nft rule: a literal port, a
+// range (8000-8002), or an inline set ({ 80, 443 }). Anchored on a preceding
+// "tcp" so a `udp dport N accept` rule does NOT match — without this, a
+// TCP-only listening service genuinely blocked by the firewall (only UDP :N
+// was opened) was credited as accepted because some other rule opened the
+// same port number for UDP, suppressing the "service up but firewall drops
+// it" WARN. A named set (dport @foo) or a vmap matches nothing here → the
+// caller treats the accept as unparseable and bails.
+var nftDportRe = regexp.MustCompile(`\btcp\s+dport\s+(\{[^}]*\}|[0-9]+-[0-9]+|[0-9]+)`)
 
 // parseNFTInputAccept scans the input base chain(s) of an `nft list ruleset` and
 // returns the set of explicitly-accepted TCP dports, plus determinable=false if any
@@ -206,6 +211,13 @@ func parseNFTInputAccept(ruleset string) (accepted map[int]bool, determinable bo
 			for _, p := range ports {
 				accepted[p] = true
 			}
+			continue
+		}
+		// A UDP-only dport accept (nftDportRe no longer matches it) tells us
+		// nothing about TCP reachability — skip cleanly rather than falling into
+		// the "undeterminable" catch-all below, which would otherwise flag an
+		// entire benign ruleset as unparseable over a harmless UDP rule.
+		if strings.Contains(line, "udp dport") {
 			continue
 		}
 		// ct state established/related accept (no dport) is reply traffic only.
@@ -411,7 +423,7 @@ func parseIPTInputAccept(out string) (accepted map[int]bool, determinable bool) 
 		if len(f) < 9 {
 			continue
 		}
-		target, in := f[2], f[5]
+		target, prot, in := f[2], f[3], f[5]
 		tail := strings.Join(f[9:], " ")
 		if target != "ACCEPT" {
 			if !iptNonAcceptTargets[target] {
@@ -421,6 +433,18 @@ func parseIPTInputAccept(out string) (accepted map[int]bool, determinable bool) 
 		}
 		if in == "lo" {
 			continue // loopback-only ACCEPT grants no external reachability
+		}
+		// A UDP-scoped ACCEPT (-p udp) is not evidence a TCP port is reachable —
+		// e.g. "udp dpt:53 ACCEPT" was previously credited as opening TCP :53 just
+		// because some other rule matched the same port number for UDP, silently
+		// suppressing the "TCP service up but firewall drops it" WARN. Skip
+		// cleanly (not "determinable=false") so a benign UDP rule doesn't flag
+		// the whole ruleset as unparseable. iptables -nvL renders the prot column
+		// as either the name ("udp") or the raw protocol number (17) depending on
+		// version/flags — the Photon fixture below shows numeric ("6" for tcp),
+		// so both forms must be recognized.
+		if prot == "udp" || prot == "17" {
+			continue
 		}
 		if ports := iptAcceptedDports(tail); len(ports) > 0 {
 			for _, p := range ports {

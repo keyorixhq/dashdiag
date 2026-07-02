@@ -28,6 +28,25 @@ func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
 	}
 }
 
+// noSecurityRepoHints returns the distro-correct remediation for "no security
+// repository configured". The apt-specific wording was hard-coded here even
+// though dnf/zypper hosts hit this same status — a false-OK sibling fixed
+// separately (they weren't setting Status at all) that would otherwise have
+// surfaced a Debian/Ubuntu fix hint on a RHEL/SUSE host.
+func noSecurityRepoHints(pm string) []string {
+	switch pm {
+	case "dnf", "yum":
+		return []string{"to fix: enable a repo that carries security advisories (check: dnf repolist / yum repolist)"}
+	case "zypper":
+		return []string{"to fix: add openSUSE's security repo or SUSE's update repo (check: zypper repos)"}
+	default:
+		return []string{
+			"to fix (Debian): add 'deb http://security.debian.org/debian-security <suite>-security main' to /etc/apt/sources.list",
+			"to fix (Ubuntu): add 'deb http://security.ubuntu.com/ubuntu <suite>-security main' to /etc/apt/sources.list",
+		}
+	}
+}
+
 func checkPackages(pkg models.PackagesInfo) []models.Insight {
 	// Package-DB / lock health first: an interrupted dpkg, unreadable rpmdb, or stale
 	// zypper lock blocks EVERY update, so the security-update count is meaningless
@@ -81,10 +100,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	if pkg.Status == "no-security-repo" {
 		return []models.Insight{insight("WARN", "Packages",
 			"no security repository configured — security updates cannot be detected",
-			[]string{
-				"to fix (Debian): add 'deb http://security.debian.org/debian-security <suite>-security main' to /etc/apt/sources.list",
-				"to fix (Ubuntu): add 'deb http://security.ubuntu.com/ubuntu <suite>-security main' to /etc/apt/sources.list",
-			},
+			noSecurityRepoHints(pkg.PackageManager),
 		)}
 	}
 
@@ -173,6 +189,15 @@ func securityUpdateInsight(pkg models.PackagesInfo) []models.Insight {
 		return []models.Insight{insight("WARN", "Packages",
 			fmt.Sprintf("%d pending security update(s) (tdnf) — Photon advisories carry no CVSS, so severity is not scored", pkg.SecurityUpdates),
 			[]string{fmt.Sprintf("to fix: %s", fixCmd)},
+		)}
+	case pkg.PackageManager == "brew":
+		// Homebrew has NO security metadata at all — `brew outdated` lists every
+		// outdated formula, security-relevant or not (a routine dev-Mac state, not
+		// a vulnerability signal). Reporting it as a security WARN like every
+		// other manager here is a false alarm; an honest INFO instead.
+		return []models.Insight{insight("INFO", "Packages",
+			fmt.Sprintf("%d outdated Homebrew formula(e) — brew has no security ratings, this is a routine update count", pkg.SecurityUpdates),
+			[]string{fmt.Sprintf("to inspect: %s", inspectCmd), fmt.Sprintf("to update: %s", fixCmd)},
 		)}
 	case pkg.CriticalUpdates > 0:
 		return []models.Insight{insight("CRIT", "Packages",

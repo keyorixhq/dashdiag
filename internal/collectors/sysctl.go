@@ -37,6 +37,35 @@ func countProcDirs() int {
 	return len(dirs)
 }
 
+// readTaskCount returns the total number of tasks (processes AND threads)
+// currently active, parsed from /proc/loadavg's "running/total" field (e.g.
+// "0.52 0.43 0.32 3/412 8932" → 412). kernel.pid_max governs this whole task
+// space — every CLONE_THREAD thread consumes its own slot under
+// /proc/<pid>/task/<tid> — so countProcDirs() (top-level processes only)
+// understates real PID-space usage on a thread-heavy host (JVM/Go clone
+// storm), which could be at genuine task exhaustion (fork/clone EAGAIN) while
+// reading a small, unconcerning percentage. Falls back to countProcDirs if
+// /proc/loadavg is unreadable or unexpectedly formatted.
+func readTaskCount() int {
+	data, err := readFile("/proc/loadavg")
+	if err != nil {
+		return countProcDirs()
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 4 {
+		return countProcDirs()
+	}
+	parts := strings.SplitN(fields[3], "/", 2)
+	if len(parts) != 2 {
+		return countProcDirs()
+	}
+	n, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return countProcDirs()
+	}
+	return n
+}
+
 func (c *SysctlCollector) Collect(ctx context.Context) (interface{}, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
@@ -51,7 +80,7 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info.NetSomaxconn, _ = readIntFile("/proc/sys/net/core/somaxconn")
 	info.FSFileMax, _ = readIntFile("/proc/sys/fs/file-max")
 	info.KernelPIDMax, _ = readIntFile("/proc/sys/kernel/pid_max")
-	info.PIDCount = countProcDirs()
+	info.PIDCount = readTaskCount()
 
 	// Extended tuning fields
 	info.NetRmemMax, _ = readIntFile("/proc/sys/net/core/rmem_max")

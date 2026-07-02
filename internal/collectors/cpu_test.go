@@ -2,7 +2,9 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -275,6 +277,63 @@ func TestCPUCollector_Collect_InjectableReaders(t *testing.T) {
 	// idle delta=100, total delta=200 → usage = (1 - 100/200)*100 = 50%
 	if info.UsagePct < 49 || info.UsagePct > 51 {
 		t.Errorf("UsagePct: got %v, want ~50%%", info.UsagePct)
+	}
+}
+
+// TestCPUCollector_Collect_ContainerLoadPctUsesHostCores is a regression guard:
+// /proc/loadavg is never namespaced by cgroups, so it always reflects host-wide
+// load. Dividing that by the container's cgroup CPU limit (instead of the real
+// host core count) wildly amplifies LoadPct — e.g. a perfectly normal
+// fully-utilized 8-core host (load ~8.0) divided by a 1-core container limit
+// reads as 800%, corroborating a false CPU-pressure verdict for an otherwise
+// idle container.
+func TestCPUCollector_Collect_ContainerLoadPctUsesHostCores(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
+
+	hostCores := runtime.NumCPU()
+	// Load average exactly equal to the real host core count = "host fully
+	// utilized" = 100% by the correct (host-core) denominator.
+	loadAvgContent := fmt.Sprintf("%.2f 0.90 0.50 3/412 8932", float64(hostCores))
+	stat1 := "cpu  100 20 30 400 10 0 5 0 0 0\n"
+	stat2 := "cpu  110 20 30 440 10 0 5 0 0 0\n"
+
+	callCount := 0
+	c := &CPUCollector{
+		ContainerCtx: platform.ContainerContext{CPULimitCores: 1}, // a 1-core-limited container
+		readers: cpuReaders{
+			loadAvgOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(loadAvgContent)), nil
+			},
+			statOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader(stat1)), nil
+				}
+				return io.NopCloser(strings.NewReader(stat2)), nil
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info, ok := result.(*models.CPUInfo)
+	if !ok {
+		t.Fatalf("unexpected type %T", result)
+	}
+
+	if info.NumCPU != 1 {
+		t.Errorf("NumCPU should reflect the container's cgroup limit, got %d", info.NumCPU)
+	}
+	if info.LoadPct < 90 || info.LoadPct > 110 {
+		t.Errorf("LoadPct = %.1f, want ~100%% (host load over the REAL host core count, not the container's 1-core limit)", info.LoadPct)
 	}
 }
 

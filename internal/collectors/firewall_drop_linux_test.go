@@ -67,6 +67,38 @@ func TestParseIPTInputAccept_BlanketAcceptBails(t *testing.T) {
 	}
 }
 
+// TestParseIPTInputAccept_UDPAcceptDoesNotCoverTCP is a regression guard: a
+// UDP-scoped ACCEPT (e.g. "udp dpt:53") must NOT be credited as opening the
+// same port number for TCP — a TCP service genuinely blocked (only UDP :53 was
+// opened) would otherwise read as firewall-accepted, suppressing the "service
+// up but firewall drops it" WARN. Must also stay determinable=true: a benign
+// UDP rule is not evidence of an unparseable ruleset.
+func TestParseIPTInputAccept_UDPAcceptDoesNotCoverTCP(t *testing.T) {
+	const out = `Chain INPUT (policy DROP)
+ pkts bytes target prot opt in out source destination
+    0 0 ACCEPT udp -- * * 0.0.0.0/0 0.0.0.0/0 udp dpt:53`
+	accepted, determinable := parseIPTInputAccept(out)
+	if !determinable {
+		t.Fatal("a UDP-only ACCEPT is fully parseable, must stay determinable")
+	}
+	if accepted[53] {
+		t.Error("port 53 must NOT be marked TCP-accepted — the ACCEPT is UDP-scoped")
+	}
+
+	// Same case with the numeric protocol column (17 = udp), as real iptables
+	// builds render it (see the Photon fixture's numeric "6" for tcp above).
+	const outNumeric = `Chain INPUT (policy DROP)
+ pkts bytes target prot opt in out source destination
+    0 0 ACCEPT 17 -- * * 0.0.0.0/0 0.0.0.0/0 udp dpt:53`
+	accepted2, determinable2 := parseIPTInputAccept(outNumeric)
+	if !determinable2 {
+		t.Fatal("a UDP-only ACCEPT (numeric prot) is fully parseable, must stay determinable")
+	}
+	if accepted2[53] {
+		t.Error("port 53 must NOT be marked TCP-accepted (numeric prot=17)")
+	}
+}
+
 func TestParseProcNetTCPListeners(t *testing.T) {
 	// sl local_address rem_address st ... — 0A=LISTEN. 00000000:0016 = 0.0.0.0:22,
 	// 0100007F:1F90 = 127.0.0.1:8080 (loopback, excluded), :8443 wildcard included.
@@ -130,6 +162,26 @@ func TestParseNFTRulesetDetectsDefaultDrop(t *testing.T) {
 	parseNFTRuleset(nftInputClean, &info)
 	if !info.DefaultDrop {
 		t.Fatal("policy drop on the `type … hook input` line must set DefaultDrop")
+	}
+}
+
+// TestParseNFTInputAccept_UDPAcceptDoesNotCoverTCP is a regression guard: a
+// `udp dport N accept` rule must not be credited as opening the same port
+// number for TCP, and must not flip the ruleset to indeterminable either — a
+// benign UDP rule is not evidence of an unparseable ruleset.
+func TestParseNFTInputAccept_UDPAcceptDoesNotCoverTCP(t *testing.T) {
+	const rs = `table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		udp dport 53 accept
+	}
+}`
+	accepted, determinable := parseNFTInputAccept(rs)
+	if !determinable {
+		t.Fatal("a UDP-only accept is fully parseable, must stay determinable")
+	}
+	if accepted[53] {
+		t.Error("port 53 must NOT be marked TCP-accepted — the accept is UDP-scoped")
 	}
 }
 

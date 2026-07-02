@@ -431,75 +431,24 @@ func collectZFSPools() (pools []models.ZFSPool, listReadFailed bool) {
 	return pools, false
 }
 
-// zfsStateTokens are the values zpool status prints in the vdev STATE column.
-var zfsStateTokens = map[string]bool{
-	"ONLINE": true, "DEGRADED": true, "FAULTED": true, "OFFLINE": true,
-	"UNAVAIL": true, "REMOVED": true, "AVAIL": true, "INUSE": true,
-}
-
 // parseZFSVdevErrors sums read/write/cksum error counts across the vdev lines of
 // zpool status. A vdev line is "<name> <STATE> <READ> <WRITE> <CKSUM> [note]" —
 // the three counters follow the STATE token (the name may itself be indented, so
 // STATE is not at a fixed index), may be ZFS-abbreviated ("1.2K"), and may be
 // trailed by a free-form note ("too many errors", "(resilvering)"). Anchoring on
-// STATE avoids the old last-3-fields read, which silently dropped any line
-// carrying a note or an abbreviated count — exactly the errored vdevs that matter.
+// STATE avoids a last-3-fields read, which would silently drop any line carrying
+// a note or an abbreviated count — exactly the errored vdevs that matter.
+// Only used by this DiskCollector display path; the ZFSCollector verdict path
+// (zfs.go) calls parseZFSVdevErrorLine per-line directly.
 func parseZFSVdevErrors(out string) (read, write, cksum int) {
 	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		stateIdx := -1
-		for i, f := range fields {
-			if zfsStateTokens[f] {
-				stateIdx = i
-				break
-			}
+		if r, w, c, ok := parseZFSVdevErrorLine(strings.TrimSpace(line)); ok {
+			read += r
+			write += w
+			cksum += c
 		}
-		if stateIdx < 0 || stateIdx+3 >= len(fields) {
-			continue
-		}
-		r, okR := parseZFSCount(fields[stateIdx+1])
-		w, okW := parseZFSCount(fields[stateIdx+2])
-		c, okC := parseZFSCount(fields[stateIdx+3])
-		if !okR || !okW || !okC {
-			continue
-		}
-		read += r
-		write += w
-		cksum += c
 	}
 	return
-}
-
-// parseZFSCount parses a zpool error counter, which is a plain integer or a
-// ZFS-abbreviated value like "1.2K" / "15M" / "3.0G".
-func parseZFSCount(s string) (int, bool) {
-	if n, err := strconv.Atoi(s); err == nil {
-		if n < 0 {
-			return 0, false // a negative error count is garbled output, never a real zpool value
-		}
-		return n, true
-	}
-	if len(s) < 2 {
-		return 0, false
-	}
-	var mult float64
-	switch s[len(s)-1] {
-	case 'K':
-		mult = 1e3
-	case 'M':
-		mult = 1e6
-	case 'G':
-		mult = 1e9
-	case 'T':
-		mult = 1e12
-	default:
-		return 0, false
-	}
-	n, err := strconv.ParseFloat(s[:len(s)-1], 64)
-	if err != nil || n < 0 {
-		return 0, false
-	}
-	return int(n * mult), true
 }
 
 // parseZFSScrubAge returns days since last scrub, or -1 if never.

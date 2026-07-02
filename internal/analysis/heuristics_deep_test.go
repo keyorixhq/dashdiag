@@ -246,7 +246,7 @@ func TestCheckK8sOSLayer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertLevel(t, checkK8sOSLayer(tt.l), tt.want)
+			assertLevel(t, CheckK8sOSLayer(tt.l), tt.want)
 		})
 	}
 }
@@ -261,7 +261,10 @@ func TestCheckSnapper_Space(t *testing.T) {
 func TestCheckPackages_ManagerVariants(t *testing.T) {
 	// Exercise the distro fix-command switch arms. apt is excluded: it has no CVSS,
 	// so its "Critical" is name-inferred and must fold to WARN (asserted below).
-	for _, pm := range []string{"dnf", "zypper", "pacman", "yum", "brew"} {
+	// brew is excluded: it has NO security metadata at all (the real collector
+	// never populates CriticalUpdates), so brew unconditionally folds to an
+	// honest INFO regardless — see TestCheckPackages's dedicated brew case.
+	for _, pm := range []string{"dnf", "zypper", "pacman", "yum"} {
 		got := checkPackages(models.PackagesInfo{SecurityUpdates: 3, CriticalUpdates: 1, PackageManager: pm})
 		if !hasLevel(got, "CRIT") {
 			t.Errorf("pm=%s: expected CRIT, got %+v", pm, got)

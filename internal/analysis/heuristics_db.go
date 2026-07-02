@@ -73,8 +73,11 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 			}))
 	}
 
-	// Replica falling behind.
-	if pg.InRecovery && pg.ReplayLagSec > 300 {
+	// Replica falling behind. ReplayLagSec alone climbs unboundedly whenever the
+	// PRIMARY is simply idle (no new transactions to replay) — gate on
+	// ReplayCaughtUp (last-received vs last-replayed WAL position) so a
+	// perfectly-synced replica during an idle period doesn't false-fire.
+	if pg.InRecovery && !pg.ReplayCaughtUp && pg.ReplayLagSec > 300 {
 		out = append(out, insight("WARN", "Postgres",
 			fmt.Sprintf("replica is %.0fs behind the primary — replay lag growing", pg.ReplayLagSec),
 			[]string{

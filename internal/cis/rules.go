@@ -700,6 +700,14 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 			result = skipr(rule, "sshd_config not readable (run as root) — SSH setting not verified")
 		}
 
+		// 4.1.1 reads AuditRules==-1 as "auditd not installed or not running" — but
+		// `auditctl -l` is root-only, so a non-root run gets the SAME -1 sentinel
+		// when auditd is actually installed and running fine. Without this gate a
+		// fully compliant host FAILs 4.1.1 purely because dsd ran non-root.
+		if rule.ID == "4.1.1" && sec.AuditRulesUnreadable {
+			result = skipr(rule, "auditctl -l refused (run as root) — auditd install/run state not verified")
+		}
+
 		// In STIG mode, swap in STIG ID and description where available
 		if stig && rule.StigID != "" {
 			result.ID = rule.StigID

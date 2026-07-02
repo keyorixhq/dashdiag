@@ -331,14 +331,34 @@ func extractBracketProc(s string) string {
 func journalDiskUsage() float64 {
 	var total int64
 	for _, dir := range []string{journalRunPath, journalVarPath} {
-		_ = filepath.Walk(dir, func(_ string, fi os.FileInfo, err error) error {
-			if err == nil && !fi.IsDir() {
-				total += fi.Size()
-			}
-			return nil
-		})
+		total += dirSizeViaSource(dir)
 	}
 	return float64(total) / (1024 * 1024 * 1024)
+}
+
+// dirSizeViaSource recursively sums file sizes under dir via the active source
+// (readDirEntries + statFile), NOT raw filepath.Walk — which reads the live
+// filesystem directly and so, under `dsd replay`/`diff`/`migrate certify`,
+// reports the REPLAYING machine's journal size instead of the captured
+// bundle's. A missing/unreadable directory contributes 0, matching the old
+// Walk's silent-skip-on-error behavior.
+func dirSizeViaSource(dir string) int64 {
+	entries, err := readDirEntries(dir)
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			total += dirSizeViaSource(path)
+			continue
+		}
+		if fi, err := statFile(path); err == nil {
+			total += fi.Size
+		}
+	}
+	return total
 }
 
 // detectCrashLoops uses systemctl to find units that have restarted frequently.
@@ -438,8 +458,10 @@ func countPstorePanics() int {
 		if !strings.HasPrefix(name, "dmesg-") && !strings.Contains(name, "panic") {
 			continue
 		}
-		fi, err := e.Info()
-		if err != nil || crashFileTooOld(fi.ModTime(), now) {
+		// statFile, not e.Info() — see collectCrashFiles for why e.Info()'s
+		// always-zero ModTime silently drops every real panic record.
+		fi, err := statFile("/sys/fs/pstore/" + e.Name())
+		if err != nil || crashFileTooOld(fi.ModTime, now) {
 			continue
 		}
 		count++
@@ -510,11 +532,18 @@ func hasCorruptArchived(dir string) bool {
 		if !strings.HasSuffix(e.Name(), ".journal~") {
 			continue
 		}
-		// Run journalctl --verify on this specific file
+		// Run journalctl --verify on this specific file. runCmdCombined (not
+		// runCmd) so stdout+stderr are captured regardless of exit code — runCmd
+		// discards output on a non-zero exit, which made the "FAIL" check below
+		// dead code and left `err != nil` as the ONLY signal. That meant an EACCES
+		// (non-root can't read /var/log/journal), the 5s timeout, or journalctl
+		// simply being absent all read as "corrupt", firing a false "damaged
+		// archive" WARN on an otherwise-healthy host. Only the verifier's own FAIL
+		// marker is evidence of real corruption.
 		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		out, err := runCmd(ctx2, "journalctl", "--verify", "--file="+dir+"/"+e.Name())
+		out, _ := runCmdCombined(ctx2, "journalctl", "--verify", "--file="+dir+"/"+e.Name())
 		cancel()
-		if err != nil || strings.Contains(out, "FAIL") {
+		if strings.Contains(out, "FAIL") {
 			return true
 		}
 	}
@@ -595,26 +624,34 @@ func logDiskUsage() (mount string, usedPct float64) {
 
 // findMountPoint walks up from path until it finds a directory on a different
 // device (i.e. a mount point boundary).
+// findMountPoint returns the mount point containing path, found via
+// /proc/self/mountinfo (source-routed) — NOT raw syscall.Stat device-number
+// walking, which reads the LIVE filesystem's device numbers and so, under
+// `dsd replay`, would report the REPLAYING machine's mount point for a path
+// rather than the captured host's. This is a cosmetic/display concern only:
+// the used%-based verdict comes from the already source-routed statFs call in
+// logDiskUsage; only the displayed mount-point LABEL was affected.
 func findMountPoint(path string) string {
-	var prev syscall.Stat_t
-	if err := syscall.Stat(path, &prev); err != nil {
+	data, err := readFile("/proc/self/mountinfo")
+	if err != nil {
 		return path
 	}
-	for {
-		parent := filepath.Dir(path)
-		if parent == path {
-			return path // reached /
+	best := "/"
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
 		}
-		var pstat syscall.Stat_t
-		if err := syscall.Stat(parent, &pstat); err != nil {
-			return path
+		mp := strings.TrimSuffix(fields[4], "/")
+		if mp == "" {
+			mp = "/"
 		}
-		if pstat.Dev != prev.Dev {
-			return path // path is the mount point
+		matches := mp == "/" || path == mp || strings.HasPrefix(path, mp+"/")
+		if matches && len(mp) > len(best) {
+			best = mp
 		}
-		path = parent
-		prev = pstat
 	}
+	return best
 }
 
 // detectVolatileJournal returns true if journal logs will be lost on reboot.
@@ -924,6 +961,23 @@ func topErrorEntries(entries []models.TopError, n int) []models.TopError {
 
 // ── Crash file detection (Spec 3) ────────────────────────────────────────────
 
+// crashFileFromEntry stats path via statFile (NOT e.Info() — the source-fake
+// fs.DirEntry behind readDirEntries always carries a zero ModTime, which
+// crashFileTooOld reads as ~2000 years old, silently dropping every real crash
+// file/panic record) and returns the resulting CrashFile. ok is false when the
+// stat fails or the file is older than crashFileMaxAgeDays.
+func crashFileFromEntry(path string, now time.Time) (models.CrashFile, bool) {
+	fi, err := statFile(path)
+	if err != nil || crashFileTooOld(fi.ModTime, now) {
+		return models.CrashFile{}, false
+	}
+	return models.CrashFile{
+		Path:    path,
+		SizeMB:  float64(fi.Size) / (1024 * 1024),
+		AgeDays: int(now.Sub(fi.ModTime).Hours() / 24),
+	}, true
+}
+
 // collectCrashFiles scans known crash dump locations for core files and
 // crash reports. Sets CrashFiles and CoreDumpCount on the info struct.
 //
@@ -947,22 +1001,10 @@ func collectCrashFiles(info *models.LogsInfo) {
 			if e.IsDir() {
 				continue
 			}
-			fi, err := e.Info()
-			if err != nil {
-				continue
+			if cf, ok := crashFileFromEntry(filepath.Join(dir, e.Name()), now); ok {
+				info.CrashFiles = append(info.CrashFiles, cf)
+				info.CoreDumpCount++
 			}
-			// Only flag files from the last crashFileMaxAgeDays.
-			if crashFileTooOld(fi.ModTime(), now) {
-				continue
-			}
-			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
-			cf := models.CrashFile{
-				Path:    filepath.Join(dir, e.Name()),
-				SizeMB:  float64(fi.Size()) / (1024 * 1024),
-				AgeDays: ageDays,
-			}
-			info.CrashFiles = append(info.CrashFiles, cf)
-			info.CoreDumpCount++
 		}
 	}
 
@@ -972,22 +1014,10 @@ func collectCrashFiles(info *models.LogsInfo) {
 		name := e.Name()
 		if strings.Contains(name, "panic") || strings.Contains(name, "oops") ||
 			strings.Contains(name, "dmesg") {
-			fi, err := e.Info()
-			if err != nil {
-				continue
+			if cf, ok := crashFileFromEntry("/sys/fs/pstore/"+name, now); ok {
+				info.CrashFiles = append(info.CrashFiles, cf)
+				info.CoreDumpCount++
 			}
-			// pstore is never cleared on reboot — skip stale records so the
-			// "last 30 days" crash-dump verdict stays truthful.
-			if crashFileTooOld(fi.ModTime(), now) {
-				continue
-			}
-			ageDays := int(now.Sub(fi.ModTime()).Hours() / 24)
-			info.CrashFiles = append(info.CrashFiles, models.CrashFile{
-				Path:    "/sys/fs/pstore/" + name,
-				SizeMB:  float64(fi.Size()) / (1024 * 1024),
-				AgeDays: ageDays,
-			})
-			info.CoreDumpCount++
 		}
 	}
 }

@@ -134,17 +134,22 @@ func TestCheckDNS(t *testing.T) {
 		d    models.DNSResolverInfo
 		want string
 	}{
-		{"healthy is clean", models.DNSResolverInfo{ExternalResolvesOK: true, Manager: "static", ExternalLatencyMs: 50}, ""},
-		{"resolution failing is CRIT", models.DNSResolverInfo{ExternalResolvesOK: false, Manager: "systemd-resolved"}, "CRIT"},
-		{"failing with no nameservers is CRIT", models.DNSResolverInfo{ExternalResolvesOK: false, Manager: "none"}, "CRIT"},
-		{"no-DNS host resolving via /etc/hosts is silent", models.DNSResolverInfo{ExternalResolvesOK: false, InternalResolvesOK: true, Manager: "none"}, ""},
-		{"slow resolution is WARN", models.DNSResolverInfo{ExternalResolvesOK: true, ExternalLatencyMs: 600}, "WARN"},
-		{"public fallback is INFO", models.DNSResolverInfo{ExternalResolvesOK: true, PublicFallback: true, ExternalLatencyMs: 50}, "INFO"},
+		{"healthy is clean", models.DNSResolverInfo{Available: true, ExternalResolvesOK: true, Manager: "static", ExternalLatencyMs: 50}, ""},
+		{"resolution failing is CRIT", models.DNSResolverInfo{Available: true, ExternalResolvesOK: false, Manager: "systemd-resolved"}, "CRIT"},
+		{"failing with no nameservers is CRIT", models.DNSResolverInfo{Available: true, ExternalResolvesOK: false, Manager: "none"}, "CRIT"},
+		{"no-DNS host resolving via /etc/hosts is silent", models.DNSResolverInfo{Available: true, ExternalResolvesOK: false, InternalResolvesOK: true, Manager: "none"}, ""},
+		{"slow resolution is WARN", models.DNSResolverInfo{Available: true, ExternalResolvesOK: true, ExternalLatencyMs: 600}, "WARN"},
+		{"public fallback is INFO", models.DNSResolverInfo{Available: true, ExternalResolvesOK: true, PublicFallback: true, ExternalLatencyMs: 50}, "INFO"},
 		{
 			name: "too many nameservers is WARN",
-			d:    models.DNSResolverInfo{ExternalResolvesOK: true, TooManyNameservers: true, Nameservers: []string{"1", "2", "3", "4"}},
+			d:    models.DNSResolverInfo{Available: true, ExternalResolvesOK: true, TooManyNameservers: true, Nameservers: []string{"1", "2", "3", "4"}},
 			want: "WARN",
 		},
+		// Regression guard: the non-Linux stub (macOS/darwin) leaves Available
+		// false with every other field at its zero value, which otherwise reads
+		// exactly like "no nameservers configured and resolution is failing" —
+		// firing a spurious CRIT on every non-Linux `dsd net dns` run.
+		{"not available on this platform (non-Linux stub) is silent", models.DNSResolverInfo{}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

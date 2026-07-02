@@ -31,6 +31,14 @@ type MemoryInfo struct {
 	OfflineMemoryMB     int64 `json:"offline_memory_mb,omitempty"`     // their total size (0 if block size unknown)
 	AutoOnlineBlocks    bool  `json:"auto_online_blocks,omitempty"`    // auto_online_blocks == "online"
 
+	// CgroupMemMeasured is true when, inside a memory-limited container, UsedPct/
+	// FreeGB were recomputed against the container's OWN cgroup usage counter
+	// (memory.current / memory.usage_in_bytes) rather than left derived from
+	// host-wide /proc/meminfo. When false in a memory-limited container, the
+	// heuristic must not score UsedPct against TotalGB — they'd be measuring two
+	// different things (host-wide usage vs. the container's ceiling).
+	CgroupMemMeasured bool `json:"cgroup_mem_measured,omitempty"`
+
 	Status       string `json:"status"`
 	StatusReason string `json:"status_reason"`
 }

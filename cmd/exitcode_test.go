@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 func TestRecordExitCodeRaisesMonotonically(t *testing.T) {
@@ -43,6 +44,39 @@ func TestRecordWorstInsight(t *testing.T) {
 			recordWorstInsight(tc.insights)
 			if pendingExitCode != tc.want {
 				t.Errorf("got %d, want %d", pendingExitCode, tc.want)
+			}
+		})
+	}
+}
+
+// TestServicesGatesExitCode is a regression guard for the bug where ApplyThresholds
+// had no case for *models.ServicesInfo: `dsd services` rendered per-service CRIT/WARN
+// icons but always exited 0 because recordResultSeverity produced zero insights. A
+// CI job gating on `dsd services`'s exit code got a silent pass while a configured
+// service was down or returning 5xx.
+func TestServicesGatesExitCode(t *testing.T) {
+	cases := []struct {
+		name string
+		info *models.ServicesInfo
+		want int
+	}{
+		{"all reachable and OK", &models.ServicesInfo{Results: []models.ServiceResult{
+			{Name: "web", Host: "127.0.0.1", Port: 80, Reachable: true, Status: "OK"},
+		}}, 0},
+		{"unreachable service", &models.ServicesInfo{Results: []models.ServiceResult{
+			{Name: "db", Host: "127.0.0.1", Port: 5432, Reachable: false, Status: "WARN"},
+		}}, 1},
+		{"5xx service", &models.ServicesInfo{Results: []models.ServiceResult{
+			{Name: "api", Host: "127.0.0.1", Port: 443, Reachable: true, StatusCode: 503, Status: "CRIT"},
+		}}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pendingExitCode = 0
+			defer func() { pendingExitCode = 0 }()
+			recordResultSeverity([]runner.Result{{Name: "Services", Data: tc.info}})
+			if pendingExitCode != tc.want {
+				t.Errorf("got exit %d, want %d", pendingExitCode, tc.want)
 			}
 		})
 	}

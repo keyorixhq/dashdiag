@@ -37,6 +37,17 @@ func GCPGuestAvailable() bool {
 }
 
 // isGCPGuest matches GCE's DMI signature. Kept in sync with platform.detectCloudEnvironment.
+// Known accepted false-positive: a bare "google" match (no "google compute")
+// also fires on a Google-branded non-GCE device (e.g. a Chromebox/coreboot
+// board, whose real sys_vendor is literally "Google") — this only produces a
+// spurious INFO + failing metadata-server probes, never a WARN/CRIT, and is
+// the same bare-single-vendor-name convention used fleet-wide for every other
+// cloud (AWS "Amazon", DigitalOcean, Hetzner, Oracle). Deliberately NOT
+// tightened to require corroboration: unlike Azure's "Microsoft"+"Virtual
+// Machine" pair (hardened because on-prem Hyper-V guests share that exact DMI
+// at real fleet scale), there's no comparably common non-GCE server/VM with
+// this signature, so removing the bare match would only regress real GCE
+// detection on any instance type that doesn't populate product_name.
 func isGCPGuest(productName, sysVendor string) bool {
 	hay := strings.ToLower(productName + " " + sysVendor)
 	return strings.Contains(hay, "google compute") || strings.Contains(hay, "google")

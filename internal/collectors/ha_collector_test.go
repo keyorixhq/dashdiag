@@ -48,6 +48,73 @@ const realDegradedCrmMon = `<pacemaker-result api-version="2.38">
   </resources>
 </pacemaker-result>`
 
+// realClonedCrmMon exercises the common enterprise HA topology: a cloned dlm resource
+// (2 instances), a clone-of-a-group (VIP+webserver), and a bundled service — all of which
+// Pacemaker nests inside <clone>/<group>/<bundle><replica> wrappers rather than as bare
+// top-level <resource> siblings. One clone instance and the bundled resource are FAILED.
+const realClonedCrmMon = `<pacemaker-result api-version="2.38">
+  <summary>
+    <current_dc present="true" with_quorum="true"/>
+    <nodes_configured number="2"/>
+    <cluster_options stonith-enabled="true"/>
+  </summary>
+  <nodes>
+    <node name="node1" id="1" online="true" type="member"/>
+    <node name="node2" id="2" online="true" type="member"/>
+  </nodes>
+  <resources>
+    <resource id="fence1" resource_agent="stonith:fence_virt" role="Started" active="true" failed="false"/>
+    <clone id="dlm-clone" multi_state="false">
+      <resource id="dlm:0" resource_agent="ocf:pacemaker:controld" role="Started" active="true" failed="false"/>
+      <resource id="dlm:1" resource_agent="ocf:pacemaker:controld" role="Started" active="true" failed="true"/>
+    </clone>
+    <clone id="grp-clone">
+      <group id="web-group">
+        <resource id="vip" resource_agent="ocf:heartbeat:IPaddr2" role="Started" active="true" failed="false"/>
+        <resource id="webserver" resource_agent="ocf:heartbeat:apache" role="Stopped" active="false" failed="false"/>
+      </group>
+    </clone>
+    <bundle id="app-bundle" type="docker">
+      <replica id="0">
+        <resource id="app-bundle-0" resource_agent="ocf:heartbeat:podman" role="Started" active="true" failed="true"/>
+      </replica>
+    </bundle>
+  </resources>
+</pacemaker-result>`
+
+func TestApplyCrmMonClonedGroupedBundled(t *testing.T) {
+	var x crmMonXML
+	if err := xml.Unmarshal([]byte(realClonedCrmMon), &x); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var info models.HAInfo
+	applyCrmMon(&info, x)
+
+	if info.StonithDevices != 1 {
+		t.Errorf("stonith devices=%d, want 1 (fence1)", info.StonithDevices)
+	}
+	// dlm:0, dlm:1, vip, webserver, app-bundle-0 = 5 non-stonith resources.
+	if info.ResourcesTotal != 5 {
+		t.Errorf("resources total=%d, want 5 (nested clone/group/bundle resources must be counted)", info.ResourcesTotal)
+	}
+	wantFailed := map[string]bool{"dlm:1": true, "app-bundle-0": true}
+	if len(info.FailedResources) != len(wantFailed) {
+		t.Fatalf("failed=%v, want %v", info.FailedResources, wantFailed)
+	}
+	for _, id := range info.FailedResources {
+		if !wantFailed[id] {
+			t.Errorf("unexpected failed resource %q", id)
+		}
+	}
+	if len(info.StoppedResources) != 1 || info.StoppedResources[0] != "webserver" {
+		t.Errorf("stopped=%v, want [webserver] (grouped resource inside a clone)", info.StoppedResources)
+	}
+	// dlm:0 and vip are the only non-failed, non-stopped Started resources.
+	if info.ResourcesStarted != 2 {
+		t.Errorf("started=%d, want 2 (dlm:0, vip)", info.ResourcesStarted)
+	}
+}
+
 func TestApplyCrmMonHealthy(t *testing.T) {
 	var x crmMonXML
 	if err := xml.Unmarshal([]byte(realHealthyCrmMon), &x); err != nil {

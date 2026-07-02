@@ -234,6 +234,15 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 	var out []models.Insight
 
 	if !d.Available {
+		// Socket found but permission denied: containerd IS installed, dsd just
+		// lacks access — a non-root measurement gap, not a fault. Degrade to
+		// INFO like checkDocker's identical SocketPermDenied case, never WARN.
+		if d.SocketPermDenied {
+			if d.StatusReason != "" {
+				out = append(out, insight("INFO", "Containerd", d.StatusReason, nil))
+			}
+			return out
+		}
 		// Socket not found but service might be installed — give actionable hint
 		out = append(out, insight("WARN", "Containerd",
 			d.StatusReason,
@@ -612,7 +621,7 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	out = append(out, checkK8sWorkloadsAndEvents(k)...)
 
 	if k.OSLayer != nil {
-		out = append(out, checkK8sOSLayer(*k.OSLayer)...)
+		out = append(out, CheckK8sOSLayer(*k.OSLayer)...)
 	}
 
 	return out
@@ -937,8 +946,13 @@ func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
 	return out
 }
 
-// checkK8sOSLayer emits insights for OS-level k8s node health.
-func checkK8sOSLayer(l models.K8sOSLayer) []models.Insight {
+// CheckK8sOSLayer emits insights for OS-level k8s node health. Exported so
+// cmd/k8s.go can share this exact logic for the standalone `dsd k8s --deep`
+// verdict/rendering instead of re-deriving the OS-layer concern conditions by
+// hand — the single-source-of-truth fix for the cmd↔health tally-drift class
+// (#275): a hand-duplicated set of conditions in cmd/ silently rots out of sync
+// with the heuristic `dsd health` actually uses on the same data.
+func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 	out := checkK8sNodeDaemons(l)
 
 	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled

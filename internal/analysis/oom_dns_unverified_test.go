@@ -21,12 +21,12 @@ func TestOOMNotVerified(t *testing.T) {
 
 func TestDNSNoNameserversFailing(t *testing.T) {
 	// no nameservers + resolution failing + Manager none → CRIT (was silent).
-	d := models.DNSResolverInfo{ExternalResolvesOK: false, InternalResolvesOK: false, Manager: "none", ResolvTestError: "lookup failed"}
+	d := models.DNSResolverInfo{Available: true, ExternalResolvesOK: false, InternalResolvesOK: false, Manager: "none", ResolvTestError: "lookup failed"}
 	if got := checkDNS(d); !hasInsightMsg(got, "CRIT", "no nameservers") {
 		t.Errorf("no-nameserver failing DNS must CRIT, got %+v", got)
 	}
 	// /etc/hosts-only host (internal resolves) → not the misconfigured CRIT.
-	d2 := models.DNSResolverInfo{ExternalResolvesOK: false, InternalResolvesOK: true, Manager: "none"}
+	d2 := models.DNSResolverInfo{Available: true, ExternalResolvesOK: false, InternalResolvesOK: true, Manager: "none"}
 	if got := checkDNS(d2); hasInsightMsg(got, "CRIT", "no nameservers") {
 		t.Errorf("/etc/hosts host must not get the misconfigured CRIT, got %+v", got)
 	}

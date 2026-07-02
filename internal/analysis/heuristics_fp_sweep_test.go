@@ -50,7 +50,7 @@ func TestIOUtilHDDNotFalsePositive(t *testing.T) {
 // external ones — that's intentional, not a broken resolver. WARN, not CRIT.
 func TestDNSInternalOnlyNotCrit(t *testing.T) {
 	internalOnly := models.DNSResolverInfo{
-		Manager: "systemd-resolved", ExternalResolvesOK: false, InternalResolvesOK: true,
+		Available: true, Manager: "systemd-resolved", ExternalResolvesOK: false, InternalResolvesOK: true,
 	}
 	got := checkDNS(internalOnly)
 	if fpHasLevel(got, "CRIT") {
@@ -62,7 +62,7 @@ func TestDNSInternalOnlyNotCrit(t *testing.T) {
 
 	// Genuinely broken resolver (neither internal nor external) is still CRIT.
 	broken := models.DNSResolverInfo{
-		Manager: "systemd-resolved", ExternalResolvesOK: false, InternalResolvesOK: false,
+		Available: true, Manager: "systemd-resolved", ExternalResolvesOK: false, InternalResolvesOK: false,
 	}
 	if got := checkDNS(broken); !fpHasLevel(got, "CRIT") {
 		t.Errorf("fully broken DNS should still CRIT, got %+v", got)

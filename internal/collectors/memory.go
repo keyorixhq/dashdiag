@@ -104,9 +104,25 @@ func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
 	// (and so isn't using). Cheap sysfs read; zero on non-hotplug kernels / non-Linux.
 	info.MemHotplugChecked, info.OfflineMemoryBlocks, info.OfflineMemoryMB, info.AutoOnlineBlocks = readMemHotplug()
 
-	// Container memory limit overrides total
-	if c.ContainerCtx.MemLimitMB > 0 {
+	// Container memory limit overrides total. UsedPct/FreeGB above were derived
+	// from host-wide /proc/meminfo, which no longer means anything once TotalGB is
+	// the container's ceiling — recompute them against the container's own cgroup
+	// usage counter when it's readable. Otherwise leave CgroupMemMeasured false so
+	// checkMemory knows not to score host-wide usage against a container limit
+	// (a container pinned at its limit on an idle host would read healthy, and a
+	// busy host would falsely paint an idle container as under pressure).
+	if c.ContainerCtx.InContainer && c.ContainerCtx.MemLimitMB > 0 {
 		info.TotalGB = c.ContainerCtx.MemLimitMB / 1024
+		if usedBytes, ok := cgroupMemoryUsageBytes(c.ContainerCtx); ok {
+			usedGB := float64(usedBytes) / (1024 * 1024 * 1024)
+			freeGB := info.TotalGB - usedGB
+			if freeGB < 0 {
+				freeGB = 0
+			}
+			info.FreeGB = freeGB
+			info.UsedPct = usedGB / info.TotalGB * 100
+			info.CgroupMemMeasured = true
+		}
 	}
 
 	// Extended fields from the same /proc/meminfo map parsed above.

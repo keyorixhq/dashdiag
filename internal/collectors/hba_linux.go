@@ -59,10 +59,12 @@ func readHBAPort(hostPath string) models.HBAPort {
 		}
 	}
 
-	// Error counters
-	port.LinkFailures = readSysfsInt(hostPath + "/statistics/link_failure_count")
-	port.LossOfSync = readSysfsInt(hostPath + "/statistics/loss_of_sync_count")
-	port.LossOfSignal = readSysfsInt(hostPath + "/statistics/loss_of_signal_count")
+	// Error counters. The kernel SCSI FC transport class formats these ALWAYS as
+	// hex with a "0x" prefix (fc_host_statistic, "0x%llx\n") — NOT decimal, so
+	// readSysfsInt's plain Atoi would silently parse every one of these as 0.
+	port.LinkFailures = readSysfsHexInt(hostPath + "/statistics/link_failure_count")
+	port.LossOfSync = readSysfsHexInt(hostPath + "/statistics/loss_of_sync_count")
+	port.LossOfSignal = readSysfsHexInt(hostPath + "/statistics/loss_of_signal_count")
 
 	// Detect driver from symlink target (e.g. ../../devices/.../lpfc)
 	if target, err := readLink(hostPath); err == nil {
@@ -79,4 +81,15 @@ func readSysfsInt(path string) int {
 	s := strings.TrimSpace(readSysfsStr(path))
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// readSysfsHexInt reads a sysfs counter formatted as hex with a "0x" prefix
+// (e.g. "0x2f\n") — a plain decimal Atoi rejects the "x" and silently returns 0
+// for every value, healthy or not.
+func readSysfsHexInt(path string) int {
+	s := strings.TrimSpace(readSysfsStr(path))
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+	n, _ := strconv.ParseInt(s, 16, 64)
+	return int(n)
 }

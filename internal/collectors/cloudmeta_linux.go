@@ -6,12 +6,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// imdsMaxBodyBytes caps an IMDS response body. A single fixed-size Read() used
+// to silently truncate anything past 4KB — Azure's compute/storageProfile
+// document for a multi-data-disk VM (each managedDisk.id is a ~200-char ARM
+// resource path) routinely exceeds that, truncating the JSON mid-object and
+// making parseAzureStorageProfile fail closed exactly on the multi-disk VMs the
+// host-caching-hazard check targets. 1MB is far larger than any real IMDS
+// document while still bounding a misbehaving/malicious responder.
+const imdsMaxBodyBytes = 1 << 20
 
 type CloudMetaCollector struct{}
 
@@ -76,9 +86,11 @@ func imdsGetLive(ctx context.Context, url string, headers map[string]string) (st
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("imds %s: HTTP %d", url, resp.StatusCode)
 	}
-	buf := make([]byte, 4096)
-	n, _ := resp.Body.Read(buf)
-	return strings.TrimSpace(string(buf[:n])), nil
+	body, err := io.ReadAll(io.LimitReader(resp.Body, imdsMaxBodyBytes))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(body)), nil
 }
 
 func collectAWS(ctx context.Context, info *models.CloudInfo) bool {

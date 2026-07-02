@@ -385,9 +385,15 @@ func parsePingGroupRange(s string) (low, high int, ok bool) {
 // sysPing runs the system /bin/ping with a specific source IP.
 // Used when pro-bing Source binding is unreliable (multi-route scenarios).
 func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok bool) {
-	pCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	pCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	args := []string{"-c", "2", "-W", "1"}
+	// -c 5 (not 2): with only 2 packets, loss can only be 0/50/100% — a single
+	// routine dropped ICMP reply (Wi-Fi, a busy link, a rate-limiting gateway)
+	// reads as 50% and jumps straight to CRIT (the 10-50% WARN band is
+	// unreachable). 5 packets restore that granularity (one drop = 20% = WARN).
+	// -i 0.2 (the non-root minimum interval) keeps 5 packets fast (~1s) instead
+	// of the default 1s-apart cadence, which wouldn't fit the timeout below.
+	args := []string{"-c", "5", "-i", "0.2", "-W", "1"}
 	if srcIP != "" {
 		args = append(args, "-I", srcIP)
 	}

@@ -81,3 +81,36 @@ func TestParseCertFileNotYetValid(t *testing.T) {
 		t.Error("cert with future NotBefore must be NotYetValid")
 	}
 }
+
+// TestScanCertPath_RecursesAndFilters is a regression guard for the switch from
+// raw filepath.WalkDir to the Source-routed walkCertDir: recursion into
+// subdirectories and the .pem/.crt/.cer/.cert extension filter must both still
+// work identically.
+func TestScanCertPath_RecursesAndFilters(t *testing.T) {
+	now := time.Now()
+	pemBytes := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+
+	root := t.TempDir()
+	sub := root + "/nested"
+	if err := osMkdirAll(sub); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFileBytes(root+"/top.crt", pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFileBytes(sub+"/leaf.pem", pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	// A non-cert extension in the same directories must be skipped.
+	if err := osWriteFile(sub+"/leaf.key", "not a cert"); err != nil {
+		t.Fatal(err)
+	}
+
+	certs, unc := scanCertPath(root, now)
+	if len(unc) != 0 {
+		t.Fatalf("expected no uncheckable files, got %v", unc)
+	}
+	if len(certs) != 2 {
+		t.Fatalf("expected 2 certs (root + nested), got %d", len(certs))
+	}
+}

@@ -40,6 +40,10 @@ func TestCheckIPMI(t *testing.T) {
 	// WARN, not be silently swallowed by the !Available early return.
 	assertLevel(t, checkIPMI(models.IPMIInfo{Available: false, Status: "error",
 		StatusReason: "ipmitool available but sdr read failed"}), "WARN")
+	// Regression guard: a non-root sensor-read failure (NeedsRoot) must be an
+	// honest INFO, not the WARN above — in-band IPMI reads a root:root device, so
+	// this is expected on every non-root run regardless of real BMC health.
+	assertLevel(t, checkIPMI(models.IPMIInfo{NeedsRoot: true}), "INFO")
 }
 
 func TestCheckDNSQuality(t *testing.T) {
@@ -50,7 +54,11 @@ func TestCheckDNSQuality(t *testing.T) {
 	}{
 		{"clean is empty", models.DNSResolverInfo{}, ""},
 		{"too many nameservers is WARN", models.DNSResolverInfo{TooManyNameservers: true, Nameservers: []string{"1", "2", "3", "4"}}, "WARN"},
-		{"loopback resolver is WARN", models.DNSResolverInfo{HasLoopback: true}, "WARN"},
+		{"loopback resolver (resolution failing) is WARN", models.DNSResolverInfo{HasLoopback: true}, "WARN"},
+		// Regression guard: a local caching resolver (dnsmasq/unbound/Pi-hole) on
+		// 127.0.0.1 sets HasLoopback too, but if it's actually resolving, warning
+		// "DNS may fail" contradicts the live probe — a false alarm, not a diagnosis.
+		{"loopback resolver that IS resolving is clean", models.DNSResolverInfo{HasLoopback: true, ExternalResolvesOK: true}, ""},
 		{"high ndots is WARN", models.DNSResolverInfo{NdotsHigh: 5}, "WARN"},
 		{"ipv6-only is WARN", models.DNSResolverInfo{IPv6Only: true}, "WARN"},
 		{"duplicate nameserver is INFO", models.DNSResolverInfo{DuplicateNameserver: []string{"8.8.8.8"}}, "INFO"},

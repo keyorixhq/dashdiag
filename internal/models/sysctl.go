@@ -7,7 +7,12 @@ type SysctlInfo struct {
 	NetSomaxconn int `json:"net_somaxconn"`
 	FSFileMax    int `json:"fs_file_max"`
 	KernelPIDMax int `json:"kernel_pid_max"`
-	PIDCount     int `json:"pid_count"`
+	// PIDCount is the total number of tasks (processes AND threads) currently
+	// active — kernel.pid_max is the allocation ceiling for the whole task
+	// space, not just top-level processes, so a thread-heavy host (JVM/Go
+	// clone storm) can be at genuine PID/task exhaustion while a process-only
+	// count reads a small fraction of pid_max.
+	PIDCount int `json:"pid_count"`
 
 	// Network tuning
 	NetRmemMax    int `json:"net_rmem_max"`    // net.core.rmem_max

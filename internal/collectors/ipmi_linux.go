@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -50,6 +51,14 @@ func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 		// Try without "list full" (older ipmitool versions)
 		out, err = runCmd(ctx, "ipmitool", "sdr")
 		if err != nil {
+			// In-band IPMI reads the 0600 root:root BMC device — a non-root failure
+			// is expected, not evidence of a real IPMI/sensor problem. Without this
+			// check, a non-root `dsd health` WARNed on every physical server with a
+			// perfectly healthy BMC (root/non-root divergence).
+			if os.Geteuid() != 0 {
+				info.NeedsRoot = true
+				return info, nil
+			}
 			info.Status = "error"
 			info.StatusReason = "ipmitool available but sdr read failed — check IPMI access"
 			return info, nil

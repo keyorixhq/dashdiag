@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -78,22 +77,34 @@ func tlsCertPaths() []string {
 func scanCertPath(root string, now time.Time) ([]models.CertInfo, []models.TLSUncheckable) {
 	var results []models.CertInfo
 	var uncheckable []models.TLSUncheckable
+	walkCertDir(root, now, &results, &uncheckable)
+	return results, uncheckable
+}
 
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
+// walkCertDir recursively scans dir for .pem/.crt/.cer/.cert files via the
+// active source (readDirEntries), not raw filepath.WalkDir — which reads the
+// live filesystem directly and so, under `dsd replay`, would walk the
+// REPLAYING machine's cert directories instead of the captured bundle's.
+func walkCertDir(dir string, now time.Time, results *[]models.CertInfo, uncheckable *[]models.TLSUncheckable) {
+	entries, err := readDirEntries(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			walkCertDir(path, now, results, uncheckable)
+			continue
 		}
 		// Only scan .pem, .crt, .cer files — skip .key, .csr, .conf
 		ext := strings.ToLower(filepath.Ext(path))
 		if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".cert" {
-			return nil
+			continue
 		}
 		certs, unc := parseCertFile(path, now)
-		results = append(results, certs...)
-		uncheckable = append(uncheckable, unc...)
-		return nil
-	})
-	return results, uncheckable
+		*results = append(*results, certs...)
+		*uncheckable = append(*uncheckable, unc...)
+	}
 }
 
 // expiryDays returns whole days from now until notAfter — positive while the

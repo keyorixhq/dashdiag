@@ -100,6 +100,12 @@ type SecurityInfo struct {
 	AIDEDBExists    bool   `json:"aide_db_exists"`          // /var/lib/aide/aide.db exists
 	AIDELastRunDays int    `json:"aide_last_run_days"`      // days since last aide check (-1 = never)
 	AuditRules      int    `json:"audit_rules"`             // number of active auditd rules (-1 = unavailable)
+	// AuditRulesUnreadable is true when auditd IS installed and running but
+	// `auditctl -l` was refused (EACCES, non-root) — distinct from AuditRules==-1
+	// meaning auditd genuinely isn't installed/running. Without this, CIS rule
+	// 4.1.1 ("auditd installed and running") reads AuditRules==-1 as "not
+	// installed" and FAILs a fully compliant host just because dsd ran non-root.
+	AuditRulesUnreadable bool `json:"audit_rules_unreadable,omitempty"`
 
 	// SUSE-specific: supportconfig diagnostic tool
 	SupportconfigAvailable   bool   `json:"supportconfig_available"`         // supportutils package installed

@@ -3,10 +3,14 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Characterization tests for the BIND collector's parsers. bindParseZoneFile is
@@ -125,6 +129,79 @@ func TestBindCalcUptime(t *testing.T) {
 	got := bindCalcUptime("boot time: Mon, 19 May 2025 13:17:03 GMT")
 	if got == "" || !strings.Contains(got, "d") {
 		t.Errorf("past boot time should yield a 'Xd ...' uptime, got %q", got)
+	}
+}
+
+// TestIsBindProcess pins the process-owner matching used to confirm a :53
+// listener is actually named, not some other daemon.
+func TestIsBindProcess(t *testing.T) {
+	yes := []string{
+		`tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:* users:(("named",pid=1234,fd=20))`,
+		`tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:* users:(("bind9",pid=1234,fd=20))`,
+	}
+	for _, line := range yes {
+		if !isBindProcess(line) {
+			t.Errorf("isBindProcess(%q) = false, want true", line)
+		}
+	}
+	no := []string{
+		`tcp   LISTEN 0 10 127.0.0.53:53 0.0.0.0:* users:(("systemd-resolve",pid=900,fd=12))`,
+		`udp   UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=555,fd=6))`,
+		`tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:*`, // no -p info at all
+	}
+	for _, line := range no {
+		if isBindProcess(line) {
+			t.Errorf("isBindProcess(%q) = true, want false", line)
+		}
+	}
+}
+
+// TestBindCheckPorts_OtherDaemonOnPort53 is a regression guard: bindCheckPorts
+// used to credit ANY process holding :53 as "named is listening", so a host
+// where systemd-resolved (or dnsmasq) also happens to be on :53 while named
+// genuinely failed to bind would suppress the "named running but not
+// listening" WARN — exactly the misconfiguration the check exists to catch.
+func TestBindCheckPorts_OtherDaemonOnPort53(t *testing.T) {
+	const ssOut = `tcp   LISTEN 0 10 127.0.0.53:53 0.0.0.0:* users:(("systemd-resolve",pid=900,fd=12))
+udp   UNCONN 0 0 127.0.0.53:53 0.0.0.0:* users:(("systemd-resolve",pid=900,fd=13))
+`
+	prev := SetSource(source.Live{Exec: func(_ context.Context, name string, _ ...string) (source.Result, error) {
+		if name == "ss" {
+			return source.Result{Stdout: []byte(ssOut)}, nil
+		}
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+
+	var info models.BINDInfo
+	bindCheckPorts(context.Background(), &info)
+	if !info.PortsChecked {
+		t.Fatal("PortsChecked should be true — ss succeeded")
+	}
+	if info.Port53TCP || info.Port53UDP {
+		t.Errorf("Port53TCP=%v Port53UDP=%v, want both false — :53 is held by systemd-resolved, not named",
+			info.Port53TCP, info.Port53UDP)
+	}
+}
+
+// TestBindCheckPorts_NamedListening confirms the positive case still works:
+// named itself holding :53 must still be credited.
+func TestBindCheckPorts_NamedListening(t *testing.T) {
+	const ssOut = `tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:* users:(("named",pid=1234,fd=20))
+udp   UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("named",pid=1234,fd=21))
+`
+	prev := SetSource(source.Live{Exec: func(_ context.Context, name string, _ ...string) (source.Result, error) {
+		if name == "ss" {
+			return source.Result{Stdout: []byte(ssOut)}, nil
+		}
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+
+	var info models.BINDInfo
+	bindCheckPorts(context.Background(), &info)
+	if !info.Port53TCP || !info.Port53UDP {
+		t.Errorf("Port53TCP=%v Port53UDP=%v, want both true — named is listening", info.Port53TCP, info.Port53UDP)
 	}
 }
 

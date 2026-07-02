@@ -42,11 +42,13 @@ var guardedUnverifiedSignals = map[string]string{
 	"CVEAllResult.ScanFailed":             "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
 
 	// dsd security — renderer shares health's verdict via the heuristic.
-	"SecurityInfo.NeedsRoot":           "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.PortsNeedRoot":       "analysis/heuristics_security_full_test.go (ports → 'run as root')",
-	"SecurityInfo.ShadowUnreadable":    "analysis/mac_shadow_unverified_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.SSHConfigUnreadable": "cis/ssh_unverified_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.FirewallUnreadable":  "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
+	"SecurityInfo.NeedsRoot":            "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.PortsNeedRoot":        "analysis/heuristics_security_full_test.go (ports → 'run as root')",
+	"SecurityInfo.ShadowUnreadable":     "analysis/mac_shadow_unverified_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.SSHConfigUnreadable":  "cis/ssh_unverified_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.FirewallUnreadable":   "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
+	"SecurityInfo.AuditRulesUnreadable": "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
+	"AuditInfo.AuditLogSizeUnreadable":  "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
 
 	// Storage — heuristic folds an unreadable read to INFO/WARN, never OK.
 	"CephInfo.NeedsRoot":            "analysis/heuristics_round3_test.go (configured+non-root → INFO, not false 'unreachable' CRIT)",
@@ -78,6 +80,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"CloudInitInfo.StatusUnverified":    "analysis/firmware_cloudinit_unverified_test.go",
 	"SteamOSInfo.UpdateServerReachable": "analysis/steamos_test.go + heuristics_round9_test.go",
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
+	"IPMIInfo.NeedsRoot":                "analysis/heuristics_round9_test.go (non-root BMC read → INFO 're-run as root', not a WARN) + collectors/ipmi_linux_test.go",
 
 	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.
 	"ServiceRestartInfo.NeedsRoot":    "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
