@@ -214,6 +214,15 @@ func GPUTempPlausible(c int) bool {
 	return TempPlausible(float64(c), TempCeilSilicon)
 }
 
+// UtilPctPlausible reports whether a GPU utilization reading (%) is physically
+// possible. gpu_busy_percent is read raw via a bare Atoi with no bounds check,
+// so a garbled/faulted sysfs read can surface outside [0,100] and feed the
+// DPM-stuck-low / sustained-load checks below with bogus "under load" evidence.
+// Reject rather than trust it — same plausibility-gate pattern as GPUTempPlausible.
+func UtilPctPlausible(pct int) bool {
+	return pct >= 0 && pct <= 100
+}
+
 // checkGPUDevice returns the health insights for a single GPU device.
 func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.Insight {
 	var out []models.Insight
@@ -305,7 +314,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// correct behavior, not a fault. Only a genuine workload (UtilPct >= 50, the
 	// same load-evidence bar used by the sustained-compute-load INFO below)
 	// pinned at "low" indicates the GPU failed to ramp up under demand.
-	if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
+	if dev.PowerDPMLevel == "low" && UtilPctPlausible(dev.UtilPct) && dev.UtilPct >= 50 {
 		out = append(out, insight("WARN", "GPU",
 			fmt.Sprintf("%s stuck in low-power DPM mode under load (%d%% util) — performance capped", prefix, dev.UtilPct),
 			[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
@@ -320,7 +329,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Sustained compute load — INFO signal for correlation engine.
 	// Not a fault on its own, but provides context when combined with
 	// thermal or memory pressure signals.
-	if dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
+	if UtilPctPlausible(dev.UtilPct) && dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
 		out = append(out, insight("INFO", "GPU",
 			fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
 			nil,
