@@ -1068,3 +1068,18 @@ func checkRancher(d models.RancherInfo) []models.Insight {
 	}
 	return out
 }
+
+func checkNspawn(n models.NspawnInfo) []models.Insight {
+	if !n.Available || len(n.Containers) == 0 {
+		return nil
+	}
+	if n.FailedCount == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Nspawn",
+		fmt.Sprintf("%d systemd-nspawn container(s) in failed/degraded state", n.FailedCount),
+		[]string{
+			"to inspect: machinectl list",
+			"to inspect: machinectl status <name>",
+		})}
+}

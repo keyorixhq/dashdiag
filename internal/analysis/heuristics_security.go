@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -609,4 +610,231 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 	}
 
 	return out
+}
+
+func checkFirewall(f models.FirewallInfo) []models.Insight {
+	if !f.Available {
+		// The firewall state could not be read (query failed — typically a non-root
+		// run — or no nft/iptables tooling). Don't let !Available pass as a silent
+		// "no firewall problems"; surface it as INFO (doesn't raise the verdict).
+		if f.PVEFirewallActive {
+			return []models.Insight{insight("INFO", "Firewall",
+				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox; base ruleset not read",
+				[]string{"to inspect: pve-firewall status"},
+			)}
+		}
+		if f.StatusReason != "" {
+			return []models.Insight{insight("INFO", "Firewall",
+				"firewall state not verified — "+f.StatusReason,
+				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
+			)}
+		}
+		return nil
+	}
+	if !f.Active || f.TotalRules == 0 {
+		// On Proxmox VE, pve-firewall manages the host firewall and loads its
+		// rules dynamically — an empty base ruleset is expected (see BUG-017).
+		if f.PVEFirewallActive {
+			return []models.Insight{insight("INFO", "Firewall",
+				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox",
+				[]string{"to inspect: pve-firewall status", "to inspect: cat /etc/pve/firewall/cluster.fw"},
+			)}
+		}
+		// On a cloud guest the network firewall is the provider's Security Group /
+		// NSG / VPC rules — a layer dsd cannot read from inside the instance. An
+		// empty host ruleset is expected there if you rely on the cloud firewall, so
+		// don't assert "host unprotected" (a false alarm that reads as cloud-naive):
+		// surface it as INFO and point at the layer dsd can't see.
+		if f.CloudGuest {
+			label, term, where := cloudFirewallLabels(f.CloudProvider)
+			return []models.Insight{insight("INFO", "Firewall",
+				fmt.Sprintf("%s has no active host rules — on %s, network filtering is typically enforced by the %s, which dsd cannot see from inside the guest", f.Backend, label, term),
+				[]string{
+					"to verify: " + where,
+					fmt.Sprintf("note: no host rules is expected if you rely on the %s; otherwise add ufw/nft/iptables rules", term),
+				})}
+		}
+		return []models.Insight{insight("WARN", "Firewall",
+			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),
+			[]string{
+				"to inspect: iptables -L -n",
+				"to inspect: nft list ruleset",
+				"note: consider enabling ufw, firewalld, or writing iptables/nft rules",
+			})}
+	}
+	// Services listening on all interfaces but dropped by the INPUT policy — the
+	// "service up but unreachable" footgun (common on Photon's default-DROP iptables).
+	// Only set when the ruleset was fully parseable, so this never mis-flags a
+	// reachable service. The 0.0.0.0 bind signals the service intends to be reachable,
+	// so the firewall block is a likely misconfiguration → WARN.
+	if len(f.BlockedListeners) > 0 {
+		return []models.Insight{insight("WARN", "Firewall",
+			fmt.Sprintf("%d service(s) listen on all interfaces but the INPUT policy is DROP with no rule permitting them — unreachable from outside: port(s) %s",
+				len(f.BlockedListeners), joinInts(f.BlockedListeners)),
+			[]string{
+				"these services bound 0.0.0.0 (intent to be reachable) but the firewall drops new inbound to them",
+				"to allow a port: iptables -A INPUT -p tcp --dport <PORT> -j ACCEPT  (then persist the rule)",
+				"to inspect: iptables -nvL INPUT ; ss -ltn",
+				"note: ignore if the service is meant to be internal-only",
+			})}
+	}
+	return nil
+}
+
+func checkAuth(a models.AuthInfo) []models.Insight {
+	if !a.Available {
+		return nil // sshd not installed — row hidden
+	}
+	// The auth source could not be read (typically a non-root run where the
+	// journal and /var/log/auth.log are both inaccessible). Surface that honestly
+	// as INFO instead of letting FailedLast24h==0 read as a clean "no failures" —
+	// a check that silently reads OK when it never ran is a false sense of security.
+	if !a.Checked {
+		msg := a.StatusReason
+		if msg == "" {
+			msg = "SSH auth log could not be read — failed-login detection skipped"
+		}
+		return []models.Insight{insight("INFO", "Auth", msg,
+			[]string{"run as root (sudo) to verify SSH authentication failures"})}
+	}
+	if a.FailedLast24h == 0 {
+		return nil
+	}
+	// keyOnly is true when we authoritatively know password authentication is
+	// disabled (sshd -T read). Failed *password* attempts cannot succeed against a
+	// key-only host, so the flood is internet background noise, not a credible
+	// brute-force threat — report it as INFO, not a cry-wolf WARN. Unknown policy
+	// (SSHConfigChecked false) keeps the WARN: we fail toward warning.
+	keyOnly := a.SSHConfigChecked && !a.PasswordAuthEnabled
+
+	var out []models.Insight
+	if a.FailedLast24h > 1000 {
+		if keyOnly {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — all rejected: password authentication is disabled (key-only), so these cannot succeed", a.FailedLast24h),
+				[]string{"no action needed; to silence the log noise: consider fail2ban or sshguard"}))
+		} else {
+			hints := []string{
+				"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep 'Failed password'",
+				"to inspect: lastb | head -20",
+				"to harden: set PasswordAuthentication no (key-only) so these attempts cannot succeed",
+				"to fix:     consider fail2ban or sshguard",
+			}
+			if len(a.TopSources) > 0 {
+				hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
+					a.TopSources[0].Source, a.TopSources[0].Count))
+			}
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
+				hints))
+		}
+	} else if a.FailedLast24h > 100 {
+		out = append(out, insight("INFO", "Auth",
+			fmt.Sprintf("%d failed SSH login attempts in 24h", a.FailedLast24h),
+			[]string{"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep Failed"}))
+	}
+	if a.RootAttempts > 0 {
+		// Root password login is impossible when password auth is off entirely, or
+		// when PermitRootLogin is anything other than "yes" (no / prohibit-password /
+		// without-password). In that case the root attempts are futile — INFO, and
+		// the "set PermitRootLogin no" advice would be stale, so drop it.
+		rootPwImpossible := a.SSHConfigChecked && (!a.PasswordAuthEnabled || !a.RootPasswordLoginAllowed)
+		if rootPwImpossible {
+			out = append(out, insight("INFO", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — all rejected: root password login is disabled", a.RootAttempts),
+				[]string{"to verify: sshd -T | grep -E 'permitrootlogin|passwordauthentication'"}))
+		} else {
+			out = append(out, insight("WARN", "Auth",
+				fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
+				[]string{
+					"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
+					"to fix:     echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd",
+				}))
+		}
+	}
+	return out
+}
+
+func checkAuditd(a models.AuditInfo) []models.Insight {
+	if !a.Available {
+		return nil
+	}
+	var out []models.Insight
+	if !a.Running {
+		out = append(out, insight("WARN", "Auditd",
+			"auditd is installed but not running — compliance logging inactive",
+			[]string{
+				"to fix: systemctl enable --now auditd",
+				"note: required for CIS/STIG compliance",
+			}))
+	}
+	if a.AuditLogSizeUnreadable {
+		out = append(out, insight("INFO", "Auditd",
+			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
+			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
+	} else if a.AuditLogSizeGB > 10 {
+		out = append(out, insight("WARN", "Auditd",
+			fmt.Sprintf("audit log is %.1f GB — consider log rotation", a.AuditLogSizeGB),
+			[]string{
+				"to inspect: ls -lh /var/log/audit/",
+				"to fix:     auditctl -e 0 && truncate -s 0 /var/log/audit/audit.log && auditctl -e 1",
+			}))
+	}
+	return out
+}
+
+// IsPVEServicePort reports whether a port is a mandatory Proxmox VE service
+// port: 8006 (web UI), 3128 (spiceproxy), or 111 (rpcbind/portmapper).
+// Exported as the single source of truth — cmd/security.go consumes it so the
+// {8006, 3128, 111} set is not duplicated across packages.
+func IsPVEServicePort(port int) bool {
+	switch port {
+	case 8006, 3128, 111:
+		return true
+	}
+	return false
+}
+
+// containsStr returns true if s is in the slice ss.
+func containsStr(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// cloudFirewallLabels maps a cloud provider id to a human label, the name of its
+// network-firewall construct, and a one-line "where to verify it" hint. Used to
+// frame an empty host ruleset on a cloud guest honestly (the protection lives in
+// a layer dsd cannot read from inside the instance).
+func cloudFirewallLabels(provider string) (label, term, where string) {
+	switch provider {
+	case "aws":
+		return "AWS EC2", "Security Group", "check the instance's Security Group rules in the EC2 console or `aws ec2 describe-security-groups`"
+	case "azure":
+		return "Azure", "Network Security Group (NSG)", "check the NIC/subnet NSG in the Azure portal or `az network nsg rule list`"
+	case "gcp":
+		return "GCP", "VPC firewall rules", "check the VPC firewall in the GCP console or `gcloud compute firewall-rules list`"
+	default:
+		return "cloud", "cloud network firewall", "check your provider's network firewall / security group configuration"
+	}
+}
+
+// joinInts renders a sorted int slice as "22, 80, 443".
+func joinInts(xs []int) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = strconv.Itoa(x)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// truncateSELinux truncates a string for inline hint display.
+func truncateSELinux(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

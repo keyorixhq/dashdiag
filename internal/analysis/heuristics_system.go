@@ -992,3 +992,362 @@ func checkServices(s models.ServicesInfo) []models.Insight {
 	}
 	return out
 }
+
+// checkDBus surfaces D-Bus health. D-Bus is treated as a Tier-0 dependency —
+// its failure cascades to all services that communicate via IPC.
+func checkDBus(d models.DBusInfo) []models.Insight {
+	if d.Status == "n/a" || d.Active {
+		return nil // healthy or not applicable (non-Linux)
+	}
+	// "unknown" means systemctl couldn't determine the bus state (timeout, unit
+	// alias lookup miss) — NOT that the bus is down. A live system you're
+	// actively running on almost always has a working bus; treating "couldn't
+	// determine" as "failed" produced a false CRIT on VMware guests (TRIAGE §M).
+	// Surface it as INFO so the unverified state is honest without a scary
+	// top-line CRIT. Only an explicit failed/inactive is a real failure.
+	if d.Status != "failed" && d.Status != "inactive" {
+		return []models.Insight{insight("INFO", "DBus",
+			fmt.Sprintf("D-Bus state could not be determined (status: %q) — health unverified, not assumed failed", d.Status),
+			[]string{
+				"to inspect: systemctl is-active dbus",
+				"to inspect: systemctl status dbus --no-pager",
+				"note: if `systemctl is-active dbus` reports active, the bus is fine and this is a query artifact",
+			},
+		)}
+	}
+	hints := []string{
+		"to inspect: systemctl status dbus.service",
+		"to inspect: journalctl -u dbus.service -n 20",
+		"note: D-Bus failure cascades — NetworkManager, systemd-logind, and other services will also fail",
+		"note: check SELinux policy type: cat /etc/selinux/config | grep SELINUXTYPE",
+	}
+	if d.LastError != "" {
+		hints = append([]string{"last error: " + d.LastError}, hints...)
+	}
+	return []models.Insight{insight("CRIT", "DBus",
+		"D-Bus system message bus has failed — all IPC-dependent services are affected",
+		hints,
+	)}
+}
+
+func checkOOM(oom models.OOMInfo) []models.Insight {
+	// The kernel log was unreadable, so EventsLast24h==0 means "couldn't check",
+	// not "no OOM kills" — surface it rather than passing as a silent clean.
+	if oom.StatusReason != "" {
+		return []models.Insight{insight("INFO", "OOM",
+			"OOM check not verified — "+oom.StatusReason,
+			[]string{
+				"to inspect: journalctl -k | grep -i 'out of memory'   (run as root)",
+				"note: kernel.dmesg_restrict=1 blocks non-root dmesg",
+			},
+		)}
+	}
+	if oom.EventsLast24h == 0 {
+		return nil
+	}
+	var victims []string
+	seen := map[string]bool{}
+	for _, ev := range oom.RecentEvents {
+		if !seen[ev.Process] {
+			seen[ev.Process] = true
+			victims = append(victims, ev.Process)
+		}
+	}
+	msg := fmt.Sprintf("%d OOM kill event(s) in the last 24h", oom.EventsLast24h)
+	if len(victims) > 0 {
+		msg += fmt.Sprintf(" — killed: %s", strings.Join(victims, ", "))
+	}
+	// CRIT, not WARN: an OOM kill is a real failure (a process was killed). The
+	// logs path already CRITs on OOM kills in the last hour; this 24h-window path
+	// must agree, else a kill 60+ min ago would only WARN and exit 1 not 2.
+	return []models.Insight{insight("CRIT", "OOM",
+		msg,
+		[]string{
+			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
+			"to inspect: dmesg | grep -i 'out of memory'",
+			"to inspect: free -h",
+			"to inspect: ps aux --sort=-%mem | head -10",
+			"note: OOM kills are silent — services may restart without apparent cause",
+		},
+	)}
+}
+
+func checkPressure(p models.PressureInfo) []models.Insight {
+	if !p.Available {
+		return nil
+	}
+	var out []models.Insight
+	// Memory full stall > 10% in last 60s is severe
+	if p.MemoryFull.Avg60 >= 10 {
+		out = append(out, insight("CRIT", "Pressure",
+			fmt.Sprintf("memory full stall %.1f%% avg60 — tasks blocked waiting for memory", p.MemoryFull.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/memory",
+				"to inspect: free -h",
+				"to inspect: ps aux --sort=-%mem | head -10",
+				"note: OOM kill may be imminent — act now",
+			},
+		))
+	} else if p.MemorySome.Avg60 >= 20 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("memory pressure %.1f%% avg60 — some tasks delayed waiting for memory", p.MemorySome.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/memory",
+				"to inspect: free -h",
+			},
+		))
+	}
+	// IO full stall > 5% in last 60s
+	if p.IOFull.Avg60 >= 5 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("IO full stall %.1f%% avg60 — all tasks blocked on disk IO", p.IOFull.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/io",
+				"to inspect: iostat -x 1 5",
+				"to inspect: iotop -ao",
+			},
+		))
+	}
+	// CPU stall > 30% in last 60s (some stall, not full — CPU is never "full" stalled)
+	if p.CPUSome.Avg60 >= 30 {
+		out = append(out, insight("WARN", "Pressure",
+			fmt.Sprintf("CPU pressure %.1f%% avg60 — tasks waiting for CPU time", p.CPUSome.Avg60),
+			[]string{
+				"to inspect: cat /proc/pressure/cpu",
+				"to inspect: uptime",
+				"to inspect: ps aux --sort=-%cpu | head -10",
+			},
+		))
+	}
+	return out
+}
+
+func checkHugePages(h models.HugePagesInfo) []models.Insight {
+	if h.Configured == 0 && !h.THPEnabled {
+		return nil // not configured, not relevant
+	}
+	var out []models.Insight
+
+	// Static huge pages configured but mostly unused — wasted locked RAM
+	if h.Configured > 0 {
+		usedPct := float64(h.Used) / float64(h.Configured) * 100
+		if usedPct < 20 && h.ReservedGB >= 1 {
+			out = append(out, insight("WARN", "HugePages",
+				fmt.Sprintf("%.0f%% of huge pages unused — %.1f GB locked and wasted (used %d/%d pages)",
+					100-usedPct, h.ReservedGB, h.Used, h.Configured),
+				[]string{
+					"to inspect: grep Huge /proc/meminfo",
+					"note: static huge pages lock RAM at boot — free unused pages or reduce HugePages_Total",
+					"to fix: echo 0 > /proc/sys/vm/nr_hugepages  (releases all — requires workload restart)",
+				},
+			))
+		}
+		// All huge pages used — may want more
+		if usedPct >= 100 && h.Configured > 0 {
+			out = append(out, insight("INFO", "HugePages",
+				fmt.Sprintf("all %d huge pages in use (%.1f GB) — consider increasing if workload allows",
+					h.Configured, h.ReservedGB),
+				[]string{
+					"to inspect: grep Huge /proc/meminfo",
+					"to add more: sysctl -w vm.nr_hugepages=<N>",
+				},
+			))
+		}
+	}
+
+	// THP set to "always" on a database server — causes latency spikes
+	// THP is great for general workloads but known to cause pauses in:
+	// MySQL, PostgreSQL, Redis, MongoDB, Oracle
+	if h.THPMode == "always" {
+		out = append(out, insight("INFO", "HugePages",
+			"transparent huge pages mode is 'always' — may cause latency spikes for database workloads",
+			[]string{
+				"to inspect: cat /sys/kernel/mm/transparent_hugepage/enabled",
+				"to check:   if running MySQL/PostgreSQL/Redis/MongoDB, set to 'madvise' or 'never'",
+				"to fix:     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled",
+				"to persist: add to /etc/rc.local or a systemd service",
+			},
+		))
+	}
+
+	return out
+}
+
+func checkLaunchd(l models.LaunchdInfo) []models.Insight {
+	if len(l.Failed) == 0 {
+		return nil
+	}
+	var names []string
+	for _, svc := range l.Failed {
+		names = append(names, svc.Label)
+	}
+	// Show at most 3 names inline to keep message readable
+	shown := names
+	suffix := ""
+	if len(shown) > 3 {
+		shown = shown[:3]
+		suffix = fmt.Sprintf(" (+%d more)", len(names)-3)
+	}
+	return []models.Insight{insight("WARN", "Launchd",
+		fmt.Sprintf("%d launchd service(s) failed: %s%s",
+			len(l.Failed), strings.Join(shown, ", "), suffix),
+		[]string{
+			"to inspect: launchctl list | awk '$2 != 0 && $2 != \"-\"'",
+			"to inspect: log show --predicate 'subsystem == \"com.apple.launchd\"' --last 1h",
+			"to fix:     launchctl kickstart system/<label>",
+		},
+	)}
+}
+
+// checkSessions surfaces active session anomalies (Spec H1):
+// root login via SSH, sessions idle > 8h, unusual concurrent session count.
+// Silent when only the current user is logged in normally.
+func checkSessions(s models.SessionsInfo) []models.Insight {
+	if s.TotalCount == 0 {
+		return nil // w not available or no sessions — skip silently
+	}
+	var out []models.Insight
+
+	// Root logged in via SSH. On Proxmox VE root SSH is required for cluster
+	// management, so flagging it CRIT (as checkSecurity already declines to do for
+	// PermitRootLogin on PVE) would fire on the operator's own management session.
+	// Surface it as INFO there instead of a false CRIT.
+	if s.RootSSH {
+		if s.IsPVE {
+			out = append(out, insight("INFO", "Sessions",
+				"root is logged in via SSH — expected on Proxmox VE (cluster management requires it)",
+				[]string{"to inspect: w"},
+			))
+		} else {
+			out = append(out, insight("CRIT", "Sessions",
+				"root is logged in via SSH — direct root SSH access is a security risk",
+				[]string{
+					"to inspect: w",
+					"to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
+					"to fix: use sudo or su instead of direct root SSH",
+				},
+			))
+		}
+	}
+
+	// Sessions idle > 8 hours — unattended terminals
+	if len(s.LongIdle) > 0 {
+		users := strings.Join(unique(s.LongIdle), ", ")
+		out = append(out, insight("WARN", "Sessions",
+			fmt.Sprintf("%d session(s) idle > 8h: %s — unattended terminal risk",
+				len(s.LongIdle), users),
+			[]string{
+				"to inspect: w",
+				"to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect",
+			},
+		))
+	}
+
+	// Unusual number of concurrent sessions (> 5 is worth noting on a typical server)
+	if s.TotalCount > 5 {
+		out = append(out, insight("WARN", "Sessions",
+			fmt.Sprintf("%d concurrent sessions active — unusually high for a single server",
+				s.TotalCount),
+			[]string{"to inspect: w", "to inspect: last | head -20"},
+		))
+	}
+
+	// Informational: unique remote IPs when > 1 different source
+	if len(s.UniqueIPs) > 1 {
+		out = append(out, insight("INFO", "Sessions",
+			fmt.Sprintf("%d session(s) from %d unique IP(s): %s",
+				s.RemoteCount, len(s.UniqueIPs),
+				strings.Join(s.UniqueIPs, ", ")),
+			[]string{"to inspect: w"},
+		))
+	}
+
+	return out
+}
+
+func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
+	if !cg.Available {
+		return nil
+	}
+	var out []models.Insight
+
+	// OOM kills at root scope. memory.events oom_kill is a CUMULATIVE counter since
+	// boot — it can't tell a kill from 5 minutes ago from one at boot weeks back, so
+	// firing CRIT on >0 was a recency-gate (a single boot-time OOM = permanent CRIT).
+	// Recency is owned by the timestamped Logs/OOM check (windowed to 24h); here we
+	// surface the lifetime counter as INFO context, not a live alarm.
+	if cg.OOMKills > 0 {
+		out = append(out, insight("INFO", "Cgroup",
+			fmt.Sprintf("cgroup OOM kill counter = %d since boot (lifetime total, not necessarily recent)",
+				cg.OOMKills),
+			[]string{
+				"recency: see the Logs/OOM check — it windows OOM events to the last 24h",
+				"to inspect: cat /sys/fs/cgroup/memory.events",
+				"to identify: dmesg | grep -i 'oom_kill\\|out of memory'",
+			},
+		))
+	}
+
+	// CPU throttled slices. ThrottledPct is throttled_usec/usage_usec — both
+	// cumulative since the slice was created, so this is a LIFETIME ratio, not the
+	// current rate (a slice hammered at boot but idle now still reads high). The
+	// wording reflects that; a high lifetime ratio is still a real "this slice is
+	// chronically cpu-constrained" signal.
+	for _, s := range cg.Slices {
+		if s.ThrottledPct > 20 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot) — chronically hitting cpu.max",
+					s.Name, s.ThrottledPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
+					fmt.Sprintf("to fix: increase or remove cpu.max in /sys/fs/cgroup/%s/cpu.max", s.Name),
+					"note: lifetime ratio — throttling causes latency spikes even when overall CPU is idle",
+				},
+			))
+		} else if s.ThrottledPct > 5 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot)",
+					s.Name, s.ThrottledPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
+				},
+			))
+		}
+
+		// Memory usage near limit
+		if s.HasMemLimit && s.MemUsedPct > 90 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s memory %.0f%% of limit (%.0f/%.0f MB)",
+					s.Name, s.MemUsedPct, s.MemCurrentMB, s.MemLimitMB),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.events", s.Name),
+					"note: at 100% the kernel will OOM-kill processes in this slice",
+				},
+			))
+		} else if s.HasMemLimit && s.MemUsedPct > 75 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s memory at %.0f%% of limit",
+					s.Name, s.MemUsedPct),
+				[]string{
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
+				},
+			))
+		}
+	}
+
+	return out
+}
+
+// unique returns a deduplicated copy of a string slice, preserving order.
+func unique(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
