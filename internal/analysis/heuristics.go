@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -715,8 +716,21 @@ func ostreeFixHint(hint string) string {
 	return "to fix (ostree): rpm-ostree install " + m[1] + " (then reboot)"
 }
 
+// isNilTypedPointer reports whether data is a non-nil interface{} boxing a nil
+// pointer (e.g. a collector returning `var info *models.XInfo; return info, nil`).
+// A typed nil still matches its `case *models.XInfo:` arm in the switches below,
+// so every arm would otherwise need its own nil guard before dereferencing.
+// Checking once here keeps every dispatch arm a flat, unconditional `return`.
+func isNilTypedPointer(data interface{}) bool {
+	v := reflect.ValueOf(data)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
 //nolint:cyclop // type dispatch — each case is trivial
 func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
+	if isNilTypedPointer(data) {
+		return nil
+	}
 	switch d := data.(type) {
 	case models.CPUInfo:
 		return checkCPU(d, thresh, ctrCtx)
@@ -753,33 +767,28 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 	case models.ClockInfo:
 		return checkClock(d, thresh)
 	case *models.ClockInfo:
-		if d != nil {
-			return checkClock(*d, thresh)
-		}
+		return checkClock(*d, thresh)
 	case models.NetworkdConfigInfo:
 		return checkNetworkdConfig(d)
 	case *models.NetworkdConfigInfo:
-		if d != nil {
-			return checkNetworkdConfig(*d)
-		}
+		return checkNetworkdConfig(*d)
 	case models.RootFSInfo:
 		return checkRootFS(d)
 	case *models.RootFSInfo:
-		if d != nil {
-			return checkRootFS(*d)
-		}
+		return checkRootFS(*d)
 	case models.FstabInfo:
 		return checkFstab(d)
 	case *models.FstabInfo:
-		if d != nil {
-			return checkFstab(*d)
-		}
+		return checkFstab(*d)
 	}
 	return applyOneExtended(data, thresh)
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
 func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //nolint:funlen // flat type switch — splitting would harm readability
+	if isNilTypedPointer(data) {
+		return nil
+	}
 	switch d := data.(type) {
 	case models.FDInfo:
 		return checkFD(d, thresh)
@@ -804,69 +813,47 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 	case models.EntropyInfo:
 		return checkEntropy(d)
 	case *models.EntropyInfo:
-		if d != nil {
-			return checkEntropy(*d)
-		}
+		return checkEntropy(*d)
 	case models.PackagesInfo:
 		return checkPackages(d)
 	case *models.PackagesInfo:
-		if d != nil {
-			return checkPackages(*d)
-		}
+		return checkPackages(*d)
 	case models.CVEAllResult:
 		return checkCVEHealth(d)
 	case *models.CVEAllResult:
-		if d != nil {
-			return checkCVEHealth(*d)
-		}
+		return checkCVEHealth(*d)
 	case models.NVMeInfo:
 		return checkNVMe(d)
 	case *models.NVMeInfo:
-		if d != nil {
-			return checkNVMe(*d)
-		}
+		return checkNVMe(*d)
 	case models.RAIDInfo:
 		return checkRAID(d)
 	case *models.RAIDInfo:
-		if d != nil {
-			return checkRAID(*d)
-		}
+		return checkRAID(*d)
 	case models.ZFSInfo:
 		return checkZFS(d)
 	case *models.ZFSInfo:
-		if d != nil {
-			return checkZFS(*d)
-		}
+		return checkZFS(*d)
 	case models.LVMInfo:
 		return checkLVM(d)
 	case *models.LVMInfo:
-		if d != nil {
-			return checkLVM(*d)
-		}
+		return checkLVM(*d)
 	case models.DRBDInfo:
 		return checkDRBD(d)
 	case *models.DRBDInfo:
-		if d != nil {
-			return checkDRBD(*d)
-		}
+		return checkDRBD(*d)
 	case models.PVEInfo:
 		return checkPVE(d)
 	case *models.PVEInfo:
-		if d != nil {
-			return checkPVE(*d)
-		}
+		return checkPVE(*d)
 	case models.BatteryInfo:
 		return checkBattery(d)
 	case *models.BatteryInfo:
-		if d != nil {
-			return checkBattery(*d)
-		}
+		return checkBattery(*d)
 	case models.ThermalInfo:
 		return checkThermal(d, thresh)
 	case *models.ThermalInfo:
-		if d != nil {
-			return checkThermal(*d, thresh)
-		}
+		return checkThermal(*d, thresh)
 	case models.HealthDeepInfo:
 		return checkHealthDeep(d)
 	case *models.HealthDeepInfo:
@@ -954,15 +941,11 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 	case models.RancherInfo:
 		return checkRancher(d)
 	case *models.RancherInfo:
-		if d != nil {
-			return checkRancher(*d)
-		}
+		return checkRancher(*d)
 	case models.HAInfo:
 		return checkHA(d)
 	case *models.HAInfo:
-		if d != nil {
-			return checkHA(*d)
-		}
+		return checkHA(*d)
 	case models.KVMInfo:
 		return checkKVM(d)
 	case *models.KVMInfo:
@@ -978,15 +961,11 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 	case models.GPUInfo:
 		return checkGPU(d)
 	case *models.GPUInfo:
-		if d != nil {
-			return checkGPU(*d)
-		}
+		return checkGPU(*d)
 	case models.SecurityInfo:
 		return checkSecurity(d)
 	case *models.SecurityInfo:
-		if d != nil {
-			return checkSecurity(*d)
-		}
+		return checkSecurity(*d)
 	case models.ProcessInfo:
 		return checkProcesses(d, thresh)
 	case *models.ProcessInfo:
@@ -994,273 +973,183 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 	case models.SnapperInfo:
 		return checkSnapper(d)
 	case *models.SnapperInfo:
-		if d != nil {
-			return checkSnapper(*d)
-		}
+		return checkSnapper(*d)
 	case models.SUSEConnectInfo:
 		return checkSUSEConnect(d)
 	case *models.SUSEConnectInfo:
-		if d != nil {
-			return checkSUSEConnect(*d)
-		}
+		return checkSUSEConnect(*d)
 	case models.HardwareInfo:
 		return checkHardware(d)
 	case *models.HardwareInfo:
-		if d != nil {
-			return checkHardware(*d)
-		}
+		return checkHardware(*d)
 	case models.BondingInfo:
 		return checkBonding(d)
 	case *models.BondingInfo:
-		if d != nil {
-			return checkBonding(*d)
-		}
+		return checkBonding(*d)
 	case models.IPMIInfo:
 		return checkIPMI(d)
 	case *models.IPMIInfo:
-		if d != nil {
-			return checkIPMI(*d)
-		}
+		return checkIPMI(*d)
 	case models.OOMInfo:
 		return checkOOM(d)
 	case *models.OOMInfo:
-		if d != nil {
-			return checkOOM(*d)
-		}
+		return checkOOM(*d)
 	case models.HBAInfo:
 		return checkHBA(d)
 	case *models.HBAInfo:
-		if d != nil {
-			return checkHBA(*d)
-		}
+		return checkHBA(*d)
 	case models.PressureInfo:
 		return checkPressure(d)
 	case *models.PressureInfo:
-		if d != nil {
-			return checkPressure(*d)
-		}
+		return checkPressure(*d)
 	case models.MultipathInfo:
 		return checkMultipath(d)
 	case *models.MultipathInfo:
-		if d != nil {
-			return checkMultipath(*d)
-		}
+		return checkMultipath(*d)
 	case models.HWRaidInfo:
 		return checkHWRaid(d)
 	case *models.HWRaidInfo:
-		if d != nil {
-			return checkHWRaid(*d)
-		}
+		return checkHWRaid(*d)
 	case models.CephInfo:
 		return checkCeph(d)
 	case *models.CephInfo:
-		if d != nil {
-			return checkCeph(*d)
-		}
+		return checkCeph(*d)
 	case models.FirewallInfo:
 		return checkFirewall(d)
 	case *models.FirewallInfo:
-		if d != nil {
-			return checkFirewall(*d)
-		}
+		return checkFirewall(*d)
 	case models.AuthInfo:
 		return checkAuth(d)
 	case *models.AuthInfo:
-		if d != nil {
-			return checkAuth(*d)
-		}
+		return checkAuth(*d)
 	case models.CloudInfo:
 		return checkCloudMeta(d)
 	case *models.CloudInfo:
-		if d != nil {
-			return checkCloudMeta(*d)
-		}
+		return checkCloudMeta(*d)
 	case models.CloudInitInfo:
 		return checkCloudInit(d)
 	case *models.CloudInitInfo:
-		if d != nil {
-			return checkCloudInit(*d)
-		}
+		return checkCloudInit(*d)
 	case models.VMwareInfo:
 		return checkVMware(d)
 	case *models.VMwareInfo:
-		if d != nil {
-			return checkVMware(*d)
-		}
+		return checkVMware(*d)
 	case models.KVMGuestInfo:
 		return checkKVMGuest(d)
 	case *models.KVMGuestInfo:
-		if d != nil {
-			return checkKVMGuest(*d)
-		}
+		return checkKVMGuest(*d)
 	case models.ContainerGuestInfo:
 		return checkContainerGuest(d)
 	case *models.ContainerGuestInfo:
-		if d != nil {
-			return checkContainerGuest(*d)
-		}
+		return checkContainerGuest(*d)
 	case models.AWSInfo:
 		return checkAWS(d)
 	case *models.AWSInfo:
-		if d != nil {
-			return checkAWS(*d)
-		}
+		return checkAWS(*d)
 	case models.AzureInfo:
 		return checkAzure(d)
 	case *models.AzureInfo:
-		if d != nil {
-			return checkAzure(*d)
-		}
+		return checkAzure(*d)
 	case models.GCPInfo:
 		return checkGCP(d)
 	case *models.GCPInfo:
-		if d != nil {
-			return checkGCP(*d)
-		}
+		return checkGCP(*d)
 	case models.PostBootInfo:
 		return checkPostBoot(d)
 	case *models.PostBootInfo:
-		if d != nil {
-			return checkPostBoot(*d)
-		}
+		return checkPostBoot(*d)
 	case models.AuditInfo:
 		return checkAuditd(d)
 	case *models.AuditInfo:
-		if d != nil {
-			return checkAuditd(*d)
-		}
+		return checkAuditd(*d)
 	case models.NUMAInfo:
 		return checkNUMA(d)
 	case *models.NUMAInfo:
-		if d != nil {
-			return checkNUMA(*d)
-		}
+		return checkNUMA(*d)
 	case models.VLANInfo:
 		return checkVLAN(d)
 	case *models.VLANInfo:
-		if d != nil {
-			return checkVLAN(*d)
-		}
+		return checkVLAN(*d)
 	case models.ISCSIInfo:
 		return checkISCSI(d)
 	case *models.ISCSIInfo:
-		if d != nil {
-			return checkISCSI(*d)
-		}
+		return checkISCSI(*d)
 	case models.InfiniBandInfo:
 		return checkInfiniBand(d)
 	case *models.InfiniBandInfo:
-		if d != nil {
-			return checkInfiniBand(*d)
-		}
+		return checkInfiniBand(*d)
 	case models.SRIOVInfo:
 		return checkSRIOV(d)
 	case *models.SRIOVInfo:
-		if d != nil {
-			return checkSRIOV(*d)
-		}
+		return checkSRIOV(*d)
 	case models.NspawnInfo:
 		return checkNspawn(d)
 	case *models.NspawnInfo:
-		if d != nil {
-			return checkNspawn(*d)
-		}
+		return checkNspawn(*d)
 	case models.HugePagesInfo:
 		return checkHugePages(d)
 	case *models.HugePagesInfo:
-		if d != nil {
-			return checkHugePages(*d)
-		}
+		return checkHugePages(*d)
 	case models.CPUFreqInfo:
 		return checkCPUFreq(d, thresh)
 	case *models.CPUFreqInfo:
-		if d != nil {
-			return checkCPUFreq(*d, thresh)
-		}
+		return checkCPUFreq(*d, thresh)
 	case models.LaunchdInfo:
 		return checkLaunchd(d)
 	case *models.LaunchdInfo:
-		if d != nil {
-			return checkLaunchd(*d)
-		}
+		return checkLaunchd(*d)
 	case models.DBusInfo:
 		return checkDBus(d)
 	case *models.DBusInfo:
-		if d != nil {
-			return checkDBus(*d)
-		}
+		return checkDBus(*d)
 	case models.SessionsInfo:
 		return checkSessions(d)
 	case *models.SessionsInfo:
-		if d != nil {
-			return checkSessions(*d)
-		}
+		return checkSessions(*d)
 	case models.CronInfo:
 		return checkCron(d)
 	case *models.CronInfo:
-		if d != nil {
-			return checkCron(*d)
-		}
+		return checkCron(*d)
 	case models.DNSResolverInfo:
 		return checkDNS(d)
 	case *models.DNSResolverInfo:
-		if d != nil {
-			return checkDNS(*d)
-		}
+		return checkDNS(*d)
 	case models.KdumpInfo:
 		return checkKdump(d)
 	case *models.KdumpInfo:
-		if d != nil {
-			return checkKdump(*d)
-		}
+		return checkKdump(*d)
 	case models.TunedInfo:
 		return checkTuned(d)
 	case *models.TunedInfo:
-		if d != nil {
-			return checkTuned(*d)
-		}
+		return checkTuned(*d)
 	case models.KernelPatchInfo:
 		return checkKernelPatch(d)
 	case *models.KernelPatchInfo:
-		if d != nil {
-			return checkKernelPatch(*d)
-		}
+		return checkKernelPatch(*d)
 	case models.KspliceInfo:
 		return checkKsplice(d)
 	case *models.KspliceInfo:
-		if d != nil {
-			return checkKsplice(*d)
-		}
+		return checkKsplice(*d)
 	case models.ServiceRestartInfo:
 		return checkServiceRestart(d)
 	case *models.ServiceRestartInfo:
-		if d != nil {
-			return checkServiceRestart(*d)
-		}
+		return checkServiceRestart(*d)
 	case models.KernelRetentionInfo:
 		return checkKernelRetention(d)
 	case *models.KernelRetentionInfo:
-		if d != nil {
-			return checkKernelRetention(*d)
-		}
+		return checkKernelRetention(*d)
 	case models.LivePatchInfo:
 		return checkLivePatch(d)
 	case *models.LivePatchInfo:
-		if d != nil {
-			return checkLivePatch(*d)
-		}
+		return checkLivePatch(*d)
 	case models.TransactionalInfo:
 		return checkTransactional(d)
 	case *models.TransactionalInfo:
-		if d != nil {
-			return checkTransactional(*d)
-		}
+		return checkTransactional(*d)
 	case models.ServicesInfo:
 		return checkServices(d)
 	case *models.ServicesInfo:
-		if d != nil {
-			return checkServices(*d)
-		}
+		return checkServices(*d)
 	}
 	return nil
 }
