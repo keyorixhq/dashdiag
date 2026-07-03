@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -10,8 +11,9 @@ import (
 // TestApplyOneDispatch drives every model type through applyOne (and its
 // applyOneExtended continuation) in both value and pointer form. This exercises
 // the full type-switch dispatch table — each arm routes to a check* function
-// already covered individually — and pins the contract that an unknown type
-// falls through to nil without panicking.
+// already covered individually — and pins the contract that an unknown type,
+// or a typed-nil pointer (e.g. a collector returning `var info *models.XInfo;
+// return info, nil`), falls through to nil without panicking.
 func TestApplyOneDispatch(t *testing.T) {
 	ctr := platform.ContainerContext{}
 
@@ -63,6 +65,21 @@ func TestApplyOneDispatch(t *testing.T) {
 	}
 	for _, p := range pointers {
 		_ = applyOne(p, defaultThresh, ctr)
+	}
+
+	// Typed-nil pointers (the interface{} boxes a real *models.XInfo whose value
+	// is nil) must also fall through without panicking. Derived by reflection
+	// from the pointers list above so it can't drift out of sync with it.
+	for _, p := range pointers {
+		nilPtr := reflect.Zero(reflect.TypeOf(p)).Interface()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("applyOne panicked on nil %T: %v", nilPtr, r)
+				}
+			}()
+			_ = applyOne(nilPtr, defaultThresh, ctr)
+		}()
 	}
 
 	// Unknown type must fall through both dispatchers to nil.
