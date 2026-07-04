@@ -386,6 +386,71 @@ wired into health — the GCP analog of AWS/Azure, closing the last detection-on
 
 ---
 
+## SSDLC — build & CI hygiene (NOT collector work; not subject to the demand-gate)
+
+Process/toolchain items that harden the build and release, not shippable checks. The
+collector demand-gate above does NOT apply here — this is baseline hygiene, adopted because
+it is cheap and always-on, not because a customer pulled for it. (Distinct from Principle 3,
+which gates *feature/collector* builds on real demand.)
+
+### govulncheck — dependency vuln scanning ✅ baseline clean; CI live, hook + PR-gate pending
+
+**Status:** local baseline clean (2026-07-03). **CI already runs govulncheck** — `security.yml`
+(SSDLC Layer 1, ADR-0007) on push-to-main + weekly `cron: '0 9 * * 1'`, via plain
+`go install …@latest` + `govulncheck ./...` under `permissions: contents: read`. Remaining
+gaps: (a) a pre-push hook step, (b) a `pull_request` trigger so a PR is gated *before* merge,
+not only after it lands on main.
+
+**Baseline run (local):**
+- govulncheck v1.5.0, Go 1.26.4, DB @ vuln.go.dev updated 2026-06-26
+- `govulncheck ./...` → *No vulnerabilities found*, exit 0
+- Expected: small dep tree + source-mode call-graph reachability = low/zero noise. When it
+  does fire it means a vuln on a path dsd actually reaches — not a bare CVE match.
+
+**Sequencing — baseline-then-gate (deliberate, do NOT reorder):**
+govulncheck exits non-zero on any *reachable* vuln. Gating before a clean baseline exists
+risks blocking every merge over untriaged findings. Order:
+  1. local manual run → confirm clean  ✅ (done)
+  2. CI on push-to-main + weekly schedule  ✅ (shipped in `security.yml`)
+  3. add to pre-push hook (beside gosec/semgrep; `set -e` supplies the gating)  ← PENDING
+  4. add a `pull_request` trigger to `security.yml` so PRs are gated pre-merge  ← PENDING
+  5. mark the PR govulncheck check required in branch protection AFTER a few green PRs
+
+**Why local AND CI, not one:** reachability verdicts have a time dimension. A future run can
+flag a vuln with zero change to `go.mod` — the dep didn't move, the DB gained an entry. The
+pre-push hook gives fast local feedback; CI catches the DB-moved-between-push-and-merge case
+the local run structurally cannot see. Already implemented as `security.yml`'s weekly cron —
+the header comment there records exactly this rationale.
+
+**Ops notes:**
+- Binary installs under `$(go env GOPATH)/bin`; that dir is NOT on the interactive PATH here —
+  the pre-push hook must resolve it via `$(go env GOPATH)/bin/govulncheck` (a bare
+  `command -v govulncheck` guard would silently skip it, defeating the check).
+- Build-time egress only (fetches the DB from vuln.go.dev at scan time). Does NOT touch the
+  network-free *runtime* guarantee — it is the build box reaching out, not dsd. An air-gapped
+  local-DB mode exists; defer until something demands it.
+
+**Handoff:** the pre-push hook step + the `security.yml` `pull_request` trigger are tree
+mutations → Claude Code, per the planning/code split. Hook step mirrors the existing
+golangci-lint/semgrep skip idiom but resolves the binary by full GOPATH path. CI needs no new
+action — reuse the existing `go install …@latest` + `go-version-file: go.mod` shape.
+
+### Related SSDLC candidates
+- **CodeQL + OpenSSF Scorecard** — ✅ already shipped (`codeql.yml`, `scorecard.yml`). House
+  style pins Actions to major-version tags (`@v7`/`@v6`), not commit SHAs — a deliberate
+  convention (Scorecard still dings pin-by-tag; accepted), so do NOT "fix" it to SHAs blindly.
+- **Fuzz the SMART / os-release / /proc parsers** (`go test -fuzz`) — signaled by the Virtual
+  NVMe parseable-but-impossible SMART bug; seed corpora from real captures for regression value.
+- **GoReleaser + cosign + syft SBOM + SLSA provenance** — verifiable release artifacts for
+  enterprise pre-test security reviews; attach to the v1.x releases. (`release.yml` exists —
+  audit what it already produces/signs before adding.)
+- **Secret scanning (gitleaks) in pre-commit** — enforce the never-commit-private-config rule
+  as a gate rather than a discipline. Cheapest high-consequence win.
+- **SECURITY.md + network-free-as-a-stated-security-property** — governance docs for enterprise
+  reviewers; currently an implicit design choice, not a written guarantee.
+
+---
+
 ## Notes / cross-refs
 - Hardware-validation gaps (server-grade ECC/IPMI/NUMA, ARM, x86 metal, SteamOS, vSphere)
   are tracked in `docs/PLATFORM_COVERAGE.md` under "Known validation gaps" — also demand-gated.
