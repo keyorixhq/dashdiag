@@ -71,6 +71,34 @@ func TestLookPathRoutesThroughSource(t *testing.T) {
 	}
 }
 
+// TestGetenvRoutesThroughSource guards environment-variable hermeticity: a
+// verdict-affecting env read (e.g. SteamOS's XDG_SESSION_DESKTOP Game-Mode
+// signal) must replay from the CAPTURED host's value, not the replaying
+// machine's own environment. We record a var set to one value during capture,
+// then change it to something else before replaying, and assert the captured
+// value — not the new live one — comes back.
+func TestGetenvRoutesThroughSource(t *testing.T) {
+	const key = "DSD_TEST_GETENV_VAR"
+	t.Setenv(key, "captured-value")
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	gotLive := getenv(key)
+	SetSource(prev)
+	if gotLive != "captured-value" {
+		t.Fatalf("getenv during capture = %q, want %q", gotLive, "captured-value")
+	}
+
+	// Change the live env so a raw os.Getenv would now see something different.
+	t.Setenv(key, "replaying-machine-value")
+
+	defer SetSource(SetSource(source.NewReplay(rec.Bundle())))
+	gotReplay := getenv(key)
+	if gotReplay != "captured-value" {
+		t.Fatalf("getenv on replay = %q, want recorded %q (leaked the replaying machine's env)", gotReplay, "captured-value")
+	}
+}
+
 // TestStatGatesRouteThroughSource is the guard that keeps the pilot-critical
 // existence/stat gates faithful under `dsd replay`: statFile/fileExists must read
 // the active source (the captured bundle), never the replaying machine's own

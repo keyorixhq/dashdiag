@@ -296,7 +296,7 @@ func (c *SteamOSCollector) collectSession(ctx context.Context, info *models.Stea
 // detectSessionMode infers Game Mode vs Desktop Mode. XDG_SESSION_DESKTOP is the
 // most direct signal; otherwise the active display manager / session unit decides.
 func detectSessionMode(info *models.SteamOSInfo) string {
-	switch strings.ToLower(os.Getenv("XDG_SESSION_DESKTOP")) {
+	switch strings.ToLower(getenv("XDG_SESSION_DESKTOP")) {
 	case "gamescope", "gamescope-wayland":
 		return "gamemode"
 	case "plasma", "kde", "plasmawayland":
