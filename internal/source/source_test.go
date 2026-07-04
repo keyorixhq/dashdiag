@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRecordReplayRoundTrip(t *testing.T) {
@@ -323,5 +325,54 @@ func TestTarballRoundTrip(t *testing.T) {
 	}
 	if res, _ := rp.Run(context.Background(), "false"); res.ExitCode != 1 {
 		t.Fatalf("tarball replay exit = %d", res.ExitCode)
+	}
+}
+
+// TestDirectBundleSeeding exercises PutFile/PutDir/PutGlob/PutStat — the direct
+// fixture-seeding API (as opposed to NewRecorder(Live{}), which tees a real
+// read). This lets a collector test build fake file/dir/glob/stat state without
+// touching the real filesystem at all, which is what a plain unit test over
+// production collector code (not an integration/replay-fidelity test) wants.
+func TestDirectBundleSeeding(t *testing.T) {
+	b := NewBundle()
+	b.PutFile("/etc/fake", []byte("hello"))
+	b.PutDir("/etc/fake.d", []string{"a.conf", "b.conf"})
+	b.PutGlob("/etc/fake.d/*.conf", []string{"/etc/fake.d/a.conf", "/etc/fake.d/b.conf"})
+	mtime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	b.PutStat("/etc/fake", FileMeta{Size: 5, ModTime: mtime})
+
+	rp := NewReplay(b)
+	if got, err := rp.ReadFile("/etc/fake"); err != nil || string(got) != "hello" {
+		t.Fatalf("ReadFile = %q, %v", got, err)
+	}
+	if got, err := rp.ReadDir("/etc/fake.d"); err != nil || len(got) != 2 {
+		t.Fatalf("ReadDir = %v, %v", got, err)
+	}
+	if got, err := rp.Glob("/etc/fake.d/*.conf"); err != nil || len(got) != 2 {
+		t.Fatalf("Glob = %v, %v", got, err)
+	}
+	if got, err := rp.Stat("/etc/fake"); err != nil || !got.ModTime.Equal(mtime) {
+		t.Fatalf("Stat = %+v, %v", got, err)
+	}
+
+	// An unseeded path must behave as "not recorded", never silently succeed.
+	if _, err := rp.ReadFile("/etc/never-seeded"); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unseeded ReadFile should be ErrNotRecorded, got %v", err)
+	}
+}
+
+func TestPutCmdAndPutCmdNotFound(t *testing.T) {
+	b := NewBundle()
+	b.PutCmd("btrfs", []string{"filesystem", "show"}, "Label: none  uuid: abc-123\n", 0)
+	b.PutCmdNotFound("smartctl", []string{"-a", "/dev/sda"})
+
+	rp := NewReplay(b)
+	res, err := rp.Run(context.Background(), "btrfs", "filesystem", "show")
+	if err != nil || string(res.Stdout) != "Label: none  uuid: abc-123\n" {
+		t.Fatalf("Run(btrfs) = %+v, %v", res, err)
+	}
+
+	if _, err := rp.Run(context.Background(), "smartctl", "-a", "/dev/sda"); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("Run(smartctl) should report ErrNotFound (tool not installed), got %v", err)
 	}
 }
