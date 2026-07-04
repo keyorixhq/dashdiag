@@ -179,16 +179,20 @@ const (
 	sevCrit    = 3
 )
 
-// statusSeverity maps a status/level token to a rank. "absent" and "" (a vanished or
-// never-present check) rank as OK: a check that DISAPPEARED after the move is not a
-// regression — e.g. the VMware-tools check correctly gating off on Proxmox.
+// statusSeverity maps a status/level token to a rank, used for the pre-flight
+// readiness tally (printMigrationReadiness) — NOT for certify's regression
+// detection, which reuses baseline.DiffEntry's own Changed/Improved fields
+// instead of re-deriving severity from strings (see certifyVerdict). INFO — a
+// collector that couldn't measure something, dsd's "not verified" vocabulary —
+// ranks as unknown, not OK: it must never be conflated with a confirmed-healthy
+// reading.
 func statusSeverity(s string) int {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "CRIT", "CRITICAL", "FAIL":
 		return sevCrit
 	case "WARN", "WARNING":
 		return sevWarn
-	case "UNKNOWN":
+	case "UNKNOWN", "INFO":
 		return sevUnknown
 	default:
 		return sevOK
@@ -205,23 +209,41 @@ func firstToken(s string) string {
 	return s
 }
 
-// certifyVerdict derives the certification from the diff. A REGRESSION is a check whose
-// status got strictly worse on the destination (OK->WARN, WARN->CRIT, new WARN/CRIT).
-// A check that improved, stayed level, or vanished is never a regression.
+// certifyVerdict derives the certification from the diff. A REGRESSION is a check
+// whose status got strictly worse on the destination (OK->WARN, WARN->CRIT, new
+// WARN/CRIT) — OR a confirmed problem (WARN/CRIT on the source) that became
+// unverifiable (INFO — a collector that couldn't measure it) on the destination.
+// The plain severity ordering alone doesn't catch that second case: INFO ranks
+// below WARN/CRIT (it means "unknown," not "healthy"), so a naive comparison reads
+// CRIT->INFO as an improvement, when really certify just couldn't confirm the
+// problem is gone. That must downgrade the verdict, never silently PASS.
+//
+// A whole check that VANISHES (After == "absent") is treated differently: certify
+// compares two different platforms (source vs. destination), where a check's whole
+// subsystem legitimately not applying anymore (e.g. VMware guest tools on a
+// non-VMware landing zone) is expected, not a regression — unlike `dsd diff`'s
+// same-host-over-time comparison, where a vanished check is always suspicious and
+// ComputeDiff's own bucketing (which this function otherwise leaves alone) treats
+// it as degraded for that reason.
 func certifyVerdict(diff []baseline.DiffEntry) (string, []baseline.DiffEntry) {
 	verdict := certPass
 	var regressions []baseline.DiffEntry
 	for _, e := range diff {
+		afterToken := firstToken(e.After)
+		if strings.EqualFold(afterToken, "absent") {
+			continue
+		}
 		before := statusSeverity(firstToken(e.Before))
-		after := statusSeverity(firstToken(e.After))
-		if after <= before {
+		after := statusSeverity(afterToken)
+		regression := after > before || (before >= sevWarn && after == sevUnknown)
+		if !regression {
 			continue
 		}
 		regressions = append(regressions, e)
 		switch {
 		case after >= sevCrit:
 			verdict = certFail
-		case verdict != certFail && after >= sevWarn:
+		case verdict != certFail:
 			verdict = certWarn
 		}
 	}

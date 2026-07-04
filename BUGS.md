@@ -1507,8 +1507,8 @@ found and fixed.
 **Fix:** replace the blanket "any True condition" rule with an **allowlist** of the
   standard node-problem conditions (`MemoryPressure`, `DiskPressure`, `PIDPressure`,
   `NetworkUnavailable`); a condition outside the set is never assumed bad-when-True, so
-  distro/vendor conditions (EtcdIsVoter, EtcdSnapshotMissing, …) with their own polarity
-  can't generate false-CRITs. Real-bytes unit test `k8s_node_conditions_test.go` (the
+  distro/vendor conditions with their own polarity (confirmed: `EtcdIsVoter`) can't
+  generate false-CRITs. Real-bytes unit test `k8s_node_conditions_test.go` (the
   live RKE2 node's exact conditions); a genuine MemoryPressure=True still CRITs.
   Verified live: `K8s` dropped CRIT→WARN (only the transient bootstrap warning events
   remain); capture `rke2-debian-20260701.tar.gz`.

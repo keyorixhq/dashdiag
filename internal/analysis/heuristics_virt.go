@@ -661,9 +661,13 @@ func checkK8sNodes(k models.K8sInfo) []models.Insight {
 
 // nodeProblemConditions are the standard Kubernetes node conditions that signal a
 // fault when their status is True (eviction pressure or an unconfigured network).
-// Conditions outside this set — distro/vendor additions such as RKE2/k3s
-// "EtcdIsVoter" or "EtcdSnapshotMissing" — carry their own polarity, so dsd does not
-// assume True means broken for them.
+// Conditions outside this set — distro/vendor additions such as RKE2/k3s's
+// "EtcdIsVoter" (confirmed live: True means the node IS a healthy etcd voting
+// member, the opposite of the standard problem-condition convention) — carry
+// their own polarity, so dsd does not assume True means broken for them. Any
+// other vendor condition not in this set is likewise left unscored rather than
+// guessed at; add it here only once its real polarity is confirmed against a
+// live cluster, not inferred from its name.
 var nodeProblemConditions = map[string]bool{
 	"MemoryPressure":     true,
 	"DiskPressure":       true,
