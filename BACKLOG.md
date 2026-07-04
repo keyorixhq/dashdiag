@@ -409,6 +409,15 @@ building every PR against a vulnerable toolchain. Bumped both files to 1.26.4. L
 correctly-written CI workflow file proves nothing about whether the workflow is actually
 running — check `gh api repos/.../actions/workflows/<file>` for `state` too.
 
+**2026-07-04, follow-up — closed the *class* of bug, not just the instance:** bumping go.mod to
+1.26.4 fixed the immediate CVEs but left the same trap armed — the next stdlib CVE fix in 1.26.5
+would go unnoticed again until someone manually re-bumps go.mod. All three workflows'
+`actions/setup-go` steps (`ci.yml` ×7, `release.yml`, `security.yml`) switched from
+`go-version-file: 'go.mod'` (installs go.mod's literal patch) to a floating `go-version: '1.26'`
+(always installs the latest 1.26.x patch). go.mod's `go` directive is a minimum-language-version
+floor, not an exact pin, so a newer installed patch is always compatible — CI now auto-tracks
+security fixes without a go.mod bump in the loop at all.
+
 **Baseline run (local):**
 - govulncheck v1.5.0, Go 1.26.4, DB @ vuln.go.dev updated 2026-06-26
 - `govulncheck ./...` → *No vulnerabilities found*, exit 0
@@ -480,6 +489,17 @@ action — reuse the existing `go install …@latest` + `go-version-file: go.mod
   here — the user's call): a full `gitleaks dir .` working-tree scan turned up a live,
   never-committed AWS SSH key (`dsd-arm-test.pem`, `.git/info/exclude`-excluded, matches the
   existing CLAUDE.md note recommending it move to `~/.ssh/`).
+  **Follow-up (2026-07-04) — CI-level backstop:** the pre-commit hook alone only catches a NEW
+  secret, and only if the contributor installed the hook locally — a fork/external PR, or a
+  maintainer machine without it installed, gets zero coverage. Added a `gitleaks` job to
+  `security.yml` running `gitleaks detect` (full commit history, `fetch-depth: 0`) on the same
+  push/PR/weekly triggers as govulncheck. Installed via `go install
+  github.com/zricethezav/gitleaks/v8@latest` (note: NOT `github.com/gitleaks/gitleaks/v8` — the
+  GitHub org is `gitleaks` but the Go module still lives under the original author's
+  `zricethezav` namespace, a real trap caught by testing the exact `go install` line locally
+  before trusting it in CI) rather than the `gitleaks-action` marketplace Action, matching
+  govulncheck's own "go install + run the CLI directly" shape. Baseline confirmed clean first:
+  1256 commits / 28.5 MB / ~1m16s, zero leaks — safe to gate before merge.
 - **SECURITY.md + network-free-as-a-stated-security-property** — governance docs for enterprise
   reviewers; currently an implicit design choice, not a written guarantee.
 
