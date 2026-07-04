@@ -3,6 +3,7 @@ package source
 import (
 	"errors"
 	"io/fs"
+	"os/exec"
 	"strings"
 	"sync"
 )
@@ -164,6 +165,19 @@ func (b *Bundle) PutGlob(pattern string, matches []string) { b.putGlob(pattern, 
 // test exercise a collector's fileExists()/statFile() existence or mtime gate
 // without touching the real filesystem.
 func (b *Bundle) PutStat(path string, meta FileMeta) { b.putStat(path, meta, nil) }
+
+// PutCmd seeds the successful (spawn-succeeded) output of name+args for
+// Replay.Run, mirroring PutFile — lets a test exercise a collector's runCmd-
+// based parser (external tool output) without actually running the tool.
+// Use PutCmdNotFound for the "binary not installed" case instead.
+func (b *Bundle) PutCmd(name string, args []string, stdout string, exitCode int) {
+	b.putCmd(name, args, Result{Stdout: []byte(stdout), ExitCode: exitCode}, nil)
+}
+
+// PutCmdNotFound seeds a spawn failure (tool not installed) for Replay.Run.
+func (b *Bundle) PutCmdNotFound(name string, args []string) {
+	b.putCmd(name, args, Result{}, &exec.Error{Name: name, Err: exec.ErrNotFound})
+}
 
 func (b *Bundle) putGlob(pattern string, matches []string) {
 	b.mu.Lock()

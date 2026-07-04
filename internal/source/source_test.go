@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -357,5 +358,21 @@ func TestDirectBundleSeeding(t *testing.T) {
 	// An unseeded path must behave as "not recorded", never silently succeed.
 	if _, err := rp.ReadFile("/etc/never-seeded"); !errors.Is(err, ErrNotRecorded) {
 		t.Fatalf("unseeded ReadFile should be ErrNotRecorded, got %v", err)
+	}
+}
+
+func TestPutCmdAndPutCmdNotFound(t *testing.T) {
+	b := NewBundle()
+	b.PutCmd("btrfs", []string{"filesystem", "show"}, "Label: none  uuid: abc-123\n", 0)
+	b.PutCmdNotFound("smartctl", []string{"-a", "/dev/sda"})
+
+	rp := NewReplay(b)
+	res, err := rp.Run(context.Background(), "btrfs", "filesystem", "show")
+	if err != nil || string(res.Stdout) != "Label: none  uuid: abc-123\n" {
+		t.Fatalf("Run(btrfs) = %+v, %v", res, err)
+	}
+
+	if _, err := rp.Run(context.Background(), "smartctl", "-a", "/dev/sda"); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("Run(smartctl) should report ErrNotFound (tool not installed), got %v", err)
 	}
 }
