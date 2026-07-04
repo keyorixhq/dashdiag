@@ -8,6 +8,24 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
+// TestPrintK8sOSLayer guards the deep-only OS-layer section (#684): a clean
+// K8sOSLayer must read "No OS-layer issues", and a genuine fault (IP
+// forwarding disabled, checked and confirmed off) must render CRIT via the
+// shared analysis.CheckK8sOSLayer heuristic, not a hand-duplicated condition.
+func TestPrintK8sOSLayer(t *testing.T) {
+	clean := captureStdout(t, func() { printK8sOSLayer(models.K8sOSLayer{}, output.ModePlain) })
+	if !strings.Contains(clean, "No OS-layer issues") {
+		t.Errorf("a clean OS layer should say so, got:\n%s", clean)
+	}
+
+	ipForwardOff := captureStdout(t, func() {
+		printK8sOSLayer(models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: false}, output.ModePlain)
+	})
+	if !strings.Contains(ipForwardOff, "CRIT") || !strings.Contains(ipForwardOff, "IP forwarding disabled") {
+		t.Errorf("IP forwarding confirmed disabled should render CRIT, got:\n%s", ipForwardOff)
+	}
+}
+
 // TestPrintK8sSummary exercises every concern branch individually — each is an
 // independent `if info.Field > 0` in printK8sSummary, so a future field that
 // stops being wired in would silently vanish from the summary instead of
