@@ -31,10 +31,17 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		rawKB int64
 	}
 	var entries []entry
+	skipped := 0
 	for _, child := range children {
 		full := filepath.Join(mount, child.Name())
 		out, err := runCmd(ctx, "du", "-sh", full)
 		if err != nil {
+			// A permission-denied child (another user's home dir, a service's
+			// private data dir) is silently invisible here — count it rather
+			// than dropping it with no trace, so the largest-dirs table can't
+			// misrepresent smaller readable dirs as the top disk consumers
+			// while the real hog is an unreadable one.
+			skipped++
 			continue
 		}
 		fields := strings.Fields(out)
@@ -55,12 +62,24 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		rows = append(rows, []string{e.size, e.path})
 	}
 
-	return &models.Details{
+	d := &models.Details{
 		Type:    "directory_sizes",
 		Title:   fmt.Sprintf("Largest directories under %s", mount),
 		Columns: []string{"SIZE", "PATH"},
 		Rows:    rows,
-	}, nil
+	}
+	if skipped > 0 {
+		d.Note = fmt.Sprintf("%d entr%s could not be measured (often a permission-denied subdirectory) and may be hidden from this list — run as root for full visibility",
+			skipped, pluralIes(skipped))
+	}
+	return d, nil
+}
+
+func pluralIes(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // parseDuSize converts du human-readable size to approximate KB for sorting.

@@ -48,7 +48,7 @@ func TestParseAAStatusJSONRejectsNonJSON(t *testing.T) {
 // enforcing host showed ~64 healthy booleans as non-enforcing policies plus an
 // AppArmor `aa-status` hint that does not apply to SELinux.
 func TestBuildPolicyTableSELinuxEnforcingIsClean(t *testing.T) {
-	if d := buildPolicyTable(nil, "enforcing"); d != nil {
+	if d := buildPolicyTable(nil, false, "enforcing"); d != nil {
 		t.Errorf("enforcing SELinux + no AppArmor must yield no table, got %+v", d)
 	}
 }
@@ -59,7 +59,7 @@ func TestBuildPolicyTableSELinuxEnforcingIsClean(t *testing.T) {
 // non-enforcing states.
 func TestBuildPolicyTableNeverListsBooleans(t *testing.T) {
 	for _, mode := range []string{"enforcing", "permissive", "disabled", ""} {
-		d := buildPolicyTable([]string{"sbuild"}, mode)
+		d := buildPolicyTable([]string{"sbuild"}, false, mode)
 		if d == nil {
 			continue
 		}
@@ -75,7 +75,7 @@ func TestBuildPolicyTableNeverListsBooleans(t *testing.T) {
 }
 
 func TestBuildPolicyTableSELinuxPermissive(t *testing.T) {
-	d := buildPolicyTable(nil, "permissive")
+	d := buildPolicyTable(nil, false, "permissive")
 	if d == nil {
 		t.Fatal("permissive SELinux must surface a row")
 	}
@@ -85,7 +85,7 @@ func TestBuildPolicyTableSELinuxPermissive(t *testing.T) {
 }
 
 func TestBuildPolicyTableAppArmorComplain(t *testing.T) {
-	d := buildPolicyTable([]string{"Xorg", "sbuild"}, "enforcing")
+	d := buildPolicyTable([]string{"Xorg", "sbuild"}, false, "enforcing")
 	if d == nil || len(d.Rows) != 2 {
 		t.Fatalf("expected 2 AppArmor complain rows, got %+v", d)
 	}
@@ -93,6 +93,37 @@ func TestBuildPolicyTableAppArmorComplain(t *testing.T) {
 		if row[1] != "complain" {
 			t.Errorf("AppArmor row must be complain mode: %v", row)
 		}
+	}
+}
+
+// TestBuildPolicyTableAppArmorPartialIsHonest guards the false-OK fix: when
+// aa-status could not be queried (aaPartial=true) but SELinux is otherwise
+// fully enforcing, the table must NOT come back nil (which would read as "no
+// policy issue") — it must surface a caveat that AppArmor coverage is unknown.
+func TestBuildPolicyTableAppArmorPartialIsHonest(t *testing.T) {
+	d := buildPolicyTable(nil, true, "enforcing")
+	if d == nil {
+		t.Fatal("an unqueryable AppArmor state must not collapse to nil (false-OK)")
+	}
+	if !strings.Contains(d.Note, "aa-status needs root") {
+		t.Errorf("expected an honest permission-gap note, got %q", d.Note)
+	}
+	if len(d.Rows) != 0 {
+		t.Errorf("no rows should be fabricated for the unqueryable state, got %+v", d.Rows)
+	}
+}
+
+// TestBuildPolicyTableAppArmorPartialWithOtherRows guards that the partial
+// caveat is APPENDED to (not silently dropped in favor of) genuine SELinux
+// findings — a user should see both "SELinux is permissive" and "AppArmor
+// state is unknown", not just one.
+func TestBuildPolicyTableAppArmorPartialWithOtherRows(t *testing.T) {
+	d := buildPolicyTable(nil, true, "permissive")
+	if d == nil || len(d.Rows) != 1 {
+		t.Fatalf("expected the permissive SELinux row plus a note, got %+v", d)
+	}
+	if !strings.Contains(d.Note, "aa-status needs root") {
+		t.Errorf("expected the AppArmor caveat appended alongside the SELinux row, got %q", d.Note)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
@@ -20,7 +22,8 @@ func PoliciesNotEnforcing(ctx context.Context) (*models.Details, error) {
 }
 
 func policiesLinux(ctx context.Context) (*models.Details, error) {
-	return buildPolicyTable(appArmorComplainProfiles(ctx), selinuxEnforceMode(ctx)), nil
+	profiles, aaPartial := appArmorComplainProfiles(ctx)
+	return buildPolicyTable(profiles, aaPartial, selinuxEnforceMode(ctx)), nil
 }
 
 // selinuxEnforceMode returns the global SELinux mode in lowercase
@@ -48,7 +51,7 @@ func selinuxEnforceMode(ctx context.Context) string {
 // were "not enforcing" and pointed at an AppArmor tool that does not apply.
 // (Found on Fedora CoreOS, 2026-06-29.) The genuine non-enforcing SELinux state
 // is permissive mode / permissive domains, captured here via the global mode.
-func buildPolicyTable(appArmorComplain []string, selinuxMode string) *models.Details {
+func buildPolicyTable(appArmorComplain []string, aaPartial bool, selinuxMode string) *models.Details {
 	var rows [][]string
 
 	for _, profile := range appArmorComplain {
@@ -62,15 +65,22 @@ func buildPolicyTable(appArmorComplain []string, selinuxMode string) *models.Det
 		rows = append(rows, []string{"SELinux", "disabled", "no SELinux enforcement"})
 	}
 
-	if len(rows) == 0 {
+	// aaPartial means aa-status could not be queried (permission gap, most
+	// likely non-root) — surface that honestly rather than silently omitting
+	// AppArmor coverage, even when rows is otherwise empty (SELinux enforcing
+	// AND AppArmor state simply unknown is not the same as "nothing wrong").
+	if len(rows) == 0 && !aaPartial {
 		return nil
 	}
 
 	const maxRows = 5
-	note := ""
+	var notes []string
 	if len(rows) > maxRows {
-		note = fmt.Sprintf("... and %d more — review AppArmor complain profiles (aa-status) and SELinux mode (getenforce)", len(rows)-maxRows)
+		notes = append(notes, fmt.Sprintf("... and %d more — review AppArmor complain profiles (aa-status) and SELinux mode (getenforce)", len(rows)-maxRows))
 		rows = rows[:maxRows]
+	}
+	if aaPartial {
+		notes = append(notes, "AppArmor complain-mode profiles could not be queried (aa-status needs root) — run as root for full visibility")
 	}
 
 	return &models.Details{
@@ -78,25 +88,37 @@ func buildPolicyTable(appArmorComplain []string, selinuxMode string) *models.Det
 		Title:   "Security policies not in enforcing mode",
 		Columns: []string{"POLICY", "MODE", "NOTE"},
 		Rows:    rows,
-		Note:    note,
+		Note:    strings.Join(notes, "; "),
 	}
 }
 
 // appArmorComplainProfiles returns the names of AppArmor profiles in complain
-// mode. It prefers `aa-status --pretty-json` (parsed as real JSON) and falls
+// mode, and whether the query is only PARTIAL (aa-status could not be run at
+// all). It prefers `aa-status --pretty-json` (parsed as real JSON) and falls
 // back to the plain `aa-status` text. The previous implementation grepped the
 // JSON output line-by-line for "complain", capturing the surrounding JSON
 // punctuation verbatim (`"Xorg": "complain",` instead of `Xorg`) — BUG-023.
-func appArmorComplainProfiles(ctx context.Context) []string {
+//
+// aa-status requires root (or CAP_MAC_ADMIN) to read AppArmor's securityfs
+// state; an unprivileged failure was previously indistinguishable from "no
+// profiles in complain mode", a false-OK — the caller now gets an honest
+// partial=true instead of a silent empty result.
+func appArmorComplainProfiles(ctx context.Context) (names []string, partial bool) {
+	if _, err := exec.LookPath("aa-status"); err != nil {
+		return nil, false // no AppArmor tooling on this host — nothing to report, not a gap
+	}
 	if out, err := runCmd(ctx, "aa-status", "--pretty-json"); err == nil && out != "" {
 		if names, ok := parseAAStatusJSON(out); ok {
-			return names
+			return names, false
 		}
 	}
 	// Fallback: plain `aa-status` text — older releases lack --pretty-json, and
 	// the JSON parse may fail on an unexpected schema.
-	out, _ := runCmd(ctx, "aa-status")
-	return parseAAStatusText(out)
+	out, err := runCmd(ctx, "aa-status")
+	if err != nil {
+		return nil, os.Geteuid() != 0
+	}
+	return parseAAStatusText(out), false
 }
 
 // parseAAStatusJSON extracts complain-mode profile names from the JSON emitted

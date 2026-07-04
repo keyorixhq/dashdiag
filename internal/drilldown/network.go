@@ -14,6 +14,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+// procAttrNote is the honest caveat shown whenever per-process TCP-state
+// attribution may be incomplete because we lack the privilege to see another
+// user's socket owner.
+const procAttrNote = "per-process attribution requires ss or root access"
+
 // TCPStateAttribution returns a breakdown of TCP connection states with
 // per-process attribution for anomalous patterns.
 func TCPStateAttribution(ctx context.Context, results []runner.Result) (*models.Details, error) {
@@ -27,13 +32,18 @@ func tcpStatesLinux(ctx context.Context) (*models.Details, error) {
 	// Try ss first; fall back to /proc/net/tcp
 	out, err := runCmd(ctx, "ss", "-tnp", "--no-header")
 	if err == nil {
-		return parseSsOutput(out), nil
+		return parseSsOutput(out, os.Geteuid() != 0), nil
 	}
 	return parseProcNetTCP(ctx)
 }
 
-// parseSsOutput parses `ss -tnp --no-header` output.
-func parseSsOutput(out string) *models.Details {
+// parseSsOutput parses `ss -tnp --no-header` output. nonRoot must reflect
+// whether the caller is running unprivileged: `ss -tnp` only reports the
+// `users:(...)` process-owner field for sockets the caller owns, so an
+// unprivileged run silently drops other users' connections from the
+// per-process CLOSE_WAIT/TIME_WAIT tables with no indication — the same false-
+// OK-by-omission the /proc/net/tcp fallback already discloses via its own Note.
+func parseSsOutput(out string, nonRoot bool) *models.Details {
 	stateCounts := make(map[string]int)
 	procClose := make(map[string]int) // "name[pid]" → CLOSE_WAIT count
 	procTime := make(map[string]int)  // "name[pid]" → TIME_WAIT count
@@ -111,6 +121,9 @@ func parseSsOutput(out string) *models.Details {
 		Rows:    rows,
 		KV:      kv,
 	}
+	if nonRoot {
+		d.Note = procAttrNote
+	}
 	return d
 }
 
@@ -177,7 +190,7 @@ func parseProcNetTCP(ctx context.Context) (*models.Details, error) {
 		Type:  "tcp_states",
 		Title: "TCP connection state summary",
 		KV:    kv,
-		Note:  "per-process attribution requires ss or root access",
+		Note:  procAttrNote,
 	}, nil
 }
 
