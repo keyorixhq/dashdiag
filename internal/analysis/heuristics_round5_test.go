@@ -135,6 +135,11 @@ func TestCheckGPU(t *testing.T) {
 		// legitimately parked at "low" by a power profile must stay silent.
 		{"DPM low but idle is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, PowerDPMLevel: "low", UtilPct: 10}), ""},
 		{"DPM low under load is WARN", dev(models.GPUDevice{Name: "card0", TempC: 50, PowerDPMLevel: "low", UtilPct: 60}), "WARN"},
+		// Raw-tool implausible-value class for GPU utilization: gpu_busy_percent is
+		// read via a bare Atoi with no bounds check, so a garbled sysfs read can
+		// surface above 100% — that bogus "under load" evidence must not fire the
+		// DPM-stuck-low WARN, same pattern as the temperature plausibility gate above.
+		{"DPM low with implausible (>100%) util is silent", dev(models.GPUDevice{Name: "card0", TempC: 50, PowerDPMLevel: "low", UtilPct: 150}), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
