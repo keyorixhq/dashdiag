@@ -97,80 +97,9 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 
 	fmt.Printf("\nKubernetes Health  (via %s)\n", info.KubeBin)
 
-	// Nodes
-	fmt.Printf("\nNodes (%d)\n", len(info.Nodes))
-	for _, n := range info.Nodes {
-		icon := asciiOr("ok", "✅", mode)
-		if n.Status != "Ready" {
-			icon = asciiOr("fail", "❌", mode)
-		}
-		fmt.Printf("  %s  %-35s %-14s %-20s %s\n",
-			icon, n.Name, n.Status, n.Roles, n.Version)
-	}
-
-	// Pods summary
-	total := len(info.Pods)
-	running := 0
-	for _, p := range info.Pods {
-		if p.Status == "Running" || p.Status == "Completed" || p.Status == "Succeeded" {
-			running++
-		}
-	}
-
-	fmt.Printf("\nPods (%d total, %d healthy)\n", total, running)
-
-	// Show only unhealthy pods + high-restart pods
-	var problemPods []models.K8sPodInfo
-	for _, p := range info.Pods {
-		// 0/1 Running = container not ready
-		notReady := strings.HasPrefix(p.Ready, "0/") && p.Status == "Running"
-		isBad := strings.Contains(p.Status, "CrashLoop") ||
-			strings.Contains(p.Status, "Error") ||
-			p.Status == "Pending" ||
-			p.Status == "OOMKilled" ||
-			p.Restarts >= 10 ||
-			notReady
-		if isBad {
-			problemPods = append(problemPods, p)
-		}
-	}
-
-	if len(problemPods) == 0 {
-		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  All pods healthy")
-	} else {
-		fmt.Printf("  %s  %d pod(s) need attention:\n", asciiOr("warn", "⚠️ ", mode), len(problemPods))
-		fmt.Printf("  %-20s %-42s %-22s %-8s %s\n",
-			"NAMESPACE", "NAME", "STATUS", "RESTARTS", "AGE")
-		for _, p := range problemPods {
-			icon := asciiOr("warn", "⚠️ ", mode)
-			if strings.Contains(p.Status, "CrashLoop") || strings.Contains(p.Status, "Error") {
-				icon = asciiOr("fail", "❌", mode)
-			}
-			name := p.Name
-			if len(name) > 40 {
-				name = name[:37] + "..."
-			}
-			fmt.Printf("  %s %-20s %-42s %-22s %-8d %s\n",
-				icon, p.Namespace, name, p.Status, p.Restarts, p.Age)
-		}
-	}
-
-	// All pods table
-	fmt.Printf("\nAll Pods:\n")
-	fmt.Printf("  %-20s %-42s %-8s %-22s %-8s %s\n",
-		"NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
-	for _, p := range info.Pods {
-		restartIcon := ""
-		if p.Restarts >= 10 {
-			restartIcon = " " + asciiOr("warn", "⚠️", mode)
-		}
-		name := p.Name
-		if len(name) > 40 {
-			name = name[:37] + "..."
-		}
-		fmt.Printf("  %-20s %-42s %-8s %-22s %-6d%s %s\n",
-			p.Namespace, name, p.Ready, p.Status, p.Restarts, restartIcon, p.Age)
-	}
+	printK8sNodes(info.Nodes, mode)
+	printK8sPodsOverview(info.Pods, mode)
+	printK8sAllPodsTable(info.Pods, mode)
 
 	// OS layer (only populated by `dsd k8s --deep`)
 	if info.OSLayer != nil {
@@ -182,6 +111,85 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	fmt.Println()
 	fmt.Println(sep)
 	printK8sSummary(info, timing, mode)
+}
+
+func printK8sNodes(nodes []models.K8sNodeInfo, mode output.OutputMode) {
+	fmt.Printf("\nNodes (%d)\n", len(nodes))
+	for _, n := range nodes {
+		icon := asciiOr("ok", "✅", mode)
+		if n.Status != "Ready" {
+			icon = asciiOr("fail", "❌", mode)
+		}
+		fmt.Printf("  %s  %-35s %-14s %-20s %s\n",
+			icon, n.Name, n.Status, n.Roles, n.Version)
+	}
+}
+
+// k8sPodNeedsAttention reports whether a pod belongs in the "problem pods"
+// callout — crash-looping, erroring, stuck pending, OOM-killed, high-restart,
+// or reporting 0 ready containers while marked Running.
+func k8sPodNeedsAttention(p models.K8sPodInfo) bool {
+	notReady := strings.HasPrefix(p.Ready, "0/") && p.Status == "Running"
+	return strings.Contains(p.Status, "CrashLoop") ||
+		strings.Contains(p.Status, "Error") ||
+		p.Status == "Pending" ||
+		p.Status == "OOMKilled" ||
+		p.Restarts >= 10 ||
+		notReady
+}
+
+func printK8sPodsOverview(pods []models.K8sPodInfo, mode output.OutputMode) {
+	running := 0
+	var problemPods []models.K8sPodInfo
+	for _, p := range pods {
+		if p.Status == "Running" || p.Status == "Completed" || p.Status == "Succeeded" {
+			running++
+		}
+		if k8sPodNeedsAttention(p) {
+			problemPods = append(problemPods, p)
+		}
+	}
+
+	fmt.Printf("\nPods (%d total, %d healthy)\n", len(pods), running)
+
+	if len(problemPods) == 0 {
+		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  All pods healthy")
+		return
+	}
+
+	fmt.Printf("  %s  %d pod(s) need attention:\n", asciiOr("warn", "⚠️ ", mode), len(problemPods))
+	fmt.Printf("  %-20s %-42s %-22s %-8s %s\n",
+		"NAMESPACE", "NAME", "STATUS", "RESTARTS", "AGE")
+	for _, p := range problemPods {
+		icon := asciiOr("warn", "⚠️ ", mode)
+		if strings.Contains(p.Status, "CrashLoop") || strings.Contains(p.Status, "Error") {
+			icon = asciiOr("fail", "❌", mode)
+		}
+		name := p.Name
+		if len(name) > 40 {
+			name = name[:37] + "..."
+		}
+		fmt.Printf("  %s %-20s %-42s %-22s %-8d %s\n",
+			icon, p.Namespace, name, p.Status, p.Restarts, p.Age)
+	}
+}
+
+func printK8sAllPodsTable(pods []models.K8sPodInfo, mode output.OutputMode) {
+	fmt.Printf("\nAll Pods:\n")
+	fmt.Printf("  %-20s %-42s %-8s %-22s %-8s %s\n",
+		"NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
+	for _, p := range pods {
+		restartIcon := ""
+		if p.Restarts >= 10 {
+			restartIcon = " " + asciiOr("warn", "⚠️", mode)
+		}
+		name := p.Name
+		if len(name) > 40 {
+			name = name[:37] + "..."
+		}
+		fmt.Printf("  %-20s %-42s %-8s %-22s %-6d%s %s\n",
+			p.Namespace, name, p.Ready, p.Status, p.Restarts, restartIcon, p.Age)
+	}
 }
 
 // k8sOSLayerInsights runs the node's OS-layer facts through the EXACT heuristic
