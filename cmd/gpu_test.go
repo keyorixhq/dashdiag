@@ -9,6 +9,43 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
+func TestTempIcon(t *testing.T) {
+	cases := []struct {
+		temp, warn, crit int
+		want             string
+	}{
+		{40, 80, 95, "OK"},
+		{80, 80, 95, "WARN"},
+		{95, 80, 95, "CRIT"},
+		{110, 80, 95, "CRIT"},
+	}
+	for _, c := range cases {
+		got := strings.TrimSpace(tempIcon(c.temp, c.warn, c.crit, output.ModePlain))
+		if got != c.want {
+			t.Errorf("tempIcon(%d, warn=%d, crit=%d) = %q, want %q", c.temp, c.warn, c.crit, got, c.want)
+		}
+	}
+}
+
+func TestVRAMIcon(t *testing.T) {
+	cases := []struct {
+		pct  float64
+		want string
+	}{
+		{50, "OK"},
+		{85, "WARN"},
+		{94.9, "WARN"},
+		{95, "CRIT"},
+		{99, "CRIT"},
+	}
+	for _, c := range cases {
+		got := strings.TrimSpace(vramIcon(c.pct, output.ModePlain))
+		if got != c.want {
+			t.Errorf("vramIcon(%v) = %q, want %q", c.pct, got, c.want)
+		}
+	}
+}
+
 func TestGPUDeviceHasMetrics(t *testing.T) {
 	// An older Intel iGPU with no hwmon: detected (name/vendor/driver) but every
 	// metric is zero — no health was actually read.
