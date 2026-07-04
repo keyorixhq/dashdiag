@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -38,6 +39,25 @@ func lookPath(name string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// getenv returns the value of environment variable name, routed through the
+// active source so a verdict-affecting env read (e.g. the SteamOS Game-Mode
+// session-type signal, XDG_SESSION_DESKTOP) replays from the CAPTURED host's
+// value instead of the replaying machine's own environment — the same "captured
+// host, not the replaying box" guarantee lookPath gives $PATH lookups. Drop-in
+// for os.Getenv: an unset var at capture (or a recording gap in an older bundle)
+// replays as "", matching os.Getenv's own unset-vs-empty conflation. Keyed by
+// var name. Not for uid/gid/euid-style live-privilege reads (those are
+// legitimately live-only — see collectSocketPermReason in docker.go).
+func getenv(name string) string {
+	data, err := activeSource.Cached("env/"+name, func() ([]byte, error) {
+		return []byte(os.Getenv(name)), nil
+	})
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // cachedJSON makes a computed value (e.g. a gopsutil call that reads /proc via its

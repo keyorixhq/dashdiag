@@ -447,6 +447,37 @@ behavior change for their other (all live-only, non-replay) callers —
 Regression guard: `TestPlatformServiceCmdReplayAware`
 (`heuristics_hints_test.go`), proven to fail before the fix and pass after.
 
+**Second sibling found + fixed (2026-07-04):** no env-var read was routed
+through `internal/source` at all — `Source` had no such primitive, so every
+`os.Getenv` in a collector was inherently live-only. Added `getenv(name)`
+(`internal/collectors/fsaccess.go`), a `lookPath`-shaped wrapper over the
+existing generic `activeSource.Cached` primitive (no new `Source` interface
+method needed). Routed the one confirmed verdict-relevant site:
+`detectSessionMode` (`steamos_linux.go`) reads `XDG_SESSION_DESKTOP` to decide
+`models.SteamOSInfo.SessionMode` (Game Mode vs Desktop Mode) — a rendered
+field, reached by `dsd steamos`/`dsd health` and their replay counterparts. A
+Steam Deck bundle captured in Game Mode would replay as "desktop"/"unknown"
+from any shell that isn't itself a gamescope session (i.e. every normal
+replay). Live-verified end-to-end on the SteamOS-spoofed rig (pve01 VM 102,
+192.168.10.60): captured with `XDG_SESSION_DESKTOP=gamescope` set, replayed
+with it unset — `SessionMode` still read `"gamemode"`. Regression guards:
+`TestGetenvRoutesThroughSource` (`fsaccess_test.go`) and
+`TestDetectSessionModeReplaysCapturedEnv` (new `steamos_linux_test.go`), both
+proven to fail before the fix and pass after.
+
+Two other raw env-var reads were found and deliberately NOT routed (lower
+severity, considered out of scope for this pass): `steamUserHome()`'s `$HOME`
+fallback and `kubeadmKubeconfigFlagFor`'s `KUBECONFIG` check are path/flag
+*selection* decisions — if capture and replay environments disagree, the
+replay-time behavior fails safely (a `Replay.Run`/`Stat` lookup miss returns
+the loud `ErrNotRecorded`, or a benign zero/absent value), not a silently
+wrong-but-plausible verdict like the two fixed bugs above. `gpu_linux.go`'s
+`DISPLAY`/`WAYLAND_DISPLAY` gate feeds only the cosmetic `MesaVersion` display
+string (no threshold reads it). `dns_resolver_linux.go`'s `SUDO_USER` check is
+inside `dsd net deep`'s resolver audit, which isn't wired into `dsd
+health`/`dsd replay` at all yet (already-documented "opt-in/deep probes not
+yet routed" gap, CLAUDE.md).
+
 ---
 
 ## I. `checks[]` array has no stable ordering — ✅ DONE (render-boundary sort + §I-class map-iteration sweep, fix/k8s-cert-0day)
