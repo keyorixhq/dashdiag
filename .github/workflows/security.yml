@@ -2,9 +2,10 @@ name: Security
 
 # SSDLC Layer 1 (ADR-0007). gosec runs on every PR via the CI lint job
 # (golangci-lint with .golangci.yml excludes — single source of truth, no
-# config drift). This workflow's unique value is the SCHEDULE: govulncheck
-# re-run weekly against UNCHANGED code catches newly published CVEs in our
-# dependency tree the moment the vuln DB learns about them.
+# config drift). govulncheck runs here on every PR (gates before merge) and
+# on the weekly SCHEDULE against unchanged code on main — the schedule is
+# what catches a newly published CVE in our dependency tree the moment the
+# vuln DB learns about it, with no code change to trigger a PR run.
 #
 # History note: this job previously ran standalone `gosec ./...` with the
 # DEFAULT ruleset, ignoring the .golangci.yml excludes — it was permanently
@@ -15,6 +16,8 @@ on:
   schedule:
     - cron: '0 9 * * 1'
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 # govulncheck only reads the tree; no SARIF upload, no repo writes.

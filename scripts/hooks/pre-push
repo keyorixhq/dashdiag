@@ -63,5 +63,20 @@ else
     echo "  ⚠️  semgrep not installed — brew install semgrep (skipping)"
 fi
 
+# 6. govulncheck — dependency vuln scanning (SSDLC, ADR-0007). GOPATH/bin is
+# not on the interactive PATH here, so `command -v` would silently skip this
+# and defeat the check — resolve the binary by its full install path instead.
+GOVULNCHECK="$(go env GOPATH)/bin/govulncheck"
+if [ ! -x "$GOVULNCHECK" ]; then
+    echo "  Installing govulncheck..."
+    go install golang.org/x/vuln/cmd/govulncheck@latest
+fi
+echo "  Running govulncheck..."
+if ! "$GOVULNCHECK" ./... 2>&1; then
+    echo "❌ govulncheck found a reachable vulnerability"
+    exit 1
+fi
+echo "  ✅ govulncheck"
+
 echo ""
 echo "✅ Pre-push passed — pushing to GitHub"

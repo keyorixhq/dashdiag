@@ -484,7 +484,7 @@ searchability). Discipline regardless: `--json` is born locale-invariant
 
 ---
 
-## J. SMART wear% — guard the sibling 231/233 branch (hardening) — READY
+## J. SMART wear% — guard the sibling 231/233 branch (hardening) — ✅ DONE
 
 The garbage-wear bug from the 2026-05-15 MacBook story (`3491877946276% used`)
 came from **attribute 173's raw value** reaching `WearPct`, and was already
