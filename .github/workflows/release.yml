@@ -10,6 +10,13 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-22.04
+    # id-token/attestations are for the build-provenance step at the end — job-level
+    # permissions REPLACE (not add to) the workflow-level block above for this job,
+    # so contents: write is repeated here.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     # SIGN is 'true' only when the signing key secret exists, so the signing step
     # below stays inert until the maintainer adds it (secrets can't be read inside
     # a step-level `if`, so map it to a job env here). See docs/RELEASE_SIGNING.md.
@@ -102,6 +109,31 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+      # SLSA-style build provenance via GitHub's native OIDC/Sigstore attestation —
+      # complements minisign (docs/RELEASE_SIGNING.md), doesn't replace it. Minisign
+      # proves "signed by whoever holds the maintainer's private key" (only as
+      # strong as how well that key is protected); this proves "built by this exact
+      # CI run from this exact tagged commit," with no key to generate or protect.
+      # Placed AFTER the release is published so a hiccup here can't block
+      # distribution — a failure surfaces as a red job (fix before the next tag),
+      # not a blocked release. Verify with:
+      #   gh attestation verify <downloaded-file> --owner keyorixhq
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          # Explicit patterns, not a bare 'dist/*': build-appimage.sh leaves a
+          # dist/.appimagetool CACHE DIRECTORY behind, and it's not worth betting
+          # on this action's glob library silently excluding dotfiles/dirs the
+          # way a POSIX shell would — every pattern here has a non-dot
+          # prefix/suffix so it can never match that directory.
+          subject-path: |
+            dist/dsd-linux-*
+            dist/dsd-darwin-*
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/checksums.txt*
 
   # Push the regenerated Homebrew formula to keyorixhq/homebrew-tap.
   # Off by default — a no-op until the maintainer has:
