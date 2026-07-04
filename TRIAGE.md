@@ -387,7 +387,7 @@ dials and `tls_remote` `--endpoint` dials (opt-in/deep); `ServicesCollector`
 caching is staged on the in-progress `fix/replay-services` branch (see WORKQUEUE.md).
 Left below for history.
 
-## H (history). `dsd replay` not fully hermetic — READY (correctness gap in shipped feature)
+## H (history). `dsd replay` not fully hermetic — ✅ DONE (closed by the replay-hermeticity epic, re-verified 2026-07-04)
 
 `dsd replay <bundle>` promises (help text) that "every collector reads from the
 bundle instead of the live system" so hardware-specific bugs reproduce on any
@@ -403,14 +403,49 @@ collector live-samples instead of reading the bundle — replay would render the
 replaying host's clean state and look like the bug vanished. The stated use case
 ("diagnose on any machine") is silently undercut.
 
+**Re-verified 2026-07-04 on a real Linux guest (pve01 CT202, Ubuntu 24.04 LXC):**
+captured a raw bundle, then replayed it twice with real live perturbation injected
+between the two replays — 30 real pings to 8.8.8.8 (to move `rx_packets` if the
+network collector were live-sampling) and a 50 MB memory-touching allocation (to
+move `free_gb`/`used_pct` if the memory collector were live-sampling). Both
+replays came back byte-identical on `Network` (`rx_packets: 423165` both times,
+`gateway_ping_ms`/`internet_ping_ms` unchanged) and `Memory`
+(`free_gb`/`used_pct` unchanged), and a full sorted-JSON diff of the two replays
+(timestamp + per-check `duration` stripped) was empty end-to-end — no field
+anywhere drifted. The v1.0.2 replay-hermeticity epic (#339–#349, #351) plus the
+later platform-context follow-ups (#586 clock, #595 opt-in probes, #599
+container-context, #601 cloud-env+profile) closed this gap; the entry was just
+never flipped to done. No further fix needed here.
+
 | Item | Surface | Test target |
 |---|---|---|
-| Audit which collectors honour the bundle vs hit live system in replay path | `internal/source` (Live vs bundle Recorder wiring), replay cmd | CT201: capture once, double-replay, diff |
-| Net/mem/ping/ctxsw collectors must read bundle inputs under replay, or be explicitly marked replay-excluded (not silently live) | offending collectors | same-bundle double-replay byte-identical on stable fields |
+| Audit which collectors honour the bundle vs hit live system in replay path | `internal/source` (Live vs bundle Recorder wiring), replay cmd | ✅ audited — CT202 double-replay under injected live traffic/memory pressure, byte-identical |
+| Net/mem/ping/ctxsw collectors must read bundle inputs under replay, or be explicitly marked replay-excluded (not silently live) | offending collectors | ✅ confirmed — no live leak on Network/Memory under real perturbation; full-JSON diff empty |
 
 Repro: `dsd capture --raw`, then `dsd replay --json B.tar.gz` twice, diff.
 Differences on non-timestamp fields = live leak. Not GATED — replay fidelity is
 the feature's whole premise.
+
+**Sibling found + fixed while auditing the "unstarted" tail of the parked
+replay-hardening backlog (agent memory `replay-hardening-backlog-parked`,
+2026-07-04):** the exported `PlatformServiceCmd`/`PlatformServiceCmdSudo`
+(`internal/analysis/heuristics.go`) built their remedy string from the raw
+`runtime.GOOS`/`hostInitSystem()` instead of the replay-pinned
+`effectiveGOOS()`/`effectiveInitSystem()` that `platform.SetReplayPlatform`
+sets up (see `cmd/replay.go`). These two functions are reached from
+`internal/analysis/correlate.go`'s `CorrelateDeep` — the low-entropy/haveged
+remedy line — which `cmd/health.go:223` calls on **every** `dsd health --deep`
+and `dsd replay --deep` run. So a low-entropy bundle captured on an
+OpenRC/Alpine host and replayed on a systemd box would render `to fix:
+systemctl enable --now rngd` (the replaying host's form) instead of the
+captured host's `rc-update add rngd && rc-service rngd start` — the exact
+"remedy hint reflects the wrong host" bug class `effectiveDistroID` already
+guards for `dnf`/`apt`, just missing on this one call path. Fixed by routing
+both functions through `effectiveGOOS()`/`effectiveInitSystem()`; zero
+behavior change for their other (all live-only, non-replay) callers —
+`dsd proc`/`docker`/`cron`/`kvm` — since the replay pin is unset there.
+Regression guard: `TestPlatformServiceCmdReplayAware`
+(`heuristics_hints_test.go`), proven to fail before the fix and pass after.
 
 ---
 

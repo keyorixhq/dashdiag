@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // adaptHint rewrites a remedy command to the platform where dsd is running:
@@ -139,6 +140,29 @@ func TestPlatformServiceCmdSudo(t *testing.T) {
 				t.Errorf("platformServiceCmdSudo(%q, %s, %s) = %q, want %q", c.systemd, c.goos, c.init, got, c.want)
 			}
 		})
+	}
+}
+
+// TestPlatformServiceCmdReplayAware guards a replay-hermeticity gap: the
+// exported PlatformServiceCmd/PlatformServiceCmdSudo (used by CorrelateDeep,
+// which IS reached by `dsd replay --deep` via cmd/health.go's CorrelateDeep
+// call) must reflect the CAPTURED host's init system/GOOS under
+// platform.SetReplayPlatform, not the box doing the replay — same guarantee
+// effectiveGOOS/effectiveInitSystem already give the insight-hint pipeline.
+func TestPlatformServiceCmdReplayAware(t *testing.T) {
+	restore := platform.SetReplayPlatform("alpine", "openrc", "linux")
+	defer restore()
+
+	got := PlatformServiceCmd("systemctl enable --now rngd")
+	want := "rc-update add rngd && rc-service rngd start"
+	if got != want {
+		t.Errorf("PlatformServiceCmd under replay-pinned openrc = %q, want %q (leaked the replaying host's init system)", got, want)
+	}
+
+	gotSudo := PlatformServiceCmdSudo("systemctl enable --now rngd")
+	wantSudo := "sudo rc-update add rngd && sudo rc-service rngd start"
+	if gotSudo != wantSudo {
+		t.Errorf("PlatformServiceCmdSudo under replay-pinned openrc = %q, want %q (leaked the replaying host's init system)", gotSudo, wantSudo)
 	}
 }
 
