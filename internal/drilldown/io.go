@@ -58,13 +58,19 @@ func readProcIO(pid int) (readBytes, writeBytes uint64, err error) {
 	return readBytes, writeBytes, nil
 }
 
-func sampleAllProcIO(ctx context.Context) map[int]procIOSample {
+func sampleAllProcIO(ctx context.Context) (map[int]procIOSample, bool) {
 	var mu sync.Mutex
 	result := make(map[int]procIOSample)
+	partial := false
 
 	_ = walkProcs(ctx, func(pid int) error {
 		r, w, err := readProcIO(pid)
 		if err != nil {
+			if os.IsPermission(err) {
+				mu.Lock()
+				partial = true
+				mu.Unlock()
+			}
 			return nil
 		}
 		name := procComm(pid)
@@ -73,17 +79,18 @@ func sampleAllProcIO(ctx context.Context) map[int]procIOSample {
 		mu.Unlock()
 		return nil
 	})
-	return result
+	return result, partial
 }
 
 func topProcessesByIOLinux(ctx context.Context, n int) (*models.Details, error) {
-	s0 := sampleAllProcIO(ctx)
+	s0, partial0 := sampleAllProcIO(ctx)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(500 * time.Millisecond):
 	}
-	s1 := sampleAllProcIO(ctx)
+	s1, partial1 := sampleAllProcIO(ctx)
+	partial := partial0 || partial1
 
 	type ioEntry struct {
 		pid      int
@@ -135,7 +142,15 @@ func topProcessesByIOLinux(ctx context.Context, n int) (*models.Details, error) 
 		Columns: []string{"PID", "READ/s", "WRITE/s", "COMMAND"},
 		Rows:    rows,
 	}
-	if len(rows) == 0 {
+	switch {
+	case partial && len(rows) == 0:
+		// /proc/<pid>/io is gated to the owning user (or CAP_SYS_PTRACE); a
+		// permission-denied read must not be reported as "no I/O" — that's a
+		// false-OK if the actual I/O-heavy process belongs to another user.
+		d.Note = "some processes hidden (permission denied reading /proc/<pid>/io) — run as root for full visibility"
+	case partial:
+		d.Note = "some processes hidden — run as root for full visibility"
+	case len(rows) == 0:
 		d.Note = "no active I/O detected in sampling window"
 	}
 	return d, nil
