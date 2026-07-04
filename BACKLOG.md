@@ -499,7 +499,8 @@ action — reuse the existing `go install …@latest` + `go-version-file: go.mod
   `zricethezav` namespace, a real trap caught by testing the exact `go install` line locally
   before trusting it in CI) rather than the `gitleaks-action` marketplace Action, matching
   govulncheck's own "go install + run the CLI directly" shape. Baseline confirmed clean first:
-  1256 commits / 28.5 MB / ~1m16s, zero leaks — safe to gate before merge.
+  1256 commits / 28.5 MB / ~1m16s, zero leaks — safe to gate before merge. Green on both a PR
+  run and a push-to-main run, then added to branch-protection required checks (16 total now).
 - **SECURITY.md + network-free-as-a-stated-security-property** — governance docs for enterprise
   reviewers; currently an implicit design choice, not a written guarantee.
 
