@@ -168,3 +168,19 @@ func TestOptionsDefaults(t *testing.T) {
 		t.Errorf("defaults not filled: %+v", o)
 	}
 }
+
+// TestShellQuote guards the defense-in-depth quoting around the remote
+// chmod/exec command string: a path with a space or an embedded single quote
+// must round-trip safely inside a single-quoted shell argument.
+func TestShellQuote(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/tmp/dsd-fleet", "'/tmp/dsd-fleet'"},
+		{"/tmp/with space/dsd-fleet", "'/tmp/with space/dsd-fleet'"},
+		{"/tmp/o'brien/dsd-fleet", `'/tmp/o'\''brien/dsd-fleet'`},
+	}
+	for _, c := range cases {
+		if got := shellQuote(c.in); got != c.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

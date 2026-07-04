@@ -153,7 +153,13 @@ func runHost(ctx context.Context, host string, opts Options) Result {
 			res.finalize(start)
 			return res
 		}
-		remoteCmd = "chmod +x " + remoteBin + " && " + remoteBin + " health --json"
+		// RemoteBinDir is a fixed default today ("/tmp" — see withDefaults), never
+		// CLI-controlled, so this isn't reachable with attacker input. Quoted
+		// anyway as defense-in-depth: sshRun ships remoteCmd as a single string
+		// argv to the remote shell, so an unquoted path with a space or shell
+		// metacharacter would silently break or inject.
+		q := shellQuote(remoteBin)
+		remoteCmd = "chmod +x " + q + " && " + q + " health --json"
 	}
 
 	out, runErr := sshRun(hctx, opts, host, remoteCmd)
@@ -170,6 +176,13 @@ func runHost(ctx context.Context, host string, opts Options) Result {
 	res.Error = sshFailureReason(runErr)
 	res.finalize(start)
 	return res
+}
+
+// shellQuote wraps s in single quotes for safe use inside a remote shell
+// command string, escaping any embedded single quote via the standard
+// close-quote/escaped-quote/reopen-quote trick.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // parseHealth extracts counts and the worst level from remote health JSON.

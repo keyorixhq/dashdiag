@@ -38,6 +38,36 @@ var secretRules = []secretRule{
 	{regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._\-]+`), "Bearer " + redactedMark},
 	// /etc/shadow password hashes: "user:$6$salt$hash:..." → redact the hash field.
 	{regexp.MustCompile(`(?m)^([^:\s]+:)(\$[0-9a-z]+\$[^:]*)(:)`), "${1}" + redactedMark + "${3}"},
+	// Bare JWTs (a header.payload.signature triple) logged without a "Bearer "/
+	// "token=" prefix — e.g. an app's stack trace printing a raw access token.
+	// The header segment is base64url of `{"` and is virtually always "eyJ" in
+	// practice, keeping the false-positive rate on ordinary dotted text low.
+	{regexp.MustCompile(`\beyJ[\w-]+\.[\w-]+\.[\w-]+\b`), "[REDACTED JWT]"},
+	// Credentials embedded in a URL: "scheme://user:password@host" — common in
+	// database connection strings that show up verbatim in error logs. Keep the
+	// scheme and username (structure/context), redact only the password.
+	{regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9+.-]*://[^\s/@:]+:)([^\s@]+)(@)`), "${1}" + redactedMark + "${3}"},
+}
+
+// sensitiveCacheKeys are Source.Cached() keys whose value is a live credential
+// (not a config/log line), so it never carries a "token=" or "password="
+// label for the generic patterns above to key on — e.g. a raw IMDSv2 session
+// token, cached verbatim so replay can reuse it as the metadata-GET header.
+// Sanitize force-redacts these by KEY (path), not by content pattern, since
+// the value itself has no reliable lexical marker.
+var sensitiveCacheKeys = []string{
+	"imds-aws-token", // AWS IMDSv2 session token (cloudmeta_linux.go/aws_linux.go)
+}
+
+// isSensitiveCacheKey reports whether path is the bundle file path a Cached()
+// key maps to (see cacheKey) for one of sensitiveCacheKeys.
+func isSensitiveCacheKey(path string) bool {
+	for _, k := range sensitiveCacheKeys {
+		if path == cacheKey(k) {
+			return true
+		}
+	}
+	return false
 }
 
 // redactSecrets applies every rule to data and returns the redacted bytes plus the
@@ -97,6 +127,13 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	var rep SanitizeReport
 	for path, fr := range b.files {
 		if len(fr.data) == 0 {
+			continue
+		}
+		if isSensitiveCacheKey(path) {
+			fr.data = []byte(redactedMark)
+			b.files[path] = fr
+			rep.FilesRedacted++
+			rep.TotalRedactions++
 			continue
 		}
 		if red, n := redact(fr.data); n > 0 {
