@@ -443,9 +443,13 @@ func disableHint(unit, initSystem string) string {
 // system, returning it unchanged on systemd/macOS. It exists so subcommands that
 // print remedy lines directly to stdout — outside the insight pipeline that
 // adaptHintsToPlatform covers — share the same one source of truth as the
-// adapter (it delegates to adaptHint). (TRIAGE §A audit.)
+// adapter (it delegates to adaptHint). (TRIAGE §A audit.) Uses effectiveGOOS/
+// effectiveInitSystem (not the raw runtime.GOOS/hostInitSystem) so a caller
+// reached by `dsd replay` (e.g. CorrelateDeep's rngd/haveged remedy) reflects
+// the CAPTURED host's init system, not the box doing the replay — live callers
+// (dsd proc/docker/cron/kvm) are unaffected since the replay pin is unset then.
 func PlatformServiceCmd(systemdCmd string) string {
-	return platformServiceCmd(systemdCmd, runtime.GOOS, hostInitSystem())
+	return platformServiceCmd(systemdCmd, effectiveGOOS(), effectiveInitSystem())
 }
 
 // platformServiceCmd is the host-independent core, split out so it is
@@ -461,7 +465,7 @@ func platformServiceCmd(systemdCmd, goos, initSystem string) string {
 // and a single leading `sudo` only elevates the first — the second (`rc-service X
 // start`, which needs root) would fail for a non-root user copy-pasting the line.
 func PlatformServiceCmdSudo(systemdCmd string) string {
-	return platformServiceCmdSudo(systemdCmd, runtime.GOOS, hostInitSystem())
+	return platformServiceCmdSudo(systemdCmd, effectiveGOOS(), effectiveInitSystem())
 }
 
 func platformServiceCmdSudo(systemdCmd, goos, initSystem string) string {
