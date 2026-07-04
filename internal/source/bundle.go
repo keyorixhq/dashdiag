@@ -152,6 +152,19 @@ func (b *Bundle) getFile(path string) (fileRec, bool) {
 // path, so a raw bundle carries both the inputs and the report they produced.
 func (b *Bundle) PutFile(path string, data []byte) { b.putFile(path, data, nil) }
 
+// PutDir seeds dir's entry names for Replay.ReadDir, mirroring PutFile — lets a
+// test build a fixture bundle for a collector that lists a directory (e.g. cron
+// spool dirs, /sys/class/... globs) without touching the real filesystem.
+func (b *Bundle) PutDir(dir string, names []string) { b.putDir(dir, names) }
+
+// PutGlob seeds pattern's matches for Replay.Glob, mirroring PutFile.
+func (b *Bundle) PutGlob(pattern string, matches []string) { b.putGlob(pattern, matches) }
+
+// PutStat seeds path's metadata for Replay.Stat, mirroring PutFile — lets a
+// test exercise a collector's fileExists()/statFile() existence or mtime gate
+// without touching the real filesystem.
+func (b *Bundle) PutStat(path string, meta FileMeta) { b.putStat(path, meta, nil) }
+
 func (b *Bundle) putGlob(pattern string, matches []string) {
 	b.mu.Lock()
 	b.globs[pattern] = append([]string(nil), matches...)
