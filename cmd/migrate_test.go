@@ -79,6 +79,35 @@ func TestCertifyVerdict(t *testing.T) {
 			},
 			want: certFail, wantReg: 2,
 		},
+		// A confirmed source problem that becomes unverifiable (INFO — a collector
+		// that couldn't measure it) on the destination must NOT read as a silent
+		// PASS. Plain severity ordering alone would treat this as an improvement
+		// (INFO ranks below CRIT/WARN, meaning "unknown" not "healthy") — the exact
+		// false-PASS gap this test guards against.
+		{
+			name: "confirmed CRIT becomes unverifiable — must not silently PASS",
+			diff: []baseline.DiffEntry{
+				de("Disk", "CRIT unresized", "INFO could not measure"),
+			},
+			want: certWarn, wantReg: 1,
+		},
+		{
+			name: "confirmed WARN becomes unverifiable — must not silently PASS",
+			diff: []baseline.DiffEntry{
+				de("Network", "WARN emulated", "INFO could not measure"),
+			},
+			want: certWarn, wantReg: 1,
+		},
+		// A previously-healthy check that becomes unverifiable is a real, if minor,
+		// drop in confidence — flag it too, but it must never escalate past WARN on
+		// its own (we don't know it's broken, just that we couldn't check).
+		{
+			name: "OK becomes unverifiable — WARN, not FAIL",
+			diff: []baseline.DiffEntry{
+				de("Sessions", "OK 2 users", "INFO could not measure"),
+			},
+			want: certWarn, wantReg: 1,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -102,5 +131,19 @@ func TestStatusSeverityAbsentIsOK(t *testing.T) {
 	}
 	if statusSeverity("crit") <= statusSeverity("warn") {
 		t.Error("CRIT must outrank WARN (case-insensitive)")
+	}
+}
+
+// TestStatusSeverityInfoIsUnknownNotOK guards against re-introducing the false-PASS
+// gap: INFO (dsd's "couldn't measure this" vocabulary) must never rank the same as
+// a confirmed-healthy OK, even though certifyVerdict no longer relies on a plain
+// before<after comparison alone to catch it (see the unverifiable-regression cases
+// in TestCertifyVerdict).
+func TestStatusSeverityInfoIsUnknownNotOK(t *testing.T) {
+	if statusSeverity("INFO") != sevUnknown {
+		t.Error("INFO must rank as unknown, not OK — it means unverified, not healthy")
+	}
+	if statusSeverity("INFO") == sevOK {
+		t.Error("INFO must not be indistinguishable from OK")
 	}
 }
