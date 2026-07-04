@@ -1,10 +1,15 @@
 package collectors
 
 import (
+	"context"
+	"errors"
+	"io/fs"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Per-connection socket-activated sshd instances (sshd@.service template, the
@@ -331,5 +336,84 @@ func TestParseBlameSlowUnitsExcludesTimers(t *testing.T) {
 	legacy := parseBlameSlowUnits(blame, nil)
 	if len(legacy) == 0 || legacy[0].Name != "apt-daily-upgrade.service" {
 		t.Fatalf("nil excluder should preserve legacy (unfiltered) output, got %+v", legacy)
+	}
+}
+
+// allCommandsFailSource fails every Run call (simulating `systemctl list-units`
+// not completing under load, per TRIAGE.md's "guarantee timeout never reads as
+// none" item) and every file lookup except the /run/systemd/private Stat probe,
+// so Collect() takes the systemd-is-present path rather than gating off
+// entirely, and every other collector helper degrades honestly instead of
+// panicking on a nil embedded Source.
+type allCommandsFailSource struct{}
+
+func (allCommandsFailSource) ReadFile(string) ([]byte, error) {
+	return nil, errNotFound
+}
+
+func (allCommandsFailSource) Glob(string) ([]string, error) { return nil, nil }
+
+func (allCommandsFailSource) ReadDir(string) ([]string, error) {
+	return nil, errNotFound
+}
+
+func (allCommandsFailSource) Readlink(string) (string, error) {
+	return "", errNotFound
+}
+
+func (allCommandsFailSource) Stat(path string) (source.FileMeta, error) {
+	if path == "/run/systemd/private" {
+		return source.FileMeta{}, nil
+	}
+	return source.FileMeta{}, errNotFound
+}
+
+func (allCommandsFailSource) Statfs(string) (source.StatfsInfo, error) {
+	return source.StatfsInfo{}, errNotFound
+}
+
+// Cached mirrors Live's semantics (always invoke produce) — needed because
+// ContainerContextViaSource routes through Source.Cached before Collect ever
+// reaches the failed-units listing this test targets.
+func (allCommandsFailSource) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
+	return produce()
+}
+
+func (allCommandsFailSource) Run(_ context.Context, name string, _ ...string) (source.Result, error) {
+	return source.Result{}, errors.New(name + ": timed out")
+}
+
+var errNotFound = fs.ErrNotExist
+
+// TestSystemdCollect_FailedUnitsTimeoutNeverReadsAsNone guards the false-OK this
+// codebase has hit before with other collectors: when `systemctl list-units
+// --state=failed` doesn't complete (timeout/error), the result must be the
+// explicit FailedUnitsUnknown=true "unverified" state, never a confident empty
+// FailedUnits list that a renderer would show as "no failures." FailedUnitsUnknown
+// is wired directly to listUnits's own error return (systemd.go Collect), so this
+// pins that coupling against a future refactor that decouples them.
+func TestSystemdCollect_FailedUnitsTimeoutNeverReadsAsNone(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SystemdCollector only collects on Linux")
+	}
+	defer SetSource(SetSource(allCommandsFailSource{}))
+
+	c := &SystemdCollector{}
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect must degrade honestly, not error out: %v", err)
+	}
+	info, ok := res.(*models.SystemdInfo)
+	if !ok {
+		t.Fatalf("expected *models.SystemdInfo, got %T", res)
+	}
+	if !info.Available {
+		t.Fatal("systemd IS present (Stat succeeded) — Available must be true")
+	}
+	if !info.FailedUnitsUnknown {
+		t.Error("a failed list-units call must set FailedUnitsUnknown=true, never leave it false (confident zero failures)")
+	}
+	if len(info.FailedUnits) != 0 {
+		t.Errorf("FailedUnits must be empty (not fabricated) when the listing failed, got %+v", info.FailedUnits)
 	}
 }
