@@ -123,6 +123,48 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no checks found in JSON — make sure input is from dsd health --json")
 	}
 
+	rows := buildInputFixtureRows(input)
+
+	// Redact the hostname by default: capture output is routinely committed to a
+	// repo (fixtures/) or pasted into a ticket, and the real hostname is identity
+	// data. Opt back in with --include-identity. (IPs in check messages are left
+	// as-is — blanket-stripping them would also remove benign public addresses like
+	// resolver IPs that make a fixture useful; scrub those by hand if needed.)
+	inc, _ := cmd.Flags().GetBool("include-identity")
+	host := captureHost(input.Hostname, inc)
+
+	fix := MockFixture{
+		Host:    host,
+		OS:      input.OS,
+		Version: input.Version,
+		Rows:    rows,
+		// Preserve the COMPLETE insight list (every finding, in emit order), not
+		// just the one-per-check summary the rows carry. Without this a multi-insight
+		// check (e.g. Hardening: weak MACs + NOPASSWD + X11) silently lost all but
+		// its highest-severity finding on capture. dsd mock renders this full set.
+		Insights: captureInsights(input.Insights),
+	}
+
+	if err := attachOptionalReports(cmd, &fix); err != nil {
+		return err
+	}
+
+	out, err := yaml.Marshal(fix)
+	if err != nil {
+		return fmt.Errorf("marshalling fixture: %w", err)
+	}
+
+	header := fmt.Sprintf("# fixture captured from %s (%s)\n# replay with: dsd mock <this-file>\n\n",
+		host, input.OS)
+
+	_, err = os.Stdout.Write(append([]byte(header), out...))
+	return err
+}
+
+// buildInputFixtureRows converts the captured checks into fixture rows, in the
+// same canonical order the renderer uses, folding in each check's
+// highest-severity insight for its Level/Message/Hints.
+func buildInputFixtureRows(input captureInput) []MockRow {
 	// Build insight map: check name → highest-severity insight
 	insightMap := make(map[string]captureInsight, len(input.Insights))
 	for _, ins := range input.Insights {
@@ -132,7 +174,6 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build fixture rows in the same canonical order as the renderer
 	rowOrder := render.DisplayOrder()
 	ordered := make([]MockRow, 0, len(input.Checks))
 	unordered := make([]MockRow, 0)
@@ -156,31 +197,14 @@ func runCapture(cmd *cobra.Command, args []string) error {
 			unordered = append(unordered, buildFixtureRow(c, insightMap))
 		}
 	}
-	rows := append(ordered, unordered...)
+	return append(ordered, unordered...)
+}
 
-	// Redact the hostname by default: capture output is routinely committed to a
-	// repo (fixtures/) or pasted into a ticket, and the real hostname is identity
-	// data. Opt back in with --include-identity. (IPs in check messages are left
-	// as-is — blanket-stripping them would also remove benign public addresses like
-	// resolver IPs that make a fixture useful; scrub those by hand if needed.)
-	inc, _ := cmd.Flags().GetBool("include-identity")
-	host := captureHost(input.Hostname, inc)
-
-	fix := MockFixture{
-		Host:    host,
-		OS:      input.OS,
-		Version: input.Version,
-		Rows:    rows,
-		// Preserve the COMPLETE insight list (every finding, in emit order), not
-		// just the one-per-check summary the rows carry. Without this a multi-insight
-		// check (e.g. Hardening: weak MACs + NOPASSWD + X11) silently lost all but
-		// its highest-severity finding on capture. dsd mock renders this full set.
-		Insights: captureInsights(input.Insights),
-	}
-
-	// Optionally fold in standalone report sections from other commands.
-	// Each is validated against its real model type so a malformed or
-	// wrong-command file fails loudly at capture time, not silently at replay.
+// attachOptionalReports folds standalone report sections from other commands
+// (--cve, --timeline) into the fixture. Each is validated against its real
+// model type so a malformed or wrong-command file fails loudly at capture
+// time, not silently at replay.
+func attachOptionalReports(cmd *cobra.Command, fix *MockFixture) error {
 	if cvePath, _ := cmd.Flags().GetString("cve"); cvePath != "" {
 		j, err := readReportJSON(cvePath, func(b []byte) error {
 			return strictUnmarshal(b, &models.CVEAllResult{})
@@ -199,17 +223,7 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		}
 		fix.TimelineJSON = j
 	}
-
-	out, err := yaml.Marshal(fix)
-	if err != nil {
-		return fmt.Errorf("marshalling fixture: %w", err)
-	}
-
-	header := fmt.Sprintf("# fixture captured from %s (%s)\n# replay with: dsd mock <this-file>\n\n",
-		host, input.OS)
-
-	_, err = os.Stdout.Write(append([]byte(header), out...))
-	return err
+	return nil
 }
 
 // captureHost returns the hostname to embed in a fixture: the real one only when

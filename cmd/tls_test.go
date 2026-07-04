@@ -1,6 +1,29 @@
 package cmd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/output"
+)
+
+func TestLevelIcon(t *testing.T) {
+	cases := []struct {
+		level string
+		want  string
+	}{
+		{"CRIT", "CRIT"},
+		{"WARN", "WARN"},
+		{"OK", "OK"},
+		{"whatever", "INFO"},
+	}
+	for _, c := range cases {
+		got := strings.TrimSpace(levelIcon(c.level, output.ModePlain))
+		if got != c.want {
+			t.Errorf("levelIcon(%q) = %q, want %q", c.level, got, c.want)
+		}
+	}
+}
 
 // buildTLSInfo (the --json path) must NOT drop ERR results. An unreachable
 // endpoint or unreadable cert is a cert we could not check — dropping it made

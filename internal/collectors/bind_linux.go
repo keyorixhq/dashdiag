@@ -196,6 +196,66 @@ func bindParseZones(configFile string) []namedZone {
 	return zones
 }
 
+// zoneBlockState tracks parser state while scanning inside a `zone "x" { ... }`
+// block in a named.conf-style file — the brace depth (to know when the block
+// closes), and whether the zone type (hint/forward/stub) makes it un-checkable.
+type zoneBlockState struct {
+	name       string
+	active     bool
+	braceDepth int
+	skip       bool
+}
+
+func (z *zoneBlockState) enter(name string) {
+	z.name = name
+	z.active = true
+	z.braceDepth = 0
+	z.skip = false
+}
+
+func (z *zoneBlockState) exit() {
+	z.name = ""
+	z.active = false
+	z.skip = false
+}
+
+// observeType flags the block as un-checkable when its `type` directive names
+// a hint, forward, or stub zone — none have a local zone file named-checkzone
+// can validate.
+func (z *zoneBlockState) observeType(lowerLine string) {
+	if strings.HasPrefix(lowerLine, "type") &&
+		(strings.Contains(lowerLine, "hint") || strings.Contains(lowerLine, "forward") || strings.Contains(lowerLine, "stub")) {
+		z.skip = true
+	}
+}
+
+// extractQuoted returns the first double-quoted substring in line, if any.
+func extractQuoted(line string) (string, bool) {
+	start := strings.Index(line, `"`)
+	if start < 0 {
+		return "", false
+	}
+	end := strings.LastIndex(line, `"`)
+	if end <= start {
+		return "", false
+	}
+	return line[start+1 : end], true
+}
+
+// resolveZoneFilePath resolves a zone file directive's path against BIND's
+// conventional config roots when named.conf gave a relative path.
+func resolveZoneFilePath(path string) string {
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	for _, base := range []string{"/var/named", "/etc/bind"} {
+		if fileExists(base + "/" + path) {
+			return base + "/" + path
+		}
+	}
+	return path
+}
+
 // bindParseZoneFile parses a single named config file for zones and includes.
 func bindParseZoneFile(filePath string, depth int) []namedZone {
 	if depth > 5 {
@@ -208,10 +268,7 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 	defer f.Close() //nolint:errcheck
 
 	var zones []namedZone
-	var currentZone string
-	inZoneBlock := false
-	braceDepth := 0
-	skipZone := false
+	var zb zoneBlockState
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -226,22 +283,15 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 
 		// Detect zone declaration
 		if strings.HasPrefix(line, "zone ") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				currentZone = strings.Trim(parts[1], `"`)
-				inZoneBlock = true
-				braceDepth = 0
-				skipZone = false
+			if parts := strings.Fields(line); len(parts) >= 2 {
+				zb.enter(strings.Trim(parts[1], `"`))
 			}
 		}
 
 		// Follow include directives
-		if strings.HasPrefix(line, "include ") && strings.Contains(line, `"`) {
-			start := strings.Index(line, `"`) + 1
-			end := strings.LastIndex(line, `"`)
-			if end > start {
-				included := bindParseZoneFile(line[start:end], depth+1)
-				zones = append(zones, included...)
+		if strings.HasPrefix(line, "include ") {
+			if inc, ok := extractQuoted(line); ok {
+				zones = append(zones, bindParseZoneFile(inc, depth+1)...)
 				if len(zones) >= 20 {
 					return zones
 				}
@@ -249,44 +299,25 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 			continue
 		}
 
-		// Track brace depth
-		braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
+		if !zb.active {
+			continue
+		}
 
-		if inZoneBlock {
-			// Skip hint, forward, stub zones — not checkable with named-checkzone
-			lower := strings.ToLower(line)
-			if strings.HasPrefix(lower, "type") {
-				if strings.Contains(lower, "hint") || strings.Contains(lower, "forward") ||
-					strings.Contains(lower, "stub") {
-					skipZone = true
+		zb.braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
+		zb.observeType(strings.ToLower(line))
+
+		// Look for file directive (only for non-skipped zones)
+		if !zb.skip && strings.Contains(line, "file") {
+			if path, ok := extractQuoted(line); ok {
+				zones = append(zones, namedZone{name: zb.name, file: resolveZoneFilePath(path)})
+				if len(zones) >= 20 {
+					return zones
 				}
 			}
-			// Look for file directive (only for non-skipped zones)
-			if !skipZone && strings.Contains(line, "file") && strings.Contains(line, `"`) {
-				start := strings.Index(line, `"`) + 1
-				end := strings.LastIndex(line, `"`)
-				if end > start {
-					filePath := line[start:end]
-					// Relative paths resolved against /var/named or /etc/bind
-					if !strings.HasPrefix(filePath, "/") {
-						for _, base := range []string{"/var/named", "/etc/bind"} {
-							if fileExists(base + "/" + filePath) {
-								filePath = base + "/" + filePath
-								break
-							}
-						}
-					}
-					zones = append(zones, namedZone{name: currentZone, file: filePath})
-					if len(zones) >= 20 {
-						return zones
-					}
-				}
-			}
-			if braceDepth <= 0 {
-				inZoneBlock = false
-				currentZone = ""
-				skipZone = false
-			}
+		}
+
+		if zb.braceDepth <= 0 {
+			zb.exit()
 		}
 	}
 	return zones

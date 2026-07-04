@@ -157,12 +157,18 @@ func detectGuestView(ctx context.Context) (guestView, bool) {
 	}
 }
 
+// awsInstanceTypeLabel returns the EC2 instance type, or a generic fallback
+// when the collector couldn't read it (metadata service unreachable/non-AWS).
+func awsInstanceTypeLabel(info *models.AWSInfo) string {
+	if info.InstanceType == "" {
+		return "instance"
+	}
+	return info.InstanceType
+}
+
 func awsGuestView(ctx context.Context) guestView {
 	info := runGuestCollector(ctx, collectors.NewAWSCollector()).(*models.AWSInfo)
-	itype := info.InstanceType
-	if itype == "" {
-		itype = "instance"
-	}
+	itype := awsInstanceTypeLabel(info)
 	return guestView{
 		identity:   "🟧 EC2 guest — " + itype,
 		jsonData:   info,
@@ -175,15 +181,23 @@ func awsGuestView(ctx context.Context) guestView {
 	}
 }
 
-func azureGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewAzureCollector()).(*models.AzureInfo)
-	an := "unknown"
+// azureAcceleratedNetworkingLabel describes the state of Azure Accelerated
+// Networking from the guest side: a real SR-IOV VF, a synthetic NIC fallback
+// (AN enabled but the VF didn't attach), or unknown (no NIC info at all).
+func azureAcceleratedNetworkingLabel(info *models.AzureInfo) string {
 	switch {
 	case info.HasVF:
-		an = "active"
+		return "active"
 	case len(info.SyntheticNICs) > 0:
-		an = "synthetic path (no VF)"
+		return "synthetic path (no VF)"
+	default:
+		return "unknown"
 	}
+}
+
+func azureGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewAzureCollector()).(*models.AzureInfo)
+	an := azureAcceleratedNetworkingLabel(info)
 	return guestView{
 		identity:   "🔷 Azure VM   (Accelerated Networking: " + an + ")",
 		jsonData:   info,
@@ -196,14 +210,22 @@ func azureGuestView(ctx context.Context) guestView {
 	}
 }
 
+// gcpNetworkingLabel names the GCE guest's NIC driver: gVNIC when active, the
+// detected driver name otherwise, or "synthetic" when neither was read.
+func gcpNetworkingLabel(info *models.GCPInfo) string {
+	switch {
+	case info.UsesGVNIC:
+		return "gVNIC"
+	case info.NICDriver != "":
+		return info.NICDriver
+	default:
+		return "synthetic"
+	}
+}
+
 func gcpGuestView(ctx context.Context) guestView {
 	info := runGuestCollector(ctx, collectors.NewGCPCollector()).(*models.GCPInfo)
-	net := "synthetic"
-	if info.UsesGVNIC {
-		net = "gVNIC"
-	} else if info.NICDriver != "" {
-		net = info.NICDriver
-	}
+	net := gcpNetworkingLabel(info)
 	return guestView{
 		identity:   "🟥 GCE VM   (networking: " + net + ")",
 		jsonData:   info,
@@ -216,12 +238,18 @@ func gcpGuestView(ctx context.Context) guestView {
 	}
 }
 
+// vmwareProductLabel returns the reported VMware product name, or a generic
+// fallback when DMI didn't expose one.
+func vmwareProductLabel(info *models.VMwareInfo) string {
+	if info.ProductName == "" {
+		return "VMware"
+	}
+	return info.ProductName
+}
+
 func vmwareGuestView(ctx context.Context) guestView {
 	info := runGuestCollector(ctx, collectors.NewVMwareCollector()).(*models.VMwareInfo)
-	name := info.ProductName
-	if name == "" {
-		name = "VMware"
-	}
+	name := vmwareProductLabel(info)
 	return guestView{
 		identity:   "🟦 VMware guest — " + name,
 		jsonData:   info,
@@ -234,12 +262,18 @@ func vmwareGuestView(ctx context.Context) guestView {
 	}
 }
 
+// kvmGuestProductLabel returns the reported KVM/QEMU product name, or a
+// generic fallback when DMI didn't expose one.
+func kvmGuestProductLabel(info *models.KVMGuestInfo) string {
+	if info.ProductName == "" {
+		return "QEMU/KVM"
+	}
+	return info.ProductName
+}
+
 func kvmGuestView(ctx context.Context) guestView {
 	info := runGuestCollector(ctx, collectors.NewKVMGuestCollector()).(*models.KVMGuestInfo)
-	name := info.ProductName
-	if name == "" {
-		name = "QEMU/KVM"
-	}
+	name := kvmGuestProductLabel(info)
 	return guestView{
 		identity:   "🟦 QEMU/KVM (Proxmox/libvirt) guest — " + name,
 		jsonData:   info,
@@ -252,8 +286,9 @@ func kvmGuestView(ctx context.Context) guestView {
 	}
 }
 
-func containerGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewContainerGuestCollector()).(*models.ContainerGuestInfo)
+// containerGuestIdentity names the container runtime and, when the container
+// is itself running inside a VM, the enclosing VM type.
+func containerGuestIdentity(info *models.ContainerGuestInfo) string {
 	rt := info.Runtime
 	if rt == "" {
 		rt = "container"
@@ -262,22 +297,31 @@ func containerGuestView(ctx context.Context) guestView {
 	if info.UnderlyingVM != "" {
 		id += "  →  on a " + info.UnderlyingVM + " VM"
 	}
-	// Claim "no throttling or OOM-kills" only when those signals were actually read —
-	// v2 (read inline) or v1 with readable counters. On a v1 host where the counters
-	// couldn't be read, drop the claim (the unverified-negative false-OK; cf. #589).
-	healthyMsg := "container healthy — limits set, non-root, no throttling or OOM-kills"
+	return id
+}
+
+// containerHealthyMsg claims "no throttling or OOM-kills" only when those
+// signals were actually read — cgroup v2 (read inline) or cgroup v1 with
+// readable counters. On a v1 host where the counters couldn't be read, the
+// claim is dropped (the unverified-negative false-OK; cf. #589).
+func containerHealthyMsg(info *models.ContainerGuestInfo) string {
 	if !info.CgroupV2 && !info.CgroupV1Measured {
-		healthyMsg = "container healthy — limits set, non-root (throttle/OOM not readable on this cgroup v1 host)"
+		return "container healthy — limits set, non-root (throttle/OOM not readable on this cgroup v1 host)"
 	}
+	return "container healthy — limits set, non-root, no throttling or OOM-kills"
+}
+
+func containerGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewContainerGuestCollector()).(*models.ContainerGuestInfo)
 	return guestView{
-		identity:   id,
+		identity:   containerGuestIdentity(info),
 		jsonData:   info,
 		insights:   analysis.ContainerGuestInsights(*info),
 		hostSide:   containerInsightHostSide,
 		recognized: isContainerRecognitionLine,
 		guestTitle: "Your container — you can fix these",
 		hostTitle:  "Resource limits — enforced against you",
-		healthyMsg: healthyMsg,
+		healthyMsg: containerHealthyMsg(info),
 	}
 }
 
