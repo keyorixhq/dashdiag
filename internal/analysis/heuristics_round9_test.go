@@ -28,6 +28,11 @@ func TestCheckDocker(t *testing.T) {
 		LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: false}}), "") // daemon-wide only, no container list — silent
 	assertLevel(t, checkDocker(models.DockerInfo{Available: true,
 		LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: false, UnboundedContainers: []string{"web"}}}), "WARN")
+	// A container whose `docker inspect` call failed/was unparseable must be
+	// reported as unverified (INFO), never silently dropped as if its logging
+	// were confirmed bounded — the false-OK this collector-side fix closes.
+	assertLevel(t, checkDocker(models.DockerInfo{Available: true,
+		LogDriver: &models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: false, UnverifiedContainers: []string{"flaky"}}}), "INFO")
 }
 
 func TestCheckIPMI(t *testing.T) {

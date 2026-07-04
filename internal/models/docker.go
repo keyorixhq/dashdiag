@@ -35,6 +35,7 @@ type ContainerInfo struct {
 	ArchMismatch        bool     `json:"arch_mismatch,omitempty"`         // 7i: image arch != host arch
 	LogDriver           string   `json:"log_driver,omitempty"`            // this container's own HostConfig.LogConfig.Type
 	LogMaxSizeSet       bool     `json:"log_max_size_set,omitempty"`      // this container's own log-opts max-size (per-container override)
+	DetailUnavailable   bool     `json:"detail_unavailable,omitempty"`    // /containers/<id>/json failed or was unparseable — health/log-driver/secrets/root fields below are NOT populated, not verified-clean
 }
 
 // DockerContainerLogFile holds per-container log file size info.
@@ -56,6 +57,10 @@ type DockerLogDriverInfo struct {
 	// daemon default alone can't tell you this, since a per-container --log-opt
 	// (or Compose's `logging:` stanza) commonly overrides it per container.
 	UnboundedContainers []string `json:"unbounded_containers,omitempty"`
+	// UnverifiedContainers are containers whose inspect call failed or returned
+	// unparseable JSON — their log config could not be checked at all, and must
+	// not be silently excluded from the unbounded-logging picture as if verified clean.
+	UnverifiedContainers []string `json:"unverified_containers,omitempty"`
 }
 
 // DockerEvent is a recent system event from the Docker/Podman daemon.
