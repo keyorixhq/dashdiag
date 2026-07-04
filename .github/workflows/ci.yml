@@ -12,6 +12,16 @@ on:
 permissions:
   contents: read
 
+# Every setup-go step below uses `go-version: '1.26'` (floating minor), NOT
+# go-version-file: go.mod (exact patch). A go.mod-pinned patch silently goes
+# stale the moment Go ships a stdlib CVE fix in a newer patch — this bit us
+# 2026-07-04: go.mod said 1.26.3, Go 1.26.4 already carried two fixed CVEs
+# (GO-2026-5037, GO-2026-5039), and CI kept building the vulnerable one until
+# the govulncheck PR-gate got re-enabled and caught it. go.mod's `go` line is a
+# minimum-language-version floor, not an exact pin, so a newer installed patch
+# is always compatible — floating here means CI auto-tracks security fixes
+# without anyone remembering to bump go.mod.
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -26,7 +36,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
 
       - name: Format check
@@ -64,7 +74,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - name: Build dsd
         run: go build -o /tmp/dsd ./cmd/dsd
@@ -130,7 +140,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - name: Replay distinctive fixtures in a container, assert golden verdicts
         run: ./scripts/check-replay-fidelity.sh
@@ -144,7 +154,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - uses: golangci/golangci-lint-action@v9
         with:
@@ -271,7 +281,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - name: Build dsd
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
@@ -294,7 +304,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - name: Build static dsd (musl-compatible)
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
@@ -318,7 +328,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
       - name: Build static dsd
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
