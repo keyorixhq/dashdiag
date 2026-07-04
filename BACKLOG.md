@@ -393,13 +393,21 @@ collector demand-gate above does NOT apply here — this is baseline hygiene, ad
 it is cheap and always-on, not because a customer pulled for it. (Distinct from Principle 3,
 which gates *feature/collector* builds on real demand.)
 
-### govulncheck — dependency vuln scanning ✅ baseline clean; CI live, hook + PR-gate pending
+### govulncheck — dependency vuln scanning ✅ DONE (2026-07-04, #700/#701)
 
-**Status:** local baseline clean (2026-07-03). **CI already runs govulncheck** — `security.yml`
-(SSDLC Layer 1, ADR-0007) on push-to-main + weekly `cron: '0 9 * * 1'`, via plain
-`go install …@latest` + `govulncheck ./...` under `permissions: contents: read`. Remaining
-gaps: (a) a pre-push hook step, (b) a `pull_request` trigger so a PR is gated *before* merge,
-not only after it lands on main.
+**Status:** fully wired — local pre-push hook step, CI `pull_request` gate, and the weekly
+schedule all live and green. Both remaining sequencing steps below shipped in #700.
+
+**2026-07-04 finding while wiring the PR gate:** `security.yml` was **manually disabled at the
+GitHub Actions level since 2026-05-14** (`state: disabled_manually` via the API) — despite the
+file itself being correct, it had not run once in ~2 months, on push-to-main or the weekly
+schedule, silently voiding this whole section's "CI already runs govulncheck" claim. Re-enabled
+via `gh api --method PUT .../workflows/security.yml/enable` (#701). Its first live run then
+found two real reachable stdlib CVEs (GO-2026-5039 `net/textproto`, GO-2026-5037 `crypto/x509`),
+both fixed in Go 1.26.4 but present in the 1.26.3 `go.mod`/`go.work` pinned — CI had been
+building every PR against a vulnerable toolchain. Bumped both files to 1.26.4. Lesson: a
+correctly-written CI workflow file proves nothing about whether the workflow is actually
+running — check `gh api repos/.../actions/workflows/<file>` for `state` too.
 
 **Baseline run (local):**
 - govulncheck v1.5.0, Go 1.26.4, DB @ vuln.go.dev updated 2026-06-26
@@ -411,10 +419,19 @@ not only after it lands on main.
 govulncheck exits non-zero on any *reachable* vuln. Gating before a clean baseline exists
 risks blocking every merge over untriaged findings. Order:
   1. local manual run → confirm clean  ✅ (done)
-  2. CI on push-to-main + weekly schedule  ✅ (shipped in `security.yml`)
-  3. add to pre-push hook (beside gosec/semgrep; `set -e` supplies the gating)  ← PENDING
-  4. add a `pull_request` trigger to `security.yml` so PRs are gated pre-merge  ← PENDING
-  5. mark the PR govulncheck check required in branch protection AFTER a few green PRs
+  2. CI on push-to-main + weekly schedule  ✅ (shipped in `security.yml`, and confirmed actually
+     enabled/running as of 2026-07-04 — see the finding above)
+  3. add to pre-push hook (beside gosec/semgrep; `set -e` supplies the gating)  ✅ (#700)
+  4. add a `pull_request` trigger to `security.yml` so PRs are gated pre-merge  ✅ (#700)
+  5. mark the PR govulncheck check required in branch protection AFTER a few green PRs  ✅ (2026-07-04)
+
+**2026-07-04 — went further than step 5 alone:** `main` had **no branch protection at all** —
+zero required checks, no restriction on force-push or branch deletion. Set up full protection:
+all 15 current CI checks required (the full suite, not just `security`), `strict: true`
+(branch must be up to date before merge), force-push and deletion blocked, `enforce_admins:
+true` (no bypass, including for the repo owner), no required PR-review count (solo-maintainer
+self-merge preserved — matches the existing branch→PR→merge workflow, doesn't add a new gate
+beyond "CI is green").
 
 **Why local AND CI, not one:** reachability verdicts have a time dimension. A future run can
 flag a vuln with zero change to `go.mod` — the dep didn't move, the DB gained an entry. The
@@ -439,13 +456,30 @@ action — reuse the existing `go install …@latest` + `go-version-file: go.mod
 - **CodeQL + OpenSSF Scorecard** — ✅ already shipped (`codeql.yml`, `scorecard.yml`). House
   style pins Actions to major-version tags (`@v7`/`@v6`), not commit SHAs — a deliberate
   convention (Scorecard still dings pin-by-tag; accepted), so do NOT "fix" it to SHAs blindly.
-- **Fuzz the SMART / os-release / /proc parsers** (`go test -fuzz`) — signaled by the Virtual
-  NVMe parseable-but-impossible SMART bug; seed corpora from real captures for regression value.
+- **Fuzz the SMART / os-release / /proc parsers** — ✅ DONE. SMART/NVMe/GPU already had extensive
+  coverage (`fuzz_rawtools_linux_test.go`, `fuzz_gpu_nvme_linux_test.go`, the v1.1.2 parser-fuzz
+  pass) and /proc (loadavg, meminfo, vmstat, diskstats, file-nr, proc/stat) likewise
+  (`cpu_test.go`, `memory_test.go`, `swap_test.go`, `io_test.go`, `fdlimits_test.go`,
+  `processes_test.go`) — this bullet was stale. The one genuine gap was `/etc/os-release`
+  (`platform.parseOSRelease`, read by `platform.Detect()` on every collector run): added
+  `FuzzParseOSRelease` (`internal/platform/fuzz_test.go`), seeded from the real per-distro
+  fixtures in `profile_test.go` plus adversarial cases (huge/negative VERSION_ID, invalid UTF-8,
+  NUL bytes, empty/malformed KEY=VALUE lines). 4.3M executions / 30s, zero crashes — the parser's
+  only numeric path is an error-checked `strconv.Atoi`, so this is confirmed-clean regression
+  coverage, not a live bug fix (2026-07-04).
 - **GoReleaser + cosign + syft SBOM + SLSA provenance** — verifiable release artifacts for
   enterprise pre-test security reviews; attach to the v1.x releases. (`release.yml` exists —
   audit what it already produces/signs before adding.)
-- **Secret scanning (gitleaks) in pre-commit** — enforce the never-commit-private-config rule
-  as a gate rather than a discipline. Cheapest high-consequence win.
+- **Secret scanning (gitleaks) in pre-commit** — ✅ DONE (2026-07-04). `gitleaks protect
+  --staged` wired in as step 1 (staged-diff-only, ~25ms, gracefully skips if not installed —
+  same idiom as the golangci-lint/semgrep guards). Verified both directions: passes clean on
+  the real staged diff, and blocks (hook exits 1) on a synthetic random-looking secret staged
+  at repo root. Note: gitleaks' default ruleset allowlists AWS's own documentation example key
+  (`AKIAIOSFODNN7EXAMPLE`) — a real secret doesn't look like that, so this isn't a gap, just a
+  reminder the default ruleset has sensible exclusions built in. Aside (not a leak, not touched
+  here — the user's call): a full `gitleaks dir .` working-tree scan turned up a live,
+  never-committed AWS SSH key (`dsd-arm-test.pem`, `.git/info/exclude`-excluded, matches the
+  existing CLAUDE.md note recommending it move to `~/.ssh/`).
 - **SECURITY.md + network-free-as-a-stated-security-property** — governance docs for enterprise
   reviewers; currently an implicit design choice, not a written guarantee.
 
