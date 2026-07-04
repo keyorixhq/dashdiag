@@ -5,7 +5,19 @@
 set -e
 echo "→ Pre-commit (fast checks)"
 
-# 1. Format check — instant
+# 1. Secret scanning — staged diff only, instant. Enforces the
+# never-commit-private-config rule as a gate rather than a discipline.
+if command -v gitleaks &>/dev/null; then
+    if ! gitleaks protect --staged --no-banner 2>&1; then
+        echo "❌ gitleaks found a potential secret in the staged diff"
+        exit 1
+    fi
+    echo "  ✅ gitleaks"
+else
+    echo "  ⚠️  gitleaks not installed — brew install gitleaks (skipping)"
+fi
+
+# 2. Format check — instant
 if [ -n "$(gofmt -l .)" ]; then
     echo ""
     echo "❌ Files need formatting. Run: make fmt"
@@ -15,14 +27,14 @@ if [ -n "$(gofmt -l .)" ]; then
 fi
 echo "  ✅ gofmt"
 
-# 2. go vet — 2-5 seconds, catches real bugs
+# 3. go vet — 2-5 seconds, catches real bugs
 if ! go vet ./... 2>&1; then
     echo "❌ go vet failed"
     exit 1
 fi
 echo "  ✅ go vet"
 
-# 3. Tests with -short flag — skips slow integration tests, keeps it under 15s
+# 4. Tests with -short flag — skips slow integration tests, keeps it under 15s
 if ! go test -short -count=1 -timeout 30s ./... 2>&1; then
     echo "❌ Tests failed"
     exit 1
