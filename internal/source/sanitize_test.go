@@ -62,6 +62,20 @@ func TestRedactSecrets(t *testing.T) {
 			mustKeep:   []string{"cpu MHz: 3600", "web01"},
 			wantN:      0,
 		},
+		{
+			name:       "bare JWT with no Bearer/token prefix",
+			in:         "dump: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PYb end", // gitleaks:allow -- synthetic test fixture, not a real token
+			mustRedact: []string{"eyJhbGciOiJIUzI1NiJ9", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PYb"},
+			mustKeep:   []string{"dump:", "end"},
+			wantN:      1,
+		},
+		{
+			name:       "URL-embedded credentials keep scheme/user/host, drop password",
+			in:         "connect to postgresql://admin:S3cretPW@db.internal:5432/mydb now",
+			mustRedact: []string{"S3cretPW"},
+			mustKeep:   []string{"postgresql://admin:", "@db.internal:5432/mydb"},
+			wantN:      1,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -116,6 +130,38 @@ func TestBundleSanitize(t *testing.T) {
 	}
 	if cr, _ := b.getCmd("env", nil); strings.Contains(string(cr.res.Stdout), "abc123") {
 		t.Errorf("secret left in command output: %q", cr.res.Stdout)
+	}
+}
+
+// TestBundleSanitizeSensitiveCacheKey guards the IMDSv2-token gap: the cached
+// AWS session token carries no "token="/"password=" label for the generic
+// secretRules to key on (it's a bare opaque string cached verbatim so replay
+// can reuse it as the metadata-GET header), so it must be force-redacted by
+// its known Cached() key instead of by content pattern.
+func TestBundleSanitizeSensitiveCacheKey(t *testing.T) {
+	b := NewBundle()
+	tokenPath := cacheKey("imds-aws-token")
+	b.PutFile(tokenPath, []byte("AQAEAB8O1u9wJlPtb3example-opaque-session-token"))
+	b.PutFile("/proc/cpuinfo", []byte("model name: Xeon")) // untouched control
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want files=1 total=1", rep)
+	}
+
+	fr, ok := b.getFile(tokenPath)
+	if !ok {
+		t.Fatal("cached IMDS token file should still exist after sanitize")
+	}
+	if strings.Contains(string(fr.data), "example-opaque-session-token") {
+		t.Errorf("IMDS token value survived sanitize: %q", fr.data)
+	}
+	if string(fr.data) != redactedMark {
+		t.Errorf("expected the cached token to be fully replaced with %q, got %q", redactedMark, fr.data)
+	}
+
+	if fr2, _ := b.getFile("/proc/cpuinfo"); string(fr2.data) != "model name: Xeon" {
+		t.Errorf("unrelated file should be untouched, got %q", fr2.data)
 	}
 }
 

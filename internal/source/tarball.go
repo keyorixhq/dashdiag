@@ -37,7 +37,10 @@ func LoadTarball(path string) (*Bundle, error) {
 }
 
 func tarGzDir(srcDir, dstPath string) error {
-	f, err := os.Create(dstPath) // #nosec G304 -- operator-chosen output path
+	// 0600: a capture bundle can carry sanitized-but-still-sensitive host data
+	// (paths, hostnames, config); don't leave it world/group-readable on a
+	// shared multi-user box merely because os.Create defers to umask.
+	f, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- operator-chosen output path
 	if err != nil {
 		return err
 	}
@@ -58,7 +61,7 @@ func tarGzDir(srcDir, dstPath string) error {
 		if err != nil {
 			return err
 		}
-		hdr := &tar.Header{Name: rel, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}
+		hdr := &tar.Header{Name: rel, Mode: 0o600, Size: int64(len(data)), Typeflag: tar.TypeReg}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
@@ -111,7 +114,7 @@ func untarGz(srcPath, dstDir string) error {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
-		out, err := os.Create(dst) // #nosec G304 -- dst is under our temp dir
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- dst is under our temp dir
 		if err != nil {
 			return err
 		}
