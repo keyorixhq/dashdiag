@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -546,4 +547,192 @@ func checkClock(clock models.ClockInfo, thresh Thresholds) []models.Insight {
 		}
 	}
 	return out
+}
+
+func checkBonding(b models.BondingInfo) []models.Insight {
+	if len(b.Bonds) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, bond := range b.Bonds {
+		// Single-slave bond — no redundancy
+		if len(bond.Slaves) < 2 {
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s has only 1 slave — no redundancy (second NIC missing or disconnected)", bond.Name),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+					"note:       bonding provides no benefit with a single slave",
+				},
+			))
+		}
+		// 802.3ad (LACP) bond whose links are MII-up but not actually aggregating. The
+		// MII/DownSlaves checks above read this as healthy — every slave is "up" — yet the
+		// bond carries no traffic because LACP never negotiated (the switch ports aren't in
+		// a matching LACP port-channel, or only some links joined the aggregator). This is
+		// the dangerous false-OK: green link state over a dead bond and zero redundancy.
+		if bond.NotAggregating {
+			reason := "links carry no traffic and there is no redundancy"
+			cause := "the switch ports are not configured in a matching LACP port-channel"
+			if !isZeroMACHeuristic(bond.PartnerMAC) {
+				cause = "some links failed to join the active aggregator"
+			}
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s: 802.3ad (LACP) bond is link-up but NOT aggregating — %s (%s)",
+					bond.Name, reason, cause),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s   (check Partner Mac Address + per-slave Aggregator ID)", bond.Name),
+					"to inspect: verify the switch ports are in one LACP (802.3ad) port-channel / bond",
+					"to inspect: confirm lacp_rate and that both ends agree on active/passive LACP",
+				},
+			))
+		}
+		if bond.DownSlaves == 0 {
+			// Healthy — check for USB slaves as a reliability advisory
+			for _, s := range bond.Slaves {
+				if isUSBNetworkInterface(s.Name) {
+					out = append(out, insight("INFO", "Bonding",
+						fmt.Sprintf("%s: slave %s is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)",
+							bond.Name, s.Name),
+						[]string{
+							"note: consider replacing with a PCIe or onboard NIC for production HA",
+							fmt.Sprintf("to inspect: readlink /sys/class/net/%s/device/subsystem", s.Name),
+						},
+					))
+				}
+			}
+			continue
+		}
+		if bond.DownSlaves == len(bond.Slaves) {
+			out = append(out, insight("CRIT", "Bonding",
+				fmt.Sprintf("%s: all %d slaves down — bond is completely failed", bond.Name, bond.DownSlaves),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+				},
+			))
+		} else {
+			out = append(out, insight("WARN", "Bonding",
+				fmt.Sprintf("%s: %d/%d slave(s) down (%s mode) — running degraded",
+					bond.Name, bond.DownSlaves, len(bond.Slaves), bond.ModeShort),
+				[]string{
+					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
+					"to inspect: ip link show",
+					"to inspect: ethtool <slave-interface>",
+				},
+			))
+		}
+		// Surface individual down slaves
+		for _, s := range bond.Slaves {
+			if s.State == "down" {
+				out = append(out, insight("INFO", "Bonding",
+					fmt.Sprintf("%s: slave %s is down (MII: %s)", bond.Name, s.Name, s.MIIStatus),
+					[]string{
+						fmt.Sprintf("to inspect: ethtool %s", s.Name),
+						fmt.Sprintf("to inspect: ip link show %s", s.Name),
+					},
+				))
+			}
+		}
+		// High link failures on any slave
+		for _, s := range bond.Slaves {
+			if s.LinkFails > 10 {
+				out = append(out, insight("WARN", "Bonding",
+					fmt.Sprintf("%s: slave %s has %d link failures — check cable or switch port",
+						bond.Name, s.Name, s.LinkFails),
+					[]string{fmt.Sprintf("to inspect: ethtool %s", s.Name)},
+				))
+			}
+		}
+	}
+	return out
+}
+
+func checkVLAN(v models.VLANInfo) []models.Insight {
+	if len(v.Interfaces) == 0 {
+		return nil
+	}
+	var down []string
+	for _, iface := range v.Interfaces {
+		if !iface.Up {
+			down = append(down, fmt.Sprintf("%s (VLAN %d)", iface.Name, iface.VLANID))
+		}
+	}
+	if len(down) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "VLAN",
+		fmt.Sprintf("%d VLAN interface(s) down: %s", len(down), strings.Join(down, ", ")),
+		[]string{
+			"to inspect: ip link show",
+			"to inspect: cat /proc/net/vlan/config",
+		})}
+}
+
+func checkInfiniBand(ib models.InfiniBandInfo) []models.Insight {
+	if len(ib.Ports) == 0 {
+		return nil
+	}
+	var down []string
+	for _, p := range ib.Ports {
+		state := strings.ToUpper(p.State)
+		// An unreadable state ("") is NOT treated as active — the inline renderer
+		// already counts it as not-active, so whitelisting it here was a divergence
+		// false-OK. Surface it as unreadable.
+		if state != "ACTIVE" {
+			label := p.State
+			if label == "" {
+				label = "unreadable"
+			}
+			down = append(down, fmt.Sprintf("%s port %d (%s)", p.Device, p.Port, label))
+		}
+	}
+	if len(down) == 0 {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "InfiniBand",
+		fmt.Sprintf("%d IB port(s) not active: %s", len(down), strings.Join(down, ", ")),
+		[]string{
+			"to inspect: ibstat",
+			"to inspect: cat /sys/class/infiniband/*/ports/*/state",
+			"note: check cable and switch port",
+		})}
+}
+
+func checkSRIOV(s models.SRIOVInfo) []models.Insight {
+	// SR-IOV doesn't have a clear failure state — surface INFO if VFs are enabled
+	if len(s.Devices) == 0 {
+		return nil
+	}
+	total := 0
+	for _, d := range s.Devices {
+		total += d.NumVFs
+	}
+	if total == 0 {
+		return nil // capable but no VFs active — expected
+	}
+	return nil // VFs active — healthy, shown in inline
+}
+
+// isZeroMACHeuristic reports whether a MAC string is present but all zeros — the
+// kernel's "no LACP partner heard" sentinel. Mirrors the collector's isZeroMAC so the
+// bonding heuristic can distinguish "no partner" from "partial aggregation" without
+// importing the linux-only collector package. Empty (field absent) is not zero.
+func isZeroMACHeuristic(mac string) bool {
+	mac = strings.TrimSpace(mac)
+	if mac == "" {
+		return false
+	}
+	return strings.Trim(mac, "0:") == ""
+}
+
+// isUSBNetworkInterface returns true if the network interface is USB-based.
+// Checks /sys/class/net/<iface>/device/subsystem symlink for "usb". Routed through
+// the active source so capture/replay reproduces it instead of hitting live sysfs.
+func isUSBNetworkInterface(iface string) bool {
+	subsystem, err := collectors.ReadlinkViaSource(fmt.Sprintf("/sys/class/net/%s/device/subsystem", iface))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(subsystem), "usb")
 }

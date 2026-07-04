@@ -328,3 +328,317 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	}
 	return out
 }
+
+// checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
+func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // flat independent hardware checks — splitting would harm readability
+	var out []models.Insight
+
+	// ── Drive health ──────────────────────────────────────────────────────────
+	for _, d := range h.Drives {
+		if !d.SmartctlAvailable {
+			out = append(out, insight("INFO", "Hardware",
+				"smartctl not installed — drive health unavailable",
+				[]string{"to fix: install smartmontools (apt/dnf/zypper install smartmontools)"},
+			))
+			continue // skip this drive only — EDAC/ECC checks below are independent of smartctl
+		}
+		if d.Error != "" {
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s: %s", d.Device, d.Error),
+				nil,
+			))
+			continue
+		}
+
+		prefix := d.Device
+		if d.Model != "" {
+			prefix = fmt.Sprintf("%s (%s)", d.Device, d.Model)
+		}
+
+		// SMART overall. Only a drive that actually reported a verdict can FAIL it;
+		// a detected-but-unread drive (controller/USB bridge/virtual disk emits
+		// JSON with no smart_status) must not be called failing — that was a false
+		// CRIT ("back up immediately") on healthy drives.
+		switch {
+		case !d.SmartRead:
+			out = append(out, insight("INFO", "Hardware",
+				fmt.Sprintf("%s — SMART health not reported (behind a RAID/HBA controller or USB bridge, or a virtual disk)", prefix),
+				[]string{"to inspect: smartctl -a " + d.Device + "  (try -d sat / -d cciss,N)"},
+			))
+		case !d.SmartOK:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s — SMART FAILED: drive may fail imminently, back up immediately", prefix),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to run self-test: smartctl -t short " + d.Device,
+				},
+			))
+		}
+
+		// Drive temperature
+		switch {
+		case d.Type == "nvme" && d.TempC >= 80:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — NVMe critical thermal threshold", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type == "nvme" && d.TempC >= 70:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — NVMe running hot", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type != "nvme" && d.TempC >= 60:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — HDD critical thermal threshold", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		case d.Type != "nvme" && d.TempC >= 50:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s temperature %d°C — HDD running hot", prefix, d.TempC),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+
+		// Wear / endurance
+		switch {
+		case d.WearPct >= 95:
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s wear at %d%% — drive near end of rated life, replace soon", prefix, d.WearPct),
+				[]string{"to plan: schedule drive replacement"},
+			))
+		case d.WearPct >= 80:
+			out = append(out, insight("WARN", "Hardware",
+				fmt.Sprintf("%s wear at %d%% — approaching end of rated endurance", prefix, d.WearPct),
+				[]string{"to plan: schedule drive replacement"},
+			))
+		}
+
+		// SATA bad sectors
+		if d.ReallocatedSectors > 0 {
+			level := "WARN"
+			if d.ReallocatedSectors >= 10 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d reallocated sector(s) — drive remapping failed reads", prefix, d.ReallocatedSectors),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to test: smartctl -t long " + d.Device,
+				},
+			))
+		}
+		if d.PendingSectors > 0 {
+			level := "WARN"
+			if d.PendingSectors >= 5 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d pending sector(s) — unreadable sectors awaiting remap", prefix, d.PendingSectors),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+		if d.UncorrectableErrors > 0 {
+			out = append(out, insight("CRIT", "Hardware",
+				fmt.Sprintf("%s: %d offline uncorrectable sector(s) — data loss risk", prefix, d.UncorrectableErrors),
+				[]string{
+					"to inspect: smartctl -a " + d.Device,
+					"to rescue: back up immediately",
+				},
+			))
+		}
+
+		// NVMe media errors
+		if d.MediaErrors > 0 {
+			level := "WARN"
+			if d.MediaErrors >= 10 {
+				level = "CRIT"
+			}
+			out = append(out, insight(level, "Hardware",
+				fmt.Sprintf("%s: %d media error(s) — NVMe data integrity events", prefix, d.MediaErrors),
+				[]string{"to inspect: smartctl -a " + d.Device},
+			))
+		}
+
+		// Healthy drive — emit OK so it shows in output
+		healthy := len(out) == 0 || func() bool {
+			for _, i := range out {
+				if i.Check == "Hardware" && strings.HasPrefix(i.Message, prefix) {
+					return false
+				}
+			}
+			return true
+		}()
+		if healthy {
+			msg := fmt.Sprintf("%s — SMART OK", prefix)
+			if d.TempC > 0 {
+				msg += fmt.Sprintf(", %d°C", d.TempC)
+			}
+			if d.PowerOnH > 0 {
+				msg += fmt.Sprintf(", %d h", d.PowerOnH)
+			}
+			if d.WearPct > 0 {
+				msg += fmt.Sprintf(", %d%% worn", d.WearPct)
+			}
+			out = append(out, insight("OK", "Hardware", msg, nil))
+		}
+	}
+
+	// ── EDAC memory ───────────────────────────────────────────────────────────
+	if h.Memory.EDACAvailable {
+		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, "Hardware")...)
+	}
+
+	return out
+}
+
+func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
+	// In-band IPMI reads the 0600 root:root BMC device — a non-root sensor-read
+	// failure is expected, not a real IPMI problem. Report it honestly rather
+	// than the WARN below, which would otherwise fire on every non-root
+	// `dsd health` run on a physical server, healthy BMC or not.
+	if ipmi.NeedsRoot {
+		return []models.Insight{insight("INFO", "IPMI",
+			"IPMI hardware detected but sensor read requires root — re-run as root to verify sensor health",
+			[]string{"to inspect: sudo ipmitool sdr"})}
+	}
+	// IPMI hardware is present (the collector is gated on /dev/ipmi*) but the
+	// sensor read failed — surface it rather than stay silent. The collector sets
+	// Status="error" with Available=false here; returning nil on !Available alone
+	// hid a BMC/sensor read failure on a server that has IPMI.
+	if ipmi.Status == "error" {
+		reason := ipmi.StatusReason
+		if reason == "" {
+			reason = "IPMI sensor read failed"
+		}
+		return []models.Insight{insight("WARN", "IPMI", reason,
+			[]string{
+				"to inspect: ipmitool sdr",
+				"to inspect: ipmitool sel list | tail -20",
+				"note: check BMC access — kernel module ipmi_devintf and /dev/ipmi0 permissions",
+			})}
+	}
+	if !ipmi.Available {
+		return nil
+	}
+	var out []models.Insight
+	if ipmi.PSUFailed > 0 {
+		out = append(out, insight("CRIT", "IPMI",
+			fmt.Sprintf("%d PSU(s) in fault state — risk of host going offline", ipmi.PSUFailed),
+			[]string{
+				"to inspect: ipmitool sdr type 'Power Supply'",
+				"to inspect: ipmitool sel list | tail -20",
+				"note: replace failed PSU before removing redundant one",
+			},
+		))
+	}
+	if ipmi.FanFailed > 0 {
+		out = append(out, insight("WARN", "IPMI",
+			fmt.Sprintf("%d fan(s) in fault state — thermal risk", ipmi.FanFailed),
+			[]string{
+				"to inspect: ipmitool sdr type Fan",
+				"to inspect: ipmitool sel list | tail -20",
+			},
+		))
+	}
+	if ipmi.TempCritical > 0 {
+		out = append(out, insight("CRIT", "IPMI",
+			fmt.Sprintf("%d temperature sensor(s) in critical state", ipmi.TempCritical),
+			[]string{
+				"to inspect: ipmitool sdr type Temperature",
+				"to inspect: check airflow and fan operation",
+			},
+		))
+	}
+	return out
+}
+
+func checkNUMA(n models.NUMAInfo) []models.Insight {
+	if !n.Available {
+		return nil
+	}
+	if n.Imbalanced {
+		return []models.Insight{insight("WARN", "NUMA",
+			fmt.Sprintf("%d NUMA nodes with unbalanced memory — may cause performance issues", n.NodeCount),
+			[]string{
+				"to inspect: numactl --hardware",
+				"to inspect: numastat -m",
+				"note: consider NUMA-aware memory allocation for latency-sensitive workloads",
+			})}
+	}
+	return nil
+}
+
+func checkCPUFreq(f models.CPUFreqInfo, thresh Thresholds) []models.Insight {
+	if f.Governor == "" {
+		return nil // cpufreq not available
+	}
+	var out []models.Insight
+
+	// The 'powersave' WARN's premise — "capped at min frequency" — only holds for
+	// the LEGACY drivers (acpi-cpufreq, cppc_cpufreq, cpufreq-dt). intel_pstate and
+	// amd-pstate (active mode) expose only performance/powersave governors, and
+	// their 'powersave' is DYNAMIC (scales to load via EPP) — the modern default,
+	// not performance-limited. So:
+	//   - pstate driver  → no finding (healthy default; WARNing it false-alarms on
+	//     essentially every modern Intel/AMD bare-metal server)
+	//   - battery device → INFO (laptop / Steam Deck — powersave is deliberate)
+	//   - legacy driver on a server → WARN (genuinely capped at min freq)
+	if f.Governor == "powersave" {
+		switch {
+		case isDynamicPstateDriver(f.ScalingDriver):
+			// silent — dynamic powersave is the recommended default, not a problem
+		case f.HasBattery:
+			out = append(out, insight("INFO", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' (%d MHz, max %d MHz) — expected on a battery device for power saving",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{"on AC and want full speed: cpupower frequency-set -g performance (or 'schedutil')"},
+			))
+		default:
+			out = append(out, insight("WARN", "CPUFreq",
+				fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
+					f.CurrentMHz, f.MaxMHz),
+				[]string{
+					"to inspect: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to fix: cpupower frequency-set -g performance",
+					"to fix (manual): echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor",
+					"to persist: add to /etc/rc.local or use tuned profile 'throughput-performance'",
+					"note: 'schedutil' or 'ondemand' are also acceptable for variable workloads",
+				},
+			))
+		}
+	}
+
+	// Heavy throttling — current frequency well below max despite not being powersave.
+	// ThrottledPct = (max - current)/max from a single instantaneous read, so an IDLE
+	// box on a dynamic governor (schedutil/ondemand) parks cores at min freq and reads
+	// 70-80% "throttled" while being perfectly healthy. Only flag when the CPU is
+	// actually under load (>=20%, same idle cutoff as the thermal check) — there, a
+	// frequency stuck well below max is a genuine thermal/power-throttle signal.
+	// thresh.CPULoadPct==0 means load is unknown → don't fire (can't tell idle apart).
+	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 && thresh.CPULoadPct >= 20 {
+		out = append(out, insight("WARN", "CPUFreq",
+			fmt.Sprintf("CPU running at %d MHz (%d%% below max %d MHz) — possible thermal or power throttle",
+				f.CurrentMHz, int(f.ThrottledPct), f.MaxMHz),
+			[]string{
+				"to inspect: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq",
+				"to inspect: sensors  (check CPU temperature)",
+				"to inspect: dmesg | grep -i 'throttl\\|thermal\\|power limit'",
+				"to inspect: turbostat --quiet --show Busy%,Avg_MHz,Bzy_MHz,PkgWatt 2>/dev/null | head -5",
+			},
+		))
+	}
+
+	return out
+}
+
+// isDynamicPstateDriver reports whether the cpufreq scaling driver is intel_pstate
+// or amd-pstate (active mode), where the 'powersave' governor is a dynamic,
+// load-scaling EPP mode (the modern default) — NOT the min-frequency cap that the
+// legacy acpi-cpufreq/cppc_cpufreq drivers impose. Used so the powersave WARN
+// doesn't false-fire on essentially every modern Intel/AMD bare-metal server.
+func isDynamicPstateDriver(driver string) bool {
+	d := strings.ToLower(strings.TrimSpace(driver))
+	return d == "intel_pstate" ||
+		strings.HasPrefix(d, "amd-pstate") ||
+		strings.HasPrefix(d, "amd_pstate")
+}

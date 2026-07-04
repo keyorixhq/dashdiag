@@ -963,3 +963,513 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 	}
 	return out
 }
+
+func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
+	var out []models.Insight
+	// A device mounted read-write at any mountpoint cannot also have been dropped to
+	// read-only by a kernel I/O-error remount — that flips the whole block device to
+	// ro at once. So a read-only mount whose backing device is ALSO mounted
+	// read-write elsewhere is an intentional read-only BIND mount, not an error
+	// remount (e.g. NixOS binds /nix/store ro off the rw root for immutability;
+	// found on NixOS 25.05, 2026-06-30). Collect the rw device set up front so the
+	// ro check below can exclude these without hardcoding any distro.
+	rwDevices := make(map[string]bool)
+	for _, fs := range disk.Filesystems {
+		if !fs.ReadOnly && isWritableOnDiskFS(fs.FSType) {
+			rwDevices[fs.Device] = true
+		}
+	}
+	for _, fs := range disk.Filesystems {
+		// Inherently read-only image filesystems (iso9660, squashfs, erofs,
+		// cramfs) are packed to capacity at build time — 100% used is their
+		// normal state and no admin action can free space. Skip usage/inode
+		// scoring for these to avoid a guaranteed false CRIT on every live-USB
+		// /cdrom, snap-backed squashfs, or AppImage mount. The read-only
+		// remount check below still runs (handled by its own fstype allowlist).
+		inherentRO := IsInherentlyReadOnlyFS(fs.FSType)
+		if !inherentRO {
+			if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
+				hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
+				// /boot filling up is almost always old kernel images after upgrades.
+				// Show distro-specific cleanup command based on detected package manager.
+				if fs.Mount == "/boot" {
+					bootHints := []string{
+						"to inspect: df -h /boot",
+						"to inspect: ls -lh /boot/vmlinuz* /boot/initramfs* /boot/initrd*",
+					}
+					switch thresh.PackageManager {
+					case "dnf":
+						bootHints = append(bootHints,
+							"to inspect: rpm -q kernel",
+							"to fix:     dnf remove --oldinstallonly --setopt installonly_limit=2",
+						)
+					case "apt":
+						bootHints = append(bootHints,
+							"to fix: apt autoremove --purge",
+						)
+					case "zypper":
+						bootHints = append(bootHints,
+							"to fix: zypper packages --orphaned | grep kernel",
+						)
+					case "pacman":
+						bootHints = append(bootHints,
+							"to inspect: pacman -Q linux",
+							"to fix:     pacman -R <old-kernel-packages>",
+						)
+					default:
+						// Unknown package manager — show all options
+						bootHints = append(bootHints,
+							"to fix (dnf):    dnf remove --oldinstallonly --setopt installonly_limit=2",
+							"to fix (apt):    apt autoremove --purge",
+							"to fix (zypper): zypper packages --orphaned | grep kernel",
+							"to fix (pacman): pacman -Q linux  # then pacman -R <old-kernels>",
+						)
+					}
+					hints = bootHints
+				}
+				out = append(out, insight(l, "Disk",
+					fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),
+					hints,
+				))
+			}
+			if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
+				out = append(out, insight(l, "Disk",
+					fmt.Sprintf("inode usage at %.0f%% on %s", fs.InodesUsedPct, fs.Mount),
+					[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
+				))
+			}
+		}
+		// A writable on-disk filesystem mounted read-only is almost always an
+		// error remount: the kernel hit I/O or metadata errors and dropped the fs
+		// to ro to prevent further damage, so apps silently fail to write. dsd
+		// captured this but never surfaced it (a serious missed condition). The
+		// on-disk-fstype allowlist avoids flagging inherently/intentionally ro
+		// mounts (squashfs, iso9660, overlay, ro bind mounts).
+		// On an immutable OS (ostree / transactional-update / MicroOS / Leap Micro /
+		// SteamOS) the immutable-infrastructure mounts are read-only snapshots BY
+		// DESIGN, not error remounts — skip the WARN for them (collector sets
+		// ImmutableRootFS, replay-faithful). On a transactional/SteamOS host that is
+		// `/` itself; on ostree (Fedora CoreOS/Silverblue) `/` stays writable but the
+		// physical root `/sysroot`, plus `/boot` and the `/usr` bind, are mounted ro —
+		// so a "/-only" suppression false-WARNed those on FCOS (2026-06-29). A genuine
+		// I/O-error remount of a DATA mount (e.g. /var, /home) still WARNs everywhere.
+		immutableInfra := disk.ImmutableRootFS && isImmutableInfraMount(fs.Mount)
+		// A ro mount of a device that is mounted rw elsewhere is an intentional ro
+		// bind, not an I/O-error remount (see rwDevices comment above).
+		roBindOfRWDevice := fs.ReadOnly && rwDevices[fs.Device]
+		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra && !roBindOfRWDevice {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
+				[]string{
+					"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
+					fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
+					fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
+					"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
+				},
+			))
+		}
+		out = append(out, checkDiskGrowth(fs)...)
+	}
+	out = append(out, checkDiskExtras(disk)...)
+	return out
+}
+
+// checkDiskGrowth flags a filesystem whose backing device (partition / LV) is
+// meaningfully larger than the filesystem on it — the classic "grew the VMDK/EBS
+// volume (or lvextend'd) but forgot resize2fs/xfs_growfs", leaving the extra
+// space unusable until someone notices the disk "full" at the old size. A
+// universal VM/cloud ops mistake, not distro-specific. Conservative on purpose
+// (see thresholds); DeviceSizeGB==0 means the device size is unknown (non-Linux,
+// or no sysfs node) and is skipped — never guessed.
+func checkDiskGrowth(fs models.FilesystemInfo) []models.Insight {
+	if fs.DeviceSizeGB <= 0 || fs.TotalGB <= 0 || !isWritableOnDiskFS(fs.FSType) {
+		return nil
+	}
+	gap := fs.DeviceSizeGB - fs.TotalGB
+	if gap < diskGrowthMinGapGB || gap < diskGrowthMinGapFrac*fs.DeviceSizeGB {
+		return nil
+	}
+	return []models.Insight{insight("WARN", "Disk",
+		fmt.Sprintf("filesystem %s (%s) is %.0f GB but its device %s is %.0f GB — the device was grown but the filesystem was not resized, so ~%.0f GB is unusable",
+			fs.Mount, fs.FSType, fs.TotalGB, fs.Device, fs.DeviceSizeGB, gap),
+		diskGrowthHints(fs))}
+}
+
+// checkBtrfsVolume turns one btrfs volume's health into insights: missing devices
+// are a DEGRADED CRIT; read/write I/O errors are a failing-device CRIT (not
+// scrub-correctable); corruption/checksum errors alone are a WARN (often
+// scrub-correctable).
+func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
+	if v.MissingDevs > 0 {
+		return []models.Insight{insight("CRIT", "Disk",
+			fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
+			[]string{
+				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				"to fix:     reattach missing device and run: btrfs device scan",
+			},
+		)}
+	}
+	// btrfs run unprivileged can't open the block devices, so `btrfs filesystem show`
+	// prints every present device as `size 0 ... MISSING` — the device-state read
+	// failed, it is NOT a missing device. Surface that honestly as INFO rather than the
+	// false DEGRADED CRIT it used to raise (every btrfs filesystem on a non-root run).
+	if v.DevReadUnverified {
+		return []models.Insight{insight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s device state could not be verified — run as root (devices show unreadable without privilege)", v.MountPoint),
+			[]string{
+				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: sudo btrfs device stats %s", v.MountPoint),
+				"note: an unprivileged `btrfs filesystem show` reports present devices as MISSING — not an actual fault",
+			},
+		)}
+	}
+	// `btrfs device stats` couldn't be read, so the per-device read/write/corruption
+	// counters were never inspected — Status defaulted to "healthy". Don't pass that
+	// as a clean OK. (When errors WERE found, StatsRead is true, so this won't fire.)
+	if !v.StatsRead {
+		return []models.Insight{insight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s device error counters not read — run as root: btrfs device stats %s", v.MountPoint, v.MountPoint),
+			[]string{fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint)},
+		)}
+	}
+	if v.Status != "errors" {
+		return nil
+	}
+
+	var ioErrs, corruptErrs int64
+	for _, d := range v.Devices {
+		ioErrs += d.ReadErrs + d.WriteErrs
+		corruptErrs += d.CorruptErrs
+	}
+	if ioErrs > 0 {
+		// Read/write I/O errors mean the underlying device is failing (bad blocks,
+		// cabling, controller) — not scrub-correctable. CRIT.
+		return []models.Insight{insight("CRIT", "Disk",
+			fmt.Sprintf("btrfs %s has %d device I/O error(s) — failing storage or cabling", v.MountPoint, ioErrs),
+			[]string{
+				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				"to inspect: dmesg | grep -i 'btrfs\\|i/o error'",
+				"note: back up data now — I/O errors are not scrub-correctable",
+			},
+		)}
+	}
+	// Corruption/checksum errors only — often correctable via scrub. WARN.
+	return []models.Insight{insight("WARN", "Disk",
+		fmt.Sprintf("btrfs %s has %d checksum/corruption error(s) — may be scrub-correctable", v.MountPoint, corruptErrs),
+		[]string{
+			fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+			fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
+		},
+	)}
+}
+
+func checkDiskExtras(disk models.DiskInfo) []models.Insight {
+	var out []models.Insight
+	if disk.SteamOS != nil {
+		out = append(out, checkSteamOSDisk(disk.SteamOS)...)
+	}
+	// SMART health
+	for _, d := range disk.Drives {
+		if d.SMART == nil || d.SMART.Error != "" {
+			continue
+		}
+		if !d.SMART.Healthy {
+			out = append(out, insight("CRIT", "Disk",
+				fmt.Sprintf("%s SMART health FAILED — drive may be failing, back up immediately", d.Name),
+				[]string{
+					fmt.Sprintf("to inspect: smartctl -a /dev/%s", d.Name),
+					"to inspect: dmesg | grep -i 'error\\|failed\\|reset'",
+				},
+			))
+		} else if d.SMART.PercentUsed >= 90 {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("%s NVMe wear at %d%% — drive approaching end of life", d.Name, d.SMART.PercentUsed),
+				[]string{fmt.Sprintf("to inspect: smartctl -A /dev/%s", d.Name)},
+			))
+		} else if d.SMART.MediaErrors > 0 {
+			out = append(out, insight("WARN", "Disk",
+				fmt.Sprintf("%s has %d media error(s) — monitor closely", d.Name, d.SMART.MediaErrors),
+				[]string{fmt.Sprintf("to inspect: smartctl -a /dev/%s", d.Name)},
+			))
+		}
+	}
+	// btrfs volume health — missing devices are a silent CRIT
+	for _, v := range disk.BtrfsVolumes {
+		out = append(out, checkBtrfsVolume(v)...)
+	}
+	// ZFS — a live mount exists (zfsGate) but `zpool list` failed, so no pool was read.
+	if disk.ZFSListReadFailed {
+		out = append(out, insight("INFO", "Disk",
+			"ZFS mount present but pools could NOT be verified — `zpool list` failed (run as root?)",
+			[]string{"to inspect: zpool list", "to inspect: zpool status"},
+		))
+	}
+	// ZFS pool health is scored by checkZFS (the dedicated ZFSCollector), NOT here.
+	// Both collectors gate on the `zpool` binary, so whenever the DiskCollector sees
+	// ZFS pools the ZFSCollector has also run — scoring them here too produced TWO
+	// insights per pool (a "Disk" one and a "ZFS" one) AND a verdict flip, because
+	// "never scrubbed" was INFO on this path but WARN in checkZFS. checkZFS is the
+	// richer scorer (SUSPENDED/REMOVED/UNAVAIL states, vdev errors, StatusReadFailed,
+	// scrub age), so it owns ZFS; this path defers to avoid the double-score.
+	return out
+}
+
+func checkHBA(hba models.HBAInfo) []models.Insight {
+	if len(hba.Ports) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, p := range hba.Ports {
+		state := strings.ToLower(p.PortState)
+		switch {
+		case state == "":
+			// port_state was unreadable (sysfs read failed). Don't whitelist it as
+			// healthy — the inline renderer already counts it as not-online, so a
+			// silent OK here was a sibling-divergence false-OK. Surface it as unknown.
+			out = append(out, insight("WARN", "HBA",
+				fmt.Sprintf("FC port %s state could not be read — storage path health unknown", p.Name),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					"to inspect: systool -c fc_host -v",
+				},
+			))
+		case state != "online" && state != "linkup":
+			out = append(out, insight("CRIT", "HBA",
+				fmt.Sprintf("FC port %s is %s — storage path lost", p.Name, p.PortState),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					"to inspect: systool -c fc_host -v",
+					"note: check SFP cable, switch zoning, and target port",
+				},
+			))
+		}
+		// link_failure_count / loss_of_sync_count are cumulative since-boot sysfs
+		// counters that never decay, so a single historical transient (a cable reseat
+		// or switch reboot at install) would pin a permanent WARN on an otherwise
+		// healthy fabric with LinkFailures > 0. Require a non-trivial count (matching
+		// the existing LossOfSync threshold) so only a genuinely flapping link warns.
+		// (A two-snapshot rate would be more precise but needs real FC hardware to
+		// validate; this static threshold strictly reduces the historical-transient
+		// false-alarm.)
+		if p.LinkFailures > 10 || p.LossOfSync > 100 {
+			out = append(out, insight("WARN", "HBA",
+				fmt.Sprintf("FC port %s: %d link failures, %d loss-of-sync — check fibre and SFP",
+					p.Name, p.LinkFailures, p.LossOfSync),
+				[]string{
+					"to inspect: cat /sys/class/fc_host/" + p.Name + "/statistics/link_failure_count",
+					"to inspect: check SFP module and fibre cable",
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkMultipath(m models.MultipathInfo) []models.Insight {
+	if !m.Available {
+		return nil
+	}
+	// multipathd is running but its path table could not be read (both `multipathd
+	// show paths` and `multipath -l` failed) — Devices is empty for a reason other
+	// than "no maps configured", so don't let it pass as a silent OK.
+	if m.Status == "error" {
+		reason := m.StatusReason
+		if reason == "" {
+			reason = "multipath paths unreadable"
+		}
+		return []models.Insight{insight("WARN", "Multipath",
+			"multipath path health could NOT be verified — "+reason,
+			[]string{
+				"to inspect: multipathd show paths",
+				"to inspect: multipath -l   (run as root)",
+			},
+		)}
+	}
+	if len(m.Devices) == 0 {
+		return nil
+	}
+	var out []models.Insight
+	for _, dev := range m.Devices {
+		if dev.FailedPaths == 0 {
+			continue
+		}
+		label := mpathLabel(dev)
+		if dev.ActivePaths == 0 {
+			out = append(out, insight("CRIT", "Multipath",
+				fmt.Sprintf("%s: all paths failed — device unavailable", label),
+				[]string{
+					"to inspect: multipathd show paths",
+					"to inspect: multipath -l",
+					"to inspect: check SAN fabric and HBA",
+				},
+			))
+		} else {
+			out = append(out, insight("WARN", "Multipath",
+				fmt.Sprintf("%s: %d/%d paths failed — running degraded",
+					label, dev.FailedPaths, dev.TotalPaths),
+				[]string{
+					"to inspect: multipathd show paths",
+					"to inspect: multipath -l",
+					fmt.Sprintf("to inspect: cat /sys/block/%s/dm/state", dev.DM),
+					"note: replace failed path before removing redundant one",
+				},
+			))
+		}
+	}
+	return out
+}
+
+func checkCeph(c models.CephInfo) []models.Insight {
+	if !c.Available {
+		// Unprivileged run: `ceph health` failed only because the admin keyring is
+		// root-only, not because the cluster is down. Surface "could not verify",
+		// never a false CRIT (the run-as-both rule).
+		if c.NeedsRoot {
+			return []models.Insight{insight("INFO", "Ceph",
+				"Ceph cluster state not verified — `ceph health` needs root (admin keyring is root-only)",
+				[]string{"to verify: sudo ceph -s   (or run dsd as root)"})}
+		}
+		// Configured for a cluster but `ceph health` failed → the cluster is
+		// unreachable from a node that's part of it. That's a real outage and must
+		// surface, not be silently gated off like a bare client binary.
+		if c.Configured {
+			return []models.Insight{insight("CRIT", "Ceph",
+				"Ceph cluster unreachable — node is configured for a cluster but `ceph health` failed",
+				[]string{
+					"to inspect: ceph -s   (or: ceph health detail)",
+					"to check mons: systemctl status ceph-mon.target",
+					"note: a stuck/unreachable mon quorum freezes all RBD/CephFS I/O",
+				})}
+		}
+		return nil
+	}
+	switch c.Health {
+	case "HEALTH_ERR":
+		msg := "Ceph cluster health is ERROR"
+		if len(c.Summary) > 0 {
+			msg = "Ceph: " + c.Summary[0]
+		}
+		return []models.Insight{insight("CRIT", "Ceph", msg,
+			[]string{"to inspect: ceph health detail", "to inspect: ceph osd tree"})}
+	case "HEALTH_WARN":
+		msg := "Ceph cluster health is WARN"
+		if len(c.Summary) > 0 {
+			msg = "Ceph: " + c.Summary[0]
+		}
+		return []models.Insight{insight("WARN", "Ceph", msg,
+			[]string{"to inspect: ceph health detail", "to inspect: ceph osd stat"})}
+	case "HEALTH_UNKNOWN":
+		// `ceph health detail` ran but returned no parseable status — surface that
+		// rather than letting an empty Health read as a healthy cluster.
+		return []models.Insight{insight("WARN", "Ceph",
+			"Ceph cluster health could not be read — `ceph health detail` returned no parseable status",
+			[]string{"to inspect: ceph health detail", "to inspect: ceph -s"})}
+	}
+	downOSDs := c.OSDTotal - c.OSDUp
+	if downOSDs > 0 {
+		return []models.Insight{insight("WARN", "Ceph",
+			fmt.Sprintf("%d OSD(s) down (%d/%d up)", downOSDs, c.OSDUp, c.OSDTotal),
+			[]string{"to inspect: ceph osd tree", "to inspect: ceph osd stat"})}
+	}
+	return nil
+}
+
+func checkISCSI(i models.ISCSIInfo) []models.Insight {
+	// Active sessions exist but their state couldn't be read unprivileged (the per-
+	// session sysfs fields iscsiadm reads are root-only). Say "needs root" — never
+	// silently omit, which would hide a failed/reconnecting session (the run-as-both
+	// rule).
+	if i.NeedsRoot {
+		return []models.Insight{insight("INFO", "iSCSI",
+			"iSCSI session(s) present but their state needs root (iscsiadm reads root-only sysfs fields)",
+			[]string{"to verify: sudo iscsiadm -m session -P 1   (or run dsd as root)"})}
+	}
+	if !i.Available || len(i.Sessions) == 0 {
+		return nil
+	}
+	if i.FailedCount == 0 {
+		return nil
+	}
+	return []models.Insight{insight("CRIT", "iSCSI",
+		fmt.Sprintf("%d iSCSI session(s) not logged in — storage path lost", i.FailedCount),
+		[]string{
+			"to inspect: iscsiadm -m session",
+			"to fix:     iscsiadm -m node --loginall=all",
+			"to inspect: check network connectivity to iSCSI portal",
+		})}
+}
+
+// isImmutableInfraMount reports whether a mount point is part of an immutable
+// OS's read-only infrastructure (as opposed to a writable data mount). On
+// ostree (Fedora CoreOS/Silverblue/Kinoite/IoT) the physical root `/sysroot`,
+// `/boot`, and the `/usr` bind are ro by design; on transactional-update/MicroOS
+// and SteamOS `/` itself is the ro snapshot. These never indicate an error
+// remount on an immutable host. Data mounts (/var, /home, …) are deliberately
+// excluded so a real ro-remount of writable state still WARNs.
+func isImmutableInfraMount(mount string) bool {
+	switch mount {
+	case "/", "/sysroot", "/usr", "/boot", "/boot/efi", "/efi":
+		return true
+	}
+	return false
+}
+
+// isWritableOnDiskFS reports whether a filesystem type is a normal read-write
+// on-disk filesystem (so being mounted read-only is suspicious). Allowlist, not
+// denylist, so squashfs/iso9660/overlay/tmpfs/etc. never trip the ro check.
+func isWritableOnDiskFS(fsType string) bool {
+	switch fsType {
+	case "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs":
+		return true
+	}
+	return false
+}
+
+// diskGrowthHints returns the filesystem-appropriate online-grow command. The
+// device is already the right size (that is what the check detected), so only the
+// filesystem needs growing — no growpart/parted step.
+func diskGrowthHints(fs models.FilesystemInfo) []string {
+	switch {
+	case strings.HasPrefix(fs.FSType, "ext"):
+		return []string{
+			fmt.Sprintf("to fix: resize2fs %s", fs.Device),
+			"note: resize2fs grows an ext2/3/4 filesystem online to fill its device",
+		}
+	case fs.FSType == "xfs":
+		return []string{
+			fmt.Sprintf("to fix: xfs_growfs %s", fs.Mount),
+			"note: XFS grows online (mounted) and can only grow, never shrink",
+		}
+	case fs.FSType == "btrfs":
+		return []string{fmt.Sprintf("to fix: btrfs filesystem resize max %s", fs.Mount)}
+	default:
+		return []string{fmt.Sprintf("to fix: grow the %s filesystem on %s to fill the device", fs.FSType, fs.Device)}
+	}
+}
+
+// IsInherentlyReadOnlyFS reports whether a filesystem type is read-only by
+// design (immutable image/packed formats). Such filesystems are full by
+// construction: they are packed to capacity at build time and there is no
+// admin action that can free space. A 100%-used iso9660 (live-USB /cdrom),
+// squashfs (snap/AppImage backing), or erofs/cramfs image is the normal,
+// healthy state — not a disk-pressure condition. Reporting it as CRIT/WARN
+// is a false positive, so usage-level scoring skips these types.
+func IsInherentlyReadOnlyFS(fsType string) bool {
+	switch fsType {
+	case "iso9660", "squashfs", "erofs", "cramfs":
+		return true
+	}
+	return false
+}
+
+// mpathLabel renders a multipath device as "name (dm)", but collapses to just
+// "name" when the dm device equals the name (the common case with
+// user_friendly_names, where the alias IS the dm name → "mpathb (mpathb)") or
+// when the dm field is empty.
+func mpathLabel(dev models.MultipathDevice) string {
+	if dev.DM == "" || dev.DM == dev.Name {
+		return dev.Name
+	}
+	return fmt.Sprintf("%s (%s)", dev.Name, dev.DM)
+}
