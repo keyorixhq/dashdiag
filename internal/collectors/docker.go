@@ -304,6 +304,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			DockerSocketMounted: det.socketMounted,
 			LogDriver:           det.logDriver,
 			LogMaxSizeSet:       det.logMaxSizeSet,
+			DetailUnavailable:   det.detailFailed,
 		}
 		if state != "running" && det.exitCode != 0 {
 			ci.ExitCode = det.exitCode
@@ -326,6 +327,7 @@ type containerDetailResult struct {
 	startedAt     time.Time
 	logDriver     string // this container's own HostConfig.LogConfig.Type
 	logMaxSizeSet bool   // this container's own log-opts max-size
+	detailFailed  bool   // /containers/<id>/json failed or was unparseable — every other field above is a zero value, NOT a verified reading
 }
 
 // crashLoopStableWindow is how long a container with a high lifetime restart count
@@ -346,7 +348,7 @@ func crashLoopStabilized(running bool, startedAt time.Time) bool {
 func containerDetail(ctx context.Context, client *http.Client, id string) containerDetailResult {
 	data, err := apiGet(ctx, client, "/containers/"+id+"/json")
 	if err != nil {
-		return containerDetailResult{health: "none"}
+		return containerDetailResult{health: "none", detailFailed: true}
 	}
 	var detail struct {
 		RestartCount int `json:"RestartCount"`
@@ -371,7 +373,7 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 		} `json:"HostConfig"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
-		return containerDetailResult{health: "none"}
+		return containerDetailResult{health: "none", detailFailed: true}
 	}
 	h := detail.State.Health.Status
 	if h == "" {
@@ -631,6 +633,13 @@ func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo
 	// otherwise be double-counted as unbounded (a real false-WARN this codebase
 	// has hit before with global-vs-per-instance config drift).
 	for _, c := range info.Containers {
+		if c.DetailUnavailable {
+			// Inspect failed/unparseable — LogDriver/LogMaxSizeSet are zero values,
+			// not a real reading. Report as unverified rather than silently excluding
+			// the container as if its logging were confirmed bounded.
+			ld.UnverifiedContainers = append(ld.UnverifiedContainers, c.Name)
+			continue
+		}
 		if c.LogDriver == "json-file" && !c.LogMaxSizeSet {
 			ld.UnboundedContainers = append(ld.UnboundedContainers, c.Name)
 		}

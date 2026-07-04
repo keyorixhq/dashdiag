@@ -52,7 +52,10 @@ const storcliHealthyJSON = `{
 }`
 
 func TestParseStorcliDegraded(t *testing.T) {
-	ctrls := parseStorcli(storcliDegradedJSON)
+	ctrls, ok := parseStorcli(storcliDegradedJSON)
+	if !ok {
+		t.Fatal("well-formed JSON must parse ok=true")
+	}
 	if len(ctrls) != 1 {
 		t.Fatalf("controllers = %d, want 1", len(ctrls))
 	}
@@ -87,7 +90,10 @@ func TestParseStorcliDegraded(t *testing.T) {
 }
 
 func TestParseStorcliHealthy(t *testing.T) {
-	ctrls := parseStorcli(storcliHealthyJSON)
+	ctrls, ok := parseStorcli(storcliHealthyJSON)
+	if !ok {
+		t.Fatal("well-formed JSON must parse ok=true")
+	}
 	if len(ctrls) != 1 {
 		t.Fatalf("controllers = %d, want 1", len(ctrls))
 	}
@@ -166,7 +172,11 @@ func TestParseSsacliDegraded(t *testing.T) {
 }
 
 func TestParseStorcliGarbageIsEmpty(t *testing.T) {
-	if ctrls := parseStorcli("not json at all"); ctrls != nil {
-		t.Errorf("garbage must parse to nil (ReadFailed path handles it), got %+v", ctrls)
+	ctrls, ok := parseStorcli("not json at all")
+	if ctrls != nil {
+		t.Errorf("garbage must parse to nil controllers, got %+v", ctrls)
+	}
+	if ok {
+		t.Error("garbage must report ok=false so Collect() takes the ReadFailed path, not the silent gate-off path")
 	}
 }

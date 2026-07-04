@@ -74,7 +74,15 @@ func (c *HWRaidCollector) Collect(ctx context.Context) (interface{}, error) {
 	if family {
 		info.Controllers = parseSsacli(out)
 	} else {
-		info.Controllers = parseStorcli(out)
+		ctrls, ok := parseStorcli(out)
+		if !ok {
+			// The command ran and returned data, but it wasn't the JSON shape we
+			// expect (truncated output, unexpected storcli/perccli version schema).
+			// That's a read failure, not "no controller" — say so, don't go silent.
+			info.Available, info.ReadFailed = true, true
+			return info, nil
+		}
+		info.Controllers = ctrls
 	}
 
 	// Tool installed but no controller responded (e.g. "No Controller found", or the
@@ -121,10 +129,13 @@ type storcliPD struct {
 }
 
 // parseStorcli turns "storcli /cALL show all J" JSON into normalized controllers.
-func parseStorcli(out string) []models.HWRaidController {
+// The second return is false only when the output couldn't be parsed as the
+// expected JSON shape at all (truncated/garbled/unrecognized schema) — distinct
+// from a well-formed response that legitimately lists zero controllers.
+func parseStorcli(out string) ([]models.HWRaidController, bool) {
 	var doc storcliOutput
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		return nil
+		return nil, false
 	}
 	var ctrls []models.HWRaidController
 	for _, c := range doc.Controllers {
@@ -147,7 +158,7 @@ func parseStorcli(out string) []models.HWRaidController {
 		ctrl.BBUStatus, ctrl.BBUDegraded = storcliBBU(c.ResponseData.BBUInfo, c.ResponseData.CachevaultInfo)
 		ctrls = append(ctrls, ctrl)
 	}
-	return ctrls
+	return ctrls, true
 }
 
 // normalizeStorcliVD maps storcli's abbreviated VD states. Optl=Optimal, Dgrd=Degraded,

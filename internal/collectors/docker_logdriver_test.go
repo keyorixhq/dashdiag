@@ -67,3 +67,28 @@ func TestCollectLogDriverHealth_AllBoundedIsClean(t *testing.T) {
 		t.Errorf("UnboundedContainers = %v, want empty — every container bounds its own logs", ld.UnboundedContainers)
 	}
 }
+
+// TestCollectLogDriverHealth_DetailFailureIsUnverifiedNotSilent is the false-OK
+// regression guard: a container whose `/containers/<id>/json` inspect failed or
+// was unparseable has LogDriver/LogMaxSizeSet at their zero values — indistinguishable
+// from a real "" driver — and was previously silently excluded from both lists as
+// if its logging were confirmed clean. It must instead land in UnverifiedContainers.
+func TestCollectLogDriverHealth_DetailFailureIsUnverifiedNotSilent(t *testing.T) {
+	defer SetSource(SetSource(noDaemonJSONSource{}))
+
+	info := &models.DockerInfo{
+		Containers: []models.ContainerInfo{
+			{Name: "bounded", LogDriver: "json-file", LogMaxSizeSet: true},
+			{Name: "flaky", DetailUnavailable: true}, // inspect failed — LogDriver/LogMaxSizeSet unset
+		},
+	}
+
+	ld := collectLogDriverHealth(info)
+
+	if len(ld.UnboundedContainers) != 0 {
+		t.Errorf("UnboundedContainers = %v, want empty — the unverified container must not appear here", ld.UnboundedContainers)
+	}
+	if len(ld.UnverifiedContainers) != 1 || ld.UnverifiedContainers[0] != "flaky" {
+		t.Errorf("UnverifiedContainers = %v, want exactly [\"flaky\"]", ld.UnverifiedContainers)
+	}
+}

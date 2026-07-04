@@ -455,6 +455,16 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			},
 		))
 	}
+	// Containers whose inspect call failed/was unparseable — their log config
+	// could not be checked at all; must not be silently dropped from the
+	// unbounded-logging picture as if confirmed clean.
+	if d.LogDriver != nil && len(d.LogDriver.UnverifiedContainers) > 0 {
+		out = append(out, insight("INFO", "Docker",
+			fmt.Sprintf("%d container(s) log config could not be verified (inspect failed): %s",
+				len(d.LogDriver.UnverifiedContainers), strings.Join(firstN(d.LogDriver.UnverifiedContainers, 3), ", ")),
+			[]string{"to inspect: docker inspect <container>"},
+		))
+	}
 	if d.LogDriver != nil && d.LogDriver.LargeLogCount > 0 {
 		out = append(out, insight("WARN", "Docker",
 			fmt.Sprintf("%d container log file(s) >500MB — disk usage risk", d.LogDriver.LargeLogCount),
