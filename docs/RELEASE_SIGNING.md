@@ -83,3 +83,26 @@ sha256sum -c checksums.txt --ignore-missing
 
 A `Signature and comment signature verified` line means `checksums.txt` is
 authentic; the `sha256sum -c` step then confirms your binary matches it.
+
+## Build provenance (GitHub attestations) — always on, no key required
+
+Every release artifact (binaries, `.deb`/`.rpm`, AppImages, `checksums.txt`) also
+carries a GitHub-native build-provenance attestation (`actions/attest-build-provenance`
+in `release.yml`), independent of minisign and active on every release, not just
+after a maintainer generates a key. It proves a different fact than the
+signature: minisign proves "signed by whoever holds the maintainer's private
+key" (only as strong as how well that key is protected); the attestation proves
+"built by this exact GitHub Actions run, from this exact tagged commit," via a
+short-lived Sigstore-issued certificate — no key for anyone to generate,
+protect, or leak. The two are complementary, not redundant: a compromised or
+careless maintainer machine hand-building and minisign-signing a tampered
+binary would pass the signature check but fail attestation.
+
+Verify with the GitHub CLI (no separate tool to install):
+
+```sh
+gh attestation verify dsd-linux-amd64 --owner keyorixhq
+```
+
+A `success` line naming the `dashdiag` repo and the `release.yml` workflow means
+this exact file was produced by that exact CI run.
