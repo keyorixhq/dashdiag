@@ -991,7 +991,7 @@ across distro versions/`usr`-merge — prefer checking the real ship locations (
 
 ---
 
-## U. zypper security scan false-negatives under the global zypp lock — ✅ DONE (security path) / OPEN (integrity path) (fix/zypper-lock-retry-suse, 2026-06-24)
+## U. zypper security scan false-negatives under the global zypp lock — ✅ DONE (security + integrity + kernel-reboot-sibling paths, fix/zypper-lock-retry-suse, 2026-06-24)
 
 Found live on AWS EC2 **SLES 16.0** (first enterprise-SLES validation). zypper's
 single global lock (`/run/zypp.pid`) + dsd's parallel collectors = a lock race;
@@ -1017,9 +1017,12 @@ is a completeness tripwire (same idiom as `exec_locale_test.go`) — it enumerat
 `zypper` EXECUTION site and fails CI if a new one isn't registered in `zypperLockHandling`
 with its lock strategy, forcing the author to retry-on-lock + decide on the exit code (not
 stdout text) or document why it's lock-exempt. Registering the 9 existing sites surfaced
-two non-urgent follow-ups (honest-degrade, NOT false-OK): `cve_linux.go` `lp` uses `runCmd`
-(drops stdout on a non-zero exit → could under-report a CVE as Unknown), and `scanAllZypper`
-`list-patches` (`health --cve`) isn't lock-retry-hardened (degrades to honest ScanFailed).
+two non-urgent follow-ups (honest-degrade, NOT false-OK), both since confirmed fixed
+(verified 2026-07-04 against the current code + the `zypperLockHandling` registry):
+`cve_linux.go` `lp` (`checkCVEZypper`) now uses `runCmdOutput` (keeps the patch table
+on a non-zero exit, same fix as #480), and `scanAllZypper` `list-patches`
+(`health --cve`) is lock-retry-hardened (`runCmdCombined` + `zypperLocked` retry ×5,
+mirroring `collectZypper`) — both registered in `zypper_lock_test.go`.
 
 ---
 
@@ -1130,8 +1133,9 @@ tdnf, #567/#570/#577/#581 boot/storage guards, the root-vs-non-root invariant.
   sound. No defects found — the SSD temp=0/power-on=0 is accurate "not reported"
   (drive exposes no such attrs), logged as cosmetic under §E.4. No ECC/EDAC or
   IPMI (consumer SFF), so §B/server-grade gaps remain open.
-- BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
-  duplicated with diverging counts (13 vs 14) — delete the older pair.
+- ~~BUGS.md: "Summary — Bugs by Category" + "Testbed Coverage" blocks are
+  duplicated with diverging counts (13 vs 14) — delete the older pair.~~ ✅ DONE
+  (2026-07-04) — removed the stale 13-bug pair, kept the current 14-bug one.
 
 ---
 

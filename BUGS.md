@@ -330,31 +330,6 @@ non-PVE behaviour is unchanged.
 | Category | Count | Notes |
 |---|---|---|
 | Platform-specific parsing | 4 | BUG-001, 002, 003, 013 |
-| Silent failures / blind spots | 4 | BUG-006, 007, 009, 011 |
-| Data quality / noise | 3 | BUG-004, 008, 010 |
-| Timing / race conditions | 1 | BUG-005 |
-| New format not handled | 1 | BUG-012 |
-
-**Bugs only findable on real hardware:** BUG-003, 007, 009, 010, 011, 012
-— 6 out of 13 required a physical testbed to discover.
-BUG-009 (SELinux/auditd) required specifically RHEL with auditd active.
-BUG-011/012 required specifically Debian 13 with OpenSSH 9.
-
----
-
-## Testbed Coverage — What Each Platform Unlocked
-
-| Platform | Bugs Found | Key discovery |
-|---|---|---|
-| macOS arm64 | 3 | ioreg hang, locale parsing, ps column order |
-| RHEL 10.1 | 7 | SELinux/auditd blind spot (the big one) |
-| Debian 13.4 | 3 | journald-only auth, OpenSSH 9 format |
-| Ubuntu 24.04 | TBD | next testbed |
-## Summary — Bugs by Category
-
-| Category | Count | Notes |
-|---|---|---|
-| Platform-specific parsing | 4 | BUG-001, 002, 003, 013 |
 | Silent failures / blind spots | 5 | BUG-006, 007, 009, 011, 014 |
 | Data quality / noise | 3 | BUG-004, 008, 010 |
 | Timing / race conditions | 1 | BUG-005 |
