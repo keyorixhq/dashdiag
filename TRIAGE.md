@@ -611,16 +611,24 @@ benign VMware-template artifact (§E.4 virtualization-noise candidate, park).
 
 ---
 
-## Systemd failed-unit listing — guarantee timeout never reads as "none" — READY (low)
+## Systemd failed-unit listing — guarantee timeout never reads as "none" — ✅ DONE (2026-07-04)
 
 Same 2026-06-18 root run: `systemctl list-units` did not complete under load, and
 dsd correctly emitted `failed_units_unknown:true` + INFO `"could not list failed
 units … failed-unit status is unverified"` — the honest path. But an earlier clean
 run showed `failed_units:null` (confident "none failed"). Risk: the timeout/error
 path must **always** yield `failed_units_unknown`, never collapse to an empty-but-
-confident `null` that renders as "no failures." Verified correct in this instance;
-add a regression test forcing the `list-units` timeout branch and asserting the
-output is the unknown state, not `null`. Pure §E (False-OK sweep) discipline.
+confident `null` that renders as "no failures."
+
+Added the regression test this item asked for:
+`TestSystemdCollect_FailedUnitsTimeoutNeverReadsAsNone` (`systemd_test.go`) drives
+`SystemdCollector.Collect` through a fake `source.Source` that fails every `Run`
+call (simulating the list-units timeout) and asserts `FailedUnitsUnknown=true` +
+an empty (not fabricated) `FailedUnits`. Confirmed the test fails when the
+coupling (`FailedUnitsUnknown: failedErr != nil` in `systemd.go`) is broken, so it
+actually guards the invariant rather than trivially passing. The coupling itself
+needed no code change — it was already correct, just untested at the collector
+level (only the downstream heuristic had a regression test).
 
 ---
 
