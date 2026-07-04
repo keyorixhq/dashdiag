@@ -6,6 +6,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 // Golden-output tests for db.go's per-engine renderers (printDBVerdict already
@@ -152,5 +153,22 @@ func TestPrintMongoState(t *testing.T) {
 	})
 	if !strings.Contains(unmeasured, "metrics unavailable") {
 		t.Errorf("unread metrics should say so, got:\n%s", unmeasured)
+	}
+}
+
+// TestPrintDBDispatch exercises the type-switch dispatcher itself (each
+// printXState function already has direct coverage above).
+func TestPrintDBDispatch(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDB([]runner.Result{
+			{Data: &models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true}},
+			{Data: &models.RedisInfo{Detected: true, MetricsRead: true, Role: "master"}},
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "PostgreSQL") || !strings.Contains(out, "Redis") {
+		t.Errorf("both detected engines should be rendered, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Databases healthy") {
+		t.Errorf("no insights should read healthy, got:\n%s", out)
 	}
 }

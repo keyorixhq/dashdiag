@@ -122,3 +122,14 @@ func TestPrintGPUNoDriver(t *testing.T) {
 		t.Errorf("an undriven AMD GPU should suggest modprobe amdgpu, got:\n%s", amd)
 	}
 }
+
+// TestPrintGPUDeviceDispatch exercises the Header/Temps/Performance dispatch
+// (each is already covered directly above).
+func TestPrintGPUDeviceDispatch(t *testing.T) {
+	out := captureStdout(t, func() {
+		printGPUDevice(models.GPUDevice{Name: "RX 6800", DRMDriver: "amdgpu", TempC: 60, TDPLimitW: 200, TDPCurrentW: 100}, "", output.ModePlain)
+	})
+	if !strings.Contains(out, "RX 6800") || !strings.Contains(out, "60°C") || !strings.Contains(out, "TDP") {
+		t.Errorf("the device header, temps, and performance sections should all render, got:\n%s", out)
+	}
+}
