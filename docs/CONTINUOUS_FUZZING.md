@@ -49,13 +49,21 @@ Only crash reproducers, automatically, as a PR:
 
 ## Provisioning the rig (pve01)
 
-The existing `debian13-lxc` (CT 201) is too small for this (512MB RAM / 4GB
-disk — the Go module cache plus build cache alone will not fit comfortably
-alongside 10-worker fuzzing). Create a dedicated container instead:
+**Already done — live as of 2026-07-05**: CT 220 `dashdiag-fuzz`, 192.168.10.33,
+4 cores / 4GB / 20GB disk, Go 1.26.4 + gh CLI installed, repo cloned to
+`/root/proj/dashdiag`, systemd unit installed and enabled. The script itself was
+smoke-tested end-to-end on the live rig (a real fuzz round ran and passed).
+**Not yet started** — see "Auth" below, that's the one step requiring the
+maintainer's own action.
+
+The steps below are the reusable recipe (e.g. for rebuilding the rig from
+scratch, or standing up a second one) — the existing `debian13-lxc` (CT 201) is
+too small for this (512MB RAM / 4GB disk — the Go module cache plus build cache
+alone will not fit comfortably alongside fuzzing), hence a dedicated container:
 
 ```sh
 # on pve01
-pct create 220 local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst \
+pct create 220 local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst \
   --hostname dashdiag-fuzz \
   --arch amd64 \
   --cores 4 \
@@ -64,7 +72,8 @@ pct create 220 local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst \
   --rootfs local-lvm:20 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --unprivileged 1 \
-  --features nesting=1
+  --features nesting=1 \
+  --onboot 1
 pct start 220
 ```
 
@@ -107,7 +116,16 @@ FUZZTIME=15m REPO_DIR=~/proj/dashdiag ~/proj/dashdiag/scripts/fuzz-continuous.sh
 44 targets × 15m ≈ 11 hours per rotation. Shrink `FUZZTIME` for faster rotations
 if you'd rather trade depth-per-target for more frequent full-module coverage.
 
-To run it as a persistent service instead of a foreground shell:
+On CT 220 this is already wired up as a systemd service (below), installed and
+`enabled` (starts on boot) but deliberately **not started** — start it only
+after completing the Auth step above:
+
+```sh
+pct exec 220 -- systemctl start dashdiag-fuzz
+pct exec 220 -- journalctl -u dashdiag-fuzz -f   # watch it run
+```
+
+To set this up on a fresh rig instead of a foreground shell:
 
 ```ini
 # /etc/systemd/system/dashdiag-fuzz.service
@@ -120,6 +138,10 @@ Type=simple
 User=root
 Environment=REPO_DIR=/root/proj/dashdiag
 Environment=FUZZTIME=15m
+# systemd's default PATH doesn't include /usr/local/go/bin (that's only added to
+# ~/.bashrc, which a service never sources) — without this, ExecStart fails with
+# "go: command not found". Confirmed live on the pve01 rig (CT 220).
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Optional: Environment=FUZZ_NOTIFY_URL=https://ntfy.sh/your-topic-here
 ExecStart=/root/proj/dashdiag/scripts/fuzz-continuous.sh
 Restart=always
