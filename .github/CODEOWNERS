@@ -1,0 +1,31 @@
+# Code owners for review routing on security/supply-chain-sensitive paths.
+#
+# Note: branch protection on main has no "require review from code owners" rule
+# (required_pull_request_reviews is unset — see the solo-maintainer self-merge
+# note in .github/workflows). With one collaborator, this file doesn't block
+# anything today; it documents which paths matter most and is already in place
+# for the day a second contributor/reviewer exists.
+#
+# Last matching pattern wins, so keep the catch-all first and specific rules
+# below it.
+
+* @aibeshkov
+
+# Release-signing / self-update trust boundary — decides what `dsd update` and
+# install.sh will accept as an authentic release (docs/RELEASE_SIGNING.md).
+/internal/selfupdate/ @aibeshkov
+/install.sh @aibeshkov
+/docs/RELEASE_SIGNING.md @aibeshkov
+
+# CI/CD supply chain — release build, signing, attestation, dependency and
+# secret scanning all live here.
+/.github/workflows/ @aibeshkov
+/.github/dependabot.yml @aibeshkov
+
+# Replay/capture hermeticity boundary (ADR-0003) — the Source-routing
+# invariant that keeps `dsd replay`/`dsd capture` honest.
+/internal/source/ @aibeshkov
+/internal/collectors/fsaccess.go @aibeshkov
+
+# Security-policy docs.
+/SECURITY.md @aibeshkov
