@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,6 +85,14 @@ func TestApply_EndToEnd(t *testing.T) {
 		},
 	}
 
+	// This test exercises the download/checksum/replace path, not signature
+	// verification (that's covered separately by TestVerifyChecksumsSignature) —
+	// disable the real embedded key so a fixture release with no
+	// checksums.txt.minisig isn't rejected as unsigned.
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	defer func() { signingPublicKey = oldKey }()
+
 	// Stage a fake "current binary" and point os.Executable at it via a copy in
 	// a temp dir (Apply resolves os.Executable, so run the replacement against a
 	// file we control by overriding through a symlinked exe is overkill — instead
@@ -132,6 +141,12 @@ func TestApply_ChecksumMismatch(t *testing.T) {
 		{Name: "checksums.txt", URL: srv.URL + "/sums"},
 	}}
 
+	// Isolate this test to the checksum path, not signature verification (see
+	// the same override in TestApply_EndToEnd).
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	defer func() { signingPublicKey = oldKey }()
+
 	dir := t.TempDir()
 	target := filepath.Join(dir, "dsd")
 	_ = os.WriteFile(target, []byte("old"), 0o755)
@@ -142,6 +157,9 @@ func TestApply_ChecksumMismatch(t *testing.T) {
 	_, err := Apply(context.Background(), rel)
 	if err == nil {
 		t.Fatal("expected checksum mismatch error")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum mismatch error, got: %v", err)
 	}
 	// The original binary must be untouched.
 	got, _ := os.ReadFile(target)

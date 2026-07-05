@@ -48,6 +48,11 @@ var (
 	apiClient = &http.Client{Timeout: 10 * time.Second}
 	// executable resolves the running binary path; overridable in tests.
 	executable = os.Executable
+	// signingPublicKey is the key Apply() checks releases against; defaults to
+	// the build-embedded MinisignPublicKey. Overridable in tests that exercise
+	// Apply()'s checksum/download path without also having to forge a real
+	// minisign signature for the fake release fixture.
+	signingPublicKey = MinisignPublicKey
 )
 
 // AssetName is the release asset for the running platform, e.g. dsd-linux-amd64.
@@ -267,7 +272,7 @@ func checksumFor(data []byte, assetName string) (string, error) {
 // signature that does not verify — aborts the update rather than trusting an
 // unauthenticated checksums.txt.
 func verifyChecksumsSignature(ctx context.Context, rel *Release, sumsBody []byte) error {
-	return verifyChecksumsSignatureKey(ctx, MinisignPublicKey, rel, sumsBody)
+	return verifyChecksumsSignatureKey(ctx, signingPublicKey, rel, sumsBody)
 }
 
 // verifyChecksumsSignatureKey is the key-parameterised core of

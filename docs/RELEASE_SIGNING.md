@@ -12,19 +12,18 @@ air-gapped-friendly ethos. The self-updater verifies the signature **in-binary**
 (`internal/selfupdate/minisign.go`, stdlib + `x/crypto/blake2b` only), so no
 external tool is required on the host.
 
-## Status: scaffolded, dormant
+## Status: active
 
-The whole path ships **inert** until a maintainer generates a key — exactly like
-the Homebrew-tap release job. With no key configured:
+The maintainer key has been generated and embedded. `dsd update` now **requires**
+a valid `checksums.txt.minisig` on every release (fail closed); the release
+workflow signs it automatically since `MINISIGN_SECRET_KEY` is set.
 
-- `internal/selfupdate.MinisignPublicKey == ""` → `dsd update` keeps its current
-  behaviour (download + sha256 against `checksums.txt`).
-- `install.sh`'s `MINISIGN_PUBKEY=""` → the installer's signature step is skipped.
-- the release workflow's `SIGN` env is `false` → the signing step is skipped.
+The private key itself was generated on the maintainer's laptop outside any git
+repo, backed up into a password manager, and the local copy deleted once the two
+GitHub Actions secrets below were set — it never touched this codebase or a
+commit.
 
-Nothing breaks before a key exists.
-
-## Activating (maintainer, one time)
+## Activating (for reference / key rotation)
 
 1. **Generate the keypair** (keep `minisign.key` offline and backed up; never
    commit it):

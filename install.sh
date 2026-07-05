@@ -13,10 +13,9 @@ set -e
 REPO="keyorixhq/dashdiag"
 BINARY="dsd"
 # PREFIX / VERSION are parsed from args in main().
-# Pinned minisign public key (the base64 line from minisign.pub). EMPTY = release
-# signing not yet configured → signature verification is inert. Keep in sync with
-# internal/selfupdate MinisignPublicKey. See docs/RELEASE_SIGNING.md.
-MINISIGN_PUBKEY=""
+# Pinned minisign public key (the base64 line from minisign.pub). Active —
+# keep in sync with internal/selfupdate MinisignPublicKey. See docs/RELEASE_SIGNING.md.
+MINISIGN_PUBKEY="RWQizEodTN8n2wK3eKHLT4lSwCbtKxXvMbzGXV4A7xhvhrVS4vucCljR"
 
 # ── colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
