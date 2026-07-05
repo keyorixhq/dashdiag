@@ -141,13 +141,20 @@ test-fuzz:
 	go test -run=NONE -fuzz='^FuzzParseHealth$$'         -fuzztime=$(FUZZTIME) ./internal/fleet/; \
 	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
-	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/
+	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
+	go test -run=NONE -fuzz='^FuzzParseOSRelease$$'      -fuzztime=$(FUZZTIME) ./internal/platform/
 	@echo "✅ all portable fuzz harnesses passed"
 	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
 	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid,"
 	@echo "   FuzzParseSMARTHealth, FuzzParseSMARTAttributes, FuzzParseFailedUnits,"
 	@echo "   FuzzParseUnitShow, FuzzParseBlame, FuzzParseDurationMs,"
-	@echo "   FuzzParseJournalLines — run on Linux/CI"
+	@echo "   FuzzParseJournalLines, FuzzParseZFSVdevErrors, FuzzParseZFSCount,"
+	@echo "   FuzzParseMDArrayCounts, FuzzParseRecoveryPct, FuzzParseDRBDSyncLine,"
+	@echo "   FuzzParseSystemdTime, FuzzParseSSHDuration, FuzzParseHVBalloonMaxMB,"
+	@echo "   FuzzParseAzureStorageProfile, FuzzParseAzureScheduledEvents,"
+	@echo "   FuzzENASRDActive, FuzzParseOOMEvents, FuzzParseNVMeTemp,"
+	@echo "   FuzzParseDPMSclk, FuzzParseMiB, FuzzParseNvidiaSMILine,"
+	@echo "   FuzzApplySATASmartJSON — run on Linux/CI"
 
 .PHONY: test-fuzz-linux
 # Linux-tagged parser harnesses (raid_linux/nvme_linux/lvm_linux). Run on a
@@ -163,7 +170,24 @@ test-fuzz-linux:
 	go test -run=NONE -fuzz='^FuzzParseUnitShow$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseBlame$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseDurationMs$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseJournalLines$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/
+	go test -run=NONE -fuzz='^FuzzParseJournalLines$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseZFSVdevErrors$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseZFSCount$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseMDArrayCounts$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseRecoveryPct$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseDRBDSyncLine$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseSystemdTime$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseSSHDuration$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseHVBalloonMaxMB$$'   -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseAzureStorageProfile$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseAzureScheduledEvents$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzENASRDActive$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseOOMEvents$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseNVMeTemp$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseDPMSclk$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseMiB$$'              -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseNvidiaSMILine$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzApplySATASmartJSON$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/
 	@echo "✅ all Linux fuzz harnesses passed"
 
 .PHONY: test-contract

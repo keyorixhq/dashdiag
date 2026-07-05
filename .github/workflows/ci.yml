@@ -263,7 +263,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
