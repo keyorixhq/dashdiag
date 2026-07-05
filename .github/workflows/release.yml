@@ -23,12 +23,12 @@ jobs:
     env:
       SIGN: ${{ secrets.MINISIGN_SECRET_KEY != '' && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with: {fetch-depth: 0}
 
       # Floating minor, not go.mod's exact patch — see ci.yml's top-of-file note
       # (a go.mod-pinned patch silently goes stale on a stdlib CVE fix).
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26', cache: true}
 
       - name: Run tests
@@ -59,6 +59,19 @@ jobs:
           # The AppImage is the SteamOS / immutable-rootfs install path (survives OS updates).
           scripts/build-appimage.sh "${GITHUB_REF_NAME#v}"
           cd dist && sha256sum dsd-*.AppImage >> checksums.txt
+
+      # SBOM: what's actually IN a release, for enterprise pre-pilot security
+      # review (the same audience minisign/attestation serve). One source-level
+      # SBOM covers every platform binary — CGO_ENABLED=0 across the board means
+      # identical go.mod/go.sum dependencies regardless of target OS/arch, so a
+      # per-binary SBOM would just be four identical copies. `go install` (syft
+      # is a Go binary) matches the project's own convention (govulncheck/
+      # gitleaks/nfpm) over a marketplace Action.
+      - name: Generate SBOM
+        run: |
+          go install github.com/anchore/syft/cmd/syft@v1.46.0
+          syft dir:. --source-name dashdiag --source-version "${GITHUB_REF_NAME#v}" -o spdx-json=dist/dsd.spdx.json
+          cd dist && sha256sum dsd.spdx.json >> checksums.txt
 
       # Sign the FINAL checksums.txt with minisign — the authenticity anchor that
       # `dsd update` verifies in-binary (closes the self-updater single-origin gap).
@@ -105,7 +118,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           files: dist/*
           generate_release_notes: true
@@ -120,7 +133,7 @@ jobs:
       # not a blocked release. Verify with:
       #   gh attestation verify <downloaded-file> --owner keyorixhq
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           # Explicit patterns, not a bare 'dist/*': build-appimage.sh leaves a
           # dist/.appimagetool CACHE DIRECTORY behind, and it's not worth betting
@@ -134,6 +147,7 @@ jobs:
             dist/*.rpm
             dist/*.AppImage
             dist/checksums.txt*
+            dist/dsd.spdx.json
 
   # Push the regenerated Homebrew formula to keyorixhq/homebrew-tap.
   # Off by default — a no-op until the maintainer has:
@@ -146,7 +160,7 @@ jobs:
     if: ${{ vars.HOMEBREW_TAP_ENABLED == 'true' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Generate formula for this tag
         env:

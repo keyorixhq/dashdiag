@@ -29,10 +29,10 @@ jobs:
   security:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # Floating minor, not go.mod's exact patch — see ci.yml's top-of-file
       # note (a go.mod-pinned patch silently goes stale on a stdlib CVE fix).
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26', cache: true}
 
       - name: govulncheck
@@ -52,12 +52,33 @@ jobs:
   gitleaks:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with: {fetch-depth: 0} # full history — gitleaks detect needs every commit, not just HEAD
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with: {go-version: '1.26', cache: true}
 
       - name: gitleaks
         run: |
           go install github.com/zricethezav/gitleaks/v8@latest
           gitleaks detect --no-banner
+
+  # Blocks a PR that INTRODUCES a new vulnerable/license-flagged dependency —
+  # distinct from govulncheck (only scans what's already merged and imported)
+  # and from Dependabot (schedule-based, proposes an update, doesn't gate a
+  # PR). No Go-binary equivalent exists (needs GitHub's PR base/head dependency
+  # graph diff), so this is a marketplace Action, not `go install` — the one
+  # exception to that pattern in this file, for lack of an alternative.
+  # PR-only: there's no head/base pair to diff outside a pull_request event.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+        with:
+          # Matches the project's own CVSS-threshold philosophy elsewhere
+          # (health --cve WARNs at >=7.0): don't hard-fail a PR on low/moderate
+          # noise, reserve the gate for genuinely serious new dependencies.
+          fail-on-severity: high

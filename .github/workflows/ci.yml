@@ -32,9 +32,9 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04, macos-14, macos-15]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
@@ -71,8 +71,8 @@ jobs:
     name: Replay hermeticity (double-replay diff)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
@@ -137,8 +137,8 @@ jobs:
     name: Replay fidelity (cross-env golden)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
@@ -151,12 +151,12 @@ jobs:
     name: Lint + gosec (golangci-lint)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2  # keep in sync with local dev (brew)
 
@@ -168,7 +168,7 @@ jobs:
     name: Semgrep (custom rules)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: pipx install semgrep
       - run: semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING .
 
@@ -184,12 +184,12 @@ jobs:
       matrix:
         platform: [linux/amd64, linux/arm64]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       # arm64 needs emulation on an amd64 runner.
       - name: Set up QEMU
         if: matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
         run: |
@@ -262,7 +262,7 @@ jobs:
     name: Shellcheck install.sh
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
@@ -278,8 +278,8 @@ jobs:
     name: Non-root verdict invariant
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
@@ -301,8 +301,8 @@ jobs:
     name: Alpine (musl/busybox) honesty smoke
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
@@ -325,8 +325,8 @@ jobs:
     name: Container honesty smoke (cgroupns=host throttle)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true

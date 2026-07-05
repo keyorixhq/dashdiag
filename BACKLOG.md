@@ -476,9 +476,16 @@ action — reuse the existing `go install …@latest` + `go-version-file: go.mod
   NUL bytes, empty/malformed KEY=VALUE lines). 4.3M executions / 30s, zero crashes — the parser's
   only numeric path is an error-checked `strconv.Atoi`, so this is confirmed-clean regression
   coverage, not a live bug fix (2026-07-04).
-- **GoReleaser + cosign + syft SBOM + SLSA provenance** — verifiable release artifacts for
-  enterprise pre-test security reviews; attach to the v1.x releases. (`release.yml` exists —
-  audit what it already produces/signs before adding.)
+- **Verifiable release artifacts for enterprise pre-pilot security review** — ✅ DONE across
+  three PRs (2026-07-05), all built on the existing `release.yml` (never adopted GoReleaser —
+  audited what the custom workflow already produced/signed before adding, per the original
+  note here). Signing (minisign, PR #717): `internal/selfupdate.MinisignPublicKey` embedded,
+  `dsd update`/`install.sh` now fail-closed on an unsigned release. Provenance (PR #706):
+  `actions/attest-build-provenance`, SLSA-style, no key to protect. SBOM (PR pending): one
+  source-level `dist/dsd.spdx.json` via `syft dir:.` (CGO_ENABLED=0 means identical deps across
+  all 4 platform binaries, so one SBOM covers the release, not four copies), checksummed +
+  signed + attested alongside everything else. cosign was never added — minisign already fills
+  that role and duplicating it would be redundant, not additive.
 - **Secret scanning (gitleaks) in pre-commit** — ✅ DONE (2026-07-04). `gitleaks protect
   --staged` wired in as step 1 (staged-diff-only, ~25ms, gracefully skips if not installed —
   same idiom as the golangci-lint/semgrep guards). Verified both directions: passes clean on
