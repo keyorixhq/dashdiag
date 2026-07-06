@@ -23,6 +23,15 @@ repo, backed up into a password manager, and the local copy deleted once the two
 GitHub Actions secrets below were set — it never touched this codebase or a
 commit.
 
+Verified end-to-end on the first release to actually carry it, v1.17.2
+(2026-07-06) — not just "the workflow step didn't error": downloaded the real
+`checksums.txt`/`checksums.txt.minisig` from that release and ran
+`minisign -Vm` against them for real, confirmed "Signature and comment
+signature verified." (One real bug surfaced getting there: `apt-get install
+minisign` doesn't exist on the release runner's `ubuntu-22.04` even with
+`universe` enabled — fixed by fetching minisign's own pinned+checksummed
+upstream binary instead of relying on OS package availability.)
+
 ## Activating (for reference / key rotation)
 
 1. **Generate the keypair** (keep `minisign.key` offline and backed up; never

@@ -462,54 +462,141 @@ golangci-lint/semgrep skip idiom but resolves the binary by full GOPATH path. CI
 action — reuse the existing `go install …@latest` + `go-version-file: go.mod` shape.
 
 ### Related SSDLC candidates
-- **CodeQL + OpenSSF Scorecard** — ✅ already shipped (`codeql.yml`, `scorecard.yml`). House
-  style pins Actions to major-version tags (`@v7`/`@v6`), not commit SHAs — a deliberate
-  convention (Scorecard still dings pin-by-tag; accepted), so do NOT "fix" it to SHAs blindly.
-- **Fuzz the SMART / os-release / /proc parsers** — ✅ DONE. SMART/NVMe/GPU already had extensive
-  coverage (`fuzz_rawtools_linux_test.go`, `fuzz_gpu_nvme_linux_test.go`, the v1.1.2 parser-fuzz
-  pass) and /proc (loadavg, meminfo, vmstat, diskstats, file-nr, proc/stat) likewise
-  (`cpu_test.go`, `memory_test.go`, `swap_test.go`, `io_test.go`, `fdlimits_test.go`,
-  `processes_test.go`) — this bullet was stale. The one genuine gap was `/etc/os-release`
-  (`platform.parseOSRelease`, read by `platform.Detect()` on every collector run): added
-  `FuzzParseOSRelease` (`internal/platform/fuzz_test.go`), seeded from the real per-distro
-  fixtures in `profile_test.go` plus adversarial cases (huge/negative VERSION_ID, invalid UTF-8,
-  NUL bytes, empty/malformed KEY=VALUE lines). 4.3M executions / 30s, zero crashes — the parser's
-  only numeric path is an error-checked `strconv.Atoi`, so this is confirmed-clean regression
-  coverage, not a live bug fix (2026-07-04).
-- **Verifiable release artifacts for enterprise pre-pilot security review** — ✅ DONE across
-  three PRs (2026-07-05), all built on the existing `release.yml` (never adopted GoReleaser —
-  audited what the custom workflow already produced/signed before adding, per the original
-  note here). Signing (minisign, PR #717): `internal/selfupdate.MinisignPublicKey` embedded,
-  `dsd update`/`install.sh` now fail-closed on an unsigned release. Provenance (PR #706):
-  `actions/attest-build-provenance`, SLSA-style, no key to protect. SBOM (PR pending): one
-  source-level `dist/dsd.spdx.json` via `syft dir:.` (CGO_ENABLED=0 means identical deps across
-  all 4 platform binaries, so one SBOM covers the release, not four copies), checksummed +
-  signed + attested alongside everything else. cosign was never added — minisign already fills
-  that role and duplicating it would be redundant, not additive.
-- **Secret scanning (gitleaks) in pre-commit** — ✅ DONE (2026-07-04). `gitleaks protect
-  --staged` wired in as step 1 (staged-diff-only, ~25ms, gracefully skips if not installed —
-  same idiom as the golangci-lint/semgrep guards). Verified both directions: passes clean on
-  the real staged diff, and blocks (hook exits 1) on a synthetic random-looking secret staged
-  at repo root. Note: gitleaks' default ruleset allowlists AWS's own documentation example key
-  (`AKIAIOSFODNN7EXAMPLE`) — a real secret doesn't look like that, so this isn't a gap, just a
-  reminder the default ruleset has sensible exclusions built in. Aside (not a leak, not touched
-  here — the user's call): a full `gitleaks dir .` working-tree scan turned up a live,
-  never-committed AWS SSH key (`dsd-arm-test.pem`, `.git/info/exclude`-excluded, matches the
-  existing CLAUDE.md note recommending it move to `~/.ssh/`).
-  **Follow-up (2026-07-04) — CI-level backstop:** the pre-commit hook alone only catches a NEW
-  secret, and only if the contributor installed the hook locally — a fork/external PR, or a
-  maintainer machine without it installed, gets zero coverage. Added a `gitleaks` job to
-  `security.yml` running `gitleaks detect` (full commit history, `fetch-depth: 0`) on the same
-  push/PR/weekly triggers as govulncheck. Installed via `go install
-  github.com/zricethezav/gitleaks/v8@latest` (note: NOT `github.com/gitleaks/gitleaks/v8` — the
-  GitHub org is `gitleaks` but the Go module still lives under the original author's
-  `zricethezav` namespace, a real trap caught by testing the exact `go install` line locally
-  before trusting it in CI) rather than the `gitleaks-action` marketplace Action, matching
-  govulncheck's own "go install + run the CLI directly" shape. Baseline confirmed clean first:
-  1256 commits / 28.5 MB / ~1m16s, zero leaks — safe to gate before merge. Green on both a PR
-  run and a push-to-main run, then added to branch-protection required checks (16 total now).
-- **SECURITY.md + network-free-as-a-stated-security-property** — governance docs for enterprise
-  reviewers; currently an implicit design choice, not a written guarantee.
+
+**Status as of v1.17.2 (2026-07-06): the whole list below is done or explicitly
+deferred by choice.** No open, un-actioned SSDLC gap remains.
+
+- **CodeQL + OpenSSF Scorecard** — ✅ shipped (`codeql.yml`, `scorecard.yml`), both
+  confirmed actually running (not just present as files — `state: active` via
+  the API) and re-verified clean post-SHA-pinning (below). Live Scorecard pull
+  (2026-07-05): 5.5/10 — the low sub-scores are either structural for a
+  solo-maintainer repo (`Code-Review`/`Contributors`/`Maintained` — nothing to
+  fix without a second reviewer or more repo age) or already-addressed
+  (`Signed-Releases` was stale at pull time, predating minisign activation;
+  resolves itself on the next scored release).
+- **GitHub Actions pinned to commit SHA** — ✅ DONE (PR #721, 2026-07-05). The
+  note that used to live here said this was "a deliberate house style, don't
+  fix it" — that was wrong the moment Scorecard's `Pinned-Dependencies` check
+  was actually read (it scored 0). Every third-party Action across all 5
+  workflow files now pins to a full SHA with the version kept as a trailing
+  comment (`@<sha> # v7`); Dependabot's existing `github-actions` ecosystem
+  config already understands and auto-bumps this format. Verified working on
+  both PR-triggered *and* push-to-main-only workflows (`codeql.yml`/
+  `scorecard.yml` never run on a PR, so their pinning could only be proven
+  post-merge — confirmed clean).
+- **Fuzz the SMART / os-release / /proc parsers** — ✅ DONE (2026-07-04,
+  `FuzzParseOSRelease`), confirmed-clean regression coverage, not a live bug
+  fix at the time. Superseded in scope by the continuous fuzzing rig below,
+  which since found a real bug in a sibling parser.
+- **Verifiable release artifacts for enterprise pre-pilot security review** —
+  ✅ DONE, all three legs, all built on the existing `release.yml` (never
+  adopted GoReleaser or cosign):
+  - **Signing** (minisign, PR #717): `internal/selfupdate.MinisignPublicKey`
+    embedded; `dsd update`/`install.sh` fail closed on an unsigned release.
+  - **Provenance** (PR #706): `actions/attest-build-provenance`, SLSA-style,
+    no key to protect.
+  - **SBOM** (PR #721): one source-level `dist/dsd.spdx.json` via `syft
+    dir:.` (CGO_ENABLED=0 means identical deps across all 4 platform
+    binaries, so one SBOM covers the release, not four copies).
+  - All three verified end-to-end on the **first real release to carry them**
+    (v1.17.2, 2026-07-06) — not just "the workflow didn't error": downloaded
+    the actual release artifacts and ran `sha256sum -c`, `minisign -Vm`, and
+    `gh attestation verify` against them for real.
+  - **One real bug shipping this**: `apt-get install minisign` doesn't exist
+    on `ubuntu-22.04` even with `universe` enabled — the first `v1.17.2` tag
+    attempt failed cleanly on the signing step (before anything published).
+    Fixed by fetching minisign's own pinned+checksummed upstream binary
+    instead of relying on OS package availability (PR #726).
+- **Secret scanning (gitleaks) in pre-commit + CI** — ✅ DONE (2026-07-04,
+  #703/#704). Pre-commit hook (`gitleaks protect --staged`) plus a CI
+  `gitleaks` job (full commit history, `fetch-depth: 0`) on push/PR/weekly,
+  now a required branch-protection check. `go install
+  github.com/zricethezav/gitleaks/v8@latest` — note the module path trap:
+  the GitHub org renamed to `gitleaks` but the Go module still lives under
+  the original author's `zricethezav` namespace.
+- **Native GitHub secret scanning + push protection** — ✅ DONE (2026-07-05,
+  enabled via the repo settings API, no code change). Complements the
+  gitleaks CI job: push protection blocks a recognized secret pattern
+  *before* it lands, rather than catching it after.
+- **Private vulnerability reporting** — ✅ DONE (2026-07-05) — gives
+  researchers a structured private disclosure channel, complementing
+  `SECURITY.md`'s existing contact-based process.
+- **Dependency Graph + `dependency-review-action`** — ✅ DONE (PR #721,
+  Dependency Graph enabled 2026-07-05). Blocks a PR that *introduces* a new
+  vulnerable/license-flagged dependency at review time — distinct from
+  govulncheck (already-merged code only) and Dependabot (schedule-based,
+  doesn't gate a PR). `fail-on-severity: high`, matching this project's own
+  CVSS-threshold philosophy elsewhere (`health --cve` WARNs at ≥7.0).
+- **Dependabot security updates + malware alerts** — ✅ DONE (2026-07-05/06,
+  enabled via repo settings, no code change). Fast-tracks a PR the moment a
+  *known* CVE or malicious-package advisory is found, instead of waiting for
+  the weekly scheduled version-bump PR.
+- **CODEOWNERS** — ✅ DONE (PR #718, 2026-07-05). Routes review attention to
+  the release-signing/replay-hermeticity/CI paths. Doesn't gate merges today
+  (branch protection has no require-code-owner-review rule — deliberate, for
+  solo-maintainer self-merge); documentation/signal now, ready to enforce
+  the day a second reviewer exists.
+- **Continuous fuzzing rig** — ✅ DONE (PRs #719/#720/#728/#729), live on
+  pve01 CT 220. Rotates through every `FuzzXxx` target, **discovered
+  dynamically per rotation** (`go test -list`) rather than a hardcoded list —
+  built specifically because the existing `make test-fuzz`/`test-fuzz-linux`
+  Makefile targets had silently drifted, never running 18 of the module's 44
+  fuzz functions (fixed alongside, same PR). CPU-capped (`CPUQuota=100%`)
+  after an uncapped rig measurably heated/loaded the shared homelab host.
+  **Found a real bug within its first rotation**: `parseZFSCount` overflowed
+  parsing a huge `K`-suffixed value, silently producing a negative ZFS vdev
+  error count (int64 wraparound) that would slip past a `== 0` health check
+  as a false "pool healthy" OK (BUG-097, PR #727) — a site the project's own
+  manual false-OK audits had missed, because it already checked
+  `strconv.ParseFloat`'s error explicitly and so wasn't caught by the
+  discard-error-pattern sweep below. Two rig bugs found+fixed in the process
+  of shipping this: the auto-crash-PR mechanism failed to push when based on
+  a stale checkout (#728), and a `grep -q`-in-a-pipe SIGPIPE-under-`pipefail`
+  bug made the per-target freshness check misreport every target as
+  "doesn't exist" (#729, undetectable via manual reproduction — see that
+  PR's description for the full root-cause story).
+- **Float-parsing NaN/Inf/negative hardening sweep** — ✅ DONE (PRs #722/
+  #723/#724/#727), triggered directly by building out the fuzzing rig above.
+  `strconv.ParseFloat` treats `"NaN"`/`"Inf"`/`"+Inf"`/`"-Inf"` as
+  *successful* parses, not errors — the same bug class as the earlier NVMe-
+  temp/GPU-clock fixes (#372/#373). Found and fixed 33 call sites across 18
+  files in `internal/collectors`, all now routed through one shared, fuzzed
+  helper (`parseFloat`/`parseFiniteFloat`, `io.go`) instead of 29 independent
+  copies of the same anti-pattern. Includes a corrected duration-parsing
+  float→int overflow claim: PR #724 initially claimed this class of bug
+  "saturates safely, not an active issue" based on a Docker verification
+  that silently defaulted to arm64 instead of the deployed amd64 — on
+  genuine amd64 (`docker --platform linux/amd64`), it does NOT saturate
+  safely. The code fix was already correct either way (clamps before
+  conversion); only the stated severity was wrong, corrected in PR #727.
+- **SECURITY.md + network-free-as-a-stated-security-property** — still just
+  an implicit design choice, not a written guarantee. Only remaining item in
+  this list with zero action taken; low priority.
+
+**Deliberately evaluated and declined, not oversights:**
+- **DAST** — structurally not applicable; confirmed no `http.ListenAndServe`
+  anywhere, dsd never runs as a network service.
+- **Org-wide 2FA requirement** — the maintainer's own account already has
+  2FA; the org-wide requirement itself is deferred until co-founders join
+  (a conscious call, not a gap — nothing to enforce it against yet).
+- **License allow/deny list on `dependency-review-action`** — offered as a
+  quick follow-up (repo is MIT; a GPL-family deny-list would stop a future
+  dependency from silently introducing copyleft), never explicitly
+  requested. Cheap, still open if wanted.
+- **GitHub Code Quality** (the CodeQL-powered maintainability/reliability
+  scan product) — evaluated 2026-07-06. In public preview (free), goes GA
+  and starts billing 2026-07-20. Declined: it's the same CodeQL engine
+  already running here with additional query packs, and the marginal value
+  over the existing `security-and-quality` CodeQL queries + the already-
+  aggressive `golangci-lint` config (cyclomatic complexity, `staticcheck`,
+  `dupl`, etc.) is unclear enough not to justify taking on a new billed
+  feature for it.
+- **CII Best Practices badge, signed commits, reproducible-build
+  verification, `secret_scanning_non_provider_patterns`** — all evaluated,
+  all judged genuinely low-value at the solo-maintainer/pre-revenue stage
+  (paperwork, marginal value for a self-merging sole committer, overkill,
+  or a materially higher false-positive rate, respectively) — not
+  oversights, don't re-litigate without a new reason.
 
 ---
 
