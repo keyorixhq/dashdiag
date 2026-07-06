@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -209,7 +210,15 @@ func (c *IOCollector) collectDarwin(ctx context.Context) (*models.IOInfo, error)
 	return result, nil
 }
 
+// parseFloat reads an iostat MB/s field. strconv.ParseFloat treats "NaN"/"Inf"/
+// "+Inf"/"-Inf" as successful parses (not errors) — reject those plus a
+// negative throughput, same bug class as the NVMe temp/GPU clock NaN/Inf
+// fixes (#372/#373): a garbled value must never silently become a
+// display/verdict-corrupting NaN or Inf.
 func parseFloat(s string) float64 {
-	v, _ := strconv.ParseFloat(s, 64)
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return 0
+	}
 	return v
 }

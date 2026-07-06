@@ -1,10 +1,41 @@
 package collectors
 
 import (
+	"math"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// FuzzParseFloat fuzzes the iostat MB/s field parser. strconv.ParseFloat
+// treats "NaN"/"Inf"/"+Inf"/"-Inf" as successful (not errored) parses — the
+// exact bug class behind the NVMe temp / GPU clock NaN/Inf fixes (#372/#373).
+// Invariant: the result must never be NaN, infinite, or negative — a garbled
+// iostat field must degrade to 0, never a display/verdict-corrupting value.
+func FuzzParseFloat(f *testing.F) {
+	seeds := []string{
+		"12.34",
+		"0",
+		"NaN",
+		"Inf",
+		"+Inf",
+		"-Inf",
+		"-5",
+		"1e308",
+		"",
+		"abc",
+		"  3.5  ",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		v := parseFloat(s)
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			t.Fatalf("parseFloat(%q) = %v, want a finite non-negative value", s, v)
+		}
+	})
+}
 
 // FuzzParseVGs / FuzzParseLVs / FuzzParseLVMFloat fuzz the LVM tool-output
 // parsers (vgs/lvs/pvs). These consume external-tool stdout (THREAT_MODEL_CLI.md
