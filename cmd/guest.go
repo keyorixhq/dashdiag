@@ -148,6 +148,8 @@ func detectGuestView(ctx context.Context) (guestView, bool) {
 		return azureGuestView(ctx), true
 	case collectors.GCPGuestAvailable():
 		return gcpGuestView(ctx), true
+	case collectors.OCIGuestAvailable():
+		return ociGuestView(ctx), true
 	case collectors.VMwareGuestAvailable():
 		return vmwareGuestView(ctx), true
 	case collectors.KVMGuestAvailable():
@@ -236,6 +238,44 @@ func gcpGuestView(ctx context.Context) guestView {
 		hostTitle:  "Host-side — Google Cloud activity to correlate",
 		healthyMsg: "GCE guest healthy — no guest-side config or host-maintenance issues found",
 	}
+}
+
+// ociShapeLabel returns the reported OCI shape, or a generic fallback when
+// IMDS couldn't be read.
+func ociShapeLabel(info *models.OCIInfo) string {
+	if info.Shape == "" {
+		return "instance"
+	}
+	return info.Shape
+}
+
+// ociInsightProviderSide always returns false: unlike AWS/Azure/GCP, this
+// collector currently has no OCI-imposed-limit signal (no throttle counters) —
+// every OCI insight (IMDS posture, agent health, time sync, VNIC ring drops)
+// is guest-fixable. Kept as a real function (not a nil hostSide) so the shared
+// two-block guestView shape stays uniform and this can grow a provider-side
+// signal later without a shape change.
+func ociInsightProviderSide(string) bool { return false }
+
+func ociGuestView(ctx context.Context) guestView {
+	info := runGuestCollector(ctx, collectors.NewOCICollector()).(*models.OCIInfo)
+	shape := ociShapeLabel(info)
+	return guestView{
+		identity:   "🔴 OCI instance — " + shape,
+		jsonData:   info,
+		insights:   analysis.OCIInsights(*info),
+		hostSide:   ociInsightProviderSide,
+		recognized: isOCIRecognitionLine,
+		guestTitle: "Your instance — you can fix these",
+		hostTitle:  "Provider-imposed — evidence to share with Oracle support",
+		healthyMsg: "OCI instance healthy — no guest-side posture issues found",
+	}
+}
+
+// isOCIRecognitionLine matches the all-clean "OCI <shape> — …" INFO that
+// checkOCI emits only when everything it could verify is clean.
+func isOCIRecognitionLine(msg string) bool {
+	return strings.HasPrefix(msg, "OCI ")
 }
 
 // vmwareProductLabel returns the reported VMware product name, or a generic
