@@ -67,19 +67,26 @@ git push origin v1.2.3
 # CI pipeline triggers automatically
 ```
 
-The CI pipeline (`.github/workflows/release.yml`) — **what actually runs today:**
+The CI pipeline (`.github/workflows/release.yml`) — **what actually runs today**
+(updated 2026-07-06, activated in v1.17.2):
 1. ✅ Runs full test suite (`go test -race`)
 2. ✅ Cross-compiles Linux amd64/arm64 + macOS amd64/arm64
-3. ✅ Generates SHA256 checksums (`checksums.txt`)
-4. ✅ Creates GitHub Release (uploads 4 binaries + `checksums.txt`)
-5. ⚙️ Updates the Homebrew tap — **gated/off by default** via the `update-tap` job;
-   see "Homebrew tap" below.
+3. ✅ Builds `.deb`/`.rpm` packages and Linux AppImages
+4. ✅ Generates an SBOM (`dsd.spdx.json`, via syft) covering the release
+5. ✅ Generates SHA256 checksums (`checksums.txt`, now covering every artifact
+   above including the SBOM)
+6. ✅ Signs `checksums.txt` with minisign (`checksums.txt.minisig`) — see
+   `docs/RELEASE_SIGNING.md`. `dsd update`/`install.sh` verify this and fail
+   closed on an unsigned or tampered release.
+7. ✅ Smoke-tests every artifact in a clean container before publishing
+8. ✅ Creates GitHub Release (uploads all of the above)
+9. ✅ Attests build provenance (SLSA-style, `actions/attest-build-provenance`,
+   no key required) over the binaries/packages/SBOM/checksums
+10. ⚙️ Updates the Homebrew tap — **gated/off by default** via the `update-tap`
+    job; see "Homebrew tap" below.
 
-**Not yet wired (aspirational — do NOT rely on these):**
-- ❌ SBOM generation (syft) — not in the workflow.
-- ❌ cosign binary signing — not in the workflow. No `.sig` files are produced and
-  there is no published `cosign.pub`. The verification snippet below will NOT work
-  until signing is actually implemented.
+cosign was never adopted — minisign (step 6) already fills the
+authenticity role, and running both would be redundant, not additive.
 
 ## Homebrew tap
 
@@ -104,19 +111,21 @@ homepage, and tap use the DashDiag / dashdiag.sh identity.)
 ## Verifying a Release (user-facing)
 
 ```bash
-# Checksum verification (works today):
+# Integrity: does the binary match what the release claims to contain?
 sha256sum --check --ignore-missing checksums.txt
+
+# Authenticity: was checksums.txt actually signed by the maintainer?
+# (full walkthrough + the public key: docs/RELEASE_SIGNING.md)
+minisign -Vm checksums.txt -P "<the MINISIGN_PUBKEY line>"
+
+# Provenance: was this exact file built by this exact CI run from this exact
+# tagged commit? (no key required, uses GitHub's own attestation)
+gh attestation verify dsd-linux-amd64 --owner keyorixhq
 ```
 
-> **cosign signature verification is not available yet.** Binary signing is not wired
-> into the release pipeline, so there are no `.sig` files or published `cosign.pub`.
-> Once signing lands, the verify step will look like:
-> ```bash
-> cosign verify-blob \
->   --key https://raw.githubusercontent.com/keyorixhq/dashdiag/main/cosign.pub \
->   --signature dsd-linux-amd64.sig \
->   dsd-linux-amd64
-> ```
+An SBOM (`dsd.spdx.json`, SPDX format) is attached to every release too, for
+license/dependency review — it's checksummed and signed/attested the same as
+every other artifact above.
 
 ## Updating dsd (user-facing)
 
