@@ -487,9 +487,9 @@ func currentLoadSpike() *models.LoadSpike {
 		return nil
 	}
 	now := time.Now()
-	l1, _ := strconv.ParseFloat(fields[0], 64)
-	l5, _ := strconv.ParseFloat(fields[1], 64)
-	l15, _ := strconv.ParseFloat(fields[2], 64)
+	l1 := parseFloat(fields[0])
+	l5 := parseFloat(fields[1])
+	l15 := parseFloat(fields[2])
 	return &models.LoadSpike{
 		TimestampUnix: now.Unix(),
 		TimeStr:       now.Format("15:04:05") + " (now)",

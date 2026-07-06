@@ -215,8 +215,7 @@ func steamHostUptimeSeconds() float64 {
 	if len(fields) == 0 {
 		return 0
 	}
-	v, _ := strconv.ParseFloat(fields[0], 64)
-	return v
+	return parseFloat(fields[0])
 }
 
 // secureBootEfivar holds the UEFI Secure Boot state (world-readable when

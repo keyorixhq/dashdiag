@@ -177,7 +177,7 @@ func parseTCPCounters(info *models.NetworkInfo) {
 	// cumulative TcpExt counters above into a per-hour rate instead of a raw total.
 	if up, err := readFile("/proc/uptime"); err == nil {
 		if f := strings.Fields(string(up)); len(f) > 0 {
-			info.UptimeSec, _ = strconv.ParseFloat(f[0], 64)
+			info.UptimeSec = parseFloat(f[0])
 		}
 	}
 

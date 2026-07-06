@@ -238,7 +238,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	powerStr := trim(fields[6])
 	var power float64
 	if powerStr != "[N/A]" {
-		power, _ = strconv.ParseFloat(powerStr, 64)
+		power = parseFloat(powerStr)
 	}
 	driverVer := trim(fields[7])
 
@@ -246,7 +246,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	var powerLimit float64
 	if len(fields) >= 9 {
 		if ls := trim(fields[8]); ls != "" && ls != "[N/A]" {
-			powerLimit, _ = strconv.ParseFloat(ls, 64)
+			powerLimit = parseFloat(ls)
 		}
 	}
 

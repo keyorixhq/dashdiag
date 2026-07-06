@@ -408,7 +408,7 @@ func kvmParseBytes(s string) float64 {
 	if len(fields) < 2 {
 		return 0
 	}
-	val, _ := strconv.ParseFloat(fields[0], 64)
+	val := parseFloat(fields[0])
 	unit := strings.ToUpper(fields[1])
 	switch {
 	case strings.HasPrefix(unit, "TIB") || strings.HasPrefix(unit, "TB"):

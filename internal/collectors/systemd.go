@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -488,16 +487,16 @@ func parseBlameTime(s string) float64 {
 	for _, p := range parts {
 		switch {
 		case strings.HasSuffix(p, "ms"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "ms"), 64)
+			n := parseFloat(strings.TrimSuffix(p, "ms"))
 			total += n / 1000
 		case strings.HasSuffix(p, "s") && !strings.HasSuffix(p, "ms"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "s"), 64)
+			n := parseFloat(strings.TrimSuffix(p, "s"))
 			total += n
 		case strings.HasSuffix(p, "min"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "min"), 64)
+			n := parseFloat(strings.TrimSuffix(p, "min"))
 			total += n * 60
 		case strings.HasSuffix(p, "h"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(p, "h"), 64)
+			n := parseFloat(strings.TrimSuffix(p, "h"))
 			total += n * 3600
 		}
 	}

@@ -19,8 +19,7 @@ import (
 // and trigger a false "volume full" alert. Strip the marker before parsing.
 func parseLVMFloat(s string) float64 {
 	s = strings.TrimLeft(strings.TrimSpace(s), "<>")
-	f, _ := strconv.ParseFloat(s, 64)
-	return f
+	return parseFloat(s)
 }
 
 // parseVGs parses `vgs --noheadings --nosuffix --units g -o vg_name,vg_size,vg_free,vg_attr` output.

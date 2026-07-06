@@ -407,7 +407,7 @@ func collectZFSPools() (pools []models.ZFSPool, listReadFailed bool) {
 		}
 		// Used % from cap field (e.g. "45%")
 		capStr := strings.TrimSuffix(fields[4], "%")
-		pool.UsedPct, _ = strconv.ParseFloat(capStr, 64)
+		pool.UsedPct = parseFloat(capStr)
 		// Frag %
 		fragStr := strings.TrimSuffix(fields[5], "%")
 		pool.FragPct, _ = strconv.Atoi(fragStr)

@@ -183,7 +183,7 @@ func procUptimeSec(base string) int {
 	if len(upFields) < 1 {
 		return 0
 	}
-	uptimeSec, _ := strconv.ParseFloat(upFields[0], 64)
+	uptimeSec := parseFloat(upFields[0])
 
 	// jiffies per second (HZ) — typically 100 on modern kernels
 	hz := 100.0
@@ -210,8 +210,8 @@ func procCPUSec(base string) float64 {
 	if len(fields) < 14 {
 		return 0
 	}
-	utime, _ := strconv.ParseFloat(fields[11], 64)
-	stime, _ := strconv.ParseFloat(fields[12], 64)
+	utime := parseFloat(fields[11])
+	stime := parseFloat(fields[12])
 	return (utime + stime) / 100.0 // divide by HZ=100
 }
 

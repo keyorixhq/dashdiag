@@ -638,8 +638,7 @@ func collectHostMemGB() float64 {
 		if strings.HasPrefix(line, "MemTotal:") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
-				kb, _ := strconv.ParseFloat(fields[1], 64)
-				return kb / 1024 / 1024
+				return parseFloat(fields[1]) / 1024 / 1024
 			}
 		}
 	}
