@@ -11,6 +11,82 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-07-06
+
+Patch: closes out a false-OK/replay-leak bug sweep (analysis dispatch, GPU,
+RAID/Docker, migrate-certify, capture/sanitize, drilldown, platform-service-
+command) plus a systemic float-parsing hardening pass — `strconv.ParseFloat`
+treats `"NaN"`/`"Inf"`/`"+Inf"`/`"-Inf"` as *successful* parses, not errors,
+so every unguarded call site could silently turn a garbled field into a
+corrupting NaN/Inf value (the same bug class as the earlier NVMe-temp/GPU-
+clock fixes, #372/#373). Found and fixed 33 such call sites across
+`internal/collectors`, all now routed through one shared, fuzzed helper.
+Same release activates the SSDLC supply-chain work built out this cycle:
+minisign release signing, SLSA build-provenance attestation, a per-release
+SBOM, GitHub Actions pinned to commit SHA, native secret scanning + push
+protection, a `dependency-review` PR gate, and a continuous fuzzing rig. No
+`dsd health --json` schema-breaking change.
+
+### Fixed
+- **`applyOne`/`applyOneExtended` dispatch** — ~35 of ~185 typed-pointer
+  cases (Docker, K8s, Postgres/MySQL, Process, Systemd, etc.) were unguarded
+  against a typed-nil pointer, a live panic risk (#693).
+- **GPU DPM-stuck-low / sustained-load checks** — `gpu_busy_percent` read via
+  a bare `Atoi` with no bounds check could satisfy the load-evidence gate
+  with a garbled out-of-[0,100] value (#695).
+- **HardwareRAID + Docker false-OK** — a parse failure in either collector
+  was silently indistinguishable from "verified healthy" (#696).
+- **`dsd migrate certify`** — a confirmed source-side WARN/CRIT could
+  silently PASS as "unverifiable" on the destination instead of surfacing
+  the regression (#697).
+- **`PlatformServiceCmd`/`PlatformServiceCmdSudo`** replay leak — built the
+  remedy string from the live host's `runtime.GOOS`/init system instead of
+  the replay-pinned one, so `dsd replay` could recommend commands for the
+  wrong OS (#701).
+- **Env-var reads bypassed `Source` entirely** — every `os.Getenv` in a
+  collector was live-only; `dsd replay` read the replaying machine's
+  environment, not the captured host's (a leaked SteamOS Game Mode state was
+  the concrete case that surfaced it) (#702).
+- **Capture/sanitize/fleet command-construction hardening** — four gaps
+  closed, including a cached AWS IMDSv2 session token surviving
+  sanitization (#715).
+- **`internal/drilldown` false-OK-on-non-root** — five root-cause explainers
+  (aa-status, proc-io, ss, du, journalctl) silently degraded to "nothing
+  found" instead of "couldn't measure" when a root-gated read failed
+  unprivileged (#716).
+- **Float-parsing NaN/Inf/negative sweep** — starting from `parseFloat`
+  (io.go, an iostat MB/s reader), found and fixed the identical anti-pattern
+  at 33 call sites across 18 files (RAID rebuild %, DRBD sync %, NFS
+  retrans/call counts, disk used %, GPU power, LVM size, load averages,
+  uptime, CPU jiffies, systemd/service durations, PVE memory, networkd
+  uptime), all migrated to one shared, fuzz-proven helper. Also closes a
+  related duration-parsing float→int conversion risk (#380-class overflow)
+  and adds fuzz coverage for the `iptables`/`nft` firewall rule parsers,
+  previously covered only by hand-picked unit-test examples (#722, #723,
+  #724).
+
+### Security
+- **Release signing activated** — minisign public key embedded; `dsd update`
+  and `install.sh` now fail closed on an unsigned or tampered release
+  (scaffolded-but-dormant since v1.3.0). See `docs/RELEASE_SIGNING.md`.
+- **SLSA build-provenance attestation** on every release artifact, no key to
+  generate or protect — `gh attestation verify <file> --owner keyorixhq`.
+- **SBOM** (`dsd.spdx.json`, SPDX format) attached to every release.
+- **GitHub Actions pinned to commit SHA** across every workflow (was tag-
+  pinned) — closes the supply-chain risk a hijacked marketplace-Action tag
+  represents.
+- **Native GitHub secret scanning + push protection** enabled; a
+  `dependency-review` PR gate blocks a newly-introduced vulnerable/license-
+  flagged dependency at review time.
+- **CODEOWNERS** added for the release-signing/replay-hermeticity/CI paths.
+
+### Added
+- **Continuous fuzzing rig** — a dedicated always-on host rotating through
+  every `FuzzXxx` target, discovered dynamically per rotation instead of a
+  hardcoded list. Building it surfaced a real gap: the existing `make
+  test-fuzz`/`test-fuzz-linux` Makefile targets had silently drifted, never
+  running 18 of the module's 44 fuzz functions.
+
 ## [1.17.1] - 2026-07-02
 
 Patch: an adversarial code-review sweep (13 finder agents — 9 collector domains plus
