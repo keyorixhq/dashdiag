@@ -210,15 +210,26 @@ func (c *IOCollector) collectDarwin(ctx context.Context) (*models.IOInfo, error)
 	return result, nil
 }
 
-// parseFloat reads an iostat MB/s field. strconv.ParseFloat treats "NaN"/"Inf"/
-// "+Inf"/"-Inf" as successful parses (not errors) — reject those plus a
-// negative throughput, same bug class as the NVMe temp/GPU clock NaN/Inf
-// fixes (#372/#373): a garbled value must never silently become a
-// display/verdict-corrupting NaN or Inf.
+// parseFloat reads a numeric field where a bad value should just read as 0
+// (an iostat MB/s field, a size, a count). See parseFiniteFloat for the
+// underlying guard and callers that need to distinguish "no value" from a
+// genuine 0 (they should use parseFiniteFloat directly and keep their own
+// default instead of overwriting it with 0).
 func parseFloat(s string) float64 {
+	v, _ := parseFiniteFloat(s)
+	return v
+}
+
+// parseFiniteFloat parses s, returning ok=false for a parse error OR a
+// NaN/Inf/negative result. strconv.ParseFloat treats "NaN"/"Inf"/"+Inf"/
+// "-Inf" as successful parses (not errors) — reject those plus a negative
+// value, same bug class as the NVMe temp/GPU clock NaN/Inf fixes (#372/#373):
+// a garbled value must never silently become a display/verdict-corrupting
+// NaN or Inf, and must never silently overwrite a caller's sensible default.
+func parseFiniteFloat(s string) (float64, bool) {
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
-		return 0
+		return 0, false
 	}
-	return v
+	return v, true
 }

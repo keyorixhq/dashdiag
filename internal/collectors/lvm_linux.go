@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
@@ -99,7 +98,7 @@ func parseLVMRaid(out string) []models.LVMRaidLV {
 		sizeGB := parseFloat(fields[3])
 		syncPct := 100.0 // default: fully synced
 		if len(fields) > 4 && fields[4] != "" {
-			if v, err := strconv.ParseFloat(fields[4], 64); err == nil {
+			if v, ok := parseFiniteFloat(fields[4]); ok {
 				syncPct = v
 			}
 		}

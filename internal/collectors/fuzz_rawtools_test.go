@@ -37,6 +37,35 @@ func FuzzParseFloat(f *testing.F) {
 	})
 }
 
+// FuzzParseFiniteFloat fuzzes the (value, ok) variant used by callers that
+// need to keep their own default instead of overwriting it with 0 (e.g.
+// lvm_linux.go's syncPct, pve_linux.go's perf counters). Invariant: whenever
+// ok is true, the value must be finite and non-negative — ok must never lie.
+func FuzzParseFiniteFloat(f *testing.F) {
+	seeds := []string{
+		"12.34",
+		"0",
+		"NaN",
+		"Inf",
+		"+Inf",
+		"-Inf",
+		"-5",
+		"1e308",
+		"",
+		"abc",
+		"  3.5  ",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		v, ok := parseFiniteFloat(s)
+		if ok && (math.IsNaN(v) || math.IsInf(v, 0) || v < 0) {
+			t.Fatalf("parseFiniteFloat(%q) = (%v, true), want ok=false for a non-finite/negative value", s, v)
+		}
+	})
+}
+
 // FuzzParseVGs / FuzzParseLVs / FuzzParseLVMFloat fuzz the LVM tool-output
 // parsers (vgs/lvs/pvs). These consume external-tool stdout (THREAT_MODEL_CLI.md
 // §5 / SECURITY_SDL.md Layer 2). Invariant: never panic on arbitrary output —
