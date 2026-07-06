@@ -59,7 +59,13 @@ discover_targets() {
 # So any diff here is, by construction, an actual failing input worth a human
 # looking at — there's no separate "just growing the corpus" case to handle.
 publish_crashers() {
-  if ! git status --porcelain -- '*/testdata/fuzz/*' | grep -q .; then
+  # Same reason this isn't `git status --porcelain ... | grep -q .`: grep -q
+  # exits on its first match, which can SIGPIPE git status while it's still
+  # writing (multiple changed files) — under this script's `set -o pipefail`,
+  # that would make the whole check report "nothing to publish" even when a
+  # real crash reproducer exists. Capture first, then test on the variable.
+  status_output=$(git status --porcelain -- '*/testdata/fuzz/*')
+  if [ -z "$status_output" ]; then
     return 0
   fi
   alert "new fuzz crash reproducer(s) found — opening/updating PR on $CORPUS_BRANCH"
@@ -95,8 +101,32 @@ while true; do
   mapfile -t targets < <(discover_targets)
   alert "rotation $rotation: fuzzing ${#targets[@]} targets, ${FUZZTIME} each"
   for entry in "${targets[@]}"; do
+    # Re-sync before EVERY target, not just once per rotation. A rotation
+    # covers 44+ targets at $FUZZTIME each — hours, sometimes most of a day —
+    # and this codebase merges frequently enough that a target near the end
+    # of the list was otherwise fuzzing code that could be many hours stale.
+    sync_repo
     name="${entry%%:*}"
     pkg="${entry#*:}"
+    # The target list was snapshotted at the top of this rotation; syncing
+    # every iteration now means a target can be renamed/removed by the time
+    # we reach it. Confirm it still exists before fuzzing it — otherwise
+    # `go test -fuzz` fails to match anything and that failure would get
+    # mistaken for a real crash.
+    # Capture first, then grep — NOT `go test -list ... | grep -qx`. grep -q
+    # exits the instant it finds a match, closing its end of the pipe while
+    # `go test` is often still writing its trailing "ok <pkg> <time>" summary
+    # line; the resulting SIGPIPE makes `go test` exit non-zero, and with
+    # `set -o pipefail` (active in this script) that failure propagates to
+    # the whole pipeline even though grep DID find the match. Confirmed live:
+    # every target read as "no longer exists" on a real run, despite existing,
+    # because this script has pipefail on and an ad-hoc manual reproduction
+    # attempt (without pipefail) couldn't see the bug at all.
+    list_output=$(go test -list "^${name}\$" "$pkg" 2>/dev/null || true)
+    if ! grep -qx "$name" <<<"$list_output"; then
+      log "$name no longer exists in $pkg (renamed/removed since rotation start) — skipping"
+      continue
+    fi
     logfile="/tmp/fuzz-$(echo "$name" | tr -cd 'A-Za-z0-9_').log"
     if ! go test -run=NONE -fuzz="^${name}\$" -fuzztime="$FUZZTIME" "$pkg" > "$logfile" 2>&1; then
       alert "CRASH: $name ($pkg) on $(hostname) — log at $logfile. Reproduce with: go test -run=$name $pkg"
