@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -230,10 +231,23 @@ func parseZFSCount(s string) (int, bool) {
 		return 0, false
 	}
 	n, err := strconv.ParseFloat(s[:len(s)-1], 64)
-	if err != nil || n < 0 {
+	// Reject a negative value, and NaN/Inf — strconv.ParseFloat treats "NaN"/
+	// "Inf" as successful parses, not errors, and `n < 0` is false for NaN
+	// (all comparisons with NaN are false), so neither was actually caught
+	// by the check this replaced. Found live by the continuous fuzzing rig:
+	// "10000000000000000K" parsed as n=1e16, scaled by mult=1e3 to 1e19 —
+	// past int64's ~9.2e18 max, so int(n*mult) silently wrapped to
+	// math.MinInt64 (a negative vdev error count, the exact false-OK bug
+	// class this project has fixed repeatedly: a negative count slips under
+	// any ">0"/">=threshold" check).
+	if err != nil || n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
 		return 0, false
 	}
-	return int(n * mult), true
+	scaled := n * mult
+	if scaled > float64(math.MaxInt) {
+		return math.MaxInt, true // saturate — a huge garbled count reads as "very large", never wraps negative
+	}
+	return int(scaled), true
 }
 
 // parseScrubAge extracts the number of days since the last scrub completed.
