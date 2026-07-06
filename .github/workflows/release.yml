@@ -84,7 +84,16 @@ jobs:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+          # `minisign` isn't packaged for ubuntu-22.04 (not even in universe —
+          # confirmed 2026-07-06 when a release failed on this exact step).
+          # Fetch the upstream prebuilt binary directly instead, pinned to an
+          # exact version + sha256, matching this repo's own convention of not
+          # trusting OS package availability for a release-critical tool.
+          curl -fsSL -o /tmp/minisign.tar.gz \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  /tmp/minisign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/minisign.tar.gz -C /tmp
+          sudo install -m755 /tmp/minisign-linux/x86_64/minisign /usr/local/bin/minisign
           umask 077
           printf '%s' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
           # Pipe the password (empty line for a passwordless key) so signing is
