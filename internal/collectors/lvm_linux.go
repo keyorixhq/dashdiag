@@ -96,7 +96,7 @@ func parseLVMRaid(out string) []models.LVMRaidLV {
 		if lvType != 'm' && lvType != 'r' {
 			continue
 		}
-		sizeGB, _ := strconv.ParseFloat(fields[3], 64)
+		sizeGB := parseFloat(fields[3])
 		syncPct := 100.0 // default: fully synced
 		if len(fields) > 4 && fields[4] != "" {
 			if v, err := strconv.ParseFloat(fields[4], 64); err == nil {

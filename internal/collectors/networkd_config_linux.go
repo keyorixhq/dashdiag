@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -183,8 +182,7 @@ func systemUptimeSeconds() float64 {
 	if len(fields) == 0 {
 		return 0
 	}
-	v, _ := strconv.ParseFloat(fields[0], 64)
-	return v
+	return parseFloat(fields[0])
 }
 
 // networkdSetupFailed reports whether a SETUP/AdministrativeState value means

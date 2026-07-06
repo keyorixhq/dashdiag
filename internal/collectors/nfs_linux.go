@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -240,10 +239,8 @@ func nfsReadStats(info *models.NFSInfo) {
 			// Capture calls too so the verdict can gate on the retrans RATE (retrans/calls)
 			// rather than a raw lifetime total that never decays.
 			if len(fields) >= 3 {
-				calls, _ := strconv.ParseFloat(fields[1], 64)
-				retrans, _ := strconv.ParseFloat(fields[2], 64)
-				info.RPCCalls = calls
-				info.RetransPerMin = retrans
+				info.RPCCalls = parseFloat(fields[1])
+				info.RetransPerMin = parseFloat(fields[2])
 			}
 		case "proc4":
 			// NFSv4 operations: count null read write commit ...
@@ -254,10 +251,10 @@ func nfsReadStats(info *models.NFSInfo) {
 				var reads, writes float64
 				// Typical v4 proc order: null read write commit ...
 				if len(fields) > 2 {
-					reads, _ = strconv.ParseFloat(fields[2], 64)
+					reads = parseFloat(fields[2])
 				}
 				if len(fields) > 3 {
-					writes, _ = strconv.ParseFloat(fields[3], 64)
+					writes = parseFloat(fields[3])
 				}
 				info.ReadOpsPerMin = reads
 				info.WriteOpsPerMin = writes

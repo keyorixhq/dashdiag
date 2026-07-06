@@ -263,8 +263,7 @@ func collectMemDetail(info *models.HealthDeepInfo) {
 		if len(fields) < 2 {
 			return 0
 		}
-		n, _ := strconv.ParseFloat(fields[1], 64)
-		return n / 1024 // kB → MB
+		return parseFloat(fields[1]) / 1024 // kB → MB
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		switch {

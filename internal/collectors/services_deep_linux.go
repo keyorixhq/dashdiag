@@ -305,16 +305,16 @@ func parseDurationMs(s string) int {
 		token = strings.TrimSpace(token)
 		switch {
 		case strings.HasSuffix(token, "ms"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(token, "ms"), 64)
+			n := parseFloat(strings.TrimSuffix(token, "ms"))
 			total += int(n)
 		case strings.HasSuffix(token, "min"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(token, "min"), 64)
+			n := parseFloat(strings.TrimSuffix(token, "min"))
 			total += int(n * 60000)
 		case strings.HasSuffix(token, "h"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(token, "h"), 64)
+			n := parseFloat(strings.TrimSuffix(token, "h"))
 			total += int(n * 3600000)
 		case strings.HasSuffix(token, "s"):
-			n, _ := strconv.ParseFloat(strings.TrimSuffix(token, "s"), 64)
+			n := parseFloat(strings.TrimSuffix(token, "s"))
 			total += int(n * 1000)
 		}
 	}

@@ -233,7 +233,7 @@ func parseDRBDSyncLine(line string) (pct float64, kbLeft int64) {
 		rest := strings.TrimSpace(line[syncIdx+8:])
 		pctIdx := strings.Index(rest, "%")
 		if pctIdx > 0 {
-			pct, _ = strconv.ParseFloat(strings.TrimSpace(rest[:pctIdx]), 64)
+			pct = parseFloat(strings.TrimSpace(rest[:pctIdx]))
 		}
 	}
 	// Find KB remaining in "(.../....)K" — first number is remaining

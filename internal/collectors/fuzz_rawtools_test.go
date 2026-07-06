@@ -79,12 +79,18 @@ func FuzzParseLVs(f *testing.F) {
 	})
 }
 
+// Invariant strengthened alongside the parseFloat NaN/Inf fix it now routes
+// through: "NaN" was already a seed here, but the fuzz body never checked the
+// result — a NaN size would have silently passed for months.
 func FuzzParseLVMFloat(f *testing.F) {
 	for _, s := range []string{"100.00", "<40.5", "", "abc", "-1", "1e308", "NaN", "  12  "} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		_ = parseLVMFloat(s)
+		v := parseLVMFloat(s)
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			t.Fatalf("parseLVMFloat(%q) = %v, want a finite non-negative value", s, v)
+		}
 	})
 }
 
