@@ -43,9 +43,17 @@ Only crash reproducers, automatically, as a PR:
   once whatever bug it found is fixed.
 - It publishes the reproducer immediately on the failing target, not batched at
   the end of a rotation, so a mid-run interruption can't lose a finding (see
-  the script's `sync_repo`, which does `git clean -fd` at the top of every
-  rotation — safe for anything already pushed, destructive for anything that
-  isn't).
+  the script's `sync_repo`, which does `git clean -fd` before *every* target,
+  not just once per rotation — safe for anything already pushed, destructive
+  for anything that isn't).
+- `sync_repo` runs before each individual target, not once per rotation —
+  given how often this codebase merges, a target near the end of a 44+-target
+  list would otherwise fuzz code that's hours (sometimes most of a day) stale
+  by the time it's reached. The tradeoff: syncing this often means a target
+  can occasionally be renamed/removed between when the rotation's list was
+  built and when it's reached — the script checks the target still exists
+  (`go test -list`) immediately before fuzzing it and skips it quietly if not,
+  rather than mistaking "target no longer exists" for a crash.
 
 ## Provisioning the rig (pve01)
 
