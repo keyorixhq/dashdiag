@@ -63,6 +63,18 @@ publish_crashers() {
     return 0
   fi
   alert "new fuzz crash reproducer(s) found — opening/updating PR on $CORPUS_BRANCH"
+  # Re-sync to the LATEST origin/main first. sync_repo only runs once per full
+  # rotation (up to ~11h), so the checkout a crash is found against can be
+  # badly stale by the time this runs. Basing the corpus branch on a stale
+  # point is not just cosmetic: GitHub rejects a push from a token with no
+  # `workflow` scope if the pushed tree's .github/workflows/* content differs
+  # from what's already known, even when the actual new commit never touches
+  # a workflow file — confirmed live (2026-07-06) when a real crash PR failed
+  # to push for exactly this reason. `git reset --hard` only touches TRACKED
+  # files, so the untracked crash reproducer survives this refresh untouched.
+  git fetch "$REMOTE" main -q
+  git checkout main -q
+  git reset --hard "$REMOTE/main" -q
   git checkout -B "$CORPUS_BRANCH" -q
   git add -- '*/testdata/fuzz/*'
   git commit -q -m "test(fuzz): crash reproducer(s) from continuous fuzzing ($(date -u +%F))"
