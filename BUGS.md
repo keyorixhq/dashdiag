@@ -1564,3 +1564,31 @@ honest (K8s WARN→INFO non-root).
   helper unit-tested (`k8s_oslayer_containerd_test.go`). Verified live: kubelet_active and
   containerd_active are now TRUE on all three (RKE2 v1.35.6, k0s v1.36.2, MicroK8s v1.35.5).
 **Commit:** (this PR)
+
+### BUG-097 — negative ZFS vdev error count via K/M/G/T-suffix float overflow
+**Found:** live, by the new continuous fuzzing rig (pve01 CT 220) — `FuzzParseZFSVdevErrors`
+  failed within the rig's first rotation on the input `"DEGRADED 0 10000000000000000K 0"`.
+**Root cause:** `parseZFSCount` parses a `zpool status` error counter like `"1.2K"`/`"15M"` by
+  stripping the suffix, `strconv.ParseFloat`-ing the prefix, and multiplying by the suffix's
+  scale (1e3/1e6/1e9/1e12). For `"10000000000000000K"`, the prefix parses to `1e16`, scaled by
+  `1e3` to `1e19` — past `int64`'s ~9.2e18 max. `int(n*mult)` on that out-of-range value is
+  implementation-defined per the Go spec; on real amd64 (confirmed live and independently in a
+  `--platform linux/amd64` Docker container) it silently wraps to `math.MinInt64`, not a
+  compile error or panic. A second, related bug in the same function: `n < 0` doesn't catch
+  NaN (all comparisons with NaN are false), so `"NaNK"` would hit the same unguarded path.
+**Impact:** the resulting negative `write` error count feeds `ReadErrors+WriteErrors+
+  CksumErrors == 0` (`heuristics_storage.go`) — a massively negative count can make that sum
+  read as zero (or otherwise wrong) and slip a genuinely degraded pool through as a false
+  "healthy" OK. The exact false-OK bug class as the earlier NVMe-temp/GPU-clock fixes (#372/
+  #373). Never caught by the project's manual false-OK sweeps because `parseZFSCount` already
+  checked `strconv.ParseFloat`'s error explicitly (`n, err := ...; if err != nil ...`), so it
+  didn't match the discard-error grep pattern those sweeps searched for — genuinely found only
+  by fuzzing, not code review.
+**Fix:** reject NaN/Inf explicitly (`math.IsNaN`/`math.IsInf`) alongside the existing negative
+  check, and clamp the scaled value to `math.MaxInt` before the `int()` conversion instead of
+  letting it overflow — mirrors the `floatMsToInt` pattern already used for the analogous
+  duration-parsing case (`numutil.go`). The crash reproducer is committed as a permanent
+  regression corpus entry (`testdata/fuzz/FuzzParseZFSVdevErrors/6c672205af27a666`). Verified
+  fail-before/pass-after on genuine amd64 (`docker --platform linux/amd64`, not the host's
+  native arm64) plus a clean fuzz burst.
+**Commit:** PR #727

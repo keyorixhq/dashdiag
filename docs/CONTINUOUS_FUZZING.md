@@ -57,12 +57,20 @@ Only crash reproducers, automatically, as a PR:
 
 ## Provisioning the rig (pve01)
 
-**Already done — live as of 2026-07-05**: CT 220 `dashdiag-fuzz`, 192.168.10.33,
-4 cores / 4GB / 20GB disk, Go 1.26.4 + gh CLI installed, repo cloned to
-`/root/proj/dashdiag`, systemd unit installed and enabled. The script itself was
-smoke-tested end-to-end on the live rig (a real fuzz round ran and passed).
-**Not yet started** — see "Auth" below, that's the one step requiring the
-maintainer's own action.
+**Live and running since 2026-07-05**: CT 220 `dashdiag-fuzz`, 192.168.10.33,
+4 cores / 4GB / 20GB disk, `CPUQuota=100%` (see the systemd unit below —
+added after an uncapped rig measurably heated/loaded the shared host), Go
+1.26.4 + gh CLI installed, repo cloned to `/root/proj/dashdiag`.
+
+**Track record so far**: found one real bug within its first rotation —
+`parseZFSCount` silently overflowed to a negative ZFS vdev error count
+(BUG-097, PR #727), a site the project's own manual false-OK audits had
+missed. Getting the rig's own tooling right took two more fixes along the
+way: the auto-crash-PR push failed when based on a stale checkout (PR #728),
+and a `grep -q`-in-a-pipe SIGPIPE-under-`pipefail` bug made the per-target
+freshness check (below) misreport every target as "doesn't exist" — a bug
+only reproducible by actually running the script, not by manual
+command-line reproduction (PR #729, see that PR for the full story).
 
 The steps below are the reusable recipe (e.g. for rebuilding the rig from
 scratch, or standing up a second one) — the existing `debian13-lxc` (CT 201) is
@@ -121,15 +129,18 @@ chmod +x ~/proj/dashdiag/scripts/fuzz-continuous.sh
 FUZZTIME=15m REPO_DIR=~/proj/dashdiag ~/proj/dashdiag/scripts/fuzz-continuous.sh
 ```
 
-44 targets × 15m ≈ 11 hours per rotation. Shrink `FUZZTIME` for faster rotations
-if you'd rather trade depth-per-target for more frequent full-module coverage.
+44+ targets (growing over time — discovered dynamically, not a fixed number)
+× 15m ≈ 11+ hours per rotation, though since each target now re-syncs to
+`origin/main` individually rather than once per rotation, "rotation" is a
+looser concept than it used to be — see the per-target sync note below.
+Shrink `FUZZTIME` for faster rotations if you'd rather trade depth-per-target
+for more frequent full-module coverage.
 
-On CT 220 this is already wired up as a systemd service (below), installed and
-`enabled` (starts on boot) but deliberately **not started** — start it only
-after completing the Auth step above:
+On CT 220 this is wired up as a systemd service (below), `enabled` (starts on
+boot) and currently **running**:
 
 ```sh
-pct exec 220 -- systemctl start dashdiag-fuzz
+pct exec 220 -- systemctl status dashdiag-fuzz --no-pager
 pct exec 220 -- journalctl -u dashdiag-fuzz -f   # watch it run
 ```
 
@@ -156,6 +167,15 @@ Restart=always
 RestartSec=30
 Nice=19
 CPUWeight=20
+# Nice/CPUWeight alone did NOT cap actual heat/noise in practice — they only
+# affect relative priority when something ELSE is contending for CPU, which
+# on an idle homelab box is rare, so an uncapped rig still pegged near 100%
+# continuously (confirmed live: pve01's package temp hit 91°C, load average
+# 8.4 on an 8-thread box). CPUQuota is the actual fix — a hard ceiling
+# regardless of contention. Tradeoff: -fuzztime is wall-clock, not CPU-time,
+# so capping CPU makes each pass shallower (fewer mutations tried), not the
+# rotation slower.
+CPUQuota=100%
 
 [Install]
 WantedBy=multi-user.target
