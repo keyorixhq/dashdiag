@@ -30,3 +30,17 @@ func clampAdd(a, b int) int {
 	}
 	return a + b
 }
+
+// floatMsToInt safely converts a (already-guarded, so finite/non-negative)
+// millisecond value to int, saturating to math.MaxInt instead of Go's
+// implementation-specific behavior for an out-of-range float->int conversion —
+// the float->int analog of clampMul/clampAdd above. A huge garbled duration
+// must read as "very large" and trip any upper-bound threshold, never
+// silently wrap to a small or negative value (same bug class as the
+// parseSystemdTime/parseSSHDuration fix, #380).
+func floatMsToInt(ms float64) int {
+	if ms >= float64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(ms)
+}

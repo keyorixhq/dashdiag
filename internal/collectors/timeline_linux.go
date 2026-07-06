@@ -532,10 +532,10 @@ func parseSarLoadLine(line, today string) *models.LoadSpike {
 	if _, err := time.Parse("15:04:05", fields[0]); err != nil {
 		return nil
 	}
-	l1, err1 := strconv.ParseFloat(fields[3], 64)
-	l5, err5 := strconv.ParseFloat(fields[4], 64)
-	l15, err15 := strconv.ParseFloat(fields[5], 64)
-	if err1 != nil || err5 != nil || err15 != nil {
+	l1, ok1 := parseFiniteFloat(fields[3])
+	l5, ok5 := parseFiniteFloat(fields[4])
+	l15, ok15 := parseFiniteFloat(fields[5])
+	if !ok1 || !ok5 || !ok15 {
 		return nil
 	}
 	ts, _ := time.Parse("2006-01-02 15:04:05", today+" "+fields[0])

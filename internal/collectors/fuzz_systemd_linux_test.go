@@ -77,12 +77,19 @@ func FuzzParseBlame(f *testing.F) {
 	})
 }
 
+// Invariant strengthened alongside the floatMsToInt overflow fix it now
+// routes through: "1e308s" was already a seed here, but the fuzz body never
+// checked the result — a huge duration converting to a negative/wrapped int
+// would have silently passed for months.
 func FuzzParseDurationMs(f *testing.F) {
-	for _, s := range []string{"4.210s", "2min 4.210s", "450ms", "1h 2min 3.000s", "", "abc", "1e308s", "-5s", "NaNs"} {
+	for _, s := range []string{"4.210s", "2min 4.210s", "450ms", "1h 2min 3.000s", "", "abc", "1e308s", "1e308h", "-5s", "NaNs"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		_ = parseDurationMs(s)
+		ms := parseDurationMs(s)
+		if ms < 0 {
+			t.Fatalf("parseDurationMs(%q) = %d, want a non-negative duration", s, ms)
+		}
 	})
 }
 

@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -430,8 +429,8 @@ func duGB(ctx context.Context, path string) float64 {
 	if len(fields) == 0 {
 		return 0
 	}
-	bytes, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
+	bytes, ok := parseFiniteFloat(fields[0])
+	if !ok {
 		return 0
 	}
 	return bytes / 1e9

@@ -766,8 +766,8 @@ func collectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
 		if len(numStr) == 0 {
 			continue
 		}
-		num, err := strconv.ParseFloat(numStr[0], 64)
-		if err != nil {
+		num, ok := parseFiniteFloat(numStr[0])
+		if !ok {
 			continue
 		}
 		switch {

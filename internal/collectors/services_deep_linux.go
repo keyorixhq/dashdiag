@@ -306,16 +306,16 @@ func parseDurationMs(s string) int {
 		switch {
 		case strings.HasSuffix(token, "ms"):
 			n := parseFloat(strings.TrimSuffix(token, "ms"))
-			total += int(n)
+			total = clampAdd(total, floatMsToInt(n))
 		case strings.HasSuffix(token, "min"):
 			n := parseFloat(strings.TrimSuffix(token, "min"))
-			total += int(n * 60000)
+			total = clampAdd(total, floatMsToInt(n*60000))
 		case strings.HasSuffix(token, "h"):
 			n := parseFloat(strings.TrimSuffix(token, "h"))
-			total += int(n * 3600000)
+			total = clampAdd(total, floatMsToInt(n*3600000))
 		case strings.HasSuffix(token, "s"):
 			n := parseFloat(strings.TrimSuffix(token, "s"))
-			total += int(n * 1000)
+			total = clampAdd(total, floatMsToInt(n*1000))
 		}
 	}
 	return total
