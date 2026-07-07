@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `dsd oci` — guest-side deep checks for a Linux instance on Oracle Cloud
+  Infrastructure: IMDS v2 security posture (legacy unauthenticated access
+  should be blocked), `oracle-cloud-agent` health, time sync against OCI's
+  metadata NTP server, and VNIC ring-buffer drop counters the generic NIC-
+  error check doesn't catch. Folds into `dsd health` and `dsd guest`
+  alongside the existing AWS/Azure/GCP guest collectors. Block-volume iSCSI
+  session health is intentionally not duplicated here — the existing generic
+  `ISCSICollector` already covers it for every host. Live-validated on a real
+  OCI Ampere A1 (Oracle Linux 9) free-tier instance.
+
 ## [1.17.2] - 2026-07-06
 
 Patch: closes out a false-OK/replay-leak bug sweep (analysis dispatch, GPU,

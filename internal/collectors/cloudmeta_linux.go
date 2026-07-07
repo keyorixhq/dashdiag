@@ -43,6 +43,9 @@ func (c *CloudMetaCollector) Collect(ctx context.Context) (interface{}, error) {
 	if collectGCP(ctx, info) {
 		return info, nil
 	}
+	if collectOCI(ctx, info) {
+		return info, nil
+	}
 	return info, nil
 }
 
@@ -283,6 +286,21 @@ func collectGCP(ctx context.Context, info *models.CloudInfo) bool {
 		info.SpotTermination = true
 		info.StatusReason = "GCP preemptible instance scheduled for termination"
 	}
+	return true
+}
+
+func collectOCI(ctx context.Context, info *models.CloudInfo) bool {
+	doc := ociInstanceDocRead(ctx)
+	if doc == nil || doc.ID == "" {
+		return false
+	}
+	info.Available = true
+	info.Provider = "oci"
+	info.InstanceID = doc.ID
+	info.InstanceType = doc.Shape
+	info.Region = doc.CanonicalRegionName
+	// OCI has no widely-used preemptible-instance signal comparable to AWS spot /
+	// GCP preemptible for general compute shapes — no SpotTermination probe here.
 	return true
 }
 

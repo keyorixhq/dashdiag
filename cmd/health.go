@@ -708,6 +708,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.GCPGuestAvailable() {
 		cols = append(cols, collectors.NewGCPCollector())
 	}
+	// OCI guest deep checks — gate on DMI chassis asset tag (silent on every non-OCI host).
+	if collectors.OCIGuestAvailable() {
+		cols = append(cols, collectors.NewOCICollector())
+	}
 	// Prior-boot forensics — gate on a readable cross-boot source (journal or wtmp).
 	// Quiet when the prior boot was clean; loud when it was unclean / unmeasurable.
 	if collectors.PostBootAvailable() {
