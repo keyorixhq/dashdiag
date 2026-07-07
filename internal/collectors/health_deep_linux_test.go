@@ -54,6 +54,90 @@ func TestHealthDeep_CoreUsageHermetic(t *testing.T) {
 	}
 }
 
+// TestHealthDeep_TopIOHermetic guards replay fidelity of the top-IO-process
+// sample the same way TestHealthDeep_CoreUsageHermetic does for per-core CPU:
+// the two /proc/<pid>/io snapshots share source keys and cannot be replayed
+// independently, so the derived top-N list must be cached and reproduced
+// verbatim rather than collapsing to an empty list on replay.
+func TestHealthDeep_TopIOHermetic(t *testing.T) {
+	want := topIOSample{
+		Procs:     []models.ProcessIOStat{{PID: 1204, Name: "postgres", ReadBps: 900, WriteBps: 100}},
+		NeedsRoot: true,
+	}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	if _, err := rec.Cached("healthdeep/top-io", func() ([]byte, error) { return blob, nil }); err != nil {
+		SetSource(prev)
+		t.Fatalf("seeding cached top-io: %v", err)
+	}
+	SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("replay Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if len(info.TopIOProcs) != 1 || info.TopIOProcs[0].PID != 1204 || info.TopIOProcs[0].Name != "postgres" {
+		t.Fatalf("replay did not return cached top-IO sample: %+v", info.TopIOProcs)
+	}
+	if !info.TopIOProcsNeedsRoot {
+		t.Error("NeedsRoot caveat should replay verbatim, not silently drop")
+	}
+}
+
+func TestComputeTopIORates(t *testing.T) {
+	before := map[int]procIOCounters{
+		1: {name: "postgres", readBytes: 1000, writeBytes: 0},
+		2: {name: "idle", readBytes: 500, writeBytes: 500},
+		3: {name: "recycled", readBytes: 9000, writeBytes: 0},
+	}
+	after := map[int]procIOCounters{
+		1: {name: "postgres", readBytes: 1000 + 450, writeBytes: 50}, // 900 B/s read, 100 B/s write over 0.5s
+		2: {name: "idle", readBytes: 500, writeBytes: 500},           // no movement — excluded (total == 0)
+		3: {name: "recycled", readBytes: 100, writeBytes: 0},         // counters went backwards — recycled PID, excluded
+		4: {name: "new", readBytes: 1000, writeBytes: 0},             // no "before" sample — excluded
+	}
+
+	got := computeTopIORates(before, after, 5)
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 rate (idle/recycled/new excluded), got %+v", got)
+	}
+	if got[0].PID != 1 || got[0].Name != "postgres" {
+		t.Fatalf("unexpected top process: %+v", got[0])
+	}
+	if got[0].ReadBps != 900 || got[0].WriteBps != 100 {
+		t.Errorf("rate math wrong: %+v", got[0])
+	}
+}
+
+func TestComputeTopIORates_TruncatesToN(t *testing.T) {
+	before := map[int]procIOCounters{}
+	after := map[int]procIOCounters{}
+	for i := 1; i <= 10; i++ {
+		before[i] = procIOCounters{name: fmt.Sprintf("p%d", i), readBytes: 0}
+		after[i] = procIOCounters{name: fmt.Sprintf("p%d", i), readBytes: uint64(i * 1000)}
+	}
+	got := computeTopIORates(before, after, 3)
+	if len(got) != 3 {
+		t.Fatalf("expected truncation to 3, got %d", len(got))
+	}
+	if got[0].Name != "p10" {
+		t.Errorf("expected the highest-rate process first, got %+v", got[0])
+	}
+}
+
 // High-core-count coverage for the per-core CPU path — the one surface the
 // 2-vCPU AWS Graviton validation couldn't stress. Synthetic fixtures, so it runs
 // in CI on any box (no real many-core host needed) and locks the behaviour
