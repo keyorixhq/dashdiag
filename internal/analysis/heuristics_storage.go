@@ -1060,12 +1060,13 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// bind, not an I/O-error remount (see rwDevices comment above).
 		roBindOfRWDevice := fs.ReadOnly && rwDevices[fs.Device]
 		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra && !roBindOfRWDevice {
-			hints := []string{
+			hints := make([]string, 0, 5)
+			hints = append(hints,
 				"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
 				fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
 				fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
 				"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
-			}
+			)
 			hints = append(hints, busyProcessHints(fs)...)
 			out = append(out, insight("WARN", "Disk",
 				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
