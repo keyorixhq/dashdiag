@@ -19,8 +19,16 @@ type CVEHealthCollector struct{}
 
 func NewCVEHealthCollector() *CVEHealthCollector { return &CVEHealthCollector{} }
 
-func (c *CVEHealthCollector) Name() string           { return "CVE" }
-func (c *CVEHealthCollector) Timeout() time.Duration { return 60 * time.Second }
+func (c *CVEHealthCollector) Name() string { return "CVE" }
+
+// BUG-098: this must exceed ScanAllCVEs' own internal 120s budget (list + KEV
+// enrichment) — the runner wraps Collect in context.WithTimeout(ctx, Timeout()),
+// and a child context's deadline can never exceed its parent's, so a shorter
+// value here silently overrides ScanAllCVEs' internal ceiling. Found live on a
+// cold dnf cache (Oracle Linux, 6 default repos): the flat 60s here cut the scan
+// off well before ScanAllCVEs' own 120s allowance ever got a chance to matter,
+// misreporting a scan that was still legitimately in progress as "timed out."
+func (c *CVEHealthCollector) Timeout() time.Duration { return 130 * time.Second }
 
 func (c *CVEHealthCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Cache the FULL CVE verdict (package-manager/OVAL scan + KEV enrichment) so
