@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [1.18.0] - 2026-07-07
 
 ### Added
 - `dsd oci` — guest-side deep checks for a Linux instance on Oracle Cloud
@@ -21,6 +21,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   session health is intentionally not duplicated here — the existing generic
   `ISCSICollector` already covers it for every host. Live-validated on a real
   OCI Ampere A1 (Oracle Linux 9) free-tier instance.
+- `dsd disk` — busy-filesystem check: when a mount is at WARN/CRIT usage or
+  unexpectedly read-only, names which PIDs hold it open (command, user,
+  read/write) so an admin knows what's blocking an unmount. Falls back from
+  `fuser` to a direct `/proc/*/fd` walk when the tool isn't installed.
+  Live-validated on real hardware, including a `fuser` stdout/stderr-split
+  quirk that required abandoning suffix-based write detection in favor of
+  `/proc/<pid>/fdinfo` flags.
+- `dsd security` — proactive SELinux port-label scan (cross-references
+  already-collected listening ports against `semanage port -l` to flag any
+  service with no SELinux port label, before a denial ever fires) and
+  chcon-vs-semanage context detection (compares `matchpathcon` against
+  `ls -Z` on denial-implicated paths to flag a temporary `chcon` context that
+  will silently revert on the next relabel).
+- `dsd health deep` — iowait culprit attribution: once iowait crosses 5%,
+  names the highest-await block device and cross-references it with the top
+  I/O-consuming process, e.g. `iowait 12% ← nvme0n1 (12ms await) ← postgres
+  (PID 1204)`. Completes Spec 5 (cgroup tree + process hierarchy, per-cgroup
+  summary, and throttle detection were already shipped).
+
+### Fixed
+- Cold `dnf` metadata cache could silently swallow a Critical CVE finding
+  (BUG-098) — found on a first `dsd` pass on Oracle Linux 9 (OCI Ampere A1)
+  where a pending Critical CVE reported as "could not verify" instead of
+  CRIT. Root cause was three compounding dnf-path timeout bugs (an uncapped
+  repo-gate check eating the scan's own budget, a flat collector timeout
+  overriding the CVE scan's internal budget, and cancelled calls reported
+  identically to real failures) plus two more found while verifying the fix
+  (a false-OK from string-matching a timeout message instead of checking the
+  scan-failed flag, and a package-status blacklist that let query-failed
+  silently read as "up to date").
 
 ## [1.17.2] - 2026-07-06
 
