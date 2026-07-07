@@ -137,6 +137,27 @@ func TestCheckCVEHealthUnavailableFiresInfo(t *testing.T) {
 	}
 }
 
+// BUG-098: ScanFailed must be checked directly, not inferred from StatusReason
+// substrings — a scanner message can be reworded (e.g. to distinguish a cold-cache
+// timeout from a generic failure) without the substrings being updated, and a
+// pattern-match-only check would then silently render a failed scan as OK. Found
+// live: rewording scanAllDNF's timeout message to be more honest flipped this
+// exact case from INFO to a false "OK" before ScanFailed was checked directly.
+func TestCVEScanUnavailable_ScanFailedOverridesWording(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager: "dnf",
+		ScanFailed:     true,
+		StatusReason:   "dnf advisory scan timed out — likely a cold metadata cache or slow mirror; retry",
+	}
+	if !cveScanUnavailable(r) {
+		t.Errorf("ScanFailed=true must be treated as unavailable regardless of wording, got available for %q", r.StatusReason)
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 1 || insights[0].Level != "INFO" {
+		t.Fatalf("expected one INFO insight for a failed scan, got %+v", insights)
+	}
+}
+
 // A clean scan (scanner ran, found nothing) must NOT be misclassified as
 // unavailable — it stays a legitimate quiet OK.
 func TestCVEScanUnavailable_CleanIsAvailable(t *testing.T) {

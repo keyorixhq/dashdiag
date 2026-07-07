@@ -1733,8 +1733,14 @@ func inlinePackages(data interface{}) string {
 	if p.SecurityUpdates > 0 || p.CriticalUpdates > 0 || p.ImportantUpdates > 0 {
 		return "" // heuristic already shows the warning message
 	}
-	if p.Status == "stale-metadata" {
-		return "" // unverified — the heuristic shows the "cannot confirm" reason
+	// BUG-098: Status is only ever non-empty when the scan did NOT cleanly
+	// succeed ("query-failed", "no-security-repo", "stale-metadata", ...).
+	// Whitelisting the clean case (rather than blacklisting one bad status)
+	// means a future failure status can't fall through here by omission —
+	// query-failed/no-security-repo previously did, rendering a scan that
+	// timed out or found no repo as a reassuring "up to date".
+	if p.Status != "" {
+		return "" // heuristic already shows the "could not verify" reason
 	}
 	if p.Checked {
 		return "up to date"

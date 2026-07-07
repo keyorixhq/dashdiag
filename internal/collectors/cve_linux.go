@@ -631,13 +631,24 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "dnf"}
 
+	// BUG-098: warm the cache first so this scan (and the concurrently-running
+	// Packages collector's own dnf calls) aren't each independently racing a cold
+	// multi-repo metadata sync. Best-effort — see dnfWarmCache's doc comment.
+	dnfWarmCache(ctx)
+
 	// Try DNF5 first, then DNF4
 	out, err := runCmd(ctx, "dnf", "advisory", "list", "--security", "--quiet")
 	if err != nil {
 		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
 	}
 	if err != nil && len(out) == 0 {
-		result.StatusReason = "dnf advisory list failed — could not verify CVE exposure (no repo access?)"
+		if ctx.Err() != nil {
+			// A cancelled/deadline-exceeded call is not "no repo access" — it's an
+			// honest "ran out of time," almost always a cold cache. Say so.
+			result.StatusReason = "dnf advisory scan timed out — likely a cold metadata cache or slow mirror; retry"
+		} else {
+			result.StatusReason = "dnf advisory list failed — could not verify CVE exposure (no repo access?)"
+		}
 		result.ScanFailed = true
 		return result
 	}
