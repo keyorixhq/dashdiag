@@ -1027,10 +1027,12 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 					}
 					hints = bootHints
 				}
-				out = append(out, insight(l, "Disk",
-					fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device),
-					hints,
-				))
+				hints = append(hints, busyProcessHints(fs)...)
+				msg := fmt.Sprintf("disk usage at %.0f%% on %s (%s)", fs.UsedPct, fs.Mount, fs.Device)
+				if n := len(fs.BusyProcesses); n > 0 {
+					msg += fmt.Sprintf(" — %d process(es) have files open", n)
+				}
+				out = append(out, insight(l, "Disk", msg, hints))
 			}
 			if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
 				out = append(out, insight(l, "Disk",
@@ -1058,14 +1060,16 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// bind, not an I/O-error remount (see rwDevices comment above).
 		roBindOfRWDevice := fs.ReadOnly && rwDevices[fs.Device]
 		if fs.ReadOnly && isWritableOnDiskFS(fs.FSType) && !immutableInfra && !roBindOfRWDevice {
+			hints := []string{
+				"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
+				fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
+				fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
+				"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
+			}
+			hints = append(hints, busyProcessHints(fs)...)
 			out = append(out, insight("WARN", "Disk",
 				fmt.Sprintf("filesystem %s (%s on %s) is mounted READ-ONLY — if it should be writable, the kernel likely remounted it after an I/O error", fs.Mount, fs.FSType, fs.Device),
-				[]string{
-					"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
-					fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
-					fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
-					"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
-				},
+				hints,
 			))
 		}
 		out = append(out, checkDiskGrowth(fs)...)
@@ -1398,6 +1402,43 @@ func checkISCSI(i models.ISCSIInfo) []models.Insight {
 			"to fix:     iscsiadm -m node --loginall=all",
 			"to inspect: check network connectivity to iSCSI portal",
 		})}
+}
+
+// busyProcessHints formats fs.BusyProcesses (populated by the collector's
+// fuser/proc-fd busy-filesystem scan, Spec 4 addendum §4-add) into extra hint
+// lines for a disk-usage or read-only-remount insight — an admin blocked by
+// "device or resource busy" on unmount needs to know what to stop first.
+func busyProcessHints(fs models.FilesystemInfo) []string {
+	if len(fs.BusyProcesses) == 0 {
+		if fs.BusyCheckNeedsRoot {
+			return []string{"busy-process scan ran unprivileged — PIDs owned by other users may be invisible; rerun as root for a complete list"}
+		}
+		return nil
+	}
+	writers := 0
+	for _, p := range fs.BusyProcesses {
+		if p.Write {
+			writers++
+		}
+	}
+	hints := make([]string, 0, len(fs.BusyProcesses)+2)
+	riskNote := ""
+	if len(fs.BusyProcesses) > 10 {
+		riskNote = " — too many to unmount safely without stopping them first"
+	}
+	hints = append(hints, fmt.Sprintf("%d process(es) have %s open (%d writing)%s",
+		len(fs.BusyProcesses), fs.Mount, writers, riskNote))
+	for _, p := range fs.BusyProcesses {
+		mode := "read"
+		if p.Write {
+			mode = "write"
+		}
+		hints = append(hints, fmt.Sprintf("PID %d  %s  user %s  (%s)", p.PID, p.Command, p.User, mode))
+	}
+	if fs.BusyCheckNeedsRoot {
+		hints = append(hints, "busy-process scan ran unprivileged — PIDs owned by other users may be invisible; rerun as root for a complete list")
+	}
+	return hints
 }
 
 // isImmutableInfraMount reports whether a mount point is part of an immutable
