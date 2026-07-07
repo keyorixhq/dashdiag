@@ -297,7 +297,7 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
-	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results))
+	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results), extractCPU(results), extractHealthDeep(results))
 	layeredFlag, _ := cmd.Flags().GetBool("layered")
 	printHealthMainOutput(renderer, mode, results, insights, correlations, layeredFlag, deepFlag)
 
@@ -974,6 +974,32 @@ func extractSysctl(results []runner.Result) *models.SysctlInfo {
 	for _, r := range results {
 		if r.Err == nil {
 			if v, ok := r.Data.(*models.SysctlInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// extractCPU type-asserts *models.CPUInfo from a runner results slice.
+// Returns nil when the CPU collector was not included or returned an error.
+func extractCPU(results []runner.Result) *models.CPUInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.CPUInfo); ok {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// extractHealthDeep type-asserts *models.HealthDeepInfo from a runner results
+// slice. Returns nil when deep mode was not requested or the collector errored.
+func extractHealthDeep(results []runner.Result) *models.HealthDeepInfo {
+	for _, r := range results {
+		if r.Err == nil {
+			if v, ok := r.Data.(*models.HealthDeepInfo); ok {
 				return v
 			}
 		}

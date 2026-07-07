@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -23,7 +24,7 @@ type HealthDeepCollector struct{}
 func NewHealthDeepCollector() *HealthDeepCollector { return &HealthDeepCollector{} }
 
 func (c *HealthDeepCollector) Name() string           { return "CPUDeep" }
-func (c *HealthDeepCollector) Timeout() time.Duration { return 5 * time.Second }
+func (c *HealthDeepCollector) Timeout() time.Duration { return 8 * time.Second }
 
 func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.HealthDeepInfo{}
@@ -72,6 +73,16 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 
 	// cgroup v2 slice summary
 	info.Cgroup = collectCgroupV2()
+
+	// Top I/O-consuming processes — same replay-fidelity concern as core usage
+	// above: two live /proc/<pid>/io reads 500ms apart must be cached as the
+	// derived result, not replayed as two independent reads.
+	var topIO topIOSample
+	_ = cachedJSON("healthdeep/top-io", func() (any, error) {
+		return c.sampleTopIOProcs(ctx, 5), nil
+	}, &topIO)
+	info.TopIOProcs = topIO.Procs
+	info.TopIOProcsNeedsRoot = topIO.NeedsRoot
 
 	return info, nil
 }
@@ -250,6 +261,128 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 		procs = procs[:n]
 	}
 	return procs, float64(totalRSSKB) / 1024
+}
+
+// topIOSample is the cached result of sampleTopIOProcs — the derived top-N
+// list plus a partial-visibility flag, recorded as one unit so replay
+// reproduces both the ranking and the caveat verbatim.
+type topIOSample struct {
+	Procs     []models.ProcessIOStat
+	NeedsRoot bool
+}
+
+// procIOCounters holds the raw read_bytes/write_bytes counters for one PID.
+type procIOCounters struct {
+	name       string
+	readBytes  uint64
+	writeBytes uint64
+}
+
+// procCommName reads /proc/<pid>/comm for a process name, "?" on error.
+func procCommName(pid int) string {
+	data, err := readFile(filepath.Join("/proc", strconv.Itoa(pid), "comm")) // #nosec G304
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// readAllProcIO reads /proc/<pid>/io for every process, returning the raw
+// counters keyed by PID. needsRoot is true when at least one read was denied
+// for lack of privilege — that process's I/O is invisible to this sample, so
+// the ranking below may not reflect the true top consumer.
+func readAllProcIO() (map[int]procIOCounters, bool) {
+	entries, err := glob("/proc/[0-9]*")
+	if err != nil {
+		return nil, false
+	}
+	result := make(map[int]procIOCounters, len(entries))
+	needsRoot := false
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(filepath.Base(entry))
+		if err != nil {
+			continue
+		}
+		data, err := readFile(filepath.Join(entry, "io")) // #nosec G304
+		if err != nil {
+			if os.IsPermission(err) {
+				needsRoot = true
+			}
+			continue
+		}
+		var readBytes, writeBytes uint64
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			switch fields[0] {
+			case "read_bytes:":
+				readBytes, _ = strconv.ParseUint(fields[1], 10, 64)
+			case "write_bytes:":
+				writeBytes, _ = strconv.ParseUint(fields[1], 10, 64)
+			}
+		}
+		result[pid] = procIOCounters{name: procCommName(pid), readBytes: readBytes, writeBytes: writeBytes}
+	}
+	return result, needsRoot
+}
+
+// sampleTopIOProcs takes two /proc/<pid>/io snapshots 500ms apart and returns
+// the top-n processes by combined read+write bytes/sec (Spec 5.3 — iowait
+// culprit attribution: names the process behind a busy device, not just the
+// device itself).
+func (c *HealthDeepCollector) sampleTopIOProcs(ctx context.Context, n int) topIOSample {
+	before, needsRoot1 := readAllProcIO()
+	select {
+	case <-ctx.Done():
+		return topIOSample{}
+	case <-time.After(500 * time.Millisecond):
+	}
+	after, needsRoot2 := readAllProcIO()
+
+	return topIOSample{
+		Procs:     computeTopIORates(before, after, n),
+		NeedsRoot: needsRoot1 || needsRoot2,
+	}
+}
+
+// computeTopIORates turns two /proc/<pid>/io snapshots into the top-n
+// processes by combined read+write bytes/sec. Split out from
+// sampleTopIOProcs so the rate math is unit-testable without a live /proc.
+func computeTopIORates(before, after map[int]procIOCounters, n int) []models.ProcessIOStat {
+	type ioRate struct {
+		pid      int
+		name     string
+		totalBps float64
+		readBps  float64
+		writeBps float64
+	}
+	rates := make([]ioRate, 0, len(after))
+	for pid, a := range after {
+		b, ok := before[pid]
+		if !ok || a.readBytes < b.readBytes || a.writeBytes < b.writeBytes {
+			// New or recycled PID within the window — skip (see the identical
+			// guard in drilldown.topProcessesByIOLinux for why).
+			continue
+		}
+		readBps := float64(a.readBytes-b.readBytes) / 0.5
+		writeBps := float64(a.writeBytes-b.writeBytes) / 0.5
+		total := readBps + writeBps
+		if total > 0 {
+			rates = append(rates, ioRate{pid: pid, name: a.name, totalBps: total, readBps: readBps, writeBps: writeBps})
+		}
+	}
+	sort.Slice(rates, func(i, j int) bool { return rates[i].totalBps > rates[j].totalBps })
+	if len(rates) > n {
+		rates = rates[:n]
+	}
+
+	procs := make([]models.ProcessIOStat, 0, len(rates))
+	for _, r := range rates {
+		procs = append(procs, models.ProcessIOStat{PID: r.pid, Name: r.name, ReadBps: r.readBps, WriteBps: r.writeBps})
+	}
+	return procs
 }
 
 // collectMemDetail reads extended memory fields from /proc/meminfo.

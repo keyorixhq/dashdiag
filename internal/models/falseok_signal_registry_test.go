@@ -91,6 +91,10 @@ var guardedUnverifiedSignals = map[string]string{
 	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
 	"HWRaidInfo.NeedsRoot":  "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
 	"HWRaidInfo.ReadFailed": "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",
+
+	// /proc/<pid>/io is gated to the owning user; a non-root sample can miss the
+	// true top I/O consumer entirely.
+	"HealthDeepInfo.TopIOProcsNeedsRoot": "analysis/correlate_deep_test.go (TestRuleIOWaitCulprit: partial visibility caveat appended to the culprit summary, never a silent unqualified attribution)",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

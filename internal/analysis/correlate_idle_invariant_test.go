@@ -30,7 +30,7 @@ func TestCorrelate_NoFireOnIdleInput(t *testing.T) {
 	}
 	// Deep rules on idle/zero-value models (no OOM kills, no docker issues, no IO
 	// devices, no sysctl drift) must not fire.
-	deep := CorrelateDeep(nil, &models.OOMInfo{}, &models.DockerInfo{}, &models.IOInfo{}, &models.SysctlInfo{})
+	deep := CorrelateDeep(nil, &models.OOMInfo{}, &models.DockerInfo{}, &models.IOInfo{}, &models.SysctlInfo{}, &models.CPUInfo{}, &models.HealthDeepInfo{})
 	if len(deep) != 0 {
 		t.Errorf("CorrelateDeep(idle) fired %d: %+v", len(deep), deep)
 	}

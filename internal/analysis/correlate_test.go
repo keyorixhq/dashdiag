@@ -439,7 +439,7 @@ func TestDockerOOMCascadeFiresWithTimestamps(t *testing.T) {
 		TimeUnix: now.Unix(), // within 5 min of kernel OOM
 	})
 
-	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -463,7 +463,7 @@ func TestDockerOOMCascadeFiresFallbackNoTimestamps(t *testing.T) {
 	oom := makeOOM(3, models.OOMEvent{Process: "nginx"}) // Timestamp is zero
 	docker := makeDocker(2)                              // no RecentEvents
 
-	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -489,7 +489,7 @@ func TestDockerOOMCascadeDoesNotFireOutsideWindow(t *testing.T) {
 	// But both counts are > 0, so the fallback still fires — that is correct.
 	// What we verify: the time-aware path is NOT used when outside the window
 	// (no test hook needed — we just verify the rule fires via fallback, not time path).
-	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
@@ -509,7 +509,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutDockerOOM(t *testing.T) {
 	oom := makeOOM(3, models.OOMEvent{Process: "nginx"})
 	docker := makeDocker(0) // no OOM events
 
-	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire when docker.OOMEvents == 0")
@@ -521,7 +521,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutKernelOOM(t *testing.T) {
 	oom := makeOOM(0) // no kernel OOM events
 	docker := makeDocker(2, models.DockerEvent{Action: "oom", Actor: "app", TimeUnix: time.Now().Unix()})
 
-	corrs := CorrelateDeep(nil, oom, docker, nil, nil)
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire when oom.EventsLast24h == 0")
@@ -530,7 +530,7 @@ func TestDockerOOMCascadeDoesNotFireWithoutKernelOOM(t *testing.T) {
 }
 
 func TestDockerOOMCascadeDoesNotFireWithNilInputs(t *testing.T) {
-	corrs := CorrelateDeep(nil, nil, nil, nil, nil)
+	corrs := CorrelateDeep(nil, nil, nil, nil, nil, nil, nil)
 	for _, c := range corrs {
 		if c.Name == "Container OOM Cascade" {
 			t.Error("should not fire with nil OOM and Docker inputs")
@@ -545,7 +545,7 @@ func TestCorrelateDeepPreservesExistingRules(t *testing.T) {
 		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
 		ins("CRIT", "Processes", "5 hung processes"),
 	}
-	corrs := CorrelateDeep(insights, nil, nil, nil, nil)
+	corrs := CorrelateDeep(insights, nil, nil, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Memory Pressure Cascade" {
@@ -725,7 +725,7 @@ func TestSysctlNotPersistedDoesNotFireOnStockDefaults(t *testing.T) {
 
 func TestCorrelateDeepNewParamsNilSafe(t *testing.T) {
 	// Must not panic with nil for the new parameters
-	corrs := CorrelateDeep(nil, nil, nil, nil, nil)
+	corrs := CorrelateDeep(nil, nil, nil, nil, nil, nil, nil)
 	_ = corrs // any result is fine, just must not panic
 }
 
@@ -735,7 +735,7 @@ func TestCorrelateDeepPreservesExistingRulesWithNewParams(t *testing.T) {
 		ins("CRIT", "Swap", "heavy swap activity: 29979 pages/s"),
 		ins("CRIT", "Processes", "5 hung processes"),
 	}
-	corrs := CorrelateDeep(insights, nil, nil, nil, nil)
+	corrs := CorrelateDeep(insights, nil, nil, nil, nil, nil, nil)
 	found := false
 	for _, c := range corrs {
 		if c.Name == "Memory Pressure Cascade" {

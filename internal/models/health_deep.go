@@ -15,6 +15,15 @@ type ProcessMemStat struct {
 	CgroupScope string  `json:"cgroup_scope,omitempty"` // "system:k3s.service", "container:abc", "kernel", etc.
 }
 
+// ProcessIOStat holds I/O throughput for a single process, sampled from two
+// /proc/<pid>/io reads (Spec 5.3 — iowait culprit attribution).
+type ProcessIOStat struct {
+	PID      int     `json:"pid"`
+	Name     string  `json:"name"`
+	ReadBps  float64 `json:"read_bps"`
+	WriteBps float64 `json:"write_bps"`
+}
+
 // CgroupSlice is a top-level cgroup v2 slice with aggregated resource usage.
 type CgroupSlice struct {
 	Name         string  `json:"name"`           // "system.slice", "user.slice" etc.
@@ -65,6 +74,15 @@ type HealthDeepInfo struct {
 
 	// cgroup v2 slice summary
 	Cgroup *CgroupV2Info `json:"cgroup,omitempty"`
+
+	// Top I/O-consuming processes (by combined read+write bytes/sec), used to
+	// attribute CPU iowait to a specific process rather than just a device.
+	TopIOProcs []ProcessIOStat `json:"top_io_procs,omitempty"`
+	// TopIOProcsNeedsRoot is true when at least one /proc/<pid>/io read was
+	// denied for lack of privilege — the sampled top process may not be the
+	// true top process (its I/O is invisible to a non-root run). Never
+	// silently drop to "no I/O found"; the caveat must reach the verdict.
+	TopIOProcsNeedsRoot bool `json:"top_io_procs_needs_root,omitempty"`
 
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"status_reason,omitempty"`
