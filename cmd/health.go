@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -85,35 +86,15 @@ var healthDeepCmd = &cobra.Command{
 // or STIG profiles. Enterprise-only. Implement after core product is stable and paying
 // customers exist. Estimated scope: ~2 weeks. See BACKLOG.md.
 
-func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop // command handler dispatches many flags; sub-flows are extracted to runHealthOnce/runWatch/loadPolicyIfSet
+func runHealth(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()
 	debugFlag, _ := cmd.Flags().GetBool("debug")
 	ctx = debug.With(ctx, debugFlag)
-	plain, _ := cmd.Flags().GetBool("plain")
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	yamlOut, _ := cmd.Flags().GetBool("yaml")
 	terse, _ := cmd.Flags().GetBool("terse")
 	blobFlag, _ := cmd.Flags().GetBool("blob")
-	outputFmt := ""
-	switch {
-	case jsonOut:
-		outputFmt = "json"
-	case yamlOut:
-		outputFmt = "yaml"
-	case blobFlag:
-		// Run as quietly as JSON mode (no progress/banner on stdout) so the
-		// emitted block is clean to copy; the blob itself is printed below.
-		outputFmt = "json"
-	}
-	mode := output.DetectMode(plain, false, outputFmt)
-
-	// --nagios emits a single status line; run quietly (no progress/banner/board)
-	// so stdout carries only that line, then branch out below after collection.
+	mode := healthOutputMode(cmd)
 	nagiosFlag, _ := cmd.Flags().GetBool("nagios")
 	promFlag, _ := cmd.Flags().GetBool("prometheus")
-	if (nagiosFlag || promFlag) && mode == output.ModeHuman {
-		mode = output.ModePlain
-	}
 
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
@@ -158,156 +139,92 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 
 	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, cveFlag, policy)
 
-	// --nagios: emit one monitoring-plugin status line and exit with the mapped
-	// code (0/1/2), suppressing all normal rendering.
-	if nagiosFlag {
-		line, code := render.NagiosLine(results, insights)
-		fmt.Println(line)
-		_ = baseline.SaveBaseline(snap)
-		if code > 0 {
-			os.Exit(code)
-		}
-		return nil
-	}
-	// --prometheus: emit exposition metrics and exit 0 — the health state lives in
-	// the metric values, not the exit code (textfile collectors expect success).
-	if promFlag {
-		fmt.Print(render.PrometheusMetrics(results, insights))
-		_ = baseline.SaveBaseline(snap)
-		return nil
-	}
-
-	// --blob: emit a compact, copy-pasteable encoded report (network-optional).
-	// stdout gets only the block (so `--out` / a pipe captures it cleanly); the
-	// human instructions go to stderr.
-	if blobFlag {
-		data, err := render.RenderJSON(results, insights)
-		if err != nil {
-			return fmt.Errorf("blob: %w", err)
-		}
-		fmt.Print(share.Encode(data))
-		fmt.Fprintln(os.Stderr, "\n↑ Copy the whole block above (including the BEGIN/END lines) and send it to support.")
-		fmt.Fprintln(os.Stderr, "  They turn it back into a readable report with:  dsd decode   (paste it, or `dsd decode file.txt`)")
-		fmt.Fprintln(os.Stderr, "  Note: the block is compressed + encoded, NOT encrypted or redacted — it contains this host's")
-		fmt.Fprintln(os.Stderr, "  name, addresses, and open ports. Send it through a trusted channel; don't post it publicly.")
-		_ = baseline.SaveBaseline(snap)
-		return nil
-	}
-
-	// --weekly: early return, reads state.json only
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
-	if weeklyFlag {
-		weeklyState, _ := tips.LoadState()
-		if weeklyState == nil || weeklyState.TotalRuns < 7 {
-			fmt.Println("ℹ️  Not enough data yet. Run dsd health for 7+ days first.")
-			return nil
-		}
-		fmt.Println(render.RenderWeekly(weeklyState, "weekly"))
-		return nil
-	}
 	sdFlag, _ := cmd.Flags().GetBool("since-deploy")
 	pmFlag, _ := cmd.Flags().GetString("post-mortem")
+
+	// Alternate machine/report output modes — each is a self-contained early
+	// return (mutually exclusive by flag), extracted so runHealth's main body
+	// covers only the interactive render path.
+	if handled, err := handleNagiosMode(nagiosFlag, results, insights, snap); handled {
+		return err
+	}
+	if handled, err := handlePrometheusMode(promFlag, results, insights, snap); handled {
+		return err
+	}
+	if handled, err := handleBlobMode(blobFlag, results, insights, snap); handled {
+		return err
+	}
+	if handled, err := handleWeeklyMode(weeklyFlag); handled {
+		return err
+	}
 	if sdFlag {
 		return baseline.RunSinceDeployDiff(mode)
 	}
-	if pmFlag != "" {
-		fmt.Println(render.RenderPostMortem(pmFlag, snap, insights, mode))
-		_ = baseline.SaveBaseline(snap)
-		return nil
+	if handled, err := handlePostMortemMode(pmFlag, snap, insights, mode); handled {
+		return err
 	}
 
-	renderer := render.NewRenderer(mode)
-	if ctrCtx.InContainer {
-		renderer.PrintContainerBanner(ctrCtx)
-	}
-	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results))
-	switch mode {
-	case output.ModeJSON:
-		data, err := render.RenderJSON(results, insights)
-		if err == nil {
-			_, _ = os.Stdout.Write(data)
-		}
-	case output.ModeYAML:
-		data, err := render.RenderYAML(results, insights)
-		if err == nil {
-			_, _ = os.Stdout.Write(data)
-		}
-	default:
-		if layered, _ := cmd.Flags().GetBool("layered"); layered {
-			renderer.PrintAllLayered(results, insights)
-		} else {
-			renderer.PrintAll(results, insights)
-		}
-		renderer.PrintCorrelations(correlations)
-		// Deep mode: show top processes with cgroup scope
-		if deepFlag {
-			printTopProcsWithCgroup(results, mode)
-		}
-	}
+	exitCode, noticeW := printHealthResults(cmd, ctrCtx, mode, results, insights, snap, elapsed, deepFlag)
 
-	// In machine modes (JSON/YAML) stdout must stay a single document, so route
-	// the diff and the report notice to stderr instead of corrupting it.
-	machineMode := mode == output.ModeJSON || mode == output.ModeYAML
-	noticeW := os.Stdout
-	if machineMode {
-		noticeW = os.Stderr
-	}
-
-	diffFlag, _ := cmd.Flags().GetBool("diff")
-	if diffFlag {
-		prev, err := baseline.LoadBaseline("")
-		if err == nil {
-			_ = render.PrintDiff(noticeW, prev, snap, mode)
-		} else {
-			fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
-		}
-	}
-
-	exitCode := renderer.PrintSummary(insights, elapsed)
-	if explainFlag, _ := cmd.Flags().GetBool("explain"); explainFlag {
-		printHealthExplanations(insights, mode)
-	}
-	if fixFlag, _ := cmd.Flags().GetBool("fix"); fixFlag {
-		printHealthFixes(insights, mode)
-	}
-	_ = baseline.SaveBaseline(snap)
-
-	// --report / --report-html: write shareable report file(s). Collect CVE data
-	// once (runs quickly, same package manager) and feed both renderers.
-	if (reportFlag || reportHTMLFlag) && snap != nil {
-		cveData := collectors.ScanAllCVEs(ctx)
-		if reportFlag {
-			if path, err := render.GenerateReport(snap, insights, elapsed, cveData); err != nil {
-				fmt.Fprintf(os.Stderr, "report: %v\n", err)
-			} else {
-				fmt.Fprintf(noticeW, "\n📄 Report saved: %s\n", path)
-			}
-		}
-		if reportHTMLFlag {
-			if path, err := render.GenerateHTMLReport(snap, insights, elapsed, cveData); err != nil {
-				fmt.Fprintf(os.Stderr, "report: %v\n", err)
-			} else {
-				fmt.Fprintf(noticeW, "\n📄 HTML report saved: %s\n", path)
-			}
-		}
-	}
-
-	// Policy CI gate — override exit code based on deny rules.
-	// Default (no policy): exit 1 on WARN, 2 on CRIT (already from PrintSummary).
-	// With policy deny:[WARN]: exit non-zero on any WARN or CRIT.
-	if policy != nil {
-		for _, ins := range insights {
-			if analysis.PolicyDeniesLevel(policy, ins.Level) && exitCode == 0 {
-				exitCode = 1
-			}
-		}
-		if policyPath != "" && mode == output.ModeHuman {
-			fmt.Fprintf(os.Stderr, "\n── policy: %s ──\n", policyPath)
-		}
-	}
-
-	// --qr: show QR code for share URL (shareURL stub until --share is implemented)
+	writeHealthReports(ctx, reportFlag, reportHTMLFlag, snap, insights, elapsed, noticeW)
+	exitCode = applyHealthPolicyGate(policy, policyPath, mode, insights, exitCode)
 	qrFlag, _ := cmd.Flags().GetBool("qr")
+	printHealthFooter(mode, qrFlag, state, elapsed)
+
+	if exitCode > 0 {
+		os.Exit(exitCode)
+	}
+	return nil
+}
+
+// writeHealthReports handles --report/--report-html: write shareable report
+// file(s). CVE data is collected once (runs quickly, same package manager)
+// and fed to both renderers.
+func writeHealthReports(ctx context.Context, reportFlag, reportHTMLFlag bool, snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, noticeW io.Writer) {
+	if (!reportFlag && !reportHTMLFlag) || snap == nil {
+		return
+	}
+	cveData := collectors.ScanAllCVEs(ctx)
+	if reportFlag {
+		if path, err := render.GenerateReport(snap, insights, elapsed, cveData); err != nil {
+			fmt.Fprintf(os.Stderr, "report: %v\n", err)
+		} else {
+			fmt.Fprintf(noticeW, "\n📄 Report saved: %s\n", path)
+		}
+	}
+	if reportHTMLFlag {
+		if path, err := render.GenerateHTMLReport(snap, insights, elapsed, cveData); err != nil {
+			fmt.Fprintf(os.Stderr, "report: %v\n", err)
+		} else {
+			fmt.Fprintf(noticeW, "\n📄 HTML report saved: %s\n", path)
+		}
+	}
+}
+
+// applyHealthPolicyGate is the policy CI gate — override exit code based on
+// deny rules. Default (no policy): exit 1 on WARN, 2 on CRIT (already from
+// PrintSummary). With policy deny:[WARN]: exit non-zero on any WARN or CRIT.
+func applyHealthPolicyGate(policy *analysis.PolicyFile, policyPath string, mode output.OutputMode, insights []models.Insight, exitCode int) int {
+	if policy == nil {
+		return exitCode
+	}
+	for _, ins := range insights {
+		if analysis.PolicyDeniesLevel(policy, ins.Level) && exitCode == 0 {
+			exitCode = 1
+		}
+	}
+	if policyPath != "" && mode == output.ModeHuman {
+		fmt.Fprintf(os.Stderr, "\n── policy: %s ──\n", policyPath)
+	}
+	return exitCode
+}
+
+// printHealthFooter prints the trailing footer shared by every interactive
+// run: an optional QR code, the passive update nudge, tips/milestones, and
+// the timing line (always last, after tips, so it's the final line seen).
+func printHealthFooter(mode output.OutputMode, qrFlag bool, state *tips.State, elapsed time.Duration) {
+	// --qr: show QR code for share URL (shareURL stub until --share is implemented)
 	if qrFlag {
 		shareURL := ""
 		_ = output.PrintQRCode(shareURL, mode)
@@ -343,11 +260,184 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen,cyclop //
 			fmt.Fprintf(os.Stdout, "done in %.1fs\n", elapsed.Seconds())
 		}
 	}
+}
 
-	if exitCode > 0 {
-		os.Exit(exitCode)
+// healthOutputMode determines the output mode from cmd flags, downgrading a
+// human terminal to plain for --nagios/--prometheus (single-line output) or
+// --blob (the emitted block must stay clean to copy, no progress/banner).
+func healthOutputMode(cmd *cobra.Command) output.OutputMode {
+	plain, _ := cmd.Flags().GetBool("plain")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	yamlOut, _ := cmd.Flags().GetBool("yaml")
+	blobFlag, _ := cmd.Flags().GetBool("blob")
+	outputFmt := ""
+	switch {
+	case jsonOut:
+		outputFmt = "json"
+	case yamlOut:
+		outputFmt = "yaml"
+	case blobFlag:
+		outputFmt = "json"
 	}
-	return nil
+	mode := output.DetectMode(plain, false, outputFmt)
+	nagiosFlag, _ := cmd.Flags().GetBool("nagios")
+	promFlag, _ := cmd.Flags().GetBool("prometheus")
+	if (nagiosFlag || promFlag) && mode == output.ModeHuman {
+		mode = output.ModePlain
+	}
+	return mode
+}
+
+// printHealthResults renders the interactive verdict (banner, correlations,
+// main output, diff notice, summary, explain/fix) and saves the baseline,
+// returning the exit code and the writer subsequent notices should use (stderr
+// in machine modes, so JSON/YAML stdout stays a single parseable document).
+func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mode output.OutputMode, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot, elapsed time.Duration, deepFlag bool) (exitCode int, noticeW io.Writer) {
+	renderer := render.NewRenderer(mode)
+	if ctrCtx.InContainer {
+		renderer.PrintContainerBanner(ctrCtx)
+	}
+	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results))
+	layeredFlag, _ := cmd.Flags().GetBool("layered")
+	printHealthMainOutput(renderer, mode, results, insights, correlations, layeredFlag, deepFlag)
+
+	// In machine modes (JSON/YAML) stdout must stay a single document, so route
+	// the diff and the report notice to stderr instead of corrupting it.
+	machineMode := mode == output.ModeJSON || mode == output.ModeYAML
+	noticeW = os.Stdout
+	if machineMode {
+		noticeW = os.Stderr
+	}
+
+	diffFlag, _ := cmd.Flags().GetBool("diff")
+	printHealthDiffNotice(noticeW, diffFlag, snap, mode)
+
+	exitCode = renderer.PrintSummary(insights, elapsed)
+	if explainFlag, _ := cmd.Flags().GetBool("explain"); explainFlag {
+		printHealthExplanations(insights, mode)
+	}
+	if fixFlag, _ := cmd.Flags().GetBool("fix"); fixFlag {
+		printHealthFixes(insights, mode)
+	}
+	_ = baseline.SaveBaseline(snap)
+	return exitCode, noticeW
+}
+
+// printHealthMainOutput renders the primary `dsd health` output: JSON/YAML as
+// a single machine-readable document, or the interactive/plain renderer with
+// correlations and (in --deep mode) top processes by cgroup scope.
+func printHealthMainOutput(renderer *render.Renderer, mode output.OutputMode, results []runner.Result, insights []models.Insight, correlations []analysis.Correlation, layeredFlag, deepFlag bool) {
+	switch mode {
+	case output.ModeJSON:
+		data, err := render.RenderJSON(results, insights)
+		if err == nil {
+			_, _ = os.Stdout.Write(data)
+		}
+	case output.ModeYAML:
+		data, err := render.RenderYAML(results, insights)
+		if err == nil {
+			_, _ = os.Stdout.Write(data)
+		}
+	default:
+		if layeredFlag {
+			renderer.PrintAllLayered(results, insights)
+		} else {
+			renderer.PrintAll(results, insights)
+		}
+		renderer.PrintCorrelations(correlations)
+		// Deep mode: show top processes with cgroup scope
+		if deepFlag {
+			printTopProcsWithCgroup(results, mode)
+		}
+	}
+}
+
+// printHealthDiffNotice handles --diff: print what changed since the previous
+// baseline, or an informational notice when there is no baseline yet.
+func printHealthDiffNotice(w io.Writer, diffFlag bool, snap *baseline.Snapshot, mode output.OutputMode) {
+	if !diffFlag {
+		return
+	}
+	prev, err := baseline.LoadBaseline("")
+	if err == nil {
+		_ = render.PrintDiff(w, prev, snap, mode)
+	} else {
+		fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
+	}
+}
+
+// handleNagiosMode emits a single monitoring-plugin status line and exits with
+// the mapped code (0/1/2), suppressing all normal rendering. handled is false
+// when --nagios wasn't set, so the caller falls through to the next mode.
+func handleNagiosMode(nagiosFlag bool, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot) (handled bool, err error) {
+	if !nagiosFlag {
+		return false, nil
+	}
+	line, code := render.NagiosLine(results, insights)
+	fmt.Println(line)
+	_ = baseline.SaveBaseline(snap)
+	if code > 0 {
+		os.Exit(code)
+	}
+	return true, nil
+}
+
+// handlePrometheusMode emits Prometheus exposition metrics and exits 0 — the
+// health state lives in the metric values, not the exit code (textfile
+// collectors expect success).
+func handlePrometheusMode(promFlag bool, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot) (handled bool, err error) {
+	if !promFlag {
+		return false, nil
+	}
+	fmt.Print(render.PrometheusMetrics(results, insights))
+	_ = baseline.SaveBaseline(snap)
+	return true, nil
+}
+
+// handleBlobMode emits a compact, copy-pasteable encoded report (network-
+// optional). stdout gets only the block (so `--out` / a pipe captures it
+// cleanly); the human instructions go to stderr.
+func handleBlobMode(blobFlag bool, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot) (handled bool, err error) {
+	if !blobFlag {
+		return false, nil
+	}
+	data, err := render.RenderJSON(results, insights)
+	if err != nil {
+		return true, fmt.Errorf("blob: %w", err)
+	}
+	fmt.Print(share.Encode(data))
+	fmt.Fprintln(os.Stderr, "\n↑ Copy the whole block above (including the BEGIN/END lines) and send it to support.")
+	fmt.Fprintln(os.Stderr, "  They turn it back into a readable report with:  dsd decode   (paste it, or `dsd decode file.txt`)")
+	fmt.Fprintln(os.Stderr, "  Note: the block is compressed + encoded, NOT encrypted or redacted — it contains this host's")
+	fmt.Fprintln(os.Stderr, "  name, addresses, and open ports. Send it through a trusted channel; don't post it publicly.")
+	_ = baseline.SaveBaseline(snap)
+	return true, nil
+}
+
+// handleWeeklyMode reads state.json only (no health collection needed) and
+// prints the weekly usage report.
+func handleWeeklyMode(weeklyFlag bool) (handled bool, err error) {
+	if !weeklyFlag {
+		return false, nil
+	}
+	weeklyState, _ := tips.LoadState()
+	if weeklyState == nil || weeklyState.TotalRuns < 7 {
+		fmt.Println("ℹ️  Not enough data yet. Run dsd health for 7+ days first.")
+		return true, nil
+	}
+	fmt.Println(render.RenderWeekly(weeklyState, "weekly"))
+	return true, nil
+}
+
+// handlePostMortemMode prints the post-mortem for the given incident ID.
+// handled is false when --post-mortem wasn't set.
+func handlePostMortemMode(pmFlag string, snap *baseline.Snapshot, insights []models.Insight, mode output.OutputMode) (handled bool, err error) {
+	if pmFlag == "" {
+		return false, nil
+	}
+	fmt.Println(render.RenderPostMortem(pmFlag, snap, insights, mode))
+	_ = baseline.SaveBaseline(snap)
+	return true, nil
 }
 
 func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
@@ -617,6 +707,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// GCP guest deep checks — gate on DMI product name (silent on every non-GCP host).
 	if collectors.GCPGuestAvailable() {
 		cols = append(cols, collectors.NewGCPCollector())
+	}
+	// OCI guest deep checks — gate on DMI chassis asset tag (silent on every non-OCI host).
+	if collectors.OCIGuestAvailable() {
+		cols = append(cols, collectors.NewOCICollector())
 	}
 	// Prior-boot forensics — gate on a readable cross-boot source (journal or wtmp).
 	// Quiet when the prior boot was clean; loud when it was unclean / unmeasurable.
