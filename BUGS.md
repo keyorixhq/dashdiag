@@ -1592,3 +1592,58 @@ honest (K8s WARN→INFO non-root).
   fail-before/pass-after on genuine amd64 (`docker --platform linux/amd64`, not the host's
   native arm64) plus a clean fuzz burst.
 **Commit:** PR #727
+
+### BUG-098 — cold dnf metadata cache → CVE/Packages scan swallows a real Critical CVE
+**Found:** live, first-ever dsd pass on Oracle Linux 9.7 on a free-tier OCI Ampere A1 instance
+  (`aarch64`, UEK 6.12). A cold-cache `dsd health --packages --cve` reported
+  `Packages INFO: could not verify security updates: dnf advisory/updateinfo unavailable` and
+  `CVE INFO: dnf advisory list failed — could not verify CVE exposure (no repo access?)` — while
+  the box actually had 1 Critical advisory pending (`libldb`, CVE-2026-1933) among 49 total.
+  A warm-cache rerun found it immediately. Same false-negative shape as BUG-055/#476, on a
+  distro/path BUG-055 didn't cover (Oracle Linux's 6 default repos vs RHUI's 1).
+**Root cause (three compounding bugs, all in the dnf path):**
+  1. `dnfHasUpdateRepo`'s `dnf repolist --enabled -q` gate check ran under the collector's raw
+     outer context with no cap of its own, BEFORE the advisory scan's 18s `scanCtx` was even
+     created. A child `context.WithTimeout` deadline is `min(parent deadline, requested
+     duration)` — so a slow cold sync in the gate check silently ate into the scan's own budget
+     before the scan got a turn, on a multi-repo distro where BUG-055's 18s assumption (sized
+     for RHUI's single repo) didn't leave enough room.
+  2. `CVEHealthCollector.Timeout()` was a flat 60s, wrapping `ScanAllCVEs` via
+     `runner.go`'s `context.WithTimeout(ctx, c.Timeout())` — a child context can never outlive
+     its parent's deadline, so this silently overrode `ScanAllCVEs`'s own internal 120s budget
+     (list + KEV enrichment) without either function's author realizing the outer wrapper made
+     the inner constant moot.
+  3. Both failure branches reported a cancelled/deadline-exceeded call as "unavailable"/"no repo
+     access" — indistinguishable from a genuine tool failure, so a retry-worthy cold-cache
+     timeout looked the same as a hard failure.
+**A fourth bug found verifying the fix, in a different layer:** `cveScanUnavailable`
+  (`internal/analysis/heuristics_packages.go`) decided INFO-vs-OK by substring-matching the
+  literal `StatusReason` text instead of checking the `ScanAllResult.ScanFailed` bool it was
+  already given. Rewording the timeout message (to distinguish "cold cache" from "no repo
+  access") didn't match any pinned substring, so a `ScanFailed: true` result briefly rendered as
+  a false **OK** — caught by re-running the fix live, not by the unit tests (which only covered
+  the pre-existing wordings). A fifth, unrelated pre-existing bug surfaced in the same pass:
+  `inlinePackages` (`internal/render/health.go`) blacklisted only `Status == "stale-metadata"`
+  and fell through to "up to date" for `query-failed`/`no-security-repo` — a scan that timed out
+  or found no repo rendered its one-line summary as a false "up to date" (verdict level was
+  already correctly INFO; only the inline summary text was wrong).
+**Fix:** `dnfHasUpdateRepo`'s repolist call now runs under its own bounded (10s) context. A new
+  `dnfWarmCache` helper runs a capped (20s) `dnf makecache -q` once up front, deduplicated across
+  the concurrently-running Packages and CVE collectors via `sync.Once` (rather than relying on
+  dnf's own OS-level lock file, which would otherwise let two `makecache` processes race the
+  same lock with one able to be force-killed by its own context deadline mid-wait).
+  `PackagesCollector.Timeout()` raised 20s/40s → 50s/65s and `CVEHealthCollector.Timeout()`
+  raised 60s → 130s (past `ScanAllCVEs`'s internal 120s, so that budget is no longer silently
+  clipped) to give the added warm-up step real headroom. Both `collectDNF` and `scanAllDNF` now
+  check `ctx.Err()`/`scanCtx.Err()` to report "timed out — likely a cold metadata cache or slow
+  mirror; retry" instead of conflating it with a real failure. `cveScanUnavailable` now checks
+  `r.ScanFailed` directly (substrings kept as a defensive fallback). `inlinePackages` now
+  whitelists the clean case (`Status == ""`) instead of blacklisting one bad status, so any
+  future non-clean status can't fall through by omission the way `query-failed`/
+  `no-security-repo` did. Validated live on the actual OCI box across repeated `dnf clean all` +
+  rerun cycles: when the network cooperates, the Critical CVE now surfaces correctly (CRIT, 50
+  advisories, ~40-45s); when it doesn't (this box's free-tier egress path showed genuine
+  intermittent slowness during validation, independently corroborated by unrelated SSH
+  connection resets to the same host), the scan now honestly reports a timeout with a retry hint
+  instead of a false "unavailable"/false-OK.
+**Commit:** (this PR)

@@ -1056,6 +1056,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkGCP(d)
 	case *models.GCPInfo:
 		return checkGCP(*d)
+	case models.OCIInfo:
+		return checkOCI(d)
+	case *models.OCIInfo:
+		return checkOCI(*d)
 	case models.PostBootInfo:
 		return checkPostBoot(d)
 	case *models.PostBootInfo:

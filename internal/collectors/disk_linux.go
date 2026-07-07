@@ -613,6 +613,10 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 	// btrfs — check mounted btrfs filesystems for missing devices and errors
 	result.BtrfsVolumes = collectBtrfsVolumes(result.Filesystems)
 
+	// Busy-filesystem check — only for mounts at WARN/CRIT usage or unexpectedly
+	// read-only (needsBusyCheck gate); zero cost for healthy mounts.
+	collectBusyFilesystems(result.Filesystems)
+
 	// I/O stats — deep mode only (requires 1s sleep)
 	if c.Deep {
 		result.IOStats = collectDiskIO(result.Drives)
