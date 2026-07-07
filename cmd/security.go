@@ -207,10 +207,54 @@ func hasCrit(insights []models.Insight) bool {
 	return false
 }
 
-func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
+// printSecurityReport is the flat dispatcher for `dsd security`'s report.
+// Each print*Section below covers one independent theme and writes straight
+// to stdout with no shared buffer — split out of a single ~290-line function
+// (was `//nolint:cyclop,funlen`) the same way checkSecurity was split.
+func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
+	printSSHConfigSection(info, mode)
+	printFailedLoginsSection(info)
+	printListeningPortsSection(info, mode)
+	printSudoSection(info, mode)
+	printFirewallSection(info, mode)
+	printMacOSSecuritySection(info, mode)
+	printRHELSecuritySection(info, mode)
+	printSUSESecuritySection(info, mode)
+	printSnapperSection(snap, mode)
+	printSELinuxSection(info, mode)
+	printAppArmorSection(info, mode)
+	printPAMLockedSection(info, mode)
+	printSUIDBinariesSection(info, mode)
+
+	// Summary
+	fmt.Println()
+	fmt.Println(sep)
+	// Verdict derived from the SAME heuristic `dsd health` uses (checkSecurity), so
+	// the two can't diverge (BUG-072). The count is now WARN/CRIT insights rather
+	// than a separate item tally — grouped like health (e.g. "3 unexpected ports"
+	// is one concern).
+	issues := analysis.SecurityConcernCount(*info)
+	switch {
+	case issues > 0:
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
+	case securityChecksLimited(info):
+		// No issues — but the root-only checks (failed logins, listening-port
+		// process names, SELinux audit, effective sshd config) didn't run, so we
+		// verified almost nothing. Don't claim "healthy. Checks passed" (the
+		// false-OK dsd health already avoids via a NeedsRoot INFO).
+		fmt.Printf("%s Security checks limited — run as root (sudo dsd security) to fully verify; no issues found in what could be checked%s\n",
+			asciiOr("info", "ℹ️ ", mode), timing)
+	default:
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+	}
+}
+
+// printSSHConfigSection prints the SSH Configuration section (PermitRootLogin,
+// PasswordAuthentication).
+func printSSHConfigSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// SSH Configuration
 	fmt.Println("\nSSH Configuration")
 	// Key on SSHPermitRoot (the same field the verdict + checkSecurity use) so the
@@ -218,7 +262,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	// PermitRootLogin forced-commands-only.
 	printSecItem("PermitRootLogin", !info.SSHPermitRoot, "no (secure)", "yes (INSECURE)", mode)
 	printSecItem("PasswordAuthentication", !info.SSHPasswordAuth, "no (key-only)", "yes (weaker)", mode)
+}
 
+// printFailedLoginsSection prints the Failed Logins (last hour) section.
+func printFailedLoginsSection(info *models.SecurityInfo) {
 	// Failed logins
 	fmt.Printf("\nFailed Logins (last hour): %d\n", info.FailedLogins)
 	if len(info.FailedLoginIPs) > 0 {
@@ -227,7 +274,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("    %s\n", ip)
 		}
 	}
+}
 
+// printListeningPortsSection prints the Listening Ports section.
+func printListeningPortsSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// Listening ports
 	fmt.Printf("\nListening Ports (%d total)\n", len(info.ListeningPorts))
 	for _, p := range info.ListeningPorts {
@@ -254,7 +304,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		}
 		fmt.Printf("  %s  %-6d %-5s %-20s%s\n", icon, p.Port, p.Protocol, proc, tag)
 	}
+}
 
+// printSudoSection prints the Sudo NOPASSWD entries section.
+func printSudoSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// Sudo NOPASSWD
 	if len(info.SudoNopasswd) > 0 {
 		fmt.Println("\nSudo NOPASSWD entries:")
@@ -266,7 +319,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	} else {
 		fmt.Println("\nSudo NOPASSWD entries: none")
 	}
+}
 
+// printFirewallSection prints the Firewall section.
+func printFirewallSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// Firewall
 	if info.FirewallActive {
 		sshIcon := asciiOr("ok", "✅", mode)
@@ -296,7 +352,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	} else {
 		fmt.Println("\nFirewall: none detected")
 	}
+}
 
+// printMacOSSecuritySection prints the macOS Security section (FileVault,
+// SIP, Gatekeeper — darwin only).
+func printMacOSSecuritySection(info *models.SecurityInfo, mode output.OutputMode) {
 	// macOS Security — FileVault, SIP, Gatekeeper (darwin only)
 	if info.IsDarwin {
 		fmt.Println("\nmacOS Security")
@@ -304,7 +364,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		printSecItem("SIP", info.SIPEnabled, "enabled", "DISABLED", mode)
 		printSecItem("Gatekeeper", info.GatekeeperEnabled, "enabled", "disabled", mode)
 	}
+}
 
+// printRHELSecuritySection prints the System Security section (FIPS, crypto
+// policy, auditd, USBGuard, AIDE — RHEL/Rocky family).
+func printRHELSecuritySection(info *models.SecurityInfo, mode output.OutputMode) {
 	// RHEL/Rocky security
 	if info.CryptoPolicy != "" || info.FIPSEnabled || info.AIDEInstalled || info.USBGuardActive || info.AuditRules >= 0 {
 		fmt.Println("\nSystem Security")
@@ -340,7 +404,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			}
 		}
 	}
+}
 
+// printSUSESecuritySection prints SUSE supportconfig freshness and
+// SUSEConnect subscription expiry.
+func printSUSESecuritySection(info *models.SecurityInfo, mode output.OutputMode) {
 	// SUSE supportconfig
 	if info.SupportconfigAvailable {
 		fmt.Println("\nSUSE supportconfig")
@@ -374,7 +442,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("  %s   registered, expiry unknown\n", asciiOr("info", "\u2139\ufe0f", mode))
 		}
 	}
+}
 
+// printSnapperSection prints the Btrfs snapshots (snapper) section
+// (SLES / openSUSE).
+func printSnapperSection(snap *models.SnapperInfo, mode output.OutputMode) {
 	// Snapper / Btrfs snapshots (SLES / openSUSE)
 	if snap != nil && snap.Available {
 		fmt.Println("\nBtrfs snapshots (snapper)")
@@ -395,6 +467,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			}
 		}
 	}
+}
+
+// printSELinuxSection prints the SELinux mode, denials, booleans, and AVC
+// denial groups.
+func printSELinuxSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if info.SELinuxMode != "" {
 		fmt.Printf("\nSELinux mode: %s\n", info.SELinuxMode)
 		switch {
@@ -435,7 +512,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("\n  %s  /.autorelabel present — full filesystem relabel queued on next reboot (~15 min)\n", asciiOr("warn", "⚠️", mode))
 		}
 	}
+}
 
+// printAppArmorSection prints the AppArmor mode and denial section
+// (SLES/Ubuntu/Debian).
+func printAppArmorSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// AppArmor (SLES/Ubuntu/Debian)
 	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" && info.AppArmorMode != "unknown" {
 		fmt.Printf("\nAppArmor mode: %s (%d profiles loaded)\n", info.AppArmorMode, info.AppArmorProfiles)
@@ -460,7 +541,10 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 			fmt.Printf("  %s  No denials in the last 24h\n", asciiOr("ok", "\u2705", mode))
 		}
 	}
+}
 
+// printPAMLockedSection prints the PAM locked accounts section.
+func printPAMLockedSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// PAM locked accounts
 	if len(info.PAMLockedAccounts) > 0 {
 		fmt.Printf("\nPAM locked accounts:\n")
@@ -469,35 +553,16 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		}
 		fmt.Println("  → faillock --reset --user <name>  (to unlock)")
 	}
+}
 
+// printSUIDBinariesSection prints the unexpected SUID binaries section.
+func printSUIDBinariesSection(info *models.SecurityInfo, mode output.OutputMode) {
 	// SUID binaries
 	if len(info.SUIDBinaries) > 0 {
 		fmt.Printf("\nUnexpected SUID binaries (%d):\n", len(info.SUIDBinaries))
 		for _, b := range info.SUIDBinaries {
 			fmt.Printf("  %s   %s\n", asciiOr("warn", "⚠️", mode), b)
 		}
-	}
-
-	// Summary
-	fmt.Println()
-	fmt.Println(sep)
-	// Verdict derived from the SAME heuristic `dsd health` uses (checkSecurity), so
-	// the two can't diverge (BUG-072). The count is now WARN/CRIT insights rather
-	// than a separate item tally — grouped like health (e.g. "3 unexpected ports"
-	// is one concern).
-	issues := analysis.SecurityConcernCount(*info)
-	switch {
-	case issues > 0:
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s  %d security concern(s) found%s", asciiOr("warn", "⚠️", mode), issues, timing)))
-	case securityChecksLimited(info):
-		// No issues — but the root-only checks (failed logins, listening-port
-		// process names, SELinux audit, effective sshd config) didn't run, so we
-		// verified almost nothing. Don't claim "healthy. Checks passed" (the
-		// false-OK dsd health already avoids via a NeedsRoot INFO).
-		fmt.Printf("%s Security checks limited — run as root (sudo dsd security) to fully verify; no issues found in what could be checked%s\n",
-			asciiOr("info", "ℹ️ ", mode), timing)
-	default:
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
 	}
 }
 
