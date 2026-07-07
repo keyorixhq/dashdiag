@@ -508,6 +508,29 @@ func printSELinuxSection(info *models.SecurityInfo, mode output.OutputMode) {
 				}
 			}
 		}
+		// Port labels — proactive port-label scan (§6-add-2)
+		if len(info.SELinuxUnlabeledPorts) > 0 {
+			fmt.Printf("\n  [Port labels]\n")
+			for _, p := range info.SELinuxUnlabeledPorts {
+				proc := p.Process
+				if proc == "" {
+					proc = "unknown process"
+				}
+				fmt.Printf("  %s   %s/%-5d %s — no SELinux port label\n", asciiOr("warn", "⚠️", mode), p.Protocol, p.Port, proc)
+				fmt.Printf("       → semanage port -a -t <service>_port_t -p %s %d\n", p.Protocol, p.Port)
+			}
+		}
+		// File context — temporary chcon vs permanent semanage fcontext (§6-add-3)
+		if len(info.SELinuxContextIssues) > 0 {
+			fmt.Printf("\n  [File context — temporary chcon, not semanage]\n")
+			for _, ci := range info.SELinuxContextIssues {
+				fmt.Printf("  %s   %s\n", asciiOr("warn", "⚠️", mode), ci.Path)
+				fmt.Printf("       actual:   %s\n", ci.ActualContext)
+				fmt.Printf("       expected: %s\n", ci.ExpectedContext)
+				fmt.Printf("       → semanage fcontext -a -t %s '%s'  then  restorecon -Rv %s\n",
+					selinuxContextType(ci.ExpectedContext), ci.Path, ci.Path)
+			}
+		}
 		if info.SELinuxAutoRelabel {
 			fmt.Printf("\n  %s  /.autorelabel present — full filesystem relabel queued on next reboot (~15 min)\n", asciiOr("warn", "⚠️", mode))
 		}
@@ -580,6 +603,16 @@ func printSecItem(label string, ok bool, goodVal, badVal string, mode output.Out
 	} else {
 		fmt.Printf("  %s   %-28s %s\n", asciiOr("warn", "⚠️", mode), label+":", badVal)
 	}
+}
+
+// selinuxContextType extracts the type field from a user:role:type:level
+// SELinux context string, for the `semanage fcontext -a -t <type>` fix hint.
+func selinuxContextType(context string) string {
+	parts := strings.Split(context, ":")
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
 }
 
 // wellKnownPort maps common port numbers to service names.

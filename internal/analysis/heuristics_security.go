@@ -479,6 +479,39 @@ func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
 		out = append(out, insight("WARN", "Hardening", msg, hints))
 	}
 
+	// SELinux port-label scan (§6-add-2) — proactive: catches a listening
+	// service with no SELinux port label before SELinux ever logs a denial for it.
+	if len(sec.SELinuxUnlabeledPorts) > 0 {
+		hints := make([]string, 0, len(sec.SELinuxUnlabeledPorts)+1)
+		hints = append(hints, "to inspect: semanage port -l")
+		for _, p := range sec.SELinuxUnlabeledPorts {
+			proc := p.Process
+			if proc == "" {
+				proc = "unknown process"
+			}
+			hints = append(hints, fmt.Sprintf("to fix: semanage port -a -t <service>_port_t -p %s %d  # %s", p.Protocol, p.Port, proc))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d listening port(s) have no SELinux port label", len(sec.SELinuxUnlabeledPorts)),
+			hints,
+		))
+	}
+
+	// SELinux chcon-vs-semanage context detection (§6-add-3): a denial-
+	// implicated path whose context was set via chcon (not semanage fcontext)
+	// will silently revert on the next restorecon/full relabel.
+	if len(sec.SELinuxContextIssues) > 0 {
+		hints := make([]string, 0, len(sec.SELinuxContextIssues)+1)
+		hints = append(hints, "to fix: semanage fcontext -a -t <type> '<path>(/.*)?'  then  restorecon -Rv <path>")
+		for _, ci := range sec.SELinuxContextIssues {
+			hints = append(hints, fmt.Sprintf("%s — actual: %s, expected: %s", ci.Path, ci.ActualContext, ci.ExpectedContext))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d denial-implicated path(s) have a temporary chcon context — will be lost on the next relabel", len(sec.SELinuxContextIssues)),
+			hints,
+		))
+	}
+
 	return out
 }
 

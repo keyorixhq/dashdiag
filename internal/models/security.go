@@ -89,6 +89,18 @@ type SecurityInfo struct {
 	SELinuxAVCGroups   []SELinuxAVCGroup `json:"se_linux_avc_groups,omitempty"`   // grouped denials
 	SELinuxBooleans    []SELinuxBoolean  `json:"se_linux_booleans,omitempty"`     // relevant off booleans
 	SELinuxAutoRelabel bool              `json:"se_linux_auto_relabel,omitempty"` // /.autorelabel present
+	// SELinuxUnlabeledPorts (§6-add-2): listening ports with no matching
+	// `semanage port` type — SELinux will deny the service the moment it (re)binds
+	// under enforcement, even though no AVC has been logged for it yet. Only
+	// populated when selinuxDeepDiagnosisGate fires (enforcing/permissive + at
+	// least one AVC denial already present in the window).
+	SELinuxUnlabeledPorts []SELinuxUnlabeledPort `json:"se_linux_unlabeled_ports,omitempty"`
+	// SELinuxContextIssues (§6-add-3): denial-implicated paths whose actual
+	// context differs from the policy default with no matching semanage
+	// customization — set via `chcon`, so it's silently lost on the next
+	// `restorecon`/full relabel. A path covered by a real semanage fcontext rule
+	// is a legitimate, permanent customization and is never included here.
+	SELinuxContextIssues []SELinuxContextIssue `json:"se_linux_context_issues,omitempty"`
 	// PAM
 	PAMLockedAccounts []string `json:"pam_locked_accounts,omitempty"` // accounts locked by pam_faillock
 
@@ -155,6 +167,30 @@ type SELinuxAVCGroup struct {
 	Count      int      `json:"count"`                 // number of denials in window
 	BooleanFix string   `json:"boolean_fix,omitempty"` // getsebool name to toggle, if any
 	FixCmd     string   `json:"fix_cmd,omitempty"`     // recommended fix command
+	// Paths holds absolute paths seen in this group's file/dir-class denials
+	// (best-effort — an AVC record's name= field isn't always absolute, so a
+	// denial contributing only a relative name is not represented here). Feeds
+	// the chcon-vs-semanage context check (§6-add-3).
+	Paths []string `json:"paths,omitempty"`
+}
+
+// SELinuxUnlabeledPort is a listening port with no matching `semanage port`
+// type — SELinux will deny it the moment the service (re)binds under
+// enforcement, even before any AVC has been logged for it (§6-add-2).
+type SELinuxUnlabeledPort struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	Process  string `json:"process,omitempty"`
+}
+
+// SELinuxContextIssue flags a denial-implicated path whose actual SELinux
+// context differs from the policy default with no matching semanage fcontext
+// customization — the context was set via `chcon` and will be silently
+// reverted on the next `restorecon`/full relabel (§6-add-3).
+type SELinuxContextIssue struct {
+	Path            string `json:"path"`
+	ActualContext   string `json:"actual_context"`
+	ExpectedContext string `json:"expected_context"`
 }
 
 // AppArmorDenial is a grouped AppArmor denial entry.
