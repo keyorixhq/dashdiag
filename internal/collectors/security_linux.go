@@ -711,6 +711,15 @@ func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 		info.SELinuxBooleans = collectRelevantBooleans(ctx, info.SELinuxAVCGroups)
 	}
 
+	// Deeper SELinux diagnosis (port labels, chcon-vs-semanage) — only once
+	// there's already a signal something's wrong (§6-add-2, §6-add-3): mirrors
+	// the primer's escalation order (booleans → AVC → port → context →
+	// audit2allow) and avoids paying extra shell-outs on a quiet enforcing host.
+	if selinuxDeepDiagnosisGate(info) {
+		info.SELinuxUnlabeledPorts = parseSELinuxUnlabeledPorts(ctx, info.ListeningPorts)
+		info.SELinuxContextIssues = parseSELinuxContextIssues(ctx, info.SELinuxAVCGroups)
+	}
+
 	// AppArmor denial grouping (Debian/Ubuntu/SUSE)
 	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" {
 		info.AppArmorGroups = collectAppArmorDenials(ctx)
@@ -722,6 +731,246 @@ func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 
 	// PAM locked accounts via faillock
 	info.PAMLockedAccounts = collectPAMLockedAccounts(ctx)
+}
+
+// selinuxDeepDiagnosisGate reports whether info justifies the additional
+// SELinux port-label and file-context checks: SELinux must be enforcing or
+// permissive AND at least one AVC denial must be present in the window.
+func selinuxDeepDiagnosisGate(info *models.SecurityInfo) bool {
+	return (info.SELinuxMode == "enforcing" || info.SELinuxMode == "permissive") && info.SELinuxDenials > 0
+}
+
+// ── Port-label scan (§6-add-2) ────────────────────────────────────────────────
+
+// parseSELinuxUnlabeledPorts cross-references already-collected listening
+// ports against `semanage port -l` and returns any with no matching SELinux
+// port type — a proactive check that catches a labeling gap before SELinux
+// ever logs a denial for it (the service just hasn't (re)bound under
+// enforcement since the gap appeared).
+func parseSELinuxUnlabeledPorts(ctx context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
+	out, err := runCmdTimeout(5*time.Second, "semanage", "port", "-l")
+	if err != nil {
+		return nil // semanage unavailable (not installed / no policy-utils) — unknown, not "unlabeled"
+	}
+	labeled := parseSemanagePortRanges(out)
+
+	var unlabeled []models.SELinuxUnlabeledPort
+	for _, p := range listening {
+		if portRangeContains(labeled, p.Protocol, p.Port) {
+			continue
+		}
+		unlabeled = append(unlabeled, models.SELinuxUnlabeledPort{
+			Port: p.Port, Protocol: p.Protocol, Process: p.Process,
+		})
+	}
+	return unlabeled
+}
+
+// semanagePortRange is one `semanage port -l` row: a proto + inclusive port
+// range (a single port is lo==hi).
+type semanagePortRange struct {
+	proto  string
+	lo, hi int
+}
+
+// parseSemanagePortRanges parses `semanage port -l` output, e.g.:
+//
+//	SELinux Port Type              Proto  Port Number
+//
+//	http_port_t                    tcp    80, 443, 8008-8010
+//	ssh_port_t                     tcp    22
+//
+// Header/blank lines are skipped naturally — their 2nd field is never "tcp"/"udp".
+func parseSemanagePortRanges(out string) []semanagePortRange {
+	var ranges []semanagePortRange
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		proto := fields[1]
+		if proto != "tcp" && proto != "udp" {
+			continue
+		}
+		for _, tok := range strings.Split(strings.Join(fields[2:], ""), ",") {
+			if lo, hi, ok := parsePortRangeToken(tok); ok {
+				ranges = append(ranges, semanagePortRange{proto: proto, lo: lo, hi: hi})
+			}
+		}
+	}
+	return ranges
+}
+
+// parsePortRangeToken parses a single semanage port token: "22" or "8008-8010".
+func parsePortRangeToken(tok string) (lo, hi int, ok bool) {
+	tok = strings.TrimSpace(tok)
+	if idx := strings.IndexByte(tok, '-'); idx > 0 {
+		lo, errLo := strconv.Atoi(tok[:idx])
+		hi, errHi := strconv.Atoi(tok[idx+1:])
+		if errLo != nil || errHi != nil {
+			return 0, 0, false
+		}
+		return lo, hi, true
+	}
+	p, err := strconv.Atoi(tok)
+	if err != nil {
+		return 0, 0, false
+	}
+	return p, p, true
+}
+
+// portRangeContains reports whether any range covers proto/port.
+func portRangeContains(ranges []semanagePortRange, proto string, port int) bool {
+	for _, r := range ranges {
+		if r.proto == proto && port >= r.lo && port <= r.hi {
+			return true
+		}
+	}
+	return false
+}
+
+// ── chcon-vs-semanage context detection (§6-add-3) ────────────────────────────
+
+// parseSELinuxContextIssues checks each unique absolute path seen in a
+// file/dir-class AVC denial: if its actual context (`ls -Z`) differs from the
+// policy default (`matchpathcon -n`) AND no semanage fcontext customization
+// covers it, the context was set via `chcon` and will be lost on the next
+// relabel. A path whose differing context IS covered by a semanage rule is a
+// legitimate, permanent customization and is skipped — not a finding.
+func parseSELinuxContextIssues(ctx context.Context, groups []models.SELinuxAVCGroup) []models.SELinuxContextIssue {
+	paths := uniqueAVCPaths(groups)
+	if len(paths) == 0 {
+		return nil
+	}
+	rules := collectSemanageFcontextRules(ctx)
+
+	var out []models.SELinuxContextIssue
+	for _, path := range paths {
+		expected := matchpathconContext(path)
+		actual := lsZContext(path)
+		if expected == "" || actual == "" || expected == actual {
+			continue
+		}
+		if fcontextCovers(rules, path, actual) {
+			continue
+		}
+		out = append(out, models.SELinuxContextIssue{
+			Path: path, ActualContext: actual, ExpectedContext: expected,
+		})
+	}
+	return out
+}
+
+// uniqueAVCPaths flattens and deduplicates the Paths of every group, capped
+// at 10 to bound the number of matchpathcon/ls -Z shell-outs.
+func uniqueAVCPaths(groups []models.SELinuxAVCGroup) []string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, g := range groups {
+		for _, p := range g.Paths {
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			paths = append(paths, p)
+			if len(paths) >= 10 {
+				return paths
+			}
+		}
+	}
+	return paths
+}
+
+// matchpathconContext returns the policy-default context for path via
+// `matchpathcon -n` (the -n flag prints only the context, no path prefix).
+func matchpathconContext(path string) string {
+	out, err := runCmdTimeout(3*time.Second, "matchpathcon", "-n", path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// lsZContext returns the actual context of path via `ls -dZ` (the -d flag
+// stops it from listing a directory's contents instead of the path itself).
+func lsZContext(path string) string {
+	out, err := runCmdTimeout(3*time.Second, "ls", "-dZ", path)
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// fcontextRule is one parsed `semanage fcontext -C -l` row.
+type fcontextRule struct {
+	pattern *regexp.Regexp
+	context string
+}
+
+// collectSemanageFcontextRules runs `semanage fcontext -C -l` (customizations
+// only — policy defaults are what matchpathcon already reports) and returns
+// the parsed path-pattern → context rules.
+func collectSemanageFcontextRules(ctx context.Context) []fcontextRule {
+	out, err := runCmdTimeout(5*time.Second, "semanage", "fcontext", "-C", "-l")
+	if err != nil {
+		return nil
+	}
+	_ = ctx
+	return parseFcontextRules(out)
+}
+
+// parseFcontextRules parses `semanage fcontext -C -l` output, e.g.:
+//
+//	SELinux fcontext                                  type               Context
+//
+//	/data/app(/.*)?                                    all files          system_u:object_r:httpd_sys_content_t:s0
+//
+// The middle "type" column (file/dir/all files/...) can contain spaces, so
+// only the first (pattern) and last (context) fields are trusted.
+func parseFcontextRules(out string) []fcontextRule {
+	var rules []fcontextRule
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		context := fields[len(fields)-1]
+		if !strings.Contains(context, ":") {
+			continue // header/blank line — not a context
+		}
+		re, err := regexp.Compile("^" + fields[0] + "$")
+		if err != nil {
+			continue // an fcontext regex Go's RE2 can't compile — skip rather than false-flag
+		}
+		rules = append(rules, fcontextRule{pattern: re, context: context})
+	}
+	return rules
+}
+
+// fcontextCovers reports whether any customized fcontext rule matches path
+// with the same context TYPE as actual (comparing only the 3rd colon-field —
+// user/role/level commonly differ without it being a different customization).
+func fcontextCovers(rules []fcontextRule, path, actual string) bool {
+	actualType := selinuxContextType(actual)
+	for _, r := range rules {
+		if r.pattern.MatchString(path) && selinuxContextType(r.context) == actualType {
+			return true
+		}
+	}
+	return false
+}
+
+// selinuxContextType extracts the type field from a user:role:type:level context.
+func selinuxContextType(context string) string {
+	parts := strings.Split(context, ":")
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
 }
 
 // collectRelevantBooleans runs getsebool -a and filters to booleans related to
@@ -1701,6 +1950,7 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 	type groupKey struct{ stype, ttype, tclass string }
 	type groupData struct {
 		perms map[string]bool
+		paths map[string]bool
 		count int
 	}
 	groups := map[groupKey]*groupData{}
@@ -1744,10 +1994,19 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 
 		key := groupKey{stype, ttype, tclass}
 		if _, ok := groups[key]; !ok {
-			groups[key] = &groupData{perms: map[string]bool{}}
+			groups[key] = &groupData{perms: map[string]bool{}, paths: map[string]bool{}}
 		}
 		for _, p := range perms {
 			groups[key].perms[p] = true
+		}
+		// name= is only reliably a full path for file/dir-class denials, and even
+		// then not always absolute (the audit record alone doesn't always resolve
+		// it) — only track it when it is, so the chcon check never runs against a
+		// guessed/relative path (§6-add-3).
+		if tclass == "file" || tclass == "dir" {
+			if name := strings.Trim(avcField(line, "name="), `"`); strings.HasPrefix(name, "/") {
+				groups[key].paths[name] = true
+			}
 		}
 		groups[key].count++
 	}
@@ -1764,12 +2023,18 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 			perms = append(perms, p)
 		}
 		sort.Strings(perms) // data.perms is a map — sort for a stable perm order under replay
+		paths := make([]string, 0, len(data.paths))
+		for p := range data.paths {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths) // data.paths is a map — sort for stable order under replay
 		g := models.SELinuxAVCGroup{
 			Scontext: key.stype,
 			Tcontext: key.ttype,
 			Tclass:   key.tclass,
 			Perms:    perms,
 			Count:    data.count,
+			Paths:    paths,
 		}
 		// Try to find a boolean fix or semanage command
 		g.BooleanFix, g.FixCmd = suggestSELinuxFix(ctx, key.stype, key.ttype, key.tclass, perms)
