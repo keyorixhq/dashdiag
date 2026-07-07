@@ -1940,6 +1940,16 @@ func parseWorldWritable(info *models.SecurityInfo) {
 // parseAVCGroups reads /var/log/audit/audit.log and groups AVC denials by
 // (scontext_type, tcontext_type, tclass) — the unit an admin acts on.
 // For each group it attempts to find a getsebool fix or semanage/chcon command.
+// avcGroupKey identifies one denial pattern (source type, target type, target class).
+type avcGroupKey struct{ stype, ttype, tclass string }
+
+// avcGroupData accumulates the permissions, paths, and count for one avcGroupKey.
+type avcGroupData struct {
+	perms map[string]bool
+	paths map[string]bool
+	count int
+}
+
 func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxAVCGroup {
 	f, err := openFile("/var/log/audit/audit.log") // #nosec G304 -- hardcoded audit log path
 	if err != nil {
@@ -1947,76 +1957,79 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 	}
 	defer f.Close() //nolint:errcheck
 
-	type groupKey struct{ stype, ttype, tclass string }
-	type groupData struct {
-		perms map[string]bool
-		paths map[string]bool
-		count int
-	}
-	groups := map[groupKey]*groupData{}
+	groups := map[avcGroupKey]*avcGroupData{}
 	cutoff := time.Now().Add(-window)
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "type=AVC") {
-			continue
-		}
-		// Enforced denials only — a permissive=1 record was logged but not blocked,
-		// so it must not appear among the grouped findings the Hardening verdict
-		// surfaces (consistent with the denial COUNT, which also excludes it).
-		if avcIsPermissive(line) {
-			continue
-		}
-		// Timestamp check
-		if idx := strings.Index(line, "msg=audit("); idx >= 0 {
-			rest := line[idx+10:]
-			if dot := strings.IndexByte(rest, '.'); dot > 0 {
-				if sec, err := strconv.ParseInt(rest[:dot], 10, 64); err == nil {
-					if !time.Unix(sec, 0).After(cutoff) {
-						continue
-					}
-				}
-			}
-		}
-
-		stype := avcField(line, "scontext=")
-		ttype := avcField(line, "tcontext=")
-		tclass := avcField(line, "tclass=")
-		perms := avcPerms(line)
-
-		if stype == "" || ttype == "" || tclass == "" {
-			continue
-		}
-		// Keep only the type component (last part of user:role:type:level)
-		stype = lastPart(stype, ":")
-		ttype = lastPart(ttype, ":")
-
-		key := groupKey{stype, ttype, tclass}
-		if _, ok := groups[key]; !ok {
-			groups[key] = &groupData{perms: map[string]bool{}, paths: map[string]bool{}}
-		}
-		for _, p := range perms {
-			groups[key].perms[p] = true
-		}
-		// name= is only reliably a full path for file/dir-class denials, and even
-		// then not always absolute (the audit record alone doesn't always resolve
-		// it) — only track it when it is, so the chcon check never runs against a
-		// guessed/relative path (§6-add-3).
-		if tclass == "file" || tclass == "dir" {
-			if name := strings.Trim(avcField(line, "name="), `"`); strings.HasPrefix(name, "/") {
-				groups[key].paths[name] = true
-			}
-		}
-		groups[key].count++
+		scanAVCLine(scanner.Text(), groups, cutoff)
 	}
 
 	if len(groups) == 0 {
 		return nil
 	}
+	return buildSELinuxAVCGroups(ctx, groups)
+}
 
-	// Build result slice, sorted by count descending
-	var result []models.SELinuxAVCGroup
+// scanAVCLine parses one audit.log line and, if it is an enforced AVC denial
+// within the window, folds it into groups keyed by (scontext, tcontext, tclass).
+func scanAVCLine(line string, groups map[avcGroupKey]*avcGroupData, cutoff time.Time) {
+	if !strings.Contains(line, "type=AVC") {
+		return
+	}
+	// Enforced denials only — a permissive=1 record was logged but not blocked,
+	// so it must not appear among the grouped findings the Hardening verdict
+	// surfaces (consistent with the denial COUNT, which also excludes it).
+	if avcIsPermissive(line) {
+		return
+	}
+	// Timestamp check
+	if idx := strings.Index(line, "msg=audit("); idx >= 0 {
+		rest := line[idx+10:]
+		if dot := strings.IndexByte(rest, '.'); dot > 0 {
+			if sec, err := strconv.ParseInt(rest[:dot], 10, 64); err == nil {
+				if !time.Unix(sec, 0).After(cutoff) {
+					return
+				}
+			}
+		}
+	}
+
+	stype := avcField(line, "scontext=")
+	ttype := avcField(line, "tcontext=")
+	tclass := avcField(line, "tclass=")
+	perms := avcPerms(line)
+
+	if stype == "" || ttype == "" || tclass == "" {
+		return
+	}
+	// Keep only the type component (last part of user:role:type:level)
+	stype = lastPart(stype, ":")
+	ttype = lastPart(ttype, ":")
+
+	key := avcGroupKey{stype, ttype, tclass}
+	if _, ok := groups[key]; !ok {
+		groups[key] = &avcGroupData{perms: map[string]bool{}, paths: map[string]bool{}}
+	}
+	for _, p := range perms {
+		groups[key].perms[p] = true
+	}
+	// name= is only reliably a full path for file/dir-class denials, and even
+	// then not always absolute (the audit record alone doesn't always resolve
+	// it) — only track it when it is, so the chcon check never runs against a
+	// guessed/relative path (§6-add-3).
+	if tclass == "file" || tclass == "dir" {
+		if name := strings.Trim(avcField(line, "name="), `"`); strings.HasPrefix(name, "/") {
+			groups[key].paths[name] = true
+		}
+	}
+	groups[key].count++
+}
+
+// buildSELinuxAVCGroups turns the accumulated groups map into the sorted,
+// top-10-capped result slice, resolving a boolean/semanage fix for each group.
+func buildSELinuxAVCGroups(ctx context.Context, groups map[avcGroupKey]*avcGroupData) []models.SELinuxAVCGroup {
+	result := make([]models.SELinuxAVCGroup, 0, len(groups))
 	for key, data := range groups {
 		perms := make([]string, 0, len(data.perms))
 		for p := range data.perms {
