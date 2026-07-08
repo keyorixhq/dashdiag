@@ -15,7 +15,7 @@ func NewPostBootCollector() *PostBootCollector      { return &PostBootCollector{
 func (c *PostBootCollector) Name() string           { return "PostBoot" }
 func (c *PostBootCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *PostBootCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *PostBootCollector) Collect(_ context.Context) (any, error) {
 	return &models.PostBootInfo{}, nil
 }
 

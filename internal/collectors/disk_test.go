@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,6 @@ tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime 0 0
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			entries, err := readMounts(strings.NewReader(tc.input))
@@ -63,13 +63,7 @@ tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime 0 0
 			// Verify skipped FS types would be filtered by skipFSTypes
 			for _, e := range entries {
 				if skipFSTypes[e.fsType] {
-					found := false
-					for _, s := range tc.wantSkipped {
-						if e.fsType == s {
-							found = true
-							break
-						}
-					}
+					found := slices.Contains(tc.wantSkipped, e.fsType)
 					if !found {
 						t.Errorf("unexpected skippable fsType %q in test case", e.fsType)
 					}

@@ -90,7 +90,7 @@ func verifyMinisign(pubLine string, file, sigFile []byte) error {
 
 	// Global signature binds the trusted comment: Ed25519(file_signature || trusted_comment).
 	trustedComment := ""
-	if tc := strings.TrimPrefix(lines[2], "trusted comment:"); tc != lines[2] {
+	if tc, ok := strings.CutPrefix(lines[2], "trusted comment:"); ok {
 		trustedComment = strings.TrimPrefix(tc, " ")
 	}
 	globalSig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(lines[3]))
@@ -108,7 +108,7 @@ func verifyMinisign(pubLine string, file, sigFile []byte) error {
 // base64 line and a full minisign file (comment line + data line) work.
 func lastDataLine(s string) string {
 	var last string
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" || strings.HasPrefix(l, "untrusted comment:") || strings.HasPrefix(l, "trusted comment:") {
 			continue

@@ -17,7 +17,7 @@ func NewHealthDeepCollector() *HealthDeepCollector { return &HealthDeepCollector
 func (c *HealthDeepCollector) Name() string           { return "CPUDeep" }
 func (c *HealthDeepCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *HealthDeepCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HealthDeepCollector) Collect(_ context.Context) (any, error) {
 	return &models.HealthDeepInfo{
 		Status:       "unavailable",
 		StatusReason: "per-core CPU breakdown not available on this platform",

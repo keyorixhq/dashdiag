@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,15 +46,10 @@ func HasSubscriptionManager() bool {
 	if subscriptionManagerPath() != "" {
 		return true
 	}
-	for _, bin := range []string{
-		"/usr/bin/SUSEConnect", // SUSE / SLES
-		"/usr/bin/pro",         // Ubuntu Pro (ubuntu-advantage-tools)
-	} {
-		if fileExists(bin) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{
+		"/usr/bin/SUSEConnect",
+		"/usr/bin/pro",
+	}, fileExists)
 }
 
 // IsSUSEHost returns true when this is a SUSE/openSUSE system.
@@ -78,7 +74,7 @@ func NewSUSEConnectCollector() *SUSEConnectCollector { return &SUSEConnectCollec
 func (c *SUSEConnectCollector) Name() string           { return "Subscription" }
 func (c *SUSEConnectCollector) Timeout() time.Duration { return 10 * time.Second }
 
-func (c *SUSEConnectCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SUSEConnectCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.SUSEConnectInfo{ExpiresDays: -1}
 
 	// RHEL / Oracle Linux / Rocky / AlmaLinux

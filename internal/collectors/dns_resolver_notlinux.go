@@ -13,6 +13,6 @@ func NewDNSResolverCollector() *DNSResolverCollector   { return &DNSResolverColl
 func (c *DNSResolverCollector) Name() string           { return "DNS resolver" }
 func (c *DNSResolverCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *DNSResolverCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *DNSResolverCollector) Collect(_ context.Context) (any, error) {
 	return nil, nil // systemd-resolved / resolvectl are Linux-only
 }

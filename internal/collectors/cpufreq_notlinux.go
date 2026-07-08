@@ -15,7 +15,7 @@ func NewCPUFreqCollector() *CPUFreqCollector       { return &CPUFreqCollector{} 
 func (c *CPUFreqCollector) Name() string           { return "CPUFreq" }
 func (c *CPUFreqCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *CPUFreqCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *CPUFreqCollector) Collect(_ context.Context) (any, error) {
 	return &models.CPUFreqInfo{}, nil
 }
 

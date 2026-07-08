@@ -390,11 +390,11 @@ func extractAVCProcessNames(samples []string) []string {
 	seen := map[string]bool{}
 	var procs []string
 	for _, line := range samples {
-		idx := strings.Index(line, `comm="`)
-		if idx < 0 {
+		_, after, ok := strings.Cut(line, `comm="`)
+		if !ok {
 			continue
 		}
-		rest := line[idx+6:]
+		rest := after
 		end := strings.IndexByte(rest, '"')
 		if end <= 0 {
 			continue

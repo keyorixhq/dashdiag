@@ -131,7 +131,6 @@ func TestSubcommandsPlainNoEmoji(t *testing.T) {
 	}
 	glyphs := []string{"✅", "⚠️", "❌", "ℹ️", "⏳", "⏭️", "⏹", "🔴", "🟡", "🟢"}
 	for _, c := range cmds {
-		c := c
 		t.Run(c, func(t *testing.T) {
 			t.Parallel()
 			out, code := run(t, c, "--plain")

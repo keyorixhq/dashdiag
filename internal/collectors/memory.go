@@ -54,7 +54,7 @@ func parseMeminfo(r io.Reader) (map[string]uint64, error) {
 	return result, scanner.Err()
 }
 
-func (c *MemoryCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.MemoryInfo{}
 
 	// Primary source on Linux: /proc/meminfo via the active source, so

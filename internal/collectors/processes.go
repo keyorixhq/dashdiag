@@ -64,7 +64,7 @@ func readComm(pid int) string {
 	return strings.TrimSpace(string(data))
 }
 
-func (c *ProcessesCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *ProcessesCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}

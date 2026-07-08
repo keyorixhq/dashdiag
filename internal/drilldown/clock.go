@@ -31,7 +31,7 @@ func clockTrackingLinux(ctx context.Context) (*models.Details, error) {
 
 func parseChronyTracking(out string) *models.Details {
 	kv := make(map[string]string)
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
@@ -51,7 +51,7 @@ func parseChronyTracking(out string) *models.Details {
 
 func parseTimedatectl(out string) *models.Details {
 	kv := make(map[string]string)
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -80,7 +80,7 @@ func clockTrackingMac(ctx context.Context) (*models.Details, error) {
 	// sntp query (available without root on macOS)
 	sntpOut, err2 := runCmd(ctx, "sntp", "-t", "1", "time.apple.com")
 	if err2 == nil {
-		for _, line := range strings.Split(sntpOut, "\n") {
+		for line := range strings.SplitSeq(sntpOut, "\n") {
 			if strings.Contains(line, "offset") || strings.Contains(line, "stratum") {
 				kv["sntp_result"] = strings.TrimSpace(line)
 				break

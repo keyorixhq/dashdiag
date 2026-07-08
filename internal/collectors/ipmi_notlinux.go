@@ -15,7 +15,7 @@ func NewIPMICollector() *IPMICollector          { return &IPMICollector{} }
 func (c *IPMICollector) Name() string           { return "IPMI" }
 func (c *IPMICollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *IPMICollector) Collect(_ context.Context) (interface{}, error) {
+func (c *IPMICollector) Collect(_ context.Context) (any, error) {
 	return &models.IPMIInfo{}, nil
 }
 

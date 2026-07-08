@@ -19,9 +19,9 @@ func DetectDistroID() string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "ID=") {
-			return strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, "ID="); ok {
+			return strings.Trim(after, `"`)
 		}
 	}
 	return ""

@@ -15,7 +15,7 @@ func NewHugePagesCollector() *HugePagesCollector     { return &HugePagesCollecto
 func (c *HugePagesCollector) Name() string           { return "HugePages" }
 func (c *HugePagesCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HugePagesCollector) Collect(_ context.Context) (any, error) {
 	return &models.HugePagesInfo{}, nil
 }
 

@@ -115,11 +115,23 @@ type K8sOSLayer struct {
 	KubeProxyMode       string   `json:"kube_proxy_mode,omitempty"` // "iptables" | "ipvs" | "nft" | "" (unknown/not-applicable)
 	FlannelSubnetOK     bool     `json:"flannel_subnet_ok"`         // /run/flannel/subnet.env present
 	FlannelInUse        bool     `json:"flannel_in_use"`            // flannel is the configured CNI (else subnet.env absence is normal)
-	CNIBinsOK           bool     `json:"cni_bins_ok"`               // /opt/cni/bin/ populated
-	CNIChecked          bool     `json:"cni_checked"`               // false when /opt/cni/bin unreadable (permission) — state unknown
-	FirewalldMasquOK    bool     `json:"firewalld_masq_ok"`         // masquerade enabled if firewalld
-	FirewalldChecked    bool     `json:"firewalld_checked"`         // false unless firewalld.service is actually active — state not applicable
-	CertExpirySoon      bool     `json:"cert_expiry_soon"`          // true when a cert expires within 30d — companion flag so 0 days (within 24h) isn't read as the zero-value "none"
-	CertExpirySoonDays  int      `json:"cert_expiry_soon_days"`     // days to soonest expiry when CertExpirySoon; 0 = within 24h. Meaningless unless CertExpirySoon
-	CertExpiredNames    []string `json:"cert_expired_names,omitempty"`
+	// FlannelCNIUnreadable is true when /etc/cni/net.d (or the k3s equivalent)
+	// exists but could not be listed — commonly 0700 root:root even on a
+	// systemd host. Without this, a non-root run silently reads FlannelInUse
+	// as false ("not flannel") when the real state is unknown, which could
+	// suppress a genuine firewalld-masquerade WARN below.
+	FlannelCNIUnreadable bool `json:"flannel_cni_unreadable,omitempty"`
+	CNIBinsOK            bool `json:"cni_bins_ok"`       // /opt/cni/bin/ populated
+	CNIChecked           bool `json:"cni_checked"`       // false when /opt/cni/bin unreadable (permission) — state unknown
+	FirewalldMasquOK     bool `json:"firewalld_masq_ok"` // masquerade enabled if firewalld
+	FirewalldChecked     bool `json:"firewalld_checked"` // false unless firewalld.service is actually active — state not applicable
+	// OSLayerNeedsRoot is true when this deep collection ran as non-root, so
+	// KubeForwardChecked/KubeServicesChecked/CNIChecked/FlannelCNIUnreadable
+	// may silently read as "not applicable" when the real cause is a
+	// permission-gated read (iptables-save/ipvsadm/nft need CAP_NET_ADMIN;
+	// /etc/cni/net.d and /opt/cni/bin are commonly root-only).
+	OSLayerNeedsRoot   bool     `json:"os_layer_needs_root,omitempty"`
+	CertExpirySoon     bool     `json:"cert_expiry_soon"`      // true when a cert expires within 30d — companion flag so 0 days (within 24h) isn't read as the zero-value "none"
+	CertExpirySoonDays int      `json:"cert_expiry_soon_days"` // days to soonest expiry when CertExpirySoon; 0 = within 24h. Meaningless unless CertExpirySoon
+	CertExpiredNames   []string `json:"cert_expired_names,omitempty"`
 }

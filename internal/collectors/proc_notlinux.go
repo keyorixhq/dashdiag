@@ -16,6 +16,6 @@ func NewProcCollector(pid int) *ProcCollector { return &ProcCollector{PID: pid} 
 func (c *ProcCollector) Name() string           { return "Proc" }
 func (c *ProcCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *ProcCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ProcCollector) Collect(_ context.Context) (any, error) {
 	return &models.ProcInfo{}, nil
 }

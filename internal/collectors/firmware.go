@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ func NewFirmwareCollector() *FirmwareCollector { return &FirmwareCollector{} }
 func (c *FirmwareCollector) Name() string           { return "Firmware" }
 func (c *FirmwareCollector) Timeout() time.Duration { return 30 * time.Second }
 
-func (c *FirmwareCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.FirmwareInfo{}
 
 	// Check fwupdmgr is available
@@ -68,13 +69,7 @@ func (c *FirmwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	for _, dev := range result.Devices {
-		needsReboot := false
-		for _, flag := range dev.Flags {
-			if flag == "needs-reboot" {
-				needsReboot = true
-				break
-			}
-		}
+		needsReboot := slices.Contains(dev.Flags, "needs-reboot")
 
 		newVer := ""
 		isSecurity := false

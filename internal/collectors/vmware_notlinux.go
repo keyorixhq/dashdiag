@@ -16,7 +16,7 @@ func NewVMwareCollector() *VMwareCollector { return &VMwareCollector{} }
 func (c *VMwareCollector) Name() string           { return "VMware" }
 func (c *VMwareCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *VMwareCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *VMwareCollector) Collect(_ context.Context) (any, error) {
 	return &models.VMwareInfo{}, nil
 }
 

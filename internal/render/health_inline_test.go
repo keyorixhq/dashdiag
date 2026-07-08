@@ -14,12 +14,12 @@ import (
 //   - nil and wrong-type input must return "" (the defensive guard)
 //   - valid input in BOTH value and pointer form must return non-empty
 
-type inlineFn = func(interface{}) string
+type inlineFn = func(any) string
 
 type inlineCase struct {
 	fn    inlineFn
-	value interface{} // valid input, value form
-	ptr   interface{} // same data, pointer form
+	value any // valid input, value form
+	ptr   any // same data, pointer form
 }
 
 func inlineCases() map[string]inlineCase {

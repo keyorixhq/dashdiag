@@ -40,7 +40,7 @@ var guestCmd = &cobra.Command{
 // the insights, and the per-platform classifiers that sort them into the two blocks.
 type guestView struct {
 	identity   string
-	jsonData   interface{}
+	jsonData   any
 	insights   []models.Insight
 	hostSide   func(string) bool
 	recognized func(string) bool
@@ -376,7 +376,7 @@ func isContainerRecognitionLine(msg string) bool {
 	return strings.Contains(msg, "limits set, non-root")
 }
 
-func runGuestCollector(ctx context.Context, col runner.Collector) interface{} {
+func runGuestCollector(ctx context.Context, col runner.Collector) any {
 	var result runner.Result
 	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		result = r

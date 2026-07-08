@@ -203,8 +203,8 @@ func statusSeverity(s string) int {
 // ComputeDiff formats as "STATUS value" (or "absent").
 func firstToken(s string) string {
 	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, ' '); i >= 0 {
-		return s[:i]
+	if before, _, ok := strings.Cut(s, " "); ok {
+		return before
 	}
 	return s
 }

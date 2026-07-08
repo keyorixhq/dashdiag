@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -1001,12 +1002,7 @@ func IsPVEServicePort(port int) bool {
 
 // containsStr returns true if s is in the slice ss.
 func containsStr(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }
 
 // cloudFirewallLabels maps a cloud provider id to a human label, the name of its

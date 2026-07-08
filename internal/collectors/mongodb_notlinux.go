@@ -18,6 +18,6 @@ func NewMongoDBCollector() *MongoDBCollector { return &MongoDBCollector{} }
 
 func (c *MongoDBCollector) Name() string           { return "MongoDB" }
 func (c *MongoDBCollector) Timeout() time.Duration { return time.Second }
-func (c *MongoDBCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *MongoDBCollector) Collect(_ context.Context) (any, error) {
 	return &models.MongoDBInfo{Detected: false}, nil
 }
