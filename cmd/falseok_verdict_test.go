@@ -113,7 +113,7 @@ func TestServicesDeepNotQueriedNotNone(t *testing.T) {
 // failedUnitsLine returns the rendered "Failed units" line (other lines also contain
 // "none"/"healthy", so assertions must target this line specifically).
 func failedUnitsLine(out string) string {
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(l, "Failed units") {
 			return l
 		}

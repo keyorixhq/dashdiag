@@ -53,7 +53,6 @@ Committed_AS:   10240000 kB
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := parseMeminfo(strings.NewReader(tc.input))

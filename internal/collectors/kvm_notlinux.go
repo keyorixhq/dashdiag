@@ -17,7 +17,7 @@ func NewKVMDeepCollector() *KVMCollector { return &KVMCollector{Deep: true} }
 func (c *KVMCollector) Name() string           { return "KVM" }
 func (c *KVMCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *KVMCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *KVMCollector) Collect(_ context.Context) (any, error) {
 	return &models.KVMInfo{}, nil
 }
 

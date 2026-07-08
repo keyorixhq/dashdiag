@@ -15,7 +15,7 @@ func NewSRIOVCollector() *SRIOVCollector         { return &SRIOVCollector{} }
 func (c *SRIOVCollector) Name() string           { return "SRIOV" }
 func (c *SRIOVCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *SRIOVCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *SRIOVCollector) Collect(_ context.Context) (any, error) {
 	return &models.SRIOVInfo{}, nil
 }
 

@@ -18,6 +18,6 @@ func NewMySQLCollector() *MySQLCollector { return &MySQLCollector{} }
 
 func (c *MySQLCollector) Name() string           { return "MySQL" }
 func (c *MySQLCollector) Timeout() time.Duration { return time.Second }
-func (c *MySQLCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *MySQLCollector) Collect(_ context.Context) (any, error) {
 	return &models.MySQLInfo{Detected: false}, nil
 }

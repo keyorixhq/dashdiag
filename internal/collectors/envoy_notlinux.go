@@ -18,6 +18,6 @@ func NewEnvoyCollector() *EnvoyCollector { return &EnvoyCollector{} }
 
 func (c *EnvoyCollector) Name() string           { return "Envoy" }
 func (c *EnvoyCollector) Timeout() time.Duration { return time.Second }
-func (c *EnvoyCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *EnvoyCollector) Collect(_ context.Context) (any, error) {
 	return &models.EnvoyInfo{Detected: false}, nil
 }

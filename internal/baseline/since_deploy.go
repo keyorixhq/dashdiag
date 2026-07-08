@@ -91,9 +91,9 @@ func getBootTime() time.Time {
 	if err != nil {
 		return time.Now().Add(-24 * time.Hour)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "btime ") {
-			ts, _ := strconv.ParseInt(strings.TrimPrefix(line, "btime "), 10, 64)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, "btime "); ok {
+			ts, _ := strconv.ParseInt(after, 10, 64)
 			return time.Unix(ts, 0)
 		}
 	}

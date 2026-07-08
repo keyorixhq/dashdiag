@@ -18,6 +18,6 @@ func NewPostgresCollector() *PostgresCollector { return &PostgresCollector{} }
 
 func (c *PostgresCollector) Name() string           { return "Postgres" }
 func (c *PostgresCollector) Timeout() time.Duration { return time.Second }
-func (c *PostgresCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *PostgresCollector) Collect(_ context.Context) (any, error) {
 	return &models.PostgresInfo{Detected: false}, nil
 }

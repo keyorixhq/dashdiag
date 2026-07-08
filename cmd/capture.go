@@ -334,7 +334,7 @@ func readReportJSON(path string, validate func([]byte) error) (string, error) {
 // vice versa) is rejected because its keys don't match the target model, rather
 // than silently unmarshalling into a zero-value struct. The top-level model
 // structs share no field names, so cross-feeding always trips an unknown field.
-func strictUnmarshal(b []byte, dest interface{}) error {
+func strictUnmarshal(b []byte, dest any) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	return dec.Decode(dest)

@@ -15,7 +15,7 @@ func NewInfiniBandCollector() *InfiniBandCollector    { return &InfiniBandCollec
 func (c *InfiniBandCollector) Name() string           { return "InfiniBand" }
 func (c *InfiniBandCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *InfiniBandCollector) Collect(_ context.Context) (any, error) {
 	return &models.InfiniBandInfo{}, nil
 }
 

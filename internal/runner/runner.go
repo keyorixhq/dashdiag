@@ -18,12 +18,12 @@ const collectGrace = 500 * time.Millisecond
 type Collector interface {
 	Name() string
 	Timeout() time.Duration
-	Collect(ctx context.Context) (interface{}, error)
+	Collect(ctx context.Context) (any, error)
 }
 
 type Result struct {
 	Name     string
-	Data     interface{}
+	Data     any
 	Err      error
 	Duration time.Duration
 }

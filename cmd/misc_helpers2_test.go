@@ -49,9 +49,9 @@ func TestParseSinceDuration(t *testing.T) {
 // pure type conversion without invoking any real collection I/O.
 type fakeCollector struct{}
 
-func (fakeCollector) Name() string                                   { return "fake" }
-func (fakeCollector) Timeout() time.Duration                         { return time.Second }
-func (fakeCollector) Collect(_ context.Context) (interface{}, error) { return nil, nil }
+func (fakeCollector) Name() string                           { return "fake" }
+func (fakeCollector) Timeout() time.Duration                 { return time.Second }
+func (fakeCollector) Collect(_ context.Context) (any, error) { return nil, nil }
 
 func TestToRunnerCols(t *testing.T) {
 	in := []collectors.Collector{fakeCollector{}, fakeCollector{}}

@@ -114,7 +114,7 @@ func normalize(v string) string {
 // numeric MAJOR.MINOR.PATCH). Unparseable inputs sort as lowest.
 func CompareVersions(a, b string) int {
 	pa, pb := versionParts(a), versionParts(b)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if pa[i] != pb[i] {
 			if pa[i] < pb[i] {
 				return -1
@@ -254,7 +254,7 @@ func fetchBytes(ctx context.Context, url string) ([]byte, error) {
 
 // checksumFor returns the hex sha256 for assetName from checksums.txt content.
 func checksumFor(data []byte, assetName string) (string, error) {
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && fields[1] == assetName {
 			return fields[0], nil

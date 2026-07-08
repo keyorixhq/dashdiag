@@ -17,6 +17,6 @@ func NewHardwareCollector() *HardwareCollector { return &HardwareCollector{} }
 func (c *HardwareCollector) Name() string           { return "Hardware" }
 func (c *HardwareCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *HardwareCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HardwareCollector) Collect(_ context.Context) (any, error) {
 	return &models.HardwareInfo{}, nil
 }

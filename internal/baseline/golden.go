@@ -81,8 +81,8 @@ func ListGolden() ([]string, error) {
 type DriftEntry struct {
 	Check  string
 	Param  string
-	Before interface{}
-	After  interface{}
+	Before any
+	After  any
 }
 
 // ComputeSysctlDrift compares raw sysctl values between two snapshots.
@@ -136,7 +136,7 @@ func ComputeSysctlDrift(golden, current *Snapshot) []DriftEntry {
 
 // extractSysctlRaw finds the Sysctl check's Raw field and returns it as a map.
 // Handles both JSON-decoded maps and live Go structs by normalising through JSON.
-func extractSysctlRaw(snap *Snapshot) map[string]interface{} {
+func extractSysctlRaw(snap *Snapshot) map[string]any {
 	for _, c := range snap.Checks {
 		if c.Name != "Sysctl" || c.Raw == nil {
 			continue
@@ -148,7 +148,7 @@ func extractSysctlRaw(snap *Snapshot) map[string]interface{} {
 		if err != nil {
 			return nil
 		}
-		var m map[string]interface{}
+		var m map[string]any
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil
 		}

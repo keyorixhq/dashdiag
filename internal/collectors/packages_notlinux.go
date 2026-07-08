@@ -20,7 +20,7 @@ func NewPackagesDeepCollector() *PackagesCollector { return &PackagesCollector{}
 func (c *PackagesCollector) Name() string           { return "Packages" }
 func (c *PackagesCollector) Timeout() time.Duration { return 30 * time.Second }
 
-func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *PackagesCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.PackagesInfo{Checked: true, PackageManager: "brew"}
 
 	// Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel.
@@ -48,7 +48,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 		return info, nil
 	}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

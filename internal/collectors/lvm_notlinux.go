@@ -18,6 +18,6 @@ func NewLVMCollector() *LVMCollector { return &LVMCollector{} }
 func (c *LVMCollector) Name() string           { return "LVM" }
 func (c *LVMCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *LVMCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *LVMCollector) Collect(_ context.Context) (any, error) {
 	return &models.LVMInfo{}, nil
 }

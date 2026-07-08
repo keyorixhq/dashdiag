@@ -3,6 +3,7 @@ package collectors
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 // osReleaseValue extracts a single key from /etc/os-release content.
 func osReleaseValue(content, key string) string {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if ok && k == key {
 			return strings.Trim(v, `"'`)
@@ -30,7 +31,7 @@ func osReleaseValue(content, key string) string {
 // channel lives in a "Variant" key. Values map: rel→stable, rc→rc, beta→beta,
 // bc→beta-candidate, main→main.
 func parseSteamOSChannel(content string) (raw, label string) {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
@@ -164,7 +165,7 @@ func applyRAUCText(out string, info *models.SteamOSInfo) {
 			info.RAUCInactiveStatus = curStatus
 		}
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		trimmed := strings.TrimSpace(raucANSIRe.ReplaceAllString(line, ""))
 		switch {
 		case isRAUCSlotHeader(trimmed):
@@ -190,7 +191,7 @@ func isRAUCSlotHeader(line string) bool {
 func filterGamescopeErrors(out string, maxLines int) []string {
 	needles := []string{"error", "failed", "assert", "abort", "crash", "killed", "drm"}
 	var hits []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		low := strings.ToLower(line)
 		for _, n := range needles {
 			if strings.Contains(low, n) {
@@ -241,7 +242,7 @@ var reSSUsers = regexp.MustCompile(`"([^"]+)",pid=(\d+)`)
 // field. Lines without a recognisable proto or port are skipped.
 func parseSSSockets(out string) []ssSocket {
 	var socks []ssSocket
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
@@ -296,7 +297,7 @@ func resolveRemotePlayPorts(wanted []models.RemotePlayPort, socks []ssSocket) []
 // parseDefaultGateway extracts the gateway IP from `ip route show default`
 // ("default via 192.168.1.1 dev wlan0 ...").
 func parseDefaultGateway(out string) string {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		for i := 0; i+1 < len(fields); i++ {
 			if fields[i] == "via" {
@@ -313,7 +314,7 @@ func parseDefaultGateway(out string) string {
 // not in effect.
 func parseARPPeers(out, gateway string) int {
 	n := 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
@@ -333,7 +334,7 @@ func parseARPPeers(out, gateway string) int {
 // text references any of the given ports. Inferential and conservative: only a
 // line containing both a drop/reject action and a target port counts.
 func firewallBlocksPorts(ruleset string, ports []int) bool {
-	for _, line := range strings.Split(ruleset, "\n") {
+	for line := range strings.SplitSeq(ruleset, "\n") {
 		low := strings.ToLower(line)
 		if !strings.Contains(low, "drop") && !strings.Contains(low, "reject") {
 			continue
@@ -351,12 +352,7 @@ func firewallBlocksPorts(ruleset string, ports []int) bool {
 // (avoids 27031 matching inside 270319).
 func lineMentionsPort(line string, p int) bool {
 	ps := strconv.Itoa(p)
-	for _, tok := range strings.FieldsFunc(line, func(r rune) bool { return r < '0' || r > '9' }) {
-		if tok == ps {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.FieldsFunc(line, func(r rune) bool { return r < '0' || r > '9' }), ps)
 }
 
 // ── Disk parsers (Spec 19) ─────────────────────────────────────────────────
@@ -365,7 +361,7 @@ func lineMentionsPort(line string, p int) bool {
 // (mount point is the second whitespace-separated field of each line).
 func parseMountPointSet(procMounts string) map[string]bool {
 	set := map[string]bool{}
-	for _, line := range strings.Split(procMounts, "\n") {
+	for line := range strings.SplitSeq(procMounts, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			set[fields[1]] = true
@@ -389,7 +385,7 @@ type iwIface struct {
 // are only present when the interface is associated.
 func parseIwDev(out string) []iwIface {
 	var ifaces []iwIface
-	for _, raw := range strings.Split(out, "\n") {
+	for raw := range strings.SplitSeq(out, "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
 		case strings.HasPrefix(line, "Interface "):
@@ -421,10 +417,10 @@ func parseIwChannelLine(line string) (channel, freqMHz, widthMHz int) {
 			freqMHz, _ = strconv.Atoi(strings.TrimSpace(line[o+1 : o+c]))
 		}
 	}
-	if w := strings.Index(line, "width: "); w >= 0 {
-		rest := line[w+len("width: "):]
-		if sp := strings.IndexByte(rest, ' '); sp >= 0 {
-			widthMHz, _ = strconv.Atoi(rest[:sp])
+	if _, after, ok := strings.Cut(line, "width: "); ok {
+		rest := after
+		if before, _, ok := strings.Cut(rest, " "); ok {
+			widthMHz, _ = strconv.Atoi(before)
 		}
 	}
 	return channel, freqMHz, widthMHz
@@ -435,7 +431,7 @@ func parseIwLinkSignal(out string) (connected bool, signalDBm int) {
 	if strings.Contains(out, "Not connected") {
 		return false, 0
 	}
-	for _, raw := range strings.Split(out, "\n") {
+	for raw := range strings.SplitSeq(out, "\n") {
 		line := strings.TrimSpace(raw)
 		if strings.HasPrefix(line, "Connected to") {
 			connected = true

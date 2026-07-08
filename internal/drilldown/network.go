@@ -48,7 +48,7 @@ func parseSsOutput(out string, nonRoot bool) *models.Details {
 	procClose := make(map[string]int) // "name[pid]" → CLOSE_WAIT count
 	procTime := make(map[string]int)  // "name[pid]" → TIME_WAIT count
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 1 {
 			continue
@@ -133,21 +133,21 @@ func normalizeSSState(s string) string {
 
 func parseSSProc(users string) string {
 	// users:(("nginx",pid=1234,fd=5))
-	start := strings.Index(users, "((\"")
-	if start < 0 {
+	_, after, ok := strings.Cut(users, "((\"")
+	if !ok {
 		return ""
 	}
-	rest := users[start+3:]
-	end := strings.Index(rest, "\"")
-	if end < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, "\"")
+	if !ok0 {
 		return ""
 	}
-	name := rest[:end]
-	pidStart := strings.Index(rest, "pid=")
-	if pidStart < 0 {
+	name := before0
+	_, after1, ok1 := strings.Cut(rest, "pid=")
+	if !ok1 {
 		return name
 	}
-	pidStr := rest[pidStart+4:]
+	pidStr := after1
 	pidEnd := strings.IndexAny(pidStr, ",)")
 	if pidEnd > 0 {
 		pidStr = pidStr[:pidEnd]
@@ -213,7 +213,7 @@ func tcpStatesMac(ctx context.Context) (*models.Details, error) {
 		return nil, err
 	}
 	counts := make(map[string]int)
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 6 {
 			continue

@@ -15,7 +15,7 @@ func NewCloudMetaCollector() *CloudMetaCollector     { return &CloudMetaCollecto
 func (c *CloudMetaCollector) Name() string           { return "CloudMeta" }
 func (c *CloudMetaCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *CloudMetaCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *CloudMetaCollector) Collect(_ context.Context) (any, error) {
 	return &models.CloudInfo{}, nil
 }
 

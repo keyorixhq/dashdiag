@@ -341,7 +341,7 @@ func buildRules() []Rule {
 				if err != nil {
 					return skipr(r, "could not read /etc/login.defs")
 				}
-				for _, line := range strings.Split(string(data), "\n") {
+				for line := range strings.SplitSeq(string(data), "\n") {
 					if strings.HasPrefix(strings.TrimSpace(line), "#") {
 						continue
 					}
@@ -394,7 +394,7 @@ func buildRules() []Rule {
 					if err != nil {
 						continue
 					}
-					for _, line := range strings.Split(string(data), "\n") {
+					for line := range strings.SplitSeq(string(data), "\n") {
 						if strings.HasPrefix(strings.TrimSpace(line), "+") {
 							return failr(r, fmt.Sprintf("legacy NIS '+' entry in %s", path),
 								fmt.Sprintf("remove the '+' line from %s", path))
@@ -508,7 +508,7 @@ func buildRules() []Rule {
 				if err != nil {
 					return skipr(r, "could not read /etc/login.defs")
 				}
-				for _, line := range strings.Split(string(data), "\n") {
+				for line := range strings.SplitSeq(string(data), "\n") {
 					if strings.HasPrefix(strings.TrimSpace(line), "#") {
 						continue
 					}
@@ -538,7 +538,7 @@ func buildRules() []Rule {
 				if err != nil {
 					return skipr(r, "could not read /etc/login.defs")
 				}
-				for _, line := range strings.Split(string(data), "\n") {
+				for line := range strings.SplitSeq(string(data), "\n") {
 					if strings.HasPrefix(strings.TrimSpace(line), "#") {
 						continue
 					}
@@ -568,7 +568,7 @@ func buildRules() []Rule {
 				if err != nil {
 					return skipr(r, "could not read /etc/login.defs")
 				}
-				for _, line := range strings.Split(string(data), "\n") {
+				for line := range strings.SplitSeq(string(data), "\n") {
 					if strings.HasPrefix(strings.TrimSpace(line), "#") {
 						continue
 					}

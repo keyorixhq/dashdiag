@@ -16,7 +16,7 @@ import (
 type Collector interface {
 	Name() string
 	Timeout() time.Duration
-	Collect(ctx context.Context) (interface{}, error)
+	Collect(ctx context.Context) (any, error)
 }
 
 // truncateRunes caps s at max runes (not bytes), appending an ellipsis when it
@@ -90,8 +90,7 @@ func localeSafeExec(ctx context.Context, name string, args ...string) (source.Re
 	err := cmd.Run()
 	res := source.Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			res.ExitCode = ee.ExitCode()
 			return res, nil
 		}

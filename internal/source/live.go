@@ -84,8 +84,7 @@ func defaultExec(ctx context.Context, name string, args ...string) (Result, erro
 	err := cmd.Run()
 	res := Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			res.ExitCode = ee.ExitCode()
 			return res, nil // non-zero exit is data, not an exec failure
 		}

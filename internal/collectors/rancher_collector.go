@@ -23,7 +23,7 @@ func (c *RancherCollector) Timeout() time.Duration { return 12 * time.Second }
 // cattle-system check that actually decides "Rancher present" needs a cluster query.
 func RancherAvailable() bool { return K8sAvailable() }
 
-func (c *RancherCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *RancherCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.RancherInfo{}
 	bin := k8sDetectBin()
 	if bin == "" {

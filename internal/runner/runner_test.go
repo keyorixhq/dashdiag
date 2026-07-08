@@ -11,14 +11,14 @@ import (
 type mockCollector struct {
 	name    string
 	delay   time.Duration
-	result  interface{}
+	result  any
 	err     error
 	timeout time.Duration
 }
 
 func (m *mockCollector) Name() string           { return m.name }
 func (m *mockCollector) Timeout() time.Duration { return m.timeout }
-func (m *mockCollector) Collect(ctx context.Context) (interface{}, error) {
+func (m *mockCollector) Collect(ctx context.Context) (any, error) {
 	select {
 	case <-time.After(m.delay):
 		return m.result, m.err
@@ -162,7 +162,7 @@ type blockingCollector struct {
 
 func (b *blockingCollector) Name() string           { return b.name }
 func (b *blockingCollector) Timeout() time.Duration { return b.timeout }
-func (b *blockingCollector) Collect(ctx context.Context) (interface{}, error) {
+func (b *blockingCollector) Collect(ctx context.Context) (any, error) {
 	<-b.release // deliberately ignores ctx
 	return "released", nil
 }

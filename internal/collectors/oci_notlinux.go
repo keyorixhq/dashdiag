@@ -16,7 +16,7 @@ func NewOCICollector() *OCICollector { return &OCICollector{} }
 func (c *OCICollector) Name() string           { return "OCI" }
 func (c *OCICollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *OCICollector) Collect(_ context.Context) (interface{}, error) {
+func (c *OCICollector) Collect(_ context.Context) (any, error) {
 	return &models.OCIInfo{}, nil
 }
 

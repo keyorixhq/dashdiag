@@ -163,7 +163,7 @@ func TestDockerDNSTrapMitigatedByDaemonDNS(t *testing.T) {
 // be exited and must not trip it on a normal Compose stack.
 func TestDockerStoppedCleanExitNotFlagged(t *testing.T) {
 	clean := models.DockerInfo{}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		clean.Containers = append(clean.Containers, models.ContainerInfo{State: "exited", ExitCode: 0})
 	}
 	if got := checkDockerContainers(clean); fpHasLevel(got, "WARN") {
@@ -171,7 +171,7 @@ func TestDockerStoppedCleanExitNotFlagged(t *testing.T) {
 	}
 
 	failed := models.DockerInfo{}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		failed.Containers = append(failed.Containers, models.ContainerInfo{State: "exited", ExitCode: 1})
 	}
 	if got := checkDockerContainers(failed); !fpHasLevel(got, "WARN") {

@@ -91,7 +91,7 @@ func ingestSnapshotFile(b *Bundle, base, content string) {
 		body = strings.TrimSuffix(body, "\n") // drop the trailing echo blank line
 		b.putFile(curPath, []byte(body), nil)
 	}
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		if m := sectionHeader.FindStringSubmatch(line); m != nil {
 			flush()
 			curPath = strings.TrimSpace(m[1])
@@ -104,8 +104,8 @@ func ingestSnapshotFile(b *Bundle, base, content string) {
 }
 
 func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
+	if before, _, ok := strings.Cut(s, "\n"); ok {
+		return before
 	}
 	return s
 }
