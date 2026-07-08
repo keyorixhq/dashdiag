@@ -57,7 +57,11 @@ func (c *PostgresCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.Accepting = err == nil
 	if !info.Accepting {
 		// Non-quiet for a reason string ("rejecting connections", "no response").
-		if r, _ := runCmd(ctx, "pg_isready", "-h", dir); strings.TrimSpace(r) != "" {
+		// pg_isready signals rejecting/no-response purely via a non-zero exit code
+		// while still writing the reason to stdout, so runCmdOutput (which keeps
+		// stdout on a non-zero exit) is required here — plain runCmd discards it,
+		// which left AcceptReason permanently unpopulated in production.
+		if r, _ := runCmdOutput(ctx, "pg_isready", "-h", dir); strings.TrimSpace(r) != "" {
 			info.AcceptReason = firstLineTrim(r)
 		} else if t := strings.TrimSpace(out); t != "" {
 			info.AcceptReason = t

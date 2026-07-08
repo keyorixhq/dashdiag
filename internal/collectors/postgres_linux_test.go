@@ -117,20 +117,11 @@ func TestPostgresCollector_Collect_FullHappyPath(t *testing.T) {
 }
 
 // TestPostgresCollector_Collect_NotAcceptingWithReason guards the
-// !info.Accepting path end to end.
-//
-// NOTE (found while writing this test, not fixed per task instructions): the
-// "AcceptReason" text-extraction logic in postgres_linux.go (lines ~58-64) is
-// dead code as written. runCmd() treats ANY non-zero exit as a pure error and
-// discards stdout (see runCmd in collector.go: `if res.ExitCode != 0 { return
-// "", &cmdError{...} }`). pg_isready signals "rejecting connections" / "no
-// response" / "no attempt" purely via non-zero exit codes (1/2/3) — it does
-// not exit 0 while printing a rejection reason. So both the non-quiet re-run
-// (`r`) and the original quiet run's own output (`out`) are ALWAYS "" in the
-// `!info.Accepting` branch, and AcceptReason can never actually be populated
-// in production. This test asserts the real (empty) behavior rather than the
-// intended-but-unreachable one; a fix would need runCmdOutput (which keeps
-// stdout on non-zero exit) instead of runCmd for the reason-extraction calls.
+// !info.Accepting path end to end. pg_isready signals "rejecting connections"
+// / "no response" / "no attempt" purely via a non-zero exit code while still
+// writing the reason to stdout, so the reason-extraction call must use
+// runCmdOutput (keeps stdout on non-zero exit), not runCmd (discards it) —
+// see the fix in postgres_linux.go.
 func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"dial/unix//run/postgresql/.s.PGSQL.5432": {'1'},
@@ -150,8 +141,8 @@ func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 	if info.Accepting {
 		t.Error("Accepting = true, want false")
 	}
-	if info.AcceptReason != "" {
-		t.Errorf("AcceptReason = %q, want empty (see NOTE above — runCmd discards stdout on non-zero exit)", info.AcceptReason)
+	if info.AcceptReason != "/run/postgresql:5432 - rejecting connections" {
+		t.Errorf("AcceptReason = %q, want the pg_isready rejection message", info.AcceptReason)
 	}
 	if info.MetricsRead {
 		t.Error("MetricsRead = true, want false when psql fails")
