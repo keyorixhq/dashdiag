@@ -174,7 +174,6 @@ func TestPrometheusCollector_Collect_FullHappyPath(t *testing.T) {
 }
 
 func TestParsePromConfigReload(t *testing.T) {
-	t.Parallel()
 	tests := []struct {
 		name     string
 		cached   map[string][]byte
