@@ -3,10 +3,227 @@
 package collectors
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+func TestMySQLCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewMySQLCollector()
+	if c.Name() != "MySQL" {
+		t.Errorf("Name() = %q, want MySQL", c.Name())
+	}
+	if c.Timeout() != 6*time.Second {
+		t.Errorf("Timeout() = %v, want 6s", c.Timeout())
+	}
+}
+
+func TestDetectMySQLSocket_NotReachable(t *testing.T) {
+	withCombinedFixture(t, nil, nil, nil)
+	if got := detectMySQLSocket(); got != "" {
+		t.Errorf("detectMySQLSocket() = %q, want empty", got)
+	}
+	if MySQLAvailable() {
+		t.Error("MySQLAvailable() = true, want false")
+	}
+}
+
+func TestDetectMySQLSocket_EachCandidatePath(t *testing.T) {
+	for _, path := range mysqlSocketPaths {
+		t.Run(path, func(t *testing.T) {
+			withCombinedFixture(t, map[string][]byte{
+				"dial/unix/" + path: {'1'},
+			}, nil, nil)
+			if got := detectMySQLSocket(); got != path {
+				t.Errorf("detectMySQLSocket() = %q, want %q", got, path)
+			}
+			if !MySQLAvailable() {
+				t.Error("MySQLAvailable() = false, want true")
+			}
+		})
+	}
+}
+
+func TestMySQLCollector_Collect_NotDetected(t *testing.T) {
+	withCombinedFixture(t, nil, nil, nil)
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if info.Detected {
+		t.Errorf("info = %+v, want Detected=false", info)
+	}
+}
+
+const mysqlSock = "/var/run/mysqld/mysqld.sock"
+
+func mysqlArgs(sql string) []string {
+	return []string{"--socket=" + mysqlSock, "-N", "-B", "-e", sql}
+}
+
+func TestMySQLCollector_Collect_FullHappyPath_NotReplica(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SHOW GLOBAL STATUS LIKE 'Threads_connected'"), "Threads_connected\t5\n", 0)
+		b.PutCmd("mysql", mysqlArgs(`SHOW SLAVE STATUS\G`), "", 0)
+		b.PutCmd("mysql", mysqlArgs(`SHOW REPLICA STATUS\G`), "", 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if !info.Detected || info.SocketPath != mysqlSock || !info.Accepting {
+		t.Errorf("info = %+v, want Detected=true SocketPath=%q Accepting=true", info, mysqlSock)
+	}
+	if !info.MetricsRead || info.Version != "8.0.36" || info.Flavor != "MySQL" {
+		t.Errorf("info = %+v, want MetricsRead=true Version=8.0.36 Flavor=MySQL", info)
+	}
+	if !info.ConnStatsRead || info.MaxConnections != 151 || info.ThreadsConnected != 5 {
+		t.Errorf("info = %+v, want ConnStatsRead=true MaxConnections=151 ThreadsConnected=5", info)
+	}
+	if info.IsReplica {
+		t.Error("IsReplica = true, want false")
+	}
+}
+
+func TestMySQLCollector_Collect_ReplicaViaOldSlaveStatus(t *testing.T) {
+	slaveStatus := "Slave_IO_Running: Yes\nSlave_SQL_Running: Yes\nSeconds_Behind_Master: 3\n"
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "10.11.6-MariaDB\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SHOW GLOBAL STATUS LIKE 'Threads_connected'"), "Threads_connected\t2\n", 0)
+		b.PutCmd("mysql", mysqlArgs(`SHOW SLAVE STATUS\G`), slaveStatus, 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if info.Flavor != "MariaDB" {
+		t.Errorf("Flavor = %q, want MariaDB", info.Flavor)
+	}
+	if !info.IsReplica {
+		t.Fatal("IsReplica = false, want true")
+	}
+	if info.ReplStopped {
+		t.Error("ReplStopped = true, want false (both threads running)")
+	}
+	if info.SecondsBehind != 3 {
+		t.Errorf("SecondsBehind = %d, want 3", info.SecondsBehind)
+	}
+}
+
+func TestMySQLCollector_Collect_ReplicaViaNewReplicaStatusFallback(t *testing.T) {
+	replicaStatus := "Replica_IO_Running: Yes\nReplica_SQL_Running: Yes\nSeconds_Behind_Source: 9\n"
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.4.0\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SHOW GLOBAL STATUS LIKE 'Threads_connected'"), "Threads_connected\t2\n", 0)
+		// Old statement returns empty output on 8.4+ (removed) -- triggers the fallback.
+		b.PutCmd("mysql", mysqlArgs(`SHOW SLAVE STATUS\G`), "", 0)
+		b.PutCmd("mysql", mysqlArgs(`SHOW REPLICA STATUS\G`), replicaStatus, 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if !info.IsReplica {
+		t.Fatal("IsReplica = false, want true (via fallback)")
+	}
+	if info.SecondsBehind != 9 {
+		t.Errorf("SecondsBehind = %d, want 9", info.SecondsBehind)
+	}
+	if info.ReplStopped {
+		t.Error("ReplStopped = true, want false")
+	}
+}
+
+func TestMySQLCollector_Collect_VersionQueryFails(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "", 1)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if info.MetricsRead {
+		t.Error("MetricsRead = true, want false when VERSION() fails")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason when VERSION() fails")
+	}
+	if info.ConnStatsRead {
+		t.Error("ConnStatsRead = true, want false — nothing else should have been attempted")
+	}
+}
+
+func TestMySQLCollector_Collect_ConnStatsRequiresBothQueries(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
+		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
+		// Threads_connected query fails.
+		b.PutCmd("mysql", mysqlArgs("SHOW GLOBAL STATUS LIKE 'Threads_connected'"), "", 1)
+		b.PutCmd("mysql", mysqlArgs(`SHOW SLAVE STATUS\G`), "", 0)
+		b.PutCmd("mysql", mysqlArgs(`SHOW REPLICA STATUS\G`), "", 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if info.ConnStatsRead {
+		t.Error("ConnStatsRead = true, want false when only max_connections succeeded")
+	}
+	if info.MaxConnections != 151 {
+		t.Errorf("MaxConnections = %d, want 151 (still recorded)", info.MaxConnections)
+	}
+}
+
+func TestLastField(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"Threads_connected\t5", "5"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := lastField(tt.in); got != tt.want {
+			t.Errorf("lastField(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
 
 func TestParseMySQLReplica(t *testing.T) {
 	// q returns the SHOW SLAVE STATUS\G output for that query, empty otherwise.
