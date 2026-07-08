@@ -32,15 +32,13 @@ func (c *DRBDCollector) Name() string           { return "DRBD" }
 func (c *DRBDCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *DRBDCollector) Collect(ctx context.Context) (interface{}, error) {
-	info := &models.DRBDInfo{}
-
 	f, err := openFile("/proc/drbd")
 	if err != nil {
 		return nil, nil // DRBD module not loaded — absent, gate off (no phantom row)
 	}
 	defer f.Close() //nolint:errcheck
 
-	info = parseDRBDProc(f)
+	info := parseDRBDProc(f)
 
 	if len(info.Resources) == 0 {
 		// DRBD 9.x publishes only a version/transport header in /proc/drbd — all

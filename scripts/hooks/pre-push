@@ -69,7 +69,8 @@ fi
 GOVULNCHECK="$(go env GOPATH)/bin/govulncheck"
 if [ ! -x "$GOVULNCHECK" ]; then
     echo "  Installing govulncheck..."
-    go install golang.org/x/vuln/cmd/govulncheck@latest
+    # Pinned, not @latest (OSSF Scorecard Pinned-Dependencies) — bump deliberately.
+    go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
 fi
 echo "  Running govulncheck..."
 if ! "$GOVULNCHECK" ./... 2>&1; then
