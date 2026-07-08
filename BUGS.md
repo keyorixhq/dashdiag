@@ -53,7 +53,14 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
 **Fix (proposed, not yet done):** Branch port-inspection hint on GOOS — on darwin
   emit `lsof -nP -iTCP -sTCP:LISTEN` instead of `ss -tlnp`. Audit other hardcoded
   `ss`/iproute2 hints for the same issue.
-**Commit:** _open_
+**Fixed:** resolved as a side effect of the general `adaptHintsToPlatform`/`adaptHint`
+  mechanism (`internal/analysis/heuristics.go`) built across several later commits
+  (`3a2500a`, `bf8cc39`, `3619c7c`, …) — `reSSPortGrep`/`reSSListen` rewrite exactly
+  this hint to `lsof -nP -iTCP[:PORT] -sTCP:LISTEN` on darwin, unit-tested
+  (`TestAdaptHint`, `heuristics_hints_test.go`). This entry was left open in error;
+  live-reconfirmed 2026-07-08 on macOS arm64 (`dsd health` now emits `lsof`, zero
+  `ss` occurrences).
+**Commit:** 3a2500a / bf8cc39 / 3619c7c (closed retroactively 2026-07-08)
 
 ### BUG-054 — Hardening/Logs fix-hints emit systemd commands on Alpine (OpenRC)
 **Found:** Alpine LXC (PVE CT210 `alpine-dsd`) validation, `v0.6.11-1-g54769ef`
@@ -71,7 +78,17 @@ Each entry: what broke, why, what it affected, the fix, and the commit.
   handling per the Alpine hardening pass) and branch service-restart hints — emit
   `rc-service sshd restart` / OpenRC log guidance on Alpine instead of `systemctl`.
   Audit all hint strings that hardcode `systemctl`/`/etc/systemd/*`.
-**Commit:** _open_
+**Fixed:** same general mechanism as BUG-053 — `adaptNonSystemdHint` rewrites
+  `systemctl restart/start/stop/enable/disable/status` to `rc-service`/`rc-update`
+  (OpenRC) or `service`/`update-rc.d` (sysvinit) or `sv` (runit), unit-tested with
+  this exact hint (`"to fix: systemctl restart sshd"` → `"to fix: rc-service sshd
+  restart"`, `heuristics_hints_test.go`). The `/etc/systemd/journald.conf` hints
+  (`checkJournalConfig`) never reach a non-systemd host at all —
+  `logs_linux.go`'s `checkJournalHealth` gates the entire section on
+  `platform.SystemdAvailable()`. This entry was left open in error; live-reconfirmed
+  2026-07-08 on Alpine 3.22/OpenRC (pve01 VM 106, `dsd health` — zero `systemctl`/
+  `journald.conf` occurrences, hints correctly read `rc-service sshd restart`).
+**Commit:** bf8cc39 / 25798e6 / fc2da94 (closed retroactively 2026-07-08)
 
 ---
 
