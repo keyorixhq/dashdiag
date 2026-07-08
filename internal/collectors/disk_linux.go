@@ -111,6 +111,9 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 			Mounts: mounts,
 		})
 	}
+	if err := scanner.Err(); err != nil {
+		return nil
+	}
 	// Deterministic order so the drives list (and the I/O check derived from it) is
 	// byte-stable across runs/replays — TRIAGE §I (the /proc/partitions scan order
 	// has proven non-deterministic on some hosts).
@@ -502,6 +505,9 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 			ws, _ := strconv.ParseInt(fields[9], 10, 64)
 			m[name] = diskStat{rs, ws}
 		}
+		if err := scanner.Err(); err != nil {
+			return m // partial map is still useful; caller tolerates missing devices
+		}
 		return m
 	}
 
@@ -612,6 +618,10 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 
 	// btrfs — check mounted btrfs filesystems for missing devices and errors
 	result.BtrfsVolumes = collectBtrfsVolumes(result.Filesystems)
+
+	// Busy-filesystem check — only for mounts at WARN/CRIT usage or unexpectedly
+	// read-only (needsBusyCheck gate); zero cost for healthy mounts.
+	collectBusyFilesystems(result.Filesystems)
 
 	// I/O stats — deep mode only (requires 1s sleep)
 	if c.Deep {

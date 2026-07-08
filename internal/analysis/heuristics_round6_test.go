@@ -231,3 +231,36 @@ func TestCheckCgroupV2(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckCgroupV2_Units is a boundary table for the per-unit (systemd
+// service / container) drill-down added alongside the top-level slice
+// checks above — same 5%/20% throttle and 75%/90% memory thresholds, at/
+// below/above each mark.
+func TestCheckCgroupV2_Units(t *testing.T) {
+	t.Parallel()
+	unit := func(u models.CgroupUnit) models.CgroupV2Info {
+		return models.CgroupV2Info{Available: true, Units: []models.CgroupUnit{u}}
+	}
+	tests := []struct {
+		name string
+		cg   models.CgroupV2Info
+		want string
+	}{
+		{"throttle at 5% is clean (boundary)", unit(models.CgroupUnit{Name: "postgresql.service", ThrottledPct: 5}), ""},
+		{"throttle just above 5% is WARN", unit(models.CgroupUnit{Name: "postgresql.service", ThrottledPct: 5.1}), "WARN"},
+		{"throttle at 20% is WARN (boundary)", unit(models.CgroupUnit{Name: "postgresql.service", ThrottledPct: 20}), "WARN"},
+		{"throttle just above 20% is CRIT", unit(models.CgroupUnit{Name: "postgresql.service", ThrottledPct: 20.1}), "CRIT"},
+		{"container throttle also fires", unit(models.CgroupUnit{Name: "container:abc123def456", IsContainer: true, ThrottledPct: 25}), "CRIT"},
+		{"mem at 75% is clean (boundary)", unit(models.CgroupUnit{Name: "postgresql.service", HasMemLimit: true, MemUsedPct: 75}), ""},
+		{"mem just above 75% is WARN", unit(models.CgroupUnit{Name: "postgresql.service", HasMemLimit: true, MemUsedPct: 75.1}), "WARN"},
+		{"mem at 90% is WARN (boundary)", unit(models.CgroupUnit{Name: "postgresql.service", HasMemLimit: true, MemUsedPct: 90}), "WARN"},
+		{"mem just above 90% is CRIT", unit(models.CgroupUnit{Name: "postgresql.service", HasMemLimit: true, MemUsedPct: 90.1}), "CRIT"},
+		{"mem without a limit never fires", unit(models.CgroupUnit{Name: "postgresql.service", HasMemLimit: false, MemUsedPct: 99}), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assertLevel(t, checkCgroupV2(tt.cg), tt.want)
+		})
+	}
+}

@@ -9,7 +9,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [1.19.0] - 2026-07-08
+
+### Added
+- `dsd health deep` — top-N CPU process list (utime+stime delta over 500ms,
+  top/htop-style %CPU convention), mirroring the existing top-N memory list,
+  with the same cgroup-scope attribution (`container:`, `system:`, `k8s-pod:`,
+  etc.). The top-IO-consuming-process list also gains cgroup-scope
+  attribution, which it previously lacked.
+- `dsd k8s` — pods stuck in phase `Unknown` now report the node they were
+  scheduled on and, for StatefulSet-owned pods, flag that the controller will
+  not create a replacement until the stuck pod is deleted (unlike a
+  Deployment/ReplicaSet, which reschedules elsewhere).
+- `dsd k8s --deep` — `detectKubeServices`: checks whether the KUBE-SERVICES
+  chain (ClusterIP → pod DNAT routing) is actually programmed, distinguishing
+  a real fault (empty iptables/ipvs chain — kube-proxy hasn't synced) from
+  the expected no-verdict cases: nftables-backend kube-proxy (which never
+  populates the legacy chain by design) and no kube-proxy pod at all (an
+  eBPF replacement such as Cilium, or kube-proxy explicitly disabled).
+  Live-validated on a real kubeadm cluster (iptables mode, non-zero count,
+  no false WARN).
+
+## [1.18.0] - 2026-07-07
+
+### Added
+- `dsd oci` — guest-side deep checks for a Linux instance on Oracle Cloud
+  Infrastructure: IMDS v2 security posture (legacy unauthenticated access
+  should be blocked), `oracle-cloud-agent` health, time sync against OCI's
+  metadata NTP server, and VNIC ring-buffer drop counters the generic NIC-
+  error check doesn't catch. Folds into `dsd health` and `dsd guest`
+  alongside the existing AWS/Azure/GCP guest collectors. Block-volume iSCSI
+  session health is intentionally not duplicated here — the existing generic
+  `ISCSICollector` already covers it for every host. Live-validated on a real
+  OCI Ampere A1 (Oracle Linux 9) free-tier instance.
+- `dsd disk` — busy-filesystem check: when a mount is at WARN/CRIT usage or
+  unexpectedly read-only, names which PIDs hold it open (command, user,
+  read/write) so an admin knows what's blocking an unmount. Falls back from
+  `fuser` to a direct `/proc/*/fd` walk when the tool isn't installed.
+  Live-validated on real hardware, including a `fuser` stdout/stderr-split
+  quirk that required abandoning suffix-based write detection in favor of
+  `/proc/<pid>/fdinfo` flags.
+- `dsd security` — proactive SELinux port-label scan (cross-references
+  already-collected listening ports against `semanage port -l` to flag any
+  service with no SELinux port label, before a denial ever fires) and
+  chcon-vs-semanage context detection (compares `matchpathcon` against
+  `ls -Z` on denial-implicated paths to flag a temporary `chcon` context that
+  will silently revert on the next relabel).
+- `dsd health deep` — iowait culprit attribution: once iowait crosses 5%,
+  names the highest-await block device and cross-references it with the top
+  I/O-consuming process, e.g. `iowait 12% ← nvme0n1 (12ms await) ← postgres
+  (PID 1204)`. Completes Spec 5 (cgroup tree + process hierarchy, per-cgroup
+  summary, and throttle detection were already shipped).
+
+### Fixed
+- Cold `dnf` metadata cache could silently swallow a Critical CVE finding
+  (BUG-098) — found on a first `dsd` pass on Oracle Linux 9 (OCI Ampere A1)
+  where a pending Critical CVE reported as "could not verify" instead of
+  CRIT. Root cause was three compounding dnf-path timeout bugs (an uncapped
+  repo-gate check eating the scan's own budget, a flat collector timeout
+  overriding the CVE scan's internal budget, and cancelled calls reported
+  identically to real failures) plus two more found while verifying the fix
+  (a false-OK from string-matching a timeout message instead of checking the
+  scan-failed flag, and a package-status blacklist that let query-failed
+  silently read as "up to date").
 
 ## [1.17.2] - 2026-07-06
 

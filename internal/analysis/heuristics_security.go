@@ -25,7 +25,36 @@ func SecurityConcernCount(sec models.SecurityInfo) int {
 	return n
 }
 
-func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,cyclop // security checks are a flat list of independent conditions; splitting would harm readability
+// checkSecurity is the flat dispatcher for the `dsd security`/`dsd health`
+// hardening checks. Each sub-check below covers one theme (SSH config, network
+// exposure, privilege-escalation vectors, distro-specific compliance tooling,
+// macOS) and is independent of the others — split out of a single ~500-line
+// function for readability (was `//nolint:funlen,cyclop`, see git history).
+// Order of appends must stay stable: `SecurityConcernCount`/tests don't depend
+// on insight order, but callers that print top-N assume append order.
+func checkSecurity(sec models.SecurityInfo) []models.Insight {
+	out := make([]models.Insight, 0, 14) // one slot per sub-check below; grows past this on a noisy host
+	out = append(out, checkSecurityAuditGaps(sec)...)
+	out = append(out, checkSSHHardening(sec)...)
+	out = append(out, checkFailedLoginAttempts(sec)...)
+	out = append(out, checkNetworkExposure(sec)...)
+	out = append(out, checkPrivilegeEscalationVectors(sec)...)
+	out = append(out, checkSecuritySELinuxDenials(sec)...)
+	out = append(out, checkAppArmorDenials(sec)...)
+	out = append(out, checkPAMFailures(sec)...)
+	out = append(out, checkRHELSecurityHardening(sec)...)
+	out = append(out, checkSUSESecurityHardening(sec)...)
+	out = append(out, checkEmptyPasswords(sec)...)
+	out = append(out, checkStalePasswords(sec)...)
+	out = append(out, checkWorldWritable(sec)...)
+	out = append(out, checkMacOSHardening(sec)...)
+	return out
+}
+
+// checkSecurityAuditGaps surfaces the root-gated reads that silently limit the
+// rest of checkSecurity's coverage (INFO only — never raises the verdict), so a
+// non-root run reads as "audited, clean" rather than "clean because we didn't look".
+func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	var out []models.Insight
 
 	if sec.NeedsRoot {
@@ -55,6 +84,14 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 			[]string{"to audit: re-run as root (sudo dsd security)"},
 		))
 	}
+
+	return out
+}
+
+// checkSSHHardening covers sshd_config directives (root login, password auth,
+// weak algorithms, idle timeout, etc.) — a flat list of independent conditions.
+func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funlen // flat list of independent sshd_config conditions; splitting would harm readability
+	var out []models.Insight
 
 	// SSH misconfigurations
 	if sec.SSHPermitRoot {
@@ -204,7 +241,15 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 	out = append(out, checkSSHWeakMACs(sec)...)
 	out = append(out, checkSSHWeakKEX(sec)...)
 
-	// Failed logins
+	return out
+}
+
+// checkFailedLoginAttempts flags a burst of failed SSH logins in the last hour
+// (sec.FailedLogins, populated from the auth log/journal scan — distinct from
+// the 24h checkAuth(AuthInfo) path, which has its own key-only-host nuance).
+func checkFailedLoginAttempts(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
 	if sec.FailedLogins >= 20 {
 		msg := fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins)
 		if len(sec.FailedLoginIPs) > 0 {
@@ -219,6 +264,15 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20"},
 		))
 	}
+
+	return out
+}
+
+// checkNetworkExposure covers what's reachable from outside: unexpected
+// listening ports, the Cockpit management UI, and a firewall that would lock
+// out SSH — all "is this host reachable in ways it shouldn't be" conditions.
+func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:funlen // flat list of independent network-exposure conditions; splitting would harm readability
+	var out []models.Insight
 
 	// Unexpected listening ports — split into known services (INFO) vs truly unexpected (WARN)
 	// Known service processes are auto-detected and downgraded to INFO with context.
@@ -342,6 +396,16 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
+	return out
+}
+
+// checkPrivilegeEscalationVectors covers accounts/config that could let a
+// low-privilege user (or an attacker who gets a shell) become root: NOPASSWD
+// sudo, unexpected SUID binaries, non-root UID-0 accounts, and cron entries
+// that pipe to a shell.
+func checkPrivilegeEscalationVectors(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
 	// Sudo NOPASSWD
 	if len(sec.SudoNopasswd) > 0 {
 		// On offensive distros (Kali, Parrot), NOPASSWD groups like %kali-trusted
@@ -384,6 +448,16 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
+	return out
+}
+
+// checkSecuritySELinuxDenials surfaces AVC denials grouped with fix commands
+// (setsebool/custom). Named distinctly from heuristics_system.go's
+// checkSELinuxDenials(KernelSecurityInfo) — that one gates the SELinux row's
+// own WARN/CRIT threshold; this one is the `dsd security`/Hardening view.
+func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
 	// SELinux denials — skip sentinel value (-1 = data unavailable)
 	if sec.SELinuxDenials >= 10 {
 		msg := fmt.Sprintf("%d SELinux denials in the last hour (mode: %s)", sec.SELinuxDenials, sec.SELinuxMode)
@@ -406,6 +480,109 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		}
 		out = append(out, insight("WARN", "Hardening", msg, hints))
 	}
+
+	// SELinux port-label scan (§6-add-2) — proactive: catches a listening
+	// service with no SELinux port label before SELinux ever logs a denial for it.
+	if len(sec.SELinuxUnlabeledPorts) > 0 {
+		hints := make([]string, 0, len(sec.SELinuxUnlabeledPorts)+1)
+		hints = append(hints, "to inspect: semanage port -l")
+		for _, p := range sec.SELinuxUnlabeledPorts {
+			proc := p.Process
+			if proc == "" {
+				proc = "unknown process"
+			}
+			hints = append(hints, fmt.Sprintf("to fix: semanage port -a -t <service>_port_t -p %s %d  # %s", p.Protocol, p.Port, proc))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d listening port(s) have no SELinux port label", len(sec.SELinuxUnlabeledPorts)),
+			hints,
+		))
+	}
+
+	// SELinux chcon-vs-semanage context detection (§6-add-3): a denial-
+	// implicated path whose context was set via chcon (not semanage fcontext)
+	// will silently revert on the next restorecon/full relabel.
+	if len(sec.SELinuxContextIssues) > 0 {
+		hints := make([]string, 0, len(sec.SELinuxContextIssues)+1)
+		hints = append(hints, "to fix: semanage fcontext -a -t <type> '<path>(/.*)?'  then  restorecon -Rv <path>")
+		for _, ci := range sec.SELinuxContextIssues {
+			hints = append(hints, fmt.Sprintf("%s — actual: %s, expected: %s", ci.Path, ci.ActualContext, ci.ExpectedContext))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d denial-implicated path(s) have a temporary chcon context — will be lost on the next relabel", len(sec.SELinuxContextIssues)),
+			hints,
+		))
+	}
+
+	return out
+}
+
+// checkAppArmorDenials surfaces AppArmor denials grouped by profile/operation/
+// path — the `dsd security` (SecurityInfo.AppArmorGroups) analogue of
+// checkSecuritySELinuxDenials above. Distinct from heuristics_system.go's
+// checkAppArmorActive(KernelSecurityInfo), which drives `dsd health`'s
+// KernelSec row from a different collector/model pair and a 1h window; this
+// one covers the Hardening-view-only, 24h-windowed denial data collected
+// alongside SELinux for this command specifically.
+func checkAppArmorDenials(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
+	switch {
+	case len(sec.AppArmorGroups) > 0:
+		hints := []string{
+			"to inspect: aa-logprof",
+			"to inspect: journalctl -t kernel -g 'apparmor=\"DENIED\"' --since '24 hours ago'",
+		}
+		for i, g := range sec.AppArmorGroups {
+			if i >= 5 {
+				hints = append(hints, fmt.Sprintf("... and %d more group(s)", len(sec.AppArmorGroups)-5))
+				break
+			}
+			hints = append(hints, fmt.Sprintf("  %s [%s] %s ×%d", g.Profile, g.Operation, g.Path, g.Count))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d AppArmor denial group(s) in the last 24h", len(sec.AppArmorGroups)),
+			hints,
+		))
+	case sec.AppArmorDenials > 0:
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d AppArmor denial(s) in the last 24h", sec.AppArmorDenials),
+			[]string{"to inspect: journalctl -t kernel -g 'apparmor=\"DENIED\"' --since '24 hours ago'"},
+		))
+	}
+
+	return out
+}
+
+// checkPAMFailures surfaces PAM authentication failures from non-sshd
+// services (su, sudo, login, cron, ...) — sshd's own failures are already
+// covered by checkFailedLoginAttempts's FailedLogins threshold, so any
+// presence here is a genuinely separate signal and WARNs unconditionally (no
+// numeric floor: these are typically low-volume, high-signal events — e.g. a
+// single repeated `sudo` failure for a service account is already
+// noteworthy, unlike SSH's internet-facing brute-force noise floor).
+func checkPAMFailures(sec models.SecurityInfo) []models.Insight {
+	if len(sec.PAMModuleFailures) == 0 {
+		return nil
+	}
+	hints := []string{"to inspect: grep pam_unix /var/log/auth.log /var/log/secure 2>/dev/null | tail -20"}
+	total := 0
+	for i, f := range sec.PAMModuleFailures {
+		total += f.Count
+		if i < 5 {
+			hints = append(hints, fmt.Sprintf("  %s: %s ×%d", f.Service, f.User, f.Count))
+		}
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("%d PAM authentication failure(s) in the last 24h across %d service(s)", total, len(sec.PAMModuleFailures)),
+		hints,
+	)}
+}
+
+// checkRHELSecurityHardening covers RHEL-family compliance tooling: system-wide
+// crypto policy, auditd rule presence, and AIDE file-integrity monitoring.
+func checkRHELSecurityHardening(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
 
 	// RHEL/Rocky: crypto-policies — LEGACY is a security risk
 	if sec.CryptoPolicy == "LEGACY" {
@@ -450,6 +627,14 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		))
 	}
 
+	return out
+}
+
+// checkSUSESecurityHardening covers SUSE-family support tooling: supportconfig
+// freshness and SUSEConnect subscription expiry.
+func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
 	// SUSE supportconfig — stale or never run
 	if sec.SupportconfigAvailable {
 		switch {
@@ -487,13 +672,15 @@ func checkSecurity(sec models.SecurityInfo) []models.Insight { //nolint:funlen,c
 		}
 	}
 
-	// User account hardening (Spec 14)
-	out = append(out, checkEmptyPasswords(sec)...)
-	out = append(out, checkStalePasswords(sec)...)
-	out = append(out, checkWorldWritable(sec)...)
+	return out
+}
 
-	// macOS-specific checks — gated on IsDarwin so these never fire on Linux
-	// (where FileVault/SIP/Gatekeeper fields are always zero-value false).
+// checkMacOSHardening covers macOS-specific posture (FileVault/SIP/Gatekeeper).
+// Gated on IsDarwin so these never fire on Linux, where the fields are always
+// zero-value false.
+func checkMacOSHardening(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
 	if sec.IsDarwin {
 		if !sec.FileVaultEnabled {
 			out = append(out, insight("WARN", "Hardening",

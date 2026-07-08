@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"runtime"
 	"testing"
 	"time"
 )
@@ -113,4 +114,23 @@ func TestScanCertPath_RecursesAndFilters(t *testing.T) {
 	if len(certs) != 2 {
 		t.Fatalf("expected 2 certs (root + nested), got %d", len(certs))
 	}
+}
+
+// TestTLSCertPaths_IncludesRHUI is a regression guard for the RHUI client-cert
+// expiry check (Gap Spec R2): RHEL cloud PAYG images authenticate to the RHUI
+// CDS mirrors via mTLS using /etc/pki/rhui/product/*.crt (sslclientcert in
+// /etc/yum.repos.d/redhat-rhui*.repo). Confirmed live on an AWS EC2 RHEL 10.2
+// box — those cert files are root-only (0600), so a non-root scan must report
+// them as Uncheckable (never a silent "0 expired" false-OK), same as any other
+// permission-gated path already in this list.
+func TestTLSCertPaths_IncludesRHUI(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("RHUI is a RHEL-only path, not scanned on darwin")
+	}
+	for _, p := range tlsCertPaths() {
+		if p == "/etc/pki/rhui" {
+			return
+		}
+	}
+	t.Fatal("tlsCertPaths() must include /etc/pki/rhui for RHEL cloud PAYG client-cert expiry checks")
 }

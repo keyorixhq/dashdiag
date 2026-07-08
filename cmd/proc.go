@@ -219,7 +219,7 @@ func printProcFiles(info *models.ProcInfo, mode output.OutputMode, human bool) {
 	}
 }
 
-func printProcConnections(info *models.ProcInfo, mode output.OutputMode, human bool) {
+func printProcConnections(info *models.ProcInfo, _ output.OutputMode, human bool) {
 	if len(info.Connections) == 0 {
 		return
 	}

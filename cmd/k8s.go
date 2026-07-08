@@ -134,6 +134,7 @@ func k8sPodNeedsAttention(p models.K8sPodInfo) bool {
 		strings.Contains(p.Status, "Error") ||
 		p.Status == "Pending" ||
 		p.Status == "OOMKilled" ||
+		p.Status == "Unknown" ||
 		p.Restarts >= 10 ||
 		notReady
 }
@@ -211,7 +212,7 @@ func k8sOSLayerInsights(info *models.K8sInfo) []models.Insight {
 // count). Pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
 func k8sHasConcern(info *models.K8sInfo) bool {
 	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady +
-		info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
+		info.UnknownStatus + info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
 	return issues > 0 || info.HighRestarts > 0 || len(k8sOSLayerInsights(info)) > 0
 }
 
@@ -254,6 +255,9 @@ func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode
 	}
 	if info.Pending > 0 {
 		parts = append(parts, fmt.Sprintf("%d pod(s) pending", info.Pending))
+	}
+	if info.UnknownStatus > 0 {
+		parts = append(parts, fmt.Sprintf("%d pod(s) unknown status", info.UnknownStatus))
 	}
 	if info.HighRestarts > 0 {
 		parts = append(parts, fmt.Sprintf("%d pod(s) high restarts", info.HighRestarts))

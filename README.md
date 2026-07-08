@@ -121,6 +121,7 @@ cd dashdiag && make install
 | `dsd aws` | EC2 guest — ENA/EBS silent throttles, IMDS posture, spot rebalance, SSM | ~10s |
 | `dsd azure` | Azure VM — Accelerated Networking, waagent, host caching, temp disk | ~10s |
 | `dsd gcp` | GCE guest — guest agent, host-maintenance policy, OS Login, time sync | ~10s |
+| `dsd oci` | OCI instance — IMDS v2 posture, cloud agent, time sync, VNIC ring health | ~10s |
 | `dsd timeline` | Unified incident timeline — journal + dmesg + load | ~5s |
 | `dsd fleet` | Run `dsd health` across many hosts over SSH — one aggregated table | varies |
 | `dsd security` | SSH config, SELinux/AppArmor, sudoers, failed logins | ~3s |
@@ -285,7 +286,7 @@ $ dsd guest    # on a VMware VM, an EC2 instance, a container — auto-detected
 
 The split is the point: you self-serve what you own, and the tickets you *do* open arrive
 pre-attributed to the host, with proof. Platform-specific entry points exist too —
-`dsd vmware`, `dsd aws`, `dsd azure`, `dsd gcp` — each catching the *silent* failures the
+`dsd vmware`, `dsd aws`, `dsd azure`, `dsd gcp`, `dsd oci` — each catching the *silent* failures the
 provider's own console won't surface (a CPU/memory limit throttling you, EBS/ENA throttles,
 Azure Accelerated-Networking that reads "enabled" but never attached). `dsd guest
 --report-html` writes a self-contained, printable report to share.

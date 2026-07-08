@@ -74,6 +74,26 @@ type FilesystemInfo struct {
 	// TotalGB means the disk/partition/LV was grown but the filesystem was never
 	// resized (growpart/resize2fs/xfs_growfs forgotten) — the extra space is unusable.
 	DeviceSizeGB float64 `json:"device_size_gb,omitempty"`
+	// BusyProcesses lists PIDs with files open on this filesystem — populated only
+	// when the mount is near-full or unexpectedly read-only (see the collector's
+	// needsBusyCheck gate), so an admin blocked by "device or resource busy" on an
+	// unmount knows what to stop first. Nil for healthy mounts (no scan runs).
+	BusyProcesses []FSBusyProcess `json:"busy_processes,omitempty"`
+	// BusyCheckNeedsRoot is true when the busy-process scan ran unprivileged: both
+	// fuser and the /proc/*/fd fallback can only see file descriptors of processes
+	// owned by the current user, so PIDs owned by other users are silently
+	// invisible. Set whenever a scan was attempted, so a non-root run never reads
+	// as "confirmed only N processes have this open".
+	BusyCheckNeedsRoot bool `json:"busy_check_needs_root,omitempty"`
+}
+
+// FSBusyProcess is one process holding an open file on a busy/near-full
+// filesystem — see FilesystemInfo.BusyProcesses.
+type FSBusyProcess struct {
+	PID     int    `json:"pid"`
+	Command string `json:"command"`
+	User    string `json:"user"`
+	Write   bool   `json:"write"` // holds the file open for writing, not just read
 }
 
 type DiskInfo struct {

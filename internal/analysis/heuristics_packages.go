@@ -74,7 +74,10 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 // updates. It is the strongest false-OK guard in this collector: the security-update
 // count can read a confident "0" while the host literally cannot apply a single update.
 func checkPackageDBHealth(pkg models.PackagesInfo) []models.Insight {
-	if !pkg.DBUpdatesBlocked {
+	// Defensive: the collector never sets DBUpdatesBlocked without DBHealthChecked
+	// also being true (verified 2026-07-08), but gate on both anyway so a future
+	// collector change can't silently turn an unmeasured state into a WARN.
+	if !pkg.DBHealthChecked || !pkg.DBUpdatesBlocked {
 		return nil
 	}
 	hints := []string{}
@@ -348,10 +351,17 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 // host — no supported package manager, the scanner tool is not installed, or the
 // scan command failed — as opposed to running and finding nothing. Such a result
 // must not render as a green "OK" (which reads as "no CVEs" on a host we never
-// scanned). The signal is carried in CVEAllResult.StatusReason by the scanners in
-// cve_linux.go; the substrings here are pinned by TestCVEScanUnavailable.
+// scanned). The authoritative signal is CVEAllResult.ScanFailed, set directly by
+// every scanner failure path in cve_linux.go — checked first so this can't be
+// silently defeated by a StatusReason wording change (BUG-098: a scanner message
+// was reworded to be more honest about *why* it failed — cold cache vs generic
+// failure — and that alone flipped a failed scan to render as a false "OK",
+// because this function was pattern-matching the message text instead of the
+// ScanFailed bool it was already given). The substrings below are kept as a
+// defensive fallback for callers that only set StatusReason; the substrings here
+// are pinned by TestCVEScanUnavailable.
 func cveScanUnavailable(r models.CVEAllResult) bool {
-	if r.PackageManager == "" {
+	if r.PackageManager == "" || r.ScanFailed {
 		return true
 	}
 	reason := strings.ToLower(r.StatusReason)

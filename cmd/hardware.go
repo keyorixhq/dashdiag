@@ -60,9 +60,27 @@ func runHardware(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop,funlen // flat display renderer — each branch is a distinct section
+// printHardwareReport is the flat dispatcher for `dsd hardware`'s report.
+// Each print*Section below covers one independent theme and writes straight
+// to stdout with no shared buffer — split out of a single ~205-line function
+// (was `//nolint:cyclop,funlen`) the same way printSecurityReport was split.
+func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) {
 	sep := render.StyleDim.Render("────────────────────────────────────────────────────────")
 
+	printHardwareSystemSection(info)
+	printHardwareCPUSection(info)
+	printHardwareMemorySection(info, mode)
+	printHardwareDrivesSection(info, mode)
+	printHardwareThermalsSection(info, mode)
+	printHardwareNetworkSection(info, mode)
+
+	fmt.Println(sep)
+	fmt.Println(render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
+	_ = os.Stdout.Sync()
+}
+
+// printHardwareSystemSection prints the System section (vendor/model).
+func printHardwareSystemSection(info *models.HardwareInfo) {
 	// ── System ────────────────────────────────────────────────────────────────
 	if info.System.Vendor != "" || info.System.Model != "" {
 		fmt.Println(render.StyleBold.Render("System"))
@@ -74,7 +92,10 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println()
 	}
+}
 
+// printHardwareCPUSection prints the CPU section (model, topology, frequency).
+func printHardwareCPUSection(info *models.HardwareInfo) {
 	// ── CPU ───────────────────────────────────────────────────────────────────
 	if info.CPU.Model != "" || info.CPU.Threads > 0 {
 		fmt.Println(render.StyleBold.Render("CPU"))
@@ -99,7 +120,10 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println()
 	}
+}
 
+// printHardwareMemorySection prints the Memory section (RAM slots, EDAC/ECC).
+func printHardwareMemorySection(info *models.HardwareInfo, mode output.OutputMode) {
 	// ── Memory ────────────────────────────────────────────────────────────────
 	fmt.Println(render.StyleBold.Render("Memory"))
 	if info.Memory.TotalGB > 0 {
@@ -124,7 +148,11 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		fmt.Printf("  %-14s %s  %d corrected\n", "ECC (CE):", output.StatusIcon(ceLevel, mode), info.Memory.CorrectedErrors)
 	}
 	fmt.Println()
+}
 
+// printHardwareDrivesSection prints the per-drive SMART/thermal/wear/error
+// section.
+func printHardwareDrivesSection(info *models.HardwareInfo, mode output.OutputMode) {
 	// ── Drives ────────────────────────────────────────────────────────────────
 	if len(info.Drives) == 0 {
 		fmt.Printf("%-12s %s  no drives detected\n", "Drives", output.StatusIcon("info", mode))
@@ -210,7 +238,10 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 
 		fmt.Println()
 	}
+}
 
+// printHardwareThermalsSection prints the CPU Thermals section.
+func printHardwareThermalsSection(info *models.HardwareInfo, mode output.OutputMode) {
 	// ── CPU Thermals ──────────────────────────────────────────────────────────
 	if len(info.Thermals) > 0 {
 		fmt.Println(render.StyleBold.Render("CPU Thermals"))
@@ -231,7 +262,10 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println()
 	}
+}
 
+// printHardwareNetworkSection prints the Network interfaces section.
+func printHardwareNetworkSection(info *models.HardwareInfo, mode output.OutputMode) {
 	// ── Network interfaces ────────────────────────────────────────────────────
 	if len(info.NICs) > 0 {
 		fmt.Println(render.StyleBold.Render("Network"))
@@ -262,9 +296,6 @@ func printHardwareReport(info *models.HardwareInfo, mode output.OutputMode, elap
 		}
 		fmt.Println()
 	}
-	fmt.Println(sep)
-	fmt.Println(render.StyleDim.Render(fmt.Sprintf("done in %.1fs", elapsed.Seconds())))
-	_ = os.Stdout.Sync()
 }
 
 // coreThermalLevel grades a per-core CPU temperature for `dsd hardware`. Above the

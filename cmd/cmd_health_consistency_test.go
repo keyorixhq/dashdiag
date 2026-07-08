@@ -189,6 +189,10 @@ func TestCmdHealthConsistency_K8s(t *testing.T) {
 		{"pods pending", mk(func(i *models.K8sInfo) { i.Pending = 1 })},
 		{"pods not ready", mk(func(i *models.K8sInfo) { i.PodsNotReady = 1 })},
 		{"high restarts", mk(func(i *models.K8sInfo) { i.HighRestarts = 1 })},
+		// Spec 23f: a pod stuck in Unknown status (node likely unreachable) — pins
+		// k8sHasConcern reading info.UnknownStatus so `dsd k8s` can't print "Cluster
+		// healthy" while `dsd health` WARNs on the same data.
+		{"unknown status", mk(func(i *models.K8sInfo) { i.UnknownStatus = 1 })},
 		// HIGH bug fix: `dsd k8s --deep` OS-layer faults (dead kubelet/containerd,
 		// disabled ip_forward, missing CNI, expired certs) previously CRITed in
 		// `dsd health --deep` but rendered "✅ Cluster healthy" here — k8sHasConcern
@@ -215,6 +219,15 @@ func TestCmdHealthConsistency_K8s(t *testing.T) {
 		})},
 		{"OSLayer all clean is not a concern", mk(func(i *models.K8sInfo) {
 			i.OSLayer = &models.K8sOSLayer{KubeletChecked: true, KubeletActive: true, ContainerdChecked: true, ContainerdActive: true}
+		})},
+		// Spec 23e: KUBE-SERVICES chain — generic OSLayer pass-through (k8sOSLayerInsights
+		// runs the exact same CheckK8sOSLayer as health), so no cmd/k8s.go special-casing
+		// was needed; this pins that the pass-through actually covers it.
+		{"OSLayer kube-services empty (iptables mode, WARN)", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{KubeServicesChecked: true, KubeProxyMode: "iptables", KubeServicesCount: 0}
+		})},
+		{"OSLayer kube-services nft mode is not a concern", mk(func(i *models.K8sInfo) {
+			i.OSLayer = &models.K8sOSLayer{KubeServicesChecked: true, KubeProxyMode: "nft", KubeServicesCount: 0}
 		})},
 	}
 	for _, tc := range cases {

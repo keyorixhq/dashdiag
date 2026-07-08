@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -37,11 +38,18 @@ func (c *PackagesCollector) Name() string { return "Packages" }
 // (deep). Collectors run concurrently, so this only extends wall-clock on the rare
 // cold/slow-mirror first run — and an honest-but-slow security verdict beats a fast
 // false-negative.
+//
+// BUG-098 addendum: on a multi-repo distro (Oracle Linux's 6 default repos vs
+// RHUI's 1), the FIRST dnf call of any kind pays the cold-metadata-sync cost —
+// including the repolist gate check that runs BEFORE the scan's own 18s cap
+// even starts. That gate call had no cap of its own, so it could eat most of
+// this budget before the scan got a turn, on a fresh cloud VM. Budget now
+// covers an explicit cache-warm step + the (now bounded) gate + the scan.
 func (c *PackagesCollector) Timeout() time.Duration {
 	if c.Deep {
-		return 40 * time.Second
+		return 65 * time.Second
 	}
-	return 20 * time.Second
+	return 50 * time.Second
 }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
@@ -267,8 +275,21 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{Checked: true, PackageManager: "dnf"}
 
-	// Check repos
-	if reposOk := dnfHasUpdateRepo(ctx); !reposOk {
+	// BUG-098: warm the metadata cache ONCE, up front, so the repo gate check and
+	// the scan below both hit a warm cache instead of each independently racing a
+	// cold multi-repo sync (found on Oracle Linux's 6 default repos: the gate
+	// check alone could eat the scan's entire budget before the scan got a turn).
+	// Best-effort — a timeout/failure here just means the calls below pay the
+	// cold-sync cost themselves, same as before this fix.
+	dnfWarmCache(ctx)
+
+	// Check repos. Bounded so a still-cold sync here (warm-up above timed out or
+	// was itself slow) can't silently consume the rest of the collector budget
+	// before the scan below gets a chance to run.
+	repoCtx, repoCancel := context.WithTimeout(ctx, 10*time.Second)
+	reposOk := dnfHasUpdateRepo(repoCtx)
+	repoCancel()
+	if !reposOk {
 		info.Status = "no-security-repo"
 		info.StatusReason = "no enabled dnf repositories found"
 		return info, nil
@@ -293,7 +314,13 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		// — we did NOT learn there are 0 updates. Mark it so the verdict reports
 		// "couldn't verify" instead of a silent clean 0-updates OK (false-OK).
 		info.Status = "query-failed"
-		info.StatusReason = "dnf advisory/updateinfo unavailable"
+		if scanCtx.Err() != nil {
+			// BUG-098: a cancelled/deadline-exceeded call is not "unavailable" —
+			// it's an honest "ran out of time," almost always a cold cache. Say so.
+			info.StatusReason = "dnf advisory/updateinfo scan timed out — likely a cold metadata cache or slow mirror; retry"
+		} else {
+			info.StatusReason = "dnf advisory/updateinfo unavailable"
+		}
 		return info, nil
 	}
 
@@ -812,6 +839,29 @@ func dnfHasUpdateRepo(ctx context.Context) bool {
 		}
 	}
 	return lines > 0
+}
+
+var dnfWarmCacheOnce sync.Once
+
+// dnfWarmCache runs a bounded `dnf makecache` once per process so later dnf
+// calls (the repo gate check, the advisory scan) hit warm metadata instead of
+// each independently paying a cold sync. Both the Packages and CVE collectors
+// call this concurrently; dnf's own lock file would serialize two overlapping
+// `makecache` processes anyway, but doing it explicitly with sync.Once avoids
+// two dnf processes actually racing for that lock — one being force-killed by
+// its own context deadline while it holds (or is waiting on) the lock is exactly
+// the kind of interaction that's hard to reason about, so just don't create it:
+// whichever collector calls this first does the real work, the second call
+// blocks until the first returns, then finds a warm cache and no-ops fast.
+// Best-effort — the callers below have their own bounded timeouts and will
+// honestly report "could not verify" / "timed out" if metadata genuinely can't
+// be fetched.
+func dnfWarmCache(ctx context.Context) {
+	dnfWarmCacheOnce.Do(func() {
+		warmCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		_, _ = runCmd(warmCtx, "dnf", "makecache", "-q")
+	})
 }
 
 // checkSUSEMigrationRisks checks for packages known to cause boot failures

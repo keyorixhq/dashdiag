@@ -1072,6 +1072,46 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	)}
 }
 
+func checkMTE(m models.MTEInfo) []models.Insight {
+	if !m.Available {
+		return nil
+	}
+	if m.StatusReason != "" {
+		return []models.Insight{insight("INFO", "MTE",
+			"MTE fault check not verified — "+m.StatusReason,
+			[]string{
+				"to inspect: journalctl -k | grep -i 'tag check fault'   (run as root)",
+				"note: kernel.dmesg_restrict=1 blocks non-root dmesg",
+			},
+		)}
+	}
+
+	var out []models.Insight
+
+	if !m.ExceptionTraceEnabled {
+		out = append(out, insight("WARN", "MTE",
+			"ARM Memory Tagging Extension hardware support is present, but kernel fault-signal logging (debug.exception-trace) is off — any tag-check fault will crash a process silently with no forensic trail",
+			[]string{
+				"to enable (runtime): sysctl -w debug.exception-trace=1",
+				"to persist: echo 'debug.exception-trace = 1' > /etc/sysctl.d/99-mte-trace.conf",
+				"note: only matters if a workload here intentionally uses MTE (hardened allocators, memory-safety testing) — leaving it off is not itself a fault",
+			},
+		))
+	}
+
+	for _, ev := range m.RecentFaults {
+		out = append(out, insight("CRIT", "MTE",
+			fmt.Sprintf("process %s (pid %d) crashed on a hardware memory-safety fault (ARM MTE %s tag-check) — likely a genuine memory-corruption bug (buffer overflow / use-after-free), not resource exhaustion or app misbehavior", ev.Process, ev.PID, ev.FaultType),
+			[]string{
+				"to inspect: journalctl -k | grep -i 'tag check fault'   (full register dump)",
+				"note: triage at the code level — this is a hardware-caught memory-safety violation, not a generic segfault",
+			},
+		))
+	}
+
+	return out
+}
+
 func checkPressure(p models.PressureInfo) []models.Insight {
 	if !p.Available {
 		return nil
@@ -1336,6 +1376,57 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 		}
 	}
 
+	// Individual systemd service units and containers one level below the
+	// slices above — split into its own function purely to stay under the
+	// funlen linter's line budget; same lifetime-ratio caveat and thresholds.
+	out = append(out, checkCgroupUnits(cg.Units)...)
+
+	return out
+}
+
+// checkCgroupUnits mirrors the per-slice throttle/memory checks in
+// checkCgroupV2, keyed by individual systemd service unit / container
+// instead of the coarser top-level slice. Only units that already crossed
+// the "significant usage" bar in the collector (>5% CPU or >500MB RAM)
+// appear here, so this loop is small.
+func checkCgroupUnits(units []models.CgroupUnit) []models.Insight {
+	var out []models.Insight
+	for _, u := range units {
+		var hint []string
+		if u.IsContainer {
+			hint = []string{fmt.Sprintf("to inspect: docker stats %s", strings.TrimPrefix(u.Name, "container:"))}
+		} else {
+			hint = []string{fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/%s/cpu.stat", u.ParentSlice, u.Name)}
+		}
+
+		if u.ThrottledPct > 20 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot) — chronically hitting cpu.max",
+					u.Name, u.ThrottledPct),
+				hint,
+			))
+		} else if u.ThrottledPct > 5 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot)",
+					u.Name, u.ThrottledPct),
+				hint,
+			))
+		}
+
+		if u.HasMemLimit && u.MemUsedPct > 90 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s memory %.0f%% of limit (%.0f/%.0f MB)",
+					u.Name, u.MemUsedPct, u.MemCurrentMB, u.MemLimitMB),
+				hint,
+			))
+		} else if u.HasMemLimit && u.MemUsedPct > 75 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s memory at %.0f%% of limit",
+					u.Name, u.MemUsedPct),
+				hint,
+			))
+		}
+	}
 	return out
 }
 

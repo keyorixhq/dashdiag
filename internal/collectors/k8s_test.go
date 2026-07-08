@@ -1,11 +1,13 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Characterization tests for the K8s collector's pure helpers. k8s.go is
@@ -126,6 +128,13 @@ func TestUpdatePodCounts(t *testing.T) {
 			wantValue:   1,
 		},
 		{
+			name:        "unknown increments UnknownStatus",
+			pod:         models.K8sPodInfo{Status: "Unknown"},
+			maxRestarts: 0,
+			wantField:   func(i *models.K8sInfo) int { return i.UnknownStatus },
+			wantValue:   1,
+		},
+		{
 			name:        "running but 0/N increments PodsNotReady",
 			pod:         models.K8sPodInfo{Status: "Running", Ready: "0/2"},
 			maxRestarts: 0,
@@ -169,6 +178,60 @@ func TestUpdatePodCounts(t *testing.T) {
 				t.Errorf("crashNames recorded = %v, want %v (%v)", gotCrash, tt.wantCrash, crashNames)
 			}
 		})
+	}
+}
+
+// TestCollectK8sPodsUnknownStatus pins Spec 23f: a pod in phase Unknown (node
+// partitioned/crashed) must carry its node and owner so the analysis layer can
+// warn that a StatefulSet-owned pod won't be rescheduled until it's deleted.
+func TestCollectK8sPodsUnknownStatus(t *testing.T) {
+	const podsJSON = `{"items":[
+		{"metadata":{"name":"postgres-0","namespace":"default",
+			"creationTimestamp":"2026-01-01T00:00:00Z",
+			"ownerReferences":[{"kind":"StatefulSet","name":"postgres"}]},
+		 "spec":{"nodeName":"worker-03","containers":[{"image":"postgres:16"}]},
+		 "status":{"phase":"Unknown"}},
+		{"metadata":{"name":"web-7d4","namespace":"default",
+			"creationTimestamp":"2026-01-01T00:00:00Z"},
+		 "spec":{"nodeName":"worker-01","containers":[{"image":"nginx"}]},
+		 "status":{"phase":"Running","containerStatuses":[{"ready":true}]}}
+	]}`
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "kubectl" && len(args) > 0 && args[0] == "get" {
+			return source.Result{Stdout: []byte(podsJSON)}, nil
+		}
+		return source.Result{}, &cmdError{name: name, code: 1}
+	}))
+	defer SetSource(prev)
+
+	info := &models.K8sInfo{}
+	collectK8sPods(context.Background(), "kubectl", info)
+
+	if info.UnknownStatus != 1 {
+		t.Fatalf("UnknownStatus = %d, want 1", info.UnknownStatus)
+	}
+	var unknown *models.K8sPodInfo
+	for i := range info.Pods {
+		if info.Pods[i].Status == "Unknown" {
+			unknown = &info.Pods[i]
+		}
+	}
+	if unknown == nil {
+		t.Fatal("no pod parsed with status Unknown")
+	}
+	if unknown.NodeName != "worker-03" {
+		t.Errorf("NodeName = %q, want %q", unknown.NodeName, "worker-03")
+	}
+	if unknown.OwnerKind != "StatefulSet" || unknown.OwnerName != "postgres" {
+		t.Errorf("OwnerKind/OwnerName = %q/%q, want StatefulSet/postgres", unknown.OwnerKind, unknown.OwnerName)
+	}
+	// The Running pod must NOT get NodeName/Owner populated — those fields are
+	// scoped to Unknown pods only (kept out of JSON output otherwise via omitempty).
+	for i := range info.Pods {
+		p := &info.Pods[i]
+		if p.Status == "Running" && (p.NodeName != "" || p.OwnerKind != "") {
+			t.Errorf("Running pod %s got NodeName/OwnerKind populated, want empty", p.Name)
+		}
 	}
 }
 

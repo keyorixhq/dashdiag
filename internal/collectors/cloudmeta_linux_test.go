@@ -67,8 +67,9 @@ func TestImdsGetLive_LargeBody(t *testing.T) {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		sb.WriteString(`{"managedDisk":{"id":"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example-long-name/providers/Microsoft.Compute/disks/disk-` +
-			strings.Repeat("x", 40) + `"},"caching":"ReadWrite"}`)
+		sb.WriteString(`{"managedDisk":{"id":"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example-long-name/providers/Microsoft.Compute/disks/disk-`)
+		sb.WriteString(strings.Repeat("x", 40))
+		sb.WriteString(`"},"caching":"ReadWrite"}`)
 	}
 	sb.WriteString(`]}`)
 	body := sb.String()

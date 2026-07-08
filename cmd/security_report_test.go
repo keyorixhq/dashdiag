@@ -178,11 +178,61 @@ func TestPrintSecurityReportPAMAndSUID(t *testing.T) {
 		t.Errorf("a locked account should be named with the unlock command, got:\n%s", pam)
 	}
 
+	moduleFailures := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{
+			PAMModuleFailures: []models.PAMFailure{{Service: "sudo", User: "bob", Count: 3}},
+		}, nil, output.ModePlain, 0)
+	})
+	if !strings.Contains(moduleFailures, "sudo") || !strings.Contains(moduleFailures, "bob") || !strings.Contains(moduleFailures, "×3") {
+		t.Errorf("a PAM module failure should name the service/user/count, got:\n%s", moduleFailures)
+	}
+
+	both := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{
+			PAMLockedAccounts: []string{"bob"},
+			PAMModuleFailures: []models.PAMFailure{{Service: "su", User: "eve", Count: 1}},
+		}, nil, output.ModePlain, 0)
+	})
+	if strings.Count(both, "\nPAM\n") != 1 {
+		t.Errorf("locked accounts and module failures should render under one PAM header, got:\n%s", both)
+	}
+	if !strings.Contains(both, "bob") || !strings.Contains(both, "eve") {
+		t.Errorf("both PAM sub-sections should render together, got:\n%s", both)
+	}
+
 	suid := captureStdout(t, func() {
 		printSecurityReport(&models.SecurityInfo{SUIDBinaries: []string{"/tmp/evil"}}, nil, output.ModePlain, 0)
 	})
 	if !strings.Contains(suid, "/tmp/evil") {
 		t.Errorf("an unexpected SUID binary should be named, got:\n%s", suid)
+	}
+}
+
+// TestPrintSecurityReportMACAbsentFallback guards the explicit "MAC not
+// active" line: it must appear when NEITHER SELinux nor AppArmor is active,
+// and must NOT appear when either one is — the fallback exists to replace a
+// silent two-section omission with an explicit not-applicable state, not to
+// fire whenever one of the two happens to be inactive.
+func TestPrintSecurityReportMACAbsentFallback(t *testing.T) {
+	neither := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{}, nil, output.ModePlain, 0)
+	})
+	if !strings.Contains(neither, "No mandatory access control") {
+		t.Errorf("neither SELinux nor AppArmor active should show the MAC-absent fallback, got:\n%s", neither)
+	}
+
+	selinuxOnly := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{SELinuxMode: "enforcing"}, nil, output.ModePlain, 0)
+	})
+	if strings.Contains(selinuxOnly, "No mandatory access control") {
+		t.Errorf("SELinux active should suppress the MAC-absent fallback, got:\n%s", selinuxOnly)
+	}
+
+	apparmorOnly := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{AppArmorMode: "enforce", AppArmorProfiles: 5}, nil, output.ModePlain, 0)
+	})
+	if strings.Contains(apparmorOnly, "No mandatory access control") {
+		t.Errorf("AppArmor active should suppress the MAC-absent fallback, got:\n%s", apparmorOnly)
 	}
 }
 

@@ -72,6 +72,25 @@ func TestCheckSecurityFull(t *testing.T) {
 			mutate: func(s *models.SecurityInfo) { s.SELinuxDenials = 15; s.SELinuxMode = "enforcing" },
 			level:  "WARN", msg: "SELinux denials",
 		},
+		{
+			name: "apparmor denial groups is WARN",
+			mutate: func(s *models.SecurityInfo) {
+				s.AppArmorGroups = []models.AppArmorDenial{{Profile: "/usr/sbin/nginx", Operation: "open", Path: "/etc/shadow", Count: 5}}
+			},
+			level: "WARN", msg: "AppArmor denial group",
+		},
+		{
+			name:   "apparmor denials with no groups is WARN",
+			mutate: func(s *models.SecurityInfo) { s.AppArmorDenials = 3 },
+			level:  "WARN", msg: "AppArmor denial",
+		},
+		{
+			name: "pam module failures is WARN",
+			mutate: func(s *models.SecurityInfo) {
+				s.PAMModuleFailures = []models.PAMFailure{{Service: "sudo", User: "bob", Count: 2}}
+			},
+			level: "WARN", msg: "PAM authentication failure",
+		},
 		{"legacy crypto policy is WARN", func(s *models.SecurityInfo) { s.CryptoPolicy = "LEGACY" }, "WARN", "crypto policy is LEGACY"},
 		{
 			name:   "auditd no rules is WARN",
@@ -136,5 +155,23 @@ func TestNoIdleTimeoutSuppressedWhenNoSSHD(t *testing.T) {
 	withSSHD := models.SecurityInfo{SSHStrictModes: true, SSHClientAliveInterval: 0, SSHAuditSource: "sshd -T"}
 	if !hasInsightMsg(checkSecurity(withSSHD), "INFO", "idle timeout") {
 		t.Error("idle-timeout INFO should fire when sshd was audited and ClientAliveInterval is unset")
+	}
+}
+
+// TestCheckAppArmorDenials_Clean guards the zero-denial boundary explicitly:
+// a zero-value SecurityInfo (no AppArmorGroups, AppArmorDenials == 0) must not
+// produce any insight — checkAppArmorDenials should stay silent, not WARN on
+// the absence of data.
+func TestCheckAppArmorDenials_Clean(t *testing.T) {
+	if got := checkAppArmorDenials(models.SecurityInfo{}); len(got) != 0 {
+		t.Errorf("no AppArmor denial data should produce no insight, got %+v", got)
+	}
+}
+
+// TestCheckPAMFailures_Clean is the same boundary guard for PAM module
+// failures: no PAMModuleFailures must yield no insight.
+func TestCheckPAMFailures_Clean(t *testing.T) {
+	if got := checkPAMFailures(models.SecurityInfo{}); len(got) != 0 {
+		t.Errorf("no PAM module failures should produce no insight, got %+v", got)
 	}
 }

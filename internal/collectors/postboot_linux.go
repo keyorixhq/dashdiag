@@ -67,7 +67,7 @@ func (c *PostBootCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // livePostBootEnv builds the host probes the trichotomy needs. isSystemd keys on
 // journalctl (the only durable cross-boot source); hasWtmp on the wtmp file.
-func livePostBootEnv(ctx context.Context) pbEnv {
+func livePostBootEnv(_ context.Context) pbEnv {
 	return pbEnv{
 		isSystemd:       lookPathOK("journalctl"),
 		hasWtmp:         fileExists("/var/log/wtmp"),
