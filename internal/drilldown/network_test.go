@@ -1,6 +1,35 @@
 package drilldown
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+// tcpStatesMac is only invoked at runtime on darwin, but it's a plain
+// function, callable directly on any host — mocking runCmd lets it be
+// exercised on Linux CI too. No t.Parallel(): see swapRunCmd's doc comment.
+func TestTCPStatesMac(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "netstat" {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return "Active Internet connections\n" +
+			"tcp4       0      0  127.0.0.1.5000    127.0.0.1.54321   ESTABLISHED\n" +
+			"tcp4       0      0  *.80              *.*               LISTEN\n" +
+			"tcp6       0      0  ::1.5001          ::1.54322         ESTABLISHED\n", nil
+	})
+
+	got, err := tcpStatesMac(context.Background())
+	if err != nil {
+		t.Fatalf("tcpStatesMac: %v", err)
+	}
+	if got.KV["ESTABLISHED"] != "2" {
+		t.Errorf("KV[ESTABLISHED] = %q, want %q (full KV: %+v)", got.KV["ESTABLISHED"], "2", got.KV)
+	}
+	if got.KV["LISTEN"] != "1" {
+		t.Errorf("KV[LISTEN] = %q, want %q (full KV: %+v)", got.KV["LISTEN"], "1", got.KV)
+	}
+}
 
 // TestParseSSProc guards the users:(("name",pid=N,fd=N)) extraction.
 func TestParseSSProc(t *testing.T) {

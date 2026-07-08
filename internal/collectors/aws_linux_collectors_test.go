@@ -1,0 +1,438 @@
+//go:build linux
+
+package collectors
+
+import (
+	"context"
+	"encoding/binary"
+	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
+// withAWSFixture needs both dimensions the shared withCombinedFixture (see
+// security_linux_source_test.go) provides: IMDS/lookPath results go through
+// Cached, and NIC driver detection (enaInterfaces) resolves a sysfs symlink
+// via Readlink.
+func withAWSFixture(t *testing.T, cached map[string][]byte, links map[string]string, seed func(b *source.Bundle)) {
+	t.Helper()
+	withCombinedFixture(t, cached, links, seed)
+}
+
+// ebsLogPage builds a valid Amazon EBS stats log page (0xD0) with the four
+// exceeded-µs counters at their real offsets, for feeding through PutCmd as
+// the raw output of `nvme get-log ... --raw-binary`.
+func ebsLogPage(volIOPS, volTP, instIOPS, instTP uint64) string {
+	buf := make([]byte, 88)
+	binary.LittleEndian.PutUint32(buf[0:4], ebsStatsMagic)
+	binary.LittleEndian.PutUint64(buf[56:64], volIOPS)
+	binary.LittleEndian.PutUint64(buf[64:72], volTP)
+	binary.LittleEndian.PutUint64(buf[72:80], instIOPS)
+	binary.LittleEndian.PutUint64(buf[80:88], instTP)
+	return string(buf)
+}
+
+func TestAWSCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewAWSCollector()
+	if c.Name() != "AWS" {
+		t.Errorf("Name() = %q, want AWS", c.Name())
+	}
+	if c.Timeout() != 5*time.Second {
+		t.Errorf("Timeout() = %v, want 5s", c.Timeout())
+	}
+}
+
+func TestAWSGuestAvailable_True(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/class/dmi/id/sys_vendor", []byte("Amazon EC2\n"))
+	})
+	if !AWSGuestAvailable() {
+		t.Error("expected AWSGuestAvailable=true")
+	}
+}
+
+func TestAWSGuestAvailable_False(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/class/dmi/id/sys_vendor", []byte("QEMU\n"))
+	})
+	if AWSGuestAvailable() {
+		t.Error("expected AWSGuestAvailable=false")
+	}
+}
+
+func TestNitroEnclaveState_PresentAndRunning(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/dev/nitro_enclaves", source.FileMeta{})
+		b.PutCmd("systemctl", []string{"is-active", "nitro-enclaves-allocator"}, "active\n", 0)
+	})
+	present, running := nitroEnclaveState()
+	if !present || !running {
+		t.Errorf("present=%v running=%v, want true/true", present, running)
+	}
+}
+
+func TestNitroEnclaveState_Absent(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	present, running := nitroEnclaveState()
+	if present || running {
+		t.Errorf("present=%v running=%v, want false/false", present, running)
+	}
+}
+
+func TestIsReplaySource(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if !isReplaySource() {
+		t.Error("expected true under a Replay source")
+	}
+}
+
+func TestSleepCtx_Completes(t *testing.T) {
+	t.Parallel()
+	if !sleepCtx(context.Background(), time.Millisecond) {
+		t.Error("expected true when the timer fires before cancellation")
+	}
+}
+
+func TestSleepCtx_ContextCancelled(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if sleepCtx(ctx, time.Second) {
+		t.Error("expected false when ctx is already cancelled")
+	}
+}
+
+func TestEnaInterfaces(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+		"/sys/class/net/eth1/device/driver": "../../../bus/pci/drivers/virtio_net",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0", "eth1", "lo"})
+	})
+	ifaces := enaInterfaces()
+	if len(ifaces) != 1 || ifaces[0] != "eth0" {
+		t.Errorf("enaInterfaces() = %v, want [eth0]", ifaces)
+	}
+}
+
+func TestEnaRead(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmd("ethtool", []string{"-S", "eth0"},
+			"NIC statistics:\n     bw_in_allowance_exceeded: 5\n     pps_allowance_exceeded: 0\n", 0)
+	})
+	got := enaRead(context.Background())
+	if len(got) != 1 || got["eth0"]["bw_in"] != 5 {
+		t.Errorf("enaRead() = %v, want eth0.bw_in=5", got)
+	}
+}
+
+func TestEnaAnyNonzero(t *testing.T) {
+	t.Parallel()
+	if enaAnyNonzero(map[string]map[string]uint64{"eth0": {"bw_in": 0}}) {
+		t.Error("expected false — all zero")
+	}
+	if !enaAnyNonzero(map[string]map[string]uint64{"eth0": {"bw_in": 1}}) {
+		t.Error("expected true — one nonzero")
+	}
+}
+
+func TestEnaComputeDelta(t *testing.T) {
+	t.Parallel()
+	first := map[string]map[string]uint64{"eth0": {"bw_in": 5}}
+	second := map[string]map[string]uint64{"eth0": {"bw_in": 8}}
+	delta := enaComputeDelta(first, second)
+	if delta["eth0"]["bw_in"] != 3 {
+		t.Errorf("delta = %v, want eth0.bw_in=3", delta)
+	}
+}
+
+func TestEnaComputeDelta_Saturates(t *testing.T) {
+	t.Parallel()
+	first := map[string]map[string]uint64{"eth0": {"bw_in": 10}}
+	second := map[string]map[string]uint64{"eth0": {"bw_in": 2}} // counter reset
+	delta := enaComputeDelta(first, second)
+	if delta["eth0"]["bw_in"] != 0 {
+		t.Errorf("delta = %v, want eth0.bw_in=0 (saturated)", delta)
+	}
+}
+
+func TestEnaAssemble(t *testing.T) {
+	t.Parallel()
+	totals := map[string]map[string]uint64{
+		"eth1": {"bw_in": 1},
+		"eth0": {"bw_in": 2},
+	}
+	delta := map[string]map[string]uint64{"eth0": {"bw_in": 1}}
+	got := enaAssemble(totals, delta)
+	if len(got) != 2 || got[0].Iface != "eth0" || got[1].Iface != "eth1" {
+		t.Fatalf("expected sorted [eth0, eth1], got %+v", got)
+	}
+	if got[0].Active["bw_in"] != 1 {
+		t.Errorf("eth0.Active = %v, want bw_in=1", got[0].Active)
+	}
+	if got[1].Active != nil {
+		t.Errorf("eth1.Active = %v, want nil (no delta entry)", got[1].Active)
+	}
+}
+
+func TestEnaAssemble_Empty(t *testing.T) {
+	t.Parallel()
+	if got := enaAssemble(nil, nil); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestEbsDevices(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/block", []string{"nvme0n1", "nvme1n1", "sda"})
+		b.PutFile("/sys/block/nvme0n1/device/model", []byte("Amazon Elastic Block Store\n"))
+		b.PutFile("/sys/block/nvme1n1/device/model", []byte("Amazon EC2 NVMe Instance Storage\n"))
+	})
+	devs := ebsDevices()
+	if len(devs) != 1 || devs[0] != "nvme0n1" {
+		t.Errorf("ebsDevices() = %v, want [nvme0n1] (instance-store and non-nvme excluded)", devs)
+	}
+}
+
+func TestEbsRead_Happy(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/block", []string{"nvme0n1"})
+		b.PutFile("/sys/block/nvme0n1/device/model", []byte("Amazon Elastic Block Store\n"))
+		b.PutCmd("nvme", []string{"get-log", "/dev/nvme0n1", "--log-id=0xd0", "--log-len=4096", "--raw-binary"},
+			ebsLogPage(100, 200, 300, 400), 0)
+	})
+	raw, meta := ebsRead(context.Background())
+	if !meta.attempted || meta.needsRoot || meta.failed {
+		t.Errorf("meta = %+v, want attempted only", meta)
+	}
+	r, ok := raw["nvme0n1"]
+	if !ok || r.volIOPS != 100 || r.instTP != 400 {
+		t.Errorf("raw[nvme0n1] = %+v, ok=%v", r, ok)
+	}
+}
+
+func TestEbsRead_NoDevices(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	raw, meta := ebsRead(context.Background())
+	if len(raw) != 0 || meta.attempted {
+		t.Errorf("expected empty/unattempted, got raw=%v meta=%+v", raw, meta)
+	}
+}
+
+func TestEbsRead_UnparseableFlagsFailed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/block", []string{"nvme0n1"})
+		b.PutFile("/sys/block/nvme0n1/device/model", []byte("Amazon Elastic Block Store\n"))
+		b.PutCmd("nvme", []string{"get-log", "/dev/nvme0n1", "--log-id=0xd0", "--log-len=4096", "--raw-binary"},
+			"garbage-not-a-log-page", 0)
+	})
+	raw, meta := ebsRead(context.Background())
+	if len(raw) != 0 || !meta.failed {
+		t.Errorf("expected empty raw + failed=true, got raw=%v meta=%+v", raw, meta)
+	}
+}
+
+func TestEbsAnyNonzero(t *testing.T) {
+	t.Parallel()
+	if ebsAnyNonzero(map[string]ebsRaw{"a": {volIOPS: 0, volTP: 0, instIOPS: 0, instTP: 0}}) {
+		t.Error("expected false")
+	}
+	if !ebsAnyNonzero(map[string]ebsRaw{"a": {instTP: 1}}) {
+		t.Error("expected true")
+	}
+}
+
+func TestEbsComputeDelta(t *testing.T) {
+	t.Parallel()
+	first := map[string]ebsRaw{"nvme0n1": {volIOPS: 10}}
+	second := map[string]ebsRaw{"nvme0n1": {volIOPS: 15}}
+	delta := ebsComputeDelta(first, second)
+	if delta["nvme0n1"].volIOPS != 5 {
+		t.Errorf("delta.volIOPS = %d, want 5", delta["nvme0n1"].volIOPS)
+	}
+}
+
+func TestEbsAssemble(t *testing.T) {
+	t.Parallel()
+	totals := map[string]ebsRaw{"nvme1n1": {volIOPS: 1}, "nvme0n1": {volIOPS: 2}}
+	delta := map[string]ebsRaw{"nvme0n1": {volIOPS: 1}}
+	got := ebsAssemble(totals, delta)
+	if len(got) != 2 || got[0].Device != "nvme0n1" || got[1].Device != "nvme1n1" {
+		t.Fatalf("expected sorted [nvme0n1, nvme1n1], got %+v", got)
+	}
+	if got[0].ActiveVolumeIOPSUs != 1 {
+		t.Errorf("nvme0n1.ActiveVolumeIOPSUs = %d, want 1", got[0].ActiveVolumeIOPSUs)
+	}
+}
+
+func TestEbsAssemble_Empty(t *testing.T) {
+	t.Parallel()
+	if got := ebsAssemble(nil, nil); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestEnaExpressState_ActiveTraffic(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmd("ethtool", []string{"-S", "eth0"},
+			"NIC statistics:\n     ena_srd_tx_pkts: 42\n     ena_srd_rx_pkts: 0\n", 0)
+	})
+	checked, active := enaExpressState(context.Background())
+	if !checked || !active {
+		t.Errorf("checked=%v active=%v, want true/true", checked, active)
+	}
+}
+
+func TestEnaExpressState_NoENAInterfaces(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	checked, active := enaExpressState(context.Background())
+	if checked || active {
+		t.Errorf("checked=%v active=%v, want false/false", checked, active)
+	}
+}
+
+func TestAwsInstanceType(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{
+		"imds-aws-token": []byte("tok123"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type": []byte("t4g.small"),
+	}, nil, func(b *source.Bundle) {})
+	if got := awsInstanceType(context.Background()); got != "t4g.small" {
+		t.Errorf("awsInstanceType() = %q, want t4g.small", got)
+	}
+}
+
+func TestAwsInstanceType_NoToken(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := awsInstanceType(context.Background()); got != "" {
+		t.Errorf("awsInstanceType() = %q, want empty", got)
+	}
+}
+
+func TestAwsIMDSv1Open_Open(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{"aws-imdsv1-probe": []byte("open")}, nil, nil)
+	checked, open := awsIMDSv1Open(context.Background())
+	if !checked || !open {
+		t.Errorf("checked=%v open=%v, want true/true", checked, open)
+	}
+}
+
+func TestAwsIMDSv1Open_Blocked(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{"aws-imdsv1-probe": []byte("blocked")}, nil, nil)
+	checked, open := awsIMDSv1Open(context.Background())
+	if !checked || open {
+		t.Errorf("checked=%v open=%v, want true/false", checked, open)
+	}
+}
+
+func TestAwsIMDSv1Open_Unreachable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	checked, open := awsIMDSv1Open(context.Background())
+	if checked || open {
+		t.Errorf("checked=%v open=%v, want false/false", checked, open)
+	}
+}
+
+func TestAwsRebalance_Recommended(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{
+		"imds-aws-token":      []byte("tok123"),
+		"aws-rebalance-probe": []byte("yes"),
+	}, nil, nil)
+	checked, recommended := awsRebalance(context.Background())
+	if !checked || !recommended {
+		t.Errorf("checked=%v recommended=%v, want true/true", checked, recommended)
+	}
+}
+
+func TestAwsRebalance_NoToken(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	checked, recommended := awsRebalance(context.Background())
+	if checked || recommended {
+		t.Errorf("checked=%v recommended=%v, want false/false", checked, recommended)
+	}
+}
+
+func TestSsmState_InstalledAndRunning(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/amazon-ssm-agent", source.FileMeta{})
+		b.PutCmd("systemctl", []string{"is-active", "amazon-ssm-agent"}, "active\n", 0)
+	})
+	installed, running := ssmState(context.Background())
+	if !installed || !running {
+		t.Errorf("installed=%v running=%v, want true/true", installed, running)
+	}
+}
+
+func TestSsmState_NotInstalled(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	installed, running := ssmState(context.Background())
+	if installed || running {
+		t.Errorf("installed=%v running=%v, want false/false", installed, running)
+	}
+}
+
+func TestSsmState_InstalledNotRunning(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/amazon-ssm-agent", source.FileMeta{})
+		b.PutCmdNotFound("systemctl", []string{"is-active", "amazon-ssm-agent"})
+		b.PutCmdNotFound("systemctl", []string{"is-active", "snap.amazon-ssm-agent.amazon-ssm-agent"})
+	})
+	installed, running := ssmState(context.Background())
+	if !installed || running {
+		t.Errorf("installed=%v running=%v, want true/false", installed, running)
+	}
+}
+
+// TestAWSCollector_Collect_FullHappyPath drives the whole Collect() wiring —
+// ENA/EBS single-snapshot read (no second sample: isReplaySource() is true
+// under any test fixture, so the ~1s delta sleep never runs), IMDS posture,
+// and the local daemon checks.
+func TestAWSCollector_Collect_FullHappyPath(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{
+		"imds-aws-token": []byte("tok123"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type": []byte("m5.large"),
+		"aws-imdsv1-probe":    []byte("blocked"),
+		"aws-rebalance-probe": []byte("no"),
+	}, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmd("ethtool", []string{"-S", "eth0"}, "NIC statistics:\n     bw_in_allowance_exceeded: 0\n", 0)
+		b.PutDir("/sys/block", []string{"nvme0n1"})
+		b.PutFile("/sys/block/nvme0n1/device/model", []byte("Amazon Elastic Block Store\n"))
+		b.PutCmd("nvme", []string{"get-log", "/dev/nvme0n1", "--log-id=0xd0", "--log-len=4096", "--raw-binary"},
+			ebsLogPage(0, 0, 0, 0), 0)
+	})
+
+	got, err := NewAWSCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := got.(*models.AWSInfo)
+	if !info.IsEC2 {
+		t.Error("expected IsEC2=true")
+	}
+	if info.InstanceType != "m5.large" {
+		t.Errorf("InstanceType = %q, want m5.large", info.InstanceType)
+	}
+	if info.Sampled {
+		t.Error("expected Sampled=false — all-zero counters skip the second snapshot")
+	}
+	if !info.EBSReadAttempted {
+		t.Error("expected EBSReadAttempted=true")
+	}
+	if !info.IMDSChecked || info.IMDSv1Enabled {
+		t.Errorf("IMDS = checked=%v v1=%v, want true/false", info.IMDSChecked, info.IMDSv1Enabled)
+	}
+	if !info.RebalanceChecked || info.RebalanceRecommended {
+		t.Errorf("Rebalance = checked=%v rec=%v, want true/false", info.RebalanceChecked, info.RebalanceRecommended)
+	}
+}

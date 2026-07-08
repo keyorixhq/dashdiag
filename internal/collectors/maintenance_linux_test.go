@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -221,5 +222,435 @@ func TestSnapshotNumberFromPath(t *testing.T) {
 		if got := snapshotNumberFromPath(in); got != want {
 			t.Errorf("snapshotNumberFromPath(%q) = %d, want %d", in, got, want)
 		}
+	}
+}
+
+// ── tuned ────────────────────────────────────────────────────────────────────
+
+func TestTunedAvailable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"tuned-adm": true}, func(b *source.Bundle) {})
+	if !TunedAvailable() {
+		t.Error("expected TunedAvailable=true when tuned-adm is on PATH")
+	}
+}
+
+func TestTunedCollector_Collect_HappyPath(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"tuned-adm": true}, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "tuned"}, "active\n", 0)
+		b.PutCmd("tuned-adm", []string{"active"}, "Current active profile: virtual-guest\n", 0)
+		b.PutCmd("tuned-adm", []string{"recommend"}, "virtual-guest\n", 0)
+	})
+	c := NewTunedCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.TunedInfo)
+	if !info.Available || !info.Active || info.Profile != "virtual-guest" || info.Recommended != "virtual-guest" {
+		t.Errorf("unexpected TunedInfo: %+v", info)
+	}
+	if c.Name() != "Tuned" || c.Timeout() <= 0 {
+		t.Errorf("unexpected Name/Timeout: %q/%v", c.Name(), c.Timeout())
+	}
+}
+
+func TestTunedCollector_Collect_NotAvailable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
+	c := NewTunedCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.TunedInfo).Available {
+		t.Error("expected Available=false when tuned isn't installed")
+	}
+}
+
+// ── Kdump / KernelPatch / Ksplice happy-path bodies (gate already covered by
+// TestHostKernelCollectorsGateOffInContainer; these exercise the DATA paths) ──
+
+func TestKdumpCollector_Collect_HappyPath(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/lib/systemd/system/kdump.service", source.FileMeta{})
+		b.PutCmd("systemctl", []string{"is-enabled", "kdump"}, "enabled\n", 0)
+		b.PutCmd("systemctl", []string{"is-active", "kdump"}, "active\n", 0)
+		b.PutFile("/sys/kernel/kexec_crash_loaded", []byte("1\n"))
+		b.PutFile("/sys/kernel/kexec_crash_size", []byte("167772160\n"))
+		b.PutFile("/proc/cmdline", []byte("BOOT_IMAGE=/vmlinuz root=/dev/sda1 crashkernel=256M\n"))
+	})
+	c := NewKdumpCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KdumpInfo)
+	if !info.Available || !info.Enabled || !info.ServiceActive || !info.CrashLoaded {
+		t.Errorf("expected a fully-active kdump, got %+v", info)
+	}
+	if info.ReservedBytes != 167772160 || info.Crashkernel != "256M" {
+		t.Errorf("expected ReservedBytes/Crashkernel populated, got %+v", info)
+	}
+}
+
+func TestKernelPatchCollector_Collect_RPMRebootNeeded(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"rpm": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.14.0-427.el9.x86_64\n"))
+		b.PutCmd("rpm", []string{"-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel"},
+			"kernel-core-5.14.0-503.el9.x86_64                            Mon 01 Jun 2026\n"+
+				"kernel-core-5.14.0-427.el9.x86_64                            Mon 01 Jan 2026\n", 0)
+	})
+	c := NewKernelPatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelPatchInfo)
+	if !info.Available || !info.RebootNeeded {
+		t.Errorf("expected a newer installed kernel than running to flag RebootNeeded, got %+v", info)
+	}
+	if info.LatestInstalled != "5.14.0-503.el9.x86_64" {
+		t.Errorf("expected LatestInstalled=5.14.0-503.el9.x86_64, got %q", info.LatestInstalled)
+	}
+}
+
+func TestKernelPatchCollector_Collect_Debian(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("6.1.0-13-amd64\n"))
+		b.PutStat("/run/reboot-required", source.FileMeta{})
+	})
+	c := NewKernelPatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelPatchInfo)
+	if !info.Available || !info.RebootNeeded {
+		t.Errorf("expected the Debian reboot-required signal to flag RebootNeeded, got %+v", info)
+	}
+}
+
+func TestKspliceCollector_Collect_Patched(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"uptrack-uname": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.4.17-2136.el8uek.x86_64\n"))
+		b.PutCmd("uptrack-uname", []string{"-r"}, "5.4.17-2136.301.6.el8uek.x86_64\n", 0)
+		b.PutCmd("uptrack-upgrade", []string{"-n"}, "Nothing to be done.\n", 0)
+	})
+	c := NewKspliceCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KspliceInfo)
+	if !info.Available || !info.Patched || info.PendingUpdates != 0 {
+		t.Errorf("expected a patched, up-to-date host, got %+v", info)
+	}
+}
+
+func TestKspliceCollector_Collect_PendingUpdates(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"uptrack-uname": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.4.17-2136.el8uek.x86_64\n"))
+		b.PutCmd("uptrack-uname", []string{"-r"}, "5.4.17-2136.el8uek.x86_64\n", 0)
+		b.PutCmd("uptrack-upgrade", []string{"-n"}, "Installing patch-1\nInstalling patch-2\n", 0)
+	})
+	c := NewKspliceCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KspliceInfo)
+	if info.Patched {
+		t.Error("expected Patched=false when effective kernel equals running kernel")
+	}
+	if info.PendingUpdates != 2 {
+		t.Errorf("expected 2 pending updates, got %d", info.PendingUpdates)
+	}
+}
+
+// ── Service restart ──────────────────────────────────────────────────────────
+
+func TestServiceRestartAvailable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {})
+	if !ServiceRestartAvailable() {
+		t.Error("expected ServiceRestartAvailable=true when dpkg is present")
+	}
+}
+
+func TestServiceRestartCollector_Collect_StaleFound(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps"})
+		b.PutFile("/proc/123/maps", []byte(
+			"7f0000000000-7f0000010000 r-xp 00000000 08:01 123 /lib/x86_64-linux-gnu/libssl.so.3 (deleted)\n"))
+		b.PutFile("/proc/123/comm", []byte("nginx\n"))
+	})
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.ServiceRestartInfo)
+	if !info.Available || info.StaleCount != 1 || len(info.StaleNames) != 1 || info.StaleNames[0] != "nginx" {
+		t.Errorf("expected 1 stale process (nginx) flagged, got %+v", info)
+	}
+	if c.Name() != "ServiceRestart" || c.Timeout() <= 0 {
+		t.Errorf("unexpected Name/Timeout: %q/%v", c.Name(), c.Timeout())
+	}
+}
+
+func TestServiceRestartCollector_Collect_Clean(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps"})
+		b.PutFile("/proc/123/maps", []byte("7f0000000000-7f0000010000 r-xp 00000000 08:01 123 /lib/libssl.so.3\n"))
+	})
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.ServiceRestartInfo).StaleCount != 0 {
+		t.Error("expected no stale processes when no library shows (deleted)")
+	}
+}
+
+func TestServiceRestartCollector_Collect_NotAvailable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.ServiceRestartInfo).Available {
+		t.Error("expected Available=false when neither rpm nor dpkg is present")
+	}
+}
+
+// ── Kernel retention ─────────────────────────────────────────────────────────
+
+// fakeLookPathStatfsSource combines lookPath resolution (as fakeLookPathSource
+// does) with a Statfs override for one path — needed because a single
+// collector call (KernelRetention) both gates on a package manager AND reads
+// /boot's disk usage, and the Bundle API has no public seam for Statfs.
+type fakeLookPathStatfsSource struct {
+	*source.Replay
+	found        map[string]bool
+	statfsPath   string
+	statfsResult source.StatfsInfo
+}
+
+func (f fakeLookPathStatfsSource) Cached(key string, _ func() ([]byte, error)) ([]byte, error) {
+	name := strings.TrimPrefix(key, "lookpath/")
+	if f.found[name] {
+		return []byte("/usr/bin/" + name), nil
+	}
+	return nil, errNotFoundCVE
+}
+
+func (f fakeLookPathStatfsSource) Statfs(path string) (source.StatfsInfo, error) {
+	if path == f.statfsPath {
+		return f.statfsResult, nil
+	}
+	return f.Replay.Statfs(path)
+}
+
+func TestKernelRetentionAvailable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {})
+	if !KernelRetentionAvailable() {
+		t.Error("expected KernelRetentionAvailable=true when dpkg is present")
+	}
+}
+
+func TestKernelRetentionCollector_Collect_ZypperUnbounded(t *testing.T) {
+	b := source.NewBundle()
+	b.PutGlob("/boot/vmlinuz-*", []string{"/boot/vmlinuz-5.14.0-1", "/boot/vmlinuz-5.14.0-2"})
+	b.PutFile("/etc/zypp/zypp.conf", []byte("multiversion.kernels = latest,all\n"))
+	prev := SetSource(fakeLookPathStatfsSource{
+		Replay:       source.NewReplay(b),
+		found:        map[string]bool{"zypper": true, "rpm": true}, // KernelRetentionAvailable gates on rpm/dpkg
+		statfsPath:   "/boot",
+		statfsResult: source.StatfsInfo{Bsize: 4096, Blocks: 250000, Bavail: 12500}, // 95% used
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewKernelRetentionCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelRetentionInfo)
+	if !info.Available || info.PackageManager != "zypper" || !info.Unbounded {
+		t.Errorf("expected zypper+unbounded retention, got %+v", info)
+	}
+	if info.InstalledKernels != 2 {
+		t.Errorf("expected 2 installed kernel images, got %d", info.InstalledKernels)
+	}
+	if info.BootTotalGB <= 0 || info.BootUsedPct < 90 {
+		t.Errorf("expected /boot usage populated from statfs, got %+v", info)
+	}
+	if c.Name() != "KernelRetention" || c.Timeout() <= 0 {
+		t.Errorf("unexpected Name/Timeout: %q/%v", c.Name(), c.Timeout())
+	}
+}
+
+func TestKernelRetentionCollector_Collect_DNFBounded(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dnf": true, "rpm": true}, func(b *source.Bundle) {
+		b.PutGlob("/boot/vmlinuz-*", []string{"/boot/vmlinuz-5.14.0-1"})
+		b.PutFile("/etc/dnf/dnf.conf", []byte("installonly_limit=3\n"))
+	})
+	c := NewKernelRetentionCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelRetentionInfo)
+	if info.PackageManager != "dnf" || info.Unbounded {
+		t.Errorf("expected dnf+bounded retention, got %+v", info)
+	}
+}
+
+func TestKernelRetentionCollector_Collect_ContainerGated(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/boot/vmlinuz-*", []string{"/boot/vmlinuz-5.14.0-1"})
+	})
+	c := NewKernelRetentionCollector(platform.ContainerContext{InContainer: true})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.KernelRetentionInfo).Available {
+		t.Error("expected KernelRetention gated off inside a container")
+	}
+}
+
+// ── Live patching ────────────────────────────────────────────────────────────
+
+func TestLivePatchAvailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/kernel/livepatch/*", []string{"/sys/kernel/livepatch/kpatch_1"})
+	})
+	if !LivePatchAvailable() {
+		t.Error("expected LivePatchAvailable=true when a patch dir exists")
+	}
+}
+
+func TestLivePatchCollector_Collect_MixedStates(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"kpatch": true}, func(b *source.Bundle) {
+		b.PutGlob("/sys/kernel/livepatch/*", []string{
+			"/sys/kernel/livepatch/patch_enabled",
+			"/sys/kernel/livepatch/patch_disabled",
+			"/sys/kernel/livepatch/patch_transitioning",
+		})
+		b.PutFile("/sys/kernel/livepatch/patch_enabled/enabled", []byte("1\n"))
+		b.PutFile("/sys/kernel/livepatch/patch_disabled/enabled", []byte("0\n"))
+		b.PutFile("/sys/kernel/livepatch/patch_transitioning/enabled", []byte("1\n"))
+		b.PutFile("/sys/kernel/livepatch/patch_transitioning/transition", []byte("1\n"))
+	})
+	c := NewLivePatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.LivePatchInfo)
+	if info.PatchesLoaded != 3 || info.PatchesEnabled != 2 {
+		t.Errorf("expected 3 loaded / 2 enabled, got %+v", info)
+	}
+	if len(info.DisabledPatches) != 1 || info.DisabledPatches[0] != "patch_disabled" {
+		t.Errorf("expected patch_disabled flagged as disabled, got %+v", info.DisabledPatches)
+	}
+	if len(info.TransitioningPatches) != 1 || info.TransitioningPatches[0] != "patch_transitioning" {
+		t.Errorf("expected patch_transitioning flagged, got %+v", info.TransitioningPatches)
+	}
+	if info.Tool != "kpatch" {
+		t.Errorf("expected Tool=kpatch, got %q", info.Tool)
+	}
+	if c.Name() != "LivePatch" || c.Timeout() <= 0 {
+		t.Errorf("unexpected Name/Timeout: %q/%v", c.Name(), c.Timeout())
+	}
+}
+
+func TestLivePatchCollector_Collect_Unverified(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/kernel/livepatch/*", []string{"/sys/kernel/livepatch/patch_locked"})
+		// No file seeded for .../enabled -> ErrNotRecorded, treated as unreadable.
+	})
+	c := NewLivePatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.LivePatchInfo)
+	if len(info.UnverifiedPatches) != 1 || info.UnverifiedPatches[0] != "patch_locked" {
+		t.Errorf("expected patch_locked flagged as unverified (not disabled), got %+v", info)
+	}
+}
+
+func TestLivePatchCollector_Collect_ContainerGated(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/kernel/livepatch/*", []string{"/sys/kernel/livepatch/patch_1"})
+	})
+	c := NewLivePatchCollector(platform.ContainerContext{InContainer: true})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.LivePatchInfo).Available {
+		t.Error("expected LivePatch gated off inside a container")
+	}
+}
+
+// ── Transactional (MicroOS / SLE Micro) ──────────────────────────────────────
+
+func TestIsTransactionalHost(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/transactional-update", source.FileMeta{})
+	})
+	if !isTransactionalHost() {
+		t.Error("expected isTransactionalHost=true when transactional-update exists")
+	}
+}
+
+func TestTransactionalCollector_Collect_RebootPending(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/transactional-update", source.FileMeta{})
+		b.PutCmd("findmnt", []string{"-no", "FSROOT", "/"}, "/@/.snapshots/2/snapshot\n", 0)
+		b.PutCmd("btrfs", []string{"subvolume", "get-default", "/"}, "ID 269 gen 45 top level 258 path @/.snapshots/3/snapshot\n", 0)
+	})
+	c := NewTransactionalCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.TransactionalInfo)
+	if !info.Available || !info.RebootPending || info.BootedSnapshot != 2 || info.DefaultSnapshot != 3 {
+		t.Errorf("expected RebootPending with booted=2 default=3, got %+v", info)
+	}
+	if c.Name() != "Transactional" || c.Timeout() <= 0 {
+		t.Errorf("unexpected Name/Timeout: %q/%v", c.Name(), c.Timeout())
+	}
+}
+
+func TestTransactionalCollector_Collect_NoRebootPending(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/transactional-update", source.FileMeta{})
+		b.PutCmd("findmnt", []string{"-no", "FSROOT", "/"}, "/@/.snapshots/5/snapshot\n", 0)
+		b.PutCmd("btrfs", []string{"subvolume", "get-default", "/"}, "ID 269 gen 45 top level 258 path @/.snapshots/5/snapshot\n", 0)
+	})
+	c := NewTransactionalCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.TransactionalInfo).RebootPending {
+		t.Error("expected RebootPending=false when booted and default snapshots match")
+	}
+}
+
+func TestTransactionalCollector_Collect_NotAvailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	c := NewTransactionalCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.TransactionalInfo).Available {
+		t.Error("expected Available=false when transactional-update isn't present")
 	}
 }

@@ -11,7 +11,7 @@ import (
 // be misclassified as a permission gap — that would spuriously tell the user
 // to "run as root" when the real cause is just PID churn.
 func TestReadProcIONonexistentPidIsNotPermissionError(t *testing.T) {
-	_, _, err := readProcIO(999999999)
+	_, _, err := readProcIO("/proc", 999999999)
 	if err == nil {
 		t.Skip("no unassigned-looking PID could be probed in this environment")
 	}

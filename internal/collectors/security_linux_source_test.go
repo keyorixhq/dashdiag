@@ -27,6 +27,58 @@ func withFixtureSource(t *testing.T, seed func(b *source.Bundle)) {
 	t.Cleanup(func() { SetSource(prev) })
 }
 
+// fakeCombinedSource layers a Cached-key override (Bundle has no public
+// Cached-seeding API — lookpath/<tool>, imds/<url>, dial/<network>/<addr>,
+// env/<var>, platform/container-context, ... all route through Cached) and a
+// Readlink override (Bundle has no public Readlink-seeding API either) on top
+// of a Bundle-backed Replay, so ONE active source can serve every fixture
+// dimension a test needs at once.
+//
+// GUARD — use this instead of chaining two separate with*Fixture calls.
+// SetSource fully REPLACES the active source; it does not merge with whatever
+// the previous call configured. Calling e.g. seedDialOutcome(t, ...) and then
+// withFixtureSource(t, ...) silently throws away the dial-outcome seed, because
+// the second SetSource overwrites the first — the function under test then
+// sees only the second fixture's data. This bit the containerd_linux.go round
+// (2026-07-08): a Collect() test needed BOTH a dial/unix/<socket> outcome AND
+// PutCmd-seeded systemctl/ctr output in the SAME call, and two independent
+// SetSource calls meant only the last one survived. Whenever a test needs more
+// than one fixture dimension for a single function-under-test call, seed them
+// ALL into one withCombinedFixture call rather than stacking separate
+// with*Fixture helpers.
+type fakeCombinedSource struct {
+	*source.Replay
+	cached map[string][]byte
+	links  map[string]string
+}
+
+func (f *fakeCombinedSource) Cached(key string, _ func() ([]byte, error)) ([]byte, error) {
+	if v, ok := f.cached[key]; ok {
+		return v, nil
+	}
+	return nil, errNotFoundCVE
+}
+
+func (f *fakeCombinedSource) Readlink(path string) (string, error) {
+	if target, ok := f.links[path]; ok {
+		return target, nil
+	}
+	return f.Replay.Readlink(path)
+}
+
+// withCombinedFixture seeds a Bundle (PutFile/PutDir/PutCmd/PutStat/PutGlob), a
+// Cached-key map, and a Readlink map into ONE active source for the test's
+// duration. Pass nil for cached/links when a dimension isn't needed.
+func withCombinedFixture(t *testing.T, cached map[string][]byte, links map[string]string, seed func(b *source.Bundle)) {
+	t.Helper()
+	b := source.NewBundle()
+	if seed != nil {
+		seed(b)
+	}
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: cached, links: links})
+	t.Cleanup(func() { SetSource(prev) })
+}
+
 func TestIsOffensiveDistro(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/os-release", []byte(`ID=kali`+"\n"+`ID_LIKE=debian`+"\n"))
