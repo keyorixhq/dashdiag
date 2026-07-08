@@ -163,10 +163,11 @@ func parseUnitFromMessage(msg string) string {
 	return ""
 }
 
-// walkProcs calls fn(pid) for every process in /proc, using a worker pool.
-// Permission errors are silently skipped.
-func walkProcs(ctx context.Context, fn func(pid int) error) error {
-	entries, err := os.ReadDir("/proc")
+// walkProcs calls fn(pid) for every process under procRoot, using a worker
+// pool. Permission errors are silently skipped. procRoot is normally "/proc";
+// tests pass a testdata fixture directory instead.
+func walkProcs(ctx context.Context, procRoot string, fn func(pid int) error) error {
+	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return err
 	}
@@ -197,9 +198,9 @@ func walkProcs(ctx context.Context, fn func(pid int) error) error {
 	return g.Wait()
 }
 
-// procComm reads /proc/PID/comm for a process name.
-func procComm(pid int) string {
-	b, err := os.ReadFile(filepath.Join("/proc", fmt.Sprintf("%d", pid), "comm"))
+// procComm reads procRoot/PID/comm for a process name.
+func procComm(procRoot string, pid int) string {
+	b, err := os.ReadFile(filepath.Join(procRoot, fmt.Sprintf("%d", pid), "comm"))
 	if err != nil {
 		return "?"
 	}
@@ -209,7 +210,15 @@ func procComm(pid int) string {
 // runCmd runs a command with context and returns its combined stdout.
 // LC_ALL=C and LANG=C are always set so numeric output uses dot as the
 // decimal separator regardless of the user's locale.
-func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+//
+// It is a package-level var, not a plain func, so tests can swap in a fake
+// implementation for the tools they don't want to depend on being installed
+// (getenforce, aa-status, chronyc, ...) — see swapRunCmd in drilldown_test.go.
+// Tests that swap it must NOT call t.Parallel(): the swap is only race-free
+// because Go's test runner finishes all serial tests before starting the
+// parallel batch (same constraint as the t.Setenv("HOME") tests elsewhere in
+// this codebase).
+var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	var out bytes.Buffer
@@ -219,6 +228,10 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	}
 	return out.String(), nil
 }
+
+// lookPath is exec.LookPath as a package var for the same test-swap reason as
+// runCmd above.
+var lookPath = exec.LookPath
 
 // zombiesFromResults builds a Details table from already-captured
 // ZombieProcs in the Processes collector result.
@@ -235,7 +248,7 @@ func zombiesFromResults(results []runner.Result) *models.Details {
 		for _, p := range info.ZombieProcs {
 			parentName := p.ParentName
 			if parentName == "" {
-				parentName = procComm(p.PPID) // Linux fallback via /proc
+				parentName = procComm("/proc", p.PPID) // Linux fallback via /proc
 			}
 			// Use only the base name — full paths break table formatting
 			if idx := strings.LastIndexByte(parentName, '/'); idx >= 0 {

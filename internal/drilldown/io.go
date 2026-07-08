@@ -35,8 +35,8 @@ type procIOSample struct {
 	writeBytes uint64
 }
 
-func readProcIO(pid int) (readBytes, writeBytes uint64, err error) {
-	path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "io")
+func readProcIO(procRoot string, pid int) (readBytes, writeBytes uint64, err error) {
+	path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "io")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, 0, err
@@ -58,13 +58,13 @@ func readProcIO(pid int) (readBytes, writeBytes uint64, err error) {
 	return readBytes, writeBytes, nil
 }
 
-func sampleAllProcIO(ctx context.Context) (map[int]procIOSample, bool) {
+func sampleAllProcIO(ctx context.Context, procRoot string) (map[int]procIOSample, bool) {
 	var mu sync.Mutex
 	result := make(map[int]procIOSample)
 	partial := false
 
-	_ = walkProcs(ctx, func(pid int) error {
-		r, w, err := readProcIO(pid)
+	_ = walkProcs(ctx, procRoot, func(pid int) error {
+		r, w, err := readProcIO(procRoot, pid)
 		if err != nil {
 			if os.IsPermission(err) {
 				mu.Lock()
@@ -73,7 +73,7 @@ func sampleAllProcIO(ctx context.Context) (map[int]procIOSample, bool) {
 			}
 			return nil
 		}
-		name := procComm(pid)
+		name := procComm(procRoot, pid)
 		mu.Lock()
 		result[pid] = procIOSample{pid: pid, name: name, readBytes: r, writeBytes: w}
 		mu.Unlock()
@@ -83,13 +83,17 @@ func sampleAllProcIO(ctx context.Context) (map[int]procIOSample, bool) {
 }
 
 func topProcessesByIOLinux(ctx context.Context, n int) (*models.Details, error) {
-	s0, partial0 := sampleAllProcIO(ctx)
+	return topProcessesByIOLinuxAt(ctx, n, "/proc")
+}
+
+func topProcessesByIOLinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
+	s0, partial0 := sampleAllProcIO(ctx, procRoot)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(500 * time.Millisecond):
 	}
-	s1, partial1 := sampleAllProcIO(ctx)
+	s1, partial1 := sampleAllProcIO(ctx, procRoot)
 	partial := partial0 || partial1
 
 	type ioEntry struct {

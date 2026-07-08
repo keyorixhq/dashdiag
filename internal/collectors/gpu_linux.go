@@ -596,10 +596,12 @@ func detectNvidiaWithoutSMI() []models.GPUDetected {
 // amdGPUName returns a human-readable name for an AMD GPU.
 // Tries hwmon name first, falls back to uevent MODEL, then device ID.
 func amdGPUName(devPath string) string {
-	// hwmon name (e.g. "amdgpu")
-	name := readSysfsFirstGlob(devPath + "/hwmon/hwmon*/name")
+	// hwmon name (e.g. "amdgpu") — sysfs attribute reads always carry a trailing
+	// newline, so trim before comparing against the generic driver name or the
+	// PCI-ID fallback below is unreachable for every real card.
+	name := strings.TrimSpace(readSysfsFirstGlob(devPath + "/hwmon/hwmon*/name"))
 	if name != "" && name != "amdgpu" {
-		return strings.TrimSpace(name)
+		return name
 	}
 	// uevent — may contain MODEL or PCI_ID
 	uevent := readSysfsStr(devPath + "/uevent")

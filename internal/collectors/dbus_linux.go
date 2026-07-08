@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
-	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // DBusCollector checks whether the D-Bus system message bus is active.
@@ -26,8 +25,9 @@ func (c *DBusCollector) Collect(ctx context.Context) (interface{}, error) {
 	// D-Bus health here is the state of the *systemd* dbus.service unit. On a
 	// non-systemd host (Alpine/OpenRC, minimal containers) `systemctl` is absent,
 	// so the check can't run — gate off rather than report a phantom "D-Bus failed"
-	// CRIT. (Mirrors the systemd collector's gate.)
-	if !platform.SystemdAvailable() {
+	// CRIT. systemdPresentViaSource (not platform.SystemdAvailable) so the gate is
+	// recorded/replayed rather than probing the replaying machine — see its comment.
+	if !systemdPresentViaSource() {
 		return nil, nil
 	}
 

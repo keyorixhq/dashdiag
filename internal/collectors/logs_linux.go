@@ -475,7 +475,9 @@ func checkJournalHealth(_ context.Context, info *models.LogsInfo, profile platfo
 	// All checks below concern systemd-journald. On a non-systemd host
 	// (Alpine/OpenRC, minimal containers) journald isn't running, so flagging it as
 	// "volatile" or lacking a text fallback is a phantom warning — skip the section.
-	if !platform.SystemdAvailable() {
+	// systemdPresentViaSource (not platform.SystemdAvailable) so the gate is
+	// recorded/replayed rather than probing the replaying machine — see its comment.
+	if !systemdPresentViaSource() {
 		return
 	}
 

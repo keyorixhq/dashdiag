@@ -22,6 +22,10 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 			Note:  "Uninterruptible process listing not available on macOS.",
 		}, nil
 	}
+	return hungProcessesLinuxAt(ctx, "/proc")
+}
+
+func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	type hungInfo struct {
 		pid  int
@@ -30,8 +34,8 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 	}
 	var hung []hungInfo
 
-	err := walkProcs(ctx, func(pid int) error {
-		path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "stat")
+	err := walkProcs(ctx, procRoot, func(pid int) error {
+		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
@@ -55,7 +59,7 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 
 	rows := make([][]string, 0, len(hung))
 	for _, h := range hung {
-		parentCmd := procComm(h.ppid)
+		parentCmd := procComm(procRoot, h.ppid)
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", h.pid),
 			h.name,
@@ -96,11 +100,15 @@ type zombieInfo struct {
 }
 
 func zombiesWithParentLinux(ctx context.Context) (*models.Details, error) {
+	return zombiesWithParentLinuxAt(ctx, "/proc")
+}
+
+func zombiesWithParentLinuxAt(ctx context.Context, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	var zombies []zombieInfo
 
-	err := walkProcs(ctx, func(pid int) error {
-		path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "stat")
+	err := walkProcs(ctx, procRoot, func(pid int) error {
+		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
@@ -114,7 +122,7 @@ func zombiesWithParentLinux(ctx context.Context) (*models.Details, error) {
 		}
 		ppid, _ := strconv.Atoi(rest[1]) // stat field 4
 
-		parentComm := procComm(ppid)
+		parentComm := procComm(procRoot, ppid)
 		mu.Lock()
 		zombies = append(zombies, zombieInfo{
 			pid: pid, name: name, ppid: ppid, parentCmd: parentComm,

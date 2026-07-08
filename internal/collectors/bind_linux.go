@@ -98,13 +98,17 @@ func bindConfigPath() string {
 	return ""
 }
 
-// bindCheckConfig runs named-checkconf and records any errors.
+// bindCheckConfig runs named-checkconf and records any errors. Uses
+// runCmdCombined (not runCmd) because runCmd discards stdout entirely on a
+// non-zero exit — named-checkconf's actual diagnostic ("unknown option 'foo'",
+// a missing semicolon, ...) would otherwise never reach ConfigError, leaving
+// only the generic "named-checkconf exited 1" with no actionable detail.
 func bindCheckConfig(ctx context.Context, info *models.BINDInfo) {
 	if info.ConfigFile == "" {
 		info.ConfigError = "named.conf not found"
 		return
 	}
-	out, err := runCmd(ctx, "named-checkconf", info.ConfigFile)
+	out, err := runCmdCombined(ctx, "named-checkconf", info.ConfigFile)
 	if err == nil && strings.TrimSpace(out) == "" {
 		info.ConfigOK = true
 	} else {
@@ -329,7 +333,10 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 	return zones
 }
 
-// bindCheckZones runs named-checkzone for each zone file.
+// bindCheckZones runs named-checkzone for each zone file. Uses runCmdCombined
+// (not runCmd) for the same reason as bindCheckConfig: runCmd discards stdout
+// entirely on a non-zero exit, which would silently drop named-checkzone's
+// actual diagnostic (bindExtractZoneError would always see "").
 func bindCheckZones(ctx context.Context, info *models.BINDInfo, zones []namedZone) {
 	for _, z := range zones {
 		bz := models.BINDZone{Name: z.name, File: z.file}
@@ -337,7 +344,7 @@ func bindCheckZones(ctx context.Context, info *models.BINDInfo, zones []namedZon
 			continue
 		}
 		zoneCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := runCmd(zoneCtx, "named-checkzone", z.name, z.file)
+		out, err := runCmdCombined(zoneCtx, "named-checkzone", z.name, z.file)
 		cancel()
 		if err == nil && strings.Contains(out, "OK") {
 			bz.OK = true

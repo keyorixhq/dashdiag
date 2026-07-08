@@ -341,7 +341,12 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 			}
 		}
 		audit := backupAudit(guests, dumpByVM)
-		verifiedFromDisk := ageDays >= 0 || len(audit) > 0
+		// backupAudit always emits one status per non-template guest (LastBackupDays=-1
+		// when nothing found), so len(audit)>0 is true whenever guests exist — NOT a
+		// signal that the disk fallback found anything. Verified must reflect actual
+		// disk evidence (dumpByVM non-empty), not guest count, or a host with zero
+		// vzdump archives reads as "verified: no backup issues" (FALSE_OK_SWEEP #8).
+		verifiedFromDisk := ageDays >= 0 || len(dumpByVM) > 0
 		return nil, ageDays, audit, verifiedFromDisk
 	}
 

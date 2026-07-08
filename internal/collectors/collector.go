@@ -145,7 +145,7 @@ func runCmdOutput(ctx context.Context, name string, args ...string) (string, err
 // is captured and replayed rather than re-run live. Like runCmdOutput, it returns
 // the output even on a non-zero exit.
 //
-//nolint:unused // generic Source helper; currently only linux collectors (dns_resolver) use it
+//nolint:unused // generic Source helper; used by linux collectors (dns_resolver, bind) that need stderr diagnostics
 func runCmdCombined(ctx context.Context, name string, args ...string) (string, error) {
 	res, err := activeSource.Run(ctx, name, args...)
 	combined := string(res.Stdout) + string(res.Stderr)
