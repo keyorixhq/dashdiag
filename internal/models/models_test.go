@@ -2,7 +2,9 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 )
 
 func roundTrip(t *testing.T, in, out interface{}) {
@@ -337,5 +339,30 @@ func TestHealthDeepInfoCgroupUnits(t *testing.T) {
 	}
 	if !out.Cgroup.Units[1].IsContainer || out.Cgroup.Units[1].ParentSlice != "docker" {
 		t.Errorf("Units[1] = %+v", out.Cgroup.Units[1])
+	}
+}
+
+// TestOOMEventZeroTimestampOmitted guards against a real encoding/json trap:
+// omitempty is a no-op on struct-typed fields (time.Time included), so a
+// zero-value Timestamp — which parseOOMTimestamp legitimately returns when a
+// kernel log line's timestamp can't be parsed — used to serialize as the
+// misleading "0001-01-01T00:00:00Z" instead of being omitted. omitzero (Go
+// 1.24+) calls time.Time.IsZero() and fixes this.
+func TestOOMEventZeroTimestampOmitted(t *testing.T) {
+	b, err := json.Marshal(OOMEvent{Process: "nginx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); strings.Contains(got, "timestamp") {
+		t.Errorf("zero Timestamp should be omitted from JSON, got: %s", got)
+	}
+}
+
+func TestOOMEventNonZeroTimestampRoundTrips(t *testing.T) {
+	in := OOMEvent{Process: "java", Timestamp: time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)}
+	var out OOMEvent
+	roundTrip(t, &in, &out)
+	if !out.Timestamp.Equal(in.Timestamp) {
+		t.Errorf("Timestamp round-trip mismatch: got %v, want %v", out.Timestamp, in.Timestamp)
 	}
 }
