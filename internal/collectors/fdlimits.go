@@ -69,6 +69,9 @@ func parseSoftLimit(r io.Reader) int {
 		}
 		return v
 	}
+	if err := scanner.Err(); err != nil {
+		return -1 // matches the "not found" sentinel used elsewhere in this function
+	}
 	return -1
 }
 

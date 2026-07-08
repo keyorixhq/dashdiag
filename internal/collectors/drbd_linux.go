@@ -187,6 +187,12 @@ func parseDRBDProc(r io.Reader) *models.DRBDInfo {
 	if current != nil {
 		info.Resources = append(info.Resources, *current)
 	}
+	if err := scanner.Err(); err != nil {
+		// Partial/failed read of /proc/drbd — the parsed state is incomplete,
+		// not a clean "no resources". Mark unverified so the caller reports
+		// "could not be read" instead of silently gating off as absent.
+		info.Unverified = true
+	}
 	return info
 }
 

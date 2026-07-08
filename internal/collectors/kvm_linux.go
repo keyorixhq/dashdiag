@@ -269,6 +269,9 @@ func kvmReadLastLogError(vm *models.KVMVM) {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return
+	}
 	if lastError != "" {
 		vm.LastLogError = truncateRunes(lastError, 120)
 	}

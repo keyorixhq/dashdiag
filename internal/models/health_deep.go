@@ -48,6 +48,24 @@ type CgroupSlice struct {
 	HasMemLimit  bool    `json:"has_mem_limit"`  // memory.max ≠ "max"
 }
 
+// CgroupUnit is an individual systemd service unit or container cgroup, one
+// level below the top-level slices in CgroupV2Info.Slices. Only units that
+// cross the "significant usage" bar (>5% CPU or >500MB RAM) are included —
+// the cap is decided in the collector, same convention as TopProcs/
+// TopCPUProcs/TopIOProcs, to bound /sys/fs/cgroup walk cost and output size.
+type CgroupUnit struct {
+	Name         string  `json:"name"`         // "postgresql.service" or "container:<id12>"
+	ParentSlice  string  `json:"parent_slice"` // "system.slice", "machine.slice", "docker"
+	IsContainer  bool    `json:"is_container"`
+	CPUPct       float64 `json:"cpu_pct"`       // instantaneous, 500ms delta-sampled
+	ThrottledPct float64 `json:"throttled_pct"` // lifetime ratio, same as CgroupSlice
+	MemCurrentMB float64 `json:"mem_current_mb"`
+	MemLimitMB   float64 `json:"mem_limit_mb"` // -1 = unlimited
+	MemUsedPct   float64 `json:"mem_used_pct"` // 0 when unlimited
+	HasCPULimit  bool    `json:"has_cpu_limit"`
+	HasMemLimit  bool    `json:"has_mem_limit"`
+}
+
 // CgroupV2Info is the cgroup v2 summary added to HealthDeepInfo.
 type CgroupV2Info struct {
 	Available       bool          `json:"available"`
@@ -55,6 +73,7 @@ type CgroupV2Info struct {
 	Slices          []CgroupSlice `json:"slices,omitempty"`
 	ThrottledSlices []string      `json:"throttled_slices,omitempty"` // slices with >5% throttle
 	OOMKills        int           `json:"oom_kills"`                  // recent OOM kills from memory.events
+	Units           []CgroupUnit  `json:"units,omitempty"`            // per-service/per-container drill-down
 }
 
 // HealthDeepInfo holds extended system health data collected by HealthDeepCollector.

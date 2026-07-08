@@ -40,7 +40,9 @@ func (c *DNSResolverCollector) Collect(ctx context.Context) (interface{}, error)
 			parseResolvectlStatus(status, info)
 		}
 		if f, err := openFile("/etc/systemd/resolved.conf"); err == nil {
-			info.DNSSECConfigured = parseResolvedConfDNSSEC(f)
+			if dnssec, scanErr := parseResolvedConfDNSSEC(f); scanErr == nil {
+				info.DNSSECConfigured = dnssec
+			}
 			f.Close() //nolint:errcheck
 		}
 		if info.DNSSECConfigured == "" {
@@ -201,7 +203,7 @@ func parseProtocols(line string) (dnssec, dot string) {
 
 // parseResolvedConfDNSSEC reads the last uncommented DNSSEC= line from
 // resolved.conf. Returns "" if unset so the caller can apply the default.
-func parseResolvedConfDNSSEC(r io.Reader) string {
+func parseResolvedConfDNSSEC(r io.Reader) (string, error) {
 	val := ""
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -213,7 +215,10 @@ func parseResolvedConfDNSSEC(r io.Reader) string {
 			val = strings.TrimSpace(strings.TrimPrefix(line, "DNSSEC="))
 		}
 	}
-	return val
+	if err := sc.Err(); err != nil {
+		return val, fmt.Errorf("scanning resolved.conf: %w", err)
+	}
+	return val, nil
 }
 
 // computeDNSSECDegrade flags the case where DNSSEC is configured "yes" but the

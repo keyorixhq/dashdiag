@@ -349,6 +349,7 @@ func printHealthMainOutput(renderer *render.Renderer, mode output.OutputMode, re
 		if deepFlag {
 			printTopProcsWithCgroup(results, mode)
 			printTopCPUProcsWithCgroup(results, mode)
+			printCgroupUnits(results, mode)
 		}
 	}
 }
@@ -934,6 +935,34 @@ func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			}
 			fmt.Printf("  %-6d  %5.1f%%  %-20s  %s\n",
 				p.PID, p.CPUPct, truncateStr(p.Name, 20), scope)
+		}
+		return
+	}
+}
+
+// printCgroupUnits shows the per-service/per-container cgroup drill-down
+// (systemd units and Docker/Podman containers crossing the "significant
+// usage" bar) in dsd health deep output, mirroring the two process-list
+// print functions above.
+func printCgroupUnits(results []runner.Result, _ output.OutputMode) {
+	for _, r := range results {
+		deep, ok := r.Data.(*models.HealthDeepInfo)
+		if !ok || deep == nil || deep.Cgroup == nil || len(deep.Cgroup.Units) == 0 {
+			continue
+		}
+		fmt.Printf("\n[Cgroups — per-unit resource summary]\n")
+		fmt.Printf("  %-28s  %-6s  %-14s  %s\n", "NAME", "CPU%", "MEM", "SCOPE")
+		for _, u := range deep.Cgroup.Units {
+			mem := fmt.Sprintf("%.0fMB", u.MemCurrentMB)
+			if u.HasMemLimit {
+				mem = fmt.Sprintf("%.0f/%.0fMB", u.MemCurrentMB, u.MemLimitMB)
+			}
+			scope := u.ParentSlice
+			if u.IsContainer {
+				scope = "container"
+			}
+			fmt.Printf("  %-28s  %5.1f%%  %-14s  %s\n",
+				truncateStr(u.Name, 28), u.CPUPct, mem, scope)
 		}
 		return
 	}

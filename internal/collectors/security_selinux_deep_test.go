@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -81,7 +82,7 @@ func TestParseSELinuxUnlabeledPorts(t *testing.T) {
 		{Port: 22, Protocol: "tcp", Process: "sshd"},
 		{Port: 8080, Protocol: "tcp", Process: "nginx"}, // not in the semanage list — unlabeled
 	}
-	unlabeled := parseSELinuxUnlabeledPorts(nil, listening) //nolint:staticcheck // ctx unused by runCmdTimeout
+	unlabeled := parseSELinuxUnlabeledPorts(context.Background(), listening)
 	if len(unlabeled) != 1 || unlabeled[0].Port != 8080 {
 		t.Fatalf("expected only port 8080 flagged unlabeled, got %+v", unlabeled)
 	}
@@ -91,7 +92,7 @@ func TestParseSELinuxUnlabeledPorts_SemanageUnavailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("semanage", []string{"port", "-l"})
 	})
-	got := parseSELinuxUnlabeledPorts(nil, []models.PortEntry{{Port: 8080, Protocol: "tcp"}}) //nolint:staticcheck
+	got := parseSELinuxUnlabeledPorts(context.Background(), []models.PortEntry{{Port: 8080, Protocol: "tcp"}})
 	if got != nil {
 		t.Errorf("semanage unavailable must report nil (unknown), not a false 'unlabeled', got %+v", got)
 	}
@@ -171,7 +172,7 @@ func TestParseSELinuxContextIssues_ChconDetected(t *testing.T) {
 	})
 
 	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t", Tcontext: "admin_home_t", Tclass: "file", Paths: []string{"/data/app/config.ini"}}}
-	issues := parseSELinuxContextIssues(nil, groups) //nolint:staticcheck
+	issues := parseSELinuxContextIssues(context.Background(), groups)
 	want := []models.SELinuxContextIssue{{
 		Path: "/data/app/config.ini", ActualContext: "unconfined_u:object_r:httpd_sys_content_t:s0", ExpectedContext: "system_u:object_r:admin_home_t:s0",
 	}}
@@ -193,7 +194,7 @@ func TestParseSELinuxContextIssues_CoveredBySemanage(t *testing.T) {
 	})
 
 	groups := []models.SELinuxAVCGroup{{Tclass: "file", Paths: []string{"/data/app/config.ini"}}}
-	issues := parseSELinuxContextIssues(nil, groups) //nolint:staticcheck
+	issues := parseSELinuxContextIssues(context.Background(), groups)
 	if issues != nil {
 		t.Errorf("a semanage-covered context difference must not be flagged, got %+v", issues)
 	}
@@ -216,7 +217,7 @@ func TestParseAVCGroups_PathExtraction(t *testing.T) {
 		b.PutFile("/var/log/audit/audit.log", []byte(absolute+"\n"+relative+"\n"+nonFile+"\n"))
 	})
 
-	groups := parseAVCGroups(nil, time.Hour) //nolint:staticcheck // ctx unused by this function
+	groups := parseAVCGroups(context.Background(), time.Hour)
 	if len(groups) != 2 {
 		t.Fatalf("expected 2 groups (httpd/file and init/bpf), got %d: %+v", len(groups), groups)
 	}

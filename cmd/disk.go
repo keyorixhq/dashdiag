@@ -65,7 +65,7 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, deep bool) {
+func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, _ bool) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
