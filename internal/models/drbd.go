@@ -15,8 +15,9 @@ type DRBDResource struct {
 type DRBDInfo struct {
 	Version   string         `json:"version,omitempty"`
 	Resources []DRBDResource `json:"resources,omitempty"`
-	// Unverified is true on a DRBD 9 host whose per-resource state could not be read
-	// (netlink `drbdsetup status` needs CAP_NET_ADMIN — i.e. unprivileged). The state
-	// is unknown, NOT healthy: the verdict must say "needs root", not silently omit it.
+	// Unverified is true when per-resource state could not be fully read — either a
+	// DRBD 9 host where netlink `drbdsetup status` needs CAP_NET_ADMIN (unprivileged),
+	// or a failed/partial /proc/drbd scan. The state is unknown, NOT healthy: the
+	// verdict must say "needs root"/"could not be read", not silently omit it.
 	Unverified bool `json:"unverified,omitempty"`
 }

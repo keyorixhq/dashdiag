@@ -6,7 +6,7 @@ import "time"
 type OOMEvent struct {
 	Process   string    `json:"process"`
 	PID       int       `json:"pid,omitempty"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
+	Timestamp time.Time `json:"timestamp,omitzero"`
 	Reason    string    `json:"reason,omitempty"` // raw kernel line summary
 }
 

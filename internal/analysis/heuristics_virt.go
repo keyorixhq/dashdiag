@@ -761,7 +761,43 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 			},
 		))
 	}
+	if k.UnknownStatus > 0 {
+		out = append(out, k8sUnknownStatusInsight(k))
+	}
 	return out
+}
+
+// k8sUnknownStatusInsight reports pods stuck in phase Unknown — the node they were
+// scheduled on is likely unreachable (network partition or crash). StatefulSet-owned
+// pods are called out specially: the controller will not create a replacement until
+// the stuck pod is deleted, unlike a Deployment/ReplicaSet which reschedules elsewhere.
+func k8sUnknownStatusInsight(k models.K8sInfo) models.Insight {
+	hints := make([]string, 0, 6)
+	hints = append(hints, "to inspect: kubectl get pods -A | grep Unknown")
+	var affected []string
+	for _, p := range k.Pods {
+		if p.Status != "Unknown" {
+			continue
+		}
+		loc := fmt.Sprintf("%s/%s", p.Namespace, p.Name)
+		if p.NodeName != "" {
+			loc += " on node " + p.NodeName
+		}
+		if p.OwnerKind == "StatefulSet" {
+			loc += fmt.Sprintf(" (StatefulSet/%s — will NOT reschedule until deleted)", p.OwnerName)
+		}
+		affected = append(affected, loc)
+	}
+	for _, a := range firstN(affected, 3) {
+		hints = append(hints, "  "+a)
+	}
+	hints = append(hints,
+		"to inspect: kubectl describe node <node>  (confirm node is actually unreachable before deleting)",
+		"to force (only if node confirmed dead): kubectl delete pod <name> -n <ns> --grace-period=0 --force",
+	)
+	return insight("WARN", "K8s",
+		fmt.Sprintf("%d pod(s) in Unknown status — node may be unreachable", k.UnknownStatus),
+		hints)
 }
 
 func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
@@ -960,14 +996,80 @@ func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
 	return out
 }
 
+// checkK8sServicesChain reports whether the KUBE-SERVICES chain (ClusterIP -> pod
+// DNAT routing) is programmed — a different failure mode than KUBE-FORWARD above
+// (that one covers pod-to-pod, not service, routing). Only fires under the two
+// modes where an empty chain/table is a real fault: "iptables" and "ipvs". Mode
+// "nft" (nftables-backend kube-proxy, which never populates the legacy chain) and
+// "" (kube-proxy pod not found / tool unavailable) carry no verdict — see
+// detectKubeServices for why those are "not applicable", not "missing".
+func checkK8sServicesChain(l models.K8sOSLayer) []models.Insight {
+	if !l.KubeServicesChecked || l.KubeServicesCount > 0 {
+		return nil
+	}
+	switch l.KubeProxyMode {
+	case "iptables":
+		return []models.Insight{insight("WARN", "K8s",
+			"KUBE-SERVICES chain has 0 entries — ClusterIP service routing is not programmed, kube-proxy may not have synced",
+			[]string{
+				"to inspect: sudo iptables -t nat -L KUBE-SERVICES -n --line-numbers",
+				"to inspect: kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=50",
+			},
+		)}
+	case "ipvs":
+		return []models.Insight{insight("WARN", "K8s",
+			"kube-proxy is in IPVS mode but ipvsadm shows 0 TCP virtual servers — service routing is not programmed",
+			[]string{
+				"to inspect: sudo ipvsadm -ln",
+				"to inspect: kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=50",
+			},
+		)}
+	}
+	return nil
+}
+
 // CheckK8sOSLayer emits insights for OS-level k8s node health. Exported so
 // cmd/k8s.go can share this exact logic for the standalone `dsd k8s --deep`
 // verdict/rendering instead of re-deriving the OS-layer concern conditions by
 // hand — the single-source-of-truth fix for the cmd↔health tally-drift class
 // (#275): a hand-duplicated set of conditions in cmd/ silently rots out of sync
 // with the heuristic `dsd health` actually uses on the same data.
+// checkK8sOSLayerCoverageGaps surfaces the root-gated reads that silently limit the
+// rest of CheckK8sOSLayer's coverage (INFO only — never raises the verdict), so a
+// non-root deep collection reads as "checked, clean" rather than "clean because we
+// couldn't look" — split out of CheckK8sOSLayer to keep it under the funlen limit.
+func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
+	var out []models.Insight
+
+	// OSLayerNeedsRoot: iptables-save/ipvsadm/nft (KUBE-FORWARD, KUBE-SERVICES) and
+	// /etc/cni/net.d, /opt/cni/bin (CNI config) are commonly root-only reads. A
+	// non-root run degrades those checks to "not applicable" with no other signal,
+	// which looks identical to a genuinely clean/not-configured node — surface it
+	// once, rather than per-field, to avoid repeating the same root hint per check.
+	if l.OSLayerNeedsRoot {
+		out = append(out, insight("INFO", "K8s",
+			"some OS-layer checks limited — run as root for KUBE-SERVICES/KUBE-FORWARD chain and CNI config verification",
+			nil,
+		))
+	}
+
+	// FlannelCNIUnreadable: /etc/cni/net.d exists but couldn't be listed, so
+	// FlannelInUse reads as false ("not flannel") when the real state is unknown —
+	// the firewalld-masquerade check below silently can't fire even if flannel IS
+	// in use and misconfigured.
+	if l.FlannelCNIUnreadable {
+		out = append(out, insight("INFO", "K8s",
+			"CNI config directory not readable — could not verify whether flannel is in use (firewalld-masquerade check skipped)",
+			[]string{"to audit: re-run as root (sudo dsd k8s --deep)"},
+		))
+	}
+
+	return out
+}
+
 func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
-	out := checkK8sNodeDaemons(l)
+	out := checkK8sOSLayerCoverageGaps(l)
+	out = append(out, checkK8sNodeDaemons(l)...)
 
 	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
 	// at its false zero value, which must not be reported as a real "disabled".
@@ -1010,6 +1112,8 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 			},
 		))
 	}
+
+	out = append(out, checkK8sServicesChain(l)...)
 
 	if len(l.CertExpiredNames) > 0 {
 		out = append(out, insight("CRIT", "K8s",

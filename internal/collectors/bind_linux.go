@@ -320,6 +320,12 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 			zb.exit()
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		// Match the silent-skip convention used for the earlier openFile
+		// failure in this function: a mid-read error means we can't trust
+		// what was parsed, so don't return a partial zone list.
+		return nil
+	}
 	return zones
 }
 

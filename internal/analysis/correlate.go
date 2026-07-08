@@ -637,7 +637,7 @@ func ruleDNSResolverNotConnectivity(idx map[string]indexEntry) (Correlation, boo
 // access to raw collector output (OOM events, Docker events) rather than just the
 // distilled insights slice.  Call this instead of Correlate when deep data is
 // available (i.e. from dsd health --deep or dsd health deep).
-func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *models.DockerInfo, io *models.IOInfo, sysctl *models.SysctlInfo) []Correlation {
+func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *models.DockerInfo, io *models.IOInfo, sysctl *models.SysctlInfo, cpu *models.CPUInfo, deep *models.HealthDeepInfo) []Correlation {
 	out := Correlate(insights)
 	if c, ok := ruleDockerOOMCascade(oom, docker); ok {
 		out = append(out, c)
@@ -648,11 +648,63 @@ func CorrelateDeep(insights []models.Insight, oom *models.OOMInfo, docker *model
 	if c, ok := ruleServiceMemoryLeak(oom); ok {
 		out = append(out, c)
 	}
+	if c, ok := ruleIOWaitCulprit(cpu, io, deep); ok {
+		out = append(out, c)
+	}
 	idx := buildIndex(insights)
 	if c, ok := ruleSysctlNotPersisted(sysctl, idx); ok {
 		out = append(out, c)
 	}
 	return out
+}
+
+// ioWaitCulpritGatePct is the iowait threshold (Spec 5.3) above which the
+// deep collector's device+process data is worth attributing — well below
+// checkCPU's own WARN floor (20%) because attribution is informational, not
+// an alarm: naming the culprit early, before iowait becomes a full incident,
+// is the point of the feature.
+const ioWaitCulpritGatePct = 5.0
+
+// ruleIOWaitCulprit pinpoints the device with the highest await time and the
+// process most responsible for I/O, so an operator doesn't have to run
+// iostat/iotop by hand to answer "iowait 12% ← what?". The device and the
+// process are each independently the busiest by their own metric — not proven
+// causally linked (Linux doesn't expose per-process, per-device attribution) —
+// so this is the same best-effort correlation iotop itself offers, not a
+// guarantee.
+func ruleIOWaitCulprit(cpu *models.CPUInfo, io *models.IOInfo, deep *models.HealthDeepInfo) (Correlation, bool) {
+	if cpu == nil || cpu.IOwaitPct < ioWaitCulpritGatePct {
+		return Correlation{}, false
+	}
+	if io == nil || len(io.Devices) == 0 || deep == nil || len(deep.TopIOProcs) == 0 {
+		return Correlation{}, false
+	}
+
+	dev := io.Devices[0]
+	for _, d := range io.Devices[1:] {
+		if d.AwaitMs > dev.AwaitMs {
+			dev = d
+		}
+	}
+	top := deep.TopIOProcs[0]
+
+	level := "WARN"
+	if cpu.IOwaitPct >= 40 {
+		level = "CRIT"
+	}
+	summary := fmt.Sprintf("iowait %.0f%% ← %s (%.0fms await) ← %s (PID %d)",
+		cpu.IOwaitPct, dev.Name, dev.AwaitMs, top.Name, top.PID)
+	if deep.TopIOProcsNeedsRoot {
+		summary += " — partial process visibility, run as root for full attribution"
+	}
+
+	return Correlation{
+		Name:    "IO Wait Culprit",
+		Level:   level,
+		Summary: summary,
+		Action:  fmt.Sprintf("iotop -ao -p %d && iostat -x 1 5 %s", top.PID, dev.Name),
+		Checks:  []string{"CPU Load/IOWait", "IO"},
+	}, true
 }
 
 // ioAwaitActiveUtilFloor is the minimum utilization at which a high await time is

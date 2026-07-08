@@ -156,6 +156,10 @@ func countAVCsFromAuditLog(window time.Duration) (int, bool) {
 			count++
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		// Partial/unreliable read — do not report a false "clean" count.
+		return count, false
+	}
 	return count, true
 }
 
@@ -309,6 +313,11 @@ func countAppArmorDenials(window time.Duration) int {
 		if err != nil || time.Unix(sec, 0).After(cutoff) {
 			count++
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// Match the "unreadable audit log" sentinel documented above — a
+		// partial/failed read must not report a false clean count.
+		return -1
 	}
 	return count
 }
@@ -529,6 +538,11 @@ func collectAVCSamples(n int) []string {
 		if len(samples) >= n {
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// Match the earlier open-failure path — a failed read must not
+		// return a partial/misleading sample set.
+		return nil
 	}
 	return samples
 }

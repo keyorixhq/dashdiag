@@ -82,6 +82,23 @@ func TestInlinePackagesStaleNotUpToDate(t *testing.T) {
 	}
 }
 
+// BUG-098: query-failed (scan timed out / errored) and no-security-repo must not
+// render "up to date" either — Checked is set true at collector init before the
+// scan even runs, so these two statuses previously fell through the same
+// blacklist gap stale-metadata was fixed for above, reading as a false "up to
+// date" summary on a scan that timed out (found on Oracle Linux, cold dnf cache).
+func TestInlinePackagesQueryFailedNotUpToDate(t *testing.T) {
+	cases := []models.PackagesInfo{
+		{Checked: true, SecurityUpdates: 0, Status: "query-failed", PackageManager: "dnf"},
+		{Checked: true, SecurityUpdates: 0, Status: "no-security-repo", PackageManager: "dnf"},
+	}
+	for _, p := range cases {
+		if got := inlinePackages(p); got == "up to date" {
+			t.Errorf("status %q: inlinePackages = %q, must not claim 'up to date'", p.Status, got)
+		}
+	}
+}
+
 // A drive detected via sysfs but with no SMART log read (no nvme-cli, common on
 // minimal cloud/ARM images) must NOT be rendered "healthy" — that's a false-OK.
 func TestInlineDrivesSmartUnread(t *testing.T) {

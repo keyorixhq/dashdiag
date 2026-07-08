@@ -102,6 +102,42 @@ CPU part	: 0xac3
 	}
 }
 
+// ARMv8.5 server core reports PAC/MTE support via the "Features" line — parsed
+// verbatim (not tokenized here) so callers can token-match specific flags.
+func TestParseProcCPUInfo_armFeatures(t *testing.T) {
+	t.Parallel()
+	const data = `processor	: 0
+CPU implementer	: 0x41
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm paca pacg mte mte3
+`
+	got := parseProcCPUInfo(data)
+	if got.features != "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm paca pacg mte mte3" {
+		t.Errorf("features = %q, unexpected", got.features)
+	}
+	if !hasFeature(got.features, "mte") {
+		t.Error("hasFeature(features, \"mte\") = false, want true")
+	}
+	if hasFeature(got.features, "sve") {
+		t.Error("hasFeature(features, \"sve\") = true, want false — sve is not in this Features line")
+	}
+}
+
+// hasFeature must match whole tokens only — a flag name that merely contains
+// another flag as a substring (e.g. hypothetical "mteplus") must not
+// false-positive a plain "mte" lookup.
+func TestHasFeature_ExactTokenMatch(t *testing.T) {
+	t.Parallel()
+	if hasFeature("fp asimd mteplus evtstrm", "mte") {
+		t.Error("hasFeature must not substring-match \"mteplus\" against \"mte\"")
+	}
+	if !hasFeature("fp asimd mte evtstrm", "mte") {
+		t.Error("hasFeature must match \"mte\" as a whole token")
+	}
+	if hasFeature("", "mte") {
+		t.Error("hasFeature on empty features string must be false")
+	}
+}
+
 // ARM bare-metal (e.g. Raspberry Pi) exposes a "Hardware" field used as the model.
 func TestParseProcCPUInfo_armHardwareField(t *testing.T) {
 	const data = `processor	: 0

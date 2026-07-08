@@ -129,20 +129,75 @@ func TestRuleSysctlNotPersisted(t *testing.T) {
 	warn := []models.Insight{ins("WARN", "Sysctl", "vm.swappiness high")}
 
 	// Rebooted recently + a tuned-away (non-default) value → fires.
-	out := CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 600, VMSwappiness: 30})
+	out := CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 600, VMSwappiness: 30}, nil, nil)
 	if hasCorr(out, "Sysctl Parameter Not Persisted") == nil {
 		t.Errorf("expected Sysctl-not-persisted correlation, got %+v", out)
 	}
 
 	// Same recent reboot but values still at kernel stock default → suppressed.
-	out = CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 600, VMSwappiness: 60})
+	out = CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 600, VMSwappiness: 60}, nil, nil)
 	if hasCorr(out, "Sysctl Parameter Not Persisted") != nil {
 		t.Error("stock-default values after a fresh boot should suppress the correlation")
 	}
 
 	// Long uptime → not a recent-reboot scenario → suppressed.
-	out = CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 100000, VMSwappiness: 30})
+	out = CorrelateDeep(warn, nil, nil, nil, &models.SysctlInfo{UptimeSeconds: 100000, VMSwappiness: 30}, nil, nil)
 	if hasCorr(out, "Sysctl Parameter Not Persisted") != nil {
 		t.Error("long uptime should not fire the not-persisted correlation")
+	}
+}
+
+func TestRuleIOWaitCulprit(t *testing.T) {
+	io := &models.IOInfo{Devices: []models.IODeviceInfo{
+		{Name: "sda", AwaitMs: 3},
+		{Name: "nvme0n1", AwaitMs: 12},
+	}}
+	deep := &models.HealthDeepInfo{TopIOProcs: []models.ProcessIOStat{
+		{PID: 1204, Name: "postgres", ReadBps: 900, WriteBps: 100},
+		{PID: 42, Name: "kworker", ReadBps: 10, WriteBps: 0},
+	}}
+
+	c, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, io, deep)
+	if !ok {
+		t.Fatal("expected the culprit rule to fire at 12% iowait with device+process data present")
+	}
+	if c.Level != "WARN" {
+		t.Errorf("expected WARN below the 40%% CRIT band, got %q", c.Level)
+	}
+	want := "iowait 12% ← nvme0n1 (12ms await) ← postgres (PID 1204)"
+	if c.Summary != want {
+		t.Errorf("summary = %q, want %q", c.Summary, want)
+	}
+
+	if c, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 45}, io, deep); !ok || c.Level != "CRIT" {
+		t.Errorf("expected CRIT at 45%% iowait, got %v %+v", ok, c)
+	}
+
+	if _, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 4}, io, deep); ok {
+		t.Error("below the 5% gate should not fire")
+	}
+	if _, ok := ruleIOWaitCulprit(nil, io, deep); ok {
+		t.Error("nil CPUInfo should not fire")
+	}
+	if _, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, nil, deep); ok {
+		t.Error("nil IOInfo should not fire")
+	}
+	if _, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, &models.IOInfo{}, deep); ok {
+		t.Error("no devices should not fire")
+	}
+	if _, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, io, nil); ok {
+		t.Error("nil HealthDeepInfo should not fire")
+	}
+	if _, ok := ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, io, &models.HealthDeepInfo{}); ok {
+		t.Error("no sampled top processes should not fire")
+	}
+
+	needsRoot := &models.HealthDeepInfo{
+		TopIOProcs:          deep.TopIOProcs,
+		TopIOProcsNeedsRoot: true,
+	}
+	c, ok = ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, io, needsRoot)
+	if !ok || !strings.Contains(c.Summary, "partial process visibility") {
+		t.Errorf("expected a partial-visibility caveat in the summary, got %+v", c)
 	}
 }

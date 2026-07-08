@@ -406,7 +406,7 @@ func collectRAM(ctx context.Context, info *models.HardwareInfo) {
 
 // ── NETWORK INTERFACES ────────────────────────────────────────────────────────
 
-func collectNICs(ctx context.Context, info *models.HardwareInfo) {
+func collectNICs(_ context.Context, info *models.HardwareInfo) {
 	entries, err := readDirNames("/sys/class/net")
 	if err != nil {
 		return

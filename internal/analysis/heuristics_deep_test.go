@@ -243,6 +243,53 @@ func TestCheckK8sOSLayer(t *testing.T) {
 			l.FirewalldMasquOK = false
 			return l
 		}(), ""},
+		// Spec 23e: KUBE-SERVICES chain check.
+		{"iptables mode, 0 KUBE-SERVICES entries is WARN", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = true
+			l.KubeProxyMode = "iptables"
+			l.KubeServicesCount = 0
+			return l
+		}(), "WARN"},
+		{"iptables mode, entries present is clean", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = true
+			l.KubeProxyMode = "iptables"
+			l.KubeServicesCount = 2
+			return l
+		}(), ""},
+		{"ipvs mode, 0 virtual servers is WARN", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = true
+			l.KubeProxyMode = "ipvs"
+			l.KubeServicesCount = 0
+			return l
+		}(), "WARN"},
+		{"ipvs mode, virtual servers present is clean", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = true
+			l.KubeProxyMode = "ipvs"
+			l.KubeServicesCount = 3
+			return l
+		}(), ""},
+		// nftables-backend kube-proxy never populates the legacy chain — mode "nft"
+		// must never WARN regardless of count.
+		{"nft mode is never WARN", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = true
+			l.KubeProxyMode = "nft"
+			l.KubeServicesCount = 0
+			return l
+		}(), ""},
+		// kube-proxy pod not found / iptables-save unavailable → unchecked → must
+		// NOT WARN (state unknown, not "missing").
+		{"unchecked kube-services is not WARN", func() models.K8sOSLayer {
+			l := ok
+			l.KubeServicesChecked = false
+			l.KubeProxyMode = ""
+			l.KubeServicesCount = 0
+			return l
+		}(), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

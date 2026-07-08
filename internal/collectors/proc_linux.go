@@ -111,8 +111,14 @@ func collectProcPID(pid int) (*models.ProcInfo, error) {
 	// Open files: read /proc/PID/fd symlinks
 	inodes := collectOpenFiles(base, info)
 
-	// Network connections for this process's socket inodes
-	info.Connections = procNetConns(inodes)
+	// Network connections for this process's socket inodes. Best-effort like
+	// the other fields above (cmdline, wchan, cgroup): a partial read still
+	// yields whatever connections were parsed before the failure. The error
+	// itself isn't fatal to the overall proc snapshot, so it isn't
+	// propagated further, but scanner.Err() is no longer silently dropped
+	// inside procNetConns itself.
+	conns, _ := procNetConns(inodes)
+	info.Connections = conns
 
 	return info, nil
 }
@@ -368,12 +374,15 @@ func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 }
 
 // procNetConns reads /proc/net/tcp[6] and returns connections
-// belonging to this process's socket inodes.
-func procNetConns(inodes map[string]bool) []models.ProcNetConn {
+// belonging to this process's socket inodes. Returns a non-nil error if any
+// proto table was only partially read (best-effort: whatever was parsed
+// before the failure, from either proto, is still returned).
+func procNetConns(inodes map[string]bool) ([]models.ProcNetConn, error) {
 	if len(inodes) == 0 {
-		return nil
+		return nil, nil
 	}
 	var conns []models.ProcNetConn
+	var readErr error
 	for _, proto := range []string{"tcp", "tcp6"} {
 		path := "/proc/net/" + proto
 		f, err := openFile(path) // #nosec G304
@@ -401,9 +410,16 @@ func procNetConns(inodes map[string]bool) []models.ProcNetConn {
 				State:      state,
 			})
 		}
+		if err := scanner.Err(); err != nil && readErr == nil {
+			// Partial/unreliable read of this proto's table — keep what was
+			// parsed so far (best-effort, matching the rest of
+			// collectProcPID's field population), but surface the failure
+			// rather than silently dropping it.
+			readErr = fmt.Errorf("scanning %s: %w", path, err)
+		}
 		f.Close() //nolint:errcheck
 	}
-	return conns
+	return conns, readErr
 }
 
 // hexToAddr converts a /proc/net/tcp hex address:port to "IP:port" notation.
