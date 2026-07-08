@@ -45,7 +45,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	parseSSHConfig(info)
-	parseFailedLogins(info)
+	parseFailedLogins(ctx, info)
 	parseListeningPorts(info)
 	parseSudoers(info)
 	parseSELinuxDenials(ctx, info)
@@ -292,105 +292,44 @@ func parseSSHDuration(s string) int {
 	return total
 }
 
-// parseFailedLogins reads /var/log/secure (RHEL) or /var/log/auth.log (Debian).
-// Falls back to journalctl on systems using journald-only auth logging (Debian 13+).
-// Counts failed SSH login attempts in the last hour.
-func parseFailedLogins(info *models.SecurityInfo) {
-	paths := []string{"/var/log/secure", "/var/log/auth.log"}
-	var logPath string
-	for _, p := range paths {
-		if fileExists(p) {
-			logPath = p
-			break
-		}
-	}
-	if logPath == "" {
-		// Neither file exists — Debian 13+ with journald-only auth logging.
-		// Fall back to journalctl which reads from the binary journal directly.
-		parseFailedLoginsFromJournal(info)
+// parseFailedLogins counts failed SSH login attempts and their source IPs
+// over the last hour, from journald (preferred) or /var/log/secure (RHEL) /
+// /var/log/auth.log (Debian). Handles two sshd log formats:
+//   - Legacy (OpenSSH ≤8): "Failed password for [invalid user] X from IP port P ssh2"
+//   - Modern (OpenSSH 9+): "drop connection #N from [IP]:P on [IP]:P penalty: failed authentication"
+func parseFailedLogins(ctx context.Context, info *models.SecurityInfo) {
+	lines, unreadable := authLogSourceLines(ctx, "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q")
+	if unreadable {
+		info.FailedLoginsUnreadable = true
 		return
 	}
 
-	f, err := openFile(logPath) // #nosec G304 -- hardcoded known paths
-	if err != nil {
-		return // requires root
-	}
-	defer f.Close() //nolint:errcheck
-
-	ipCount := make(map[string]int)
 	cutoff := time.Now().Add(-1 * time.Hour)
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "Failed password") && !strings.Contains(line, "Invalid user") {
-			continue
-		}
-		// Parse timestamp — format: "May 11 15:04:05"
+	ipCount := make(map[string]int)
+	for _, line := range lines {
 		if len(line) < 15 {
 			continue
 		}
-		ts, err := parseLogTimestamp(line[:15])
-		if err != nil || ts.Before(cutoff) {
+		if ts, err := parseLogTimestamp(line); err != nil || ts.Before(cutoff) {
 			continue
 		}
-		info.FailedLogins++
-		// Extract source IP: "from 1.2.3.4 port"
-		if idx := strings.Index(line, " from "); idx >= 0 {
-			rest := line[idx+6:]
-			ipEnd := strings.IndexByte(rest, ' ')
-			if ipEnd > 0 {
-				ip := rest[:ipEnd]
-				if net.ParseIP(ip) != nil {
-					ipCount[ip]++
-				}
-			}
-		}
-	}
 
-	// Top offending IPs
-	for ip, count := range ipCount {
-		if count >= 3 {
-			info.FailedLoginIPs = append(info.FailedLoginIPs,
-				fmt.Sprintf("%s (%d attempts)", ip, count))
-		}
-	}
-}
-
-// parseFailedLoginsFromJournal reads failed SSH logins from journald.
-// Used on systems where /var/log/secure and /var/log/auth.log do not exist
-// (Debian 13+ with journald-only auth logging).
-// Handles two sshd log formats:
-//   - Legacy (OpenSSH ≤8): "Failed password for [invalid user] X from IP port P ssh2"
-//   - Modern (OpenSSH 9+): "drop connection #N from [IP]:P on [IP]:P penalty: failed authentication"
-func parseFailedLoginsFromJournal(info *models.SecurityInfo) {
-	out, err := runCmd(context.Background(), "journalctl", "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q")
-	if err != nil {
-		return
-	}
-
-	ipCount := make(map[string]int)
-	for _, line := range strings.Split(out, "\n") {
 		var ip string
-
 		switch {
 		// Legacy format: "Failed password" or "Invalid user"
 		case strings.Contains(line, "Failed password") || strings.Contains(line, "Invalid user"):
 			if idx := strings.Index(line, " from "); idx >= 0 {
 				rest := line[idx+6:]
-				ipEnd := strings.IndexByte(rest, ' ')
-				if ipEnd > 0 {
+				if ipEnd := strings.IndexByte(rest, ' '); ipEnd > 0 {
 					ip = rest[:ipEnd]
 				}
 			}
 
 		// Modern format (OpenSSH 9+): "drop connection #N from [IP]:port ... penalty: failed authentication"
 		case strings.Contains(line, "penalty: failed authentication"):
-			// Extract IP from: "from [192.168.1.1]:12345"
 			if idx := strings.Index(line, " from ["); idx >= 0 {
 				rest := line[idx+7:]
-				ipEnd := strings.IndexByte(rest, ']')
-				if ipEnd > 0 {
+				if ipEnd := strings.IndexByte(rest, ']'); ipEnd > 0 {
 					ip = rest[:ipEnd]
 				}
 			}
@@ -405,6 +344,7 @@ func parseFailedLoginsFromJournal(info *models.SecurityInfo) {
 		}
 	}
 
+	// Top offending IPs
 	for ip, count := range ipCount {
 		if count >= 3 {
 			info.FailedLoginIPs = append(info.FailedLoginIPs,
@@ -413,11 +353,66 @@ func parseFailedLoginsFromJournal(info *models.SecurityInfo) {
 	}
 }
 
-// parseLogTimestamp parses syslog-style timestamps like "May 11 15:04:05".
-// Uses current year since syslog doesn't include it.
-func parseLogTimestamp(s string) (time.Time, error) {
+// authLogSourceLines returns the auth-log lines to scan for failed-login/PAM
+// analysis, preferring live journald over reading a flat file directly.
+// journald is the current source of record on any systemd host; a flat file
+// like /var/log/auth.log is just an optional rsyslog forwarding target that
+// can silently stop being written (rsyslog imjournal cursor drift, forwarding
+// disabled) while continuing to exist and pass a fileExists check — a
+// file-first read has no way to tell "stale" from "current" and would report
+// false negatives forever. unreadable is true only when NEITHER source could
+// be read at all (no journalctl access and the file needs root, or auth
+// logging isn't configured) — distinct from "read fine, found nothing".
+func authLogSourceLines(ctx context.Context, journalArgs ...string) (lines []string, unreadable bool) {
+	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if out, err := runCmd(jCtx, "journalctl", journalArgs...); err == nil {
+		return strings.Split(out, "\n"), false
+	}
+
+	paths := []string{"/var/log/secure", "/var/log/auth.log"}
+	var logPath string
+	for _, p := range paths {
+		if fileExists(p) {
+			logPath = p
+			break
+		}
+	}
+	if logPath == "" {
+		return nil, true
+	}
+
+	f, err := openFile(logPath) // #nosec G304 -- hardcoded known paths
+	if err != nil {
+		return nil, true // exists but requires root
+	}
+	defer f.Close() //nolint:errcheck
+
+	var out []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		out = append(out, scanner.Text())
+	}
+	return out, false
+}
+
+// parseLogTimestamp parses the leading timestamp of a syslog-style log line,
+// in either format seen in the wild: classic BSD syslog ("Jan  2 15:04:05",
+// no year — assumes current year) or rsyslog's ISO8601 RSYSLOG_FileFormat
+// ("2026-07-07T20:00:34.410978+00:00"), which is Ubuntu/Debian's rsyslog
+// default since ~20.04. A mismatch here silently fails every line (the
+// caller treats a parse error as "too old"), which reads identically to an
+// empty log — that's exactly how a live, correctly-forwarded auth.log went
+// unnoticed as unparseable.
+func parseLogTimestamp(line string) (time.Time, error) {
+	if sp := strings.IndexByte(line, ' '); sp > 0 && strings.Contains(line[:sp], "-") {
+		return time.Parse(time.RFC3339Nano, line[:sp])
+	}
+	if len(line) < 15 {
+		return time.Time{}, fmt.Errorf("log line too short for a timestamp: %q", line)
+	}
 	year := time.Now().Year()
-	return time.Parse("2006 Jan  2 15:04:05", fmt.Sprintf("%d %s", year, s))
+	return time.Parse("2006 Jan  2 15:04:05", fmt.Sprintf("%d %s", year, line[:15]))
 }
 
 // parseListeningPorts reads /proc/net/tcp and /proc/net/tcp6 directly.
@@ -740,41 +735,26 @@ func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 // pamKey groups a PAM module failure by service+user.
 type pamKey struct{ service, user string }
 
-// parsePAMModuleFailures scans the same auth log source parseFailedLogins
-// uses (or journalctl on journald-only systems) for pam_unix authentication
-// failures from services OTHER than sshd — su, sudo, login, cron, etc.
-// sshd failures are already counted by FailedLogins (1h window); this is a
-// distinct, non-network privilege/auth vector, counted over 24h.
+// parsePAMModuleFailures scans the same auth log source as parseFailedLogins
+// for pam_unix authentication failures from services OTHER than sshd — su,
+// sudo, login, cron, etc. sshd failures are already counted by FailedLogins
+// (1h window); this is a distinct, non-network privilege/auth vector,
+// counted over 24h.
 func parsePAMModuleFailures(ctx context.Context, info *models.SecurityInfo) {
-	paths := []string{"/var/log/secure", "/var/log/auth.log"}
-	var logPath string
-	for _, p := range paths {
-		if fileExists(p) {
-			logPath = p
-			break
-		}
-	}
-	if logPath == "" {
-		info.PAMModuleFailures = pamFailuresFromJournal(ctx)
+	lines, unreadable := authLogSourceLines(ctx, "--since=24 hours ago", "--no-pager", "-q",
+		"-g", "pam_unix.*authentication failure")
+	if unreadable {
+		info.PAMFailuresUnreadable = true
 		return
 	}
 
-	f, err := openFile(logPath) // #nosec G304 -- hardcoded known paths
-	if err != nil {
-		return // requires root
-	}
-	defer f.Close() //nolint:errcheck
-
 	cutoff := time.Now().Add(-24 * time.Hour)
 	counts := make(map[pamKey]int)
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, line := range lines {
 		if len(line) < 15 {
 			continue
 		}
-		ts, err := parseLogTimestamp(line[:15])
-		if err != nil || ts.Before(cutoff) {
+		if ts, err := parseLogTimestamp(line); err != nil || ts.Before(cutoff) {
 			continue
 		}
 		if k, ok := parsePAMFailureLine(line); ok {
@@ -807,25 +787,6 @@ func parsePAMFailureLine(line string) (pamKey, bool) {
 		return pamKey{}, false
 	}
 	return pamKey{service: svc, user: user}, true
-}
-
-// pamFailuresFromJournal is the journald fallback for parsePAMModuleFailures,
-// used on systems with no /var/log/secure or /var/log/auth.log (Debian 13+).
-func pamFailuresFromJournal(ctx context.Context) []models.PAMFailure {
-	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	out, err := runCmd(jCtx, "journalctl", "--since=24 hours ago", "--no-pager", "-q",
-		"-g", "pam_unix.*authentication failure")
-	if err != nil {
-		return nil
-	}
-	counts := make(map[pamKey]int)
-	for _, line := range strings.Split(out, "\n") {
-		if k, ok := parsePAMFailureLine(line); ok {
-			counts[k]++
-		}
-	}
-	return pamFailuresFromCounts(counts)
 }
 
 // pamFailuresFromCounts converts a (service,user) tally into a sorted,
