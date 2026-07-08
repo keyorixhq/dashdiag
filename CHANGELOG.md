@@ -9,6 +9,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.19.0] - 2026-07-08
+
+### Added
+- `dsd health deep` — top-N CPU process list (utime+stime delta over 500ms,
+  top/htop-style %CPU convention), mirroring the existing top-N memory list,
+  with the same cgroup-scope attribution (`container:`, `system:`, `k8s-pod:`,
+  etc.). The top-IO-consuming-process list also gains cgroup-scope
+  attribution, which it previously lacked.
+- `dsd k8s` — pods stuck in phase `Unknown` now report the node they were
+  scheduled on and, for StatefulSet-owned pods, flag that the controller will
+  not create a replacement until the stuck pod is deleted (unlike a
+  Deployment/ReplicaSet, which reschedules elsewhere).
+- `dsd k8s --deep` — `detectKubeServices`: checks whether the KUBE-SERVICES
+  chain (ClusterIP → pod DNAT routing) is actually programmed, distinguishing
+  a real fault (empty iptables/ipvs chain — kube-proxy hasn't synced) from
+  the expected no-verdict cases: nftables-backend kube-proxy (which never
+  populates the legacy chain by design) and no kube-proxy pod at all (an
+  eBPF replacement such as Cilium, or kube-proxy explicitly disabled).
+  Live-validated on a real kubeadm cluster (iptables mode, non-zero count,
+  no false WARN).
+
 ## [1.18.0] - 2026-07-07
 
 ### Added
