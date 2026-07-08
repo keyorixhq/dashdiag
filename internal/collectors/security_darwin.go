@@ -197,6 +197,9 @@ func parseDarwinSudoersFile(path string, info *models.SecurityInfo) {
 			info.SudoNopasswd = append(info.SudoNopasswd, fields[0])
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return
+	}
 }
 
 // parseDarwinFirewall reads the macOS Application Firewall global state.

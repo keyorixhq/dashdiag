@@ -3,6 +3,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"runtime"
 	"slices"
@@ -21,7 +22,7 @@ func (c *SystemdCollector) Timeout() time.Duration { return 3 * time.Second }
 
 // parseUnitList parses `systemctl list-units --no-legend --no-pager --plain` output.
 // Each line's first field that contains "." is the unit name.
-func parseUnitList(r io.Reader) []string {
+func parseUnitList(r io.Reader) ([]string, error) {
 	var units []string
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -40,7 +41,10 @@ func parseUnitList(r io.Reader) []string {
 		}
 		units = append(units, name)
 	}
-	return units
+	if err := scanner.Err(); err != nil {
+		return units, fmt.Errorf("scanning unit list: %w", err)
+	}
+	return units, nil
 }
 
 // cloudInitServiceUnits are the cloud-init provisioning services. They are split
@@ -308,7 +312,7 @@ func listUnits(ctx context.Context, state string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseUnitList(strings.NewReader(out)), nil
+	return parseUnitList(strings.NewReader(out))
 }
 
 // systemdPresentViaSource reports whether systemd is the init system, routed through the

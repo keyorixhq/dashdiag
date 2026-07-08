@@ -68,6 +68,7 @@ func tlsCertPaths() []string {
 		"/etc/haproxy",          // HAProxy
 		"/etc/dovecot/private",  // Dovecot mail
 		"/etc/postfix/ssl",      // Postfix
+		"/etc/pki/rhui",         // RHEL cloud PAYG (RHUI) client certs — mTLS to the CDS mirrors
 	}
 }
 

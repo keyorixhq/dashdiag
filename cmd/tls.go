@@ -30,6 +30,7 @@ Auto-detects certificates in common locations:
   /etc/apache2/ssl/*.{crt,pem}
   /etc/ssl/private/*.{crt,pem}
   /etc/pki/tls/certs/*.{crt,pem}
+  /etc/pki/rhui/*.crt (RHEL cloud PAYG RHUI client certs)
   ~/.dsd/certs/*.{crt,pem}
 
 Or pass explicit paths:
@@ -269,6 +270,8 @@ func autoDetectCertPaths() []string {
 		"/etc/ssl/private/*.pem",
 		"/etc/pki/tls/certs/*.crt",
 		"/etc/pki/tls/private/*.crt",
+		"/etc/pki/rhui/*.crt",         // RHEL cloud PAYG (RHUI) CA chain
+		"/etc/pki/rhui/product/*.crt", // RHUI client certs (mTLS to CDS mirrors)
 	}
 
 	// User-configured cert dir

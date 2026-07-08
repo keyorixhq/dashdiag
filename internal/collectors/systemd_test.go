@@ -228,7 +228,10 @@ func TestParseUnitList(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := parseUnitList(strings.NewReader(tc.input))
+			got, err := parseUnitList(strings.NewReader(tc.input))
+			if err != nil {
+				t.Fatalf("parseUnitList: unexpected error: %v", err)
+			}
 			if len(got) != len(tc.wantUnits) {
 				t.Fatalf("unit count: got %d %v, want %d %v", len(got), got, len(tc.wantUnits), tc.wantUnits)
 			}

@@ -562,6 +562,9 @@ func parseGatewayLinux(r io.Reader) routeInfo {
 			Iface:     fields[0],
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return onLink
+	}
 	return onLink
 }
 

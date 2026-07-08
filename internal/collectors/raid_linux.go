@@ -103,6 +103,11 @@ func parseMDStat(r io.Reader) *models.RAIDInfo {
 	if current != nil {
 		info.Arrays = append(info.Arrays, *current)
 	}
+	if err := scanner.Err(); err != nil {
+		// Best-effort parser: return whatever arrays were parsed before the
+		// mid-read error rather than discarding a partially-healthy audit.
+		return info
+	}
 	return info
 }
 

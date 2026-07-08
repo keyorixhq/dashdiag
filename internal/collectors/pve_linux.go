@@ -538,6 +538,12 @@ func collectPVEBackupAgeFromLogs() int {
 				break
 			}
 		}
+		if err := scanner.Err(); err != nil {
+			// Partial/failed read of this log — skip it like the other
+			// per-file failures above rather than treating it as success.
+			f.Close() //nolint:errcheck
+			continue
+		}
 		f.Close() //nolint:errcheck
 		if success && fi.ModTime.After(newest) {
 			newest = fi.ModTime

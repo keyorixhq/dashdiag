@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -74,6 +75,17 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 
 	// cgroup v2 slice summary
 	info.Cgroup = collectCgroupV2()
+
+	// Per-unit (systemd service / container) drill-down — same replay-fidelity
+	// concern as core usage, top-IO, and top-CPU above: two live cpu.stat reads
+	// 500ms apart must be cached as the derived result.
+	if info.Cgroup != nil && info.Cgroup.Available {
+		var units []models.CgroupUnit
+		_ = cachedJSON("healthdeep/cgroup-units", func() (any, error) {
+			return c.sampleCgroupUnits(ctx), nil
+		}, &units)
+		info.Cgroup.Units = units
+	}
 
 	// Top I/O-consuming processes — same replay-fidelity concern as core usage
 	// above: two live /proc/<pid>/io reads 500ms apart must be cached as the
@@ -176,6 +188,9 @@ func parseProcStatCores(r io.Reader) ([]coreSnapshot, error) {
 			softirq: parse(7),
 			steal:   parse(8),
 		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scanning /proc/stat: %w", err)
 	}
 	return snaps, nil
 }
@@ -598,58 +613,240 @@ func collectCgroupV2() *models.CgroupV2Info {
 	return cg
 }
 
-// readCgroupSlice reads metrics for one cgroup v2 slice directory.
-func readCgroupSlice(dir, name string) models.CgroupSlice {
-	s := models.CgroupSlice{Name: name, MemLimitMB: -1}
-
-	// CPU: cpu.stat — throttled_usec / usage_usec
-	if data, err := readFile(dir + "/cpu.stat"); err == nil { // #nosec G304
-		var usageUSec, throttledUSec int64
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-			val, _ := strconv.ParseInt(fields[1], 10, 64)
-			switch fields[0] {
-			case "usage_usec":
-				usageUSec = val
-			case "throttled_usec":
-				throttledUSec = val
-			}
-		}
-		if usageUSec > 0 {
-			s.ThrottledPct = float64(throttledUSec) / float64(usageUSec) * 100
+// candidateCgroupUnitDirs returns directories to inspect for the per-unit
+// drill-down: systemd service units and container scopes under system.slice,
+// container scopes under machine.slice (Docker/Podman via the systemd cgroup
+// driver), and the flat docker/ root (Docker via the cgroupfs driver).
+// The multi-level kubepods.slice QoS hierarchy (best-effort/burstable/
+// guaranteed → pod → container) is intentionally out of scope here —
+// `dsd k8s deep` already owns pod-level diagnosis.
+func candidateCgroupUnitDirs() []string {
+	var dirs []string
+	for _, pattern := range []string{
+		cgroupRoot + "/system.slice/*.service",
+		cgroupRoot + "/system.slice/*.scope",
+		cgroupRoot + "/machine.slice/*.scope",
+		cgroupRoot + "/docker/*",
+	} {
+		if matches, err := glob(pattern); err == nil {
+			dirs = append(dirs, matches...)
 		}
 	}
+	return dirs
+}
 
-	// CPU limit: cpu.max "quota period" — "max 100000" means no limit
-	if data, err := readFile(dir + "/cpu.max"); err == nil { // #nosec G304
-		fields := strings.Fields(strings.TrimSpace(string(data)))
-		if len(fields) >= 1 && fields[0] != "max" {
-			s.HasCPULimit = true
-		}
+// classifyCgroupUnitDir turns a candidate unit directory's parent slice name
+// and base directory name into an IsContainer flag and a display label —
+// "<name>.service" as-is for systemd units, "container:<id12>" for Docker
+// (both cgroup drivers) and Podman.
+func classifyCgroupUnitDir(parentSlice, dirName string) (isContainer bool, label string) {
+	switch {
+	case parentSlice == "docker":
+		return true, containerIDLabel(dirName)
+	case strings.HasPrefix(dirName, "docker-"):
+		return true, containerIDLabel(strings.TrimPrefix(dirName, "docker-"))
+	case strings.HasPrefix(dirName, "libpod-"):
+		return true, containerIDLabel(strings.TrimPrefix(dirName, "libpod-"))
+	default:
+		return false, dirName
+	}
+}
+
+// cgroupUnitSignificant reports whether a unit crosses the "significant
+// usage" bar from Gap Spec §5 — >5% CPU or >500MB RAM. This cap is decided
+// here in the collector (not analysis), matching the existing top-N
+// convention for TopProcs/TopCPUProcs/TopIOProcs: it bounds how many rows the
+// per-unit summary carries, it is not a health verdict.
+func cgroupUnitSignificant(cpuPct, memCurrentMB float64) bool {
+	return cpuPct > 5 || memCurrentMB > 500
+}
+
+// cgroupRawSample holds one candidate unit directory's raw readings — the
+// I/O boundary between the live sampler and the pure, unit-testable
+// computeCgroupUnits below.
+type cgroupRawSample struct {
+	dir             string
+	usageBeforeUSec int64
+	usageAfterUSec  int64
+	throttledPct    float64
+	hasCPULimit     bool
+	memCurrentMB    float64
+	memLimitMB      float64
+	hasMemLimit     bool
+}
+
+// sampleCgroupUnits takes two cpu.stat usage_usec snapshots ~500ms apart for
+// each candidate unit directory and returns the significant units (see
+// cgroupUnitSignificant), sorted by CPU% then memory descending and capped
+// at 15 to bound /sys/fs/cgroup walk cost and output size.
+func (c *HealthDeepCollector) sampleCgroupUnits(ctx context.Context) []models.CgroupUnit {
+	dirs := candidateCgroupUnitDirs()
+	if len(dirs) == 0 {
+		return nil
 	}
 
-	// Memory: memory.current (bytes)
+	before := make(map[string]int64, len(dirs))
+	for _, dir := range dirs {
+		before[dir] = readCgroupCPUUsageUSec(dir)
+	}
+
+	start := time.Now()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(500 * time.Millisecond):
+	}
+	elapsedUSec := float64(time.Since(start).Microseconds())
+
+	samples := make([]cgroupRawSample, 0, len(dirs))
+	for _, dir := range dirs {
+		memCurrentMB, memLimitMB, hasMemLimit := readCgroupMem(dir)
+		samples = append(samples, cgroupRawSample{
+			dir:             dir,
+			usageBeforeUSec: before[dir],
+			usageAfterUSec:  readCgroupCPUUsageUSec(dir),
+			throttledPct:    readCgroupThrottledPct(dir),
+			hasCPULimit:     readCgroupCPULimit(dir),
+			memCurrentMB:    memCurrentMB,
+			memLimitMB:      memLimitMB,
+			hasMemLimit:     hasMemLimit,
+		})
+	}
+	return computeCgroupUnits(samples, elapsedUSec)
+}
+
+// computeCgroupUnits turns raw per-directory samples into the significant-
+// usage unit list: CPU% from the usage_usec delta over elapsedUSec, filtered
+// by cgroupUnitSignificant, classified via classifyCgroupUnitDir, and sorted
+// by CPU% then memory descending, capped at 15. Split out from
+// sampleCgroupUnits so the math is unit-testable without live /sys reads or
+// the 500ms sample wait — mirrors computeTopCPURates/computeTopIORates above.
+func computeCgroupUnits(samples []cgroupRawSample, elapsedUSec float64) []models.CgroupUnit {
+	if elapsedUSec <= 0 {
+		elapsedUSec = 500000 // fall back to the nominal 500ms window, same guard as computeTopCPURates' sysDeltaTicks==0 case
+	}
+
+	var units []models.CgroupUnit
+	for _, s := range samples {
+		delta := max(s.usageAfterUSec-s.usageBeforeUSec, 0)
+		cpuPct := float64(delta) / elapsedUSec * 100
+		if !cgroupUnitSignificant(cpuPct, s.memCurrentMB) {
+			continue
+		}
+
+		parentSlice := filepath.Base(filepath.Dir(s.dir))
+		isContainer, label := classifyCgroupUnitDir(parentSlice, filepath.Base(s.dir))
+
+		u := models.CgroupUnit{
+			Name:         label,
+			ParentSlice:  parentSlice,
+			IsContainer:  isContainer,
+			CPUPct:       cpuPct,
+			ThrottledPct: s.throttledPct,
+			MemCurrentMB: s.memCurrentMB,
+			MemLimitMB:   s.memLimitMB,
+			HasCPULimit:  s.hasCPULimit,
+			HasMemLimit:  s.hasMemLimit,
+		}
+		if s.hasMemLimit && s.memLimitMB > 0 {
+			u.MemUsedPct = s.memCurrentMB / s.memLimitMB * 100
+		}
+		units = append(units, u)
+	}
+
+	sort.Slice(units, func(i, j int) bool {
+		if units[i].CPUPct != units[j].CPUPct {
+			return units[i].CPUPct > units[j].CPUPct
+		}
+		return units[i].MemCurrentMB > units[j].MemCurrentMB
+	})
+	if len(units) > 15 {
+		units = units[:15]
+	}
+	return units
+}
+
+// readCgroupThrottledPct reads cpu.stat and returns the lifetime throttled
+// fraction (throttled_usec / usage_usec, 0-100). Returns 0 when the file is
+// unreadable or usage_usec is 0.
+func readCgroupThrottledPct(dir string) float64 {
+	usageUSec, throttledUSec := readCgroupCPUStat(dir)
+	if usageUSec == 0 {
+		return 0
+	}
+	return float64(throttledUSec) / float64(usageUSec) * 100
+}
+
+// readCgroupCPUUsageUSec reads cpu.stat's usage_usec field alone — used for
+// two-sample CPU% delta sampling of individual units (see sampleCgroupUnits).
+func readCgroupCPUUsageUSec(dir string) int64 {
+	usageUSec, _ := readCgroupCPUStat(dir)
+	return usageUSec
+}
+
+// readCgroupCPUStat parses cpu.stat's usage_usec and throttled_usec fields,
+// shared by readCgroupThrottledPct and readCgroupCPUUsageUSec.
+func readCgroupCPUStat(dir string) (usageUSec, throttledUSec int64) {
+	data, err := readFile(dir + "/cpu.stat") // #nosec G304
+	if err != nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		val, _ := strconv.ParseInt(fields[1], 10, 64)
+		switch fields[0] {
+		case "usage_usec":
+			usageUSec = val
+		case "throttled_usec":
+			throttledUSec = val
+		}
+	}
+	return usageUSec, throttledUSec
+}
+
+// readCgroupCPULimit reports whether cpu.max sets a quota — "max 100000"
+// (the default) means unlimited.
+func readCgroupCPULimit(dir string) bool {
+	data, err := readFile(dir + "/cpu.max") // #nosec G304
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(string(data)))
+	return len(fields) >= 1 && fields[0] != "max"
+}
+
+// readCgroupMem reads memory.current/memory.max, returning both in MB.
+// limitMB is -1 when unlimited ("max") or unreadable.
+func readCgroupMem(dir string) (currentMB, limitMB float64, hasLimit bool) {
+	limitMB = -1
 	if data, err := readFile(dir + "/memory.current"); err == nil { // #nosec G304
 		if n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil {
-			s.MemCurrentMB = float64(n) / (1024 * 1024)
+			currentMB = float64(n) / (1024 * 1024)
 		}
 	}
-
-	// Memory limit: memory.max
 	if data, err := readFile(dir + "/memory.max"); err == nil { // #nosec G304
 		val := strings.TrimSpace(string(data))
 		if val != "max" {
 			if n, err := strconv.ParseInt(val, 10, 64); err == nil {
-				s.MemLimitMB = float64(n) / (1024 * 1024)
-				s.HasMemLimit = true
-				if s.MemLimitMB > 0 {
-					s.MemUsedPct = s.MemCurrentMB / s.MemLimitMB * 100
-				}
+				limitMB = float64(n) / (1024 * 1024)
+				hasLimit = true
 			}
 		}
+	}
+	return currentMB, limitMB, hasLimit
+}
+
+// readCgroupSlice reads metrics for one cgroup v2 slice directory.
+func readCgroupSlice(dir, name string) models.CgroupSlice {
+	s := models.CgroupSlice{Name: name}
+	s.ThrottledPct = readCgroupThrottledPct(dir)
+	s.HasCPULimit = readCgroupCPULimit(dir)
+	s.MemCurrentMB, s.MemLimitMB, s.HasMemLimit = readCgroupMem(dir)
+	if s.HasMemLimit && s.MemLimitMB > 0 {
+		s.MemUsedPct = s.MemCurrentMB / s.MemLimitMB * 100
 	}
 
 	// I/O: io.stat — sum across all block devices
@@ -757,6 +954,18 @@ func cgroupScopeIn(procDir, pid string) string {
 	return parseCgroupPath(cgPath)
 }
 
+// containerIDLabel trims a trailing ".scope" and truncates a container ID to
+// its conventional 12-char display prefix (matching `docker ps`), returning
+// a "container:<id>" scope label. Shared by parseCgroupPath's docker and
+// libpod branches, and by classifyCgroupUnitDir.
+func containerIDLabel(rawID string) string {
+	id := strings.TrimSuffix(rawID, ".scope")
+	if len(id) >= 12 {
+		id = id[:12]
+	}
+	return "container:" + id
+}
+
 // parseCgroupPath converts a raw cgroup path to a human-readable scope label.
 func parseCgroupPath(path string) string {
 	path = strings.TrimSpace(path)
@@ -769,22 +978,13 @@ func parseCgroupPath(path string) string {
 		// Extract container ID prefix: /docker/<64-char-id>
 		parts := strings.Split(path, "/docker/")
 		if len(parts) >= 2 {
-			id := strings.TrimSuffix(parts[1], ".scope")
-			if len(id) >= 12 {
-				return "container:" + id[:12]
-			}
-			return "container:" + id
+			return containerIDLabel(parts[1])
 		}
 		return "container"
 	case strings.Contains(path, "libpod-") || strings.Contains(path, "machine.slice"):
 		// Podman: machine.slice/libpod-<id>.scope
 		if idx := strings.Index(path, "libpod-"); idx >= 0 {
-			id := strings.TrimPrefix(path[idx:], "libpod-")
-			id = strings.TrimSuffix(id, ".scope")
-			if len(id) >= 12 {
-				return "container:" + id[:12]
-			}
-			return "container:" + id
+			return containerIDLabel(strings.TrimPrefix(path[idx:], "libpod-"))
 		}
 		if idx := strings.Index(path, "libpod_pod"); idx >= 0 {
 			return "pod:podman"
