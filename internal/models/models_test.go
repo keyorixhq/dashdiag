@@ -366,3 +366,38 @@ func TestOOMEventNonZeroTimestampRoundTrips(t *testing.T) {
 		t.Errorf("Timestamp round-trip mismatch: got %v, want %v", out.Timestamp, in.Timestamp)
 	}
 }
+
+// TestMTEFaultEventZeroTimestampOmitted is the same omitzero regression guard
+// as TestOOMEventZeroTimestampOmitted, applied to the newer MTEFaultEvent —
+// written directly against this exact bug class since it was found and fixed
+// on OOMEvent earlier in this project's history.
+func TestMTEFaultEventZeroTimestampOmitted(t *testing.T) {
+	b, err := json.Marshal(MTEFaultEvent{Process: "mte_test", PID: 2263, FaultType: "synchronous"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); strings.Contains(got, "timestamp") {
+		t.Errorf("zero Timestamp should be omitted from JSON, got: %s", got)
+	}
+}
+
+func TestMTEInfoRoundTrip(t *testing.T) {
+	in := MTEInfo{
+		Available:             true,
+		ExceptionTraceEnabled: true,
+		RecentFaults: []MTEFaultEvent{
+			{Process: "mte_test", PID: 2263, FaultType: "synchronous", Timestamp: time.Date(2026, 7, 8, 10, 1, 32, 0, time.UTC)},
+		},
+	}
+	var out MTEInfo
+	roundTrip(t, &in, &out)
+	if out.Available != in.Available || out.ExceptionTraceEnabled != in.ExceptionTraceEnabled {
+		t.Errorf("MTEInfo round-trip mismatch: got %+v, want %+v", out, in)
+	}
+	if len(out.RecentFaults) != 1 || out.RecentFaults[0].Process != "mte_test" {
+		t.Fatalf("RecentFaults round-trip mismatch: got %+v", out.RecentFaults)
+	}
+	if !out.RecentFaults[0].Timestamp.Equal(in.RecentFaults[0].Timestamp) {
+		t.Errorf("RecentFaults[0].Timestamp mismatch: got %v, want %v", out.RecentFaults[0].Timestamp, in.RecentFaults[0].Timestamp)
+	}
+}
