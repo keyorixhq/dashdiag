@@ -226,7 +226,11 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 	printSnapperSection(snap, mode)
 	printSELinuxSection(info, mode)
 	printAppArmorSection(info, mode)
-	printPAMLockedSection(info, mode)
+	if macNotActive(info) {
+		fmt.Printf("\n%s  No mandatory access control (SELinux/AppArmor) detected or active on this host\n",
+			asciiOr("info", "ℹ️", mode))
+	}
+	printPAMSection(info, mode)
 	printSUIDBinariesSection(info, mode)
 
 	// Summary
@@ -566,15 +570,43 @@ func printAppArmorSection(info *models.SecurityInfo, mode output.OutputMode) {
 	}
 }
 
-// printPAMLockedSection prints the PAM locked accounts section.
-func printPAMLockedSection(info *models.SecurityInfo, mode output.OutputMode) {
-	// PAM locked accounts
+// macNotActive reports whether neither SELinux nor AppArmor produced a mode
+// value worth reporting — i.e. neither printSELinuxSection nor
+// printAppArmorSection printed anything. Kept in sync with those two
+// functions' own gating conditions so the fallback line can't silently drift
+// from what they actually print.
+func macNotActive(info *models.SecurityInfo) bool {
+	selinuxAbsent := info.SELinuxMode == ""
+	apparmorAbsent := info.AppArmorMode == "" || info.AppArmorMode == "disabled" || info.AppArmorMode == "unknown"
+	return selinuxAbsent && apparmorAbsent
+}
+
+// printPAMSection prints PAM-related findings: locked accounts (faillock)
+// and, if present, grouped module-authentication failures from non-sshd
+// services (su, sudo, login, cron). Combined into one section — both are
+// PAM-sourced findings and a separate top-level block per finding would just
+// duplicate this one.
+func printPAMSection(info *models.SecurityInfo, mode output.OutputMode) {
+	if len(info.PAMLockedAccounts) == 0 && len(info.PAMModuleFailures) == 0 {
+		return
+	}
+	fmt.Println("\nPAM")
 	if len(info.PAMLockedAccounts) > 0 {
-		fmt.Printf("\nPAM locked accounts:\n")
+		fmt.Println("  Locked accounts:")
 		for _, a := range info.PAMLockedAccounts {
-			fmt.Printf("  %s  %s\n", asciiOr("fail", "❌", mode), a)
+			fmt.Printf("    %s  %s\n", asciiOr("fail", "❌", mode), a)
 		}
-		fmt.Println("  → faillock --reset --user <name>  (to unlock)")
+		fmt.Println("    → faillock --reset --user <name>  (to unlock)")
+	}
+	if len(info.PAMModuleFailures) > 0 {
+		fmt.Printf("  Module failures (last 24h, non-SSH services):\n")
+		for i, f := range info.PAMModuleFailures {
+			if i >= 5 {
+				fmt.Printf("    ... and %d more\n", len(info.PAMModuleFailures)-5)
+				break
+			}
+			fmt.Printf("    %s   %-12s %-15s ×%d\n", asciiOr("warn", "⚠️", mode), f.Service, f.User, f.Count)
+		}
 	}
 }
 
