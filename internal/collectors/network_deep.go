@@ -125,7 +125,7 @@ func jitterStddev(values []float64) float64 {
 func parseTCPCounters(info *models.NetworkInfo) {
 	// /proc/net/sockstat: current socket counts including TIME_WAIT
 	if data, err := readFile("/proc/net/sockstat"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			if strings.HasPrefix(line, "TCP:") {
 				fields := strings.Fields(line)
 				// Format: "TCP: inuse N orphan N tw N alloc N mem N"

@@ -18,6 +18,6 @@ func NewRAIDCollector() *RAIDCollector { return &RAIDCollector{} }
 func (c *RAIDCollector) Name() string           { return "RAID" }
 func (c *RAIDCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *RAIDCollector) Collect(_ context.Context) (any, error) {
 	return &models.RAIDInfo{}, nil
 }

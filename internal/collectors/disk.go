@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,7 +116,7 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	}
 }
 
-func (c *DiskCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *DiskCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
@@ -193,13 +194,7 @@ func (c *DiskCollector) collectDarwinBase(ctx context.Context) (*models.DiskInfo
 		}, &usage); err != nil {
 			continue
 		}
-		ro := false
-		for _, opt := range p.Opts {
-			if opt == "ro" {
-				ro = true
-				break
-			}
-		}
+		ro := slices.Contains(p.Opts, "ro")
 		if ro {
 			continue
 		}

@@ -97,7 +97,7 @@ func fdSoftLimit(pid int) int {
 	if err != nil {
 		return 0
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.Contains(line, "open files") {
 			continue
 		}
@@ -122,7 +122,7 @@ func topProcessesByFDMac(ctx context.Context, n int) (*models.Details, error) {
 	// Parse lsof field output: p<pid>\nn<name>
 	pidCounts := make(map[string]int)
 	var curPID string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if len(line) == 0 {
 			continue
 		}

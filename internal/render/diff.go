@@ -15,10 +15,7 @@ func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Hour:
-		m := int(d.Minutes())
-		if m < 1 {
-			m = 1
-		}
+		m := max(int(d.Minutes()), 1)
 		return fmt.Sprintf("%d min ago", m)
 	case d < 24*time.Hour:
 		h := int(d.Hours())

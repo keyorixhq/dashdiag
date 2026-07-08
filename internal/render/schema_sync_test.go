@@ -48,13 +48,13 @@ func loadSchema(t *testing.T) jsonSchema {
 // tags, skipping "-" and embedded/anonymous unwrapping we don't use here).
 func jsonFieldNames(rt reflect.Type) []string {
 	var names []string
-	for i := 0; i < rt.NumField(); i++ {
-		f := rt.Field(i)
+	for f := range rt.Fields() {
+		f := f
 		tag := f.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
-		name := strings.Split(tag, ",")[0]
+		name, _, _ := strings.Cut(tag, ",")
 		if name == "" {
 			continue
 		}
@@ -102,7 +102,7 @@ func superset(t *testing.T, label string, got, declared []string) {
 // TestSchemaInSync_TopLevel checks the root object's properties match JSONOutput.
 func TestSchemaInSync_TopLevel(t *testing.T) {
 	s := loadSchema(t)
-	got := jsonFieldNames(reflect.TypeOf(JSONOutput{}))
+	got := jsonFieldNames(reflect.TypeFor[JSONOutput]())
 	declared := keysOf(s.Properties)
 	subset(t, "top-level", got, declared)
 	superset(t, "top-level", got, declared)
@@ -112,7 +112,7 @@ func TestSchemaInSync_TopLevel(t *testing.T) {
 func TestSchemaInSync_Counts(t *testing.T) {
 	s := loadSchema(t)
 	countsSchema := s.Properties["counts"]
-	got := jsonFieldNames(reflect.TypeOf(JSONCounts{}))
+	got := jsonFieldNames(reflect.TypeFor[JSONCounts]())
 	declared := keysOf(countsSchema.Properties)
 	subset(t, "counts", got, declared)
 	superset(t, "counts", got, declared)
@@ -127,7 +127,7 @@ func TestSchemaInSync_Checks(t *testing.T) {
 	if itemSchema == nil {
 		t.Fatal("schema checks.items is missing")
 	}
-	got := jsonFieldNames(reflect.TypeOf(JSONCheck{}))
+	got := jsonFieldNames(reflect.TypeFor[JSONCheck]())
 	declared := keysOf(itemSchema.Properties)
 	subset(t, "checks[]", got, declared)
 	superset(t, "checks[]", got, declared)
@@ -140,7 +140,7 @@ func TestSchemaInSync_Insights(t *testing.T) {
 	if itemSchema == nil {
 		t.Fatal("schema insights.items is missing")
 	}
-	got := jsonFieldNames(reflect.TypeOf(JSONInsight{}))
+	got := jsonFieldNames(reflect.TypeFor[JSONInsight]())
 	declared := keysOf(itemSchema.Properties)
 	subset(t, "insights[]", got, declared)
 	superset(t, "insights[]", got, declared)

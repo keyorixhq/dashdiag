@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -154,12 +155,7 @@ func PolicyDeniesLevel(p *PolicyFile, level string) bool {
 	if p == nil || len(p.Deny) == 0 {
 		return level == "CRIT"
 	}
-	for _, d := range p.Deny {
-		if d == level {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.Deny, level)
 }
 
 // PolicyInitTemplate returns a starter policy YAML with comments.

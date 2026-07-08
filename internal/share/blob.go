@@ -45,10 +45,7 @@ func Encode(payload []byte) string {
 	sb.WriteString(beginMarker + "\n")
 	sb.WriteString(formatVersion + "\n")
 	for i := 0; i < len(b64); i += wrapCols {
-		end := i + wrapCols
-		if end > len(b64) {
-			end = len(b64)
-		}
+		end := min(i+wrapCols, len(b64))
 		sb.WriteString(b64[i:end] + "\n")
 	}
 	sb.WriteString(endMarker + "\n")
@@ -62,7 +59,7 @@ func Decode(text string) ([]byte, error) {
 	var b64 strings.Builder
 	inBlock, sawVersion, found := false, false, false
 
-	for _, raw := range strings.Split(text, "\n") {
+	for raw := range strings.SplitSeq(text, "\n") {
 		line := strings.TrimSpace(stripQuote(raw))
 		switch {
 		case strings.Contains(line, beginMarker):

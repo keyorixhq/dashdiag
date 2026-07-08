@@ -91,8 +91,8 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 // plain "foo" → "foo-sanitized").
 func sanitizedOutPath(in string) string {
 	for _, ext := range []string{".tar.gz", ".tgz", ".tar"} {
-		if strings.HasSuffix(in, ext) {
-			return strings.TrimSuffix(in, ext) + "-sanitized" + ext
+		if before, ok := strings.CutSuffix(in, ext); ok {
+			return before + "-sanitized" + ext
 		}
 	}
 	return in + "-sanitized"

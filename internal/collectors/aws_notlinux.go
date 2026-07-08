@@ -16,7 +16,7 @@ func NewAWSCollector() *AWSCollector { return &AWSCollector{} }
 func (c *AWSCollector) Name() string           { return "AWS" }
 func (c *AWSCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *AWSCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *AWSCollector) Collect(_ context.Context) (any, error) {
 	return &models.AWSInfo{}, nil
 }
 

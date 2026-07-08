@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -16,7 +17,7 @@ func checkSSHWeakCiphers(sec models.SecurityInfo) []models.Insight {
 	}
 	weakPatterns := []string{"cbc", "arcfour", "3des-cbc", "blowfish-cbc", "cast128-cbc"}
 	var found []string
-	for _, c := range strings.Split(sec.SSHCiphers, ",") {
+	for c := range strings.SplitSeq(sec.SSHCiphers, ",") {
 		c = strings.TrimSpace(strings.ToLower(c))
 		for _, weak := range weakPatterns {
 			if strings.Contains(c, weak) {
@@ -53,7 +54,7 @@ func checkSSHWeakMACs(sec models.SecurityInfo) []models.Insight {
 	strictWeak := []string{"hmac-md5", "hmac-sha1,", "hmac-sha1 ", "umac-64@", "hmac-ripemd160"}
 	// hmac-sha1 (non-ETM) — check as standalone token
 	var found []string
-	for _, m := range strings.Split(sec.SSHMACs, ",") {
+	for m := range strings.SplitSeq(sec.SSHMACs, ",") {
 		m = strings.TrimSpace(strings.ToLower(m))
 		for _, weak := range strictWeak {
 			// Match exact token or token followed by nothing (avoid matching hmac-sha1-etm)
@@ -96,13 +97,10 @@ func checkSSHWeakKEX(sec models.SecurityInfo) []models.Insight {
 		"diffie-hellman-group-exchange-sha1",
 	}
 	var found []string
-	for _, k := range strings.Split(sec.SSHKexAlgorithms, ",") {
+	for k := range strings.SplitSeq(sec.SSHKexAlgorithms, ",") {
 		k = strings.TrimSpace(strings.ToLower(k))
-		for _, weak := range weakKEX {
-			if k == weak {
-				found = append(found, k)
-				break
-			}
+		if slices.Contains(weakKEX, k) {
+			found = append(found, k)
 		}
 	}
 	if len(found) == 0 {

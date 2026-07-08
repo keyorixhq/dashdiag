@@ -15,7 +15,7 @@ func NewAuditCollector() *AuditCollector         { return &AuditCollector{} }
 func (c *AuditCollector) Name() string           { return "Auditd" }
 func (c *AuditCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *AuditCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *AuditCollector) Collect(_ context.Context) (any, error) {
 	return &models.AuditInfo{}, nil
 }
 

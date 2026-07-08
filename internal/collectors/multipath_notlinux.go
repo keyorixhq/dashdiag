@@ -15,7 +15,7 @@ func NewMultipathCollector() *MultipathCollector     { return &MultipathCollecto
 func (c *MultipathCollector) Name() string           { return "Multipath" }
 func (c *MultipathCollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *MultipathCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *MultipathCollector) Collect(_ context.Context) (any, error) {
 	return &models.MultipathInfo{}, nil
 }
 

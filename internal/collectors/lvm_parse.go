@@ -25,7 +25,7 @@ func parseLVMFloat(s string) float64 {
 // parseVGs parses `vgs --noheadings --nosuffix --units g -o vg_name,vg_size,vg_free,vg_attr` output.
 func parseVGs(out string) []models.LVMVG {
 	var vgs []models.LVMVG
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -46,7 +46,7 @@ func parseVGs(out string) []models.LVMVG {
 // Input: `pvs --noheadings -o vg_name,pv_attr` output.
 func mergeMissingPVs(out string, vgs []models.LVMVG) {
 	missing := map[string]int{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
@@ -69,7 +69,7 @@ func mergeMissingPVs(out string, vgs []models.LVMVG) {
 // -o lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size` output.
 // lv_attr[0] values: 't' = thin pool, 's' = snapshot, 'S' = merging snapshot.
 func parseLVs(out string) (thinPools []models.LVMThinPool, snapshots []models.LVMSnapshot) {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue

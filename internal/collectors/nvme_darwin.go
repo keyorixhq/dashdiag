@@ -19,7 +19,7 @@ func NewNVMeCollector() *NVMeCollector { return &NVMeCollector{} }
 func (c *NVMeCollector) Name() string           { return "Drives" }
 func (c *NVMeCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *NVMeCollector) Collect(ctx context.Context) (any, error) {
 	return collectDrivesDarwinText(ctx)
 }
 
@@ -34,7 +34,7 @@ func collectDrivesDarwinText(ctx context.Context) (*models.NVMeInfo, error) {
 
 	// Extract disk identifiers like disk0, disk1 (not diskNsM which are partitions)
 	var physDisks []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(line, "/dev/disk") {
 			// e.g. "/dev/disk0 (internal, physical):"
 			if strings.Contains(line, "internal") || strings.Contains(line, "physical") {
@@ -66,13 +66,13 @@ func driveInfoDarwin(ctx context.Context, disk string) models.SATADevice {
 		return dev
 	}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Device / Media Name:") {
-			dev.Model = strings.TrimSpace(strings.TrimPrefix(line, "Device / Media Name:"))
+		if after, ok := strings.CutPrefix(line, "Device / Media Name:"); ok {
+			dev.Model = strings.TrimSpace(after)
 		}
-		if strings.HasPrefix(line, "SMART Status:") {
-			status := strings.TrimSpace(strings.TrimPrefix(line, "SMART Status:"))
+		if after, ok := strings.CutPrefix(line, "SMART Status:"); ok {
+			status := strings.TrimSpace(after)
 			// SmartRead gates the analysis verdict: only a real verdict (Verified/
 			// Passed/Failing) counts as "read". "Not Supported" → unread INFO, not a
 			// CRIT and not a silent skip. (Without SmartRead, a healthy Mac drive was

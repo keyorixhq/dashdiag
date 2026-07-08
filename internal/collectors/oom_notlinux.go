@@ -15,6 +15,6 @@ func NewOOMCollector() *OOMCollector           { return &OOMCollector{} }
 func (c *OOMCollector) Name() string           { return "OOM" }
 func (c *OOMCollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *OOMCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *OOMCollector) Collect(_ context.Context) (any, error) {
 	return &models.OOMInfo{}, nil
 }

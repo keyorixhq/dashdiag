@@ -13,6 +13,6 @@ func NewBINDCollector() *BINDCollector          { return &BINDCollector{} }
 func (c *BINDCollector) Name() string           { return "BIND" }
 func (c *BINDCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *BINDCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *BINDCollector) Collect(_ context.Context) (any, error) {
 	return nil, nil
 }

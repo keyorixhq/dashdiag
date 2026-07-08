@@ -15,7 +15,7 @@ func NewNUMACollector() *NUMACollector          { return &NUMACollector{} }
 func (c *NUMACollector) Name() string           { return "NUMA" }
 func (c *NUMACollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *NUMACollector) Collect(_ context.Context) (interface{}, error) {
+func (c *NUMACollector) Collect(_ context.Context) (any, error) {
 	return &models.NUMAInfo{}, nil
 }
 

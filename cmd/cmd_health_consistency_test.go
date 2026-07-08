@@ -31,7 +31,7 @@ import (
 
 // healthHasConcern reports whether `dsd health` raises a WARN or CRIT for a single
 // collector result — i.e. the same heuristic path health runs, on one model.
-func healthHasConcern(t *testing.T, name string, data interface{}) bool {
+func healthHasConcern(t *testing.T, name string, data any) bool {
 	t.Helper()
 	env := platform.CloudEnvironment(0) // non-cloud; matches a plain host
 	ins := analysis.ApplyThresholds(

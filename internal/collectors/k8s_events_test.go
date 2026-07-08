@@ -12,7 +12,7 @@ import (
 func TestParseK8sWarningEvents(t *testing.T) {
 	var b strings.Builder
 	// 12 events oldest→newest; columns: ns age type reason type/name message...
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		fmt.Fprintf(&b, "default %dm Warning Reason%d pod/app-%d message %d\n", i, i, i, i)
 	}
 	out := b.String()

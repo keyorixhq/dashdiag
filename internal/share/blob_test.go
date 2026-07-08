@@ -38,7 +38,7 @@ func TestDecodeToleratesSurroundingNoise(t *testing.T) {
 
 	var quoted strings.Builder
 	quoted.WriteString("Hi support, here's the output you asked for:\n\n")
-	for _, line := range strings.Split(strings.TrimRight(blob, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(blob, "\n"), "\n") {
 		quoted.WriteString("> " + line + "\n")
 	}
 	quoted.WriteString("\nThanks!\n")

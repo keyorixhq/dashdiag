@@ -18,6 +18,6 @@ func NewEntropyCollector() *EntropyCollector { return &EntropyCollector{} }
 func (c *EntropyCollector) Name() string           { return "Entropy" }
 func (c *EntropyCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *EntropyCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *EntropyCollector) Collect(_ context.Context) (any, error) {
 	return &models.EntropyInfo{}, nil // Available=false → row hidden
 }

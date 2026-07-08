@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ func NewK8sDeepCollector() *K8sCollector { return &K8sCollector{Deep: true} }
 func (c *K8sCollector) Name() string           { return "K8s" }
 func (c *K8sCollector) Timeout() time.Duration { return 15 * time.Second }
 
-func (c *K8sCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *K8sCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.K8sInfo{}
 
 	bin := k8sDetectBin()
@@ -402,7 +403,7 @@ func collectK8sEvents(ctx context.Context, bin string, info *models.K8sInfo) {
 //     first malformed line (e.g. a trailing blank line).
 func parseK8sWarningEvents(out string) []models.K8sEvent {
 	var evs []models.K8sEvent
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
@@ -438,7 +439,7 @@ func collectK8sPVCs(ctx context.Context, bin string, info *models.K8sInfo) {
 	if err != nil {
 		return // no PVCs configured is normal
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -466,7 +467,7 @@ func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) 
 		if err != nil {
 			continue
 		}
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 4 {
 				continue
@@ -548,16 +549,11 @@ func k8sUnitActive(ctx context.Context, units ...string) bool {
 // These distros run containerd embedded (no host containerd.service), so a healthy node
 // would otherwise read as "containerd not active".
 func k8sBundledContainerdSockPresent() bool {
-	for _, sock := range []string{
+	return slices.ContainsFunc([]string{
 		"/run/k3s/containerd/containerd.sock",
 		"/run/k0s/containerd.sock",
 		"/var/snap/microk8s/common/run/containerd.sock",
-	} {
-		if fileExists(sock) {
-			return true
-		}
-	}
-	return false
+	}, fileExists)
 }
 
 // cniBinsPresent reports whether CNI plugin binaries are installed and whether the
@@ -651,7 +647,7 @@ func detectKubeServices(ctx context.Context, bin string) (checked bool, mode str
 // undercount, so count per-line instead of relying on a newline anchor.
 func countLinesWithPrefix(s, prefix string) int {
 	n := 0
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.HasPrefix(line, prefix) {
 			n++
 		}
@@ -686,7 +682,7 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 		logOut, _ := runCmd(ctx, "journalctl", "-u", "kubelet", "-u", "k3s",
 			"-u", "rke2-server", "-u", "k0scontroller", "-u", "snap.microk8s.daemon-kubelite",
 			"-n", "30", "--no-pager", "-q")
-		for _, line := range strings.Split(logOut, "\n") {
+		for line := range strings.SplitSeq(logOut, "\n") {
 			if strings.Contains(strings.ToLower(line), "error") ||
 				strings.Contains(strings.ToLower(line), "failed") {
 				layer.KubeletErrors = append(layer.KubeletErrors, k8sTruncate(line, 120))

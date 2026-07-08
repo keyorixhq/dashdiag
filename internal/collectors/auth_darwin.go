@@ -16,7 +16,7 @@ func NewAuthCollector() *AuthCollector          { return &AuthCollector{} }
 func (c *AuthCollector) Name() string           { return "Auth" }
 func (c *AuthCollector) Timeout() time.Duration { return 8 * time.Second }
 
-func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *AuthCollector) Collect(ctx context.Context) (any, error) {
 	// Only meaningful if sshd is running — no sshd means no auth surface to monitor.
 	if !sshdRunningDarwin(ctx) {
 		return &models.AuthInfo{}, nil // Available=false → row hidden
@@ -38,7 +38,7 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	info.Checked = true
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if line == "" {
 			continue
 		}

@@ -18,6 +18,6 @@ func NewElasticsearchCollector() *ElasticsearchCollector { return &Elasticsearch
 
 func (c *ElasticsearchCollector) Name() string           { return "Elasticsearch" }
 func (c *ElasticsearchCollector) Timeout() time.Duration { return time.Second }
-func (c *ElasticsearchCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ElasticsearchCollector) Collect(_ context.Context) (any, error) {
 	return &models.ElasticsearchInfo{Detected: false}, nil
 }

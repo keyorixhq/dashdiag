@@ -166,13 +166,13 @@ func shortenProcessName(cmd string) string {
 	}
 
 	// Find if path contains a .app bundle
-	if i := strings.Index(cmd, ".app/"); i >= 0 {
+	if before, after, ok := strings.Cut(cmd, ".app/"); ok {
 		// Get the app name (last path component before .app)
-		appPath := cmd[:i]
+		appPath := before
 		appName := filepath.Base(appPath) // e.g. "Google Chrome"
 
 		// Get the executable leaf after the .app/
-		rest := cmd[i+5:]           // after ".app/"
+		rest := after               // after ".app/"
 		leaf := filepath.Base(rest) // e.g. "Google Chrome Helper (Renderer)"
 
 		// If leaf == appName, just show the app name

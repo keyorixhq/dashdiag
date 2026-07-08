@@ -21,7 +21,7 @@ func NewTLSCollector() *TLSCollector { return &TLSCollector{} }
 func (c *TLSCollector) Name() string           { return "TLS" }
 func (c *TLSCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *TLSCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *TLSCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.TLSInfo{}
 	now := time.Now()
 

@@ -82,7 +82,7 @@ func TestRuleServiceMemoryLeak(t *testing.T) {
 			{Process: "redis"}, {Process: "apache"}, {Process: "redis"}, {Process: "apache"},
 		},
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		c, ok := ruleServiceMemoryLeak(tie)
 		if !ok || !strings.Contains(c.Summary, "apache") {
 			t.Fatalf("tie must stably name 'apache', got ok=%v summary=%q", ok, c.Summary)

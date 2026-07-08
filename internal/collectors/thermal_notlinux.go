@@ -29,7 +29,7 @@ func NewThermalCollectorWithContext(inContainer bool) *ThermalCollector {
 func (c *ThermalCollector) Name() string           { return "CPU Thermal" }
 func (c *ThermalCollector) Timeout() time.Duration { return 4 * time.Second }
 
-func (c *ThermalCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *ThermalCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.ThermalInfo{Available: true}
 
 	// Source 1: powermetrics (requires root — works with sudo dsd health)
@@ -72,13 +72,13 @@ func powermetricsCPUTemp(ctx context.Context) float64 {
 	if err != nil || out == "" {
 		return 0
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		l := strings.ToLower(line)
 		// Apple Silicon: "CPU die temperature: 42.34 C"
 		// Intel:         "CPU die temperature: 51 C"
 		if strings.Contains(l, "cpu die temperature") {
-			if colon := strings.Index(line, ":"); colon >= 0 {
-				fields := strings.Fields(line[colon+1:])
+			if _, after, ok := strings.Cut(line, ":"); ok {
+				fields := strings.Fields(after)
 				if len(fields) >= 1 {
 					if v, err := strconv.ParseFloat(fields[0], 64); err == nil && v > 0 {
 						return v
@@ -96,10 +96,10 @@ func intelCPUTemp(ctx context.Context) float64 {
 	if err != nil || out == "" {
 		return 0
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "CPU Die Temperature") {
-			if eq := strings.Index(line, " = "); eq >= 0 {
-				if v, err := strconv.ParseFloat(strings.TrimSpace(line[eq+3:]), 64); err == nil && v > 0 {
+			if _, after, ok := strings.Cut(line, " = "); ok {
+				if v, err := strconv.ParseFloat(strings.TrimSpace(after), 64); err == nil && v > 0 {
 					return v
 				}
 			}
@@ -124,10 +124,10 @@ func batteryTempProxy(ctx context.Context) float64 {
 
 // parseDarwinThermalOutput is used by unit tests.
 func parseDarwinThermalOutput(x86Out, battOut string) float64 {
-	for _, line := range strings.Split(x86Out, "\n") {
+	for line := range strings.SplitSeq(x86Out, "\n") {
 		if strings.Contains(line, "CPU Die Temperature") {
-			if eq := strings.Index(line, " = "); eq >= 0 {
-				if v, err := strconv.ParseFloat(strings.TrimSpace(line[eq+3:]), 64); err == nil && v > 0 {
+			if _, after, ok := strings.Cut(line, " = "); ok {
+				if v, err := strconv.ParseFloat(strings.TrimSpace(after), 64); err == nil && v > 0 {
 					return v
 				}
 			}

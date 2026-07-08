@@ -18,6 +18,6 @@ func NewServicesDeepCollector() *ServicesDeepCollector { return &ServicesDeepCol
 func (c *ServicesDeepCollector) Name() string           { return "ServicesDeep" }
 func (c *ServicesDeepCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *ServicesDeepCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ServicesDeepCollector) Collect(_ context.Context) (any, error) {
 	return &models.ServicesDeepInfo{JournalHealthy: true}, nil
 }
