@@ -15,7 +15,7 @@ func NewVLANCollector() *VLANCollector          { return &VLANCollector{} }
 func (c *VLANCollector) Name() string           { return "VLAN" }
 func (c *VLANCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *VLANCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *VLANCollector) Collect(_ context.Context) (any, error) {
 	return &models.VLANInfo{}, nil
 }
 

@@ -30,7 +30,7 @@ func (c *CVEHealthCollector) Name() string { return "CVE" }
 // misreporting a scan that was still legitimately in progress as "timed out."
 func (c *CVEHealthCollector) Timeout() time.Duration { return 130 * time.Second }
 
-func (c *CVEHealthCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *CVEHealthCollector) Collect(ctx context.Context) (any, error) {
 	// Cache the FULL CVE verdict (package-manager/OVAL scan + KEV enrichment) so
 	// it is frozen into a capture bundle and replays from there. CVE inputs —
 	// `rpm -qa`, the OVAL feed, the KEV catalog — aren't individually routed

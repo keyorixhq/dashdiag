@@ -28,7 +28,7 @@ func parseProcCPUInfo(data string) procCPUInfo {
 	var info procCPUInfo
 	coresSet := false
 
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		line = strings.TrimSpace(line)
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {

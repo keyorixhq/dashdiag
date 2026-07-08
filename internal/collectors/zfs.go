@@ -26,7 +26,7 @@ func NewZFSCollector() *ZFSCollector { return &ZFSCollector{} }
 func (c *ZFSCollector) Name() string           { return "ZFS" }
 func (c *ZFSCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *ZFSCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *ZFSCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.ZFSInfo{}
 
 	// zpool not installed — silent OK
@@ -71,7 +71,7 @@ func (c *ZFSCollector) Collect(ctx context.Context) (interface{}, error) {
 // Returns a map of pool name → ZFSPool for merging with status data.
 func parseZpoolList(out string) map[string]models.ZFSPool {
 	pools := map[string]models.ZFSPool{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -111,8 +111,8 @@ func mergeZpoolStatus(out string, pools map[string]models.ZFSPool) {
 		trimmed := strings.TrimSpace(line)
 
 		// Pool header: "  pool: tank"
-		if strings.HasPrefix(trimmed, "pool:") {
-			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
+		if after, ok := strings.CutPrefix(trimmed, "pool:"); ok {
+			currentPool = strings.TrimSpace(after)
 			continue
 		}
 
@@ -125,14 +125,14 @@ func mergeZpoolStatus(out string, pools map[string]models.ZFSPool) {
 		}
 
 		// State line: "  state: DEGRADED"
-		if strings.HasPrefix(trimmed, "state:") {
-			state := strings.TrimSpace(strings.TrimPrefix(trimmed, "state:"))
+		if after, ok0 := strings.CutPrefix(trimmed, "state:"); ok0 {
+			state := strings.TrimSpace(after)
 			pool.State = strings.ToUpper(state)
 		}
 
 		// Status message (human-readable problem description)
-		if strings.HasPrefix(trimmed, "status:") {
-			pool.StatusMsg = strings.TrimSpace(strings.TrimPrefix(trimmed, "status:"))
+		if after, ok0 := strings.CutPrefix(trimmed, "status:"); ok0 {
+			pool.StatusMsg = strings.TrimSpace(after)
 			// Collect continuation lines
 			for j := i + 1; j < len(lines) && j < i+3; j++ {
 				cont := strings.TrimSpace(lines[j])
@@ -146,8 +146,8 @@ func mergeZpoolStatus(out string, pools map[string]models.ZFSPool) {
 		// Scrub line: "  scan: scrub repaired 0B in 00:01:23 with 0 errors on Sun May 12 ..."
 		//         or: "  scan: scrub in progress since ..."
 		//         or: "  scan: none requested"
-		if strings.HasPrefix(trimmed, "scan:") {
-			scanLine := strings.TrimSpace(strings.TrimPrefix(trimmed, "scan:"))
+		if after, ok0 := strings.CutPrefix(trimmed, "scan:"); ok0 {
+			scanLine := strings.TrimSpace(after)
 			if strings.Contains(scanLine, "scrub repaired") {
 				pool.ScrubAgeDays = parseScrubAge(scanLine)
 				pool.ScrubErrors = parseScrubErrors(scanLine)
@@ -254,11 +254,11 @@ func parseZFSCount(s string) (int, bool) {
 // Input: "scrub repaired 0B in 00:01:23 with 0 errors on Sun May 12 03:25:01 2024"
 func parseScrubAge(line string) int {
 	// Find "on <weekday> <month> <day> <time> <year>"
-	onIdx := strings.Index(line, " on ")
-	if onIdx < 0 {
+	_, after, ok := strings.Cut(line, " on ")
+	if !ok {
 		return -1
 	}
-	datePart := strings.TrimSpace(line[onIdx+4:])
+	datePart := strings.TrimSpace(after)
 	// Parse: "Sun May 12 03:25:01 2024"
 	t, err := time.Parse("Mon Jan 2 15:04:05 2006", datePart)
 	if err != nil {
@@ -278,11 +278,11 @@ func parseScrubAge(line string) int {
 // parseScrubErrors extracts error count from scrub output line.
 // Input: "scrub repaired 0B in 00:01:23 with 3 errors on ..."
 func parseScrubErrors(line string) int {
-	withIdx := strings.Index(line, " with ")
-	if withIdx < 0 {
+	_, after, ok := strings.Cut(line, " with ")
+	if !ok {
 		return 0
 	}
-	rest := strings.TrimSpace(line[withIdx+6:])
+	rest := strings.TrimSpace(after)
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
 		return 0

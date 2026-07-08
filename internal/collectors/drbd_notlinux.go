@@ -18,6 +18,6 @@ func NewDRBDCollector() *DRBDCollector { return &DRBDCollector{} }
 func (c *DRBDCollector) Name() string           { return "DRBD" }
 func (c *DRBDCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *DRBDCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *DRBDCollector) Collect(_ context.Context) (any, error) {
 	return &models.DRBDInfo{}, nil
 }

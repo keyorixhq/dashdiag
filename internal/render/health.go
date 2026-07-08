@@ -503,7 +503,7 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 	return ""
 }
 
-func inlineCPULoad(data interface{}) string {
+func inlineCPULoad(data any) string {
 	cpu := asCPUInfo(data)
 	if cpu == nil {
 		return ""
@@ -538,7 +538,7 @@ func cpuDisplayPct(cpu *models.CPUInfo) float64 {
 	return usage
 }
 
-func inlineMemory(data interface{}) string {
+func inlineMemory(data any) string {
 	var r *models.MemoryInfo
 	if v, ok := data.(*models.MemoryInfo); ok {
 		r = v
@@ -557,7 +557,7 @@ func inlineMemory(data interface{}) string {
 	return fmt.Sprintf("%.1f/%.0f GB (%.0f%%)", used, r.TotalGB, r.UsedPct)
 }
 
-func inlineSwap(data interface{}) string {
+func inlineSwap(data any) string {
 	var s *models.SwapInfo
 	if v, ok := data.(*models.SwapInfo); ok {
 		s = v
@@ -573,7 +573,7 @@ func inlineSwap(data interface{}) string {
 	return fmt.Sprintf("%.0f MB used", s.UsedGB*1024)
 }
 
-func inlineEntropy(data interface{}) string {
+func inlineEntropy(data any) string {
 	var e *models.EntropyInfo
 	if v, ok := data.(*models.EntropyInfo); ok {
 		e = v
@@ -589,7 +589,7 @@ func inlineEntropy(data interface{}) string {
 	return fmt.Sprintf("%d bits", e.EntropyBits)
 }
 
-func inlineFDLimits(data interface{}) string {
+func inlineFDLimits(data any) string {
 	var fd *models.FDInfo
 	if v, ok := data.(*models.FDInfo); ok {
 		fd = v
@@ -615,7 +615,7 @@ func inlineFDLimits(data interface{}) string {
 	return s
 }
 
-func inlineIO(data interface{}) string {
+func inlineIO(data any) string {
 	var io *models.IOInfo
 	if v, ok := data.(*models.IOInfo); ok {
 		io = v
@@ -628,7 +628,7 @@ func inlineIO(data interface{}) string {
 	return ioInline(io.Devices)
 }
 
-func inlineKernelSec(data interface{}) string {
+func inlineKernelSec(data any) string {
 	var k *models.KernelSecurityInfo
 	if v, ok := data.(*models.KernelSecurityInfo); ok {
 		k = v
@@ -641,7 +641,7 @@ func inlineKernelSec(data interface{}) string {
 	return kernelSecInline(k)
 }
 
-func inlineClock(data interface{}) string {
+func inlineClock(data any) string {
 	var c *models.ClockInfo
 	if v, ok := data.(*models.ClockInfo); ok {
 		c = v
@@ -657,7 +657,7 @@ func inlineClock(data interface{}) string {
 	return fmt.Sprintf("±%.0f ms", abs(c.OffsetMs))
 }
 
-func inlineLogs(data interface{}) string {
+func inlineLogs(data any) string {
 	var l *models.LogsInfo
 	if v, ok := data.(*models.LogsInfo); ok {
 		l = v
@@ -670,7 +670,7 @@ func inlineLogs(data interface{}) string {
 	return fmt.Sprintf("%.0f MB journal", l.JournalSizeGB*1024)
 }
 
-func inlineCPUThermal(data interface{}) string {
+func inlineCPUThermal(data any) string {
 	var t *models.ThermalInfo
 	if v, ok := data.(*models.ThermalInfo); ok {
 		t = v
@@ -683,7 +683,7 @@ func inlineCPUThermal(data interface{}) string {
 	return fmt.Sprintf("%.0f°C", t.CPUTempC)
 }
 
-func inlineBattery(data interface{}) string {
+func inlineBattery(data any) string {
 	var b *models.BatteryInfo
 	if v, ok := data.(*models.BatteryInfo); ok {
 		b = v
@@ -700,7 +700,7 @@ func inlineBattery(data interface{}) string {
 	return s
 }
 
-func inlineDrives(data interface{}) string {
+func inlineDrives(data any) string {
 	var n *models.NVMeInfo
 	if v, ok := data.(*models.NVMeInfo); ok {
 		n = v
@@ -751,7 +751,7 @@ func inlineDrives(data interface{}) string {
 	return fmt.Sprintf("%d drives  healthy", total)
 }
 
-func inlineSystemd(data interface{}) string {
+func inlineSystemd(data any) string {
 	var s *models.SystemdInfo
 	if v, ok := data.(*models.SystemdInfo); ok {
 		s = v
@@ -767,7 +767,7 @@ func inlineSystemd(data interface{}) string {
 	return ""
 }
 
-func inlineProcesses(data interface{}) string {
+func inlineProcesses(data any) string {
 	var p *models.ProcessInfo
 	if v, ok := data.(*models.ProcessInfo); ok {
 		p = v
@@ -786,7 +786,7 @@ func inlineProcesses(data interface{}) string {
 	return ""
 }
 
-func inlineBonding(data interface{}) string {
+func inlineBonding(data any) string {
 	var b *models.BondingInfo
 	if v, ok := data.(*models.BondingInfo); ok {
 		b = v
@@ -807,7 +807,7 @@ func inlineBonding(data interface{}) string {
 	return fmt.Sprintf("%d bonds  %d slaves", len(b.Bonds), total)
 }
 
-func inlineOOM(data interface{}) string {
+func inlineOOM(data any) string {
 	var o *models.OOMInfo
 	if v, ok := data.(*models.OOMInfo); ok {
 		o = v
@@ -826,7 +826,7 @@ func inlineOOM(data interface{}) string {
 	return fmt.Sprintf("%d event(s) in 24h", o.EventsLast24h)
 }
 
-func inlineLVM(data interface{}) string {
+func inlineLVM(data any) string {
 	var l *models.LVMInfo
 	if v, ok := data.(*models.LVMInfo); ok {
 		l = v
@@ -852,7 +852,7 @@ func inlineLVM(data interface{}) string {
 	return fmt.Sprintf("%d VG(s)  %d active", len(l.VGs), active)
 }
 
-func inlineSessions(data interface{}) string {
+func inlineSessions(data any) string {
 	var s *models.SessionsInfo
 	if v, ok := data.(*models.SessionsInfo); ok {
 		s = v
@@ -874,7 +874,7 @@ func inlineSessions(data interface{}) string {
 	return fmt.Sprintf("%d sessions", s.TotalCount)
 }
 
-func inlineIPMI(data interface{}) string {
+func inlineIPMI(data any) string {
 	var i *models.IPMIInfo
 	if v, ok := data.(*models.IPMIInfo); ok {
 		i = v
@@ -887,7 +887,7 @@ func inlineIPMI(data interface{}) string {
 	return fmt.Sprintf("%d sensors  ok", len(i.Sensors))
 }
 
-func inlineHBA(data interface{}) string {
+func inlineHBA(data any) string {
 	var h *models.HBAInfo
 	if v, ok := data.(*models.HBAInfo); ok {
 		h = v
@@ -906,7 +906,7 @@ func inlineHBA(data interface{}) string {
 	return fmt.Sprintf("%d/%d ports online", online, len(h.Ports))
 }
 
-func inlinePressure(data interface{}) string {
+func inlinePressure(data any) string {
 	var p *models.PressureInfo
 	if v, ok := data.(*models.PressureInfo); ok {
 		p = v
@@ -923,7 +923,7 @@ func inlinePressure(data interface{}) string {
 	return "no pressure"
 }
 
-func inlineMultipath(data interface{}) string {
+func inlineMultipath(data any) string {
 	var m *models.MultipathInfo
 	if v, ok := data.(*models.MultipathInfo); ok {
 		m = v
@@ -947,7 +947,7 @@ func inlineMultipath(data interface{}) string {
 	return fmt.Sprintf("%d devices  %d paths", len(m.Devices), totalPaths)
 }
 
-func inlineCeph(data interface{}) string {
+func inlineCeph(data any) string {
 	var c *models.CephInfo
 	if v, ok := data.(*models.CephInfo); ok {
 		c = v
@@ -963,7 +963,7 @@ func inlineCeph(data interface{}) string {
 	return c.Health
 }
 
-func inlineFirewall(data interface{}) string {
+func inlineFirewall(data any) string {
 	var f *models.FirewallInfo
 	if v, ok := data.(*models.FirewallInfo); ok {
 		f = v
@@ -983,7 +983,7 @@ func inlineFirewall(data interface{}) string {
 	return fmt.Sprintf("%s  %d rules%s", f.Backend, f.TotalRules, drop)
 }
 
-func inlineAuth(data interface{}) string {
+func inlineAuth(data any) string {
 	var a *models.AuthInfo
 	if v, ok := data.(*models.AuthInfo); ok {
 		a = v
@@ -1002,7 +1002,7 @@ func inlineAuth(data interface{}) string {
 	return ""
 }
 
-func inlineCloudMeta(data interface{}) string {
+func inlineCloudMeta(data any) string {
 	var c *models.CloudInfo
 	if v, ok := data.(*models.CloudInfo); ok {
 		c = v
@@ -1022,7 +1022,7 @@ func inlineCloudMeta(data interface{}) string {
 	return s
 }
 
-func inlineCloudInit(data interface{}) string {
+func inlineCloudInit(data any) string {
 	var c *models.CloudInitInfo
 	if v, ok := data.(*models.CloudInitInfo); ok {
 		c = v
@@ -1043,7 +1043,7 @@ func inlineCloudInit(data interface{}) string {
 	return s
 }
 
-func inlineAuditd(data interface{}) string {
+func inlineAuditd(data any) string {
 	var a *models.AuditInfo
 	if v, ok := data.(*models.AuditInfo); ok {
 		a = v
@@ -1059,7 +1059,7 @@ func inlineAuditd(data interface{}) string {
 	return fmt.Sprintf("%d rules  running", a.RulesLoaded)
 }
 
-func inlineNUMA(data interface{}) string {
+func inlineNUMA(data any) string {
 	var n *models.NUMAInfo
 	if v, ok := data.(*models.NUMAInfo); ok {
 		n = v
@@ -1072,7 +1072,7 @@ func inlineNUMA(data interface{}) string {
 	return fmt.Sprintf("%d nodes", n.NodeCount)
 }
 
-func inlineVLAN(data interface{}) string {
+func inlineVLAN(data any) string {
 	var v *models.VLANInfo
 	if x, ok := data.(*models.VLANInfo); ok {
 		v = x
@@ -1091,7 +1091,7 @@ func inlineVLAN(data interface{}) string {
 	return fmt.Sprintf("%d VLANs  %d/%d up", len(v.Interfaces), up, len(v.Interfaces))
 }
 
-func inlineISCSI(data interface{}) string {
+func inlineISCSI(data any) string {
 	var i *models.ISCSIInfo
 	if v, ok := data.(*models.ISCSIInfo); ok {
 		i = v
@@ -1115,7 +1115,7 @@ func inlineISCSI(data interface{}) string {
 	return fmt.Sprintf("%d/%d logged in", loggedIn, len(i.Sessions))
 }
 
-func inlineInfiniBand(data interface{}) string {
+func inlineInfiniBand(data any) string {
 	var ib *models.InfiniBandInfo
 	if v, ok := data.(*models.InfiniBandInfo); ok {
 		ib = v
@@ -1134,7 +1134,7 @@ func inlineInfiniBand(data interface{}) string {
 	return fmt.Sprintf("%d/%d ports active", active, len(ib.Ports))
 }
 
-func inlineSRIOV(data interface{}) string {
+func inlineSRIOV(data any) string {
 	var s *models.SRIOVInfo
 	if v, ok := data.(*models.SRIOVInfo); ok {
 		s = v
@@ -1151,7 +1151,7 @@ func inlineSRIOV(data interface{}) string {
 	return fmt.Sprintf("%d devices  %d VFs active", len(s.Devices), totalVFs)
 }
 
-func inlineNspawn(data interface{}) string {
+func inlineNspawn(data any) string {
 	var n *models.NspawnInfo
 	if v, ok := data.(*models.NspawnInfo); ok {
 		n = v
@@ -1170,7 +1170,7 @@ func inlineNspawn(data interface{}) string {
 	return fmt.Sprintf("%d containers  %d running", len(n.Containers), running)
 }
 
-func inlineGPU(data interface{}) string {
+func inlineGPU(data any) string {
 	var g *models.GPUInfo
 	if v, ok := data.(*models.GPUInfo); ok {
 		g = v
@@ -1224,7 +1224,7 @@ func inlineGPU(data interface{}) string {
 // ≤2 mounts: show all → "/ 45%  /boot 12%"
 // 3+ mounts: show count + worst → "6 mounts, max 82% (/data)"
 // Any with WARN-level usage (>70%): always highlight the offending mount.
-func diskInline(data interface{}) string {
+func diskInline(data any) string {
 	var fs []models.FilesystemInfo
 	if d, ok := data.(*models.DiskInfo); ok && d != nil {
 		fs = d.Filesystems
@@ -1252,7 +1252,7 @@ func diskInline(data interface{}) string {
 }
 
 // networkInline implements Option C for multiple NICs.
-func networkInline(data interface{}) string {
+func networkInline(data any) string {
 	var n *models.NetworkInfo
 	if v, ok := data.(*models.NetworkInfo); ok && v != nil {
 		n = v
@@ -1375,7 +1375,7 @@ func kernelSecInline(k *models.KernelSecurityInfo) string {
 	return ""
 }
 
-func asCPUInfo(data interface{}) *models.CPUInfo {
+func asCPUInfo(data any) *models.CPUInfo {
 	if cpu, ok := data.(*models.CPUInfo); ok {
 		return cpu
 	}
@@ -1451,7 +1451,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 
 	if d.Type == "log_tail" {
 		if tail, ok := d.KV["log_tail"]; ok {
-			for _, line := range strings.Split(strings.TrimSpace(tail), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(tail), "\n") {
 				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(line))
 			}
 		}
@@ -1668,7 +1668,7 @@ func (r *Renderer) PrintCorrelations(corrs []analysis.Correlation) {
 	}
 }
 
-func inlineHugePages(data interface{}) string {
+func inlineHugePages(data any) string {
 	var h *models.HugePagesInfo
 	if v, ok := data.(*models.HugePagesInfo); ok {
 		h = v
@@ -1688,7 +1688,7 @@ func inlineHugePages(data interface{}) string {
 	return ""
 }
 
-func inlineCPUFreq(data interface{}) string {
+func inlineCPUFreq(data any) string {
 	var f *models.CPUFreqInfo
 	if v, ok := data.(*models.CPUFreqInfo); ok {
 		f = v
@@ -1704,7 +1704,7 @@ func inlineCPUFreq(data interface{}) string {
 	return f.Governor
 }
 
-func inlineLaunchd(data interface{}) string {
+func inlineLaunchd(data any) string {
 	var l *models.LaunchdInfo
 	if v, ok := data.(*models.LaunchdInfo); ok {
 		l = v
@@ -1720,7 +1720,7 @@ func inlineLaunchd(data interface{}) string {
 	return fmt.Sprintf("%d running", l.Running)
 }
 
-func inlinePackages(data interface{}) string {
+func inlinePackages(data any) string {
 	var p *models.PackagesInfo
 	if v, ok := data.(*models.PackagesInfo); ok {
 		p = v
@@ -1750,7 +1750,7 @@ func inlinePackages(data interface{}) string {
 
 // inlineCVE returns a one-line summary for the CVE row when it is OK (no
 // high-severity or actively-exploited CVEs — those already surface as insights).
-func inlineCVE(data interface{}) string {
+func inlineCVE(data any) string {
 	var r *models.CVEAllResult
 	if v, ok := data.(*models.CVEAllResult); ok {
 		r = v
@@ -1772,7 +1772,7 @@ func inlineCVE(data interface{}) string {
 
 // inlineContainerd returns a one-line summary for a standalone containerd runtime.
 // Shows version + namespace/container counts when available.
-func inlineContainerd(data interface{}) string {
+func inlineContainerd(data any) string {
 	d, ok := data.(*models.ContainerdInfo)
 	if !ok {
 		if v, ok2 := data.(models.ContainerdInfo); ok2 {

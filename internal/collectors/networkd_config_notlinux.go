@@ -13,7 +13,7 @@ func NewNetworkdConfigCollector() *NetworkdConfigCollector { return &NetworkdCon
 func (c *NetworkdConfigCollector) Name() string            { return "Networkd" }
 func (c *NetworkdConfigCollector) Timeout() time.Duration  { return 1 * time.Second }
 
-func (c *NetworkdConfigCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *NetworkdConfigCollector) Collect(_ context.Context) (any, error) {
 	return nil, nil // systemd-networkd is Linux-only
 }
 

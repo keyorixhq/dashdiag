@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -165,12 +166,7 @@ func sysupdateUnconfigured() bool {
 }
 
 func containsUnit(units []string, name string) bool {
-	for _, u := range units {
-		if u == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(units, name)
 }
 
 // unitIgnored reports whether a unit name is in the ignore set, matching both the
@@ -326,7 +322,7 @@ func systemdPresentViaSource() bool {
 	return fileExists("/run/systemd/private") || fileExists("/run/systemd/system")
 }
 
-func (c *SystemdCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SystemdCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" || !systemdPresentViaSource() {
 		return &models.SystemdInfo{Available: false}, nil
 	}
@@ -425,7 +421,7 @@ func isNonServiceBlameUnit(name string) bool {
 // timer-triggered async jobs that blame lists but which never gated boot.
 func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.SlowUnit {
 	var slow []models.SlowUnit
-	for _, line := range strings.Split(blameOut, "\n") {
+	for line := range strings.SplitSeq(blameOut, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -464,7 +460,7 @@ func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.Sl
 // parseAnalyzeTime extracts total boot time in seconds from systemd-analyze time output.
 // Format: "Startup finished in 1.234s (kernel) + 2.345s (initrd) + 3.456s (userspace) = 7.035s"
 func parseAnalyzeTime(out string) float64 {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if !strings.Contains(line, "=") {
 			continue
 		}
@@ -483,8 +479,8 @@ func parseBlameTime(s string) float64 {
 	s = strings.TrimSpace(s)
 	total := 0.0
 	// Handle compound times: "1min 3.456s"
-	parts := strings.Fields(s)
-	for _, p := range parts {
+	parts := strings.FieldsSeq(s)
+	for p := range parts {
 		switch {
 		case strings.HasSuffix(p, "ms"):
 			n := parseFloat(strings.TrimSuffix(p, "ms"))

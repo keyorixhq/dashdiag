@@ -55,7 +55,6 @@ func TestParseDiskstats(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := parseDiskstats(strings.NewReader(tc.input))

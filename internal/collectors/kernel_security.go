@@ -101,7 +101,7 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	if err != nil {
 		return present, mode, -1
 	}
-	for _, line := range strings.Split(jout, "\n") {
+	for line := range strings.SplitSeq(jout, "\n") {
 		// Enforced denials only — exclude permissive=1 (logged, not blocked),
 		// matching the audit-log and ausearch paths.
 		if strings.Contains(line, "avc:  denied") && !avcIsPermissive(line) {
@@ -118,11 +118,11 @@ func ExtractAVCProcesses(samples []string) []string {
 	seen := map[string]bool{}
 	var procs []string
 	for _, line := range samples {
-		idx := strings.Index(line, `comm="`)
-		if idx < 0 {
+		_, after, ok := strings.Cut(line, `comm="`)
+		if !ok {
 			continue
 		}
-		rest := line[idx+6:]
+		rest := after
 		end := strings.IndexByte(rest, '"')
 		if end <= 0 {
 			continue
@@ -185,11 +185,11 @@ func isRecentAVCDenial(line string, cutoff time.Time) bool {
 		return false
 	}
 	// Parse Unix timestamp from: msg=audit(1715000000.000:1)
-	idx := strings.Index(line, "msg=audit(")
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, "msg=audit(")
+	if !ok {
 		return false
 	}
-	rest := line[idx+10:]
+	rest := after
 	dotIdx := strings.IndexByte(rest, '.')
 	if dotIdx <= 0 {
 		return false
@@ -238,7 +238,7 @@ func apparmorModeFromPath(path string) string {
 
 // parseApparmorProfiles returns the dominant mode from the profiles list.
 func parseApparmorProfiles(data string) string {
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		if strings.HasSuffix(line, "(enforce)") {
 			return "enforce"
 		}
@@ -256,7 +256,7 @@ func apparmorDetail() (total, enforce, complain int) {
 	if err != nil {
 		return 0, 0, 0
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -294,12 +294,12 @@ func countAppArmorDenials(window time.Duration) int {
 			continue
 		}
 		// Parse timestamp from msg=audit(TS.ms:n)
-		idx := strings.Index(line, "msg=audit(")
-		if idx < 0 {
+		_, after, ok := strings.Cut(line, "msg=audit(")
+		if !ok {
 			count++ // count even if no timestamp
 			continue
 		}
-		rest := line[idx+10:]
+		rest := after
 		dotIdx := strings.IndexByte(rest, '.')
 		if dotIdx <= 0 {
 			count++
@@ -327,7 +327,7 @@ func countAppArmorDenialsDmesg(window time.Duration) int {
 		}
 	}
 	count := 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "apparmor") && strings.Contains(lower, "denied") {
 			count++
@@ -336,7 +336,7 @@ func countAppArmorDenialsDmesg(window time.Duration) int {
 	return count
 }
 
-func (c *KernelSecurityCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *KernelSecurityCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return &models.KernelSecurityInfo{}, nil
 	}
@@ -391,13 +391,13 @@ func validateSELinuxPolicyType() (seType string, typeValid, dirOK, pkgOK, relabe
 		return "", false, false, false, false
 	}
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "SELINUXTYPE=") {
-			seType = strings.TrimPrefix(line, "SELINUXTYPE=")
+		if after, ok := strings.CutPrefix(line, "SELINUXTYPE="); ok {
+			seType = after
 			seType = strings.TrimSpace(seType)
 			break
 		}
@@ -513,9 +513,9 @@ func collectAVCSamples(n int) []string {
 			continue
 		}
 		// Parse timestamp to stay within 1h window
-		idx := strings.Index(line, "msg=audit(")
-		if idx >= 0 {
-			rest := line[idx+10:]
+		_, after, ok := strings.Cut(line, "msg=audit(")
+		if ok {
+			rest := after
 			dotIdx := strings.IndexByte(rest, '.')
 			if dotIdx > 0 {
 				if sec, err := strconv.ParseInt(rest[:dotIdx], 10, 64); err == nil {
@@ -562,7 +562,7 @@ func countAVCsViaAusearch(window time.Duration) (int, bool) {
 	}
 
 	count := 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		// Count enforced denials only — exclude `avc: granted` (auditallow) records
 		// and permissive=1 (logged, not blocked), matching the audit-log path and
 		// the verdict's meaning.

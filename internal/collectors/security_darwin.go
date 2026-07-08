@@ -38,7 +38,7 @@ func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) {}
 // ScanSUIDBinaries is a no-op on darwin (Linux SUID scan only).
 func ScanSUIDBinaries(_ *models.SecurityInfo) {}
 
-func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SecurityCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.SecurityInfo{}
 
 	// macOS uses BSM auditd, which is unrelated to Linux auditd rules. Mark the
@@ -127,7 +127,7 @@ func parseDarwinListeningPorts(ctx context.Context, info *models.SecurityInfo) {
 		return
 	}
 	seen := map[int]bool{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 9 {
 			continue

@@ -1119,7 +1119,7 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 
 // k8sFirstLine returns the first non-empty line of a multi-line string.
 func k8sFirstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			return line

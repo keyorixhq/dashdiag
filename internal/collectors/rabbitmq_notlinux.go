@@ -18,6 +18,6 @@ func NewRabbitMQCollector() *RabbitMQCollector { return &RabbitMQCollector{} }
 
 func (c *RabbitMQCollector) Name() string           { return "RabbitMQ" }
 func (c *RabbitMQCollector) Timeout() time.Duration { return time.Second }
-func (c *RabbitMQCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *RabbitMQCollector) Collect(_ context.Context) (any, error) {
 	return &models.RabbitMQInfo{Detected: false}, nil
 }

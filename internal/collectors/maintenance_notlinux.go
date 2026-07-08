@@ -18,7 +18,7 @@ type KdumpCollector struct{}
 func NewKdumpCollector(platform.ContainerContext) *KdumpCollector { return &KdumpCollector{} }
 func (c *KdumpCollector) Name() string                            { return "Kdump" }
 func (c *KdumpCollector) Timeout() time.Duration                  { return time.Second }
-func (c *KdumpCollector) Collect(context.Context) (interface{}, error) {
+func (c *KdumpCollector) Collect(context.Context) (any, error) {
 	return &models.KdumpInfo{}, nil
 }
 func KdumpAvailable() bool { return false }
@@ -28,7 +28,7 @@ type TunedCollector struct{}
 func NewTunedCollector() *TunedCollector         { return &TunedCollector{} }
 func (c *TunedCollector) Name() string           { return "Tuned" }
 func (c *TunedCollector) Timeout() time.Duration { return time.Second }
-func (c *TunedCollector) Collect(context.Context) (interface{}, error) {
+func (c *TunedCollector) Collect(context.Context) (any, error) {
 	return &models.TunedInfo{}, nil
 }
 func TunedAvailable() bool { return false }
@@ -40,7 +40,7 @@ func NewKernelPatchCollector(platform.ContainerContext) *KernelPatchCollector {
 }
 func (c *KernelPatchCollector) Name() string           { return "Kernel" }
 func (c *KernelPatchCollector) Timeout() time.Duration { return time.Second }
-func (c *KernelPatchCollector) Collect(context.Context) (interface{}, error) {
+func (c *KernelPatchCollector) Collect(context.Context) (any, error) {
 	return &models.KernelPatchInfo{}, nil
 }
 func KernelPatchAvailable() bool { return false }
@@ -50,7 +50,7 @@ type KspliceCollector struct{}
 func NewKspliceCollector(platform.ContainerContext) *KspliceCollector { return &KspliceCollector{} }
 func (c *KspliceCollector) Name() string                              { return "Ksplice" }
 func (c *KspliceCollector) Timeout() time.Duration                    { return time.Second }
-func (c *KspliceCollector) Collect(context.Context) (interface{}, error) {
+func (c *KspliceCollector) Collect(context.Context) (any, error) {
 	return &models.KspliceInfo{}, nil
 }
 func KspliceAvailable() bool { return false }
@@ -60,7 +60,7 @@ type ServiceRestartCollector struct{}
 func NewServiceRestartCollector() *ServiceRestartCollector { return &ServiceRestartCollector{} }
 func (c *ServiceRestartCollector) Name() string            { return "ServiceRestart" }
 func (c *ServiceRestartCollector) Timeout() time.Duration  { return time.Second }
-func (c *ServiceRestartCollector) Collect(context.Context) (interface{}, error) {
+func (c *ServiceRestartCollector) Collect(context.Context) (any, error) {
 	return &models.ServiceRestartInfo{}, nil
 }
 func ServiceRestartAvailable() bool { return false }
@@ -72,7 +72,7 @@ func NewKernelRetentionCollector(platform.ContainerContext) *KernelRetentionColl
 }
 func (c *KernelRetentionCollector) Name() string           { return "KernelRetention" }
 func (c *KernelRetentionCollector) Timeout() time.Duration { return time.Second }
-func (c *KernelRetentionCollector) Collect(context.Context) (interface{}, error) {
+func (c *KernelRetentionCollector) Collect(context.Context) (any, error) {
 	return &models.KernelRetentionInfo{}, nil
 }
 func KernelRetentionAvailable() bool { return false }
@@ -84,7 +84,7 @@ func NewLivePatchCollector(platform.ContainerContext) *LivePatchCollector {
 }
 func (c *LivePatchCollector) Name() string           { return "LivePatch" }
 func (c *LivePatchCollector) Timeout() time.Duration { return time.Second }
-func (c *LivePatchCollector) Collect(context.Context) (interface{}, error) {
+func (c *LivePatchCollector) Collect(context.Context) (any, error) {
 	return &models.LivePatchInfo{}, nil
 }
 func LivePatchAvailable() bool { return false }
@@ -96,7 +96,7 @@ func NewTransactionalCollector(platform.ContainerContext) *TransactionalCollecto
 }
 func (c *TransactionalCollector) Name() string           { return "Transactional" }
 func (c *TransactionalCollector) Timeout() time.Duration { return time.Second }
-func (c *TransactionalCollector) Collect(context.Context) (interface{}, error) {
+func (c *TransactionalCollector) Collect(context.Context) (any, error) {
 	return &models.TransactionalInfo{}, nil
 }
 func TransactionalAvailable() bool { return false }

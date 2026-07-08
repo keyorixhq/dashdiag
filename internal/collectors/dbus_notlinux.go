@@ -16,6 +16,6 @@ func NewDBusCollector() *DBusCollector          { return &DBusCollector{} }
 func (c *DBusCollector) Name() string           { return "DBus" }
 func (c *DBusCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *DBusCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *DBusCollector) Collect(_ context.Context) (any, error) {
 	return &models.DBusInfo{Active: true, Status: "n/a"}, nil
 }

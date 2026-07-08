@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func roundTrip(t *testing.T, in, out interface{}) {
+func roundTrip(t *testing.T, in, out any) {
 	t.Helper()
 	b, err := json.Marshal(in)
 	if err != nil {

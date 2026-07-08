@@ -188,7 +188,7 @@ May 01 10:00:03 deck gamescope[1]: assert failed in xwm`
 
 func TestFilterGamescopeErrorsCaps(t *testing.T) {
 	var sb string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb += "line error here\n"
 	}
 	hits := filterGamescopeErrors(sb, 3)
@@ -345,7 +345,7 @@ func TestDetectSSIDConflict(t *testing.T) {
 		{Name: "wlan0", SSID: "Zeta"}, {Name: "wlan1", SSID: "Zeta"},
 		{Name: "wlan2", SSID: "Alpha"}, {Name: "wlan3", SSID: "Alpha"},
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if c, s := detectSSIDConflict(multi); !c || s != "Alpha" {
 			t.Fatalf("expected stable conflict on 'Alpha', got %v/%q", c, s)
 		}

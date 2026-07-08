@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ func NewDockerCollectorWithProfile(p platform.Profile) *DockerCollector {
 func (c *DockerCollector) Name() string           { return "Docker" }
 func (c *DockerCollector) Timeout() time.Duration { return 10 * time.Second }
 
-func (c *DockerCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.DockerInfo{}
 
 	// Try Docker socket first, then Podman
@@ -440,19 +441,19 @@ func detectPlaintextSecrets(env []string) []string {
 	var found []string
 	trivial := map[string]bool{"true": true, "false": true, "0": true, "1": true, "": true}
 	for _, kv := range env {
-		idx := strings.Index(kv, "=")
-		if idx < 0 {
+		before, after, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		name := strings.ToUpper(kv[:idx])
-		val := kv[idx+1:]
+		name := strings.ToUpper(before)
+		val := after
 		// Skip obviously non-secret values
 		if trivial[strings.ToLower(val)] || strings.HasPrefix(val, "/") {
 			continue
 		}
 		for _, pat := range secretPatterns {
 			if strings.Contains(name, pat) {
-				found = append(found, kv[:idx]) // name only
+				found = append(found, before) // name only
 				break
 			}
 		}
@@ -485,7 +486,7 @@ func collectDockerEvents(ctx context.Context, client *http.Client, info *models.
 // uncounted — silently dropping the OOM CRIT.
 func parseDockerEvents(data []byte) (events []models.DockerEvent, oomCount int) {
 	const displayCap = 10
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 		if line == "" {
 			continue
 		}
@@ -535,7 +536,7 @@ func collectDNSTrap(ctx context.Context, client *http.Client, info *models.Docke
 	if err != nil {
 		return
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "nameserver ") {
 			continue
@@ -790,7 +791,7 @@ func collectDaemonJournalErrors(ctx context.Context, d *models.DockerDaemon) {
 	if err != nil {
 		return
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "level=error") || strings.Contains(lower, "level=warning") ||
 			(strings.Contains(lower, "error") && strings.Contains(lower, "docker")) {
@@ -941,9 +942,9 @@ func isRHEL10Plus() bool {
 		return false
 	}
 	// Extract VERSION_ID and check major version >= 10
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "VERSION_ID=") {
-			ver := strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, "VERSION_ID="); ok {
+			ver := strings.Trim(after, "\"")
 			parts := strings.SplitN(ver, ".", 2)
 			if len(parts) > 0 {
 				major := 0
@@ -973,12 +974,10 @@ func collectSocketPermReason(socketPath, runtime string) string {
 		gidStr = fmt.Sprintf(" (GID %d)", stat.Gid())
 		socketGID := int(stat.Gid())
 		if groups, gErr := os.Getgroups(); gErr == nil {
-			for _, gid := range groups {
-				if gid == socketGID {
-					return fmt.Sprintf(
-						"%s socket found at %s — group membership present but session not refreshed%s — log out and reconnect",
-						runtime, socketPath, gidStr)
-				}
+			if slices.Contains(groups, socketGID) {
+				return fmt.Sprintf(
+					"%s socket found at %s — group membership present but session not refreshed%s — log out and reconnect",
+					runtime, socketPath, gidStr)
 			}
 		}
 	}
@@ -1105,7 +1104,7 @@ func quadletUnitState(ctx context.Context, unit string) (active, failed bool, st
 // parseQuadletState parses `systemctl show --property=ActiveState,...` output.
 // Only ActiveState drives active/failed; the raw value is returned as state.
 func parseQuadletState(output string) (active, failed bool, state string) {
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "ActiveState="); ok {
 			state = strings.TrimSpace(v)
 		}
@@ -1182,9 +1181,9 @@ func collectFirewalldCheck(ctx context.Context, info *models.DockerInfo) {
 	data, err := readFile("/etc/firewalld/firewalld.conf") // #nosec G304
 	if err == nil {
 		info.FirewalldBackend = "nftables" // default on modern systems
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "FirewallBackend=") {
-				info.FirewalldBackend = strings.TrimPrefix(line, "FirewallBackend=")
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if after, ok := strings.CutPrefix(line, "FirewallBackend="); ok {
+				info.FirewalldBackend = after
 				info.FirewalldBackend = strings.TrimSpace(info.FirewalldBackend)
 				break
 			}

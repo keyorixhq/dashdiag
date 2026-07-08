@@ -276,16 +276,13 @@ func sshBaseArgs(opts Options) []string {
 }
 
 func seconds(d time.Duration) string {
-	s := int(d.Seconds())
-	if s < 1 {
-		s = 1
-	}
+	s := max(int(d.Seconds()), 1)
 	return strconv.Itoa(s)
 }
 
 func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
+	if before, _, ok := strings.Cut(s, "\n"); ok {
+		return before
 	}
 	return s
 }

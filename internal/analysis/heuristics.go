@@ -723,13 +723,13 @@ func ostreeFixHint(hint string) string {
 // A typed nil still matches its `case *models.XInfo:` arm in the switches below,
 // so every arm would otherwise need its own nil guard before dereferencing.
 // Checking once here keeps every dispatch arm a flat, unconditional `return`.
-func isNilTypedPointer(data interface{}) bool {
+func isNilTypedPointer(data any) bool {
 	v := reflect.ValueOf(data)
 	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
+func applyOne(data any, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	if isNilTypedPointer(data) {
 		return nil
 	}
@@ -787,7 +787,7 @@ func applyOne(data interface{}, thresh Thresholds, ctrCtx platform.ContainerCont
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //nolint:funlen // flat type switch — splitting would harm readability
+func applyOneExtended(data any, thresh Thresholds) []models.Insight { //nolint:funlen // flat type switch — splitting would harm readability
 	if isNilTypedPointer(data) {
 		return nil
 	}
@@ -1201,13 +1201,6 @@ const (
 	diskGrowthMinGapGB   = 1.0
 	diskGrowthMinGapFrac = 0.10
 )
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // cpuDeepSaturationLoadFloorPct mirrors the default CPU load warn multiplier
 // (0.7): below this load-average ratio the box is not under sustained pressure,

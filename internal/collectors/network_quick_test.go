@@ -70,7 +70,6 @@ func TestParseGatewayLinux(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			gw := parseGatewayLinux(strings.NewReader(tc.input))
@@ -117,7 +116,6 @@ func TestShouldSkipIface(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := shouldSkipIface(tc.ifaceName)
@@ -148,7 +146,6 @@ func TestParsePingGroupRange(t *testing.T) {
 		{"non-numeric", "foo bar", 0, 0, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			low, high, ok := parsePingGroupRange(tc.input)
@@ -208,7 +205,6 @@ func TestParseCapEffHasNetRaw(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := parseCapEffHasNetRaw(tc.input)

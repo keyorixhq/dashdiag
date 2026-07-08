@@ -110,7 +110,7 @@ func isSteamOSHost() bool {
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
 			continue
@@ -141,7 +141,7 @@ func hostIsOstree() bool {
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
 			continue

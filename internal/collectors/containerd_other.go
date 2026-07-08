@@ -21,6 +21,6 @@ func NewContainerdCollector() *ContainerdCollector { return &ContainerdCollector
 
 func (c *ContainerdCollector) Name() string           { return "Containerd" }
 func (c *ContainerdCollector) Timeout() time.Duration { return 5 * time.Second }
-func (c *ContainerdCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ContainerdCollector) Collect(_ context.Context) (any, error) {
 	return nil, nil
 }

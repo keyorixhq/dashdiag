@@ -121,7 +121,7 @@ func computeDelta(name string, before, after diskStatRaw) models.IODeviceInfo {
 	}
 }
 
-func (c *IOCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *IOCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}

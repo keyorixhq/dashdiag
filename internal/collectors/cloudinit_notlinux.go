@@ -16,7 +16,7 @@ func NewCloudInitCollector() *CloudInitCollector { return &CloudInitCollector{} 
 func (c *CloudInitCollector) Name() string           { return "CloudInit" }
 func (c *CloudInitCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *CloudInitCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *CloudInitCollector) Collect(_ context.Context) (any, error) {
 	return &models.CloudInitInfo{}, nil
 }
 

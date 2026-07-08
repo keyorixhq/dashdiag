@@ -9,7 +9,7 @@ import (
 // Inline row summaries for the RHEL/Oracle maintenance checks. Each returns "" when
 // the subsystem is absent so the row is hidden on hosts that don't run it.
 
-func inlineKdump(data interface{}) string {
+func inlineKdump(data any) string {
 	var k *models.KdumpInfo
 	if v, ok := data.(*models.KdumpInfo); ok {
 		k = v
@@ -28,7 +28,7 @@ func inlineKdump(data interface{}) string {
 	return "NOT armed"
 }
 
-func inlineTuned(data interface{}) string {
+func inlineTuned(data any) string {
 	var t *models.TunedInfo
 	if v, ok := data.(*models.TunedInfo); ok {
 		t = v
@@ -44,7 +44,7 @@ func inlineTuned(data interface{}) string {
 	return t.Profile
 }
 
-func inlineKernelPatch(data interface{}) string {
+func inlineKernelPatch(data any) string {
 	var k *models.KernelPatchInfo
 	if v, ok := data.(*models.KernelPatchInfo); ok {
 		k = v
@@ -60,7 +60,7 @@ func inlineKernelPatch(data interface{}) string {
 	return ""
 }
 
-func inlineKsplice(data interface{}) string {
+func inlineKsplice(data any) string {
 	var k *models.KspliceInfo
 	if v, ok := data.(*models.KspliceInfo); ok {
 		k = v
@@ -79,7 +79,7 @@ func inlineKsplice(data interface{}) string {
 	return ""
 }
 
-func inlineServiceRestart(data interface{}) string {
+func inlineServiceRestart(data any) string {
 	var s *models.ServiceRestartInfo
 	if v, ok := data.(*models.ServiceRestartInfo); ok {
 		s = v

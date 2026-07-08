@@ -18,6 +18,6 @@ func NewRedisCollector() *RedisCollector { return &RedisCollector{} }
 
 func (c *RedisCollector) Name() string           { return "Redis" }
 func (c *RedisCollector) Timeout() time.Duration { return time.Second }
-func (c *RedisCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *RedisCollector) Collect(_ context.Context) (any, error) {
 	return &models.RedisInfo{Detected: false}, nil
 }

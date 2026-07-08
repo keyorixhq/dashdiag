@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type State struct {
@@ -73,12 +74,7 @@ func (s *State) Save() error {
 }
 
 func (s *State) HasShownMilestone(m int) bool {
-	for _, v := range s.ShownMilestones {
-		if v == m {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.ShownMilestones, m)
 }
 
 func (s *State) MarkMilestone(m int) {

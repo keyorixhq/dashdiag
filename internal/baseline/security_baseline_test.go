@@ -1,6 +1,7 @@
 package baseline
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,9 +16,7 @@ var testSSHHashes map[string]string
 func TestMain(m *testing.M) {
 	hashSSHConfigFilesFn = func() map[string]string {
 		out := make(map[string]string, len(testSSHHashes))
-		for k, v := range testSSHHashes {
-			out[k] = v
-		}
+		maps.Copy(out, testSSHHashes)
 		return out
 	}
 	os.Exit(m.Run())

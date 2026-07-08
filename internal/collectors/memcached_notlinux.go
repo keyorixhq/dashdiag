@@ -18,6 +18,6 @@ func NewMemcachedCollector() *MemcachedCollector { return &MemcachedCollector{} 
 
 func (c *MemcachedCollector) Name() string           { return "Memcached" }
 func (c *MemcachedCollector) Timeout() time.Duration { return time.Second }
-func (c *MemcachedCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *MemcachedCollector) Collect(_ context.Context) (any, error) {
 	return &models.MemcachedInfo{Detected: false}, nil
 }

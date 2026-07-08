@@ -16,6 +16,6 @@ func NewTimelineCollector(hours int) *TimelineCollector {
 }
 func (c *TimelineCollector) Name() string           { return "Timeline" }
 func (c *TimelineCollector) Timeout() time.Duration { return 1 * time.Second }
-func (c *TimelineCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *TimelineCollector) Collect(_ context.Context) (any, error) {
 	return &models.TimelineInfo{WindowHours: c.WindowHours}, nil
 }

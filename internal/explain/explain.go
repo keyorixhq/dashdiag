@@ -5,6 +5,7 @@
 package explain
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -34,10 +35,8 @@ func Lookup(query string) (*Topic, []string) {
 		if topics[i].Key == q {
 			return &topics[i], nil
 		}
-		for _, a := range topics[i].Aliases {
-			if a == q {
-				return &topics[i], nil
-			}
+		if slices.Contains(topics[i].Aliases, q) {
+			return &topics[i], nil
 		}
 	}
 	// Fuzzy: collect topics whose key/alias contains the query.

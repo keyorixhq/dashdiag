@@ -154,7 +154,7 @@ func runMock(cmd *cobra.Command, args []string) error {
 		// If the row preserved raw disk data, decode it back to the real model
 		// type so the renderer sees exactly what a live collector would return.
 		// Falls back to the text-only stub when raw is absent or fails to decode.
-		var data interface{} = &mockData{inline: row.Inline}
+		var data any = &mockData{inline: row.Inline}
 		if d := mockRawData(row.Name, row.RawJSON); d != nil {
 			data = d
 		}
@@ -259,11 +259,11 @@ func mockReplayTimeline(raw string) error {
 // the live collector returns, keyed by check name. Returns nil when there is no
 // raw data or it fails to decode — the caller then falls back to the text-only
 // stub, so fixtures without raw data (and malformed raw) replay unchanged.
-func mockRawData(name, raw string) interface{} {
+func mockRawData(name, raw string) any {
 	if raw == "" {
 		return nil
 	}
-	var dest interface{}
+	var dest any
 	switch name {
 	case "Disk":
 		dest = &models.DiskInfo{}

@@ -84,7 +84,7 @@ func parseSwaps(r io.Reader) (totalKB, usedKB uint64, err error) {
 	return totalKB, usedKB, scanner.Err()
 }
 
-func (c *SwapCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SwapCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}

@@ -18,6 +18,6 @@ func NewKafkaCollector() *KafkaCollector { return &KafkaCollector{} }
 
 func (c *KafkaCollector) Name() string           { return "Kafka" }
 func (c *KafkaCollector) Timeout() time.Duration { return time.Second }
-func (c *KafkaCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *KafkaCollector) Collect(_ context.Context) (any, error) {
 	return &models.KafkaInfo{Detected: false}, nil
 }

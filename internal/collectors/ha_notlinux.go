@@ -15,7 +15,7 @@ type HACollector struct{}
 func NewHACollector() *HACollector            { return &HACollector{} }
 func (c *HACollector) Name() string           { return "HACluster" }
 func (c *HACollector) Timeout() time.Duration { return time.Second }
-func (c *HACollector) Collect(context.Context) (interface{}, error) {
+func (c *HACollector) Collect(context.Context) (any, error) {
 	return &models.HAInfo{}, nil
 }
 func HAAvailable() bool { return false }

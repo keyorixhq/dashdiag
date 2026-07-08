@@ -18,6 +18,6 @@ func NewGrafanaCollector() *GrafanaCollector { return &GrafanaCollector{} }
 
 func (c *GrafanaCollector) Name() string           { return "Grafana" }
 func (c *GrafanaCollector) Timeout() time.Duration { return time.Second }
-func (c *GrafanaCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *GrafanaCollector) Collect(_ context.Context) (any, error) {
 	return &models.GrafanaInfo{Detected: false}, nil
 }
