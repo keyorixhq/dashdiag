@@ -195,8 +195,13 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 				Namespace         string `json:"namespace"`
 				DeletionTimestamp string `json:"deletionTimestamp"`
 				CreationTimestamp string `json:"creationTimestamp"`
+				OwnerReferences   []struct {
+					Kind string `json:"kind"`
+					Name string `json:"name"`
+				} `json:"ownerReferences"`
 			} `json:"metadata"`
 			Spec struct {
+				NodeName   string `json:"nodeName"`
 				Containers []struct {
 					Image string `json:"image"`
 				} `json:"containers"`
@@ -247,22 +252,18 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 		if len(item.Spec.Containers) > 0 {
 			pod.Image = item.Spec.Containers[0].Image
 		}
-		ready := 0
-		maxRestarts := 0
-		for _, cs := range item.Status.ContainerStatuses {
-			if cs.Ready {
-				ready++
-			}
-			if cs.RestartCount > maxRestarts {
-				maxRestarts = cs.RestartCount
-			}
-			if cs.State.Waiting.Reason != "" {
-				pod.Status = cs.State.Waiting.Reason
-			}
-			if msg := cs.LastTerminationState.Terminated.Message; msg != "" {
-				pod.TerminationMsg = msg
+		if pod.Status == "Unknown" {
+			pod.NodeName = item.Spec.NodeName
+			if len(item.Metadata.OwnerReferences) > 0 {
+				pod.OwnerKind = item.Metadata.OwnerReferences[0].Kind
+				pod.OwnerName = item.Metadata.OwnerReferences[0].Name
 			}
 		}
+		ready, maxRestarts, statusOverride, terminationMsg := summarizeContainerStatuses(item.Status.ContainerStatuses)
+		if statusOverride != "" {
+			pod.Status = statusOverride
+		}
+		pod.TerminationMsg = terminationMsg
 		pod.Ready = fmt.Sprintf("%d/%d", ready, len(item.Status.ContainerStatuses))
 		pod.Restarts = maxRestarts
 		pod.InitError = parseInitError(item.Status.InitContainerStatuses, item.Spec.InitContainers)
@@ -298,6 +299,40 @@ func parseInitError(
 	return ""
 }
 
+// summarizeContainerStatuses tabulates ready count, max restarts, and the
+// status/termination-message overrides from a pod's containerStatuses — split out
+// of collectK8sPods's per-item loop to keep it under the funlen limit.
+func summarizeContainerStatuses(statuses []struct {
+	Ready        bool `json:"ready"`
+	RestartCount int  `json:"restartCount"`
+	State        struct {
+		Waiting struct {
+			Reason string `json:"reason"`
+		} `json:"waiting"`
+	} `json:"state"`
+	LastTerminationState struct {
+		Terminated struct {
+			Message string `json:"message"`
+		} `json:"terminated"`
+	} `json:"lastState"`
+}) (ready, maxRestarts int, statusOverride, terminationMsg string) {
+	for _, cs := range statuses {
+		if cs.Ready {
+			ready++
+		}
+		if cs.RestartCount > maxRestarts {
+			maxRestarts = cs.RestartCount
+		}
+		if cs.State.Waiting.Reason != "" {
+			statusOverride = cs.State.Waiting.Reason
+		}
+		if msg := cs.LastTerminationState.Terminated.Message; msg != "" {
+			terminationMsg = msg
+		}
+	}
+	return
+}
+
 // updatePodCounts increments the relevant counters on K8sInfo.
 func updatePodCounts(info *models.K8sInfo, pod *models.K8sPodInfo, maxRestarts int, fullyReady bool, crashNames map[string]bool) {
 	switch {
@@ -308,6 +343,8 @@ func updatePodCounts(info *models.K8sInfo, pod *models.K8sPodInfo, maxRestarts i
 		}
 	case pod.Status == "Pending":
 		info.Pending++
+	case pod.Status == "Unknown":
+		info.UnknownStatus++
 	case strings.HasPrefix(pod.Ready, "0/") && pod.Status == "Running":
 		info.PodsNotReady++
 	}
@@ -561,6 +598,60 @@ func detectKubeForward(ctx context.Context) (checked, present bool) {
 	return false, false // neither tool available — unknown
 }
 
+// detectKubeServices reports whether the KUBE-SERVICES chain (ClusterIP → pod DNAT
+// routing) is actually programmed, and by which kube-proxy backend. A modern
+// nftables-backend kube-proxy never populates the legacy iptables KUBE-SERVICES
+// chain by design — that's reported as mode "nft" with no verdict, not a false
+// WARN. A cluster with no kube-proxy pod at all (eBPF replacement such as Cilium's
+// kube-proxy-replacement, or kube-proxy explicitly disabled) is left unchecked:
+// the chain's absence there is expected, not a fault.
+func detectKubeServices(ctx context.Context, bin string) (checked bool, mode string, svcCount, chainCount int) {
+	if nftOut, err := runCmd(ctx, "nft", "list", "tables"); err == nil && strings.Contains(nftOut, "kube") {
+		return true, "nft", 0, 0
+	}
+
+	proxyOut, err := k8sRun(ctx, bin, "get", "pods", "-A", "-l", "k8s-app=kube-proxy", "--no-headers")
+	if err != nil || strings.TrimSpace(proxyOut) == "" {
+		return false, "", 0, 0
+	}
+
+	svcOut, svcErr := runCmd(ctx, "iptables-save", "-t", "nat")
+	if svcErr != nil {
+		return false, "", 0, 0 // tool unavailable — unknown, not "missing"
+	}
+	svcCount = countLinesWithPrefix(svcOut, "-A KUBE-SERVICES")
+	chainCount = countLinesWithPrefix(svcOut, ":KUBE-SVC-")
+	if svcCount > 0 {
+		return true, "iptables", svcCount, chainCount
+	}
+
+	// 0 entries: either a real fault, or this cluster runs IPVS instead.
+	logsOut, _ := k8sRun(ctx, bin, "logs", "-n", "kube-system", "-l", "k8s-app=kube-proxy", "--tail=30")
+	if strings.Contains(logsOut, "Using ipvs Proxier") {
+		ipvsOut, ipvsErr := runCmd(ctx, "ipvsadm", "-ln")
+		if ipvsErr != nil {
+			return false, "ipvs", 0, 0 // ipvsadm unavailable — unknown
+		}
+		return true, "ipvs", countLinesWithPrefix(ipvsOut, "TCP "), 0
+	}
+	return true, "iptables", 0, chainCount
+}
+
+// countLinesWithPrefix counts lines starting with prefix. strings.Count with a
+// leading "\n" misses a match that happens to be the very first line (no
+// preceding newline) — real iptables-save/ipvsadm output always has header
+// lines before any rule, but a raw fixture without them would silently
+// undercount, so count per-line instead of relying on a newline anchor.
+func countLinesWithPrefix(s, prefix string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
 func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
 
@@ -631,6 +722,12 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 	// it fires nowhere useful on k3s, whose bundled iptables isn't on the host PATH.
 	// Track whether a tool actually ran so the verdict can say "unknown" vs "missing".
 	layer.KubeForwardChecked, layer.KubeForwardChain = detectKubeForward(ctx)
+
+	// KUBE-SERVICES chain (ClusterIP -> pod DNAT routing) — a different failure mode
+	// than KUBE-FORWARD above (pod-to-pod, not service routing). See detectKubeServices
+	// for the nft/iptables/ipvs mode handling.
+	layer.KubeServicesChecked, layer.KubeProxyMode, layer.KubeServicesCount, layer.KubeSvcChainsCount =
+		detectKubeServices(ctx, bin)
 
 	// firewalld masquerade (Flannel requirement). Gate on firewalld actually being
 	// active first (same pattern as docker.go's collectFirewalldCheck) — most k3s/RKE2
