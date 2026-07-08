@@ -157,7 +157,7 @@ func printFleetTable(summary fleet.Summary, mode output.OutputMode) {
 // printFleetIssues renders WARN/CRIT issues grouped across the fleet: fleet-wide
 // (systemic — fix once) first, then outliers (one host drifting from the rest).
 // This is the fleet's answer to "what's wrong, and is it everywhere or one box?".
-func printFleetIssues(summary fleet.Summary, mode output.OutputMode) {
+func printFleetIssues(summary fleet.Summary, _ output.OutputMode) {
 	if len(summary.Issues) == 0 {
 		return
 	}

@@ -111,6 +111,9 @@ func collectPhysicalDrives() []models.PhysicalDrive {
 			Mounts: mounts,
 		})
 	}
+	if err := scanner.Err(); err != nil {
+		return nil
+	}
 	// Deterministic order so the drives list (and the I/O check derived from it) is
 	// byte-stable across runs/replays — TRIAGE §I (the /proc/partitions scan order
 	// has proven non-deterministic on some hosts).
@@ -501,6 +504,9 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 			rs, _ := strconv.ParseInt(fields[5], 10, 64)
 			ws, _ := strconv.ParseInt(fields[9], 10, 64)
 			m[name] = diskStat{rs, ws}
+		}
+		if err := scanner.Err(); err != nil {
+			return m // partial map is still useful; caller tolerates missing devices
 		}
 		return m
 	}

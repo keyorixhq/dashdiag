@@ -94,11 +94,11 @@ func TestParseResolvedConfDNSSEC(t *testing.T) {
 DNSSEC=yes
 DNSOverTLS=opportunistic
 `
-	if got := parseResolvedConfDNSSEC(strings.NewReader(in)); got != "yes" {
-		t.Errorf("DNSSEC = %q, want yes", got)
+	if got, err := parseResolvedConfDNSSEC(strings.NewReader(in)); err != nil || got != "yes" {
+		t.Errorf("DNSSEC = %q, err = %v, want yes, nil", got, err)
 	}
-	if got := parseResolvedConfDNSSEC(strings.NewReader("[Resolve]\n")); got != "" {
-		t.Errorf("DNSSEC = %q, want empty (unset)", got)
+	if got, err := parseResolvedConfDNSSEC(strings.NewReader("[Resolve]\n")); err != nil || got != "" {
+		t.Errorf("DNSSEC = %q, err = %v, want empty (unset), nil", got, err)
 	}
 }
 
