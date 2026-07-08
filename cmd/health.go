@@ -618,6 +618,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	}
 	// OOM killer events — always collected (reads journal, never root-only)
 	cols = append(cols, collectors.NewOOMCollector())
+	// ARM Memory Tagging Extension fault-visibility posture + crash decoder
+	if collectors.IsMTEAvailable() {
+		cols = append(cols, collectors.NewMTECollector())
+	}
 	// Fibre Channel HBA
 	if collectors.IsHBAPresent() {
 		cols = append(cols, collectors.NewHBACollector())

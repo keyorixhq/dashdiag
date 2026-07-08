@@ -12,6 +12,7 @@ type procCPUInfo struct {
 	hardware    string // ARM bare-metal "Hardware" field
 	implementer string // ARM "CPU implementer"
 	part        string // ARM "CPU part" (core ID, e.g. 0xd0c = Neoverse-N1)
+	features    string // ARM "Features": space-separated flags, e.g. "fp asimd ... paca pacg mte"
 	threads     int
 	cores       int
 	freqMHz     float64
@@ -66,6 +67,10 @@ func parseProcCPUInfo(data string) procCPUInfo {
 		case "CPU part": // ARM core ID
 			if info.part == "" {
 				info.part = val
+			}
+		case "Features": // ARM: space-separated capability flags
+			if info.features == "" {
+				info.features = val
 			}
 		}
 	}
@@ -123,6 +128,19 @@ func armPartName(implementer, part string) string {
 		}
 	}
 	return ""
+}
+
+// hasFeature reports whether flag appears as an exact whitespace-delimited
+// token in features (the /proc/cpuinfo "Features" line) — a substring match
+// would false-positive on an unrelated flag name that merely contains flag
+// as a substring.
+func hasFeature(features, flag string) bool {
+	for _, f := range strings.Fields(features) {
+		if f == flag {
+			return true
+		}
+	}
+	return false
 }
 
 // armImplementerName maps an ARM "CPU implementer" hex code to a vendor name.

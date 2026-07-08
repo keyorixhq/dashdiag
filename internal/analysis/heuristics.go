@@ -996,6 +996,10 @@ func applyOneExtended(data interface{}, thresh Thresholds) []models.Insight { //
 		return checkOOM(d)
 	case *models.OOMInfo:
 		return checkOOM(*d)
+	case models.MTEInfo:
+		return checkMTE(d)
+	case *models.MTEInfo:
+		return checkMTE(*d)
 	case models.HBAInfo:
 		return checkHBA(d)
 	case *models.HBAInfo:

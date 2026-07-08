@@ -1072,6 +1072,46 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	)}
 }
 
+func checkMTE(m models.MTEInfo) []models.Insight {
+	if !m.Available {
+		return nil
+	}
+	if m.StatusReason != "" {
+		return []models.Insight{insight("INFO", "MTE",
+			"MTE fault check not verified — "+m.StatusReason,
+			[]string{
+				"to inspect: journalctl -k | grep -i 'tag check fault'   (run as root)",
+				"note: kernel.dmesg_restrict=1 blocks non-root dmesg",
+			},
+		)}
+	}
+
+	var out []models.Insight
+
+	if !m.ExceptionTraceEnabled {
+		out = append(out, insight("WARN", "MTE",
+			"ARM Memory Tagging Extension hardware support is present, but kernel fault-signal logging (debug.exception-trace) is off — any tag-check fault will crash a process silently with no forensic trail",
+			[]string{
+				"to enable (runtime): sysctl -w debug.exception-trace=1",
+				"to persist: echo 'debug.exception-trace = 1' > /etc/sysctl.d/99-mte-trace.conf",
+				"note: only matters if a workload here intentionally uses MTE (hardened allocators, memory-safety testing) — leaving it off is not itself a fault",
+			},
+		))
+	}
+
+	for _, ev := range m.RecentFaults {
+		out = append(out, insight("CRIT", "MTE",
+			fmt.Sprintf("process %s (pid %d) crashed on a hardware memory-safety fault (ARM MTE %s tag-check) — likely a genuine memory-corruption bug (buffer overflow / use-after-free), not resource exhaustion or app misbehavior", ev.Process, ev.PID, ev.FaultType),
+			[]string{
+				"to inspect: journalctl -k | grep -i 'tag check fault'   (full register dump)",
+				"note: triage at the code level — this is a hardware-caught memory-safety violation, not a generic segfault",
+			},
+		))
+	}
+
+	return out
+}
+
 func checkPressure(p models.PressureInfo) []models.Insight {
 	if !p.Available {
 		return nil
