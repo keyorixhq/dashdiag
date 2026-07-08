@@ -86,6 +86,23 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 		))
 	}
 
+	// Neither journald nor the auth-log file could be read at all — the
+	// failed-login/PAM checks below silently see zero, indistinguishable from
+	// a genuinely clean host, unless this is surfaced explicitly.
+	if sec.FailedLoginsUnreadable {
+		out = append(out, insight("INFO", "Hardening",
+			"SSH auth log not readable — failed-login/brute-force attempts were NOT audited",
+			[]string{"to audit: re-run as root (sudo dsd security)"},
+		))
+	}
+
+	if sec.PAMFailuresUnreadable {
+		out = append(out, insight("INFO", "Hardening",
+			"PAM auth log not readable — su/sudo/login/cron authentication failures were NOT audited",
+			[]string{"to audit: re-run as root (sudo dsd security)"},
+		))
+	}
+
 	return out
 }
 
