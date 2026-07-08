@@ -61,6 +61,19 @@ linters:
     rules:
       - path: "_test\\.go$"
         linters: [gosec, errcheck, funlen, cyclop]
+      # SA5011 ("possible nil pointer dereference") is excluded by message text
+      # rather than disabled via staticcheck's own checks list: setting
+      # settings.staticcheck.checks at all switches its default scope from
+      # "SA* only" to whatever list you give it, so "all, -SA5011" ends up
+      # ALSO enabling the ST/S1/QF categories (50 new ST1000 "missing package
+      # comment" findings appeared repo-wide) — this text-match form leaves the
+      # enabled-checks scope untouched. Disabled because its cross-package fact
+      # propagation is non-deterministic under golangci-lint's parallel
+      # analysis — confirmed 2026-07-08 by two CI reruns of the same unchanged
+      # commit flagging two entirely different sets of _test.go files. A flaky
+      # check that can fail an unrelated PR on any run is worse than no check.
+      - linters: [staticcheck]
+        text: "SA5011"
 
 issues:
   max-same-issues: 0
