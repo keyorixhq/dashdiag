@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,6 +84,15 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	}, &topIO)
 	info.TopIOProcs = topIO.Procs
 	info.TopIOProcsNeedsRoot = topIO.NeedsRoot
+
+	// Top CPU-consuming processes — same replay-fidelity concern as core usage
+	// and top-IO above: two live /proc/<pid>/stat reads 500ms apart must be
+	// cached as the derived result, not replayed as two independent reads.
+	var topCPU []models.ProcessCPUStat
+	_ = cachedJSON("healthdeep/top-cpu", func() (any, error) {
+		return c.sampleTopCPUProcs(ctx, 10), nil
+	}, &topCPU)
+	info.TopCPUProcs = topCPU
 
 	return info, nil
 }
@@ -341,8 +351,12 @@ func (c *HealthDeepCollector) sampleTopIOProcs(ctx context.Context, n int) topIO
 	}
 	after, needsRoot2 := readAllProcIO()
 
+	procs := computeTopIORates(before, after, n)
+	for i := range procs {
+		procs[i].CgroupScope = cgroupScope(procs[i].PID)
+	}
 	return topIOSample{
-		Procs:     computeTopIORates(before, after, n),
+		Procs:     procs,
 		NeedsRoot: needsRoot1 || needsRoot2,
 	}
 }
@@ -381,6 +395,138 @@ func computeTopIORates(before, after map[int]procIOCounters, n int) []models.Pro
 	procs := make([]models.ProcessIOStat, 0, len(rates))
 	for _, r := range rates {
 		procs = append(procs, models.ProcessIOStat{PID: r.pid, Name: r.name, ReadBps: r.readBps, WriteBps: r.writeBps})
+	}
+	return procs
+}
+
+// procCPUCounters holds the raw utime+stime tick counters for one PID.
+type procCPUCounters struct {
+	name  string
+	ticks uint64 // utime + stime, in clock ticks
+}
+
+// readAllProcCPU reads /proc/<pid>/stat for every process, returning utime+stime
+// tick counters keyed by PID, plus the system-wide aggregate tick total (the
+// "cpu " line of /proc/stat) needed to normalize per-process ticks into a %.
+func readAllProcCPU() (map[int]procCPUCounters, uint64) {
+	entries, err := glob("/proc/[0-9]*")
+	if err != nil {
+		return nil, 0
+	}
+	result := make(map[int]procCPUCounters, len(entries))
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(filepath.Base(entry))
+		if err != nil {
+			continue
+		}
+		data, err := readFile(filepath.Join(entry, "stat")) // #nosec G304
+		if err != nil {
+			continue
+		}
+		utime, stime, ok := parseProcStatUtimeStime(string(data))
+		if !ok {
+			continue
+		}
+		result[pid] = procCPUCounters{name: procCommName(pid), ticks: utime + stime}
+	}
+	return result, systemTotalTicks()
+}
+
+// systemTotalTicks reads the aggregate "cpu " line of /proc/stat and sums its
+// fields into one system-wide tick total, used to normalize per-process CPU
+// ticks into a percentage.
+func systemTotalTicks() uint64 {
+	data, err := readFile("/proc/stat") // #nosec G304
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "cpu ") {
+			continue
+		}
+		var total uint64
+		for _, f := range strings.Fields(line)[1:] {
+			v, _ := strconv.ParseUint(f, 10, 64)
+			total += v
+		}
+		return total
+	}
+	return 0
+}
+
+// parseProcStatUtimeStime extracts utime (field 14) and stime (field 15) from a
+// /proc/<pid>/stat line. The comm field (2) is parenthesized and may itself
+// contain spaces/parens un-escaped by the kernel (e.g. "(Web Content)"), so the
+// fields after it are located from the LAST ')', not a naive whitespace split —
+// same concern internal/drilldown/procstat.go documents for the same file.
+func parseProcStatUtimeStime(stat string) (utime, stime uint64, ok bool) {
+	closeIdx := strings.LastIndexByte(stat, ')')
+	if closeIdx < 0 {
+		return 0, 0, false
+	}
+	rest := strings.Fields(stat[closeIdx+1:])
+	if len(rest) < 13 {
+		return 0, 0, false
+	}
+	utime, _ = strconv.ParseUint(rest[11], 10, 64) // stat field 14
+	stime, _ = strconv.ParseUint(rest[12], 10, 64) // stat field 15
+	return utime, stime, true
+}
+
+// sampleTopCPUProcs takes two /proc/<pid>/stat snapshots 500ms apart and returns
+// the top-n processes by CPU% — utime+stime delta over the system-wide tick
+// delta, scaled by core count. Matches top/htop's per-process %CPU convention,
+// which can exceed 100% for a multi-threaded process.
+func (c *HealthDeepCollector) sampleTopCPUProcs(ctx context.Context, n int) []models.ProcessCPUStat {
+	before, sysBefore := readAllProcCPU()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(500 * time.Millisecond):
+	}
+	after, sysAfter := readAllProcCPU()
+
+	procs := computeTopCPURates(before, after, sysAfter-sysBefore, n)
+	for i := range procs {
+		procs[i].CgroupScope = cgroupScope(procs[i].PID)
+	}
+	return procs
+}
+
+// computeTopCPURates turns two /proc/<pid>/stat snapshots into the top-n
+// processes by CPU%. Split out from sampleTopCPUProcs so the rate math is
+// unit-testable without a live /proc.
+func computeTopCPURates(before, after map[int]procCPUCounters, sysDeltaTicks uint64, n int) []models.ProcessCPUStat {
+	if sysDeltaTicks == 0 {
+		sysDeltaTicks = 1
+	}
+	type cpuRate struct {
+		pid  int
+		name string
+		pct  float64
+	}
+	rates := make([]cpuRate, 0, len(after))
+	for pid, a := range after {
+		b, ok := before[pid]
+		if !ok || a.ticks < b.ticks {
+			// New or recycled PID within the window — skip (same guard as
+			// computeTopIORates above).
+			continue
+		}
+		delta := float64(a.ticks - b.ticks)
+		pct := delta / float64(sysDeltaTicks) * float64(runtime.NumCPU()) * 100
+		if pct > 0.01 {
+			rates = append(rates, cpuRate{pid: pid, name: a.name, pct: pct})
+		}
+	}
+	sort.Slice(rates, func(i, j int) bool { return rates[i].pct > rates[j].pct })
+	if len(rates) > n {
+		rates = rates[:n]
+	}
+
+	procs := make([]models.ProcessCPUStat, 0, len(rates))
+	for _, r := range rates {
+		procs = append(procs, models.ProcessCPUStat{PID: r.pid, Name: r.name, CPUPct: r.pct})
 	}
 	return procs
 }

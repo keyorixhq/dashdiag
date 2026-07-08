@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -94,6 +96,43 @@ func TestHealthDeep_TopIOHermetic(t *testing.T) {
 	}
 	if !info.TopIOProcsNeedsRoot {
 		t.Error("NeedsRoot caveat should replay verbatim, not silently drop")
+	}
+}
+
+// TestHealthDeep_TopCPUHermetic guards replay fidelity of the top-CPU-process
+// sample the same way TestHealthDeep_TopIOHermetic does for top-IO: the two
+// /proc/<pid>/stat snapshots share source keys and cannot be replayed
+// independently, so the derived top-N list must be cached and reproduced
+// verbatim rather than collapsing to an empty list on replay.
+func TestHealthDeep_TopCPUHermetic(t *testing.T) {
+	want := []models.ProcessCPUStat{{PID: 8823, Name: "java", CPUPct: 42.1, CgroupScope: "container:abc123"}}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	if _, err := rec.Cached("healthdeep/top-cpu", func() ([]byte, error) { return blob, nil }); err != nil {
+		SetSource(prev)
+		t.Fatalf("seeding cached top-cpu: %v", err)
+	}
+	SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("replay Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if len(info.TopCPUProcs) != 1 || info.TopCPUProcs[0].PID != 8823 || info.TopCPUProcs[0].CPUPct != 42.1 {
+		t.Fatalf("replay did not return cached top-CPU sample: %+v", info.TopCPUProcs)
 	}
 }
 
@@ -192,5 +231,83 @@ func TestComputeCoreUsageHighCoreCount(t *testing.T) {
 		if st.UsagePct < 49.9 || st.UsagePct > 50.1 {
 			t.Errorf("core %d usage = %.1f%%, want ~50%%", st.Core, st.UsagePct)
 		}
+	}
+}
+
+func TestComputeTopCPURates(t *testing.T) {
+	before := map[int]procCPUCounters{
+		1: {name: "postgres", ticks: 1000},
+		2: {name: "idle", ticks: 500},
+		3: {name: "recycled", ticks: 9000},
+	}
+	after := map[int]procCPUCounters{
+		1: {name: "postgres", ticks: 1000 + 50}, // busy across the sample window
+		2: {name: "idle", ticks: 500},           // no movement — excluded (pct == 0)
+		3: {name: "recycled", ticks: 100},       // counters went backwards — recycled PID, excluded
+		4: {name: "new", ticks: 1000},           // no "before" sample — excluded
+	}
+
+	got := computeTopCPURates(before, after, 100, 5) // sysDeltaTicks=100 for round numbers
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 rate (idle/recycled/new excluded), got %+v", got)
+	}
+	if got[0].PID != 1 || got[0].Name != "postgres" {
+		t.Fatalf("unexpected top process: %+v", got[0])
+	}
+	wantPct := 50.0 / 100.0 * float64(runtime.NumCPU()) * 100
+	if got[0].CPUPct != wantPct {
+		t.Errorf("rate math wrong: got %.2f, want %.2f", got[0].CPUPct, wantPct)
+	}
+}
+
+func TestComputeTopCPURates_TruncatesToN(t *testing.T) {
+	before := map[int]procCPUCounters{}
+	after := map[int]procCPUCounters{}
+	for i := 1; i <= 10; i++ {
+		before[i] = procCPUCounters{name: fmt.Sprintf("p%d", i), ticks: 0}
+		after[i] = procCPUCounters{name: fmt.Sprintf("p%d", i), ticks: uint64(i * 1000)}
+	}
+	got := computeTopCPURates(before, after, 1000, 3)
+	if len(got) != 3 {
+		t.Fatalf("expected truncation to 3, got %d", len(got))
+	}
+	if got[0].Name != "p10" {
+		t.Errorf("expected the highest-rate process first, got %+v", got[0])
+	}
+}
+
+func TestComputeTopCPURates_ZeroSysDelta(t *testing.T) {
+	// A zero system-wide tick delta (e.g. a sub-jiffy sampling window) must not
+	// divide by zero — it should fall back to 1, not panic or return NaN/Inf.
+	before := map[int]procCPUCounters{1: {name: "busy", ticks: 0}}
+	after := map[int]procCPUCounters{1: {name: "busy", ticks: 5}}
+	got := computeTopCPURates(before, after, 0, 5)
+	if len(got) != 1 || math.IsNaN(got[0].CPUPct) || math.IsInf(got[0].CPUPct, 0) {
+		t.Fatalf("expected a finite rate with zero sysDeltaTicks, got %+v", got)
+	}
+}
+
+// TestParseProcStatUtimeStime guards against the comm-field trap documented on
+// parseProcStatUtimeStime: a process name containing spaces/parens (e.g. Chrome's
+// "(Web Content)") must not shift the utime/stime field indices.
+func TestParseProcStatUtimeStime(t *testing.T) {
+	// Real /proc/<pid>/stat line shape: pid (comm) state ppid ... utime stime ...
+	// Field 14 = utime, field 15 = stime; fields 3-13 are filler here.
+	line := "1234 (Web Content) S 1 1234 1234 0 -1 4194304 100 0 0 0 4200 1300 0 0 20 0 10 0"
+	utime, stime, ok := parseProcStatUtimeStime(line)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if utime != 4200 || stime != 1300 {
+		t.Errorf("got utime=%d stime=%d, want utime=4200 stime=1300", utime, stime)
+	}
+}
+
+func TestParseProcStatUtimeStime_Malformed(t *testing.T) {
+	if _, _, ok := parseProcStatUtimeStime("no parens here"); ok {
+		t.Error("expected ok=false for a line with no comm parens")
+	}
+	if _, _, ok := parseProcStatUtimeStime("1234 (sh) S 1"); ok {
+		t.Error("expected ok=false for a truncated stat line")
 	}
 }

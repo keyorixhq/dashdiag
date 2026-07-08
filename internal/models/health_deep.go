@@ -18,10 +18,20 @@ type ProcessMemStat struct {
 // ProcessIOStat holds I/O throughput for a single process, sampled from two
 // /proc/<pid>/io reads (Spec 5.3 — iowait culprit attribution).
 type ProcessIOStat struct {
-	PID      int     `json:"pid"`
-	Name     string  `json:"name"`
-	ReadBps  float64 `json:"read_bps"`
-	WriteBps float64 `json:"write_bps"`
+	PID         int     `json:"pid"`
+	Name        string  `json:"name"`
+	ReadBps     float64 `json:"read_bps"`
+	WriteBps    float64 `json:"write_bps"`
+	CgroupScope string  `json:"cgroup_scope,omitempty"` // "system:k3s.service", "container:abc", "kernel", etc.
+}
+
+// ProcessCPUStat holds CPU usage for a single process, sampled from two
+// /proc/<pid>/stat reads (top-N CPU consumers, mirrors ProcessMemStat).
+type ProcessCPUStat struct {
+	PID         int     `json:"pid"`
+	Name        string  `json:"name"`
+	CPUPct      float64 `json:"cpu_pct"`
+	CgroupScope string  `json:"cgroup_scope,omitempty"`
 }
 
 // CgroupSlice is a top-level cgroup v2 slice with aggregated resource usage.
@@ -65,6 +75,10 @@ type HealthDeepInfo struct {
 	// Top memory consumers
 	TopProcs     []ProcessMemStat `json:"top_procs,omitempty"` // top 10 by RSS
 	TotalProcsMB float64          `json:"total_procs_mb"`      // sum of all process RSS
+
+	// Top CPU consumers (utime+stime delta over 500ms), same cgroup-scope
+	// attribution as TopProcs.
+	TopCPUProcs []ProcessCPUStat `json:"top_cpu_procs,omitempty"` // top 10 by CPU%
 
 	// Extended memory breakdown from /proc/meminfo
 	CachedMB    float64 `json:"cached_mb"`
