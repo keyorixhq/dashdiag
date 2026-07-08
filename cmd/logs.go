@@ -63,8 +63,8 @@ func runLogs(cmd *cobra.Command, _ []string) error {
 
 // parseSinceDuration parses durations like "1h", "24h", "7d", "30d".
 func parseSinceDuration(s string) time.Duration {
-	if strings.HasSuffix(s, "d") {
-		days, err := time.ParseDuration(strings.TrimSuffix(s, "d") + "h")
+	if before, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := time.ParseDuration(before + "h")
 		if err == nil {
 			return days * 24
 		}

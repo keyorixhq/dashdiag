@@ -15,7 +15,7 @@ import (
 // display list at 10.
 func TestParseDockerEvents_OOMAfterDisplayCap(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < 11; i++ { // 11 ordinary die events (exit 1, not OOM)
+	for i := range 11 { // 11 ordinary die events (exit 1, not OOM)
 		fmt.Fprintf(&b, `{"Action":"die","Actor":{"Attributes":{"name":"c%d","exitCode":"1"}},"time":%d}`+"\n", i, 1000+i)
 	}
 	// The OOM kill arrives as the 12th event — past the display cap.

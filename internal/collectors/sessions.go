@@ -28,7 +28,7 @@ func NewSessionsCollector() *SessionsCollector { return &SessionsCollector{} }
 func (c *SessionsCollector) Name() string           { return "Sessions" }
 func (c *SessionsCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *SessionsCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SessionsCollector) Collect(ctx context.Context) (any, error) {
 	out, err := runCmd(ctx, "w", "-h")
 	if err != nil {
 		// `w` not available — return empty, not an error
@@ -55,7 +55,7 @@ func parseSessions(out string) *models.SessionsInfo {
 	info := &models.SessionsInfo{}
 	uniqueIPs := map[string]bool{}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -180,8 +180,8 @@ func looksLikeHost(s string) bool {
 	}
 	// A colon means either a time ("10:00" — digits before the colon) or an IPv6
 	// host ("fe80::1" — non-digits before the colon).
-	if i := strings.IndexByte(s, ':'); i >= 0 {
-		return !isAllDigits(s[:i])
+	if before, _, ok := strings.Cut(s, ":"); ok {
+		return !isAllDigits(before)
 	}
 	// Day-of-week / date login stamps ("Mon", "Tue08", "23Jun24").
 	if wDayLogin.MatchString(s) || wDateLogin.MatchString(s) {
@@ -232,15 +232,15 @@ func parseIdleSec(s string) int {
 		return days * 86400
 	}
 	// Seconds: "0.00s", "45s"
-	if strings.HasSuffix(lower, "s") {
-		n := parseFloatSimple(strings.TrimSuffix(lower, "s"))
+	if before, ok := strings.CutSuffix(lower, "s"); ok {
+		n := parseFloatSimple(before)
 		return int(n)
 	}
 	// Minutes via "m" suffix or "MM:SSm" format: "1:00m" = 1 hour? No.
 	// w uses "MM:SS" for < 1h, "HH:MMm" for >= 1h.
-	if strings.HasSuffix(lower, "m") {
+	if before, ok := strings.CutSuffix(lower, "m"); ok {
 		// "HH:MMm" — hours and minutes
-		core := strings.TrimSuffix(lower, "m")
+		core := before
 		if idx := strings.Index(core, ":"); idx > 0 {
 			h := atoi(core[:idx])
 			m := atoi(core[idx+1:])

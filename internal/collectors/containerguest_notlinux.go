@@ -16,7 +16,7 @@ func NewContainerGuestCollector() *ContainerGuestCollector { return &ContainerGu
 func (c *ContainerGuestCollector) Name() string           { return "ContainerGuest" }
 func (c *ContainerGuestCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ContainerGuestCollector) Collect(_ context.Context) (any, error) {
 	return &models.ContainerGuestInfo{}, nil
 }
 

@@ -15,7 +15,7 @@ func NewPressureCollector() *PressureCollector      { return &PressureCollector{
 func (c *PressureCollector) Name() string           { return "Pressure" }
 func (c *PressureCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *PressureCollector) Collect(_ context.Context) (any, error) {
 	return &models.PressureInfo{}, nil
 }
 

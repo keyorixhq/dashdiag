@@ -284,7 +284,7 @@ func (c *CPUCollector) sampleCPUUsage(ctx context.Context) cpuSample {
 	return s
 }
 
-func (c *CPUCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *CPUCollector) Collect(ctx context.Context) (any, error) {
 	// hostNumCPU is the REAL host core count — /proc/loadavg is never namespaced
 	// by cgroups/containers, so it always reflects host-wide load regardless of
 	// any CPU limit. numCPU (below) may be overridden to the container's cgroup
@@ -401,7 +401,7 @@ func cpuUsageDarwin(ctx context.Context) float64 {
 // dropped the user component, reporting roughly half the real usage.
 func parseDarwinCPUUsage(out string) float64 {
 	var lastLine string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(line, "CPU usage:") {
 			lastLine = line
 		}
@@ -411,7 +411,7 @@ func parseDarwinCPUUsage(out string) float64 {
 	}
 	// Parse user% + sys% from "CPU usage: 8.97% user, 4.77% sys, 86.25% idle"
 	var user, sys float64
-	for _, part := range strings.Split(lastLine, ",") {
+	for part := range strings.SplitSeq(lastLine, ",") {
 		fields := strings.Fields(part)
 		for i := 0; i+1 < len(fields); i++ {
 			if !strings.HasSuffix(fields[i], "%") {

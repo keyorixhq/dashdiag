@@ -160,9 +160,9 @@ func osPretty() string {
 	if err != nil {
 		return runtime.GOOS
 	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(line, "PRETTY_NAME=") {
-			return strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if after, ok := strings.CutPrefix(line, "PRETTY_NAME="); ok {
+			return strings.Trim(after, `"`)
 		}
 	}
 	return runtime.GOOS

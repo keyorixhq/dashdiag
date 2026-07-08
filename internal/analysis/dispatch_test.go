@@ -17,7 +17,7 @@ import (
 func TestApplyOneDispatch(t *testing.T) {
 	ctr := platform.ContainerContext{}
 
-	values := []interface{}{
+	values := []any{
 		models.CPUInfo{}, models.MemoryInfo{}, models.DiskInfo{}, models.SwapInfo{},
 		models.IOInfo{}, models.NetworkInfo{}, models.NFSInfo{}, models.BINDInfo{},
 		models.ClockInfo{}, models.FDInfo{}, models.SystemdInfo{}, models.SysctlInfo{},
@@ -42,7 +42,7 @@ func TestApplyOneDispatch(t *testing.T) {
 		_ = applyOne(v, defaultThresh, ctr) // must not panic; result content covered elsewhere
 	}
 
-	pointers := []interface{}{
+	pointers := []any{
 		&models.CPUInfo{}, &models.MemoryInfo{}, &models.DiskInfo{}, &models.SwapInfo{},
 		&models.IOInfo{}, &models.NetworkInfo{}, &models.NFSInfo{}, &models.BINDInfo{},
 		&models.ClockInfo{}, &models.FDInfo{}, &models.SystemdInfo{}, &models.SysctlInfo{},

@@ -52,9 +52,9 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 
 	if isJSON {
 		type cpuReport struct {
-			CPU     interface{} `json:"cpu"`
-			Freq    interface{} `json:"freq"`
-			Thermal interface{} `json:"thermal"`
+			CPU     any `json:"cpu"`
+			Freq    any `json:"freq"`
+			Thermal any `json:"thermal"`
 		}
 		return outputJSON(os.Stdout, cpuReport{cpuRaw, freqRaw, thermalRaw})
 	}

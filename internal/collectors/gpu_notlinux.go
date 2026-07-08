@@ -21,6 +21,6 @@ func NewGPUDeepCollector() *GPUCollector { return &GPUCollector{Deep: true} }
 func (c *GPUCollector) Name() string           { return "GPU" }
 func (c *GPUCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *GPUCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *GPUCollector) Collect(_ context.Context) (any, error) {
 	return &models.GPUInfo{}, nil
 }

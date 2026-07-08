@@ -146,9 +146,9 @@ func TestDetectSELinuxFromPath(t *testing.T) {
 		want    string
 	}{
 		{"absent", nil, "not-present"},
-		{"enforcing", strptr("1"), "enforcing"},
-		{"permissive", strptr("0"), "permissive"},
-		{"disabled", strptr("2"), "disabled"},
+		{"enforcing", new("1"), "enforcing"},
+		{"permissive", new("0"), "permissive"},
+		{"disabled", new("2"), "disabled"},
 	}
 
 	for _, tc := range cases {
@@ -189,8 +189,6 @@ func TestDetectSELinuxFromPaths_ConfigDisabled(t *testing.T) {
 		t.Errorf("enforcing host = %q, want enforcing", got)
 	}
 }
-
-func strptr(s string) *string { return &s }
 
 // classifyInit must use PID1 identity, not file markers, to tell sysvinit from
 // runit: Devuan ships the runit package (so /run/runit exists) while sysvinit is

@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -120,7 +121,7 @@ func cgroupV2SelfDir(base, procSelfCgroup string) string {
 	if err != nil {
 		return base
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if rel, ok := strings.CutPrefix(line, "0::"); ok {
 			return filepath.Join(base, strings.TrimSpace(rel))
 		}
@@ -137,15 +138,13 @@ func cgroupV1ControllerDir(base, procSelfCgroup, controller string) string {
 	if err != nil {
 		return fallback
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		parts := strings.SplitN(line, ":", 3)
 		if len(parts) != 3 {
 			continue
 		}
-		for _, c := range strings.Split(parts[1], ",") {
-			if c == controller {
-				return filepath.Join(base, controller, parts[2])
-			}
+		if slices.Contains(strings.Split(parts[1], ","), controller) {
+			return filepath.Join(base, controller, parts[2])
 		}
 	}
 	return fallback

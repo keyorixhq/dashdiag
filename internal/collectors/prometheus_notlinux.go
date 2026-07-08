@@ -18,6 +18,6 @@ func NewPrometheusCollector() *PrometheusCollector { return &PrometheusCollector
 
 func (c *PrometheusCollector) Name() string           { return "Prometheus" }
 func (c *PrometheusCollector) Timeout() time.Duration { return time.Second }
-func (c *PrometheusCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *PrometheusCollector) Collect(_ context.Context) (any, error) {
 	return &models.PrometheusInfo{Detected: false}, nil
 }

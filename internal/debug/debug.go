@@ -40,7 +40,7 @@ func Enabled(ctx context.Context) bool {
 // Example:
 //
 //	debug.Log(ctx, "Network", "pingRTT skip", "host", "192.168.1.1", "err", err)
-func Log(ctx context.Context, component, msg string, kvs ...interface{}) {
+func Log(ctx context.Context, component, msg string, kvs ...any) {
 	if !Enabled(ctx) {
 		return
 	}
@@ -64,7 +64,7 @@ func Log(ctx context.Context, component, msg string, kvs ...interface{}) {
 
 // Logf writes a debug line using a printf-style format string.
 // Use Log for key=value pairs; use Logf when you need a free-form message.
-func Logf(ctx context.Context, component, format string, args ...interface{}) {
+func Logf(ctx context.Context, component, format string, args ...any) {
 	if !Enabled(ctx) {
 		return
 	}

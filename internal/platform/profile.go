@@ -77,7 +77,7 @@ func detectFromContent(p Profile, osRelease string) Profile {
 // parseOSRelease fills the static identity fields from /etc/os-release content.
 func parseOSRelease(p *Profile, osRelease string) {
 	var id, variantID string
-	for _, line := range strings.Split(osRelease, "\n") {
+	for line := range strings.SplitSeq(osRelease, "\n") {
 		key, val, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
 			continue
@@ -269,7 +269,7 @@ func selinuxConfigDisabled(configPath string) bool {
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
 			continue

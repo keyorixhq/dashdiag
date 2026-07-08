@@ -58,7 +58,6 @@ func TestParseVMStat(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			pin, pout, err := parseVMStat(strings.NewReader(tc.input))
@@ -129,7 +128,6 @@ func TestParseSwaps(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			total, used, err := parseSwaps(strings.NewReader(tc.input))

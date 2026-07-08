@@ -15,7 +15,7 @@ func NewHBACollector() *HBACollector           { return &HBACollector{} }
 func (c *HBACollector) Name() string           { return "HBA" }
 func (c *HBACollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *HBACollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HBACollector) Collect(_ context.Context) (any, error) {
 	return &models.HBAInfo{}, nil
 }
 

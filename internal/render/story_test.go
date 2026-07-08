@@ -18,7 +18,7 @@ func TestActiveInsightsDeterministicOrder(t *testing.T) {
 		{Check: "Mango", Level: "WARN", Message: "m"},
 		{Check: "Healthy", Level: "OK", Message: "ok"},
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		got := activeInsights(ins)
 		if len(got) != 3 {
 			t.Fatalf("expected 3 active insights, got %d", len(got))
@@ -64,11 +64,11 @@ func TestSeverityOrder(t *testing.T) {
 
 func TestExtractZombieOffender(t *testing.T) {
 	// Raw arrives as a JSON-decoded map after a snapshot round-trip.
-	raw := map[string]interface{}{
-		"zombie_procs": []interface{}{
-			map[string]interface{}{"parent_name": "/usr/sbin/cron"},
-			map[string]interface{}{"parent_name": "cron"}, // dedup after path-strip
-			map[string]interface{}{"parent_name": "nginx"},
+	raw := map[string]any{
+		"zombie_procs": []any{
+			map[string]any{"parent_name": "/usr/sbin/cron"},
+			map[string]any{"parent_name": "cron"}, // dedup after path-strip
+			map[string]any{"parent_name": "nginx"},
 		},
 	}
 	got := extractZombieOffender(raw)
@@ -82,7 +82,7 @@ func TestExtractZombieOffender(t *testing.T) {
 	if extractZombieOffender("not a map") != "" {
 		t.Error("non-map raw should yield empty")
 	}
-	if extractZombieOffender(map[string]interface{}{}) != "" {
+	if extractZombieOffender(map[string]any{}) != "" {
 		t.Error("missing zombie_procs should yield empty")
 	}
 }

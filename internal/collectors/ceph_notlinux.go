@@ -15,7 +15,7 @@ func NewCephCollector() *CephCollector          { return &CephCollector{} }
 func (c *CephCollector) Name() string           { return "Ceph" }
 func (c *CephCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *CephCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *CephCollector) Collect(_ context.Context) (any, error) {
 	return &models.CephInfo{}, nil
 }
 

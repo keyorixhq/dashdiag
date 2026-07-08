@@ -180,18 +180,18 @@ func severityOrder(level string) int {
 // stored in a baseline snapshot. Raw arrives as map[string]interface{} after
 // JSON round-trip.
 func extractZombieOffender(raw any) string {
-	m, ok := raw.(map[string]interface{})
+	m, ok := raw.(map[string]any)
 	if !ok {
 		return ""
 	}
-	procs, ok := m["zombie_procs"].([]interface{})
+	procs, ok := m["zombie_procs"].([]any)
 	if !ok || len(procs) == 0 {
 		return ""
 	}
 	seen := make(map[string]bool)
 	var names []string
 	for _, p := range procs {
-		pm, ok := p.(map[string]interface{})
+		pm, ok := p.(map[string]any)
 		if !ok {
 			continue
 		}

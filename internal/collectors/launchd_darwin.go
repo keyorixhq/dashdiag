@@ -20,7 +20,7 @@ func NewLaunchdCollector() *LaunchdCollector       { return &LaunchdCollector{} 
 func (c *LaunchdCollector) Name() string           { return "Launchd" }
 func (c *LaunchdCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func (c *LaunchdCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *LaunchdCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.LaunchdInfo{}
 
 	// launchctl list — prints all loaded services:

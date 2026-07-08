@@ -16,7 +16,7 @@ func NewGCPCollector() *GCPCollector { return &GCPCollector{} }
 func (c *GCPCollector) Name() string           { return "GCP" }
 func (c *GCPCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *GCPCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *GCPCollector) Collect(_ context.Context) (any, error) {
 	return &models.GCPInfo{}, nil
 }
 

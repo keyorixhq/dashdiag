@@ -154,7 +154,7 @@ func parseAAStatusJSON(out string) ([]string, bool) {
 func parseAAStatusText(out string) []string {
 	var names []string
 	inComplain := false
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case strings.Contains(trimmed, "profiles are in complain mode"):
