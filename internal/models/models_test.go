@@ -316,3 +316,26 @@ func TestLogsInfoTopCritical(t *testing.T) {
 		t.Errorf("unknown-age entry should round-trip as -1, got %d", out.TopCritical[1].AgeMin)
 	}
 }
+
+func TestHealthDeepInfoCgroupUnits(t *testing.T) {
+	in := HealthDeepInfo{
+		Cgroup: &CgroupV2Info{
+			Available: true,
+			Units: []CgroupUnit{
+				{Name: "postgresql.service", ParentSlice: "system.slice", CPUPct: 42.1, MemCurrentMB: 800, MemLimitMB: 1000, HasMemLimit: true, MemUsedPct: 80},
+				{Name: "container:abcdef012345", ParentSlice: "docker", IsContainer: true, CPUPct: 12.3, MemCurrentMB: 600, MemLimitMB: -1},
+			},
+		},
+	}
+	var out HealthDeepInfo
+	roundTrip(t, &in, &out)
+	if out.Cgroup == nil || len(out.Cgroup.Units) != 2 {
+		t.Fatalf("Cgroup.Units round-trip failed: %+v", out.Cgroup)
+	}
+	if out.Cgroup.Units[0].Name != "postgresql.service" || out.Cgroup.Units[0].MemUsedPct != 80 {
+		t.Errorf("Units[0] = %+v", out.Cgroup.Units[0])
+	}
+	if !out.Cgroup.Units[1].IsContainer || out.Cgroup.Units[1].ParentSlice != "docker" {
+		t.Errorf("Units[1] = %+v", out.Cgroup.Units[1])
+	}
+}

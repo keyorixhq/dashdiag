@@ -1336,6 +1336,47 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 		}
 	}
 
+	// Individual systemd service units and containers one level below the
+	// slices above — same lifetime-ratio caveat, same thresholds. Only units
+	// that already crossed the "significant usage" bar in the collector
+	// (>5% CPU or >500MB RAM) appear here, so this loop is small.
+	for _, u := range cg.Units {
+		var hint []string
+		if u.IsContainer {
+			hint = []string{fmt.Sprintf("to inspect: docker stats %s", strings.TrimPrefix(u.Name, "container:"))}
+		} else {
+			hint = []string{fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/%s/cpu.stat", u.ParentSlice, u.Name)}
+		}
+
+		if u.ThrottledPct > 20 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot) — chronically hitting cpu.max",
+					u.Name, u.ThrottledPct),
+				hint,
+			))
+		} else if u.ThrottledPct > 5 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot)",
+					u.Name, u.ThrottledPct),
+				hint,
+			))
+		}
+
+		if u.HasMemLimit && u.MemUsedPct > 90 {
+			out = append(out, insight("CRIT", "Cgroup",
+				fmt.Sprintf("%s memory %.0f%% of limit (%.0f/%.0f MB)",
+					u.Name, u.MemUsedPct, u.MemCurrentMB, u.MemLimitMB),
+				hint,
+			))
+		} else if u.HasMemLimit && u.MemUsedPct > 75 {
+			out = append(out, insight("WARN", "Cgroup",
+				fmt.Sprintf("%s memory at %.0f%% of limit",
+					u.Name, u.MemUsedPct),
+				hint,
+			))
+		}
+	}
+
 	return out
 }
 
