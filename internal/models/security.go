@@ -103,6 +103,12 @@ type SecurityInfo struct {
 	SELinuxContextIssues []SELinuxContextIssue `json:"se_linux_context_issues,omitempty"`
 	// PAM
 	PAMLockedAccounts []string `json:"pam_locked_accounts,omitempty"` // accounts locked by pam_faillock
+	// PAMModuleFailures groups pam_unix authentication failures from non-sshd
+	// services (su, sudo, login, cron, ...) over a 24h window — sshd's own
+	// failures are already counted by FailedLogins/FailedLoginIPs (1h window),
+	// so this excludes service=="sshd" to avoid double-counting the same signal
+	// under two different counters.
+	PAMModuleFailures []PAMFailure `json:"pam_module_failures,omitempty"`
 
 	// RHEL/Rocky-specific security
 	FIPSEnabled     bool   `json:"fips_enabled"`            // /proc/sys/crypto/fips_enabled
@@ -199,6 +205,15 @@ type AppArmorDenial struct {
 	Operation string `json:"operation,omitempty"` // read, write, exec, etc.
 	Path      string `json:"path,omitempty"`
 	Count     int    `json:"count"`
+}
+
+// PAMFailure is a grouped PAM authentication failure from a non-SSH service
+// (su, sudo, login, cron, etc.) — distinct from FailedLogins, which counts
+// only sshd's own failed-password/invalid-user log lines.
+type PAMFailure struct {
+	Service string `json:"service"`
+	User    string `json:"user"`
+	Count   int    `json:"count"`
 }
 
 // SELinuxBoolean holds the state of a relevant SELinux boolean.

@@ -699,7 +699,8 @@ func walkSUIDDir(dir string, info *models.SecurityInfo) {
 	}
 }
 
-// parseSELinuxExtras adds booleans, AppArmor groups, autorelabel, and PAM lockout.
+// parseSELinuxExtras adds booleans, AppArmor groups, autorelabel, and PAM
+// lockout + module-failure diagnosis.
 func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 	// /.autorelabel — full filesystem relabel queued
 	if fileExists("/.autorelabel") {
@@ -731,6 +732,121 @@ func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 
 	// PAM locked accounts via faillock
 	info.PAMLockedAccounts = collectPAMLockedAccounts(ctx)
+
+	// PAM module failures (su/sudo/login/cron) — §6 permission root-cause
+	parsePAMModuleFailures(ctx, info)
+}
+
+// pamKey groups a PAM module failure by service+user.
+type pamKey struct{ service, user string }
+
+// parsePAMModuleFailures scans the same auth log source parseFailedLogins
+// uses (or journalctl on journald-only systems) for pam_unix authentication
+// failures from services OTHER than sshd — su, sudo, login, cron, etc.
+// sshd failures are already counted by FailedLogins (1h window); this is a
+// distinct, non-network privilege/auth vector, counted over 24h.
+func parsePAMModuleFailures(ctx context.Context, info *models.SecurityInfo) {
+	paths := []string{"/var/log/secure", "/var/log/auth.log"}
+	var logPath string
+	for _, p := range paths {
+		if fileExists(p) {
+			logPath = p
+			break
+		}
+	}
+	if logPath == "" {
+		info.PAMModuleFailures = pamFailuresFromJournal(ctx)
+		return
+	}
+
+	f, err := openFile(logPath) // #nosec G304 -- hardcoded known paths
+	if err != nil {
+		return // requires root
+	}
+	defer f.Close() //nolint:errcheck
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	counts := make(map[pamKey]int)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) < 15 {
+			continue
+		}
+		ts, err := parseLogTimestamp(line[:15])
+		if err != nil || ts.Before(cutoff) {
+			continue
+		}
+		if k, ok := parsePAMFailureLine(line); ok {
+			counts[k]++
+		}
+	}
+	info.PAMModuleFailures = pamFailuresFromCounts(counts)
+}
+
+// parsePAMFailureLine extracts (service, user) from a
+// "pam_unix(SERVICE:auth): authentication failure ... user=USER" log line.
+// sshd is deliberately excluded — FailedLogins already covers it via a
+// different (1h, IP-focused) counter, and double-counting the same signal
+// under two thresholds would confuse the verdict.
+func parsePAMFailureLine(line string) (pamKey, bool) {
+	if !strings.Contains(line, "pam_unix(") || !strings.Contains(line, "authentication failure") {
+		return pamKey{}, false
+	}
+	// extractAAField stops at the first space/quote; pam_unix(service:auth)
+	// has no space before ":auth)", so cut off everything after the colon.
+	svc, _, _ := strings.Cut(extractAAField(line, "pam_unix("), ":")
+	if svc == "" || svc == "sshd" {
+		return pamKey{}, false
+	}
+	// A leading space distinguishes the "user=" field from "ruser=", which
+	// contains "user=" as a substring — a bare extractAAField(line, "user=")
+	// would match inside "ruser=bob" and silently report the wrong account.
+	user := extractAAField(line, " user=")
+	if user == "" {
+		return pamKey{}, false
+	}
+	return pamKey{service: svc, user: user}, true
+}
+
+// pamFailuresFromJournal is the journald fallback for parsePAMModuleFailures,
+// used on systems with no /var/log/secure or /var/log/auth.log (Debian 13+).
+func pamFailuresFromJournal(ctx context.Context) []models.PAMFailure {
+	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runCmd(jCtx, "journalctl", "--since=24 hours ago", "--no-pager", "-q",
+		"-g", "pam_unix.*authentication failure")
+	if err != nil {
+		return nil
+	}
+	counts := make(map[pamKey]int)
+	for _, line := range strings.Split(out, "\n") {
+		if k, ok := parsePAMFailureLine(line); ok {
+			counts[k]++
+		}
+	}
+	return pamFailuresFromCounts(counts)
+}
+
+// pamFailuresFromCounts converts a (service,user) tally into a sorted,
+// deterministic []models.PAMFailure — map iteration order is non-deterministic
+// and would otherwise produce spurious `dsd diff`/replay churn (same
+// rationale as collectAppArmorDenials's own sort).
+func pamFailuresFromCounts(counts map[pamKey]int) []models.PAMFailure {
+	out := make([]models.PAMFailure, 0, len(counts))
+	for k, c := range counts {
+		out = append(out, models.PAMFailure{Service: k.service, User: k.user, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		if out[i].Service != out[j].Service {
+			return out[i].Service < out[j].Service
+		}
+		return out[i].User < out[j].User
+	})
+	return out
 }
 
 // selinuxDeepDiagnosisGate reports whether info justifies the additional

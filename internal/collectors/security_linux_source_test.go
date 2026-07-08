@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -200,5 +201,140 @@ func TestParseSudoers(t *testing.T) {
 
 	if len(info.SudoNopasswd) != 1 || info.SudoNopasswd[0] != "deploy" {
 		t.Errorf("only the full-escalation deploy grant should be reported (the ALL-users specific-command grant is benign noise), got %v", info.SudoNopasswd)
+	}
+}
+
+// TestParsePAMFailureLine guards the (service, user) extraction boundary
+// cases: a valid non-sshd failure line, the sshd EXCLUSION (already covered
+// by FailedLogins under a different 1h/IP counter — double-counting it here
+// would confuse the verdict), and malformed/incomplete lines.
+func TestParsePAMFailureLine(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string
+		wantOK      bool
+		wantService string
+		wantUser    string
+	}{
+		{
+			name:        "sudo failure",
+			line:        "Jul  8 10:00:01 host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob",
+			wantOK:      true,
+			wantService: "sudo",
+			wantUser:    "bob",
+		},
+		{
+			name:        "su failure",
+			line:        "Jul  8 10:05:00 host su: pam_unix(su:auth): authentication failure; logname= uid=1000 euid=0 tty=pts/1 ruser=bob rhost=  user=root",
+			wantOK:      true,
+			wantService: "su",
+			wantUser:    "root",
+		},
+		{
+			name:   "sshd is excluded",
+			line:   "Jul  8 09:00:00 host sshd: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=1.2.3.4  user=eve",
+			wantOK: false,
+		},
+		{
+			name:   "missing authentication failure substring",
+			line:   "Jul  8 10:00:01 host sudo: pam_unix(sudo:session): session opened for user root by bob(uid=1000)",
+			wantOK: false,
+		},
+		{
+			name:   "missing user field",
+			line:   "Jul  8 10:00:01 host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=",
+			wantOK: false,
+		},
+		{
+			name:   "malformed line",
+			line:   "not a pam line at all",
+			wantOK: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k, ok := parsePAMFailureLine(tt.line)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (key=%+v)", ok, tt.wantOK, k)
+			}
+			if ok && (k.service != tt.wantService || k.user != tt.wantUser) {
+				t.Errorf("got service=%q user=%q, want service=%q user=%q", k.service, k.user, tt.wantService, tt.wantUser)
+			}
+		})
+	}
+}
+
+// TestParsePAMModuleFailures_FromLogFile guards the end-to-end 24h-window
+// collection: a recent non-sshd failure is grouped and counted, a failure
+// inside 24h but OUTSIDE the existing 1h SSH-brute-force window is still
+// included (proving the two counters are genuinely independent, not
+// redundant), an sshd failure is filtered out, and a >24h-old failure is
+// excluded by the recency gate.
+func TestParsePAMModuleFailures_FromLogFile(t *testing.T) {
+	now := time.Now()
+	recent := now.Add(-5 * time.Minute).Format(time.Stamp)
+	within24hOutside1h := now.Add(-2 * time.Hour).Format(time.Stamp)
+	tooOld := now.Add(-25 * time.Hour).Format(time.Stamp)
+
+	lines := []string{
+		fmt.Sprintf("%s host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob", recent),
+		fmt.Sprintf("%s host su: pam_unix(su:auth): authentication failure; logname= uid=1000 euid=0 tty=pts/1 ruser=bob rhost=  user=root", within24hOutside1h),
+		fmt.Sprintf("%s host sshd: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=1.2.3.4  user=eve", recent),
+		fmt.Sprintf("%s host su: pam_unix(su:auth): authentication failure; logname= uid=1000 euid=0 tty=pts/2 ruser=bob rhost=  user=root", tooOld),
+	}
+
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/auth.log", []byte(strings.Join(lines, "\n")+"\n"))
+		b.PutStat("/var/log/auth.log", source.FileMeta{Mode: 0o644})
+	})
+
+	info := &models.SecurityInfo{}
+	parsePAMModuleFailures(context.Background(), info)
+
+	if len(info.PAMModuleFailures) != 2 {
+		t.Fatalf("expected exactly 2 groups (sudo/bob and su/root, in-window, non-sshd), got %d: %+v", len(info.PAMModuleFailures), info.PAMModuleFailures)
+	}
+	want := map[string]int{"sudo:bob": 1, "su:root": 1}
+	for _, f := range info.PAMModuleFailures {
+		key := f.Service + ":" + f.User
+		if want[key] != f.Count {
+			t.Errorf("unexpected group %+v (want count %d for %s)", f, want[key], key)
+		}
+	}
+}
+
+// TestParsePAMModuleFailures_NoLogFiles_FallsBackToJournal guards the
+// journald-only fallback path (Debian 13+, no /var/log/secure or auth.log):
+// the exact journalctl args must match what parsePAMModuleFailures/
+// pamFailuresFromJournal actually invokes, or the fixture silently misses
+// and the test passes vacuously on the `err != nil → return nil` branch.
+func TestParsePAMModuleFailures_NoLogFiles_FallsBackToJournal(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl",
+			[]string{"--since=24 hours ago", "--no-pager", "-q", "-g", "pam_unix.*authentication failure"},
+			"Jul  8 10:00:01 host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob\n",
+			0)
+	})
+
+	info := &models.SecurityInfo{}
+	parsePAMModuleFailures(context.Background(), info)
+
+	if len(info.PAMModuleFailures) != 1 || info.PAMModuleFailures[0].Service != "sudo" || info.PAMModuleFailures[0].User != "bob" {
+		t.Fatalf("expected the journalctl fallback to be parsed, got %+v", info.PAMModuleFailures)
+	}
+}
+
+// TestParsePAMModuleFailures_Clean guards the zero-matches boundary: a log
+// file present but with no matching PAM failure lines must leave
+// PAMModuleFailures nil, not an empty-but-non-nil slice or a spurious entry.
+func TestParsePAMModuleFailures_Clean(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/auth.log", []byte("Jul  8 10:00:01 host CRON[123]: pam_unix(cron:session): session opened for user root by (uid=0)\n"))
+		b.PutStat("/var/log/auth.log", source.FileMeta{Mode: 0o644})
+	})
+	info := &models.SecurityInfo{}
+	parsePAMModuleFailures(context.Background(), info)
+	if len(info.PAMModuleFailures) != 0 {
+		t.Errorf("no matching failure lines should leave PAMModuleFailures empty, got %+v", info.PAMModuleFailures)
 	}
 }

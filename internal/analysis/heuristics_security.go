@@ -33,13 +33,15 @@ func SecurityConcernCount(sec models.SecurityInfo) int {
 // Order of appends must stay stable: `SecurityConcernCount`/tests don't depend
 // on insight order, but callers that print top-N assume append order.
 func checkSecurity(sec models.SecurityInfo) []models.Insight {
-	out := make([]models.Insight, 0, 12) // one slot per sub-check below; grows past this on a noisy host
+	out := make([]models.Insight, 0, 14) // one slot per sub-check below; grows past this on a noisy host
 	out = append(out, checkSecurityAuditGaps(sec)...)
 	out = append(out, checkSSHHardening(sec)...)
 	out = append(out, checkFailedLoginAttempts(sec)...)
 	out = append(out, checkNetworkExposure(sec)...)
 	out = append(out, checkPrivilegeEscalationVectors(sec)...)
 	out = append(out, checkSecuritySELinuxDenials(sec)...)
+	out = append(out, checkAppArmorDenials(sec)...)
+	out = append(out, checkPAMFailures(sec)...)
 	out = append(out, checkRHELSecurityHardening(sec)...)
 	out = append(out, checkSUSESecurityHardening(sec)...)
 	out = append(out, checkEmptyPasswords(sec)...)
@@ -513,6 +515,68 @@ func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
 	}
 
 	return out
+}
+
+// checkAppArmorDenials surfaces AppArmor denials grouped by profile/operation/
+// path — the `dsd security` (SecurityInfo.AppArmorGroups) analogue of
+// checkSecuritySELinuxDenials above. Distinct from heuristics_system.go's
+// checkAppArmorActive(KernelSecurityInfo), which drives `dsd health`'s
+// KernelSec row from a different collector/model pair and a 1h window; this
+// one covers the Hardening-view-only, 24h-windowed denial data collected
+// alongside SELinux for this command specifically.
+func checkAppArmorDenials(sec models.SecurityInfo) []models.Insight {
+	var out []models.Insight
+
+	switch {
+	case len(sec.AppArmorGroups) > 0:
+		hints := []string{
+			"to inspect: aa-logprof",
+			"to inspect: journalctl -t kernel -g 'apparmor=\"DENIED\"' --since '24 hours ago'",
+		}
+		for i, g := range sec.AppArmorGroups {
+			if i >= 5 {
+				hints = append(hints, fmt.Sprintf("... and %d more group(s)", len(sec.AppArmorGroups)-5))
+				break
+			}
+			hints = append(hints, fmt.Sprintf("  %s [%s] %s ×%d", g.Profile, g.Operation, g.Path, g.Count))
+		}
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d AppArmor denial group(s) in the last 24h", len(sec.AppArmorGroups)),
+			hints,
+		))
+	case sec.AppArmorDenials > 0:
+		out = append(out, insight("WARN", "Hardening",
+			fmt.Sprintf("%d AppArmor denial(s) in the last 24h", sec.AppArmorDenials),
+			[]string{"to inspect: journalctl -t kernel -g 'apparmor=\"DENIED\"' --since '24 hours ago'"},
+		))
+	}
+
+	return out
+}
+
+// checkPAMFailures surfaces PAM authentication failures from non-sshd
+// services (su, sudo, login, cron, ...) — sshd's own failures are already
+// covered by checkFailedLoginAttempts's FailedLogins threshold, so any
+// presence here is a genuinely separate signal and WARNs unconditionally (no
+// numeric floor: these are typically low-volume, high-signal events — e.g. a
+// single repeated `sudo` failure for a service account is already
+// noteworthy, unlike SSH's internet-facing brute-force noise floor).
+func checkPAMFailures(sec models.SecurityInfo) []models.Insight {
+	if len(sec.PAMModuleFailures) == 0 {
+		return nil
+	}
+	hints := []string{"to inspect: grep pam_unix /var/log/auth.log /var/log/secure 2>/dev/null | tail -20"}
+	total := 0
+	for i, f := range sec.PAMModuleFailures {
+		total += f.Count
+		if i < 5 {
+			hints = append(hints, fmt.Sprintf("  %s: %s ×%d", f.Service, f.User, f.Count))
+		}
+	}
+	return []models.Insight{insight("WARN", "Hardening",
+		fmt.Sprintf("%d PAM authentication failure(s) in the last 24h across %d service(s)", total, len(sec.PAMModuleFailures)),
+		hints,
+	)}
 }
 
 // checkRHELSecurityHardening covers RHEL-family compliance tooling: system-wide
