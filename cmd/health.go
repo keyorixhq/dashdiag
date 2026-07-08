@@ -348,6 +348,7 @@ func printHealthMainOutput(renderer *render.Renderer, mode output.OutputMode, re
 		// Deep mode: show top processes with cgroup scope
 		if deepFlag {
 			printTopProcsWithCgroup(results, mode)
+			printTopCPUProcsWithCgroup(results, mode)
 		}
 	}
 }
@@ -911,6 +912,28 @@ func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			}
 			fmt.Printf("  %-6d  %4.1f%%  %-20s  %s\n",
 				p.PID, p.MemPct, truncateStr(p.Name, 20), scope)
+		}
+		return
+	}
+}
+
+// printTopCPUProcsWithCgroup shows top CPU consumers with cgroup scope labels
+// in dsd health deep output, mirroring printTopProcsWithCgroup for memory.
+func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
+	for _, r := range results {
+		deep, ok := r.Data.(*models.HealthDeepInfo)
+		if !ok || deep == nil || len(deep.TopCPUProcs) == 0 {
+			continue
+		}
+		fmt.Printf("\n[Top processes — CPU, cgroup context]\n")
+		fmt.Printf("  %-6s  %-6s  %-20s  %s\n", "PID", "CPU%", "NAME", "SCOPE")
+		for _, p := range deep.TopCPUProcs {
+			scope := p.CgroupScope
+			if scope == "" {
+				scope = "unknown"
+			}
+			fmt.Printf("  %-6d  %5.1f%%  %-20s  %s\n",
+				p.PID, p.CPUPct, truncateStr(p.Name, 20), scope)
 		}
 		return
 	}
