@@ -3,10 +3,319 @@
 package collectors
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+func TestNVMeCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewNVMeCollector()
+	if c.Name() != "Drives" {
+		t.Errorf("Name() = %q, want Drives", c.Name())
+	}
+	if c.Timeout() != 8*time.Second {
+		t.Errorf("Timeout() = %v, want 8s", c.Timeout())
+	}
+}
+
+// TestNvmeUnreadReason_ToolAbsent guards the deterministic (euid-independent)
+// branch: nvme-cli genuinely absent classifies as "tool_absent" regardless of
+// privilege. The root/non-root split inside nvmeUnreadReason depends on the
+// real os.Geteuid() syscall (not source-routed) — see the report for why that
+// branch isn't separately unit-tested here.
+func TestNvmeUnreadReason_ToolAbsent(t *testing.T) {
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		// No lookpath/nvme Cached entry and no sbin Stat entries seeded ->
+		// sbinToolPath("nvme") == "".
+	})
+	if got := nvmeUnreadReason(); got != "tool_absent" {
+		t.Errorf("nvmeUnreadReason() = %q, want tool_absent", got)
+	}
+}
+
+func TestReadFileStr(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/sys/class/nvme/nvme0/model", []byte("Samsung SSD 980\n"))
+		})
+		if got := readFileStr("/sys/class/nvme/nvme0/model"); got != "Samsung SSD 980\n" {
+			t.Errorf("readFileStr() = %q, want %q", got, "Samsung SSD 980\n")
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		if got := readFileStr("/sys/class/nvme/nvme0/model"); got != "" {
+			t.Errorf("readFileStr() = %q, want empty", got)
+		}
+	})
+}
+
+// TestNVMeMountPoints guards the partition-matching logic against a
+// controller's mount points: a matching partition on a Linux fs, a matching
+// partition excluded because it's swap/none, a non-matching device, and an
+// empty /proc/mounts.
+func TestNVMeMountPoints(t *testing.T) {
+	t.Run("matching partition mounted on Linux fs", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/mounts", []byte("/dev/nvme0n1p1 / ext4 rw,relatime 0 0\n"))
+		})
+		mounts, hasLinux := nvmeMountPoints("/sys/class/nvme/nvme0")
+		if len(mounts) != 1 || mounts[0] != "/" || !hasLinux {
+			t.Errorf("got mounts=%v hasLinux=%v, want [/] true", mounts, hasLinux)
+		}
+	})
+
+	t.Run("swap/none mountpoint excluded", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/mounts", []byte(
+				"/dev/nvme0n1p2 none swap sw 0 0\n"+
+					"/dev/nvme0n1p3 swap swap sw 0 0\n"))
+		})
+		mounts, hasLinux := nvmeMountPoints("/sys/class/nvme/nvme0")
+		if len(mounts) != 0 || hasLinux {
+			t.Errorf("got mounts=%v hasLinux=%v, want none/false", mounts, hasLinux)
+		}
+	})
+
+	t.Run("non-matching device excluded", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/mounts", []byte("/dev/sda1 /boot ext4 rw,relatime 0 0\n"))
+		})
+		mounts, hasLinux := nvmeMountPoints("/sys/class/nvme/nvme0")
+		if len(mounts) != 0 || hasLinux {
+			t.Errorf("got mounts=%v hasLinux=%v, want none/false", mounts, hasLinux)
+		}
+	})
+
+	t.Run("empty /proc/mounts", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		mounts, hasLinux := nvmeMountPoints("/sys/class/nvme/nvme0")
+		if mounts != nil || hasLinux {
+			t.Errorf("got mounts=%v hasLinux=%v, want nil/false", mounts, hasLinux)
+		}
+	})
+}
+
+// TestNVMeCollector_Collect_NoDevices guards the explicit gate-off case: no
+// NVMe controllers and no SATA/SAS devices -> Collect returns (nil, nil).
+func TestNVMeCollector_Collect_NoDevices(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/nvme/nvme*", nil)
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil (no drives at all)", raw)
+	}
+}
+
+// TestNVMeCollector_Collect_SmartLogSuccess exercises one NVMe controller with
+// a successful, parseable smart-log.
+func TestNVMeCollector_Collect_SmartLogSuccess(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/nvme/nvme*", []string{"/sys/class/nvme/nvme0"})
+		b.PutFile("/sys/class/nvme/nvme0/model", []byte("Samsung SSD 980\n"))
+		b.PutFile("/sys/class/nvme/nvme0/state", []byte("live\n"))
+		b.PutCmd("nvme", []string{"smart-log", "/dev/nvme0", "--output-format=normal"},
+			"critical_warning			: 0\npercentage_used			: 7%\nmedia_errors			: 0\n", 0)
+		b.PutFile("/proc/mounts", []byte("/dev/nvme0n1p1 / ext4 rw,relatime 0 0\n"))
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NVMeInfo)
+	if len(info.Devices) != 1 {
+		t.Fatalf("Devices = %+v, want exactly 1", info.Devices)
+	}
+	dev := info.Devices[0]
+	if !dev.SmartRead || dev.SmartUnreadReason != "" {
+		t.Errorf("dev = %+v, want SmartRead=true, no unread reason", dev)
+	}
+	if dev.Model != "Samsung SSD 980" || dev.PercentageUsed != 7 {
+		t.Errorf("dev = %+v, want Model=Samsung SSD 980 PercentageUsed=7", dev)
+	}
+	if len(dev.MountPoints) != 1 || dev.MountPoints[0] != "/" || !dev.HasLinux {
+		t.Errorf("dev mount info = %+v, want [/] hasLinux=true", dev)
+	}
+}
+
+// TestNVMeCollector_Collect_SmartLogCommandFails guards the branch where the
+// nvme smart-log command itself errors — SmartUnreadReason must be set via
+// nvmeUnreadReason(). With no lookpath/nvme fixture seeded, sbinToolPath("nvme")
+// is "" (tool genuinely absent from this test's perspective), so the reason is
+// deterministically "tool_absent" regardless of euid.
+func TestNVMeCollector_Collect_SmartLogCommandFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/nvme/nvme*", []string{"/sys/class/nvme/nvme0"})
+		b.PutFile("/sys/class/nvme/nvme0/model", []byte("Samsung SSD 980\n"))
+		b.PutFile("/sys/class/nvme/nvme0/state", []byte("live\n"))
+		b.PutCmd("nvme", []string{"smart-log", "/dev/nvme0", "--output-format=normal"}, "", 1)
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NVMeInfo)
+	if len(info.Devices) != 1 {
+		t.Fatalf("Devices = %+v, want exactly 1", info.Devices)
+	}
+	dev := info.Devices[0]
+	if dev.SmartRead {
+		t.Error("SmartRead should be false when smart-log command fails")
+	}
+	if dev.SmartUnreadReason != "tool_absent" {
+		t.Errorf("SmartUnreadReason = %q, want tool_absent", dev.SmartUnreadReason)
+	}
+}
+
+// TestNVMeCollector_Collect_SmartLogUnparseable guards the documented
+// bug-fix pattern: smart-log exits 0 but its output has no recognized fields
+// (banner-only text) -> SmartRead=false, SmartUnreadReason="error" (NOT the
+// nvmeUnreadReason() classification, since the command itself succeeded).
+func TestNVMeCollector_Collect_SmartLogUnparseable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/nvme/nvme*", []string{"/sys/class/nvme/nvme0"})
+		b.PutFile("/sys/class/nvme/nvme0/model", []byte("Samsung SSD 980\n"))
+		b.PutFile("/sys/class/nvme/nvme0/state", []byte("live\n"))
+		b.PutCmd("nvme", []string{"smart-log", "/dev/nvme0", "--output-format=normal"},
+			"WARNING: nvme-cli deprecation notice\nnonsense line\n", 0)
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NVMeInfo)
+	if len(info.Devices) != 1 {
+		t.Fatalf("Devices = %+v, want exactly 1", info.Devices)
+	}
+	dev := info.Devices[0]
+	if dev.SmartRead {
+		t.Error("SmartRead should be false for unparseable output")
+	}
+	if dev.SmartUnreadReason != "error" {
+		t.Errorf("SmartUnreadReason = %q, want error", dev.SmartUnreadReason)
+	}
+}
+
+// ── collectSATADrives ────────────────────────────────────────────────────────
+
+func TestCollectSATADrives_ScanFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if info.SATADevices != nil {
+		t.Errorf("SATADevices = %+v, want nil when smartctl scan fails", info.SATADevices)
+	}
+}
+
+// TestCollectSATADrives_SkipsNVMeProtocol guards that a scanned device whose
+// protocol contains "nvme" is skipped (handled by the NVMe path above, not
+// duplicated here).
+func TestCollectSATADrives_SkipsNVMeProtocol(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/nvme0","protocol":"NVMe"}]}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 0 {
+		t.Errorf("SATADevices = %+v, want empty (NVMe protocol device must be skipped)", info.SATADevices)
+	}
+}
+
+func TestCollectSATADrives_OpenErrorPermissionDenied(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"ATA","open_error":"Permission denied"}]}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want exactly 1", info.SATADevices)
+	}
+	dev := info.SATADevices[0]
+	if dev.SmartUnreadReason != "needs_root" {
+		t.Errorf("SmartUnreadReason = %q, want needs_root", dev.SmartUnreadReason)
+	}
+	if dev.Type != "sata" {
+		t.Errorf("Type = %q, want sata", dev.Type)
+	}
+}
+
+func TestCollectSATADrives_OpenErrorOther(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"ATA","open_error":"No such device"}]}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want exactly 1", info.SATADevices)
+	}
+	if info.SATADevices[0].SmartUnreadReason != "error" {
+		t.Errorf("SmartUnreadReason = %q, want error", info.SATADevices[0].SmartUnreadReason)
+	}
+}
+
+// TestCollectSATADrives_SuccessfulRead exercises the follow-up smartctl -a
+// call succeeding — applySATASmartJSON populates the device.
+func TestCollectSATADrives_SuccessfulRead(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"ATA"}]}`, 0)
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sda"},
+			`{"model_name":"X","smart_status":{"passed":true},"temperature":{"current":34}}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want exactly 1", info.SATADevices)
+	}
+	dev := info.SATADevices[0]
+	if !dev.SmartRead || !dev.SmartOK || dev.TempC != 34 {
+		t.Errorf("dev = %+v, want SmartRead=true SmartOK=true temp=34", dev)
+	}
+}
+
+// TestCollectSATADrives_FollowUpCommandFails guards the final failure branch:
+// the follow-up smartctl -a call itself fails (non-zero exit, empty output).
+func TestCollectSATADrives_FollowUpCommandFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"ATA"}]}`, 0)
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sda"}, "", 1)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want exactly 1", info.SATADevices)
+	}
+	dev := info.SATADevices[0]
+	if dev.Error != "smartctl failed" {
+		t.Errorf("Error = %q, want %q", dev.Error, "smartctl failed")
+	}
+	if dev.SmartUnreadReason != "error" {
+		t.Errorf("SmartUnreadReason = %q, want error", dev.SmartUnreadReason)
+	}
+}
 
 // parseNVMeSmartLog must read `critical_warning` correctly. `nvme smart-log
 // --output-format=normal` prints it as %#x (nvme-cli 2.13), so a non-zero

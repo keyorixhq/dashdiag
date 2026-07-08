@@ -3,10 +3,161 @@
 package collectors
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakeStatfsSource layers a Statfs override (Bundle has no public Statfs-seeding
+// API) on top of a Bundle-backed Replay, mirroring fakeCombinedSource's
+// Cached/Readlink override pattern (see security_linux_source_test.go) — so
+// DiskCollector.Collect can be driven end to end without touching the real
+// filesystem.
+type fakeStatfsSource struct {
+	*source.Replay
+	statfs map[string]source.StatfsInfo
+}
+
+func (f *fakeStatfsSource) Statfs(path string) (source.StatfsInfo, error) {
+	if v, ok := f.statfs[path]; ok {
+		return v, nil
+	}
+	return f.Replay.Statfs(path)
+}
+
+// withStatfsFixture seeds a Bundle (PutFile/PutStat/...) and a mount-point ->
+// StatfsInfo map into one active source for the test's duration.
+func withStatfsFixture(t *testing.T, statfs map[string]source.StatfsInfo, seed func(b *source.Bundle)) {
+	t.Helper()
+	b := source.NewBundle()
+	if seed != nil {
+		seed(b)
+	}
+	prev := SetSource(&fakeStatfsSource{Replay: source.NewReplay(b), statfs: statfs})
+	t.Cleanup(func() { SetSource(prev) })
+}
+
+func TestDiskCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	deep := NewDiskDeepCollector()
+	if deep.Name() != "Disk" {
+		t.Errorf("Name() = %q, want Disk", deep.Name())
+	}
+	if !deep.Deep {
+		t.Error("NewDiskDeepCollector() must set Deep=true")
+	}
+	if deep.Timeout() != 12*time.Second {
+		t.Errorf("deep Timeout() = %v, want 12s", deep.Timeout())
+	}
+
+	cc := platform.ContainerContext{InContainer: true}
+	normal := NewDiskCollector(cc)
+	if normal.Deep {
+		t.Error("NewDiskCollector() must not set Deep")
+	}
+	if normal.Timeout() != 5*time.Second {
+		t.Errorf("normal Timeout() = %v, want 5s", normal.Timeout())
+	}
+	if normal.ContainerCtx != cc {
+		t.Errorf("ContainerCtx = %+v, want %+v", normal.ContainerCtx, cc)
+	}
+}
+
+func TestSkipMacOSMount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		fstype     string
+		mountpoint string
+		want       bool
+	}{
+		{"devfs skipped", "devfs", "/dev", true},
+		{"autofs skipped", "autofs", "/net", true},
+		{"synthfs skipped", "synthfs", "/private/var/vm", true},
+		{"bindfs skipped", "bindfs", "/mnt/bind", true},
+		{"/dev mountpoint skipped regardless of fstype", "hfs", "/dev", true},
+		{"synthetic system volume skipped", "apfs", "/System/Volumes/Preboot", true},
+		{"Data system volume kept", "apfs", "/System/Volumes/Data", false},
+		{"real root volume kept", "apfs", "/", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := skipMacOSMount(tt.fstype, tt.mountpoint); got != tt.want {
+				t.Errorf("skipMacOSMount(%q, %q) = %v, want %v", tt.fstype, tt.mountpoint, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDiskCollector_Collect_FiltersAndComputes drives Collect() end to end: a
+// skippable tmpfs mount, a /proc-prefixed mount, and a real ext4 mount — only
+// the surviving ext4 mount should end up in Filesystems, with Total/Free/Used
+// computed from the seeded Statfs numbers.
+func TestDiskCollector_Collect_FiltersAndComputes(t *testing.T) {
+	withStatfsFixture(t, map[string]source.StatfsInfo{
+		"/": {
+			Bsize:  4096,
+			Blocks: 2500000, // ~10.24GB total
+			Bfree:  1250000, // ~5.12GB free
+			Bavail: 1250000,
+			Files:  655360,
+			Ffree:  327680, // 50% inodes used
+		},
+	}, func(b *source.Bundle) {
+		b.PutFile("/proc/mounts",
+			[]byte("tmpfs /run tmpfs rw,nosuid,nodev 0 0\n"+
+				"proc /proc/self/status proc rw 0 0\n"+
+				"/dev/sda1 / ext4 rw,relatime 0 0\n"))
+	})
+
+	c := NewDiskCollector(platform.ContainerContext{InContainer: true}) // container: skip SMART/etc probes
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.DiskInfo)
+	if len(info.Filesystems) != 1 {
+		t.Fatalf("Filesystems = %+v, want exactly 1 (tmpfs and /proc/self/status must be skipped)", info.Filesystems)
+	}
+	fs := info.Filesystems[0]
+	if fs.Mount != "/" || fs.Device != "/dev/sda1" || fs.FSType != "ext4" {
+		t.Errorf("fs = %+v, want mount=/ device=/dev/sda1 fstype=ext4", fs)
+	}
+	wantTotalGB := 2500000.0 * 4096 / 1e9
+	if fs.TotalGB != wantTotalGB {
+		t.Errorf("TotalGB = %v, want %v", fs.TotalGB, wantTotalGB)
+	}
+	wantFreeGB := 1250000.0 * 4096 / 1e9
+	if fs.FreeGB != wantFreeGB {
+		t.Errorf("FreeGB = %v, want %v", fs.FreeGB, wantFreeGB)
+	}
+	if fs.UsedGB != wantTotalGB-wantFreeGB {
+		t.Errorf("UsedGB = %v, want %v", fs.UsedGB, wantTotalGB-wantFreeGB)
+	}
+	if fs.UsedPct != 50 {
+		t.Errorf("UsedPct = %v, want 50", fs.UsedPct)
+	}
+	if fs.InodesUsedPct != 50 {
+		t.Errorf("InodesUsedPct = %v, want 50", fs.InodesUsedPct)
+	}
+}
+
+// TestDiskCollector_Collect_MountsUnreadable guards the error path: if
+// /proc/mounts can't be opened (not seeded in the bundle), Collect() must
+// return an error rather than a silently-empty DiskInfo.
+func TestDiskCollector_Collect_MountsUnreadable(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/mounts never seeded
+
+	c := NewDiskCollector(platform.ContainerContext{})
+	if _, err := c.Collect(context.Background()); err == nil {
+		t.Error("Collect() error = nil, want an error when /proc/mounts is unreadable")
+	}
+}
 
 // parseSMARTHealth must return a verdict whenever smartctl prints one — including
 // for a FAILING drive, whose `smartctl -H` exits non-zero but still prints
