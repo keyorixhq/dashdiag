@@ -23,7 +23,7 @@ import (
 // per-case tests' job. Why it exists: #575/#576 regressed because a false-OK fix
 // landed in the heuristic but the matching field's RENDERER path was silently left
 // unguarded, and nothing flagged the omission.
-var unverifiedSignalRe = regexp.MustCompile(`(Verified|Unverified|Unreadable|Queried|Reachable|ScanFailed|ReadFailed|NeedsRoot|NeedRoot|ScanOK)$`)
+var unverifiedSignalRe = regexp.MustCompile(`(Verified|Unverified|Unreadable|Queried|Reachable|ScanFailed|ReadFailed|NeedsRoot|NeedRoot|ScanOK|Checked)$`)
 
 // guardedUnverifiedSignals maps "TypeName.FieldName" → how that signal is
 // accounted for (the test/heuristic that prevents a green OK when it is set). Add a
@@ -95,6 +95,57 @@ var guardedUnverifiedSignals = map[string]string{
 	// /proc/<pid>/io is gated to the owning user; a non-root sample can miss the
 	// true top I/O consumer entirely.
 	"HealthDeepInfo.TopIOProcsNeedsRoot": "analysis/correlate_deep_test.go (TestRuleIOWaitCulprit: partial visibility caveat appended to the culprit summary, never a silent unqualified attribution)",
+
+	// K8s OS-layer — "*Checked" companions gate whether the paired field is a real
+	// verdict or "not applicable/unknown". Audited 2026-07-08 alongside #742's live
+	// root-vs-non-root validation: KubeForwardChecked/KubeServicesChecked/CNIChecked
+	// are genuinely privilege-gated (iptables/nft/ipvsadm need CAP_NET_ADMIN;
+	// /etc/cni/net.d, /opt/cni/bin are commonly root-only) and now disclosed via
+	// OSLayerNeedsRoot; Kubelet/Containerd/FirewalldChecked are "not applicable"
+	// gates (no node marker / service not active), correctly silent, no root would
+	// help.
+	"K8sOSLayer.KubeletChecked":       "analysis/heuristics_virt.go checkK8sNodeDaemons (gated, no verdict on kubectl-only client host — not privilege-related)",
+	"K8sOSLayer.ContainerdChecked":    "analysis/heuristics_virt.go checkK8sNodeDaemons (same gate as KubeletChecked)",
+	"K8sOSLayer.IPForwardChecked":     "analysis/heuristics_virt.go CheckK8sOSLayer (gated; /proc unreadable → unknown, not disabled)",
+	"K8sOSLayer.KubeForwardChecked":   "analysis/heuristics_virt.go CheckK8sOSLayer (gated) + analysis/k8s_oslayer_unverified_test.go (OSLayerNeedsRoot discloses the privilege-gated cause)",
+	"K8sOSLayer.KubeServicesChecked":  "analysis/heuristics_virt.go checkK8sServicesChain (gated) + analysis/k8s_oslayer_unverified_test.go (OSLayerNeedsRoot discloses the privilege-gated cause)",
+	"K8sOSLayer.CNIChecked":           "analysis/heuristics_virt.go CheckK8sOSLayer (gated) + analysis/k8s_oslayer_unverified_test.go (OSLayerNeedsRoot discloses the privilege-gated cause)",
+	"K8sOSLayer.FirewalldChecked":     "analysis/heuristics_virt.go checkK8sNodeDaemons (gated, no verdict when firewalld.service isn't active — not privilege-related)",
+	"K8sOSLayer.FlannelCNIUnreadable": "analysis/k8s_oslayer_unverified_test.go (FIXED 2026-07-08: /etc/cni/net.d 0700 on a real pve01 host silently read FlannelInUse=false under non-root; now disclosed)",
+	"K8sOSLayer.OSLayerNeedsRoot":     "analysis/k8s_oslayer_unverified_test.go (blanket INFO, mirrors SecurityInfo.NeedsRoot)",
+
+	// Cloud metadata "*Checked" — audited 2026-07-08. All are IMDS/metadata-server
+	// probes or local config-file reads, none require root; Checked=false is a
+	// legitimate "not applicable/unreachable" state, and every consuming heuristic
+	// already gates on it (no false verdict). Left as-is — intentionally silent,
+	// see e.g. TestCheckAzure_UnreadStorageProfileNotClaimedOK.
+	"AWSInfo.IMDSChecked":            "analysis/heuristics_aws.go (gated; IMDS unreachable is normal off-AWS)",
+	"AWSInfo.TimeSyncChecked":        "analysis/heuristics_aws.go (gated; local time-sync config absent is normal)",
+	"AWSInfo.RebalanceChecked":       "analysis/heuristics_aws.go (gated; IMDS unreachable is normal)",
+	"AWSInfo.ENAExpressChecked":      "analysis/heuristics_aws.go (gated; no ENA interface is normal off-AWS)",
+	"AzureInfo.TimeSyncChecked":      "analysis/heuristics_azure.go (gated; local config absent is normal)",
+	"AzureInfo.DisksChecked":         "analysis/heuristics_azure_test.go TestCheckAzure_UnreadStorageProfileNotClaimedOK (gated, exactly-one-recognition-line already asserted — intentionally silent, not a false OK)",
+	"AzureInfo.NVMeIOTimeoutChecked": "analysis/heuristics_azure.go (gated; NVMe present but param unreadable is rare/normal)",
+	"GCPInfo.MaintenanceChecked":     "analysis/heuristics_gcp_test.go (gated, same intentionally-silent pattern as Azure.DisksChecked)",
+	"GCPInfo.OSLoginChecked":         "analysis/heuristics_gcp.go (gated; attribute unreadable is normal)",
+	"GCPInfo.TimeSyncChecked":        "analysis/heuristics_gcp.go (gated; local config absent is normal)",
+	"OCIInfo.IMDSChecked":            "analysis/heuristics_oci.go (gated; IMDS unreachable is normal off-OCI)",
+	"OCIInfo.AgentChecked":           "analysis/heuristics_oci.go (gated; false on non-systemd hosts, rare)",
+	"OCIInfo.TimeSyncChecked":        "analysis/heuristics_oci.go (gated; local config absent is normal)",
+	"OCIInfo.VNICChecked":            "analysis/heuristics_oci.go (gated; no virtio_net readable is normal off-OCI)",
+
+	// Misc host-level "*Checked" — audited 2026-07-08.
+	"AuthInfo.Checked":             "analysis/heuristics_security.go checkAuth (explicit INFO 'SSH auth log could not be read' — already the target pattern)",
+	"AuthInfo.SSHConfigChecked":    "analysis/heuristics_security.go checkAuth (gated: 'unknown policy keeps the WARN' — fails toward warning, not OK)",
+	"BINDInfo.PortsChecked":        "analysis/heuristics (gated; ss unavailable → explicit INFO disclosure already present)",
+	"DockerInfo.IPForwardChecked":  "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
+	"FstabInfo.Checked":            "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
+	"MemoryInfo.MemHotplugChecked": "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
+	"PackagesInfo.Checked":         "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
+	"PackagesInfo.DBHealthChecked": "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
+	"PostBootInfo.ShutdownChecked": "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
+	"VMwareInfo.SCSIDisksChecked":  "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
+	"SteamOSRemotePlay.ARPChecked": "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

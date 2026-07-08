@@ -74,7 +74,10 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 // updates. It is the strongest false-OK guard in this collector: the security-update
 // count can read a confident "0" while the host literally cannot apply a single update.
 func checkPackageDBHealth(pkg models.PackagesInfo) []models.Insight {
-	if !pkg.DBUpdatesBlocked {
+	// Defensive: the collector never sets DBUpdatesBlocked without DBHealthChecked
+	// also being true (verified 2026-07-08), but gate on both anyway so a future
+	// collector change can't silently turn an unmeasured state into a WARN.
+	if !pkg.DBHealthChecked || !pkg.DBUpdatesBlocked {
 		return nil
 	}
 	hints := []string{}
