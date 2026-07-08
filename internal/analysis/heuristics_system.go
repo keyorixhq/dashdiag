@@ -1337,10 +1337,21 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 	}
 
 	// Individual systemd service units and containers one level below the
-	// slices above — same lifetime-ratio caveat, same thresholds. Only units
-	// that already crossed the "significant usage" bar in the collector
-	// (>5% CPU or >500MB RAM) appear here, so this loop is small.
-	for _, u := range cg.Units {
+	// slices above — split into its own function purely to stay under the
+	// funlen linter's line budget; same lifetime-ratio caveat and thresholds.
+	out = append(out, checkCgroupUnits(cg.Units)...)
+
+	return out
+}
+
+// checkCgroupUnits mirrors the per-slice throttle/memory checks in
+// checkCgroupV2, keyed by individual systemd service unit / container
+// instead of the coarser top-level slice. Only units that already crossed
+// the "significant usage" bar in the collector (>5% CPU or >500MB RAM)
+// appear here, so this loop is small.
+func checkCgroupUnits(units []models.CgroupUnit) []models.Insight {
+	var out []models.Insight
+	for _, u := range units {
 		var hint []string
 		if u.IsContainer {
 			hint = []string{fmt.Sprintf("to inspect: docker stats %s", strings.TrimPrefix(u.Name, "container:"))}
@@ -1376,7 +1387,6 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 			))
 		}
 	}
-
 	return out
 }
 
