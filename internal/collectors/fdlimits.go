@@ -127,7 +127,7 @@ func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 	}, true
 }
 
-func (c *FDLimitsCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *FDLimitsCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}

@@ -19,7 +19,7 @@ type availabler interface{ IsAvailable() bool }
 // A result that implements availabler decides for itself; a type that does not
 // (CPU, Memory's siblings without the field, NVMe, …) is always present. nil
 // data is treated as absent.
-func IsAvailable(data interface{}) bool {
+func IsAvailable(data any) bool {
 	if data == nil {
 		return false
 	}

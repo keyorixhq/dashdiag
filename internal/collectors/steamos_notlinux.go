@@ -21,7 +21,7 @@ func NewSteamOSDeepCollector() *SteamOSCollector { return &SteamOSCollector{Deep
 func (c *SteamOSCollector) Name() string           { return "SteamOS" }
 func (c *SteamOSCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *SteamOSCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *SteamOSCollector) Collect(_ context.Context) (any, error) {
 	return &models.SteamOSInfo{}, nil
 }
 

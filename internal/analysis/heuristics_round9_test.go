@@ -10,8 +10,6 @@ import (
 // journal), IPMI sensors, DNS resolv.conf quality, SUSE migration risks, cron
 // daemon health, and the full SteamOS / Steam Deck check suite.
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestCheckDocker(t *testing.T) {
 	assertLevel(t, checkDocker(models.DockerInfo{Available: false}), "") // absent, no reason
 	assertLevel(t, checkDocker(models.DockerInfo{Available: false, StatusReason: "docker not running"}), "WARN")
@@ -120,7 +118,7 @@ func TestCheckCron(t *testing.T) {
 func TestCheckSteamOSDevice(t *testing.T) {
 	assertLevel(t, checkSteamOSDevice(models.SteamOSInfo{DeviceRecognised: true}), "")
 	assertLevel(t, checkSteamOSDevice(models.SteamOSInfo{DeviceProductRaw: "Mystery Handheld", DeviceRecognised: false}), "INFO")
-	assertLevel(t, checkSteamOSDevice(models.SteamOSInfo{SecureBootApplicable: true, SecureBootEnabled: boolPtr(true)}), "WARN")
+	assertLevel(t, checkSteamOSDevice(models.SteamOSInfo{SecureBootApplicable: true, SecureBootEnabled: new(true)}), "WARN")
 }
 
 func TestCheckSteamOSUpdate(t *testing.T) {

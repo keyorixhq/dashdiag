@@ -41,7 +41,7 @@ func readProcIO(pid int) (readBytes, writeBytes uint64, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		switch {
 		case strings.HasPrefix(line, "read_bytes:"):
 			fields := strings.Fields(line)

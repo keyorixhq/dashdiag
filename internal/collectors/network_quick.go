@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,7 +44,7 @@ func shouldSkipIface(name string) bool {
 	return false
 }
 
-func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 	result := &models.NetworkInfo{}
 
 	// macOS: build USB interface map upfront from networksetup
@@ -68,13 +69,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		if shouldSkipIface(iface.Name) {
 			continue
 		}
-		up := false
-		for _, flag := range iface.Flags {
-			if flag == "up" {
-				up = true
-				break
-			}
-		}
+		up := slices.Contains(iface.Flags, "up")
 		ip := firstIPv4(iface.Addrs)
 		cnt := counterMap[iface.Name]
 		speedMbps := readIfaceSpeed(iface.Name)
@@ -112,11 +107,8 @@ func (c *NetworkCollector) Collect(ctx context.Context) (interface{}, error) {
 		result.PrimaryInterfaceDown = true // assume down until we find it UP
 		for _, iface := range ifaces {
 			if iface.Name == route.Iface {
-				for _, flag := range iface.Flags {
-					if flag == "up" {
-						result.PrimaryInterfaceDown = false
-						break
-					}
+				if slices.Contains(iface.Flags, "up") {
+					result.PrimaryInterfaceDown = false
 				}
 				break
 			}
@@ -323,7 +315,7 @@ func hasCapNetRaw() bool {
 }
 
 func parseCapEffHasNetRaw(status string) bool {
-	for _, line := range strings.Split(status, "\n") {
+	for line := range strings.SplitSeq(status, "\n") {
 		if !strings.HasPrefix(line, "CapEff:") {
 			continue
 		}
@@ -407,12 +399,12 @@ func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok b
 		return -1, 100, false
 	}
 	lossPct = 100 // pessimistic default
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		// "3 packets transmitted, 3 received, 0% packet loss"
 		if strings.Contains(line, "packet loss") {
-			for _, f := range strings.Fields(line) {
-				if strings.HasSuffix(f, "%") {
-					if v, err := strconv.ParseFloat(strings.TrimSuffix(f, "%"), 64); err == nil {
+			for f := range strings.FieldsSeq(line) {
+				if before, ok0 := strings.CutSuffix(f, "%"); ok0 {
+					if v, err := strconv.ParseFloat(before, 64); err == nil {
 						lossPct = v
 					}
 				}
@@ -420,8 +412,8 @@ func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok b
 		}
 		// "rtt min/avg/max/mdev = 0.585/0.660/0.806/0.102 ms"
 		if strings.Contains(line, "min/avg/max") {
-			if idx := strings.Index(line, "="); idx >= 0 {
-				rtts := strings.Split(strings.TrimSpace(line[idx+1:]), "/")
+			if _, after, ok := strings.Cut(line, "="); ok {
+				rtts := strings.Split(strings.TrimSpace(after), "/")
 				if len(rtts) >= 2 {
 					if v, err := strconv.ParseFloat(strings.TrimSpace(rtts[1]), 64); err == nil {
 						ms = v
@@ -611,7 +603,7 @@ func detectGatewayDarwin(ctx context.Context) routeInfo {
 		return routeInfo{}
 	}
 	var info routeInfo
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		parts := strings.Fields(line)
 		if len(parts) < 2 {
@@ -661,7 +653,7 @@ func readIfaceSpeedDarwin(name string) int {
 		return 0
 	}
 	// Parse "Active: 1000baseT", "Active: 100baseTX", "Active: autoselect" etc.
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if !strings.HasPrefix(line, "Active:") {
 			continue
 		}
@@ -716,14 +708,14 @@ func darwinUSBInterfaces(ctx context.Context) map[string]string {
 	}
 	result := make(map[string]string)
 	var currentPort, currentDevice string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Hardware Port:") {
-			currentPort = strings.TrimSpace(strings.TrimPrefix(line, "Hardware Port:"))
+		if after, ok := strings.CutPrefix(line, "Hardware Port:"); ok {
+			currentPort = strings.TrimSpace(after)
 			_ = currentDevice // reset intentional — new port starts fresh
 			currentDevice = ""
-		} else if strings.HasPrefix(line, "Device:") {
-			currentDevice = strings.TrimSpace(strings.TrimPrefix(line, "Device:"))
+		} else if after, ok := strings.CutPrefix(line, "Device:"); ok {
+			currentDevice = strings.TrimSpace(after)
 			if currentDevice != "" && currentPort != "" {
 				// Flag any interface with "USB" in the port name
 				if strings.Contains(strings.ToUpper(currentPort), "USB") {
@@ -750,9 +742,9 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 
 	// Read driver from uevent
 	if data, err := readFile("/sys/class/net/" + iface + "/device/uevent"); err == nil { // #nosec G304
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "DRIVER=") {
-				w.Driver = strings.TrimPrefix(line, "DRIVER=")
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if after, ok := strings.CutPrefix(line, "DRIVER="); ok {
+				w.Driver = after
 				break
 			}
 		}
@@ -760,7 +752,7 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 
 	// /proc/net/wireless — signal dBm, link quality (no root, always available)
 	if data, err := readFile("/proc/net/wireless"); err == nil { // #nosec G304
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			if !strings.HasPrefix(strings.TrimSpace(line), iface) {
 				continue
 			}
@@ -771,10 +763,9 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 				// link quality (e.g. "70.")
 				linkStr := strings.TrimSuffix(fields[2], ".")
 				if v, err := strconv.Atoi(linkStr); err == nil {
-					w.SignalPct = v * 100 / 70 // /proc/net/wireless uses 0-70 scale
-					if w.SignalPct > 100 {
-						w.SignalPct = 100
-					}
+					w.SignalPct = min(
+						// /proc/net/wireless uses 0-70 scale
+						v*100/70, 100)
 				}
 				// signal level dBm (e.g. "-30.")
 				dbmStr := strings.TrimSuffix(fields[3], ".")
@@ -804,22 +795,22 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 	if err != nil || strings.TrimSpace(out) == "" {
 		return
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 
 		// ESSID:"name"
-		if idx := strings.Index(line, `ESSID:"`); idx >= 0 {
-			rest := line[idx+7:]
-			if end := strings.Index(rest, `"`); end >= 0 {
-				if ssid := rest[:end]; ssid != "off/any" {
+		if _, after, ok := strings.Cut(line, `ESSID:"`); ok {
+			rest := after
+			if before, _, ok := strings.Cut(rest, `"`); ok {
+				if ssid := before; ssid != "off/any" {
 					w.SSID = ssid
 				}
 			}
 		}
 
 		// Bit Rate=866.7 Mb/s
-		if idx := strings.Index(line, "Bit Rate="); idx >= 0 {
-			rest := line[idx+9:]
+		if _, after, ok := strings.Cut(line, "Bit Rate="); ok {
+			rest := after
 			fields := strings.Fields(rest)
 			if len(fields) >= 2 {
 				// parse "866.7" — round to int
@@ -830,8 +821,8 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 		}
 
 		// Frequency:5.32 GHz  or  Frequency:2.437 GHz
-		if idx := strings.Index(line, "Frequency:"); idx >= 0 {
-			rest := line[idx+10:]
+		if _, after, ok := strings.Cut(line, "Frequency:"); ok {
+			rest := after
 			fields := strings.Fields(rest)
 			if len(fields) >= 2 {
 				if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
@@ -848,8 +839,8 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 		}
 
 		// Access Point: 7C:7D:21:86:E7:A5
-		if idx := strings.Index(line, "Access Point: "); idx >= 0 {
-			ap := strings.TrimSpace(line[idx+14:])
+		if _, after, ok := strings.Cut(line, "Access Point: "); ok {
+			ap := strings.TrimSpace(after)
 			fields := strings.Fields(ap)
 			if len(fields) > 0 && fields[0] != "Not-Associated" {
 				w.BSSID = fields[0]
@@ -857,8 +848,8 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 		}
 
 		// Signal level=-30 dBm (also in /proc/net/wireless but this is cleaner)
-		if idx := strings.Index(line, "Signal level="); idx >= 0 {
-			rest := line[idx+13:]
+		if _, after, ok := strings.Cut(line, "Signal level="); ok {
+			rest := after
 			fields := strings.Fields(rest)
 			if len(fields) >= 1 {
 				if v, err := strconv.Atoi(fields[0]); err == nil && v < 0 {
@@ -887,7 +878,7 @@ func collectWiFiNmcli(iface string, w *models.WiFiInfo) {
 			return
 		}
 	}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if !strings.HasPrefix(line, "yes:") {
 			continue
 		}

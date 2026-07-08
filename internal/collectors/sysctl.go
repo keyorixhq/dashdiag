@@ -66,7 +66,7 @@ func readTaskCount() int {
 	return n
 }
 
-func (c *SysctlCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SysctlCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}

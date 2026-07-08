@@ -137,7 +137,6 @@ func TestParseFileNr(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			open, max, err := parseFileNr(strings.NewReader(tc.input))
@@ -211,7 +210,6 @@ func TestParseSoftLimit(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := parseSoftLimit(strings.NewReader(tc.input))

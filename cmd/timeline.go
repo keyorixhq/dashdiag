@@ -33,10 +33,7 @@ func runTimeline(cmd *cobra.Command, _ []string) error {
 	plain, _ := cmd.Flags().GetBool("plain")
 	sinceStr, _ := cmd.Flags().GetString("since")
 	since := parseSinceDuration(sinceStr)
-	hours := int(since.Hours())
-	if hours < 1 {
-		hours = 1
-	}
+	hours := max(int(since.Hours()), 1)
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, "")
 

@@ -18,6 +18,6 @@ func NewApacheCollector() *ApacheCollector { return &ApacheCollector{} }
 
 func (c *ApacheCollector) Name() string           { return "Apache" }
 func (c *ApacheCollector) Timeout() time.Duration { return time.Second }
-func (c *ApacheCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ApacheCollector) Collect(_ context.Context) (any, error) {
 	return &models.ApacheInfo{Detected: false}, nil
 }

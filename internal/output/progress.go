@@ -29,10 +29,7 @@ func (p *CommandProgress) Start() {
 	p.start = time.Now()
 	if p.mode == ModeHuman {
 		line := fmt.Sprintf("%s — read only checks, usually under %ds", p.label, int(p.estimate.Seconds()))
-		width := len(line)
-		if width < 56 {
-			width = 56
-		}
+		width := max(len(line), 56)
 		fmt.Fprintln(os.Stderr, line)
 		fmt.Fprintln(os.Stderr, strings.Repeat("─", width))
 	} else {

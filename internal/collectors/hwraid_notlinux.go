@@ -15,7 +15,7 @@ func NewHWRaidCollector() *HWRaidCollector        { return &HWRaidCollector{} }
 func (c *HWRaidCollector) Name() string           { return "HardwareRAID" }
 func (c *HWRaidCollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *HWRaidCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HWRaidCollector) Collect(_ context.Context) (any, error) {
 	return &models.HWRaidInfo{}, nil
 }
 

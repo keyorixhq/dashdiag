@@ -18,6 +18,6 @@ func NewTraefikCollector() *TraefikCollector { return &TraefikCollector{} }
 
 func (c *TraefikCollector) Name() string           { return "Traefik" }
 func (c *TraefikCollector) Timeout() time.Duration { return time.Second }
-func (c *TraefikCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *TraefikCollector) Collect(_ context.Context) (any, error) {
 	return &models.TraefikInfo{Detected: false}, nil
 }

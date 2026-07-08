@@ -15,6 +15,6 @@ func NewFirewallCollector() *FirewallCollector      { return &FirewallCollector{
 func (c *FirewallCollector) Name() string           { return "Firewall" }
 func (c *FirewallCollector) Timeout() time.Duration { return 2 * time.Second }
 
-func (c *FirewallCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *FirewallCollector) Collect(_ context.Context) (any, error) {
 	return &models.FirewallInfo{}, nil
 }

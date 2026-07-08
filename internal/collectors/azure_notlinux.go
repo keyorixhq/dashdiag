@@ -16,7 +16,7 @@ func NewAzureCollector() *AzureCollector { return &AzureCollector{} }
 func (c *AzureCollector) Name() string           { return "Azure" }
 func (c *AzureCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *AzureCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *AzureCollector) Collect(_ context.Context) (any, error) {
 	return &models.AzureInfo{}, nil
 }
 

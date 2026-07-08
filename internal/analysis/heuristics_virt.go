@@ -1034,8 +1034,42 @@ func checkK8sServicesChain(l models.K8sOSLayer) []models.Insight {
 // hand — the single-source-of-truth fix for the cmd↔health tally-drift class
 // (#275): a hand-duplicated set of conditions in cmd/ silently rots out of sync
 // with the heuristic `dsd health` actually uses on the same data.
+// checkK8sOSLayerCoverageGaps surfaces the root-gated reads that silently limit the
+// rest of CheckK8sOSLayer's coverage (INFO only — never raises the verdict), so a
+// non-root deep collection reads as "checked, clean" rather than "clean because we
+// couldn't look" — split out of CheckK8sOSLayer to keep it under the funlen limit.
+func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
+	var out []models.Insight
+
+	// OSLayerNeedsRoot: iptables-save/ipvsadm/nft (KUBE-FORWARD, KUBE-SERVICES) and
+	// /etc/cni/net.d, /opt/cni/bin (CNI config) are commonly root-only reads. A
+	// non-root run degrades those checks to "not applicable" with no other signal,
+	// which looks identical to a genuinely clean/not-configured node — surface it
+	// once, rather than per-field, to avoid repeating the same root hint per check.
+	if l.OSLayerNeedsRoot {
+		out = append(out, insight("INFO", "K8s",
+			"some OS-layer checks limited — run as root for KUBE-SERVICES/KUBE-FORWARD chain and CNI config verification",
+			nil,
+		))
+	}
+
+	// FlannelCNIUnreadable: /etc/cni/net.d exists but couldn't be listed, so
+	// FlannelInUse reads as false ("not flannel") when the real state is unknown —
+	// the firewalld-masquerade check below silently can't fire even if flannel IS
+	// in use and misconfigured.
+	if l.FlannelCNIUnreadable {
+		out = append(out, insight("INFO", "K8s",
+			"CNI config directory not readable — could not verify whether flannel is in use (firewalld-masquerade check skipped)",
+			[]string{"to audit: re-run as root (sudo dsd k8s --deep)"},
+		))
+	}
+
+	return out
+}
+
 func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
-	out := checkK8sNodeDaemons(l)
+	out := checkK8sOSLayerCoverageGaps(l)
+	out = append(out, checkK8sNodeDaemons(l)...)
 
 	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
 	// at its false zero value, which must not be reported as a real "disabled".
@@ -1119,7 +1153,7 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 
 // k8sFirstLine returns the first non-empty line of a multi-line string.
 func k8sFirstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			return line

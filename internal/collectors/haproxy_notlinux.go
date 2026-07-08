@@ -18,6 +18,6 @@ func NewHAProxyCollector() *HAProxyCollector { return &HAProxyCollector{} }
 
 func (c *HAProxyCollector) Name() string           { return "HAProxy" }
 func (c *HAProxyCollector) Timeout() time.Duration { return time.Second }
-func (c *HAProxyCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *HAProxyCollector) Collect(_ context.Context) (any, error) {
 	return &models.HAProxyInfo{Detected: false}, nil
 }

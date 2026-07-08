@@ -13,7 +13,7 @@ import (
 
 var defaultThresh = DefaultThresholds(platform.EnvBareMetal)
 
-func res(data interface{}) []runner.Result {
+func res(data any) []runner.Result {
 	return []runner.Result{{Name: "test", Data: data}}
 }
 
@@ -1015,7 +1015,6 @@ func TestCheckCPURunQueueSaturation(t *testing.T) {
 		{"zero cpu guarded", 8, 0, ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// LoadAvg1 set to mirror the run queue (a genuinely sustained run queue
 			// shows in the 1-min load average) so each tier is load-corroborated —

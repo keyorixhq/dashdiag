@@ -34,7 +34,6 @@ func TestParseLoadAvg(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			l1, l5, l15, err := parseLoadAvg(strings.NewReader(tc.input))
@@ -109,7 +108,6 @@ func TestParseCPUStat(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			idle, total, err := parseCPUStat(strings.NewReader(tc.input))

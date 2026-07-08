@@ -36,12 +36,12 @@ type JSONCounts struct {
 }
 
 type JSONCheck struct {
-	Name     string      `json:"name"`
-	Status   string      `json:"status"`
-	Inline   string      `json:"inline,omitempty"`
-	Duration string      `json:"duration,omitempty"`
-	Error    string      `json:"error,omitempty"`
-	Raw      interface{} `json:"raw,omitempty"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Inline   string `json:"inline,omitempty"`
+	Duration string `json:"duration,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Raw      any    `json:"raw,omitempty"`
 }
 
 type JSONInsight struct {

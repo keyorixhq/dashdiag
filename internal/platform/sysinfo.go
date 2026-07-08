@@ -16,9 +16,9 @@ func OSPrettyName() string {
 	if err != nil {
 		return runtime.GOOS
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "PRETTY_NAME=") {
-			val := strings.TrimPrefix(line, "PRETTY_NAME=")
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, "PRETTY_NAME="); ok {
+			val := after
 			val = strings.Trim(val, `"`)
 			return val
 		}

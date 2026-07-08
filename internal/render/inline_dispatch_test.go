@@ -12,7 +12,7 @@ import (
 // renderer's formatting path. Renderers must never panic and the dispatch must
 // return a string for every known name (and "" for an unknown one).
 func TestInlineDataDispatch(t *testing.T) {
-	cases := map[string]interface{}{
+	cases := map[string]any{
 		"CPU Load":    models.CPUInfo{UsagePct: 50, LoadAvg1: 1.2, NumCPU: 4},
 		"Memory":      models.MemoryInfo{TotalGB: 16, UsedPct: 50},
 		"Swap":        models.SwapInfo{TotalGB: 4, UsedGB: 1},

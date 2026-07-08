@@ -20,7 +20,7 @@ func NewBatteryCollector() *BatteryCollector { return &BatteryCollector{} }
 func (c *BatteryCollector) Name() string           { return "Battery" }
 func (c *BatteryCollector) Timeout() time.Duration { return 3 * time.Second }
 
-func (c *BatteryCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *BatteryCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.BatteryInfo{}
 
 	out, err := runCmd(ctx, "ioreg", "-rn", "AppleSmartBattery")
@@ -65,19 +65,19 @@ func (c *BatteryCollector) Collect(ctx context.Context) (interface{}, error) {
 // ioreg lines look like: `    | |   |       "CycleCount" = 161`
 func parseIORegKV(out string) map[string]string {
 	kv := make(map[string]string)
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		// Strip ioreg tree formatting (pipes, spaces) before first quote
 		idx := strings.Index(line, "\"")
 		if idx < 0 {
 			continue
 		}
 		line = line[idx:]
-		eqIdx := strings.Index(line, " = ")
-		if eqIdx < 0 {
+		before, after, ok := strings.Cut(line, " = ")
+		if !ok {
 			continue
 		}
-		key := strings.Trim(line[:eqIdx], "\"")
-		val := strings.TrimSpace(line[eqIdx+3:])
+		key := strings.Trim(before, "\"")
+		val := strings.TrimSpace(after)
 		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
 			val = val[1 : len(val)-1]
 		}

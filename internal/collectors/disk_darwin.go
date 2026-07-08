@@ -52,7 +52,7 @@ func collectDarwinDrives(ctx context.Context) []models.PhysicalDrive {
 	var drives []models.PhysicalDrive
 	seen := make(map[string]bool)
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		// Lines starting with /dev/diskN (internal, physical): are top-level disks
 		if !strings.HasPrefix(line, "/dev/disk") {
 			continue
@@ -92,14 +92,14 @@ func collectDarwinDriveInfo(ctx context.Context, dev string) *models.PhysicalDri
 		SMART: &models.SMARTInfo{Device: dev},
 	}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
-		colonIdx := strings.Index(line, ":")
-		if colonIdx < 0 {
+		before, after, ok := strings.Cut(line, ":")
+		if !ok {
 			continue
 		}
-		key := strings.TrimSpace(line[:colonIdx])
-		val := strings.TrimSpace(line[colonIdx+1:])
+		key := strings.TrimSpace(before)
+		val := strings.TrimSpace(after)
 		if val == "" {
 			continue
 		}

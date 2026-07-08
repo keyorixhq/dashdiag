@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,12 +95,7 @@ func TestIsSSHDConnInstance(t *testing.T) {
 }
 
 func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, v)
 }
 
 // systemd ships systemd-sysupdate.timer enabled, but with no transfer
@@ -230,7 +226,6 @@ func TestParseUnitList(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := parseUnitList(strings.NewReader(tc.input))

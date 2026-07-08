@@ -18,6 +18,6 @@ func NewNginxCollector() *NginxCollector { return &NginxCollector{} }
 
 func (c *NginxCollector) Name() string           { return "Nginx" }
 func (c *NginxCollector) Timeout() time.Duration { return time.Second }
-func (c *NginxCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *NginxCollector) Collect(_ context.Context) (any, error) {
 	return &models.NginxInfo{Detected: false}, nil
 }

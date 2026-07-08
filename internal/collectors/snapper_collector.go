@@ -15,6 +15,6 @@ func NewSnapperCollector() *SnapperCollector { return &SnapperCollector{} }
 func (c *SnapperCollector) Name() string           { return "Snapshots" }
 func (c *SnapperCollector) Timeout() time.Duration { return 10 * time.Second }
 
-func (c *SnapperCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *SnapperCollector) Collect(ctx context.Context) (any, error) {
 	return CollectSnapper(ctx)
 }

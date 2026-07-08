@@ -47,16 +47,17 @@ func (m SingleSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m SingleSelectModel) View() string {
-	s := m.title + "\n\n"
+	var s strings.Builder
+	s.WriteString(m.title + "\n\n")
 	for i, opt := range m.options {
 		cursor := "  "
 		if m.cursor == i {
 			cursor = "> "
 		}
-		s += cursor + opt + "\n"
+		s.WriteString(cursor + opt + "\n")
 	}
-	s += "\n↑/↓ navigate  enter select  q quit\n"
-	return s
+	s.WriteString("\n↑/↓ navigate  enter select  q quit\n")
+	return s.String()
 }
 
 func RunSingleSelect(title string, options []string) (string, error) {
@@ -127,7 +128,8 @@ func (m MultiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m MultiSelectModel) View() string {
-	s := m.title + "\n\n"
+	var s strings.Builder
+	s.WriteString(m.title + "\n\n")
 	for i, opt := range m.options {
 		cursor := "  "
 		if m.cursor == i {
@@ -137,10 +139,10 @@ func (m MultiSelectModel) View() string {
 		if m.selected[i] {
 			checked = "[x]"
 		}
-		s += cursor + checked + " " + opt + "\n"
+		s.WriteString(cursor + checked + " " + opt + "\n")
 	}
-	s += "\n↑/↓ navigate  space toggle  enter confirm  q quit\n"
-	return s
+	s.WriteString("\n↑/↓ navigate  space toggle  enter confirm  q quit\n")
+	return s.String()
 }
 
 func RunMultiSelect(title string, options []string) ([]string, error) {
