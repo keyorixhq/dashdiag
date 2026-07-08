@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -29,6 +30,7 @@ func TestCheckK8s(t *testing.T) {
 		{"pods not ready is WARN", models.K8sInfo{Detected: true, APIReachable: true, PodsNotReady: 1}, "WARN"},
 		{"pending is WARN", models.K8sInfo{Detected: true, APIReachable: true, Pending: 1}, "WARN"},
 		{"high restarts is WARN", models.K8sInfo{Detected: true, APIReachable: true, HighRestarts: 1}, "WARN"},
+		{"unknown status is WARN", models.K8sInfo{Detected: true, APIReachable: true, UnknownStatus: 1}, "WARN"},
 		{
 			name: "node pressure condition is CRIT",
 			info: models.K8sInfo{Detected: true, APIReachable: true, Nodes: []models.K8sNodeInfo{
@@ -48,6 +50,39 @@ func TestCheckK8s(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkK8s(tt.info), tt.want)
 		})
+	}
+}
+
+// TestK8sUnknownStatusInsight_StatefulSetHint pins Spec 23f's key distinction: a
+// StatefulSet-owned pod stuck Unknown won't be rescheduled until deleted (unlike a
+// Deployment/ReplicaSet pod, which the controller replaces elsewhere), so the hint
+// text must call that out by name.
+func TestK8sUnknownStatusInsight_StatefulSetHint(t *testing.T) {
+	info := models.K8sInfo{
+		Detected: true, APIReachable: true, UnknownStatus: 1,
+		Pods: []models.K8sPodInfo{
+			{Namespace: "default", Name: "postgres-0", Status: "Unknown",
+				NodeName: "worker-03", OwnerKind: "StatefulSet", OwnerName: "postgres"},
+		},
+	}
+	insights := checkK8s(info)
+	var msg string
+	var hints []string
+	for _, ins := range insights {
+		if strings.Contains(ins.Message, "Unknown status") {
+			msg = ins.Message
+			hints = ins.Hints
+		}
+	}
+	if msg == "" {
+		t.Fatalf("no Unknown-status insight found in %+v", insights)
+	}
+	joined := strings.Join(hints, "\n")
+	if !strings.Contains(joined, "StatefulSet/postgres") || !strings.Contains(joined, "will NOT reschedule") {
+		t.Errorf("hints missing StatefulSet-not-rescheduled callout: %v", hints)
+	}
+	if !strings.Contains(joined, "worker-03") {
+		t.Errorf("hints missing node name: %v", hints)
 	}
 }
 
