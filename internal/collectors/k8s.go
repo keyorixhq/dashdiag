@@ -501,27 +501,34 @@ func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) 
 // flannel CNI config in /etc/cni/net.d (by filename or content). Non-flannel CNIs
 // (Calico/Cilium/Weave) drop their own configs there and never create flannel's
 // /run/flannel/subnet.env, so its absence is only a problem when flannel is actually
-// configured.
-func flannelCNIConfigured() bool {
+// configured. unreadable is true when a candidate dir exists but couldn't be listed
+// (commonly 0700 root:root even on a systemd host) — distinct from "no such dir",
+// which is a legitimate "flannel genuinely isn't configured this way" signal. Without
+// this distinction, a non-root run silently reports inUse=false ("not flannel") when
+// the real state is unknown, which can suppress a genuine firewalld-masquerade WARN.
+func flannelCNIConfigured() (inUse, unreadable bool) {
 	// kubeadm writes CNI configs to /etc/cni/net.d; k3s keeps them under
 	// /var/lib/rancher/k3s/agent/etc/cni/net.d (and only symlinks /etc/cni/net.d
 	// on some setups), so check both before deciding flannel isn't in use.
 	for _, dir := range []string{"/etc/cni/net.d", "/var/lib/rancher/k3s/agent/etc/cni/net.d"} {
 		entries, err := readDirNames(dir)
 		if err != nil {
+			if os.IsPermission(err) {
+				unreadable = true
+			}
 			continue
 		}
 		for _, e := range entries {
 			if strings.Contains(strings.ToLower(e), "flannel") {
-				return true
+				return true, false
 			}
 			data, err := readFile(filepath.Join(dir, e)) // #nosec G304 -- CNI conf dir
 			if err == nil && strings.Contains(strings.ToLower(string(data)), "flannel") {
-				return true
+				return true, false
 			}
 		}
 	}
-	return false
+	return false, unreadable
 }
 
 // k8sUnitActive reports whether ANY of the named systemd units is active, probing
@@ -650,6 +657,7 @@ func countLinesWithPrefix(s, prefix string) int {
 
 func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8sOSLayer {
 	layer := &models.K8sOSLayer{}
+	layer.OSLayerNeedsRoot = os.Getuid() != 0
 
 	// KubeletChecked/ContainerdChecked gate on an on-disk node marker (k8sDistribution,
 	// computed by the caller), NOT on live daemon state. A host running `kubectl`
@@ -705,7 +713,7 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 	// Flannel subnet.env — only meaningful when flannel is the configured CNI. On
 	// Calico/Cilium/Weave nodes /run/flannel/subnet.env never exists, so flagging its
 	// absence as a CRIT was a false alarm on every non-flannel node.
-	layer.FlannelInUse = flannelCNIConfigured()
+	layer.FlannelInUse, layer.FlannelCNIUnreadable = flannelCNIConfigured()
 	layer.FlannelSubnetOK = fileExists("/run/flannel/subnet.env")
 
 	// CNI binaries — check both the kubeadm path (/opt/cni/bin) and the k3s bundle
