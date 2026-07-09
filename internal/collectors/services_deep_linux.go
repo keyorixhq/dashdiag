@@ -324,12 +324,14 @@ func parseDurationMs(s string) int {
 // collectUserUnits checks if a systemd user daemon is running for the current
 // user, and if so collects its failed units.
 func collectUserUnits(ctx context.Context) *models.UserUnitsInfo {
-	// Check if user daemon is reachable
-	_, err := runCmd(ctx, "systemctl", "--user", "is-system-running")
+	// Check if user daemon is reachable. runCmdCombined (not runCmd) because the
+	// "no user bus" diagnostic comes back on stdout/stderr, not in the Go error —
+	// runCmd's cmdError only carries the exit code, never the command's own text.
+	out, err := runCmdCombined(ctx, "systemctl", "--user", "is-system-running")
 	if err != nil {
 		// Exit code != 0 is normal for "degraded"; connection refused means no user daemon
-		if strings.Contains(err.Error(), "Failed to connect") ||
-			strings.Contains(err.Error(), "No such file") {
+		if strings.Contains(out, "Failed to connect") ||
+			strings.Contains(out, "No such file") {
 			return &models.UserUnitsInfo{Available: false}
 		}
 	}

@@ -79,27 +79,16 @@ func TestCloudInitCollector_Collect_JSONHappyPath(t *testing.T) {
 	}
 }
 
-// TestCloudInitCollector_Collect_NonZeroExitDiscardsJSON pins CURRENT (buggy)
-// behavior, not the intended one — see PRODUCTION BUG note below.
-//
-// The doc comment on Collect() explicitly says `cloud-init status` exits
-// non-zero to *report* state (1=error, 2=degraded) while still printing the
-// status JSON to stdout, and that the code parses "regardless of exit code"
-// by ignoring the error return (`out, _ := runCmd(...)`). But runCmd (as
-// opposed to runCmdOutput) discards stdout entirely on a non-zero exit and
-// returns "" — see runCmd in collector.go:115-124, contrasted with
-// runCmdOutput at collector.go:131-140 ("KEEPS stdout even when the command
-// exits non-zero... Use this when a tool reports problems through its exit
-// code"). So ignoring the error here does NOT recover the JSON; `out` is
-// already "" by the time Collect() sees it, and the non-zero-exit status
-// (status:"error"/"degraded" — precisely the case the doc comment says is
-// "the case we most need to flag") silently falls through to
-// StatusUnverified instead of being parsed. Likely fix: call runCmdOutput
-// instead of runCmd for both cloud-init invocations in Collect()
-// (cloudinit_linux.go:51 and :58). Left unfixed per task instructions —
-// this test pins the observed behavior as a regression guard, not the
-// intended one.
-func TestCloudInitCollector_Collect_NonZeroExitDiscardsJSON(t *testing.T) {
+// TestCloudInitCollector_Collect_NonZeroExitStillParsesJSON verifies that a
+// non-zero exit from `cloud-init status` (1=error, 2=degraded) does not
+// discard the status JSON it still prints to stdout. Regression test for a
+// bug where Collect() used runCmd (which discards stdout on non-zero exit)
+// instead of runCmdOutput (which preserves it) — see runCmdOutput's doc
+// comment in collector.go for the general pattern. Before the fix, this case
+// (the exact "instance failed to configure" scenario the doc comment on
+// Collect() says is "the case we most need to flag") silently fell through
+// to StatusUnverified instead of surfacing status:"error".
+func TestCloudInitCollector_Collect_NonZeroExitStillParsesJSON(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("cloud-init", []string{"status", "--format=json"}, `{
 			"status": "error",
@@ -107,7 +96,6 @@ func TestCloudInitCollector_Collect_NonZeroExitDiscardsJSON(t *testing.T) {
 			"errors": ["module foo failed"],
 			"recoverable_errors": {}
 		}`, 1)
-		b.PutCmd("cloud-init", []string{"status"}, "", 1)
 	})
 
 	c := NewCloudInitCollector()
@@ -116,14 +104,14 @@ func TestCloudInitCollector_Collect_NonZeroExitDiscardsJSON(t *testing.T) {
 		t.Fatalf("Collect() error: %v", err)
 	}
 	info := raw.(*models.CloudInitInfo)
-	// BUG: this SHOULD be "error" (see doc comment above Collect()), but
-	// runCmd discards stdout on non-zero exit, so the JSON never reaches the
-	// parser and Status stays empty / StatusUnverified is set instead.
-	if info.Status != "" {
-		t.Errorf("Status = %q, want empty (current buggy behavior — stdout is discarded on non-zero exit)", info.Status)
+	if info.Status != "error" {
+		t.Errorf("Status = %q, want error", info.Status)
 	}
-	if !info.StatusUnverified {
-		t.Error("expected StatusUnverified=true (current buggy behavior masks the real 'error' status as unverified)")
+	if info.StatusUnverified {
+		t.Error("expected StatusUnverified=false when the non-zero-exit JSON parsed successfully")
+	}
+	if len(info.Errors) != 1 || info.Errors[0] != "module foo failed" {
+		t.Errorf("Errors = %v, want [module foo failed]", info.Errors)
 	}
 }
 

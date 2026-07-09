@@ -48,14 +48,14 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 	// stdout. So parse the output regardless of exit code; gating on err == nil
 	// discarded the very JSON that says status:"error", silently hiding a failed
 	// instance (the case we most need to flag).
-	out, _ := runCmd(ctx, "cloud-init", "status", "--format=json")
+	out, _ := runCmdOutput(ctx, "cloud-init", "status", "--format=json")
 	if strings.TrimSpace(out) != "" && parseCloudInitJSON(out, info) {
 		return info, nil
 	}
 
 	// Fallback for old cloud-init without --format=json: plain text "status: X".
 	// Same exit-code semantics — parse whatever it prints, ignore the exit code.
-	if txt, _ := runCmd(ctx, "cloud-init", "status"); strings.TrimSpace(txt) != "" {
+	if txt, _ := runCmdOutput(ctx, "cloud-init", "status"); strings.TrimSpace(txt) != "" {
 		parseCloudInitText(txt, info)
 	}
 	// status.json exists (CloudInitAvailable gate) but neither CLI form produced a

@@ -81,12 +81,8 @@ func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
 		b.PutCmd("systemctl", []string{"show", "-p", "TriggeredBy", "--value", "cron.service"}, "", 0)
 
 		// "degraded" (exit 1) is the normal non-zero outcome for a LIVE user
-		// daemon. NOTE: whatever text is seeded as stdout here is irrelevant to
-		// collectUserUnits' branch decision — see the PRODUCTION BUG note on
-		// TestCollectUserUnits_ConnectionRefused below: runCmd never surfaces
-		// stdout/stderr on a non-zero exit, so the "Failed to connect"/"No such
-		// file" substring check can never match a real runCmd error, and this
-		// case always falls through to Available=true regardless of stdout text.
+		// daemon — it doesn't contain the "Failed to connect"/"No such file"
+		// disconnect text, so collectUserUnits treats it as reachable.
 		b.PutCmd("systemctl", []string{"--user", "is-system-running"}, "degraded\n", 1)
 		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
 			"\n", 0)
@@ -127,8 +123,8 @@ func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
 		t.Errorf("BootOffenders[0] = %+v, want postgresql.service 4210ms", info.BootOffenders[0])
 	}
 
-	// "degraded" (exit 1, no recognizable disconnect text) always reads as a
-	// LIVE user daemon — see the PRODUCTION BUG note above.
+	// "degraded" (exit 1, no recognizable disconnect text) reads as a LIVE
+	// user daemon.
 	if info.UserUnits == nil || !info.UserUnits.Available {
 		t.Errorf("UserUnits = %+v, want non-nil with Available=true (degraded is not a disconnect)", info.UserUnits)
 	}
@@ -358,43 +354,28 @@ func TestParseDurationMs(t *testing.T) {
 	}
 }
 
-// TestCollectUserUnits_ConnectionRefused documents a PRODUCTION BUG
-// (services_deep_linux.go:328-334): the intent is "no user daemon reachable
-// -> Available=false", detected by matching "Failed to connect"/"No such
-// file" against err.Error(). But runCmd() (collector.go) only ever returns
-// &cmdError{name, code} on a non-zero exit — it discards the command's actual
-// stdout/stderr text (see cmdError.Error(), "<name> exited <code>"). The
-// activeSource.Run contract (source/live.go defaultExec) reports a non-zero
-// exit via Result.ExitCode with err=nil; only a genuine spawn failure (binary
-// missing) returns a non-nil err, and THAT text is an exec.Error ("exec:
-// \"systemctl\": executable file not found in $PATH"), which also never
-// contains "Failed to connect" or "No such file". So this branch is
-// unreachable via any real systemctl invocation: a live host with NO user
-// daemon (systemctl --user is-system-running prints "Failed to connect to
-// bus: No such file or directory" to stderr and exits non-zero) is
-// misdiagnosed as Available=true instead of Available=false. This test
-// documents the ACTUAL (buggy) behavior rather than the intended one — do not
-// "fix" this test without fixing the production code (e.g. switch to
-// runCmdCombined and inspect the returned output instead of err.Error()).
+// TestCollectUserUnits_ConnectionRefused guards the "no user daemon
+// reachable" detection: systemctl --user is-system-running prints "Failed to
+// connect to bus: No such file or directory" and exits non-zero when there's
+// no user bus. collectUserUnits uses runCmdCombined (not runCmd) precisely so
+// this diagnostic text — which lands on stdout/stderr, not in the Go error —
+// is visible to the substring check; runCmd's cmdError only ever carries the
+// exit code, never the command's own output.
 func TestCollectUserUnits_ConnectionRefused(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"--user", "is-system-running"},
 			"Failed to connect to bus: No such file or directory\n", 1)
-		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
-			"\n", 0)
 	})
 	got := collectUserUnits(context.Background())
-	if got == nil || !got.Available {
-		t.Errorf("got %+v, want Available=true (documents the dead-code bug — see comment above)", got)
+	if got == nil || got.Available {
+		t.Errorf("got %+v, want Available=false (no user bus reachable)", got)
 	}
 }
 
-// TestCollectUserUnits_SpawnFailure guards the one path that DOES produce a
-// non-nil err from runCmd: systemctl itself is absent (spawn failure). Even
-// here, the "Failed to connect"/"No such file" substrings don't match a Go
-// exec.ErrNotFound message, so this also falls through to Available=true —
-// same production bug as TestCollectUserUnits_ConnectionRefused, exercised
-// via a different fixture shape (PutCmdNotFound instead of a non-zero exit).
+// TestCollectUserUnits_SpawnFailure guards the other non-nil-err path:
+// systemctl itself is absent (spawn failure). This isn't the "no user bus"
+// signal — the tool couldn't even run — so it falls through to Available=true
+// rather than being misread as a disconnect.
 func TestCollectUserUnits_SpawnFailure(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
@@ -402,7 +383,7 @@ func TestCollectUserUnits_SpawnFailure(t *testing.T) {
 	})
 	got := collectUserUnits(context.Background())
 	if got == nil || !got.Available {
-		t.Errorf("got %+v, want Available=true (documents the dead-code bug)", got)
+		t.Errorf("got %+v, want Available=true (spawn failure isn't a disconnect signal)", got)
 	}
 }
 
