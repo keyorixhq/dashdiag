@@ -8,11 +8,42 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestKdumpKernelPatchKspliceIdentity guards the Name()/Timeout() identity
+// methods for the three container-context-gated host-kernel collectors.
+func TestKdumpKernelPatchKspliceIdentity(t *testing.T) {
+	t.Parallel()
+
+	kd := NewKdumpCollector(platform.ContainerContext{})
+	if kd.Name() != "Kdump" {
+		t.Errorf("KdumpCollector.Name() = %q, want Kdump", kd.Name())
+	}
+	if kd.Timeout() != 3*time.Second {
+		t.Errorf("KdumpCollector.Timeout() = %v, want 3s", kd.Timeout())
+	}
+
+	kp := NewKernelPatchCollector(platform.ContainerContext{})
+	if kp.Name() != "Kernel" {
+		t.Errorf("KernelPatchCollector.Name() = %q, want Kernel", kp.Name())
+	}
+	if kp.Timeout() != 5*time.Second {
+		t.Errorf("KernelPatchCollector.Timeout() = %v, want 5s", kp.Timeout())
+	}
+
+	ks := NewKspliceCollector(platform.ContainerContext{})
+	if ks.Name() != "Ksplice" {
+		t.Errorf("KspliceCollector.Name() = %q, want Ksplice", ks.Name())
+	}
+	if ks.Timeout() != 6*time.Second {
+		t.Errorf("KspliceCollector.Timeout() = %v, want 6s", ks.Timeout())
+	}
+}
 
 // TestClassifyLivePatchEnabled guards the non-root false-alarm: an unreadable "enabled"
 // sysfs attribute (EACCES under a non-root run, or kernel lockdown) must classify as

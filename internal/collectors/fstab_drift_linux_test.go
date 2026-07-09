@@ -3,7 +3,12 @@
 package collectors
 
 import (
+	"context"
 	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Verbatim /etc/fstab from the pve01 host (Debian 13 + PVE): LVM device paths
@@ -76,5 +81,201 @@ UUID=unknowable /x ext4 defaults 0 2`
 	got := parseFstabDrifts(fstab, map[string]bool{"something-else": true}, nil)
 	if len(got) != 1 || got[0].MountPoint != "/x" {
 		t.Fatalf("only the non-noauto/non-nofail absent UUID should drift, got %+v", got)
+	}
+}
+
+// TestParseFstabDrifts_MalformedAndQuoted guards short/blank lines being
+// skipped and a quoted UUID= value being unquoted before matching.
+func TestParseFstabDrifts_MalformedAndQuoted(t *testing.T) {
+	const fstab = `
+# comment
+onlyonefield
+UUID="quoted-id" /q ext4 defaults 0 2`
+	got := parseFstabDrifts(fstab, map[string]bool{"quoted-id": true}, nil)
+	if len(got) != 0 {
+		t.Fatalf("quoted UUID matching the present set must not drift, got %+v", got)
+	}
+}
+
+// TestUnquote guards the quote-stripping helper directly.
+func TestUnquote(t *testing.T) {
+	t.Parallel()
+	if got := unquote(`"abc-123"`); got != "abc-123" {
+		t.Errorf("unquote(quoted) = %q, want abc-123", got)
+	}
+	if got := unquote("abc-123"); got != "abc-123" {
+		t.Errorf("unquote(bare) = %q, want abc-123", got)
+	}
+}
+
+// TestHasMountOpt guards the comma-split option match.
+func TestHasMountOpt(t *testing.T) {
+	t.Parallel()
+	if !hasMountOpt("rw,noauto,x-foo", "noauto") {
+		t.Error("expected noauto to be found")
+	}
+	if hasMountOpt("rw,nofail", "noauto") {
+		t.Error("did not expect noauto to be found in rw,nofail")
+	}
+	if hasMountOpt("", "noauto") {
+		t.Error("empty opts must not match anything")
+	}
+}
+
+// ── Collect() / identity / gate tests ────────────────────────────────────────
+
+func TestFstabDriftCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewFstabDriftCollector()
+	if c.Name() != "Fstab" {
+		t.Errorf("Name() = %q, want Fstab", c.Name())
+	}
+	if c.Timeout() != 3*time.Second {
+		t.Errorf("Timeout() = %v, want 3s", c.Timeout())
+	}
+}
+
+func TestFstabAvailable(t *testing.T) {
+	t.Run("present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/etc/fstab", source.FileMeta{})
+		})
+		if !FstabAvailable() {
+			t.Error("expected true when /etc/fstab exists")
+		}
+	})
+
+	t.Run("absent", func(t *testing.T) {
+		withFixtureSource(t, func(_ *source.Bundle) {})
+		if FstabAvailable() {
+			t.Error("expected false when /etc/fstab does not exist")
+		}
+	})
+}
+
+func TestLowerDirNameSet(t *testing.T) {
+	t.Run("lowercases entries", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/dev/disk/by-uuid", []string{"ABCD-1234", "ef56-7890"})
+		})
+		got := lowerDirNameSet("/dev/disk/by-uuid")
+		if !got["abcd-1234"] || !got["ef56-7890"] {
+			t.Errorf("expected lowercased entries in set, got %v", got)
+		}
+	})
+
+	t.Run("unreadable dir returns nil", func(t *testing.T) {
+		withFixtureSource(t, func(_ *source.Bundle) {})
+		if got := lowerDirNameSet("/dev/disk/by-uuid"); got != nil {
+			t.Errorf("expected nil for unreadable dir, got %v", got)
+		}
+	})
+
+	t.Run("empty dir returns nil", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/dev/disk/by-uuid", []string{})
+		})
+		if got := lowerDirNameSet("/dev/disk/by-uuid"); got != nil {
+			t.Errorf("expected nil for empty dir (not distinguishable from absent by design), got %v", got)
+		}
+	})
+}
+
+// TestFstabDriftCollector_Collect_FstabUnreadable guards the Checked=false
+// degrade path when /etc/fstab itself can't be read.
+func TestFstabDriftCollector_Collect_FstabUnreadable(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	c := NewFstabDriftCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.FstabInfo)
+	if info.Checked {
+		t.Errorf("expected Checked=false when /etc/fstab is unreadable, got %+v", info)
+	}
+}
+
+// TestFstabDriftCollector_Collect_NoUdevTagDirs guards the "can't verify"
+// degrade path: fstab readable, but neither udev tag dir has any entries — the
+// collector must not false-flag every UUID=/PARTUUID= entry.
+func TestFstabDriftCollector_Collect_NoUdevTagDirs(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/fstab", []byte("UUID=abc-123 / ext4 defaults 0 1\n"))
+	})
+	c := NewFstabDriftCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.FstabInfo)
+	if info.Checked {
+		t.Errorf("expected Checked=false when neither udev tag dir is populated, got %+v", info)
+	}
+	if len(info.Drifts) != 0 {
+		t.Errorf("expected no drifts reported when unverifiable, got %+v", info.Drifts)
+	}
+}
+
+// TestFstabDriftCollector_Collect_HappyPathClean guards the fully-verified,
+// no-drift case: fstab entry's UUID is present in /dev/disk/by-uuid.
+func TestFstabDriftCollector_Collect_HappyPathClean(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/fstab", []byte("UUID=abc-123 / ext4 defaults 0 1\n"))
+		b.PutDir("/dev/disk/by-uuid", []string{"abc-123"})
+	})
+	c := NewFstabDriftCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.FstabInfo)
+	if !info.Checked {
+		t.Error("expected Checked=true")
+	}
+	if len(info.Drifts) != 0 {
+		t.Errorf("expected no drifts for a present UUID, got %+v", info.Drifts)
+	}
+}
+
+// TestFstabDriftCollector_Collect_HappyPathDrift guards the drift-detected
+// case end to end through Collect, not just parseFstabDrifts directly.
+func TestFstabDriftCollector_Collect_HappyPathDrift(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/fstab", []byte("UUID=missing-id /data ext4 defaults 0 2\n"))
+		b.PutDir("/dev/disk/by-uuid", []string{"other-id"})
+	})
+	c := NewFstabDriftCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.FstabInfo)
+	if !info.Checked {
+		t.Error("expected Checked=true")
+	}
+	if len(info.Drifts) != 1 || info.Drifts[0].MountPoint != "/data" {
+		t.Fatalf("expected 1 drift on /data, got %+v", info.Drifts)
+	}
+	if info.Drifts[0].BootMount {
+		t.Errorf("/data is not a boot mount, BootMount should be false, got %+v", info.Drifts[0])
+	}
+}
+
+// TestFstabDriftCollector_Collect_PARTUUIDOnly guards that byPart alone (no
+// by-uuid entries) still verifies PARTUUID= specs through Collect.
+func TestFstabDriftCollector_Collect_PARTUUIDOnly(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/fstab", []byte("PARTUUID=deadbeef /boot/efi vfat defaults 0 1\n"))
+		b.PutDir("/dev/disk/by-partuuid", []string{"deadbeef"})
+	})
+	c := NewFstabDriftCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.FstabInfo)
+	if !info.Checked || len(info.Drifts) != 0 {
+		t.Errorf("expected Checked=true, no drifts, got %+v", info)
 	}
 }

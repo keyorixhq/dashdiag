@@ -3,10 +3,13 @@
 package collectors
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Fixtures include the column-header row that `multipathd show paths format
@@ -153,3 +156,315 @@ func TestParseMultipathShow(t *testing.T) {
 
 // Keep strings import used in other tests in this package
 var _ = strings.Contains
+
+// ── parseMultipathL (human-readable `multipath -l` fallback) ────────────────
+
+// multipathLOK is representative `multipath -l` output: one healthy device,
+// two active paths.
+const multipathLOK = `mpatha (36001405abcdef) dm-0 LIO-ORG,disk0
+size=10G features='0' hwhandler='0' wp=rw
+` + "`-+- policy='service-time 0' prio=1 status=active" + `
+  |- 3:0:0:0 sdb 8:16 active ready running
+  ` + "`- 4:0:0:0 sdc 8:32 active ready running"
+
+// multipathLDegraded has one failed path.
+const multipathLDegraded = `mpatha (36001405abcdef) dm-0 LIO-ORG,disk0
+size=10G features='0' hwhandler='0' wp=rw
+` + "`-+- policy='service-time 0' prio=1 status=active" + `
+  |- 3:0:0:0 sdb 8:16 active ready running
+  ` + "`- 4:0:0:0 sdc 8:32 failed faulty running"
+
+func TestParseMultipathL(t *testing.T) {
+	t.Run("all paths active", func(t *testing.T) {
+		devices := parseMultipathL(multipathLOK)
+		if len(devices) != 1 {
+			t.Fatalf("devices = %d, want 1: %+v", len(devices), devices)
+		}
+		d := devices[0]
+		if d.Name != "mpatha" || d.DM != "dm-0" {
+			t.Errorf("device = %+v, want Name=mpatha DM=dm-0", d)
+		}
+		if d.ActivePaths != 2 || d.FailedPaths != 0 || d.State != "active" {
+			t.Errorf("active/failed/state = %d/%d/%q, want 2/0/active", d.ActivePaths, d.FailedPaths, d.State)
+		}
+	})
+
+	t.Run("one path failed = degraded", func(t *testing.T) {
+		devices := parseMultipathL(multipathLDegraded)
+		if len(devices) != 1 {
+			t.Fatalf("devices = %d, want 1: %+v", len(devices), devices)
+		}
+		d := devices[0]
+		if d.ActivePaths != 1 || d.FailedPaths != 1 || d.State != "degraded" {
+			t.Errorf("active/failed/state = %d/%d/%q, want 1/1/degraded", d.ActivePaths, d.FailedPaths, d.State)
+		}
+	})
+
+	t.Run("empty output yields no devices", func(t *testing.T) {
+		devices := parseMultipathL("")
+		if len(devices) != 0 {
+			t.Errorf("expected no devices for empty input, got %+v", devices)
+		}
+	})
+
+	t.Run("nvme path line recognized", func(t *testing.T) {
+		const out = `mpathb (uuid) dm-1 NVME,disk
+size=1T features='0' hwhandler='0' wp=rw
+` + "`-+- policy='queue-length 0' prio=50 status=active" + `
+  ` + "`- 0:0:0:0 nvme0n1 259:0 active ready running"
+		devices := parseMultipathL(out)
+		if len(devices) != 1 || devices[0].ActivePaths != 1 {
+			t.Fatalf("expected 1 device with 1 active nvme path, got %+v", devices)
+		}
+	})
+}
+
+// ── Collect() / identity / gate tests ────────────────────────────────────────
+
+func TestMultipathCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewMultipathCollector()
+	if c.Name() != "Multipath" {
+		t.Errorf("Name() = %q, want Multipath", c.Name())
+	}
+	if c.Timeout() != 5*time.Second {
+		t.Errorf("Timeout() = %v, want 5s", c.Timeout())
+	}
+}
+
+func TestIsMultipathPresent(t *testing.T) {
+	t.Run("binary absent (no lookpath recording)", func(t *testing.T) {
+		withFixtureSource(t, func(_ *source.Bundle) {})
+		if IsMultipathPresent() {
+			t.Error("expected false when multipathd binary is absent")
+		}
+	})
+}
+
+// TestIsMultipathPresent_LookpathAndProcess drives the full gate: lookPath
+// success (via Cached "lookpath/multipathd") AND anyProcessNamed.
+func TestIsMultipathPresent_LookpathAndProcess(t *testing.T) {
+	t.Run("present via running daemon", func(t *testing.T) {
+		withCombinedFixture(t,
+			map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+			nil,
+			func(b *source.Bundle) {
+				b.PutDir("/proc", []string{"100"})
+				b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			})
+		if !IsMultipathPresent() {
+			t.Error("expected true when multipathd is on PATH and the daemon process is running")
+		}
+	})
+
+	t.Run("present via sysfs maps when daemon not running", func(t *testing.T) {
+		withCombinedFixture(t,
+			map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+			nil,
+			func(b *source.Bundle) {
+				b.PutDir("/proc", []string{})
+				b.PutDir("/sys/block", []string{"sda", "dm-0"})
+				b.PutFile("/sys/block/dm-0/dm/uuid", []byte("mpath-36001405abcdef\n"))
+			})
+		if !IsMultipathPresent() {
+			t.Error("expected true via sysfs dm-uuid map when daemon isn't running")
+		}
+	})
+
+	t.Run("absent: on PATH but no daemon and no maps", func(t *testing.T) {
+		withCombinedFixture(t,
+			map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+			nil,
+			func(b *source.Bundle) {
+				b.PutDir("/proc", []string{})
+				b.PutDir("/sys/block", []string{"sda"})
+			})
+		if IsMultipathPresent() {
+			t.Error("expected false: multipath-tools installed but never used (no daemon, no maps)")
+		}
+	})
+
+	t.Run("binary not on PATH short-circuits", func(t *testing.T) {
+		withCombinedFixture(t, nil, nil, func(_ *source.Bundle) {})
+		if IsMultipathPresent() {
+			t.Error("expected false when lookPath finds nothing (Cached recording gap)")
+		}
+	})
+}
+
+// TestMultipathMapsPresentFixture adds fixture-source coverage of
+// multipathMapsPresent alongside the real-tempdir TestMultipathMapsPresent in
+// multipath_maps_linux_test.go — in particular the unreadable-dir and
+// unreadable-uuid-file degrade paths that test doesn't exercise.
+func TestMultipathMapsPresentFixture(t *testing.T) {
+	t.Run("finds a mpath- uuid device", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/sys/block", []string{"sda", "dm-0", "dm-1"})
+			b.PutFile("/sys/block/dm-0/dm/uuid", []byte("LVM-abcdef\n"))
+			b.PutFile("/sys/block/dm-1/dm/uuid", []byte("mpath-36001405abcdef\n"))
+		})
+		if !multipathMapsPresent("/sys/block") {
+			t.Error("expected true: dm-1 has a mpath- uuid prefix")
+		}
+	})
+
+	t.Run("no dm- devices at all", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/sys/block", []string{"sda", "nvme0n1"})
+		})
+		if multipathMapsPresent("/sys/block") {
+			t.Error("expected false: no dm- prefixed entries")
+		}
+	})
+
+	t.Run("dm- device present but not multipath (LVM)", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/sys/block", []string{"dm-0"})
+			b.PutFile("/sys/block/dm-0/dm/uuid", []byte("LVM-abcdef\n"))
+		})
+		if multipathMapsPresent("/sys/block") {
+			t.Error("expected false: dm-0 uuid does not have mpath- prefix")
+		}
+	})
+
+	t.Run("unreadable dir returns false", func(t *testing.T) {
+		withFixtureSource(t, func(_ *source.Bundle) {})
+		if multipathMapsPresent("/sys/block") {
+			t.Error("expected false when /sys/block can't be read")
+		}
+	})
+
+	t.Run("dm uuid file unreadable is skipped, not fatal", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutDir("/sys/block", []string{"dm-0"})
+			// dm-0/dm/uuid deliberately not seeded — readFile fails, skip.
+		})
+		if multipathMapsPresent("/sys/block") {
+			t.Error("expected false when the uuid file can't be read")
+		}
+	})
+}
+
+// TestMultipathCollector_Collect_NotPresent guards the gate-off path: no
+// lookpath/multipathd recording means IsMultipathPresent() is false.
+func TestMultipathCollector_Collect_NotPresent(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	c := NewMultipathCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info, ok := raw.(*models.MultipathInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.MultipathInfo", raw)
+	}
+	if info.Available {
+		t.Errorf("expected Available=false when multipath is not present, got %+v", info)
+	}
+}
+
+// TestMultipathCollector_Collect_ShowPathsSucceeds exercises the primary
+// "multipathd show paths" path, with the format-header row present in the
+// fixture (real tool output includes it — see the parseMultipathShow doc).
+func TestMultipathCollector_Collect_ShowPathsSucceeds(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"100"})
+			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, multipathShowOK, 0)
+		})
+	c := NewMultipathCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MultipathInfo)
+	if !info.Available {
+		t.Error("expected Available=true")
+	}
+	if len(info.Devices) != 2 {
+		t.Fatalf("Devices = %+v, want 2", info.Devices)
+	}
+}
+
+// TestMultipathCollector_Collect_ShowPathsFailsFallsBackToDashL guards the
+// fallback: `multipathd show paths` errors, `multipath -l` succeeds instead.
+func TestMultipathCollector_Collect_ShowPathsFailsFallsBackToDashL(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"100"})
+			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, "", 1)
+			b.PutCmd("multipath", []string{"-l"}, multipathLOK, 0)
+		})
+	c := NewMultipathCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MultipathInfo)
+	if !info.Available {
+		t.Error("expected Available=true")
+	}
+	if len(info.Devices) != 1 || info.Devices[0].Name != "mpatha" {
+		t.Fatalf("Devices = %+v, want 1 device named mpatha (parsed via multipath -l fallback)", info.Devices)
+	}
+}
+
+// TestMultipathCollector_Collect_BothCommandsFail guards the actionable-error
+// row: both multipathd and multipath fail — Available stays true (daemon is
+// running) with a Status/StatusReason describing the read failure.
+func TestMultipathCollector_Collect_BothCommandsFail(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"100"})
+			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, "", 1)
+			b.PutCmd("multipath", []string{"-l"}, "", 1)
+		})
+	c := NewMultipathCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MultipathInfo)
+	if !info.Available {
+		t.Error("expected Available=true (daemon running, just unreadable)")
+	}
+	if info.Status != "error" {
+		t.Errorf("Status = %q, want error", info.Status)
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a non-empty StatusReason describing the read failure")
+	}
+}
+
+// TestMultipathCollector_Collect_NoDevicesGatesOff guards the "installed but
+// zero maps configured" case: multipathd runs, but the parsed device list is
+// empty (only the header row was ever printed) — Collect must return
+// (nil, nil), matching the "no SAN" absent-section contract.
+func TestMultipathCollector_Collect_NoDevicesGatesOff(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"100"})
+			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"},
+				"dev dm_st  vend/prod/rev     multipath\n", 0)
+		})
+	c := NewMultipathCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("expected nil info when no devices parsed, got %+v", raw)
+	}
+}

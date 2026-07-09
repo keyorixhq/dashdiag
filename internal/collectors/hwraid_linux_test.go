@@ -2,7 +2,200 @@
 
 package collectors
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
+func TestHWRaidCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewHWRaidCollector()
+	if c.Name() != "HardwareRAID" {
+		t.Errorf("Name() = %q, want HardwareRAID", c.Name())
+	}
+	if c.Timeout() <= 0 {
+		t.Errorf("Timeout() = %v, want > 0", c.Timeout())
+	}
+}
+
+// TestHWRaidCollector_Collect_NoToolInstalled guards the gate: none of the
+// vendor CLIs are on $PATH -> Collect returns an empty (not nil, not
+// Available) *models.HWRaidInfo without invoking any command.
+func TestHWRaidCollector_Collect_NoToolInstalled(t *testing.T) {
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		// No lookpath/<tool> Cached entries seeded -> hasCmd() is false for all.
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info, ok := raw.(*models.HWRaidInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.HWRaidInfo", raw)
+	}
+	if info.Available {
+		t.Error("Available = true, want false (no tool installed)")
+	}
+	if info.Tool != "" {
+		t.Errorf("Tool = %q, want empty", info.Tool)
+	}
+}
+
+// TestHWRaidCollector_Collect_StorcliHealthy exercises the storcli branch end
+// to end: tool present, command succeeds, JSON parses into one healthy
+// controller.
+func TestHWRaidCollector_Collect_StorcliHealthy(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"}, storcliHealthyJSON, 0)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.HWRaidInfo)
+	if !info.Available {
+		t.Error("Available = false, want true")
+	}
+	if info.Tool != "storcli" {
+		t.Errorf("Tool = %q, want storcli (64/cli suffix stripped)", info.Tool)
+	}
+	if len(info.Controllers) != 1 {
+		t.Fatalf("Controllers = %+v, want exactly 1", info.Controllers)
+	}
+	if info.NeedsRoot || info.ReadFailed {
+		t.Errorf("NeedsRoot/ReadFailed = %v/%v, want false/false", info.NeedsRoot, info.ReadFailed)
+	}
+}
+
+// TestHWRaidCollector_Collect_SsacliDegraded exercises the ssacli (HPE)
+// text-parsing branch end to end.
+func TestHWRaidCollector_Collect_SsacliDegraded(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/ssacli": []byte("/usr/sbin/ssacli"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ssacli", []string{"ctrl", "all", "show", "config"}, ssacliDegradedText, 0)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.HWRaidInfo)
+	if !info.Available {
+		t.Error("Available = false, want true")
+	}
+	if info.Tool != "ssacli" {
+		t.Errorf("Tool = %q, want ssacli", info.Tool)
+	}
+	if len(info.Controllers) != 1 {
+		t.Fatalf("Controllers = %+v, want exactly 1", info.Controllers)
+	}
+}
+
+// TestHWRaidCollector_Collect_CommandFails guards the "CLI present but the
+// command failed" branch. Which sub-branch fires (NeedsRoot vs ReadFailed) is
+// gated on the real os.Geteuid() with no injectable seam in this file, so —
+// like TestCollectPostgresMetrics_NonRootPsqlPath elsewhere in this package —
+// the assertion only pins the shared invariant (Available=true, and never a
+// silent healthy verdict), regardless of which euid the test runs under
+// (root inside the golang:1.26 container, non-root on a typical local run).
+func TestHWRaidCollector_Collect_CommandFails(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"}, "", 1)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.HWRaidInfo)
+	if !info.Available {
+		t.Error("Available = false, want true (command failed, but tool IS installed)")
+	}
+	if !info.NeedsRoot && !info.ReadFailed {
+		t.Errorf("info = %+v, want NeedsRoot or ReadFailed set (never a silent healthy verdict on command failure)", info)
+	}
+	if len(info.Controllers) != 0 {
+		t.Errorf("Controllers = %+v, want empty on a failed read", info.Controllers)
+	}
+}
+
+// TestHWRaidCollector_Collect_StorcliUnparseableOutput guards the "command
+// succeeded but the JSON shape is wrong" branch — a read failure, not a
+// silent "no controller found".
+func TestHWRaidCollector_Collect_StorcliUnparseableOutput(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"}, "not json at all", 0)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.HWRaidInfo)
+	if !info.Available || !info.ReadFailed {
+		t.Errorf("Available/ReadFailed = %v/%v, want true/true", info.Available, info.ReadFailed)
+	}
+}
+
+// TestHWRaidCollector_Collect_ToolInstalledNoControllers guards the "CLI
+// present, box has no card" gate: a well-formed JSON response listing zero
+// controllers must gate off to nil, not a phantom "RAID OK" row.
+func TestHWRaidCollector_Collect_ToolInstalledNoControllers(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"}, `{"Controllers":[]}`, 0)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil (no controllers responded)", raw)
+	}
+}
+
+func TestIsHWRaidPresent(t *testing.T) {
+	t.Run("present", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{
+			"lookpath/ssacli": []byte("/usr/sbin/ssacli"),
+		}, nil, nil)
+		if !IsHWRaidPresent() {
+			t.Error("IsHWRaidPresent() = false, want true")
+		}
+	})
+	t.Run("absent", func(t *testing.T) {
+		withCombinedFixture(t, nil, nil, nil)
+		if IsHWRaidPresent() {
+			t.Error("IsHWRaidPresent() = true, want false")
+		}
+	})
+}
+
+// TestHwRaidTool_PreferenceOrder guards that hwRaidTool() picks the
+// most-preferred CLI (storcli64) when multiple are present on $PATH.
+func TestHwRaidTool_PreferenceOrder(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+		"lookpath/ssacli":    []byte("/usr/sbin/ssacli"),
+	}, nil, nil)
+	if got := hwRaidTool(); got != "storcli64" {
+		t.Errorf("hwRaidTool() = %q, want storcli64 (most preferred)", got)
+	}
+}
 
 // Real-shape output of `storcli /cALL show all J` on an LSI/Broadcom MegaRAID / Dell
 // PERC controller. Controller 0 has a healthy RAID1 (OS) and a DEGRADED RAID5 (DATA)
@@ -168,6 +361,195 @@ func TestParseSsacliDegraded(t *testing.T) {
 	}
 	if c.PhysicalDrives[3].Location != "2I:1:6" {
 		t.Errorf("failed PD location = %q, want 2I:1:6", c.PhysicalDrives[3].Location)
+	}
+}
+
+// TestNormalizeStorcliVD_AllStates guards every abbreviated storcli VD state
+// (Optl/Dgrd/Pdgd/OfLn/Rec) plus the unknown-state passthrough default.
+func TestNormalizeStorcliVD_AllStates(t *testing.T) {
+	cases := []struct {
+		name           string
+		state          string
+		wantState      string
+		wantDegraded   bool
+		wantOffline    bool
+		wantRebuilding bool
+	}{
+		{"optimal abbrev", "Optl", "Optimal", false, false, false},
+		{"optimal full word", "optimal", "Optimal", false, false, false},
+		{"degraded abbrev", "Dgrd", "Degraded", true, false, false},
+		{"degraded full word", "degraded", "Degraded", true, false, false},
+		{"partially degraded abbrev", "Pdgd", "Partially Degraded", true, false, false},
+		{"partially degraded full word", "partially degraded", "Partially Degraded", true, false, false},
+		{"offline abbrev", "OfLn", "Offline", false, true, false},
+		{"offline full word", "offline", "Offline", false, true, false},
+		{"recovery abbrev", "Rec", "Rebuilding", false, false, true},
+		{"rebuild full word", "rebuilding", "Rebuilding", false, false, true},
+		{"unknown state passthrough", "SomeNewState", "SomeNewState", false, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			vd := normalizeStorcliVD("test", storcliVD{State: c.state})
+			if vd.State != c.wantState {
+				t.Errorf("State = %q, want %q", vd.State, c.wantState)
+			}
+			if vd.Degraded != c.wantDegraded || vd.Offline != c.wantOffline || vd.Rebuilding != c.wantRebuilding {
+				t.Errorf("flags = degraded=%v offline=%v rebuilding=%v, want %v/%v/%v",
+					vd.Degraded, vd.Offline, vd.Rebuilding, c.wantDegraded, c.wantOffline, c.wantRebuilding)
+			}
+		})
+	}
+}
+
+// TestNormalizeStorcliPD_AllStates guards every abbreviated storcli PD state.
+func TestNormalizeStorcliPD_AllStates(t *testing.T) {
+	cases := []struct {
+		name           string
+		state          string
+		wantState      string
+		wantFailed     bool
+		wantRebuilding bool
+	}{
+		{"online abbrev", "Onln", "Online", false, false},
+		{"online full word", "online", "Online", false, false},
+		{"rebuild abbrev", "Rbld", "Rebuilding", false, true},
+		{"rebuild full word", "rebuilding", "Rebuilding", false, true},
+		{"failed literal", "Failed", "Failed", true, false},
+		{"unconfigured bad", "UBad", "Failed", true, false},
+		{"offline abbrev", "Offln", "Offline", true, false},
+		{"unknown state passthrough", "SomeNewState", "SomeNewState", false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pd := normalizeStorcliPD(storcliPD{State: c.state})
+			if pd.State != c.wantState {
+				t.Errorf("State = %q, want %q", pd.State, c.wantState)
+			}
+			if pd.Failed != c.wantFailed || pd.Rebuilding != c.wantRebuilding {
+				t.Errorf("flags = failed=%v rebuilding=%v, want %v/%v", pd.Failed, pd.Rebuilding, c.wantFailed, c.wantRebuilding)
+			}
+		})
+	}
+}
+
+// TestStorcliBBU_CachevaultFallback guards the fallback to Cachevault_Info
+// when BBU_Info is absent, and the "neither present" empty case.
+func TestStorcliBBU_CachevaultFallback(t *testing.T) {
+	t.Run("BBU present takes priority", func(t *testing.T) {
+		state, degraded := storcliBBU([]struct {
+			State string `json:"State"`
+		}{{State: "Degraded"}}, []struct {
+			State string `json:"State"`
+		}{{State: "Optimal"}})
+		if state != "Degraded" || !degraded {
+			t.Errorf("state=%q degraded=%v, want Degraded/true", state, degraded)
+		}
+	})
+	t.Run("Cachevault fallback when no BBU", func(t *testing.T) {
+		state, degraded := storcliBBU(nil, []struct {
+			State string `json:"State"`
+		}{{State: "Optimal"}})
+		if state != "Optimal" || degraded {
+			t.Errorf("state=%q degraded=%v, want Optimal/false", state, degraded)
+		}
+	})
+	t.Run("neither present", func(t *testing.T) {
+		state, degraded := storcliBBU(nil, nil)
+		if state != "" || degraded {
+			t.Errorf("state=%q degraded=%v, want empty/false", state, degraded)
+		}
+	})
+}
+
+// TestSsacliModel_NoSlotMarker guards the fallback when a line has no
+// " in Slot " marker at all (ssacliModel returns "").
+func TestSsacliModel_NoSlotMarker(t *testing.T) {
+	if got := ssacliModel("not a controller line"); got != "" {
+		t.Errorf("ssacliModel() = %q, want empty", got)
+	}
+}
+
+// TestSlotNumber_FallbackOnUnparseable guards the fallback value when the
+// text after " in Slot " has no digits to parse.
+func TestSlotNumber_FallbackOnUnparseable(t *testing.T) {
+	if got := slotNumber("Smart Array P440ar in Slot Embedded", 7); got != 7 {
+		t.Errorf("slotNumber() = %d, want fallback 7", got)
+	}
+}
+
+// TestSsacliParen_NoParens guards the empty-string return when a line has no
+// parenthesized segment at all.
+func TestSsacliParen_NoParens(t *testing.T) {
+	if got := ssacliParen("logicaldrive 1 no parens here"); got != "" {
+		t.Errorf("ssacliParen() = %q, want empty", got)
+	}
+}
+
+// TestApplySsacliVDStatus_AllBranches guards every ssacli VD status string
+// class: OK, interim-recovery/degraded, recover/rebuild/expand, fail, and an
+// unrecognized status left verbatim.
+func TestApplySsacliVDStatus_AllBranches(t *testing.T) {
+	cases := []struct {
+		name           string
+		status         string
+		wantState      string
+		wantDegraded   bool
+		wantRebuilding bool
+		wantOffline    bool
+	}{
+		{"ok", "OK", "Optimal", false, false, false},
+		{"interim recovery mode", "Interim Recovery Mode", "Degraded", true, false, false},
+		{"degraded literal", "degraded", "Degraded", true, false, false},
+		{"recovering", "Recovering", "Rebuilding", false, true, false},
+		{"rebuild", "Rebuild", "Rebuilding", false, true, false},
+		{"expanding", "Expanding", "Rebuilding", false, true, false},
+		{"failed", "Failed", "Offline", false, false, true},
+		{"unknown status", "Weird Status", "Weird Status", false, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var vd models.HWRaidVD
+			applySsacliVDStatus(&vd, c.status)
+			if vd.State != c.wantState {
+				t.Errorf("State = %q, want %q", vd.State, c.wantState)
+			}
+			if vd.Degraded != c.wantDegraded || vd.Rebuilding != c.wantRebuilding || vd.Offline != c.wantOffline {
+				t.Errorf("flags = degraded=%v rebuilding=%v offline=%v, want %v/%v/%v",
+					vd.Degraded, vd.Rebuilding, vd.Offline, c.wantDegraded, c.wantRebuilding, c.wantOffline)
+			}
+		})
+	}
+}
+
+// TestApplySsacliPDStatus_AllBranches guards every ssacli PD status string
+// class: OK, predictive failure, rebuild, fail, and unrecognized passthrough.
+func TestApplySsacliPDStatus_AllBranches(t *testing.T) {
+	cases := []struct {
+		name           string
+		status         string
+		wantState      string
+		wantPredictive bool
+		wantRebuilding bool
+		wantFailed     bool
+	}{
+		{"ok", "OK", "Online", false, false, false},
+		{"predictive failure", "Predictive Failure", "Predictive Failure", true, false, false},
+		{"rebuilding", "Rebuilding", "Rebuilding", false, true, false},
+		{"failed", "Failed", "Failed", false, false, true},
+		{"unknown status", "Weird Status", "Weird Status", false, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var pd models.HWRaidPD
+			applySsacliPDStatus(&pd, c.status)
+			if pd.State != c.wantState {
+				t.Errorf("State = %q, want %q", pd.State, c.wantState)
+			}
+			if pd.Predictive != c.wantPredictive || pd.Rebuilding != c.wantRebuilding || pd.Failed != c.wantFailed {
+				t.Errorf("flags = predictive=%v rebuilding=%v failed=%v, want %v/%v/%v",
+					pd.Predictive, pd.Rebuilding, pd.Failed, c.wantPredictive, c.wantRebuilding, c.wantFailed)
+			}
+		})
 	}
 }
 
