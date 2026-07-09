@@ -3,11 +3,225 @@
 package collectors
 
 import (
+	"context"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestMTECollectorIdentity guards the static Name/Timeout contract — pure,
+// no fixture dependency, safe to run in parallel.
+func TestMTECollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewMTECollector()
+	if c.Name() != "MTE" {
+		t.Errorf("Name() = %q, want MTE", c.Name())
+	}
+	if c.Timeout() != 5*time.Second {
+		t.Errorf("Timeout() = %v, want 5s", c.Timeout())
+	}
+}
+
+// TestIsMTEAvailable guards both the arch gate and the /proc/cpuinfo Features
+// check. The arch gate itself can't be fixtured (runtime.GOARCH is fixed for
+// the test binary), so on a non-arm64 test host we only verify the early
+// false; on arm64 we additionally verify the cpuinfo-driven branches.
+func TestIsMTEAvailable(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		if IsMTEAvailable() {
+			t.Error("expected false on non-arm64 architecture")
+		}
+		return
+	}
+
+	t.Run("mte feature present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/cpuinfo", []byte("processor\t: 0\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp sve2 sveaes svepmull svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti mte\n"))
+		})
+		if !IsMTEAvailable() {
+			t.Error("expected true when Features includes mte")
+		}
+	})
+
+	t.Run("mte feature absent", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/cpuinfo", []byte("processor\t: 0\nFeatures\t: fp asimd evtstrm aes\n"))
+		})
+		if IsMTEAvailable() {
+			t.Error("expected false when Features omits mte")
+		}
+	})
+
+	t.Run("cpuinfo unreadable", func(t *testing.T) {
+		withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/cpuinfo never seeded
+		if IsMTEAvailable() {
+			t.Error("expected false when /proc/cpuinfo is unreadable")
+		}
+	})
+}
+
+// TestMTECollector_Collect_ExceptionTraceUnreadable guards the earliest
+// early-return: when debug.exception-trace itself can't be read, Available
+// stays true (hardware/kernel MTE support is a separate concern) but
+// StatusReason explains the gap and no log scan is attempted.
+func TestMTECollector_Collect_ExceptionTraceUnreadable(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/sys/debug/exception-trace never seeded
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if !info.Available {
+		t.Error("Available should stay true even when exception-trace is unreadable")
+	}
+	if info.StatusReason == "" || !strings.Contains(info.StatusReason, "exception-trace") {
+		t.Errorf("expected a StatusReason mentioning exception-trace, got %q", info.StatusReason)
+	}
+	if info.ExceptionTraceEnabled {
+		t.Error("ExceptionTraceEnabled should be false when unreadable")
+	}
+	if info.RecentFaults != nil {
+		t.Error("no log scan should occur when exception-trace is unreadable")
+	}
+}
+
+// TestMTECollector_Collect_ExceptionTraceDisabled guards the "sysctl off"
+// short-circuit: a tag-check fault leaves no kernel-log trace while
+// exception-trace is 0, so scanning the log would be pointless — Collect
+// must return early without invoking journalctl/dmesg at all (no fixture for
+// either command is seeded; if Collect tried to run them, runCmd would hit
+// ErrNotRecorded and StatusReason would be set, which the assertion below
+// catches).
+func TestMTECollector_Collect_ExceptionTraceDisabled(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/debug/exception-trace", []byte("0\n"))
+	})
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if info.ExceptionTraceEnabled {
+		t.Error("ExceptionTraceEnabled should be false for sysctl value 0")
+	}
+	if info.StatusReason != "" {
+		t.Errorf("no log scan (and no error) should occur when exception-trace is disabled, got StatusReason=%q", info.StatusReason)
+	}
+	if info.RecentFaults != nil {
+		t.Error("RecentFaults should stay nil when exception-trace is disabled")
+	}
+}
+
+// TestMTECollector_Collect_JournalctlSucceeds guards the primary path: when
+// journalctl -k --grep succeeds, its output is parsed directly and the
+// dmesg-fallback 24h recency filter must NOT be applied (usedDmesg stays
+// false), so an undated or oddly-dated journalctl line isn't second-guessed.
+func TestMTECollector_Collect_JournalctlSucceeds(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/debug/exception-trace", []byte("1\n"))
+		b.PutCmd("journalctl",
+			[]string{"-k", "--since", "24 hours ago", "--no-pager", "-o", "short-iso", "--grep", "tag check fault"},
+			mteJournalOutput, 0)
+	})
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if !info.ExceptionTraceEnabled {
+		t.Error("ExceptionTraceEnabled should be true for sysctl value 1")
+	}
+	if len(info.RecentFaults) != 2 {
+		t.Fatalf("expected 2 parsed faults from journalctl output, got %d: %+v", len(info.RecentFaults), info.RecentFaults)
+	}
+}
+
+// TestMTECollector_Collect_DmesgISOFallback guards the first fallback rung:
+// journalctl unavailable (non-systemd host), `dmesg --time-format iso`
+// succeeds — usedDmesg is true, so the 24h recency filter IS applied, and an
+// old fault must be dropped while a recent one survives.
+func TestMTECollector_Collect_DmesgISOFallback(t *testing.T) {
+	recentLine := time.Now().Add(-1*time.Hour).Format("2006-01-02T15:04:05-0700") +
+		" mte_test[42]: unhandled exception: DABT (lower EL), ESR 0x0, synchronous tag check fault in mte_test[abc+1000]\n"
+	oldLine := time.Now().Add(-48*time.Hour).Format("2006-01-02T15:04:05-0700") +
+		" old_proc[99]: unhandled exception: DABT (lower EL), ESR 0x0, synchronous tag check fault in old_proc[abc+1000]\n"
+
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/debug/exception-trace", []byte("1\n"))
+		b.PutCmdNotFound("journalctl",
+			[]string{"-k", "--since", "24 hours ago", "--no-pager", "-o", "short-iso", "--grep", "tag check fault"})
+		b.PutCmd("dmesg", []string{"--time-format", "iso"}, recentLine+oldLine, 0)
+	})
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if len(info.RecentFaults) != 1 {
+		t.Fatalf("expected only the recent fault to survive the dmesg-fallback 24h filter, got %d: %+v", len(info.RecentFaults), info.RecentFaults)
+	}
+	if info.RecentFaults[0].Process != "mte_test" {
+		t.Errorf("expected the recent fault to be mte_test, got %+v", info.RecentFaults[0])
+	}
+}
+
+// TestMTECollector_Collect_PlainDmesgFallback guards the final fallback rung:
+// both journalctl and `dmesg --time-format iso` fail, plain `dmesg` succeeds.
+// Undated dmesg lines are boot-relative, so filterMTEFaultsRecent keeps them
+// conservatively (zero timestamp = kept).
+func TestMTECollector_Collect_PlainDmesgFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/debug/exception-trace", []byte("1\n"))
+		b.PutCmdNotFound("journalctl",
+			[]string{"-k", "--since", "24 hours ago", "--no-pager", "-o", "short-iso", "--grep", "tag check fault"})
+		b.PutCmdNotFound("dmesg", []string{"--time-format", "iso"})
+		b.PutCmd("dmesg", nil,
+			"[  123.456789] mte_test[7]: unhandled exception: DABT (lower EL), ESR 0x0, synchronous tag check fault in mte_test[abc+1000]\n", 0)
+	})
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if len(info.RecentFaults) != 1 {
+		t.Fatalf("expected the undated plain-dmesg fault to be kept conservatively, got %d: %+v", len(info.RecentFaults), info.RecentFaults)
+	}
+}
+
+// TestMTECollector_Collect_AllLogSourcesFail guards the last-resort branch:
+// journalctl, dmesg --time-format iso, and plain dmesg all fail — StatusReason
+// must explain the total log-read failure and RecentFaults must stay nil
+// (never silently report "0 faults" as if a real scan happened).
+func TestMTECollector_Collect_AllLogSourcesFail(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/debug/exception-trace", []byte("1\n"))
+		b.PutCmdNotFound("journalctl",
+			[]string{"-k", "--since", "24 hours ago", "--no-pager", "-o", "short-iso", "--grep", "tag check fault"})
+		b.PutCmdNotFound("dmesg", []string{"--time-format", "iso"})
+		b.PutCmdNotFound("dmesg", nil)
+	})
+	c := NewMTECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MTEInfo)
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason when all kernel-log sources fail")
+	}
+	if info.RecentFaults != nil {
+		t.Errorf("RecentFaults must stay nil when the log couldn't be scanned, got %+v", info.RecentFaults)
+	}
+}
 
 // Real captured lines from the live QEMU TCG MTE fixture (pve01 arm64mte01,
 // Ubuntu 24.04, kernel 6.8.0-124-generic) — see memory

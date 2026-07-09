@@ -8,10 +8,28 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestSystemdCollectorIdentity guards the trivial identity methods — the
+// constructor and the Name()/Timeout() accessors, which carry no fixture
+// dependency and so are safe to run in parallel with the rest of the suite.
+func TestSystemdCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewSystemdCollector()
+	if c == nil {
+		t.Fatal("NewSystemdCollector returned nil")
+	}
+	if c.Name() != "Systemd" {
+		t.Errorf("Name() = %q, want Systemd", c.Name())
+	}
+	if c.Timeout() != 3*time.Second {
+		t.Errorf("Timeout() = %v, want 3s", c.Timeout())
+	}
+}
 
 // Per-connection socket-activated sshd instances (sshd@.service template, the
 // default on Photon/Fedora) go "failed" when a connection drops before auth — a
