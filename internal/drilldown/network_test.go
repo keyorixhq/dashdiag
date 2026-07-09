@@ -67,6 +67,28 @@ func TestParseSsOutputRootAttribution(t *testing.T) {
 	}
 }
 
+// TestTCPStateName guards the /proc/net/tcp hex-state-to-name lookup table,
+// including the STATE-N fallback for unrecognised values.
+func TestTCPStateName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{1, "ESTABLISHED"},
+		{6, "TIME-WAIT"},
+		{10, "LISTEN"},
+		{11, "CLOSING"},
+		{0, "STATE-0"},
+		{99, "STATE-99"},
+	}
+	for _, c := range cases {
+		if got := tcpStateName(c.in); got != c.want {
+			t.Errorf("tcpStateName(%d) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestParseSsOutputNonRootCaveat guards the false-OK-by-omission fix: `ss
 // -tnp` only reports the users:(...) owner field for sockets the caller
 // owns, so an unprivileged run silently drops other users' connections from

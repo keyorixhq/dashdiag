@@ -102,6 +102,31 @@ func TestSystemTotalJiffies_MissingFile(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByCPU_RealProc exercises the exported dispatcher and its
+// Linux hardcoded-"/proc" wrapper against the ACTUAL /proc of the test
+// container (real, uncancelled context) — the established pattern for these
+// thin GOOS-switch wrappers in this package (they're already covered
+// indirectly via PopulateAll's cancelled-context test for other checks; this
+// is the direct-call variant used to actually let them complete and be
+// measured). The container always has a live process table (PID 1, this test
+// process, etc.), so this only asserts "no panic, no error, plausible
+// result" — exact values are already covered by *LinuxAt above.
+func TestTopProcessesByCPU_RealProc(t *testing.T) {
+	got, err := TopProcessesByCPU(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("TopProcessesByCPU: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details from a real /proc read")
+	}
+	if got.Type != "process_table" || got.Title != "Top processes by CPU%" {
+		t.Errorf("unexpected shape: %+v", got)
+	}
+	if len(got.Rows) > 5 {
+		t.Errorf("expected at most 5 rows, got %d", len(got.Rows))
+	}
+}
+
 // topProcessesByCPUMac is only invoked at runtime on darwin, but it's a plain
 // function, callable directly on any host — mocking runCmd lets it be
 // exercised on Linux CI too. No t.Parallel(): see swapRunCmd's doc comment.

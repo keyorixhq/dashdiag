@@ -152,6 +152,221 @@ func TestParseUnitFromMessage(t *testing.T) {
 	}
 }
 
+func TestZombiesFromResults_HappyPath(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			ZombieProcs: []models.ProcessState{
+				{PID: 300, PPID: 50, Name: "deadproc", ParentName: "systemd"},
+			},
+		}},
+	}
+	got := zombiesFromResults(results)
+	if got == nil {
+		t.Fatal("expected non-nil Details")
+	}
+	if got.Type != "process_table" {
+		t.Errorf("unexpected Type: %q", got.Type)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	want := []string{"300", "50", "systemd"}
+	for i, w := range want {
+		if got.Rows[0][i] != w {
+			t.Errorf("row[%d] = %q, want %q (full row: %+v)", i, got.Rows[0][i], w, got.Rows[0])
+		}
+	}
+}
+
+// TestZombiesFromResults_ParentNameFallsBackToProc guards the ParentName=="" ->
+// procComm("/proc", PPID) fallback branch (real /proc read for PID 1, which
+// always exists in the test container).
+func TestZombiesFromResults_ParentNameFallsBackToProc(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			ZombieProcs: []models.ProcessState{
+				{PID: 301, PPID: 1, Name: "deadproc"}, // ParentName empty
+			},
+		}},
+	}
+	got := zombiesFromResults(results)
+	if got == nil || len(got.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %+v", got)
+	}
+	if got.Rows[0][2] == "" {
+		t.Errorf("expected parent name fallback to /proc/1/comm to produce a non-empty name, got %+v", got.Rows[0])
+	}
+}
+
+func TestZombiesFromResults_NoProcessesResult(t *testing.T) {
+	t.Parallel()
+	if got := zombiesFromResults(nil); got != nil {
+		t.Errorf("expected nil with no Processes result, got %+v", got)
+	}
+	if got := zombiesFromResults([]runner.Result{{Name: "Memory", Data: nil}}); got != nil {
+		t.Errorf("expected nil when Processes result is absent, got %+v", got)
+	}
+}
+
+func TestZombiesFromResults_EmptyZombiesReturnsNil(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{ZombieProcs: nil}},
+	}
+	if got := zombiesFromResults(results); got != nil {
+		t.Errorf("expected nil when ZombieProcs is empty, got %+v", got)
+	}
+}
+
+func TestZombiesFromResults_WrongDataType(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: "not a ProcessInfo"},
+	}
+	if got := zombiesFromResults(results); got != nil {
+		t.Errorf("expected nil for a type-assertion mismatch, got %+v", got)
+	}
+}
+
+func TestHungProcessesFromResults_HappyPath(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			HungProcs: []models.ProcessState{
+				{PID: 400, Name: "stuckproc", PPID: 1, WChan: "wait_on_page_bit"},
+			},
+		}},
+	}
+	got := hungProcessesFromResults(results)
+	if got == nil {
+		t.Fatal("expected non-nil Details")
+	}
+	if got.Type != "process_table" {
+		t.Errorf("unexpected Type: %q", got.Type)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	want := []string{"400", "stuckproc", "1", "wait_on_page_bit"}
+	for i, w := range want {
+		if got.Rows[0][i] != w {
+			t.Errorf("row[%d] = %q, want %q (full row: %+v)", i, got.Rows[0][i], w, got.Rows[0])
+		}
+	}
+}
+
+func TestHungProcessesFromResults_NoProcessesResult(t *testing.T) {
+	t.Parallel()
+	if got := hungProcessesFromResults(nil); got != nil {
+		t.Errorf("expected nil with no Processes result, got %+v", got)
+	}
+}
+
+func TestHungProcessesFromResults_EmptyHungReturnsNil(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{HungProcs: nil}},
+	}
+	if got := hungProcessesFromResults(results); got != nil {
+		t.Errorf("expected nil when HungProcs is empty, got %+v", got)
+	}
+}
+
+func TestHungProcessesFromResults_WrongDataType(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: 42},
+	}
+	if got := hungProcessesFromResults(results); got != nil {
+		t.Errorf("expected nil for a type-assertion mismatch, got %+v", got)
+	}
+}
+
+func TestHardeningFromResults_UnexpectedPorts(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Hardening", Data: &models.SecurityInfo{
+			ListeningPorts: []models.PortEntry{
+				{Port: 22, Protocol: "tcp", Process: "sshd", Expected: true},
+				{Port: 31337, Protocol: "tcp", Process: "backdoor", Expected: false},
+			},
+		}},
+	}
+	got := hardeningFromResults(results, "unexpected port 31337 listening")
+	if got == nil {
+		t.Fatal("expected non-nil Details for an unexpected-port message")
+	}
+	if len(got.Rows) != 1 || got.Rows[0][0] != "31337" {
+		t.Errorf("expected only the unexpected port row, got %+v", got.Rows)
+	}
+}
+
+func TestHardeningFromResults_UnexpectedPortsNeedRootNote(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Hardening", Data: &models.SecurityInfo{
+			PortsNeedRoot: true,
+			ListeningPorts: []models.PortEntry{
+				{Port: 9999, Protocol: "tcp", Process: "", Expected: false},
+			},
+		}},
+	}
+	got := hardeningFromResults(results, "unexpected port 9999 listening")
+	if got == nil {
+		t.Fatal("expected non-nil Details")
+	}
+	if got.Note == "" {
+		t.Error("expected a run-as-root note when PortsNeedRoot is true")
+	}
+}
+
+func TestHardeningFromResults_FailedLogins(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Hardening", Data: &models.SecurityInfo{
+			FailedLoginIPs: []string{"1.2.3.4 (10)", "5.6.7.8 (3)"},
+		}},
+	}
+	got := hardeningFromResults(results, "5 failed login attempts detected")
+	if got == nil {
+		t.Fatal("expected non-nil Details for a failed-login message")
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d: %+v", len(got.Rows), got.Rows)
+	}
+}
+
+func TestHardeningFromResults_NoMatchingMessageReturnsNil(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Hardening", Data: &models.SecurityInfo{
+			ListeningPorts: []models.PortEntry{{Port: 22, Expected: true}},
+		}},
+	}
+	got := hardeningFromResults(results, "some unrelated hardening message")
+	if got != nil {
+		t.Errorf("expected nil when the message matches neither known branch, got %+v", got)
+	}
+}
+
+func TestHardeningFromResults_NoHardeningResult(t *testing.T) {
+	t.Parallel()
+	if got := hardeningFromResults(nil, "unexpected port 22 listening"); got != nil {
+		t.Errorf("expected nil with no Hardening result, got %+v", got)
+	}
+}
+
+func TestHardeningFromResults_NilData(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Hardening", Data: (*models.SecurityInfo)(nil)},
+	}
+	if got := hardeningFromResults(results, "unexpected port 22 listening"); got != nil {
+		t.Errorf("expected nil for nil SecurityInfo data, got %+v", got)
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
 		in   int64

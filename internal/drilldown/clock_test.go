@@ -75,6 +75,27 @@ func TestParseTimedatectl_EmptyInput(t *testing.T) {
 	}
 }
 
+// TestClockTracking_RealDispatch exercises the exported GOOS-switch
+// dispatcher directly (real, uncancelled context, real runCmd — not swapped)
+// — see the equivalent comment on TestTopProcessesByCPU_RealProc in
+// cpu_test.go for the general rationale. On Linux this calls through to
+// clockTrackingLinux, which is already covered in detail below via
+// swapRunCmd; here it just proves ClockTracking itself doesn't panic/error
+// when neither chronyc nor timedatectl is installed (the golang:1.26 test
+// image has neither, so this exercises the graceful nil,nil degrade path).
+// Must not run with t.Parallel() — see swapRunCmd's doc comment; this test
+// doesn't swap runCmd itself, but it shares the package-level var with the
+// serial group below and must stay ordered with it.
+func TestClockTracking_RealDispatch(t *testing.T) {
+	got, err := ClockTracking(context.Background())
+	if err != nil {
+		t.Fatalf("ClockTracking: %v", err)
+	}
+	if got != nil && got.Type != "kv_table" {
+		t.Errorf("unexpected shape: %+v", got)
+	}
+}
+
 // clockTrackingLinux/clockTrackingMac shell out via runCmd, which is a
 // swappable package var for exactly this reason. No t.Parallel() in this
 // group — see swapRunCmd's doc comment.

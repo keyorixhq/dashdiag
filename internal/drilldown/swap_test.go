@@ -88,3 +88,26 @@ func TestTopProcessesBySwapLinux_LimitN(t *testing.T) {
 		t.Errorf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
 	}
 }
+
+// TestTopProcessesBySwap_RealProc exercises the exported dispatcher and its
+// Linux hardcoded-"/proc" wrapper against the ACTUAL /proc of the test
+// container (real, uncancelled context) — see the equivalent comment on
+// TestTopProcessesByCPU_RealProc in cpu_test.go for why this is safe and
+// deterministic here. Most containers have zero swap usage, so this only
+// asserts "no panic, no error, plausible shape" — exact values are already
+// covered by *LinuxAt above.
+func TestTopProcessesBySwap_RealProc(t *testing.T) {
+	got, err := TopProcessesBySwap(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("TopProcessesBySwap: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details from a real /proc read")
+	}
+	if got.Type != "process_table" || got.Title != "Top processes by swap usage" {
+		t.Errorf("unexpected shape: %+v", got)
+	}
+	if len(got.Rows) > 5 {
+		t.Errorf("expected at most 5 rows, got %d", len(got.Rows))
+	}
+}

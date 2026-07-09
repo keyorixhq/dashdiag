@@ -85,3 +85,19 @@ func TestActualVsRecommendedAt_NoKeyMatchUsesDefaults(t *testing.T) {
 		t.Fatalf("expected 2 default rows (somaxconn, pid_max), got %d: %+v", len(got.Rows), got.Rows)
 	}
 }
+
+// TestActualVsRecommended_RealProc exercises the exported dispatcher and its
+// Linux hardcoded-"/proc/sys" wrapper against the ACTUAL /proc/sys of the
+// test container (real, uncancelled context) — see the equivalent comment on
+// TestTopProcessesByCPU_RealProc in cpu_test.go for why this is safe and
+// deterministic here. Exact values are already covered by
+// actualVsRecommendedAt above; this only asserts "no panic, no error".
+func TestActualVsRecommended_RealProc(t *testing.T) {
+	got, err := ActualVsRecommended(context.Background(), "net.core.somaxconn is too low")
+	if err != nil {
+		t.Fatalf("ActualVsRecommended: %v", err)
+	}
+	if got != nil && got.Type != "sysctl_table" {
+		t.Errorf("unexpected shape: %+v", got)
+	}
+}

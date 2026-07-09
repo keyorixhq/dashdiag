@@ -86,6 +86,27 @@ func TestFDSoftLimit_MissingProcess(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByFDPercent_RealProc exercises the exported dispatcher and
+// its Linux hardcoded-"/proc" wrapper against the ACTUAL /proc of the test
+// container (real, uncancelled context) — see the equivalent comment on
+// TestTopProcessesByCPU_RealProc in cpu_test.go for why this is safe and
+// deterministic here. Exact values are already covered by *LinuxAt above.
+func TestTopProcessesByFDPercent_RealProc(t *testing.T) {
+	got, err := TopProcessesByFDPercent(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("TopProcessesByFDPercent: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details from a real /proc read")
+	}
+	if got.Type != "process_table" || got.Title != "Top processes by FD usage" {
+		t.Errorf("unexpected shape: %+v", got)
+	}
+	if len(got.Rows) > 5 {
+		t.Errorf("expected at most 5 rows, got %d", len(got.Rows))
+	}
+}
+
 // topProcessesByFDMac is only invoked at runtime on darwin, but it's a plain
 // function, callable directly on any host — mocking runCmd lets it be
 // exercised on Linux CI too. It shells out twice (lsof once, then ps per

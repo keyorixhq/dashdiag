@@ -117,6 +117,45 @@ func TestZombiesWithParentMac(t *testing.T) {
 	}
 }
 
+// TestHungProcesses_RealProc exercises the exported dispatcher and its Linux
+// hardcoded-"/proc" wrapper against the ACTUAL /proc of the test container
+// (real, uncancelled context) — see the equivalent comment on
+// TestTopProcessesByCPU_RealProc in cpu_test.go for why this is safe and
+// deterministic here. The container's process table almost never has a D
+// (uninterruptible sleep) process, so this only asserts "no panic, no error,
+// plausible shape" — exact values are already covered by
+// hungProcessesLinuxAt above (both the found and not-found branches).
+func TestHungProcesses_RealProc(t *testing.T) {
+	got, err := HungProcesses(context.Background())
+	if err != nil {
+		t.Fatalf("HungProcesses: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details from a real /proc read")
+	}
+	if got.Type != "process_table" && got.Type != "kv_table" {
+		t.Errorf("unexpected Type: %q (full: %+v)", got.Type, got)
+	}
+}
+
+// TestZombiesWithParent_RealProc exercises the exported dispatcher and its
+// Linux hardcoded-"/proc" wrapper (zombiesWithParentLinux) against the ACTUAL
+// /proc of the test container (real, uncancelled context) — same rationale as
+// TestHungProcesses_RealProc above. Exact values are already covered by
+// zombiesWithParentLinuxAt above.
+func TestZombiesWithParent_RealProc(t *testing.T) {
+	got, err := ZombiesWithParent(context.Background())
+	if err != nil {
+		t.Fatalf("ZombiesWithParent: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details from a real /proc read")
+	}
+	if got.Type != "process_table" {
+		t.Errorf("unexpected Type: %q (full: %+v)", got.Type, got)
+	}
+}
+
 func TestZombiesWithParentLinux_NoZombies(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()
