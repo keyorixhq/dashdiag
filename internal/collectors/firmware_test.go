@@ -49,20 +49,9 @@ func TestFirmwareCollect_FwupdmgrNotInstalled(t *testing.T) {
 // branch: fwupdmgr get-upgrades exits non-zero with no upgrades pending, and
 // the collector must still resolve to Status=OK, not surface an error.
 //
-// NOTE (potential production bug, not fixed here): runCmd (collector.go)
-// discards stdout when the command exits non-zero — it returns "" on any
-// non-zero exit (see runCmd's `if res.ExitCode != 0 { return "", &cmdError{} }`).
-// firmware.go's Collect (line ~36-44) calls `out, err := runCmd(ctx, "fwupdmgr",
-// "get-upgrades", "--json")` and then, in the err != nil branch, checks
-// `strings.Contains(out, "Nothing to do")` etc. Since runCmd always returns ""
-// for out whenever err != nil, that substring check can NEVER match — the
-// "Nothing to do" / "no upgrades" / "No upgrades" branch is dead code, and
-// every non-zero-exit invocation instead falls through to the generic
-// "fwupdmgr get-upgrades failed" StatusReason. This test pins the OBSERVED
-// (buggy) behavior — reaching the generic failure reason instead of Status=OK
-// — as a regression net around the current runtime behavior; it is not
-// asserting this is correct. Likely fix: firmware.go should use runCmdOutput
-// instead of runCmd so stdout survives a non-zero exit.
+// Collect uses runCmdOutput (not runCmd) for this call specifically because
+// fwupdmgr exits non-zero to *report* "no upgrades" while still printing that
+// message to stdout — runCmd would discard it and mask the OK case.
 func TestFirmwareCollect_NoUpgradesAvailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
@@ -77,16 +66,8 @@ func TestFirmwareCollect_NoUpgradesAvailable(t *testing.T) {
 	if !info.Available {
 		t.Error("Available must be true once fwupdmgr --version succeeds")
 	}
-	// Documents the current (buggy) behavior: runCmd drops stdout on non-zero
-	// exit, so the "Nothing to do" substring check never sees it and Status
-	// never reaches "OK" via that branch.
-	if info.Status == "OK" {
-		t.Error("BUG-CONFIRMATION-INVERTED: if this now reports OK, the runCmd->runCmdOutput " +
-			"fix landed — update this test to assert the corrected Status=OK behavior " +
-			"and drop this comment")
-	}
-	if info.StatusReason != "fwupdmgr get-upgrades failed" {
-		t.Errorf("StatusReason = %q, want the generic failure reason (see bug note above)", info.StatusReason)
+	if info.Status != "OK" {
+		t.Errorf("Status = %q, want OK (non-zero exit with 'Nothing to do' stdout is the clean case)", info.Status)
 	}
 }
 
