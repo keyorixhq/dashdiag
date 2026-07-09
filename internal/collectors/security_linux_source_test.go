@@ -390,3 +390,160 @@ func TestParsePAMModuleFailures_Clean(t *testing.T) {
 		t.Errorf("no matching failure lines should leave PAMModuleFailures empty, got %+v", info.PAMModuleFailures)
 	}
 }
+
+// TestCollectRelevantBooleans guards the getsebool filtering: an off boolean
+// whose name contains a denied scontext keyword (with the "_t" suffix
+// stripped) must be surfaced, an ON boolean must be excluded even if its name
+// matches, and an off boolean unrelated to any denied scontext must be
+// excluded too.
+func TestCollectRelevantBooleans(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"},
+			"httpd_can_network_connect --> off\n"+
+				"httpd_enable_cgi --> on\n"+ // ON — must be excluded
+				"cron_can_relabel --> off\n", // unrelated to httpd_t — must be excluded
+			0)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	got := collectRelevantBooleans(context.Background(), groups)
+	if len(got) != 1 || got[0].Name != "httpd_can_network_connect" {
+		t.Fatalf("expected only the off httpd-related boolean, got %+v", got)
+	}
+	if got[0].Active {
+		t.Errorf("surfaced boolean must be reported inactive (off), got Active=true")
+	}
+	if got[0].SetCmd != "setsebool -P httpd_can_network_connect on" {
+		t.Errorf("SetCmd = %q, want the setsebool -P ... on form", got[0].SetCmd)
+	}
+}
+
+// TestCollectRelevantBooleans_CapsAtTen guards the 10-item truncation: with
+// more than 10 matching off booleans, only the first 10 encountered are kept.
+func TestCollectRelevantBooleans_CapsAtTen(t *testing.T) {
+	var lines []string
+	for i := 0; i < 15; i++ {
+		lines = append(lines, fmt.Sprintf("httpd_bool_%02d --> off", i))
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"}, strings.Join(lines, "\n")+"\n", 0)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	got := collectRelevantBooleans(context.Background(), groups)
+	if len(got) != 10 {
+		t.Fatalf("expected the result capped at 10, got %d: %+v", len(got), got)
+	}
+}
+
+// TestCollectRelevantBooleans_GetseboolFails guards the "getsebool -a itself
+// errored" branch — must return nil, not panic on empty output.
+func TestCollectRelevantBooleans_GetseboolFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"}, "", 1)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	if got := collectRelevantBooleans(context.Background(), groups); got != nil {
+		t.Errorf("expected nil when getsebool -a fails, got %+v", got)
+	}
+}
+
+// TestCollectAppArmorDenials guards the journalctl-driven AppArmor DENIED
+// parse: matching kernel lines are grouped by (profile, op, path) with counts,
+// non-DENIED lines are ignored, and the result is sorted deterministically
+// (count desc, then profile/path/op asc — see the sort.Slice doc comment).
+func TestCollectAppArmorDenials(t *testing.T) {
+	lines := strings.Join([]string{
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="ALLOWED" operation="open" profile="/usr/bin/bar" name="/tmp/x" requested_mask="r" comm="bar"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 grouped denial (ALLOWED must be excluded), got %d: %+v", len(got), got)
+	}
+	if got[0].Profile != "/usr/bin/foo" || got[0].Path != "/etc/shadow" || got[0].Operation != "r" || got[0].Count != 2 {
+		t.Errorf("unexpected grouped denial: %+v", got[0])
+	}
+}
+
+// TestCollectAppArmorDenials_MultiGroupSortOrder guards the deterministic
+// sort across multiple distinct groups: count desc first, then profile/path/
+// operation asc to break ties among equal-count groups (see the sort.Slice
+// doc comment in the production code).
+func TestCollectAppArmorDenials_MultiGroupSortOrder(t *testing.T) {
+	lines := strings.Join([]string{
+		// "zzz" profile, 1 denial — should sort AFTER the tied "aaa"/"bbb" group
+		// despite alphabetically following them, because count desc wins first.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		// Two distinct profiles tied at count=1 each — must break the tie by profile asc.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bbb" name="/etc/y" requested_mask="r" comm="bbb"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/aaa" name="/etc/z" requested_mask="r" comm="aaa"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 3 {
+		t.Fatalf("expected 3 distinct groups, got %d: %+v", len(got), got)
+	}
+	if got[0].Profile != "/usr/bin/high" || got[0].Count != 3 {
+		t.Fatalf("group[0] should be the highest-count group, got %+v", got[0])
+	}
+	if got[1].Profile != "/usr/bin/aaa" || got[2].Profile != "/usr/bin/bbb" {
+		t.Errorf("tied count=1 groups should sort by profile asc (aaa before bbb), got order %+v, %+v", got[1], got[2])
+	}
+}
+
+// TestCollectAppArmorDenials_NoneOrError guards the two "nothing to report"
+// paths: journalctl erroring out and journalctl succeeding with empty/no-match
+// output must both return nil, not a spurious entry.
+func TestCollectAppArmorDenials_NoneOrError(t *testing.T) {
+	t.Run("journalctl errors", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 1)
+		})
+		if got := collectAppArmorDenials(context.Background()); got != nil {
+			t.Errorf("expected nil on journalctl error, got %+v", got)
+		}
+	})
+
+	t.Run("empty output", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 0)
+		})
+		if got := collectAppArmorDenials(context.Background()); got != nil {
+			t.Errorf("expected nil on empty journalctl output, got %+v", got)
+		}
+	})
+}
+
+// TestBoolExists guards the getsebool <name> existence check: the boolean's
+// own name echoed back in stdout means it exists, a non-zero exit (unknown
+// boolean) means it doesn't.
+func TestBoolExists(t *testing.T) {
+	t.Run("exists", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("getsebool", []string{"httpd_can_network_connect"}, "httpd_can_network_connect --> off\n", 0)
+		})
+		if !boolExists(context.Background(), "httpd_can_network_connect") {
+			t.Error("expected true for a boolean getsebool reports")
+		}
+	})
+
+	t.Run("does not exist", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("getsebool", []string{"nonexistent_boolean"}, "", 1)
+		})
+		if boolExists(context.Background(), "nonexistent_boolean") {
+			t.Error("expected false when getsebool errors (unknown boolean)")
+		}
+	})
+}

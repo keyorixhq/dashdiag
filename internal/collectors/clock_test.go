@@ -5,10 +5,27 @@ import (
 	"encoding/json"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestNewClockCollector_Identity pins the constructor and identity methods
+// (Name/Timeout) — these touch no fixture source, so t.Parallel() is safe.
+func TestNewClockCollector_Identity(t *testing.T) {
+	t.Parallel()
+	c := NewClockCollector()
+	if c == nil {
+		t.Fatal("NewClockCollector returned nil")
+	}
+	if got, want := c.Name(), "Clock"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := c.Timeout(), 2*time.Second; got != want {
+		t.Errorf("Timeout() = %v, want %v", got, want)
+	}
+}
 
 func TestClockCollector_ReturnsResult(t *testing.T) {
 	t.Parallel()

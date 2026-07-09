@@ -9,6 +9,22 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// TestNewOOMCollector_Identity pins the constructor and identity methods
+// (Name/Timeout) — these touch no fixture source, so t.Parallel() is safe.
+func TestNewOOMCollector_Identity(t *testing.T) {
+	t.Parallel()
+	c := NewOOMCollector()
+	if c == nil {
+		t.Fatal("NewOOMCollector returned nil")
+	}
+	if got, want := c.Name(), "OOM"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := c.Timeout(), 5*time.Second; got != want {
+		t.Errorf("Timeout() = %v, want %v", got, want)
+	}
+}
+
 const oomJournalOutput = `2026-05-17T09:12:34+0000 kernel: Out of memory: Kill process 12345 (nginx) score 900 or sacrifice child
 2026-05-17T09:12:34+0000 kernel: Killed process 12345 (nginx) total-vm:2048kB, anon-rss:1024kB, file-rss:0kB
 2026-05-17T09:12:41+0000 kernel: Out of memory: Kill process 23456 (php-fpm) score 750 or sacrifice child

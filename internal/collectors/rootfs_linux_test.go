@@ -5,10 +5,27 @@ package collectors
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestNewRootFSCollector_Identity pins the constructor and identity methods
+// (Name/Timeout) — these touch no fixture source, so t.Parallel() is safe.
+func TestNewRootFSCollector_Identity(t *testing.T) {
+	t.Parallel()
+	c := NewRootFSCollector()
+	if c == nil {
+		t.Fatal("NewRootFSCollector returned nil")
+	}
+	if got, want := c.Name(), "Root FS"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := c.Timeout(), 2*time.Second; got != want {
+		t.Errorf("Timeout() = %v, want %v", got, want)
+	}
+}
 
 // The fault is narrow: a read-only root only matters on a normally-writable fs,
 // when fstab intends rw, and nothing makes it ro by design.
