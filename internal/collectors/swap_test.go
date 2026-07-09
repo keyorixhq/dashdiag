@@ -12,6 +12,23 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+func TestNewSwapCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewSwapCollector(platform.ContainerContext{})
+	if c.Name() != "Swap" {
+		t.Errorf("Name() = %q, want %q", c.Name(), "Swap")
+	}
+	if got := c.Timeout(); got != 3*time.Second {
+		t.Errorf("Timeout() = %v, want 3s", got)
+	}
+	if c.swapsPath != "/proc/swaps" {
+		t.Errorf("swapsPath = %q, want /proc/swaps", c.swapsPath)
+	}
+	if c.readers.vmstatOpen == nil {
+		t.Error("NewSwapCollector must wire vmstatOpen reader")
+	}
+}
+
 func TestParseVMStat(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

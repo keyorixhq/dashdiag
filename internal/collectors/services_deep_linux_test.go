@@ -1,0 +1,437 @@
+//go:build linux
+
+package collectors
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
+// NOTE: withFixtureSource swaps a package-level global (activeSource) — these
+// tests deliberately do NOT call t.Parallel(), matching the established
+// convention in security_linux_source_test.go / nginx_linux_test.go.
+
+func TestServicesDeepCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewServicesDeepCollector()
+	if c.Name() != "ServicesDeep" {
+		t.Errorf("Name() = %q, want ServicesDeep", c.Name())
+	}
+	if c.Timeout() != 15*time.Second {
+		t.Errorf("Timeout() = %v, want 15s", c.Timeout())
+	}
+}
+
+// TestServicesDeepCollector_Collect_SystemctlAbsent guards the non-systemd
+// host path: `systemctl list-units --failed` fails to run, so
+// FailedUnitsQueried must be false (NOT "zero failed units").
+func TestServicesDeepCollector_Collect_SystemctlAbsent(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if info.FailedUnitsQueried {
+		t.Error("FailedUnitsQueried = true, want false when systemctl cannot run")
+	}
+	if len(info.FailedUnits) != 0 {
+		t.Errorf("FailedUnits = %+v, want none", info.FailedUnits)
+	}
+	if !info.JournalHealthy {
+		t.Error("JournalHealthy = false, want true (no journal dir seeded -> fileExists false -> stays healthy)")
+	}
+}
+
+// TestServicesDeepCollector_Collect_HappyPath exercises the full pipeline: one
+// real failed unit (with journal lines + exit code enrichment), a masked
+// unit, a needs-reload unit, boot offenders via systemd-analyze blame, and no
+// user daemon.
+func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"postgresql.service loaded failed failed PostgreSQL Database\n", 0)
+		b.PutCmd("journalctl", []string{"-u", "postgresql.service", "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
+			"May 19 10:00:00 host postgresql[123]: FATAL: could not bind IPv4 socket\n", 0)
+		b.PutCmd("systemctl", []string{"show", "postgresql.service", "--property=ExecMainStatus,ActiveState,SubState"},
+			"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
+
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"},
+			"cron.service loaded active running Cron\n", 0)
+		b.PutCmd("systemctl", []string{"show", "--property=Id,NeedDaemonReload", "cron.service"},
+			"Id=cron.service\nNeedDaemonReload=yes\n", 0)
+
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"},
+			"bluetooth.service masked masked masked\n", 0)
+
+		b.PutCmd("systemd-analyze", []string{"blame", "--no-pager"},
+			"4.210s postgresql.service\n2.000s cron.service\n", 0)
+		b.PutCmd("systemctl", []string{"show", "-p", "TriggeredBy", "--value", "postgresql.service"}, "", 0)
+		b.PutCmd("systemctl", []string{"show", "-p", "TriggeredBy", "--value", "cron.service"}, "", 0)
+
+		// "degraded" (exit 1) is the normal non-zero outcome for a LIVE user
+		// daemon. NOTE: whatever text is seeded as stdout here is irrelevant to
+		// collectUserUnits' branch decision — see the PRODUCTION BUG note on
+		// TestCollectUserUnits_ConnectionRefused below: runCmd never surfaces
+		// stdout/stderr on a non-zero exit, so the "Failed to connect"/"No such
+		// file" substring check can never match a real runCmd error, and this
+		// case always falls through to Available=true regardless of stdout text.
+		b.PutCmd("systemctl", []string{"--user", "is-system-running"}, "degraded\n", 1)
+		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"\n", 0)
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+
+	if !info.FailedUnitsQueried {
+		t.Fatal("FailedUnitsQueried = false, want true")
+	}
+	if len(info.FailedUnits) != 1 {
+		t.Fatalf("FailedUnits = %+v, want 1", info.FailedUnits)
+	}
+	fu := info.FailedUnits[0]
+	if fu.Name != "postgresql.service" || fu.ExitCode != 1 {
+		t.Errorf("FailedUnits[0] = %+v, want postgresql.service exit=1", fu)
+	}
+	if len(fu.LastLogLines) != 1 || fu.LastLogLines[0] != "FATAL: could not bind IPv4 socket" {
+		t.Errorf("LastLogLines = %+v, want the parsed journal message", fu.LastLogLines)
+	}
+
+	if len(info.NeedsDaemonReload) != 1 || info.NeedsDaemonReload[0] != "cron.service" {
+		t.Errorf("NeedsDaemonReload = %+v, want [cron.service]", info.NeedsDaemonReload)
+	}
+
+	if len(info.MaskedUnits) != 1 || info.MaskedUnits[0] != "bluetooth.service" {
+		t.Errorf("MaskedUnits = %+v, want [bluetooth.service]", info.MaskedUnits)
+	}
+
+	if len(info.BootOffenders) != 2 {
+		t.Fatalf("BootOffenders = %+v, want 2", info.BootOffenders)
+	}
+	if info.BootOffenders[0].Unit != "postgresql.service" || info.BootOffenders[0].DurationMs != 4210 {
+		t.Errorf("BootOffenders[0] = %+v, want postgresql.service 4210ms", info.BootOffenders[0])
+	}
+
+	// "degraded" (exit 1, no recognizable disconnect text) always reads as a
+	// LIVE user daemon — see the PRODUCTION BUG note above.
+	if info.UserUnits == nil || !info.UserUnits.Available {
+		t.Errorf("UserUnits = %+v, want non-nil with Available=true (degraded is not a disconnect)", info.UserUnits)
+	}
+}
+
+// TestServicesDeepCollector_Collect_BenignFailedUnitsFiltered guards the
+// filterBenignFailedUnits wiring: a cloud-init-noise unit must be dropped so
+// `dsd services deep` agrees with the health SystemdCollector verdict.
+func TestServicesDeepCollector_Collect_BenignFailedUnitsFiltered(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"casper-md5check.service loaded failed failed Casper MD5 check\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if len(info.FailedUnits) != 0 {
+		t.Errorf("FailedUnits = %+v, want none (casper-md5check is benign noise)", info.FailedUnits)
+	}
+}
+
+// TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack guards the sshd@
+// re-inclusion path: a per-connection sshd@ instance that failed for a REAL
+// (non-255) reason must be added back even though the general sshd@ template
+// is suppressed by filterBenignFailedUnits.
+func TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"sshd@10.0.0.1:22-10.0.0.2:5555.service loaded failed failed OpenSSH per-connection\n", 0)
+		b.PutCmd("systemctl", []string{"show", "sshd@10.0.0.1:22-10.0.0.2:5555.service", "-p", "ExecMainStatus", "--value"},
+			"1\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if len(info.FailedUnits) != 1 || info.FailedUnits[0].Name != "sshd@10.0.0.1:22-10.0.0.2:5555.service" {
+		t.Errorf("FailedUnits = %+v, want the non-benign sshd@ instance added back", info.FailedUnits)
+	}
+}
+
+// TestServicesDeepCollector_Collect_UserUnitsAvailable guards the "user
+// systemd daemon IS running" path, including per-unit journal enrichment.
+func TestServicesDeepCollector_Collect_UserUnitsAvailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+
+		b.PutCmd("systemctl", []string{"--user", "is-system-running"}, "degraded\n", 1)
+		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"pipewire.service loaded failed failed PipeWire\n", 0)
+		b.PutCmd("journalctl", []string{"--user", "-u", "pipewire.service", "-n", "5", "--no-pager", "--output=short"},
+			"May 19 10:00:00 host pipewire[456]: connection refused\n", 0)
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if info.UserUnits == nil || !info.UserUnits.Available {
+		t.Fatalf("UserUnits = %+v, want Available=true", info.UserUnits)
+	}
+	if len(info.UserUnits.Failed) != 1 || info.UserUnits.Failed[0].Name != "pipewire.service" {
+		t.Errorf("UserUnits.Failed = %+v, want [pipewire.service]", info.UserUnits.Failed)
+	}
+	if len(info.UserUnits.Failed[0].LastLogLines) != 1 {
+		t.Errorf("LastLogLines = %+v, want 1 parsed line", info.UserUnits.Failed[0].LastLogLines)
+	}
+}
+
+// TestServicesDeepCollector_Collect_JournalCorruption guards the archived-
+// journal corruption wiring end-to-end: an archived (*.journal~) file whose
+// journalctl --verify reports FAIL must flip JournalHealthy false.
+func TestServicesDeepCollector_Collect_JournalCorruption(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+
+		b.PutStat("/var/log/journal", source.FileMeta{IsDir: true, Mode: 0o755})
+		b.PutDir("/var/log/journal", []string{"corrupt.journal~"})
+		b.PutCmd("journalctl", []string{"--verify", "--file=/var/log/journal/corrupt.journal~"},
+			"File corruption detected: FAIL\n", 1)
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if info.JournalHealthy {
+		t.Error("JournalHealthy = true, want false when an archived journal fails verification")
+	}
+}
+
+// ── pure parser tests ──────────────────────────────────────────────────
+
+func TestParseFailedUnits(t *testing.T) {
+	t.Parallel()
+	out := "postgresql.service loaded failed failed PostgreSQL Database\n" +
+		"0 loaded units listed.\n" +
+		"\n"
+	got := parseFailedUnits(out)
+	if len(got) != 1 || got[0].Name != "postgresql.service" {
+		t.Fatalf("got %+v, want 1 unit named postgresql.service", got)
+	}
+	if got[0].ActiveState != "failed" || got[0].SubState != "failed" {
+		t.Errorf("got %+v, want ActiveState/SubState = failed/failed", got[0])
+	}
+}
+
+func TestParseFailedUnits_Empty(t *testing.T) {
+	t.Parallel()
+	if got := parseFailedUnits(""); len(got) != 0 {
+		t.Errorf("got %+v, want none", got)
+	}
+}
+
+func TestParseJournalLines(t *testing.T) {
+	t.Parallel()
+	out := "May 19 10:00:00 host postgresql[123]: FATAL: could not bind IPv4 socket\n" +
+		"a fallback line with no bracket-colon separator\n" +
+		"\n"
+	got := parseJournalLines(out)
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want 2 lines", got)
+	}
+	if got[0] != "FATAL: could not bind IPv4 socket" {
+		t.Errorf("got[0] = %q, want the stripped message", got[0])
+	}
+	if got[1] != "a fallback line with no bracket-colon separator" {
+		t.Errorf("got[1] = %q, want the raw fallback line", got[1])
+	}
+}
+
+func TestParseUnitShow(t *testing.T) {
+	t.Parallel()
+	unit := &models.SystemdUnit{}
+	parseUnitShow("ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", unit)
+	if unit.ExitCode != 1 || unit.ActiveState != "failed" || unit.SubState != "failed" {
+		t.Errorf("unit = %+v, want ExitCode=1 ActiveState=failed SubState=failed", unit)
+	}
+}
+
+// TestParseUnitShow_DoesNotOverwriteExisting guards the "if unit.ActiveState
+// == ”" guard: a pre-populated field (e.g. set from the earlier
+// parseFailedUnits pass) must not be overwritten by a later parse.
+func TestParseUnitShow_DoesNotOverwriteExisting(t *testing.T) {
+	t.Parallel()
+	unit := &models.SystemdUnit{ActiveState: "failed", SubState: "failed"}
+	parseUnitShow("ExecMainStatus=0\nActiveState=inactive\nSubState=dead\n", unit)
+	if unit.ActiveState != "failed" || unit.SubState != "failed" {
+		t.Errorf("unit = %+v, want ActiveState/SubState preserved as failed/failed", unit)
+	}
+	if unit.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", unit.ExitCode)
+	}
+}
+
+// NOTE: parseNeedsDaemonReload and parseMaskedUnits already have dedicated
+// parser tests (TestParseNeedsDaemonReload, TestParseMaskedUnits) in
+// misc_parsers_test.go — not duplicated here. This file adds Collect()-level
+// coverage for them instead (see TestServicesDeepCollector_Collect_HappyPath).
+
+func TestParseBlame(t *testing.T) {
+	t.Parallel()
+	out := "4.210s postgresql.service\n" +
+		"2.000s dev-sda1.device\n" + // skipped: non-service unit type
+		"1.500s apt-daily.service\n" + // excluded by predicate
+		"1.000s cron.service\n"
+	exclude := func(u string) bool { return u == "apt-daily.service" }
+	got := parseBlame(out, 5, exclude)
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want 2 offenders", got)
+	}
+	if got[0].Unit != "postgresql.service" || got[0].DurationMs != 4210 {
+		t.Errorf("got[0] = %+v, want postgresql.service 4210ms", got[0])
+	}
+	if got[1].Unit != "cron.service" || got[1].DurationMs != 1000 {
+		t.Errorf("got[1] = %+v, want cron.service 1000ms", got[1])
+	}
+}
+
+func TestParseBlame_TopNCap(t *testing.T) {
+	t.Parallel()
+	out := "3.000s a.service\n2.000s b.service\n1.000s c.service\n"
+	got := parseBlame(out, 2, nil)
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want exactly 2 (topN cap)", got)
+	}
+}
+
+func TestParseDurationMs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{"4.210s", 4210},
+		{"450ms", 450},
+		{"2min 4.210s", 124210},
+		{"1h 2min 3.000s", 3723000},
+		{"", 0},
+	}
+	for _, tt := range tests {
+		if got := parseDurationMs(tt.in); got != tt.want {
+			t.Errorf("parseDurationMs(%q) = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestCollectUserUnits_ConnectionRefused documents a PRODUCTION BUG
+// (services_deep_linux.go:328-334): the intent is "no user daemon reachable
+// -> Available=false", detected by matching "Failed to connect"/"No such
+// file" against err.Error(). But runCmd() (collector.go) only ever returns
+// &cmdError{name, code} on a non-zero exit — it discards the command's actual
+// stdout/stderr text (see cmdError.Error(), "<name> exited <code>"). The
+// activeSource.Run contract (source/live.go defaultExec) reports a non-zero
+// exit via Result.ExitCode with err=nil; only a genuine spawn failure (binary
+// missing) returns a non-nil err, and THAT text is an exec.Error ("exec:
+// \"systemctl\": executable file not found in $PATH"), which also never
+// contains "Failed to connect" or "No such file". So this branch is
+// unreachable via any real systemctl invocation: a live host with NO user
+// daemon (systemctl --user is-system-running prints "Failed to connect to
+// bus: No such file or directory" to stderr and exits non-zero) is
+// misdiagnosed as Available=true instead of Available=false. This test
+// documents the ACTUAL (buggy) behavior rather than the intended one — do not
+// "fix" this test without fixing the production code (e.g. switch to
+// runCmdCombined and inspect the returned output instead of err.Error()).
+func TestCollectUserUnits_ConnectionRefused(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"--user", "is-system-running"},
+			"Failed to connect to bus: No such file or directory\n", 1)
+		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"\n", 0)
+	})
+	got := collectUserUnits(context.Background())
+	if got == nil || !got.Available {
+		t.Errorf("got %+v, want Available=true (documents the dead-code bug — see comment above)", got)
+	}
+}
+
+// TestCollectUserUnits_SpawnFailure guards the one path that DOES produce a
+// non-nil err from runCmd: systemctl itself is absent (spawn failure). Even
+// here, the "Failed to connect"/"No such file" substrings don't match a Go
+// exec.ErrNotFound message, so this also falls through to Available=true —
+// same production bug as TestCollectUserUnits_ConnectionRefused, exercised
+// via a different fixture shape (PutCmdNotFound instead of a non-zero exit).
+func TestCollectUserUnits_SpawnFailure(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"})
+	})
+	got := collectUserUnits(context.Background())
+	if got == nil || !got.Available {
+		t.Errorf("got %+v, want Available=true (documents the dead-code bug)", got)
+	}
+}
+
+func TestCollectNeedsDaemonReload_ListFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+	})
+	if got := collectNeedsDaemonReload(context.Background()); got != nil {
+		t.Errorf("got %+v, want nil", got)
+	}
+}
+
+func TestCollectNeedsDaemonReload_NoServiceUnits(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"},
+			"0 loaded units listed.\n", 0)
+	})
+	if got := collectNeedsDaemonReload(context.Background()); got != nil {
+		t.Errorf("got %+v, want nil (no .service-suffixed unit names)", got)
+	}
+}
+
+func TestCollectNeedsDaemonReload_ShowFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"},
+			"cron.service loaded active running Cron\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"show", "--property=Id,NeedDaemonReload", "cron.service"})
+	})
+	if got := collectNeedsDaemonReload(context.Background()); got != nil {
+		t.Errorf("got %+v, want nil", got)
+	}
+}

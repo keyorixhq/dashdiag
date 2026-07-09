@@ -14,6 +14,25 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
+func TestNewCPUCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewCPUCollector(platform.ContainerContext{})
+	if c.Name() != "CPU Load" {
+		t.Errorf("Name() = %q, want %q", c.Name(), "CPU Load")
+	}
+	wantTimeout := 2 * time.Second
+	if runtime.GOOS == "darwin" {
+		wantTimeout = 4 * time.Second
+	}
+	if got := c.Timeout(); got != wantTimeout {
+		t.Errorf("Timeout() = %v, want %v", got, wantTimeout)
+	}
+	// readers must be wired (not nil funcs), or Collect will panic on a real run.
+	if c.readers.loadAvgOpen == nil || c.readers.statOpen == nil || c.readers.selfStatOpen == nil {
+		t.Error("NewCPUCollector must wire all three readers")
+	}
+}
+
 func TestParseLoadAvg(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
