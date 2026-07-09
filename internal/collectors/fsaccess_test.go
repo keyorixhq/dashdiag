@@ -139,3 +139,43 @@ func TestStatGatesRouteThroughSource(t *testing.T) {
 		t.Fatal("missing should still be absent on replay")
 	}
 }
+
+// TestReadlinkViaSourceRoutesThroughSource guards the same replay-faithfulness
+// contract for symlink targets: ReadlinkViaSource must reflect the CAPTURED
+// target, not whatever the replaying machine's filesystem currently resolves
+// to. We record a real symlink, then repoint it on disk before replaying — if
+// the read still returns the original target, it came from the bundle.
+func TestReadlinkViaSourceRoutesThroughSource(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("/original/target", link); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	got, err := ReadlinkViaSource(link)
+	SetSource(prev)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if got != "/original/target" {
+		t.Fatalf("captured target = %q, want /original/target", got)
+	}
+
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/repointed/target", link); err != nil {
+		t.Fatal(err)
+	}
+
+	defer SetSource(SetSource(source.NewReplay(rec.Bundle())))
+	replayed, err := ReadlinkViaSource(link)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if replayed != "/original/target" {
+		t.Errorf("replayed target = %q, want the captured /original/target (not the repointed live symlink)", replayed)
+	}
+}

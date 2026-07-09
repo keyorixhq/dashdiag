@@ -4,10 +4,22 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+func TestCVEHealthCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewCVEHealthCollector()
+	if c.Name() != "CVE" {
+		t.Errorf("Name() = %q, want CVE", c.Name())
+	}
+	if c.Timeout() != 130*time.Second {
+		t.Errorf("Timeout() = %v, want 130s", c.Timeout())
+	}
+}
 
 // TestCVEHealthReplayHermetic proves the CVE verdict is frozen into the bundle on
 // capture and reproduced verbatim on replay — never re-scanning the replaying
