@@ -1,8 +1,10 @@
 package baseline
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,20 +59,15 @@ func newestProcStart(maxAge time.Duration) (time.Time, string, error) {
 	var newest time.Time
 	var newestName string
 	for _, entry := range entries {
-		data, err := os.ReadFile(filepath.Clean(entry))
+		f, err := os.Open(filepath.Clean(entry))
 		if err != nil {
 			continue
 		}
-		fields := strings.Fields(string(data))
-		if len(fields) < 22 {
+		startTime, name, ok := parseProcStart(f, boot)
+		_ = f.Close()
+		if !ok {
 			continue
 		}
-		name := strings.Trim(fields[1], "()")
-		startTicks, err := strconv.ParseFloat(fields[21], 64)
-		if err != nil {
-			continue
-		}
-		startTime := boot.Add(time.Duration(startTicks/100) * time.Second)
 		age := time.Since(startTime)
 		if age > maxAge || age < 0 {
 			continue
@@ -86,18 +83,56 @@ func newestProcStart(maxAge time.Duration) (time.Time, string, error) {
 	return newest, newestName, nil
 }
 
+// parseProcStart parses a single /proc/<pid>/stat record, returning the process
+// name and its start time (field 22, in clock ticks, offset from boot). ok is
+// false if the record is malformed.
+func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 22 {
+		return time.Time{}, "", false
+	}
+	name := strings.Trim(fields[1], "()")
+	startTicks, err := strconv.ParseFloat(fields[21], 64)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	startTime := boot.Add(time.Duration(startTicks/100) * time.Second)
+	return startTime, name, true
+}
+
 func getBootTime() time.Time {
-	data, err := os.ReadFile("/proc/stat")
+	f, err := os.Open("/proc/stat")
 	if err != nil {
 		return time.Now().Add(-24 * time.Hour)
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if after, ok := strings.CutPrefix(line, "btime "); ok {
-			ts, _ := strconv.ParseInt(after, 10, 64)
-			return time.Unix(ts, 0)
-		}
+	defer func() { _ = f.Close() }()
+	if bt, ok := parseBootTime(f); ok {
+		return bt
 	}
 	return time.Now().Add(-24 * time.Hour)
+}
+
+// parseBootTime extracts the btime (boot epoch, seconds) line from /proc/stat.
+// ok is false if no valid btime line is present.
+func parseBootTime(r io.Reader) (time.Time, bool) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		if after, ok := strings.CutPrefix(scanner.Text(), "btime "); ok {
+			ts, err := strconv.ParseInt(strings.TrimSpace(after), 10, 64)
+			if err != nil {
+				return time.Time{}, false
+			}
+			return time.Unix(ts, 0), true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return time.Time{}, false
+	}
+	return time.Time{}, false
 }
 
 func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
