@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -510,6 +511,188 @@ func TestCPUCollector_Collect_SelfSubtraction(t *testing.T) {
 	// of the 200-jiffy window drops it to ~25%.
 	if info.UsagePct < 24 || info.UsagePct > 26 {
 		t.Errorf("UsagePct: got %v, want ~25%% (self-subtracted)", info.UsagePct)
+	}
+}
+
+// TestParseSelfCPUJiffies_Errors covers the error branches: a reader that
+// fails outright, a malformed comm field (no closing paren or nothing after
+// it), and too few fields after the comm to reach cstime.
+func TestParseSelfCPUJiffies_Errors(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input io.Reader
+	}{
+		{"reader error", iotest.ErrReader(fmt.Errorf("boom"))},
+		{"no closing paren", strings.NewReader("1234 (dsd S 1 1234")},
+		{"paren at very end", strings.NewReader("1234 (dsd)")},
+		{"too few fields after name", strings.NewReader("1234 (dsd) S 1 1234 1234 0 -1 4194560 100 200 0 0 11 7")},
+		{"non-numeric field", strings.NewReader("1234 (dsd) S 1 1234 1234 0 -1 4194560 100 200 0 0 x 7 3 1 0 0 0 20 1")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseSelfCPUJiffies(tc.input); err == nil {
+				t.Error("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestReadSelfJiffies_Fallbacks proves readSelfJiffies is a best-effort
+// wrapper: a nil open func, an open() error, and a parse error must all
+// return 0 rather than propagating a failure (a failed self-subtraction must
+// be a no-op, never corrupt the usage figure).
+func TestReadSelfJiffies_Fallbacks(t *testing.T) {
+	t.Parallel()
+	if got := readSelfJiffies(nil); got != 0 {
+		t.Errorf("nil open func: got %d, want 0", got)
+	}
+	if got := readSelfJiffies(func() (io.ReadCloser, error) {
+		return nil, fmt.Errorf("open failed")
+	}); got != 0 {
+		t.Errorf("open error: got %d, want 0", got)
+	}
+	if got := readSelfJiffies(func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("garbage")), nil
+	}); got != 0 {
+		t.Errorf("parse error: got %d, want 0", got)
+	}
+	if got := readSelfJiffies(func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(
+			"42 (dsd) R 1 42 42 0 -1 4194304 50 0 0 0 30 20 0 0 0 0 0 18 1")), nil
+	}); got != 50 {
+		t.Errorf("happy path: got %d, want 50", got)
+	}
+}
+
+// TestCPUCollector_SampleCPUUsage_ErrorPaths drives sampleCPUUsage's
+// early-return branches directly (statOpen failing on the first call, a
+// parse failure on the first sample, ctx cancelled during the sleep window,
+// and statOpen failing on the second call) — all must yield a zero cpuSample
+// rather than panicking or blocking.
+func TestCPUCollector_SampleCPUUsage_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("first statOpen fails", func(t *testing.T) {
+		t.Parallel()
+		c := &CPUCollector{readers: cpuReaders{
+			statOpen: func() (io.ReadCloser, error) { return nil, fmt.Errorf("boom") },
+		}}
+		s := c.sampleCPUUsage(context.Background())
+		if s != (cpuSample{}) {
+			t.Errorf("got %+v, want zero value", s)
+		}
+	})
+
+	t.Run("first sample parse error", func(t *testing.T) {
+		t.Parallel()
+		c := &CPUCollector{readers: cpuReaders{
+			statOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("garbage")), nil
+			},
+		}}
+		s := c.sampleCPUUsage(context.Background())
+		if s != (cpuSample{}) {
+			t.Errorf("got %+v, want zero value", s)
+		}
+	})
+
+	t.Run("ctx cancelled during sleep window", func(t *testing.T) {
+		t.Parallel()
+		c := &CPUCollector{readers: cpuReaders{
+			statOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("cpu  100 20 30 400 10 0 5 0 0 0\n")), nil
+			},
+		}}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		s := c.sampleCPUUsage(ctx)
+		if s != (cpuSample{}) {
+			t.Errorf("got %+v, want zero value", s)
+		}
+	})
+
+	t.Run("second statOpen fails", func(t *testing.T) {
+		t.Parallel()
+		if testing.Short() {
+			t.Skip("skipping 500ms CPU sampling in short mode")
+		}
+		callCount := 0
+		c := &CPUCollector{readers: cpuReaders{
+			statOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader("cpu  100 20 30 400 10 0 5 0 0 0\n")), nil
+				}
+				return nil, fmt.Errorf("second read failed")
+			},
+		}}
+		s := c.sampleCPUUsage(context.Background())
+		if s != (cpuSample{}) {
+			t.Errorf("got %+v, want zero value", s)
+		}
+	})
+}
+
+// TestCPUCollector_SampleCPUUsage_SelfDeltaExceedsBusy is a regression guard
+// for the clamp-to-zero branch: when dsd's own jiffy delta is GREATER than
+// the raw busy delta, self-subtraction must clamp busyDelta to 0 (never go
+// negative), so UsagePct reads as an honest 0% rather than a nonsensical
+// negative usage.
+func TestCPUCollector_SampleCPUUsage_SelfDeltaExceedsBusy(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 500ms CPU sampling in short mode")
+	}
+	// idle delta=10, total delta=20 → raw busy delta=10.
+	stat1 := "cpu  100 0 0 400 0 0 0 0 0 0\n"
+	stat2 := "cpu  110 0 0 410 0 0 0 0 0 0\n"
+	// dsd's own jiffies delta = 60-0 = 60, which exceeds the raw busy delta (10).
+	self1 := "1234 (dsd test) S 1 1234 1234 0 -1 4194560 100 200 0 0 0 0 0 0 0 0 0 20 1"
+	self2 := "1234 (dsd test) S 1 1234 1234 0 -1 4194560 100 200 0 0 60 0 0 0 0 0 0 20 1"
+
+	statCalls, selfCalls := 0, 0
+	c := &CPUCollector{readers: cpuReaders{
+		statOpen: func() (io.ReadCloser, error) {
+			statCalls++
+			if statCalls == 1 {
+				return io.NopCloser(strings.NewReader(stat1)), nil
+			}
+			return io.NopCloser(strings.NewReader(stat2)), nil
+		},
+		selfStatOpen: func() (io.ReadCloser, error) {
+			selfCalls++
+			if selfCalls == 1 {
+				return io.NopCloser(strings.NewReader(self1)), nil
+			}
+			return io.NopCloser(strings.NewReader(self2)), nil
+		},
+	}}
+	s := c.sampleCPUUsage(context.Background())
+	if s.UsagePct != 0 {
+		t.Errorf("UsagePct = %v, want 0 (clamped, self-delta exceeded busy delta)", s.UsagePct)
+	}
+}
+
+// TestCPUCollector_Collect_LoadAvgOpenFails is a regression guard: on Linux
+// (non-darwin), a loadAvgOpen failure must surface as a wrapped "load
+// average" error rather than silently falling through to the darwin
+// fallback path (which is skipped on this GOOS).
+func TestCPUCollector_Collect_LoadAvgOpenFails(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "darwin" {
+		t.Skip("this guards the non-darwin error-return path")
+	}
+	c := &CPUCollector{readers: cpuReaders{
+		loadAvgOpen: func() (io.ReadCloser, error) { return nil, fmt.Errorf("boom") },
+	}}
+	_, err := c.Collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error when loadAvgOpen fails on non-darwin")
+	}
+	if !strings.Contains(err.Error(), "load average") {
+		t.Errorf("error = %q, want it to mention 'load average'", err.Error())
 	}
 }
 

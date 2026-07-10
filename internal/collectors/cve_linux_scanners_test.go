@@ -124,6 +124,18 @@ func TestReadDistroID(t *testing.T) {
 	}
 }
 
+// TestReadDistroID_NoIDLine guards the final fallthrough branch: an
+// os-release file that exists and reads successfully but has no "ID=" line at
+// all must return "", not loop forever or panic.
+func TestReadDistroID_NoIDLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("NAME=\"Some Distro\"\nVERSION=\"1.0\"\n"))
+	})
+	if got := ReadDistroID(); got != "" {
+		t.Errorf("ReadDistroID() = %q, want empty when no ID= line is present", got)
+	}
+}
+
 func TestReadDistroID_Missing(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if got := ReadDistroID(); got != "" {
@@ -236,6 +248,32 @@ func writeStagedOVAL(t *testing.T, home, content string) {
 // vendor dispatch ScanOVALPackages already has), which is a larger change
 // than this coverage pass's scope. Flagged in the task report.
 
+// TestScanAllViaOVAL_ScanErrors guards the `err != nil` branch: a staged file
+// whose name has the ".xml.bz2" suffix (so FindOVALFile discovers it and
+// ParseUbuntuOVAL/loadOVAL attempt bzip2 decompression) but whose CONTENT
+// isn't valid bzip2 must make scanAllViaOVAL return nil, not panic or
+// propagate a decompression error to the caller.
+func TestScanAllViaOVAL_ScanErrors(t *testing.T) {
+	home := isolateCVEHome(t)
+	dir := filepath.Join(home, ".dsd", "oval")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir oval dir: %v", err)
+	}
+	// ubuntu-noble.oval.xml.bz2 is one of FindOVALFile's exact Ubuntu candidate
+	// names, so this is found via the direct-candidate path rather than the
+	// "any .xml" directory fallback.
+	badPath := filepath.Join(dir, "ubuntu-noble.oval.xml.bz2")
+	if err := os.WriteFile(badPath, []byte("this is not valid bzip2 data at all"), 0o644); err != nil {
+		t.Fatalf("write corrupt oval fixture: %v", err)
+	}
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+	if got := scanAllViaOVAL(context.Background()); got != nil {
+		t.Errorf("expected nil when the staged OVAL feed fails to decompress/parse, got %+v", got)
+	}
+}
+
 // TestScanAllViaOVAL_FoundWithRealInstalledPackage is the scanAllViaOVAL
 // analog: the same staged feed must surface through the "scan everything"
 // entrypoint, bucketed by CVSS/priority into the CVEAllResult shape.
@@ -291,6 +329,45 @@ func TestTrySnapshotFallback_NoSnapshot(t *testing.T) {
 	})
 	if got := trySnapshotFallback(context.Background(), "CVE-2024-1234"); got != nil {
 		t.Errorf("expected nil with no staged snapshot, got %+v", got)
+	}
+}
+
+// TestTrySnapshotFallback_LoadSnapshotError guards the `err != nil` branch of
+// cvedata.LoadSnapshot: a file staged at the standard snapshot path that isn't
+// valid JSON (or valid gzip) must make trySnapshotFallback return nil, not
+// panic or propagate the parse error to the caller.
+func TestTrySnapshotFallback_LoadSnapshotError(t *testing.T) {
+	home := isolateCVEHome(t)
+	dir := filepath.Join(home, ".dsd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// ".gz" suffix routes through gzip.NewReader, which will fail fast on this
+	// non-gzip content — exercising the err != nil path distinctly from an
+	// empty-but-valid snapshot.
+	path := filepath.Join(dir, "cvedata.json.gz")
+	if err := os.WriteFile(path, []byte("not valid gzip data"), 0o644); err != nil {
+		t.Fatalf("write corrupt snapshot: %v", err)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=rhel\n"))
+	})
+	if got := trySnapshotFallback(context.Background(), "CVE-2024-1234"); got != nil {
+		t.Errorf("expected nil when the staged snapshot fails to parse, got %+v", got)
+	}
+}
+
+// TestTrySnapshotFallback_EmptySnapshot guards the snap.IsEmpty() branch: a
+// syntactically valid but content-empty snapshot (no CVEs map entries) must
+// also yield nil, distinct from the parse-error case above.
+func TestTrySnapshotFallback_EmptySnapshot(t *testing.T) {
+	home := isolateCVEHome(t)
+	writeGzippedSnapshot(t, home, cvedata.Snapshot{CVEs: map[string]cvedata.SnapshotCVE{}})
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=rhel\n"))
+	})
+	if got := trySnapshotFallback(context.Background(), "CVE-2024-1234"); got != nil {
+		t.Errorf("expected nil for an empty snapshot, got %+v", got)
 	}
 }
 
@@ -540,6 +617,60 @@ func TestEnrichDNFAdvisoryWithCVEs_Populates(t *testing.T) {
 	enrichDNFAdvisoryWithCVEs(context.Background(), result)
 	if result.Critical[0].CVEs != "CVE-2026-1111, CVE-2026-2222" {
 		t.Errorf("CVEs = %q, want both IDs", result.Critical[0].CVEs)
+	}
+}
+
+// TestEnrichDNFAdvisoryWithCVEs_MultiCVEAndAllBuckets guards three branches
+// the happy-path test doesn't reach: an advisory with MULTIPLE "CVEs:" lines
+// (the comma-append when a CVE map entry already exists), and population
+// across all four severity buckets (Important/Moderate/Low), not just Critical.
+func TestEnrichDNFAdvisoryWithCVEs_MultiCVEAndAllBuckets(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+			"Update ID: RHSA-2026:0001\nCVEs: CVE-2026-1111\nCVEs: CVE-2026-2222\n"+
+				"Update ID: RHSA-2026:0002\nCVEs: CVE-2026-3333\n"+
+				"Update ID: RHSA-2026:0003\nCVEs: CVE-2026-4444\n"+
+				"Update ID: RHSA-2026:0004\nCVEs: CVE-2026-5555\n", 0)
+	})
+	result := &models.CVEAllResult{
+		Critical:  []models.CVEAdvisory{{ID: "RHSA-2026:0001"}},
+		Important: []models.CVEAdvisory{{ID: "RHSA-2026:0002"}},
+		Moderate:  []models.CVEAdvisory{{ID: "RHSA-2026:0003"}},
+		Low:       []models.CVEAdvisory{{ID: "RHSA-2026:0004"}},
+	}
+	enrichDNFAdvisoryWithCVEs(context.Background(), result)
+	if result.Critical[0].CVEs != "CVE-2026-1111, CVE-2026-2222" {
+		t.Errorf("Critical CVEs = %q, want both IDs comma-joined", result.Critical[0].CVEs)
+	}
+	if result.Important[0].CVEs != "CVE-2026-3333" {
+		t.Errorf("Important CVEs = %q, want CVE-2026-3333", result.Important[0].CVEs)
+	}
+	if result.Moderate[0].CVEs != "CVE-2026-4444" {
+		t.Errorf("Moderate CVEs = %q, want CVE-2026-4444", result.Moderate[0].CVEs)
+	}
+	if result.Low[0].CVEs != "CVE-2026-5555" {
+		t.Errorf("Low CVEs = %q, want CVE-2026-5555", result.Low[0].CVEs)
+	}
+}
+
+// TestEnrichDNFAdvisoryWithCVEs_ParsedButNoCVEsMatched guards the len(cveMap)==0
+// branch: the query succeeds with non-empty output, but no line matches the
+// "CVEs:" pattern at all — distinct from the command-failure branch, which
+// TestEnrichDNFAdvisoryWithCVEs_FailsSetsSubscriptionNote already covers.
+func TestEnrichDNFAdvisoryWithCVEs_ParsedButNoCVEsMatched(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+			"Update ID: RHSA-2026:0001\nSeverity: Critical\n", 0) // no CVEs: line at all
+		b.PutFile("/etc/os-release", []byte("ID=fedora\n"))
+	})
+	result := &models.CVEAllResult{Critical: []models.CVEAdvisory{{ID: "RHSA-2026:0001"}}}
+	enrichDNFAdvisoryWithCVEs(context.Background(), result)
+	if result.Critical[0].CVEs != "" {
+		t.Errorf("expected no CVEs populated, got %q", result.Critical[0].CVEs)
+	}
+	// Fedora never sets a subscription note (mirrors the failure-path test).
+	if result.SubscriptionNote != "" {
+		t.Errorf("expected no subscription note on Fedora, got %q", result.SubscriptionNote)
 	}
 }
 

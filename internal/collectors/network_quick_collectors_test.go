@@ -237,6 +237,23 @@ func TestReadIfaceSpeed_Unreadable(t *testing.T) {
 	}
 }
 
+// TestReadIfaceSpeed_GarbledOrNonPositive guards the strconv.Atoi failure /
+// non-positive branch: a non-numeric or zero-or-negative value (other than the
+// documented sentinels) must not be ingested as a real speed reading.
+func TestReadIfaceSpeed_GarbledOrNonPositive(t *testing.T) {
+	cases := []string{"not-a-number", "0", "-5"}
+	for _, val := range cases {
+		t.Run(val, func(t *testing.T) {
+			withFixtureSource(t, func(b *source.Bundle) {
+				b.PutFile("/sys/class/net/eth1/speed", []byte(val+"\n"))
+			})
+			if got := readIfaceSpeed("eth1"); got != 0 {
+				t.Errorf("readIfaceSpeed() = %d, want 0 for value %q", got, val)
+			}
+		})
+	}
+}
+
 func TestReadIfaceSpeedDarwin(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("networksetup", []string{"-getmedia", "en0"},
@@ -573,6 +590,18 @@ func TestTryOnePing_ContextCancelled(t *testing.T) {
 	ms, loss, ok := tryOnePing(ctx, "127.0.0.1", "", false)
 	if ok || ms != -1 || loss != 100 {
 		t.Errorf("tryOnePing() with pre-cancelled ctx = (%v,%v,%v), want (-1,100,false)", ms, loss, ok)
+	}
+}
+
+// TestTryOnePing_UnresolvableHost drives goping.NewPinger's error branch: a
+// hostname under the reserved .invalid TLD (RFC 2606) can never resolve, so
+// this is deterministic without depending on the sandbox's network egress
+// policy — unlike a real remote host, whose reachability varies by environment.
+func TestTryOnePing_UnresolvableHost(t *testing.T) {
+	t.Parallel()
+	ms, loss, ok := tryOnePing(context.Background(), "does-not-exist.invalid", "", false)
+	if ok || ms != -1 || loss != 100 {
+		t.Errorf("tryOnePing() with unresolvable host = (%v,%v,%v), want (-1,100,false)", ms, loss, ok)
 	}
 }
 

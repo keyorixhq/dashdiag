@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"testing"
 	"time"
 
@@ -216,6 +217,53 @@ func TestMemcachedCollector_Collect_MaxConnsViaSettingsFallback(t *testing.T) {
 	info := raw.(*models.MemcachedInfo)
 	if !info.MaxConnsRead || info.MaxConnections != 2048 {
 		t.Errorf("info = %+v, want MaxConnsRead=true MaxConnections=2048 (via settings fallback)", info)
+	}
+}
+
+// memcachedVersionListener starts a TCP listener that replies to any inbound
+// connection with resp (a full memcached protocol reply, e.g. "VERSION x\r\n"),
+// closing after one exchange. Returns the actual local address to dial.
+func memcachedVersionListener(t *testing.T, resp string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 64)
+		_, _ = conn.Read(buf)
+		_, _ = conn.Write([]byte(resp))
+	}()
+	return ln.Addr().String()
+}
+
+// TestMemcachedCmdSampled_LiveComputeDialsMemcachedCmdLive drives
+// memcachedCmdSampled's cachedJSON closure body itself (the call into
+// memcachedCmdLive), which withCombinedFixture's Replay-backed source can
+// never reach — an unseeded Cached key on Replay short-circuits to "not
+// recorded" without calling compute at all. source.Live{}'s Cached DOES
+// invoke compute, so pointing memcachedCmdSampled at a real LOCAL TCP
+// listener (never a real network host) exercises the closure end-to-end.
+// memcachedCmdLive itself is intentionally left uncovered elsewhere (no fake
+// seam, genuinely live-network) — this test only proves the wrapping closure
+// dispatches into it and records the result correctly.
+func TestMemcachedCmdSampled_LiveComputeDialsMemcachedCmdLive(t *testing.T) {
+	prev := SetSource(source.Live{})
+	t.Cleanup(func() { SetSource(prev) })
+
+	addr := memcachedVersionListener(t, "VERSION 1.6.29\r\n")
+	out, ok := memcachedCmdSampled(context.Background(), "tcp", addr, "version", "version", false)
+	if !ok {
+		t.Fatal("expected ok=true from a live memcached-protocol listener")
+	}
+	if out != "VERSION 1.6.29\r\n" {
+		t.Errorf("out = %q, want VERSION 1.6.29", out)
 	}
 }
 

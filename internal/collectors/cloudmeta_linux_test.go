@@ -12,7 +12,27 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// liveCachedSource mirrors source.Live's Cached semantics (always invoke
+// produce) on top of a Bundle-backed Replay for everything else — needed to
+// exercise imdsGet's closure body (the actual imdsGetLive call), which a plain
+// Replay-backed fixture never reaches because Replay.Cached short-circuits
+// without invoking produce.
+type liveCachedSource struct {
+	*source.Replay
+}
+
+func (liveCachedSource) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
+	return produce()
+}
+
+func withLiveCachedFixture(t *testing.T) {
+	t.Helper()
+	prev := SetSource(liveCachedSource{Replay: source.NewReplay(source.NewBundle())})
+	t.Cleanup(func() { SetSource(prev) })
+}
 
 func TestParseAzureScheduledEvents(t *testing.T) {
 	// A real /scheduledevents document with a pending reboot.
@@ -67,7 +87,7 @@ func TestParseAzureScheduledEvents(t *testing.T) {
 func TestImdsGetLive_LargeBody(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString(`{"dataDisks":[`)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -93,6 +113,84 @@ func TestImdsGetLive_LargeBody(t *testing.T) {
 	}
 	if got != body {
 		t.Errorf("response was truncated: got %d bytes, want %d", len(got), len(body))
+	}
+}
+
+// TestImdsGetLive_NonOKStatus guards the fail-closed behaviour: a non-2xx
+// response (404/proxy page/redirect target) must never be returned as a value
+// the caller could mistake for real metadata.
+func TestImdsGetLive_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	got, err := imdsGetLive(context.Background(), srv.URL, nil)
+	if err == nil {
+		t.Fatalf("expected an error for HTTP 404, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on error", got)
+	}
+}
+
+// TestImdsGetLive_HeadersSet confirms every supplied header reaches the
+// request (the AWS/Azure/GCP/OCI token headers all route through here).
+func TestImdsGetLive_HeadersSet(t *testing.T) {
+	var gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("Metadata-Flavor")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	if _, err := imdsGetLive(context.Background(), srv.URL, map[string]string{"Metadata-Flavor": "Google"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHeader != "Google" {
+		t.Errorf("Metadata-Flavor header = %q, want Google", gotHeader)
+	}
+}
+
+// ── imdsGet (Cached wrapper — exercises the produce closure directly) ───────
+
+// TestImdsGet_LiveSuccess drives imdsGet's closure (imdsGetLive call, success
+// path) by installing a Cached-that-always-invokes-produce source, which a
+// Replay-backed fixture never reaches (Replay.Cached short-circuits).
+func TestImdsGet_LiveSuccess(t *testing.T) {
+	withLiveCachedFixture(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("i-0123456789abcdef0"))
+	}))
+	defer srv.Close()
+
+	got, err := imdsGet(context.Background(), srv.URL, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "i-0123456789abcdef0" {
+		t.Errorf("imdsGet() = %q, want i-0123456789abcdef0", got)
+	}
+}
+
+// TestImdsGet_LiveError drives imdsGet's closure error path (a non-2xx
+// response from imdsGetLive), confirming the error propagates and the value
+// is empty rather than a garbage/error-page body.
+func TestImdsGet_LiveError(t *testing.T) {
+	withLiveCachedFixture(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	got, err := imdsGet(context.Background(), srv.URL, nil)
+	if err == nil {
+		t.Fatalf("expected an error for HTTP 403, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on error", got)
 	}
 }
 
@@ -147,6 +245,60 @@ func TestCloudMetaCollector_Collect_NoProvider(t *testing.T) {
 	}
 	if info.Available || info.Provider != "" {
 		t.Errorf("info = %+v, want unavailable with no provider", info)
+	}
+}
+
+// TestCloudMetaCollector_Collect_Azure exercises Collect's second dispatch
+// branch — AWS fails (no token), Azure succeeds.
+func TestCloudMetaCollector_Collect_Azure(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+	}, nil, nil)
+
+	c := NewCloudMetaCollector()
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := result.(*models.CloudInfo)
+	if !info.Available || info.Provider != "azure" {
+		t.Errorf("info = %+v, want azure provider", info)
+	}
+}
+
+// TestCloudMetaCollector_Collect_GCP exercises Collect's third dispatch
+// branch — AWS and Azure both fail, GCP succeeds.
+func TestCloudMetaCollector_Collect_GCP(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id": []byte("1234567890"),
+	}, nil, nil)
+
+	c := NewCloudMetaCollector()
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := result.(*models.CloudInfo)
+	if !info.Available || info.Provider != "gcp" {
+		t.Errorf("info = %+v, want gcp provider", info)
+	}
+}
+
+// TestCloudMetaCollector_Collect_OCI exercises Collect's fourth dispatch
+// branch — AWS/Azure/GCP all fail, OCI succeeds.
+func TestCloudMetaCollector_Collect_OCI(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds/http://169.254.169.254/opc/v2/instance/": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
+	}, nil, nil)
+
+	c := NewCloudMetaCollector()
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := result.(*models.CloudInfo)
+	if !info.Available || info.Provider != "oci" {
+		t.Errorf("info = %+v, want oci provider", info)
 	}
 }
 

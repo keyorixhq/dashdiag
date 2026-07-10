@@ -105,6 +105,93 @@ func TestPackagesCollector_Collect_DeepPopulatesIntegrity(t *testing.T) {
 	}
 }
 
+// TestPackagesCollector_Collect_ZypperDispatch guards Collect()'s zypper
+// switch case: detectPackageManager finding zypper first must route through
+// collectZypper, not just be exercised indirectly via collectZypper's own
+// unit tests.
+func TestPackagesCollector_Collect_ZypperDispatch(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--version"}, "zypper 1.14.0\n", 0)
+		b.PutCmdNotFound("rpm", []string{"-q", "rpm"}) // rpmDBHealth: no rpm tool -> checked=false
+		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "list-patches", "--category", "security"},
+			"Repository | Name | Category | Severity | Interactive | Status | Summary\n"+
+				"repo-oss | SUSE-2026-1 | security | critical | --- | needed | openssl fix\n", 0)
+		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "repos"},
+			"# | Alias | Name | Enabled\n1 | repo-oss | Update repository | Yes\n", 0)
+		b.PutCmdNotFound("zypper", []string{"--non-interactive", "--no-color", "search", "--installed-only", grubPackageForArch()})
+		b.PutCmdNotFound("SUSEConnect", []string{"--status"})
+		b.PutCmdNotFound("uname", []string{"-r"})
+	})
+	c := NewPackagesCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.PackagesInfo)
+	if info.PackageManager != "zypper" {
+		t.Fatalf("PackageManager = %q, want zypper", info.PackageManager)
+	}
+	if info.SecurityUpdates != 1 || info.CriticalUpdates != 1 {
+		t.Errorf("expected 1 security/1 critical update, got %+v", info)
+	}
+}
+
+// TestPackagesCollector_Collect_APTDispatch guards Collect()'s apt switch
+// case end to end (detectPackageManager -> collectAPT -> the folded result).
+func TestPackagesCollector_Collect_APTDispatch(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--version"}, "", 1)
+		b.PutCmd("dnf", []string{"--version"}, "", 1)
+		b.PutCmd("apt-get", []string{"--version"}, "apt 2.6.1\n", 0)
+		b.PutCmd("dpkg", []string{"--audit"}, "", 0) // aptDBHealth: clean
+		b.PutFile("/etc/apt/sources.list", []byte(
+			"deb http://security.debian.org/debian-security bookworm-security main\n"))
+		b.PutCmd("apt-get", []string{"-s", "upgrade"},
+			"Inst openssl [3.0.9-1] (3.0.11-1~deb12u2 Debian-Security:12/stable-security [amd64])\n"+
+				"0 upgraded, 0 newly installed\n", 0)
+		b.PutCmdNotFound("pro", []string{"security-status", "--format", "json"})
+	})
+	c := NewPackagesCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.PackagesInfo)
+	if info.PackageManager != "apt" {
+		t.Fatalf("PackageManager = %q, want apt", info.PackageManager)
+	}
+	if info.SecurityUpdates != 1 || info.CriticalUpdates != 1 {
+		t.Errorf("expected 1 security/1 critical update, got %+v", info)
+	}
+}
+
+// TestPackagesCollector_Collect_TDNFDispatch guards Collect()'s tdnf switch
+// case (Photon OS) end to end.
+func TestPackagesCollector_Collect_TDNFDispatch(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--version"}, "", 1)
+		b.PutCmd("dnf", []string{"--version"}, "", 1)
+		b.PutCmd("apt-get", []string{"--version"}, "", 1)
+		b.PutCmd("tdnf", []string{"--version"}, "tdnf version 3.0\n", 0)
+		b.PutCmdNotFound("rpm", []string{"-q", "rpm"}) // rpmDBHealth: no rpm tool -> checked=false
+		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
+		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
+			`[{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0001","Packages":["zlib-1.3.2-1.ph5.x86_64.rpm"]}]`, 0)
+	})
+	c := NewPackagesCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.PackagesInfo)
+	if info.PackageManager != "tdnf" {
+		t.Fatalf("PackageManager = %q, want tdnf", info.PackageManager)
+	}
+	if info.SecurityUpdates != 1 {
+		t.Errorf("expected 1 security update, got %+v", info)
+	}
+}
+
 // ── detectPackageManager ──────────────────────────────────────────────────────
 
 func TestDetectPackageManager(t *testing.T) {

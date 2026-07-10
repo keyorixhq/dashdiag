@@ -136,6 +136,11 @@ func TestParseFileNr(t *testing.T) {
 			input:   "abc 0 1048576\n",
 			wantErr: true,
 		},
+		{
+			name:    "non-numeric max",
+			input:   "4821 0 notanumber\n",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {

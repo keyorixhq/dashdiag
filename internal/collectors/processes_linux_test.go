@@ -206,6 +206,26 @@ func TestProcessesCollector_CollectDarwin(t *testing.T) {
 	}
 }
 
+// TestProcessesCollector_CollectDarwin_NonNumericPIDSkipped guards the
+// pid→name map build: a line whose PID field fails to parse must be skipped
+// while resolving other processes' parent names still works.
+func TestProcessesCollector_CollectDarwin_NonNumericPIDSkipped(t *testing.T) {
+	out := "  PID  PPID STAT COMM\n" +
+		"notapid 1 Ss weird\n" +
+		"100 1 Z zombiechild\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ps", []string{"axo", "pid,ppid,stat,comm"}, out, 0)
+	})
+	c := NewProcessesCollector()
+	info, err := c.collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.ZombieCount != 1 {
+		t.Fatalf("ZombieCount = %d, want 1 (non-numeric-PID line skipped, not fatal)", info.ZombieCount)
+	}
+}
+
 func TestProcessesCollector_CollectDarwin_CommandUnavailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	c := NewProcessesCollector()

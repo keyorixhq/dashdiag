@@ -154,6 +154,20 @@ func TestOciServiceState_CommandFails(t *testing.T) {
 	}
 }
 
+// TestOciServiceState_TooFewLines guards the len(lines) < 2 defensive branch:
+// systemctl show returning a single line (garbled/truncated output) must not
+// be indexed into as if both LoadState and ActiveState were present.
+func TestOciServiceState_TooFewLines(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"show", "y.service", "-p", "LoadState,ActiveState", "--value"},
+			"loaded\n", 0)
+	})
+	loadState, activeState := ociServiceState(context.Background(), "y.service")
+	if loadState != "" || activeState != "" {
+		t.Errorf("ociServiceState() = (%q,%q), want empty when output has fewer than 2 lines", loadState, activeState)
+	}
+}
+
 func TestOciAgentState_InstalledAndRunning(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"},

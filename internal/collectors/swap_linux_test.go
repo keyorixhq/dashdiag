@@ -17,6 +17,26 @@ import (
 
 var errBoomSwapTest = errors.New("boom")
 
+// TestNewSwapCollector_VmstatOpenReadsProcVmstat proves the constructor's
+// vmstatOpen closure actually routes through openFile("/proc/vmstat") via the
+// active source — a mere non-nil check (as in swap_test.go's identity test)
+// never invokes the closure body.
+func TestNewSwapCollector_VmstatOpenReadsProcVmstat(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/vmstat", []byte("pswpin 7\npswpout 9\n"))
+	})
+	c := NewSwapCollector(platform.ContainerContext{})
+	r, err := c.readers.vmstatOpen()
+	if err != nil {
+		t.Fatalf("vmstatOpen: %v", err)
+	}
+	data, _ := io.ReadAll(r)
+	_ = r.Close()
+	if !strings.Contains(string(data), "pswpin 7") {
+		t.Errorf("vmstatOpen did not read the fixture /proc/vmstat, got %q", data)
+	}
+}
+
 // TestSwapCollector_Collect_SwapsAndZram exercises the fixture-source-routed
 // portion of Collect: /proc/swaps totals and the zram device glob/mm_stat/
 // disksize reads. The two vmstat samples still come through the injectable
@@ -141,5 +161,95 @@ func TestSwapCollector_Collect_VmstatOpenError(t *testing.T) {
 	_, err := c.Collect(context.Background())
 	if err == nil {
 		t.Fatal("expected error when vmstatOpen fails, got nil")
+	}
+}
+
+// TestSwapCollector_Collect_CtxCancelledDuringSleep guards the mid-sleep
+// cancellation branch: a ctx that's already done must make Collect return
+// ctx.Err() rather than blocking through the 1s sampling window.
+func TestSwapCollector_Collect_CtxCancelledDuringSleep(t *testing.T) {
+	c := &SwapCollector{
+		ContainerCtx: platform.ContainerContext{},
+		swapsPath:    "/proc/swaps",
+		readers: swapReaders{
+			vmstatOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("pswpin 0\npswpout 0\n")), nil
+			},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.Collect(ctx)
+	if err == nil {
+		t.Fatal("expected error when ctx is cancelled during the sampling sleep")
+	}
+}
+
+// TestSwapCollector_Collect_SecondVmstatOpenFails guards the SECOND
+// vmstatOpen failure: the collector must still return an info (with zero
+// pages-in/out) rather than propagating the error, since only the delta
+// calculation needs the second sample.
+func TestSwapCollector_Collect_SecondVmstatOpenFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 1s vmstat sampling in short mode")
+	}
+	callCount := 0
+	c := &SwapCollector{
+		ContainerCtx: platform.ContainerContext{},
+		swapsPath:    "/proc/swaps",
+		readers: swapReaders{
+			vmstatOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader("pswpin 100\npswpout 50\n")), nil
+				}
+				return nil, errBoomSwapTest
+			},
+		},
+	}
+	_, err := c.Collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error when the second vmstatOpen call fails")
+	}
+}
+
+// TestSwapCollector_Collect_PageCountersClampToZero guards the anti-wraparound
+// clamp: if the second sample's pswpin/pswpout somehow reads LOWER than the
+// first (a counter reset/wrap, or a replay artifact), PagesInPerSec and
+// PagesOutPerSec must clamp to 0 rather than go negative.
+func TestSwapCollector_Collect_PageCountersClampToZero(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 1s vmstat sampling in short mode")
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/block/zram*", nil)
+	})
+	callCount := 0
+	c := &SwapCollector{
+		ContainerCtx: platform.ContainerContext{},
+		swapsPath:    "/proc/swaps",
+		readers: swapReaders{
+			vmstatOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader("pswpin 100\npswpout 80\n")), nil
+				}
+				return io.NopCloser(strings.NewReader("pswpin 90\npswpout 70\n")), nil
+			},
+		},
+	}
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info, ok := result.(*models.SwapInfo)
+	if !ok {
+		t.Fatalf("unexpected type %T", result)
+	}
+	if info.PagesInPerSec != 0 {
+		t.Errorf("PagesInPerSec = %v, want 0 (clamped, second sample lower than first)", info.PagesInPerSec)
+	}
+	if info.PagesOutPerSec != 0 {
+		t.Errorf("PagesOutPerSec = %v, want 0 (clamped, second sample lower than first)", info.PagesOutPerSec)
 	}
 }

@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"testing"
 	"time"
@@ -292,6 +293,175 @@ func TestDetectKubeForward_NeitherToolAvailable(t *testing.T) {
 	checked, present := detectKubeForward(context.Background())
 	if checked || present {
 		t.Errorf("checked=%v present=%v, want false/false", checked, present)
+	}
+}
+
+// TestDetectKubeForward_NftRanNoKubeTableIptablesUnavailable guards the
+// specific "nft ran successfully but found no kube table, AND iptables is
+// unavailable" branch — distinct from the neither-tool-available case above:
+// here nft DID answer (nftErr == nil), it just found nothing.
+func TestDetectKubeForward_NftRanNoKubeTableIptablesUnavailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("nft", []string{"list", "tables"}, "table ip filter\n", 0)
+		b.PutCmdNotFound("iptables", []string{"-L", "KUBE-FORWARD", "-n"})
+	})
+	checked, present := detectKubeForward(context.Background())
+	if !checked || present {
+		t.Errorf("checked=%v present=%v, want true/false (nft ran, no kube table, iptables unavailable)", checked, present)
+	}
+}
+
+// TestK8sDetectBin_PathFallback_K0s and _Microk8s guard the two remaining
+// lookPath fallback branches in k8sDetectBin not yet exercised elsewhere.
+func TestK8sDetectBin_PathFallback_K0s(t *testing.T) {
+	prev := SetSource(&fakeCombinedSource{
+		Replay: source.NewReplay(source.NewBundle()),
+		cached: map[string][]byte{"lookpath/k0s": []byte("/usr/bin/k0s")},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+	if got := k8sDetectBin(); got != "k0s kubectl" {
+		t.Errorf("k8sDetectBin() = %q, want %q", got, "k0s kubectl")
+	}
+}
+
+func TestK8sDetectBin_PathFallback_Microk8s(t *testing.T) {
+	prev := SetSource(&fakeCombinedSource{
+		Replay: source.NewReplay(source.NewBundle()),
+		cached: map[string][]byte{"lookpath/microk8s": []byte("/usr/bin/microk8s")},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+	if got := k8sDetectBin(); got != "microk8s kubectl" {
+		t.Errorf("k8sDetectBin() = %q, want %q", got, "microk8s kubectl")
+	}
+}
+
+// TestK8sDistribution_Microk8s guards the microk8s marker branch, the only
+// k8sDistribution case not already exercised by TestK8sDistribution in
+// k8s_distribution_test.go.
+func TestK8sDistribution_Microk8s(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/var/snap/microk8s", source.FileMeta{})
+	})
+	if got := k8sDistribution(); got != "microk8s" {
+		t.Errorf("k8sDistribution() = %q, want microk8s", got)
+	}
+}
+
+// TestSummarizeContainerStatuses drives every field the tabulation computes:
+// max restart count across containers, the last non-empty waiting reason, and
+// the last non-empty termination message — none of which the ready/pending
+// happy-path fixtures elsewhere exercise.
+func TestSummarizeContainerStatuses(t *testing.T) {
+	type waiting = struct {
+		Reason string `json:"reason"`
+	}
+	type state = struct {
+		Waiting waiting `json:"waiting"`
+	}
+	type terminated = struct {
+		Message string `json:"message"`
+	}
+	type lastTermination = struct {
+		Terminated terminated `json:"terminated"`
+	}
+	type cs = struct {
+		Ready                bool            `json:"ready"`
+		RestartCount         int             `json:"restartCount"`
+		State                state           `json:"state"`
+		LastTerminationState lastTermination `json:"lastState"`
+	}
+
+	statuses := []cs{
+		{Ready: true, RestartCount: 2},
+		{Ready: false, RestartCount: 7, State: state{Waiting: waiting{Reason: "CrashLoopBackOff"}},
+			LastTerminationState: lastTermination{Terminated: terminated{Message: "OOMKilled"}}},
+		{Ready: false, RestartCount: 3}, // lower than max — must not overwrite maxRestarts
+	}
+	ready, maxRestarts, statusOverride, terminationMsg := summarizeContainerStatuses(statuses)
+	if ready != 1 {
+		t.Errorf("ready = %d, want 1", ready)
+	}
+	if maxRestarts != 7 {
+		t.Errorf("maxRestarts = %d, want 7 (the highest RestartCount)", maxRestarts)
+	}
+	if statusOverride != "CrashLoopBackOff" {
+		t.Errorf("statusOverride = %q, want CrashLoopBackOff", statusOverride)
+	}
+	if terminationMsg != "OOMKilled" {
+		t.Errorf("terminationMsg = %q, want OOMKilled", terminationMsg)
+	}
+}
+
+// TestFetchPreviousLogs_CrashingPodGetsLogs drives the previously-uncovered
+// inner body: a pod recorded in crashNames must have `kubectl logs --previous`
+// invoked and PreviousLogs populated on success. A second, non-crashing pod
+// must be skipped entirely (no logs command for it).
+func TestFetchPreviousLogs_CrashingPodGetsLogs(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("kubectl", []string{"logs", "--previous", "--tail=10", "-n", "default", "crashy"},
+			"panic: oh no\n", 0)
+	})
+	info := &models.K8sInfo{
+		Pods: []models.K8sPodInfo{
+			{Namespace: "default", Name: "crashy"},
+			{Namespace: "default", Name: "healthy"},
+		},
+	}
+	crashNames := map[string]bool{"default/crashy": true}
+	fetchPreviousLogs(context.Background(), "kubectl", info, crashNames)
+
+	if info.Pods[0].PreviousLogs != "panic: oh no\n" {
+		t.Errorf("Pods[0].PreviousLogs = %q, want the fetched log line", info.Pods[0].PreviousLogs)
+	}
+	if info.Pods[1].PreviousLogs != "" {
+		t.Errorf("Pods[1].PreviousLogs = %q, want empty (not in crashNames)", info.Pods[1].PreviousLogs)
+	}
+}
+
+// TestFetchPreviousLogs_CapsAtFive guards the `count >= 5` cutoff: with 6
+// crash-looping pods, only the first 5 get a logs fetch attempted.
+func TestFetchPreviousLogs_CapsAtFive(t *testing.T) {
+	crashNames := map[string]bool{}
+	pods := make([]models.K8sPodInfo, 6)
+	seedFns := map[string][]string{}
+	for i := range pods {
+		name := fmt.Sprintf("p%d", i)
+		pods[i] = models.K8sPodInfo{Namespace: "default", Name: name}
+		crashNames["default/"+name] = true
+		seedFns[name] = []string{"logs", "--previous", "--tail=10", "-n", "default", name}
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		for _, name := range []string{"p0", "p1", "p2", "p3", "p4", "p5"} {
+			b.PutCmd("kubectl", seedFns[name], "log for "+name+"\n", 0)
+		}
+	})
+	info := &models.K8sInfo{Pods: pods}
+	fetchPreviousLogs(context.Background(), "kubectl", info, crashNames)
+
+	got := 0
+	for _, p := range info.Pods {
+		if p.PreviousLogs != "" {
+			got++
+		}
+	}
+	if got != 5 {
+		t.Errorf("got %d pods with fetched logs, want exactly 5 (the count>=5 cap)", got)
+	}
+}
+
+// TestFetchPreviousLogs_LogsCommandFails guards the `err == nil && logs != ""`
+// guard: a failing `kubectl logs --previous` must leave PreviousLogs empty,
+// not panic or record garbage.
+func TestFetchPreviousLogs_LogsCommandFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("kubectl", []string{"logs", "--previous", "--tail=10", "-n", "default", "crashy"})
+	})
+	info := &models.K8sInfo{
+		Pods: []models.K8sPodInfo{{Namespace: "default", Name: "crashy"}},
+	}
+	fetchPreviousLogs(context.Background(), "kubectl", info, map[string]bool{"default/crashy": true})
+	if info.Pods[0].PreviousLogs != "" {
+		t.Errorf("PreviousLogs = %q, want empty when the logs command fails", info.Pods[0].PreviousLogs)
 	}
 }
 

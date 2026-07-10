@@ -391,6 +391,39 @@ func TestSsmState_InstalledNotRunning(t *testing.T) {
 	}
 }
 
+// TestSsmState_InstalledViaLookPath covers the lookPath("amazon-ssm-agent")
+// success branch — installed via $PATH resolution rather than one of the
+// hardcoded file locations.
+func TestSsmState_InstalledViaLookPath(t *testing.T) {
+	withAWSFixture(t, map[string][]byte{
+		"lookpath/amazon-ssm-agent": []byte("/usr/local/bin/amazon-ssm-agent"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmdNotFound("systemctl", []string{"is-active", "amazon-ssm-agent"})
+		b.PutCmdNotFound("systemctl", []string{"is-active", "snap.amazon-ssm-agent.amazon-ssm-agent"})
+	})
+	installed, running := ssmState(context.Background())
+	if !installed || running {
+		t.Errorf("installed=%v running=%v, want true/false", installed, running)
+	}
+}
+
+// TestSsmState_RunningViaProcComm covers the procCommRunning("amazon-ssm-agent")
+// true branch — the agent is found live in /proc without needing the systemctl
+// fallback.
+func TestSsmState_RunningViaProcComm(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/amazon-ssm-agent", source.FileMeta{})
+		b.PutDir("/proc", []string{"100"})
+		b.PutDir("/proc/100", []string{"comm", "cgroup"})
+		b.PutFile("/proc/100/comm", []byte("amazon-ssm-agent\n"))
+		// /proc/100/cgroup intentionally unseeded: unreadable -> host, not container.
+	})
+	installed, running := ssmState(context.Background())
+	if !installed || !running {
+		t.Errorf("installed=%v running=%v, want true/true", installed, running)
+	}
+}
+
 // TestAWSCollector_Collect_FullHappyPath drives the whole Collect() wiring —
 // ENA/EBS single-snapshot read (no second sample: isReplaySource() is true
 // under any test fixture, so the ~1s delta sleep never runs), IMDS posture,
@@ -434,5 +467,30 @@ func TestAWSCollector_Collect_FullHappyPath(t *testing.T) {
 	}
 	if !info.RebalanceChecked || info.RebalanceRecommended {
 		t.Errorf("Rebalance = checked=%v rec=%v, want true/false", info.RebalanceChecked, info.RebalanceRecommended)
+	}
+}
+
+// TestAWSCollector_Collect_SampledOnNonzeroCounter drives the second-snapshot
+// path: a nonzero ENA allowance counter on the first read, combined with a
+// non-Replay active source (fakeCombinedSource, not *source.Replay), so
+// isReplaySource() is false and the ~1s delta sample actually runs. Guards
+// the Sampled=true wiring that TestAWSCollector_Collect_FullHappyPath
+// deliberately avoids by keeping every counter at zero.
+func TestAWSCollector_Collect_SampledOnNonzeroCounter(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmd("ethtool", []string{"-S", "eth0"},
+			"NIC statistics:\n     bw_in_allowance_exceeded: 5\n", 0)
+	})
+
+	got, err := NewAWSCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := got.(*models.AWSInfo)
+	if !info.Sampled {
+		t.Error("expected Sampled=true — nonzero counter under a non-replay source must trigger the delta sample")
 	}
 }

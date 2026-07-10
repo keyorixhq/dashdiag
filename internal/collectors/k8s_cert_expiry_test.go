@@ -71,3 +71,57 @@ func TestCheckCertExpiry(t *testing.T) {
 		t.Errorf("CertExpirySoonDays = %d, want ~5", layer.CertExpirySoonDays)
 	}
 }
+
+// TestCheckCertExpiry_UnreadableOrGarbledSkipped guards the three early
+// "continue" branches: a glob match that can't be read (permission/race),
+// a file that isn't PEM at all, and PEM content whose DER doesn't parse as an
+// X.509 certificate. None of these should panic or record a bogus entry.
+func TestCheckCertExpiry_UnreadableOrGarbledSkipped(t *testing.T) {
+	dir := t.TempDir()
+
+	// Not PEM at all — pem.Decode returns a nil block.
+	if err := os.WriteFile(filepath.Join(dir, "notpem.crt"), []byte("not a certificate"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Valid PEM armor, but garbage DER inside — x509.ParseCertificate fails.
+	garbledPEM := "-----BEGIN CERTIFICATE-----\n" + "AAAA\n" + "-----END CERTIFICATE-----\n"
+	if err := os.WriteFile(filepath.Join(dir, "garbled.crt"), []byte(garbledPEM), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A real, valid, healthy cert alongside the two bad ones — must still be
+	// scanned without a bad sibling short-circuiting the whole directory.
+	writeTestCert(t, dir, "healthy.crt", time.Now().Add(180*24*time.Hour))
+
+	layer := &models.K8sOSLayer{}
+	checkCertExpiry(dir, layer)
+
+	if len(layer.CertExpiredNames) != 0 {
+		t.Errorf("CertExpiredNames = %v, want none (only garbled/non-PEM/healthy certs present)", layer.CertExpiredNames)
+	}
+	if layer.CertExpirySoon {
+		t.Errorf("CertExpirySoon = true, want false (only the healthy cert parsed)")
+	}
+}
+
+// TestCheckCertExpiry_UnreadableFileSkipped guards the readFile-error continue
+// branch: a glob match naming a file that no longer exists (e.g. a race
+// between listing and reading, or a dangling permission issue) must be
+// skipped rather than erroring out.
+func TestCheckCertExpiry_UnreadableFileSkipped(t *testing.T) {
+	dir := t.TempDir()
+	// Create then remove so glob-time and read-time disagree — readFile fails.
+	ghost := filepath.Join(dir, "ghost.crt")
+	if err := os.WriteFile(ghost, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCert(t, dir, "healthy.crt", time.Now().Add(180*24*time.Hour))
+	if err := os.Remove(ghost); err != nil {
+		t.Fatal(err)
+	}
+
+	layer := &models.K8sOSLayer{}
+	checkCertExpiry(dir, layer)
+	if len(layer.CertExpiredNames) != 0 || layer.CertExpirySoon {
+		t.Errorf("layer = %+v, want no expiry findings from the vanished file", layer)
+	}
+}

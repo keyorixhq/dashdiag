@@ -122,6 +122,33 @@ func TestRedisPing_NoRecording(t *testing.T) {
 	}
 }
 
+// TestRedisPing_LiveComputeDialsRedisPingLive drives redisPing's Cached
+// closure body itself (the redisPingLive dial + true/false byte encoding),
+// which withCombinedFixture's Replay-backed source can never reach — an
+// unseeded Cached key on Replay short-circuits to "not recorded" without
+// calling compute at all (see source.Replay.Cached). source.Live{}'s Cached
+// DOES invoke compute, so pointing redisPing at a real LOCAL loopback
+// listener (never a real network host, same as TestRedisPingLive_TCP_Success)
+// exercises the closure end-to-end on both the true and false paths.
+func TestRedisPing_LiveComputeDialsRedisPingLive(t *testing.T) {
+	prev := SetSource(source.Live{})
+	t.Cleanup(func() { SetSource(prev) })
+
+	t.Run("answers PONG", func(t *testing.T) {
+		addr := pongListener(t, "tcp", "127.0.0.1:0", "+PONG\r\n")
+		if !redisPing("tcp", addr) {
+			t.Error("expected true when the live dial gets +PONG")
+		}
+	})
+
+	t.Run("wrong response", func(t *testing.T) {
+		addr := pongListener(t, "tcp", "127.0.0.1:0", "-ERR\r\n")
+		if redisPing("tcp", addr) {
+			t.Error("expected false when the live dial gets a non-PONG reply")
+		}
+	})
+}
+
 // ── detectRedis / RedisAvailable ──────────────────────────────────────────────
 
 func TestDetectRedis_UnixSocketFound(t *testing.T) {

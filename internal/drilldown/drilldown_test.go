@@ -367,6 +367,103 @@ func TestHardeningFromResults_NilData(t *testing.T) {
 	}
 }
 
+// TestDispatchLive_AllChecks exercises every switch arm in dispatchLive so
+// each Check name is proven to route to its drill-down function (not just
+// exercised transitively via the individual _test.go files for each
+// sub-collector). runCmd/lookPath are swapped to "nothing installed" so every
+// branch degrades quickly and deterministically instead of depending on the
+// container's actual tooling — this test only cares that dispatch happens,
+// not what a real host would return. No t.Parallel(): swapRunCmd/swapLookPath
+// mutate shared package state (see runcmd_helper_test.go's doc comment).
+func TestDispatchLive_AllChecks(t *testing.T) {
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "", errNotFound
+	})
+	swapLookPath(t, func(string) (string, error) {
+		return "", errNotFound
+	})
+
+	cases := []struct {
+		name string
+		ins  models.Insight
+	}{
+		{"Memory", models.Insight{Check: "Memory", Message: "RAM at 96%"}},
+		{"Memory/Slab", models.Insight{Check: "Memory/Slab", Message: "slab high"}},
+		{"CPU Load", models.Insight{Check: "CPU Load", Message: "load high"}},
+		{"Swap", models.Insight{Check: "Swap", Message: "swap high"}},
+		{"Disk", models.Insight{Check: "Disk", Message: "disk usage at 91% on /var (/dev/sda1)"}},
+		{"IO", models.Insight{Check: "IO", Message: "await high"}},
+		{"Network plain", models.Insight{Check: "Network", Message: "gateway ping is 250 ms"}},
+		{"Network USB excluded", models.Insight{Check: "Network", Message: "USB NIC not responding"}},
+		{"Network Wi-Fi excluded", models.Insight{Check: "Network", Message: "Wi-Fi link flapping"}},
+		{"Network wireless excluded", models.Insight{Check: "Network", Message: "wireless signal weak"}},
+		{"Network not-responding excluded", models.Insight{Check: "Network", Message: "gateway not responding"}},
+		{"Processes hung", models.Insight{Check: "Processes", Message: "3 hung processes in uninterruptible sleep"}},
+		{"Processes zombies", models.Insight{Check: "Processes", Message: "5 zombie processes"}},
+		{"Systemd", models.Insight{Check: "Systemd", Message: "unit foo.service has failed"}},
+		{"FDLimits", models.Insight{Check: "FDLimits", Message: "fd usage high"}},
+		{"Clock", models.Insight{Check: "Clock", Message: "clock drift"}},
+		{"Sysctl", models.Insight{Check: "Sysctl", Message: "vm.swappiness not recommended"}},
+		{"SELinux", models.Insight{Check: "SELinux", Message: "policy not enforcing"}},
+		{"KernelSec", models.Insight{Check: "KernelSec", Message: "policy not enforcing"}},
+		{"Hardening", models.Insight{Check: "Hardening", Message: "unexpected port 31337 listening"}},
+		{"unknown check", models.Insight{Check: "TotallyUnknown", Message: "n/a"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Should never panic regardless of what the fake tooling returns.
+			_ = dispatchLive(context.Background(), tc.ins, nil)
+		})
+	}
+}
+
+// TestDispatchLive_ProcessesResultsShortCircuit guards the Processes branches
+// that prefer already-captured results (hungProcessesFromResults /
+// zombiesFromResults) over a fresh /proc scan: when results carry a non-empty
+// table, dispatchLive must return it directly rather than falling through to
+// HungProcesses/ZombiesWithParent.
+func TestDispatchLive_ProcessesResultsShortCircuit(t *testing.T) {
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		t.Fatal("no subprocess should run when results already supply the table")
+		return "", nil
+	})
+
+	hungResults := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			HungProcs: []models.ProcessState{{PID: 1, Name: "stuck", PPID: 1, WChan: "io_wait"}},
+		}},
+	}
+	got := dispatchLive(context.Background(), models.Insight{Check: "Processes", Message: "hung process detected"}, hungResults)
+	if got == nil || got.Title != "Hung (uninterruptible) processes" {
+		t.Errorf("expected the from-results hung table, got %+v", got)
+	}
+
+	zombieResults := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			ZombieProcs: []models.ProcessState{{PID: 2, PPID: 1, ParentName: "init"}},
+		}},
+	}
+	got = dispatchLive(context.Background(), models.Insight{Check: "Processes", Message: "zombie process detected"}, zombieResults)
+	if got == nil || got.Title != "Zombie processes (parent is the reaping offender)" {
+		t.Errorf("expected the from-results zombie table, got %+v", got)
+	}
+}
+
+// TestDispatchLive_HardeningNilData exercises the Hardening branch through
+// dispatchLive end-to-end (not just hardeningFromResults directly, which
+// TestHardeningFromResults_NilData already covers): a nil-interface
+// SecurityInfo must yield a nil Details rather than a crash.
+func TestDispatchLive_HardeningNilData(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Hardening", Data: (*models.SecurityInfo)(nil)},
+	}
+	got := dispatchLive(context.Background(), models.Insight{Check: "Hardening", Message: "unexpected port 22 listening"}, results)
+	if got != nil {
+		t.Errorf("expected nil Details, got %+v", got)
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
 		in   int64

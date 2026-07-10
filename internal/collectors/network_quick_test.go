@@ -67,6 +67,16 @@ func TestParseGatewayLinux(t *testing.T) {
 			input:  "Iface\tDestination\tGateway\tFlags\n",
 			wantGW: "",
 		},
+		{
+			// A malformed (non-hex) gateway field must be skipped, not decoded into a
+			// bogus IP — keep scanning for a real default route rather than erroring.
+			name: "malformed gateway hex is skipped",
+			input: "Iface\tDestination\tGateway\tFlags\n" +
+				"eth0\t00000000\tZZZZZZZZ\t0003\n" +
+				"eth1\t00000000\t0101A8C0\t0003\n",
+			wantGW:    "192.168.1.1",
+			wantIface: "eth1",
+		},
 	}
 
 	for _, tc := range cases {

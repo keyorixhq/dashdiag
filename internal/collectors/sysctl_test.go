@@ -59,6 +59,22 @@ func TestReadTaskCount(t *testing.T) {
 			t.Errorf("got %d, want >= 0", got)
 		}
 	})
+
+	t.Run("running/total field has no slash falls back to process count", func(t *testing.T) {
+		prev := SetSource(fakeLoadavgSource{content: "0.52 0.43 0.32 412 8932\n"})
+		defer SetSource(prev)
+		if got := readTaskCount(); got < 0 {
+			t.Errorf("got %d, want >= 0", got)
+		}
+	})
+
+	t.Run("non-numeric total falls back to process count", func(t *testing.T) {
+		prev := SetSource(fakeLoadavgSource{content: "0.52 0.43 0.32 3/notanumber 8932\n"})
+		defer SetSource(prev)
+		if got := readTaskCount(); got < 0 {
+			t.Errorf("got %d, want >= 0", got)
+		}
+	})
 }
 
 type erroringLoadavgSource struct{ source.Live }
@@ -257,6 +273,21 @@ func TestDetectWorkload(t *testing.T) {
 				t.Errorf("detectWorkload() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDetectWorkload_UnreadableCommSkipped guards the readFile-error branch:
+// a /proc/<pid>/comm that can't be read must be skipped, not abort the scan
+// or count as an empty-string workload match.
+func TestDetectWorkload_UnreadableCommSkipped(t *testing.T) {
+	files := map[string]string{
+		"/proc/1/comm": "nginx\n",
+		// /proc/2/comm intentionally unseeded -> readFile fails -> skipped.
+	}
+	prev := SetSource(fakeSysctlSource{files: files, glob: []string{"/proc/1", "/proc/2"}})
+	t.Cleanup(func() { SetSource(prev) })
+	if got := detectWorkload(); got != "webserver" {
+		t.Errorf("detectWorkload() = %q, want webserver (unreadable comm skipped, not fatal)", got)
 	}
 }
 

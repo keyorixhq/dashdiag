@@ -72,6 +72,12 @@ func TestParseVMStat(t *testing.T) {
 			input:   "pswpin 5\npswpout notanumber\n",
 			wantErr: true,
 		},
+		{
+			name:        "lines with wrong field count are skipped",
+			input:       "nr_free_pages\npswpin 5 extra\npswpin 5\npswpout 3\n",
+			wantPswpin:  5,
+			wantPswpout: 3,
+		},
 	}
 
 	for _, tc := range cases {
@@ -141,6 +147,23 @@ func TestParseSwaps(t *testing.T) {
 			input:       "",
 			wantTotalKB: 0,
 			wantUsedKB:  0,
+		},
+		{
+			name: "line with too few fields is skipped",
+			input: "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n" +
+				"/dev/sda5\t\t\t\tpartition\t2097148\n" + // only 3 fields
+				"/dev/sdb1\t\t\t\tpartition\t1048576\t51200\t\t-2\n",
+			wantTotalKB: 1048576,
+			wantUsedKB:  51200,
+		},
+		{
+			name: "non-numeric size/used is skipped",
+			input: "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n" +
+				"/dev/sda5\t\t\t\tpartition\tnotanumber\t51200\t\t-2\n" +
+				"/dev/sdb1\t\t\t\tpartition\t1048576\tnotanumber\t\t-2\n" +
+				"/dev/sdc1\t\t\t\tpartition\t2097152\t102400\t\t-3\n",
+			wantTotalKB: 2097152,
+			wantUsedKB:  102400,
 		},
 	}
 

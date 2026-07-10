@@ -91,6 +91,30 @@ func TestScanAllCVEs_PackageManagerPresent_NeverFallsBackToOVAL(t *testing.T) {
 	}
 }
 
+// TestScanAllCVEs_NoPackageManagerStagedOVAL_ReturnsOVALResult guards the
+// remaining ScanAllCVEs branch: no package manager present AND a staged OVAL
+// feed that DOES resolve to a non-nil result — ScanAllCVEs must return that
+// OVAL-derived result rather than falling through to the generic "NOT
+// verified" package-manager result the sibling test below exercises.
+func TestScanAllCVEs_NoPackageManagerStagedOVAL_ReturnsOVALResult(t *testing.T) {
+	home := isolateCVEHome(t)
+	writeStagedOVAL(t, home, ubuntuOVALWithRealPkg)
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+
+	res := ScanAllCVEs(context.Background())
+	if res == nil {
+		t.Fatal("expected a non-nil result")
+	}
+	if !strings.HasPrefix(res.PackageManager, "oval:") {
+		t.Errorf("PackageManager = %q, want an oval: prefix (the OVAL fallback result)", res.PackageManager)
+	}
+	if res.Total != 1 {
+		t.Errorf("Total = %d, want 1 (from the staged OVAL feed)", res.Total)
+	}
+}
+
 // TestScanAllCVEs_NoPackageManagerNoOVAL_ReturnsUnverifiedPMResult guards the
 // worst-case path: no package manager AND no staged OVAL feed anywhere on the
 // (isolated) HOME/system paths — ScanAllCVEs must still return a non-nil,

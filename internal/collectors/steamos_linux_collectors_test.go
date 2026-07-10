@@ -200,6 +200,59 @@ func TestCollectSession(t *testing.T) {
 	}
 }
 
+// TestDetectSessionMode covers every branch: the XDG_SESSION_DESKTOP
+// fast-path signals (gamescope and plasma/KDE), and the fallback switch on
+// GamescopeActive/SDDMActive/neither once XDG_SESSION_DESKTOP is unset.
+func TestDetectSessionMode(t *testing.T) {
+	tests := []struct {
+		name   string
+		xdg    string
+		info   models.SteamOSInfo
+		want   string
+		seeded bool // whether env/XDG_SESSION_DESKTOP is seeded at all
+	}{
+		{name: "xdg gamescope-wayland", xdg: "gamescope-wayland", want: "gamemode", seeded: true},
+		{name: "xdg plasma", xdg: "plasma", want: "desktop", seeded: true},
+		{name: "xdg kde", xdg: "kde", want: "desktop", seeded: true},
+		{name: "fallback gamescope active", info: models.SteamOSInfo{GamescopeActive: true}, want: "gamemode"},
+		{name: "fallback sddm active", info: models.SteamOSInfo{SDDMActive: true}, want: "desktop"},
+		{name: "fallback neither", want: "unknown"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cached := map[string][]byte{}
+			if tc.seeded {
+				cached["env/XDG_SESSION_DESKTOP"] = []byte(tc.xdg)
+			}
+			withCombinedFixture(t, cached, nil, nil)
+			info := tc.info
+			if got := detectSessionMode(&info); got != tc.want {
+				t.Errorf("detectSessionMode() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestStatfsUsage_ErrorOrZeroBlocks guards the early-return branch: a statfs
+// error or a Blocks==0 (some pseudo-filesystems, or a query failure) result
+// must report ok=false, not a divide-by-zero or bogus percentage.
+func TestStatfsUsage_ErrorOrZeroBlocks(t *testing.T) {
+	prev := SetSource(&fakeStatfsMultiSource{
+		Replay: source.NewReplay(source.NewBundle()),
+		info: map[string]source.StatfsInfo{
+			"/zeroblocks": {Blocks: 0, Bfree: 0, Bavail: 0, Bsize: 4096},
+		},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	if _, _, _, ok := statfsUsage("/zeroblocks"); ok {
+		t.Error("expected ok=false when Blocks==0")
+	}
+	if _, _, _, ok := statfsUsage("/never-seeded"); ok {
+		t.Error("expected ok=false when statFs errors (path never seeded)")
+	}
+}
+
 func TestCollectStorage(t *testing.T) {
 	prev := SetSource(&fakeStatfsMultiSource{
 		Replay: source.NewReplay(source.NewBundle()),
@@ -307,6 +360,25 @@ func TestCollectRemotePlay_APIsolationSuspected(t *testing.T) {
 	}
 }
 
+// TestCollectRemotePlay_IptablesFallback guards the nft-unavailable/iptables-
+// succeeds firewall branch — distinct from both TestCollectRemotePlay_Bound
+// (nft succeeds) and _APIsolationSuspected (neither tool available).
+func TestCollectRemotePlay_IptablesFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("ss", []string{"-tulpn"})
+		b.PutCmdNotFound("nft", []string{"list", "ruleset"})
+		b.PutCmd("iptables", []string{"-L", "INPUT", "-n"},
+			"Chain INPUT (policy DROP)\nnum  target  prot opt source  destination\n"+
+				"1    DROP    tcp  --  0.0.0.0/0  0.0.0.0/0  tcp dpt:27036\n", 0)
+		b.PutFile("/proc/uptime", []byte("10.0 5.0\n")) // < 120s — ARP check skipped
+	})
+	info := &models.SteamOSInfo{}
+	(&SteamOSCollector{}).collectRemotePlay(context.Background(), info)
+	if !info.RemotePlay.FirewallKnown {
+		t.Error("expected FirewallKnown=true via the iptables fallback")
+	}
+}
+
 func TestCollectSteamOSDisk(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/home/deck", source.FileMeta{IsDir: true})
@@ -374,6 +446,42 @@ func TestCollectSteamOSWifi_ConnectedIWD(t *testing.T) {
 	}
 }
 
+// TestCollectSteamOSWifi_BothBackendsActive guards the iwd&&wpa branch — a
+// misconfigured device with both network daemons running, which BothBackends
+// exists to surface (neither of the single-backend cases exercise it).
+func TestCollectSteamOSWifi_BothBackendsActive(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "iwd.service"}, "active\n", 0)
+		b.PutCmd("systemctl", []string{"is-active", "wpa_supplicant.service"}, "active\n", 0)
+		b.PutCmdNotFound("iw", []string{"dev"})
+	})
+	w := collectSteamOSWifi(context.Background())
+	if w.Backend != "iwd" || !w.BothBackends {
+		t.Errorf("backend = %q bothBackends=%v, want iwd/true", w.Backend, w.BothBackends)
+	}
+}
+
+// TestCollectSteamOSWifi_WpaSupplicantOnly guards the wpa-only branch
+// (DevMode=true), and the SSID-conflict detection across two interfaces
+// sharing the same SSID (the dual-band Steam Deck OLED reliability issue).
+func TestCollectSteamOSWifi_WpaSupplicantOnly(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "iwd.service"}, "inactive\n", 3)
+		b.PutCmd("systemctl", []string{"is-active", "wpa_supplicant.service"}, "active\n", 0)
+		b.PutCmd("iw", []string{"dev"},
+			"phy#0\n\tInterface wlan0\n\t\tssid HomeNet\n\t\tchannel 36 (5180 MHz), width: 80 MHz\n"+
+				"phy#1\n\tInterface wlan1\n\t\tssid HomeNet\n\t\tchannel 1 (2412 MHz), width: 20 MHz\n", 0)
+		b.PutCmd("iw", []string{"dev", "wlan0", "link"}, "Connected to aa:bb:cc:dd:ee:ff\n\tsignal: -50 dBm\n", 0)
+	})
+	w := collectSteamOSWifi(context.Background())
+	if w.Backend != "wpa_supplicant" || !w.DevMode {
+		t.Errorf("backend = %q devMode=%v, want wpa_supplicant/true", w.Backend, w.DevMode)
+	}
+	if !w.SSIDConflict || w.ConflictSSID != "HomeNet" {
+		t.Errorf("SSIDConflict = %v ConflictSSID = %q, want true/HomeNet", w.SSIDConflict, w.ConflictSSID)
+	}
+}
+
 func TestCollectSteamOSWifi_UnknownBackend(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("systemctl", []string{"is-active", "iwd.service"})
@@ -422,6 +530,16 @@ func TestSteamUserHome_FallsBackToHomeEnv(t *testing.T) {
 	}
 }
 
+// TestSteamUserHome_NeitherDeckNorHomeEnv guards the final "/home/deck"
+// fallback: neither /home/deck exists nor is HOME set.
+func TestSteamUserHome_NeitherDeckNorHomeEnv(t *testing.T) {
+	t.Setenv("HOME", "")
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := steamUserHome(); got != "/home/deck" {
+		t.Errorf("steamUserHome() = %q, want /home/deck (final fallback)", got)
+	}
+}
+
 func TestDuGB(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("du", []string{"-sb", "/some/dir"}, "2500000000\t/some/dir\n", 0)
@@ -437,6 +555,28 @@ func TestDuGB_CommandFails(t *testing.T) {
 	})
 	if got := duGB(context.Background(), "/some/dir"); got != 0 {
 		t.Errorf("duGB() = %v, want 0", got)
+	}
+}
+
+// TestDuGB_EmptyOutput guards the len(fields)==0 branch: `du` succeeding with
+// blank stdout must not panic on fields[0] and must return 0.
+func TestDuGB_EmptyOutput(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("du", []string{"-sb", "/some/dir"}, "", 0)
+	})
+	if got := duGB(context.Background(), "/some/dir"); got != 0 {
+		t.Errorf("duGB() = %v, want 0 for empty output", got)
+	}
+}
+
+// TestDuGB_UnparseableSize guards the parseFiniteFloat failure branch: a
+// non-numeric first field must return 0, not a garbage value.
+func TestDuGB_UnparseableSize(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("du", []string{"-sb", "/some/dir"}, "notanumber\t/some/dir\n", 0)
+	})
+	if got := duGB(context.Background(), "/some/dir"); got != 0 {
+		t.Errorf("duGB() = %v, want 0 for an unparseable size field", got)
 	}
 }
 
