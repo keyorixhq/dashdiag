@@ -547,3 +547,321 @@ func TestBoolExists(t *testing.T) {
 		}
 	})
 }
+
+// TestDetectIPTables guards the three outcomes of the iptables gate: a
+// non-trivial ruleset (Active+SSHAllowed derived from the rules), tooling
+// present but empty (FirewallToolingPresent, not Active), and installed-but-
+// unreadable (non-root EPERM) reporting FirewallUnreadable rather than a
+// false "no firewall".
+func TestDetectIPTables(t *testing.T) {
+	t.Run("active with SSH rule", func(t *testing.T) {
+		out := "Chain INPUT (policy DROP)\nnum  target     prot opt source               destination\n1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22\n"
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		if !detectIPTables(context.Background(), info) {
+			t.Fatal("expected detectIPTables to report true for a non-empty ruleset")
+		}
+		if !info.FirewallActive || info.FirewallType != "iptables" {
+			t.Errorf("expected FirewallActive=true FirewallType=iptables, got %+v", info)
+		}
+		if !info.SSHAllowed {
+			t.Error("explicit ACCEPT tcp dpt:22 rule must set SSHAllowed=true")
+		}
+	})
+
+	t.Run("installed but empty ruleset", func(t *testing.T) {
+		out := "Chain INPUT (policy ACCEPT)\nnum  target     prot opt source               destination\n"
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false with an empty ruleset")
+		}
+		if !info.FirewallToolingPresent || info.FirewallActive {
+			t.Errorf("expected tooling-present-but-inactive, got %+v", info)
+		}
+		if info.FirewallType != "iptables" {
+			t.Errorf("FirewallType = %q, want iptables", info.FirewallType)
+		}
+	})
+
+	t.Run("installed but unreadable (non-root EPERM)", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, "", 1)
+		})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false when the command errors")
+		}
+		if !info.FirewallUnreadable {
+			t.Error("expected FirewallUnreadable=true, not a silent false-OK")
+		}
+	})
+
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false when iptables is absent")
+		}
+	})
+}
+
+// TestParseCryptoPolicy guards the two data sources: the config-file fast
+// path (no subprocess) and the update-crypto-policies fallback when the file
+// is absent.
+func TestParseCryptoPolicy(t *testing.T) {
+	t.Run("config file present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/crypto-policies/config", []byte("FIPS\n"))
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "FIPS" {
+			t.Errorf("CryptoPolicy = %q, want FIPS", info.CryptoPolicy)
+		}
+	})
+
+	t.Run("falls back to update-crypto-policies --show", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("update-crypto-policies", []string{"--show"}, "DEFAULT\n", 0)
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "DEFAULT" {
+			t.Errorf("CryptoPolicy = %q, want DEFAULT", info.CryptoPolicy)
+		}
+	})
+
+	t.Run("neither source available", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmdNotFound("update-crypto-policies", []string{"--show"})
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "" {
+			t.Errorf("CryptoPolicy = %q, want empty when neither source is available", info.CryptoPolicy)
+		}
+	})
+}
+
+// TestParseAIDE guards the three outcomes: not installed (no-op), installed
+// with a database present (age computed from mtime), and installed but never
+// run (AIDELastRunDays == -1 sentinel).
+func TestParseAIDE(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if info.AIDEInstalled {
+			t.Error("expected AIDEInstalled=false when neither binary path exists")
+		}
+	})
+
+	t.Run("installed with database", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/aide", source.FileMeta{})
+			b.PutStat("/var/lib/aide/aide.db", source.FileMeta{ModTime: time.Now().Add(-72 * time.Hour)})
+		})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if !info.AIDEInstalled || !info.AIDEDBExists {
+			t.Fatalf("expected AIDEInstalled+AIDEDBExists=true, got %+v", info)
+		}
+		if info.AIDELastRunDays != 3 {
+			t.Errorf("AIDELastRunDays = %d, want 3 (72h ago)", info.AIDELastRunDays)
+		}
+	})
+
+	t.Run("installed but never run", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/bin/aide", source.FileMeta{})
+		})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if !info.AIDEInstalled || info.AIDEDBExists {
+			t.Fatalf("expected installed-but-no-db, got %+v", info)
+		}
+		if info.AIDELastRunDays != -1 {
+			t.Errorf("AIDELastRunDays = %d, want -1 (never run)", info.AIDELastRunDays)
+		}
+	})
+}
+
+// TestParseSupportconfig guards the three outcomes: not installed, an
+// archive-based find (SLES 15/older format), and the SLES 16 directory-based
+// output — plus the never-run -1 sentinel.
+func TestParseSupportconfig(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigAvailable {
+			t.Error("expected SupportconfigAvailable=false when neither binary path exists")
+		}
+	})
+
+	t.Run("installed, never run", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", nil)
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if !info.SupportconfigAvailable {
+			t.Fatal("expected SupportconfigAvailable=true")
+		}
+		if info.SupportconfigLastRunDays != -1 {
+			t.Errorf("SupportconfigLastRunDays = %d, want -1 (never run)", info.SupportconfigLastRunDays)
+		}
+	})
+
+	t.Run("archive found (legacy tbz)", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", []string{"/var/log/nts_host_20260101.tbz", "/var/log/nts_host_20260101.tbz.md5"})
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+			b.PutStat("/var/log/nts_host_20260101.tbz", source.FileMeta{ModTime: time.Now().Add(-48 * time.Hour)})
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigArchive != "/var/log/nts_host_20260101.tbz" {
+			t.Errorf("SupportconfigArchive = %q, want the .tbz archive (not the .md5 sidecar)", info.SupportconfigArchive)
+		}
+		if info.SupportconfigLastRunDays != 2 {
+			t.Errorf("SupportconfigLastRunDays = %d, want 2 (48h ago)", info.SupportconfigLastRunDays)
+		}
+	})
+
+	t.Run("SLES 16 directory-based output", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutDir("/var/log", []string{"scc_host_20260105", "other-file"})
+			b.PutDir("/var/log/scc_host_20260105", nil) // makes probeIsDir see it as a directory
+			b.PutStat("/var/log/scc_host_20260105", source.FileMeta{IsDir: true, ModTime: time.Now().Add(-24 * time.Hour)})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", nil)
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigArchive != "/var/log/scc_host_20260105" {
+			t.Errorf("SupportconfigArchive = %q, want the scc_ directory", info.SupportconfigArchive)
+		}
+		if info.SupportconfigLastRunDays != 1 {
+			t.Errorf("SupportconfigLastRunDays = %d, want 1 (24h ago)", info.SupportconfigLastRunDays)
+		}
+	})
+}
+
+// TestParseAppArmor guards the two outcomes: AppArmor disabled (early
+// return, no fields set) and enabled (mode/profile counts/denials all
+// populated from the same detection logic KernelSecurityCollector uses).
+func TestParseAppArmor(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseAppArmor(info)
+		if info.AppArmorMode != "" || info.AppArmorProfiles != 0 {
+			t.Errorf("expected zero-value AppArmor fields when disabled, got %+v", info)
+		}
+	})
+
+	t.Run("enabled with profiles", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/sys/module/apparmor/parameters/enabled", []byte("Y\n"))
+			b.PutFile("/sys/kernel/security/apparmor/profiles", []byte(
+				"/usr/bin/foo (enforce)\n/usr/bin/bar (complain)\n",
+			))
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 0)
+		})
+		info := &models.SecurityInfo{}
+		parseAppArmor(info)
+		if info.AppArmorMode != "enforce" {
+			t.Errorf("AppArmorMode = %q, want enforce", info.AppArmorMode)
+		}
+		if info.AppArmorProfiles != 2 {
+			t.Errorf("AppArmorProfiles = %d, want 2", info.AppArmorProfiles)
+		}
+		if info.AppArmorComplain != 1 {
+			t.Errorf("AppArmorComplain = %d, want 1", info.AppArmorComplain)
+		}
+	})
+}
+
+// TestCollectSUSEConnect guards the three outcomes: SUSEConnect absent
+// (no-op), the query-failed sentinel (command errors — not a confident
+// "unregistered"), and a successful parse delegating to
+// applySUSEConnectStatus.
+func TestCollectSUSEConnect(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if info.SUSEConnectStatus != "" {
+			t.Errorf("SUSEConnectStatus = %q, want empty when SUSEConnect is absent", info.SUSEConnectStatus)
+		}
+	})
+
+	t.Run("query fails", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{"lookpath/SUSEConnect": []byte("/usr/bin/SUSEConnect")}, nil, func(b *source.Bundle) {
+			b.PutCmd("SUSEConnect", []string{"--status"}, "", 1)
+		})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if info.SUSEConnectStatus != "query-failed" {
+			t.Errorf("SUSEConnectStatus = %q, want query-failed", info.SUSEConnectStatus)
+		}
+	})
+
+	t.Run("registered and active", func(t *testing.T) {
+		out := `[{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE","expires_at":"2099-07-13 00:00:00 UTC"}]`
+		withCombinedFixture(t, map[string][]byte{"lookpath/SUSEConnect": []byte("/usr/bin/SUSEConnect")}, nil, func(b *source.Bundle) {
+			b.PutCmd("SUSEConnect", []string{"--status"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if !info.SUSEConnectRegistered {
+			t.Error("expected SUSEConnectRegistered=true")
+		}
+		if info.SUSEConnectStatus != "ACTIVE" {
+			t.Errorf("SUSEConnectStatus = %q, want ACTIVE", info.SUSEConnectStatus)
+		}
+	})
+}
+
+// TestCollectPAMLockedAccounts guards the faillock-driven lock-out audit: a
+// [Locked] line is extracted by username, faillock's absence/error must
+// return nil rather than a spurious entry.
+func TestCollectPAMLockedAccounts(t *testing.T) {
+	t.Run("locked accounts present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("faillock", []string{"--user", ""},
+				"bob:\nV                                     when               type  source                                                          valid\n"+
+					"bob [Locked] 2026-07-01 10:00:00 RHOST 1.2.3.4 V\n", 0)
+		})
+		got := collectPAMLockedAccounts(context.Background())
+		if len(got) != 1 || got[0] != "bob" {
+			t.Errorf("expected [bob], got %v", got)
+		}
+	})
+
+	t.Run("faillock unavailable", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmdNotFound("faillock", []string{"--user", ""})
+		})
+		if got := collectPAMLockedAccounts(context.Background()); got != nil {
+			t.Errorf("expected nil when faillock is unavailable, got %v", got)
+		}
+	})
+}

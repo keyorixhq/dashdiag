@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -500,5 +501,121 @@ func TestCgroupScope_Missing(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if got := cgroupScope(9999); got != "" {
 		t.Errorf("cgroupScope() = %q, want empty when unreadable", got)
+	}
+}
+
+// ── collectMemDetail ─────────────────────────────────────────────────────────
+
+// TestCollectMemDetail guards the /proc/meminfo extended-field parse (kB→MB
+// conversion) and the graceful no-op when the file is unreadable.
+func TestCollectMemDetail(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/meminfo", []byte(
+			"MemTotal:       16384000 kB\n"+
+				"Cached:          2048000 kB\n"+
+				"Buffers:          512000 kB\n"+
+				"Dirty:              1024 kB\n"+
+				"AnonPages:       4096000 kB\n",
+		))
+	})
+	info := &models.HealthDeepInfo{}
+	collectMemDetail(info)
+	if info.CachedMB != 2000 {
+		t.Errorf("CachedMB = %v, want 2000", info.CachedMB)
+	}
+	if info.BuffersMB != 500 {
+		t.Errorf("BuffersMB = %v, want 500", info.BuffersMB)
+	}
+	if info.DirtyMB != 1 {
+		t.Errorf("DirtyMB = %v, want 1", info.DirtyMB)
+	}
+	if info.AnonPagesMB != 4000 {
+		t.Errorf("AnonPagesMB = %v, want 4000", info.AnonPagesMB)
+	}
+}
+
+func TestCollectMemDetail_FileMissing(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	info := &models.HealthDeepInfo{}
+	collectMemDetail(info)
+	if info.CachedMB != 0 || info.BuffersMB != 0 || info.DirtyMB != 0 || info.AnonPagesMB != 0 {
+		t.Errorf("expected zero-value fields when /proc/meminfo is unreadable, got %+v", info)
+	}
+}
+
+// ── collectCgroupV2 ──────────────────────────────────────────────────────────
+
+// TestCollectCgroupV2 guards the top-level gate (cgroup v2 unmounted → nil)
+// and the populated path: controllers, per-slice throttling surfaced into
+// ThrottledSlices above the 5% bar, and OOM kill count from the root
+// memory.events.
+func TestCollectCgroupV2_NotMounted(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := collectCgroupV2(); got != nil {
+		t.Errorf("expected nil when cgroup v2 is not mounted, got %+v", got)
+	}
+}
+
+func TestCollectCgroupV2_Populated(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile(cgroupRoot+"/cgroup.controllers", []byte("cpu io memory\n"))
+		b.PutStat(cgroupRoot+"/cgroup.controllers", source.FileMeta{})
+		b.PutGlob(cgroupRoot+"/*.slice", []string{cgroupRoot + "/system.slice"})
+		b.PutGlob(cgroupRoot+"/*.scope", []string{cgroupRoot + "/init.scope"})
+		b.PutFile(cgroupRoot+"/system.slice/cpu.stat", []byte("usage_usec 500000\nthrottled_usec 100000\n"))
+		b.PutFile(cgroupRoot+"/init.scope/cpu.stat", []byte("usage_usec 500000\nthrottled_usec 0\n"))
+		b.PutFile(cgroupRoot+"/memory.events", []byte("low 0\nhigh 0\nmax 0\noom 0\noom_kill 2\n"))
+	})
+	got := collectCgroupV2()
+	if got == nil || !got.Available {
+		t.Fatalf("expected a populated CgroupV2Info, got %+v", got)
+	}
+	if len(got.Controllers) != 3 {
+		t.Errorf("Controllers = %v, want 3 entries", got.Controllers)
+	}
+	if len(got.Slices) != 2 {
+		t.Fatalf("expected 2 slices (system.slice + init.scope), got %+v", got.Slices)
+	}
+	if len(got.ThrottledSlices) != 1 || got.ThrottledSlices[0] != "system.slice" {
+		t.Errorf("ThrottledSlices = %v, want [system.slice] (20%% throttled > 5%% bar)", got.ThrottledSlices)
+	}
+	if got.OOMKills != 2 {
+		t.Errorf("OOMKills = %d, want 2", got.OOMKills)
+	}
+}
+
+// ── parseCgroupPath ──────────────────────────────────────────────────────────
+
+// TestParseCgroupPath guards the label derivation across every branch: root/
+// init, docker, podman (libpod scope + pod), kubepods, system.slice service
+// (with nested path stripped), user.slice, and the generic last-segment
+// fallback.
+func TestParseCgroupPath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"root", "/", "kernel"},
+		{"empty", "", "kernel"},
+		{"init scope", "/init.scope", "init"},
+		{"docker container", "/docker/abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a", "container:abcdef012345"},
+		{"podman libpod scope", "/machine.slice/libpod-abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a.scope", "container:abcdef012345"},
+		{"podman pod", "/machine.slice/libpod_pod_something", "pod:podman"},
+		{"kubepods with pod id", "/kubepods/besteffort/pod12345678-aaaa-bbbb-cccc-dddddddddddd/container1", "k8s-pod:12345678"},
+		{"kubepods without pod segment", "/kubepods/besteffort", "k8s"},
+		{"system slice nested", "/system.slice/k3s.service/some/nested/path", "system:k3s.service"},
+		{"system slice flat", "/system.slice/nginx.service", "system:nginx.service"},
+		{"user slice", "/user.slice/user-1000.slice/session-1.scope", "user:1000"},
+		{"generic fallback", "/some/other/path", "path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseCgroupPath(tt.path); got != tt.want {
+				t.Errorf("parseCgroupPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
 	}
 }

@@ -54,3 +54,65 @@ func TestParseBtrfsDevStats(t *testing.T) {
 		t.Errorf("the write error counter should be parsed, got %+v", vol.Devices[0])
 	}
 }
+
+// ── collectBtrfsVolumes ──────────────────────────────────────────────────────
+
+// TestCollectBtrfsVolumes_NoFilesystems guards the fast-path: no btrfs
+// filesystems in the input list must short-circuit to nil without running any
+// command.
+func TestCollectBtrfsVolumes_NoFilesystems(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("btrfs", []string{"filesystem", "show", "/"},
+			"should never be called", 0)
+	})
+	fss := []models.FilesystemInfo{{FSType: "ext4", Mount: "/"}}
+	if got := collectBtrfsVolumes(fss); got != nil {
+		t.Errorf("expected nil with no btrfs filesystems, got %+v", got)
+	}
+}
+
+// TestCollectBtrfsVolumes_DedupesByMountAndUUID guards two dedup layers: (1) a
+// mount listed twice (multiple subvolumes on the same mount) is only probed
+// once, and (2) two DIFFERENT mounts that report the SAME UUID (subvolumes of
+// one filesystem) collapse to a single result entry.
+func TestCollectBtrfsVolumes_DedupesByMountAndUUID(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("btrfs", []string{"filesystem", "show", "/"},
+			"Label: none  uuid: 1234-5678-abcd\n"+
+				"\tTotal devices 1 FS bytes used 1.00GiB\n"+
+				"\tdevid    1 size 10.00GiB used 1.00GiB path /dev/sda1\n", 0)
+		b.PutCmd("btrfs", []string{"filesystem", "show", "/home"},
+			// Same UUID as "/" — a subvolume of the same filesystem.
+			"Label: none  uuid: 1234-5678-abcd\n"+
+				"\tTotal devices 1 FS bytes used 1.00GiB\n"+
+				"\tdevid    1 size 10.00GiB used 1.00GiB path /dev/sda1\n", 0)
+		b.PutCmd("btrfs", []string{"device", "stats", "/"},
+			"[/dev/sda1].write_io_errs    0\n[/dev/sda1].read_io_errs    0\n", 0)
+	})
+	fss := []models.FilesystemInfo{
+		{FSType: "btrfs", Mount: "/"},
+		{FSType: "btrfs", Mount: "/"},     // duplicate mount — must be probed only once
+		{FSType: "btrfs", Mount: "/home"}, // different mount, same UUID — collapses
+		{FSType: "ext4", Mount: "/boot"},  // non-btrfs — ignored entirely
+	}
+	got := collectBtrfsVolumes(fss)
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 deduped volume, got %d: %+v", len(got), got)
+	}
+	if got[0].UUID != "1234-5678-abcd" {
+		t.Errorf("UUID = %q, want 1234-5678-abcd", got[0].UUID)
+	}
+}
+
+// TestCollectBtrfsVolumes_ShowFailureSkipsMount guards that a mount whose
+// `btrfs filesystem show` fails (binary missing, transient error) is skipped
+// rather than producing a fabricated volume.
+func TestCollectBtrfsVolumes_ShowFailureSkipsMount(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("btrfs", []string{"filesystem", "show", "/mnt/broken"})
+	})
+	fss := []models.FilesystemInfo{{FSType: "btrfs", Mount: "/mnt/broken"}}
+	if got := collectBtrfsVolumes(fss); got != nil {
+		t.Errorf("expected nil when btrfs filesystem show fails, got %+v", got)
+	}
+}

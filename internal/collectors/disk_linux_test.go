@@ -12,6 +12,115 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
+// ── zfsGate ──────────────────────────────────────────────────────────────────
+//
+// No t.Parallel() in this group: these swap the package-level activeSource via
+// SetSource, which is only race-free when serial tests finish before the
+// parallel batch starts (same constraint documented for runCmd/lookPath swaps
+// in internal/drilldown).
+
+func TestZFSGate_NoZpoolTool(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
+	if zfsGate() {
+		t.Error("expected false when zpool is not on PATH")
+	}
+}
+
+func TestZFSGate_NoZFSMount(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"zpool": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/mounts", []byte("/dev/sda1 / ext4 rw,relatime 0 0\ntmpfs /run tmpfs rw 0 0\n"))
+	})
+	if zfsGate() {
+		t.Error("expected false when no live zfs mount is present")
+	}
+}
+
+func TestZFSGate_LiveZFSMount(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"zpool": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/mounts", []byte("/dev/sda1 / ext4 rw,relatime 0 0\ntank /tank zfs rw,xattr,noacl 0 0\n"))
+	})
+	if !zfsGate() {
+		t.Error("expected true when zpool is present and a zfs mount is live")
+	}
+}
+
+func TestZFSGate_MountsUnreadable(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"zpool": true}, func(b *source.Bundle) {}) // /proc/mounts never seeded
+	if zfsGate() {
+		t.Error("expected false when /proc/mounts can't be read")
+	}
+}
+
+// ── deviceSizeBytes / deviceKernelName ──────────────────────────────────────
+//
+// No t.Parallel() here either (SetSource swap), except the one sub-test that
+// never touches activeSource.
+
+func TestDeviceSizeBytes_DirectNode(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/sys/class/block/sda1", source.FileMeta{})
+		b.PutFile("/sys/class/block/sda1/size", []byte("204800\n")) // 100MiB in 512B sectors
+	})
+	got, ok := deviceSizeBytes("/dev/sda1")
+	if !ok {
+		t.Fatal("expected ok=true for a direct device node with a readable size file")
+	}
+	if got != 204800*512 {
+		t.Errorf("deviceSizeBytes = %d, want %d", got, 204800*512)
+	}
+}
+
+func TestDeviceSizeBytes_SymlinkResolvedOneHop(t *testing.T) {
+	// /dev/mapper/vg-lv is not itself a /sys/class/block entry — resolve via
+	// readlink to dm-0. Bundle has no public Readlink-seeding API, so use the
+	// package's shared fakeCombinedSource (see security_linux_source_test.go).
+	withCombinedFixture(t, nil, map[string]string{"/dev/mapper/vg-lv": "../dm-0"}, func(b *source.Bundle) {
+		b.PutStat("/sys/class/block/dm-0", source.FileMeta{})
+		b.PutFile("/sys/class/block/dm-0/size", []byte("1024\n"))
+	})
+	got, ok := deviceSizeBytes("/dev/mapper/vg-lv")
+	if !ok {
+		t.Fatal("expected ok=true when the symlink resolves to a real block device")
+	}
+	if got != 1024*512 {
+		t.Errorf("deviceSizeBytes = %d, want %d", got, 1024*512)
+	}
+}
+
+func TestDeviceSizeBytes_NotAKnownBlockDevice(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {}) // nothing seeded — neither direct nor symlink resolves
+	if _, ok := deviceSizeBytes("/dev/does-not-exist"); ok {
+		t.Error("expected ok=false when the device can't be mapped to a sysfs entry")
+	}
+}
+
+func TestDeviceSizeBytes_NotADevPath(t *testing.T) {
+	t.Parallel()
+	if _, ok := deviceSizeBytes("relative/path"); ok {
+		t.Error("expected ok=false for a path not under /dev/")
+	}
+}
+
+func TestDeviceSizeBytes_UnparsableSize(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/sys/class/block/sda1", source.FileMeta{})
+		b.PutFile("/sys/class/block/sda1/size", []byte("not-a-number\n"))
+	})
+	if _, ok := deviceSizeBytes("/dev/sda1"); ok {
+		t.Error("expected ok=false when the sysfs size file is unparsable")
+	}
+}
+
+func TestDeviceSizeBytes_ZeroOrNegativeSizeRejected(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/sys/class/block/sda1", source.FileMeta{})
+		b.PutFile("/sys/class/block/sda1/size", []byte("0\n"))
+	})
+	if _, ok := deviceSizeBytes("/dev/sda1"); ok {
+		t.Error("expected ok=false for a zero-sector size (never claim a real disk is 0 bytes)")
+	}
+}
+
 // fakeStatfsSource layers a Statfs override (Bundle has no public Statfs-seeding
 // API) on top of a Bundle-backed Replay, mirroring fakeCombinedSource's
 // Cached/Readlink override pattern (see security_linux_source_test.go) — so

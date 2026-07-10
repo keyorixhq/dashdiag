@@ -138,6 +138,79 @@ func TestHasFeature_ExactTokenMatch(t *testing.T) {
 	}
 }
 
+// TestArmImplementerName guards the vendor-code lookup table and the
+// unknown-code fallback (return the code itself, unmapped).
+func TestArmImplementerName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		code string
+		want string
+	}{
+		{"0x41", "ARM"},
+		{"0x42", "Broadcom"},
+		{"0x43", "Cavium"},
+		{"0x44", "DEC"},
+		{"0x48", "HiSilicon"},
+		{"0x49", "Infineon"},
+		{"0x4d", "Motorola/Freescale"},
+		{"0x4e", "NVIDIA"},
+		{"0x50", "APM"},
+		{"0x51", "Qualcomm"},
+		{"0x53", "Samsung"},
+		{"0x56", "Marvell"},
+		{"0x61", "Apple"},
+		{"0x66", "Faraday"},
+		{"0x69", "Intel"},
+		{"0x70", "Phytium"},
+		{"0xc0", "Ampere"},
+		{"0X41", "ARM"},  // case-insensitive
+		{"0x99", "0x99"}, // unknown code — returned verbatim
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			t.Parallel()
+			if got := armImplementerName(tt.code); got != tt.want {
+				t.Errorf("armImplementerName(%q) = %q, want %q", tt.code, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestArmPartName guards every recognized ARM-Ltd and Ampere part code plus
+// the unknown-part (vendor-only, empty string) fallback and the
+// unrecognized-implementer branch.
+func TestArmPartName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		implementer string
+		part        string
+		want        string
+	}{
+		{"Cortex-A53", "0x41", "0xd03", "Cortex-A53"},
+		{"Cortex-A55", "0x41", "0xd05", "Cortex-A55"},
+		{"Cortex-A57", "0x41", "0xd07", "Cortex-A57"},
+		{"Cortex-A72", "0x41", "0xd08", "Cortex-A72"},
+		{"Cortex-A76", "0x41", "0xd0b", "Cortex-A76"},
+		{"Neoverse-N1", "0x41", "0xd0c", "Neoverse-N1"},
+		{"Neoverse-V1", "0x41", "0xd40", "Neoverse-V1"},
+		{"Neoverse-N2", "0x41", "0xd49", "Neoverse-N2"},
+		{"unknown ARM part", "0x41", "0xffff", ""},
+		{"AmpereOne", "0xc0", "0xac3", "AmpereOne"},
+		{"unknown Ampere part", "0xc0", "0xffff", ""},
+		{"unrecognized implementer", "0x99", "0xd0c", ""},
+		{"case-insensitive", "0X41", "0XD0C", "Neoverse-N1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := armPartName(tt.implementer, tt.part); got != tt.want {
+				t.Errorf("armPartName(%q, %q) = %q, want %q", tt.implementer, tt.part, got, tt.want)
+			}
+		})
+	}
+}
+
 // ARM bare-metal (e.g. Raspberry Pi) exposes a "Hardware" field used as the model.
 func TestParseProcCPUInfo_armHardwareField(t *testing.T) {
 	const data = `processor	: 0

@@ -131,6 +131,36 @@ func TestReadDistroID_Missing(t *testing.T) {
 	}
 }
 
+// ── fixCommand ───────────────────────────────────────────────────────────────
+
+func TestFixCommand(t *testing.T) {
+	cases := []struct {
+		tool string
+		want string
+	}{
+		{"zypper", "zypper patch --category security"},
+		{"dnf", "dnf upgrade --security"},
+		{"apt-get", "apt-get upgrade"},
+		{"pacman", "pacman -Syu"},
+		{"tdnf", "tdnf update --security"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			withLookPathFixture(t, map[string]bool{tc.tool: true}, func(b *source.Bundle) {})
+			if got := fixCommand(); got != tc.want {
+				t.Errorf("fixCommand() with only %s present = %q, want %q", tc.tool, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFixCommand_NoPackageManager(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
+	if got := fixCommand(); got != "" {
+		t.Errorf("fixCommand() with no package manager = %q, want empty", got)
+	}
+}
+
 // ── tryOVALFallback / scanAllViaOVAL ─────────────────────────────────────────
 
 func TestTryOVALFallback_NotFound(t *testing.T) {
@@ -150,6 +180,81 @@ func TestScanAllViaOVAL_NotFound(t *testing.T) {
 	})
 	if got := scanAllViaOVAL(context.Background()); got != nil {
 		t.Errorf("expected nil with no staged OVAL feed, got %+v", got)
+	}
+}
+
+// ubuntuOVALWithRealPkg is an Ubuntu/Debian-shaped OVAL definition referencing
+// "dpkg" — a package genuinely installed in every Debian-family container
+// (including the golang:1.26 test image), so ScanUbuntuOVALPackages's real
+// dpkg-query cross-reference produces a genuine, deterministic hit without
+// touching any collectors-package fixture seam (cvedata reads raw os.Stat/
+// exec.Command, bypassing activeSource entirely — see isolateCVEHome's doc).
+const ubuntuOVALWithRealPkg = `<?xml version="1.0"?>
+<oval_definitions><definitions>
+  <definition class="vulnerability">
+    <metadata>
+      <reference source="CVE" ref_id="CVE-2024-1234"/>
+      <advisory><severity>high</severity></advisory>
+    </metadata>
+    <criteria>
+      <criterion comment="dpkg package in noble is affected and may need fixing."/>
+    </criteria>
+  </definition>
+</definitions></oval_definitions>`
+
+// writeStagedOVAL stages an OVAL sidecar file under $HOME/.dsd/oval/ (one of
+// cvedata.StandardOVALPaths()'s user-local dirs) so FindOVALFile's "any .xml
+// in the dir" fallback picks it up regardless of exact filename. The filename
+// includes "ubuntu" so sniffOVALVendor's content-sniff miss (this fixture has
+// no canonical.com/ubuntu.com marker in its body) still falls through to
+// isUbuntuOVAL's filename hint and dispatches to ScanUbuntuOVALPackages,
+// rather than defaulting to the RHEL-shaped parser.
+func writeStagedOVAL(t *testing.T, home, content string) {
+	t.Helper()
+	dir := filepath.Join(home, ".dsd", "oval")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir oval dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ubuntu-test.xml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write oval fixture: %v", err)
+	}
+}
+
+// NOTE: tryOVALFallback (unlike scanAllViaOVAL) cannot be exercised end-to-end
+// for the "Found=true, packages installed" branch in this test environment or
+// hermetically at all: cvedata.CheckCVEFromOVAL — the function tryOVALFallback
+// calls — ALWAYS parses via the RHEL-shaped rpminfo_test/object/state schema
+// and ALWAYS cross-references via cvedata.QueryInstalledRPM (a real `rpm -qa`
+// exec), regardless of the host's actual distro. There is no Ubuntu/Debian
+// dispatch in CheckCVEFromOVAL at all (contrast with ScanOVALPackages, which
+// DOES vendor-dispatch to ScanUbuntuOVALPackages/dpkg — see
+// TestScanAllViaOVAL_FoundWithRealInstalledPackage below). This looks like a
+// real product gap: a staged Ubuntu OVAL sidecar is consulted by the bulk
+// `dsd cve --oval-scan` path but silently ignored by the single-CVE
+// `dsd cve check <CVE-ID>` path on any non-RHEL/SUSE distro. Left unfixed here
+// — the fix belongs in internal/cvedata (CheckCVEFromOVAL needs the same
+// vendor dispatch ScanOVALPackages already has), which is a larger change
+// than this coverage pass's scope. Flagged in the task report.
+
+// TestScanAllViaOVAL_FoundWithRealInstalledPackage is the scanAllViaOVAL
+// analog: the same staged feed must surface through the "scan everything"
+// entrypoint, bucketed by CVSS/priority into the CVEAllResult shape.
+func TestScanAllViaOVAL_FoundWithRealInstalledPackage(t *testing.T) {
+	home := isolateCVEHome(t)
+	writeStagedOVAL(t, home, ubuntuOVALWithRealPkg)
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+
+	got := scanAllViaOVAL(context.Background())
+	if got == nil {
+		t.Fatal("expected a non-nil CVEAllResult when the staged OVAL feed matches an installed package")
+	}
+	if got.Total != 1 {
+		t.Fatalf("Total = %d, want 1", got.Total)
+	}
+	if !strings.HasPrefix(got.PackageManager, "oval:") {
+		t.Errorf("PackageManager = %q, want an oval: prefix", got.PackageManager)
 	}
 }
 
@@ -251,6 +356,85 @@ func TestTrySnapshotFallback_AffectedButRPMUnavailable(t *testing.T) {
 	})
 	if got := trySnapshotFallback(context.Background(), "CVE-2024-1234"); got != nil {
 		t.Errorf("expected nil when rpm is unavailable to verify installed versions, got %+v", got)
+	}
+}
+
+// ── APT scanning ──────────────────────────────────────────────────────────────
+
+func TestScanAllApt_Success(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("apt-get", []string{"--simulate", "upgrade"},
+			"Inst openssl [3.0.1] (3.0.2 debian-security:12/stable-security [amd64])\n"+
+				"Inst zlib1g [1.2.11] (1.2.13 debian-security:12/stable-security [amd64])\n"+
+				"Inst regular-pkg [1.0] (1.1 debian:12/stable [amd64])\n", 0) // no "security" substring — filtered out
+	})
+	res := scanAllApt(context.Background())
+	if res.ScanFailed {
+		t.Fatalf("expected a successful scan, got ScanFailed: %s", res.StatusReason)
+	}
+	// Only the two "security" lines count; the non-security Inst line is filtered out.
+	if res.Total != 2 {
+		t.Fatalf("expected 2 advisories, got %d: %+v", res.Total, res)
+	}
+	if len(res.Critical) != 1 || res.Critical[0].ID != "openssl" {
+		t.Errorf("Critical = %+v, want [openssl] (openssl is a CRITICAL-severity package)", res.Critical)
+	}
+	if res.FixCommand != "apt-get upgrade" {
+		t.Errorf("FixCommand = %q, want apt-get upgrade", res.FixCommand)
+	}
+	if res.StatusReason != "" {
+		t.Errorf("StatusReason = %q, want empty when advisories were found", res.StatusReason)
+	}
+}
+
+func TestScanAllApt_UpToDate(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("apt-get", []string{"--simulate", "upgrade"}, "", 0)
+	})
+	res := scanAllApt(context.Background())
+	if res.ScanFailed {
+		t.Fatal("empty output with no error is a clean scan, not a failure")
+	}
+	if res.Total != 0 {
+		t.Errorf("Total = %d, want 0", res.Total)
+	}
+	if res.StatusReason != "no pending upgrades found" {
+		t.Errorf("StatusReason = %q, want the up-to-date message", res.StatusReason)
+	}
+}
+
+// TestScanAllApt_UpgradeFailsFallsBackToDistUpgrade guards the fallback-
+// ordering branch: when `apt-get --simulate upgrade` fails with NO output,
+// scanAllApt must retry `--simulate dist-upgrade` before giving up.
+func TestScanAllApt_UpgradeFailsFallsBackToDistUpgrade(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("apt-get", []string{"--simulate", "upgrade"}, "", 1) // fails, empty output
+		b.PutCmd("apt-get", []string{"--simulate", "dist-upgrade"},
+			"Inst curl [7.0] (7.1 debian-security:12/stable-security [amd64])\n", 0)
+	})
+	res := scanAllApt(context.Background())
+	if res.ScanFailed {
+		t.Fatalf("expected the dist-upgrade fallback to succeed, got ScanFailed: %s", res.StatusReason)
+	}
+	if res.Total != 1 {
+		t.Fatalf("expected 1 advisory from the dist-upgrade fallback, got %+v", res)
+	}
+}
+
+// TestScanAllApt_BothFail guards the false-OK regression this closes: when
+// BOTH apt-get simulations fail with no output, the scan must report
+// ScanFailed=true (not a silent clean "0 advisories" false-OK).
+func TestScanAllApt_BothFail(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("apt-get", []string{"--simulate", "upgrade"})
+		b.PutCmdNotFound("apt-get", []string{"--simulate", "dist-upgrade"})
+	})
+	res := scanAllApt(context.Background())
+	if !res.ScanFailed {
+		t.Fatal("expected ScanFailed when both apt-get simulations fail with no output")
+	}
+	if !strings.Contains(res.StatusReason, "apt-get --simulate upgrade failed") {
+		t.Errorf("StatusReason = %q, want the apt-get failure reason", res.StatusReason)
 	}
 }
 

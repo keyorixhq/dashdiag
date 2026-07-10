@@ -53,6 +53,44 @@ func TestRootROIsUnexpected(t *testing.T) {
 	}
 }
 
+// TestOsReleaseIsSteamOS guards the three branches: SteamOS via ID=, SteamOS
+// via the steamdeck VARIANT_ID, and a non-SteamOS distro (must not flag).
+func TestOsReleaseIsSteamOS(t *testing.T) {
+	t.Run("ID=steamos", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/os-release", []byte("NAME=SteamOS\nID=steamos\nVERSION_ID=3.5\n"))
+		})
+		if !osReleaseIsSteamOS() {
+			t.Error("expected true for ID=steamos")
+		}
+	})
+
+	t.Run("VARIANT_ID=steamdeck", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/os-release", []byte("NAME=SteamOS\nID=steamos\nVARIANT_ID=steamdeck\n"))
+		})
+		if !osReleaseIsSteamOS() {
+			t.Error("expected true for VARIANT_ID=steamdeck")
+		}
+	})
+
+	t.Run("non-SteamOS distro", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/os-release", []byte("NAME=Ubuntu\nID=ubuntu\n"))
+		})
+		if osReleaseIsSteamOS() {
+			t.Error("expected false for a non-SteamOS distro")
+		}
+	})
+
+	t.Run("file missing", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		if osReleaseIsSteamOS() {
+			t.Error("expected false when /etc/os-release is unreadable")
+		}
+	})
+}
+
 func TestFstabRootRW(t *testing.T) {
 	// errors=remount-ro is rw intent (the `ro` is a substring, not the option).
 	if !fstabRootRW("UUID=x / ext4 errors=remount-ro 0 1") {

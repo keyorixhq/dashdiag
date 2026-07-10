@@ -78,6 +78,40 @@ func TestBindParseZoneFile_Missing(t *testing.T) {
 	}
 }
 
+// ── resolveZoneFilePath ──────────────────────────────────────────────────────
+
+func TestResolveZoneFilePath_AbsoluteUnchanged(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := resolveZoneFilePath("/zones/good.db"); got != "/zones/good.db" {
+		t.Errorf("resolveZoneFilePath(absolute) = %q, want unchanged", got)
+	}
+}
+
+func TestResolveZoneFilePath_FoundUnderVarNamed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/var/named/good.db", source.FileMeta{})
+	})
+	if got := resolveZoneFilePath("good.db"); got != "/var/named/good.db" {
+		t.Errorf("resolveZoneFilePath(good.db) = %q, want /var/named/good.db", got)
+	}
+}
+
+func TestResolveZoneFilePath_FoundUnderEtcBind(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/etc/bind/db.example", source.FileMeta{})
+	})
+	if got := resolveZoneFilePath("db.example"); got != "/etc/bind/db.example" {
+		t.Errorf("resolveZoneFilePath(db.example) = %q, want /etc/bind/db.example", got)
+	}
+}
+
+func TestResolveZoneFilePath_NotFoundAnywhere(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {}) // neither base dir has the file
+	if got := resolveZoneFilePath("missing.db"); got != "missing.db" {
+		t.Errorf("resolveZoneFilePath(missing.db) = %q, want the unresolved relative path unchanged", got)
+	}
+}
+
 func TestBindExtractZoneError(t *testing.T) {
 	tests := []struct {
 		name string
