@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,12 +13,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
-// TestParseFailedLogins_FromAuthLog guards the 1h SSH brute-force counter read
-// from /var/log/auth.log: a >=3-attempt IP must be flagged in FailedLoginIPs,
-// a distinct single-attempt "Invalid user" line must still count toward
-// FailedLogins without being flagged individually, and a >1h-old line must be
-// excluded by the recency gate (distinct from the 24h PAM-failure counter —
-// this is the older, SSH-specific counter).
+// After #749, parseFailedLogins reads failed SSH logins from journald first
+// (authoritative, always live) and only falls back to /var/log/secure or
+// /var/log/auth.log when journalctl itself is unavailable. Every line — journal
+// OR file — passes through the same 1h recency gate, so fixtures must use
+// live-relative timestamps (time.Stamp), never fixed calendar dates, or the
+// gate silently drops them and the assertions pass/fail on wall-clock luck.
+
+// TestParseFailedLogins_FromAuthLog exercises the FILE fallback (journalctl
+// unavailable): a >=3-attempt IP in /var/log/auth.log is flagged, a distinct
+// single-attempt "Invalid user" line still counts toward FailedLogins without
+// being flagged individually, and a >1h-old line is excluded by the recency
+// gate (this is the SSH-specific 1h counter, distinct from the 24h PAM one).
 func TestParseFailedLogins_FromAuthLog(t *testing.T) {
 	now := time.Now()
 	recent := now.Add(-10 * time.Minute).Format(time.Stamp)
@@ -32,12 +39,14 @@ func TestParseFailedLogins_FromAuthLog(t *testing.T) {
 	}
 
 	withFixtureSource(t, func(b *source.Bundle) {
+		// journalctl unavailable → parseFailedLogins falls back to the file.
+		b.PutCmdNotFound("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"})
 		b.PutFile("/var/log/auth.log", []byte(strings.Join(lines, "\n")+"\n"))
 		b.PutStat("/var/log/auth.log", source.FileMeta{Mode: 0o644})
 	})
 
 	info := &models.SecurityInfo{}
-	parseFailedLogins(info)
+	parseFailedLogins(context.Background(), info)
 
 	if info.FailedLogins != 4 {
 		t.Errorf("expected 4 in-window failed logins (3 from .5 + 1 from .9, excluding the >1h-old line), got %d", info.FailedLogins)
@@ -48,56 +57,63 @@ func TestParseFailedLogins_FromAuthLog(t *testing.T) {
 }
 
 // TestParseFailedLogins_Clean guards the zero-matches boundary: an auth.log
-// present but with no matching failure lines must leave FailedLogins at zero
-// and FailedLoginIPs nil, not a spurious entry.
+// present but with no failure lines must leave FailedLogins at zero and
+// FailedLoginIPs nil, not a spurious entry.
 func TestParseFailedLogins_Clean(t *testing.T) {
+	recent := time.Now().Add(-10 * time.Minute).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutFile("/var/log/auth.log", []byte("Jul  8 10:00:01 host sshd[1]: Accepted publickey for deploy from 10.0.0.1 port 22 ssh2\n"))
+		b.PutCmdNotFound("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"})
+		b.PutFile("/var/log/auth.log", []byte(
+			fmt.Sprintf("%s host sshd[1]: Accepted publickey for deploy from 10.0.0.1 port 22 ssh2\n", recent)))
 		b.PutStat("/var/log/auth.log", source.FileMeta{Mode: 0o644})
 	})
 	info := &models.SecurityInfo{}
-	parseFailedLogins(info)
+	parseFailedLogins(context.Background(), info)
 	if info.FailedLogins != 0 || len(info.FailedLoginIPs) != 0 {
 		t.Errorf("a clean log should leave FailedLogins=0 and FailedLoginIPs empty, got %d / %+v", info.FailedLogins, info.FailedLoginIPs)
 	}
 }
 
-// TestParseFailedLogins_NoLogFiles_FallsBackToJournal guards the journald-only
-// fallback path (Debian 13+, neither /var/log/secure nor /var/log/auth.log
-// present): the exact journalctl args must match what parseFailedLogins /
-// parseFailedLoginsFromJournal actually invokes, or the fixture silently
-// misses and the test passes vacuously on the "err != nil -> return" branch.
-func TestParseFailedLogins_NoLogFiles_FallsBackToJournal(t *testing.T) {
+// TestParseFailedLogins_JournaldPrimary guards that journald is the source of
+// record: when journalctl returns output it is parsed directly, without ever
+// touching a log file. The exact journalctl args must match what
+// parseFailedLogins/authLogSourceLines invoke, or the fixture silently misses
+// and the test passes vacuously on the file-fallback branch.
+func TestParseFailedLogins_JournaldPrimary(t *testing.T) {
+	recent := time.Now().Add(-5 * time.Minute).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("journalctl",
 			[]string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"},
-			"Jul 08 10:00:01 host sshd[1]: Failed password for invalid user admin from 203.0.113.5 port 40001 ssh2\n",
+			fmt.Sprintf("%s host sshd[1]: Failed password for invalid user admin from 203.0.113.5 port 40001 ssh2\n", recent),
 			0)
 	})
 
 	info := &models.SecurityInfo{}
-	parseFailedLogins(info)
+	parseFailedLogins(context.Background(), info)
 
 	if info.FailedLogins != 1 {
-		t.Fatalf("expected the journalctl fallback to be parsed, got FailedLogins=%d", info.FailedLogins)
+		t.Fatalf("expected the journald output to be parsed, got FailedLogins=%d", info.FailedLogins)
 	}
 }
 
-// TestParseFailedLoginsFromJournal_LegacyFormat exercises the OpenSSH <=8
-// log shape directly (not through the auth.log-absent dispatcher).
-func TestParseFailedLoginsFromJournal_LegacyFormat(t *testing.T) {
+// TestParseFailedLogins_JournaldLegacyFormat exercises the OpenSSH ≤8 log shape
+// through the journald path: three attempts from one IP flag it, a distinct
+// single attempt still counts toward the total without being flagged.
+func TestParseFailedLogins_JournaldLegacyFormat(t *testing.T) {
+	now := time.Now()
+	recent := now.Add(-5 * time.Minute).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
 		lines := []string{
-			"Jul 08 10:00:01 host sshd[1]: Failed password for invalid user admin from 203.0.113.5 port 40001 ssh2",
-			"Jul 08 10:00:02 host sshd[2]: Failed password for invalid user admin from 203.0.113.5 port 40002 ssh2",
-			"Jul 08 10:00:03 host sshd[3]: Failed password for invalid user admin from 203.0.113.5 port 40003 ssh2",
-			"Jul 08 10:00:04 host sshd[4]: Failed password for root from 198.51.100.1 port 40004 ssh2",
+			fmt.Sprintf("%s host sshd[1]: Failed password for invalid user admin from 203.0.113.5 port 40001 ssh2", recent),
+			fmt.Sprintf("%s host sshd[2]: Failed password for invalid user admin from 203.0.113.5 port 40002 ssh2", recent),
+			fmt.Sprintf("%s host sshd[3]: Failed password for invalid user admin from 203.0.113.5 port 40003 ssh2", recent),
+			fmt.Sprintf("%s host sshd[4]: Failed password for root from 198.51.100.1 port 40004 ssh2", recent),
 		}
 		b.PutCmd("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"}, strings.Join(lines, "\n")+"\n", 0)
 	})
 
 	info := &models.SecurityInfo{}
-	parseFailedLoginsFromJournal(info)
+	parseFailedLogins(context.Background(), info)
 
 	if info.FailedLogins != 4 {
 		t.Errorf("expected 4 failed logins, got %d", info.FailedLogins)
@@ -107,20 +123,22 @@ func TestParseFailedLoginsFromJournal_LegacyFormat(t *testing.T) {
 	}
 }
 
-// TestParseFailedLoginsFromJournal_ModernFormat exercises the OpenSSH 9+
-// "drop connection ... penalty: failed authentication" shape.
-func TestParseFailedLoginsFromJournal_ModernFormat(t *testing.T) {
+// TestParseFailedLogins_JournaldModernFormat exercises the OpenSSH 9+
+// "drop connection ... penalty: failed authentication" shape through journald.
+func TestParseFailedLogins_JournaldModernFormat(t *testing.T) {
+	now := time.Now()
+	recent := now.Add(-5 * time.Minute).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
 		lines := []string{
-			"Jul 08 10:00:01 host sshd[1]: drop connection #1 from [203.0.113.7]:40001 on [10.0.0.1]:22 penalty: failed authentication",
-			"Jul 08 10:00:02 host sshd[2]: drop connection #2 from [203.0.113.7]:40002 on [10.0.0.1]:22 penalty: failed authentication",
-			"Jul 08 10:00:03 host sshd[3]: drop connection #3 from [203.0.113.7]:40003 on [10.0.0.1]:22 penalty: failed authentication",
+			fmt.Sprintf("%s host sshd[1]: drop connection #1 from [203.0.113.7]:40001 on [10.0.0.1]:22 penalty: failed authentication", recent),
+			fmt.Sprintf("%s host sshd[2]: drop connection #2 from [203.0.113.7]:40002 on [10.0.0.1]:22 penalty: failed authentication", recent),
+			fmt.Sprintf("%s host sshd[3]: drop connection #3 from [203.0.113.7]:40003 on [10.0.0.1]:22 penalty: failed authentication", recent),
 		}
 		b.PutCmd("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"}, strings.Join(lines, "\n")+"\n", 0)
 	})
 
 	info := &models.SecurityInfo{}
-	parseFailedLoginsFromJournal(info)
+	parseFailedLogins(context.Background(), info)
 
 	if info.FailedLogins != 3 {
 		t.Errorf("expected 3 failed logins, got %d", info.FailedLogins)
@@ -130,18 +148,21 @@ func TestParseFailedLoginsFromJournal_ModernFormat(t *testing.T) {
 	}
 }
 
-// TestParseFailedLoginsFromJournal_CommandUnavailable guards the honest-empty
-// path: journalctl missing entirely must leave FailedLogins at zero rather
-// than panicking or misreporting.
-func TestParseFailedLoginsFromJournal_CommandUnavailable(t *testing.T) {
+// TestParseFailedLogins_NoSourceUnreadable guards the honest-empty path: with
+// journalctl missing AND no readable auth log, parseFailedLogins must set
+// FailedLoginsUnreadable (never a silent OK) and leave the counters at zero.
+func TestParseFailedLogins_NoSourceUnreadable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"})
 	})
 
 	info := &models.SecurityInfo{}
-	parseFailedLoginsFromJournal(info)
+	parseFailedLogins(context.Background(), info)
 
+	if !info.FailedLoginsUnreadable {
+		t.Error("no journald and no readable file must set FailedLoginsUnreadable")
+	}
 	if info.FailedLogins != 0 || len(info.FailedLoginIPs) != 0 {
-		t.Errorf("expected no failed logins when journalctl is unavailable, got %d / %+v", info.FailedLogins, info.FailedLoginIPs)
+		t.Errorf("expected zero counters when unreadable, got %d / %+v", info.FailedLogins, info.FailedLoginIPs)
 	}
 }

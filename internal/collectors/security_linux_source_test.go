@@ -384,10 +384,14 @@ func TestParsePAMModuleFailures_FromLogFile(t *testing.T) {
 // pamFailuresFromJournal actually invokes, or the fixture silently misses
 // and the test passes vacuously on the `err != nil → return nil` branch.
 func TestParsePAMModuleFailures_NoLogFiles_FallsBackToJournal(t *testing.T) {
+	// A live-relative timestamp: parsePAMModuleFailures applies a 24h recency
+	// gate to journald lines too, so a fixed calendar date would be silently
+	// dropped once the clock moves past it.
+	recent := time.Now().Add(-1 * time.Hour).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("journalctl",
 			[]string{"--since=24 hours ago", "--no-pager", "-q", "-g", "pam_unix.*authentication failure"},
-			"Jul  8 10:00:01 host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob\n",
+			fmt.Sprintf("%s host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob\n", recent),
 			0)
 	})
 
