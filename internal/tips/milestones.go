@@ -72,7 +72,7 @@ func firedStreakMilestones(streak int, state *State) []int {
 }
 
 func MaybePrintReengagement(state *State, mode output.OutputMode, ver string) {
-	if mode != output.ModeHuman || output.IsPlain(false) {
+	if mode != output.ModeHuman || isPlainMode() {
 		return
 	}
 	today := time.Now().Format("2006-01-02")
@@ -84,7 +84,7 @@ func MaybePrintReengagement(state *State, mode output.OutputMode, ver string) {
 
 // MaybePrintChangelog prints a conversational nudge after results when the version changed.
 func MaybePrintChangelog(state *State, mode output.OutputMode, ver string) {
-	if mode != output.ModeHuman || output.IsPlain(false) {
+	if mode != output.ModeHuman || isPlainMode() {
 		return
 	}
 	if state.LastVersion != "" && state.LastVersion != ver {
@@ -107,7 +107,7 @@ func MaybePrintMilestone(state *State, mode output.OutputMode) {
 	state.LastRunDate = today
 	state.LastVersion = version.Version
 
-	if mode != output.ModeHuman || output.IsPlain(false) {
+	if mode != output.ModeHuman || isPlainMode() {
 		return
 	}
 
