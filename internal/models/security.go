@@ -40,6 +40,11 @@ type SecurityInfo struct {
 	// Authentication
 	FailedLogins   int      `json:"failed_logins"`    // failed logins in last hour
 	FailedLoginIPs []string `json:"failed_login_ips"` // source IPs with most failures
+	// FailedLoginsUnreadable is true when neither journald nor the auth-log
+	// file could be read at all (needs root, or no auth logging configured) —
+	// distinct from a genuine zero, which means the source was read and no
+	// failures were found in the window.
+	FailedLoginsUnreadable bool `json:"failed_logins_unreadable,omitempty"`
 
 	// Network exposure
 	ListeningPorts []PortEntry `json:"listening_ports,omitempty"`
@@ -109,6 +114,10 @@ type SecurityInfo struct {
 	// so this excludes service=="sshd" to avoid double-counting the same signal
 	// under two different counters.
 	PAMModuleFailures []PAMFailure `json:"pam_module_failures,omitempty"`
+	// PAMFailuresUnreadable is true when neither journald nor the auth-log
+	// file could be read at all — same "couldn't check" vs "checked, found
+	// nothing" distinction as FailedLoginsUnreadable.
+	PAMFailuresUnreadable bool `json:"pam_failures_unreadable,omitempty"`
 
 	// RHEL/Rocky-specific security
 	FIPSEnabled     bool   `json:"fips_enabled"`            // /proc/sys/crypto/fips_enabled
