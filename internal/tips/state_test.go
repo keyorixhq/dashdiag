@@ -113,6 +113,9 @@ func TestSave_WriteFileFails(t *testing.T) {
 }
 
 func TestLoadState_ReadPermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permission bits — a 0000 file is still readable")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
