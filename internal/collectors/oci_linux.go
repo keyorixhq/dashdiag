@@ -106,7 +106,7 @@ func ociInstanceMeta(ctx context.Context) (shape, region, ad string) {
 // configured instance returns 403). checked is false when IMDS itself was
 // unreachable, so we never imply a posture we couldn't read.
 func ociIMDSv1Open(ctx context.Context) (checked, open bool) {
-	data, err := activeSource.Cached("oci-imdsv1-probe", func() ([]byte, error) {
+	data, err := curSource().Cached("oci-imdsv1-probe", func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet,
 			"http://169.254.169.254/opc/v2/instance/", nil)
 		if e != nil {
@@ -183,7 +183,7 @@ func ociTimeSyncConfigured() (checked, configured bool) {
 		"/etc/systemd/timesyncd.conf.d/*.conf",
 	}
 	for _, pat := range globs {
-		if matches, err := activeSource.Glob(pat); err == nil {
+		if matches, err := curSource().Glob(pat); err == nil {
 			files = append(files, matches...)
 		}
 	}

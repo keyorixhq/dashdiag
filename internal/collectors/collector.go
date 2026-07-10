@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/source"
@@ -60,20 +61,38 @@ func localeSafeCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
 // fsaccess.go helpers. The default reads the live system with locale-safe exec.
 // `dsd capture --raw` swaps in a source.Recorder; `dsd replay` swaps in a
 // source.Replay. See docs/adr/0003-raw-input-capture-replay.md.
-var activeSource source.Source = source.Live{Exec: localeSafeExec}
+//
+// It is accessed atomically because some collectors legitimately abandon a
+// goroutine that is still reading through the source: nfsCheckMount runs statFs
+// in a goroutine it CANNOT join (a stale NFS statfs blocks forever in D-state),
+// so on the 2s-timeout path the goroutine outlives the call and keeps reading
+// the source. In production the source never changes, but tests (and capture/
+// replay startup) swap it via SetSource — an atomic load/swap keeps that
+// abandoned read from data-racing the swap. Read through curSource().
+var activeSource atomic.Pointer[source.Source]
+
+func init() {
+	s := source.Source(source.Live{Exec: localeSafeExec})
+	activeSource.Store(&s)
+}
+
+// curSource returns the current input backend with an atomic load.
+func curSource() source.Source { return *activeSource.Load() }
 
 // SetSource swaps the active input backend and returns the previous one so the
 // caller can restore it (defer collectors.SetSource(prev)).
 func SetSource(s source.Source) source.Source {
-	prev := activeSource
-	activeSource = s
-	return prev
+	prev := activeSource.Swap(&s)
+	if prev == nil {
+		return nil
+	}
+	return *prev
 }
 
 // ActiveSource returns the current input backend. `dsd capture --raw` wraps it in
 // a source.Recorder so the recorder tees the live, locale-safe exec/read path
 // rather than a bare source.Live that would lose LC_ALL=C.
-func ActiveSource() source.Source { return activeSource }
+func ActiveSource() source.Source { return curSource() }
 
 // localeSafeExec is the live exec backend: LC_ALL=C, the same force-kill-after-
 // cancel semantics runCmd always had, and stdout+stderr+exit captured into a
@@ -113,7 +132,7 @@ func (e *cmdError) Error() string { return fmt.Sprintf("%s exited %d", e.name, e
 // non-zero exit as an error (use runCmdOutput when the exit code itself carries
 // findings). The process is killed, not just abandoned, when ctx is cancelled.
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
-	res, err := activeSource.Run(ctx, name, args...)
+	res, err := curSource().Run(ctx, name, args...)
 	if err != nil {
 		return "", err
 	}
@@ -129,7 +148,7 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 // broken deps). Use this when a tool reports problems through its exit code and
 // parse the returned stdout regardless of err.
 func runCmdOutput(ctx context.Context, name string, args ...string) (string, error) {
-	res, err := activeSource.Run(ctx, name, args...)
+	res, err := curSource().Run(ctx, name, args...)
 	if err != nil {
 		return string(res.Stdout), err
 	}
@@ -147,7 +166,7 @@ func runCmdOutput(ctx context.Context, name string, args ...string) (string, err
 //
 //nolint:unused // generic Source helper; used by linux collectors (dns_resolver, bind) that need stderr diagnostics
 func runCmdCombined(ctx context.Context, name string, args ...string) (string, error) {
-	res, err := activeSource.Run(ctx, name, args...)
+	res, err := curSource().Run(ctx, name, args...)
 	combined := string(res.Stdout) + string(res.Stderr)
 	if err != nil {
 		return combined, err

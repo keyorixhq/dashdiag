@@ -18,7 +18,7 @@ func webConfigTest(ctx context.Context, cmds [][]string) (ran, valid bool, errLi
 		if len(c) == 0 {
 			continue
 		}
-		res, err := activeSource.Run(ctx, c[0], c[1:]...)
+		res, err := curSource().Run(ctx, c[0], c[1:]...)
 		if err != nil {
 			continue // binary not found / spawn failure — try the next candidate
 		}
@@ -64,7 +64,7 @@ func webVersion(ctx context.Context, cmds [][]string, marker string) string {
 		if len(c) == 0 {
 			continue
 		}
-		res, err := activeSource.Run(ctx, c[0], c[1:]...)
+		res, err := curSource().Run(ctx, c[0], c[1:]...)
 		if err != nil {
 			continue
 		}

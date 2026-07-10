@@ -23,7 +23,7 @@ var redisSocketPaths = []string{
 // replays from the bundle instead of re-dialing the replaying machine. The INFO
 // data itself comes via redis-cli (runCmd), already captured.
 func redisPing(network, addr string) bool {
-	data, _ := activeSource.Cached("redis-ping/"+network+"/"+addr, func() ([]byte, error) {
+	data, _ := curSource().Cached("redis-ping/"+network+"/"+addr, func() ([]byte, error) {
 		if redisPingLive(network, addr) {
 			return []byte{'1'}, nil
 		}

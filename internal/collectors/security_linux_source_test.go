@@ -447,7 +447,7 @@ func TestCollectRelevantBooleans(t *testing.T) {
 // TestCollectRelevantBooleans_CapsAtTen guards the 10-item truncation: with
 // more than 10 matching off booleans, only the first 10 encountered are kept.
 func TestCollectRelevantBooleans_CapsAtTen(t *testing.T) {
-	var lines []string
+	lines := make([]string, 0, 15)
 	for i := range 15 {
 		lines = append(lines, fmt.Sprintf("httpd_bool_%02d --> off", i))
 	}

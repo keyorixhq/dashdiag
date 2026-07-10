@@ -303,7 +303,7 @@ func TestScanVarLog_TailCap(t *testing.T) {
 	t.Parallel()
 	now := refNow(t)
 	// Build > varLogTailLines lines, only the last one is an error.
-	var b []byte
+	b := make([]byte, 0, 40*(varLogTailLines+50)+50)
 	for range varLogTailLines + 50 {
 		b = append(b, []byte("Jun  3 10:00:00 host app[1]: routine ok\n")...)
 	}
@@ -508,7 +508,8 @@ func TestHasCorruptArchived_DirUnreadable(t *testing.T) {
 // HasSuffix(.journal~) -> continue" branch: an active *.journal file (not yet
 // archived) must never be handed to journalctl --verify at all.
 func TestHasCorruptArchived_NonArchivedSuffixSkipped(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel(): this swaps the package-global source via SetSource, which
+	// must not race a concurrent test reading it (see the swapRunCmd doc comment).
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "system.journal"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -527,7 +528,8 @@ func TestHasCorruptArchived_NonArchivedSuffixSkipped(t *testing.T) {
 // recurse" branch: journald shards archives under one subdirectory per
 // machine-ID, so a corrupt archive nested one level down must still surface.
 func TestHasCorruptArchived_RecursesIntoSubdirs(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel(): this swaps the package-global source via SetSource, which
+	// must not race a concurrent test reading it (see the swapRunCmd doc comment).
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "abc123-machine-id")
 	if err := os.MkdirAll(sub, 0o755); err != nil {

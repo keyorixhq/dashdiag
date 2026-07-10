@@ -28,7 +28,7 @@ import (
 // path. On a recording gap (older bundle) it returns an error (don't claim a tool
 // we never observed). Keyed by tool name.
 func lookPath(name string) (string, error) {
-	data, err := activeSource.Cached("lookpath/"+name, func() ([]byte, error) {
+	data, err := curSource().Cached("lookpath/"+name, func() ([]byte, error) {
 		p, e := exec.LookPath(name)
 		if e != nil {
 			return nil, e
@@ -51,7 +51,7 @@ func lookPath(name string) (string, error) {
 // var name. Not for uid/gid/euid-style live-privilege reads (those are
 // legitimately live-only — see collectSocketPermReason in docker.go).
 func getenv(name string) string {
-	data, err := activeSource.Cached("env/"+name, func() ([]byte, error) {
+	data, err := curSource().Cached("env/"+name, func() ([]byte, error) {
 		return []byte(os.Getenv(name)), nil
 	})
 	if err != nil {
@@ -66,7 +66,7 @@ func getenv(name string) string {
 // the recorded JSON is decoded into out and compute is NEVER called — so no live
 // probe runs. key must be stable and unique. out must be a non-nil pointer.
 func cachedJSON(key string, compute func() (any, error), out any) error {
-	data, err := activeSource.Cached(key, func() ([]byte, error) {
+	data, err := curSource().Cached(key, func() ([]byte, error) {
 		v, e := compute()
 		if e != nil {
 			return nil, e
@@ -80,16 +80,16 @@ func cachedJSON(key string, compute func() (any, error), out any) error {
 }
 
 // readFile returns the contents of path via the active source.
-func readFile(path string) ([]byte, error) { return activeSource.ReadFile(path) }
+func readFile(path string) ([]byte, error) { return curSource().ReadFile(path) }
 
 // glob expands a shell pattern (filepath.Glob semantics) via the active source.
-func glob(pattern string) ([]string, error) { return activeSource.Glob(pattern) }
+func glob(pattern string) ([]string, error) { return curSource().Glob(pattern) }
 
 // openFile reads path via the active source and returns an io.ReadCloser.
 // Use this as a drop-in for os.Open where the caller passes the result to a
 // parser that expects an io.Reader / io.ReadCloser.
 func openFile(path string) (io.ReadCloser, error) {
-	data, err := activeSource.ReadFile(path)
+	data, err := curSource().ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -98,23 +98,23 @@ func openFile(path string) (io.ReadCloser, error) {
 
 // readDirNames returns the sorted entry names of dir via the active source.
 // Use for callers that only need names (no IsDir / Info needed).
-func readDirNames(dir string) ([]string, error) { return activeSource.ReadDir(dir) }
+func readDirNames(dir string) ([]string, error) { return curSource().ReadDir(dir) }
 
 // readLink returns the target of the symlink at path via the active source, so
 // capture/replay reproduces it instead of os.Readlink hitting the live machine.
-func readLink(path string) (string, error) { return activeSource.Readlink(path) }
+func readLink(path string) (string, error) { return curSource().Readlink(path) }
 
 // statFile returns metadata for path via the active source (os.Stat semantics),
 // so an existence / size / mode / is-dir gate replays from the capture instead of
 // os.Stat hitting the replaying machine. Use this as a drop-in for os.Stat.
-func statFile(path string) (source.FileMeta, error) { return activeSource.Stat(path) }
+func statFile(path string) (source.FileMeta, error) { return curSource().Stat(path) }
 
 // statFs returns filesystem statistics for path via the active source
 // (syscall.Statfs semantics), so a disk-usage / mount-liveness probe replays from
 // the capture instead of stat-ing the replaying machine's filesystem. Use as a
 // drop-in for `syscall.Statfs(path, &st)` — the returned struct's fields mirror
 // the syscall.Statfs_t fields collectors read (Blocks, Bsize, Bfree, …).
-func statFs(path string) (source.StatfsInfo, error) { return activeSource.Statfs(path) }
+func statFs(path string) (source.StatfsInfo, error) { return curSource().Statfs(path) }
 
 // fileExists reports whether path exists, routed through the active source. Use
 // this as a drop-in for the common `if _, err := os.Stat(p); err == nil` gate so
@@ -134,7 +134,7 @@ func fileExists(path string) bool {
 // source — sufficient for the filter patterns used in collectors (skip dirs,
 // include only files, walk sub-dirs by name).
 func readDirEntries(dir string) ([]fs.DirEntry, error) {
-	names, err := activeSource.ReadDir(dir)
+	names, err := curSource().ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func readDirEntries(dir string) ([]fs.DirEntry, error) {
 // probeIsDir returns true if path appears to be a directory in the active
 // source: ReadDir succeeds (even if empty — an empty dir is still a dir).
 func probeIsDir(path string) bool {
-	_, err := activeSource.ReadDir(path)
+	_, err := curSource().ReadDir(path)
 	return err == nil
 }
 
@@ -183,9 +183,9 @@ func (f fakeFileInfo) Sys() any           { return nil }
 // source-routed reads without a collector context — so their sysfs reads are
 // captured by `dsd capture --raw` and served by `dsd replay` instead of hitting
 // the live machine.
-func ReadFileViaSource(path string) ([]byte, error)  { return activeSource.ReadFile(path) }
-func GlobViaSource(pattern string) ([]string, error) { return activeSource.Glob(pattern) }
-func ReadlinkViaSource(path string) (string, error)  { return activeSource.Readlink(path) }
+func ReadFileViaSource(path string) ([]byte, error)  { return curSource().ReadFile(path) }
+func GlobViaSource(pattern string) ([]string, error) { return curSource().Glob(pattern) }
+func ReadlinkViaSource(path string) (string, error)  { return curSource().Readlink(path) }
 
 // NowViaSource returns the wall-clock time routed through the active source, so
 // it is captured by `dsd capture --raw` and replayed faithfully: under replay it
@@ -198,7 +198,7 @@ func ReadlinkViaSource(path string) (string, error)  { return activeSource.Readl
 // key; every NowViaSource call in one replay returns that same recorded instant.
 // Falls back to the live clock on any cache/parse error (never blocks a live run).
 func NowViaSource() time.Time {
-	b, err := activeSource.Cached("__wallclock_now__", func() ([]byte, error) {
+	b, err := curSource().Cached("__wallclock_now__", func() ([]byte, error) {
 		return []byte(time.Now().UTC().Format(time.RFC3339Nano)), nil
 	})
 	if err != nil {

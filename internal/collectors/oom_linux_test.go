@@ -105,7 +105,7 @@ func TestOOMCollector_Collect_AllSourcesUnreadable(t *testing.T) {
 // TestOOMCollector_Collect_TruncatesRecentEventsTo5 covers the "len(events) >
 // 5 -> keep only the last 5" branch inside Collect.
 func TestOOMCollector_Collect_TruncatesRecentEventsTo5(t *testing.T) {
-	var lines []string
+	lines := make([]string, 0, 7)
 	for i := range 7 {
 		lines = append(lines, fmt.Sprintf(
 			"2026-05-17T09:%02d:00+0000 kernel: Out of memory: Kill process %d (app%d) score 900 or sacrifice child",

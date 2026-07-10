@@ -357,7 +357,7 @@ func trimSMARTError(s string) string {
 func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	res, err := activeSource.Run(ctx, name, args...)
+	res, err := curSource().Run(ctx, name, args...)
 	if err != nil {
 		return string(res.Stdout), err
 	}

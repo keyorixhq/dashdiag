@@ -27,7 +27,7 @@ const (
 // ('1' ok, 'p' permission, '0' unreachable) so replay reproduces capture-time
 // reachability. On a recording gap (older bundle) it returns dialUnreachable.
 func dialOutcome(network, addr string, timeout time.Duration) dialState {
-	data, _ := activeSource.Cached("dial/"+network+"/"+addr, func() ([]byte, error) {
+	data, _ := curSource().Cached("dial/"+network+"/"+addr, func() ([]byte, error) {
 		conn, derr := net.DialTimeout(network, addr, timeout)
 		if derr == nil {
 			_ = conn.Close()

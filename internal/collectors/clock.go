@@ -72,7 +72,7 @@ func (c *ClockCollector) collectLinux(info *models.ClockInfo) (any, error) {
 	// faithfully. On replay of a bundle predating this key, Cached returns
 	// ErrNotRecorded and we fall back to a live read (never block a live run).
 	var st clockState
-	if b, err := activeSource.Cached("clock/state", func() ([]byte, error) {
+	if b, err := curSource().Cached("clock/state", func() ([]byte, error) {
 		return json.Marshal(liveClockState())
 	}); err == nil {
 		_ = json.Unmarshal(b, &st)

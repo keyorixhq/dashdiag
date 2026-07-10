@@ -199,7 +199,7 @@ func socketClient(socket string) *http.Client {
 // cache (keyed by API path) so the response replays from the bundle instead of
 // re-querying the live daemon socket.
 func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, error) {
-	return activeSource.Cached("docker-api/"+path, func() ([]byte, error) {
+	return curSource().Cached("docker-api/"+path, func() ([]byte, error) {
 		return apiGetLive(ctx, client, path)
 	})
 }

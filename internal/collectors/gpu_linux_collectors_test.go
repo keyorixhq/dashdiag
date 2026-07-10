@@ -859,7 +859,7 @@ func TestSampleAMDBusy_ReadsBothPercentages(t *testing.T) {
 		// card1: neither file seeded -> readSysfsStr returns "" -> sentinel -1.
 	})
 	ch := make(chan []busySample, 1)
-	sampleAMDBusy([]string{"/sys/class/drm/card0", "/sys/class/drm/card1"}, ch)
+	sampleAMDBusy(context.Background(), []string{"/sys/class/drm/card0", "/sys/class/drm/card1"}, ch)
 	samples := <-ch
 	if len(samples) != 2 {
 		t.Fatalf("got %d samples, want 2", len(samples))

@@ -53,7 +53,7 @@ func (c *CloudMetaCollector) Collect(ctx context.Context) (interface{}, error) {
 // bundle instead of re-querying the live IMDS endpoint (which is absent/different on
 // a replay box). Keyed by URL — each metadata field is fetched once.
 func imdsGet(ctx context.Context, url string, headers map[string]string) (string, error) {
-	data, err := activeSource.Cached("imds/"+url, func() ([]byte, error) {
+	data, err := curSource().Cached("imds/"+url, func() ([]byte, error) {
 		s, e := imdsGetLive(ctx, url, headers)
 		if e != nil {
 			return nil, e
@@ -149,7 +149,7 @@ type awsSpotStatus struct {
 // by URL — so on replay the recorded token simply lets collectAWS proceed past the
 // gate; its exact value is immaterial.
 func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
-	data, err := activeSource.Cached("imds-aws-token", func() ([]byte, error) {
+	data, err := curSource().Cached("imds-aws-token", func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodPut,
 			"http://169.254.169.254/latest/api/token", nil)
 		if e != nil {

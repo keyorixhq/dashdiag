@@ -397,7 +397,7 @@ func azureTimeSyncConfigured() (checked, uses bool) {
 		"/etc/systemd/timesyncd.conf",
 	}
 	for _, pat := range []string{"/etc/chrony/conf.d/*.conf", "/etc/chrony/sources.d/*.sources"} {
-		if matches, err := activeSource.Glob(pat); err == nil {
+		if matches, err := curSource().Glob(pat); err == nil {
 			files = append(files, matches...)
 		}
 	}

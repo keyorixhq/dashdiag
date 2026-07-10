@@ -175,7 +175,9 @@ func TestReadPVEVMPid(t *testing.T) {
 }
 
 func TestPveKVMProcessAlive(t *testing.T) {
-	t.Parallel()
+	// No top-level t.Parallel(): two subtests below swap the package-global source
+	// via withFixtureSource, which must not run during the global parallel phase
+	// where a sibling test could read the source concurrently.
 
 	t.Run("nonexistent pid", func(t *testing.T) {
 		t.Parallel()

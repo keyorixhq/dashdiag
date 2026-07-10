@@ -164,7 +164,7 @@ func enaSRDActive(out string) bool {
 // than the live system, so timing-dependent behaviour (the delta sample sleep) can
 // be skipped — replay can't reproduce live throttling timing.
 func isReplaySource() bool {
-	_, ok := activeSource.(*source.Replay)
+	_, ok := curSource().(*source.Replay)
 	return ok
 }
 
@@ -479,7 +479,7 @@ func awsInstanceType(ctx context.Context) string {
 // the Capital One class of breach; 401 means IMDSv2 is required (good). checked is
 // false when IMDS itself was unreachable, so we never imply a posture we couldn't read.
 func awsIMDSv1Open(ctx context.Context) (checked, open bool) {
-	data, err := activeSource.Cached("aws-imdsv1-probe", func() ([]byte, error) {
+	data, err := curSource().Cached("aws-imdsv1-probe", func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet,
 			"http://169.254.169.254/latest/meta-data/instance-id", nil)
 		if e != nil {
@@ -511,7 +511,7 @@ func awsRebalance(ctx context.Context) (checked, recommended bool) {
 	if err != nil {
 		return false, false
 	}
-	data, err := activeSource.Cached("aws-rebalance-probe", func() ([]byte, error) {
+	data, err := curSource().Cached("aws-rebalance-probe", func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet,
 			"http://169.254.169.254/latest/meta-data/events/recommendations/rebalance", nil)
 		if e != nil {
@@ -568,7 +568,7 @@ func amazonTimeSyncConfigured() (checked, uses bool) {
 		}
 	}
 	for _, pat := range globs {
-		if matches, err := activeSource.Glob(pat); err == nil {
+		if matches, err := curSource().Glob(pat); err == nil {
 			files = append(files, matches...)
 		}
 	}

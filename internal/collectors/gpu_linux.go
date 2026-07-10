@@ -37,7 +37,7 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	amdCards := amdCardPaths()
 	busyCh := make(chan []busySample, 1)
 	if len(amdCards) > 0 {
-		go sampleAMDBusy(amdCards, busyCh)
+		go sampleAMDBusy(ctx, amdCards, busyCh)
 	}
 
 	// NVIDIA — nvidia-smi (opt-in via --gpu flag)
@@ -91,20 +91,21 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Apply the 1-second busy sample (keyed by position — amdDevices is built
 	// from amdCards in the same order).
 	if len(amdCards) > 0 {
-		select {
-		case samples := <-busyCh:
-			for i := range amdDevices {
-				if i >= len(samples) {
-					break
-				}
-				if samples[i].gpuBusy >= 0 {
-					amdDevices[i].UtilPct = samples[i].gpuBusy
-				}
-				if samples[i].memBusy >= 0 {
-					amdDevices[i].MemBusyPct = samples[i].memBusy
-				}
+		// Always wait for the sampler: it sends promptly (a nil slice) when ctx
+		// is cancelled, so this never blocks longer than the 1s sample. Waiting
+		// guarantees the goroutine has finished before Collect returns, so it
+		// can't outlive the call and race on the (test-swappable) source global.
+		samples := <-busyCh
+		for i := range amdDevices {
+			if i >= len(samples) {
+				break
 			}
-		case <-ctx.Done():
+			if samples[i].gpuBusy >= 0 {
+				amdDevices[i].UtilPct = samples[i].gpuBusy
+			}
+			if samples[i].memBusy >= 0 {
+				amdDevices[i].MemBusyPct = samples[i].memBusy
+			}
 		}
 	}
 	for i := range amdDevices {
@@ -137,8 +138,16 @@ type busySample struct {
 // for each AMD card. The post-sleep read is the instantaneous value that matches
 // what htop/MangoHud show (not a long-window average). Results are ordered to
 // match the input cards slice.
-func sampleAMDBusy(cards []string, ch chan<- []busySample) {
-	time.Sleep(1 * time.Second)
+func sampleAMDBusy(ctx context.Context, cards []string, ch chan<- []busySample) {
+	// Interruptible sleep: on cancellation, return immediately WITHOUT reading
+	// sysfs, and send a nil slice so the receiver never blocks. This keeps the
+	// goroutine from touching the source after Collect has been cancelled.
+	select {
+	case <-time.After(1 * time.Second):
+	case <-ctx.Done():
+		ch <- nil
+		return
+	}
 	out := make([]busySample, len(cards))
 	for i, card := range cards {
 		devPath := card + "/device"

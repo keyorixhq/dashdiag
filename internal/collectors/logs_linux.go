@@ -154,7 +154,7 @@ func isVMVirtType(s string) bool {
 // instead of re-reading the live ring buffer on replay (which is non-deterministic
 // and host-specific). Keyed once per run.
 func kmsgRecords(ctx context.Context) []string {
-	data, _ := activeSource.Cached("kmsg", func() ([]byte, error) {
+	data, _ := curSource().Cached("kmsg", func() ([]byte, error) {
 		return []byte(readKmsgLive(ctx)), nil
 	})
 	s := strings.TrimRight(string(data), "\n")
@@ -167,7 +167,7 @@ func kmsgRecords(ctx context.Context) []string {
 // readKmsgLive drains the live /dev/kmsg ring buffer (non-blocking) into newline-
 // separated records. One f.Read == one kmsg record.
 func readKmsgLive(ctx context.Context) string {
-	// nosemgrep: dsd-collector-raw-fs-bypasses-source -- live-fetch closure of activeSource.Cached("kmsg") in kmsgRecords; the RESULT is captured/replayed (/dev/kmsg is a non-blocking stream ReadFile can't model)
+	// nosemgrep: dsd-collector-raw-fs-bypasses-source -- live-fetch closure of curSource().Cached("kmsg") in kmsgRecords; the RESULT is captured/replayed (/dev/kmsg is a non-blocking stream ReadFile can't model)
 	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
 	if err != nil {
 		return ""
