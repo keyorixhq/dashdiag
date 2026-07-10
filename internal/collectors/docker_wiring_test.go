@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -232,6 +233,17 @@ func TestCollectVolumes_APIFails(t *testing.T) {
 	}
 }
 
+func TestCollectVolumes_UnparseableJSON(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/volumes": []byte(`not json`),
+	}, nil)
+	info := &models.DockerInfo{}
+	collectVolumes(context.Background(), client, info)
+	if info.VolumesCount != 0 {
+		t.Errorf("VolumesCount = %d, want 0 on unparseable body", info.VolumesCount)
+	}
+}
+
 func TestCollectImageArch_Happy(t *testing.T) {
 	client := withDockerAPIFixture(t, map[string][]byte{
 		"/images/nginx:latest/json": []byte(`{"Architecture":"aarch64"}`),
@@ -354,6 +366,30 @@ func TestCollectSocketPermReason_RealSocketFile(t *testing.T) {
 	got := collectSocketPermReason(path, "docker")
 	if got == "" {
 		t.Fatal("expected a non-empty message")
+	}
+}
+
+// TestCollectSocketPermReason_GroupMembershipPresent guards the fix for a
+// dead-code regression: fi.Sys() on Linux is *syscall.Stat_t, which exposes
+// Gid as a struct field, not a Gid() method — the prior `fi.Sys().(interface{
+// Gid() uint32 })` assertion could never succeed, so the "group membership
+// present but session not refreshed" message never fired even when the
+// caller's process genuinely belonged to the socket's group.
+func TestCollectSocketPermReason_GroupMembershipPresent(t *testing.T) {
+	groups, err := os.Getgroups()
+	if err != nil || len(groups) == 0 {
+		t.Skip("no supplementary groups available to test against")
+	}
+	path := filepath.Join(t.TempDir(), "docker.sock")
+	if err := os.WriteFile(path, nil, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(path, -1, groups[0]); err != nil {
+		t.Skipf("cannot chown test socket to gid %d: %v", groups[0], err)
+	}
+	got := collectSocketPermReason(path, "docker")
+	if !strings.Contains(got, "group membership present but session not refreshed") {
+		t.Errorf("got %q, want the group-membership-present message", got)
 	}
 }
 
@@ -489,6 +525,31 @@ func TestDetectNetworkBackend_NetavarkBinary(t *testing.T) {
 	})
 	if got := detectNetworkBackend("podman"); got != "netavark" {
 		t.Errorf("got %q, want netavark", got)
+	}
+}
+
+// TestDetectNetworkBackend_NetavarkBinAlt covers the /usr/bin/netavark
+// fallback path — the libexec location from TestDetectNetworkBackend_NetavarkBinary
+// is absent, but the plain /usr/bin location is present.
+func TestDetectNetworkBackend_NetavarkBinAlt(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/netavark", source.FileMeta{})
+	})
+	if got := detectNetworkBackend("podman"); got != "netavark" {
+		t.Errorf("got %q, want netavark", got)
+	}
+}
+
+// TestDetectNetworkBackend_ConntrackStatReadable covers the (currently
+// discarded) nf_conntrack_stat read succeeding — a no-op branch, but real
+// coverage of the file-present case rather than only the absent case every
+// other test here exercises implicitly.
+func TestDetectNetworkBackend_ConntrackStatReadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/net/nf_conntrack_stat", []byte("entries  searched found new invalid\n"))
+	})
+	if got := detectNetworkBackend("docker"); got != "iptables" {
+		t.Errorf("got %q, want iptables", got)
 	}
 }
 
@@ -859,5 +920,56 @@ func TestSocketClient(t *testing.T) {
 	}
 	if transport.DialContext == nil {
 		t.Error("expected a non-nil DialContext")
+	}
+}
+
+// TestSocketClient_DialContext_Live exercises the DialContext closure body
+// (previously untested — see the doc comment above) against a genuine local
+// Unix socket: a bare net.Listener in t.TempDir() serving a canned HTTP
+// response, never the real Docker daemon. This also drives apiGetLive's full
+// success path (client.Do succeeds, then the chunked resp.Body.Read loop),
+// which no other test reaches — every other apiGet test intercepts Cached
+// directly and never dials a real socket.
+func TestSocketClient_DialContext_Live(t *testing.T) {
+	t.Parallel()
+	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen on unix socket: %v", err)
+	}
+	defer ln.Close() //nolint:errcheck
+
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}),
+		ReadHeaderTimeout: 2 * time.Second,
+	}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close() //nolint:errcheck
+
+	client := socketClient(sockPath)
+	got, err := apiGetLive(context.Background(), client, "/info")
+	if err != nil {
+		t.Fatalf("apiGetLive() error: %v", err)
+	}
+	if string(got) != `{"ok":true}` {
+		t.Errorf("apiGetLive() = %q, want {\"ok\":true}", got)
+	}
+}
+
+// TestApiGetLive_DialError guards apiGetLive's client.Do error branch against
+// a socket path that genuinely does not exist — a fast, deterministic local
+// dial failure (no real network involved), unlike a hardcoded remote IMDS URL.
+func TestApiGetLive_DialError(t *testing.T) {
+	t.Parallel()
+	client := socketClient(filepath.Join(t.TempDir(), "does-not-exist.sock"))
+	got, err := apiGetLive(context.Background(), client, "/info")
+	if err == nil {
+		t.Fatal("expected an error dialing a nonexistent socket")
+	}
+	if got != nil {
+		t.Errorf("got = %v, want nil on error", got)
 	}
 }
