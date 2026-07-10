@@ -350,3 +350,68 @@ func TestParseSMARTAttributesNegativeRejected(t *testing.T) {
 			ok.MediaErrors, ok.PercentUsed, ok.PowerOnHours)
 	}
 }
+
+// TestParseSMARTAttributes_SATATabularFormat guards the SATA/SAS tabular
+// attribute branch (reallocated/pending/uncorrectable sectors) — a colon-free
+// line format handled BEFORE the NVMe colon-based parsing.
+func TestParseSMARTAttributes_SATATabularFormat(t *testing.T) {
+	const sataOut = "  5 Reallocated_Sector_Ct  0x0033  100 100 010  Pre-fail  Always  -  3\n" +
+		"197 Current_Pending_Sector  0x0012  100 100 000  Old_age   Always  -  2\n" +
+		"198 Offline_Uncorrectable   0x0010  100 100 000  Old_age   Offline -  1\n"
+	var s models.SMARTInfo
+	parseSMARTAttributes(sataOut, &s)
+	if s.MediaErrors != 6 {
+		t.Errorf("MediaErrors = %d, want 6 (3+2+1 summed across all three SATA failure attrs)", s.MediaErrors)
+	}
+}
+
+// TestParseSMARTAttributes_SATATabularZeroIgnored guards that a zero SATA raw
+// value does not spuriously bump MediaErrors, and that a too-short tabular
+// line (fewer than 10 fields) is skipped without panicking.
+func TestParseSMARTAttributes_SATATabularZeroIgnored(t *testing.T) {
+	var s models.SMARTInfo
+	parseSMARTAttributes(
+		"  5 Reallocated_Sector_Ct  0x0033  100 100 010  Pre-fail  Always  -  0\n"+
+			"197 Current_Pending_Sector short line\n",
+		&s)
+	if s.MediaErrors != 0 {
+		t.Errorf("MediaErrors = %d, want 0 (zero raw value + too-short line must not count)", s.MediaErrors)
+	}
+}
+
+// TestParseSMARTAttributes_RemainingNVMeFields guards the switch cases not
+// exercised by the negative-rejection or collectSMART happy-path tests:
+// unsafe_shutdowns, power_cycles, and available spare THRESHOLD being
+// excluded from the plain "available spare" case.
+func TestParseSMARTAttributes_RemainingNVMeFields(t *testing.T) {
+	var s models.SMARTInfo
+	parseSMARTAttributes(
+		"Unsafe Shutdowns:                    5\n"+
+			"Power Cycles:                        42\n"+
+			"Available Spare Threshold:           10%\n"+
+			"Available Spare:                     90%\n",
+		&s)
+	if s.UnsafeShutdowns != 5 {
+		t.Errorf("UnsafeShutdowns = %d, want 5", s.UnsafeShutdowns)
+	}
+	if s.PowerCycles != 42 {
+		t.Errorf("PowerCycles = %d, want 42", s.PowerCycles)
+	}
+	if s.AvailableSpare != 90 {
+		t.Errorf("AvailableSpare = %d, want 90 (threshold line must not overwrite it)", s.AvailableSpare)
+	}
+}
+
+// TestParseSMARTAttributes_NoColonOrEmptyValueSkipped guards the two guard
+// clauses that continue past a line: no colon at all, and a colon with only
+// whitespace after it (no value tokens).
+func TestParseSMARTAttributes_NoColonOrEmptyValueSkipped(t *testing.T) {
+	var s models.SMARTInfo
+	parseSMARTAttributes(
+		"a line with no colon at all\n"+
+			"Percentage Used:   \n", // colon present, nothing but whitespace after
+		&s)
+	if s.PercentUsed != 0 {
+		t.Errorf("PercentUsed = %d, want 0 (both lines must be skipped, not panic)", s.PercentUsed)
+	}
+}

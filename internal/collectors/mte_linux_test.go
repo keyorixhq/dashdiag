@@ -309,3 +309,29 @@ func TestFilterMTEFaultsRecent(t *testing.T) {
 		}
 	}
 }
+
+// TestParseMTETimestamp covers parseMTETimestamp's own boundary branches
+// directly — the too-short line and the no-whitespace-token cases the
+// parseMTEFaultEvents characterization tests only exercise indirectly via
+// well-formed lines.
+func TestParseMTETimestamp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		line string
+		want bool // whether a non-zero time is expected
+	}{
+		{"too short (< 19 chars)", "short line", false},
+		{"no whitespace, long enough", "2026-05-17T09:12:34+0000-no-space-here-padding", false},
+		{"valid short-iso timestamp", "2026-05-17T09:12:34+0000 kernel: tag check fault", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseMTETimestamp(tt.line)
+			if got.IsZero() == tt.want {
+				t.Errorf("parseMTETimestamp(%q).IsZero() = %v, want IsZero()=%v", tt.line, got.IsZero(), !tt.want)
+			}
+		})
+	}
+}

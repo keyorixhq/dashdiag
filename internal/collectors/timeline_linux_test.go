@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -159,6 +161,31 @@ func TestParseJournalLine_TruncationIsRuneSafe(t *testing.T) {
 	}
 	if got := len([]rune(ev.Message)); got != 141 { // 140 runes + ellipsis
 		t.Errorf("rune length = %d, want 141", got)
+	}
+}
+
+// TestDecodeJournalMessage covers decodeJournalMessage's branches directly:
+// empty input, a plain JSON string, the byte-array fallback, and the final
+// "neither shape parses" fallback (both Unmarshal attempts fail).
+func TestDecodeJournalMessage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{"empty raw message", nil, ""},
+		{"plain JSON string", json.RawMessage(`"hello"`), "hello"},
+		{"byte array form", json.RawMessage(`[104,105]`), "hi"},
+		{"neither string nor byte array", json.RawMessage(`{"nested":"object"}`), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := decodeJournalMessage(tt.raw); got != tt.want {
+				t.Errorf("decodeJournalMessage(%s) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -443,6 +470,83 @@ func TestTimelineCollector_Collect_SourcesUnavailable(t *testing.T) {
 	}
 	if info.CritCount != 0 || info.WarnCount != 0 {
 		t.Errorf("CritCount/WarnCount = %d/%d, want 0/0", info.CritCount, info.WarnCount)
+	}
+}
+
+// TestTimelineCollector_Collect_TallyAndSort covers the branches
+// TestTimelineCollector_Collect_SourcesUnavailable's empty-events run cannot
+// reach: the sort.Slice comparator actually invoked across >1 event, and the
+// CRIT/WARN tally loop's switch-case bodies (both need at least one real
+// event of each level to execute).
+func TestTimelineCollector_Collect_TallyAndSort(t *testing.T) {
+	since := time.Now().Add(-2 * time.Hour)
+	// Two journal lines deliberately OUT of chronological order in the raw
+	// feed, so the sort.Slice comparator has real work to do. PRIORITY 2=crit
+	// (-> CRIT), PRIORITY 4=warning (-> WARN).
+	lines := strings.Join([]string{
+		`{"__REALTIME_TIMESTAMP":"1700000300000000","PRIORITY":"4","_SYSTEMD_UNIT":"nginx.service","MESSAGE":"upstream timeout"}`,
+		`{"__REALTIME_TIMESTAMP":"1700000100000000","PRIORITY":"2","_SYSTEMD_UNIT":"k3s.service","MESSAGE":"node not ready"}`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
+			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, lines, 0)
+		b.PutCmdNotFound("dmesg", []string{"-T"})
+	})
+	c := NewTimelineCollector(2)
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := result.(*models.TimelineInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.TimelineInfo", result)
+	}
+	if len(info.Events) != 2 {
+		t.Fatalf("expected 2 events, got %+v", info.Events)
+	}
+	// Sorted chronologically: the 1700000100 (k3s, CRIT) event must come first.
+	// (parseJournalLine stores the unit with its .service suffix stripped.)
+	if info.Events[0].Unit != "k3s" {
+		t.Errorf("Events[0].Unit = %q, want k3s (chronological sort)", info.Events[0].Unit)
+	}
+	if info.CritCount != 1 || info.WarnCount != 1 {
+		t.Errorf("CritCount/WarnCount = %d/%d, want 1/1", info.CritCount, info.WarnCount)
+	}
+}
+
+// TestTimelineCollector_Collect_CapAt200 covers the "len(info.Events) > 200 ->
+// filterTopEvents" truncation branch inside Collect: 250 distinct (never
+// deduplicated) warning events must be capped down to 200 in the final
+// result.
+func TestTimelineCollector_Collect_CapAt200(t *testing.T) {
+	since := time.Now().Add(-2 * time.Hour)
+	tsUsec := int64(1_700_000_000_000_000)
+	lines := make([]string, 0, 250)
+	for i := range 250 {
+		// Distinct message per line defeats deduplicateEvents' msgPrefix key,
+		// so all 250 survive dedup and reach the 200-cap truncation.
+		lines = append(lines, fmt.Sprintf(
+			`{"__REALTIME_TIMESTAMP":"%d","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"distinct message number %d"}`,
+			tsUsec, i))
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
+			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, strings.Join(lines, "\n"), 0)
+		b.PutCmdNotFound("dmesg", []string{"-T"})
+	})
+	c := NewTimelineCollector(2)
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := result.(*models.TimelineInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.TimelineInfo", result)
+	}
+	if len(info.Events) != 200 {
+		t.Errorf("len(Events) = %d, want 200 (capped from 250)", len(info.Events))
 	}
 }
 

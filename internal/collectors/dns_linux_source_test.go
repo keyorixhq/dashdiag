@@ -207,7 +207,8 @@ func TestParseResolvConf(t *testing.T) {
 				"nameserver 8.8.8.8\n"+
 				"nameserver 1.1.1.1\n"+ // duplicate — must be tracked separately
 				"search example.com internal.example.com\n"+
-				"options ndots:5 timeout:2\n",
+				"options ndots:5 timeout:2\n"+
+				"sortlist\n", // a directive with no value — fewer than 2 fields, must be skipped
 		))
 	})
 	info := &models.DNSResolverInfo{}
@@ -224,5 +225,37 @@ func TestParseResolvConf(t *testing.T) {
 	}
 	if len(info.Options) != 2 {
 		t.Errorf("both options should be captured, got %v", info.Options)
+	}
+}
+
+// TestParseResolvConf_SymlinkResolved guards the readLink success branch: when
+// /etc/resolv.conf is a symlink (the systemd-resolved case), ConfigFile must
+// report the RESOLVED target, not the literal "/etc/resolv.conf" path — that
+// target is what detectDNSManager keys its "systemd" substring match on.
+func TestParseResolvConf_SymlinkResolved(t *testing.T) {
+	withCombinedFixture(t, nil, map[string]string{
+		"/etc/resolv.conf": "/run/systemd/resolve/stub-resolv.conf",
+	}, func(b *source.Bundle) {
+		b.PutFile("/etc/resolv.conf", []byte("nameserver 127.0.0.53\n"))
+	})
+	info := &models.DNSResolverInfo{}
+	parseResolvConf(info)
+	if info.ConfigFile != "/run/systemd/resolve/stub-resolv.conf" {
+		t.Errorf("ConfigFile = %q, want the resolved symlink target", info.ConfigFile)
+	}
+}
+
+// TestParseResolvConf_MissingFile guards the "resolv.conf can't be read" early
+// return: ConfigFile still falls back to the literal path (readLink also
+// errors, since nothing was seeded), and no nameservers/options are parsed.
+func TestParseResolvConf_MissingFile(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {}) // /etc/resolv.conf never seeded
+	info := &models.DNSResolverInfo{}
+	parseResolvConf(info)
+	if info.ConfigFile != "/etc/resolv.conf" {
+		t.Errorf("ConfigFile = %q, want the literal path when readLink also fails", info.ConfigFile)
+	}
+	if len(info.Nameservers) != 0 || len(info.Options) != 0 {
+		t.Errorf("expected no nameservers/options parsed from a missing file, got %+v", info)
 	}
 }

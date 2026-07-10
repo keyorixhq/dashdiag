@@ -124,6 +124,49 @@ func TestSampleCoreUsage_CtxCancelledDuringWait(t *testing.T) {
 	}
 }
 
+// fakeSecondReadErrorSource lets the FIRST ReadFile of one specific path
+// succeed and every subsequent call to that same path fail — needed to
+// exercise the "second /proc/stat snapshot fails" branch of sampleCoreUsage,
+// which a Bundle alone can't express (it serves one static value OR one
+// static error per path, never success-then-failure).
+type fakeSecondReadErrorSource struct {
+	*source.Replay
+	path    string
+	first   []byte
+	calls   int
+	readErr error
+}
+
+func (f *fakeSecondReadErrorSource) ReadFile(path string) ([]byte, error) {
+	if path == f.path {
+		f.calls++
+		if f.calls == 1 {
+			return f.first, nil
+		}
+		return nil, f.readErr
+	}
+	return f.Replay.ReadFile(path)
+}
+
+// TestSampleCoreUsage_SecondReadFails covers the "second readProcStatCores
+// errors -> nil" branch: the first /proc/stat snapshot succeeds, but the
+// second (500ms later) read fails (e.g. transient EIO).
+func TestSampleCoreUsage_SecondReadFails(t *testing.T) {
+	b := source.NewBundle()
+	prev := SetSource(&fakeSecondReadErrorSource{
+		Replay:  source.NewReplay(b),
+		path:    "/proc/stat",
+		first:   []byte("cpu  100 0 50 850 0 0 0 0\ncpu0 100 0 50 850 0 0 0 0\n"),
+		readErr: fs.ErrNotExist,
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewHealthDeepCollector()
+	if got := c.sampleCoreUsage(context.Background()); got != nil {
+		t.Errorf("expected nil when the second /proc/stat read fails, got %+v", got)
+	}
+}
+
 func TestSampleCoreUsage_HappyPath(t *testing.T) {
 	b := source.NewBundle()
 	prev := SetSource(&fakeSequentialFileSource{
@@ -251,6 +294,49 @@ func TestReadAllProcCPU(t *testing.T) {
 	}
 	if sysTotal != 10000 {
 		t.Errorf("systemTotalTicks (via readAllProcCPU) = %d, want 10000", sysTotal)
+	}
+}
+
+// TestReadAllProcCPU_GlobFails covers the "glob errors -> (nil, 0)" branch.
+func TestReadAllProcCPU_GlobFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	counters, sysTotal := readAllProcCPU()
+	if counters != nil || sysTotal != 0 {
+		t.Errorf("expected nil/0 when the glob itself fails, got %+v/%d", counters, sysTotal)
+	}
+}
+
+// TestReadAllProcCPU_NonNumericEntrySkipped covers the "strconv.Atoi(pid)
+// errors -> skip this entry" branch: a /proc/[0-9]* glob match whose base
+// name isn't purely numeric (shouldn't normally happen, but the glob pattern
+// itself doesn't guarantee it) must be skipped, not crash the loop.
+func TestReadAllProcCPU_NonNumericEntrySkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/self"})
+		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
+	})
+	counters, sysTotal := readAllProcCPU()
+	if len(counters) != 0 {
+		t.Errorf("expected an empty map (non-numeric entry skipped), got %+v", counters)
+	}
+	if sysTotal != 10000 {
+		t.Errorf("systemTotalTicks should still be read: got %d, want 10000", sysTotal)
+	}
+}
+
+// TestReadAllProcCPU_UnparseableStatSkipped covers the
+// "parseProcStatUtimeStime returns ok=false -> skip this pid" branch: a
+// /proc/<pid>/stat line with no closing ')' for the comm field must be
+// excluded from the result rather than added with garbage tick counts.
+func TestReadAllProcCPU_UnparseableStatSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/100"})
+		b.PutFile("/proc/100/stat", []byte("100 (myapp S 1 100\n")) // missing ")"
+		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
+	})
+	counters, _ := readAllProcCPU()
+	if _, ok := counters[100]; ok {
+		t.Errorf("expected pid 100 to be skipped (unparseable stat), got %+v", counters)
 	}
 }
 
@@ -636,6 +722,17 @@ func TestParseCgroupPath(t *testing.T) {
 		{"system slice flat", "/system.slice/nginx.service", "system:nginx.service"},
 		{"user slice", "/user.slice/user-1000.slice/session-1.scope", "user:1000"},
 		{"generic fallback", "/some/other/path", "path"},
+		// docker- substring without a "/docker/" path segment (docker's cgroupfs
+		// driver on some setups: "docker-<id>" directly under an arbitrary
+		// slice, not inside a literal /docker/ dir) -> falls through to the
+		// bare "container" label since strings.Split on "/docker/" yields < 2 parts.
+		{"docker- without /docker/ path", "/system.slice/docker-abc123.scope", "container"},
+		// machine.slice present but neither "libpod-" nor "libpod_pod" matches
+		// -> bare "container" fallback within the podman case.
+		{"machine.slice with no libpod marker", "/machine.slice/some-other-scope", "container"},
+		// user.slice present but no "user-" marker -> uid falls back to the
+		// full path (the `uid := path` initializer, never overwritten).
+		{"user slice without user- marker", "/user.slice/weird-session", "user:/user.slice/weird-session"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

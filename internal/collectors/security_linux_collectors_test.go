@@ -211,6 +211,65 @@ func TestBuildInodeProcMap_NoProcesses(t *testing.T) {
 	}
 }
 
+// TestBuildInodeProcMap_CommUnreadable covers the "readFile(comm) errors ->
+// continue" branch: the fd dir glob matches but /proc/<pid>/comm can't be
+// read (e.g. the process exited between the glob and the read), so that PID
+// contributes nothing and hasRoot stays false.
+func TestBuildInodeProcMap_CommUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/fd", []string{"/proc/200/fd"})
+		// No /proc/200/comm seeded -> readFile fails.
+	})
+	m, hasRoot := buildInodeProcMap()
+	if hasRoot {
+		t.Error("expected hasRoot=false when every process's comm is unreadable")
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty map, got %v", m)
+	}
+}
+
+// TestBuildInodeProcMap_FdDirUnreadable covers the "readDirEntries errors ->
+// continue" branch: comm is readable but the fd directory itself cannot be
+// listed (e.g. permission denied on another user's /proc/<pid>/fd).
+func TestBuildInodeProcMap_FdDirUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/fd", []string{"/proc/300/fd"})
+		b.PutFile("/proc/300/comm", []byte("otheruser\n"))
+		// No PutDir for /proc/300/fd -> readDirEntries fails.
+	})
+	m, hasRoot := buildInodeProcMap()
+	if hasRoot {
+		t.Error("expected hasRoot=false when the fd directory can't be listed")
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty map, got %v", m)
+	}
+}
+
+// TestBuildInodeProcMap_DedupKeepsFirst covers the "!exists" dedup guard: two
+// processes both hold an fd on the same socket inode, and the map keeps
+// whichever process was seen first rather than overwriting it.
+func TestBuildInodeProcMap_DedupKeepsFirst(t *testing.T) {
+	withReadlinkFixture(t, map[string]string{
+		"/proc/100/fd/5": "socket:[777]",
+		"/proc/101/fd/5": "socket:[777]",
+	}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/fd", []string{"/proc/100/fd", "/proc/101/fd"})
+		b.PutFile("/proc/100/comm", []byte("first\n"))
+		b.PutFile("/proc/101/comm", []byte("second\n"))
+		b.PutDir("/proc/100/fd", []string{"5"})
+		b.PutDir("/proc/101/fd", []string{"5"})
+	})
+	m, hasRoot := buildInodeProcMap()
+	if !hasRoot {
+		t.Fatal("expected hasRoot=true")
+	}
+	if m["777"] != "first" {
+		t.Errorf("m[777] = %q, want first (dedup must keep the first-seen owner)", m["777"])
+	}
+}
+
 func TestParseSELinuxDenials_Enforcing(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/sys/fs/selinux/enforce", []byte("1\n"))

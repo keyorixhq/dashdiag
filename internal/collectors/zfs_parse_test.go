@@ -119,6 +119,12 @@ func TestParseScrubErrors(t *testing.T) {
 	if got := parseScrubErrors("no with keyword"); got != 0 {
 		t.Errorf("a line with no ' with ' marker should return 0, got %d", got)
 	}
+	// Genuinely no " with " substring anywhere in the line — hits the
+	// strings.Cut ok=false branch directly (the "no with keyword" case above
+	// actually DOES contain the " with " substring and takes the happy path).
+	if got := parseScrubErrors("scan: scrub repaired 0B in 00:12:34, no errors found"); got != 0 {
+		t.Errorf("a line lacking the ' with ' substring entirely should return 0, got %d", got)
+	}
 	// " with " present but nothing follows it — no fields to read.
 	if got := parseScrubErrors("scan: scrub repaired 0B in 00:12:34 with "); got != 0 {
 		t.Errorf("a ' with ' marker with no trailing fields should return 0, got %d", got)

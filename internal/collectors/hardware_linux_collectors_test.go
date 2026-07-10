@@ -265,6 +265,70 @@ func TestCollectHwmonThermals_NoHwmonDir(t *testing.T) {
 	}
 }
 
+// TestCollectHwmonThermals_NameFileUnreadableSkipped guards the "name" read
+// error branch: a hwmon entry whose name file can't be read must be skipped
+// entirely, not panic or produce a zero-value sensor.
+func TestCollectHwmonThermals_NameFileUnreadableSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/class/hwmon", []string{"hwmon0"})
+		// no name file seeded for hwmon0 -> readFile errors
+	})
+	info := &models.HardwareInfo{}
+	collectHwmonThermals(info)
+	if len(info.Thermals) != 0 {
+		t.Errorf("Thermals = %+v, want none when name file is unreadable", info.Thermals)
+	}
+}
+
+// TestCollectHwmonThermals_NonNumericTempSkipped guards the Atoi-error branch
+// on a temp*_input file: a garbled reading must be skipped, not zero-valued.
+func TestCollectHwmonThermals_NonNumericTempSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/class/hwmon", []string{"hwmon0"})
+		b.PutFile("/sys/class/hwmon/hwmon0/name", []byte("k10temp\n"))
+		b.PutGlob("/sys/class/hwmon/hwmon0/temp*_input", []string{"/sys/class/hwmon/hwmon0/temp1_input"})
+		b.PutFile("/sys/class/hwmon/hwmon0/temp1_input", []byte("not-a-number\n"))
+	})
+	info := &models.HardwareInfo{}
+	collectHwmonThermals(info)
+	if len(info.Thermals) != 0 {
+		t.Errorf("Thermals = %+v, want none for a non-numeric temp reading", info.Thermals)
+	}
+}
+
+// TestCollectHwmonThermals_LabelFilePresent guards the labelled-sensor branch
+// (label file present overrides the base-name fallback) across multiple
+// temp*_input files on the same drivetemp sensor.
+func TestCollectHwmonThermals_LabelFilePresent(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/class/hwmon", []string{"hwmon0"})
+		b.PutFile("/sys/class/hwmon/hwmon0/name", []byte("drivetemp\n"))
+		b.PutGlob("/sys/class/hwmon/hwmon0/temp*_input", []string{
+			"/sys/class/hwmon/hwmon0/temp1_input",
+			"/sys/class/hwmon/hwmon0/temp2_input",
+		})
+		b.PutFile("/sys/class/hwmon/hwmon0/temp1_input", []byte("45000\n"))
+		b.PutFile("/sys/class/hwmon/hwmon0/temp1_label", []byte("Composite\n"))
+		b.PutFile("/sys/class/hwmon/hwmon0/temp2_input", []byte("50000\n"))
+		// no label file for temp2 -> falls back to base name
+	})
+	info := &models.HardwareInfo{}
+	collectHwmonThermals(info)
+	if len(info.Thermals) != 2 {
+		t.Fatalf("Thermals = %+v, want 2 entries", info.Thermals)
+	}
+	byLabel := map[string]int{}
+	for _, th := range info.Thermals {
+		byLabel[th.Label] = th.TempC
+	}
+	if byLabel["Composite"] != 45 {
+		t.Errorf("Composite temp = %d, want 45", byLabel["Composite"])
+	}
+	if byLabel["temp2"] != 50 {
+		t.Errorf("temp2 (fallback label) = %d, want 50", byLabel["temp2"])
+	}
+}
+
 func TestCollectEDAC(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutDir("/sys/devices/system/edac/mc", []string{"mc0"})

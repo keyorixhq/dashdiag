@@ -144,6 +144,57 @@ func TestParseKmsg_OutsideLookbackIgnored(t *testing.T) {
 	}
 }
 
+// TestParseKmsg_UptimeUnreadable covers the "readFile(/proc/uptime) errors ->
+// return" branch: kmsg has content, but /proc/uptime can't be read, so
+// parseKmsg must bail out without touching info at all.
+func TestParseKmsg_UptimeUnreadable(t *testing.T) {
+	b := source.NewBundle()
+	// No /proc/uptime seeded -> readFile fails.
+	kmsg := "6,100,99999000000,-;Out of memory: Kill process 1234 (nginx) score 900\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 0 {
+		t.Errorf("expected no-op when /proc/uptime is unreadable, got %+v", info)
+	}
+}
+
+// TestParseKmsg_UptimeEmptyFields covers the "len(fields) == 0 -> return"
+// branch: /proc/uptime is readable but contains only whitespace, so
+// strings.Fields yields zero fields.
+func TestParseKmsg_UptimeEmptyFields(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("   \n"))
+	kmsg := "6,100,99999000000,-;Out of memory: Kill process 1234 (nginx) score 900\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 0 {
+		t.Errorf("expected no-op when /proc/uptime has no whitespace-separated fields, got %+v", info)
+	}
+}
+
+// TestParseKmsg_UptimeUnparseable covers the "strconv.ParseFloat(uptime)
+// errors -> return" branch: /proc/uptime is readable but its first field
+// isn't a valid float (corrupt/truncated read).
+func TestParseKmsg_UptimeUnparseable(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("not-a-number 90000.00\n"))
+	kmsg := "6,100,99999000000,-;Out of memory: Kill process 1234 (nginx) score 900\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 0 {
+		t.Errorf("expected no-op when /proc/uptime's first field is unparseable, got %+v", info)
+	}
+}
+
 func TestKmsgRecords_Empty(t *testing.T) {
 	b := source.NewBundle()
 	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte("")}})
@@ -212,6 +263,75 @@ func TestDetectCrashLoops_NoFailedUnits(t *testing.T) {
 	})
 	if loops := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil on a clean host, got %v", loops)
+	}
+}
+
+// TestDetectCrashLoops_ListUnitsFails covers the "runCmd(list-units) errors ->
+// nil" branch.
+func TestDetectCrashLoops_ListUnitsFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"}, "", 1)
+	})
+	if loops := detectCrashLoops(context.Background()); loops != nil {
+		t.Errorf("expected nil when list-units fails, got %v", loops)
+	}
+}
+
+// TestDetectCrashLoops_UnitWithoutDotSkipped covers the "!strings.Contains(unit,
+// \".\") -> continue" branch: a malformed/non-unit token in the list-units
+// output (no unit-type suffix) must be skipped rather than probed further.
+func TestDetectCrashLoops_UnitWithoutDotSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			"nodotunit    loaded failed failed No Dot\n", 0)
+	})
+	if loops := detectCrashLoops(context.Background()); loops != nil {
+		t.Errorf("expected nil for a unit token without a '.', got %v", loops)
+	}
+}
+
+// TestDetectCrashLoops_NoiseUnitSkipped covers the "cloudInitOrNoiseUnit ->
+// continue" branch: cloud-init.service is unconditionally suppressed from the
+// crash-loop filter.
+func TestDetectCrashLoops_NoiseUnitSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			"cloud-init.service    loaded failed failed Cloud Init\n", 0)
+	})
+	if loops := detectCrashLoops(context.Background()); loops != nil {
+		t.Errorf("expected nil for a noise unit (cloud-init.service), got %v", loops)
+	}
+}
+
+// TestDetectCrashLoops_ShowFails covers the "runCmd(systemctl show) errors ->
+// continue" branch: the unit can't be probed for NRestarts/timestamp, so it
+// must be skipped rather than reported (or panicking on empty showOut).
+func TestDetectCrashLoops_ShowFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			"myapp.service    loaded failed failed My App\n", 0)
+		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+			"", 1)
+	})
+	if loops := detectCrashLoops(context.Background()); loops != nil {
+		t.Errorf("expected nil when systemctl show fails, got %v", loops)
+	}
+}
+
+// TestDetectCrashLoops_StaleLoopSkipped covers the "!crashLoopRecent ->
+// continue" branch: a unit above the restart threshold but whose last state
+// change is well outside the recency window must not be reported as an
+// active crash loop.
+func TestDetectCrashLoops_StaleLoopSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			"myapp.service    loaded failed failed My App\n", 0)
+		staleTS := time.Now().Add(-30 * 24 * time.Hour).UTC().Format("Mon 2006-01-02 15:04:05 MST")
+		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+			"NRestarts=7\nInactiveEnterTimestamp="+staleTS+"\n", 0)
+	})
+	if loops := detectCrashLoops(context.Background()); loops != nil {
+		t.Errorf("expected nil for a stale (30-day-old) crash loop, got %v", loops)
 	}
 }
 
@@ -303,6 +423,18 @@ func TestDetectVolatileJournal_ExplicitPersistentConfig(t *testing.T) {
 	}
 }
 
+// TestDetectVolatileJournal_ExplicitVolatileConfig covers the "volatile"/"none"
+// case branch directly (distinct from the "auto"/unset default branch, which
+// also returns true but through the `default:` arm).
+func TestDetectVolatileJournal_ExplicitVolatileConfig(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/systemd/journald.conf", []byte("Storage=volatile\n"))
+	})
+	if !detectVolatileJournal() {
+		t.Error("expected volatile=true for an explicit Storage=volatile config")
+	}
+}
+
 func TestDetectVolatileJournal_DefaultAutoIsVolatile(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if !detectVolatileJournal() {
@@ -323,6 +455,17 @@ func TestDetectJournalRateLimit_DefaultIsFine(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if detectJournalRateLimit() {
 		t.Error("expected the default (unset) RateLimitBurst to not flag")
+	}
+}
+
+// TestDetectJournalRateLimit_NonNumericValue covers the "strconv.Atoi errors
+// -> false" branch: a malformed RateLimitBurst config value must not flag.
+func TestDetectJournalRateLimit_NonNumericValue(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/systemd/journald.conf", []byte("RateLimitBurst=notanumber\n"))
+	})
+	if detectJournalRateLimit() {
+		t.Error("expected a non-numeric RateLimitBurst value to not flag")
 	}
 }
 
@@ -467,6 +610,32 @@ func TestCheckJournalHealth_FullPath(t *testing.T) {
 	}
 	if info.LogDiskMount == "" {
 		t.Error("expected LogDiskMount to be populated from the statfs fallback to /var/log")
+	}
+}
+
+// TestCheckJournalHealth_CorruptArchived covers the "fileExists(journalVarPath)
+// && hasCorruptArchived -> JournalCorrupt=true" branch, which
+// TestCheckJournalHealth_FullPath above never reaches (it seeds no
+// /var/log/journal directory at all).
+func TestCheckJournalHealth_CorruptArchived(t *testing.T) {
+	b := source.NewBundle()
+	b.PutStat("/run/systemd/private", source.FileMeta{}) // systemdPresentViaSource gate
+	b.PutStat(journalVarPath, source.FileMeta{IsDir: true})
+	b.PutDir(journalVarPath, []string{"system.journal~"})
+	b.PutCmd("journalctl", []string{"--verify", "--file=" + journalVarPath + "/system.journal~"},
+		"FAIL: /var/log/journal/system.journal~ (Bad message)\n", 1)
+	b.PutFile("/proc/self/mountinfo", []byte("25 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n"))
+	prev := SetSource(fakeStatfsOverrideSource{
+		Replay: source.NewReplay(b),
+		path:   "/var/log",
+		info:   source.StatfsInfo{Bsize: 4096, Blocks: 1000, Bfree: 500},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	checkJournalHealth(context.Background(), info, platform.Profile{})
+	if !info.JournalCorrupt {
+		t.Error("expected JournalCorrupt=true when journalctl --verify reports FAIL on an archived journal")
 	}
 }
 
@@ -645,5 +814,74 @@ func TestLogsCollector_Collect_Smoke(t *testing.T) {
 	}
 	if info.LogSource != "unknown" {
 		t.Errorf("expected LogSource=unknown (no journald socket / syslog file seeded), got %q", info.LogSource)
+	}
+}
+
+// TestLogsCollector_Collect_VarLogFallback covers the shouldReadVarLogFallback
+// TRUE branch inside Collect: no journald socket + a real /var/log/syslog
+// present makes detectLogSource return "syslog", and journalctl's (seeded)
+// zero-error scan means ErrorCount stays 0 going into the fallback check — so
+// Collect must consult /var/log/syslog and flip ErrorCount/LogSource/TopErrors
+// from that file rather than reporting a false "0 errors, nothing to fall
+// back to".
+func TestLogsCollector_Collect_VarLogFallback(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("systemd-detect-virt", []string{"-v"}, "none\n", 1)
+	b.PutFile("/sys/class/dmi/id/sys_vendor", []byte("Dell Inc.\n"))
+	b.PutFile("/sys/class/dmi/id/product_name", []byte("PowerEdge R750\n"))
+	b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"}, "", 0)
+	b.PutCmd("journalctl", []string{"-p", "err", "--since", "1 hours ago", "--no-pager", "-q", "--output=short-iso"}, "", 0)
+	b.PutCmd("journalctl", []string{"-p", "warning", "--since", "1 hours ago", "--no-pager", "-q", "--output=short"}, "", 0)
+	b.PutStat("/var/log/syslog", source.FileMeta{Size: 100})
+	b.PutFile("/var/log/syslog", []byte("Jun  3 10:00:00 host app[1]: error: disk failing\n"))
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte("")}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewLogsCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.LogsInfo)
+	if info.LogSource != "syslog" {
+		t.Errorf("LogSource = %q, want syslog (no journald socket, /var/log/syslog present)", info.LogSource)
+	}
+	if info.ErrorCount != 1 {
+		t.Errorf("ErrorCount = %d, want 1 (from the /var/log/syslog fallback line)", info.ErrorCount)
+	}
+	if info.ErrorCountUnverified {
+		t.Error("expected ErrorCountUnverified=false: the /var/log fallback covered the scan")
+	}
+}
+
+// TestLogsCollector_Collect_ErrorScanFailedUnverified covers the
+// "ErrorScanFailed && !fellBack" branch: the journalctl error-priority scan
+// itself fails (non-zero exit) AND there is no /var/log fallback to cover for
+// it (LogSource stays "unknown" — no journald socket, no syslog file), so
+// Collect must flag ErrorCountUnverified rather than silently reporting a
+// trustworthy-looking ErrorCount=0.
+func TestLogsCollector_Collect_ErrorScanFailedUnverified(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("systemd-detect-virt", []string{"-v"}, "none\n", 1)
+	b.PutFile("/sys/class/dmi/id/sys_vendor", []byte("Dell Inc.\n"))
+	b.PutFile("/sys/class/dmi/id/product_name", []byte("PowerEdge R750\n"))
+	b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"}, "", 0)
+	// journalctl error scan fails outright (e.g. journald not running/reachable).
+	b.PutCmd("journalctl", []string{"-p", "err", "--since", "1 hours ago", "--no-pager", "-q", "--output=short-iso"}, "", 1)
+	b.PutCmd("journalctl", []string{"-p", "warning", "--since", "1 hours ago", "--no-pager", "-q", "--output=short"}, "", 1)
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte("")}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewLogsCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.LogsInfo)
+	if info.LogSource != "unknown" {
+		t.Fatalf("LogSource = %q, want unknown (no journald socket / syslog file seeded)", info.LogSource)
+	}
+	if !info.ErrorCountUnverified {
+		t.Error("expected ErrorCountUnverified=true: journalctl scan failed and no /var/log fallback covered it")
 	}
 }

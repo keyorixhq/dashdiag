@@ -213,6 +213,29 @@ func TestParseAVCGroups(t *testing.T) {
 	}
 }
 
+// TestParseAVCGroups_LogUnreadable covers the "openFile errors -> nil" branch:
+// no /var/log/audit/audit.log present (e.g. auditd not installed or not
+// root) must return nil, not panic.
+func TestParseAVCGroups_LogUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := parseAVCGroups(context.Background(), time.Hour); got != nil {
+		t.Errorf("expected nil when the audit log can't be opened, got %+v", got)
+	}
+}
+
+// TestParseAVCGroups_NoMatchingLines covers the "groups empty after scan ->
+// nil" branch: the audit log is readable but contains nothing that
+// scanAVCLine folds into a group (e.g. only permissive/out-of-window/non-AVC
+// lines), so buildSELinuxAVCGroups must never run against an empty map.
+func TestParseAVCGroups_NoMatchingLines(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte("type=SYSCALL msg=audit(1.0:1): arch=c000003e syscall=2 success=yes\n"))
+	})
+	if got := parseAVCGroups(context.Background(), time.Hour); got != nil {
+		t.Errorf("expected nil when no line yields a group, got %+v", got)
+	}
+}
+
 // TestParseSuspectCrons guards the cron-persistence detection: a job piping to
 // a shell or writing into a system/world-writable path must be flagged, a
 // benign job must not, and comment/blank lines must be skipped.
@@ -497,6 +520,41 @@ func TestCollectAppArmorDenials_MultiGroupSortOrder(t *testing.T) {
 	}
 	if got[1].Profile != "/usr/bin/aaa" || got[2].Profile != "/usr/bin/bbb" {
 		t.Errorf("tied count=1 groups should sort by profile asc (aaa before bbb), got order %+v, %+v", got[1], got[2])
+	}
+}
+
+// TestCollectAppArmorDenials_PathThenOperationTiebreak guards the third and
+// fourth tiebreak levels of the sort.Slice comparator: two groups tied on
+// BOTH count AND profile must break the tie by path asc, and two groups tied
+// on count, profile, AND path must break the final tie by operation asc.
+func TestCollectAppArmorDenials_PathThenOperationTiebreak(t *testing.T) {
+	lines := strings.Join([]string{
+		// Same profile, different paths, both count=1 -> path asc breaks the tie.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/zzz" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/aaa" requested_mask="r" comm="foo"`,
+		// Same profile AND path, different operations, both count=1 -> operation asc.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bar" name="/etc/same" requested_mask="w" comm="bar"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bar" name="/etc/same" requested_mask="r" comm="bar"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 4 {
+		t.Fatalf("expected 4 distinct groups, got %d: %+v", len(got), got)
+	}
+	// All groups tie at count=1, so profile asc dominates first: "bar" < "foo".
+	if got[0].Profile != "/usr/bin/bar" || got[1].Profile != "/usr/bin/bar" {
+		t.Fatalf("expected the two /usr/bin/bar groups first (profile asc), got %+v, %+v", got[0], got[1])
+	}
+	// Within the tied "bar" profile+path, operation asc: "r" before "w".
+	if got[0].Operation != "r" || got[1].Operation != "w" {
+		t.Errorf("expected operation asc tiebreak (r before w), got %+v, %+v", got[0], got[1])
+	}
+	// Within the tied "foo" profile, path asc: "/etc/aaa" before "/etc/zzz".
+	if got[2].Path != "/etc/aaa" || got[3].Path != "/etc/zzz" {
+		t.Errorf("expected path asc tiebreak (aaa before zzz), got %+v, %+v", got[2], got[3])
 	}
 }
 

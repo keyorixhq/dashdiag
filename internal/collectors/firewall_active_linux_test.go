@@ -44,6 +44,54 @@ func TestParseNFTRulesetActive(t *testing.T) {
 	}
 }
 
+// TestParseNFTRulesetPolicyAccept guards the "policy accept" branch on the
+// literal "chain NAME {" line itself (as opposed to the "hook input ... policy
+// drop" special-case real nft output normally uses, which realNFTRuleset
+// exercises): some tooling/hand-written rulesets put "policy accept" directly
+// on the chain declaration line, and that must be recorded on the Chain
+// struct without setting DefaultDrop.
+func TestParseNFTRulesetPolicyAccept(t *testing.T) {
+	t.Parallel()
+	const acceptRuleset = `table inet filter {
+	chain input policy accept {
+		tcp dport 22 accept
+	}
+}
+`
+	var info models.FirewallInfo
+	parseNFTRuleset(acceptRuleset, &info)
+	if len(info.Chains) != 1 || info.Chains[0].Policy != "accept" {
+		t.Fatalf("expected the chain policy recorded as accept, got %+v", info.Chains)
+	}
+	if info.DefaultDrop {
+		t.Error("DefaultDrop must not be set for a policy-accept chain")
+	}
+}
+
+// TestParseNFTRulesetPolicyDropOnChainLine guards the "policy drop" branch on
+// the literal "chain NAME {" line itself (distinct from the "hook input ...
+// policy drop" special-case realNFTRuleset/TestParseNFTRulesetDetectsDefaultDrop
+// exercise, which reads it off the "type filter hook input ..." line instead):
+// when the chain declaration line names the input chain AND contains "policy
+// drop" directly, DefaultDrop must be set too.
+func TestParseNFTRulesetPolicyDropOnChainLine(t *testing.T) {
+	t.Parallel()
+	const dropOnChainLine = `table inet filter {
+	chain input policy drop {
+		tcp dport 22 accept
+	}
+}
+`
+	var info models.FirewallInfo
+	parseNFTRuleset(dropOnChainLine, &info)
+	if len(info.Chains) != 1 || info.Chains[0].Policy != "drop" {
+		t.Fatalf("expected the chain policy recorded as drop, got %+v", info.Chains)
+	}
+	if !info.DefaultDrop {
+		t.Error("expected DefaultDrop=true for an input chain with policy drop on its declaration line")
+	}
+}
+
 // TestNFTAndIPTablesActiveAgree pins that the two backends decide "active" the same
 // way (the sibling-divergence this fixed): empty -> inactive, rules -> active.
 func TestNFTAndIPTablesActiveAgree(t *testing.T) {

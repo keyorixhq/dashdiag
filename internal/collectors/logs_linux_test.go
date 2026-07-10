@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,60 @@ func TestParseSyslogTopError(t *testing.T) {
 	}
 	if e.AgeMin != 120 {
 		t.Errorf("age = %d, want 120", e.AgeMin)
+	}
+}
+
+// TestParseSyslogTopError_TooFewFields covers the "len(fields) < 6 -> false"
+// branch: a syslog-shaped line missing the process/message tokens entirely.
+func TestParseSyslogTopError_TooFewFields(t *testing.T) {
+	t.Parallel()
+	if _, ok := parseSyslogTopError("Jun  3 10:00:00 myhost", refNow(t)); ok {
+		t.Error("expected ok=false for a line with fewer than 6 fields")
+	}
+}
+
+// TestParseSyslogTopError_EmptyMessage covers the "msg == \"\" -> false"
+// branch: sourceAndMessage returns an empty message when msgStart lands
+// exactly at len(fields) (no message tokens remain).
+func TestParseSyslogTopError_EmptyMessage(t *testing.T) {
+	t.Parallel()
+	// 6 fields total, so msgStart=5 == len(fields) -> sourceAndMessage returns "".
+	if _, ok := parseSyslogTopError("Jun  3 10:00:00 myhost nginx[1200]:", refNow(t)); ok {
+		t.Error("expected ok=false when no message tokens remain after the source field")
+	}
+}
+
+// TestSourceAndMessage_MsgStartBeyondFields covers the "msgStart >=
+// len(fields) -> (\"\", \"\")" guard directly.
+func TestSourceAndMessage_MsgStartBeyondFields(t *testing.T) {
+	t.Parallel()
+	src, msg := sourceAndMessage([]string{"a", "b"}, 5)
+	if src != "" || msg != "" {
+		t.Errorf("sourceAndMessage with msgStart beyond len(fields) = (%q, %q), want (\"\", \"\")", src, msg)
+	}
+}
+
+// TestSourceAndMessage_TruncatesLongMessage covers the topErrorMsgCap
+// truncation branch: a message longer than the cap must be cut to exactly
+// topErrorMsgCap runes.
+func TestSourceAndMessage_TruncatesLongMessage(t *testing.T) {
+	t.Parallel()
+	longWord := strings.Repeat("x", topErrorMsgCap+50)
+	_, msg := sourceAndMessage([]string{"host", "app:", longWord}, 2)
+	if len(msg) != topErrorMsgCap {
+		t.Errorf("len(msg) = %d, want %d (truncated)", len(msg), topErrorMsgCap)
+	}
+}
+
+// TestAgeMinutes_ClampsNegative covers the "m < 0 -> 0" clamp: a timestamp
+// AFTER now (clock skew, or a future-dated log line) must not yield a
+// negative age.
+func TestAgeMinutes_ClampsNegative(t *testing.T) {
+	t.Parallel()
+	now := refNow(t)
+	future := now.Add(10 * time.Minute)
+	if got := ageMinutes(now, future); got != 0 {
+		t.Errorf("ageMinutes with a future timestamp = %d, want 0 (clamped)", got)
 	}
 }
 
@@ -235,7 +290,6 @@ func TestShouldReadVarLogFallback(t *testing.T) {
 		{"syslog but errors already found → don't double-count", models.LogsInfo{LogSource: "syslog", ErrorCount: 4}, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := shouldReadVarLogFallback(&tc.info); got != tc.want {
@@ -250,7 +304,7 @@ func TestScanVarLog_TailCap(t *testing.T) {
 	now := refNow(t)
 	// Build > varLogTailLines lines, only the last one is an error.
 	var b []byte
-	for i := 0; i < varLogTailLines+50; i++ {
+	for range varLogTailLines + 50 {
 		b = append(b, []byte("Jun  3 10:00:00 host app[1]: routine ok\n")...)
 	}
 	b = append(b, []byte("Jun  3 11:59:00 host app[1]: fatal error happened\n")...)
@@ -439,3 +493,54 @@ func TestHasCorruptArchived_ErrorWithoutFAILIsNotCorrupt(t *testing.T) {
 type fakeCmdErr struct{}
 
 func (*fakeCmdErr) Error() string { return "exit status 1" }
+
+// TestHasCorruptArchived_DirUnreadable covers the "readDirEntries errors ->
+// false" branch: a directory that doesn't exist must not panic and must
+// report no corruption (nothing to verify).
+func TestHasCorruptArchived_DirUnreadable(t *testing.T) {
+	t.Parallel()
+	if got := hasCorruptArchived(filepath.Join(t.TempDir(), "does-not-exist")); got {
+		t.Error("expected false for an unreadable/missing journal directory")
+	}
+}
+
+// TestHasCorruptArchived_NonArchivedSuffixSkipped covers the "!strings.
+// HasSuffix(.journal~) -> continue" branch: an active *.journal file (not yet
+// archived) must never be handed to journalctl --verify at all.
+func TestHasCorruptArchived_NonArchivedSuffixSkipped(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "system.journal"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := SetSource(source.Live{Exec: func(context.Context, string, ...string) (source.Result, error) {
+		t.Fatal("journalctl --verify must not run against a non-archived (*.journal) file")
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+	if got := hasCorruptArchived(dir); got {
+		t.Error("expected false when only an active *.journal file is present")
+	}
+}
+
+// TestHasCorruptArchived_RecursesIntoSubdirs covers the "e.IsDir() ->
+// recurse" branch: journald shards archives under one subdirectory per
+// machine-ID, so a corrupt archive nested one level down must still surface.
+func TestHasCorruptArchived_RecursesIntoSubdirs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "abc123-machine-id")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "system.journal~"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := SetSource(source.Live{Exec: func(context.Context, string, ...string) (source.Result, error) {
+		return source.Result{Stdout: []byte("FAIL: bad message\n"), ExitCode: 1}, &fakeCmdErr{}
+	}})
+	defer SetSource(prev)
+	if got := hasCorruptArchived(dir); !got {
+		t.Error("expected true: a corrupt archive nested under a machine-ID subdir must be found by recursion")
+	}
+}

@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"testing"
 	"time"
 
@@ -572,6 +573,35 @@ func TestTcpProbe_Loopback(t *testing.T) {
 	ms, ok := tcpProbe(context.Background(), "127.0.0.1")
 	if !ok {
 		t.Error("expected ok=true — a refused connection on loopback still proves reachability")
+	}
+	if ms < 0 {
+		t.Errorf("ms = %v, want >= 0", ms)
+	}
+}
+
+// TestTcpProbe_Connects guards the "conn != nil" success branch: with a real
+// listener bound to 127.0.0.1:53 (tcpProbe's first port), the dial must
+// actually connect (not just get refused) and the connection must be closed
+// before returning.
+func TestTcpProbe_Connects(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:53")
+	if err != nil {
+		t.Skipf("could not bind 127.0.0.1:53 in this environment: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+
+	ms, ok := tcpProbe(context.Background(), "127.0.0.1")
+	if !ok {
+		t.Error("expected ok=true for a real listener")
 	}
 	if ms < 0 {
 		t.Errorf("ms = %v, want >= 0", ms)

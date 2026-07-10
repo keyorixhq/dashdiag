@@ -66,6 +66,30 @@ func TestReadPSIFile(t *testing.T) {
 		}
 	})
 
+	// TestReadPSIString_SkipsMalformedFields covers two field-level skip
+	// branches within an otherwise-valid (>=4 field) PSI line: a token with no
+	// "=" at all (len(kv) != 2), and a token whose value isn't a valid float
+	// (ParseFloat error) — both must be silently skipped, not abort the whole
+	// line, so the other well-formed fields on the same line still parse.
+	t.Run("skips a malformed key=value token and an unparseable float, keeps the rest", func(t *testing.T) {
+		lines, err := readPSIString("some avg10=5.21 nokeyvaluehere avg60=notanumber avg300=1.02 total=12345678\n")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(lines) != 1 {
+			t.Fatalf("lines = %d, want 1", len(lines))
+		}
+		if lines[0].Avg10 != 5.21 {
+			t.Errorf("avg10 = %v, want 5.21 (parsed despite the malformed/unparseable neighbors)", lines[0].Avg10)
+		}
+		if lines[0].Avg60 != 0 {
+			t.Errorf("avg60 = %v, want 0 (unparseable value skipped, field left zero)", lines[0].Avg60)
+		}
+		if lines[0].Avg300 != 1.02 {
+			t.Errorf("avg300 = %v, want 1.02", lines[0].Avg300)
+		}
+	})
+
 	// Regression: a malformed/truncated pressure file (no line with >=4 fields)
 	// must return an empty slice — never a non-nil err with a [0]-indexable slice.
 	// Collect() relies on this to guard its m[0]/cpu[0]/io[0] indexing.

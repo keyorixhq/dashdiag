@@ -206,6 +206,17 @@ func TestAmdCardPaths(t *testing.T) {
 	}
 }
 
+// TestAmdCardPaths_GlobError guards the err != nil branch: an unseeded glob
+// pattern (Replay's ErrNotRecorded) must return nil, not panic.
+func TestAmdCardPaths_GlobError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /sys/class/drm/card[0-9] intentionally left unseeded.
+	})
+	if cards := amdCardPaths(); cards != nil {
+		t.Errorf("cards = %v, want nil on a glob error", cards)
+	}
+}
+
 func TestCollectAMDGPUs(t *testing.T) {
 	withReadlinkFixture(t, map[string]string{
 		"/sys/class/drm/card0/device/driver": "../../../bus/pci/drivers/amdgpu",
@@ -504,6 +515,18 @@ func TestReadSysfsMicroW_Absent(t *testing.T) {
 	}
 }
 
+// TestReadSysfsMicroW_Garbage guards the ParseInt-error branch — a matched
+// file exists but its content isn't a valid integer.
+func TestReadSysfsMicroW_Garbage(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/x*", []string{"/x0"})
+		b.PutFile("/x0", []byte("not-a-number\n"))
+	})
+	if w := readSysfsMicroW("/x*"); w != 0 {
+		t.Errorf("got %v, want 0", w)
+	}
+}
+
 func TestDetectNvidiaWithoutSMI_Nouveau(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/sys/class/drm/card[0-9]", []string{"/sys/class/drm/card0"})
@@ -684,6 +707,77 @@ func TestGPUCollector_Collect_NvidiaHappyPath(t *testing.T) {
 	}
 }
 
+// TestGPUCollector_Collect_NvidiaMultiLineSkipsGarbled guards the per-line
+// loop's continue branches: a blank line and an unparseable line must be
+// skipped without aborting the well-formed lines around them.
+func TestGPUCollector_Collect_NvidiaMultiLineSkipsGarbled(t *testing.T) {
+	t.Setenv("DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/drm/card[0-9]", nil)
+		b.PutCmd("nvidia-smi",
+			[]string{
+				"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version,power.limit",
+				"--format=csv,noheader,nounits",
+			},
+			"0, RTX 4090, 60, 20, 8192, 24576, 350, 550.54.14, 450\n"+
+				"\n"+ // blank line -> skipped
+				"garbled, not, enough, fields\n"+ // unparseable -> continue
+				"1, RTX 3080, 65, 30, 4096, 10240, 300, 550.54.14, 400\n",
+			0)
+	})
+	got, err := NewGPUCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := got.(*models.GPUInfo)
+	if len(info.Devices) != 2 {
+		t.Fatalf("got %d devices, want 2 (garbled/blank lines skipped)", len(info.Devices))
+	}
+}
+
+// TestGPUCollector_Collect_MesaAppliedToAMD guards the mesa-version
+// application branch onto AMD devices — every other AMD Collect test forces
+// DISPLAY/WAYLAND_DISPLAY empty, which short-circuits detectMesaVersion
+// before that branch is ever reached.
+func TestGPUCollector_Collect_MesaAppliedToAMD(t *testing.T) {
+	t.Setenv("DISPLAY", ":0")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	links := map[string]string{
+		"/sys/class/drm/card0/device/driver": "../../../bus/pci/drivers/amdgpu",
+	}
+	b := source.NewBundle()
+	devPath := "/sys/class/drm/card0/device"
+	b.PutGlob("/sys/class/drm/card[0-9]", []string{"/sys/class/drm/card0"})
+	b.PutFile(devPath+"/vendor", []byte("0x1002\n"))
+	b.PutFile(devPath+"/gpu_busy_percent", []byte("10\n"))
+	b.PutFile(devPath+"/mem_info_vram_used", []byte("0\n"))
+	b.PutFile(devPath+"/mem_info_vram_total", []byte("0\n"))
+	b.PutFile(devPath+"/mem_info_gtt_total", []byte(""))
+	b.PutFile(devPath+"/uevent", []byte(""))
+	b.PutCmdNotFound("nvidia-smi",
+		[]string{
+			"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version,power.limit",
+			"--format=csv,noheader,nounits",
+		})
+	b.PutCmd("glxinfo", []string{"-B"},
+		"OpenGL version string: 4.6 (Compatibility Profile) Mesa 24.3.1\n", 0)
+	prev := SetSource(&fakeReadlinkSource{Replay: source.NewReplay(b), links: links})
+	t.Cleanup(func() { SetSource(prev) })
+
+	got, err := NewGPUCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := got.(*models.GPUInfo)
+	if len(info.Devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(info.Devices))
+	}
+	if info.Devices[0].MesaVersion != "24.3.1" {
+		t.Errorf("MesaVersion = %q, want 24.3.1 (applied from detectMesaVersion)", info.Devices[0].MesaVersion)
+	}
+}
+
 // TestGPUCollector_Collect_NvidiaNoDriver drives the nvidia-smi-unavailable
 // fallback: a bus-detected NVIDIA card whose driver is nouveau.
 func TestGPUCollector_Collect_NvidiaNoDriver(t *testing.T) {
@@ -751,6 +845,30 @@ func TestGPUCollector_Collect_AMDPath(t *testing.T) {
 	// overridden by the 1s post-sleep instantaneous sample from the same file.
 	if dev.UtilPct != 10 {
 		t.Errorf("UtilPct = %d, want 10 (from the busy sampler)", dev.UtilPct)
+	}
+}
+
+// TestSampleAMDBusy_ReadsBothPercentages drives sampleAMDBusy directly
+// (bypassing Collect's goroutine plumbing) to cover both the successful
+// gpu_busy_percent/mem_busy_percent parse and the absent/unreadable ->
+// sentinel -1 branch, across two cards in the same call.
+func TestSampleAMDBusy_ReadsBothPercentages(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/class/drm/card0/device/gpu_busy_percent", []byte("42\n"))
+		b.PutFile("/sys/class/drm/card0/device/mem_busy_percent", []byte("17\n"))
+		// card1: neither file seeded -> readSysfsStr returns "" -> sentinel -1.
+	})
+	ch := make(chan []busySample, 1)
+	sampleAMDBusy([]string{"/sys/class/drm/card0", "/sys/class/drm/card1"}, ch)
+	samples := <-ch
+	if len(samples) != 2 {
+		t.Fatalf("got %d samples, want 2", len(samples))
+	}
+	if samples[0].gpuBusy != 42 || samples[0].memBusy != 17 {
+		t.Errorf("card0 = %+v, want gpuBusy=42 memBusy=17", samples[0])
+	}
+	if samples[1].gpuBusy != -1 || samples[1].memBusy != -1 {
+		t.Errorf("card1 = %+v, want both sentinel -1 (files absent)", samples[1])
 	}
 }
 

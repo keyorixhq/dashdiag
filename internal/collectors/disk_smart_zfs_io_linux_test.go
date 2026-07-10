@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -245,5 +246,47 @@ func TestCollectDiskIO_NoDiskstatsFile(t *testing.T) {
 	}
 	if stats[0].ReadMBs != 0 || stats[0].WriteMBs != 0 {
 		t.Errorf("expected zero-value stat when /proc/diskstats is unreadable, got %+v", stats[0])
+	}
+}
+
+// decreasingDiskstatsSource returns a lower sector count on the SECOND
+// /proc/diskstats read than the first, simulating a counter rollover/reset
+// (or a garbled capture) so collectDiskIO's negative-delta clamp fires. All
+// other Source methods delegate to an embedded Replay over an empty Bundle.
+type decreasingDiskstatsSource struct {
+	source.Source
+	calls int
+}
+
+func (d *decreasingDiskstatsSource) ReadFile(path string) ([]byte, error) {
+	if path != "/proc/diskstats" {
+		return nil, errors.New("unexpected path in test fake: " + path)
+	}
+	d.calls++
+	if d.calls == 1 {
+		// fields: major minor name reads_completed reads_merged sectors_read
+		// ms_reading writes_completed writes_merged sectors_written ms_writing
+		// ios_in_progress ms_ios weighted_ms_ios
+		return []byte("   8       0 sda 100 5 20000 10 200 20 40000 30 0 40 60\n"), nil
+	}
+	// Second sample: sector counts dropped below the first sample's — must
+	// clamp to zero, never a negative MB delta.
+	return []byte("   8       0 sda 100 5 10000 10 200 20 20000 30 0 40 60\n"), nil
+}
+
+// TestCollectDiskIO_NegativeDeltaClamped guards the readMB/writeMB < 0 clamp:
+// a counter that goes backwards between the two samples (rollover or a
+// garbled read) must report a zero delta, never a negative one.
+func TestCollectDiskIO_NegativeDeltaClamped(t *testing.T) {
+	prev := SetSource(&decreasingDiskstatsSource{Source: source.NewReplay(source.NewBundle())})
+	defer SetSource(prev)
+
+	drives := []models.PhysicalDrive{{Name: "sda"}}
+	stats := collectDiskIO(drives)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 entry, got %d: %+v", len(stats), stats)
+	}
+	if stats[0].ReadMBs != 0 || stats[0].WriteMBs != 0 {
+		t.Errorf("negative delta must clamp to 0, got read=%v write=%v", stats[0].ReadMBs, stats[0].WriteMBs)
 	}
 }

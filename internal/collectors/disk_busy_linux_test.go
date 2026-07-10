@@ -97,6 +97,8 @@ func TestParseFdFlagsWrite(t *testing.T) {
 		{"write-only fd (O_WRONLY=1)", "pos:\t0\nflags:\t0100001\nmnt_id:\t25\n", true},
 		{"read-write fd (O_RDWR=2)", "pos:\t0\nflags:\t0100002\nmnt_id:\t25\n", true},
 		{"no flags line", "pos:\t0\nmnt_id:\t25\n", false},
+		{"flags line with no value field", "pos:\t0\nflags:\nmnt_id:\t25\n", false},
+		{"flags line with non-numeric garbage", "pos:\t0\nflags:\tnotoctal\nmnt_id:\t25\n", false},
 	}
 
 	for _, tt := range tests {
@@ -287,7 +289,7 @@ func TestFuserBusyProcesses(t *testing.T) {
 		var out string
 		links := map[string]string{}
 		cached := map[string][]byte{}
-		for i := 0; i < fsBusyMaxProcs+5; i++ {
+		for i := range fsBusyMaxProcs + 5 {
 			out += " " + strconv.Itoa(1000+i)
 		}
 		withCombinedFixture(t, cached, links, func(b *source.Bundle) {

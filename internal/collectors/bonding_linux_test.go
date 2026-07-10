@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // Captured output from a real bond in 802.3ad mode with one slave down.
@@ -348,5 +350,87 @@ func TestShortMode(t *testing.T) {
 		if got != c.want {
 			t.Errorf("shortMode(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestLacpNotAggregating covers the LACP-not-bundling heuristic's boundary
+// cases: non-802.3ad modes are always exempt, an all-down bond defers to the
+// separate AllDown CRIT rather than double-flagging, a zero partner MAC means
+// LACP never heard a partner, a shrunk active-aggregator port count means some
+// up slaves fell out of the aggregation, and split aggregator IDs among the up
+// slaves mean the slaves never converged onto one aggregator.
+func TestLacpNotAggregating(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		bond models.BondInterface
+		want bool
+	}{
+		{
+			name: "non-802.3ad mode is always exempt",
+			bond: models.BondInterface{ModeShort: "active-backup", PartnerMAC: "00:00:00:00:00:00"},
+			want: false,
+		},
+		{
+			name: "all slaves down defers to AllDown, not double-flagged",
+			bond: models.BondInterface{
+				ModeShort:  "802.3ad",
+				Slaves:     []models.BondSlave{{State: "down"}, {State: "down"}},
+				DownSlaves: 2,
+			},
+			want: false,
+		},
+		{
+			name: "zero partner MAC means LACP never heard a partner",
+			bond: models.BondInterface{
+				ModeShort:  "802.3ad",
+				Slaves:     []models.BondSlave{{State: "up"}},
+				PartnerMAC: "00:00:00:00:00:00",
+			},
+			want: true,
+		},
+		{
+			name: "aggregator ports fewer than up slaves means some fell out",
+			bond: models.BondInterface{
+				ModeShort:       "802.3ad",
+				Slaves:          []models.BondSlave{{State: "up"}, {State: "up"}},
+				PartnerMAC:      "00:11:22:33:44:55",
+				AggregatorPorts: 1,
+			},
+			want: true,
+		},
+		{
+			name: "split aggregator IDs among up slaves means never converged",
+			bond: models.BondInterface{
+				ModeShort:  "802.3ad",
+				PartnerMAC: "00:11:22:33:44:55",
+				Slaves: []models.BondSlave{
+					{State: "up", AggregatorID: 1},
+					{State: "up", AggregatorID: 2},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "healthy: single aggregator ID, full ports, real partner MAC",
+			bond: models.BondInterface{
+				ModeShort:       "802.3ad",
+				PartnerMAC:      "00:11:22:33:44:55",
+				AggregatorPorts: 2,
+				Slaves: []models.BondSlave{
+					{State: "up", AggregatorID: 1},
+					{State: "up", AggregatorID: 1},
+				},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := lacpNotAggregating(tt.bond); got != tt.want {
+				t.Errorf("lacpNotAggregating(%+v) = %v, want %v", tt.bond, got, tt.want)
+			}
+		})
 	}
 }

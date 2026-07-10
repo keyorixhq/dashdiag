@@ -176,6 +176,93 @@ unused devices: <none>`
 	}
 }
 
+// TestParseMDStatHeader guards every branch directly: too-few-fields
+// short-circuit, active vs inactive state, and failed/spare/active drive
+// classification — parseMDStat only ever exercises the plain-active path.
+func TestParseMDStatHeader(t *testing.T) {
+	t.Parallel()
+	t.Run("too few fields returns default active", func(t *testing.T) {
+		t.Parallel()
+		dev := parseMDStatHeader("md0 :")
+		if dev.State != "active" || dev.Name != "" {
+			t.Errorf("dev = %+v, want zero-value active default", dev)
+		}
+	})
+	t.Run("inactive array", func(t *testing.T) {
+		t.Parallel()
+		// A fully-listed, non-degraded drive set does not override the
+		// inactive-derived "failed" state — inactive always means failed.
+		dev := parseMDStatHeader("md0 : inactive raid1 sda1[0]")
+		if dev.State != "failed" {
+			t.Errorf("State = %q, want failed", dev.State)
+		}
+	})
+	t.Run("inactive array with a genuinely degraded drive set", func(t *testing.T) {
+		t.Parallel()
+		dev := parseMDStatHeader("md0 : inactive raid1 sda1[0] sdb1[1](F)")
+		if dev.State != "degraded" {
+			t.Errorf("State = %q, want degraded (a failed drive re-flags past the inactive default)", dev.State)
+		}
+	})
+	t.Run("failed drive marked (F)", func(t *testing.T) {
+		t.Parallel()
+		dev := parseMDStatHeader("md0 : active raid1 sda1[0] sdb1[1](F)")
+		if len(dev.Failed) != 1 || dev.Failed[0] != "sdb1" {
+			t.Errorf("Failed = %+v, want [sdb1]", dev.Failed)
+		}
+		if dev.State != "degraded" {
+			t.Errorf("State = %q, want degraded (a failed drive present)", dev.State)
+		}
+	})
+	t.Run("spare drive marked (S) does not count as failed or active-missing", func(t *testing.T) {
+		t.Parallel()
+		dev := parseMDStatHeader("md0 : active raid1 sda1[0] sdb1[1] sdc1[2](S)")
+		if len(dev.Spare) != 1 || dev.Spare[0] != "sdc1" {
+			t.Errorf("Spare = %+v, want [sdc1]", dev.Spare)
+		}
+		if dev.State != "active" {
+			t.Errorf("State = %q, want active (spare doesn't count against active total)", dev.State)
+		}
+		if dev.Total != 3 || dev.Active != 2 {
+			t.Errorf("Total/Active = %d/%d, want 3/2", dev.Total, dev.Active)
+		}
+	})
+	t.Run("drive token without brackets is skipped", func(t *testing.T) {
+		t.Parallel()
+		dev := parseMDStatHeader("md0 : active raid1 noBracketToken sda1[0]")
+		if dev.Total != 1 {
+			t.Errorf("Total = %d, want 1 (bracket-less token must not count)", dev.Total)
+		}
+	})
+}
+
+// TestParseRecoveryPct guards every early-return branch: missing "=", missing
+// "%", empty numeric field, and a garbled/NaN/Inf/negative percentage.
+func TestParseRecoveryPct(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		line string
+		want float64
+	}{
+		{"no equals sign", "recovery in progress", 0},
+		{"no percent sign", "recovery = in progress", 0},
+		{"percent at position zero", "%complete = 5", 0},
+		{"empty numeric field before percent", "recovery =  %", 0},
+		{"garbled non-numeric percentage", "recovery = abc%", 0},
+		{"negative percentage rejected", "recovery = -5%", 0},
+		{"valid percentage", "[===>.....]  recovery = 18.3% (89400448/488254464)", 18.3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseRecoveryPct(c.line); got != c.want {
+				t.Errorf("parseRecoveryPct(%q) = %v, want %v", c.line, got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseMDArrayCounts(t *testing.T) {
 	cases := []struct {
 		line          string

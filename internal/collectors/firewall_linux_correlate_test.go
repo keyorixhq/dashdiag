@@ -145,6 +145,29 @@ func TestCorrelateBlockedListenersNFT(t *testing.T) {
 	}
 }
 
+// TestCorrelateBlockedListenersNFT_Indeterminable guards the early-return bail:
+// a ruleset with a jump to a custom chain can't be fully reasoned about, so
+// BlockedListeners must stay nil rather than risk a false "blocked" flag on a
+// port that chain might actually accept.
+func TestCorrelateBlockedListenersNFT_Indeterminable(t *testing.T) {
+	const jumpRuleset = `table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		jump custom_chain
+	}
+}
+`
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/net/tcp", []byte(procNetTCPListening(9090)))
+		b.PutFile("/proc/net/tcp6", []byte(""))
+	})
+	info := &models.FirewallInfo{}
+	correlateBlockedListenersNFT(jumpRuleset, info)
+	if info.BlockedListeners != nil {
+		t.Errorf("expected nil BlockedListeners for an indeterminable (jump) ruleset, got %v", info.BlockedListeners)
+	}
+}
+
 func TestLookPathOK(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"nft": true}, func(b *source.Bundle) {})
 	if !lookPathOK("nft") {
@@ -170,5 +193,106 @@ func TestPveFirewallActive_NotActive(t *testing.T) {
 	})
 	if pveFirewallActive(context.Background()) {
 		t.Error("expected pveFirewallActive() to report false when the unit is inactive")
+	}
+}
+
+// ── parseNFTRange / expandNFTPortElem ───────────────────────────────────────
+
+func TestParseNFTRange(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		s      string
+		wantLo int
+		wantHi int
+		wantOK bool
+	}{
+		{"valid range", "8000-8002", 8000, 8002, true},
+		{"bare number is not a range", "80", 0, 0, false},
+		{"reversed range invalid", "100-50", 0, 0, false},
+		{"non-numeric invalid", "abc-def", 0, 0, false},
+		{"too many hyphens takes first two parts", "8000-8002-9000", 0, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			lo, hi, ok := parseNFTRange(tt.s)
+			if lo != tt.wantLo || hi != tt.wantHi || ok != tt.wantOK {
+				t.Errorf("parseNFTRange(%q) = (%d,%d,%v), want (%d,%d,%v)", tt.s, lo, hi, ok, tt.wantLo, tt.wantHi, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestExpandNFTPortElem(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		s    string
+		want []int
+	}{
+		{"single port", "80", []int{80}},
+		{"small range", "8000-8002", []int{8000, 8001, 8002}},
+		{"not a number or range yields nil", "notaport", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := expandNFTPortElem(tt.s)
+			if len(got) != len(tt.want) {
+				t.Fatalf("expandNFTPortElem(%q) = %v, want %v", tt.s, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("expandNFTPortElem(%q)[%d] = %d, want %d", tt.s, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// ── parsePortRange / iptAcceptedDports ──────────────────────────────────────
+
+func TestParsePortRange(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		s      string
+		wantLo int
+		wantHi int
+		wantOK bool
+	}{
+		{"valid range", "8000:8002", 8000, 8002, true},
+		{"bare number is not a range", "80", 0, 0, false},
+		{"reversed range invalid", "100:50", 0, 0, false},
+		{"non-numeric invalid", "a:b", 0, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			lo, hi, ok := parsePortRange(tt.s)
+			if lo != tt.wantLo || hi != tt.wantHi || ok != tt.wantOK {
+				t.Errorf("parsePortRange(%q) = (%d,%d,%v), want (%d,%d,%v)", tt.s, lo, hi, ok, tt.wantLo, tt.wantHi, tt.wantOK)
+			}
+		})
+	}
+}
+
+// TestIptAcceptedDports_MultiportRangeAndLiteral guards the "dports" branch's
+// mixed list handling: a colon-range element must expand to every port in the
+// range, while a plain literal element in the same list is parsed directly —
+// this is the one sub-branch of iptAcceptedDports not exercised by the
+// existing single-literal-multiport fixtures elsewhere in this package.
+func TestIptAcceptedDports_MultiportRangeAndLiteral(t *testing.T) {
+	t.Parallel()
+	got := iptAcceptedDports("multiport dports 8000:8002,443")
+	want := []int{8000, 8001, 8002, 443}
+	if len(got) != len(want) {
+		t.Fatalf("iptAcceptedDports = %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("iptAcceptedDports[%d] = %d, want %d", i, got[i], want[i])
+		}
 	}
 }

@@ -562,3 +562,35 @@ func TestParseStorcliGarbageIsEmpty(t *testing.T) {
 		t.Error("garbage must report ok=false so Collect() takes the ReadFailed path, not the silent gate-off path")
 	}
 }
+
+// TestParseStorcliUnresponsiveControllerSkipped guards the "no card at that
+// index" branch: a controller entry with a non-Success command status and no
+// VD/PD data must be dropped entirely, not surfaced as an empty/zero-value
+// controller.
+func TestParseStorcliUnresponsiveControllerSkipped(t *testing.T) {
+	const unresponsive = `{
+"Controllers":[
+  {
+    "Command Status":{"Controller":0,"Status":"Failure","Description":"Controller not found"},
+    "Response Data":{}
+  },
+  {
+    "Command Status":{"Controller":1,"Status":"Success"},
+    "Response Data":{
+      "Product Name":"MegaRAID 9560-8i",
+      "VD LIST":[{"DG/VD":"0/0","TYPE":"RAID1","State":"Optl","Name":"data"}]
+    }
+  }
+]
+}`
+	ctrls, ok := parseStorcli(unresponsive)
+	if !ok {
+		t.Fatal("well-formed JSON must parse ok=true")
+	}
+	if len(ctrls) != 1 {
+		t.Fatalf("controllers = %d, want 1 (unresponsive controller 0 must be dropped)", len(ctrls))
+	}
+	if ctrls[0].ID != 1 {
+		t.Errorf("surviving controller ID = %d, want 1", ctrls[0].ID)
+	}
+}

@@ -446,3 +446,113 @@ func TestParseNVMeSmartLogReportsParseSuccess(t *testing.T) {
 		t.Errorf("PercentageUsed = %d, want 7", d2.PercentageUsed)
 	}
 }
+
+// TestParseNVMeSmartLog_AllRecognizedKeys guards every switch case in
+// parseNVMeSmartLog — available_spare, available_spare_threshold,
+// power_cycles, and temperature were previously only exercised indirectly (or
+// not at all), leaving those branches uncovered.
+func TestParseNVMeSmartLog_AllRecognizedKeys(t *testing.T) {
+	t.Parallel()
+	var d models.NVMeDevice
+	out := "critical_warning			: 0\n" +
+		"temperature				: 111 F (317 K)\n" +
+		"available_spare			: 100%\n" +
+		"available_spare_threshold		: 10%\n" +
+		"percentage_used			: 7%\n" +
+		"media_errors			: 0\n" +
+		"unsafe_shutdowns			: 2\n" +
+		"power_on_hours			: 500\n" +
+		"power_cycles			: 42\n"
+	if !parseNVMeSmartLog(out, &d) {
+		t.Fatal("expected parsedAny=true for a full recognized log")
+	}
+	if d.AvailableSparePct != 100 {
+		t.Errorf("AvailableSparePct = %d, want 100", d.AvailableSparePct)
+	}
+	if d.SpareThresholdPct != 10 {
+		t.Errorf("SpareThresholdPct = %d, want 10", d.SpareThresholdPct)
+	}
+	if d.PowerCycles != 42 {
+		t.Errorf("PowerCycles = %d, want 42", d.PowerCycles)
+	}
+	if d.TempC <= 0 {
+		t.Errorf("TempC = %v, want > 0 (parsed from Kelvin)", d.TempC)
+	}
+}
+
+// TestParseBitmask_EmptyAndGarbled guards the empty-fields short-circuit and
+// the non-numeric parse-error path directly (parseNVMeSmartLog only ever feeds
+// it non-empty, mostly-valid tokens, so these branches need a direct call).
+func TestParseBitmask_EmptyAndGarbled(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"empty string", "", 0},
+		{"whitespace only", "   ", 0},
+		{"garbled non-numeric", "not-a-number", 0},
+		{"negative decimal", "-1", 0},
+		{"zero", "0", 0},
+		{"hex value", "0x4", 4},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseBitmask(c.in); got != c.want {
+				t.Errorf("parseBitmask(%q) = %d, want %d", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestParseInt_EmptyAndGarbled guards parseInt's empty-fields short-circuit
+// and non-numeric parse-error path directly.
+func TestParseInt_EmptyAndGarbled(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"empty string", "", 0},
+		{"whitespace only", "  ", 0},
+		{"garbled non-numeric", "abc", 0},
+		{"negative", "-5", 0},
+		{"valid with trailing unit text", "60783741 (31.12 TB)", 60783741},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseInt(c.in); got != c.want {
+				t.Errorf("parseInt(%q) = %d, want %d", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestParseInt64_EmptyAndGarbled guards parseInt64's empty-fields short-circuit
+// directly — parseNVMeSmartLog callers only ever exercise the happy path.
+func TestParseInt64_EmptyAndGarbled(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want int64
+	}{
+		{"empty string", "", 0},
+		{"whitespace only", "  ", 0},
+		{"garbled non-numeric", "xyz", 0},
+		{"negative", "-1", 0},
+		{"valid", "1234", 1234},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseInt64(c.in); got != c.want {
+				t.Errorf("parseInt64(%q) = %d, want %d", c.in, got, c.want)
+			}
+		})
+	}
+}

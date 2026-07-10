@@ -158,6 +158,73 @@ func TestProcUptimeSec_UptimeMissing(t *testing.T) {
 	}
 }
 
+// TestProcUptimeSec_NoClosingParen covers the "rp < 0 -> 0" branch: a stat
+// line missing the comm field's closing ')' entirely (corrupt/truncated read).
+func TestProcUptimeSec_NoClosingParen(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp S 1 300\n"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (no closing paren)", got)
+	}
+}
+
+// TestProcUptimeSec_TooFewFields covers the "len(fields) < 20 -> 0" branch:
+// a stat line with a valid comm field but fewer than 20 fields after it (so
+// starttime, at index 19, is out of range).
+func TestProcUptimeSec_TooFewFields(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp) S 1 300 300 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1\n"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (too few post-comm fields)", got)
+	}
+}
+
+// TestProcUptimeSec_ZeroStartJiffies covers the "startJiffies == 0 -> 0"
+// branch: a starttime of exactly 0 (e.g. malformed field) must not be
+// treated as a real process age.
+func TestProcUptimeSec_ZeroStartJiffies(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte(
+			"300 (myapp) S 1 300 300 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"))
+		b.PutFile("/proc/uptime", []byte("100.00 90.00\n"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (startJiffies=0)", got)
+	}
+}
+
+// TestProcUptimeSec_UptimeEmptyFields covers the "len(upFields) < 1 -> 0"
+// branch: /proc/uptime is readable but contains only whitespace.
+func TestProcUptimeSec_UptimeEmptyFields(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte(
+			"300 (myapp) S 1 300 300 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1 0 500 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"))
+		b.PutFile("/proc/uptime", []byte("   \n"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (empty /proc/uptime fields)", got)
+	}
+}
+
+// TestProcUptimeSec_NegativeAgeClamped covers the "processAge < 0 -> 0"
+// branch: a starttime that (after HZ conversion) lands AFTER the reported
+// system uptime — e.g. a clock/HZ mismatch — must clamp to 0, not report a
+// negative process age.
+func TestProcUptimeSec_NegativeAgeClamped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// starttime = 50000 jiffies @ HZ=100 -> 500s start, but system uptime is
+		// only 100s -> processAge = 100 - 500 = -400.
+		b.PutFile("/proc/300/stat", []byte(
+			"300 (myapp) S 1 300 300 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1 0 50000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"))
+		b.PutFile("/proc/uptime", []byte("100.00 90.00\n"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (negative age clamped)", got)
+	}
+}
+
 // ── procCPUSec ────────────────────────────────────────────────────────────────
 
 func TestProcCPUSec(t *testing.T) {
@@ -174,6 +241,29 @@ func TestProcCPUSec_StatMissing(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if got := procCPUSec("/proc/999"); got != 0 {
 		t.Errorf("procCPUSec() = %v, want 0", got)
+	}
+}
+
+// TestProcCPUSec_NoClosingParen covers the "rp < 0 -> 0" branch: a stat line
+// missing the comm field's closing ')' entirely.
+func TestProcCPUSec_NoClosingParen(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp S 1 300\n"))
+	})
+	if got := procCPUSec("/proc/300"); got != 0 {
+		t.Errorf("procCPUSec() = %v, want 0 (no closing paren)", got)
+	}
+}
+
+// TestProcCPUSec_TooFewFields covers the "len(fields) < 14 -> 0" branch: a
+// stat line with a valid comm field but fewer than 14 fields after it (so
+// utime/stime, at indices 11/12, are out of range).
+func TestProcCPUSec_TooFewFields(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp) S 1 300 300 0 -1 4194304 0 0 0 0\n"))
+	})
+	if got := procCPUSec("/proc/300"); got != 0 {
+		t.Errorf("procCPUSec() = %v, want 0 (too few post-comm fields)", got)
 	}
 }
 

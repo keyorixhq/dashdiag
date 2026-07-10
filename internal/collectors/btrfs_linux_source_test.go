@@ -55,6 +55,34 @@ func TestParseBtrfsDevStats(t *testing.T) {
 	}
 }
 
+// TestParseBtrfsDevStats_CommandFailsLeavesStatsUnread guards the early-return
+// branch: a failing (or empty-output) `btrfs device stats` run must leave
+// StatsRead false rather than fabricating a zero-value reading — the analysis
+// layer distinguishes "counters not read" from "counters read as zero".
+func TestParseBtrfsDevStats_CommandFailsLeavesStatsUnread(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("btrfs", []string{"device", "stats", "/mnt/data"})
+	})
+	vol := &models.BtrfsVolume{Devices: []models.BtrfsDev{{Path: "/dev/sda1"}}}
+	parseBtrfsDevStats(context.Background(), "/mnt/data", vol)
+	if vol.StatsRead {
+		t.Error("a failed device-stats command must not mark counters as read")
+	}
+}
+
+// TestParseBtrfsDevStats_EmptyOutputLeavesStatsUnread covers the `out == ""`
+// half of the early-return guard specifically (exit 0 with no output).
+func TestParseBtrfsDevStats_EmptyOutputLeavesStatsUnread(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("btrfs", []string{"device", "stats", "/mnt/data"}, "", 0)
+	})
+	vol := &models.BtrfsVolume{Devices: []models.BtrfsDev{{Path: "/dev/sda1"}}}
+	parseBtrfsDevStats(context.Background(), "/mnt/data", vol)
+	if vol.StatsRead {
+		t.Error("empty device-stats output must not mark counters as read")
+	}
+}
+
 // ── collectBtrfsVolumes ──────────────────────────────────────────────────────
 
 // TestCollectBtrfsVolumes_NoFilesystems guards the fast-path: no btrfs

@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,104 @@ include "` + included + `";
 func TestBindParseZoneFile_Missing(t *testing.T) {
 	if zones := bindParseZones("/nonexistent/named.conf"); zones != nil {
 		t.Errorf("missing file should yield nil, got %+v", zones)
+	}
+}
+
+// TestBindParseZoneFile_DepthGuard guards the circular-include protection:
+// depth > 5 must bail with nil rather than recursing forever. Constructed by
+// calling bindParseZoneFile directly with depth=6 (an actually-circular
+// include chain would take 6 real files to reach this — the guard itself is
+// what's under test here, not the recursion machinery).
+func TestBindParseZoneFile_DepthGuard(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "named.conf")
+	if err := os.WriteFile(main, []byte(`zone "x" { type master; file "/zones/x.db"; };`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if zones := bindParseZoneFile(main, 6); zones != nil {
+		t.Errorf("depth > 5 should short-circuit to nil, got %+v", zones)
+	}
+}
+
+// TestBindParseZoneFile_GlobalOptionsSkipped guards the "!zb.active" continue
+// branch: a top-level options/logging block that sits OUTSIDE any zone
+// declaration (very common in a real named.conf) must be ignored entirely,
+// not mistaken for zone content.
+func TestBindParseZoneFile_GlobalOptionsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "named.conf")
+	cfg := `options {
+    directory "/var/named";
+    file "/should/not/become/a/zone.db";
+};
+zone "real.com" {
+    type master;
+    file "/zones/real.db";
+};
+`
+	if err := os.WriteFile(main, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	zones := bindParseZones(main)
+	if len(zones) != 1 || zones[0].name != "real.com" || zones[0].file != "/zones/real.db" {
+		t.Errorf("expected only the real.com zone (global options block ignored), got %+v", zones)
+	}
+}
+
+// TestBindParseZoneFile_IncludeCap guards the 20-zone cap after following an
+// include: once 20 zones have been collected, parsing must stop early and
+// return immediately rather than continuing to scan for more.
+func TestBindParseZoneFile_IncludeCap(t *testing.T) {
+	dir := t.TempDir()
+
+	// The included file alone defines 21 zones — more than the cap.
+	included := filepath.Join(dir, "included.conf")
+	var includedCfg strings.Builder
+	for i := range 21 {
+		fmt.Fprintf(&includedCfg, `zone "z%c.com" { type master; file "/zones/z%c.db"; };`+"\n", 'a'+i, 'a'+i)
+	}
+	if err := os.WriteFile(included, []byte(includedCfg.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	main := filepath.Join(dir, "named.conf")
+	cfg := `include "` + included + `";
+zone "never-reached.com" {
+    type master;
+    file "/zones/never.db";
+};
+`
+	if err := os.WriteFile(main, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	zones := bindParseZones(main)
+	if len(zones) != 20 {
+		t.Fatalf("expected the result capped at 20 zones, got %d: %+v", len(zones), zones)
+	}
+	for _, z := range zones {
+		if z.name == "never-reached.com" {
+			t.Error("parsing should have stopped at the cap before reaching the zone after the include")
+		}
+	}
+}
+
+// TestBindParseZoneFile_FileDirectiveCap guards the OTHER 20-zone cap site: the
+// one hit while appending zones found via the "file" directive directly in the
+// SAME file being scanned (as opposed to TestBindParseZoneFile_IncludeCap,
+// which hits the cap after an include's recursive append).
+func TestBindParseZoneFile_FileDirectiveCap(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "named.conf")
+	var cfg strings.Builder
+	for i := range 21 {
+		fmt.Fprintf(&cfg, `zone "z%c.com" { type master; file "/zones/z%c.db"; };`+"\n", 'a'+i, 'a'+i)
+	}
+	if err := os.WriteFile(main, []byte(cfg.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	zones := bindParseZones(main)
+	if len(zones) != 20 {
+		t.Fatalf("expected the result capped at 20 zones, got %d: %+v", len(zones), zones)
 	}
 }
 

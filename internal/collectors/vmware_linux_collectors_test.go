@@ -340,6 +340,51 @@ func TestVmwareToolsRunning_NotRunning(t *testing.T) {
 	}
 }
 
+// TestVmwareToolsRunning_SystemctlFallbackExhausted guards the final "return
+// false" branch: /proc is genuinely unreadable (ok=false from procCommRunning,
+// forcing the systemd fallback loop to run), and BOTH candidate units report
+// inactive — the loop must exhaust without finding a match and fall through to
+// false, rather than the earlier (and different) all-proc-entries-checked
+// false path TestVmwareToolsRunning_NotRunning exercises.
+func TestVmwareToolsRunning_SystemctlFallbackExhausted(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /proc never seeded at all -> ReadDir errors -> procCommRunning ok=false.
+		b.PutCmd("systemctl", []string{"is-active", "vmtoolsd"}, "inactive\n", 3)
+		b.PutCmd("systemctl", []string{"is-active", "open-vm-tools"}, "inactive\n", 3)
+	})
+	if vmwareToolsRunning(context.Background()) {
+		t.Error("vmwareToolsRunning() = true, want false (both fallback units inactive)")
+	}
+}
+
+// TestProcCommRunning_SkipsNonDirAndUnreadableAndContainerized guards the
+// three continue branches procCommRunning's happy-path tests don't reach: a
+// non-directory /proc entry is skipped without an I/O attempt, an entry whose
+// comm file can't be read is skipped (not an error), and a matching comm that
+// lives in a container is skipped so a host-only check isn't fooled by a
+// container's vmtoolsd visible in the host PID namespace.
+func TestProcCommRunning_SkipsNonDirAndUnreadableAndContainerized(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/proc", []string{"not-a-pid-file", "10", "20"})
+		// "not-a-pid-file" has no matching PutDir entry -> probeIsDir() -> IsDir()=false -> skipped.
+
+		// pid 10: directory exists but comm is never seeded -> readFile errors -> skipped.
+		b.PutDir("/proc/10", []string{})
+
+		// pid 20: comm matches, but lives in a container -> must be skipped too.
+		b.PutDir("/proc/20", []string{"comm", "cgroup"})
+		b.PutFile("/proc/20/comm", []byte("vmtoolsd\n"))
+		b.PutFile("/proc/20/cgroup", []byte("0::/docker/4d41585046ddb8abb101e1d3328dfff0304bc959991d90cdbba5d121240d481c\n"))
+	})
+	running, ok := procCommRunning("vmtoolsd")
+	if !ok {
+		t.Fatal("expected ok=true — /proc itself was readable")
+	}
+	if running {
+		t.Error("expected running=false — the only comm match is containerized and must be ignored")
+	}
+}
+
 func TestKernelModulePresent(t *testing.T) {
 	const mods = "vmw_pvscsi 28672 3 - Live 0x0\n"
 	if !kernelModulePresent(mods, "vmw_pvscsi") {
