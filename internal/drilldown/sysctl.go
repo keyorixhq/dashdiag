@@ -3,6 +3,7 @@ package drilldown
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -30,7 +31,10 @@ func ActualVsRecommended(ctx context.Context, message string) (*models.Details, 
 	if runtime.GOOS == "darwin" {
 		return nil, nil
 	}
+	return actualVsRecommendedAt(ctx, message, "/proc/sys")
+}
 
+func actualVsRecommendedAt(_ context.Context, message, procSysRoot string) (*models.Details, error) {
 	// Determine which sysctl key is failing from the message.
 	var keys []string
 	for key := range sysctlRecommended {
@@ -45,7 +49,7 @@ func ActualVsRecommended(ctx context.Context, message string) (*models.Details, 
 
 	rows := make([][]string, 0, len(keys))
 	for _, key := range keys {
-		current := readSysctl(key)
+		current := readSysctl(procSysRoot, key)
 		rec := sysctlRecommended[key]
 		// Only show rows where current differs from recommended
 		if current == rec.recommended {
@@ -66,8 +70,8 @@ func ActualVsRecommended(ctx context.Context, message string) (*models.Details, 
 	}, nil
 }
 
-func readSysctl(key string) string {
-	path := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
+func readSysctl(procSysRoot, key string) string {
+	path := filepath.Join(procSysRoot, strings.ReplaceAll(key, ".", "/"))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "n/a"

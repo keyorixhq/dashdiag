@@ -566,7 +566,12 @@ func countAVCsViaAusearch(window time.Duration) (int, bool) {
 		tsArg = start.Format("01/02/2006 15:04:05")
 	}
 
-	out, err := runCmd(ctx, "ausearch", "-m", "avc", "-ts", tsArg, "--raw")
+	// runCmdCombined (not runCmd) — ausearch exits 1 on a clean host with no
+	// matching records, and plain runCmd discards stdout on any non-zero exit,
+	// which made the "<no matches>" detection below dead code: a fully clean,
+	// enforcing host reported "0 denials, unreadable" instead of "0 denials,
+	// confirmed clean" on every non-root run.
+	out, err := runCmdCombined(ctx, "ausearch", "-m", "avc", "-ts", tsArg, "--raw")
 	if err != nil {
 		// ausearch exits 1 when no records found — not an error
 		if strings.Contains(out, "<no matches>") || strings.Contains(out, "no matches") {

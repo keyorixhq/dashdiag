@@ -32,8 +32,10 @@ func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 	}
 	info.Available = true
 
-	// Get upgrades as JSON — cleanest output
-	out, err := runCmd(ctx, "fwupdmgr", "get-upgrades", "--json")
+	// Get upgrades as JSON — cleanest output. runCmdOutput (not runCmd) because
+	// fwupdmgr exits non-zero to *report* "no upgrades", while still printing
+	// that message to stdout — runCmd would discard it and mask the OK case.
+	out, err := runCmdOutput(ctx, "fwupdmgr", "get-upgrades", "--json")
 	if err != nil {
 		// fwupdmgr exits non-zero when no upgrades available
 		if strings.Contains(out, "Nothing to do") ||

@@ -58,6 +58,85 @@ func TestLargestDirsHonestAboutUnreadableChild(t *testing.T) {
 	}
 }
 
+// TestLargestDirs_HappyPath exercises LargestDirs directly against a plain
+// t.TempDir() fixture with real subdirectories (no permission-denied child),
+// via the real `du` binary — LargestDirs has no injectable-root variant
+// (unlike the topProcessesBy*LinuxAt functions), so the fixture dir is passed
+// straight as the mount argument.
+func TestLargestDirs_HappyPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "data")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "f"), []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LargestDirs(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("LargestDirs: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details")
+	}
+	if got.Type != "directory_sizes" {
+		t.Errorf("unexpected Type: %q", got.Type)
+	}
+	found := false
+	for _, row := range got.Rows {
+		if strings.Contains(row[1], "data") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the data subdirectory in rows: %+v", got.Rows)
+	}
+	if got.Note != "" {
+		t.Errorf("expected no skipped-entry note when nothing was unreadable, got %q", got.Note)
+	}
+}
+
+// TestLargestDirs_EmptyMountDefaultsToRoot guards the mount=="" -> "/" default
+// branch. runCmd is faked so no real `du` runs: a real `du -sh` on every child
+// of "/" would walk the entire host filesystem and time out on a full CI runner
+// (macOS /System, ubuntu /usr+/opt) — and the real scan isn't what this test is
+// about. No t.Parallel(): swapRunCmd requires the test be serial.
+func TestLargestDirs_EmptyMountDefaultsToRoot(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, _ string, args ...string) (string, error) {
+		return "1.0K\t" + args[len(args)-1] + "\n", nil
+	})
+	got, err := LargestDirs(context.Background(), "")
+	if err != nil {
+		t.Fatalf("LargestDirs: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil Details")
+	}
+	if !strings.Contains(got.Title, "/") {
+		t.Errorf("expected title to reference the default mount, got %q", got.Title)
+	}
+}
+
+func TestPluralIes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{0, "ies"},
+		{1, "y"},
+		{2, "ies"},
+		{5, "ies"},
+	}
+	for _, c := range cases {
+		if got := pluralIes(c.n); got != c.want {
+			t.Errorf("pluralIes(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
 func TestParseDuSize_Ordering(t *testing.T) {
 	// du -h units are 1024-based; cross-unit comparisons must order correctly.
 	// 1023M < 1G < 2G < 1T, and 900K < 1M.

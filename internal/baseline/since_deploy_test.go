@@ -1,0 +1,213 @@
+package baseline
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/output"
+)
+
+// parseBootTime pulls the btime epoch out of /proc/stat-shaped content.
+func TestParseBootTime(t *testing.T) {
+	const stat = "cpu  1 2 3 4\n" +
+		"intr 12345\n" +
+		"btime 1700000000\n" +
+		"processes 999\n"
+	bt, ok := parseBootTime(strings.NewReader(stat))
+	if !ok {
+		t.Fatal("expected btime to parse")
+	}
+	if got := bt.Unix(); got != 1700000000 {
+		t.Errorf("btime: got %d, want 1700000000", got)
+	}
+}
+
+func TestParseBootTime_Missing(t *testing.T) {
+	if _, ok := parseBootTime(strings.NewReader("cpu 1 2 3\nprocesses 5\n")); ok {
+		t.Error("no btime line should return ok=false")
+	}
+}
+
+func TestParseBootTime_Malformed(t *testing.T) {
+	if _, ok := parseBootTime(strings.NewReader("btime notanumber\n")); ok {
+		t.Error("non-numeric btime should return ok=false")
+	}
+}
+
+// parseProcStart reads field 2 (comm) and field 22 (starttime, ticks) from a
+// /proc/<pid>/stat record and offsets from boot (100 ticks/sec).
+func TestParseProcStart(t *testing.T) {
+	boot := time.Unix(1700000000, 0)
+	// 22 fields; field[1]=(nginx), field[21]=starttime=500 ticks → boot+5s.
+	fields := make([]string, 22)
+	for i := range fields {
+		fields[i] = "0"
+	}
+	fields[0] = "1234"
+	fields[1] = "(nginx)"
+	fields[21] = "500"
+	rec := strings.Join(fields, " ")
+
+	ts, name, ok := parseProcStart(strings.NewReader(rec), boot)
+	if !ok {
+		t.Fatal("expected valid record to parse")
+	}
+	if name != "nginx" {
+		t.Errorf("name: got %q, want nginx", name)
+	}
+	if want := boot.Add(5 * time.Second); !ts.Equal(want) {
+		t.Errorf("start time: got %v, want %v", ts, want)
+	}
+}
+
+func TestParseProcStart_TooFewFields(t *testing.T) {
+	if _, _, ok := parseProcStart(strings.NewReader("1 (x) S 0"), time.Now()); ok {
+		t.Error("record with <22 fields should return ok=false")
+	}
+}
+
+func TestParseProcStart_BadStartTicks(t *testing.T) {
+	fields := make([]string, 22)
+	for i := range fields {
+		fields[i] = "0"
+	}
+	fields[1] = "(proc)"
+	fields[21] = "xyz"
+	if _, _, ok := parseProcStart(strings.NewReader(strings.Join(fields, " ")), time.Now()); ok {
+		t.Error("non-numeric starttime should return ok=false")
+	}
+}
+
+// getBootTime always returns a non-zero, past timestamp — either parsed from
+// /proc/stat (Linux) or the 24h-ago fallback (no /proc, e.g. macOS).
+func TestGetBootTime(t *testing.T) {
+	bt := getBootTime()
+	if bt.IsZero() {
+		t.Fatal("getBootTime returned zero time")
+	}
+	if bt.After(time.Now()) {
+		t.Errorf("boot time %v is in the future", bt)
+	}
+}
+
+// newestProcStart must be self-consistent: it either returns a process started
+// within maxAge, or an error — never a zero time with nil error.
+func TestNewestProcStart(t *testing.T) {
+	ts, name, err := newestProcStart(2 * time.Hour)
+	if err != nil {
+		if !ts.IsZero() || name != "" {
+			t.Errorf("error path should return zero values, got (%v, %q)", ts, name)
+		}
+		return
+	}
+	if ts.IsZero() {
+		t.Error("success path returned zero time with nil error")
+	}
+	if age := time.Since(ts); age > 2*time.Hour {
+		t.Errorf("returned process older than maxAge: %v", age)
+	}
+}
+
+// RunSinceDeployDiff degrades gracefully to a nil error (info message) when no
+// pre-deploy baseline exists for the host.
+func TestRunSinceDeployDiff_NoBaseline(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	if err := RunSinceDeployDiff(output.ModePlain); err != nil {
+		t.Errorf("RunSinceDeployDiff should not error with no baseline, got %v", err)
+	}
+}
+
+// LoadHistory returns the last n timestamped snapshots oldest-first, ignoring
+// the -latest/-prev rolling files (which lack the numeric timestamp glob shape).
+func TestLoadHistory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	hostname, _ := os.Hostname()
+	bdir := filepath.Join(dir, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(fname, version string) {
+		snap := Snapshot{Hostname: hostname, Version: version, Timestamp: time.Now()}
+		data, err := json.MarshalIndent(&snap, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bdir, fname), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Three timestamped snapshots (filename sort == chronological) plus the
+	// rolling symlink-style files that must be excluded.
+	write(hostname+"-20260101-000000.json", "v1")
+	write(hostname+"-20260201-000000.json", "v2")
+	write(hostname+"-20260301-000000.json", "v3")
+	write(hostname+"-latest.json", "latest")
+	write(hostname+"-prev.json", "prev")
+
+	// n larger than count → all three, oldest-first.
+	snaps, err := LoadHistory(10)
+	if err != nil {
+		t.Fatalf("LoadHistory: %v", err)
+	}
+	if len(snaps) != 3 {
+		t.Fatalf("want 3 timestamped snaps (latest/prev excluded), got %d", len(snaps))
+	}
+	if snaps[0].Version != "v1" || snaps[2].Version != "v3" {
+		t.Errorf("want oldest-first v1..v3, got %q..%q", snaps[0].Version, snaps[2].Version)
+	}
+
+	// n smaller than count → last n (most recent).
+	snaps, err = LoadHistory(2)
+	if err != nil {
+		t.Fatalf("LoadHistory(2): %v", err)
+	}
+	if len(snaps) != 2 || snaps[0].Version != "v2" || snaps[1].Version != "v3" {
+		t.Errorf("LoadHistory(2) want [v2 v3], got %+v", versions(snaps))
+	}
+}
+
+// LoadHistory skips corrupt files rather than aborting the whole history.
+func TestLoadHistory_SkipsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	hostname, _ := os.Hostname()
+	bdir := filepath.Join(dir, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	good := Snapshot{Hostname: hostname, Version: "good", Timestamp: time.Now()}
+	data, _ := json.MarshalIndent(&good, "", "  ")
+	if err := os.WriteFile(filepath.Join(bdir, hostname+"-20260101-000000.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bdir, hostname+"-20260201-000000.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snaps, err := LoadHistory(10)
+	if err != nil {
+		t.Fatalf("LoadHistory: %v", err)
+	}
+	if len(snaps) != 1 || snaps[0].Version != "good" {
+		t.Errorf("want only the good snapshot, got %+v", versions(snaps))
+	}
+}
+
+func versions(snaps []*Snapshot) []string {
+	out := make([]string, 0, len(snaps))
+	for _, s := range snaps {
+		out = append(out, s.Version)
+	}
+	return out
+}

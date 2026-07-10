@@ -31,12 +31,16 @@ type procCPUSample struct {
 }
 
 func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error) {
+	return topProcessesByCPULinuxAt(ctx, n, "/proc")
+}
+
+func topProcessesByCPULinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
 	sample := func() (map[int]procCPUSample, uint64) {
 		var mu sync.Mutex
 		samples := make(map[int]procCPUSample)
 
-		_ = walkProcs(ctx, func(pid int) error {
-			path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "stat")
+		_ = walkProcs(ctx, procRoot, func(pid int) error {
+			path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return nil
@@ -55,8 +59,8 @@ func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error)
 			return nil
 		})
 
-		// total CPU jiffies from /proc/stat
-		totalJiffies := systemTotalJiffies()
+		// total CPU jiffies from procRoot/stat
+		totalJiffies := systemTotalJiffies(procRoot)
 		return samples, totalJiffies
 	}
 
@@ -119,9 +123,9 @@ func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error)
 	}, nil
 }
 
-// systemTotalJiffies reads total CPU jiffies from /proc/stat (all CPUs).
-func systemTotalJiffies() uint64 {
-	f, err := os.Open("/proc/stat")
+// systemTotalJiffies reads total CPU jiffies from procRoot/stat (all CPUs).
+func systemTotalJiffies(procRoot string) uint64 {
+	f, err := os.Open(filepath.Join(procRoot, "stat"))
 	if err != nil {
 		return 0
 	}

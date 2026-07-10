@@ -88,6 +88,30 @@ func TestAnyProcessNamedIn(t *testing.T) {
 	}
 }
 
+// TestAnyProcessNamedIn_ProcDirUnreadable guards the readDirEntries error
+// branch: a procDir that doesn't exist at all must return false, not panic.
+func TestAnyProcessNamedIn_ProcDirUnreadable(t *testing.T) {
+	if anyProcessNamedIn(filepath.Join(t.TempDir(), "does-not-exist"), "crond") {
+		t.Error("an unreadable /proc directory must return false")
+	}
+}
+
+// TestAnyProcessNamedIn_SkipsContainerizedMatch guards the pidIsContainerizedIn
+// skip: a process whose comm matches but whose cgroup places it inside a
+// container (kubepods) must be excluded — container health is the Docker/k8s
+// collector's job, not a host-service check.
+func TestAnyProcessNamedIn_SkipsContainerizedMatch(t *testing.T) {
+	proc := t.TempDir()
+	writeComm(t, proc, "500", "crond")
+	dir := filepath.Join(proc, "500")
+	if err := os.WriteFile(filepath.Join(dir, "cgroup"), []byte("0::/kubepods/besteffort/pod123/crond\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if anyProcessNamedIn(proc, "crond") {
+		t.Error("a containerized crond match must be skipped, not reported as a host process")
+	}
+}
+
 func writeComm(t *testing.T, proc, pid, comm string) {
 	t.Helper()
 	dir := filepath.Join(proc, pid)
@@ -140,6 +164,34 @@ func TestDetectCronDaemonName(t *testing.T) {
 			name, active := detectCronDaemonName(tc.systemctl, tc.process)
 			if name != tc.wantName || active != tc.wantActive {
 				t.Errorf("detectCronDaemonName = (%q, %v), want (%q, %v)", name, active, tc.wantName, tc.wantActive)
+			}
+		})
+	}
+}
+
+// TestTruncateCron covers the boundary directly: exactly-at-limit must NOT
+// truncate (the log/insight-message truncation for a long cron line/command,
+// used at 120 chars in checkCronQuality — off-by-one here would either cut a
+// message one char early or silently allow one char past the cap).
+func TestTruncateCron(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{"under limit — unchanged", "short", 120, "short"},
+		{"exactly at limit — unchanged, no ellipsis", "12345", 5, "12345"},
+		{"one over limit — truncated with ellipsis", "123456", 5, "12345…"},
+		{"empty string — unchanged", "", 10, ""},
+		{"n=0 on non-empty string — truncates to empty plus ellipsis", "abc", 0, "…"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := truncateCron(c.s, c.n); got != c.want {
+				t.Errorf("truncateCron(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
 			}
 		})
 	}

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -51,7 +50,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.KernelVersion = collectKernelVersion()
 
 	// Root check — pvesh requires root
-	if os.Getuid() != 0 {
+	if getuid() != 0 {
 		info.NeedsRoot = true
 		// Still collect what we can without root
 		info.Subscription = collectPVESubscriptionFile()
@@ -341,7 +340,12 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 			}
 		}
 		audit := backupAudit(guests, dumpByVM)
-		verifiedFromDisk := ageDays >= 0 || len(audit) > 0
+		// backupAudit always emits one status per non-template guest (LastBackupDays=-1
+		// when nothing found), so len(audit)>0 is true whenever guests exist — NOT a
+		// signal that the disk fallback found anything. Verified must reflect actual
+		// disk evidence (dumpByVM non-empty), not guest count, or a host with zero
+		// vzdump archives reads as "verified: no backup issues" (FALSE_OK_SWEEP #8).
+		verifiedFromDisk := ageDays >= 0 || len(dumpByVM) > 0
 		return nil, ageDays, audit, verifiedFromDisk
 	}
 

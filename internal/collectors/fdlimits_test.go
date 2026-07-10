@@ -2,10 +2,12 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
@@ -134,6 +136,11 @@ func TestParseFileNr(t *testing.T) {
 			input:   "abc 0 1048576\n",
 			wantErr: true,
 		},
+		{
+			name:    "non-numeric max",
+			input:   "4821 0 notanumber\n",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -207,6 +214,16 @@ func TestParseSoftLimit(t *testing.T) {
 			input: "",
 			want:  -1,
 		},
+		{
+			name:  "too few fields on Max open files line",
+			input: "Max open files\n",
+			want:  -1,
+		},
+		{
+			name:  "non-numeric soft limit",
+			input: "Max open files            notanumber           4096                 files\n",
+			want:  -1,
+		},
 	}
 
 	for _, tc := range cases {
@@ -217,6 +234,17 @@ func TestParseSoftLimit(t *testing.T) {
 				t.Errorf("got %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestParseSoftLimit_ScannerError guards the bufio.Scanner error branch: a
+// reader that fails mid-scan (rather than hitting a clean EOF) must still
+// return the -1 "not found" sentinel, not panic or hang.
+func TestParseSoftLimit_ScannerError(t *testing.T) {
+	t.Parallel()
+	got := parseSoftLimit(iotest.ErrReader(fmt.Errorf("boom")))
+	if got != -1 {
+		t.Errorf("got %d, want -1 on a scanner read error", got)
 	}
 }
 

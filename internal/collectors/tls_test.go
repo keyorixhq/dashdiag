@@ -1,7 +1,9 @@
 package collectors
 
 import (
+	"encoding/pem"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
@@ -123,14 +125,88 @@ func TestScanCertPath_RecursesAndFilters(t *testing.T) {
 // box — those cert files are root-only (0600), so a non-root scan must report
 // them as Uncheckable (never a silent "0 expired" false-OK), same as any other
 // permission-gated path already in this list.
+// TestParseCertFile_UnreadableFile guards the readFile error branch: an
+// unreadable/missing path must report a single Uncheckable entry carrying the
+// read error, never silently return an empty (clean-looking) result.
+func TestParseCertFile_UnreadableFile(t *testing.T) {
+	certs, unc := parseCertFile("/nonexistent/does-not-exist.crt", time.Now())
+	if len(certs) != 0 {
+		t.Errorf("expected no certs for an unreadable path, got %d", len(certs))
+	}
+	if len(unc) != 1 || unc[0].Path != "/nonexistent/does-not-exist.crt" || unc[0].Error == "" {
+		t.Fatalf("expected 1 Uncheckable entry with a non-empty error, got %+v", unc)
+	}
+}
+
+// TestParseCertFile_SkipsLongLivedSelfSignedRoot guards the root-CA noise
+// filter: a self-signed cert (Issuer == Subject, via makeTestCertPEM) with
+// more than 365 days left must be skipped entirely — neither counted as a
+// cert nor flagged Uncheckable — since long-lived self-signed roots are
+// expected and not actionable.
+func TestParseCertFile_SkipsLongLivedSelfSignedRoot(t *testing.T) {
+	now := time.Now()
+	pemBytes := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(400*24*time.Hour))
+	dir := t.TempDir()
+	p := dir + "/root-ca.crt"
+	if err := osWriteFileBytes(p, pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(p, now)
+	if len(certs) != 0 || len(unc) != 0 {
+		t.Errorf("expected a long-lived self-signed root to be silently skipped, got certs=%+v uncheckable=%+v", certs, unc)
+	}
+}
+
+// TestParseCertFile_SkipsNonCertificatePEMBlock guards the block.Type filter:
+// a PEM file with a non-"CERTIFICATE" block (e.g. a private key sitting
+// alongside certs in /etc/ssl/private) must be skipped without error, and a
+// genuine certificate block later in the same file must still be parsed.
+func TestParseCertFile_SkipsNonCertificatePEMBlock(t *testing.T) {
+	now := time.Now()
+	certPEM := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+	keyBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a real key, just needs a non-CERTIFICATE type")})
+
+	dir := t.TempDir()
+	p := dir + "/combined.pem"
+	combined := append(append([]byte{}, keyBlock...), certPEM...)
+	if err := osWriteFileBytes(p, combined); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(p, now)
+	if len(unc) != 0 {
+		t.Errorf("a non-CERTIFICATE block must not be Uncheckable, got %+v", unc)
+	}
+	if len(certs) != 1 {
+		t.Fatalf("expected the trailing CERTIFICATE block to still be parsed, got %d certs", len(certs))
+	}
+}
+
 func TestTLSCertPaths_IncludesRHUI(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("RHUI is a RHEL-only path, not scanned on darwin")
 	}
-	for _, p := range tlsCertPaths() {
-		if p == "/etc/pki/rhui" {
-			return
-		}
+	if !slices.Contains(tlsCertPaths(), "/etc/pki/rhui") {
+		t.Fatal("tlsCertPaths() must include /etc/pki/rhui for RHEL cloud PAYG client-cert expiry checks")
 	}
-	t.Fatal("tlsCertPaths() must include /etc/pki/rhui for RHEL cloud PAYG client-cert expiry checks")
+}
+
+// TestTLSCertPaths_DarwinList guards the darwin-specific path list — the
+// runtime.GOOS branch tlsCertPaths_test can't force from a non-darwin CI
+// runner, so this only genuinely exercises that branch when run natively on
+// macOS (this repo's primary dev machine). On darwin it must return the
+// homebrew/local-etc paths and specifically NOT the Linux-only RHUI path.
+func TestTLSCertPaths_DarwinList(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin-only branch of tlsCertPaths")
+	}
+	paths := tlsCertPaths()
+	if len(paths) == 0 {
+		t.Fatal("expected a non-empty darwin cert path list")
+	}
+	if !slices.Contains(paths, "/usr/local/etc/ssl") || !slices.Contains(paths, "/opt/homebrew/etc/ssl") {
+		t.Errorf("darwin path list = %v, want it to include the homebrew/local-etc ssl dirs", paths)
+	}
+	if slices.Contains(paths, "/etc/pki/rhui") {
+		t.Error("darwin path list must not include the Linux-only RHUI path")
+	}
 }

@@ -38,9 +38,19 @@ func TestExtractCronCommand(t *testing.T) {
 			hasUserField: false,
 			want:         "",
 		},
+		{
+			// Exactly 6 fields (5 time fields + user, no command) passes the
+			// len(fields)<6 guard but must still be rejected by the
+			// len(fields)<=timeFields check once hasUserField shifts
+			// timeFields to 6 — a distinct boundary from the "too few fields"
+			// case above.
+			name:         "user field present but no command follows",
+			line:         "0 3 * * * root",
+			hasUserField: true,
+			want:         "",
+		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := extractCronCommand(tc.line, tc.hasUserField); got != tc.want {

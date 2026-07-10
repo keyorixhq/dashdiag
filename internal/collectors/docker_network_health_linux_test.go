@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // errRoundTripper makes every HTTP request fail immediately — simulating a
@@ -37,5 +38,65 @@ func TestCollectNetworkHealth_MTUUnavailableStillChecksIPForward(t *testing.T) {
 	}
 	if !info.IPForwardChecked {
 		t.Error("IPForwardChecked should be true — ip_forward is readable regardless of MTU/API state")
+	}
+}
+
+// TestCollectNetworkHealth_MTUMismatch drives the full happy path: both
+// containerMTU and hostMTU are readable and the container's MTU exceeds the
+// host's, so MTUMismatch must be set — the fragmentation-risk finding.
+func TestCollectNetworkHealth_MTUMismatch(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/networks": []byte(`[{"Name":"bridge","Options":{"com.docker.network.driver.mtu":"9000"}}]`),
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"lo", "docker0", "eth0"})
+		b.PutFile("/sys/class/net/eth0/mtu", []byte("1500\n"))
+	})
+	var info models.DockerInfo
+	collectNetworkHealth(context.Background(), client, &info)
+
+	if info.ContainerMTU != 9000 || info.HostMTU != 1500 {
+		t.Fatalf("ContainerMTU=%d HostMTU=%d, want 9000/1500", info.ContainerMTU, info.HostMTU)
+	}
+	if !info.MTUMismatch {
+		t.Error("expected MTUMismatch=true — container MTU (9000) exceeds host MTU (1500)")
+	}
+}
+
+// TestCollectNetworkHealth_MTUMatchNoMismatch confirms equal container/host
+// MTUs do NOT set MTUMismatch (the normal, healthy case).
+func TestCollectNetworkHealth_MTUMatchNoMismatch(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/networks": []byte(`[{"Name":"bridge","Options":{}}]`),
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"lo", "eth0"})
+		b.PutFile("/sys/class/net/eth0/mtu", []byte("1500\n"))
+	})
+	var info models.DockerInfo
+	collectNetworkHealth(context.Background(), client, &info)
+
+	if info.ContainerMTU != 1500 || info.HostMTU != 1500 {
+		t.Fatalf("ContainerMTU=%d HostMTU=%d, want 1500/1500", info.ContainerMTU, info.HostMTU)
+	}
+	if info.MTUMismatch {
+		t.Error("expected MTUMismatch=false when container and host MTU match")
+	}
+}
+
+// TestCollectNetworkHealth_ContainerMTUFoundButHostUnavailable exercises the
+// second early-return: containerMTU is readable but hostMTU is not.
+func TestCollectNetworkHealth_ContainerMTUFoundButHostUnavailable(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/networks": []byte(`[{"Name":"bridge","Options":{}}]`),
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"lo"})
+	})
+	var info models.DockerInfo
+	collectNetworkHealth(context.Background(), client, &info)
+
+	if info.ContainerMTU != 1500 {
+		t.Fatalf("ContainerMTU = %d, want 1500", info.ContainerMTU)
+	}
+	if info.HostMTU != 0 || info.MTUMismatch {
+		t.Errorf("HostMTU=%d MTUMismatch=%v, want 0/false when no host interface is discoverable", info.HostMTU, info.MTUMismatch)
 	}
 }

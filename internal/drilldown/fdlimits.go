@@ -31,12 +31,16 @@ type fdEntry struct {
 }
 
 func topProcessesByFDLinux(ctx context.Context, n int) (*models.Details, error) {
+	return topProcessesByFDLinuxAt(ctx, n, "/proc")
+}
+
+func topProcessesByFDLinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	var entries []fdEntry
 	partial := false
 
-	err := walkProcs(ctx, func(pid int) error {
-		fdPath := filepath.Join("/proc", fmt.Sprintf("%d", pid), "fd")
+	err := walkProcs(ctx, procRoot, func(pid int) error {
+		fdPath := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "fd")
 		fds, err := os.ReadDir(fdPath)
 		if os.IsPermission(err) {
 			mu.Lock()
@@ -48,12 +52,12 @@ func topProcessesByFDLinux(ctx context.Context, n int) (*models.Details, error) 
 			return nil
 		}
 		open := len(fds)
-		limit := fdSoftLimit(pid)
+		limit := fdSoftLimit(procRoot, pid)
 		if limit <= 0 {
 			return nil
 		}
 		pct := float64(open) / float64(limit) * 100
-		name := procComm(pid)
+		name := procComm(procRoot, pid)
 		mu.Lock()
 		entries = append(entries, fdEntry{pid: pid, name: name, open: open, limit: limit, usedPct: pct})
 		mu.Unlock()
@@ -91,9 +95,9 @@ func topProcessesByFDLinux(ctx context.Context, n int) (*models.Details, error) 
 	return d, nil
 }
 
-// fdSoftLimit reads the soft limit for open files from /proc/PID/limits.
-func fdSoftLimit(pid int) int {
-	data, err := os.ReadFile(filepath.Join("/proc", fmt.Sprintf("%d", pid), "limits"))
+// fdSoftLimit reads the soft limit for open files from procRoot/PID/limits.
+func fdSoftLimit(procRoot string, pid int) int {
+	data, err := os.ReadFile(filepath.Join(procRoot, fmt.Sprintf("%d", pid), "limits"))
 	if err != nil {
 		return 0
 	}

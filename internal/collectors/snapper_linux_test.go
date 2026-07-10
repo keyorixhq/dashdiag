@@ -3,11 +3,95 @@
 package collectors
 
 import (
+	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestSnapperCollectorIdentity guards the static Name/Timeout contract and
+// that Collect delegates to CollectSnapper — pure identity checks are
+// parallel-safe, but Collect touches the fixture source so it must not be.
+func TestSnapperCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewSnapperCollector()
+	if c.Name() != "Snapshots" {
+		t.Errorf("Name() = %q, want Snapshots", c.Name())
+	}
+	if c.Timeout() != 10*time.Second {
+		t.Errorf("Timeout() = %v, want 10s", c.Timeout())
+	}
+}
+
+// TestSnapperCollector_Collect_NotInstalled guards the gate-off path: when
+// snapper isn't on $PATH, Collect must return an empty, non-error SnapperInfo.
+func TestSnapperCollector_Collect_NotInstalled(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("snapper", []string{"list-configs"})
+	})
+	c := NewSnapperCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.SnapperInfo)
+	if !reflect.DeepEqual(info, &models.SnapperInfo{}) {
+		t.Errorf("expected empty SnapperInfo{} when snapper absent, got %+v", info)
+	}
+}
+
+// TestSnapperCollector_Collect_HappyPath exercises the full delegation:
+// lookPath succeeds, list-configs and list both succeed, and the parsed
+// result flows back out of SnapperCollector.Collect unchanged.
+func TestSnapperCollector_Collect_HappyPath(t *testing.T) {
+	// lookPath is Cached-keyed (not a Run), so it must be seeded via the
+	// combined-fixture's cached map alongside the snapper Run fixtures.
+	withCombinedFixture(t, map[string][]byte{"lookpath/snapper": []byte("/usr/bin/snapper")}, nil, func(b *source.Bundle) {
+		b.PutCmd("snapper", []string{"list-configs"}, "Config | Subvolume\n-------+----------\nroot   | /\n", 0)
+		b.PutCmd("snapper", []string{"list"},
+			" # | Type   | Date                              | Description\n"+
+				"---+--------+-----------------------------------+-------------\n"+
+				"0  | single |                                   | current\n"+
+				"1  | single | "+time.Now().Add(-2*time.Hour).Format("Mon Jan 2 15:04:05 2006")+" | 1500.00MiB\n", 0)
+	})
+	c := NewSnapperCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.SnapperInfo)
+	if !info.Available {
+		t.Error("expected Available=true when snapper is on $PATH")
+	}
+	if info.ConfigCount != 1 {
+		t.Errorf("expected ConfigCount=1, got %d", info.ConfigCount)
+	}
+	if info.SnapshotCount != 2 {
+		t.Errorf("expected SnapshotCount=2, got %d", info.SnapshotCount)
+	}
+}
+
+// TestSnapperCollector_Collect_PermissionDenied guards the graceful
+// degradation path: snapper is installed but `snapper list` reports "No
+// permissions" (non-root) — Collect must set Error, not fail or panic.
+func TestSnapperCollector_Collect_PermissionDenied(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{"lookpath/snapper": []byte("/usr/bin/snapper")}, nil, func(b *source.Bundle) {
+		b.PutCmd("snapper", []string{"list-configs"}, "Config | Subvolume\n-------+----------\nroot   | /\n", 0)
+		b.PutCmd("snapper", []string{"list"}, "No permissions ('root' required)\n", 1)
+	})
+	c := NewSnapperCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.SnapperInfo)
+	if info.Error == "" {
+		t.Error("expected a non-empty Error when snapper list reports No permissions")
+	}
+}
 
 func TestParseSnapperDate(t *testing.T) {
 	// LC_ALL=C format (runCmd's default): "Wed May 13 20:39:27 2026"
@@ -21,6 +105,44 @@ func TestParseSnapperDate(t *testing.T) {
 
 	if got := parseSnapperDate("not a date at all"); !got.IsZero() {
 		t.Errorf("a garbled date should return the zero time, got %v", got)
+	}
+}
+
+// TestParseSnapperDate_LocaleFormat guards the second date-format branch: a
+// system-locale 12h date with a trailing timezone abbreviation ("Wed 13 May
+// 2026 08:39:27 PM CEST"), which the LC_ALL=C layouts never match and which
+// requires the field-reorder + TZ-stripping logic.
+func TestParseSnapperDate_LocaleFormat(t *testing.T) {
+	got := parseSnapperDate("Wed 13 May 2026 08:39:27 PM CEST")
+	if got.IsZero() {
+		t.Fatal("a well-formed locale-format snapper date (with TZ abbreviation) should parse")
+	}
+	if got.Year() != 2026 || got.Month() != time.May || got.Day() != 13 || got.Hour() != 20 {
+		t.Errorf("date components wrong: %v", got)
+	}
+}
+
+// TestParseSnapperDate_LocaleFormatNoTZ guards the same reordering path
+// without a trailing TZ abbreviation to strip (AM/PM must not be mistaken
+// for one, and the reorder must still land on a valid layout).
+func TestParseSnapperDate_LocaleFormatNoTZ(t *testing.T) {
+	got := parseSnapperDate("Wed 13 May 2026 08:39:27 AM")
+	if got.IsZero() {
+		t.Fatal("a locale-format date with no trailing TZ token should still parse")
+	}
+	if got.Hour() != 8 {
+		t.Errorf("expected AM hour 8, got %v", got)
+	}
+}
+
+// TestIsSnapperSeparator_EmptyLine guards the explicit `line == ""` early
+// return (distinct from the rune-loop path exercised by TestIsSnapperSeparator
+// in parser_sweep_linux_test.go): the empty string never enters the loop, so
+// it needs its own boundary case.
+func TestIsSnapperSeparator_EmptyLine(t *testing.T) {
+	t.Parallel()
+	if isSnapperSeparator("") {
+		t.Error("an empty line must not be treated as a separator")
 	}
 }
 

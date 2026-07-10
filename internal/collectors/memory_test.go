@@ -5,10 +5,31 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
+
+// TestNewMemoryCollector_Identity pins the constructor and identity methods
+// (Name/Timeout) — these touch no fixture source, so t.Parallel() is safe.
+func TestNewMemoryCollector_Identity(t *testing.T) {
+	t.Parallel()
+	ctx := platform.ContainerContext{}
+	c := NewMemoryCollector(ctx)
+	if c == nil {
+		t.Fatal("NewMemoryCollector returned nil")
+	}
+	if got, want := c.meminfoPath, "/proc/meminfo"; got != want {
+		t.Errorf("meminfoPath = %q, want %q", got, want)
+	}
+	if got, want := c.Name(), "Memory"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := c.Timeout(), 200*time.Millisecond; got != want {
+		t.Errorf("Timeout() = %v, want %v", got, want)
+	}
+}
 
 func TestParseMeminfo(t *testing.T) {
 	t.Parallel()

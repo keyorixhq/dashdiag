@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestParsePVEManagerVersion(t *testing.T) {
@@ -133,6 +134,38 @@ func TestScanBackupDumpDirs_Empty(t *testing.T) {
 	t.Parallel()
 	if got := scanBackupDumpDirs([]string{t.TempDir()}); len(got) != 0 {
 		t.Errorf("empty dir → %d entries, want 0", len(got))
+	}
+}
+
+// TestScanBackupDumpDirs_UnparseableVMIDSkipped guards the `!ok` continue: a
+// filename that matches the glob pattern (vzdump-*.<ext>) but whose VMID
+// can't be parsed (parseVzdumpVMID returns ok=false) must be skipped rather
+// than crash or record a bogus VMID. The other extensions are deliberately
+// left unseeded (glob returns ErrNotRecorded), which doubles as coverage for
+// the outer `if err != nil { continue }` branch.
+func TestScanBackupDumpDirs_UnparseableVMIDSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob(filepath.Join("/dump", "vzdump-*.vma.zst"),
+			[]string{"/dump/vzdump-qemu-notanumber-x.vma.zst"})
+	})
+	got := scanBackupDumpDirs([]string{"/dump"})
+	if len(got) != 0 {
+		t.Errorf("expected 0 entries (unparseable VMID skipped), got %+v", got)
+	}
+}
+
+// TestScanBackupDumpDirs_StatFails guards the statFile error continue: a
+// glob match that can no longer be stat'd (e.g. a TOCTOU race — deleted
+// between glob and stat) must be skipped, not crash the scan.
+func TestScanBackupDumpDirs_StatFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob(filepath.Join("/dump", "vzdump-*.vma.zst"),
+			[]string{"/dump/vzdump-qemu-100-2024_06_03-19_16_09.vma.zst"})
+		// Deliberately no PutStat seeded for the matched path -> statFile errors.
+	})
+	got := scanBackupDumpDirs([]string{"/dump"})
+	if len(got) != 0 {
+		t.Errorf("expected 0 entries (stat failure skipped), got %+v", got)
 	}
 }
 

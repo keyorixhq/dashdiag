@@ -63,6 +63,11 @@ func TestParseProcStat(t *testing.T) {
 			input:   "garbage line here",
 			wantErr: true,
 		},
+		{
+			name:    "non-numeric ppid",
+			input:   "1234 (nginx) S notanumber 1234",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {

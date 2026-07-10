@@ -263,8 +263,8 @@ func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
 	var pkgs []models.CVEPackage
 	var currentAdvisory, currentSeverity string
 
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
 		lower := strings.ToLower(line)
 
 		if strings.HasPrefix(lower, "advisory id") || strings.HasPrefix(lower, "name") {
@@ -279,10 +279,15 @@ func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
 				currentSeverity = strings.TrimSpace(parts[1])
 			}
 		}
-		// Package lines in dnf advisory output: "  package-name-version.arch"
-		if strings.HasPrefix(line, "  ") && strings.Contains(line, ".") &&
+		// Package lines in dnf advisory output: "  package-name-version.arch".
+		// Check the untrimmed line for leading whitespace — line is already
+		// trimmed above, so the prefix check must run against raw instead, or
+		// it can never match (dead code that silently left AffectedPackages
+		// empty on every advisory, papered over by the len(out)>50 fallback
+		// below still landing on the correct Vulnerable/Patched verdict).
+		if strings.HasPrefix(raw, "  ") && strings.Contains(line, ".") &&
 			!strings.Contains(line, ":") {
-			pkgName := strings.TrimSpace(line)
+			pkgName := line
 			if pkgName != "" && !strings.HasPrefix(strings.ToLower(pkgName), "update") {
 				pkgs = append(pkgs, models.CVEPackage{
 					Name:     pkgName,

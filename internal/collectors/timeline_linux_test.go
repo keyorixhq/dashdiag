@@ -3,12 +3,16 @@
 package collectors
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Characterization tests for the timeline collector's pure parsers. The timeline
@@ -157,6 +161,31 @@ func TestParseJournalLine_TruncationIsRuneSafe(t *testing.T) {
 	}
 	if got := len([]rune(ev.Message)); got != 141 { // 140 runes + ellipsis
 		t.Errorf("rune length = %d, want 141", got)
+	}
+}
+
+// TestDecodeJournalMessage covers decodeJournalMessage's branches directly:
+// empty input, a plain JSON string, the byte-array fallback, and the final
+// "neither shape parses" fallback (both Unmarshal attempts fail).
+func TestDecodeJournalMessage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{"empty raw message", nil, ""},
+		{"plain JSON string", json.RawMessage(`"hello"`), "hello"},
+		{"byte array form", json.RawMessage(`[104,105]`), "hi"},
+		{"neither string nor byte array", json.RawMessage(`{"nested":"object"}`), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := decodeJournalMessage(tt.raw); got != tt.want {
+				t.Errorf("decodeJournalMessage(%s) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -375,5 +404,357 @@ func TestDeduplicateEvents(t *testing.T) {
 	}
 	if got[0].Count != 2 {
 		t.Errorf("first group Count = %d, want 2 (two same-minute CRITs)", got[0].Count)
+	}
+}
+
+// ── constructor / interface methods ──────────────────────────────────────────
+
+func TestNewTimelineCollector(t *testing.T) {
+	tests := []struct {
+		hours int
+		want  int
+	}{
+		{0, 1},
+		{-5, 1},
+		{3, 3},
+	}
+	for _, tt := range tests {
+		c := NewTimelineCollector(tt.hours)
+		if c.WindowHours != tt.want {
+			t.Errorf("NewTimelineCollector(%d).WindowHours = %d, want %d", tt.hours, c.WindowHours, tt.want)
+		}
+	}
+}
+
+func TestTimelineCollector_NameAndTimeout(t *testing.T) {
+	c := NewTimelineCollector(1)
+	if c.Name() != "Timeline" {
+		t.Errorf("Name() = %q, want Timeline", c.Name())
+	}
+	if c.Timeout() != 20*time.Second {
+		t.Errorf("Timeout() = %v, want 20s", c.Timeout())
+	}
+}
+
+// ── Collect (integration) ────────────────────────────────────────────────────
+
+// Both journalctl and dmesg are left unseeded so Replay.Run returns
+// ErrNotRecorded for either regardless of the dynamic --since args Collect
+// builds from time.Now() — this exercises the SourcesUnavailable branch
+// deterministically without racing against Collect's internal clock read.
+func TestTimelineCollector_Collect_SourcesUnavailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		// sar is also left unseeded -> collectSarLoad returns nil, current load still included.
+	})
+	c := NewTimelineCollector(2)
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := result.(*models.TimelineInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.TimelineInfo", result)
+	}
+	if !info.SourcesUnavailable {
+		t.Error("expected SourcesUnavailable=true when both journalctl and dmesg fail")
+	}
+	if info.WindowHours != 2 {
+		t.Errorf("WindowHours = %d, want 2", info.WindowHours)
+	}
+	if len(info.Events) != 0 {
+		t.Errorf("Events = %+v, want empty", info.Events)
+	}
+	if len(info.LoadSpikes) != 1 {
+		t.Errorf("LoadSpikes = %+v, want 1 entry (current load)", info.LoadSpikes)
+	}
+	if info.CritCount != 0 || info.WarnCount != 0 {
+		t.Errorf("CritCount/WarnCount = %d/%d, want 0/0", info.CritCount, info.WarnCount)
+	}
+}
+
+// TestTimelineCollector_Collect_TallyAndSort covers the branches
+// TestTimelineCollector_Collect_SourcesUnavailable's empty-events run cannot
+// reach: the sort.Slice comparator actually invoked across >1 event, and the
+// CRIT/WARN tally loop's switch-case bodies (both need at least one real
+// event of each level to execute).
+func TestTimelineCollector_Collect_TallyAndSort(t *testing.T) {
+	since := time.Now().Add(-2 * time.Hour)
+	// Two journal lines deliberately OUT of chronological order in the raw
+	// feed, so the sort.Slice comparator has real work to do. PRIORITY 2=crit
+	// (-> CRIT), PRIORITY 4=warning (-> WARN).
+	lines := strings.Join([]string{
+		`{"__REALTIME_TIMESTAMP":"1700000300000000","PRIORITY":"4","_SYSTEMD_UNIT":"nginx.service","MESSAGE":"upstream timeout"}`,
+		`{"__REALTIME_TIMESTAMP":"1700000100000000","PRIORITY":"2","_SYSTEMD_UNIT":"k3s.service","MESSAGE":"node not ready"}`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
+			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, lines, 0)
+		b.PutCmdNotFound("dmesg", []string{"-T"})
+	})
+	c := NewTimelineCollector(2)
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := result.(*models.TimelineInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.TimelineInfo", result)
+	}
+	if len(info.Events) != 2 {
+		t.Fatalf("expected 2 events, got %+v", info.Events)
+	}
+	// Sorted chronologically: the 1700000100 (k3s, CRIT) event must come first.
+	// (parseJournalLine stores the unit with its .service suffix stripped.)
+	if info.Events[0].Unit != "k3s" {
+		t.Errorf("Events[0].Unit = %q, want k3s (chronological sort)", info.Events[0].Unit)
+	}
+	if info.CritCount != 1 || info.WarnCount != 1 {
+		t.Errorf("CritCount/WarnCount = %d/%d, want 1/1", info.CritCount, info.WarnCount)
+	}
+}
+
+// TestTimelineCollector_Collect_CapAt200 covers the "len(info.Events) > 200 ->
+// filterTopEvents" truncation branch inside Collect: 250 distinct (never
+// deduplicated) warning events must be capped down to 200 in the final
+// result.
+func TestTimelineCollector_Collect_CapAt200(t *testing.T) {
+	since := time.Now().Add(-2 * time.Hour)
+	tsUsec := int64(1_700_000_000_000_000)
+	lines := make([]string, 0, 250)
+	for i := range 250 {
+		// Distinct message per line defeats deduplicateEvents' msgPrefix key,
+		// so all 250 survive dedup and reach the 200-cap truncation.
+		lines = append(lines, fmt.Sprintf(
+			`{"__REALTIME_TIMESTAMP":"%d","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"distinct message number %d"}`,
+			tsUsec, i))
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
+			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, strings.Join(lines, "\n"), 0)
+		b.PutCmdNotFound("dmesg", []string{"-T"})
+	})
+	c := NewTimelineCollector(2)
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := result.(*models.TimelineInfo)
+	if !ok {
+		t.Fatalf("Collect() returned %T, want *models.TimelineInfo", result)
+	}
+	if len(info.Events) != 200 {
+		t.Errorf("len(Events) = %d, want 200 (capped from 250)", len(info.Events))
+	}
+}
+
+// ── collectJournalEvents ──────────────────────────────────────────────────────
+
+func TestCollectJournalEvents(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	sinceStr := since.Format("2006-01-02 15:04:05")
+	lines := strings.Join([]string{
+		`{"__REALTIME_TIMESTAMP":"1700000100000000","PRIORITY":"3","_SYSTEMD_UNIT":"k3s.service","MESSAGE":"node not ready"}`,
+		`{"__REALTIME_TIMESTAMP":"1700000200000000","PRIORITY":"4","_SYSTEMD_UNIT":"nginx.service","MESSAGE":"upstream timeout"}`,
+		`{"__REALTIME_TIMESTAMP":"1700000300000000","PRIORITY":"4","_SYSTEMD_UNIT":"sshd.service","MESSAGE":"accepted publickey"}`, // noisy, filtered
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json", "--since", sinceStr, "--priority=warning"}, lines, 0)
+	})
+	events, err := collectJournalEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2 (noisy sshd line filtered): %+v", len(events), events)
+	}
+}
+
+func TestCollectJournalEvents_CommandUnavailable(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	withFixtureSource(t, func(b *source.Bundle) {})
+	events, err := collectJournalEvents(context.Background(), since)
+	if err == nil {
+		t.Fatal("expected error when journalctl is unavailable")
+	}
+	if events != nil {
+		t.Errorf("expected nil events on error, got %+v", events)
+	}
+}
+
+func TestCollectJournalEvents_CapAt500(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	sinceStr := since.Format("2006-01-02 15:04:05")
+	lines := make([]string, 0, 600)
+	for range 600 {
+		lines = append(lines, `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"m"}`)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json", "--since", sinceStr, "--priority=warning"}, strings.Join(lines, "\n"), 0)
+	})
+	events, err := collectJournalEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 500 {
+		t.Errorf("got %d events, want 500 (capped)", len(events))
+	}
+}
+
+// ── collectDmesgEvents ────────────────────────────────────────────────────────
+
+func TestCollectDmesgEvents(t *testing.T) {
+	since := time.Unix(0, 0)
+	out := strings.Join([]string{
+		"kern  :err   : [Wed Jun  4 10:30:00 2025] EXT4-fs (sda1): error reading block",
+		"kern  :warn  : [Wed Jun  4 10:30:00 2025] usb 1-1: device descriptor read",
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dmesg", []string{"-T", "-x", "--level=err,warn,crit,emerg,alert"}, out, 0)
+	})
+	events, err := collectDmesgEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2: %+v", len(events), events)
+	}
+}
+
+func TestCollectDmesgEvents_CommandUnavailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	events, err := collectDmesgEvents(context.Background(), time.Unix(0, 0))
+	if err == nil {
+		t.Fatal("expected error when dmesg is unavailable")
+	}
+	if events != nil {
+		t.Errorf("expected nil events on error, got %+v", events)
+	}
+}
+
+// ── load spikes ───────────────────────────────────────────────────────────────
+
+func TestCurrentLoadSpike(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.52 0.58 0.59 2/456 12345\n"))
+	})
+	spike := currentLoadSpike()
+	if spike == nil {
+		t.Fatal("expected a load spike, got nil")
+	}
+	if spike.Load1 != 0.52 || spike.Load5 != 0.58 || spike.Load15 != 0.59 {
+		t.Errorf("loads = %v/%v/%v, want 0.52/0.58/0.59", spike.Load1, spike.Load5, spike.Load15)
+	}
+}
+
+func TestCurrentLoadSpike_FileMissing(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if spike := currentLoadSpike(); spike != nil {
+		t.Errorf("expected nil when /proc/loadavg is unreadable, got %+v", spike)
+	}
+}
+
+func TestCurrentLoadSpike_TooFewFields(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.52 0.58\n"))
+	})
+	if spike := currentLoadSpike(); spike != nil {
+		t.Errorf("expected nil with too few fields, got %+v", spike)
+	}
+}
+
+func TestCollectSarLoad(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	out := "10:30:01        0       225      0.08      0.06      0.05         0\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("sar", []string{"-q", "-s", since.Format("15:04:00")}, out, 0)
+	})
+	spikes := collectSarLoad(context.Background(), since)
+	if len(spikes) != 1 {
+		t.Fatalf("got %d spikes, want 1: %+v", len(spikes), spikes)
+	}
+	if spikes[0].Load1 != 0.08 {
+		t.Errorf("Load1 = %v, want 0.08", spikes[0].Load1)
+	}
+}
+
+func TestCollectSarLoad_NotInstalled(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	withFixtureSource(t, func(b *source.Bundle) {})
+	spikes := collectSarLoad(context.Background(), since)
+	if spikes != nil {
+		t.Errorf("expected nil spikes when sar unavailable, got %+v", spikes)
+	}
+}
+
+func TestCollectLoadSpikes(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
+		// sar left unseeded -> collectSarLoad returns nil, current load still included.
+	})
+	spikes := collectLoadSpikes(context.Background(), since)
+	if len(spikes) != 1 {
+		t.Fatalf("got %d spikes, want 1 (current only, sar unavailable): %+v", len(spikes), spikes)
+	}
+}
+
+// ── filterTopEvents ───────────────────────────────────────────────────────────
+
+func TestFilterTopEvents(t *testing.T) {
+	events := []models.TimelineEvent{
+		{TimestampUnix: 1, Level: "WARN", Message: "w1"},
+		{TimestampUnix: 2, Level: "CRIT", Message: "c1"},
+		{TimestampUnix: 3, Level: "WARN", Message: "w2"},
+		{TimestampUnix: 4, Level: "CRIT", Message: "c2"},
+		{TimestampUnix: 5, Level: "WARN", Message: "w3"},
+	}
+	got := filterTopEvents(events, 3)
+	if len(got) != 3 {
+		t.Fatalf("got %d events, want 3 (cap): %+v", len(got), got)
+	}
+	// Both CRITs plus the most recent WARN (w3, ts=5), sorted chronologically.
+	want := []int64{2, 4, 5}
+	for i, ts := range want {
+		if got[i].TimestampUnix != ts {
+			t.Errorf("got[%d].TimestampUnix = %d, want %d (full result: %+v)", i, got[i].TimestampUnix, ts, got)
+		}
+	}
+}
+
+func TestFilterTopEvents_MoreCritsThanCap(t *testing.T) {
+	events := []models.TimelineEvent{
+		{TimestampUnix: 1, Level: "CRIT"},
+		{TimestampUnix: 2, Level: "CRIT"},
+		{TimestampUnix: 3, Level: "CRIT"},
+		{TimestampUnix: 4, Level: "WARN"},
+	}
+	got := filterTopEvents(events, 2)
+	// remaining = 2-3 = -1 -> no warns added; all CRITs kept even over cap.
+	if len(got) != 3 {
+		t.Fatalf("got %d events, want 3 (all CRITs kept even over cap): %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.Level != "CRIT" {
+			t.Errorf("unexpected non-CRIT in result: %+v", e)
+		}
+	}
+}
+
+func TestFilterTopEvents_NoCrits(t *testing.T) {
+	events := []models.TimelineEvent{
+		{TimestampUnix: 1, Level: "WARN"},
+		{TimestampUnix: 2, Level: "WARN"},
+		{TimestampUnix: 3, Level: "WARN"},
+	}
+	got := filterTopEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2", len(got))
+	}
+	// Most recent 2 warns: ts 2 and 3.
+	if got[0].TimestampUnix != 2 || got[1].TimestampUnix != 3 {
+		t.Errorf("got = %+v, want ts 2,3 (most recent warns)", got)
 	}
 }

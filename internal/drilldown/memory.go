@@ -30,13 +30,17 @@ type procMem struct {
 }
 
 func topProcessesByRSSLinux(ctx context.Context, n int) (*models.Details, error) {
+	return topProcessesByRSSLinuxAt(ctx, n, "/proc")
+}
+
+func topProcessesByRSSLinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	var procs []procMem
 
-	totalKB := systemTotalMemKB()
+	totalKB := systemTotalMemKB(procRoot)
 
-	err := walkProcs(ctx, func(pid int) error {
-		path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "status")
+	err := walkProcs(ctx, procRoot, func(pid int) error {
+		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "status")
 		f, err := os.Open(path)
 		if err != nil {
 			return nil
@@ -127,9 +131,9 @@ func topProcessesByRSSMac(ctx context.Context, n int) (*models.Details, error) {
 	}, nil
 }
 
-// systemTotalMemKB reads total system memory from /proc/meminfo.
-func systemTotalMemKB() int64 {
-	f, err := os.Open("/proc/meminfo")
+// systemTotalMemKB reads total system memory from procRoot/meminfo.
+func systemTotalMemKB(procRoot string) int64 {
+	f, err := os.Open(filepath.Join(procRoot, "meminfo"))
 	if err != nil {
 		return 0
 	}

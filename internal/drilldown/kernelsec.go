@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
@@ -104,7 +103,7 @@ func buildPolicyTable(appArmorComplain []string, aaPartial bool, selinuxMode str
 // profiles in complain mode", a false-OK — the caller now gets an honest
 // partial=true instead of a silent empty result.
 func appArmorComplainProfiles(ctx context.Context) (names []string, partial bool) {
-	if _, err := exec.LookPath("aa-status"); err != nil {
+	if _, err := lookPath("aa-status"); err != nil {
 		return nil, false // no AppArmor tooling on this host — nothing to report, not a gap
 	}
 	if out, err := runCmd(ctx, "aa-status", "--pretty-json"); err == nil && out != "" {

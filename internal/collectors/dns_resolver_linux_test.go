@@ -67,6 +67,29 @@ func TestParseResolvectlStatus(t *testing.T) {
 	}
 }
 
+// TestParseResolvectlStatus_NoGlobalFallsBackToFirstLink guards the older-
+// resolvectl fallback: when there is no "Global" section at all (so
+// DNSSECActive is never set from it), the first real link with a non-empty
+// DNSSEC value must supply DNSSECActive instead of leaving it empty.
+func TestParseResolvectlStatus_NoGlobalFallsBackToFirstLink(t *testing.T) {
+	t.Parallel()
+	const noGlobalStatus = `Link 3 (wlan0)
+    Current Scopes: DNS
+         Protocols: -DNSOverTLS DNSSEC=no
+       DNS Servers: 8.8.8.8
+
+Link 2 (eth0)
+    Current Scopes: DNS
+         Protocols: +DNSOverTLS DNSSEC=yes
+       DNS Servers: 1.1.1.1
+`
+	info := &models.ResolverAuditInfo{}
+	parseResolvectlStatus(noGlobalStatus, info)
+	if info.DNSSECActive != "no" {
+		t.Errorf("DNSSECActive = %q, want %q (the first real link's DNSSEC value)", info.DNSSECActive, "no")
+	}
+}
+
 func TestParseProtocolsDoT(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -47,6 +47,16 @@ func TestParseTDNFUpdateInfoJSON_NotJSON(t *testing.T) {
 	}
 }
 
+// TestParseTDNFUpdateInfoJSON_BracketsPresentButInvalidJSON guards the
+// json.Unmarshal error branch specifically: output that DOES contain a
+// '['...']' span (so the bracket-index early return doesn't fire) but whose
+// content isn't valid JSON must still report parsed=false.
+func TestParseTDNFUpdateInfoJSON_BracketsPresentButInvalidJSON(t *testing.T) {
+	if _, ok := parseTDNFUpdateInfoJSON("some text [not, valid, json} more text]"); ok {
+		t.Error("malformed JSON between brackets must report parsed=false")
+	}
+}
+
 func TestParseTDNFUpdateInfoText(t *testing.T) {
 	entries := parseTDNFUpdateInfoText(tdnfUpdateInfoTextFixture)
 	if len(entries) != 4 {

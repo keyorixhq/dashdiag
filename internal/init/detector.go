@@ -8,7 +8,10 @@ import (
 )
 
 func DetectServerProfile() string {
-	procs := runningProcessNames()
+	return classifyProfile(runningProcessNames())
+}
+
+func classifyProfile(procs []string) string {
 	switch {
 	case containsAny(procs, "nginx", "apache2", "caddy", "httpd"):
 		return "web"

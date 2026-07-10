@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -15,7 +14,9 @@ func FailedUnitLogs(ctx context.Context, unit string, lines int) (*models.Detail
 	if runtime.GOOS == "darwin" || unit == "" {
 		return nil, nil
 	}
-	if _, err := exec.LookPath("journalctl"); err != nil {
+	// lookPath (not exec.LookPath) — the package-level var so tests can swap it,
+	// same seam every other drilldown file uses (see swapLookPath).
+	if _, err := lookPath("journalctl"); err != nil {
 		return nil, nil // no journald on this host — nothing to report, not a gap
 	}
 

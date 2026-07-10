@@ -27,6 +27,58 @@ func withFixtureSource(t *testing.T, seed func(b *source.Bundle)) {
 	t.Cleanup(func() { SetSource(prev) })
 }
 
+// fakeCombinedSource layers a Cached-key override (Bundle has no public
+// Cached-seeding API — lookpath/<tool>, imds/<url>, dial/<network>/<addr>,
+// env/<var>, platform/container-context, ... all route through Cached) and a
+// Readlink override (Bundle has no public Readlink-seeding API either) on top
+// of a Bundle-backed Replay, so ONE active source can serve every fixture
+// dimension a test needs at once.
+//
+// GUARD — use this instead of chaining two separate with*Fixture calls.
+// SetSource fully REPLACES the active source; it does not merge with whatever
+// the previous call configured. Calling e.g. seedDialOutcome(t, ...) and then
+// withFixtureSource(t, ...) silently throws away the dial-outcome seed, because
+// the second SetSource overwrites the first — the function under test then
+// sees only the second fixture's data. This bit the containerd_linux.go round
+// (2026-07-08): a Collect() test needed BOTH a dial/unix/<socket> outcome AND
+// PutCmd-seeded systemctl/ctr output in the SAME call, and two independent
+// SetSource calls meant only the last one survived. Whenever a test needs more
+// than one fixture dimension for a single function-under-test call, seed them
+// ALL into one withCombinedFixture call rather than stacking separate
+// with*Fixture helpers.
+type fakeCombinedSource struct {
+	*source.Replay
+	cached map[string][]byte
+	links  map[string]string
+}
+
+func (f *fakeCombinedSource) Cached(key string, _ func() ([]byte, error)) ([]byte, error) {
+	if v, ok := f.cached[key]; ok {
+		return v, nil
+	}
+	return nil, errNotFoundCVE
+}
+
+func (f *fakeCombinedSource) Readlink(path string) (string, error) {
+	if target, ok := f.links[path]; ok {
+		return target, nil
+	}
+	return f.Replay.Readlink(path)
+}
+
+// withCombinedFixture seeds a Bundle (PutFile/PutDir/PutCmd/PutStat/PutGlob), a
+// Cached-key map, and a Readlink map into ONE active source for the test's
+// duration. Pass nil for cached/links when a dimension isn't needed.
+func withCombinedFixture(t *testing.T, cached map[string][]byte, links map[string]string, seed func(b *source.Bundle)) {
+	t.Helper()
+	b := source.NewBundle()
+	if seed != nil {
+		seed(b)
+	}
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: cached, links: links})
+	t.Cleanup(func() { SetSource(prev) })
+}
+
 func TestIsOffensiveDistro(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/os-release", []byte(`ID=kali`+"\n"+`ID_LIKE=debian`+"\n"))
@@ -152,12 +204,35 @@ func TestParseAVCGroups(t *testing.T) {
 		b.PutFile("/var/log/audit/audit.log", []byte(enforced+"\n"+permissive+"\n"+outsideWindow+"\n"))
 	})
 
-	groups := parseAVCGroups(nil, time.Hour) //nolint:staticcheck // ctx unused by this function
+	groups := parseAVCGroups(context.Background(), time.Hour)
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group (only the enforced, in-window denial), got %d: %+v", len(groups), groups)
 	}
 	if groups[0].Tclass != "file" || groups[0].Count != 1 {
 		t.Errorf("the enforced httpd/shadow denial should be the sole group, got %+v", groups[0])
+	}
+}
+
+// TestParseAVCGroups_LogUnreadable covers the "openFile errors -> nil" branch:
+// no /var/log/audit/audit.log present (e.g. auditd not installed or not
+// root) must return nil, not panic.
+func TestParseAVCGroups_LogUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := parseAVCGroups(context.Background(), time.Hour); got != nil {
+		t.Errorf("expected nil when the audit log can't be opened, got %+v", got)
+	}
+}
+
+// TestParseAVCGroups_NoMatchingLines covers the "groups empty after scan ->
+// nil" branch: the audit log is readable but contains nothing that
+// scanAVCLine folds into a group (e.g. only permissive/out-of-window/non-AVC
+// lines), so buildSELinuxAVCGroups must never run against an empty map.
+func TestParseAVCGroups_NoMatchingLines(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte("type=SYSCALL msg=audit(1.0:1): arch=c000003e syscall=2 success=yes\n"))
+	})
+	if got := parseAVCGroups(context.Background(), time.Hour); got != nil {
+		t.Errorf("expected nil when no line yields a group, got %+v", got)
 	}
 }
 
@@ -309,10 +384,14 @@ func TestParsePAMModuleFailures_FromLogFile(t *testing.T) {
 // pamFailuresFromJournal actually invokes, or the fixture silently misses
 // and the test passes vacuously on the `err != nil → return nil` branch.
 func TestParsePAMModuleFailures_NoLogFiles_FallsBackToJournal(t *testing.T) {
+	// A live-relative timestamp: parsePAMModuleFailures applies a 24h recency
+	// gate to journald lines too, so a fixed calendar date would be silently
+	// dropped once the clock moves past it.
+	recent := time.Now().Add(-1 * time.Hour).Format(time.Stamp)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("journalctl",
 			[]string{"--since=24 hours ago", "--no-pager", "-q", "-g", "pam_unix.*authentication failure"},
-			"Jul  8 10:00:01 host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob\n",
+			fmt.Sprintf("%s host sudo: pam_unix(sudo:auth): authentication failure; logname=bob uid=1000 euid=0 tty=/dev/pts/0 ruser=bob rhost=  user=bob\n", recent),
 			0)
 	})
 
@@ -337,4 +416,514 @@ func TestParsePAMModuleFailures_Clean(t *testing.T) {
 	if len(info.PAMModuleFailures) != 0 {
 		t.Errorf("no matching failure lines should leave PAMModuleFailures empty, got %+v", info.PAMModuleFailures)
 	}
+}
+
+// TestCollectRelevantBooleans guards the getsebool filtering: an off boolean
+// whose name contains a denied scontext keyword (with the "_t" suffix
+// stripped) must be surfaced, an ON boolean must be excluded even if its name
+// matches, and an off boolean unrelated to any denied scontext must be
+// excluded too.
+func TestCollectRelevantBooleans(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"},
+			"httpd_can_network_connect --> off\n"+
+				"httpd_enable_cgi --> on\n"+ // ON — must be excluded
+				"cron_can_relabel --> off\n", // unrelated to httpd_t — must be excluded
+			0)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	got := collectRelevantBooleans(context.Background(), groups)
+	if len(got) != 1 || got[0].Name != "httpd_can_network_connect" {
+		t.Fatalf("expected only the off httpd-related boolean, got %+v", got)
+	}
+	if got[0].Active {
+		t.Errorf("surfaced boolean must be reported inactive (off), got Active=true")
+	}
+	if got[0].SetCmd != "setsebool -P httpd_can_network_connect on" {
+		t.Errorf("SetCmd = %q, want the setsebool -P ... on form", got[0].SetCmd)
+	}
+}
+
+// TestCollectRelevantBooleans_CapsAtTen guards the 10-item truncation: with
+// more than 10 matching off booleans, only the first 10 encountered are kept.
+func TestCollectRelevantBooleans_CapsAtTen(t *testing.T) {
+	lines := make([]string, 0, 15)
+	for i := range 15 {
+		lines = append(lines, fmt.Sprintf("httpd_bool_%02d --> off", i))
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"}, strings.Join(lines, "\n")+"\n", 0)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	got := collectRelevantBooleans(context.Background(), groups)
+	if len(got) != 10 {
+		t.Fatalf("expected the result capped at 10, got %d: %+v", len(got), got)
+	}
+}
+
+// TestCollectRelevantBooleans_GetseboolFails guards the "getsebool -a itself
+// errored" branch — must return nil, not panic on empty output.
+func TestCollectRelevantBooleans_GetseboolFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"}, "", 1)
+	})
+	groups := []models.SELinuxAVCGroup{{Scontext: "httpd_t"}}
+	if got := collectRelevantBooleans(context.Background(), groups); got != nil {
+		t.Errorf("expected nil when getsebool -a fails, got %+v", got)
+	}
+}
+
+// TestCollectAppArmorDenials guards the journalctl-driven AppArmor DENIED
+// parse: matching kernel lines are grouped by (profile, op, path) with counts,
+// non-DENIED lines are ignored, and the result is sorted deterministically
+// (count desc, then profile/path/op asc — see the sort.Slice doc comment).
+func TestCollectAppArmorDenials(t *testing.T) {
+	lines := strings.Join([]string{
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="ALLOWED" operation="open" profile="/usr/bin/bar" name="/tmp/x" requested_mask="r" comm="bar"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 grouped denial (ALLOWED must be excluded), got %d: %+v", len(got), got)
+	}
+	if got[0].Profile != "/usr/bin/foo" || got[0].Path != "/etc/shadow" || got[0].Operation != "r" || got[0].Count != 2 {
+		t.Errorf("unexpected grouped denial: %+v", got[0])
+	}
+}
+
+// TestCollectAppArmorDenials_MultiGroupSortOrder guards the deterministic
+// sort across multiple distinct groups: count desc first, then profile/path/
+// operation asc to break ties among equal-count groups (see the sort.Slice
+// doc comment in the production code).
+func TestCollectAppArmorDenials_MultiGroupSortOrder(t *testing.T) {
+	lines := strings.Join([]string{
+		// "zzz" profile, 1 denial — should sort AFTER the tied "aaa"/"bbb" group
+		// despite alphabetically following them, because count desc wins first.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/high" name="/etc/x" requested_mask="r" comm="high"`,
+		// Two distinct profiles tied at count=1 each — must break the tie by profile asc.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bbb" name="/etc/y" requested_mask="r" comm="bbb"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/aaa" name="/etc/z" requested_mask="r" comm="aaa"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 3 {
+		t.Fatalf("expected 3 distinct groups, got %d: %+v", len(got), got)
+	}
+	if got[0].Profile != "/usr/bin/high" || got[0].Count != 3 {
+		t.Fatalf("group[0] should be the highest-count group, got %+v", got[0])
+	}
+	if got[1].Profile != "/usr/bin/aaa" || got[2].Profile != "/usr/bin/bbb" {
+		t.Errorf("tied count=1 groups should sort by profile asc (aaa before bbb), got order %+v, %+v", got[1], got[2])
+	}
+}
+
+// TestCollectAppArmorDenials_PathThenOperationTiebreak guards the third and
+// fourth tiebreak levels of the sort.Slice comparator: two groups tied on
+// BOTH count AND profile must break the tie by path asc, and two groups tied
+// on count, profile, AND path must break the final tie by operation asc.
+func TestCollectAppArmorDenials_PathThenOperationTiebreak(t *testing.T) {
+	lines := strings.Join([]string{
+		// Same profile, different paths, both count=1 -> path asc breaks the tie.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/zzz" requested_mask="r" comm="foo"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/aaa" requested_mask="r" comm="foo"`,
+		// Same profile AND path, different operations, both count=1 -> operation asc.
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bar" name="/etc/same" requested_mask="w" comm="bar"`,
+		`kernel: audit: type=1400 audit(0.0): apparmor="DENIED" operation="open" profile="/usr/bin/bar" name="/etc/same" requested_mask="r" comm="bar"`,
+	}, "\n")
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
+	})
+	got := collectAppArmorDenials(context.Background())
+	if len(got) != 4 {
+		t.Fatalf("expected 4 distinct groups, got %d: %+v", len(got), got)
+	}
+	// All groups tie at count=1, so profile asc dominates first: "bar" < "foo".
+	if got[0].Profile != "/usr/bin/bar" || got[1].Profile != "/usr/bin/bar" {
+		t.Fatalf("expected the two /usr/bin/bar groups first (profile asc), got %+v, %+v", got[0], got[1])
+	}
+	// Within the tied "bar" profile+path, operation asc: "r" before "w".
+	if got[0].Operation != "r" || got[1].Operation != "w" {
+		t.Errorf("expected operation asc tiebreak (r before w), got %+v, %+v", got[0], got[1])
+	}
+	// Within the tied "foo" profile, path asc: "/etc/aaa" before "/etc/zzz".
+	if got[2].Path != "/etc/aaa" || got[3].Path != "/etc/zzz" {
+		t.Errorf("expected path asc tiebreak (aaa before zzz), got %+v, %+v", got[2], got[3])
+	}
+}
+
+// TestCollectAppArmorDenials_NoneOrError guards the two "nothing to report"
+// paths: journalctl erroring out and journalctl succeeding with empty/no-match
+// output must both return nil, not a spurious entry.
+func TestCollectAppArmorDenials_NoneOrError(t *testing.T) {
+	t.Run("journalctl errors", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 1)
+		})
+		if got := collectAppArmorDenials(context.Background()); got != nil {
+			t.Errorf("expected nil on journalctl error, got %+v", got)
+		}
+	})
+
+	t.Run("empty output", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 0)
+		})
+		if got := collectAppArmorDenials(context.Background()); got != nil {
+			t.Errorf("expected nil on empty journalctl output, got %+v", got)
+		}
+	})
+}
+
+// TestBoolExists guards the getsebool <name> existence check: the boolean's
+// own name echoed back in stdout means it exists, a non-zero exit (unknown
+// boolean) means it doesn't.
+func TestBoolExists(t *testing.T) {
+	t.Run("exists", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("getsebool", []string{"httpd_can_network_connect"}, "httpd_can_network_connect --> off\n", 0)
+		})
+		if !boolExists(context.Background(), "httpd_can_network_connect") {
+			t.Error("expected true for a boolean getsebool reports")
+		}
+	})
+
+	t.Run("does not exist", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("getsebool", []string{"nonexistent_boolean"}, "", 1)
+		})
+		if boolExists(context.Background(), "nonexistent_boolean") {
+			t.Error("expected false when getsebool errors (unknown boolean)")
+		}
+	})
+}
+
+// TestDetectIPTables guards the three outcomes of the iptables gate: a
+// non-trivial ruleset (Active+SSHAllowed derived from the rules), tooling
+// present but empty (FirewallToolingPresent, not Active), and installed-but-
+// unreadable (non-root EPERM) reporting FirewallUnreadable rather than a
+// false "no firewall".
+func TestDetectIPTables(t *testing.T) {
+	t.Run("active with SSH rule", func(t *testing.T) {
+		out := "Chain INPUT (policy DROP)\nnum  target     prot opt source               destination\n1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22\n"
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		if !detectIPTables(context.Background(), info) {
+			t.Fatal("expected detectIPTables to report true for a non-empty ruleset")
+		}
+		if !info.FirewallActive || info.FirewallType != "iptables" {
+			t.Errorf("expected FirewallActive=true FirewallType=iptables, got %+v", info)
+		}
+		if !info.SSHAllowed {
+			t.Error("explicit ACCEPT tcp dpt:22 rule must set SSHAllowed=true")
+		}
+	})
+
+	t.Run("installed but empty ruleset", func(t *testing.T) {
+		out := "Chain INPUT (policy ACCEPT)\nnum  target     prot opt source               destination\n"
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false with an empty ruleset")
+		}
+		if !info.FirewallToolingPresent || info.FirewallActive {
+			t.Errorf("expected tooling-present-but-inactive, got %+v", info)
+		}
+		if info.FirewallType != "iptables" {
+			t.Errorf("FirewallType = %q, want iptables", info.FirewallType)
+		}
+	})
+
+	t.Run("installed but unreadable (non-root EPERM)", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+			b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"}, "", 1)
+		})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false when the command errors")
+		}
+		if !info.FirewallUnreadable {
+			t.Error("expected FirewallUnreadable=true, not a silent false-OK")
+		}
+	})
+
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		if detectIPTables(context.Background(), info) {
+			t.Error("expected detectIPTables to report false when iptables is absent")
+		}
+	})
+}
+
+// TestParseCryptoPolicy guards the two data sources: the config-file fast
+// path (no subprocess) and the update-crypto-policies fallback when the file
+// is absent.
+func TestParseCryptoPolicy(t *testing.T) {
+	t.Run("config file present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/crypto-policies/config", []byte("FIPS\n"))
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "FIPS" {
+			t.Errorf("CryptoPolicy = %q, want FIPS", info.CryptoPolicy)
+		}
+	})
+
+	t.Run("falls back to update-crypto-policies --show", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("update-crypto-policies", []string{"--show"}, "DEFAULT\n", 0)
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "DEFAULT" {
+			t.Errorf("CryptoPolicy = %q, want DEFAULT", info.CryptoPolicy)
+		}
+	})
+
+	t.Run("neither source available", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmdNotFound("update-crypto-policies", []string{"--show"})
+		})
+		info := &models.SecurityInfo{}
+		parseCryptoPolicy(context.Background(), info)
+		if info.CryptoPolicy != "" {
+			t.Errorf("CryptoPolicy = %q, want empty when neither source is available", info.CryptoPolicy)
+		}
+	})
+}
+
+// TestParseAIDE guards the three outcomes: not installed (no-op), installed
+// with a database present (age computed from mtime), and installed but never
+// run (AIDELastRunDays == -1 sentinel).
+func TestParseAIDE(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if info.AIDEInstalled {
+			t.Error("expected AIDEInstalled=false when neither binary path exists")
+		}
+	})
+
+	t.Run("installed with database", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/aide", source.FileMeta{})
+			b.PutStat("/var/lib/aide/aide.db", source.FileMeta{ModTime: time.Now().Add(-72 * time.Hour)})
+		})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if !info.AIDEInstalled || !info.AIDEDBExists {
+			t.Fatalf("expected AIDEInstalled+AIDEDBExists=true, got %+v", info)
+		}
+		if info.AIDELastRunDays != 3 {
+			t.Errorf("AIDELastRunDays = %d, want 3 (72h ago)", info.AIDELastRunDays)
+		}
+	})
+
+	t.Run("installed but never run", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/bin/aide", source.FileMeta{})
+		})
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if !info.AIDEInstalled || info.AIDEDBExists {
+			t.Fatalf("expected installed-but-no-db, got %+v", info)
+		}
+		if info.AIDELastRunDays != -1 {
+			t.Errorf("AIDELastRunDays = %d, want -1 (never run)", info.AIDELastRunDays)
+		}
+	})
+}
+
+// TestParseSupportconfig guards the three outcomes: not installed, an
+// archive-based find (SLES 15/older format), and the SLES 16 directory-based
+// output — plus the never-run -1 sentinel.
+func TestParseSupportconfig(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigAvailable {
+			t.Error("expected SupportconfigAvailable=false when neither binary path exists")
+		}
+	})
+
+	t.Run("installed, never run", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", nil)
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if !info.SupportconfigAvailable {
+			t.Fatal("expected SupportconfigAvailable=true")
+		}
+		if info.SupportconfigLastRunDays != -1 {
+			t.Errorf("SupportconfigLastRunDays = %d, want -1 (never run)", info.SupportconfigLastRunDays)
+		}
+	})
+
+	t.Run("archive found (legacy tbz)", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", []string{"/var/log/nts_host_20260101.tbz", "/var/log/nts_host_20260101.tbz.md5"})
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+			b.PutStat("/var/log/nts_host_20260101.tbz", source.FileMeta{ModTime: time.Now().Add(-48 * time.Hour)})
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigArchive != "/var/log/nts_host_20260101.tbz" {
+			t.Errorf("SupportconfigArchive = %q, want the .tbz archive (not the .md5 sidecar)", info.SupportconfigArchive)
+		}
+		if info.SupportconfigLastRunDays != 2 {
+			t.Errorf("SupportconfigLastRunDays = %d, want 2 (48h ago)", info.SupportconfigLastRunDays)
+		}
+	})
+
+	t.Run("SLES 16 directory-based output", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+			b.PutDir("/var/log", []string{"scc_host_20260105", "other-file"})
+			b.PutDir("/var/log/scc_host_20260105", nil) // makes probeIsDir see it as a directory
+			b.PutStat("/var/log/scc_host_20260105", source.FileMeta{IsDir: true, ModTime: time.Now().Add(-24 * time.Hour)})
+			b.PutGlob("/var/log/scc_*.txz", nil)
+			b.PutGlob("/var/log/nts_*.tbz", nil)
+			b.PutGlob("/tmp/scc_*.txz", nil)
+			b.PutGlob("/tmp/nts_*.tbz", nil)
+		})
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if info.SupportconfigArchive != "/var/log/scc_host_20260105" {
+			t.Errorf("SupportconfigArchive = %q, want the scc_ directory", info.SupportconfigArchive)
+		}
+		if info.SupportconfigLastRunDays != 1 {
+			t.Errorf("SupportconfigLastRunDays = %d, want 1 (24h ago)", info.SupportconfigLastRunDays)
+		}
+	})
+}
+
+// TestParseAppArmor guards the two outcomes: AppArmor disabled (early
+// return, no fields set) and enabled (mode/profile counts/denials all
+// populated from the same detection logic KernelSecurityCollector uses).
+func TestParseAppArmor(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		parseAppArmor(info)
+		if info.AppArmorMode != "" || info.AppArmorProfiles != 0 {
+			t.Errorf("expected zero-value AppArmor fields when disabled, got %+v", info)
+		}
+	})
+
+	t.Run("enabled with profiles", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/sys/module/apparmor/parameters/enabled", []byte("Y\n"))
+			b.PutFile("/sys/kernel/security/apparmor/profiles", []byte(
+				"/usr/bin/foo (enforce)\n/usr/bin/bar (complain)\n",
+			))
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 0)
+		})
+		info := &models.SecurityInfo{}
+		parseAppArmor(info)
+		if info.AppArmorMode != "enforce" {
+			t.Errorf("AppArmorMode = %q, want enforce", info.AppArmorMode)
+		}
+		if info.AppArmorProfiles != 2 {
+			t.Errorf("AppArmorProfiles = %d, want 2", info.AppArmorProfiles)
+		}
+		if info.AppArmorComplain != 1 {
+			t.Errorf("AppArmorComplain = %d, want 1", info.AppArmorComplain)
+		}
+	})
+}
+
+// TestCollectSUSEConnect guards the three outcomes: SUSEConnect absent
+// (no-op), the query-failed sentinel (command errors — not a confident
+// "unregistered"), and a successful parse delegating to
+// applySUSEConnectStatus.
+func TestCollectSUSEConnect(t *testing.T) {
+	t.Run("not installed", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if info.SUSEConnectStatus != "" {
+			t.Errorf("SUSEConnectStatus = %q, want empty when SUSEConnect is absent", info.SUSEConnectStatus)
+		}
+	})
+
+	t.Run("query fails", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{"lookpath/SUSEConnect": []byte("/usr/bin/SUSEConnect")}, nil, func(b *source.Bundle) {
+			b.PutCmd("SUSEConnect", []string{"--status"}, "", 1)
+		})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if info.SUSEConnectStatus != "query-failed" {
+			t.Errorf("SUSEConnectStatus = %q, want query-failed", info.SUSEConnectStatus)
+		}
+	})
+
+	t.Run("registered and active", func(t *testing.T) {
+		out := `[{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE","expires_at":"2099-07-13 00:00:00 UTC"}]`
+		withCombinedFixture(t, map[string][]byte{"lookpath/SUSEConnect": []byte("/usr/bin/SUSEConnect")}, nil, func(b *source.Bundle) {
+			b.PutCmd("SUSEConnect", []string{"--status"}, out, 0)
+		})
+		info := &models.SecurityInfo{}
+		CollectSUSEConnect(context.Background(), info)
+		if !info.SUSEConnectRegistered {
+			t.Error("expected SUSEConnectRegistered=true")
+		}
+		if info.SUSEConnectStatus != "ACTIVE" {
+			t.Errorf("SUSEConnectStatus = %q, want ACTIVE", info.SUSEConnectStatus)
+		}
+	})
+}
+
+// TestCollectPAMLockedAccounts guards the faillock-driven lock-out audit: a
+// [Locked] line is extracted by username, faillock's absence/error must
+// return nil rather than a spurious entry.
+func TestCollectPAMLockedAccounts(t *testing.T) {
+	t.Run("locked accounts present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("faillock", []string{"--user", ""},
+				"bob:\nV                                     when               type  source                                                          valid\n"+
+					"bob [Locked] 2026-07-01 10:00:00 RHOST 1.2.3.4 V\n", 0)
+		})
+		got := collectPAMLockedAccounts(context.Background())
+		if len(got) != 1 || got[0] != "bob" {
+			t.Errorf("expected [bob], got %v", got)
+		}
+	})
+
+	t.Run("faillock unavailable", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmdNotFound("faillock", []string{"--user", ""})
+		})
+		if got := collectPAMLockedAccounts(context.Background()); got != nil {
+			t.Errorf("expected nil when faillock is unavailable, got %v", got)
+		}
+	})
 }

@@ -31,7 +31,7 @@ func (c *NginxCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NginxInfo{Detected: true, MasterRunning: true, Workers: countNginxWorkers()}
 
 	// Version — nginx writes "-v" to stderr.
-	if res, err := activeSource.Run(ctx, "nginx", "-v"); err == nil {
+	if res, err := curSource().Run(ctx, "nginx", "-v"); err == nil {
 		info.Version = parseNginxVersion(string(res.Stderr) + string(res.Stdout))
 	}
 
@@ -45,7 +45,7 @@ func (c *NginxCollector) Collect(ctx context.Context) (interface{}, error) {
 // syntax error (ConfigValid=false) from a "couldn't read the config" permission
 // failure (ConfigTested=false → reported as INFO, never a false CRIT).
 func collectNginxConfigTest(ctx context.Context, info *models.NginxInfo) {
-	res, err := activeSource.Run(ctx, "nginx", "-t")
+	res, err := curSource().Run(ctx, "nginx", "-t")
 	if err != nil {
 		info.StatusReason = "nginx -t could not run"
 		return

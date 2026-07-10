@@ -445,6 +445,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 		info.StatusReason = "no security repository configured in apt sources — add security.debian.org or ubuntu security mirror"
 		return info, nil
 	}
+	info.HasSecurityRepo = true
 
 	// apt-get update is NOT run here — too slow and requires root for lock.
 	// We read whatever is cached; caller should ensure cache is fresh.

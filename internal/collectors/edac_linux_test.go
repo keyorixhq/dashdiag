@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestReadEDACCountsFrom(t *testing.T) {
@@ -61,5 +63,60 @@ func TestReadEDACCountsFrom_NoControllers(t *testing.T) {
 	avail, ce, ue := readEDACCountsFrom(root)
 	if avail || ce != 0 || ue != 0 {
 		t.Errorf("non-ECC (no mc* controllers) = (%v,%d,%d), want (false,0,0)", avail, ce, ue)
+	}
+}
+
+// TestReadEDACCounter covers readEDACCounter directly (routed through the
+// active source via readFile, unlike readEDACCountsFrom above which reads
+// the real filesystem): a well-formed counter, a trailing-newline counter
+// (the real /sys/.../ce_count shape), a garbled/non-numeric value, and a
+// missing file — none of the last two must ever be mistaken for a real
+// zero count vs. "couldn't measure", which is why the function collapses
+// both to 0 (readEDACCountsFrom above is what gates "available").
+func TestReadEDACCounter(t *testing.T) {
+	cases := []struct {
+		name string
+		seed func(b *source.Bundle)
+		path string
+		want int64
+	}{
+		{
+			name: "well-formed counter with trailing newline",
+			seed: func(b *source.Bundle) {
+				b.PutFile("/sys/devices/system/edac/mc/mc0/ce_count", []byte("5\n"))
+			},
+			path: "/sys/devices/system/edac/mc/mc0/ce_count",
+			want: 5,
+		},
+		{
+			name: "well-formed counter, no trailing newline",
+			seed: func(b *source.Bundle) {
+				b.PutFile("/sys/devices/system/edac/mc/mc0/ue_count", []byte("0"))
+			},
+			path: "/sys/devices/system/edac/mc/mc0/ue_count",
+			want: 0,
+		},
+		{
+			name: "garbled non-numeric contents",
+			seed: func(b *source.Bundle) {
+				b.PutFile("/sys/devices/system/edac/mc/mc0/ce_count", []byte("not-a-number\n"))
+			},
+			path: "/sys/devices/system/edac/mc/mc0/ce_count",
+			want: 0,
+		},
+		{
+			name: "missing file",
+			seed: func(b *source.Bundle) {},
+			path: "/sys/devices/system/edac/mc/mc0/ce_count",
+			want: 0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withFixtureSource(t, c.seed)
+			if got := readEDACCounter(c.path); got != c.want {
+				t.Errorf("readEDACCounter(%q) = %d, want %d", c.path, got, c.want)
+			}
+		})
 	}
 }

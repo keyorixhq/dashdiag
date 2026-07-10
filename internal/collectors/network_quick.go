@@ -394,7 +394,14 @@ func sysPing(ctx context.Context, host, srcIP string) (ms, lossPct float64, ok b
 	// parseable output to stdout. runCmd discards output on non-zero exit.
 	cmd := localeSafeCmd(pCtx, "ping", args...) // #nosec G204
 	raw, _ := cmd.Output()                      // ignore exit code intentionally
-	out := string(raw)
+	return parseSysPingOutput(string(raw))
+}
+
+// parseSysPingOutput extracts packet loss and average RTT from `ping`'s
+// stdout. Split out from sysPing so the parsing logic — the part that
+// actually varies across ping implementations/locales — is unit-testable
+// without shelling out to a real ping binary.
+func parseSysPingOutput(out string) (ms, lossPct float64, ok bool) {
 	if strings.TrimSpace(out) == "" {
 		return -1, 100, false
 	}

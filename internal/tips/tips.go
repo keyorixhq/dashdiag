@@ -27,8 +27,12 @@ var tips = []struct {
 	{"Extended deep-dive snapshot — the complete picture", "dsd health --deep", ""},
 }
 
+// isPlainMode is a seam so tests can simulate a human-facing TTY session
+// without depending on the real stderr of the test process.
+var isPlainMode = func() bool { return output.IsPlain(false) }
+
 func MaybePrintTip(state *State, mode output.OutputMode) {
-	if !state.TipsEnabled || mode != output.ModeHuman || output.IsPlain(false) {
+	if !state.TipsEnabled || mode != output.ModeHuman || isPlainMode() {
 		return
 	}
 	today := time.Now().Format("2006-01-02")

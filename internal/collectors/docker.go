@@ -13,6 +13,7 @@ import (
 	goruntime "runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -198,7 +199,7 @@ func socketClient(socket string) *http.Client {
 // cache (keyed by API path) so the response replays from the bundle instead of
 // re-querying the live daemon socket.
 func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, error) {
-	return activeSource.Cached("docker-api/"+path, func() ([]byte, error) {
+	return curSource().Cached("docker-api/"+path, func() ([]byte, error) {
 		return apiGetLive(ctx, client, path)
 	})
 }
@@ -970,9 +971,9 @@ func collectSocketPermReason(socketPath, runtime string) string {
 		return fmt.Sprintf("%s socket found at %s but permission denied", runtime, socketPath)
 	}
 	gidStr := ""
-	if stat, ok := fi.Sys().(interface{ Gid() uint32 }); ok {
-		gidStr = fmt.Sprintf(" (GID %d)", stat.Gid())
-		socketGID := int(stat.Gid())
+	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+		gidStr = fmt.Sprintf(" (GID %d)", stat.Gid)
+		socketGID := int(stat.Gid)
 		if groups, gErr := os.Getgroups(); gErr == nil {
 			if slices.Contains(groups, socketGID) {
 				return fmt.Sprintf(

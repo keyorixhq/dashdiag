@@ -3,7 +3,21 @@ package collectors
 import (
 	"context"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestActiveSource guards the accessor's wiring: it must always return
+// whatever SetSource last installed, never a stale or default value.
+func TestActiveSource(t *testing.T) {
+	fake := source.NewReplay(source.NewBundle())
+	prev := SetSource(fake)
+	defer SetSource(prev)
+
+	if ActiveSource() != fake {
+		t.Error("ActiveSource() did not return the source installed by SetSource")
+	}
+}
 
 // runCmdOutput must return stdout even when the command exits non-zero — the
 // whole point is to capture findings from tools (rpm -V, dnf check) that signal

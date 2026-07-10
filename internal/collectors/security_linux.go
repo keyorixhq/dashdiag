@@ -632,7 +632,7 @@ func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 	}
 
 	// Structured AVC grouping (root only — requires audit.log access)
-	if os.Getuid() == 0 && n > 0 {
+	if getuid() == 0 && n > 0 {
 		info.SELinuxAVCGroups = parseAVCGroups(ctx, 1*time.Hour)
 	}
 

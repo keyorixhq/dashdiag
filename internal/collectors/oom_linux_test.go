@@ -3,11 +3,31 @@
 package collectors
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestNewOOMCollector_Identity pins the constructor and identity methods
+// (Name/Timeout) — these touch no fixture source, so t.Parallel() is safe.
+func TestNewOOMCollector_Identity(t *testing.T) {
+	t.Parallel()
+	c := NewOOMCollector()
+	if c == nil {
+		t.Fatal("NewOOMCollector returned nil")
+	}
+	if got, want := c.Name(), "OOM"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := c.Timeout(), 5*time.Second; got != want {
+		t.Errorf("Timeout() = %v, want %v", got, want)
+	}
+}
 
 const oomJournalOutput = `2026-05-17T09:12:34+0000 kernel: Out of memory: Kill process 12345 (nginx) score 900 or sacrifice child
 2026-05-17T09:12:34+0000 kernel: Killed process 12345 (nginx) total-vm:2048kB, anon-rss:1024kB, file-rss:0kB
@@ -51,6 +71,94 @@ func TestParseOOMEvents(t *testing.T) {
 			t.Errorf("expected empty, got %d events", len(events))
 		}
 	})
+}
+
+// TestOOMCollector_Collect_AllSourcesUnreadable covers the "neither journalctl
+// nor dmesg is readable -> unverified" branch: journalctl, `dmesg --time-format
+// iso`, and plain `dmesg` all fail (e.g. kernel.dmesg_restrict=1, non-root),
+// so Collect must flag the section unverified rather than silently reporting
+// a trustworthy-looking 0 OOM kills.
+func TestOOMCollector_Collect_AllSourcesUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("journalctl", []string{"-k", "--since", "24 hours ago",
+			"--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"})
+		b.PutCmdNotFound("dmesg", []string{"--time-format", "iso"})
+		b.PutCmdNotFound("dmesg", []string{})
+	})
+	c := NewOOMCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.OOMInfo)
+	if !info.Available {
+		t.Error("expected Available=true (the section still exists, just unverified)")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a non-empty StatusReason explaining the kernel log is unreadable")
+	}
+	if info.EventsLast24h != 0 {
+		t.Errorf("EventsLast24h = %d, want 0 when nothing could be read", info.EventsLast24h)
+	}
+}
+
+// TestOOMCollector_Collect_TruncatesRecentEventsTo5 covers the "len(events) >
+// 5 -> keep only the last 5" branch inside Collect.
+func TestOOMCollector_Collect_TruncatesRecentEventsTo5(t *testing.T) {
+	lines := make([]string, 0, 7)
+	for i := range 7 {
+		lines = append(lines, fmt.Sprintf(
+			"2026-05-17T09:%02d:00+0000 kernel: Out of memory: Kill process %d (app%d) score 900 or sacrifice child",
+			i, 10000+i, i))
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-k", "--since", "24 hours ago",
+			"--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"},
+			strings.Join(lines, "\n"), 0)
+	})
+	c := NewOOMCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.OOMInfo)
+	if info.EventsLast24h != 7 {
+		t.Errorf("EventsLast24h = %d, want 7 (all events counted)", info.EventsLast24h)
+	}
+	if len(info.RecentEvents) != 5 {
+		t.Fatalf("len(RecentEvents) = %d, want 5 (truncated)", len(info.RecentEvents))
+	}
+	// The kept slice must be the LAST 5 (most recent), i.e. app2..app6.
+	if info.RecentEvents[0].Process != "app2" || info.RecentEvents[4].Process != "app6" {
+		t.Errorf("RecentEvents = %+v, want the last 5 (app2..app6)", info.RecentEvents)
+	}
+}
+
+// TestParseOOMTimestamp covers the branches parseOOMEvents' indirect coverage
+// (via valid journalctl lines) doesn't reach: a too-short line, a line with no
+// whitespace at all (end < 0, token = the whole line), and the happy path
+// (both pinned by earlier characterization tests, restated here for
+// completeness against the boundary table).
+func TestParseOOMTimestamp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		line string
+		want bool // whether a non-zero time is expected
+	}{
+		{"too short (< 19 chars)", "short line", false},
+		{"no whitespace at all, but long enough", "2026-05-17T09:12:34+0000-no-space-here-padding", false},
+		{"valid short-iso timestamp", "2026-05-17T09:12:34+0000 kernel: Out of memory: Kill process 1 (x)", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseOOMTimestamp(tt.line)
+			if got.IsZero() == tt.want {
+				t.Errorf("parseOOMTimestamp(%q).IsZero() = %v, want IsZero()=%v", tt.line, got.IsZero(), !tt.want)
+			}
+		})
+	}
 }
 
 // TestFilterOOMRecent pins the dmesg-fallback recency window: a dated OOM older than

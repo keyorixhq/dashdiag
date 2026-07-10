@@ -1,13 +1,33 @@
 package collectors
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakePermDeniedSource reports fs.ErrPermission for one specific path via the
+// source seam, regardless of the test process's real uid — root-run test
+// suites (e.g. under Docker) cannot exercise EACCES via a real chmod, since
+// root bypasses permission bits. This makes the branch deterministically
+// reachable independent of the runner's privilege level.
+type fakePermDeniedSource struct {
+	*source.Replay
+	deniedPath string
+}
+
+func (f fakePermDeniedSource) ReadFile(path string) ([]byte, error) {
+	if path == f.deniedPath {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrPermission}
+	}
+	return f.Replay.ReadFile(path)
+}
 
 func TestParseApparmorProfiles(t *testing.T) {
 	t.Parallel()
@@ -89,6 +109,25 @@ func TestApparmorModeFromPath_PermissionDenied(t *testing.T) {
 	}
 }
 
+// TestApparmorModeFromPath_PermissionDenied_ViaSource covers the EACCES branch
+// through the source fixture seam, so it runs deterministically even when the
+// test process itself is root (e.g. under a Docker-based CI run), unlike
+// TestApparmorModeFromPath_PermissionDenied above which self-skips as root.
+func TestApparmorModeFromPath_PermissionDenied_ViaSource(t *testing.T) {
+	path := "/sys/kernel/security/apparmor/profiles"
+	b := source.NewBundle()
+	prev := SetSource(fakePermDeniedSource{
+		Replay:     source.NewReplay(b),
+		deniedPath: path,
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	got := apparmorModeFromPath(path)
+	if got != "unknown" {
+		t.Errorf("EACCES should report unknown, got %q", got)
+	}
+}
+
 func TestApparmorModeFromPath_Readable(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -141,5 +180,20 @@ func TestIsRecentAVCDenial(t *testing.T) {
 	enforced := strings.Replace(permissive, "permissive=1", "permissive=0", 1)
 	if !isRecentAVCDenial(enforced, before) {
 		t.Error("an enforced (permissive=0) AVC denial must count")
+	}
+	// No "." in the audit(...) timestamp at all — dotIdx < 0.
+	noDot := `type=AVC msg=audit(1715000000:460): avc:  denied  { read } for  pid=1 comm="x" tclass=file`
+	if isRecentAVCDenial(noDot, before) {
+		t.Error("a msg=audit timestamp with no '.' separator must NOT count")
+	}
+	// "." as the very first character — dotIdx == 0, hits the `dotIdx <= 0` guard.
+	dotAtStart := `type=AVC msg=audit(.123:461): avc:  denied  { read } for  pid=1 comm="x" tclass=file`
+	if isRecentAVCDenial(dotAtStart, before) {
+		t.Error("a msg=audit timestamp with '.' as the first character must NOT count")
+	}
+	// Non-numeric seconds component — strconv.ParseInt must fail.
+	nonNumeric := `type=AVC msg=audit(notanumber.123:462): avc:  denied  { read } for  pid=1 comm="x" tclass=file`
+	if isRecentAVCDenial(nonNumeric, before) {
+		t.Error("a msg=audit timestamp with non-numeric seconds must NOT count")
 	}
 }

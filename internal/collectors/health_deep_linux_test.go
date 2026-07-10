@@ -58,6 +58,42 @@ func TestHealthDeep_CoreUsageHermetic(t *testing.T) {
 	}
 }
 
+// TestHealthDeep_CoreUsageHermetic_LaterCoreIsMax covers the cs.UsagePct >
+// info.MaxCorePct branch inside Collect's max/min derivation loop: unlike
+// TestHealthDeep_CoreUsageHermetic (where core 0 is already the max),  a
+// LATER core reporting a higher usage than the first must update MaxCorePct.
+func TestHealthDeep_CoreUsageHermetic_LaterCoreIsMax(t *testing.T) {
+	want := []models.CoreStat{{Core: 0, UsagePct: 10}, {Core: 1, UsagePct: 90}}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	if _, err := rec.Cached("healthdeep/core-usage", func() ([]byte, error) { return blob, nil }); err != nil {
+		SetSource(prev)
+		t.Fatalf("seeding cached core usage: %v", err)
+	}
+	SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("replay Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if info.MaxCorePct != 90 || info.MinCorePct != 10 || info.CoreImbalance != 80 {
+		t.Fatalf("derived max/min/imbalance wrong: max=%v min=%v imb=%v, want 90/10/80", info.MaxCorePct, info.MinCorePct, info.CoreImbalance)
+	}
+}
+
 // TestHealthDeep_TopIOHermetic guards replay fidelity of the top-IO-process
 // sample the same way TestHealthDeep_CoreUsageHermetic does for per-core CPU:
 // the two /proc/<pid>/io snapshots share source keys and cannot be replayed
@@ -138,6 +174,162 @@ func TestHealthDeep_TopCPUHermetic(t *testing.T) {
 	}
 }
 
+// TestHealthDeep_CollectFullySeeded exercises Collect end-to-end with every
+// static (non-two-sample) input populated, covering the branches the three
+// Hermetic tests above (which each seed only ONE cached derived-sample key)
+// leave untouched: the /proc/loadavg open-and-parse success path (including
+// the max/min/imbalance derivation with >1 core), collectMemDetail,
+// collectCgroupV2 (available + populated), and the cgroup-units sample gated
+// on Cgroup.Available.
+func TestHealthDeep_CollectFullySeeded(t *testing.T) {
+	unitDir := cgroupRoot + "/system.slice/nginx.service"
+	coreUsage, err := json.Marshal([]models.CoreStat{{Core: 0, UsagePct: 80}, {Core: 1, UsagePct: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	topIO, err := json.Marshal(topIOSample{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	topCPU, err := json.Marshal([]models.ProcessCPUStat{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	units, err := json.Marshal([]models.CgroupUnit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := SetSource(rec)
+	for key, blob := range map[string][]byte{
+		"healthdeep/core-usage":   coreUsage,
+		"healthdeep/top-io":       topIO,
+		"healthdeep/top-cpu":      topCPU,
+		"healthdeep/cgroup-units": units,
+	} {
+		if _, err := rec.Cached(key, func() ([]byte, error) { return blob, nil }); err != nil {
+			SetSource(prev)
+			t.Fatalf("seeding cached %s: %v", key, err)
+		}
+	}
+	SetSource(prev)
+
+	b := rec.Bundle()
+	b.PutFile("/proc/loadavg", []byte("1.50 1.20 0.90 2/456 12345\n"))
+	b.PutFile("/proc/meminfo", []byte(
+		"MemTotal:       16384000 kB\n"+
+			"Cached:          2048000 kB\n"+
+			"Buffers:          512000 kB\n"+
+			"Dirty:              1024 kB\n"+
+			"AnonPages:       4096000 kB\n",
+	))
+	b.PutFile(cgroupRoot+"/cgroup.controllers", []byte("cpu io memory\n"))
+	b.PutStat(cgroupRoot+"/cgroup.controllers", source.FileMeta{})
+	b.PutGlob(cgroupRoot+"/*.slice", []string{cgroupRoot + "/system.slice"})
+	b.PutGlob(cgroupRoot+"/*.scope", []string{})
+	b.PutFile(cgroupRoot+"/system.slice/cpu.stat", []byte("usage_usec 500000\nthrottled_usec 0\n"))
+	b.PutFile(cgroupRoot+"/memory.events", []byte("low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n"))
+	b.PutGlob(cgroupRoot+"/system.slice/*.service", []string{unitDir})
+	b.PutGlob(cgroupRoot+"/system.slice/*.scope", []string{})
+	b.PutGlob(cgroupRoot+"/machine.slice/*.scope", []string{})
+	b.PutGlob(cgroupRoot+"/docker/*", []string{})
+	b.PutGlob("/proc/[0-9]*", []string{})
+
+	rp := source.NewReplay(b)
+	restore := SetSource(rp)
+	defer SetSource(restore)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if info.LoadAvg1 != 1.50 {
+		t.Errorf("LoadAvg1 = %v, want 1.50 (from /proc/loadavg)", info.LoadAvg1)
+	}
+	if info.NumCPU != 2 {
+		t.Errorf("NumCPU = %d, want 2 (len(Cores))", info.NumCPU)
+	}
+	if info.MaxCorePct != 80 || info.MinCorePct != 20 || info.CoreImbalance != 60 {
+		t.Errorf("max/min/imbalance = %v/%v/%v, want 80/20/60", info.MaxCorePct, info.MinCorePct, info.CoreImbalance)
+	}
+	if info.CachedMB != 2000 || info.BuffersMB != 500 {
+		t.Errorf("mem detail not populated: CachedMB=%v BuffersMB=%v", info.CachedMB, info.BuffersMB)
+	}
+	if info.Cgroup == nil || !info.Cgroup.Available {
+		t.Fatalf("expected a populated, available CgroupV2Info, got %+v", info.Cgroup)
+	}
+	if info.Cgroup.Units == nil {
+		t.Error("expected cgroup Units to be populated (non-nil) once Cgroup.Available is true")
+	}
+}
+
+// alwaysComputeCachedSource wraps a *source.Replay but makes Cached always
+// invoke produce (like source.Live), instead of Replay's normal behaviour of
+// serving only pre-seeded bytes and never calling produce. This is the only
+// way to exercise the REAL sampleCoreUsage/sampleCgroupUnits/sampleTopIOProcs/
+// sampleTopCPUProcs closures (as opposed to the Hermetic tests above, which
+// deliberately seed the Cached key so the closures are bypassed entirely).
+// Every other Source method still serves from the underlying fixture bundle.
+type alwaysComputeCachedSource struct {
+	*source.Replay
+}
+
+func (s alwaysComputeCachedSource) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
+	return produce()
+}
+
+// TestHealthDeep_CollectRunsRealSamplers drives Collect() with a source that
+// actually invokes the four cachedJSON producer closures (sampleCoreUsage,
+// sampleCgroupUnits, sampleTopIOProcs, sampleTopCPUProcs), rather than
+// bypassing them via a pre-seeded Cached key as every other Collect test in
+// this file does. All /proc/[0-9]* and cgroup-unit globs are seeded empty so
+// the IO/CPU/cgroup-unit loops finish instantly; only the two-sample core
+// usage path incurs its real ~500ms wait.
+func TestHealthDeep_CollectRunsRealSamplers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real ~500ms sampling gap in short mode")
+	}
+	b := source.NewBundle()
+	b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\ncpu0 500 0 250 4250 0 0 0 0\n"))
+	b.PutFile("/proc/loadavg", []byte("0.50 0.40 0.30 1/100 999\n"))
+	b.PutFile("/proc/meminfo", []byte("MemTotal: 16384000 kB\n"))
+	b.PutFile(cgroupRoot+"/cgroup.controllers", []byte("cpu io memory\n"))
+	b.PutStat(cgroupRoot+"/cgroup.controllers", source.FileMeta{})
+	b.PutGlob(cgroupRoot+"/*.slice", []string{})
+	b.PutGlob(cgroupRoot+"/*.scope", []string{})
+	b.PutGlob(cgroupRoot+"/system.slice/*.service", []string{})
+	b.PutGlob(cgroupRoot+"/system.slice/*.scope", []string{})
+	b.PutGlob(cgroupRoot+"/machine.slice/*.scope", []string{})
+	b.PutGlob(cgroupRoot+"/docker/*", []string{})
+	b.PutGlob("/proc/[0-9]*", []string{})
+
+	prev := SetSource(alwaysComputeCachedSource{Replay: source.NewReplay(b)})
+	defer SetSource(prev)
+
+	out, err := NewHealthDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info, ok := out.(*models.HealthDeepInfo)
+	if !ok {
+		t.Fatalf("unexpected result type %T", out)
+	}
+	if len(info.Cores) != 1 || info.Cores[0].Core != 0 {
+		t.Errorf("Cores = %+v, want 1 real-sampled core", info.Cores)
+	}
+	if info.LoadAvg1 != 0.50 {
+		t.Errorf("LoadAvg1 = %v, want 0.50", info.LoadAvg1)
+	}
+	if len(info.TopIOProcs) != 0 || len(info.TopCPUProcs) != 0 {
+		t.Errorf("expected empty top-IO/top-CPU with no /proc/[0-9]* entries, got %+v / %+v", info.TopIOProcs, info.TopCPUProcs)
+	}
+}
+
 func TestComputeTopIORates(t *testing.T) {
 	before := map[int]procIOCounters{
 		1: {name: "postgres", readBytes: 1000, writeBytes: 0},
@@ -179,6 +371,23 @@ func TestComputeTopIORates_TruncatesToN(t *testing.T) {
 	}
 }
 
+// TestParseProcStatCores_BareCPULineNoPanic guards a slice-bounds panic: a
+// line that is exactly "cpu" (3 bytes, no trailing space/fields) used to hit
+// line[:4] before the aggregate-line check confirmed the line was at least 4
+// bytes long. Real /proc/stat always pads "cpu  <counters>", but a truncated
+// or malformed read must degrade to skipping the line, never crash the
+// collector.
+func TestParseProcStatCores_BareCPULineNoPanic(t *testing.T) {
+	t.Parallel()
+	snaps, err := parseProcStatCores(strings.NewReader("cpu\ncpu0 10 0 5 100 0 0 0 0 0 0\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snaps) != 1 || snaps[0].core != 0 {
+		t.Errorf("expected the bare \"cpu\" line skipped and cpu0 parsed, got %+v", snaps)
+	}
+}
+
 // High-core-count coverage for the per-core CPU path — the one surface the
 // 2-vCPU AWS Graviton validation couldn't stress. Synthetic fixtures, so it runs
 // in CI on any box (no real many-core host needed) and locks the behaviour
@@ -190,7 +399,7 @@ func TestParseProcStatCoresHighCoreCount(t *testing.T) {
 	// Aggregate line (must be skipped) + auxiliary lines that share the "cpu"
 	// prefix-adjacent space (intr/ctxt) to make sure only cpu0..cpuN are kept.
 	b.WriteString("cpu  100 0 50 1000 0 0 0 0 0 0\n")
-	for i := 0; i < cores; i++ {
+	for i := range cores {
 		fmt.Fprintf(&b, "cpu%d 10 0 5 100 0 0 0 0 0 0\n", i)
 	}
 	b.WriteString("intr 12345\nctxt 67890\nprocs_running 4\nprocs_blocked 0\n")
@@ -213,7 +422,7 @@ func TestComputeCoreUsageHighCoreCount(t *testing.T) {
 	const cores = 96
 	mk := func(user, idle uint64) []coreSnapshot {
 		s := make([]coreSnapshot, cores)
-		for i := 0; i < cores; i++ {
+		for i := range cores {
 			s[i] = coreSnapshot{core: i, user: user, idle: idle}
 		}
 		return s

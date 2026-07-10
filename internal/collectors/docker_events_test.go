@@ -49,3 +49,27 @@ func TestParseDockerEvents_EmptyAndGarbage(t *testing.T) {
 		t.Errorf("empty/garbage stream: events=%d oom=%d, want 0/0", len(events), oom)
 	}
 }
+
+// TestParseDockerEvents_EmbeddedBlankLineSkipped guards the mid-stream empty-
+// line skip: a blank line between two real events must be ignored rather than
+// producing a spurious parse attempt.
+func TestParseDockerEvents_EmbeddedBlankLineSkipped(t *testing.T) {
+	stream := `{"Action":"die","Actor":{"Attributes":{"name":"a","exitCode":"1"}},"time":1}` + "\n" +
+		"\n" +
+		`{"Action":"die","Actor":{"Attributes":{"name":"b","exitCode":"1"}},"time":2}`
+	events, oom := parseDockerEvents([]byte(stream))
+	if len(events) != 2 || oom != 0 {
+		t.Errorf("events=%d oom=%d, want 2/0 (embedded blank line skipped, not parsed as an event)", len(events), oom)
+	}
+}
+
+// TestParseDockerEvents_ContainerNameFallback guards the Podman attribute-name
+// fallback: some events carry the actor name under "containerName" rather than
+// "name".
+func TestParseDockerEvents_ContainerNameFallback(t *testing.T) {
+	stream := `{"Action":"die","Actor":{"Attributes":{"containerName":"fallback-actor","exitCode":"1"}},"time":1}`
+	events, _ := parseDockerEvents([]byte(stream))
+	if len(events) != 1 || events[0].Actor != "fallback-actor" {
+		t.Errorf("events = %+v, want a single event with Actor=fallback-actor", events)
+	}
+}

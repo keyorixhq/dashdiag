@@ -31,12 +31,16 @@ type procSwap struct {
 }
 
 func topProcessesBySwapLinux(ctx context.Context, n int) (*models.Details, error) {
+	return topProcessesBySwapLinuxAt(ctx, n, "/proc")
+}
+
+func topProcessesBySwapLinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	var procs []procSwap
 	partial := false
 
-	err := walkProcs(ctx, func(pid int) error {
-		path := filepath.Join("/proc", fmt.Sprintf("%d", pid), "status")
+	err := walkProcs(ctx, procRoot, func(pid int) error {
+		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "status")
 		f, err := os.Open(path)
 		if os.IsPermission(err) {
 			mu.Lock()

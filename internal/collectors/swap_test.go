@@ -12,6 +12,23 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+func TestNewSwapCollectorIdentity(t *testing.T) {
+	t.Parallel()
+	c := NewSwapCollector(platform.ContainerContext{})
+	if c.Name() != "Swap" {
+		t.Errorf("Name() = %q, want %q", c.Name(), "Swap")
+	}
+	if got := c.Timeout(); got != 3*time.Second {
+		t.Errorf("Timeout() = %v, want 3s", got)
+	}
+	if c.swapsPath != "/proc/swaps" {
+		t.Errorf("swapsPath = %q, want /proc/swaps", c.swapsPath)
+	}
+	if c.readers.vmstatOpen == nil {
+		t.Error("NewSwapCollector must wire vmstatOpen reader")
+	}
+}
+
 func TestParseVMStat(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -54,6 +71,12 @@ func TestParseVMStat(t *testing.T) {
 			name:    "malformed pswpout value",
 			input:   "pswpin 5\npswpout notanumber\n",
 			wantErr: true,
+		},
+		{
+			name:        "lines with wrong field count are skipped",
+			input:       "nr_free_pages\npswpin 5 extra\npswpin 5\npswpout 3\n",
+			wantPswpin:  5,
+			wantPswpout: 3,
 		},
 	}
 
@@ -124,6 +147,23 @@ func TestParseSwaps(t *testing.T) {
 			input:       "",
 			wantTotalKB: 0,
 			wantUsedKB:  0,
+		},
+		{
+			name: "line with too few fields is skipped",
+			input: "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n" +
+				"/dev/sda5\t\t\t\tpartition\t2097148\n" + // only 3 fields
+				"/dev/sdb1\t\t\t\tpartition\t1048576\t51200\t\t-2\n",
+			wantTotalKB: 1048576,
+			wantUsedKB:  51200,
+		},
+		{
+			name: "non-numeric size/used is skipped",
+			input: "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n" +
+				"/dev/sda5\t\t\t\tpartition\tnotanumber\t51200\t\t-2\n" +
+				"/dev/sdb1\t\t\t\tpartition\t1048576\tnotanumber\t\t-2\n" +
+				"/dev/sdc1\t\t\t\tpartition\t2097152\t102400\t\t-3\n",
+			wantTotalKB: 2097152,
+			wantUsedKB:  102400,
 		},
 	}
 

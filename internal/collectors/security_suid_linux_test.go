@@ -59,6 +59,45 @@ func TestWalkSUIDDir_RecursesAndDetectsSetuid(t *testing.T) {
 	}
 }
 
+// TestWalkSUIDDir_UnreadableDir covers the "readDirEntries errors -> return"
+// branch: a directory that doesn't exist at all must not panic and must
+// leave SUIDBinaries empty.
+func TestWalkSUIDDir_UnreadableDir(t *testing.T) {
+	t.Parallel()
+	var info models.SecurityInfo
+	walkSUIDDir(filepath.Join(t.TempDir(), "does-not-exist"), &info)
+	if len(info.SUIDBinaries) != 0 {
+		t.Errorf("expected no SUID binaries for an unreadable dir, got %v", info.SUIDBinaries)
+	}
+}
+
+// TestWalkSUIDDir_StatFailureSkipped covers the "statFile errors -> continue"
+// branch: a broken symlink is a real directory entry that fails to stat, so
+// walkSUIDDir must skip it (not abort the whole scan) and still find a
+// sibling SUID binary.
+func TestWalkSUIDDir_StatFailureSkipped(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	brokenLink := filepath.Join(root, "broken-symlink")
+	if err := os.Symlink(filepath.Join(root, "does-not-exist-target"), brokenLink); err != nil {
+		t.Fatal(err)
+	}
+
+	suidPath := filepath.Join(root, "suid-bin")
+	if err := os.WriteFile(suidPath, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(suidPath, os.ModeSetuid|0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var info models.SecurityInfo
+	walkSUIDDir(root, &info)
+	if len(info.SUIDBinaries) != 1 || info.SUIDBinaries[0] != suidPath {
+		t.Errorf("SUIDBinaries = %v, want exactly [%q] (broken symlink skipped)", info.SUIDBinaries, suidPath)
+	}
+}
+
 // TestWalkSUIDDir_KnownBinaryExcluded confirms a path in knownSUIDBinaries is
 // never reported even when it genuinely carries the setuid bit.
 func TestWalkSUIDDir_KnownBinaryExcluded(t *testing.T) {

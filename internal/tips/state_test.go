@@ -81,6 +81,75 @@ func TestSave_Atomic(t *testing.T) {
 	}
 }
 
+func TestSave_MkdirAllFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Pre-create ~/.dsd as a regular file so MkdirAll(dir(.dsd/state.json))
+	// fails with ENOTDIR instead of succeeding.
+	if err := os.WriteFile(filepath.Join(dir, ".dsd"), []byte("not a dir"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	s := &State{TotalRuns: 1}
+	if err := s.Save(); err == nil {
+		t.Error("expected error when .dsd path is blocked by a file, got nil")
+	}
+}
+
+func TestSave_WriteFileFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Pre-create the .tmp path as a directory so os.WriteFile fails.
+	if err := os.MkdirAll(filepath.Join(dir, ".dsd", "state.json.tmp"), 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	s := &State{TotalRuns: 1}
+	if err := s.Save(); err == nil {
+		t.Error("expected error when tmp path is a directory, got nil")
+	}
+}
+
+func TestLoadState_ReadPermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permission bits — a 0000 file is still readable")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte("{}"), 0000); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(statePath, 0644) })
+
+	if _, err := LoadState(); err == nil {
+		t.Error("expected error reading permission-denied state file, got nil")
+	}
+}
+
+func TestLoadState_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte("not json"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := LoadState(); err == nil {
+		t.Error("expected error loading malformed JSON, got nil")
+	}
+}
+
 // ── Milestone helpers ────────────────────────────────────────────────────────
 
 func TestHasShownMilestone(t *testing.T) {
@@ -207,6 +276,8 @@ func TestDaysBetween(t *testing.T) {
 		{"2025-01-01", "2025-01-08", 7},
 		{"", "2025-01-08", 0},
 		{"2025-01-08", "", 0},
+		{"not-a-date", "2025-01-08", 0},
+		{"2025-01-08", "not-a-date", 0},
 	}
 	for _, tc := range cases {
 		got := daysBetween(tc.a, tc.b)
