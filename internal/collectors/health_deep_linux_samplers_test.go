@@ -504,6 +504,33 @@ func TestCgroupScope_Missing(t *testing.T) {
 	}
 }
 
+// TestCgroupScopeIn_V1CPUFallback covers the cgroup v1 branch: no "0::" unified
+// line present, so cgroupScopeIn must fall back to the ":cpu:" (or ":cpu,...:")
+// subsystem line rather than returning empty.
+func TestCgroupScopeIn_V1CPUFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/555/cgroup", []byte(
+			"11:devices:/system.slice/docker.service\n"+
+				"5:cpu,cpuacct:/system.slice/docker.service\n"+
+				"1:name=systemd:/system.slice/docker.service\n"))
+	})
+	if got := cgroupScopeIn("/proc", "555"); got != "system:docker.service" {
+		t.Errorf("cgroupScopeIn() = %q, want system:docker.service (v1 cpu,cpuacct fallback)", got)
+	}
+}
+
+// TestCgroupScopeIn_NoUsableLine covers a cgroup file with neither a "0::" v2
+// line nor a ":cpu:"/":cpu,"-tagged v1 line — cgroupScopeIn must fall through to
+// parseCgroupPath("") ("kernel"), not panic or return garbage.
+func TestCgroupScopeIn_NoUsableLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/556/cgroup", []byte("4:devices:/system.slice/docker.service\n"))
+	})
+	if got := cgroupScopeIn("/proc", "556"); got != "kernel" {
+		t.Errorf("cgroupScopeIn() = %q, want kernel when no usable cgroup line is present", got)
+	}
+}
+
 // ── collectMemDetail ─────────────────────────────────────────────────────────
 
 // TestCollectMemDetail guards the /proc/meminfo extended-field parse (kB→MB

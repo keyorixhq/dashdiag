@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"strings"
@@ -128,6 +129,41 @@ func TestCountAppArmorDenials(t *testing.T) {
 	}
 }
 
+// TestCountAppArmorDenials_LineFiltersAndTimestampFallbacks covers the
+// branches TestCountAppArmorDenials doesn't reach: a matching "apparmor"
+// line that lacks DENIED/denied (must be skipped, not counted), a DENIED line
+// with no "msg=audit(" marker at all (counted unconditionally — no timestamp
+// to filter on), and a DENIED line with a "msg=audit(" marker but no dot in
+// the timestamp portion (also counted unconditionally).
+func TestCountAppArmorDenials_LineFiltersAndTimestampFallbacks(t *testing.T) {
+	lines := []string{
+		`apparmor="ALLOWED" operation="open" profile="/usr/sbin/nginx"`, // apparmor present, no DENIED -> skipped
+		`apparmor="DENIED" operation="open" profile="/usr/sbin/nginx"`,  // DENIED, no msg=audit( marker -> counted
+		`apparmor="DENIED" msg=audit(nodotintimestamp): profile="x"`,    // msg=audit( present, no '.' -> counted
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte(strings.Join(lines, "\n")+"\n"))
+	})
+	n := countAppArmorDenials(1 * time.Hour)
+	if n != 2 {
+		t.Errorf("expected 2 counted denials (ALLOWED line skipped), got %d", n)
+	}
+}
+
+// TestCountAppArmorDenials_ScannerErrReportsUnverified covers the scanner.Err()
+// branch: a line exceeding bufio.Scanner's default token size must surface as
+// the -1 "unreadable" sentinel, never a silent partial/false-clean count.
+func TestCountAppArmorDenials_ScannerErrReportsUnverified(t *testing.T) {
+	huge := strings.Repeat("x", bufio.MaxScanTokenSize+1)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte(huge+"\n"))
+	})
+	n := countAppArmorDenials(1 * time.Hour)
+	if n != -1 {
+		t.Errorf("expected -1 (unreadable) for a too-long line triggering scanner.Err(), got %d", n)
+	}
+}
+
 // TestCountAppArmorDenials_FallsBackToDmesg guards the same non-root fallback
 // concern as the SELinux path: audit.log unreadable must not silently report 0.
 func TestCountAppArmorDenials_FallsBackToDmesg(t *testing.T) {
@@ -194,6 +230,46 @@ func TestCollectSELinux_NotPresent(t *testing.T) {
 	present, mode, denials := collectSELinux(context.Background())
 	if present || mode != "" || denials != 0 {
 		t.Errorf("expected (false, \"\", 0) when SELinux is entirely absent, got (%v, %q, %d)", present, mode, denials)
+	}
+}
+
+// TestCollectSELinux_Permissive guards the "mode != enforcing" early return:
+// permissive must report present=true with denials=0 without touching any
+// denial source (no audit.log/ausearch/journalctl seeded at all).
+func TestCollectSELinux_Permissive(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/selinux/enforce", []byte("0\n"))
+	})
+	present, mode, denials := collectSELinux(context.Background())
+	if !present || mode != "permissive" {
+		t.Fatalf("expected present=true mode=permissive, got present=%v mode=%q", present, mode)
+	}
+	if denials != 0 {
+		t.Errorf("expected denials=0 for a permissive mode (denials not even queried), got %d", denials)
+	}
+}
+
+// TestCollectSELinux_JournaldFallbackSucceeds guards the journald success path:
+// audit.log AND ausearch both unreadable, but journalctl returns denial lines —
+// must count enforced denials from journald and exclude permissive=1 records.
+// The "avc:  denied" (two spaces) spelling below matches journald's own
+// rendering of the kernel audit record and is what the journald branch of
+// collectSELinux specifically greps for (distinct from the audit.log path's
+// more lenient "denied" substring check).
+func TestCollectSELinux_JournaldFallbackSucceeds(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/selinux/enforce", []byte("1\n"))
+		b.PutCmdNotFound("ausearch", []string{"-m", "avc", "-ts", "recent", "--raw"})
+		b.PutCmd("journalctl", []string{"--since=1 hour ago", "--no-pager", "-q"},
+			`type=AVC msg=audit(1715000000.123:45): avc:  denied  { read } for pid=1 comm="a" permissive=0`+"\n"+
+				`type=AVC msg=audit(1715000000.124:46): avc:  denied  { read } for pid=2 comm="b" permissive=1`+"\n", 0)
+	})
+	present, mode, denials := collectSELinux(context.Background())
+	if !present || mode != "enforcing" {
+		t.Fatalf("expected present=true mode=enforcing, got present=%v mode=%q", present, mode)
+	}
+	if denials != 1 {
+		t.Errorf("expected 1 enforced denial via journald fallback (permissive=1 excluded), got %d", denials)
 	}
 }
 

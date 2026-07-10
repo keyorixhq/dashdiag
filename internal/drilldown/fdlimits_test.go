@@ -69,6 +69,56 @@ func TestTopProcessesByFDLinux_ZeroLimitSkipped(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByFDLinux_PermissionDeniedSetsPartial guards the false-OK-
+// by-omission classification: a permission-denied /proc/<pid>/fd read (owned
+// by another user) must flip the partial flag and surface an honest Note
+// rather than silently vanishing from the ranking. A directory with mode 0000
+// triggers EACCES for a non-root reader.
+func TestTopProcessesByFDLinux_PermissionDeniedSetsPartial(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — permission bits don't block the read")
+	}
+	procRoot := t.TempDir()
+	const pid = 222
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	fdDir := filepath.Join(dir, "fd")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Mkdir(fdDir, 0000); err != nil {
+		t.Fatalf("Mkdir fd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(fdDir, 0755) }) // TempDir cleanup needs read perms restored
+
+	got, err := topProcessesByFDLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByFDLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the permission-denied process to be excluded from rows, got %+v", got.Rows)
+	}
+	if got.Note == "" {
+		t.Error("expected a partial-visibility note when /proc/<pid>/fd is permission-denied")
+	}
+}
+
+// TestTopProcessesByFDLinuxAt_WalkProcsErrorPropagates guards the early-return
+// branch: when walkProcs itself fails (procRoot doesn't exist, so its initial
+// os.ReadDir errors before any entries are gathered) and zero entries were
+// collected, the error must propagate rather than be swallowed into an empty
+// result — an empty *models.Details there would read as "no FD-heavy
+// processes" instead of "couldn't read /proc at all".
+func TestTopProcessesByFDLinuxAt_WalkProcsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := topProcessesByFDLinuxAt(context.Background(), 5, missing)
+	if err == nil {
+		t.Error("expected an error when procRoot itself cannot be read")
+	}
+}
+
 func TestFDSoftLimit(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()

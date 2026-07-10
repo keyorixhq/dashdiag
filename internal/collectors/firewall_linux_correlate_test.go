@@ -78,6 +78,61 @@ func TestCollectIPTables_Unreadable(t *testing.T) {
 	}
 }
 
+// TestCollectNFTables_Unreadable guards the nft-ruleset-read error branch: an
+// installed-but-unreadable nft (non-root EPERM, the dominant case) must set
+// Status=unverified with an explanatory reason, never a silent Available=false
+// that reads as "no firewall".
+func TestCollectNFTables_Unreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("nft", []string{"list", "ruleset"})
+	})
+	info := &models.FirewallInfo{}
+	got, err := collectNFTables(context.Background(), info)
+	if err != nil {
+		t.Fatalf("collectNFTables: %v", err)
+	}
+	if got.Status != "unverified" || got.StatusReason == "" {
+		t.Errorf("expected Status=unverified with a reason when nft ruleset is unreadable, got %+v", got)
+	}
+}
+
+// TestCorrelateBlockedListeners_IPTables_UnreadableSecondRead guards the
+// re-read error branch: correlateBlockedListeners issues its OWN `-nvL`
+// iptables invocation (distinct from the `-L -n --line-numbers` call in
+// collectIPTables), so a race/permission change between the two calls must
+// leave BlockedListeners nil rather than crashing or reporting stale data.
+func TestCorrelateBlockedListeners_IPTables_UnreadableSecondRead(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("iptables", []string{"-t", "filter", "-nvL", "INPUT"})
+	})
+	info := &models.FirewallInfo{}
+	correlateBlockedListeners(context.Background(), info)
+	if info.BlockedListeners != nil {
+		t.Errorf("expected nil BlockedListeners when the -nvL re-read fails, got %v", info.BlockedListeners)
+	}
+}
+
+// TestCorrelateBlockedListeners_IPTables_Indeterminable guards the
+// !determinable bail-out: a ruleset with a custom-chain jump (fail2ban,
+// firewalld, docker, …) can't be fully reasoned about, so BlockedListeners
+// must stay nil rather than mis-flagging a reachable service as blocked.
+func TestCorrelateBlockedListeners_IPTables_Indeterminable(t *testing.T) {
+	const jumpRuleset = `Chain INPUT (policy DROP)
+ pkts bytes target prot opt in out source destination
+    0 0 ACCEPT tcp -- * * 0.0.0.0/0 0.0.0.0/0 tcp dpt:22
+    0 0 f2b-sshd tcp -- * * 0.0.0.0/0 0.0.0.0/0 multiport dports 22`
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("iptables", []string{"-t", "filter", "-nvL", "INPUT"}, jumpRuleset, 0)
+		b.PutFile("/proc/net/tcp", []byte(procNetTCPListening(22, 8080)))
+		b.PutFile("/proc/net/tcp6", []byte(""))
+	})
+	info := &models.FirewallInfo{}
+	correlateBlockedListeners(context.Background(), info)
+	if info.BlockedListeners != nil {
+		t.Errorf("expected nil BlockedListeners for an indeterminable (jump) ruleset, got %v", info.BlockedListeners)
+	}
+}
+
 func TestCorrelateBlockedListenersNFT(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/proc/net/tcp", []byte(procNetTCPListening(22, 9090)))

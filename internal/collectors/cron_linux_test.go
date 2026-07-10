@@ -144,3 +144,31 @@ func TestDetectCronDaemonName(t *testing.T) {
 		})
 	}
 }
+
+// TestTruncateCron covers the boundary directly: exactly-at-limit must NOT
+// truncate (the log/insight-message truncation for a long cron line/command,
+// used at 120 chars in checkCronQuality — off-by-one here would either cut a
+// message one char early or silently allow one char past the cap).
+func TestTruncateCron(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{"under limit — unchanged", "short", 120, "short"},
+		{"exactly at limit — unchanged, no ellipsis", "12345", 5, "12345"},
+		{"one over limit — truncated with ellipsis", "123456", 5, "12345…"},
+		{"empty string — unchanged", "", 10, ""},
+		{"n=0 on non-empty string — truncates to empty plus ellipsis", "abc", 0, "…"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := truncateCron(c.s, c.n); got != c.want {
+				t.Errorf("truncateCron(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
+			}
+		})
+	}
+}

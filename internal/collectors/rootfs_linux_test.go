@@ -91,6 +91,85 @@ func TestOsReleaseIsSteamOS(t *testing.T) {
 	})
 }
 
+// TestRootImmutableByDesign covers all three markers (ostree, transactional-update
+// under either path, SteamOS via os-release) plus the negative case.
+func TestRootImmutableByDesign(t *testing.T) {
+	t.Run("ostree", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/run/ostree-booted", source.FileMeta{})
+		})
+		if !rootImmutableByDesign() {
+			t.Error("expected true when /run/ostree-booted exists")
+		}
+	})
+
+	t.Run("transactional-update usr sbin", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/usr/sbin/transactional-update", source.FileMeta{})
+		})
+		if !rootImmutableByDesign() {
+			t.Error("expected true when /usr/sbin/transactional-update exists")
+		}
+	})
+
+	t.Run("transactional-update sbin", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutStat("/sbin/transactional-update", source.FileMeta{})
+		})
+		if !rootImmutableByDesign() {
+			t.Error("expected true when /sbin/transactional-update exists")
+		}
+	})
+
+	t.Run("steamos via os-release", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/os-release", []byte("NAME=SteamOS\nID=steamos\n"))
+		})
+		if !rootImmutableByDesign() {
+			t.Error("expected true for SteamOS via os-release fallback")
+		}
+	})
+
+	t.Run("none of the markers present", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/os-release", []byte("NAME=Ubuntu\nID=ubuntu\n"))
+		})
+		if rootImmutableByDesign() {
+			t.Error("expected false when no immutable marker is present")
+		}
+	})
+}
+
+// TestFstabIntendsRootRW covers the readFile-wrapping wrapper directly: file
+// absent (can't confirm → false) and a real rw `/` entry (true), matching the
+// pure fstabRootRW cases already covered above but through the injectable path.
+func TestFstabIntendsRootRW(t *testing.T) {
+	t.Run("fstab absent", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {})
+		if fstabIntendsRootRW() {
+			t.Error("expected false when /etc/fstab is unreadable")
+		}
+	})
+
+	t.Run("root entry with rw intent", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/fstab", []byte("/dev/sda1 / ext4 defaults 0 1\n"))
+		})
+		if !fstabIntendsRootRW() {
+			t.Error("expected true for a `/` entry with no ro option")
+		}
+	})
+
+	t.Run("root entry with explicit ro", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/fstab", []byte("UUID=x / btrfs ro,subvol=@ 0 0\n"))
+		})
+		if fstabIntendsRootRW() {
+			t.Error("expected false for a `/` entry with explicit ro")
+		}
+	})
+}
+
 func TestFstabRootRW(t *testing.T) {
 	// errors=remount-ro is rw intent (the `ro` is a substring, not the option).
 	if !fstabRootRW("UUID=x / ext4 errors=remount-ro 0 1") {

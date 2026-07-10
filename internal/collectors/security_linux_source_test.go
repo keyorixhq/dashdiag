@@ -204,7 +204,7 @@ func TestParseAVCGroups(t *testing.T) {
 		b.PutFile("/var/log/audit/audit.log", []byte(enforced+"\n"+permissive+"\n"+outsideWindow+"\n"))
 	})
 
-	groups := parseAVCGroups(nil, time.Hour) //nolint:staticcheck // ctx unused by this function
+	groups := parseAVCGroups(context.Background(), time.Hour)
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 group (only the enforced, in-window denial), got %d: %+v", len(groups), groups)
 	}
@@ -421,7 +421,7 @@ func TestCollectRelevantBooleans(t *testing.T) {
 // more than 10 matching off booleans, only the first 10 encountered are kept.
 func TestCollectRelevantBooleans_CapsAtTen(t *testing.T) {
 	var lines []string
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		lines = append(lines, fmt.Sprintf("httpd_bool_%02d --> off", i))
 	}
 	withFixtureSource(t, func(b *source.Bundle) {

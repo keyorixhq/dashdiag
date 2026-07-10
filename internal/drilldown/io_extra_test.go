@@ -86,3 +86,75 @@ func TestTopProcessesByIOLinux_NoActivity(t *testing.T) {
 		t.Error("expected a note explaining zero activity")
 	}
 }
+
+// TestTopProcessesByIOLinux_NewPidMidWindowSkipped guards the "PID appeared
+// mid-window" branch: a process present only in the second sample (s1) has no
+// baseline in s0, so its rate cannot be computed and it must be skipped rather
+// than treated as a huge (or negative) delta.
+func TestTopProcessesByIOLinux_NewPidMidWindowSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeProcIOFixture(t, procRoot, 1, 1000, 500) // present in both samples, no activity
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		writeProcIOFixture(t, procRoot, 2, 100, 100) // new PID, appears only in s1
+	}()
+
+	got, err := topProcessesByIOLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByIOLinuxAt: %v", err)
+	}
+	for _, row := range got.Rows {
+		if row[0] == "2" {
+			t.Errorf("PID 2 appeared only in the second sample and should be skipped, got row %+v", row)
+		}
+	}
+}
+
+// TestSampleAllProcIO_PermissionDeniedSetsPartial guards the false-OK-by-
+// omission classification in sampleAllProcIO: a permission-denied /proc/<pid>/io
+// read (owned by another user) must flip partial=true rather than silently
+// vanishing from the sample, per the same rationale as the fdlimits/swap
+// analogues in this package. A directory with mode 0000 triggers EACCES for a
+// non-root reader; skip gracefully if the test happens to run as root (where
+// permission bits don't apply).
+func TestSampleAllProcIO_PermissionDeniedSetsPartial(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — permission bits don't block the read")
+	}
+	procRoot := t.TempDir()
+	const pid = 55
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	ioPath := filepath.Join(dir, "io")
+	if err := os.WriteFile(ioPath, []byte("read_bytes: 0\nwrite_bytes: 0\n"), 0000); err != nil {
+		t.Fatalf("WriteFile io: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ioPath, 0644) }) // TempDir cleanup needs read perms restored
+
+	_, partial := sampleAllProcIO(context.Background(), procRoot)
+	if !partial {
+		t.Error("expected partial=true when /proc/<pid>/io is permission-denied")
+	}
+}
+
+// TestTopProcessesByIOLinuxAt_ContextCancelled guards the ctx.Done() branch
+// hit between the two sampling passes: a context cancelled before the 500ms
+// gap elapses must return ctx.Err(), not silently proceed to a second sample.
+func TestTopProcessesByIOLinuxAt_ContextCancelled(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeProcIOFixture(t, procRoot, 1, 100, 100)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := topProcessesByIOLinuxAt(ctx, 5, procRoot)
+	if err == nil {
+		t.Error("expected an error from a pre-cancelled context")
+	}
+}

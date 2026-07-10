@@ -262,3 +262,44 @@ func abs(x float64) float64 {
 	}
 	return x
 }
+
+// TestFindLVOrigin covers the field-scan boundary cases directly: the
+// too-short-to-have-an-origin bail-out, the "found on first backward scan
+// step" happy path, a blank-collapsed-column shift (the exact bug this
+// function exists to handle), and the "scanned everything, nothing
+// non-numeric" exhaustion case that falls through to "".
+func TestFindLVOrigin(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		fields []string
+		want   string
+	}{
+		{"too short (fewer than 4 fields)", []string{"lv", "vg", "attr"}, ""},
+		{"minimum 4 fields, loop never runs (i starts below 3)", []string{"lv", "vg", "attr", "10.00"}, ""},
+		{"5 fields, origin immediately before size", []string{"lv", "vg", "si-a-tz--", "origin1", "10.00"}, "origin1"},
+		{
+			"classic snapshot, normal columns",
+			[]string{"snap1", "myvg", "swi-a-s---", "origin1", "5.00", "1.00", "10.00"},
+			"origin1",
+		},
+		{
+			"thin snapshot with blank metadata_percent (columns collapsed)",
+			[]string{"tsnap", "myvg", "Vwi-a-tz-k", "origin2", "20.00"},
+			"origin2",
+		},
+		{
+			"no non-numeric field between attr and size — exhausted, returns empty",
+			[]string{"lv", "vg", "attr", "1.5", "2.5", "10.00"},
+			"",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := findLVOrigin(c.fields); got != c.want {
+				t.Errorf("findLVOrigin(%v) = %q, want %q", c.fields, got, c.want)
+			}
+		})
+	}
+}

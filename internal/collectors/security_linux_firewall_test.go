@@ -192,6 +192,57 @@ func TestParseFirewall_FallsThroughToUFW(t *testing.T) {
 	}
 }
 
+// TestParseFirewall_FirewalldHitReturnsImmediately guards the dispatcher's
+// first (highest-priority) branch: a running firewalld must short-circuit
+// parseFirewall — ufw/nft/iptables must never even be consulted.
+func TestParseFirewall_FirewalldHitReturnsImmediately(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("firewall-cmd", []string{"--state"}, "running\n", 0)
+		b.PutCmd("firewall-cmd", []string{"--get-default-zone"}, "public\n", 0)
+		b.PutCmd("firewall-cmd", []string{"--list-services"}, "ssh\n", 0)
+		// Deliberately no ufw/nft/iptables fixtures seeded — if the dispatcher
+		// fell through past firewalld, those unresolved lookups would panic or
+		// mis-report rather than silently succeed, making this a real guard.
+	})
+	info := &models.SecurityInfo{}
+	parseFirewall(context.Background(), info)
+	if !info.FirewallActive || info.FirewallType != "firewalld" {
+		t.Errorf("expected the dispatcher to stop at firewalld, got %+v", info)
+	}
+}
+
+// TestParseFirewall_FallsThroughToNFTables guards the third dispatcher branch:
+// firewalld and ufw both absent, but nftables has a live non-empty ruleset.
+func TestParseFirewall_FallsThroughToNFTables(t *testing.T) {
+	rec := &recordingFWSource{runOut: realNFTRuleset}
+	defer SetSource(SetSource(rec))
+
+	info := &models.SecurityInfo{}
+	parseFirewall(context.Background(), info)
+	if !info.FirewallActive || info.FirewallType != "nftables" {
+		t.Errorf("expected the dispatcher to fall through to nftables, got %+v", info)
+	}
+}
+
+// TestParseFirewall_FallsThroughToIPTables guards the fourth (last non-empty)
+// dispatcher branch: firewalld, ufw, and nftables all absent, but a legacy
+// iptables ruleset with rules is present.
+func TestParseFirewall_FallsThroughToIPTables(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+		b.PutCmdNotFound("firewall-cmd", []string{"--state"})
+		b.PutCmdNotFound("ufw", []string{"status"})
+		b.PutGlob("/etc/nftables.conf", nil)
+		b.PutGlob("/etc/nftables.d/*.nft", nil)
+		b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"},
+			"Chain INPUT (policy DROP)\nnum  target     prot opt source               destination\n1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22\n", 0)
+	})
+	info := &models.SecurityInfo{}
+	parseFirewall(context.Background(), info)
+	if !info.FirewallActive || info.FirewallType != "iptables" {
+		t.Errorf("expected the dispatcher to fall through to iptables, got %+v", info)
+	}
+}
+
 // TestParseFirewall_NoneDetected guards the terminal "no firewall" branch: all
 // four backends absent must set FirewallActive=false and SSHAllowed=true
 // (everything reachable), not leave SSHAllowed at its zero value (false),
