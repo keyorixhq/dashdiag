@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -414,9 +415,14 @@ func TestTrySnapshotFallback_DistroNotApplicable(t *testing.T) {
 }
 
 func TestTrySnapshotFallback_AffectedButRPMUnavailable(t *testing.T) {
-	// The snapshot lists the current distro as affected, but this container
-	// has no rpm binary — cvedata.QueryInstalledRPM fails, so the fallback
-	// still can't produce a verdict and must return nil rather than guess.
+	// The snapshot lists the current distro as affected, but with no rpm binary
+	// cvedata.QueryInstalledRPM fails, so the fallback still can't produce a
+	// verdict and must return nil rather than guess. QueryInstalledRPM shells out
+	// to the real rpm, so this branch is only reachable where rpm is absent — the
+	// CI runners have rpm installed, where it would instead resolve versions.
+	if _, err := exec.LookPath("rpm"); err == nil {
+		t.Skip("rpm is installed in this environment; the rpm-unavailable path is unreachable here")
+	}
 	home := isolateCVEHome(t)
 	writeGzippedSnapshot(t, home, cvedata.Snapshot{
 		CVEs: map[string]cvedata.SnapshotCVE{

@@ -55,6 +55,7 @@ func TestPVECollector_Collect_NotPVEHost(t *testing.T) {
 // sequence (pvedaemon present, os.Getuid()==0 — true under the Docker test
 // container's default root user) end to end against fixture pvesh output.
 func TestPVECollector_Collect_FullHappyPath(t *testing.T) {
+	swapGetuid(t, 0) // pvesh requires root; CI runs non-root
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/usr/bin/pvedaemon", source.FileMeta{})
 		b.PutFile("/proc/sys/kernel/osrelease", []byte("6.8.4-3-pve\n"))

@@ -38,6 +38,25 @@ func withLookPathFixture(t *testing.T, found map[string]bool, seed func(b *sourc
 	t.Cleanup(func() { SetSource(prev) })
 }
 
+// swapGeteuid/swapGetuid force the uid that the root-gated collectors observe
+// (via the geteuid/getuid seams in collector.go), so root-path tests are
+// deterministic even though CI runs the Linux jobs as a non-root user. They
+// mutate a package global, so callers must NOT use t.Parallel() (same
+// constraint as swapRunCmd/withFixtureSource).
+func swapGeteuid(t *testing.T, uid int) {
+	t.Helper()
+	old := geteuid
+	geteuid = func() int { return uid }
+	t.Cleanup(func() { geteuid = old })
+}
+
+func swapGetuid(t *testing.T, uid int) {
+	t.Helper()
+	old := getuid
+	getuid = func() int { return uid }
+	t.Cleanup(func() { getuid = old })
+}
+
 func TestIsUbuntu(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "ID=ubuntu\n", 0)

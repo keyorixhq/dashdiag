@@ -100,6 +100,7 @@ func TestRabbitMQAvailable_NotReachable(t *testing.T) {
 // `sudo -n -u rabbitmq --` branch here — mirrors the established pattern of
 // testing against genuine container properties (e.g. TestSysPing_NoPingBinary).
 func TestRabbitmqRun_AsRoot(t *testing.T) {
+	swapGeteuid(t, 0) // force the root path (sudo -u rabbitmq); CI runs non-root
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sudo", []string{"-n", "-u", "rabbitmq", "--", "rabbitmq-diagnostics", "-q", "ping"},
 			"Ping succeeded\n", 0)
@@ -144,6 +145,7 @@ func TestFirstNonEmptyLine(t *testing.T) {
 // ── parseRabbitMQAlarms ───────────────────────────────────────────────────────
 
 func TestParseRabbitMQAlarms_NoAlarms(t *testing.T) {
+	swapGeteuid(t, 0) // parseRabbitMQAlarms → rabbitmqRun takes the sudo path as root
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sudo", []string{"-n", "-u", "rabbitmq", "--", "rabbitmq-diagnostics", "-q", "alarms"},
 			"Reporting alarms...\nno alarms in effect\n", 0)
@@ -156,6 +158,7 @@ func TestParseRabbitMQAlarms_NoAlarms(t *testing.T) {
 }
 
 func TestParseRabbitMQAlarms_MemoryAlarm(t *testing.T) {
+	swapGeteuid(t, 0)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sudo", []string{"-n", "-u", "rabbitmq", "--", "rabbitmq-diagnostics", "-q", "alarms"},
 			"Reporting alarms...\n[{memory,'rabbit@node1'}]\n", 0)
@@ -171,6 +174,7 @@ func TestParseRabbitMQAlarms_MemoryAlarm(t *testing.T) {
 }
 
 func TestParseRabbitMQAlarms_DiskAlarm(t *testing.T) {
+	swapGeteuid(t, 0)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sudo", []string{"-n", "-u", "rabbitmq", "--", "rabbitmq-diagnostics", "-q", "alarms"},
 			"Reporting alarms...\n[{disk,'rabbit@node1'}]\n", 0)
@@ -232,6 +236,7 @@ func TestRabbitMQCollector_Collect_PingFails(t *testing.T) {
 }
 
 func TestRabbitMQCollector_Collect_Full(t *testing.T) {
+	swapGeteuid(t, 0) // the fixture seeds the sudo (root) diagnostics path
 	withCombinedFixture(t, map[string][]byte{
 		"lookpath/rabbitmq-diagnostics": []byte("/usr/sbin/rabbitmq-diagnostics"),
 	}, nil, func(b *source.Bundle) {

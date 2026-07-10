@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -556,6 +557,13 @@ func TestParseSysPingOutput(t *testing.T) {
 // TestDetectGatewayDarwin_NoRouteBinary's approach for an unmockable raw exec.
 func TestSysPing_NoPingBinary(t *testing.T) {
 	t.Parallel()
+	// sysPing shells out to the real `ping` (by design — see its comment), so the
+	// "no ping binary" branch can only be exercised where ping is genuinely
+	// absent. On a host that has ping (e.g. the CI runners) it would really ping
+	// 127.0.0.1 and succeed; the parsing itself is covered by parseSysPingOutput.
+	if _, err := exec.LookPath("ping"); err == nil {
+		t.Skip("ping is installed in this environment; the no-binary path is unreachable here")
+	}
 	ms, loss, ok := sysPing(context.Background(), "127.0.0.1", "")
 	if ok || ms != -1 || loss != 100 {
 		t.Errorf("sysPing() = (%v,%v,%v), want (-1,100,false) with no ping binary installed", ms, loss, ok)

@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 // `sudo -n -u rabbitmq` (peer to that user; -n so it never blocks on a password).
 // As a non-root user we run directly (works if the caller IS the rabbitmq user).
 func rabbitmqRun(ctx context.Context, cli string, args ...string) (string, error) {
-	if os.Geteuid() == 0 {
+	if geteuid() == 0 {
 		return runCmd(ctx, "sudo", append([]string{"-n", "-u", "rabbitmq", "--", cli}, args...)...)
 	}
 	return runCmd(ctx, cli, args...)

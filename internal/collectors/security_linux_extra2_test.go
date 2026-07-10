@@ -83,6 +83,7 @@ func TestParseProcNetTCP_SystemdSocketActivationResolvesWellKnownName(t *testing
 // test image) with at least one in-window denial, parseSELinuxDenials must
 // also populate the structured SELinuxAVCGroups, not just the raw count.
 func TestParseSELinuxDenials_EnforcingWithDenials_PopulatesAVCGroups(t *testing.T) {
+	swapGetuid(t, 0) // structured AVC grouping is root-gated; CI runs non-root
 	recent := time.Now().Add(-time.Minute).Unix()
 	line := fmt.Sprintf(`type=AVC msg=audit(%d.123:1): avc:  denied  { write } for  pid=1 comm="httpd" name="/x" scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:admin_home_t:s0 tclass=file permissive=0`, recent)
 	withFixtureSource(t, func(b *source.Bundle) {

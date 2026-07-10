@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -51,7 +50,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.KernelVersion = collectKernelVersion()
 
 	// Root check — pvesh requires root
-	if os.Getuid() != 0 {
+	if getuid() != 0 {
 		info.NeedsRoot = true
 		// Still collect what we can without root
 		info.Subscription = collectPVESubscriptionFile()
