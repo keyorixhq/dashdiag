@@ -79,6 +79,108 @@ func writePidFile(t *testing.T, dir, name, pid string) {
 	}
 }
 
+// A pid file with unparsable/invalid content must be treated as unreadable
+// (not-running), never crash the enumeration.
+func TestKVMCollectPVEFromDir_BadPidContent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writePidFile(t, dir, "300.pid", "not-a-number")
+
+	info := &models.KVMInfo{}
+	kvmCollectPVEFromDir(dir, info)
+
+	if len(info.VMs) != 1 {
+		t.Fatalf("expected 1 VM, got %+v", info.VMs)
+	}
+	if info.VMs[0].State == models.KVMRunning {
+		t.Errorf("unreadable pid content must not be marked running, got %+v", info.VMs[0])
+	}
+}
+
+func TestReadPVEVMPid(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(dir, "valid.pid")
+		if err := os.WriteFile(path, []byte("1234\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		pid, ok := readPVEVMPid(path)
+		if !ok || pid != 1234 {
+			t.Errorf("readPVEVMPid() = %d, %v, want 1234, true", pid, ok)
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		t.Parallel()
+		pid, ok := readPVEVMPid(filepath.Join(dir, "nope.pid"))
+		if ok || pid != 0 {
+			t.Errorf("readPVEVMPid() = %d, %v, want 0, false", pid, ok)
+		}
+	})
+
+	t.Run("non-numeric content", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(dir, "junk.pid")
+		if err := os.WriteFile(path, []byte("abc\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		pid, ok := readPVEVMPid(path)
+		if ok || pid != 0 {
+			t.Errorf("readPVEVMPid() = %d, %v, want 0, false", pid, ok)
+		}
+	})
+
+	t.Run("zero pid rejected", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(dir, "zero.pid")
+		if err := os.WriteFile(path, []byte("0\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		pid, ok := readPVEVMPid(path)
+		if ok || pid != 0 {
+			t.Errorf("readPVEVMPid() = %d, %v, want 0, false for pid<=0", pid, ok)
+		}
+	})
+}
+
+func TestPveKVMProcessAlive(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nonexistent pid", func(t *testing.T) {
+		t.Parallel()
+		if pveKVMProcessAlive(999999999) {
+			t.Error("expected false for a pid with no /proc/<pid>/status")
+		}
+	})
+
+	t.Run("live process wrong name", func(t *testing.T) {
+		t.Parallel()
+		// The running test binary is alive but its Name is not "kvm".
+		if pveKVMProcessAlive(os.Getpid()) {
+			t.Error("expected false: live process name is not kvm")
+		}
+	})
+}
+
+// TestUpdateKVMCounts_DiskIOErrorCombined pins the second independent
+// increment in updateKVMCounts: DiskIOErrors accumulates alongside whatever
+// state-based counter fires, rather than being mutually exclusive with it.
+func TestUpdateKVMCounts_DiskIOErrorCombined(t *testing.T) {
+	t.Parallel()
+	info := &models.KVMInfo{}
+	vm := &models.KVMVM{Name: "vm", State: models.KVMRunning, DiskIOError: true}
+	updateKVMCounts(info, vm)
+	if info.VMsRunning != 1 {
+		t.Errorf("VMsRunning = %d, want 1", info.VMsRunning)
+	}
+	if info.DiskIOErrors != 1 {
+		t.Errorf("DiskIOErrors = %d, want 1", info.DiskIOErrors)
+	}
+}
+
 // TestUpdateKVMCounts pins the state→counter mapping, including the false-OK
 // fixes: abnormal states (pmsuspended/in shutdown/idle/blocked) and an empty
 // state (virsh dominfo failed) must be counted, not silently treated as healthy.

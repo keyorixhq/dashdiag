@@ -117,6 +117,37 @@ func TestKVMCollectXMLDeep_HealthyVMIsClean(t *testing.T) {
 	}
 }
 
+// TestKVMCollectXMLDeep_CmdFails confirms a virsh dumpxml failure is silent —
+// no findings guessed at, no panic.
+func TestKVMCollectXMLDeep_CmdFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("virsh", []string{"dumpxml", "vm-missing"})
+	})
+
+	vm := &models.KVMVM{Name: "vm-missing"}
+	kvmCollectXMLDeep(context.Background(), vm)
+
+	if len(vm.EmulatedNICs) != 0 || len(vm.EmulatedDisks) != 0 || vm.MissingDiskPath != "" {
+		t.Errorf("expected no findings on virsh dumpxml failure, got %+v", vm)
+	}
+}
+
+// TestKVMCollectXMLDeep_UnparsableXML confirms malformed XML from virsh is
+// silently ignored rather than guessed at.
+func TestKVMCollectXMLDeep_UnparsableXML(t *testing.T) {
+	defer SetSource(SetSource(kvmXMLFakeSource{
+		xmlOut: "<domain><devices>not valid xml",
+		exists: map[string]bool{},
+	}))
+
+	vm := &models.KVMVM{Name: "vm-bad-xml"}
+	kvmCollectXMLDeep(context.Background(), vm)
+
+	if len(vm.EmulatedNICs) != 0 || len(vm.EmulatedDisks) != 0 || vm.MissingDiskPath != "" {
+		t.Errorf("expected no findings on unparsable XML, got %+v", vm)
+	}
+}
+
 // TestKVMCollectXMLDeep_NetworkDiskNotFlagged confirms a network-backed disk
 // (rbd/nbd — no Source.File attribute) is never guessed at as "missing".
 func TestKVMCollectXMLDeep_NetworkDiskNotFlagged(t *testing.T) {
