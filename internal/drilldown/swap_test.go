@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 )
@@ -150,6 +151,9 @@ func TestTopProcessesBySwapLinux_TruncatesToN(t *testing.T) {
 // asserts "no panic, no error, plausible shape" — exact values are already
 // covered by *LinuxAt above.
 func TestTopProcessesBySwap_RealProc(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("exercises the Linux /proc-backed path; the macOS dispatch is covered by its own mocked *Mac test")
+	}
 	got, err := TopProcessesBySwap(context.Background(), 5)
 	if err != nil {
 		t.Fatalf("TopProcessesBySwap: %v", err)

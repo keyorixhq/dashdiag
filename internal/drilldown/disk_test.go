@@ -98,10 +98,15 @@ func TestLargestDirs_HappyPath(t *testing.T) {
 	}
 }
 
-// TestLargestDirs_EmptyMountDefaultsToRoot guards the mount=="" -> "/"
-// default branch.
+// TestLargestDirs_EmptyMountDefaultsToRoot guards the mount=="" -> "/" default
+// branch. runCmd is faked so no real `du` runs: a real `du -sh` on every child
+// of "/" would walk the entire host filesystem and time out on a full CI runner
+// (macOS /System, ubuntu /usr+/opt) — and the real scan isn't what this test is
+// about. No t.Parallel(): swapRunCmd requires the test be serial.
 func TestLargestDirs_EmptyMountDefaultsToRoot(t *testing.T) {
-	t.Parallel()
+	swapRunCmd(t, func(_ context.Context, _ string, args ...string) (string, error) {
+		return "1.0K\t" + args[len(args)-1] + "\n", nil
+	})
 	got, err := LargestDirs(context.Background(), "")
 	if err != nil {
 		t.Fatalf("LargestDirs: %v", err)

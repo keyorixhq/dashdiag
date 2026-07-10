@@ -3,6 +3,7 @@ package drilldown
 import (
 	"context"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -28,6 +29,9 @@ func TestReadProcIONonexistentPidIsNotPermissionError(t *testing.T) {
 // deterministic here. Exact values are already covered by *LinuxAt in
 // io_extra_test.go.
 func TestTopProcessesByIO_RealProc(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("exercises the Linux /proc-backed path; macOS has no per-process I/O source (kv_table note instead)")
+	}
 	got, err := TopProcessesByIO(context.Background(), 5)
 	if err != nil {
 		t.Fatalf("TopProcessesByIO: %v", err)

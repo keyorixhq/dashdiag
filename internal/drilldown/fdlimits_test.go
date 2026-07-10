@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 )
@@ -185,6 +186,9 @@ func TestFDSoftLimit_MalformedOpenFilesLineSkipped(t *testing.T) {
 // TestTopProcessesByCPU_RealProc in cpu_test.go for why this is safe and
 // deterministic here. Exact values are already covered by *LinuxAt above.
 func TestTopProcessesByFDPercent_RealProc(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("exercises the Linux /proc-backed path; the macOS dispatch (open file count) is covered by its own mocked *Mac test")
+	}
 	got, err := TopProcessesByFDPercent(context.Background(), 5)
 	if err != nil {
 		t.Fatalf("TopProcessesByFDPercent: %v", err)
