@@ -2,6 +2,16 @@ package output
 
 import "testing"
 
+// withTTY forces isaTTY() to return the given value for the duration of fn,
+// then restores the original seam.
+func withTTY(t *testing.T, tty bool, fn func()) {
+	t.Helper()
+	old := isaTTY
+	isaTTY = func() bool { return tty }
+	defer func() { isaTTY = old }()
+	fn()
+}
+
 func TestDetectMode(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -36,6 +46,24 @@ func TestDetectModeNoTTY(t *testing.T) {
 	if got != ModePlain && got != ModeHuman {
 		t.Errorf("DetectMode(false, false, \"\") = %v, want ModePlain or ModeHuman", got)
 	}
+}
+
+func TestDetectMode_TTYNoFlags(t *testing.T) {
+	withTTY(t, true, func() {
+		got := DetectMode(false, false, "")
+		if got != ModeHuman {
+			t.Errorf("DetectMode(false, false, \"\") with TTY = %v, want ModeHuman", got)
+		}
+	})
+}
+
+func TestDetectMode_NoTTYForcesPlain(t *testing.T) {
+	withTTY(t, false, func() {
+		got := DetectMode(false, false, "")
+		if got != ModePlain {
+			t.Errorf("DetectMode(false, false, \"\") without TTY = %v, want ModePlain", got)
+		}
+	})
 }
 
 func TestStatusIcon(t *testing.T) {

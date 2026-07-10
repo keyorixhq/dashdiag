@@ -81,7 +81,10 @@ func StatusIcon(status string, mode OutputMode) string {
 	}
 }
 
-func isaTTY() bool {
+// isaTTY is a seam so tests can simulate a TTY session without depending on
+// the real stderr of the test process (which is never a character device
+// under go test).
+var isaTTY = func() bool {
 	fi, err := os.Stderr.Stat()
 	if err != nil {
 		return false
