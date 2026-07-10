@@ -815,7 +815,7 @@ is what's unverified.
 
 ---
 
-## O. "Correct reading, wrong context" false-CRITs on Proxmox hosts — ✅ DONE (3 fixed, fix/proxmox-context-falsecrits-O); O.4 PVE-storage-INACTIVE candidate open
+## O. "Correct reading, wrong context" false-CRITs on Proxmox hosts — ✅ DONE (4 fixed, fix/proxmox-context-falsecrits-O; O.4 BUG-099, 2026-07-10)
 
 A coherent new bug *class*, distinct from §L/§M. There the bug was a failed or
 garbage *measurement* rendered as a failed subject. Here the measurement is
@@ -892,14 +892,17 @@ hardware + real operator surfaces what synthetic fixtures cannot.)
 | O.3 Logs active vs archived `.journal~` corruption severity | Logs collector + heuristic | ✅ DONE — the collector already verifies *only* archived (`*.journal~`) segments (active ones race with writers, systemd#35916), so a hit is always a historical artifact → downgraded CRIT→WARN with honest wording. Unit-tested. |
 | Replay-based regression for all three (offline, from bundle) | replay test | PARTIAL — O.1 validated end-to-end against the EPYC bundle. O.2/O.3 can't be re-validated by replay of this bundle: it was captured on v1.4.0, and the v1.4.0→v1.5.1 collector-code skew means the journal-verify + failed-unit signals are no longer reconstructed in a v1.5.1 replay (base v1.5.1 replay already shows them clean). Covered by unit tests instead; would re-fire on a *live* v1.5.1 run. |
 
-**New finding while validating (NOT in scope here, needs owner confirmation → candidate O.4):**
-replaying the EPYC bundle with **base v1.5.1** surfaces **2 `PVE storage … INACTIVE` CRITs**
-(`VM03CR (dir)`, `Storage (dir)`) that were **absent in the v1.4.0 capture** and never
-mentioned by the host owner — i.e. a *new* "correct-reading / wrong-context" false-CRIT
-candidate introduced between v1.4.0 and v1.5.1, same class as O.1–O.3. A `dir`-type PVE
-storage can be intentionally disabled or on an optional mount; whether INACTIVE is a real
-fault is not derivable from the data alone (only the owner knows). Do not blind-fix — ask
-the owner whether those two storages should be active before deciding CRIT vs INFO/skip.
+**O.4 — ✅ DONE (2026-07-10, BUG-099)** — turned out not to need the owner after all: replaying
+the EPYC bundle with base v1.5.1 surfaced **2 `PVE storage … INACTIVE` CRITs** (`VM03CR (dir)`,
+`Storage (dir)`) absent from the v1.4.0 capture, same "correct-reading/wrong-context" class as
+O.1–O.3. Reproduced live on pve01 instead of waiting on the owner: `pvesh get
+/nodes/localhost/storage` already returns an `enabled` field alongside `active` in the same
+response dsd was already fetching — an admin-disabled or optional/removable mount reads
+`active:0, enabled:0`, a genuinely broken one reads `active:0, enabled:1`. dsd was discarding
+`enabled` and CRITing on any `!active`. Fix: thread `enabled` through the model/collector,
+CRIT only when `enabled && !active`, INFO "disabled — skipping" otherwise. Verified live with
+two throwaway pve01 test storages (one `--disable 1`, one `--is_mountpoint yes` unmounted):
+disabled case dropped CRIT→INFO, genuinely-broken case still correctly CRIT'd.
 
 Also confirmed clean this capture (good behaviour, not bugs): **no false GPU** —
 the host's `card0` has `device/vendor: not_exist` (virtual console DRM, no

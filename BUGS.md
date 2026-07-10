@@ -1610,6 +1610,25 @@ honest (K8s WARN→INFO non-root).
   native arm64) plus a clean fuzz burst.
 **Commit:** PR #727
 
+### BUG-099 — PVE storage INACTIVE CRIT couldn't distinguish admin-disabled from genuinely broken
+**Found:** live on pve01 (own homelab Proxmox host), closing TRIAGE.md §O.4 — a candidate first
+  spotted replaying a third-party EPYC capture (v1.4.0→v1.5.1 diff), left open because only the
+  original host's owner could say whether the flagged `dir` storages were intentionally disabled.
+  Reproduced directly instead: added two throwaway `dir` storages on pve01 — one explicitly
+  `--disable 1`, one `--is_mountpoint yes` pointing at a real but unmounted directory.
+**Root cause:** `pvesh get /nodes/localhost/storage` already returns both `active` and `enabled`
+  per storage in the same response `collectPVEStorages` was already fetching. The collector
+  parsed only `active`; `models.PVEStorage` had no `Enabled` field. `checkPVEStorage` CRIT'd on
+  any `!Active`, so an admin-disabled or optional/removable mount (`active:0, enabled:0`) fired
+  the identical CRIT as a storage that's supposed to be up and isn't (`active:0, enabled:1`).
+  Confirmed live: both test storages showed the exact same `CRIT: storage X (dir) is INACTIVE`.
+**Fix:** thread `enabled` through the model and collector (no new API call — already in the
+  existing `pvesh` response). `checkPVEStorage` now reports INFO "disabled — skipping" when
+  `!Enabled`, and only CRITs when `Enabled && !Active`. Verified live on pve01: the disabled
+  storage dropped to INFO, the unmounted-but-enabled one still correctly CRIT'd, exit code
+  stayed 2 (driven by the real fault only).
+**Commit:** (this PR)
+
 ### BUG-098 — cold dnf metadata cache → CVE/Packages scan swallows a real Critical CVE
 **Found:** live, first-ever dsd pass on Oracle Linux 9.7 on a free-tier OCI Ampere A1 instance
   (`aarch64`, UEK 6.12). A cold-cache `dsd health --packages --cve` reported

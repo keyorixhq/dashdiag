@@ -199,6 +199,15 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 	}
 	for _, s := range p.Storages {
 		if !s.Active {
+			if !s.Enabled {
+				// Intentionally disabled in storage.cfg (admin-disabled or an
+				// optional/removable mount) — not a fault. §O.4.
+				out = append(out, insight("INFO", "PVE",
+					fmt.Sprintf("storage %s (%s) is disabled — skipping", s.Name, s.Type),
+					nil,
+				))
+				continue
+			}
 			out = append(out, insight("CRIT", "PVE",
 				fmt.Sprintf("storage %s (%s) is INACTIVE", s.Name, s.Type),
 				[]string{

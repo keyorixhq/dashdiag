@@ -15,6 +15,10 @@ type PVEStorage struct {
 	UsedGB  float64 `json:"used_gb"`
 	TotalGB float64 `json:"total_gb"`
 	Active  bool    `json:"active"`
+	// Enabled reflects the storage.cfg `disable` flag (inverted) — false means
+	// the storage was intentionally disabled by the admin, distinct from an
+	// enabled storage that failed to activate.
+	Enabled bool `json:"enabled"`
 }
 
 // PVEBackupTask represents a recent backup task result.
