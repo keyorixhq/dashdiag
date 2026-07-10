@@ -162,7 +162,10 @@ func parseProcStatCores(r io.Reader) ([]coreSnapshot, error) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "cpu") || line[:4] == "cpu " {
+		if !strings.HasPrefix(line, "cpu") {
+			continue
+		}
+		if len(line) >= 4 && line[:4] == "cpu " {
 			continue // skip aggregate "cpu" line, keep cpu0..cpuN
 		}
 		fields := strings.Fields(line)
