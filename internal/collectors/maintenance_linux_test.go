@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"strings"
 	"syscall"
@@ -167,6 +168,7 @@ func TestKernelNVRAToUname(t *testing.T) {
 		"kernel-core-5.14.0-687.17.1.el9_8.x86_64":    "5.14.0-687.17.1.el9_8.x86_64",
 		"kernel-5.14.0-687.17.1.el9_8.x86_64":         "5.14.0-687.17.1.el9_8.x86_64",
 		"kernel-uek-core-6.12.0-1.el10uek.x86_64":     "6.12.0-1.el10uek.x86_64",
+		"5.14.0-687.17.1.el9_8.x86_64":                "5.14.0-687.17.1.el9_8.x86_64", // no package prefix -> unchanged
 	}
 	for in, want := range cases {
 		if got := kernelNVRAToUname(in); got != want {
@@ -360,6 +362,50 @@ func TestKernelPatchCollector_Collect_Debian(t *testing.T) {
 	}
 }
 
+// TestKernelPatchCollector_Collect_RPMSkipsUninstalledFallsBackToSUSE covers
+// two branches together: the rpm --last loop skipping "not installed"/"package "
+// lines (they never set LatestInstalled), and the zypper SUSE fallback firing
+// once no rpm line was usable.
+func TestKernelPatchCollector_Collect_RPMSkipsUninstalledFallsBackToSUSE(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"rpm": true, "zypper": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.14.0-default\n"))
+		b.PutCmd("rpm", []string{"-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel"},
+			"package kernel-uek-core is not installed\nkernel-uek is not installed\n", 1)
+		b.PutCmd("zypper", []string{"needs-rebooting"}, "", 102)
+	})
+	c := NewKernelPatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelPatchInfo)
+	if info.LatestInstalled != "" {
+		t.Errorf("expected the not-installed/package lines to be skipped, got LatestInstalled=%q", info.LatestInstalled)
+	}
+	if !info.Available || !info.RebootNeeded {
+		t.Errorf("expected the zypper SUSE fallback to report Available+RebootNeeded, got %+v", info)
+	}
+}
+
+// TestKernelPatchCollector_Collect_NoRecognizedSignal covers the final
+// fall-through: rpm present but unusable, no zypper, no Debian reboot-required
+// signal — Available stays false rather than a misleading "Kernel OK".
+func TestKernelPatchCollector_Collect_NoRecognizedSignal(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"rpm": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.14.0-default\n"))
+		b.PutCmd("rpm", []string{"-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel"}, "", 1)
+	})
+	c := NewKernelPatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelPatchInfo)
+	if info.Available {
+		t.Errorf("expected Available=false with no recognized kernel-package signal, got %+v", info)
+	}
+}
+
 func TestKspliceCollector_Collect_Patched(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"uptrack-uname": true}, func(b *source.Bundle) {
 		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.4.17-2136.el8uek.x86_64\n"))
@@ -394,6 +440,26 @@ func TestKspliceCollector_Collect_PendingUpdates(t *testing.T) {
 	}
 	if info.PendingUpdates != 2 {
 		t.Errorf("expected 2 pending updates, got %d", info.PendingUpdates)
+	}
+}
+
+// TestKspliceCollector_Collect_UpgradeCheckUnverified covers the "uptrack-upgrade
+// -n fails with empty stdout" branch: CheckUnverified must be set rather than
+// silently reporting PendingUpdates=0 (a false "up to date").
+func TestKspliceCollector_Collect_UpgradeCheckUnverified(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"uptrack-uname": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.4.17-2136.el8uek.x86_64\n"))
+		b.PutCmd("uptrack-uname", []string{"-r"}, "5.4.17-2136.el8uek.x86_64\n", 0)
+		b.PutCmd("uptrack-upgrade", []string{"-n"}, "", 1)
+	})
+	c := NewKspliceCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KspliceInfo)
+	if !info.CheckUnverified {
+		t.Error("expected CheckUnverified=true when uptrack-upgrade -n fails with empty output")
 	}
 }
 
@@ -439,6 +505,62 @@ func TestServiceRestartCollector_Collect_Clean(t *testing.T) {
 	}
 	if raw.(*models.ServiceRestartInfo).StaleCount != 0 {
 		t.Error("expected no stale processes when no library shows (deleted)")
+	}
+}
+
+// fakeLookPathPermDeniedSource combines lookPath resolution (as
+// fakeLookPathSource does) with a ReadFile permission-denied override for one
+// path — needed because ServiceRestartCollector both gates on a package
+// manager AND reads /proc/<pid>/maps per process.
+type fakeLookPathPermDeniedSource struct {
+	*source.Replay
+	found      map[string]bool
+	deniedPath string
+}
+
+func (f fakeLookPathPermDeniedSource) Cached(key string, _ func() ([]byte, error)) ([]byte, error) {
+	name := strings.TrimPrefix(key, "lookpath/")
+	if f.found[name] {
+		return []byte("/usr/bin/" + name), nil
+	}
+	return nil, errNotFoundCVE
+}
+
+func (f fakeLookPathPermDeniedSource) ReadFile(path string) ([]byte, error) {
+	if path == f.deniedPath {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrPermission}
+	}
+	return f.Replay.ReadFile(path)
+}
+
+// TestServiceRestartCollector_Collect_PermissionDenied covers the "readFile(mapPath)
+// fails with EACCES" branch: another user's /proc/<pid>/maps is unreadable
+// non-root, so the scan is partial (NeedsRoot) rather than a clean OK, and the
+// denied pid is skipped (not counted as stale).
+func TestServiceRestartCollector_Collect_PermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("test assumes non-root; running as root in this environment")
+	}
+	b := source.NewBundle()
+	b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps", "/proc/456/maps"})
+	b.PutFile("/proc/456/maps", []byte("7f0000000000-7f0000010000 r-xp 00000000 08:01 123 /lib/libssl.so.3\n"))
+	prev := SetSource(fakeLookPathPermDeniedSource{
+		Replay:     source.NewReplay(b),
+		found:      map[string]bool{"dpkg": true},
+		deniedPath: "/proc/123/maps",
+	})
+	t.Cleanup(func() { SetSource(prev) })
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.ServiceRestartInfo)
+	if info.StaleCount != 0 {
+		t.Errorf("expected the permission-denied pid to be skipped, got StaleCount=%d", info.StaleCount)
+	}
+	if !info.NeedsRoot {
+		t.Error("expected NeedsRoot=true when another pid's maps is permission-denied while running non-root")
 	}
 }
 

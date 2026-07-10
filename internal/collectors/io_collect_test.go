@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +120,113 @@ func TestIOCollector_Collect_HappyPath(t *testing.T) {
 		if d.ReadMBps != 0 || d.WriteMBps != 0 || d.UtilPct != 0 {
 			t.Errorf("device %s: expected all-zero deltas from identical samples, got %+v", d.Name, d)
 		}
+	}
+}
+
+// secondReadDiskstatsSource serves different /proc/diskstats content (or an
+// error) on the 2nd ReadFile call than the 1st, letting a test exercise
+// IOCollector.Collect's two-sample logic — the 2nd-open/2nd-parse error paths
+// and the "device appeared only in 2nd sample" hotplug skip — none of which a
+// static Bundle fixture can reach, since both opens would see identical
+// content. All other Source methods delegate to an embedded Replay over an
+// empty Bundle.
+type secondReadDiskstatsSource struct {
+	source.Source
+	calls      int
+	first      string
+	second     string
+	secondErr  error
+	sysfsBytes []byte
+}
+
+func (s *secondReadDiskstatsSource) ReadFile(path string) ([]byte, error) {
+	if path == "/sys/block/sda/queue/rotational" {
+		return s.sysfsBytes, nil
+	}
+	if path != "/proc/diskstats" {
+		return nil, fmt.Errorf("unexpected path in test fake: %s", path)
+	}
+	s.calls++
+	if s.calls == 1 {
+		return []byte(s.first), nil
+	}
+	if s.secondErr != nil {
+		return nil, s.secondErr
+	}
+	return []byte(s.second), nil
+}
+
+// TestIOCollector_Collect_SecondOpenError guards the 2nd-openFile failure
+// path: the diskstats file becomes unreadable between the two samples (e.g.
+// a container's /proc unmounted mid-collect) and Collect must return a
+// wrapped error rather than silently reporting only the first sample.
+func TestIOCollector_Collect_SecondOpenError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real 1s IO sampling gap in short mode")
+	}
+	fake := &secondReadDiskstatsSource{
+		Source:    source.NewReplay(source.NewBundle()),
+		first:     "   8       0 sda 71816 2896 3467354 44032 37952 7292 819728 83776 0 76256 127808\n",
+		secondErr: fmt.Errorf("read error: device gone"),
+	}
+	prev := SetSource(fake)
+	defer SetSource(prev)
+
+	c := NewIOCollector()
+	if _, err := c.Collect(context.Background()); err == nil {
+		t.Fatal("expected an error when the 2nd diskstats read fails")
+	}
+}
+
+// TestIOCollector_Collect_SecondParseError guards the 2nd-parseDiskstats
+// failure path: a scan-token that exceeds bufio's default size on the 2nd
+// read (garbled/corrupted content mid-collect) must surface as an error.
+func TestIOCollector_Collect_SecondParseError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real 1s IO sampling gap in short mode")
+	}
+	fake := &secondReadDiskstatsSource{
+		Source: source.NewReplay(source.NewBundle()),
+		first:  "   8       0 sda 71816 2896 3467354 44032 37952 7292 819728 83776 0 76256 127808\n",
+		second: strings.Repeat("x", 128*1024), // no newline — exceeds bufio's default token limit
+	}
+	prev := SetSource(fake)
+	defer SetSource(prev)
+
+	c := NewIOCollector()
+	if _, err := c.Collect(context.Background()); err == nil {
+		t.Fatal("expected an error when the 2nd diskstats parse fails")
+	}
+}
+
+// TestIOCollector_Collect_HotplugSkipsDeviceOnlyInSecondSample guards the
+// !seen skip: a device present only in the 2nd sample (hotplugged/renamed
+// within the 1s window) must be dropped, not scored against a zero-value
+// "before" (which would falsely balloon it to 100% utilization).
+func TestIOCollector_Collect_HotplugSkipsDeviceOnlyInSecondSample(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real 1s IO sampling gap in short mode")
+	}
+	fake := &secondReadDiskstatsSource{
+		Source:     source.NewReplay(source.NewBundle()),
+		first:      "   8       0 sda 71816 2896 3467354 44032 37952 7292 819728 83776 0 76256 127808\n",
+		second:     "   8       0 sda 71816 2896 3467354 44032 37952 7292 819728 83776 0 76256 127808\n" + "   259     0 nvme0n1 1000 200 50000 300 800 100 40000 200 0 500 700\n",
+		sysfsBytes: []byte("0\n"),
+	}
+	prev := SetSource(fake)
+	defer SetSource(prev)
+
+	c := NewIOCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info, ok := raw.(*models.IOInfo)
+	if !ok {
+		t.Fatalf("unexpected type %T", raw)
+	}
+	if len(info.Devices) != 1 || info.Devices[0].Name != "sda" {
+		t.Errorf("Devices = %+v, want exactly [sda] (nvme0n1 only in 2nd sample must be skipped)", info.Devices)
 	}
 }
 

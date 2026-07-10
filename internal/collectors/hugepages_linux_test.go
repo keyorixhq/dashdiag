@@ -140,6 +140,32 @@ func TestHugePagesCollector_Collect_THPAbsent(t *testing.T) {
 	}
 }
 
+// TestParseHugePagesMeminfo_SkipBranches covers the line-skip branches
+// directly: a field with too few tokens must be ignored, and a non-numeric
+// value must be skipped rather than propagating a parse error, while valid
+// lines are still parsed correctly around them.
+func TestParseHugePagesMeminfo_SkipBranches(t *testing.T) {
+	t.Parallel()
+	content := "HugePages_Total: 64\n" +
+		"ShortLineNoValue\n" + // fewer than 2 fields — must be skipped
+		"HugePages_Free: notanumber\n" + // non-numeric value — must be skipped
+		"HugePages_Free: 10\n" +
+		"Hugepagesize: 2048 kB\n"
+	got := parseHugePagesMeminfo(content)
+	if got.Configured != 64 {
+		t.Errorf("Configured = %d, want 64", got.Configured)
+	}
+	if got.Free != 10 {
+		t.Errorf("Free = %d, want 10 (garbled earlier value must be skipped, not fatal)", got.Free)
+	}
+	if got.PageSizeKB != 2048 {
+		t.Errorf("PageSizeKB = %d, want 2048", got.PageSizeKB)
+	}
+	if got.Used != 54 {
+		t.Errorf("Used = %d, want 54", got.Used)
+	}
+}
+
 func TestIsHugePagesConfigured(t *testing.T) {
 	t.Run("configured", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {

@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"testing"
 	"time"
 
@@ -132,6 +133,22 @@ func TestEnaRead(t *testing.T) {
 	}
 }
 
+// TestEnaRead_EthtoolFails covers the runCmd error branch — an interface whose
+// ethtool -S invocation fails must be skipped, not surfaced as an empty-but-OK
+// reading.
+func TestEnaRead_EthtoolFails(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmdNotFound("ethtool", []string{"-S", "eth0"})
+	})
+	got := enaRead(context.Background())
+	if len(got) != 0 {
+		t.Errorf("enaRead() = %v, want empty map when ethtool fails", got)
+	}
+}
+
 func TestEnaAnyNonzero(t *testing.T) {
 	t.Parallel()
 	if enaAnyNonzero(map[string]map[string]uint64{"eth0": {"bw_in": 0}}) {
@@ -238,6 +255,33 @@ func TestEbsRead_UnparseableFlagsFailed(t *testing.T) {
 	}
 }
 
+// TestEbsRead_NvmeGetLogFails covers the runCmd error branch. This sandbox
+// runs as non-root (os.Geteuid() != 0), so the failure is attributed to
+// needsRoot rather than a generic failure — mirroring the real-world "can't
+// read the vendor log page without root" case, which must report "couldn't
+// measure", never a silent empty-but-OK reading.
+func TestEbsRead_NvmeGetLogFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/block", []string{"nvme0n1"})
+		b.PutFile("/sys/block/nvme0n1/device/model", []byte("Amazon Elastic Block Store\n"))
+		b.PutCmdNotFound("nvme", []string{"get-log", "/dev/nvme0n1", "--log-id=0xd0", "--log-len=4096", "--raw-binary"})
+	})
+	raw, meta := ebsRead(context.Background())
+	if len(raw) != 0 {
+		t.Errorf("raw = %v, want empty", raw)
+	}
+	if !meta.attempted {
+		t.Error("expected attempted=true")
+	}
+	if os.Geteuid() != 0 {
+		if !meta.needsRoot || meta.failed {
+			t.Errorf("meta = %+v, want needsRoot=true failed=false (non-root sandbox)", meta)
+		}
+	} else if !meta.failed || meta.needsRoot {
+		t.Errorf("meta = %+v, want failed=true needsRoot=false (root sandbox)", meta)
+	}
+}
+
 func TestEbsAnyNonzero(t *testing.T) {
 	t.Parallel()
 	if ebsAnyNonzero(map[string]ebsRaw{"a": {volIOPS: 0, volTP: 0, instIOPS: 0, instTP: 0}}) {
@@ -268,6 +312,19 @@ func TestEbsAssemble(t *testing.T) {
 	}
 	if got[0].ActiveVolumeIOPSUs != 1 {
 		t.Errorf("nvme0n1.ActiveVolumeIOPSUs = %d, want 1", got[0].ActiveVolumeIOPSUs)
+	}
+}
+
+// TestSortEBS_MultiSwapCascade drives sortEBS directly with a fully
+// reverse-sorted slice so the inner insertion-sort loop swaps more than once
+// per outer iteration (j walks past 0), which the map-iteration-order-dependent
+// coverage via ebsAssemble does not reliably exercise.
+func TestSortEBS_MultiSwapCascade(t *testing.T) {
+	t.Parallel()
+	s := []models.EBSStats{{Device: "c"}, {Device: "b"}, {Device: "a"}}
+	sortEBS(s)
+	if s[0].Device != "a" || s[1].Device != "b" || s[2].Device != "c" {
+		t.Errorf("sortEBS() = %+v, want [a b c]", s)
 	}
 }
 

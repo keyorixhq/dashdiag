@@ -51,6 +51,8 @@ func TestParseLoadAvg(t *testing.T) {
 		{"empty", "", 0, 0, 0, true},
 		{"two fields only", "1.0 2.0", 0, 0, 0, true},
 		{"non-numeric", "a b c 1/2 3", 0, 0, 0, true},
+		{"load5 non-numeric", "0.52 b 0.32 3/412 8932", 0, 0, 0, true},
+		{"load15 non-numeric", "0.52 0.43 c 3/412 8932", 0, 0, 0, true},
 	}
 
 	for _, tc := range cases {

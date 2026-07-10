@@ -186,6 +186,45 @@ func TestCollectContainerLogSizes_UnknownContainerFallsBackToIDPrefix(t *testing
 	}
 }
 
+// TestCollectContainerLogSizes_SkipsNonDirEntries covers the !e.IsDir() branch:
+// a stray non-directory file under /var/lib/docker/containers (e.g. a lock
+// or metadata file dockerd left behind) must be skipped, not treated as a
+// container ID.
+func TestCollectContainerLogSizes_SkipsNonDirEntries(t *testing.T) {
+	const longID = "1234567890ab1234567890ab1234567890ab1234567890ab1234567890abcd"
+	b := source.NewBundle()
+	// "somefile" is listed but never seeded as its own directory, so
+	// probeIsDir("/var/lib/docker/containers/somefile") reports false.
+	b.PutDir("/var/lib/docker/containers", []string{"somefile", longID})
+	b.PutDir("/var/lib/docker/containers/"+longID, []string{longID + "-json.log"})
+	b.PutStat("/var/lib/docker/containers/"+longID+"/"+longID+"-json.log",
+		source.FileMeta{Size: 1024 * 1024})
+	defer SetSource(SetSource(source.NewReplay(b)))
+
+	info := &models.DockerInfo{Containers: []models.ContainerInfo{{ID: longID[:12], Name: "web"}}}
+	logs := collectContainerLogSizes(info)
+	if len(logs) != 1 || logs[0].Name != "web" {
+		t.Errorf("logs = %+v, want exactly [{web ...}] (non-dir entry must be skipped)", logs)
+	}
+}
+
+// TestCollectContainerLogSizes_MissingLogFile covers the statFile error
+// branch: a container directory whose -json.log file doesn't exist (log
+// rotated away, or the driver isn't json-file) must be silently skipped
+// rather than erroring the whole scan.
+func TestCollectContainerLogSizes_MissingLogFile(t *testing.T) {
+	const longID = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678"
+	b := source.NewBundle()
+	b.PutDir("/var/lib/docker/containers", []string{longID})
+	b.PutDir("/var/lib/docker/containers/"+longID, []string{}) // no -json.log seeded
+	defer SetSource(SetSource(source.NewReplay(b)))
+
+	info := &models.DockerInfo{Containers: []models.ContainerInfo{{ID: longID[:12], Name: "web"}}}
+	if logs := collectContainerLogSizes(info); logs != nil {
+		t.Errorf("logs = %+v, want nil when the log file doesn't exist", logs)
+	}
+}
+
 // TestCollectContainerLogSizes_NoContainersDir confirms a missing/unreadable
 // containers directory yields nil, not an error or panic.
 func TestCollectContainerLogSizes_NoContainersDir(t *testing.T) {

@@ -33,6 +33,9 @@ func TestExtractParenthesized(t *testing.T) {
 	if got := extractParenthesized("no parens here"); got != "" {
 		t.Errorf("extractParenthesized without parens = %q, want empty", got)
 	}
+	if got := extractParenthesized("Out of memory: Kill process 1234 (nginx unterminated"); got != "" {
+		t.Errorf("extractParenthesized with unterminated paren = %q, want empty", got)
+	}
 }
 
 func TestExtractBracketProc(t *testing.T) {

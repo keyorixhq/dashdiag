@@ -356,6 +356,30 @@ func TestSystemTotalTicks_FileMissing(t *testing.T) {
 	}
 }
 
+// TestSystemTotalTicks_SkipsNonCPULines covers the continue branch: a leading
+// line that doesn't start with "cpu " (e.g. a stray comment/blank line) must
+// be skipped, not mistaken for the aggregate line.
+func TestSystemTotalTicks_SkipsNonCPULines(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/stat", []byte("intr 12345 0 0\ncpu  1000 0 500 8500 0 0 0 0\ncpu0 500 0 250 4250 0 0 0 0\n"))
+	})
+	if got := systemTotalTicks(); got != 10000 {
+		t.Errorf("systemTotalTicks() = %d, want 10000", got)
+	}
+}
+
+// TestSystemTotalTicks_NoCPULine covers the fallback return 0 when the file
+// is readable but contains no "cpu " aggregate line at all (malformed/
+// truncated capture).
+func TestSystemTotalTicks_NoCPULine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/stat", []byte("intr 12345 0 0\nctxt 98765\n"))
+	})
+	if got := systemTotalTicks(); got != 0 {
+		t.Errorf("systemTotalTicks() = %d, want 0 (no cpu line present)", got)
+	}
+}
+
 // ── sampleTopCPUProcs ─────────────────────────────────────────────────────────
 
 func TestSampleTopCPUProcs_CtxCancelled(t *testing.T) {

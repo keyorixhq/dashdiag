@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,6 +266,48 @@ func TestDiskCollector_Collect_MountsUnreadable(t *testing.T) {
 	c := NewDiskCollector(platform.ContainerContext{})
 	if _, err := c.Collect(context.Background()); err == nil {
 		t.Error("Collect() error = nil, want an error when /proc/mounts is unreadable")
+	}
+}
+
+// TestDiskCollector_Collect_SkipsProcSysPrefixedMounts covers the mountpoint-
+// prefix skip (as opposed to the fsType-based skip already covered by
+// TestDiskCollector_Collect_FiltersAndComputes): an ext4-typed bind mount
+// under /sys/ or /proc/ must still be dropped, since its fsType alone
+// wouldn't trigger skipFSTypes.
+func TestDiskCollector_Collect_SkipsProcSysPrefixedMounts(t *testing.T) {
+	withStatfsFixture(t, map[string]source.StatfsInfo{
+		"/": {Bsize: 4096, Blocks: 100, Bfree: 50, Bavail: 50},
+	}, func(b *source.Bundle) {
+		b.PutFile("/proc/mounts",
+			[]byte("/dev/loop0 /sys/fs/weird ext4 rw 0 0\n"+
+				"/dev/loop1 /proc/weird ext4 rw 0 0\n"+
+				"/dev/sda1 / ext4 rw,relatime 0 0\n"))
+	})
+
+	c := NewDiskCollector(platform.ContainerContext{InContainer: true})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.DiskInfo)
+	if len(info.Filesystems) != 1 || info.Filesystems[0].Mount != "/" {
+		t.Errorf("Filesystems = %+v, want exactly [/] (sys/proc-prefixed ext4 mounts must be skipped)", info.Filesystems)
+	}
+}
+
+// TestDiskCollector_Collect_MountsTooLongLine guards the readMounts scanner
+// error path (bufio.ErrTooLong): a single mounts "line" exceeding the default
+// 64KB scan-token size must surface as a "parsing mounts" error, not a
+// silently-truncated or empty DiskInfo.
+func TestDiskCollector_Collect_MountsTooLongLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		huge := strings.Repeat("x", 128*1024) // no newline — exceeds bufio's default token limit
+		b.PutFile("/proc/mounts", []byte(huge))
+	})
+
+	c := NewDiskCollector(platform.ContainerContext{})
+	if _, err := c.Collect(context.Background()); err == nil {
+		t.Error("Collect() error = nil, want a parsing-mounts error for an over-long line")
 	}
 }
 

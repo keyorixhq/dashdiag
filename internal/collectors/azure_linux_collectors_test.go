@@ -211,6 +211,29 @@ func TestAzureTimeSyncConfigured_NotPTP(t *testing.T) {
 	}
 }
 
+// TestLowerInterfaces_ReadDirError covers the readDirEntries error branch — an
+// interface directory that can't be listed must report no lowers, not panic
+// or fabricate an empty-but-checked reading.
+func TestLowerInterfaces_ReadDirError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if got := lowerInterfaces("/sys/class/net", "eth0"); got != nil {
+		t.Errorf("lowerInterfaces() = %v, want nil when the directory can't be read", got)
+	}
+}
+
+// TestLowerInterfaces_Found covers the happy path directly (not just via the
+// full Collect() wiring): lower_* entries are stripped of their prefix, and
+// non-lower entries are ignored.
+func TestLowerInterfaces_Found(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net/bond0", []string{"lower_eth0", "lower_eth1", "operstate"})
+	})
+	got := lowerInterfaces("/sys/class/net", "bond0")
+	if len(got) != 2 || got[0] != "eth0" || got[1] != "eth1" {
+		t.Errorf("lowerInterfaces() = %v, want [eth0 eth1]", got)
+	}
+}
+
 func TestAzureTimeSyncConfigured_NoConfig(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	checked, uses := azureTimeSyncConfigured()
