@@ -242,6 +242,29 @@ func TestNfsCheckMount(t *testing.T) {
 			t.Errorf("expected Stale=true Healthy=false when ctx already canceled, got %+v", m)
 		}
 	})
+
+	t.Run("statfs hangs past 2s deadline marks stale", func(t *testing.T) {
+		prev := SetSource(&slowStatfsSource{Replay: source.NewReplay(source.NewBundle()), delay: 3 * time.Second})
+		t.Cleanup(func() { SetSource(prev) })
+		m := &models.NFSMount{Mount: "/mnt/hung"}
+		nfsCheckMount(context.Background(), m)
+		if !m.Stale || m.Healthy {
+			t.Errorf("expected Stale=true Healthy=false when statfs exceeds the 2s deadline, got %+v", m)
+		}
+	})
+}
+
+// slowStatfsSource simulates a hung NFS mount (D-state statfs) by blocking
+// longer than nfsCheckMount's 2s deadline, driving the timeout branch that a
+// synchronous fake Statfs (immediate return, error or not) can never reach.
+type slowStatfsSource struct {
+	*source.Replay
+	delay time.Duration
+}
+
+func (f *slowStatfsSource) Statfs(path string) (source.StatfsInfo, error) {
+	time.Sleep(f.delay)
+	return f.Replay.Statfs(path)
 }
 
 func TestNfsCheckServer(t *testing.T) {

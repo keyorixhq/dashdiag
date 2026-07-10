@@ -204,6 +204,29 @@ func TestKmsgRecords_Empty(t *testing.T) {
 	}
 }
 
+// liveCachedKmsgSource mirrors source.Live's Cached semantics (always invoke
+// produce) — needed to exercise kmsgRecords' closure body (the readKmsgLive
+// call itself), which a plain fakeCombinedSource-with-cached fixture never
+// reaches because its Cached short-circuits without invoking produce.
+// /dev/kmsg does not exist in the CI/test container, so os.OpenFile fails
+// immediately and readKmsgLive returns "" deterministically — no real kernel
+// ring buffer is ever read.
+type liveCachedKmsgSource struct {
+	*source.Replay
+}
+
+func (liveCachedKmsgSource) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
+	return produce()
+}
+
+func TestKmsgRecords_LiveClosureUnavailable(t *testing.T) {
+	prev := SetSource(liveCachedKmsgSource{Replay: source.NewReplay(source.NewBundle())})
+	t.Cleanup(func() { SetSource(prev) })
+	if got := kmsgRecords(context.Background()); got != nil {
+		t.Errorf("expected nil when /dev/kmsg is unavailable, got %v", got)
+	}
+}
+
 // ── journal disk usage ───────────────────────────────────────────────────────
 
 func TestJournalDiskUsage(t *testing.T) {

@@ -4,11 +4,29 @@ package collectors
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakeReadFilePermDeniedSource overrides ReadFile for an exact path set,
+// returning a permission-denied error regardless of the real process euid —
+// needed because readAuthLogFrom's denied branch depends on os.IsPermission(err),
+// which the fixture layer can't produce for an unseeded path (that reads as
+// plain "not found", not EACCES) and which real root bypasses entirely.
+type fakeReadFilePermDeniedSource struct {
+	*source.Replay
+	denied map[string]bool
+}
+
+func (f fakeReadFilePermDeniedSource) ReadFile(path string) ([]byte, error) {
+	if f.denied[path] {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrPermission}
+	}
+	return f.Replay.ReadFile(path)
+}
 
 func TestAuthCollectorIdentity(t *testing.T) {
 	t.Parallel()
@@ -152,6 +170,79 @@ func TestAuthCollector_Collect_NoJournalNoReadableLog_PermissionDenied(t *testin
 	}
 	if info.FailedLast24h != 0 {
 		t.Errorf("FailedLast24h = %d, want 0", info.FailedLast24h)
+	}
+}
+
+// TestAuthCollector_Collect_AuthLogPermissionDenied guards the true "NO auth
+// data" branch end to end: journalctl returns nothing AND every auth-log
+// candidate exists but is permission-denied (not merely absent). Must report
+// Checked=false with the accurate reason, never a false-OK "0 failed logins".
+func TestAuthCollector_Collect_AuthLogPermissionDenied(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("pgrep", []string{"-x", "sshd"}, "1234\n", 0)
+	b.PutCmd("journalctl", []string{"_COMM=sshd", "--since", "24 hours ago", "--no-pager", "-o", "cat"}, "", 0)
+	b.PutCmdNotFound("sshd", []string{"-T"})
+	prev := SetSource(fakeReadFilePermDeniedSource{
+		Replay: source.NewReplay(b),
+		denied: map[string]bool{"/var/log/auth.log": true, "/var/log/secure": true, "/var/log/messages": true},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewAuthCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.AuthInfo)
+	if info.Checked {
+		t.Error("expected Checked=false when every auth-log candidate is permission-denied")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a non-empty StatusReason explaining the unreadable log")
+	}
+}
+
+// TestAuthCollector_Collect_ConnectionClosedMatched guards the third line
+// matcher ("connection closed by authenticating") in isolation from the other
+// two, and TestAuthCollector_Collect_TopSourcesTiebreak guards the sort
+// comparator's count > count branch (all prior tests used a single
+// distinguishing count, never two different non-tied counts).
+func TestAuthCollector_Collect_ConnectionClosedMatched(t *testing.T) {
+	journal := "Jul  8 10:03:00 host sshd[4]: Connection closed by authenticating user bob 9.9.9.9 port 22 [preauth]\n"
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("pgrep", []string{"-x", "sshd"}, "1234\n", 0)
+		b.PutCmd("journalctl", []string{"_COMM=sshd", "--since", "24 hours ago", "--no-pager", "-o", "cat"}, journal, 0)
+		b.PutCmdNotFound("sshd", []string{"-T"})
+	})
+	c := NewAuthCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.AuthInfo)
+	if info.FailedLast24h != 1 {
+		t.Errorf("FailedLast24h = %d, want 1 (connection-closed line counted)", info.FailedLast24h)
+	}
+}
+
+func TestAuthCollector_Collect_TopSourcesTiebreak(t *testing.T) {
+	journal := "Jul  8 10:00:00 host sshd[1]: Failed password for root from 1.1.1.1 port 4000 ssh2\n" +
+		"Jul  8 10:01:00 host sshd[2]: Failed password for root from 1.1.1.1 port 4001 ssh2\n" +
+		"Jul  8 10:02:00 host sshd[3]: Failed password for root from 1.1.1.1 port 4002 ssh2\n" +
+		"Jul  8 10:03:00 host sshd[4]: Invalid user test from 2.2.2.2 port 4003\n"
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("pgrep", []string{"-x", "sshd"}, "1234\n", 0)
+		b.PutCmd("journalctl", []string{"_COMM=sshd", "--since", "24 hours ago", "--no-pager", "-o", "cat"}, journal, 0)
+		b.PutCmdNotFound("sshd", []string{"-T"})
+	})
+	c := NewAuthCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.AuthInfo)
+	if len(info.TopSources) != 2 || info.TopSources[0].Source != "1.1.1.1" || info.TopSources[0].Count != 3 {
+		t.Errorf("TopSources = %+v, want [1.1.1.1:3, 2.2.2.2:1] sorted by count desc", info.TopSources)
 	}
 }
 

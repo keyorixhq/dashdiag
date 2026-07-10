@@ -635,6 +635,37 @@ func TestTryOnePing_UnresolvableHost(t *testing.T) {
 	}
 }
 
+// TestTryOnePing_UnreachableUnprivileged drives the "100% packet loss"
+// branch (stats.PacketsRecv == 0): 192.0.2.1 is TEST-NET-1 (RFC 5737),
+// reserved for documentation and guaranteed never to respond, so this is
+// deterministic regardless of the sandbox's real network egress policy —
+// unlike pinging a real remote host.
+func TestTryOnePing_UnreachableUnprivileged(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	ms, loss, ok := tryOnePing(ctx, "192.0.2.1", "", false)
+	if ok || ms != -1 || loss != 100 {
+		t.Errorf("tryOnePing() against an unreachable TEST-NET-1 address = (%v,%v,%v), want (-1,100,false)", ms, loss, ok)
+	}
+}
+
+// TestTryOnePing_PrivilegedRunFails drives two branches in one call: the
+// srcIP-binding assignment (privileged path sets p.Source) and p.Run()'s
+// error return. This container has no `ping` binary, so sysPing always
+// fails (falls through to pro-bing) and lacks CAP_NET_RAW, so the
+// privileged raw-socket Run() fails immediately — deterministic in any
+// unprivileged container, not a live-network dependency.
+func TestTryOnePing_PrivilegedRunFails(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	ms, loss, ok := tryOnePing(ctx, "127.0.0.1", "10.255.255.254", true)
+	if ok || ms != -1 || loss != 100 {
+		t.Errorf("tryOnePing() privileged without CAP_NET_RAW = (%v,%v,%v), want (-1,100,false)", ms, loss, ok)
+	}
+}
+
 // ── runConnectivityProbes / pingRTT / probeConnectivity / Collect ───────────
 
 // TestRunConnectivityProbes exercises the real concurrent probe path. This
@@ -659,6 +690,19 @@ func TestRunConnectivityProbes(t *testing.T) {
 	}
 	if !p.DNSFailed && p.DNSMs < 0 {
 		t.Errorf("DNSFailed=false must report a non-negative DNSMs, got %v", p.DNSMs)
+	}
+}
+
+// TestRunConnectivityProbes_DNSLookupFails drives the DNS-failure branch
+// (p.DNSFailed=true, p.DNSMs=-1): a pre-canceled parent context makes
+// dnsCtx's WithTimeout derivation already-done, so LookupHost fails
+// immediately regardless of the sandbox's real network egress.
+func TestRunConnectivityProbes_DNSLookupFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p := runConnectivityProbes(ctx, "", "")
+	if !p.DNSFailed || p.DNSMs != -1 {
+		t.Errorf("expected DNSFailed=true DNSMs=-1 with an already-canceled context, got %+v", p)
 	}
 }
 

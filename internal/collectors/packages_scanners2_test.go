@@ -192,6 +192,54 @@ func TestPackagesCollector_Collect_TDNFDispatch(t *testing.T) {
 	}
 }
 
+// ── collectAPTKali ────────────────────────────────────────────────────────────
+
+// TestCollectAPTKali_AptGetFails drives the "apt-get -s upgrade unavailable"
+// branch — the result must still be returned (no error) with a StatusReason,
+// not a hard failure.
+func TestCollectAPTKali_AptGetFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("apt-get", []string{"-s", "upgrade"})
+	})
+	info := &models.PackagesInfo{Checked: true, PackageManager: "apt"}
+	got, err := collectAPTKali(context.Background(), info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.StatusReason != "apt-get unavailable" {
+		t.Errorf("StatusReason = %q, want %q", got.StatusReason, "apt-get unavailable")
+	}
+	if !got.HasSecurityRepo {
+		t.Error("expected HasSecurityRepo=true (kali-rolling is the security channel)")
+	}
+}
+
+// TestCollectAPTKali_MixedSeverityAndMalformedLine covers: a short "Inst" line
+// (< 2 fields) is skipped, and a non-critical package name is counted as
+// ImportantUpdates rather than CriticalUpdates.
+func TestCollectAPTKali_MixedSeverityAndMalformedLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("apt-get", []string{"-s", "upgrade"},
+			"Inst\n"+ // malformed: fields[1] out of range, must be skipped
+				"Inst some-random-package [1.0] (1.1 Debian:kali-rolling [amd64])\n"+
+				"Inst openssl [3.0.1] (3.0.2 Debian:kali-rolling [amd64])\n", 0)
+	})
+	info := &models.PackagesInfo{Checked: true, PackageManager: "apt"}
+	got, err := collectAPTKali(context.Background(), info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.CriticalUpdates != 1 {
+		t.Errorf("CriticalUpdates = %d, want 1 (openssl)", got.CriticalUpdates)
+	}
+	if got.ImportantUpdates != 1 {
+		t.Errorf("ImportantUpdates = %d, want 1 (some-random-package)", got.ImportantUpdates)
+	}
+	if got.SecurityUpdates != 2 {
+		t.Errorf("SecurityUpdates = %d, want 2 (malformed line excluded)", got.SecurityUpdates)
+	}
+}
+
 // ── detectPackageManager ──────────────────────────────────────────────────────
 
 func TestDetectPackageManager(t *testing.T) {
@@ -347,6 +395,36 @@ func TestCollectZypper_HappyPath(t *testing.T) {
 	}
 }
 
+// TestCollectZypper_MalformedLineAndNoSecurityRepo covers a pipe-table line
+// with too few fields (must be skipped, not indexed out-of-range) and the
+// "no security repo configured" status branch.
+func TestCollectZypper_MalformedLineAndNoSecurityRepo(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "list-patches", "--category", "security"},
+			"Repository | Name | Category | Severity | Interactive | Status | Summary\n"+
+				"security only 3 fields\n"+ // < 6 pipe-fields after split, must be skipped
+				"repo-oss | SUSE-2026-1 | security | critical | --- | needed | openssl fix\n", 0)
+		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "repos"},
+			"# | Alias | Name | Enabled\n1 | repo-oss | Main Repository | Yes\n", 0)
+		b.PutCmdNotFound("zypper", []string{"--non-interactive", "--no-color", "search", "--installed-only", grubPackageForArch()})
+		b.PutCmdNotFound("SUSEConnect", []string{"--status"})
+		b.PutCmdNotFound("uname", []string{"-r"})
+	})
+	info, err := collectZypper(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SecurityUpdates != 1 {
+		t.Errorf("SecurityUpdates = %d, want 1 (malformed line excluded)", info.SecurityUpdates)
+	}
+	if info.HasSecurityRepo {
+		t.Error("expected HasSecurityRepo=false (no repo name/alias indicates security/update)")
+	}
+	if info.Status != "no-security-repo" {
+		t.Errorf("Status = %q, want no-security-repo", info.Status)
+	}
+}
+
 func TestCollectZypper_LockedExhaustsRetries(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "list-patches", "--category", "security"},
@@ -360,6 +438,31 @@ func TestCollectZypper_LockedExhaustsRetries(t *testing.T) {
 	}
 	if info.Status != "query-failed" {
 		t.Fatalf("Status = %q, want query-failed", info.Status)
+	}
+}
+
+// TestCollectZypper_LockedCancelledDuringBackoff drives the actual retry-loop
+// cancellation branch: the fixture output DOES match zypperLocked (unlike
+// TestCollectZypper_LockedExhaustsRetries's empty output, which short-circuits
+// on attempt 1 via the !locked break before ever reaching sleepCtx), and a
+// short parent context expires mid-800ms backoff so sleepCtx returns false —
+// "ctx cancelled — don't spin" — rather than exhausting all 5 attempts.
+func TestCollectZypper_LockedCancelledDuringBackoff(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--non-interactive", "--no-color", "list-patches", "--category", "security"},
+			"System management is locked by the application with pid 123.\n", 7)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	info, err := collectZypper(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Status != "query-failed" {
+		t.Fatalf("Status = %q, want query-failed", info.Status)
+	}
+	if info.StatusReason != "zypper is locked by another process — security updates not verified" {
+		t.Errorf("StatusReason = %q, want the locked reason", info.StatusReason)
 	}
 }
 

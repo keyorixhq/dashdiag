@@ -222,3 +222,27 @@ func TestSystemdCollect_HappyPath(t *testing.T) {
 		t.Errorf("SystemState = %q, want running", info.SystemState)
 	}
 }
+
+// TestSystemdCollect_NotPresent guards the early gate: when neither
+// /run/systemd/private nor /run/systemd/system exists (non-systemd init —
+// e.g. Alpine/OpenRC, a minimal container), Collect must short-circuit to
+// Available=false without attempting any systemctl/systemd-analyze query.
+func TestSystemdCollect_NotPresent(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // neither marker file seeded
+
+	c := &SystemdCollector{}
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, ok := res.(*models.SystemdInfo)
+	if !ok {
+		t.Fatalf("expected *models.SystemdInfo, got %T", res)
+	}
+	if info.Available {
+		t.Error("expected Available=false when systemd is not present")
+	}
+	if len(info.FailedUnits) != 0 || info.TotalBootSec != 0 {
+		t.Errorf("expected a zero-value SystemdInfo, got %+v", info)
+	}
+}

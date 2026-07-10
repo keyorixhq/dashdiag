@@ -221,6 +221,8 @@ func TestParseMultiversionKernels(t *testing.T) {
 		{"commented out", "# multiversion.kernels = all\n", "", false},
 		// the `multiversion = provides:...` line must NOT be mistaken for the policy
 		{"provides line ignored", "multiversion = provides:multiversion(kernel)\nmultiversion.kernels = latest,running\n", "latest,running", false},
+		// prefix matches but no "=" present — Cut's ok=false, the malformed line is skipped
+		{"prefix without equals", "multiversion.kernels\nmultiversion.kernels = latest,running\n", "latest,running", false},
 	}
 	for _, tc := range cases {
 		p, u := parseMultiversionKernels(tc.conf)
@@ -240,6 +242,10 @@ func TestParseInstallonlyLimit(t *testing.T) {
 	if p, u := parseInstallonlyLimit("# installonly_limit=0\n"); p != "" || u {
 		t.Errorf("commented limit ignored, got (%q,%v)", p, u)
 	}
+	// prefix matches but no "=" present — Cut's ok=false, the malformed line is skipped
+	if p, u := parseInstallonlyLimit("installonly_limit\ninstallonly_limit=5\n"); p != "installonly_limit=5" || u {
+		t.Errorf("malformed line without '=' should be skipped, got (%q,%v)", p, u)
+	}
 }
 
 func TestSnapshotNumberFromPath(t *testing.T) {
@@ -250,6 +256,7 @@ func TestSnapshotNumberFromPath(t *testing.T) {
 		"@/.snapshots/137/snapshot":                                137,
 		"no snapshot here":                                         0,
 		".snapshots//snapshot":                                     0, // malformed
+		"@/.snapshots/42":                                          0, // marker present but no trailing "/" after the number
 	}
 	for in, want := range cases {
 		if got := snapshotNumberFromPath(in); got != want {
@@ -659,6 +666,24 @@ func TestKernelRetentionCollector_Collect_DNFBounded(t *testing.T) {
 	}
 }
 
+func TestKernelRetentionCollector_Collect_AptNoPolicy(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/boot/vmlinuz-*", []string{"/boot/vmlinuz-5.14.0-1", "/boot/vmlinuz-6.1.0-2"})
+	})
+	c := NewKernelRetentionCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KernelRetentionInfo)
+	if info.PackageManager != "apt" || info.Unbounded {
+		t.Errorf("expected apt package manager with no unbounded policy claim, got %+v", info)
+	}
+	if !info.Available {
+		t.Errorf("expected Available=true with kernels + package manager detected, got %+v", info)
+	}
+}
+
 func TestKernelRetentionCollector_Collect_ContainerGated(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
 		b.PutGlob("/boot/vmlinuz-*", []string{"/boot/vmlinuz-5.14.0-1"})
@@ -732,6 +757,21 @@ func TestLivePatchCollector_Collect_Unverified(t *testing.T) {
 	info := raw.(*models.LivePatchInfo)
 	if len(info.UnverifiedPatches) != 1 || info.UnverifiedPatches[0] != "patch_locked" {
 		t.Errorf("expected patch_locked flagged as unverified (not disabled), got %+v", info)
+	}
+}
+
+func TestLivePatchCollector_Collect_KlpTool(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"klp": true}, func(b *source.Bundle) {
+		b.PutGlob("/sys/kernel/livepatch/*", []string{"/sys/kernel/livepatch/patch_1"})
+		b.PutFile("/sys/kernel/livepatch/patch_1/enabled", []byte("1\n"))
+	})
+	c := NewLivePatchCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if raw.(*models.LivePatchInfo).Tool != "klp" {
+		t.Errorf("expected Tool=klp when klp is on PATH, got %+v", raw)
 	}
 }
 

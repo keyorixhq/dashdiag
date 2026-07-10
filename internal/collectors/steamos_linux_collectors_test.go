@@ -513,6 +513,18 @@ func TestSteamHostUptimeSeconds_Unreadable(t *testing.T) {
 	}
 }
 
+// TestSteamHostUptimeSeconds_EmptyFile guards the "readable but has no
+// whitespace-separated fields" branch — distinct from Unreadable (a read
+// error): the file exists and reads successfully, but its content is blank.
+func TestSteamHostUptimeSeconds_EmptyFile(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/uptime", []byte(""))
+	})
+	if got := steamHostUptimeSeconds(); got != 0 {
+		t.Errorf("steamHostUptimeSeconds() = %v, want 0 for an empty file", got)
+	}
+}
+
 func TestSteamUserHome_DeckPresent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/home/deck", source.FileMeta{IsDir: true})

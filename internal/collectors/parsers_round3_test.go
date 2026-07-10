@@ -18,6 +18,9 @@ func TestParseJSONInt(t *testing.T) {
 		{`"count": 7`, 7},
 		{`no colon here`, 0},
 		{`"zero": 0`, 0},
+		// trailing non-digit content after the number (not a bare trailing comma,
+		// which TrimRight already strips) must stop the scan at the first digit run
+		{`"count": 7 units`, 7},
 	}
 	for _, tt := range tests {
 		if got := parseJSONInt(tt.in); got != tt.want {

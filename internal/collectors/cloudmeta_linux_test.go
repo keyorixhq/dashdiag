@@ -153,6 +153,66 @@ func TestImdsGetLive_HeadersSet(t *testing.T) {
 	}
 }
 
+// TestImdsGetLive_MalformedURL guards the http.NewRequestWithContext error
+// branch: a URL containing a raw control character is rejected by net/http's
+// request construction before any dial is attempted — deterministic, no
+// network involved.
+func TestImdsGetLive_MalformedURL(t *testing.T) {
+	got, err := imdsGetLive(context.Background(), "http://\x7f", nil)
+	if err == nil {
+		t.Fatalf("expected an error for a malformed URL, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on error", got)
+	}
+}
+
+// TestImdsGetLive_DialFails guards the client.Do error branch: dialing a
+// closed local port fails immediately with connection refused, without
+// depending on any real network egress.
+func TestImdsGetLive_DialFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := srv.URL
+	srv.Close() // closed before use -> connection refused
+
+	got, err := imdsGetLive(context.Background(), url, nil)
+	if err == nil {
+		t.Fatalf("expected a dial error against a closed server, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on error", got)
+	}
+}
+
+// TestImdsGetLive_BodyReadFails guards the io.ReadAll error branch: the
+// server advertises a Content-Length longer than the bytes it actually sends
+// and then closes the connection, so the client's body read fails partway
+// through rather than the request itself failing.
+func TestImdsGetLive_BodyReadFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("short"))
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err == nil {
+			_ = conn.Close() // abrupt close before the promised length is sent
+		}
+	}))
+	defer srv.Close()
+
+	got, err := imdsGetLive(context.Background(), srv.URL, nil)
+	if err == nil {
+		t.Fatalf("expected a body-read error from a truncated response, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on error", got)
+	}
+}
+
 // ── imdsGet (Cached wrapper — exercises the produce closure directly) ───────
 
 // TestImdsGet_LiveSuccess drives imdsGet's closure (imdsGetLive call, success
