@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   security:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # TEMPORARY pin to 1.26.5 (normally floats '1.26' — see ci.yml's top note).
@@ -55,7 +55,7 @@ jobs:
   # marketplace Action, matching govulncheck's own pattern — one less
   # third-party Action, and we already know exactly what command runs.
   gitleaks:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with: {fetch-depth: 0} # full history — gitleaks detect needs every commit, not just HEAD
@@ -77,7 +77,7 @@ jobs:
   # PR-only: there's no head/base pair to diff outside a pull_request event.
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
