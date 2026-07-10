@@ -57,6 +57,19 @@ func TestFindCtr_FallsBackToK3sPath(t *testing.T) {
 	}
 }
 
+// TestFindCtr_SkipsEmptyOutput guards the `out != ""` condition: a binary
+// that runs successfully (exit 0) but prints nothing must be treated as not
+// usable, and the search must continue to the next candidate.
+func TestFindCtr_SkipsEmptyOutput(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"version"}, "", 0) // exits 0 but no output — not usable
+		b.PutCmd("containerd-ctr", []string{"version"}, "Client:\n  Version: 1.6.24\n", 0)
+	})
+	if got := findCtr(); got != "containerd-ctr" {
+		t.Errorf("findCtr() = %q, want containerd-ctr (ctr's empty-output result must be skipped)", got)
+	}
+}
+
 func TestFindCtr_NoneFound(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		for _, bin := range ctrBinaries {
@@ -100,6 +113,18 @@ func TestContainerdServiceState_Unknown(t *testing.T) {
 	}
 }
 
+// TestContainerdServiceState_NoActiveStateLine guards the fall-through when
+// the command succeeds with non-empty output but no line carries the
+// "ActiveState=" prefix — must return "unknown", not panic or return "".
+func TestContainerdServiceState_NoActiveStateLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"show", "containerd", "--property=ActiveState"}, "SomeOtherProperty=foo\n", 0)
+	})
+	if got := containerdServiceState(context.Background()); got != "unknown" {
+		t.Errorf("containerdServiceState() = %q, want unknown when no ActiveState= line is present", got)
+	}
+}
+
 const ctrVersionOutput = `Client:
   Version:  1.6.24
   Revision: 61f9fd88f79f081d64d6fa3bb1a0dc71ec870523
@@ -138,6 +163,20 @@ func TestContainerdVersion_NoServerBlock(t *testing.T) {
 	}
 }
 
+// TestContainerdVersion_ServerBlockEndsBeforeVersionLine guards the early
+// break: once inside the Server: block, a non-indented, non-empty line (the
+// start of a new top-level section) before any "Version:" line is found must
+// stop the scan and return "" rather than keep scanning past the block.
+func TestContainerdVersion_ServerBlockEndsBeforeVersionLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"version"},
+			"Server:\nUUID: 12345678-1234-1234-1234-123456789012\n  Version:  1.6.24\n", 0)
+	})
+	if got := containerdVersion(context.Background(), "ctr"); got != "" {
+		t.Errorf("containerdVersion() = %q, want empty (Server block ended before a Version: line)", got)
+	}
+}
+
 func TestContainerdNamespaces_Multiple(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, "default\nk8s.io\n", 0)
@@ -153,6 +192,26 @@ func TestContainerdNamespaces_Multiple(t *testing.T) {
 	}
 	if ns[1].Name != "k8s.io" || ns[1].ContainerCount != 0 {
 		t.Errorf("ns[1] = %+v, want k8s.io/0", ns[1])
+	}
+}
+
+// TestContainerdNamespaces_SkipsBlankLines guards the mid-list blank-line
+// continue: a stray blank line between two real namespace names must not
+// produce a spurious empty-named entry.
+func TestContainerdNamespaces_SkipsBlankLines(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, "default\n\nk8s.io\n", 0)
+		b.PutCmd("ctr", []string{"-n", "default", "containers", "list", "-q"}, "", 0)
+		b.PutCmd("ctr", []string{"-n", "k8s.io", "containers", "list", "-q"}, "", 0)
+	})
+	ns := containerdNamespaces(context.Background(), "ctr")
+	if len(ns) != 2 {
+		t.Fatalf("namespaces = %+v, want 2 (blank line skipped, not a 3rd empty entry)", ns)
+	}
+	for _, n := range ns {
+		if n.Name == "" {
+			t.Errorf("a blank namespace name leaked through: %+v", ns)
+		}
 	}
 }
 
@@ -208,6 +267,33 @@ func TestContainerdCollector_Collect_SocketAbsent(t *testing.T) {
 	info := raw.(*models.ContainerdInfo)
 	if info.Available || info.Status != "unavailable" || info.StatusReason == "" {
 		t.Errorf("info = %+v, want Available=false Status=unavailable with a reason", info)
+	}
+}
+
+// TestContainerdCollector_Collect_SocketPermDenied covers the "installed but
+// permission-denied" gate (distinct from genuinely absent): Collect must set
+// SocketPermDenied and a human-readable StatusReason without probing further
+// (no ctr call attempted).
+func TestContainerdCollector_Collect_SocketPermDenied(t *testing.T) {
+	dial := map[string]byte{containerdSocketCandidates[0]: 'p'} // 'p' = permission-denied outcome
+	withContainerdFixture(t, dial, nil)
+	c := NewContainerdCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ContainerdInfo)
+	if info.Available {
+		t.Error("Available = true, want false when the socket is permission-denied")
+	}
+	if !info.SocketPermDenied {
+		t.Error("SocketPermDenied = false, want true")
+	}
+	if info.Status != "unavailable" || info.StatusReason == "" {
+		t.Errorf("info = %+v, want Status=unavailable with a non-empty reason", info)
+	}
+	if info.SocketPath != containerdSocketCandidates[0] {
+		t.Errorf("SocketPath = %q, want %q even though permission was denied", info.SocketPath, containerdSocketCandidates[0])
 	}
 }
 

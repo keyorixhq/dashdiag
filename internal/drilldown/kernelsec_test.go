@@ -127,6 +127,25 @@ func TestBuildPolicyTableAppArmorPartialWithOtherRows(t *testing.T) {
 	}
 }
 
+// TestBuildPolicyTableTruncatesOverMaxRows guards the "> maxRows" cap: when
+// more than 5 policy findings are present, only the first 5 rows are kept and
+// a "... and N more" note is appended pointing at the review tools, rather
+// than an unbounded table.
+func TestBuildPolicyTableTruncatesOverMaxRows(t *testing.T) {
+	t.Parallel()
+	profiles := []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+	d := buildPolicyTable(profiles, false, "enforcing")
+	if d == nil {
+		t.Fatal("expected a non-nil Details with 7 complain-mode profiles")
+	}
+	if len(d.Rows) != 5 {
+		t.Fatalf("expected rows truncated to 5, got %d: %+v", len(d.Rows), d.Rows)
+	}
+	if !strings.Contains(d.Note, "... and 2 more") {
+		t.Errorf("expected a note about the 2 truncated rows, got %q", d.Note)
+	}
+}
+
 func TestParseAAStatusText(t *testing.T) {
 	out := `apparmor module is loaded.
 106 profiles are loaded.

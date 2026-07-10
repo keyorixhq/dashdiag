@@ -131,3 +131,50 @@ func TestPBDirHasJournal(t *testing.T) {
 		t.Error("an empty machine subdir (no .journal) must NOT read as persistent")
 	}
 }
+
+// TestPBDirHasJournal_SkipsNonDirEntries guards the `!e.IsDir()` continue: a
+// stray non-directory file directly under /var/log/journal (e.g. a README or
+// remote-XXXX.journal placed at the top level rather than in a machine-id
+// subdir) must be skipped without attempting to readDir() it as if it were a
+// subdirectory.
+func TestPBDirHasJournal_SkipsNonDirEntries(t *testing.T) {
+	readDir := func(path string) ([]os.DirEntry, error) {
+		switch path {
+		case persistentJournalDir:
+			return []os.DirEntry{
+				pbDirEntry{name: "README", dir: false}, // must be skipped, not descended into
+				pbDirEntry{name: "machine-abc", dir: true},
+			}, nil
+		case filepath.Join(persistentJournalDir, "machine-abc"):
+			return []os.DirEntry{pbDirEntry{name: "system.journal", dir: false}}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	if !pbDirHasJournal(pbEnv{readDir: readDir}, persistentJournalDir) {
+		t.Error("a non-dir top-level entry must be skipped, and the real machine subdir still found")
+	}
+}
+
+// TestPBDirHasJournal_InnerReadDirErrorContinues guards the inner readDir
+// error path: one machine subdir that can't be read (e.g. permission denied)
+// must not abort the whole scan — a LATER subdir with a real .journal file
+// must still be found.
+func TestPBDirHasJournal_InnerReadDirErrorContinues(t *testing.T) {
+	readDir := func(path string) ([]os.DirEntry, error) {
+		switch path {
+		case persistentJournalDir:
+			return []os.DirEntry{
+				pbDirEntry{name: "unreadable-machine", dir: true},
+				pbDirEntry{name: "machine-abc", dir: true},
+			}, nil
+		case filepath.Join(persistentJournalDir, "unreadable-machine"):
+			return nil, os.ErrPermission
+		case filepath.Join(persistentJournalDir, "machine-abc"):
+			return []os.DirEntry{pbDirEntry{name: "system.journal", dir: false}}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	if !pbDirHasJournal(pbEnv{readDir: readDir}, persistentJournalDir) {
+		t.Error("an unreadable machine subdir must be skipped, and a later readable subdir with a .journal file still found")
+	}
+}

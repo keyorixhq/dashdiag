@@ -189,3 +189,24 @@ func TestTLSCertPaths_IncludesRHUI(t *testing.T) {
 		t.Fatal("tlsCertPaths() must include /etc/pki/rhui for RHEL cloud PAYG client-cert expiry checks")
 	}
 }
+
+// TestTLSCertPaths_DarwinList guards the darwin-specific path list — the
+// runtime.GOOS branch tlsCertPaths_test can't force from a non-darwin CI
+// runner, so this only genuinely exercises that branch when run natively on
+// macOS (this repo's primary dev machine). On darwin it must return the
+// homebrew/local-etc paths and specifically NOT the Linux-only RHUI path.
+func TestTLSCertPaths_DarwinList(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin-only branch of tlsCertPaths")
+	}
+	paths := tlsCertPaths()
+	if len(paths) == 0 {
+		t.Fatal("expected a non-empty darwin cert path list")
+	}
+	if !slices.Contains(paths, "/usr/local/etc/ssl") || !slices.Contains(paths, "/opt/homebrew/etc/ssl") {
+		t.Errorf("darwin path list = %v, want it to include the homebrew/local-etc ssl dirs", paths)
+	}
+	if slices.Contains(paths, "/etc/pki/rhui") {
+		t.Error("darwin path list must not include the Linux-only RHUI path")
+	}
+}

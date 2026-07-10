@@ -199,4 +199,40 @@ func TestParseMongoEval(t *testing.T) {
 			t.Errorf("standalone: IsReplicaSet=%v ReplStatusRead=%v, want both false", info.IsReplicaSet, info.ReplStatusRead)
 		}
 	})
+
+	t.Run("no JSON-looking line in output → unparseable", func(t *testing.T) {
+		out := "Connecting to mongodb://127.0.0.1:27017\nconnection notice, no JSON printed\n"
+		var info models.MongoDBInfo
+		parseMongoEval(out, &info)
+		if info.MetricsRead {
+			t.Error("MetricsRead should be false when no line looks like a JSON object")
+		}
+		if info.StatusReason == "" {
+			t.Error("expected a non-empty StatusReason when no JSON line is found")
+		}
+	})
+
+	t.Run("malformed JSON on the candidate line → unparseable", func(t *testing.T) {
+		out := `{"v":"7.0.5", not valid json}`
+		var info models.MongoDBInfo
+		parseMongoEval(out, &info)
+		if info.MetricsRead {
+			t.Error("MetricsRead should be false when the JSON candidate line fails to unmarshal")
+		}
+		if info.StatusReason == "" {
+			t.Error("expected a non-empty StatusReason when the JSON line is malformed")
+		}
+	})
+
+	t.Run("last JSON-looking line wins over an earlier notice", func(t *testing.T) {
+		// mongosh sometimes prints a connection notice that itself starts/ends
+		// with brace-like noise before the real result — the LAST matching
+		// line must be the one parsed.
+		out := "{stale connection notice}\n" + `{"v":"7.0.5","set":"","cc":1,"ca":900}`
+		var info models.MongoDBInfo
+		parseMongoEval(out, &info)
+		if !info.MetricsRead || info.Version != "7.0.5" {
+			t.Errorf("expected the last JSON-looking line to be parsed, got %+v", info)
+		}
+	})
 }

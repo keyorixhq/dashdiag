@@ -241,6 +241,21 @@ func TestParseUnitList(t *testing.T) {
 			input:     "\nnginx.service loaded failed failed nginx\n\n",
 			wantUnits: []string{"nginx.service"},
 		},
+		{
+			// fields[0] has no dot (a bullet marker), but fields[1] does — the
+			// fallback branch should recover the unit name from fields[1]
+			// rather than skipping the line.
+			name:      "bullet marker before unit name",
+			input:     "* nginx.service loaded failed failed nginx\n",
+			wantUnits: []string{"nginx.service"},
+		},
+		{
+			// Neither fields[0] nor fields[1] contains a dot — must be
+			// skipped entirely, not panic on a short fields slice.
+			name:      "no dot anywhere on the line",
+			input:     "foo bar baz\n",
+			wantUnits: nil,
+		},
 	}
 
 	for _, tc := range cases {
@@ -352,6 +367,50 @@ func TestParseBlameSlowUnitsExcludesTimers(t *testing.T) {
 	legacy := parseBlameSlowUnits(blame, nil)
 	if len(legacy) == 0 || legacy[0].Name != "apt-daily-upgrade.service" {
 		t.Fatalf("nil excluder should preserve legacy (unfiltered) output, got %+v", legacy)
+	}
+}
+
+// TestParseAnalyzeTime_NoSpaceAfterEquals guards the eqIdx<0 branch: a line
+// containing "=" but not the "= " (equals-space) marker parseAnalyzeTime
+// actually searches for must be skipped, falling through to the next line
+// (or the final 0 return) rather than slicing on a -1 index.
+func TestParseAnalyzeTime_NoSpaceAfterEquals(t *testing.T) {
+	t.Parallel()
+	// No space after "=" anywhere, and no other line to recover from.
+	if got := parseAnalyzeTime("Startup finished in 1.234s(kernel)=7.035s"); got != 0 {
+		t.Errorf("parseAnalyzeTime with no '= ' marker should return 0, got %v", got)
+	}
+	// A malformed first line (no "= ") followed by a well-formed one — the
+	// loop must continue past the bad line instead of stopping there.
+	out := "garbage=nospace\nStartup finished in 1s (kernel) = 1.000s\n"
+	if got := parseAnalyzeTime(out); got != 1.0 {
+		t.Errorf("parseAnalyzeTime should skip the malformed line and use the next, got %v", got)
+	}
+}
+
+// TestParseBlameTime_AllUnitSuffixes guards the ms/h branches that the
+// existing s/min-only fixtures never exercise, plus the "no recognized
+// suffix" no-op fields (garbage tokens contribute 0, not an error).
+func TestParseBlameTime_AllUnitSuffixes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want float64
+	}{
+		{"milliseconds only", "500ms", 0.5},
+		{"hours only", "2h", 7200},
+		{"hours plus minutes plus seconds", "1h 2min 3s", 3723},
+		{"unrecognized token contributes nothing", "1h nonsense 30min", 5400},
+		{"empty string", "", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseBlameTime(tc.in); got != tc.want {
+				t.Errorf("parseBlameTime(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

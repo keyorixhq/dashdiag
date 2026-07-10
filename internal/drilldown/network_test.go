@@ -79,6 +79,44 @@ func TestTCPStatesMac(t *testing.T) {
 	}
 }
 
+// TestTCPStatesMac_RunCmdError guards the error-propagation branch: a failing
+// `netstat` invocation must surface the error rather than a partial or empty
+// result.
+func TestTCPStatesMac_RunCmdError(t *testing.T) {
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "", errNotFound
+	})
+
+	_, err := tcpStatesMac(context.Background())
+	if err == nil {
+		t.Error("expected an error when netstat fails")
+	}
+}
+
+// TestTCPStatesMac_NonTCPAndShortLinesSkipped guards both the fields[0] !=
+// tcp4/tcp6 filter (a udp line must not pollute the TCP state counts) and the
+// len(fields) < 6 skip (a truncated line, e.g. a section header) in the same
+// pass.
+func TestTCPStatesMac_NonTCPAndShortLinesSkipped(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "netstat" {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return "Active Internet connections\n" +
+			"udp4       0      0  *.68              *.*               \n" + // wrong proto
+			"tcp4       0\n" + // too few fields
+			"tcp4       0      0  127.0.0.1.5000    127.0.0.1.54321   ESTABLISHED\n", nil
+	})
+
+	got, err := tcpStatesMac(context.Background())
+	if err != nil {
+		t.Fatalf("tcpStatesMac: %v", err)
+	}
+	if len(got.KV) != 1 || got.KV["ESTABLISHED"] != "1" {
+		t.Errorf("expected only the well-formed tcp4 line counted, got %+v", got.KV)
+	}
+}
+
 // TestParseSSProc guards the users:(("name",pid=N,fd=N)) extraction.
 func TestParseSSProc(t *testing.T) {
 	cases := []struct {
@@ -89,6 +127,15 @@ func TestParseSSProc(t *testing.T) {
 		{`users:(("sshd",pid=42,fd=3),("sshd",pid=42,fd=4))`, "sshd[42]"},
 		{"", ""},
 		{"users:", ""},
+		// Opening marker present but no closing quote after the name — the
+		// before0/ok0 Cut fails.
+		{`users:(("nginx`, ""},
+		// Name present but no "pid=" field at all — falls back to the bare
+		// name (the !ok1 early return).
+		{`users:(("nginx"))`, "nginx"},
+		// "pid=" present but with no trailing "," or ")" delimiter — pidEnd
+		// stays -1 so the raw remainder is used verbatim.
+		{`users:(("nginx",pid=999`, "nginx[999]"},
 	}
 	for _, c := range cases {
 		if got := parseSSProc(c.in); got != c.want {

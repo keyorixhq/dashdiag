@@ -9,6 +9,37 @@ import (
 	"testing"
 )
 
+// TestTopProcessesBySwapLinux_PermissionDeniedSetsPartial guards the false-
+// OK-by-omission classification: a permission-denied /proc/<pid>/status read
+// (owned by another user) must flip the partial flag and surface an honest
+// Note rather than silently vanishing from the ranking, matching the
+// fdlimits/io analogues in this package. A directory with mode 0000 triggers
+// EACCES for a non-root reader.
+func TestTopProcessesBySwapLinux_PermissionDeniedSetsPartial(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — permission bits don't block the read")
+	}
+	procRoot := t.TempDir()
+	const pid = 654
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0000); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0755) }) // TempDir cleanup needs read perms restored
+
+	got, err := topProcessesBySwapLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesBySwapLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the permission-denied process to be excluded from rows, got %+v", got.Rows)
+	}
+	if got.Note == "" {
+		t.Error("expected a partial-visibility note when /proc/<pid>/status is permission-denied")
+	}
+}
+
 func writeSwapStatusFixture(t *testing.T, procRoot string, pid int, name string, swapKB int) {
 	t.Helper()
 	dir := filepath.Join(procRoot, strconv.Itoa(pid))
@@ -86,6 +117,28 @@ func TestTopProcessesBySwapLinux_LimitN(t *testing.T) {
 	}
 	if len(got.Rows) != 2 {
 		t.Errorf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
+	}
+}
+
+// TestTopProcessesBySwapLinux_TruncatesToN guards the len(procs) > n cap:
+// more swap-heavy processes than requested must be truncated to the top n by
+// swap usage, not merely sorted.
+func TestTopProcessesBySwapLinux_TruncatesToN(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeSwapStatusFixture(t, procRoot, 1, "a", 100)
+	writeSwapStatusFixture(t, procRoot, 2, "b", 200)
+	writeSwapStatusFixture(t, procRoot, 3, "c", 300)
+
+	got, err := topProcessesBySwapLinuxAt(context.Background(), 2, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesBySwapLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	if got.Rows[0][2] != "c" {
+		t.Errorf("expected process c (highest swap) first, got %+v", got.Rows)
 	}
 }
 

@@ -108,6 +108,44 @@ func TestParseSnapperDate(t *testing.T) {
 	}
 }
 
+// TestParseSnapperDate_LocaleFormat guards the second date-format branch: a
+// system-locale 12h date with a trailing timezone abbreviation ("Wed 13 May
+// 2026 08:39:27 PM CEST"), which the LC_ALL=C layouts never match and which
+// requires the field-reorder + TZ-stripping logic.
+func TestParseSnapperDate_LocaleFormat(t *testing.T) {
+	got := parseSnapperDate("Wed 13 May 2026 08:39:27 PM CEST")
+	if got.IsZero() {
+		t.Fatal("a well-formed locale-format snapper date (with TZ abbreviation) should parse")
+	}
+	if got.Year() != 2026 || got.Month() != time.May || got.Day() != 13 || got.Hour() != 20 {
+		t.Errorf("date components wrong: %v", got)
+	}
+}
+
+// TestParseSnapperDate_LocaleFormatNoTZ guards the same reordering path
+// without a trailing TZ abbreviation to strip (AM/PM must not be mistaken
+// for one, and the reorder must still land on a valid layout).
+func TestParseSnapperDate_LocaleFormatNoTZ(t *testing.T) {
+	got := parseSnapperDate("Wed 13 May 2026 08:39:27 AM")
+	if got.IsZero() {
+		t.Fatal("a locale-format date with no trailing TZ token should still parse")
+	}
+	if got.Hour() != 8 {
+		t.Errorf("expected AM hour 8, got %v", got)
+	}
+}
+
+// TestIsSnapperSeparator_EmptyLine guards the explicit `line == ""` early
+// return (distinct from the rune-loop path exercised by TestIsSnapperSeparator
+// in parser_sweep_linux_test.go): the empty string never enters the loop, so
+// it needs its own boundary case.
+func TestIsSnapperSeparator_EmptyLine(t *testing.T) {
+	t.Parallel()
+	if isSnapperSeparator("") {
+		t.Error("an empty line must not be treated as a separator")
+	}
+}
+
 func TestParseMiB(t *testing.T) {
 	cases := []struct {
 		s    string

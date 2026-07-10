@@ -31,6 +31,34 @@ func TestParseSteamOSChannel(t *testing.T) {
 	}
 }
 
+// TestMapSteamOSChannel covers all switch cases directly, including two the
+// parseSteamOSChannel table above never exercises: the "stable" alias for
+// "rel" (both map to the same label) and the "rc" case, plus case-
+// insensitivity (the switch matches on strings.ToLower(raw)).
+func TestMapSteamOSChannel(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{"rel", "stable"},
+		{"stable", "stable"},
+		{"rc", "rc"},
+		{"beta", "beta"},
+		{"bc", "beta-candidate"},
+		{"main", "main"},
+		{"RC", "rc"},                     // case-insensitive match
+		{"STABLE", "stable"},             // case-insensitive match
+		{"experimental", "experimental"}, // unknown value passes through unchanged
+	}
+	for _, c := range cases {
+		t.Run(c.raw, func(t *testing.T) {
+			if got := mapSteamOSChannel(c.raw); got != c.want {
+				t.Errorf("mapSteamOSChannel(%q) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
 func TestOSReleaseValue(t *testing.T) {
 	content := `NAME="SteamOS"
 VERSION_ID="3.7.13"

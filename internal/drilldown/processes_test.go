@@ -117,6 +117,42 @@ func TestZombiesWithParentMac(t *testing.T) {
 	}
 }
 
+// TestZombiesWithParentMac_RunCmdError guards the error-propagation branch: a
+// failing `ps` invocation must surface the error rather than a partial or
+// empty result.
+func TestZombiesWithParentMac_RunCmdError(t *testing.T) {
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "", errNotFound
+	})
+
+	_, err := zombiesWithParentMac(context.Background())
+	if err == nil {
+		t.Error("expected an error when ps fails")
+	}
+}
+
+// TestZombiesWithParentMac_UnknownParentFallsBackToQuestionMark guards the
+// parentCmd == "" -> "?" fallback: a zombie whose ppid isn't present in the
+// pid->comm index (parent already reaped) must render "?" rather than an
+// empty cell.
+func TestZombiesWithParentMac_UnknownParentFallsBackToQuestionMark(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "ps" {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		// ppid 999 has no corresponding row in the listing.
+		return "  PID STAT PPID COMM\n  200    Z   999 deadproc\n", nil
+	})
+
+	got, err := zombiesWithParentMac(context.Background())
+	if err != nil {
+		t.Fatalf("zombiesWithParentMac: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0][3] != "?" {
+		t.Errorf("expected parent cmd \"?\" for an unresolvable ppid, got %+v", got.Rows)
+	}
+}
+
 // TestHungProcesses_RealProc exercises the exported dispatcher and its Linux
 // hardcoded-"/proc" wrapper against the ACTUAL /proc of the test container
 // (real, uncancelled context) — see the equivalent comment on

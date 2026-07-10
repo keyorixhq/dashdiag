@@ -88,6 +88,30 @@ func TestAnyProcessNamedIn(t *testing.T) {
 	}
 }
 
+// TestAnyProcessNamedIn_ProcDirUnreadable guards the readDirEntries error
+// branch: a procDir that doesn't exist at all must return false, not panic.
+func TestAnyProcessNamedIn_ProcDirUnreadable(t *testing.T) {
+	if anyProcessNamedIn(filepath.Join(t.TempDir(), "does-not-exist"), "crond") {
+		t.Error("an unreadable /proc directory must return false")
+	}
+}
+
+// TestAnyProcessNamedIn_SkipsContainerizedMatch guards the pidIsContainerizedIn
+// skip: a process whose comm matches but whose cgroup places it inside a
+// container (kubepods) must be excluded — container health is the Docker/k8s
+// collector's job, not a host-service check.
+func TestAnyProcessNamedIn_SkipsContainerizedMatch(t *testing.T) {
+	proc := t.TempDir()
+	writeComm(t, proc, "500", "crond")
+	dir := filepath.Join(proc, "500")
+	if err := os.WriteFile(filepath.Join(dir, "cgroup"), []byte("0::/kubepods/besteffort/pod123/crond\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if anyProcessNamedIn(proc, "crond") {
+		t.Error("a containerized crond match must be skipped, not reported as a host process")
+	}
+}
+
 func writeComm(t *testing.T, proc, pid, comm string) {
 	t.Helper()
 	dir := filepath.Join(proc, pid)

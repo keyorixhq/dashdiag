@@ -66,6 +66,21 @@ func TestCumulativeStealPct(t *testing.T) {
 	if got := cumulativeStealPct(""); got != 0 {
 		t.Errorf("cumulativeStealPct(empty) = %v, want 0", got)
 	}
+	// The aggregate "cpu " line is present but truncated to fewer than 9
+	// fields (a garbled /proc/stat) — must return 0, not index out of range.
+	if got := cumulativeStealPct("cpu  100 0 100 700\n"); got != 0 {
+		t.Errorf("cumulativeStealPct(truncated aggregate line) = %v, want 0", got)
+	}
+	// A non-numeric field mid-line must be skipped (not counted toward total),
+	// while the rest of the numeric fields still parse and produce a real
+	// percentage.
+	if got := cumulativeStealPct("cpu  100 garbled 100 700 0 0 0 100 0 0\n"); got < 9.9 || got > 10.1 {
+		t.Errorf("cumulativeStealPct(one garbled field) = %v, want ~10 (garbled field skipped, not counted)", got)
+	}
+	// All-zero fields -> total==0 -> must return 0, not divide by zero (NaN/Inf).
+	if got := cumulativeStealPct("cpu  0 0 0 0 0 0 0 0 0 0\n"); got != 0 {
+		t.Errorf("cumulativeStealPct(all zero) = %v, want 0", got)
+	}
 }
 
 func TestCollectKVMDiskBuses(t *testing.T) {
@@ -298,6 +313,22 @@ func TestKvmQGARunning(t *testing.T) {
 		})
 		if kvmQGARunning(context.Background()) {
 			t.Error("kvmQGARunning() = true, want false")
+		}
+	})
+
+	// TestKvmQGARunning "not running" above never actually reaches the
+	// systemctl fallback: procCommRunning on an empty (but readable) /proc
+	// returns ok=true running=false, so kvmQGARunning short-circuits before
+	// the systemctl call. This case forces ok=false (unreadable /proc, no
+	// PutDir seeded at all) so the systemctl branch's own "not active"
+	// outcome is genuinely exercised.
+	t.Run("proc unreadable, systemctl reports inactive", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			// /proc deliberately not seeded -> readDirEntries errors -> ok=false.
+			b.PutCmd("systemctl", []string{"is-active", "qemu-guest-agent"}, "inactive\n", 3)
+		})
+		if kvmQGARunning(context.Background()) {
+			t.Error("kvmQGARunning() = true, want false (systemctl reported inactive)")
 		}
 	})
 }

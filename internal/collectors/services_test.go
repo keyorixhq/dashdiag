@@ -172,6 +172,45 @@ func TestCheckService_CachedHit(t *testing.T) {
 	}
 }
 
+// TestCheckService_LiveComputePath guards the un-cached branch of checkService:
+// against the real source.Live (whose Cached always invokes produce, per its
+// documented semantics), checkService must fall through to a genuine
+// checkServiceLive probe and return its result, not just replay a pre-seeded
+// fixture. This is the branch TestCheckService_ReplayGap/CachedHit (both
+// against a Replay source) never exercise.
+func TestCheckService_LiveComputePath(t *testing.T) {
+	prev := SetSource(source.Live{Exec: nil})
+	defer SetSource(prev)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close() //nolint:errcheck
+	go func() {
+		for {
+			conn, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			conn.Close() //nolint:errcheck
+		}
+	}()
+	host, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, perr := strconv.Atoi(portStr)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	svc := config.ServiceConfig{Name: "live-listener", Host: host, Port: port, Protocol: "tcp"}
+	res := checkService(context.Background(), svc)
+	if !res.Reachable || res.Status != "OK" {
+		t.Errorf("checkService(live compute path) = %+v, want Reachable=true Status=OK", res)
+	}
+}
+
 // TestCheckServiceLive_TCP is a genuine live-network test against a real local
 // listener — checkServiceLive dials raw net.Dialer/http.Client with no source
 // routing available to fixture, matching the established pattern in

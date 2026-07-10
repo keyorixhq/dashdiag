@@ -138,6 +138,64 @@ func TestPVECollector_Collect_FullHappyPath(t *testing.T) {
 	}
 }
 
+// TestPVECollector_Collect_NeedsRootOrRootHappyPath exercises Collect's
+// os.Getuid() branch. os.Getuid() has no injectable seam in this file (like
+// TestCollectPostgresMetrics_NonRootPsqlPath elsewhere in this package), so
+// whichever branch actually fires depends on the real euid of the test
+// process — root inside the golang:1.26 container (falls through to the full
+// pvesh sequence, covered by TestPVECollector_Collect_FullHappyPath already),
+// non-root on a typical local run (NeedsRoot=true, file-only subscription
+// path). Both outcomes are seeded and accepted here so the test passes in
+// either environment while still asserting SOMETHING meaningful for whichever
+// branch actually executes.
+func TestPVECollector_Collect_NeedsRootOrRootHappyPath(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/pvedaemon", source.FileMeta{})
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("6.8.4-3-pve\n"))
+		b.PutCmd("pveversion", []string{"-v"}, "pve-manager: 8.2.2 (running version: 8.2.2/abc)\n", 0)
+		b.PutFile("/etc/apt/auth.conf.d/pve.conf", []byte("login user\n"))
+		// Root-path fixtures, only consumed if euid==0.
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/status", "--output-format", "json"},
+			`{"cpu":0.1,"uptime":100}`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/subscription", "--output-format", "json"},
+			`{"status":"active","level":"c","product":"Proxmox VE Community"}`, 0)
+		b.PutCmd("pvesh", []string{"get", "/cluster/status", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/cluster/ha/status/current", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/storage", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/qemu", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/lxc", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/tasks", "--output-format", "json", "--typefilter", "vzdump", "--limit", "200"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/tasks", "--limit", "100", "--output-format", "json"}, `[]`, 0)
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/network", "--output-format", "json"}, `[]`, 0)
+		b.PutFile("/proc/cpuinfo", []byte("physical id\t: 0\ncore id\t\t: 0\n"))
+		b.PutFile("/proc/meminfo", []byte("MemTotal:       16777216 kB\n"))
+	})
+
+	got, err := NewPVECollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := got.(*models.PVEInfo)
+	if !info.IsPVE {
+		t.Fatal("expected IsPVE=true")
+	}
+	if info.NeedsRoot {
+		// Non-root branch: only PVEVersion/KernelVersion/file-based
+		// Subscription are populated; the pvesh-gated fields stay zero.
+		if info.Subscription.Status != "unverified" {
+			t.Errorf("non-root Subscription = %+v, want unverified (file fallback)", info.Subscription)
+		}
+		if info.APIReachable {
+			t.Error("non-root path must not have called pvesh at all")
+		}
+	} else {
+		// Root branch: the full pvesh sequence ran.
+		if info.Subscription.Status != "active" {
+			t.Errorf("root Subscription = %+v, want active", info.Subscription)
+		}
+	}
+}
+
 func TestCollectPVEVersion(t *testing.T) {
 	cases := []struct {
 		name string
@@ -164,6 +222,28 @@ func TestCollectPVEVersion(t *testing.T) {
 			seed: func(b *source.Bundle) {
 				b.PutCmdNotFound("pveversion", []string{"-v"})
 				b.PutCmdNotFound("pveversion", nil)
+			},
+			want: "",
+		},
+		{
+			// pveversion -v succeeds (err==nil) but returns whitespace-only
+			// output — a distinct trigger for the fallback from a genuine
+			// command error, guarding the `strings.TrimSpace(out) == ""` half
+			// of the OR condition.
+			name: "verbose form succeeds but blank, falls back to plain",
+			seed: func(b *source.Bundle) {
+				b.PutCmd("pveversion", []string{"-v"}, "   \n", 0)
+				b.PutCmd("pveversion", nil, "pve-manager/8.1.0/abc (running kernel: 6.5.0-pve)\n", 0)
+			},
+			want: "8.1.0",
+		},
+		{
+			// The verbose form succeeds with real output, but none of its
+			// lines carry the pve-manager prefix — must fall through the
+			// scan loop to the final `return ""`, not the fallback command.
+			name: "verbose form has no pve-manager line",
+			seed: func(b *source.Bundle) {
+				b.PutCmd("pveversion", []string{"-v"}, "proxmox-ve: 8.2.0 (running kernel: 6.8.4-3-pve)\n", 0)
 			},
 			want: "",
 		},
@@ -238,6 +318,22 @@ func TestCollectPVESubscription(t *testing.T) {
 	want := models.PVESubscription{Status: "active", Level: "c", Product: "Proxmox VE Community"}
 	if got != want {
 		t.Errorf("collectPVESubscription() = %+v, want %+v", got, want)
+	}
+}
+
+// TestCollectPVESubscription_BadJSONFallsBackToFile guards the second fallback
+// trigger, distinct from a command error: pvesh succeeds (err==nil) but
+// returns output that fails to unmarshal, which must also fall back to the
+// file-based reader rather than returning a zero-value PVESubscription.
+func TestCollectPVESubscription_BadJSONFallsBackToFile(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/subscription", "--output-format", "json"},
+			"not valid json", 0)
+		b.PutFile("/etc/apt/auth.conf.d/pve.conf", []byte("login user\n"))
+	})
+	got := collectPVESubscription(context.Background())
+	if got.Status != "unverified" {
+		t.Errorf("Status = %q, want unverified (file-fallback path after bad JSON)", got.Status)
 	}
 }
 
@@ -464,6 +560,30 @@ func TestCollectHostMemGB(t *testing.T) {
 	}
 }
 
+// TestCollectHostMemGB_NoMemTotalLine guards the final `return 0` fall-through:
+// /proc/meminfo is readable but contains no MemTotal: line at all — distinct
+// from the file-unreadable case below.
+func TestCollectHostMemGB_NoMemTotalLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/meminfo", []byte("MemFree:        1000 kB\n"))
+	})
+	if got := collectHostMemGB(); got != 0 {
+		t.Errorf("collectHostMemGB() = %v, want 0 (no MemTotal line)", got)
+	}
+}
+
+// TestCollectHostMemGB_MalformedMemTotalLine guards the `len(fields) >= 2`
+// guard: a MemTotal: line with no numeric value must be skipped (falling to
+// the final return 0) rather than index out of range.
+func TestCollectHostMemGB_MalformedMemTotalLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/meminfo", []byte("MemTotal:\nMemFree:        1000 kB\n"))
+	})
+	if got := collectHostMemGB(); got != 0 {
+		t.Errorf("collectHostMemGB() = %v, want 0 (malformed MemTotal line)", got)
+	}
+}
+
 func TestCollectHostMemGB_Unreadable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if got := collectHostMemGB(); got != 0 {
@@ -609,6 +729,53 @@ func TestCollectPVEBackupAgeFromLogs_NoLogs(t *testing.T) {
 	}
 }
 
+// TestCollectPVEBackupAgeFromLogs_StatFails guards the per-file statFile
+// error continue: a glob match that can't be stat'd must be skipped, not
+// abort the whole scan.
+func TestCollectPVEBackupAgeFromLogs_StatFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/var/log/vzdump/*.log", []string{"/var/log/vzdump/qemu-100.log"})
+		// No PutStat seeded -> statFile errors.
+	})
+	if got := collectPVEBackupAgeFromLogs(); got != -1 {
+		t.Errorf("collectPVEBackupAgeFromLogs() = %d, want -1 (stat failure skipped)", got)
+	}
+}
+
+// TestCollectPVEBackupAgeFromLogs_OpenFails guards the per-file openFile
+// error continue: a stat-able but unreadable log file must be skipped.
+func TestCollectPVEBackupAgeFromLogs_OpenFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/var/log/vzdump/*.log", []string{"/var/log/vzdump/qemu-100.log"})
+		b.PutStat("/var/log/vzdump/qemu-100.log", source.FileMeta{ModTime: time.Now()})
+		// No PutFile seeded -> openFile (via ReadFile) errors.
+	})
+	if got := collectPVEBackupAgeFromLogs(); got != -1 {
+		t.Errorf("collectPVEBackupAgeFromLogs() = %d, want -1 (open failure skipped)", got)
+	}
+}
+
+// TestCollectPVEBackupAgeFromLogs_NewestSuccessWins guards the ModTime
+// comparison across multiple successful logs: the OLDER successful log must
+// not overwrite the newer one just because it's scanned later/first —
+// exercises fi.ModTime.After(newest) actually being false on the older entry.
+func TestCollectPVEBackupAgeFromLogs_NewestSuccessWins(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/var/log/vzdump/*.log", []string{
+			"/var/log/vzdump/qemu-100.log",
+			"/var/log/vzdump/qemu-101.log",
+		})
+		b.PutStat("/var/log/vzdump/qemu-100.log", source.FileMeta{ModTime: time.Now().Add(-10 * 24 * time.Hour)})
+		b.PutFile("/var/log/vzdump/qemu-100.log", []byte("INFO: Backup job finished successfully\n"))
+		b.PutStat("/var/log/vzdump/qemu-101.log", source.FileMeta{ModTime: time.Now().Add(-1 * 24 * time.Hour)})
+		b.PutFile("/var/log/vzdump/qemu-101.log", []byte("INFO: Backup job finished successfully\n"))
+	})
+	got := collectPVEBackupAgeFromLogs()
+	if got != 1 {
+		t.Errorf("collectPVEBackupAgeFromLogs() = %d, want 1 (the newer of the two successful logs)", got)
+	}
+}
+
 func TestCollectPVEBackups_ViaTasks(t *testing.T) {
 	now := time.Now()
 	withFixtureSource(t, func(b *source.Bundle) {
@@ -695,5 +862,47 @@ func TestCollectPVEPerf_NotAvailable(t *testing.T) {
 	perf := collectPVEPerf(context.Background(), "/")
 	if perf.Available {
 		t.Error("expected Available=false when pveperf binary absent")
+	}
+}
+
+// TestCollectPVEPerf_CommandFailsNoOutput guards the `err != nil &&
+// TrimSpace(out)==""` short-circuit: pveperf is present but the run genuinely
+// fails with no partial stdout — must return the bare Available=true perf
+// with no metrics, not attempt to parse an empty string.
+func TestCollectPVEPerf_CommandFailsNoOutput(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/pveperf", source.FileMeta{})
+		b.PutCmd("pveperf", []string{"/"}, "", 1)
+	})
+	perf := collectPVEPerf(context.Background(), "/")
+	if !perf.Available {
+		t.Error("expected Available=true (binary present)")
+	}
+	if perf.CPUBogomips != 0 {
+		t.Errorf("CPUBogomips = %v, want 0 (no metrics parsed)", perf.CPUBogomips)
+	}
+}
+
+// TestCollectPVEPerf_MalformedLinesSkipped guards the three per-line parse
+// guards that a clean fixture never exercises: no colon at all (len(parts)
+// != 2), a colon with an empty/whitespace-only value (numStr empty), and a
+// non-numeric value (parseFiniteFloat fails) — each must be skipped without
+// aborting the rest of the parse.
+func TestCollectPVEPerf_MalformedLinesSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/pveperf", source.FileMeta{})
+		b.PutCmd("pveperf", []string{"/"},
+			"this line has no colon\n"+
+				"EMPTY VALUE:    \n"+
+				"CPU BOGOMIPS:      not-a-number\n"+
+				"FSYNCS/SECOND:     2500.00\n",
+			0)
+	})
+	perf := collectPVEPerf(context.Background(), "/")
+	if perf.CPUBogomips != 0 {
+		t.Errorf("CPUBogomips = %v, want 0 (non-numeric value skipped)", perf.CPUBogomips)
+	}
+	if perf.FsyncsPerSec != 2500.00 {
+		t.Errorf("FsyncsPerSec = %v, want 2500 (the one well-formed line after the malformed ones)", perf.FsyncsPerSec)
 	}
 }

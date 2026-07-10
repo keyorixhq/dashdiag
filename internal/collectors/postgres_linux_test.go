@@ -152,6 +152,45 @@ func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 	}
 }
 
+// NOTE (found, not fixed — see report): runCmd (postgres_linux.go:56) treats a
+// non-zero exit as an error and always returns "" for stdout in that case
+// (collector.go's runCmd doc: "returns \"\" ... on a non-zero exit"). That
+// means Collect's `out` variable (from the quiet run) is UNCONDITIONALLY ""
+// whenever !info.Accepting, so the `else if t := strings.TrimSpace(out); t !=
+// ""` fallback at postgres_linux.go:66 can never be true — it is dead code.
+// A test exercising it would only prove the dead branch's OWN unreachable
+// condition, not real behavior, so it is intentionally omitted; see
+// TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable below for the
+// reachable "neither source has text" outcome instead.
+
+// TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable guards the
+// third outcome: neither the non-quiet nor the quiet pg_isready run produced
+// any usable text, so AcceptReason must stay empty rather than panic or
+// fabricate a reason.
+func TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix//tmp/.s.PGSQL.5432": {'1'},
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("pg_isready", []string{"-h", "/tmp", "-q"}, "", 2)
+		b.PutCmd("pg_isready", []string{"-h", "/tmp"}, "", 2)
+		b.PutCmdNotFound("psql", postgresMetricsArgs("/tmp"))
+		b.PutCmdNotFound("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/tmp")...))
+	})
+
+	c := NewPostgresCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.PostgresInfo)
+	if info.Accepting {
+		t.Error("Accepting = true, want false")
+	}
+	if info.AcceptReason != "" {
+		t.Errorf("AcceptReason = %q, want empty when neither pg_isready run produced text", info.AcceptReason)
+	}
+}
+
 func TestAtoiSafe(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

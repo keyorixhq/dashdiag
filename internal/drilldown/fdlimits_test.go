@@ -119,6 +119,28 @@ func TestTopProcessesByFDLinuxAt_WalkProcsErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByFDLinux_TruncatesToN guards the len(entries) > n cap:
+// more FD-heavy processes than requested must be truncated to the top n by
+// used%, not merely sorted.
+func TestTopProcessesByFDLinux_TruncatesToN(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeFDFixture(t, procRoot, 1, "a", 1, 10, 20) // 10%
+	writeFDFixture(t, procRoot, 2, "b", 5, 10, 20) // 50%
+	writeFDFixture(t, procRoot, 3, "c", 9, 10, 20) // 90% (busiest)
+
+	got, err := topProcessesByFDLinuxAt(context.Background(), 2, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByFDLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	if got.Rows[0][0] != "3" {
+		t.Errorf("expected pid 3 (highest used%%) first, got %+v", got.Rows)
+	}
+}
+
 func TestFDSoftLimit(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()
@@ -133,6 +155,27 @@ func TestFDSoftLimit_MissingProcess(t *testing.T) {
 	t.Parallel()
 	if got := fdSoftLimit(t.TempDir(), 999); got != 0 {
 		t.Errorf("fdSoftLimit() for nonexistent PID = %d, want 0", got)
+	}
+}
+
+// TestFDSoftLimit_MalformedOpenFilesLineSkipped guards the len(fields) < 4
+// defensive skip: a truncated "open files" line must fall through to the
+// default 0 rather than index out of range.
+func TestFDSoftLimit_MalformedOpenFilesLineSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	const pid = 321
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	content := "Limit  Soft Limit  Hard Limit  Units\nMax open files\n"
+	if err := os.WriteFile(filepath.Join(dir, "limits"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile limits: %v", err)
+	}
+
+	if got := fdSoftLimit(procRoot, pid); got != 0 {
+		t.Errorf("fdSoftLimit() for a malformed open-files line = %d, want 0", got)
 	}
 }
 
