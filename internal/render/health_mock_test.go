@@ -27,7 +27,9 @@ func TestDisplayOrder(t *testing.T) {
 // external inline func instead of real collector inline data. Cover both
 // output modes and both the insight-present and OK/inline-fallback paths.
 func TestPrintAllMock(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel() (outer or subtests) — quietStdout swaps the shared
+	// global os.Stdout, same convention as captureStdout (see cpu_report_test.go
+	// in cmd, and this package's own quietStdout doc comment).
 	results := []runner.Result{
 		{Name: "CPU Load", Data: models.CPUInfo{UsagePct: 10}},
 		{Name: "Memory", Data: models.MemoryInfo{TotalGB: 16, UsedPct: 50}},
@@ -44,7 +46,6 @@ func TestPrintAllMock(t *testing.T) {
 	for name, mode := range modes {
 		name, mode := name, mode
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			r := NewRenderer(mode)
 			quietStdout(t, func() {
 				r.PrintAllMock(results, insights, inlineFn)

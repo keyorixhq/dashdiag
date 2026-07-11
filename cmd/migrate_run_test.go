@@ -289,7 +289,8 @@ func TestRunMigrateCertify_SourcePlatformMismatchRefused(t *testing.T) {
 // err != nil { return err }") — an --out path whose parent directory doesn't
 // exist makes SaveTarball's final tarGzDir fail deterministically.
 func TestRunMigrateBaseline_CaptureErrorPropagates(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel() — uses captureStderr, which swaps the shared global
+	// os.Stderr (same convention as captureStdout; see cpu_report_test.go).
 	dir := t.TempDir()
 	out := filepath.Join(dir, "no-such-subdir", "baseline.tar.gz")
 	cmd := newBareMigrateBaselineCmd()
