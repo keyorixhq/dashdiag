@@ -639,9 +639,11 @@ func parseSELinuxDenials(ctx context.Context, info *models.SecurityInfo) {
 	_ = ctx // reserved for future timeout use
 }
 
-// suidScanPaths are filesystem roots to scan for unexpected SUID binaries.
-// Deliberately excludes /proc and /sys virtual filesystems.
-var suidScanPaths = []string{"/usr/local", "/opt", "/home", "/tmp", "/var/tmp"}
+// SUIDBinScanPaths are filesystem roots to scan for unexpected SUID binaries.
+// Deliberately excludes /proc and /sys virtual filesystems. Exported so tests
+// can redirect the scan to a temp directory (the real paths can be enormous on
+// CI runners with large tool caches).
+var SUIDBinScanPaths = []string{"/usr/local", "/opt", "/home", "/tmp", "/var/tmp"}
 
 // knownSUIDBinaries are expected SUID binaries — these are not flagged.
 var knownSUIDBinaries = map[string]bool{
@@ -662,7 +664,7 @@ func ScanSUIDBinaries(info *models.SecurityInfo) {
 // findUnexpectedSUIDs scans non-standard paths for SUID binaries.
 // Called separately as it can be slow on large filesystems.
 func findUnexpectedSUIDs(info *models.SecurityInfo) {
-	for _, root := range suidScanPaths {
+	for _, root := range SUIDBinScanPaths {
 		walkSUIDDir(root, info)
 	}
 }

@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 )
 
 // newBareSecurityCmd builds a bare cobra.Command with the flags runSecurity
@@ -55,8 +58,15 @@ func TestRunSecurity(t *testing.T) {
 
 // TestRunSecurityDeep exercises the --deep path (SUID scan runs explicitly)
 // separately from --save-baseline/--drift so it still reaches the normal
-// report render.
+// report render. The SUID scan is redirected to an empty temp dir so it
+// doesn't walk /opt/hostedtoolcache or /usr/local (GBs on CI runners).
+// No t.Parallel() — swaps SUIDBinScanPaths (package global) and captureStdout.
 func TestRunSecurityDeep(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		orig := collectors.SUIDBinScanPaths
+		collectors.SUIDBinScanPaths = []string{t.TempDir()}
+		defer func() { collectors.SUIDBinScanPaths = orig }()
+	}
 	defer func() { pendingExitCode = 0 }()
 	pendingExitCode = 0
 

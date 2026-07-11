@@ -33,5 +33,8 @@ func (c *SecurityCollector) Collect(_ context.Context) (interface{}, error) {
 // CollectSUSEConnect is a no-op on non-Linux platforms.
 func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) {}
 
+// SUIDBinScanPaths mirrors the Linux variable; unused on non-Linux (no SUID scan).
+var SUIDBinScanPaths []string
+
 // ScanSUIDBinaries is a no-op on non-Linux platforms.
 func ScanSUIDBinaries(_ *models.SecurityInfo) {}
