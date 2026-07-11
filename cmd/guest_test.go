@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -211,17 +212,20 @@ func TestPrintGuestView_PressureUnverified(t *testing.T) {
 }
 
 // TestDetectGuestView_Container exercises detectGuestView's real innermost-
-// isolation-layer detection. This test harness runs inside a container (see
-// package doc on captureStdout/real-I/O precedent), so the container branch
-// is the one real invocation can reach; the other DMI-gated branches (AWS/
-// Azure/GCP/OCI/VMware/KVM) and the bare-metal not-found branch are covered
-// directly via the per-provider ...GuestView tests below, since detectGuestView
-// itself has no injection point to force a specific platform.
+// isolation-layer detection. Skipped when not running inside a container
+// (GitHub-hosted runners are Azure VMs or bare-metal macOS, not containers).
+// The other DMI-gated branches (AWS/Azure/GCP/OCI/VMware/KVM) and the
+// bare-metal not-found branch are covered directly via the per-provider
+// ...GuestView tests below, since detectGuestView has no injection point to
+// force a specific platform.
 func TestDetectGuestView_Container(t *testing.T) {
 	t.Parallel()
+	if !collectors.ContainerGuestAvailable() {
+		t.Skip("not running inside a container")
+	}
 	view, found := detectGuestView(context.Background())
 	if !found {
-		t.Fatal("this test harness runs inside a container — detectGuestView should report found=true")
+		t.Fatal("ContainerGuestAvailable returned true but detectGuestView reported found=false")
 	}
 	if !strings.Contains(view.identity, "Container") {
 		t.Errorf("identity should name the container runtime, got %q", view.identity)
@@ -368,11 +372,13 @@ func TestWriteGuestReportHTML_WriteError(t *testing.T) {
 		t.Fatal("expected an error writing to a read-only directory, got nil")
 	}
 
+	// The runGuest path only reaches the report-html branch when detectGuestView
+	// returns found=true. Skip on non-container hosts (Azure runners, macOS).
+	if !collectors.ContainerGuestAvailable() {
+		return
+	}
 	htmlCmd := newBareCloudCmd()
 	_ = htmlCmd.Flags().Set("report-html", "true")
-	// runGuest calls detectGuestView() itself (this harness runs inside a
-	// container, so it reaches the report-html branch) and must wrap the
-	// same write failure.
 	if err := runGuest(htmlCmd, nil); err == nil {
 		t.Error("runGuest --report-html should propagate the write error")
 	} else if !strings.Contains(err.Error(), "writing report") {
@@ -381,11 +387,13 @@ func TestWriteGuestReportHTML_WriteError(t *testing.T) {
 }
 
 // TestRunGuest exercises runGuest's real detection + wiring in --plain,
-// --json, and --report-html mode. This test harness runs inside a container,
-// so the found=true (container) branch is what real invocation reaches; the
-// bare-metal not-found branch has no injection point to force in this
-// environment. No t.Parallel() on the captureStdout cases — shared os.Stdout.
+// --json, and --report-html mode. Skipped on non-container hosts (GitHub
+// runners are Azure VMs or bare macOS). No t.Parallel() — captureStdout
+// swaps the shared os.Stdout.
 func TestRunGuest(t *testing.T) {
+	if !collectors.ContainerGuestAvailable() {
+		t.Skip("not running inside a container")
+	}
 	plainCmd := newBareCloudCmd()
 	_ = plainCmd.Flags().Set("plain", "true")
 	plainOut := captureStdout(t, func() {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,9 @@ const minimalUbuntuOVAL = `<?xml version="1.0"?>
 // TestRunCVEOvalScanNoFile (cve_run_test.go) can't reach since they only
 // exercise the load-failure paths.
 func TestRunOVALScanUbuntuEmptyFeed(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("OVAL scan requires Linux (dpkg-query / rpm)")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ubuntu.xml")
 	if err := os.WriteFile(path, []byte(minimalUbuntuOVAL), 0o600); err != nil {
@@ -55,6 +59,9 @@ func TestRunOVALScanUbuntuEmptyFeed(t *testing.T) {
 // test documents current behavior (banner + trailing JSON) rather than
 // asserting the (currently false) "stdout is valid JSON" property.
 func TestRunOVALScanUbuntuEmptyFeedJSON(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("OVAL scan requires Linux (dpkg-query / rpm)")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ubuntu.xml")
 	if err := os.WriteFile(path, []byte(minimalUbuntuOVAL), 0o600); err != nil {

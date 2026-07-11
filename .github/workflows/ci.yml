@@ -192,8 +192,11 @@ jobs:
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
+            -e GITHUB_TOKEN \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
               set -e
               apt-get update -qq >/dev/null

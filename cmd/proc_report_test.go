@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -178,8 +179,12 @@ func TestPrintProcIdentity(t *testing.T) {
 // TestRunProc exercises runProc's real (read-only) /proc collector wiring in
 // three modes: the default top-list (no PID), an invalid PID argument, and a
 // concrete PID (the test process's own PID, which is always readable). Same
-// real-I/O precedent as cpu_report_test.go / hardware_test.go.
+// real-I/O precedent as cpu_report_test.go / hardware_test.go. Skipped on
+// non-Linux because /proc does not exist on macOS.
 func TestRunProc(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc is Linux-only")
+	}
 	topCmd := newBareCloudCmd()
 	topCmd.SetContext(context.Background())
 	_ = topCmd.Flags().Set("plain", "true")

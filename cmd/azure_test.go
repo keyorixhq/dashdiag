@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -64,10 +65,14 @@ func TestPrintAzureReport_TwoBlockSplit(t *testing.T) {
 	}
 }
 
-// TestRunAzure_NotOnAzure exercises runAzure's real availability gate (this
-// test host is not on Azure) in both --plain and --json mode. No
+// TestRunAzure_NotOnAzure exercises runAzure's real availability gate in both
+// --plain and --json mode. Skipped on Azure hosts (GitHub-hosted runners are
+// Azure VMs) because those reach the full-check branch, not the gate. No
 // t.Parallel() — captureStdout swaps the shared os.Stdout.
 func TestRunAzure_NotOnAzure(t *testing.T) {
+	if collectors.AzureGuestAvailable() {
+		t.Skip("test requires a non-Azure host; this runner is on Azure")
+	}
 	plainCmd := newBareCloudCmd()
 	_ = plainCmd.Flags().Set("plain", "true")
 	plainOut := captureStdout(t, func() {
