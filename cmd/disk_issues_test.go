@@ -114,6 +114,11 @@ func TestRunDisk(t *testing.T) {
 
 	// --deep switches to NewDiskDeepCollector (I/O rate sampling, two-sample
 	// delta) — a distinct branch in runDisk from the plain/json cases above.
+	// Shrink the real sample gap (Linux-only; no-op elsewhere) so the
+	// two-sample requirement is still exercised without paying a real 1s
+	// sleep in every CI run.
+	defer shrinkDiskIOSampleGap()()
+
 	deepCmd := newBareCloudCmd()
 	deepCmd.SetContext(context.Background())
 	_ = deepCmd.Flags().Set("plain", "true")

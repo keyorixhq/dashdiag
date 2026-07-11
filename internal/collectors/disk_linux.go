@@ -479,7 +479,13 @@ func parseZFSScrubAge(out string) int {
 
 // ── I/O rate (deep mode) ──────────────────────────────────────────────────────
 
-// collectDiskIO samples /proc/diskstats twice 1 second apart and
+// DiskIOSampleGap is the real gap between the two /proc/diskstats samples
+// collectDiskIO takes. 1s in production; tests may shrink it to keep the
+// two-sample requirement (see CLAUDE.md's "IO collectors require TWO
+// samples") without paying a real 1s sleep per test.
+var DiskIOSampleGap = time.Second
+
+// collectDiskIO samples /proc/diskstats twice DiskIOSampleGap apart and
 // returns per-device MB/s read and write rates.
 func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 	type diskStat struct {
@@ -512,7 +518,7 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 	}
 
 	before := readStats()
-	time.Sleep(1 * time.Second)
+	time.Sleep(DiskIOSampleGap)
 	after := readStats()
 
 	stats := make([]models.DiskIOStat, 0, len(drives))

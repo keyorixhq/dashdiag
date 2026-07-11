@@ -202,13 +202,8 @@ func classifyInit(hasSystemdPriv, hasOpenrcBin, hasInittab bool, pid1 string) st
 	return "unknown"
 }
 
-// pid1Comm returns the command name of PID 1 from /proc/1/comm (world-readable,
-// so it works non-root). "" when unreadable (non-Linux / no procfs).
-func pid1Comm() string {
-	return pid1CommFromPath("/proc/1/comm")
-}
-
-// pid1CommFromPath is the testable core of pid1Comm.
+// pid1CommFromPath returns the command name of PID 1 from /proc/1/comm
+// (world-readable, so it works non-root). "" when unreadable (non-Linux / no procfs).
 func pid1CommFromPath(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
