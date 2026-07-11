@@ -45,7 +45,6 @@ func (l Live) Stat(path string) (FileMeta, error) {
 	return FileMeta{Size: fi.Size(), Mode: fi.Mode(), IsDir: fi.IsDir(), ModTime: fi.ModTime()}, nil
 }
 
-
 func (l Live) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
 	return produce() // live reads always recompute; nothing is cached
 }
