@@ -89,6 +89,11 @@ func TestRunSecurityDeep(t *testing.T) {
 func TestRunSecuritySaveBaselineAndDrift(t *testing.T) {
 	defer func() { pendingExitCode = 0 }()
 	pendingExitCode = 0
+	if runtime.GOOS == "linux" {
+		orig := collectors.SUIDBinScanPaths
+		collectors.SUIDBinScanPaths = []string{t.TempDir()}
+		defer func() { collectors.SUIDBinScanPaths = orig }()
+	}
 	t.Setenv("HOME", t.TempDir())
 
 	// No baseline yet: --drift should say so, not error.
