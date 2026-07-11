@@ -288,6 +288,7 @@ func collectPVEStorages(ctx context.Context) (storagesOut []models.PVEStorage, v
 		Used    float64 `json:"used"`
 		Total   float64 `json:"total"`
 		Active  int     `json:"active"`
+		Enabled int     `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return nil, false
@@ -301,6 +302,7 @@ func collectPVEStorages(ctx context.Context) (storagesOut []models.PVEStorage, v
 			UsedGB:  item.Used / (1024 * 1024 * 1024),
 			TotalGB: item.Total / (1024 * 1024 * 1024),
 			Active:  item.Active == 1,
+			Enabled: item.Enabled == 1,
 		}
 		if item.Total > 0 {
 			s.UsedPct = item.Used / item.Total * 100

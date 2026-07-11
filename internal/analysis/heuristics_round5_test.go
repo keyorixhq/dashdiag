@@ -44,13 +44,20 @@ func TestCheckPVECluster(t *testing.T) {
 
 func TestCheckPVEStorage(t *testing.T) {
 	stor := func(active bool, used float64) models.PVEInfo {
-		return models.PVEInfo{StoragesVerified: true, Storages: []models.PVEStorage{{Name: "local", Type: "dir", Active: active, UsedPct: used, TotalGB: 100}}}
+		return models.PVEInfo{StoragesVerified: true, Storages: []models.PVEStorage{{Name: "local", Type: "dir", Active: active, Enabled: true, UsedPct: used, TotalGB: 100}}}
 	}
 	assertLevel(t, checkPVEStorage(models.PVEInfo{StoragesVerified: true}), "") // verified, no storage
 	assertLevel(t, checkPVEStorage(stor(true, 50)), "")
-	assertLevel(t, checkPVEStorage(stor(false, 0)), "CRIT") // inactive
+	assertLevel(t, checkPVEStorage(stor(false, 0)), "CRIT") // inactive but enabled — real fault
 	assertLevel(t, checkPVEStorage(stor(true, 85)), "WARN") // 80-90
 	assertLevel(t, checkPVEStorage(stor(true, 92)), "CRIT") // >=90
+
+	// §O.4 — inactive AND disabled (storage.cfg `disable` flag) is intentional,
+	// not a fault: e.g. an admin-disabled or optional/removable mount.
+	disabled := models.PVEInfo{StoragesVerified: true, Storages: []models.PVEStorage{
+		{Name: "old-nfs", Type: "dir", Active: false, Enabled: false, TotalGB: 100},
+	}}
+	assertLevel(t, checkPVEStorage(disabled), "INFO")
 }
 
 func TestCheckPVEBackups(t *testing.T) {

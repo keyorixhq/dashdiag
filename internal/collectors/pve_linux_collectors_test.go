@@ -463,7 +463,7 @@ func TestCollectPVEHAFencing_Unparseable(t *testing.T) {
 func TestCollectPVEStorages_Happy(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/storage", "--output-format", "json"},
-			`[{"storage":"local","type":"dir","used":5368709120,"total":10737418240,"active":1}]`, 0)
+			`[{"storage":"local","type":"dir","used":5368709120,"total":10737418240,"active":1,"enabled":1}]`, 0)
 	})
 	storages, verified := collectPVEStorages(context.Background())
 	if !verified {
@@ -473,8 +473,32 @@ func TestCollectPVEStorages_Happy(t *testing.T) {
 		t.Fatalf("expected 1 storage, got %d", len(storages))
 	}
 	s := storages[0]
-	if s.Name != "local" || s.UsedGB != 5 || s.TotalGB != 10 || s.UsedPct != 50 {
+	if s.Name != "local" || s.UsedGB != 5 || s.TotalGB != 10 || s.UsedPct != 50 || !s.Enabled {
 		t.Errorf("storage = %+v", s)
+	}
+}
+
+// §O.4 — a storage disabled via storage.cfg reports active:0, enabled:0; dsd
+// must be able to tell that apart from an enabled storage that failed to
+// activate (active:0, enabled:1).
+func TestCollectPVEStorages_DisabledVsInactive(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/storage", "--output-format", "json"},
+			`[{"storage":"old-nfs","type":"dir","used":0,"total":0,"active":0,"enabled":0},`+
+				`{"storage":"broken-mount","type":"dir","used":0,"total":0,"active":0,"enabled":1}]`, 0)
+	})
+	storages, verified := collectPVEStorages(context.Background())
+	if !verified {
+		t.Fatal("expected verified=true")
+	}
+	if len(storages) != 2 {
+		t.Fatalf("expected 2 storages, got %d", len(storages))
+	}
+	if storages[0].Active || storages[0].Enabled {
+		t.Errorf("old-nfs = %+v, want active=false enabled=false", storages[0])
+	}
+	if storages[1].Active || !storages[1].Enabled {
+		t.Errorf("broken-mount = %+v, want active=false enabled=true", storages[1])
 	}
 }
 
