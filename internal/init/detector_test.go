@@ -64,3 +64,20 @@ func TestDetectServerProfile_Smoke(t *testing.T) {
 		t.Errorf("DetectServerProfile() = %q, want one of the known profile names", got)
 	}
 }
+
+// darwinProcessNames shells out to the real "ps aux" and parses its output.
+// It isn't gated on runtime.GOOS internally, so it's exercised directly here
+// as a smoke test (real "ps" is available on this Linux CI/dev box too, and
+// BSD-style "ps aux" column layout — COMMAND as the 11th field — matches).
+func TestDarwinProcessNames_Smoke(t *testing.T) {
+	t.Parallel()
+	names := darwinProcessNames()
+	if len(names) == 0 {
+		t.Skip("no process names parsed from `ps aux` in this environment")
+	}
+	for _, n := range names {
+		if n == "" {
+			t.Errorf("darwinProcessNames() returned an empty name among %v", names)
+		}
+	}
+}

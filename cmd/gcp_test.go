@@ -60,6 +60,44 @@ func TestPrintGCPReport_TwoBlockSplit(t *testing.T) {
 	}
 }
 
+// TestRunGCP_NotOnGCP exercises runGCP's real availability gate (this test
+// host is not on GCE) in both --plain and --json mode. No t.Parallel() —
+// captureStdout swaps the shared os.Stdout.
+func TestRunGCP_NotOnGCP(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runGCP(plainCmd, nil); err != nil {
+			t.Fatalf("runGCP (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "not running on GCE") {
+		t.Errorf("plain mode should report 'not running on GCE', got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runGCP(jsonCmd, nil); err != nil {
+			t.Fatalf("runGCP (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"is_gcp"`) {
+		t.Errorf("json mode should encode an empty GCPInfo, got: %q", jsonOut)
+	}
+}
+
+// Without gVNIC, a detected NIC driver name is shown instead of the generic
+// "synthetic" fallback.
+func TestPrintGCPReport_NICDriverFallback(t *testing.T) {
+	var buf bytes.Buffer
+	printGCPReport(&buf, &models.GCPInfo{IsGCP: true, NICDriver: "virtio_net"}, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if !strings.Contains(out, "networking: virtio_net") {
+		t.Errorf("a non-gVNIC driver should be shown by name, got:\n%s", out)
+	}
+}
+
 func TestPrintGCPReport_Healthy(t *testing.T) {
 	clean := &models.GCPInfo{
 		IsGCP: true, UsesGVNIC: true,

@@ -12,7 +12,12 @@ func OSPrettyName() string {
 	if o := osIdentityOverride(); o != "" {
 		return o // replay: report the captured host's OS, not the replaying box's
 	}
-	data, err := os.ReadFile("/etc/os-release")
+	return osPrettyNameFromPath("/etc/os-release")
+}
+
+// osPrettyNameFromPath is the testable core of OSPrettyName.
+func osPrettyNameFromPath(path string) string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return runtime.GOOS
 	}

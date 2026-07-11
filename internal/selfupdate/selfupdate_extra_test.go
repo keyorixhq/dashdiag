@@ -1,0 +1,370 @@
+package selfupdate
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestNormalize(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"plain", "1.2.3", "1.2.3"},
+		{"v-prefixed", "v1.2.3", "1.2.3"},
+		{"whitespace", "  v1.2.3  ", "1.2.3"},
+		{"dev", "dev", ""},
+		{"empty", "", ""},
+		{"major-minor-only", "v1.2", "1.2"},
+		{"prerelease suffix", "v1.2.3-rc1", "1.2.3-rc1"},
+		{"build suffix", "v1.2.3+build5", "1.2.3+build5"},
+		{"non-numeric part", "v1.x.3", ""},
+		{"empty part", "v1..3", ""},
+		{"too many parts, 4th makes 3rd part unparseable", "v1.2.3.4", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := normalize(c.in); got != c.want {
+				t.Errorf("normalize(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestVersionParts(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want [3]int
+	}{
+		{"full", "v1.2.3", [3]int{1, 2, 3}},
+		{"major-minor", "v1.2", [3]int{1, 2, 0}},
+		{"unparseable", "dev", [3]int{0, 0, 0}},
+		{"prerelease", "v1.2.3-rc1", [3]int{1, 2, 3}},
+		{"too many parts unparseable", "v1.2.3.4", [3]int{0, 0, 0}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := versionParts(c.in); got != c.want {
+				t.Errorf("versionParts(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsCleanRelease(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"major-minor", "v1.2", true},
+		{"major-minor-patch", "v1.2.3", true},
+		{"no-v-prefix", "1.2.3", true},
+		{"single-part", "v1", false},
+		{"too-many-parts", "v1.2.3.4", false},
+		{"empty-part", "v1..3", false},
+		{"non-numeric", "v1.2.x", false},
+		{"dev", "dev", false},
+		{"describe-string", "v0.6.1-12-gabc123", false},
+		{"prerelease", "v1.2.3-rc1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isCleanRelease(c.in); got != c.want {
+				t.Errorf("isCleanRelease(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestLatestRelease_ErrorPaths(t *testing.T) {
+	t.Run("non-200 status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+		oldBase := apiBase
+		apiBase = srv.URL
+		defer func() { apiBase = oldBase }()
+
+		_, err := LatestRelease(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "404") {
+			t.Fatalf("expected 404 error, got %v", err)
+		}
+	})
+
+	t.Run("malformed JSON body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("{not json"))
+		}))
+		defer srv.Close()
+		oldBase := apiBase
+		apiBase = srv.URL
+		defer func() { apiBase = oldBase }()
+
+		_, err := LatestRelease(context.Background())
+		if err == nil {
+			t.Fatal("expected JSON decode error")
+		}
+	})
+
+	t.Run("empty tag name", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"tag_name":""}`))
+		}))
+		defer srv.Close()
+		oldBase := apiBase
+		apiBase = srv.URL
+		defer func() { apiBase = oldBase }()
+
+		_, err := LatestRelease(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "no tag") {
+			t.Fatalf("expected 'no tag' error, got %v", err)
+		}
+	})
+
+	t.Run("request creation error", func(t *testing.T) {
+		oldBase := apiBase
+		// A control character in the URL makes http.NewRequestWithContext fail.
+		apiBase = "http://\x7f"
+		defer func() { apiBase = oldBase }()
+
+		_, err := LatestRelease(context.Background())
+		if err == nil {
+			t.Fatal("expected error constructing the request")
+		}
+	})
+
+	t.Run("client Do error (unreachable host)", func(t *testing.T) {
+		oldBase := apiBase
+		apiBase = "http://127.0.0.1:1" // nothing listens here
+		defer func() { apiBase = oldBase }()
+
+		_, err := LatestRelease(context.Background())
+		if err == nil {
+			t.Fatal("expected a network error")
+		}
+	})
+}
+
+func TestFindAsset(t *testing.T) {
+	assets := []Asset{{Name: "a"}, {Name: "b"}}
+	if got := findAsset(assets, "b"); got == nil || got.Name != "b" {
+		t.Errorf("findAsset(b) = %+v", got)
+	}
+	if got := findAsset(assets, "missing"); got != nil {
+		t.Errorf("findAsset(missing) = %+v, want nil", got)
+	}
+}
+
+func TestChecksumFor(t *testing.T) {
+	data := []byte("aaa  file-one\nbbb  file-two\n")
+	t.Run("found", func(t *testing.T) {
+		got, err := checksumFor(data, "file-two")
+		if err != nil || got != "bbb" {
+			t.Errorf("checksumFor = %q, %v", got, err)
+		}
+	})
+	t.Run("not found", func(t *testing.T) {
+		_, err := checksumFor(data, "missing")
+		if err == nil {
+			t.Fatal("expected error for missing checksum entry")
+		}
+	})
+}
+
+func TestHTTPGet_ErrorPaths(t *testing.T) {
+	client := &http.Client{}
+
+	t.Run("bad status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+		_, err := httpGet(context.Background(), client, srv.URL)
+		if err == nil || !strings.Contains(err.Error(), "403") {
+			t.Fatalf("expected 403 error, got %v", err)
+		}
+	})
+
+	t.Run("request creation error", func(t *testing.T) {
+		_, err := httpGet(context.Background(), client, "http://\x7f")
+		if err == nil {
+			t.Fatal("expected request construction error")
+		}
+	})
+
+	t.Run("unreachable host", func(t *testing.T) {
+		_, err := httpGet(context.Background(), client, "http://127.0.0.1:1")
+		if err == nil {
+			t.Fatal("expected connection error")
+		}
+	})
+}
+
+func TestFetchBytes_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	_, err := fetchBytes(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected fetchBytes error on 500")
+	}
+}
+
+func TestDownloadToTemp_Errors(t *testing.T) {
+	t.Run("httpGet fails", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		_, _, err := downloadToTemp(context.Background(), srv.URL, t.TempDir())
+		if err == nil {
+			t.Fatal("expected error when the download itself fails")
+		}
+	})
+
+	t.Run("target dir does not exist", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("payload"))
+		}))
+		defer srv.Close()
+		missing := filepath.Join(t.TempDir(), "does", "not", "exist")
+		_, _, err := downloadToTemp(context.Background(), srv.URL, missing)
+		if err == nil || !strings.Contains(err.Error(), "cannot stage update") {
+			t.Fatalf("expected 'cannot stage update' error, got %v", err)
+		}
+	})
+
+	t.Run("success computes sha256", func(t *testing.T) {
+		payload := []byte("hello world")
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(payload)
+		}))
+		defer srv.Close()
+		dir := t.TempDir()
+		path, sum, err := downloadToTemp(context.Background(), srv.URL, dir)
+		if err != nil {
+			t.Fatalf("downloadToTemp: %v", err)
+		}
+		defer os.Remove(path)
+		got, _ := os.ReadFile(path)
+		if string(got) != string(payload) {
+			t.Errorf("downloaded content = %q, want %q", got, payload)
+		}
+		if sum == "" {
+			t.Error("expected a non-empty checksum")
+		}
+	})
+}
+
+// TestApply_ErrorPaths covers the early-return error branches in Apply that
+// TestApply_EndToEnd / TestApply_ChecksumMismatch don't exercise.
+func TestApply_ErrorPaths(t *testing.T) {
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	defer func() { signingPublicKey = oldKey }()
+
+	t.Run("no asset for this platform", func(t *testing.T) {
+		rel := &Release{TagName: "v1", Assets: []Asset{}}
+		_, err := Apply(context.Background(), rel)
+		if err == nil || !strings.Contains(err.Error(), "no asset") {
+			t.Fatalf("expected 'no asset' error, got %v", err)
+		}
+	})
+
+	t.Run("no checksums.txt", func(t *testing.T) {
+		rel := &Release{TagName: "v1", Assets: []Asset{{Name: AssetName(), URL: "http://example/bin"}}}
+		_, err := Apply(context.Background(), rel)
+		if err == nil || !strings.Contains(err.Error(), "checksums.txt") {
+			t.Fatalf("expected 'checksums.txt' error, got %v", err)
+		}
+	})
+
+	t.Run("fetchBytes for checksums fails", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		rel := &Release{TagName: "v1", Assets: []Asset{
+			{Name: AssetName(), URL: "http://example/bin"},
+			{Name: "checksums.txt", URL: srv.URL},
+		}}
+		_, err := Apply(context.Background(), rel)
+		if err == nil {
+			t.Fatal("expected error fetching checksums.txt")
+		}
+	})
+
+	t.Run("checksum missing for asset", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("aaa  some-other-file\n"))
+		}))
+		defer srv.Close()
+		rel := &Release{TagName: "v1", Assets: []Asset{
+			{Name: AssetName(), URL: "http://example/bin"},
+			{Name: "checksums.txt", URL: srv.URL},
+		}}
+		_, err := Apply(context.Background(), rel)
+		if err == nil || !strings.Contains(err.Error(), "no checksum for") {
+			t.Fatalf("expected 'no checksum for' error, got %v", err)
+		}
+	})
+
+	t.Run("executable() fails", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/bin", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("x")) })
+		mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("aaa  " + AssetName() + "\n"))
+		})
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		rel := &Release{TagName: "v1", Assets: []Asset{
+			{Name: AssetName(), URL: srv.URL + "/bin"},
+			{Name: "checksums.txt", URL: srv.URL + "/sums"},
+		}}
+
+		oldExe := executable
+		executable = func() (string, error) { return "", errors.New("no executable") }
+		defer func() { executable = oldExe }()
+
+		_, err := Apply(context.Background(), rel)
+		if err == nil || !strings.Contains(err.Error(), "no executable") {
+			t.Fatalf("expected executable() error, got %v", err)
+		}
+	})
+
+	t.Run("downloadToTemp fails (bad binary URL)", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("aaa  " + AssetName() + "\n"))
+		})
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		rel := &Release{TagName: "v1", Assets: []Asset{
+			{Name: AssetName(), URL: "http://127.0.0.1:1"},
+			{Name: "checksums.txt", URL: srv.URL + "/sums"},
+		}}
+
+		dir := t.TempDir()
+		target := filepath.Join(dir, "dsd")
+		_ = os.WriteFile(target, []byte("old"), 0o755)
+		oldExe := executable
+		executable = func() (string, error) { return target, nil }
+		defer func() { executable = oldExe }()
+
+		_, err := Apply(context.Background(), rel)
+		if err == nil {
+			t.Fatal("expected downloadToTemp error")
+		}
+	})
+}

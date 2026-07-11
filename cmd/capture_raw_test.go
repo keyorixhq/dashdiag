@@ -1,0 +1,210 @@
+package cmd
+
+// capture_raw_test.go — covers runCaptureRaw and its small helpers. Each test
+// performs one real (terse) health collection through source.Recorder — same
+// established real-I/O precedent as this package's other cmd-wiring tests
+// (see cpu_report_test.go's comment block). No t.Parallel() on the tests that
+// swap CWD (report writers write to ".") — os.Chdir is process-global.
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
+// newBareCaptureRawCmd builds a standalone *cobra.Command with the flags
+// runCaptureRaw reads via cmd.Flags().Get*.
+func newBareCaptureRawCmd() *cobra.Command {
+	c := &cobra.Command{}
+	f := c.Flags()
+	f.StringP("out", "o", "", "")
+	f.Bool("sanitize", false, "")
+	f.Bool("identifiers", false, "")
+	f.Bool("deep", false, "")
+	f.Bool("pkg", false, "")
+	f.Bool("cve-scan", false, "")
+	return c
+}
+
+func TestRunCaptureRaw_DefaultWritesBundle(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle.tar.gz")
+	cmd := newBareCaptureRawCmd()
+	_ = cmd.Flags().Set("out", out)
+	stderr := captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("expected bundle written at %s, got: %v", out, err)
+	}
+	if !strings.Contains(stderr, "Raw bundle written") {
+		t.Errorf("expected write confirmation on stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "unredacted") {
+		t.Errorf("without --sanitize, stderr should warn it's unredacted, got: %q", stderr)
+	}
+}
+
+func TestRunCaptureRaw_SanitizeIdentifiers(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle.tar.gz")
+	cmd := newBareCaptureRawCmd()
+	_ = cmd.Flags().Set("out", out)
+	_ = cmd.Flags().Set("sanitize", "true")
+	_ = cmd.Flags().Set("identifiers", "true")
+	stderr := captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("expected bundle written at %s, got: %v", out, err)
+	}
+	if !strings.Contains(stderr, "Sanitized") {
+		t.Errorf("--sanitize should report a sanitize summary, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "Identifiers redacted") {
+		t.Errorf("--identifiers should mention identifier redaction, got: %q", stderr)
+	}
+}
+
+// TestRunCaptureRaw_IdentifiersImpliesSanitize covers the branch where
+// --identifiers is set without --sanitize: sanitize must still run.
+func TestRunCaptureRaw_IdentifiersImpliesSanitize(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle.tar.gz")
+	cmd := newBareCaptureRawCmd()
+	_ = cmd.Flags().Set("out", out)
+	_ = cmd.Flags().Set("identifiers", "true")
+	stderr := captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "Sanitized") {
+		t.Errorf("--identifiers alone should imply --sanitize, got: %q", stderr)
+	}
+}
+
+// TestRunCaptureRaw_DefaultOutPath covers the "" -> generated filename branch.
+// Chdir into a temp dir so the generated dsd-raw-*.tar.gz lands there, not in
+// the repo working tree.
+func TestRunCaptureRaw_DefaultOutPath(t *testing.T) {
+	dir := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	cmd := newBareCaptureRawCmd()
+	captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "dsd-raw-") && strings.HasSuffix(e.Name(), ".tar.gz") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a default-named dsd-raw-*.tar.gz bundle in %s, got entries: %v", dir, entries)
+	}
+}
+
+func TestHostnameOr(t *testing.T) {
+	t.Parallel()
+	if got := hostnameOr("fallback"); got == "" {
+		t.Error("hostnameOr should never return an empty string")
+	}
+}
+
+// kernelRelease/osPretty/detectGPUPresence read through the currently active
+// source (collectors.ActiveSource()); by the time these run no other test in
+// this package should have left a Replay source installed (every such test
+// defers SetSource(prev)), so these exercise the live/default source — same
+// real-I/O precedent as elsewhere in this file.
+func TestKernelReleaseOsPrettyDetectGPUPresence(t *testing.T) {
+	// These must not panic; on a Linux CI/container box the values will
+	// generally be non-empty, but a defensive assertion on emptiness alone
+	// would be flaky across sandboxes, so just exercise the call paths.
+	_ = kernelRelease()
+	_ = osPretty()
+	_ = detectGPUPresence()
+}
+
+// TestKernelReleaseOsPretty_ReadFailureFallsBack swaps in a Replay over an
+// empty bundle (no recorded read for /proc/sys/kernel/osrelease or
+// /etc/os-release), forcing the ReadFileViaSource error branch in both
+// helpers — the fallback path a live host with those files present never
+// exercises.
+func TestKernelReleaseOsPretty_ReadFailureFallsBack(t *testing.T) {
+	prev := collectors.SetSource(source.NewReplay(source.NewBundle()))
+	defer collectors.SetSource(prev)
+
+	if got := kernelRelease(); got != "" {
+		t.Errorf("kernelRelease with no recorded read should return empty, got %q", got)
+	}
+	if got := osPretty(); got == "" {
+		t.Error("osPretty with no recorded read should fall back to runtime.GOOS, not empty")
+	}
+}
+
+// TestOsPretty_ParsesPrettyName covers the success path's PRETTY_NAME line
+// parse via a recorded /etc/os-release read.
+func TestOsPretty_ParsesPrettyName(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/etc/os-release", []byte("ID=ubuntu\nPRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\n"))
+	prev := collectors.SetSource(source.NewReplay(b))
+	defer collectors.SetSource(prev)
+
+	if got := osPretty(); got != "Ubuntu 24.04.1 LTS" {
+		t.Errorf("osPretty should parse PRETTY_NAME, got %q", got)
+	}
+}
+
+// TestOsPretty_NoPrettyNameLineFallsBack covers the loop-exhausted branch:
+// /etc/os-release is present and reads successfully but has no PRETTY_NAME
+// line, so osPretty falls through to runtime.GOOS — distinct from the
+// ReadFileViaSource error branch covered above.
+func TestOsPretty_NoPrettyNameLineFallsBack(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/etc/os-release", []byte("ID=mystery\nVERSION_ID=1\n"))
+	prev := collectors.SetSource(source.NewReplay(b))
+	defer collectors.SetSource(prev)
+
+	if got := osPretty(); got != runtime.GOOS {
+		t.Errorf("osPretty with no PRETTY_NAME line should fall back to runtime.GOOS, got %q", got)
+	}
+}
+
+// TestDetectGPUPresence_CardsFound covers the "found at least one DRM card"
+// branch via a recorded glob match.
+func TestDetectGPUPresence_CardsFound(t *testing.T) {
+	b := source.NewBundle()
+	b.PutGlob("/sys/class/drm/card[0-9]", []string{"/sys/class/drm/card0"})
+	prev := collectors.SetSource(source.NewReplay(b))
+	defer collectors.SetSource(prev)
+
+	if !detectGPUPresence() {
+		t.Error("a recorded glob match should report GPU presence")
+	}
+}

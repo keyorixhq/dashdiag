@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -51,5 +53,77 @@ func TestDiskHasUnverifiedReads(t *testing.T) {
 	// An unverified read must NOT inflate the concern tally (stays INFO, not WARN).
 	if got := countDiskIssues(&models.DiskInfo{ZFSListReadFailed: true}, &models.LVMInfo{VGReadFailed: true}); got != 0 {
 		t.Errorf("unverified reads must not be counted as concerns, got %d", got)
+	}
+}
+
+// TestCountSteamOSDiskIssues exercises every independent branch: nil (non-
+// SteamOS host), a large shader cache, and broken bind mounts.
+func TestCountSteamOSDiskIssues(t *testing.T) {
+	if got := countSteamOSDiskIssues(nil); got != 0 {
+		t.Errorf("nil SteamOS disk info should count 0 issues, got %d", got)
+	}
+	cases := []struct {
+		name string
+		d    models.SteamOSDisk
+		want int
+	}{
+		{"clean", models.SteamOSDisk{}, 0},
+		{"large shader cache", models.SteamOSDisk{ShaderCacheGB: 15}, 1},
+		{"small shader cache not counted", models.SteamOSDisk{ShaderCacheGB: 5}, 0},
+		{"one broken bind mount", models.SteamOSDisk{BindMounts: []models.SteamOSBindMount{{OK: false}}}, 1},
+		{"intact bind mount not counted", models.SteamOSDisk{BindMounts: []models.SteamOSBindMount{{OK: true}}}, 0},
+		{"cache plus two broken mounts", models.SteamOSDisk{
+			ShaderCacheGB: 20,
+			BindMounts:    []models.SteamOSBindMount{{OK: false}, {OK: false}, {OK: true}},
+		}, 3},
+	}
+	for _, c := range cases {
+		if got := countSteamOSDiskIssues(&c.d); got != c.want {
+			t.Errorf("%s: countSteamOSDiskIssues = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// TestRunDisk exercises runDisk's real (read-only) collector wiring in
+// --plain and --json mode (non-deep). Same real-I/O precedent as
+// cpu_report_test.go / net_test.go's TestRunNet.
+func TestRunDisk(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runDisk(plainCmd, nil); err != nil {
+			t.Fatalf("runDisk (plain): %v", err)
+		}
+	})
+	if plainOut == "" {
+		t.Error("runDisk (plain) produced no output")
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runDisk(jsonCmd, nil); err != nil {
+			t.Fatalf("runDisk (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
+	}
+
+	// --deep switches to NewDiskDeepCollector (I/O rate sampling, two-sample
+	// delta) — a distinct branch in runDisk from the plain/json cases above.
+	deepCmd := newBareCloudCmd()
+	deepCmd.SetContext(context.Background())
+	_ = deepCmd.Flags().Set("plain", "true")
+	_ = deepCmd.Flags().Set("deep", "true")
+	deepOut := captureStdout(t, func() {
+		if err := runDisk(deepCmd, nil); err != nil {
+			t.Fatalf("runDisk (deep): %v", err)
+		}
+	})
+	if deepOut == "" {
+		t.Error("runDisk (deep) produced no output")
 	}
 }

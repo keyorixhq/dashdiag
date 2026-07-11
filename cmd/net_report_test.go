@@ -172,6 +172,41 @@ func TestPrintNFSReport(t *testing.T) {
 	if !strings.Contains(v4NoRpcbind, "not required") {
 		t.Errorf("rpcbind inactive on an NFSv4-only host must not false-alarm, got:\n%s", v4NoRpcbind)
 	}
+
+	// rpcbind active: single "active" line, regardless of mount versions.
+	active := captureStdout(t, func() {
+		printNFSReport(&models.NFSInfo{Mounts: []models.NFSMount{
+			{Mount: "/mnt/data", Server: "nfs01", Export: "/export", Healthy: true},
+		}, RpcbindActive: true}, output.ModePlain)
+	})
+	if !strings.Contains(active, "active") {
+		t.Errorf("an active rpcbind should say so, got:\n%s", active)
+	}
+
+	// Non-stale, non-healthy mount ("error" status) and mount option warnings.
+	errored := captureStdout(t, func() {
+		printNFSReport(&models.NFSInfo{Mounts: []models.NFSMount{
+			{Mount: "/mnt/data", Server: "nfs01", Export: "/export", Healthy: false,
+				OptionsWarnings: []string{"soft mount — risk of silent data loss"}},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(errored, "error") {
+		t.Errorf("a non-stale unhealthy mount should show an error status, got:\n%s", errored)
+	}
+	if !strings.Contains(errored, "soft mount") {
+		t.Errorf("mount option warnings should be shown, got:\n%s", errored)
+	}
+
+	// NFS stats section — retransmission rate and read/write ops.
+	stats := captureStdout(t, func() {
+		printNFSReport(&models.NFSInfo{
+			Mounts:        []models.NFSMount{{Mount: "/mnt/data", Server: "nfs01", Export: "/export", Healthy: true}},
+			RetransPerMin: 50, ReadOpsPerMin: 1200, WriteOpsPerMin: 300,
+		}, output.ModePlain)
+	})
+	if !strings.Contains(stats, "Retransmissions") || !strings.Contains(stats, "Read ops") || !strings.Contains(stats, "Write ops") {
+		t.Errorf("nonzero NFS stats should render the stats section, got:\n%s", stats)
+	}
 }
 
 func TestPrintBINDReport(t *testing.T) {
@@ -212,6 +247,40 @@ func TestPrintBINDReport(t *testing.T) {
 	})
 	if !strings.Contains(queryFailed, "not answering queries") {
 		t.Errorf("a genuinely failed query test should say named is not answering, got:\n%s", queryFailed)
+	}
+
+	// UDP-only and TCP-only listener branches.
+	udpOnly := captureStdout(t, func() {
+		printBINDReport(&models.BINDInfo{ConfigOK: true, PortsChecked: true, Port53TCP: false, Port53UDP: true})
+	})
+	if !strings.Contains(udpOnly, "UDP only") {
+		t.Errorf("UDP listening but not TCP should say UDP only, got:\n%s", udpOnly)
+	}
+	tcpOnly := captureStdout(t, func() {
+		printBINDReport(&models.BINDInfo{ConfigOK: true, PortsChecked: true, Port53TCP: true, Port53UDP: false})
+	})
+	if !strings.Contains(tcpOnly, "TCP only") {
+		t.Errorf("TCP listening but not UDP should say TCP only, got:\n%s", tcpOnly)
+	}
+
+	// Version/uptime header line and query-count stats footer, plus a
+	// successfully-validated zone.
+	full := captureStdout(t, func() {
+		printBINDReport(&models.BINDInfo{
+			Version: "9.18.1", Uptime: "3d 4h", ServiceActive: true,
+			ConfigOK: true, PortsChecked: true, Port53TCP: true, Port53UDP: true,
+			Zones:       []models.BINDZone{{Name: "example.com", OK: true}},
+			QueryTested: true, QueryOK: true, QueryLatencyMs: 3, QueryCount: 4200,
+		})
+	})
+	if !strings.Contains(full, "BIND 9.18.1") || !strings.Contains(full, "up 3d 4h") {
+		t.Errorf("the version/uptime header should be shown, got:\n%s", full)
+	}
+	if !strings.Contains(full, "Zone example.com") || !strings.Contains(full, "OK") {
+		t.Errorf("a passing zone should say OK, got:\n%s", full)
+	}
+	if !strings.Contains(full, "Queries served: 4200") {
+		t.Errorf("a nonzero query count should be shown, got:\n%s", full)
 	}
 }
 
@@ -351,5 +420,70 @@ func TestPrintNetReportVerdict(t *testing.T) {
 	})
 	if !strings.Contains(inContainer, "Running inside a container") {
 		t.Errorf("container context should be surfaced, got:\n%s", inContainer)
+	}
+}
+
+// TestPrintNetReportWiFiInterface covers the WiFi-interface detail line (band,
+// rate, signal-quality glyph tiers, and RxDrops) — the non-WiFi branch is
+// already exercised by TestPrintNetReportVerdict's eth0 interface.
+func TestPrintNetReportWiFiInterface(t *testing.T) {
+	strongSignal := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
+			{Name: "wlan0", IP: "10.0.0.9", Up: true, RxDrops: 3, WiFi: &models.WiFiInfo{
+				SSID: "HomeNet", Band: "5GHz", RateMbps: 866, SignalDBm: -55,
+			}},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(strongSignal, "HomeNet") || !strings.Contains(strongSignal, "5GHz") || !strings.Contains(strongSignal, "866 Mbps") {
+		t.Errorf("a WiFi interface should show SSID/band/rate, got:\n%s", strongSignal)
+	}
+	if !strings.Contains(strongSignal, "drops:3") {
+		t.Errorf("RxDrops on a WiFi interface should be shown, got:\n%s", strongSignal)
+	}
+
+	weakSignal := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
+			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{FreqGHz: 2.437, SignalDBm: -85}},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(weakSignal, "2.44GHz") {
+		t.Errorf("a WiFi interface with no Band but a FreqGHz should fall back to the frequency, got:\n%s", weakSignal)
+	}
+}
+
+// TestPrintNetReportDeepMetrics covers the deep TCP kernel counters section and
+// the ICMP-blocked note — both gated on data only NetworkDeepCollector fills in.
+func TestPrintNetReportDeepMetrics(t *testing.T) {
+	deep := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{
+			SynRetransCount: 500, ListenOverflows: 10, RetransFailCount: 5,
+			TimeWaitCount: 100, ConntrackUsedPct: 70, UptimeSec: 3600,
+			ICMPBlocked: true,
+		}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(deep, "TCP Kernel Counters") {
+		t.Errorf("nonzero deep TCP counters should render the kernel-counters section, got:\n%s", deep)
+	}
+	if !strings.Contains(deep, "ICMP blocked") {
+		t.Errorf("ICMPBlocked should be noted, got:\n%s", deep)
+	}
+	if !strings.Contains(deep, "network concern(s) found") {
+		t.Errorf("high conntrack usage (>=60%%) should surface as a concern, got:\n%s", deep)
+	}
+}
+
+// TestPrintNetReportPacketLossAndJitter covers the jitter and packet-loss
+// metric lines, which only render when their value is nonzero.
+func TestPrintNetReportPacketLossAndJitter(t *testing.T) {
+	out := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{
+			JitterMs: 30, GatewayPacketLossPct: 15, InternetPacketLossPct: 5,
+		}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(out, "Jitter") {
+		t.Errorf("a nonzero jitter should be shown, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Packet loss (gw)") || !strings.Contains(out, "Packet loss (net)") {
+		t.Errorf("nonzero packet loss on both gateway and internet should be shown, got:\n%s", out)
 	}
 }

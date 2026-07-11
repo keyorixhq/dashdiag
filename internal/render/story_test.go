@@ -126,3 +126,37 @@ func TestRenderStoryFromHistory(t *testing.T) {
 		t.Errorf("empty history message wrong: %s", got)
 	}
 }
+
+// renderStorySinglePoint is the fallback RenderStory uses when no baseline
+// history exists yet (fewer than 2 saved snapshots).
+func TestRenderStorySinglePoint(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 6, 6, 15, 4, 0, 0, time.UTC)
+	s := snapAt(ts, baseline.CheckResult{Name: "CPU Load", Status: "OK"}, baseline.CheckResult{Name: "Memory", Status: "OK"})
+
+	t.Run("all OK", func(t *testing.T) {
+		t.Parallel()
+		got := renderStorySinglePoint(nil, s)
+		if !strings.Contains(got, "all 2 checks passed") {
+			t.Errorf("expected all-passed message, got: %s", got)
+		}
+		if !strings.Contains(got, s.Hostname) {
+			t.Errorf("expected hostname in output, got: %s", got)
+		}
+	})
+
+	t.Run("active insights", func(t *testing.T) {
+		t.Parallel()
+		insights := []models.Insight{
+			{Check: "CPU Load", Level: "CRIT", Message: "95% CPU"},
+			{Check: "Memory", Level: "OK", Message: "fine"}, // dropped — OK is not active
+		}
+		got := renderStorySinglePoint(insights, s)
+		if !strings.Contains(got, "CPU Load: 95% CPU") {
+			t.Errorf("expected active insight line, got: %s", got)
+		}
+		if strings.Contains(got, "Memory: fine") {
+			t.Errorf("OK insight should not be narrated, got: %s", got)
+		}
+	})
+}

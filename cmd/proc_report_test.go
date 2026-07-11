@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"context"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -144,5 +147,67 @@ func TestPrintProcDetailDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "D-state diagnosis") {
 		t.Errorf("a D-state process in human mode should append the diagnosis guide, got:\n%s", out)
+	}
+}
+
+// TestPrintProcIdentity covers the optional identity fields (Parent, User,
+// Cgroup) and the plain-mode branch of printProcLine (human mode is already
+// exercised by the other tests in this file).
+func TestPrintProcIdentity(t *testing.T) {
+	minimal := captureStdout(t, func() {
+		printProcIdentity(&models.ProcInfo{PID: 100, Cmdline: "sleep 10"}, output.ModeHuman)
+	})
+	if strings.Contains(minimal, "Parent") || strings.Contains(minimal, "User") || strings.Contains(minimal, "Cgroup") {
+		t.Errorf("no PPID/User/Cgroup should suppress those lines, got:\n%s", minimal)
+	}
+
+	full := captureStdout(t, func() {
+		printProcIdentity(&models.ProcInfo{
+			PID: 100, PPID: 1, ParentName: "systemd", User: "root",
+			CgroupName: "system:docker", Cmdline: "sleep 10", UptimeSec: 90,
+		}, output.ModePlain)
+	})
+	if !strings.Contains(full, "1 (systemd)") {
+		t.Errorf("a named parent should be shown as PPID (name), got:\n%s", full)
+	}
+	if !strings.Contains(full, "root") || !strings.Contains(full, "system:docker") {
+		t.Errorf("User and Cgroup should be shown, got:\n%s", full)
+	}
+}
+
+// TestRunProc exercises runProc's real (read-only) /proc collector wiring in
+// three modes: the default top-list (no PID), an invalid PID argument, and a
+// concrete PID (the test process's own PID, which is always readable). Same
+// real-I/O precedent as cpu_report_test.go / hardware_test.go.
+func TestRunProc(t *testing.T) {
+	topCmd := newBareCloudCmd()
+	topCmd.SetContext(context.Background())
+	_ = topCmd.Flags().Set("plain", "true")
+	topOut := captureStdout(t, func() {
+		if err := runProc(topCmd, nil); err != nil {
+			t.Fatalf("runProc (top list): %v", err)
+		}
+	})
+	if topOut == "" {
+		t.Error("runProc (top list) produced no output")
+	}
+
+	badPIDCmd := newBareCloudCmd()
+	badPIDCmd.SetContext(context.Background())
+	if err := runProc(badPIDCmd, []string{"not-a-pid"}); err == nil {
+		t.Error("runProc with a non-numeric PID arg should return an error")
+	}
+
+	selfCmd := newBareCloudCmd()
+	selfCmd.SetContext(context.Background())
+	_ = selfCmd.Flags().Set("json", "true")
+	pid := os.Getpid()
+	selfOut := captureStdout(t, func() {
+		if err := runProc(selfCmd, []string{strconv.Itoa(pid)}); err != nil {
+			t.Fatalf("runProc (self PID, json): %v", err)
+		}
+	})
+	if !strings.Contains(selfOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", selfOut)
 	}
 }

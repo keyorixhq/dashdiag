@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -154,5 +157,69 @@ func TestPrintServicesDeepDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "none") {
 		t.Errorf("systemd health should also be rendered (failed units: none), got:\n%s", out)
+	}
+}
+
+// TestRunServices exercises runServices's real (read-only) collector wiring
+// in --plain and --json mode. No services are configured on this test host,
+// so both should render the empty-services help without error — the same
+// real-I/O precedent as cpu_report_test.go / hardware_test.go.
+func TestRunServices(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runServices(plainCmd, nil); err != nil {
+			t.Fatalf("runServices (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "No services configured") {
+		t.Errorf("no configured services should show the setup help, got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runServices(jsonCmd, nil); err != nil {
+			t.Fatalf("runServices (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
+	}
+}
+
+// TestRunServicesDeep exercises runServicesDeep's real (read-only) systemd
+// collector wiring. It reads flags off cmd.Parent() (it's wired as `dsd
+// services deep`), so the test constructs a parent/child cobra relationship.
+func TestRunServicesDeep(t *testing.T) {
+	parent := newBareCloudCmd()
+	child := &cobra.Command{}
+	parent.AddCommand(child)
+	child.SetContext(context.Background())
+	_ = parent.Flags().Set("plain", "true")
+
+	out := captureStdout(t, func() {
+		if err := runServicesDeep(child, nil); err != nil {
+			t.Fatalf("runServicesDeep (plain): %v", err)
+		}
+	})
+	if !strings.Contains(out, "Failed units") {
+		t.Errorf("plain mode should render the systemd-health section, got: %q", out)
+	}
+
+	jsonParent := newBareCloudCmd()
+	jsonChild := &cobra.Command{}
+	jsonParent.AddCommand(jsonChild)
+	jsonChild.SetContext(context.Background())
+	_ = jsonParent.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runServicesDeep(jsonChild, nil); err != nil {
+			t.Fatalf("runServicesDeep (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
 	}
 }

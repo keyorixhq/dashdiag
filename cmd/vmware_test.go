@@ -76,6 +76,67 @@ func TestPrintVMwareReport_TwoBlockSplit(t *testing.T) {
 	}
 }
 
+// TestRunVMware_NotOnVMware exercises runVMware's real availability gate
+// (this test host is not a VMware guest) in both --plain and --json mode.
+// No t.Parallel() — captureStdout swaps the shared os.Stdout.
+func TestRunVMware_NotOnVMware(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runVMware(plainCmd, nil); err != nil {
+			t.Fatalf("runVMware (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "not running under VMware") {
+		t.Errorf("plain mode should report 'not running under VMware', got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runVMware(jsonCmd, nil); err != nil {
+			t.Fatalf("runVMware (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"is_guest"`) {
+		t.Errorf("json mode should encode an empty VMwareInfo, got: %q", jsonOut)
+	}
+}
+
+// An empty ProductName (DMI didn't expose one) falls back to the generic
+// "VMware" label, and ToolsInstalled-but-not-running renders "installed but
+// stopped" rather than "NOT installed" or "running".
+func TestPrintVMwareReport_NameFallbackAndToolsStopped(t *testing.T) {
+	var buf bytes.Buffer
+	printVMwareReport(&buf, &models.VMwareInfo{
+		IsGuest: true, ToolsInstalled: true, ToolsRunning: false,
+	}, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if !strings.Contains(out, "VMware guest — VMware") {
+		t.Errorf("empty product name should fall back to generic 'VMware', got:\n%s", out)
+	}
+	if !strings.Contains(out, "open-vm-tools: installed but stopped") {
+		t.Errorf("installed-but-not-running tools should say so, got:\n%s", out)
+	}
+}
+
+// printGuestBlock's CRIT branch (the ❌/FAIL icon) is only exercised through a
+// synthetic CRIT-level insight — none of the real VMware/AWS/etc. heuristics
+// this package renders today produce a CRIT, only WARN/INFO.
+func TestPrintGuestBlock_CritIcon(t *testing.T) {
+	var buf bytes.Buffer
+	printGuestBlock(&buf, "Test block", []models.Insight{
+		{Level: "CRIT", Message: "disk failing"},
+	}, output.ModePlain)
+	out := buf.String()
+	if !strings.Contains(out, "CRIT") {
+		t.Errorf("a CRIT insight should render the CRIT icon in plain mode, got:\n%s", out)
+	}
+	if !strings.Contains(out, "disk failing") {
+		t.Errorf("the CRIT message should be printed, got:\n%s", out)
+	}
+}
+
 func TestPrintVMwareReport_Healthy(t *testing.T) {
 	// A clean paravirtual guest: vmxnet3 NIC, tools running, no limits/pressure.
 	clean := &models.VMwareInfo{

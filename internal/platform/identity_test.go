@@ -34,3 +34,52 @@ func TestSetIdentity(t *testing.T) {
 		t.Errorf("empty override should read live hostname, got %q", got)
 	}
 }
+
+// TestSetReplayPlatform guards the `dsd replay` distro/init/GOOS pin: while set,
+// the Replay* getters report the captured host's values so fix-hints adapt to
+// the CAPTURED host, not the box doing the replay; restore() reverts to "" (live).
+func TestSetReplayPlatform(t *testing.T) {
+	t.Parallel()
+	if got := ReplayDistroID(); got != "" {
+		t.Errorf("ReplayDistroID() with no override = %q, want empty", got)
+	}
+	if got := ReplayInitSystem(); got != "" {
+		t.Errorf("ReplayInitSystem() with no override = %q, want empty", got)
+	}
+	if got := ReplayGOOS(); got != "" {
+		t.Errorf("ReplayGOOS() with no override = %q, want empty", got)
+	}
+
+	restore := SetReplayPlatform("rhel", "systemd", "linux")
+	if got := ReplayDistroID(); got != "rhel" {
+		t.Errorf("ReplayDistroID() under override = %q, want rhel", got)
+	}
+	if got := ReplayInitSystem(); got != "systemd" {
+		t.Errorf("ReplayInitSystem() under override = %q, want systemd", got)
+	}
+	if got := ReplayGOOS(); got != "linux" {
+		t.Errorf("ReplayGOOS() under override = %q, want linux", got)
+	}
+
+	// Nested override + restore must return to the PREVIOUS override, not
+	// unconditionally to "".
+	restore2 := SetReplayPlatform("ubuntu", "systemd", "linux")
+	if got := ReplayDistroID(); got != "ubuntu" {
+		t.Errorf("ReplayDistroID() under nested override = %q, want ubuntu", got)
+	}
+	restore2()
+	if got := ReplayDistroID(); got != "rhel" {
+		t.Errorf("ReplayDistroID() after inner restore = %q, want rhel (outer override)", got)
+	}
+
+	restore()
+	if got := ReplayDistroID(); got != "" {
+		t.Errorf("ReplayDistroID() after restore = %q, want empty", got)
+	}
+	if got := ReplayInitSystem(); got != "" {
+		t.Errorf("ReplayInitSystem() after restore = %q, want empty", got)
+	}
+	if got := ReplayGOOS(); got != "" {
+		t.Errorf("ReplayGOOS() after restore = %q, want empty", got)
+	}
+}
