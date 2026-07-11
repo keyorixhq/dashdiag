@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"syscall"
 )
 
 // Live reads the running system. It is the default Source in production.
@@ -46,22 +45,6 @@ func (l Live) Stat(path string) (FileMeta, error) {
 	return FileMeta{Size: fi.Size(), Mode: fi.Mode(), IsDir: fi.IsDir(), ModTime: fi.ModTime()}, nil
 }
 
-func (l Live) Statfs(path string) (StatfsInfo, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return StatfsInfo{}, err
-	}
-	// uint64() casts normalise field types that differ across linux/darwin
-	// (e.g. Bsize is int64 on linux, uint32 on darwin).
-	return StatfsInfo{
-		Bsize:  uint64(st.Bsize), //nolint:unconvert,gosec // cross-platform field-type normalisation
-		Blocks: uint64(st.Blocks),
-		Bfree:  uint64(st.Bfree),
-		Bavail: uint64(st.Bavail),
-		Files:  uint64(st.Files),
-		Ffree:  uint64(st.Ffree),
-	}, nil
-}
 
 func (l Live) Cached(_ string, produce func() ([]byte, error)) ([]byte, error) {
 	return produce() // live reads always recompute; nothing is cached
