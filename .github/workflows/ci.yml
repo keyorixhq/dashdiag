@@ -53,6 +53,18 @@ jobs:
       - name: Test with race detector
         run: go test -race -count=1 -timeout 180s ./...
 
+      - name: Coverage floor (≥96%)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          go test -coverprofile=coverage.out -covermode=set ./...
+          TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          INT=${TOTAL%.*}
+          if [ "$INT" -lt 96 ]; then
+            echo "::error::Coverage ${TOTAL}% is below the 96% floor — add tests or adjust the gate in ci.yml"
+            exit 1
+          fi
+          echo "Coverage: ${TOTAL}% ✓"
+
       - name: Build all platforms
         if: matrix.os == 'ubuntu-24.04'
         run: |
