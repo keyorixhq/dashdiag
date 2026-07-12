@@ -409,6 +409,114 @@ func TestGPUSustainedLoadDoesNotFireWithoutGPUInfo(t *testing.T) {
 	}
 }
 
+func TestGPUSustainedLoadFiresWithMemory(t *testing.T) {
+	// GPU under sustained load AND system Memory elevated (no thermal, no VRAM) —
+	// exercises the memoryElevated-only branch (checks/summary append for "Memory").
+	insights := []models.Insight{
+		ins("INFO", "GPU", "RTX 3070 sustained compute — util 92%, 110W"),
+		ins("WARN", "Memory", "memory usage at 88%"),
+	}
+	corrs := Correlate(insights)
+	c := hasCorr(corrs, "GPU Sustained Compute Load")
+	if c == nil {
+		t.Fatal("expected GPU Sustained Compute Load to fire on Memory WARN alone")
+	}
+	if !strings.Contains(c.Summary, "competing") {
+		t.Errorf("summary should mention GPU/RAM competing for memory, got %q", c.Summary)
+	}
+	found := false
+	for _, chk := range c.Checks {
+		if chk == "Memory" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Checks to include Memory, got %v", c.Checks)
+	}
+}
+
+// ── ruleCPUStealUnderLoad ─────────────────────────────────────────────────────
+
+func TestCPUStealUnderLoadFires(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "CPU Load", "load at 250%"),
+		ins("WARN", "CPU Load/Steal", "steal 12%"),
+	}
+	corrs := Correlate(insights)
+	c := hasCorr(corrs, "CPU Steal Under Load")
+	if c == nil {
+		t.Fatalf("expected CPU Steal Under Load to fire, got %+v", corrs)
+	}
+	if c.Level != "CRIT" {
+		t.Errorf("expected CRIT, got %q", c.Level)
+	}
+}
+
+func TestCPUStealUnderLoadDoesNotFireWithoutLoad(t *testing.T) {
+	// "CPU Load/Steal" rolls up into the "cpu load" index key too (worst wins),
+	// so an insight-based scenario can't isolate cpuLoaded=false with
+	// stealElevated=true through Correlate/buildIndex — test the rule directly
+	// against a hand-built index instead, as the sibling ruleRunQueueSaturation
+	// tests do for the same reason.
+	idx := map[string]indexEntry{
+		"cpu load":       {level: "OK"},
+		"cpu load/steal": {level: "WARN"},
+	}
+	if _, ok := ruleCPUStealUnderLoad(idx); ok {
+		t.Error("should not fire without CPU Load WARN/CRIT")
+	}
+}
+
+func TestCPUStealUnderLoadDoesNotFireWithoutSteal(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "CPU Load", "load at 250%"),
+		ins("OK", "CPU Load/Steal", "steal 1%"),
+	}
+	corrs := Correlate(insights)
+	if hasCorr(corrs, "CPU Steal Under Load") != nil {
+		t.Error("should not fire without CPU Load/Steal WARN/CRIT")
+	}
+}
+
+// ── ruleDBusCascade ───────────────────────────────────────────────────────────
+
+func TestDBusCascadeFires(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "DBus", "dbus.service failed"),
+		ins("CRIT", "Systemd", "3 units failed"),
+	}
+	corrs := Correlate(insights)
+	c := hasCorr(corrs, "D-Bus Cascade Failure")
+	if c == nil {
+		t.Fatalf("expected D-Bus Cascade Failure to fire, got %+v", corrs)
+	}
+	if c.Level != "CRIT" {
+		t.Errorf("expected CRIT, got %q", c.Level)
+	}
+}
+
+func TestDBusCascadeDoesNotFireWithoutDBus(t *testing.T) {
+	insights := []models.Insight{
+		ins("OK", "DBus", "running"),
+		ins("CRIT", "Systemd", "3 units failed"),
+	}
+	corrs := Correlate(insights)
+	if hasCorr(corrs, "D-Bus Cascade Failure") != nil {
+		t.Error("should not fire without DBus CRIT")
+	}
+}
+
+func TestDBusCascadeDoesNotFireWithoutSystemd(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "DBus", "dbus.service failed"),
+		ins("OK", "Systemd", "all units active"),
+	}
+	corrs := Correlate(insights)
+	if hasCorr(corrs, "D-Bus Cascade Failure") != nil {
+		t.Error("should not fire without Systemd CRIT")
+	}
+}
+
 // ── ruleDockerOOMCascade ──────────────────────────────────────────────────────
 
 func makeOOM(eventsLast24h int, events ...models.OOMEvent) *models.OOMInfo {
@@ -825,6 +933,19 @@ func TestRunQueueSaturationFires(t *testing.T) {
 	}
 	if !strings.Contains(c.Summary, "CPU-bound") {
 		t.Errorf("summary should call out CPU-bound, got: %q", c.Summary)
+	}
+}
+
+func TestRunQueueSaturationFiresViaCorrelate(t *testing.T) {
+	// Same as above, but through Correlate() so the rule's append call site
+	// inside Correlate itself (not just the standalone rule function) is
+	// exercised — the direct-index test above never routes through Correlate.
+	insights := []models.Insight{
+		ins("WARN", "CPU Load/RunQueue", "16 runnable tasks on 4 CPUs"),
+	}
+	corrs := Correlate(insights)
+	if hasCorr(corrs, "CPU-Bound Run Queue Saturation") == nil {
+		t.Fatalf("expected CPU-Bound Run Queue Saturation via Correlate, got %+v", corrs)
 	}
 }
 

@@ -29,6 +29,26 @@ func TestRuleDiskFullServiceFailure(t *testing.T) {
 	if corrByName(Correlate([]models.Insight{ins("CRIT", "Disk", "/ at 100%")}), "Disk-Full Service Failure") != nil {
 		t.Error("should not fire on a full disk with no downstream failure")
 	}
+	// Logs CRIT alone (no Systemd failure) still fires — exercises the
+	// logsCrit-only branch of the (!systemdCrit && !logsCrit) gate and the
+	// separate "Logs" append to Checks.
+	logsOnly := Correlate([]models.Insight{
+		ins("CRIT", "Disk", "/ at 100%"),
+		ins("CRIT", "Logs", "write errors: no space left on device"),
+	})
+	c = corrByName(logsOnly, "Disk-Full Service Failure")
+	if c == nil || c.Level != "CRIT" {
+		t.Fatalf("expected Disk-Full Service Failure CRIT via Logs alone, got %+v", logsOnly)
+	}
+	foundLogs := false
+	for _, chk := range c.Checks {
+		if chk == "Logs" {
+			foundLogs = true
+		}
+	}
+	if !foundLogs {
+		t.Errorf("expected Checks to include Logs, got %v", c.Checks)
+	}
 }
 
 func TestRuleNFSStaleProcessHang(t *testing.T) {

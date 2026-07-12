@@ -125,6 +125,9 @@ func TestCheckZFSPool(t *testing.T) {
 		{"zpool status unread on ONLINE pool is INFO not WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, ScrubAgeDays: -1, StatusReadFailed: true}, "INFO", "WARN"},
 		// On an already-DEGRADED pool the CRIT still fires; the unread-status INFO is suppressed as redundant.
 		{"zpool status unread on DEGRADED pool stays CRIT", models.ZFSPool{Name: "tank", State: "DEGRADED", ScrubAgeDays: -1, StatusReadFailed: true}, "CRIT", "INFO"},
+		{"degraded with a status message appends it", models.ZFSPool{Name: "tank", State: "DEGRADED", StatusMsg: "one or more devices are faulted", ScrubAgeDays: 5}, "CRIT", ""},
+		{"moderate fragmentation is INFO not WARN", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, FragPct: 55, ScrubAgeDays: 5}, "INFO", "WARN"},
+		{"scrub over 30 days ago is INFO", models.ZFSPool{Name: "tank", State: "ONLINE", UsedPct: 10, ScrubAgeDays: 45}, "INFO", "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

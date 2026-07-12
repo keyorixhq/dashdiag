@@ -19,6 +19,19 @@ func TestCheckDiskExtras_SMART(t *testing.T) {
 	assertLevel(t, checkDiskExtras(drive(models.SMARTInfo{Healthy: false})), "CRIT")
 	assertLevel(t, checkDiskExtras(drive(models.SMARTInfo{Healthy: true, PercentUsed: 95})), "WARN")
 	assertLevel(t, checkDiskExtras(drive(models.SMARTInfo{Healthy: true, MediaErrors: 1})), "WARN")
+
+	// SMART.Error set means the log itself couldn't be read — the drive must be
+	// skipped (continue), not scored as unhealthy, even though Healthy is false.
+	unread := models.DiskInfo{Drives: []models.PhysicalDrive{
+		{Name: "sdb", SMART: &models.SMARTInfo{Healthy: false, Error: "smartctl: Permission denied"}},
+	}}
+	assertLevel(t, checkDiskExtras(unread), "")
+
+	// SteamOS disk section is wired through when SteamOS is populated.
+	withSteamOS := models.DiskInfo{SteamOS: &models.SteamOSDisk{ShaderCacheGB: 40}}
+	if !hasInsightMsg(checkDiskExtras(withSteamOS), "CRIT", "shader cache") {
+		t.Errorf("expected the SteamOS shader-cache CRIT to be wired through checkDiskExtras, got %+v", checkDiskExtras(withSteamOS))
+	}
 }
 
 func TestCheckDockerResources(t *testing.T) {
@@ -37,6 +50,26 @@ func TestCheckDockerResources(t *testing.T) {
 		{"ip forward disabled is CRIT", models.DockerInfo{Available: true, IPForwardChecked: true, IPForwardEnabled: false}, "CRIT"},
 		{"firewalld nftables is WARN", models.DockerInfo{FirewalldActive: true, FirewalldBackend: "nftables"}, "WARN"},
 		{"DNS trap is WARN", models.DockerInfo{DNSTrap: true, DNSTrapServer: "127.0.0.53"}, "WARN"},
+		{
+			name: "both compose v1 and v2 installed is WARN",
+			d:    models.DockerInfo{Daemon: &models.DockerDaemon{ComposeStandalone: "1.29.2", ComposePlugin: "2.29.1"}},
+			want: "WARN",
+		},
+		{
+			name: "compose v1 only (no v2 plugin) is WARN",
+			d:    models.DockerInfo{Daemon: &models.DockerDaemon{ComposeStandalone: "1.29.2"}},
+			want: "WARN",
+		},
+		{
+			name: "daemon errors with a last-error message is WARN",
+			d:    models.DockerInfo{Daemon: &models.DockerDaemon{RecentErrors: 2, LastDaemonError: "context deadline exceeded"}},
+			want: "WARN",
+		},
+		{
+			name: "large log files is WARN",
+			d:    models.DockerInfo{LogDriver: &models.DockerLogDriverInfo{LargeLogCount: 2}},
+			want: "WARN",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

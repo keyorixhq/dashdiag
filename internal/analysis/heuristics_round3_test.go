@@ -35,6 +35,9 @@ func TestCheckDRBDResource(t *testing.T) {
 		// Benign transient states must NOT be flagged (no false-WARN).
 		{"online verify is clean", models.DRBDResource{ConnState: "VerifyS", LocalDisk: "UpToDate"}, ""},
 		{"congestion (Ahead) is clean", models.DRBDResource{ConnState: "Ahead", LocalDisk: "UpToDate"}, ""},
+		{"disconnecting is WARN", models.DRBDResource{ConnState: "Disconnecting", LocalDisk: "UpToDate"}, "WARN"},
+		{"syncing with KB remaining shows progress", models.DRBDResource{ConnState: "SyncSource", SyncPct: 10, SyncKBLeft: 2048}, "INFO"},
+		{"local disk detached is CRIT", models.DRBDResource{ConnState: "Connected", LocalDisk: "Detached"}, "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,11 +95,22 @@ func TestCheckCeph(t *testing.T) {
 		{"health warn is WARN", models.CephInfo{Available: true, Health: "HEALTH_WARN"}, "WARN"},
 		{"osd down is WARN", models.CephInfo{Available: true, Health: "HEALTH_OK", OSDTotal: 5, OSDUp: 4}, "WARN"},
 		{"unparseable health is WARN not silent OK", models.CephInfo{Available: true, Health: "HEALTH_UNKNOWN"}, "WARN"},
+		{"health err with summary uses it", models.CephInfo{Available: true, Health: "HEALTH_ERR", Summary: []string{"1 osds down"}}, "CRIT"},
+		{"health warn with summary uses it", models.CephInfo{Available: true, Health: "HEALTH_WARN", Summary: []string{"clock skew detected"}}, "WARN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkCeph(tt.c), tt.want)
 		})
+	}
+
+	// Message-content assertion for the summary-detail branches (line coverage
+	// alone wouldn't prove the summary text is actually used).
+	if !hasInsightMsg(checkCeph(models.CephInfo{Available: true, Health: "HEALTH_ERR", Summary: []string{"1 osds down"}}), "CRIT", "1 osds down") {
+		t.Error("expected HEALTH_ERR message to include the Ceph summary detail")
+	}
+	if !hasInsightMsg(checkCeph(models.CephInfo{Available: true, Health: "HEALTH_WARN", Summary: []string{"clock skew detected"}}), "WARN", "clock skew detected") {
+		t.Error("expected HEALTH_WARN message to include the Ceph summary detail")
 	}
 }
 

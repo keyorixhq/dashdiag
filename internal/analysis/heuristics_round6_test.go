@@ -199,11 +199,36 @@ func TestCheckDBus(t *testing.T) {
 	// Any other non-failed/non-inactive status (e.g. transient "activating") is
 	// treated as undetermined, not a failure.
 	assertLevel(t, checkDBus(models.DBusInfo{Active: false, Status: "activating"}), "INFO")
+	// A failed bus with a captured LastError prepends it as the first hint.
+	failedWithErr := checkDBus(models.DBusInfo{Active: false, Status: "failed", LastError: "Failed to activate service 'org.freedesktop.DBus'"})
+	if !hasInsightMsg(failedWithErr, "CRIT", "D-Bus system message bus has failed") {
+		t.Fatalf("expected the CRIT insight, got %+v", failedWithErr)
+	}
+	foundLastError := false
+	for _, ins := range failedWithErr {
+		for _, h := range ins.Hints {
+			if strings.Contains(h, "last error: Failed to activate service") {
+				foundLastError = true
+			}
+		}
+	}
+	if !foundLastError {
+		t.Errorf("expected a 'last error:' hint from LastError, got %+v", failedWithErr)
+	}
 }
 
 func TestCheckLaunchd(t *testing.T) {
 	assertLevel(t, checkLaunchd(models.LaunchdInfo{}), "")
 	assertLevel(t, checkLaunchd(models.LaunchdInfo{Failed: []models.LaunchdService{{Label: "com.example.daemon"}}}), "WARN")
+
+	// More than 3 failed services truncates the inline list and appends a "+N more" suffix.
+	many := checkLaunchd(models.LaunchdInfo{Failed: []models.LaunchdService{
+		{Label: "com.example.one"}, {Label: "com.example.two"},
+		{Label: "com.example.three"}, {Label: "com.example.four"}, {Label: "com.example.five"},
+	}})
+	if !hasInsightMsg(many, "WARN", "(+2 more)") {
+		t.Errorf("expected a '+2 more' suffix when more than 3 services failed, got %+v", many)
+	}
 }
 
 func TestCheckCgroupV2(t *testing.T) {

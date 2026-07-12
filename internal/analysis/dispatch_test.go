@@ -105,3 +105,22 @@ func TestApplyOneDispatch(t *testing.T) {
 		t.Errorf("unknown type should dispatch to nil, got %+v", got)
 	}
 }
+
+// TestApplyOneExtendedNilTypedPointer exercises applyOneExtended's own
+// isNilTypedPointer guard directly. applyOne already filters every typed-nil
+// pointer before it can fall through to applyOneExtended (its own
+// isNilTypedPointer check at the top of applyOne catches it first), so that
+// guard inside applyOneExtended is otherwise dead from any caller reachable
+// through applyOne — call applyOneExtended directly to prove it's still a
+// real, working safety net for callers that might invoke it directly.
+func TestApplyOneExtendedNilTypedPointer(t *testing.T) {
+	var nilFD *models.FDInfo
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("applyOneExtended panicked on typed-nil *models.FDInfo: %v", r)
+		}
+	}()
+	if got := applyOneExtended(nilFD, defaultThresh); got != nil {
+		t.Errorf("typed-nil pointer should dispatch to nil, got %+v", got)
+	}
+}
