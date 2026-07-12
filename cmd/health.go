@@ -750,11 +750,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
 	// In deep mode also enable Deep for the log-driver check (per-container unbounded
 	// json-file logging) — otherwise collected only by `dsd docker --deep`.
-	if sock, _ := collectors.DetectContainerSocket(); sock != "" || collectors.PodmanQuadletsPresent() {
-		dockerCol := collectors.NewDockerCollectorWithProfile(profile)
-		dockerCol.Deep = includeDeep
-		cols = append(cols, dockerCol)
-	}
+	cols = appendDockerCollector(cols, profile, includeDeep)
 	// Containerd standalone — only when containerd socket is present AND no k8s layer.
 	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
 	if collectors.ContainerdAvailable() && !collectors.K8sAvailable() {
@@ -970,20 +966,6 @@ func printCgroupUnits(results []runner.Result, _ output.OutputMode) {
 		}
 		return
 	}
-}
-
-// truncateStr truncates a string to at most n runes with an ellipsis. It slices
-// by rune, not byte, so a multibyte character at the boundary is never split
-// into invalid UTF-8.
-func truncateStr(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n-1]) + "…"
 }
 
 // extractOOM type-asserts *models.OOMInfo from a runner results slice.

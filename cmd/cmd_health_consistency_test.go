@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package cmd
 
 // cmd_health_consistency_test.go — guards the recurring "sibling divergence" bug
