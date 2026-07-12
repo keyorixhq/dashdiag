@@ -1,11 +1,16 @@
+//go:build linux
+
 package collectors
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
 
 // TestStatfsToFSRoot exercises the non-blocking statfsToFS happy path: the root
-// filesystem must return real numbers within the timeout (the timeout guard is
-// modeled on the proven nfs_linux.go pattern; the stale-mount path can't be
-// unit-tested without a hung mount).
+// filesystem must return real numbers within the timeout.
 func TestStatfsToFSRoot(t *testing.T) {
 	t.Parallel()
 	fs, err := statfsToFS(mountEntry{device: "rootdev", mountPoint: "/", fsType: "testfs"})
@@ -17,6 +22,21 @@ func TestStatfsToFSRoot(t *testing.T) {
 	}
 	if fs.TotalGB <= 0 {
 		t.Errorf("TotalGB: got %v, want > 0", fs.TotalGB)
+	}
+}
+
+// TestStatfsToFS_TimesOut guards the statfsTimeout deadline branch: a statfs
+// call that hangs (a stale/D-state mount) past statfsTimeout must return a
+// wrapped timeout error rather than blocking the caller forever. Reuses the
+// slowStatfsSource fake from nfs_linux_test.go (same pattern, same package) —
+// not a synthetic branch, this drives statfsToFS's own select/time.After path.
+func TestStatfsToFS_TimesOut(t *testing.T) {
+	prev := SetSource(&slowStatfsSource{Replay: source.NewReplay(source.NewBundle()), delay: 3 * time.Second})
+	t.Cleanup(func() { SetSource(prev) })
+
+	_, err := statfsToFS(mountEntry{device: "hungdev", mountPoint: "/mnt/hung", fsType: "nfs"})
+	if err == nil {
+		t.Fatal("expected a timeout error when statfs exceeds statfsTimeout")
 	}
 }
 

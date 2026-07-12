@@ -165,6 +165,26 @@ func (f *fakeStatfsLookPathSource) Cached(key string, _ func() ([]byte, error)) 
 	return nil, errNotFoundCVE
 }
 
+// TestCollectPhysicalDrives_ShortLineAndDedup guards two collectPhysicalDrives
+// branches: a malformed /proc/partitions row with fewer than 4 fields is
+// skipped, and a device name seen twice (can happen with certain partition
+// table layouts) is deduplicated to a single entry.
+func TestCollectPhysicalDrives_ShortLineAndDedup(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/mounts", []byte("/dev/sda1 / ext4 rw,relatime 0 0\n"))
+		b.PutFile("/proc/partitions", []byte(
+			"major minor  #blocks  name\n\n"+
+				"   8        0   1000000\n"+ // too few fields — skipped
+				"   8        0   1000000 sda\n"+
+				"   8        0   1000000 sda\n")) // duplicate name — deduped
+		b.PutFile("/sys/block/sda/queue/rotational", []byte("0\n"))
+	})
+	drives := collectPhysicalDrives()
+	if len(drives) != 1 || drives[0].Name != "sda" {
+		t.Errorf("drives = %+v, want exactly one deduplicated sda entry", drives)
+	}
+}
+
 func TestCollectLinuxExtras_DeepModeWithZFSMount(t *testing.T) {
 	b := source.NewBundle()
 	b.PutFile("/proc/mounts", []byte(

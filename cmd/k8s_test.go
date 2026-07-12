@@ -64,6 +64,7 @@ func TestPrintK8sSummary(t *testing.T) {
 		{"workloads down", &models.K8sInfo{WorkloadsDown: 1}, "1 workload(s) degraded"},
 		{"pvcs not bound", &models.K8sInfo{PVCsNotBound: 2}, "2 PVC(s) not bound"},
 		{"events", &models.K8sInfo{Events: []models.K8sEvent{{}}}, "1 warning event(s)"},
+		{"os-layer issue", &models.K8sInfo{OSLayer: &models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: false}}, "OS-layer issue(s)"},
 	}
 	for _, c := range cases {
 		out := captureStdout(t, func() { printK8sSummary(c.info, "", output.ModePlain) })

@@ -102,6 +102,19 @@ func TestDeviceSizeBytes_NotADevPath(t *testing.T) {
 	}
 }
 
+// TestDeviceSizeBytes_SizeFileUnreadable guards the readFile error branch: a
+// kernel name that DOES resolve (PutStat present) but whose sysfs size file
+// is missing/unreadable must report ok=false, not panic or fabricate a size.
+func TestDeviceSizeBytes_SizeFileUnreadable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/sys/class/block/sda1", source.FileMeta{})
+		// size file deliberately NOT seeded — readFile must fail.
+	})
+	if _, ok := deviceSizeBytes("/dev/sda1"); ok {
+		t.Error("expected ok=false when the sysfs size file can't be read")
+	}
+}
+
 func TestDeviceSizeBytes_UnparsableSize(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/sys/class/block/sda1", source.FileMeta{})

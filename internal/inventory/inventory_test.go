@@ -276,6 +276,59 @@ func TestCountRPM(t *testing.T) {
 	}
 }
 
+// writeFakeRPMBin drops an executable shell script named "rpm" onto a temp
+// dir and points PATH at it exclusively, so countRPM's
+// exec.CommandContext(ctx, "rpm", "-qa") resolves to this fake instead of a
+// real rpm binary — same PATH-shadowing technique as
+// internal/cvedata/rpm_test.go's writeFakeRPM, applied here because this
+// sandbox has no real rpm to test the success path against.
+//
+// Callers MUST NOT also call t.Parallel(): t.Setenv panics if the test (or
+// an ancestor) is running in parallel.
+func writeFakeRPMBin(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rpm")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing fake rpm: %v", err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+// TestCountRPM_Success exercises the real "-qa" parse-and-count path
+// (inventory.go: trimmed != "" branch), which the sandbox's absent rpm
+// binary can never reach on its own — a fake rpm on PATH stands in.
+func TestCountRPM_Success(t *testing.T) {
+	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
+	writeFakeRPMBin(t, "#!/bin/sh\necho pkg-a\necho pkg-b\necho pkg-c\n")
+	if got := countRPM(); got != 3 {
+		t.Errorf("countRPM() = %d, want 3 (one per output line)", got)
+	}
+}
+
+// TestCountRPM_EmptyOutput exercises the `trimmed == ""` guard: rpm resolves
+// and exits 0, but prints nothing (e.g. a broken rpmdb with zero installed
+// packages) — must report 0, not 1 (a naive newline-count would say 1 for a
+// single empty line).
+func TestCountRPM_EmptyOutput(t *testing.T) {
+	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
+	writeFakeRPMBin(t, "#!/bin/sh\nexit 0\n")
+	if got := countRPM(); got != 0 {
+		t.Errorf("countRPM() = %d, want 0 for empty rpm -qa output", got)
+	}
+}
+
+// TestCountRPM_CommandFails exercises the exec error path explicitly via a
+// fake binary that resolves but exits non-zero — distinct from TestCountRPM
+// above, which only covers the "rpm not on PATH at all" case.
+func TestCountRPM_CommandFails(t *testing.T) {
+	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
+	writeFakeRPMBin(t, "#!/bin/sh\nexit 1\n")
+	if got := countRPM(); got != 0 {
+		t.Errorf("countRPM() = %d, want 0 when rpm exits non-zero", got)
+	}
+}
+
 func TestToCSV_FlatKeyValue(t *testing.T) {
 	inv := models.Inventory{
 		CollectedAt: "2026-06-05T00:00:00Z", Tool: "dsd", ToolVersion: "v1",

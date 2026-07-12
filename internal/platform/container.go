@@ -36,10 +36,12 @@ func DetectContainerContext() ContainerContext {
 		"/run/.containerenv",
 		"/sys/fs/cgroup/cgroup.controllers",
 		"/proc/self/cgroup",
+		"/run/systemd/container",
+		"/proc/1/environ",
 	)
 }
 
-func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers, procSelfCgroup string) ContainerContext {
+func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers, procSelfCgroup, systemdContainer, proc1Environ string) ContainerContext {
 	cc := ContainerContext{}
 	cgroupBase := filepath.Dir(cgroupControllers)
 
@@ -62,21 +64,21 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers,
 	// /run/systemd/container contains "lxc" on systemd-based LXC containers.
 	// /proc/1/environ contains container=lxc on older LXC setups.
 	if !cc.InContainer {
-		if b, err := os.ReadFile("/run/systemd/container"); err == nil {
+		if b, err := os.ReadFile(filepath.Clean(systemdContainer)); err == nil {
 			if strings.TrimSpace(string(b)) == "lxc" {
 				cc.InContainer = true
 			}
 		}
 	}
 	if !cc.InContainer {
-		if b, err := os.ReadFile("/proc/1/environ"); err == nil {
+		if b, err := os.ReadFile(filepath.Clean(proc1Environ)); err == nil {
 			if strings.Contains(string(b), "container=lxc") {
 				cc.InContainer = true
 			}
 		}
 	}
 
-	if !cc.InContainer && cgroupMentionsContainer() {
+	if !cc.InContainer && cgroupMentionsContainerAt(procSelfCgroup) {
 		cc.InContainer = true
 	}
 
@@ -199,8 +201,11 @@ func parseCgroupV1Memory(path string) float64 {
 	return float64(v) / (1024 * 1024)
 }
 
-func cgroupMentionsContainer() bool {
-	data, err := os.ReadFile("/proc/self/cgroup")
+// cgroupMentionsContainerAt is the testable core of cgroupMentionsContainer —
+// takes the /proc/self/cgroup path as a parameter so tests can inject a
+// synthetic file instead of reading the real host procfs.
+func cgroupMentionsContainerAt(procSelfCgroup string) bool {
+	data, err := os.ReadFile(filepath.Clean(procSelfCgroup))
 	if err != nil {
 		return false
 	}

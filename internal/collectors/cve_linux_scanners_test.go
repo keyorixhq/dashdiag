@@ -470,6 +470,24 @@ func TestScanAllApt_Success(t *testing.T) {
 	}
 }
 
+// TestScanAllApt_ModerateSeverityAndShortLine guards the MODERATE severity
+// bucket (only CRITICAL is exercised in TestScanAllApt_Success) and the
+// len(fields)<2 skip for a malformed "Inst"-prefixed security line.
+func TestScanAllApt_ModerateSeverityAndShortLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("apt-get", []string{"--simulate", "upgrade"},
+			"Inst vim [8.2] (8.2.1 debian-security:12/stable-security [amd64])\n"+
+				"Instsecurity\n", 0) // "Inst"-prefixed, contains "security", but a single field
+	})
+	res := scanAllApt(context.Background())
+	if res.Total != 1 {
+		t.Fatalf("expected 1 advisory (short line skipped), got %d: %+v", res.Total, res)
+	}
+	if len(res.Moderate) != 1 || res.Moderate[0].ID != "vim" {
+		t.Errorf("Moderate = %+v, want [vim]", res.Moderate)
+	}
+}
+
 func TestScanAllApt_UpToDate(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("apt-get", []string{"--simulate", "upgrade"}, "", 0)
@@ -561,6 +579,31 @@ func TestScanAllDNF_DNF4Fallback(t *testing.T) {
 	res := scanAllDNF(context.Background())
 	if res.Total != 1 || len(res.Critical) != 1 {
 		t.Fatalf("expected 1 critical advisory from the DNF5 table format, got %+v", res)
+	}
+}
+
+// TestScanAllDNF_ModerateLowAndDedup guards the moderate/low severity buckets
+// (only critical/important are exercised elsewhere) and the seen[id] dedup
+// skip — a duplicate advisory ID (DNF sometimes lists an advisory once per
+// affected package) must be counted only once.
+func TestScanAllDNF_ModerateLowAndDedup(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
+		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+			"RHSA-2026:0010  Moderate/Sec.  pkg-a-1.0-1.el10.x86_64\n"+
+				"RHSA-2026:0010  Moderate/Sec.  pkg-a-1.0-1.el10.x86_64\n"+ // duplicate advisory ID
+				"RHSA-2026:0011  Low/Sec.       pkg-b-2.0-1.el10.x86_64\n", 0)
+		b.PutCmdNotFound("dnf", []string{"updateinfo", "info", "--security", "--quiet"})
+	})
+	res := scanAllDNF(context.Background())
+	if res.Total != 2 {
+		t.Fatalf("expected 2 unique advisories (duplicate ID collapsed), got %d: %+v", res.Total, res)
+	}
+	if len(res.Moderate) != 1 || res.Moderate[0].ID != "RHSA-2026:0010" {
+		t.Errorf("Moderate = %+v, want [RHSA-2026:0010]", res.Moderate)
+	}
+	if len(res.Low) != 1 || res.Low[0].ID != "RHSA-2026:0011" {
+		t.Errorf("Low = %+v, want [RHSA-2026:0011]", res.Low)
 	}
 }
 
@@ -871,6 +914,27 @@ func TestScanAllPacman_Vulnerable(t *testing.T) {
 	}
 }
 
+// TestScanAllPacman_ImportantAndLowSeverity guards the "important" (High) and
+// "low" (default) severity buckets — Critical is covered by
+// TestScanAllPacman_Vulnerable, Moderate (Medium) too.
+func TestScanAllPacman_ImportantAndLowSeverity(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
+		b.PutCmd("arch-audit", []string{"-u"},
+			"nginx is affected by CVE-2024-4444 [High]: privilege escalation\n"+
+				"vim is affected by CVE-2024-5555 [Low]: minor info leak\n", 0)
+	})
+	res := scanAllPacman(context.Background())
+	if res.Total != 2 {
+		t.Fatalf("expected 2 advisories, got %d: %+v", res.Total, res)
+	}
+	if len(res.Important) != 1 || res.Important[0].ID != "nginx" {
+		t.Errorf("Important = %+v, want [nginx]", res.Important)
+	}
+	if len(res.Low) != 1 || res.Low[0].ID != "vim" {
+		t.Errorf("Low = %+v, want [vim]", res.Low)
+	}
+}
+
 // ── TDNF / Photon ─────────────────────────────────────────────────────────────
 
 func TestCheckCVETDNF_QueryFails(t *testing.T) {
@@ -947,6 +1011,54 @@ func TestScanAllTDNF_JSONSuccess(t *testing.T) {
 	}
 	if res.Important[0].CVEs != "CVE-2026-1111" {
 		t.Errorf("expected enrichment to populate CVEs, got %q", res.Important[0].CVEs)
+	}
+}
+
+// TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID guards two branches in the
+// dedup loop: an entry with an empty UpdateID (after trimming the "patch:"
+// prefix) must be skipped, and a second distinct package under the SAME
+// advisory ID must be appended to the existing advisory's Summary rather
+// than replacing it or creating a duplicate advisory.
+func TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
+		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
+			`[{"Type":"Security","UpdateID":"","Packages":["ignored-1.0-1.ph5.x86_64.rpm"]},`+
+				`{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0003","Packages":["pkg-a-1.0-1.ph5.x86_64.rpm","pkg-b-2.0-1.ph5.x86_64.rpm"]}]`, 0)
+		b.PutCmdNotFound("tdnf", []string{"updateinfo", "info", "--security"})
+	})
+	res := scanAllTDNF(context.Background())
+	if res.Total != 1 {
+		t.Fatalf("expected exactly 1 advisory (empty-ID entry skipped), got %d: %+v", res.Total, res)
+	}
+	if len(res.Important) != 1 {
+		t.Fatalf("expected 1 Important advisory, got %+v", res)
+	}
+	summary := res.Important[0].Summary
+	if !strings.Contains(summary, "pkg-a-1.0-1.ph5.x86_64") || !strings.Contains(summary, "pkg-b-2.0-1.ph5.x86_64") {
+		t.Errorf("Summary = %q, want both packages joined", summary)
+	}
+}
+
+// TestScanAllTDNF_EnrichmentSkipsUnknownAdvisoryID guards
+// enrichTDNFAdvisoryWithCVEs' "not in byID" skip: the `updateinfo info`
+// enrichment pass can list an advisory ID that never appeared in the
+// `updateinfo list` phase (e.g. a race between the two tdnf calls) — that
+// description must be ignored rather than panicking on a nil map value.
+func TestScanAllTDNF_EnrichmentSkipsUnknownAdvisoryID(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
+		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
+			`[{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0004","Packages":["pkg-c-1.0-1.ph5.x86_64.rpm"]}]`, 0)
+		b.PutCmd("tdnf", []string{"updateinfo", "info", "--security"},
+			"Update ID : patch:PHSA-2026-5.0-9999\nDescription : Security fixes for {'CVE-2026-8888'}\n", 0)
+	})
+	res := scanAllTDNF(context.Background())
+	if res.Total != 1 {
+		t.Fatalf("expected 1 advisory, got %d: %+v", res.Total, res)
+	}
+	if res.Important[0].CVEs != "" {
+		t.Errorf("CVEs = %q, want empty — enrichment ID doesn't match the listed advisory", res.Important[0].CVEs)
 	}
 }
 
@@ -1075,5 +1187,18 @@ func TestPhotonMajor_FileMissing(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if got := photonMajor(); got != "5" {
 		t.Errorf("photonMajor() = %q, want default 5", got)
+	}
+}
+
+// TestPhotonMajor_NoVersionIDLine guards the final fallback: an os-release
+// file that exists but has no VERSION_ID= line at all (distinct from the
+// file-missing case above) must still default to "5" after the loop
+// completes without finding a match.
+func TestPhotonMajor_NoVersionIDLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("NAME=\"VMware Photon OS\"\nID=photon\n"))
+	})
+	if got := photonMajor(); got != "5" {
+		t.Errorf("photonMajor() = %q, want default 5 (no VERSION_ID line)", got)
 	}
 }

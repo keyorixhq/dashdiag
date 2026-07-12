@@ -168,6 +168,14 @@ func TestParseAMConfigReload(t *testing.T) {
 			wantOK:    false,
 			wantFound: false,
 		},
+		{
+			// Malformed value (non-numeric) must be skipped rather than treated as
+			// found — guards the strconv.ParseFloat error branch.
+			name:      "malformed value is not found",
+			metrics:   "alertmanager_config_last_reload_successful notanumber 1700000000\n",
+			wantOK:    false,
+			wantFound: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

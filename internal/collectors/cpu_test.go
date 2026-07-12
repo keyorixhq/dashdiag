@@ -184,6 +184,29 @@ func TestParseCPUStatFullAuxLines(t *testing.T) {
 	}
 }
 
+// TestParseCPUStatFullErrors guards parseCPUStatFull's three error branches:
+// too-short cpu line, a non-numeric field, and a stat blob with no "cpu "
+// aggregate line at all.
+func TestParseCPUStatFullErrors(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"cpu line too short", "cpu  1 2 3\n"},
+		{"non-numeric field", "cpu  100 20 notanumber 800 10 0 5 0 0 0\n"},
+		{"no cpu line", "cpu0 1 2 3 4 5\nctxt 100\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseCPUStatFull(strings.NewReader(tc.input)); err == nil {
+				t.Errorf("parseCPUStatFull(%q) expected an error, got nil", tc.input)
+			}
+		})
+	}
+}
+
 func TestParseStatUint(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -712,5 +735,10 @@ func TestParseDarwinCPUUsage(t *testing.T) {
 	}
 	if parseDarwinCPUUsage("no cpu usage line here") != 0 {
 		t.Error("missing CPU usage line should yield 0")
+	}
+	// A malformed percentage field must be skipped (ParseFloat error branch),
+	// not crash or contaminate the sum — the well-formed "sys" field still counts.
+	if got := parseDarwinCPUUsage("CPU usage: xx% user, 4.77% sys, 86.25% idle\n"); got != 4.77 {
+		t.Errorf("parseDarwinCPUUsage with malformed user%% = %.2f, want 4.77 (sys only)", got)
 	}
 }

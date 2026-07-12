@@ -94,6 +94,28 @@ func TestCPUFreqCollector_Collect_FullFixture(t *testing.T) {
 	}
 }
 
+// TestCPUFreqCollector_Collect_TurboAboveMaxClampsToZero guards the negative-
+// ThrottledPct clamp: a current frequency ABOVE cpuinfo_max_freq (turbo boost
+// briefly exceeding the nominal max, a real transient on modern CPUs) must
+// read as 0% throttled, never a negative "throttled" percentage.
+func TestCPUFreqCollector_Collect_TurboAboveMaxClampsToZero(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		base := "/sys/devices/system/cpu/cpu0/cpufreq"
+		b.PutFile(base+"/scaling_cur_freq", []byte("5000000\n")) // above max — turbo
+		b.PutFile(base+"/cpuinfo_max_freq", []byte("4800000\n"))
+		b.PutFile(base+"/cpuinfo_min_freq", []byte("400000\n"))
+	})
+	c := NewCPUFreqCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.CPUFreqInfo)
+	if info.ThrottledPct != 0 {
+		t.Errorf("ThrottledPct = %v, want 0 (clamped, current > max)", info.ThrottledPct)
+	}
+}
+
 // TestCPUFreqCollector_Collect_BatteryAltPath guards the second battery glob
 // fallback ("battery" singular, e.g. some ACPI-non-standard layouts) when the
 // BAT* glob yields nothing.

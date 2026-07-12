@@ -142,6 +142,24 @@ func TestCheckCVEDNF_NoAdvisory(t *testing.T) {
 	}
 }
 
+// TestCheckCVEDNF_AdvisoryFoundNoPendingPackages guards the "advisory found
+// but no pending updates" branch: a short advisory blurb with no package
+// lines and no updates pending must read CVEPatched, not CVEVulnerable.
+func TestCheckCVEDNF_AdvisoryFoundNoPendingPackages(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"},
+			"Advisory ID: RHSA-2026:1234\n", 0)
+	})
+
+	result := checkCVEDNF(context.Background(), "CVE-2026-1234")
+	if result.Status != models.CVEPatched {
+		t.Fatalf("expected CVEPatched for a short advisory with no packages, got %v (reason: %s)", result.Status, result.StatusReason)
+	}
+	if !strings.Contains(result.StatusReason, "no pending updates") {
+		t.Errorf("StatusReason = %q, want it to mention 'no pending updates'", result.StatusReason)
+	}
+}
+
 func TestCheckCVEDNF_QueryFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"})

@@ -219,6 +219,28 @@ func TestInstallPreDeployMkdirError(t *testing.T) {
 	}
 }
 
+// TestInstallPreDeployWriteError exercises installPreDeploy's WriteFile-error
+// branch: scripts/ is created successfully but the target path itself is a
+// directory, so writing the script file fails.
+func TestInstallPreDeployWriteError(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+	if err := os.MkdirAll(filepath.Join(dir, "scripts", "check-health.sh"), 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	errOut := captureStderr(t, func() { installPreDeploy(false) })
+	if errOut == "" {
+		t.Error("a check-health.sh path that's a directory should produce a write error on stderr")
+	}
+}
+
 // TestInstallGitHubActionsMkdirError exercises installGitHubActions'
 // MkdirAll-error branch: a plain file named ".github" blocks directory
 // creation.

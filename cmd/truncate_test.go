@@ -24,6 +24,12 @@ func TestTruncateRuneSafe(t *testing.T) {
 	if got := truncateStr("anything", -1); got != "" {
 		t.Errorf("truncateStr(_, -1) = %q, want empty", got)
 	}
+	if got := truncate("anything", 0); got != "" {
+		t.Errorf("truncate(_, 0) = %q, want empty", got)
+	}
+	if got := truncate("anything", -1); got != "" {
+		t.Errorf("truncate(_, -1) = %q, want empty", got)
+	}
 
 	// Multibyte: the result must stay valid UTF-8 — byte-slicing would split the
 	// accented/CJK rune at the boundary into an invalid sequence.

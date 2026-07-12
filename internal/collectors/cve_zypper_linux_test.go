@@ -48,6 +48,24 @@ func TestCheckCVEZypperLockedExitIsUnknownNotPatched(t *testing.T) {
 	}
 }
 
+// TestCheckCVEZypperAlreadyPatched guards the "output present but no 'needed'
+// patches" branch: a security-category table row whose status is anything
+// other than "needed" (e.g. already applied) must read CVEPatched, not fall
+// through to CVEVulnerable or CVEUnknown.
+func TestCheckCVEZypperAlreadyPatched(t *testing.T) {
+	table := "Repository | Patch | Category | Severity | Interactive | Status | Summary\n" +
+		"repo-sec | openssl-fix | security | important | --- | applied | fixes CVE-2024-1234"
+	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
+		return source.Result{Stdout: []byte(table), ExitCode: 0}
+	}}
+	defer SetSource(SetSource(fake))
+
+	res := checkCVEZypper(context.Background(), "CVE-2024-1234")
+	if res.Status != models.CVEPatched {
+		t.Fatalf("a security row with status != needed must read CVEPatched, got %s", res.Status)
+	}
+}
+
 func TestScanAllZypperKeepsTableOnNonZeroExit(t *testing.T) {
 	// 8-col list-patches table emitted with a non-zero "patches needed" exit.
 	table := "Repository | Patch Name | Category | Severity | Interactive | Status | Since | Summary\n" +

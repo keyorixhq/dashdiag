@@ -323,6 +323,18 @@ func TestPrintDockerReportFullDispatch(t *testing.T) {
 	if !strings.Contains(out, "Docker healthy") {
 		t.Errorf("a clean docker host should read healthy, got:\n%s", out)
 	}
+
+	// A set LogDriver dispatches to printDockerLogDriver from the top-level
+	// report — not exercised by the plain dispatch case above.
+	withLogDriver := captureStdout(t, func() {
+		printDockerReport(&models.DockerInfo{
+			Available: true, Runtime: "docker",
+			LogDriver: &models.DockerLogDriverInfo{Driver: "json-file"},
+		}, output.ModePlain, 0)
+	})
+	if !strings.Contains(withLogDriver, "json-file") {
+		t.Errorf("a set LogDriver should be rendered by the top-level report, got:\n%s", withLogDriver)
+	}
 }
 
 // TestRunDocker exercises runDocker's real (read-only) collector wiring in

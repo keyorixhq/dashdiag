@@ -698,6 +698,46 @@ func TestDockerCollect_PodmanQuadletsWithoutSocket(t *testing.T) {
 	}
 }
 
+// TestDockerCollect_DockerRuntimeWithPodmanAlsoInstalled guards the
+// podmanInstalled() half of the "Runtime==podman || podmanInstalled()" OR:
+// when the ACTIVE runtime is docker (socket connects) but podman is ALSO on
+// PATH (a real dual-install setup), quadlets must still be scanned — they're
+// invisible to the docker socket regardless of which runtime is "active".
+func TestDockerCollect_DockerRuntimeWithPodmanAlsoInstalled(t *testing.T) {
+	cached := map[string][]byte{
+		"dial/unix//var/run/docker.sock":                  {'1'},
+		"docker-api//info":                                []byte(`{"Driver":"overlay2","Architecture":"x86_64"}`),
+		"docker-api//version":                             []byte(`{"Version":"27.3.1","ApiVersion":"1.47"}`),
+		"docker-api//containers/json?all=true&size=false": []byte(`[]`),
+		"docker-api//system/df":                           []byte(`{}`),
+		"docker-api//images/json?all=false":               []byte(`[]`),
+		"docker-api//volumes":                             []byte(`{"Volumes":[]}`),
+		"docker-api//networks":                            []byte(`[]`),
+		"lookpath/podman":                                 []byte("/usr/bin/podman"),
+	}
+	withCombinedFixture(t, cached, nil, func(b *source.Bundle) {
+		b.PutStat("/var/run/docker.sock", source.FileMeta{})
+		b.PutCmdNotFound("docker-compose", []string{"version", "--short"})
+		b.PutCmd("systemctl", []string{"is-active", "firewalld"}, "inactive\n", 3)
+		b.PutDir("/etc/containers/systemd", []string{"web.container"})
+		b.PutDir("/root/.config/containers/systemd", nil)
+		b.PutCmd("systemctl", []string{"show", "web.service", "--property=ActiveState,SubState,LoadState"},
+			"ActiveState=active\nSubState=running\nLoadState=loaded\n", 0)
+	})
+	c := NewDockerCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect must not error, got %v", err)
+	}
+	info := res.(*models.DockerInfo) //nolint:errcheck
+	if info.Runtime != "docker" {
+		t.Fatalf("Runtime = %q, want docker (socket connected)", info.Runtime)
+	}
+	if len(info.PodmanQuadlets) != 1 || info.PodmanQuadlets[0].Name != "web" {
+		t.Errorf("PodmanQuadlets = %+v, want a single 'web' entry scanned despite docker being the active runtime", info.PodmanQuadlets)
+	}
+}
+
 // TestDockerCollect_SocketPermissionDenied guards the 7h permission-denied
 // path — a socket file exists but the dial reports permission-denied.
 func TestDockerCollect_SocketPermissionDenied(t *testing.T) {
@@ -772,6 +812,41 @@ func TestDockerCollect_HappyPathMinimal(t *testing.T) {
 	}
 	if info.HostArch != "amd64" {
 		t.Errorf("HostArch = %q, want amd64 (normalized from x86_64)", info.HostArch)
+	}
+}
+
+// TestDockerCollect_ConnectedZeroContainersRHEL10Hint guards the SECOND
+// occurrence of the RHEL10+ iptables-legacy hint — the one appended after a
+// SUCCESSFUL socket connection when the daemon reports zero containers AND
+// zero images (a real symptom of the daemon silently failing to fully start
+// on RHEL/Rocky 10+). Distinct from
+// TestDockerCollect_NoSocketButDockerInstalled_RHEL10Hint, which covers the
+// no-socket-at-all path.
+func TestDockerCollect_ConnectedZeroContainersRHEL10Hint(t *testing.T) {
+	cached := map[string][]byte{
+		"dial/unix//var/run/docker.sock":                  {'1'},
+		"docker-api//info":                                []byte(`{"Driver":"overlay2","Architecture":"x86_64"}`),
+		"docker-api//version":                             []byte(`{"Version":"27.3.1","ApiVersion":"1.47"}`),
+		"docker-api//containers/json?all=true&size=false": []byte(`[]`),
+		"docker-api//system/df":                           []byte(`{}`),
+		"docker-api//images/json?all=false":               []byte(`[]`),
+		"docker-api//volumes":                             []byte(`{"Volumes":[]}`),
+		"docker-api//networks":                            []byte(`[]`),
+	}
+	withCombinedFixture(t, cached, nil, func(b *source.Bundle) {
+		b.PutStat("/var/run/docker.sock", source.FileMeta{})
+		b.PutCmdNotFound("docker-compose", []string{"version", "--short"})
+		b.PutCmdNotFound("podman", []string{"--version"})
+		b.PutCmd("systemctl", []string{"is-active", "firewalld"}, "inactive\n", 3)
+	})
+	c := NewDockerCollectorWithProfile(platform.Profile{Distro: "rhel", MajorVersion: 10})
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect must not error, got %v", err)
+	}
+	info := res.(*models.DockerInfo) //nolint:errcheck
+	if !strings.Contains(info.StatusReason, "iptables-legacy removed in RHEL 10") {
+		t.Errorf("StatusReason = %q, want the RHEL10+ iptables-legacy hint (connected, zero containers/images)", info.StatusReason)
 	}
 }
 

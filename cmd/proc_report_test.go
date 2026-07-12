@@ -100,6 +100,24 @@ func TestPrintProcResourcesFD(t *testing.T) {
 	if !strings.Contains(memMap, "Memory map") || !strings.Contains(memMap, "1024 kB") {
 		t.Errorf("a present MemMap should render the smaps_rollup section, got:\n%s", memMap)
 	}
+
+	// A nonzero process-level SwapMB must render its own line — distinct from
+	// MemMap.SwapKb below.
+	swap := captureStdout(t, func() {
+		printProcResources(&models.ProcInfo{FDReadable: true, SwapMB: 12.5}, output.ModeHuman)
+	})
+	if !strings.Contains(swap, "Swap") || !strings.Contains(swap, "12.5 MB") {
+		t.Errorf("a nonzero SwapMB should render a Swap line, got:\n%s", swap)
+	}
+
+	// MemMap.SwapKb > 0 renders a second, distinct Swap line inside the
+	// smaps_rollup section.
+	memMapSwap := captureStdout(t, func() {
+		printProcResources(&models.ProcInfo{FDReadable: true, MemMap: &models.ProcMemMap{RSSKb: 2048, SwapKb: 512}}, output.ModeHuman)
+	})
+	if !strings.Contains(memMapSwap, "512 kB") {
+		t.Errorf("a nonzero MemMap.SwapKb should render its own Swap line, got:\n%s", memMapSwap)
+	}
 }
 
 func TestPrintProcFilesDeletedLibs(t *testing.T) {

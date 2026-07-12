@@ -4,11 +4,13 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
@@ -92,6 +94,22 @@ func TestBindParseZoneFile_DepthGuard(t *testing.T) {
 	}
 	if zones := bindParseZoneFile(main, 6); zones != nil {
 		t.Errorf("depth > 5 should short-circuit to nil, got %+v", zones)
+	}
+}
+
+// TestBindParseZoneFile_ScanTooLong guards the scanner.Err() branch: a single
+// line exceeding bufio.Scanner's default 64KB token limit makes Scan() stop
+// with bufio.ErrTooLong, and the function must return nil rather than a
+// partial/truncated zone list it can't fully trust.
+func TestBindParseZoneFile_ScanTooLong(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "named.conf")
+	huge := strings.Repeat("x", 100*1024) // 100KB, over bufio.MaxScanTokenSize
+	if err := os.WriteFile(main, []byte(huge+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if zones := bindParseZoneFile(main, 0); zones != nil {
+		t.Errorf("oversized line should yield nil, got %+v", zones)
 	}
 }
 
@@ -263,6 +281,14 @@ func TestBindCalcUptime(t *testing.T) {
 	if got == "" || !strings.Contains(got, "d") {
 		t.Errorf("past boot time should yield a 'Xd ...' uptime, got %q", got)
 	}
+
+	// A boot time under 24h ago exercises the days==0 branch — hour/minute
+	// granularity only, no "d" component.
+	recent := time.Now().Add(-90 * time.Minute).UTC().Format("Mon, 02 Jan 2006 15:04:05 MST")
+	gotRecent := bindCalcUptime("boot time: " + recent)
+	if gotRecent == "" || strings.Contains(gotRecent, "d") {
+		t.Errorf("sub-day boot time should yield 'Xh Xm' with no day component, got %q", gotRecent)
+	}
 }
 
 // TestIsBindProcess pins the process-owner matching used to confirm a :53
@@ -314,6 +340,28 @@ udp   UNCONN 0 0 127.0.0.53:53 0.0.0.0:* users:(("systemd-resolve",pid=900,fd=13
 	if info.Port53TCP || info.Port53UDP {
 		t.Errorf("Port53TCP=%v Port53UDP=%v, want both false — :53 is held by systemd-resolved, not named",
 			info.Port53TCP, info.Port53UDP)
+	}
+}
+
+// TestBindCheckPorts_SSFails guards the `ss` failure branch: when the
+// iproute2 tool is absent or errors, PortsChecked must stay false so
+// consumers report "not verified" instead of a false "not listening on :53".
+func TestBindCheckPorts_SSFails(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(_ context.Context, name string, _ ...string) (source.Result, error) {
+		if name == "ss" {
+			return source.Result{}, errors.New("exec: \"ss\": executable file not found in $PATH")
+		}
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+
+	var info models.BINDInfo
+	bindCheckPorts(context.Background(), &info)
+	if info.PortsChecked {
+		t.Error("PortsChecked should be false when ss fails")
+	}
+	if info.Port53TCP || info.Port53UDP {
+		t.Errorf("Port53TCP=%v Port53UDP=%v, want both false when ss fails", info.Port53TCP, info.Port53UDP)
 	}
 }
 

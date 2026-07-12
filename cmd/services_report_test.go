@@ -42,6 +42,11 @@ func TestPrintServicesEmpty(t *testing.T) {
 	if !strings.Contains(out, "No services configured") {
 		t.Errorf("empty services should explain how to configure some, got:\n%s", out)
 	}
+
+	human := captureStdout(t, func() { printServicesEmpty(output.ModeHuman) })
+	if !strings.Contains(human, "No services configured") {
+		t.Errorf("empty services (human mode) should explain how to configure some, got:\n%s", human)
+	}
 }
 
 func TestPrintServicesResults(t *testing.T) {
@@ -98,6 +103,26 @@ func TestPrintSystemdHealthFailedUnitDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "bind: address already in use") {
 		t.Errorf("the last log line should be included, got:\n%s", out)
+	}
+}
+
+// TestPrintSystemdHealthFailedUnitSkipsEmptyLogLines guards the empty-line
+// skip inside a failed unit's LastLogLines — a blank entry (e.g. a trailing
+// journalctl newline) must not render an empty "→ " line.
+func TestPrintSystemdHealthFailedUnitSkipsEmptyLogLines(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true,
+		FailedUnits: []models.SystemdUnit{
+			{Name: "nginx.service", SubState: "failed", LastLogLines: []string{"", "real error line"}},
+		},
+		JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if !strings.Contains(out, "real error line") {
+		t.Errorf("the non-empty log line should still be shown, got:\n%s", out)
+	}
+	if strings.Contains(out, "→ \n") {
+		t.Errorf("an empty log line must not render a bare arrow, got:\n%s", out)
 	}
 }
 

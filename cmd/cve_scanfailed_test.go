@@ -43,6 +43,14 @@ func TestPrintAllCVEsScanFailed(t *testing.T) {
 	if !strings.Contains(out3, "No pending security advisories") {
 		t.Errorf("Total==0 with no StatusReason should print the generic up-to-date line; got:\n%s", out3)
 	}
+
+	// ScanFailed with no StatusReason at all falls back to the generic
+	// "could not run" warning (distinct from the explicit-reason case above).
+	failedNoReason := &models.CVEAllResult{PackageManager: "dnf", Total: 0, ScanFailed: true}
+	out4 := captureStdout(t, func() { printAllCVEs(failedNoReason) })
+	if !strings.Contains(out4, "could not run") {
+		t.Errorf("ScanFailed with no StatusReason should print the generic could-not-run warning; got:\n%s", out4)
+	}
 }
 
 // TestPrintAllCVEsKEVFixCommandSubscription covers the KEVCount>0 callout,

@@ -57,6 +57,26 @@ func TestParseCrontabFileQuality(t *testing.T) {
 	if got := parseCrontabFile(clean, clean); got != nil {
 		t.Errorf("well-formed cron.d job must be clean, got %+v", got)
 	}
+
+	// 5. An absolute-path command that does not exist on disk → "command not
+	// found" issue (the fileExists()==false branch, distinct from the
+	// relative-path check in case 3).
+	missing := write("etc/cron.d/missingbin", "MAILTO=root\nPATH=/bin\n0 5 * * * root /opt/nonexistent-tool --run\n")
+	gotMissing := parseCrontabFile(missing, missing)
+	if gotMissing == nil || len(gotMissing) != 1 {
+		t.Fatalf("missing-binary job = %+v, want one CronJob", gotMissing)
+	}
+	if !strings.Contains(strings.Join(gotMissing[0].Issues, " | "), "command not found") {
+		t.Errorf("missing-binary job should flag 'command not found', got %q", gotMissing[0].Issues)
+	}
+
+	// 6. A short line (fewer than 6 whitespace fields) is not a parseable cron
+	// job — extractCronCommand returns "" and the line must be skipped rather
+	// than counted as a job.
+	shortLine := write("etc/cron.d/shortline", "MAILTO=root\nPATH=/bin\n* * * *\n")
+	if got := parseCrontabFile(shortLine, shortLine); got != nil {
+		t.Errorf("a too-short line should yield no jobs (not counted), got %+v", got)
+	}
 }
 
 // TestAnyProcessNamedIn verifies the portable /proc/<pid>/comm scan that replaced
@@ -93,6 +113,23 @@ func TestAnyProcessNamedIn(t *testing.T) {
 func TestAnyProcessNamedIn_ProcDirUnreadable(t *testing.T) {
 	if anyProcessNamedIn(filepath.Join(t.TempDir(), "does-not-exist"), "crond") {
 		t.Error("an unreadable /proc directory must return false")
+	}
+}
+
+// TestAnyProcessNamedIn_CommUnreadable guards the per-pid readFile error
+// branch: a PID directory that exists (from the listing) but whose comm file
+// is gone by the time we read it (the process exited mid-scan, a real TOCTOU
+// race under /proc) must be skipped, not treated as a match or a crash.
+func TestAnyProcessNamedIn_CommUnreadable(t *testing.T) {
+	proc := t.TempDir()
+	// A numeric PID dir with no comm file inside — mimics a process that
+	// exited between the readdir and the read.
+	if err := os.MkdirAll(filepath.Join(proc, "999"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeComm(t, proc, "1", "init")
+	if anyProcessNamedIn(proc, "crond") {
+		t.Error("an unreadable comm file must be skipped, not matched")
 	}
 }
 

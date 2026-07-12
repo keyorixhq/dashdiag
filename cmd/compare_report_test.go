@@ -36,6 +36,23 @@ func TestPrintCompareDiverging(t *testing.T) {
 	}
 }
 
+// TestPrintCompareLongHostnameTruncated covers the matrix header's hostname
+// truncation (>12 chars) — every other test in this file uses short ("web01")
+// hostnames that never hit that branch.
+func TestPrintCompareLongHostnameTruncated(t *testing.T) {
+	snaps := []*compareSnapshot{
+		{Hostname: "a-very-long-hostname.example.com", Timestamp: "2026-01-01T00:00:00Z", Checks: []compareCheck{{Name: "Disk", Status: "OK"}}},
+		{Hostname: "web02", Timestamp: "2026-01-01T00:00:00Z", Checks: []compareCheck{{Name: "Disk", Status: "OK"}}},
+	}
+	out := captureStdout(t, func() { printCompare(snaps, true, true) })
+	if !strings.Contains(out, "[1]a-very-long-") {
+		t.Errorf("a long hostname should be truncated to 12 chars in the matrix header, got:\n%s", out)
+	}
+	if strings.Contains(out, "[1]a-very-long-hostname") {
+		t.Errorf("the full untruncated hostname must not appear in the matrix header label, got:\n%s", out)
+	}
+}
+
 // TestPrintCompareShowAllAndEmoji covers the showAll=true branch (all checks
 // printed, including non-diverging ones, with the "use --all" hint suppressed)
 // and the plain=false emoji statusSymbol branch.

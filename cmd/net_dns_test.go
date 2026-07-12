@@ -46,6 +46,17 @@ func TestPrintDNSUnavailable(t *testing.T) {
 	}
 }
 
+// TestPrintDNSHumanModeHeader covers the human-mode-only header line, never
+// exercised by the ModePlain calls used elsewhere in this file.
+func TestPrintDNSHumanModeHeader(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDNS(&models.DNSResolverInfo{Available: false}, output.ModeHuman)
+	})
+	if !strings.Contains(out, "DNS resolver audit") {
+		t.Errorf("human mode should print the section header, got: %q", out)
+	}
+}
+
 // On Linux (Available=true) a genuine resolution failure must still surface.
 func TestPrintDNSAvailableStillReportsFailure(t *testing.T) {
 	out := captureStdout(t, func() {

@@ -66,6 +66,35 @@ func TestReadEDACCountsFrom_NoControllers(t *testing.T) {
 	}
 }
 
+// TestReadEDACCountsFrom_StrayMCPrefixedEntrySkipped guards the "mc"-prefixed
+// but missing ce_count skip: a stray directory that happens to start with
+// "mc" (e.g. "mc-something-unrelated") but has no ce_count file must not be
+// counted as a real controller, while a genuine mc* dir alongside it still is.
+func TestReadEDACCountsFrom_StrayMCPrefixedEntrySkipped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "mc-unrelated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realDir := filepath.Join(root, "mc0")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "ce_count"), []byte("4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "ue_count"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	avail, ce, ue := readEDACCountsFrom(root)
+	if !avail {
+		t.Error("expected available=true from the one genuine mc0 controller")
+	}
+	if ce != 4 || ue != 1 {
+		t.Errorf("counts = (%d,%d), want (4,1) — the stray mc-prefixed dir must not contribute", ce, ue)
+	}
+}
+
 // TestReadEDACCounter covers readEDACCounter directly (routed through the
 // active source via readFile, unlike readEDACCountsFrom above which reads
 // the real filesystem): a well-formed counter, a trailing-newline counter

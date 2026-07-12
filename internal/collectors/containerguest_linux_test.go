@@ -146,6 +146,38 @@ func TestContainerGuestCollector_Collect_CgroupV2(t *testing.T) {
 	}
 }
 
+// TestContainerGuestCollector_Collect_CgroupV2EmptyDirFallsBackToBase guards
+// the cgDir=="" fallback to cgroupV2Base ("/sys/fs/cgroup"): an older/gap
+// ContainerContext with no resolved CgroupV2Dir must still read from the base
+// path rather than leaving the cgroup-v2 signals unmeasured.
+func TestContainerGuestCollector_Collect_CgroupV2EmptyDirFallsBackToBase(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"platform/container-context": containerContextJSON(t, platform.ContainerContext{
+			InContainer:   true,
+			IsDocker:      true,
+			CgroupVersion: 2,
+			CgroupV2Dir:   "",
+			MemLimitMB:    512,
+			CPULimitCores: 2,
+		}),
+	}, nil, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/cgroup/memory.current", []byte("52428800\n"))
+		b.PutFile("/sys/fs/cgroup/memory.events", []byte("low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n"))
+		b.PutFile("/sys/fs/cgroup/cpu.stat", []byte("nr_periods 100\nnr_throttled 0\nthrottled_usec 0\n"))
+		b.PutFile("/proc/mounts", []byte("overlay / overlay rw,relatime 0 0\n"))
+	})
+
+	c := NewContainerGuestCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ContainerGuestInfo)
+	if info.MemCurrentBytes != 52428800 {
+		t.Errorf("MemCurrentBytes = %d, want 52428800 (read from base cgroupV2Base fallback)", info.MemCurrentBytes)
+	}
+}
+
 func TestContainerGuestCollector_Collect_CgroupV1Measured(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"platform/container-context": containerContextJSON(t, platform.ContainerContext{

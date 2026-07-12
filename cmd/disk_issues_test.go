@@ -50,6 +50,12 @@ func TestDiskHasUnverifiedReads(t *testing.T) {
 	if !diskHasUnverifiedReads(nil, &models.LVMInfo{VGReadFailed: true}) {
 		t.Error("LVM VGReadFailed must count as an unverified read")
 	}
+	// A per-pool `zpool status` read failure (as opposed to the list-level
+	// ZFSListReadFailed above) must also be recognized — it's a distinct flag
+	// set when the pool list succeeds but the per-pool status call fails.
+	if !diskHasUnverifiedReads(&models.DiskInfo{ZFSPools: []models.ZFSPool{{StatusReadFailed: true}}}, nil) {
+		t.Error("a pool-level StatusReadFailed must count as an unverified read")
+	}
 	// An unverified read must NOT inflate the concern tally (stays INFO, not WARN).
 	if got := countDiskIssues(&models.DiskInfo{ZFSListReadFailed: true}, &models.LVMInfo{VGReadFailed: true}); got != 0 {
 		t.Errorf("unverified reads must not be counted as concerns, got %d", got)

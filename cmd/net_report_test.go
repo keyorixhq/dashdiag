@@ -103,6 +103,22 @@ func TestPrintNetBonds(t *testing.T) {
 	if !strings.Contains(activeMarker, "← active") {
 		t.Errorf("the active-backup slave should be marked, got:\n%s", activeMarker)
 	}
+
+	// A slave with a nonzero SpeedMbps and LinkFails count must show both —
+	// neither exercised by the cases above.
+	speedAndLinkFails := captureStdout(t, func() {
+		printNetBonds(&models.NetworkInfo{Bonds: []models.BondInterface{{
+			Name: "bond0",
+			Slaves: []models.BondSlave{{Name: "eth0", MIIStatus: "up"}, {Name: "eth1", MIIStatus: "up",
+				SpeedMbps: 1000, LinkFails: 3}},
+		}}})
+	})
+	if !strings.Contains(speedAndLinkFails, "1000 Mbps") {
+		t.Errorf("a slave with a set SpeedMbps should show it, got:\n%s", speedAndLinkFails)
+	}
+	if !strings.Contains(speedAndLinkFails, "3 link failures") {
+		t.Errorf("a slave with nonzero LinkFails should show the count, got:\n%s", speedAndLinkFails)
+	}
 }
 
 func TestPrintNetSteamOSWifi(t *testing.T) {
@@ -125,6 +141,20 @@ func TestPrintNetSteamOSWifi(t *testing.T) {
 	})
 	if !strings.Contains(slowCDN, "slow") {
 		t.Errorf("slow Steam CDN DNS should be flagged, got:\n%s", slowCDN)
+	}
+
+	fastCDN := captureStdout(t, func() {
+		printNetSteamOSWifi(&models.NetworkInfo{SteamOSWifi: &models.SteamOSWifi{CDNDNSKnown: true, CDNDNSms: 40}})
+	})
+	if !strings.Contains(fastCDN, "✅ Steam CDN DNS: 40ms") {
+		t.Errorf("a fast Steam CDN DNS should render the OK line, got:\n%s", fastCDN)
+	}
+
+	devMode := captureStdout(t, func() {
+		printNetSteamOSWifi(&models.NetworkInfo{SteamOSWifi: &models.SteamOSWifi{DevMode: true, Backend: "iwd"}})
+	})
+	if !strings.Contains(devMode, "dev-mode workaround") {
+		t.Errorf("dev-mode backend should be flagged as a workaround, got:\n%s", devMode)
 	}
 
 	notConnected := captureStdout(t, func() {
@@ -215,6 +245,30 @@ func TestPrintNFSReport(t *testing.T) {
 	if !strings.Contains(stats, "Retransmissions") || !strings.Contains(stats, "Read ops") || !strings.Contains(stats, "Write ops") {
 		t.Errorf("nonzero NFS stats should render the stats section, got:\n%s", stats)
 	}
+
+	// A high retransmission RATE (not raw count) must render the WARN icon —
+	// distinct from the healthy-rate case in "stats" above.
+	highRetransRate := captureStdout(t, func() {
+		printNFSReport(&models.NFSInfo{
+			Mounts:        []models.NFSMount{{Mount: "/mnt/data", Server: "nfs01", Export: "/export", Healthy: true}},
+			RetransPerMin: 100, RPCCalls: 1000, StaleMounts: 0,
+		}, output.ModePlain)
+	})
+	if !strings.Contains(highRetransRate, "⚠️") {
+		t.Errorf("a high retransmission rate should render the WARN icon, got:\n%s", highRetransRate)
+	}
+
+	// A stale mount whose server IS reachable (port closed / NFS daemon down,
+	// not a network-level outage) is a distinct branch from the unreachable
+	// case in "stale" above.
+	staleServerReachable := captureStdout(t, func() {
+		printNFSReport(&models.NFSInfo{Mounts: []models.NFSMount{
+			{Mount: "/mnt/data", Server: "nfs01", Export: "/export", Stale: true, ServerReachable: true, NFSPortOpen: false},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(staleServerReachable, "server nfs01: reachable") {
+		t.Errorf("a stale mount with a reachable server should say so, got:\n%s", staleServerReachable)
+	}
 }
 
 func TestPrintBINDReport(t *testing.T) {
@@ -238,6 +292,13 @@ func TestPrintBINDReport(t *testing.T) {
 	})
 	if !strings.Contains(zoneFailed, "FAILED") || !strings.Contains(zoneFailed, "syntax error") {
 		t.Errorf("a failed zone should show its error and remediation, got:\n%s", zoneFailed)
+	}
+
+	configFailed := captureStdout(t, func() {
+		printBINDReport(&models.BINDInfo{ConfigOK: false, ConfigError: "unexpected token near line 12", PortsChecked: true})
+	})
+	if !strings.Contains(configFailed, "unexpected token near line 12") {
+		t.Errorf("a failed named-checkconf should show the config error, got:\n%s", configFailed)
 	}
 
 	queryNotTested := captureStdout(t, func() {
@@ -483,6 +544,74 @@ func TestPrintNetReportWiFiInterface(t *testing.T) {
 	})
 	if !strings.Contains(weakSignal, "2.44GHz") {
 		t.Errorf("a WiFi interface with no Band but a FreqGHz should fall back to the frequency, got:\n%s", weakSignal)
+	}
+
+	// -60 to -70 dBm and -70 to -80 dBm are their own signal-quality bands,
+	// distinct icons from both the strong (-55) and very weak (-85) cases above.
+	mediumSignal := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
+			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{SSID: "Net", SignalDBm: -65}},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(mediumSignal, "-65dBm") {
+		t.Errorf("a -65dBm signal should be shown, got:\n%s", mediumSignal)
+	}
+
+	fairSignal := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
+			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{SSID: "Net", SignalDBm: -75}},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(fairSignal, "-75dBm") {
+		t.Errorf("a -75dBm signal should be shown, got:\n%s", fairSignal)
+	}
+}
+
+// TestPrintNetReportWiredInterfaceDetail covers the wired-interface (non-WiFi)
+// detail line's USB/drops/errors sub-branches — none exercised by the plain
+// eth0 case in TestPrintNetReportVerdict.
+func TestPrintNetReportWiredInterfaceDetail(t *testing.T) {
+	usbWithDriver := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
+			{Name: "eth0", IP: "10.0.0.5", Up: true, IsUSB: true, Driver: "r8152"},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(usbWithDriver, "[USB:r8152]") {
+		t.Errorf("a USB interface with a known driver should name it, got:\n%s", usbWithDriver)
+	}
+
+	usbNoDriver := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
+			{Name: "eth0", IP: "10.0.0.5", Up: true, IsUSB: true},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(usbNoDriver, "[USB]") {
+		t.Errorf("a USB interface with no driver name should show the bare [USB] tag, got:\n%s", usbNoDriver)
+	}
+
+	dropsAndErrors := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
+			{Name: "eth0", IP: "10.0.0.5", Up: true, RxDrops: 2, TxDrops: 1, RxErrors: 5, TxErrors: 3},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(dropsAndErrors, "drops rx:2 tx:1") {
+		t.Errorf("nonzero rx/tx drops should be shown, got:\n%s", dropsAndErrors)
+	}
+	if !strings.Contains(dropsAndErrors, "errors rx:5 tx:3") {
+		t.Errorf("nonzero rx/tx errors should be shown, got:\n%s", dropsAndErrors)
+	}
+}
+
+// TestPrintNetReportDownInterface covers the "interface down" fail icon —
+// distinct from every Up:true case elsewhere in this file.
+func TestPrintNetReportDownInterface(t *testing.T) {
+	out := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
+			{Name: "eth0", IP: "10.0.0.5", Up: false},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if !strings.Contains(out, "eth0") {
+		t.Errorf("the down interface should still be listed, got:\n%s", out)
 	}
 }
 

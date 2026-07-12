@@ -19,6 +19,31 @@ func TestActiveSource(t *testing.T) {
 	}
 }
 
+// TestSetSource_PreviousNil guards the defensive prev==nil branch: SetSource
+// must return nil (not panic dereferencing a nil *source.Source) when the
+// package-level activeSource pointer was itself nil beforehand. In production
+// init() always seeds a real value, so this only exercises the safety check —
+// deliberately pokes the unexported atomic.Pointer directly (same package),
+// which is why this test must NOT run in parallel with anything else that
+// touches activeSource (matches the existing no-t.Parallel convention for
+// activeSource-swapping tests in this package, e.g. apache_linux_test.go).
+func TestSetSource_PreviousNil(t *testing.T) {
+	real := source.NewReplay(source.NewBundle())
+	prevPtr := activeSource.Swap(nil)
+	defer func() {
+		if prevPtr != nil {
+			activeSource.Store(prevPtr)
+		} else {
+			SetSource(real)
+		}
+	}()
+
+	got := SetSource(real)
+	if got != nil {
+		t.Errorf("SetSource() with a nil previous pointer = %v, want nil", got)
+	}
+}
+
 // runCmdOutput must return stdout even when the command exits non-zero — the
 // whole point is to capture findings from tools (rpm -V, dnf check) that signal
 // discrepancies via a non-zero exit while printing them to stdout. runCmd

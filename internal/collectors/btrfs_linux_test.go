@@ -150,6 +150,16 @@ func TestApplyBtrfsShow_GenuineMissingCountsEvenNonRoot(t *testing.T) {
 	}
 }
 
+// TestApplyBtrfsShow_NoUUIDReturnsNil guards the "couldn't parse a UUID at all"
+// branch: malformed/empty `btrfs filesystem show` output must yield nil rather
+// than a fabricated healthy volume with an empty UUID.
+func TestApplyBtrfsShow_NoUUIDReturnsNil(t *testing.T) {
+	vol := applyBtrfsShow("not real btrfs output\nno uuid line here\n", "/mnt", false)
+	if vol != nil {
+		t.Errorf("expected nil for output with no UUID line, got %+v", vol)
+	}
+}
+
 // TestApplyBtrfsDevStatsUnmappedPath is the false-OK regression guard: a non-zero
 // error counter whose device path does NOT match any device from `btrfs filesystem
 // show` (multi-device path-format mismatch, /dev/mapper/LUKS names, or an empty

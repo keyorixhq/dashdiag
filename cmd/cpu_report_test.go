@@ -40,6 +40,13 @@ func TestPrintCPUReportLoadAndSteal(t *testing.T) {
 	if !strings.Contains(steal, "hypervisor over-provisioned") {
 		t.Errorf("a high steal percentage should hint at hypervisor over-provisioning, got:\n%s", steal)
 	}
+
+	iowait := captureStdout(t, func() {
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, IOwaitPct: 15}, nil, nil, nil, output.ModePlain, 0)
+	})
+	if !strings.Contains(iowait, "IOWait:") {
+		t.Errorf("a nonzero IOwaitPct should render the IOWait row, got:\n%s", iowait)
+	}
 }
 
 func TestPrintCPUReportFrequency(t *testing.T) {

@@ -38,6 +38,25 @@ func TestDetectResolver_SystemdResolvedActive(t *testing.T) {
 	}
 }
 
+// TestDetectResolver_ResolvConfSymlinkResolved guards the readLink success
+// branch: when /etc/resolv.conf resolves (a real symlink, the systemd-resolved
+// stub layout), ResolvConfTarget must be populated from it.
+func TestDetectResolver_ResolvConfSymlinkResolved(t *testing.T) {
+	withCombinedFixture(t, nil, map[string]string{
+		"/etc/resolv.conf": "/run/systemd/resolve/stub-resolv.conf",
+	}, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "systemd-resolved"}, "active\n", 0)
+	})
+	info := &models.ResolverAuditInfo{}
+	detectResolver(context.Background(), info)
+	if info.ResolvConfTarget != "/run/systemd/resolve/stub-resolv.conf" {
+		t.Errorf("ResolvConfTarget = %q, want the resolved symlink target", info.ResolvConfTarget)
+	}
+	if info.ResolvConfMode != "stub" {
+		t.Errorf("ResolvConfMode = %q, want stub", info.ResolvConfMode)
+	}
+}
+
 // TestDetectResolver_FallbackToNetworkManager guards the loop through
 // NetworkManager/dnsmasq/unbound when systemd-resolved is inactive.
 func TestDetectResolver_FallbackToNetworkManager(t *testing.T) {
@@ -277,6 +296,24 @@ func TestNmDNSFallback_SudoSkipsNmcli(t *testing.T) {
 	}
 }
 
+// TestNmDNSFallback_NmcliSucceedsButNoParseableDNS guards the
+// len(NMNameservers)==0 fallback: nmcli exits cleanly but its output has no
+// parseable ".DNS" lines at all (e.g. a device with no DNS servers assigned)
+// — must still fall back to reading resolv.conf directly rather than leaving
+// NMNameservers empty.
+func TestNmDNSFallback_NmcliSucceedsButNoParseableDNS(t *testing.T) {
+	t.Setenv("SUDO_USER", "")
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("nmcli", []string{"dev", "show"}, "GENERAL.DEVICE: eth0\nIP4.ADDRESS[1]: 192.168.1.50/24\n", 0)
+		b.PutFile("/etc/resolv.conf", []byte("nameserver 8.8.8.8\n"))
+	})
+	info := &models.ResolverAuditInfo{ResolverType: "NetworkManager"}
+	nmDNSFallback(context.Background(), info)
+	if len(info.NMNameservers) != 1 || info.NMNameservers[0] != "8.8.8.8" {
+		t.Errorf("NMNameservers = %v, want [8.8.8.8] (fallen back to resolv.conf)", info.NMNameservers)
+	}
+}
+
 // TestNmDNSFallback_NmcliFails guards the nmcli-error fallback: nmcli exits
 // non-zero (or command absent) → fall back to resolv.conf.
 func TestNmDNSFallback_NmcliFails(t *testing.T) {
@@ -332,6 +369,30 @@ func TestDNSResolverCollector_Collect_SystemdResolvedPath(t *testing.T) {
 	}
 	if !info.DNSSECTestRan || !info.DNSSECTestPassed {
 		t.Errorf("expected DNSSEC test to have run and passed, got ran=%v passed=%v err=%q", info.DNSSECTestRan, info.DNSSECTestPassed, info.DNSSECTestError)
+	}
+}
+
+// TestDNSResolverCollector_Collect_DNSSECUnsetDefaultsToAllowDowngrade
+// guards the "" -> "allow-downgrade" fallback: a resolved.conf with no
+// DNSSEC= line at all must default to systemd's own documented default,
+// distinct from an explicit "DNSSEC=yes"/"no" configuration.
+func TestDNSResolverCollector_Collect_DNSSECUnsetDefaultsToAllowDowngrade(t *testing.T) {
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "systemd-resolved"}, "active\n", 0)
+		b.PutCmd("resolvectl", []string{"status"},
+			"Global\n  Protocols: -DNSOverTLS\nresolv.conf mode: stub\n  DNS Servers: 1.1.1.1\n", 0)
+		b.PutFile("/etc/systemd/resolved.conf", []byte("[Resolve]\nDNS=1.1.1.1\n")) // no DNSSEC= line
+		b.PutCmdNotFound("resolvectl", []string{"query", sigokDomain})
+		b.PutDir("/sys/class/net", []string{"eth0"})
+	})
+	c := NewDNSResolverCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.ResolverAuditInfo)
+	if info.DNSSECConfigured != "allow-downgrade" {
+		t.Errorf("DNSSECConfigured = %q, want allow-downgrade (systemd's unset default)", info.DNSSECConfigured)
 	}
 }
 

@@ -105,6 +105,28 @@ func TestPrintAppArmorSectionDenialGroups(t *testing.T) {
 	}
 }
 
+// TestPrintAppArmorSectionDenialGroupsCapped guards the ">3 denial group"
+// truncation (only the first 3 are printed) — distinct from the single-group
+// case in TestPrintAppArmorSectionDenialGroups above.
+func TestPrintAppArmorSectionDenialGroupsCapped(t *testing.T) {
+	info := &models.SecurityInfo{
+		AppArmorMode: "enforce", AppArmorProfiles: 5,
+		AppArmorGroups: []models.AppArmorDenial{
+			{Profile: "/usr/bin/a", Path: "/etc/a", Count: 1},
+			{Profile: "/usr/bin/b", Path: "/etc/b", Count: 2},
+			{Profile: "/usr/bin/c", Path: "/etc/c", Count: 3},
+			{Profile: "/usr/bin/d", Path: "/etc/d", Count: 4},
+		},
+	}
+	out := captureStdout(t, func() { printAppArmorSection(info, output.ModePlain) })
+	if strings.Contains(out, "/usr/bin/d") {
+		t.Errorf("only the first 3 denial groups should be printed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "4 denial group(s)") {
+		t.Errorf("the full group count should still be reported, got:\n%s", out)
+	}
+}
+
 func TestPrintAppArmorSectionBareDenials(t *testing.T) {
 	info := &models.SecurityInfo{
 		AppArmorMode: "enforce", AppArmorProfiles: 5, AppArmorDenials: 3,
@@ -135,6 +157,19 @@ func TestPrintFirewallSectionServices(t *testing.T) {
 	out := captureStdout(t, func() { printFirewallSection(info, output.ModePlain) })
 	if !strings.Contains(out, "allowed: ssh, http, https") {
 		t.Errorf("configured firewall services should be listed, got:\n%s", out)
+	}
+}
+
+// TestPrintFirewallSectionZone covers the FirewallZone annotation (firewalld
+// zones), a distinct branch from the plain active-firewall case above.
+func TestPrintFirewallSectionZone(t *testing.T) {
+	info := &models.SecurityInfo{
+		FirewallActive: true, FirewallType: "firewalld", SSHAllowed: true,
+		FirewallZone: "public",
+	}
+	out := captureStdout(t, func() { printFirewallSection(info, output.ModePlain) })
+	if !strings.Contains(out, "(zone: public)") {
+		t.Errorf("a set FirewallZone should be shown, got:\n%s", out)
 	}
 }
 
