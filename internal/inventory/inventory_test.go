@@ -148,12 +148,12 @@ func TestCountDpkg(t *testing.T) {
 
 func TestReadMachineIDFrom(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	primary := filepath.Join(dir, "primary-id")
-	secondary := filepath.Join(dir, "secondary-id")
 
 	t.Run("primary present", func(t *testing.T) {
 		t.Parallel()
+		dir := t.TempDir()
+		primary := filepath.Join(dir, "primary-id")
+		secondary := filepath.Join(dir, "secondary-id")
 		if err := os.WriteFile(primary, []byte("abc123\n"), 0o644); err != nil {
 			t.Fatalf("writing primary fixture: %v", err)
 		}
@@ -164,6 +164,8 @@ func TestReadMachineIDFrom(t *testing.T) {
 
 	t.Run("primary missing falls back to secondary", func(t *testing.T) {
 		t.Parallel()
+		dir := t.TempDir()
+		secondary := filepath.Join(dir, "secondary-id")
 		missingPrimary := filepath.Join(dir, "does-not-exist")
 		if err := os.WriteFile(secondary, []byte("fallback-id\n"), 0o644); err != nil {
 			t.Fatalf("writing secondary fixture: %v", err)
@@ -175,6 +177,8 @@ func TestReadMachineIDFrom(t *testing.T) {
 
 	t.Run("primary empty falls back to secondary", func(t *testing.T) {
 		t.Parallel()
+		dir := t.TempDir()
+		secondary := filepath.Join(dir, "secondary-id")
 		emptyPrimary := filepath.Join(dir, "empty-id")
 		if err := os.WriteFile(emptyPrimary, []byte("   \n"), 0o644); err != nil {
 			t.Fatalf("writing empty primary fixture: %v", err)
@@ -189,6 +193,7 @@ func TestReadMachineIDFrom(t *testing.T) {
 
 	t.Run("both missing returns empty", func(t *testing.T) {
 		t.Parallel()
+		dir := t.TempDir()
 		missingPrimary := filepath.Join(dir, "nope-1")
 		missingSecondary := filepath.Join(dir, "nope-2")
 		if got := readMachineIDFrom(missingPrimary, missingSecondary); got != "" {

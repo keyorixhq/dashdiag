@@ -3,6 +3,7 @@ package init_pkg
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -34,7 +35,11 @@ func runningProcessNames() []string {
 }
 
 func linuxProcessNames() []string {
-	entries, err := os.ReadDir("/proc")
+	return linuxProcessNamesFrom("/proc")
+}
+
+func linuxProcessNamesFrom(procDir string) []string {
+	entries, err := os.ReadDir(procDir)
 	if err != nil {
 		return nil
 	}
@@ -43,7 +48,7 @@ func linuxProcessNames() []string {
 		if !e.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		data, err := os.ReadFile(filepath.Join(procDir, e.Name(), "comm"))
 		if err == nil {
 			names = append(names, strings.TrimSpace(string(data)))
 		}

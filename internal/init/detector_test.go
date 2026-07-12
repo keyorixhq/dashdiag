@@ -1,6 +1,8 @@
 package init_pkg
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -106,5 +108,39 @@ func TestRunningProcessNames_Smoke(t *testing.T) {
 	_ = runningProcessNames()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("unexpected GOOS for this smoke test")
+	}
+}
+
+func TestLinuxProcessNamesFrom(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Pid directory with a comm file.
+	pid1 := filepath.Join(dir, "1")
+	if err := os.Mkdir(pid1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid1, "comm"), []byte("systemd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pid directory without a comm file — silently skipped.
+	pid2 := filepath.Join(dir, "2")
+	if err := os.Mkdir(pid2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Non-directory entry — skipped by the IsDir guard.
+	if err := os.WriteFile(filepath.Join(dir, "version"), []byte("Linux\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := linuxProcessNamesFrom(dir)
+	if len(got) != 1 || got[0] != "systemd" {
+		t.Errorf("linuxProcessNamesFrom() = %v, want [systemd]", got)
+	}
+}
+
+func TestLinuxProcessNamesFrom_MissingDir(t *testing.T) {
+	t.Parallel()
+	if got := linuxProcessNamesFrom("/nonexistent/proc-dir"); got != nil {
+		t.Errorf("linuxProcessNamesFrom() = %v, want nil for missing dir", got)
 	}
 }
