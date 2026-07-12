@@ -19,11 +19,18 @@ mkdir -p "$DATA"
 
 log() { echo "[$(date +%H:%M:%S 2>/dev/null || echo t)] $*"; }
 
-# ── pve01 itself: runPVE gate, always on, no start/stop ─────────────────────
+# ── pve01 itself: runPVE gate, always on, no start/stop. Also the only guest
+# we have that is NOT a KVM guest and NOT any recognized cloud/virt guest, so
+# it's the cheapest way to exercise kvm-guest's/detectGuestView's negative
+# ("not a guest at all") branches instead of leaving them permanently 0%.
 log "=== pve01 (host) ==="
 mkdir -p "$DATA/pve01"
 GOCOVERDIR="$DATA/pve01" "$BIN" pve >/dev/null 2>&1
+GOCOVERDIR="$DATA/pve01" "$BIN" pve --deep --json >/dev/null 2>&1
 GOCOVERDIR="$DATA/pve01" "$BIN" health --deep >/dev/null 2>&1
+GOCOVERDIR="$DATA/pve01" "$BIN" kvm-guest >/dev/null 2>&1
+GOCOVERDIR="$DATA/pve01" "$BIN" kvm-guest --json >/dev/null 2>&1
+GOCOVERDIR="$DATA/pve01" "$BIN" guest >/dev/null 2>&1
 
 # ── LXC helpers (pct exec/push/pull — no SSH) ────────────────────────────────
 start_lxc() {
@@ -94,13 +101,17 @@ collect_vm() {
 	scp -q -o BatchMode=yes -r "$user@$ip:$remote_dir/*" "$dir/" 2>/dev/null || log "  (pull failed for $label/$pass)"
 }
 
-# ── almalinux9-lxc: RHEL OVAL real dispatch + runDB (postgres installed) ────
+# ── almalinux9-lxc: RHEL OVAL real dispatch + runDB (4 real DB engines) ─────
+# postgresql/mariadb/redis/memcached are all in AlmaLinux 9's default AppStream
+# repo (no third-party repo needed) — installed once, `enable --now` so they
+# persist across guest restarts (no need to reinstall on the next run).
 if start_lxc 213 almalinux9-lxc; then
 	collect_lxc 213 almalinux9-lxc base "cve --all" "health --deep"
-	log "  installing postgresql on almalinux9-lxc for runDB coverage"
-	pct exec 213 -- dnf install -y postgresql-server postgresql >/dev/null 2>&1
+	log "  installing postgresql/mariadb/redis/memcached on almalinux9-lxc for runDB coverage"
+	pct exec 213 -- dnf install -y postgresql-server postgresql mariadb-server redis memcached >/dev/null 2>&1
 	pct exec 213 -- postgresql-setup --initdb >/dev/null 2>&1
-	pct exec 213 -- systemctl enable --now postgresql >/dev/null 2>&1
+	pct exec 213 -- systemctl enable --now postgresql mariadb redis memcached >/dev/null 2>&1
+	sleep 5 # let the services actually open their sockets before dsd probes them
 	collect_lxc 213 almalinux9-lxc db "db"
 	pct exec 213 -- rm -rf /tmp/dsd-cov
 fi
@@ -122,23 +133,32 @@ else
 fi
 
 # ── libvirt-kvm-test: runKVMGuest / KVM collectors real dispatch ────────────
+# NOTE: `kvm-guest` is the guest-side subcommand (Hidden, superseded by the
+# auto-detecting `dsd guest`) — it is NOT the same as `kvm`/`kvm --deep`,
+# which is the *node operator's* view and does not touch runKVMGuest at all.
+# `guest` is included too, to close detectGuestView's KVMGuestAvailable case.
 if start_vm 113 192.168.10.71 debian libvirt-kvm-test; then
 	scp -q -o BatchMode=yes "$BIN" debian@192.168.10.71:/tmp/dsd-cov
 	ssh -o BatchMode=yes debian@192.168.10.71 chmod +x /tmp/dsd-cov
-	collect_vm 192.168.10.71 debian libvirt-kvm-test root "kvm --deep"
+	collect_vm 192.168.10.71 debian libvirt-kvm-test root "kvm-guest" "kvm-guest --json" "guest"
 	ssh -o BatchMode=yes debian@192.168.10.71 'rm -rf /tmp/dsd-cov /tmp/covdata-root' || true
 else
 	log "  ⏭️  libvirt-kvm-test unreachable, skipping"
 fi
 
 # ── nixos-25-05: isNixOS() true-branch real dispatch ─────────────────────────
+# This guest has a documented history of IP drift (TESTMATRIX.md) and has
+# been unreliable to boot-and-reach within a few minutes in practice — treat
+# a skip here as expected, not a script bug. If it keeps failing, verify the
+# guest's actual current IP via the Proxmox console before assuming the
+# script is at fault.
 if start_vm 212 192.168.10.47 root nixos-25-05; then
 	scp -q -o BatchMode=yes "$BIN" root@192.168.10.47:/tmp/dsd-cov
 	ssh -o BatchMode=yes root@192.168.10.47 chmod +x /tmp/dsd-cov
 	collect_vm 192.168.10.47 root nixos-25-05 root "health --deep" "kvm" "gpu"
 	ssh -o BatchMode=yes root@192.168.10.47 'rm -rf /tmp/dsd-cov /tmp/covdata-root' || true
 else
-	log "  ⏭️  nixos-25-05 unreachable, skipping"
+	log "  ⏭️  nixos-25-05 unreachable, skipping (known IP-drift-prone guest — see TESTMATRIX.md)"
 fi
 
 log "=== stopping guests ==="
