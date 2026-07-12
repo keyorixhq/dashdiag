@@ -234,6 +234,54 @@ func TestSaveBaseline_RenameToTsFileFails(t *testing.T) {
 	}
 }
 
+// SaveBaseline must surface an os.Rename failure on its SECOND rename (the
+// tmp2 -> "-latest.json" swap), distinctly from the first rename above. The
+// timestamped rename must succeed so the function proceeds far enough to
+// create, write and close tmp2 — only the final rename onto "latest" is
+// blocked, by pre-occupying that exact path with a directory. This exercises
+// the tmp2 CreateTemp/Write/Close success path that no other test reaches,
+// since every other failure test returns before tmp2 is ever created.
+func TestSaveBaseline_RenameToLatestFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	hostname, _ := os.Hostname()
+	snap := makeSnap(hostname, "v1", "cpu", "OK")
+
+	bdir := filepath.Join(home, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-create a directory at the exact path SaveBaseline will try to
+	// rename its "latest" temp file onto. The timestamped file's path is
+	// left free, so that first rename succeeds.
+	//
+	// SaveBaseline itself rotates any pre-existing "latest" out to "-prev"
+	// before attempting the final rename (line: os.Rename(latest, prevPath)).
+	// That rotation would clear our directory obstruction out of the way, so
+	// "-prev" must ALSO be pre-occupied by a directory: the rotation rename
+	// then fails (its error is deliberately ignored by SaveBaseline), leaving
+	// our directory at "latest" in place to block the final rename.
+	latest := latestPath(hostname)
+	if err := os.MkdirAll(latest, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(prevPath(hostname), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveBaseline(snap); err == nil {
+		t.Error("SaveBaseline should error when the latest-file target path is a directory")
+	}
+	// The timestamped snapshot file must have been written despite the
+	// later failure — confirms the first rename really did succeed and
+	// the function proceeded into the tmp2 path rather than failing early.
+	tsFile := filepath.Join(bdir, hostname+"-"+snap.Timestamp.Format("20060102-150405")+".json")
+	if _, err := os.Stat(tsFile); err != nil {
+		t.Errorf("expected timestamped snapshot file to exist, stat failed: %v", err)
+	}
+}
+
 // SaveGolden must surface an os.Rename failure when the golden file's target
 // path is already occupied by a directory.
 func TestSaveGolden_RenameFails(t *testing.T) {

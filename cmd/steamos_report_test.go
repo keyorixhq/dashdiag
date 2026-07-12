@@ -201,6 +201,30 @@ func TestPrintSteamOSRemotePlay(t *testing.T) {
 	if !strings.Contains(isolation, "AP client isolation") {
 		t.Errorf("suspected AP isolation should be called out, got:\n%s", isolation)
 	}
+
+	// A bound port with no Process name reported falls back to the bare "bound"
+	// label — distinct from the process+PID case in
+	// TestPrintSteamOSRemotePlayBoundAndFirewall.
+	boundNoProcess := captureStdout(t, func() {
+		printSteamOSRemotePlay(&models.SteamOSInfo{RemotePlay: &models.SteamOSRemotePlay{
+			Ports: []models.RemotePlayPort{{Protocol: "udp", Port: 27036, Bound: true}},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(boundNoProcess, "bound") {
+		t.Errorf("a bound port with no process name should say 'bound', got:\n%s", boundNoProcess)
+	}
+
+	// ARP checked, no isolation suspected: the healthy default branch showing
+	// the peer count — distinct from both the "not checked" and "isolation
+	// suspected" cases above.
+	peersVisible := captureStdout(t, func() {
+		printSteamOSRemotePlay(&models.SteamOSInfo{RemotePlay: &models.SteamOSRemotePlay{
+			ARPChecked: true, APIsolationSuspected: false, LANPeersVisible: 3,
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(peersVisible, "3 peer(s) in ARP cache") {
+		t.Errorf("visible LAN peers should show the count, got:\n%s", peersVisible)
+	}
 }
 
 func TestPrintSteamOSDeep(t *testing.T) {
@@ -274,6 +298,16 @@ func TestPrintSteamOSReportDispatch(t *testing.T) {
 	})
 	if !strings.Contains(deep, "F7A0113") {
 		t.Errorf("Deep=true should render the [Deep] section, got:\n%s", deep)
+	}
+
+	// A genuine concern (rootfs writable) must surface the WARN summary line
+	// through the top-level dispatcher — not just via steamOSConcernCount
+	// itself (already pinned by TestSteamOSConcernCount).
+	concerning := captureStdout(t, func() {
+		printSteamOSReport(&models.SteamOSInfo{Detected: true, ReadonlyKnown: true, ReadonlyEnabled: false}, 0, output.ModePlain)
+	})
+	if !strings.Contains(concerning, "SteamOS concern(s) found") {
+		t.Errorf("a genuine concern should surface the warn summary, got:\n%s", concerning)
 	}
 }
 

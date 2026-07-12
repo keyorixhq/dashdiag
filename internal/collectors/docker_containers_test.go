@@ -65,6 +65,15 @@ func crashLoopingDetailJSON() string {
 	}`
 }
 
+func unhealthyDetailJSON() string {
+	return `{
+		"RestartCount": 0,
+		"State": {"Running": true, "StartedAt": "` + time.Now().Add(-2*time.Hour).Format(time.RFC3339Nano) + `", "ExitCode": 0, "Health": {"Status": "unhealthy"}},
+		"Config": {"Env": ["PATH=/usr/bin"], "User": ""},
+		"HostConfig": {"Binds": [], "LogConfig": {"Type": "json-file", "Config": {}}}
+	}`
+}
+
 func TestCollectContainers_HappyPath(t *testing.T) {
 	client := withDockerAPIFixture(t, map[string][]byte{
 		"/containers/json?all=true&size=false": []byte(containerListJSON),
@@ -101,6 +110,25 @@ func TestCollectContainers_HappyPath(t *testing.T) {
 	}
 }
 
+// TestCollectContainers_UnhealthyContainer guards the health-status branch:
+// a container reporting Health.Status=="unhealthy" (a Docker HEALTHCHECK
+// failure) must increment UnhealthyCount and be listed in Unhealthy.
+func TestCollectContainers_UnhealthyContainer(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/containers/json?all=true&size=false": []byte(containerListJSON),
+		"/containers/aaaaaaaaaaaa/json":        []byte(unhealthyDetailJSON()),
+		"/containers/bbbbbbbbbbbb/json":        []byte(crashLoopingDetailJSON()),
+	}, nil)
+
+	info := &models.DockerInfo{}
+	if err := collectContainers(context.Background(), client, info); err != nil {
+		t.Fatalf("collectContainers: %v", err)
+	}
+	if info.UnhealthyCount != 1 || len(info.Unhealthy) != 1 || info.Unhealthy[0] != "web" {
+		t.Errorf("expected web flagged unhealthy, got UnhealthyCount=%d Unhealthy=%v", info.UnhealthyCount, info.Unhealthy)
+	}
+}
+
 // TestCollectContainers_DetailAPIFails guards DetailUnavailable: when the
 // per-container inspect call fails, the container must still be listed (not
 // dropped) with DetailUnavailable=true, not silently defaulted to healthy/OK.
@@ -121,6 +149,20 @@ func TestCollectContainers_DetailAPIFails(t *testing.T) {
 		if !c.DetailUnavailable {
 			t.Errorf("expected DetailUnavailable=true for %q when inspect fails, got false", c.Name)
 		}
+	}
+}
+
+// TestCollectContainers_MalformedJSON guards the json.Unmarshal error branch:
+// the containers list endpoint returning something that isn't a JSON array
+// (a real symptom of a proxy/auth layer intercepting the socket) must
+// surface as an error, not panic or silently report zero containers.
+func TestCollectContainers_MalformedJSON(t *testing.T) {
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/containers/json?all=true&size=false": []byte("not json"),
+	}, nil)
+	info := &models.DockerInfo{}
+	if err := collectContainers(context.Background(), client, info); err == nil {
+		t.Error("expected an error for malformed JSON from the containers list endpoint")
 	}
 }
 

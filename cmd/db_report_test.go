@@ -77,6 +77,10 @@ func TestPrintPostgresState(t *testing.T) {
 }
 
 func TestPrintMySQLState(t *testing.T) {
+	if out := captureStdout(t, func() { printMySQLState(&models.MySQLInfo{Detected: false}, output.ModePlain) }); out != "" {
+		t.Errorf("an undetected server should print nothing, got:\n%s", out)
+	}
+
 	mariadb := captureStdout(t, func() {
 		printMySQLState(&models.MySQLInfo{Detected: true, Flavor: "MariaDB", MetricsRead: true, IsReplica: true, SecondsBehind: 30}, output.ModePlain)
 	})
@@ -100,6 +104,10 @@ func TestPrintMySQLState(t *testing.T) {
 }
 
 func TestPrintRedisState(t *testing.T) {
+	if out := captureStdout(t, func() { printRedisState(&models.RedisInfo{Detected: false}, output.ModePlain) }); out != "" {
+		t.Errorf("an undetected server should print nothing, got:\n%s", out)
+	}
+
 	withLimit := captureStdout(t, func() {
 		printRedisState(&models.RedisInfo{Detected: true, MetricsRead: true, UsedMemoryBytes: 512 * 1024 * 1024, MaxMemoryBytes: 1024 * 1024 * 1024, MaxMemoryPolicy: "allkeys-lru"}, output.ModePlain)
 	})
@@ -130,6 +138,10 @@ func TestPrintRedisState(t *testing.T) {
 }
 
 func TestPrintMemcachedState(t *testing.T) {
+	if out := captureStdout(t, func() { printMemcachedState(&models.MemcachedInfo{Detected: false}, output.ModePlain) }); out != "" {
+		t.Errorf("an undetected server should print nothing, got:\n%s", out)
+	}
+
 	withLimit := captureStdout(t, func() {
 		printMemcachedState(&models.MemcachedInfo{Detected: true, MetricsRead: true, UsedBytes: 50 * 1024 * 1024, LimitMaxBytes: 100 * 1024 * 1024, CurrItems: 1000, CurrConnections: 5, MaxConnections: 100}, output.ModePlain)
 	})
@@ -146,6 +158,10 @@ func TestPrintMemcachedState(t *testing.T) {
 }
 
 func TestPrintMongoState(t *testing.T) {
+	if out := captureStdout(t, func() { printMongoState(&models.MongoDBInfo{Detected: false}, output.ModePlain) }); out != "" {
+		t.Errorf("an undetected server should print nothing, got:\n%s", out)
+	}
+
 	standalone := captureStdout(t, func() {
 		printMongoState(&models.MongoDBInfo{Detected: true, MetricsRead: true, IsReplicaSet: false}, output.ModePlain)
 	})
@@ -161,6 +177,16 @@ func TestPrintMongoState(t *testing.T) {
 	})
 	if !strings.Contains(noPrimary, "no PRIMARY") || !strings.Contains(noPrimary, "1 down") {
 		t.Errorf("a replica set with no primary and a down member must show both, got:\n%s", noPrimary)
+	}
+
+	// The healthy-election counterpart: a replica set WITH a primary elected
+	// (HasPrimary=true) must say so, not fall through to the "no PRIMARY" text.
+	hasPrimary := captureStdout(t, func() {
+		printMongoState(&models.MongoDBInfo{Detected: true, MetricsRead: true, IsReplicaSet: true,
+			ReplicaSetName: "rs0", Members: 3, HasPrimary: true}, output.ModePlain)
+	})
+	if !strings.Contains(hasPrimary, "has PRIMARY") {
+		t.Errorf("a replica set with an elected primary should say so, got:\n%s", hasPrimary)
 	}
 
 	unmeasured := captureStdout(t, func() {

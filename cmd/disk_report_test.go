@@ -59,6 +59,14 @@ func TestPrintSMARTLine(t *testing.T) {
 	if !strings.Contains(mediaErrs, "WARN") {
 		t.Errorf("PASSED but with media errors must render WARN, got:\n%s", mediaErrs)
 	}
+
+	// PowerOnHours > 0 emits a second summary line with power-on/cycle stats.
+	powerOn := captureStdout(t, func() {
+		printSMARTLine(&models.SMARTInfo{Healthy: true, PowerOnHours: 240, UnsafeShutdowns: 2, PowerCycles: 50}, output.ModePlain)
+	})
+	if !strings.Contains(powerOn, "power-on: 240h (10 days)") || !strings.Contains(powerOn, "shutdowns: 2") || !strings.Contains(powerOn, "cycles: 50") {
+		t.Errorf("PowerOnHours > 0 should render the power-on/shutdowns/cycles line, got:\n%s", powerOn)
+	}
 }
 
 func TestPrintDiskDrives(t *testing.T) {
@@ -144,6 +152,34 @@ func TestPrintDiskZFS(t *testing.T) {
 	if !strings.Contains(neverScrubbed, "never scrubbed") {
 		t.Errorf("ScrubAgeDays -1 should say never scrubbed, got:\n%s", neverScrubbed)
 	}
+
+	// ONLINE pool in the WARN band (below CRIT threshold): distinct icon branch
+	// from both the healthy and CRIT-full cases above.
+	warnPool := captureStdout(t, func() {
+		printDiskZFS(&models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "ONLINE", UsedPct: 85}}}, output.ModePlain)
+	})
+	if !strings.Contains(warnPool, "WARN") {
+		t.Errorf("an ONLINE pool in the WARN band must render WARN, got:\n%s", warnPool)
+	}
+
+	// Non-zero read/write/checksum error counters must be surfaced inline.
+	poolErrs := captureStdout(t, func() {
+		printDiskZFS(&models.DiskInfo{ZFSPools: []models.ZFSPool{
+			{Name: "tank", State: "ONLINE", ReadErrors: 2, WriteErrors: 1, CksumErrors: 3},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(poolErrs, "R:2 W:1 C:3") {
+		t.Errorf("pool read/write/checksum error counters should be shown, got:\n%s", poolErrs)
+	}
+
+	// A scrub older than 30 days (but still >= 0, i.e. one has run) must be
+	// noted as a plain informational aging line, not "never scrubbed".
+	overdueScrub := captureStdout(t, func() {
+		printDiskZFS(&models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank", State: "ONLINE", ScrubAgeDays: 45}}}, output.ModePlain)
+	})
+	if !strings.Contains(overdueScrub, "last scrub 45d ago") {
+		t.Errorf("an overdue scrub should show its age, got:\n%s", overdueScrub)
+	}
 }
 
 func TestPrintDiskFilesystems(t *testing.T) {
@@ -174,6 +210,29 @@ func TestPrintDiskFilesystems(t *testing.T) {
 	})
 	if !strings.Contains(inodes, "inodes at 95%") {
 		t.Errorf("high inode usage should be called out separately from space usage, got:\n%s", inodes)
+	}
+
+	// A zero-size filesystem (e.g. a pseudo-fs with no real capacity) must be
+	// skipped entirely rather than rendered as a 0/0 row.
+	zeroSize := captureStdout(t, func() {
+		printDiskFilesystems(&models.DiskInfo{Filesystems: []models.FilesystemInfo{
+			{Mount: "/proc", FSType: "proc", TotalGB: 0},
+			{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 10, UsedPct: 10},
+		}}, output.ModePlain)
+	})
+	if strings.Contains(zeroSize, "/proc") {
+		t.Errorf("a zero-size filesystem should be skipped, got:\n%s", zeroSize)
+	}
+
+	// WARN band: below CRIT but at/above WARN — distinct icon branch from
+	// both the CRIT (95%) and healthy (10%) cases above.
+	warnFS := captureStdout(t, func() {
+		printDiskFilesystems(&models.DiskInfo{Filesystems: []models.FilesystemInfo{
+			{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 85, UsedPct: 85},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(warnFS, "WARN") {
+		t.Errorf("a filesystem in the WARN band must render WARN, got:\n%s", warnFS)
 	}
 }
 
@@ -276,11 +335,27 @@ func TestPrintDiskLVM(t *testing.T) {
 		t.Errorf("a thin pool at 95%% data must render CRIT, got:\n%s", thinPoolCrit)
 	}
 
+	// WARN band: below CRIT (90) but at/above WARN (80) — distinct icon branch.
+	thinPoolWarn := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{ThinPools: []models.LVMThinPool{{Name: "data", VG: "pve", DataPct: 85}}}, output.ModePlain)
+	})
+	if !strings.Contains(thinPoolWarn, "WARN") {
+		t.Errorf("a thin pool in the WARN band must render WARN, got:\n%s", thinPoolWarn)
+	}
+
 	snapshotCrit := captureStdout(t, func() {
 		printDiskLVM(&models.LVMInfo{Snapshots: []models.LVMSnapshot{{Name: "snap0", VG: "pve", Origin: "root", DataPct: 99}}}, output.ModePlain)
 	})
 	if !strings.Contains(snapshotCrit, "CRIT") {
 		t.Errorf("a snapshot at 99%% COW fill must render CRIT, got:\n%s", snapshotCrit)
+	}
+
+	// WARN band: below CRIT (95) but at/above WARN (80) for snapshots.
+	snapshotWarn := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{Snapshots: []models.LVMSnapshot{{Name: "snap0", VG: "pve", Origin: "root", DataPct: 85}}}, output.ModePlain)
+	})
+	if !strings.Contains(snapshotWarn, "WARN") {
+		t.Errorf("a snapshot in the WARN band must render WARN, got:\n%s", snapshotWarn)
 	}
 
 	raidDegraded := captureStdout(t, func() {

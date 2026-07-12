@@ -234,6 +234,20 @@ func TestLowerInterfaces_Found(t *testing.T) {
 	}
 }
 
+// TestAzureTimeSyncConfigured_ChronyConfD guards the conf.d glob-expansion
+// branch: chrony's drop-in directory files must be added to the candidate
+// list and scanned, not just the top-level chrony.conf.
+func TestAzureTimeSyncConfigured_ChronyConfD(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/etc/chrony/conf.d/*.conf", []string{"/etc/chrony/conf.d/10-ptp.conf"})
+		b.PutFile("/etc/chrony/conf.d/10-ptp.conf", []byte("refclock PHC /dev/ptp_hyperv poll 3 dpoll -2 offset 0\n"))
+	})
+	checked, uses := azureTimeSyncConfigured()
+	if !checked || !uses {
+		t.Errorf("azureTimeSyncConfigured() = (%v,%v), want (true,true) from conf.d glob match", checked, uses)
+	}
+}
+
 func TestAzureTimeSyncConfigured_NoConfig(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	checked, uses := azureTimeSyncConfigured()

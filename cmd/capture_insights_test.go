@@ -57,6 +57,27 @@ func TestResolveMockInsights_PrefersFullList(t *testing.T) {
 	}
 }
 
+// TestResolveMockInsights_FullListFiltersOKLevel covers the fix.Insights-path
+// OK/empty-level skip itself — TestResolveMockInsights_PrefersFullList above
+// has a comment claiming this but multiInsightInput never actually contains
+// an OK-level entry, so that branch was never exercised.
+func TestResolveMockInsights_FullListFiltersOKLevel(t *testing.T) {
+	fix := MockFixture{
+		Rows: []MockRow{{Name: "Disk", Level: "OK", Inline: "10%"}},
+		Insights: []MockInsight{
+			{Check: "Disk", Level: "OK", Message: "all filesystems healthy"},
+			{Check: "Disk", Level: "WARN", Message: "/ at 85%"},
+		},
+	}
+	got := resolveMockInsights(fix)
+	if len(got) != 1 {
+		t.Fatalf("an OK-level insight in fix.Insights must be filtered, got %d want 1", len(got))
+	}
+	if got[0].Message != "/ at 85%" {
+		t.Errorf("the surviving insight should be the WARN one, got %+v", got[0])
+	}
+}
+
 func TestResolveMockInsights_FallbackForOldFixtures(t *testing.T) {
 	// Pre-insights fixture: no Insights list → reconstruct one per non-OK row.
 	fix := MockFixture{

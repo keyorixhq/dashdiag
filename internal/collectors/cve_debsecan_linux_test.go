@@ -22,6 +22,14 @@ func TestCheckCVEDebsecan(t *testing.T) {
 		{"finds a package (non-zero exit)", source.Result{
 			Stdout: []byte("CVE-2024-1234 openssl fix-available remote code execution"), ExitCode: 1,
 		}, models.CVEVulnerable},
+		{
+			// Clean exit, non-empty output, but no parseable package rows (e.g. only
+			// a comment/header line) — guards the "default" (already patched) branch,
+			// distinct from the fully-empty "ran clean, no vulns" case above.
+			name: "ran clean, only a comment line",
+			res:  source.Result{Stdout: []byte("# debsecan report, no matches\n"), ExitCode: 0},
+			want: models.CVEPatched,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

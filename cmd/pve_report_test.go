@@ -101,6 +101,7 @@ func TestPrintPVEStorage(t *testing.T) {
 		{"healthy", models.PVEStorage{Name: "local", Active: true, UsedPct: 50}, "local", "CRIT"},
 		{"warn band", models.PVEStorage{Name: "local", Active: true, UsedPct: 82}, "82% full", "CRIT"},
 		{"crit band", models.PVEStorage{Name: "local", Active: true, UsedPct: 95}, "CRIT: 95% full", ""},
+		{"with size", models.PVEStorage{Name: "local", Active: true, UsedPct: 50, TotalGB: 200, UsedGB: 100}, "100 / 200 GB", ""},
 	}
 	for _, c := range cases {
 		info := &models.PVEInfo{Storages: []models.PVEStorage{c.s}}
@@ -340,6 +341,7 @@ func TestPrintPVEBackupAgeBands(t *testing.T) {
 		{1, "yesterday"},
 		{5, "5 days ago"},
 		{20, "20 days ago"},
+		{45, "45 days ago"}, // beyond 30 days: default CRIT band
 	}
 	for _, c := range cases {
 		out := captureStdout(t, func() { printPVEBackup(&models.PVEInfo{BackupAgeDays: c.days}, output.ModePlain) })
@@ -400,6 +402,22 @@ func TestCountPVEIssuesExtras(t *testing.T) {
 	}})
 	if perVMBackups != 2 {
 		t.Errorf("2 stale/never per-VM backups should count as 2 issues, got %d", perVMBackups)
+	}
+	// A stopped guest with autostart ON is unexpected (should be running) — 1 issue.
+	stoppedOnBoot := countPVEIssues(&models.PVEInfo{Guests: []models.PVEGuest{{Status: "stopped", OnBoot: true}}})
+	if stoppedOnBoot != 1 {
+		t.Errorf("a stopped autostart guest should count as 1 issue, got %d", stoppedOnBoot)
+	}
+	// A named cluster that's not quorate is a split-brain risk — 1 issue.
+	notQuorate := countPVEIssues(&models.PVEInfo{ClusterName: "pve-cluster", QuorumOK: false})
+	if notQuorate != 1 {
+		t.Errorf("a non-quorate cluster should count as 1 issue, got %d", notQuorate)
+	}
+	// The global BackupAgeDays fallback path (no per-VM audit) must also count
+	// a stale backup as an issue.
+	globalStaleBackup := countPVEIssues(&models.PVEInfo{BackupAgeDays: 45})
+	if globalStaleBackup != 1 {
+		t.Errorf("a stale global backup age should count as 1 issue, got %d", globalStaleBackup)
 	}
 }
 

@@ -57,6 +57,13 @@ func TestPrintCVEResultPatchedAndNotAffected(t *testing.T) {
 	if !strings.Contains(notAffected, "NOT AFFECTED") {
 		t.Errorf("a not-affected CVE should say so, got:\n%s", notAffected)
 	}
+
+	notAffectedWithReason := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0004b", Status: models.CVENotAffected, StatusReason: "package not installed"})
+	})
+	if !strings.Contains(notAffectedWithReason, "package not installed") {
+		t.Errorf("a not-affected CVE with a reason should show it, got:\n%s", notAffectedWithReason)
+	}
 }
 
 func TestPrintCVEResultUnknown(t *testing.T) {
@@ -159,6 +166,13 @@ func TestPrintOVALResult(t *testing.T) {
 	})
 	if !strings.Contains(vulnerable, "glibc") || !strings.Contains(vulnerable, "1 package(s)") {
 		t.Errorf("a vulnerable OVAL result should name the affected package, got:\n%s", vulnerable)
+	}
+
+	withSummary := captureStdout(t, func() {
+		printOVALResult(&cvedata.OVALResult{CVE: "CVE-2026-0006", Found: true, Summary: "glibc heap overflow"})
+	})
+	if !strings.Contains(withSummary, "Summary:  glibc heap overflow") {
+		t.Errorf("a set Summary should be rendered, got:\n%s", withSummary)
 	}
 }
 

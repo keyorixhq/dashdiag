@@ -30,14 +30,15 @@ func TestParseCPURangeCount(t *testing.T) {
 		in   string
 		want int
 	}{
-		{"0-13", 14},   // the live VMware hot-add case
-		{"0-1", 2},     // a normal 2-vCPU guest
-		{"0", 1},       // single CPU
-		{"0-1,4-5", 4}, // sparse ranges
-		{"2-127", 126}, // the "offline" range can be large
-		{"", 0},        // unread → 0
-		{"\n", 0},      // whitespace only
-		{"garbage", 0}, // non-numeric → 0
+		{"0-13", 14},    // the live VMware hot-add case
+		{"0-1", 2},      // a normal 2-vCPU guest
+		{"0", 1},        // single CPU
+		{"0-1,4-5", 4},  // sparse ranges
+		{"2-127", 126},  // the "offline" range can be large
+		{"", 0},         // unread → 0
+		{"\n", 0},       // whitespace only
+		{"garbage", 0},  // non-numeric → 0
+		{"0-1,,4-5", 4}, // stray empty segment (trailing/double comma) is skipped
 	}
 	for _, c := range cases {
 		if got := parseCPURangeCount(c.in); got != c.want {

@@ -51,4 +51,13 @@ func TestNetMarkPlainIsASCII(t *testing.T) {
 			t.Errorf("netMark(%q, ModeHuman) = %q, want the emoji glyph", level, human)
 		}
 	}
+
+	// An unrecognized level falls through to the raw string in ModePlain
+	// (distinct from the ModeHuman default, which returns "").
+	if got := netMark("unknown-level", output.ModePlain); got != "unknown-level" {
+		t.Errorf("netMark(unrecognized, ModePlain) = %q, want the level passed through unchanged", got)
+	}
+	if got := netMark("unknown-level", output.ModeHuman); got != "" {
+		t.Errorf("netMark(unrecognized, ModeHuman) = %q, want empty", got)
+	}
 }

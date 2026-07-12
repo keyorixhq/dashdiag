@@ -153,6 +153,15 @@ func TestPrintHealthFooterVariants(t *testing.T) {
 	captureStdout(t, func() {
 		printHealthFooter(output.ModeHuman, true, nil, 0)
 	})
+
+	// ModeHuman with elapsed>0: the styled (lipgloss-dim) timing line — a
+	// distinct branch from the ModePlain timing line above.
+	human := captureStdout(t, func() {
+		printHealthFooter(output.ModeHuman, false, nil, 3*time.Second)
+	})
+	if !strings.Contains(human, "done in 3.0s") {
+		t.Errorf("human mode should print the styled timing line, got: %q", human)
+	}
 }
 
 func TestWriteHealthReports(t *testing.T) {
@@ -194,6 +203,46 @@ func TestWriteHealthReports(t *testing.T) {
 	}
 	if len(entries) < 2 {
 		t.Errorf("expected at least 2 report files written, got %d entries", len(entries))
+	}
+}
+
+// TestWriteHealthReports_WriteErrors covers writeHealthReports' error paths:
+// GenerateReport/GenerateHTMLReport fail (surfaced to stderr, not noticeW)
+// when their deterministic output filename is pre-occupied by a directory —
+// neither exercised by TestWriteHealthReports' clean-write case above.
+func TestWriteHealthReports_WriteErrors(t *testing.T) {
+	dir := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(old) }()
+
+	ctx := context.Background()
+	insights := []models.Insight{{Level: "WARN", Check: "Swap", Message: "swap high"}}
+	snap := &baseline.Snapshot{Hostname: "test-host", Timestamp: time.Now()}
+
+	mdPath := fmt.Sprintf("dsd-report-%s-%s.md", snap.Hostname, snap.Timestamp.Format("20060102-150405"))
+	htmlPath := fmt.Sprintf("dsd-report-%s-%s.html", snap.Hostname, snap.Timestamp.Format("20060102-150405"))
+	if err := os.Mkdir(mdPath, 0o750); err != nil {
+		t.Fatalf("pre-creating blocking dir for md report: %v", err)
+	}
+	if err := os.Mkdir(htmlPath, 0o750); err != nil {
+		t.Fatalf("pre-creating blocking dir for html report: %v", err)
+	}
+
+	var buf bytes.Buffer
+	stderr := captureStderr(t, func() {
+		writeHealthReports(ctx, true, true, snap, insights, time.Second, &buf)
+	})
+	if buf.Len() != 0 {
+		t.Errorf("a failed report write must not print a saved-path notice, got: %q", buf.String())
+	}
+	if !strings.Contains(stderr, "report:") {
+		t.Errorf("a failed report write should surface the error on stderr, got: %q", stderr)
 	}
 }
 
@@ -255,6 +304,21 @@ func TestHandleBlobMode(t *testing.T) {
 	}
 	if stdout == "" {
 		t.Error("blob mode should emit the encoded block to stdout")
+	}
+}
+
+// TestHandleBlobMode_RenderJSONErrorPropagates covers handleBlobMode's error
+// path: a result whose Data can't be JSON-marshalled (an unmarshalable
+// channel type) makes render.RenderJSON fail, and that error must propagate
+// wrapped, not be silently swallowed.
+func TestHandleBlobMode_RenderJSONErrorPropagates(t *testing.T) {
+	badResults := []runner.Result{{Name: "Bad", Data: make(chan int)}}
+	_, err := handleBlobMode(true, badResults, nil, &baseline.Snapshot{Hostname: "h"})
+	if err == nil {
+		t.Fatal("an unmarshalable result should make handleBlobMode return an error")
+	}
+	if !strings.Contains(err.Error(), "blob:") {
+		t.Errorf("error should be wrapped with 'blob:' context, got: %v", err)
 	}
 }
 

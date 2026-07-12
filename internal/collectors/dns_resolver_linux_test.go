@@ -123,6 +123,12 @@ DNSOverTLS=opportunistic
 	if got, err := parseResolvedConfDNSSEC(strings.NewReader("[Resolve]\n")); err != nil || got != "" {
 		t.Errorf("DNSSEC = %q, err = %v, want empty (unset), nil", got, err)
 	}
+	// A single line exceeding bufio.Scanner's default 64KB token limit must
+	// surface as a wrapped scan error, not silently succeed with a partial val.
+	huge := strings.Repeat("x", 100*1024)
+	if _, err := parseResolvedConfDNSSEC(strings.NewReader(huge)); err == nil {
+		t.Error("expected a scan error for an oversized line")
+	}
 }
 
 func TestComputeDNSSECDegrade(t *testing.T) {
@@ -158,6 +164,24 @@ func TestComputeDNSSECDegrade(t *testing.T) {
 	if ad.DNSSECDegraded {
 		t.Error("expected not degraded when configured=allow-downgrade")
 	}
+
+	// Configured yes, effective "no" (NOT containing "unsupported") → the
+	// generic "resolved reports DNSSEC=%s" reason branch, distinct from the
+	// "upstream does not support" reason above.
+	plain := &models.ResolverAuditInfo{
+		DNSSECConfigured: "yes",
+		DNSSECActive:     "no",
+		LinkDNS: []models.ResolverLinkDNS{
+			{Link: "eth0", DNSSEC: "no"},
+		},
+	}
+	computeDNSSECDegrade(plain)
+	if !plain.DNSSECDegraded {
+		t.Fatal("expected DNSSECDegraded=true")
+	}
+	if !strings.Contains(plain.DNSSECDegradedReason, "resolved reports DNSSEC=no") {
+		t.Errorf("reason = %q, want the generic 'resolved reports DNSSEC=no' branch", plain.DNSSECDegradedReason)
+	}
 }
 
 func TestParseDNSSECTestResult(t *testing.T) {
@@ -187,6 +211,14 @@ func TestParseDNSSECTestResult(t *testing.T) {
 	if passed, errStr := parseDNSSECTestResult("", context.DeadlineExceeded, context.DeadlineExceeded); passed ||
 		!strings.Contains(errStr, "timeout") {
 		t.Errorf("ctx deadline: got (%v,%q), want graceful timeout", passed, errStr)
+	}
+
+	// No recognizable keyword AND err==nil AND ctxErr==nil — the final
+	// unconditional fallback, distinct from the err!=nil generic-error branch
+	// covered elsewhere (TestParseDNSSECTestResult_GenericErrFallback).
+	if passed, errStr := parseDNSSECTestResult("some unrelated resolvectl output\n", nil, nil); passed ||
+		errStr != "no DNSSEC authentication reported" {
+		t.Errorf("got (%v,%q), want (false, 'no DNSSEC authentication reported')", passed, errStr)
 	}
 }
 
@@ -218,6 +250,13 @@ IP4.DNS[1]: 192.168.1.1
 	got := parseNmcliDNS(in)
 	if len(got) != 2 || got[0] != "192.168.1.1" || got[1] != "9.9.9.9" {
 		t.Errorf("parseNmcliDNS = %v, want [192.168.1.1 9.9.9.9] (deduped)", got)
+	}
+
+	// A ".DNS"-containing line with no colon at all must be skipped, not panic
+	// on line[idx+1:] with idx==-1.
+	noColon := "IP4.DNS malformed no colon here\nIP4.DNS[1]: 1.2.3.4\n"
+	if got := parseNmcliDNS(noColon); len(got) != 1 || got[0] != "1.2.3.4" {
+		t.Errorf("parseNmcliDNS(malformed) = %v, want [1.2.3.4] (colon-less line skipped)", got)
 	}
 }
 

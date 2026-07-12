@@ -122,7 +122,9 @@ func TestRunCVEInfoWithFixtures(t *testing.T) {
 	snapDoc := map[string]any{
 		"_generated": "2026-07-01T00:00:00Z",
 		"_source":    "test-fixture",
-		"cves":       map[string]any{},
+		"cves": map[string]any{
+			"CVE-2026-0001": map[string]any{"summary": "test cve", "severity": "HIGH"},
+		},
 	}
 	snapBytes, err := json.Marshal(snapDoc)
 	if err != nil {
@@ -147,5 +149,59 @@ func TestRunCVEInfoWithFixtures(t *testing.T) {
 	}
 	if strings.Contains(out, "none found\n  Generate: make update-cve-data") {
 		t.Errorf("a present snapshot must not fall through to the none-found branch, got:\n%s", out)
+	}
+	if !strings.Contains(out, "1 CVEs") || !strings.Contains(out, "generated 2026-07-01") {
+		t.Errorf("a non-empty snapshot should render its CVE count and generation date, got:\n%s", out)
+	}
+}
+
+// TestRunCVEInfoKEVLoadError covers the KEV-catalog-present-but-unparsable
+// branch — distinct from both "no KEV file" and the healthy-load case in
+// TestRunCVEInfoWithFixtures above.
+func TestRunCVEInfoKEVLoadError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	kevDir := filepath.Join(home, ".dsd", "kev")
+	if err := os.MkdirAll(kevDir, 0o750); err != nil {
+		t.Fatalf("MkdirAll kev: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kevDir, "known_exploited_vulnerabilities.json"), []byte("not valid json"), 0o600); err != nil {
+		t.Fatalf("WriteFile malformed kev fixture: %v", err)
+	}
+
+	out := captureStdout(t, func() { runCVEInfo() })
+	if !strings.Contains(out, "could not load") {
+		t.Errorf("a malformed KEV catalog should say it could not be loaded, got:\n%s", out)
+	}
+}
+
+// TestRunCVEInfoKEVUnknownVersion covers the CatalogVersion=="" fallback
+// ("unknown version") — TestRunCVEInfoWithFixtures always sets a version.
+func TestRunCVEInfoKEVUnknownVersion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	kevDir := filepath.Join(home, ".dsd", "kev")
+	if err := os.MkdirAll(kevDir, 0o750); err != nil {
+		t.Fatalf("MkdirAll kev: %v", err)
+	}
+	kevDoc := map[string]any{
+		"vulnerabilities": []map[string]string{
+			{"cveID": "CVE-2024-3094", "vendorProject": "xz", "product": "xz-utils",
+				"vulnerabilityName": "XZ Backdoor", "dateAdded": "2024-04-01"},
+		},
+	}
+	kevBytes, err := json.Marshal(kevDoc)
+	if err != nil {
+		t.Fatalf("marshal KEV fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kevDir, "known_exploited_vulnerabilities.json"), kevBytes, 0o600); err != nil {
+		t.Fatalf("WriteFile kev fixture: %v", err)
+	}
+
+	out := captureStdout(t, func() { runCVEInfo() })
+	if !strings.Contains(out, "unknown version") {
+		t.Errorf("a KEV catalog with no version field should say 'unknown version', got:\n%s", out)
 	}
 }

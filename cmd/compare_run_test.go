@@ -98,6 +98,21 @@ func TestRunCompare_LoadErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestLoadCompareSnapshots_StdinNoArgsErrors covers loadCompareSnapshots' own
+// stdin error-wrap branch (no file args at all, so it reads os.Stdin
+// directly) — distinct from the "-" mixed-with-files case in
+// TestRunCompare_StdinDashAndFileMixed and the file-path error case below.
+func TestLoadCompareSnapshots_StdinNoArgsErrors(t *testing.T) {
+	withHookStdin(t, "not json, not ndjson either {{{")
+	_, err := loadCompareSnapshots(nil)
+	if err == nil {
+		t.Fatal("garbage stdin input with no args should error")
+	}
+	if !strings.Contains(err.Error(), "reading stdin") {
+		t.Errorf("error should be wrapped with 'reading stdin' context, got: %v", err)
+	}
+}
+
 func TestLoadCompareSnapshots_MissingFileErrors(t *testing.T) {
 	t.Parallel()
 	_, err := loadCompareSnapshots([]string{filepath.Join(t.TempDir(), "nope.json")})

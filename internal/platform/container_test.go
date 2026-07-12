@@ -10,6 +10,14 @@ import (
 // back to the base mount (the behaviour these tests assert).
 const noSelfCgroup = "/nonexistent/proc/self/cgroup"
 
+// noSystemdContainer and noProc1Environ are paths that don't exist, so the LXC
+// marker-file reads fall through cleanly (the behaviour most tests assert;
+// tests that specifically cover the LXC branches inject real content instead).
+const (
+	noSystemdContainer = "/nonexistent/run/systemd/container"
+	noProc1Environ     = "/nonexistent/proc/1/environ"
+)
+
 // TestDetectContainerContext_RealPaths is a smoke test for the production
 // wrapper: it hits the real /.dockerenv, /run/.containerenv, cgroup, and
 // /proc/self/cgroup paths on whatever host runs the suite. It can't assert a
@@ -57,6 +65,8 @@ func TestDetectContainer_Kubernetes(t *testing.T) {
 		filepath.Join(dir, "containerenv"),
 		filepath.Join(dir, "cgroup", "cgroup.controllers"),
 		noSelfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
 	)
 	if !cc.IsKubernetes {
 		t.Error("expected IsKubernetes=true when KUBERNETES_SERVICE_HOST is set")
@@ -223,15 +233,60 @@ func TestParseCgroupV1Memory_Errors(t *testing.T) {
 }
 
 // TestCgroupMentionsContainer_RealPath is a smoke test for the production
-// function: it reads the real /proc/self/cgroup on whatever host runs the
-// suite. On a bare (non-docker/non-k8s) CI/dev host this exercises the "no
-// match" return-false path; it can't force the true branch without faking
-// /proc/self/cgroup content, which this function does not accept as a
-// parameter (unlike its detectContainerContextFromPaths-injected siblings).
+// entry point: it reads the real /proc/self/cgroup on whatever host runs the
+// suite. Result is host-dependent, so only call-completes-without-panicking is
+// asserted here; the decision logic itself is exhaustively covered via
+// cgroupMentionsContainerAt below, which injects synthetic content.
 func TestCgroupMentionsContainer_RealPath(t *testing.T) {
 	t.Parallel()
-	// Must not panic; result is host-dependent so only call-completes is asserted.
-	_ = cgroupMentionsContainer()
+	_ = cgroupMentionsContainerAt("/proc/self/cgroup")
+}
+
+// TestCgroupMentionsContainerAt covers the injected core directly: the
+// docker/kubepods match branches (previously unreachable without faking
+// /proc/self/cgroup content), the no-match branch, and the unreadable-file
+// branch.
+func TestCgroupMentionsContainerAt(t *testing.T) {
+	t.Parallel()
+	t.Run("docker match", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cgroup")
+		if err := os.WriteFile(path, []byte("0::/system.slice/docker-abc123.scope\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if !cgroupMentionsContainerAt(path) {
+			t.Error("expected true for cgroup path containing \"docker\"")
+		}
+	})
+	t.Run("kubepods match", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cgroup")
+		if err := os.WriteFile(path, []byte("0::/kubepods/besteffort/pod123/abc\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if !cgroupMentionsContainerAt(path) {
+			t.Error("expected true for cgroup path containing \"kubepods\"")
+		}
+	})
+	t.Run("no match", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cgroup")
+		if err := os.WriteFile(path, []byte("0::/\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if cgroupMentionsContainerAt(path) {
+			t.Error("expected false for cgroup path with no container marker")
+		}
+	})
+	t.Run("file absent", func(t *testing.T) {
+		t.Parallel()
+		if cgroupMentionsContainerAt(filepath.Join(t.TempDir(), "does-not-exist")) {
+			t.Error("expected false when /proc/self/cgroup is unreadable")
+		}
+	})
 }
 
 func TestDetectContainer_Docker(t *testing.T) {
@@ -239,7 +294,7 @@ func TestDetectContainer_Docker(t *testing.T) {
 	dockerenv := filepath.Join(dir, "dockerenv")
 	_ = os.WriteFile(dockerenv, nil, 0644)
 
-	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"), filepath.Join(dir, "cgroup", "cgroup.controllers"), noSelfCgroup)
+	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"), filepath.Join(dir, "cgroup", "cgroup.controllers"), noSelfCgroup, noSystemdContainer, noProc1Environ)
 
 	if !cc.IsDocker {
 		t.Error("expected IsDocker=true")
@@ -257,7 +312,7 @@ func TestDetectContainer_Podman(t *testing.T) {
 	containerenv := filepath.Join(dir, "containerenv")
 	_ = os.WriteFile(containerenv, nil, 0644)
 
-	cc := detectContainerContextFromPaths(filepath.Join(dir, "dockerenv"), containerenv, filepath.Join(dir, "cgroup", "cgroup.controllers"), noSelfCgroup)
+	cc := detectContainerContextFromPaths(filepath.Join(dir, "dockerenv"), containerenv, filepath.Join(dir, "cgroup", "cgroup.controllers"), noSelfCgroup, noSystemdContainer, noProc1Environ)
 
 	if !cc.IsPodman {
 		t.Error("expected IsPodman=true")
@@ -277,10 +332,116 @@ func TestDetectContainer_NotInContainer(t *testing.T) {
 		filepath.Join(dir, "containerenv"),
 		filepath.Join(dir, "cgroup", "cgroup.controllers"),
 		noSelfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
 	)
 	// IsKubernetes might be true if KUBERNETES_SERVICE_HOST is set in CI
 	if cc.IsDocker || cc.IsPodman {
 		t.Error("expected IsDocker=false and IsPodman=false for empty temp dir")
+	}
+}
+
+// TestDetectContainer_LXC_SystemdMarker covers the /run/systemd/container
+// branch: on systemd-based LXC containers this file's content is exactly "lxc".
+func TestDetectContainer_LXC_SystemdMarker(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	systemdContainer := filepath.Join(dir, "systemd-container")
+	if err := os.WriteFile(systemdContainer, []byte("lxc\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"),
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"),
+		noSelfCgroup,
+		systemdContainer,
+		noProc1Environ,
+	)
+	if !cc.InContainer {
+		t.Error("expected InContainer=true when /run/systemd/container == \"lxc\"")
+	}
+	if cc.IsDocker || cc.IsPodman {
+		t.Error("LXC-via-systemd-marker must not also flag Docker/Podman")
+	}
+}
+
+// TestDetectContainer_LXC_SystemdMarker_OtherContent covers the branch where
+// /run/systemd/container exists but holds a non-"lxc" value (e.g. a systemd-nspawn
+// or other container backend) — must not be misclassified as LXC.
+func TestDetectContainer_LXC_SystemdMarker_OtherContent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	systemdContainer := filepath.Join(dir, "systemd-container")
+	if err := os.WriteFile(systemdContainer, []byte("nspawn\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"),
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"),
+		noSelfCgroup,
+		systemdContainer,
+		noProc1Environ,
+	)
+	if cc.InContainer {
+		t.Error("expected InContainer=false for non-\"lxc\" systemd-container content")
+	}
+}
+
+// TestDetectContainer_LXC_ProcEnviron covers the /proc/1/environ fallback used
+// by older LXC setups that predate the /run/systemd/container marker.
+func TestDetectContainer_LXC_ProcEnviron(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	proc1Environ := filepath.Join(dir, "proc1-environ")
+	// /proc/1/environ is NUL-separated KEY=VALUE entries.
+	content := "PATH=/usr/bin\x00container=lxc\x00HOME=/root\x00"
+	if err := os.WriteFile(proc1Environ, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"),
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"),
+		noSelfCgroup,
+		noSystemdContainer,
+		proc1Environ,
+	)
+	if !cc.InContainer {
+		t.Error("expected InContainer=true when /proc/1/environ contains container=lxc")
+	}
+}
+
+// TestDetectContainer_CgroupMarkerOnly covers the final fallback signal: none
+// of dockerenv/containerenv/k8s-env/systemd-container/proc1-environ fire, but
+// /proc/self/cgroup itself mentions "docker" or "kubepods" (e.g. a Docker
+// container reached via a bind-mounted /proc/self/cgroup without .dockerenv
+// present). This must still flag InContainer=true.
+func TestDetectContainer_CgroupMarkerOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	selfCgroup := filepath.Join(dir, "self-cgroup")
+	if err := os.WriteFile(selfCgroup, []byte("0::/system.slice/docker-abc123.scope\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"), // absent
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"), // absent → v1
+		selfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
+	)
+	if !cc.InContainer {
+		t.Error("expected InContainer=true when /proc/self/cgroup alone mentions \"docker\"")
+	}
+	if cc.IsDocker || cc.IsPodman || cc.IsKubernetes {
+		t.Error("cgroup-marker-only detection must not also flag Docker/Podman/Kubernetes")
 	}
 }
 
@@ -297,6 +458,8 @@ func TestDetectContainer_CgroupV2_Memory(t *testing.T) {
 		filepath.Join(dir, "containerenv"),
 		filepath.Join(cgroupDir, "cgroup.controllers"),
 		noSelfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
 	)
 
 	if cc.CgroupVersion != 2 {
@@ -323,6 +486,8 @@ func TestDetectContainer_CgroupV2_MemoryMax_Unlimited(t *testing.T) {
 		filepath.Join(dir, "containerenv"),
 		filepath.Join(cgroupDir, "cgroup.controllers"),
 		noSelfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
 	)
 
 	if cc.MemLimitMB != 0 {
@@ -345,6 +510,8 @@ func TestDetectContainer_CgroupV1_Memory(t *testing.T) {
 		filepath.Join(dir, "containerenv"),
 		filepath.Join(cgroupDir, "cgroup.controllers"), // does not exist → v1
 		noSelfCgroup,
+		noSystemdContainer,
+		noProc1Environ,
 	)
 
 	if cc.CgroupVersion != 1 {
@@ -362,7 +529,7 @@ func TestDetectContainer_BothDockerAndPodman(t *testing.T) {
 	_ = os.WriteFile(dockerenv, nil, 0644)
 	_ = os.WriteFile(containerenv, nil, 0644)
 
-	cc := detectContainerContextFromPaths(dockerenv, containerenv, filepath.Join(dir, "cgroup.controllers"), noSelfCgroup)
+	cc := detectContainerContextFromPaths(dockerenv, containerenv, filepath.Join(dir, "cgroup.controllers"), noSelfCgroup, noSystemdContainer, noProc1Environ)
 
 	if !cc.IsDocker || !cc.IsPodman || !cc.InContainer {
 		t.Errorf("expected both Docker and Podman detected: %+v", cc)
@@ -390,7 +557,7 @@ func TestDetectContainer_CgroupV2_HostNamespace(t *testing.T) {
 	_ = os.WriteFile(selfCgroup, []byte("0::"+subPath+"\n"), 0644)
 
 	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"),
-		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup)
+		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup, noSystemdContainer, noProc1Environ)
 
 	if cc.MemLimitMB != 512 {
 		t.Errorf("host-ns container MemLimitMB = %f, want 512 (read from sub-path, not host root)", cc.MemLimitMB)
@@ -420,7 +587,7 @@ func TestDetectContainer_CgroupV2_PrivateNamespace(t *testing.T) {
 	_ = os.WriteFile(selfCgroup, []byte("0::/\n"), 0644)
 
 	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"),
-		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup)
+		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup, noSystemdContainer, noProc1Environ)
 
 	if cc.MemLimitMB != 256 {
 		t.Errorf("private-ns container MemLimitMB = %f, want 256 (base)", cc.MemLimitMB)
@@ -449,7 +616,7 @@ func TestDetectContainer_CgroupV1_HostNamespace(t *testing.T) {
 	_ = os.WriteFile(selfCgroup, []byte("11:memory:"+subPath+"\n10:cpu,cpuacct:"+subPath+"\n"), 0644)
 
 	cc := detectContainerContextFromPaths(dockerenv, filepath.Join(dir, "containerenv"),
-		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup) // no controllers file → v1
+		filepath.Join(cgroupDir, "cgroup.controllers"), selfCgroup, noSystemdContainer, noProc1Environ) // no controllers file → v1
 
 	if cc.CgroupVersion != 1 {
 		t.Fatalf("expected v1, got %d", cc.CgroupVersion)

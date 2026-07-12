@@ -62,4 +62,13 @@ func TestBuildTLSInfoStatusVerdicts(t *testing.T) {
 	if expired.Status != "critical" || expired.Expired != 1 {
 		t.Errorf("expired cert: status=%q expired=%d, want critical/1", expired.Status, expired.Expired)
 	}
+
+	// Positive DaysLeft but within the warn window (not yet expired) — a
+	// distinct branch from both "clean" (DaysLeft > warnDays) and "expired"
+	// (DaysLeft < 0) above.
+	expiring := buildTLSInfo([]certResult{{Path: "a", Level: "WARN", DaysLeft: 10}}, nil, 30)
+	if expiring.Status != "warning" || expiring.Expiring != 1 || expiring.Expired != 0 {
+		t.Errorf("expiring-soon cert: status=%q expiring=%d expired=%d, want warning/1/0",
+			expiring.Status, expiring.Expiring, expiring.Expired)
+	}
 }

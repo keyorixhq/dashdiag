@@ -70,3 +70,29 @@ func TestParseCronJournalFailures(t *testing.T) {
 		t.Errorf("the failure's job should be logrotate, got %q", failures[0].Job)
 	}
 }
+
+// TestParseCronJournalFailures_StartStopMentionsFailureKeyword guards the
+// "started/stopping" skip when the daemon-lifecycle line ALSO happens to
+// contain a failure keyword (e.g. "failed to start") — this line clears the
+// first failed/error/exit-status gate, so the started/stopping skip must be
+// the one that actually excludes it.
+func TestParseCronJournalFailures_StartStopMentionsFailureKeyword(t *testing.T) {
+	recent := time.Now().Add(-30 * time.Minute)
+	out := fmt.Sprintf("%s host cron[1]: cron.service: Failed to start, stopping unit\n",
+		recent.Format("Jan 2 15:04:05"))
+	failures := parseCronJournalFailures(out)
+	if len(failures) != 0 {
+		t.Errorf("a start/stop lifecycle line must be skipped even if it mentions 'failed', got %+v", failures)
+	}
+}
+
+// TestParseCronLogFailures_NoJobExtracted guards the job=="" skip: a line
+// that passes the failure-keyword and recency checks but has no extractable
+// job (parseCronLogLine's fallback needs >5 fields) must not be reported.
+func TestParseCronLogFailures_NoJobExtracted(t *testing.T) {
+	recent := time.Now().Add(-1 * time.Hour)
+	content := recent.Format("Jan 2 15:04:05") + " failed\n" // <6 fields total
+	if failures := parseCronLogFailures(content); len(failures) != 0 {
+		t.Errorf("a line with no extractable job must be skipped, got %+v", failures)
+	}
+}

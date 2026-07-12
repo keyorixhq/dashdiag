@@ -142,6 +142,7 @@ func TestDetectPlaintextSecrets(t *testing.T) {
 		"DEBUG=true",    // trivial value -> skipped
 		"HOME=/root",    // not a secret name
 		"GITHUB_TOKEN=ghp_xxx",
+		"MALFORMED_NO_EQUALS", // no "=" at all -> skipped, not a crash
 	}
 	got := detectPlaintextSecrets(env)
 	want := map[string]bool{"DB_PASSWORD": true, "API_KEY": true, "GITHUB_TOKEN": true}

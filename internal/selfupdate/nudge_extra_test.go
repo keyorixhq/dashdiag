@@ -65,6 +65,26 @@ func TestSaveCache_MkdirFails(t *testing.T) {
 	}
 }
 
+func TestSaveCache_MarshalFails(t *testing.T) {
+	// Not parallel: saveCache reads/writes the shared cachePath var, same as
+	// TestSaveCache_MkdirFails above — see that test for the rationale.
+	withTempCache(t)
+	// time.Time.MarshalJSON fails when the year is outside [0,9999], which is
+	// the only way json.MarshalIndent can fail on a checkCache{time.Time, string}
+	// — this exercises the real error path without mocking or faking I/O.
+	bad := &checkCache{
+		CheckedAt:     time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC),
+		LatestVersion: "v1.0.0",
+	}
+	err := saveCache(bad)
+	if err == nil {
+		t.Fatal("expected saveCache to fail when CheckedAt year is out of range for MarshalJSON")
+	}
+	if loadCache() != nil {
+		t.Error("cache file must not exist after a failed marshal")
+	}
+}
+
 func TestRefreshCache_Success(t *testing.T) {
 	withTempCache(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

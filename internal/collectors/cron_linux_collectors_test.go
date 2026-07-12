@@ -114,6 +114,23 @@ func TestScanCrontabQuality(t *testing.T) {
 	}
 }
 
+// TestScanCrontabQuality_SkipsSubdirectory guards the e.IsDir() continue: a
+// subdirectory inside /etc/cron.d (some packages ship one, e.g. a vendor
+// drop-in dir) must be skipped rather than read as a crontab file.
+func TestScanCrontabQuality_SkipsSubdirectory(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/etc/cron.d", []string{"subdir", "myjob"})
+		b.PutDir("/etc/cron.d/subdir", []string{}) // makes probeIsDir see it as a dir
+		b.PutFile("/etc/cron.d/myjob", []byte("30 3 * * 0 root /bin/true\n"))
+	})
+	issues := scanCrontabQuality()
+	for _, i := range issues {
+		if i.Source == "/etc/cron.d/subdir" {
+			t.Errorf("subdirectory must not be parsed as a crontab file: %+v", issues)
+		}
+	}
+}
+
 func TestScanCrontabQuality_NoDirsPresent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	if issues := scanCrontabQuality(); issues != nil {

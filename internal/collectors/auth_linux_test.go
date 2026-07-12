@@ -86,7 +86,10 @@ func TestAuthCollector_Collect_JournalHasFailures(t *testing.T) {
 	journal := "Jul  8 10:00:00 host sshd[1]: Failed password for root from 1.2.3.4 port 4000 ssh2\n" +
 		"Jul  8 10:01:00 host sshd[2]: Failed password for invalid user admin from 1.2.3.4 port 4001 ssh2\n" +
 		"Jul  8 10:02:00 host sshd[3]: Invalid user test from 5.6.7.8 port 4002\n" +
-		"Jul  8 10:03:00 host sshd[4]: Connection closed by authenticating user bob 9.9.9.9 port 22 [preauth]\n"
+		"Jul  8 10:03:00 host sshd[4]: Connection closed by authenticating user bob 9.9.9.9 port 22 [preauth]\n" +
+		// Noise line matching none of the three patterns — guards the scanner's
+		// continue branch (a line that isn't a failure signal must not be counted).
+		"Jul  8 10:04:00 host sshd[5]: Accepted publickey for deploy from 10.0.0.1 port 4004 ssh2\n"
 
 	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
 		b.PutCmd("pgrep", []string{"-x", "sshd"}, "1234\n", 0)
@@ -243,6 +246,30 @@ func TestAuthCollector_Collect_TopSourcesTiebreak(t *testing.T) {
 	info := res.(*models.AuthInfo)
 	if len(info.TopSources) != 2 || info.TopSources[0].Source != "1.1.1.1" || info.TopSources[0].Count != 3 {
 		t.Errorf("TopSources = %+v, want [1.1.1.1:3, 2.2.2.2:1] sorted by count desc", info.TopSources)
+	}
+}
+
+// TestAuthCollector_Collect_TopSourcesEqualCountTiebreak guards the genuine
+// tie case (equal counts) — the sort comparator falls through to source IP
+// ascending as the deterministic tiebreaker (TRIAGE §I). The previous
+// "Tiebreak" test above used 3-vs-1 counts, which never actually exercises
+// the count-equal branch of the comparator.
+func TestAuthCollector_Collect_TopSourcesEqualCountTiebreak(t *testing.T) {
+	journal := "Jul  8 10:00:00 host sshd[1]: Failed password for root from 9.9.9.9 port 4000 ssh2\n" +
+		"Jul  8 10:01:00 host sshd[2]: Failed password for root from 2.2.2.2 port 4001 ssh2\n"
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("pgrep", []string{"-x", "sshd"}, "1234\n", 0)
+		b.PutCmd("journalctl", []string{"_COMM=sshd", "--since", "24 hours ago", "--no-pager", "-o", "cat"}, journal, 0)
+		b.PutCmdNotFound("sshd", []string{"-T"})
+	})
+	c := NewAuthCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.AuthInfo)
+	if len(info.TopSources) != 2 || info.TopSources[0].Source != "2.2.2.2" || info.TopSources[1].Source != "9.9.9.9" {
+		t.Errorf("TopSources = %+v, want [2.2.2.2, 9.9.9.9] sorted by source asc on count tie", info.TopSources)
 	}
 }
 

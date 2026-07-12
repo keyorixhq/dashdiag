@@ -46,6 +46,14 @@ func TestParseFuserPIDs(t *testing.T) {
 			out:  "1234 5678F\n",
 			want: []int{1234, 5678},
 		},
+		{
+			// A token with no leading digits (e.g. a stray access-mode letter
+			// with no PID, or unexpected fuser output) must be skipped rather
+			// than crash strconv.Atoi on an empty slice.
+			name: "non-numeric token is skipped",
+			out:  "/mnt:                m 1234c\n",
+			want: []int{1234},
+		},
 	}
 
 	for _, tt := range tests {
@@ -350,6 +358,26 @@ func TestProcFDBusyProcesses(t *testing.T) {
 		procs := procFDBusyProcesses("/data")
 		if len(procs) != 0 {
 			t.Errorf("expected no processes when only non-pid entries present, got %+v", procs)
+		}
+	})
+
+	t.Run("caps at fsBusyMaxProcs", func(t *testing.T) {
+		var pids []string
+		links := map[string]string{}
+		for i := range fsBusyMaxProcs + 5 {
+			pid := strconv.Itoa(2000 + i)
+			pids = append(pids, pid)
+			links["/proc/"+pid+"/fd/3"] = "/data/f.txt"
+		}
+		withCombinedFixture(t, nil, links, func(b *source.Bundle) {
+			b.PutDir("/proc", pids)
+			for _, pid := range pids {
+				b.PutDir("/proc/"+pid+"/fd", []string{"3"})
+			}
+		})
+		procs := procFDBusyProcesses("/data")
+		if len(procs) != fsBusyMaxProcs {
+			t.Errorf("len(procs) = %d, want capped at %d", len(procs), fsBusyMaxProcs)
 		}
 	})
 }

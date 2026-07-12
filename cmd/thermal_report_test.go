@@ -59,6 +59,16 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 	if !strings.Contains(healthy, "CRIT") {
 		t.Errorf("a 96C core sensor should render CRIT even if the primary CPU temp is fine, got:\n%s", healthy)
 	}
+
+	// A per-sensor reading in the 85-95 WARN band is a distinct icon branch
+	// from both the OK (55) and CRIT (96) sensors above.
+	sensorWarn := captureStdout(t, func() {
+		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 55,
+			CoreTemps: map[string]float64{"core0": 88}}, output.ModePlain, 0)
+	})
+	if !strings.Contains(sensorWarn, "WARN") {
+		t.Errorf("a per-sensor reading in the WARN band should render WARN, got:\n%s", sensorWarn)
+	}
 }
 
 // TestRunThermal exercises runThermal's real (read-only) collector wiring in

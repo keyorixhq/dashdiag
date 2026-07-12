@@ -36,6 +36,22 @@ func TestPrintFleetTable(t *testing.T) {
 	}
 }
 
+// TestPrintFleetTableWithNudge covers the waitlist-nudge line printed by
+// printFleetTable itself — TestPrintFleetTable above always silences it via
+// DSD_NO_NUDGE, so the nudge-rendering branch was never exercised.
+func TestPrintFleetTableWithNudge(t *testing.T) {
+	t.Setenv("DSD_NO_NUDGE", "")
+	t.Setenv("DSD_NO_UPDATE_CHECK", "")
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "OK"},
+		{Host: "web02", Reachable: true, Worst: "OK"},
+	})
+	out := captureStdout(t, func() { printFleetTable(summary, output.ModeHuman) })
+	if !strings.Contains(out, "dashdiag.sh/plans") {
+		t.Errorf("a multi-host, non-silenced run should print the waitlist nudge, got:\n%s", out)
+	}
+}
+
 func TestPrintFleetIssues(t *testing.T) {
 	none := fleet.Summarize([]fleet.Result{{Host: "web01", Reachable: true, Worst: "OK"}})
 	if out := captureStdout(t, func() { printFleetIssues(none, output.ModePlain) }); out != "" {

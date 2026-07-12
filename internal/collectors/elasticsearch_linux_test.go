@@ -169,6 +169,31 @@ func TestElasticsearchCollector_Collect_FullHappyPath(t *testing.T) {
 	}
 }
 
+// TestElasticsearchCollector_Collect_ClusterNameFromHealthWhenDetectEmpty
+// guards the info.ClusterName=="" branch: when detectElasticsearch
+// couldn't establish a cluster identity (401, security enabled — root probe
+// returns no body identity) but the health endpoint call itself succeeds and
+// carries a cluster_name, Collect must populate ClusterName from the health
+// response rather than leaving it empty.
+func TestElasticsearchCollector_Collect_ClusterNameFromHealthWhenDetectEmpty(t *testing.T) {
+	healthBody := `{"cluster_name":"secured-cluster","status":"green","number_of_nodes":3}`
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9200":                    {'1'},
+		"http/http://127.0.0.1:9200/":                esHTTPResult(t, ``, 401),
+		"http/http://127.0.0.1:9200/_cluster/health": esHTTPResult(t, healthBody, 200),
+	}, nil, nil)
+
+	c := NewElasticsearchCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ElasticsearchInfo)
+	if info.ClusterName != "secured-cluster" {
+		t.Errorf("ClusterName = %q, want secured-cluster (populated from health response)", info.ClusterName)
+	}
+}
+
 func TestElasticsearchCollector_Collect_HealthEndpointErrors(t *testing.T) {
 	rootBody := `{"cluster_name":"escluster","tagline":"You Know, for Search","version":{"number":"8.13.0"}}`
 	withCombinedFixture(t, map[string][]byte{

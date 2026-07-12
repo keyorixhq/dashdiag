@@ -204,6 +204,15 @@ func TestPrintLogsReportSummaryLines(t *testing.T) {
 		t.Errorf("a segfault should be reported as an issue, got:\n%s", issues)
 	}
 
+	// The summary tally's own OOMKills>0 branch — distinct from Segfaults
+	// above and from printLogsOOM's own direct test (TestPrintLogsOOMBranches).
+	oomIssue := captureStdout(t, func() {
+		printLogsReport(&models.LogsInfo{OOMKills: 1}, output.ModePlain, time.Second, time.Hour)
+	})
+	if !strings.Contains(oomIssue, "log issue(s) found") {
+		t.Errorf("an OOM kill should be reported as an issue in the summary tally, got:\n%s", oomIssue)
+	}
+
 	unverified := captureStdout(t, func() {
 		printLogsReport(&models.LogsInfo{ErrorCountUnverified: true}, output.ModePlain, time.Second, time.Hour)
 	})

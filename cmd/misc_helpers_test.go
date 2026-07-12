@@ -72,6 +72,20 @@ func TestExtractHealthHelpers(t *testing.T) {
 	if got := extractDocker([]runner.Result{{Name: "OOM", Data: oomWant}}); got != nil {
 		t.Errorf("no Docker result present should return nil, got %+v", got)
 	}
+
+	// The found (no-error) match branch — none of the above cases hit it.
+	ioWant := &models.IOInfo{}
+	sysctlWant := &models.SysctlInfo{}
+	found := []runner.Result{
+		{Name: "IO", Data: ioWant},
+		{Name: "Sysctl", Data: sysctlWant},
+	}
+	if got := extractIO(found); got != ioWant {
+		t.Errorf("extractIO should find a non-errored IO result, got %+v", got)
+	}
+	if got := extractSysctl(found); got != sysctlWant {
+		t.Errorf("extractSysctl should find a non-errored Sysctl result, got %+v", got)
+	}
 }
 
 func TestExtractCPUAndHealthDeep(t *testing.T) {

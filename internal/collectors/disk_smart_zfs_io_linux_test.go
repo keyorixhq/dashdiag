@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -231,6 +232,40 @@ func TestCollectDiskIO(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected a zero-value entry for a drive absent from /proc/diskstats, got none")
+	}
+}
+
+// TestCollectDiskIO_ShortLineSkipped guards the len(fields)<14 skip: a
+// malformed/truncated /proc/diskstats row must not crash strconv.ParseInt on
+// missing fields and must not contaminate the well-formed rows around it.
+func TestCollectDiskIO_ShortLineSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/diskstats", []byte(
+			"   8       0 sda\n"+ // too few fields — skipped
+				"   8       0 sda 100 5 20000 10 200 20 40000 30 0 40 60\n",
+		))
+	})
+	drives := []models.PhysicalDrive{{Name: "sda"}}
+	stats := collectDiskIO(drives)
+	if len(stats) != 1 || stats[0].Device != "sda" {
+		t.Fatalf("stats = %+v, want one sda entry (short line skipped, not crashed)", stats)
+	}
+}
+
+// TestCollectDiskIO_ScanTooLong guards the scanner.Err() branch: a
+// /proc/diskstats blob with a single line exceeding bufio.Scanner's default
+// 64KB token limit must return the partial map read so far (per the
+// function's own doc comment), not propagate the scan error to the caller.
+func TestCollectDiskIO_ScanTooLong(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		huge := strings.Repeat("x", 100*1024)
+		b.PutFile("/proc/diskstats", []byte(
+			"   8       0 sda 100 5 20000 10 200 20 40000 30 0 40 60\n"+huge+"\n"))
+	})
+	drives := []models.PhysicalDrive{{Name: "sda"}}
+	stats := collectDiskIO(drives)
+	if len(stats) != 1 || stats[0].Device != "sda" {
+		t.Fatalf("stats = %+v, want the partial (pre-overflow) read preserved", stats)
 	}
 }
 

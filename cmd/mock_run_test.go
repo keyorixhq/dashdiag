@@ -93,3 +93,71 @@ func TestRunMockInvalidYAML(t *testing.T) {
 		t.Errorf("unexpected error for invalid YAML: %v", err)
 	}
 }
+
+// TestRunMockMalformedCVESection covers runMock's error-propagation path when
+// the fixture's captured `cve:` section fails to decode as models.CVEAllResult
+// — distinct from the top-level fixture-YAML-parse failure above.
+func TestRunMockMalformedCVESection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "badcve.yaml")
+	fixture := "rows:\n  - name: CPU Load\n    inline: \"1%\"\n" +
+		"cve: \"not valid json\"\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cobra.Command{}
+	err := runMock(c, []string{path})
+	if err == nil {
+		t.Fatal("a malformed captured CVE section should error")
+	}
+	if !strings.Contains(err.Error(), "decoding captured cve section") {
+		t.Errorf("unexpected error for malformed cve section: %v", err)
+	}
+}
+
+// TestRunMockMalformedTimelineSection covers the same error-propagation path
+// for the fixture's captured `timeline:` section.
+func TestRunMockMalformedTimelineSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "badtimeline.yaml")
+	fixture := "rows:\n  - name: CPU Load\n    inline: \"1%\"\n" +
+		"timeline: \"not valid json\"\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cobra.Command{}
+	err := runMock(c, []string{path})
+	if err == nil {
+		t.Fatal("a malformed captured timeline section should error")
+	}
+	if !strings.Contains(err.Error(), "decoding captured timeline section") {
+		t.Errorf("unexpected error for malformed timeline section: %v", err)
+	}
+}
+
+// TestRunMockRawDiskData covers runMock's raw-disk-JSON decode path
+// (mockRawData returning non-nil), which replaces the text-only stub with the
+// real models.DiskInfo — not exercised by the plain inline-text fixtures above.
+func TestRunMockRawDiskData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rawdisk.yaml")
+	fixture := "rows:\n" +
+		"  - name: Disk\n" +
+		"    inline: \"OK\"\n" +
+		"    raw: '{\"filesystems\":[{\"mount\":\"/\",\"fs_type\":\"ext4\",\"total_gb\":100,\"used_gb\":10,\"used_pct\":10}]}'\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cobra.Command{}
+	out := captureStdout(t, func() {
+		if err := runMock(c, []string{path}); err != nil {
+			t.Fatalf("runMock: %v", err)
+		}
+	})
+	if out == "" {
+		t.Error("runMock with raw disk data produced no output")
+	}
+}

@@ -80,6 +80,41 @@ func TestScanCertFileHealthyAndExpiring(t *testing.T) {
 	}
 }
 
+// TestScanCertFileNoCommonName covers the subject fallback: a cert with no
+// CommonName set must fall back to the full pkix.Name string, not an empty
+// subject — every other cert in this file sets CommonName via makeTestCertPEM.
+func TestScanCertFileNoCommonName(t *testing.T) {
+	t.Parallel()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{Organization: []string{"NoCN Corp"}}, // no CommonName
+		NotBefore:    time.Now().AddDate(0, 0, -1),
+		NotAfter:     time.Now().AddDate(0, 6, 0),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nocn.pem")
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	res := scanCertFile(path, 30, 7)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if res[0].Subject == "" || !strings.Contains(res[0].Subject, "NoCN Corp") {
+		t.Errorf("a cert with no CommonName should fall back to the full subject string, got: %q", res[0].Subject)
+	}
+}
+
 // TestScanCertFileNoCertificateBlock guards the "likely a key file" silent
 // skip: a PEM file with no CERTIFICATE block returns nil, not an error.
 func TestScanCertFileNoCertificateBlock(t *testing.T) {
@@ -178,6 +213,21 @@ func TestScanRemoteEndpointsHealthy(t *testing.T) {
 	if !got[0].SelfSigned {
 		t.Errorf("httptest's cert is self-signed and should be flagged as such, got: %+v", got[0])
 	}
+
+	// Same live listener, but with warn/crit thresholds set far beyond the
+	// cert's remaining days (httptest's fixed cert is valid to 2084) — forces
+	// the CRIT band without needing a custom near-expiry cert.
+	gotCrit := scanRemoteEndpoints([]string{addr}, 1000000, 500000)
+	if len(gotCrit) != 1 || gotCrit[0].Level != "CRIT" {
+		t.Fatalf("thresholds far beyond the cert's remaining days should render CRIT, got: %+v", gotCrit)
+	}
+
+	// A warnDays threshold beyond the cert's remaining days, but a critDays
+	// threshold still below it — the WARN band.
+	gotWarn := scanRemoteEndpoints([]string{addr}, 1000000, 1)
+	if len(gotWarn) != 1 || gotWarn[0].Level != "WARN" {
+		t.Fatalf("a warn threshold beyond the cert's remaining days should render WARN, got: %+v", gotWarn)
+	}
 }
 
 // newBareTLSCmd builds a bare cobra.Command with the flags runTLS reads via
@@ -206,6 +256,30 @@ func TestRunTLSNoCertsFound(t *testing.T) {
 	})
 	if !strings.Contains(out, "no certificates found") {
 		t.Errorf("no paths/remotes should say so, got:\n%s", out)
+	}
+}
+
+// TestRunTLSExplicitPathNoCertBlockFound covers the OTHER "no certificates
+// found" branch: an explicit path was given (skipping the early empty-args
+// short-circuit TestRunTLSNoCertsFound exercises) but the file has no
+// CERTIFICATE block (a key file), so scanCertFile returns nil and results
+// stays empty after both local and remote scans.
+func TestRunTLSExplicitPathNoCertBlockFound(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key.pem")
+	block := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not-a-real-key")})
+	if err := os.WriteFile(keyPath, block, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	c := newBareTLSCmd()
+	out := captureStdout(t, func() {
+		if err := runTLS(c, []string{keyPath}); err != nil {
+			t.Fatalf("runTLS with a key-only file: %v", err)
+		}
+	})
+	if !strings.Contains(out, "no certificates found in scanned paths or endpoints") {
+		t.Errorf("an explicit path with no CERTIFICATE block should say so, got:\n%s", out)
 	}
 }
 

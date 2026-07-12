@@ -103,6 +103,27 @@ func TestCollectAcceleratedNetworking_UnbondedVF(t *testing.T) {
 	}
 }
 
+// TestCollectAcceleratedNetworking_MultipleVFsSorted guards the final
+// sort.Slice by VF name — a single-VF fixture never invokes the comparator,
+// so this seeds two VFs deliberately out of alphabetical order.
+func TestCollectAcceleratedNetworking_MultipleVFsSorted(t *testing.T) {
+	netDir := filepath.Join(t.TempDir(), "net")
+	if err := os.MkdirAll(netDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeNIC(t, netDir, "eth0", "hv_netvsc", "up")
+	fakeNIC(t, netDir, "zzz9", "mlx5_core", "down") // unbonded, name sorts last
+	fakeNIC(t, netDir, "aaa1", "mlx5_core", "down") // unbonded, name sorts first
+
+	_, ifaces, hasVF := collectAcceleratedNetworking(netDir)
+	if !hasVF || len(ifaces) != 2 {
+		t.Fatalf("ifaces = %+v, want two unbonded VFs", ifaces)
+	}
+	if ifaces[0].VF != "aaa1" || ifaces[1].VF != "zzz9" {
+		t.Errorf("ifaces = %+v, want sorted [aaa1, zzz9]", ifaces)
+	}
+}
+
 func TestCollectAcceleratedNetworking_SyntheticOnly(t *testing.T) {
 	netDir := filepath.Join(t.TempDir(), "net")
 	if err := os.MkdirAll(netDir, 0o755); err != nil {

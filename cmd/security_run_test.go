@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -162,5 +164,49 @@ func TestRunSaveBaselineAndDrift_RealDrift(t *testing.T) {
 	}
 	if !strings.Contains(out, "evil-suid") {
 		t.Errorf("the new SUID binary should be named in the drift report, got: %q", out)
+	}
+}
+
+// TestRunSaveBaseline_MkdirFails exercises runSaveBaseline's error-wrap path:
+// SaveSecurityBaseline fails when ~/.dsd can't be created (a plain FILE
+// already occupies that path, so MkdirAll errors) — deterministic without
+// touching real host permissions.
+func TestRunSaveBaseline_MkdirFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, ".dsd"), []byte("not a dir"), 0600); err != nil {
+		t.Fatalf("seeding blocking file: %v", err)
+	}
+
+	err := runSaveBaseline(&models.SecurityInfo{}, output.ModePlain)
+	if err == nil {
+		t.Fatal("runSaveBaseline should error when ~/.dsd cannot be created")
+	}
+	if !strings.Contains(err.Error(), "saving security baseline") {
+		t.Errorf("error should be wrapped with context, got: %v", err)
+	}
+}
+
+// TestRunDrift_LoadFails exercises runDrift's error-wrap path: a baseline
+// file that exists but contains invalid JSON makes LoadSecurityBaseline fail
+// (distinct from the "no baseline file at all" case already covered by
+// TestRunSecuritySaveBaselineAndDrift's driftNone case).
+func TestRunDrift_LoadFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dsdDir := filepath.Join(home, ".dsd")
+	if err := os.MkdirAll(dsdDir, 0750); err != nil {
+		t.Fatalf("mkdir ~/.dsd: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dsdDir, "security-baseline.json"), []byte("{not valid json"), 0600); err != nil {
+		t.Fatalf("seeding malformed baseline: %v", err)
+	}
+
+	err := runDrift(&models.SecurityInfo{}, output.ModePlain)
+	if err == nil {
+		t.Fatal("runDrift should error on a malformed baseline file")
+	}
+	if !strings.Contains(err.Error(), "loading security baseline") {
+		t.Errorf("error should be wrapped with context, got: %v", err)
 	}
 }

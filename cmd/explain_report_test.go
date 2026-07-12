@@ -73,6 +73,24 @@ func TestExplainAll(t *testing.T) {
 	}
 }
 
+// TestExplainAll_HumanMode covers the styled (lipgloss-dim) separator branch
+// between topics, only reachable with ModeHuman and 2+ topics — neither the
+// ModePlain nor ModeJSON cases above exercise it.
+func TestExplainAll_HumanMode(t *testing.T) {
+	topics := explain.Topics()
+	if len(topics) < 2 {
+		t.Skip("need at least 2 topics to exercise the inter-topic separator")
+	}
+	out := captureStdout(t, func() {
+		if err := explainAll(output.ModeHuman); err != nil {
+			t.Fatalf("explainAll (human): %v", err)
+		}
+	})
+	if !strings.Contains(out, topics[1].Title) {
+		t.Errorf("human mode should still render every topic's detail, got missing %q in:\n%s", topics[1].Title, out)
+	}
+}
+
 // TestExplainList_HumanMode covers the styled (lipgloss-bold) branch of
 // explainList not exercised by the --plain golden test above.
 func TestExplainList_HumanMode(t *testing.T) {

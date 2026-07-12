@@ -280,6 +280,23 @@ func TestLoadHistory_SkipsCorrupt(t *testing.T) {
 	}
 }
 
+// LoadHistory must surface a non-syntax filepath.Glob error rather than
+// treating it as "no history": an unclosed "[" bracket-class in HOME makes
+// the derived glob pattern malformed, forcing filepath.ErrBadPattern.
+func TestLoadHistory_BadGlobPattern(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "bad[home")
+	if err := os.MkdirAll(home, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	snaps, err := LoadHistory(10)
+	if err == nil {
+		t.Errorf("LoadHistory should surface a bad glob pattern error, got snaps=%+v", snaps)
+	}
+}
+
 func versions(snaps []*Snapshot) []string {
 	out := make([]string, 0, len(snaps))
 	for _, s := range snaps {
