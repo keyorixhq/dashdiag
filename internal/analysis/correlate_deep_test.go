@@ -116,6 +116,65 @@ func TestRuleDockerOOMCascade(t *testing.T) {
 	}
 }
 
+func TestFindTimedDockerOOMSkipsNonOOMDieActions(t *testing.T) {
+	ts := time.Date(2026, 6, 6, 20, 0, 0, 0, time.UTC)
+	oom := &models.OOMInfo{RecentEvents: []models.OOMEvent{{Process: "x", Timestamp: ts}}}
+	// "start"/"stop" events must be skipped (continue at the action-filter check)
+	// before ever reaching an "oom"/"die" event that would match.
+	docker := &models.DockerInfo{RecentEvents: []models.DockerEvent{
+		{Action: "start", Actor: "web", TimeUnix: ts.Unix()},
+		{Action: "stop", Actor: "web", TimeUnix: ts.Unix()},
+		{Action: "die", Actor: "web", TimeUnix: ts.Add(time.Minute).Unix()},
+	}}
+	actor, found := findTimedDockerOOM(oom, docker)
+	if !found || actor != "web" {
+		t.Fatalf("expected the die event to match after skipping start/stop, got actor=%q found=%v", actor, found)
+	}
+}
+
+func TestFindTimedDockerOOMSkipsZeroTimestampKernelEvents(t *testing.T) {
+	// A kernel OOM event with a zero Timestamp (unparseable) must be skipped —
+	// exercises the ke.Timestamp.IsZero() continue branch — while a later,
+	// properly-timestamped kernel event still matches.
+	ts := time.Date(2026, 6, 6, 20, 0, 0, 0, time.UTC)
+	oom := &models.OOMInfo{RecentEvents: []models.OOMEvent{
+		{Process: "unparsed"},         // zero Timestamp
+		{Process: "x", Timestamp: ts}, // valid
+	}}
+	docker := &models.DockerInfo{RecentEvents: []models.DockerEvent{
+		{Action: "oom", Actor: "web", TimeUnix: ts.Add(time.Minute).Unix()},
+	}}
+	actor, found := findTimedDockerOOM(oom, docker)
+	if !found || actor != "web" {
+		t.Fatalf("expected match against the valid-timestamp kernel event, got actor=%q found=%v", actor, found)
+	}
+}
+
+func TestFindTimedDockerOOMMatchesWhenKernelEventIsLater(t *testing.T) {
+	// Docker event BEFORE the kernel OOM event — diff is negative before the
+	// abs() normalization. Exercises the `diff < 0` branch.
+	ts := time.Date(2026, 6, 6, 20, 0, 0, 0, time.UTC)
+	oom := &models.OOMInfo{RecentEvents: []models.OOMEvent{{Process: "x", Timestamp: ts.Add(2 * time.Minute)}}}
+	docker := &models.DockerInfo{RecentEvents: []models.DockerEvent{
+		{Action: "oom", Actor: "web", TimeUnix: ts.Unix()},
+	}}
+	actor, found := findTimedDockerOOM(oom, docker)
+	if !found || actor != "web" {
+		t.Fatalf("expected match when the kernel event follows the docker event, got actor=%q found=%v", actor, found)
+	}
+}
+
+func TestFindTimedDockerOOMNoMatchOutsideWindow(t *testing.T) {
+	ts := time.Date(2026, 6, 6, 20, 0, 0, 0, time.UTC)
+	oom := &models.OOMInfo{RecentEvents: []models.OOMEvent{{Process: "x", Timestamp: ts}}}
+	docker := &models.DockerInfo{RecentEvents: []models.DockerEvent{
+		{Action: "oom", Actor: "web", TimeUnix: ts.Add(time.Hour).Unix()},
+	}}
+	if _, found := findTimedDockerOOM(oom, docker); found {
+		t.Error("events an hour apart should not match the 5-minute window")
+	}
+}
+
 func ruleDockerOOMCascadeOrNil(t *testing.T, oom *models.OOMInfo, d *models.DockerInfo) *Correlation {
 	t.Helper()
 	c, ok := ruleDockerOOMCascade(oom, d)
@@ -199,5 +258,39 @@ func TestRuleIOWaitCulprit(t *testing.T) {
 	c, ok = ruleIOWaitCulprit(&models.CPUInfo{IOwaitPct: 12}, io, needsRoot)
 	if !ok || !strings.Contains(c.Summary, "partial process visibility") {
 		t.Errorf("expected a partial-visibility caveat in the summary, got %+v", c)
+	}
+}
+
+// TestCorrelateDeepWiresAllDeepRules exercises CorrelateDeep's own call sites
+// (not just the underlying rule functions in isolation) so that each
+// `if c, ok := ruleX(...); ok { out = append(out, c) }` append branch inside
+// CorrelateDeep itself is actually taken — ruleIOSingleDeviceDegradation,
+// ruleServiceMemoryLeak, and ruleIOWaitCulprit are otherwise only ever called
+// directly by their own unit tests above, never through CorrelateDeep with
+// data that makes them fire.
+func TestCorrelateDeepWiresAllDeepRules(t *testing.T) {
+	io := &models.IOInfo{Devices: []models.IODeviceInfo{
+		{Name: "sda", AwaitMs: 50, UtilPct: 95},
+		{Name: "sdb", AwaitMs: 1, UtilPct: 10},
+	}}
+	oom := &models.OOMInfo{
+		Available: true, EventsLast24h: 3,
+		RecentEvents: []models.OOMEvent{{Process: "java"}, {Process: "java"}},
+	}
+	cpu := &models.CPUInfo{IOwaitPct: 45}
+	deep := &models.HealthDeepInfo{TopIOProcs: []models.ProcessIOStat{
+		{PID: 1204, Name: "postgres", ReadBps: 900, WriteBps: 100},
+	}}
+
+	out := CorrelateDeep(nil, oom, nil, io, nil, cpu, deep)
+
+	if hasCorr(out, "Single Device IO Degradation") == nil {
+		t.Errorf("expected Single Device IO Degradation via CorrelateDeep, got %+v", out)
+	}
+	if hasCorr(out, "Repeated OOM Kill — Possible Memory Leak") == nil {
+		t.Errorf("expected Repeated OOM Kill correlation via CorrelateDeep, got %+v", out)
+	}
+	if hasCorr(out, "IO Wait Culprit") == nil {
+		t.Errorf("expected IO Wait Culprit via CorrelateDeep, got %+v", out)
 	}
 }

@@ -101,6 +101,21 @@ func TestCheckKVM(t *testing.T) {
 			kvm:  models.KVMInfo{Detected: true, VMs: []models.KVMVM{{Name: "vm1", State: models.KVMRunning}}},
 			want: "",
 		},
+		{
+			name: "inactive network is WARN",
+			kvm:  models.KVMInfo{Detected: true, NetworksInactive: 1},
+			want: "WARN",
+		},
+		{
+			name: "inactive storage pool is WARN",
+			kvm:  models.KVMInfo{Detected: true, PoolsInactive: 1},
+			want: "WARN",
+		},
+		{
+			name: "near-full storage pool is WARN",
+			kvm:  models.KVMInfo{Detected: true, PoolsNearFull: 1},
+			want: "WARN",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

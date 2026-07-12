@@ -53,6 +53,21 @@ func TestCheckK8s(t *testing.T) {
 	}
 }
 
+// TestCheckK8sWiresOSLayer proves checkK8s actually delegates to
+// CheckK8sOSLayer when K8sInfo.OSLayer is populated — the table-driven cases
+// above never set OSLayer, so that branch (and its downstream insight) was
+// otherwise unreached.
+func TestCheckK8sWiresOSLayer(t *testing.T) {
+	info := models.K8sInfo{
+		Detected: true, APIReachable: true,
+		OSLayer: &models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: false},
+	}
+	insights := checkK8s(info)
+	if !hasInsightMsg(insights, "CRIT", "IP forwarding disabled") {
+		t.Errorf("expected the OS-layer IP-forwarding CRIT to be wired through checkK8s, got %+v", insights)
+	}
+}
+
 // TestK8sUnknownStatusInsight_StatefulSetHint pins Spec 23f's key distinction: a
 // StatefulSet-owned pod stuck Unknown won't be rescheduled until deleted (unlike a
 // Deployment/ReplicaSet pod, which the controller replaces elsewhere), so the hint
@@ -134,6 +149,39 @@ func TestCheckDockerSecurity(t *testing.T) {
 	}
 }
 
+// TestCheckDockerSecurityNamesOffendingContainers exercises the name-collection
+// loops (SocketMountedCount/ContainersWithSecrets paired with a populated
+// Containers slice) — the table-driven cases above set only the summary counts,
+// never the per-container flags, so the "for _, c := range d.Containers { if
+// c.DockerSocketMounted ... }" / PlaintextSecrets loop bodies were never entered.
+func TestCheckDockerSecurityNamesOffendingContainers(t *testing.T) {
+	info := models.DockerInfo{
+		SocketMountedCount:    1,
+		ContainersWithSecrets: 1,
+		Containers: []models.ContainerInfo{
+			{Name: "safe", State: "running"},
+			{Name: "leaky-socket", DockerSocketMounted: true},
+			{Name: "leaky-secrets", PlaintextSecrets: []string{"DB_PASSWORD"}},
+		},
+	}
+	insights := checkDockerSecurity(info)
+	var socketMsg, secretsMsg string
+	for _, ins := range insights {
+		switch {
+		case strings.Contains(ins.Message, "docker.sock mounted"):
+			socketMsg = ins.Message
+		case strings.Contains(ins.Message, "plaintext secrets"):
+			secretsMsg = ins.Message
+		}
+	}
+	if !strings.Contains(socketMsg, "leaky-socket") {
+		t.Errorf("expected docker.sock insight to name leaky-socket, got %q", socketMsg)
+	}
+	if !strings.Contains(secretsMsg, "leaky-secrets") {
+		t.Errorf("expected plaintext-secrets insight to name leaky-secrets, got %q", secretsMsg)
+	}
+}
+
 // ── NVMe / SATA drive health ──────────────────────────────────────────────────
 
 func TestCheckNVMe(t *testing.T) {
@@ -202,6 +250,8 @@ func TestCheckNVMe(t *testing.T) {
 		{"nvme impossible temp alone is WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 11758}), "WARN"},
 		{"nvme spare over 100 is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 150, SpareThresholdPct: 100}), "WARN"},
 		{"nvme overflow counters is WARN", nvme(models.NVMeDevice{Name: "nvme0", PowerOnHours: 1106804644422573096}), "WARN"},
+		{"nvme spare threshold over 100 is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 50, SpareThresholdPct: 150}), "WARN"},
+		{"nvme overflow power cycles is WARN", nvme(models.NVMeDevice{Name: "nvme0", PowerCycles: 1106804644422573096}), "WARN"},
 		// Plausibility boundaries must NOT reject real drives: a genuinely failing
 		// drive (spare below a real threshold, hot but in-range) still CRITs/ WARNs.
 		{"nvme real failing drive still CRIT", nvme(models.NVMeDevice{Name: "nvme0", TempC: 45, AvailableSparePct: 5, SpareThresholdPct: 10, PowerOnHours: 40000}), "CRIT"},
@@ -228,6 +278,8 @@ func TestCheckNVMe(t *testing.T) {
 		// Each SATA implausibility trigger rejects on its own.
 		{"sata impossible temp alone is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, TempC: 9000}), "WARN"},
 		{"sata overflow uncorrectable is WARN not CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, UncorrectableErrors: 200000000}), "WARN"},
+		{"sata overflow reallocated sectors is WARN not CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, ReallocatedSectors: 200000000}), "WARN"},
+		{"sata overflow pending sectors is WARN not CRIT", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, PendingSectors: 200000000}), "WARN"},
 		{"sata overflow power-on-hours is WARN", sata(models.SATADevice{Name: "/dev/sda", Type: "sata", SmartOK: true, PowerOnHours: 1106804644422573096}), "WARN"},
 		// A drive that *reports* SMART-failed but whose attributes are garbage is
 		// treated as health-unverified (WARN), not a confident failure CRIT — the

@@ -45,3 +45,21 @@ func TestDockerSocketPermDeniedIsInfoNotWarn(t *testing.T) {
 		t.Errorf("no reason → stay silent, got %+v", got)
 	}
 }
+
+// TestDockerEnumerationErrorFallsBackToDefaultReason covers the Status=="error"
+// path (daemon reachable but container listing failed) when StatusReason is
+// empty — the code must fall back to its own generic explanation rather than
+// emitting a blank-message insight.
+func TestDockerEnumerationErrorFallsBackToDefaultReason(t *testing.T) {
+	enumFailed := models.DockerInfo{Available: true, Status: "error"}
+	got := checkDocker(enumFailed)
+	if !hasInsightMsg(got, "WARN", "health not verified") {
+		t.Errorf("expected default enumeration-failed reason, got %+v", got)
+	}
+
+	// With an explicit reason, that reason is used verbatim instead.
+	withReason := models.DockerInfo{Available: true, Status: "error", StatusReason: "docker ps timed out after 5s"}
+	if got := checkDocker(withReason); !hasInsightMsg(got, "WARN", "docker ps timed out after 5s") {
+		t.Errorf("expected the explicit StatusReason to be used, got %+v", got)
+	}
+}

@@ -4,7 +4,9 @@ package cvedata
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -107,6 +109,34 @@ func TestScanUbuntuOVALPackages_QueryInstalledDPKGFails(t *testing.T) {
 	path := writeFixture(t, "ubuntu-nodpkg.xml", sniffableUbuntuOVAL)
 	if _, err := ScanUbuntuOVALPackages(context.Background(), path); err == nil {
 		t.Error("expected error when dpkg-query is unavailable to query installed packages")
+	}
+}
+
+// TestQueryInstalledDPKG_SkipsEmptyPackageName exercises the
+// "len(fields) < 1 || fields[0] == \"\" { continue }" guard
+// (oval_debian.go:185-186) via a fake dpkg-query on PATH: a blank line
+// between two real entries (QueryInstalledDPKG only strings.TrimSpace's the
+// whole blob, so an interior blank line survives the split) yields a single
+// empty field, which must be dropped rather than producing a package with an
+// empty name.
+func TestQueryInstalledDPKG_SkipsEmptyPackageName(t *testing.T) {
+	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dpkg-query")
+	script := "#!/bin/sh\n" +
+		"echo 'bash\t5.2.15-2'\n" +
+		"echo ''\n" +
+		"echo 'coreutils\t9.4-3'\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing fake dpkg-query: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	pkgs, err := QueryInstalledDPKG(context.Background())
+	if err != nil {
+		t.Fatalf("QueryInstalledDPKG: %v", err)
+	}
+	if len(pkgs) != 2 || pkgs[0].Name != "bash" || pkgs[1].Name != "coreutils" {
+		t.Fatalf("pkgs = %+v, want exactly [bash, coreutils] — the interior blank line must be skipped", pkgs)
 	}
 }
 

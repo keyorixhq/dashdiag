@@ -78,6 +78,9 @@ func TestCheckJournalConfig(t *testing.T) {
 		{"no text fallback (persistent journald) is INFO", models.LogsInfo{JournalNoTextFallback: true}, "INFO"},
 		{"log disk >=90 is CRIT", models.LogsInfo{LogDiskUsedPct: 95, LogDiskMount: "/var"}, "CRIT"},
 		{"log disk >=80 is WARN", models.LogsInfo{LogDiskUsedPct: 85, LogDiskMount: "/var"}, "WARN"},
+		{"journald rate limited is WARN", models.LogsInfo{JournalRateLimited: true}, "WARN"},
+		{"journal unbounded (no SystemMaxUse) is WARN", models.LogsInfo{JournalUnbounded: true, JournalSizeGB: 8.5}, "WARN"},
+		{"journal sync risk is INFO", models.LogsInfo{JournalSyncRisk: true}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

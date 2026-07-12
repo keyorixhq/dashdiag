@@ -145,6 +145,36 @@ func TestCheckK8sPodHealth_PreviousLogs(t *testing.T) {
 	assertLevel(t, checkK8sPodHealth(k), "CRIT")
 }
 
+// TestCheckK8sPodHealth_TerminationMsg covers the TerminationMsg hint-append
+// branch — a crash-looping pod whose lastState.terminated.message is set
+// (distinct from PreviousLogs, which the sibling test above already covers).
+func TestCheckK8sPodHealth_TerminationMsg(t *testing.T) {
+	k := models.K8sInfo{
+		Detected: true, CrashLooping: 1,
+		Pods: []models.K8sPodInfo{{Status: "CrashLoopBackOff", Namespace: "default", Name: "web", TerminationMsg: "OOMKilled"}},
+	}
+	insights := checkK8sPodHealth(k)
+	found := false
+	for _, ins := range insights {
+		for _, h := range ins.Hints {
+			if strings.Contains(h, "exit msg: OOMKilled") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected an exit-msg hint referencing TerminationMsg, got %+v", insights)
+	}
+}
+
+// TestCheckK8sPodHealth_Terminating covers the Terminating-count WARN branch.
+func TestCheckK8sPodHealth_Terminating(t *testing.T) {
+	k := models.K8sInfo{Detected: true, Terminating: 2}
+	if !hasInsightMsg(checkK8sPodHealth(k), "WARN", "stuck Terminating") {
+		t.Errorf("expected a stuck-Terminating WARN, got %+v", checkK8sPodHealth(k))
+	}
+}
+
 func TestCheckSecurityDrift_Exported(t *testing.T) {
 	assertLevel(t, CheckSecurityDrift(nil), "")
 	assertLevel(t, CheckSecurityDrift(&baseline.SecurityDiff{NewSUIDs: []string{"/usr/local/bin/x"}}), "CRIT")
