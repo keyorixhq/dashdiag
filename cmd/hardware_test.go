@@ -1,6 +1,40 @@
 package cmd
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+// TestRunHardware exercises runHardware's real collector wiring (a cheap,
+// read-only /sys + optional smartctl pass — same real-I/O precedent as
+// cpu_report_test.go) in both --plain and --json mode. No t.Parallel() —
+// captureStdout swaps the shared os.Stdout.
+func TestRunHardware(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runHardware(plainCmd, nil); err != nil {
+			t.Fatalf("runHardware (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "done in") {
+		t.Errorf("plain mode should print the report's timing footer, got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runHardware(jsonCmd, nil); err != nil {
+			t.Fatalf("runHardware (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"cpu"`) {
+		t.Errorf("json mode should encode a HardwareInfo, got: %q", jsonOut)
+	}
+}
 
 // Guards the per-core thermal grading in `dsd hardware`. The "warm at low load" rung
 // must NOT fire on a normal idle CPU (50-70°C) — that was a false-WARN found live on

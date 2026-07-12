@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -89,5 +90,141 @@ func TestK8sPodNeedsAttention(t *testing.T) {
 		if got := k8sPodNeedsAttention(c.pod); got != c.want {
 			t.Errorf("%s: k8sPodNeedsAttention(%+v) = %v, want %v", c.name, c.pod, got, c.want)
 		}
+	}
+}
+
+// TestPrintK8sNodes covers the node table renderer directly — the OK vs
+// not-Ready icon branch.
+func TestPrintK8sNodes(t *testing.T) {
+	out := captureStdout(t, func() {
+		printK8sNodes([]models.K8sNodeInfo{
+			{Name: "node-a", Status: "Ready", Roles: "control-plane", Version: "v1.29.0"},
+			{Name: "node-b", Status: "NotReady", Roles: "worker", Version: "v1.29.0"},
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "node-a") || !strings.Contains(out, "node-b") {
+		t.Errorf("both nodes should be listed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "CRIT") {
+		t.Errorf("a NotReady node should render the fail icon, got:\n%s", out)
+	}
+}
+
+// TestPrintK8sPodsOverview covers both the all-healthy summary and the
+// problem-pods callout (including the CrashLoop/Error escalation to the fail
+// icon vs the plain warn icon for other problem states).
+func TestPrintK8sPodsOverview(t *testing.T) {
+	healthy := captureStdout(t, func() {
+		printK8sPodsOverview([]models.K8sPodInfo{{Status: "Running", Ready: "1/1"}}, output.ModePlain)
+	})
+	if !strings.Contains(healthy, "All pods healthy") {
+		t.Errorf("no problem pods should read healthy, got:\n%s", healthy)
+	}
+
+	longName := strings.Repeat("x", 50)
+	problems := captureStdout(t, func() {
+		printK8sPodsOverview([]models.K8sPodInfo{
+			{Name: longName, Namespace: "default", Status: "CrashLoopBackOff", Restarts: 3},
+			{Name: "pending-pod", Namespace: "default", Status: "Pending"},
+		}, output.ModePlain)
+	})
+	if !strings.Contains(problems, "2 pod(s) need attention") {
+		t.Errorf("both problem pods should be counted, got:\n%s", problems)
+	}
+	if !strings.Contains(problems, "CRIT") || !strings.Contains(problems, "WARN") {
+		t.Errorf("CrashLoop should render fail icon and Pending should render warn icon, got:\n%s", problems)
+	}
+	if strings.Contains(problems, longName) {
+		t.Errorf("a >40-char pod name should be truncated, got:\n%s", problems)
+	}
+}
+
+// TestPrintK8sAllPodsTable covers the full pod table, including the
+// high-restart warning marker.
+func TestPrintK8sAllPodsTable(t *testing.T) {
+	longName := strings.Repeat("y", 50)
+	out := captureStdout(t, func() {
+		printK8sAllPodsTable([]models.K8sPodInfo{
+			{Namespace: "default", Name: longName, Ready: "1/1", Status: "Running", Restarts: 15, Age: "3d"},
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, longName) {
+		t.Errorf("a >40-char pod name should be truncated, got:\n%s", out)
+	}
+	if !strings.Contains(out, "WARN") {
+		t.Errorf("15 restarts (>=10) should show the warn marker, got:\n%s", out)
+	}
+}
+
+// TestPrintK8sReportDispatch covers printK8sReport's three top-level branches:
+// not detected, API unreachable, and the full report (with OS-layer section).
+func TestPrintK8sReportDispatch(t *testing.T) {
+	notDetected := captureStdout(t, func() {
+		printK8sReport(&models.K8sInfo{Detected: false}, output.ModePlain, 0)
+	})
+	if !strings.Contains(notDetected, "No Kubernetes installation detected") {
+		t.Errorf("undetected k8s should say so, got:\n%s", notDetected)
+	}
+
+	apiDown := captureStdout(t, func() {
+		printK8sReport(&models.K8sInfo{Detected: true, KubeBin: "kubectl", APIReachable: false}, output.ModePlain, 0)
+	})
+	if !strings.Contains(apiDown, "cluster API unreachable") {
+		t.Errorf("an unreachable API should say so, got:\n%s", apiDown)
+	}
+
+	full := captureStdout(t, func() {
+		printK8sReport(&models.K8sInfo{
+			Detected: true, APIReachable: true, KubeBin: "kubectl",
+			Nodes:   []models.K8sNodeInfo{{Name: "node-a", Status: "Ready"}},
+			Pods:    []models.K8sPodInfo{{Status: "Running", Ready: "1/1"}},
+			OSLayer: &models.K8sOSLayer{},
+		}, output.ModePlain, 0)
+	})
+	if !strings.Contains(full, "node-a") || !strings.Contains(full, "OS layer") {
+		t.Errorf("a full report should show nodes and the OS-layer section, got:\n%s", full)
+	}
+}
+
+// TestRunK8s exercises runK8s's real (read-only) collector wiring in --plain
+// and --json mode, and with --deep. No kubectl/k3s is expected on this test
+// host, so all should render the "not detected" report without error — the
+// same real-I/O precedent as cpu_report_test.go / hardware_test.go.
+func TestRunK8s(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runK8s(plainCmd, nil); err != nil {
+			t.Fatalf("runK8s (plain): %v", err)
+		}
+	})
+	if plainOut == "" {
+		t.Error("runK8s (plain) produced no output")
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runK8s(jsonCmd, nil); err != nil {
+			t.Fatalf("runK8s (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
+	}
+
+	deepCmd := newBareCloudCmd()
+	deepCmd.SetContext(context.Background())
+	_ = deepCmd.Flags().Set("plain", "true")
+	_ = deepCmd.Flags().Set("deep", "true")
+	deepOut := captureStdout(t, func() {
+		if err := runK8s(deepCmd, nil); err != nil {
+			t.Fatalf("runK8s (deep): %v", err)
+		}
+	})
+	if deepOut == "" {
+		t.Error("runK8s (deep) produced no output")
 	}
 }

@@ -62,3 +62,61 @@ func TestPrintDNSAvailableStillReportsFailure(t *testing.T) {
 		t.Errorf("available audit must not claim 'not available', got: %q", out)
 	}
 }
+
+// TestPrintDNSQualityFlags covers the quality-flag lines that only render when
+// their respective condition is set — nameserver count, loopback NS, high
+// ndots, IPv6-only, duplicate nameservers, and the public-DNS-fallback note.
+func TestPrintDNSQualityFlags(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDNS(&models.DNSResolverInfo{
+			Available: true, Manager: "resolv.conf", ConfigFile: "/etc/resolv.conf.custom",
+			StubMode:            true,
+			Nameservers:         []string{"1.1.1.1", "8.8.8.8", "9.9.9.9", "4.4.4.4"},
+			SearchDomains:       []string{"example.com"},
+			Options:             []string{"timeout:2"},
+			ExternalResolvesOK:  true,
+			ExternalLatencyMs:   12,
+			InternalResolvesOK:  false,
+			TooManyNameservers:  true,
+			HasLoopback:         true,
+			NdotsHigh:           5,
+			IPv6Only:            true,
+			DuplicateNameserver: []string{"1.1.1.1"},
+			PublicFallback:      true,
+		}, output.ModePlain)
+	})
+	for _, want := range []string{
+		"resolv.conf.custom", "stub", "example.com", "timeout:2",
+		"ok  12ms", "could not resolve own hostname",
+		"libc silently ignores", "Loopback NS", "high, may cause excessive lookups",
+		"IPv6-only", "1.1.1.1", "8.8.8.8/1.1.1.1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("printDNS quality-flags output missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+// TestPrintDNSNoNameservers covers the "none configured" WARN branch.
+func TestPrintDNSNoNameservers(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDNS(&models.DNSResolverInfo{Available: true, Manager: "resolv.conf"}, output.ModePlain)
+	})
+	if !strings.Contains(out, "none configured") {
+		t.Errorf("no nameservers should say none configured, got:\n%s", out)
+	}
+}
+
+// TestPrintDNSExternalFailedWithError covers the FAILED branch's error-detail
+// line, which only renders when ResolvTestError is set.
+func TestPrintDNSExternalFailedWithError(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDNS(&models.DNSResolverInfo{
+			Available: true, Manager: "resolv.conf",
+			ExternalResolvesOK: false, ResolvTestError: "no route to host",
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "FAILED") || !strings.Contains(out, "no route to host") {
+		t.Errorf("a failed resolution with an error detail should show both, got:\n%s", out)
+	}
+}

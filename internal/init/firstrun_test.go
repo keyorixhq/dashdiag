@@ -94,3 +94,45 @@ func TestRunWizard_EOFStdinNoOp(t *testing.T) {
 		t.Error("expected no config file to be written when stdin has no selection")
 	}
 }
+
+// With stdin providing a valid selection ("1" -> the first option, "web"),
+// the text-mode selector returns a non-empty choice and RunWizard proceeds
+// to write the profile config — exercises the success path.
+func TestRunWizard_ValidSelectionWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	w.Close()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+
+	if err := RunWizard(output.ModeHuman); err != nil {
+		t.Errorf("RunWizard() = %v, want nil", err)
+	}
+
+	path := filepath.Join(dir, ".dsd.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected %s to be written: %v", path, err)
+	}
+	if got := string(data); !strings.Contains(got, "Profile: web") {
+		t.Errorf("config content = %q, want it to mention Profile: web", got)
+	}
+}
+
+// writeProfileConfig bails out silently when os.UserHomeDir() errors (e.g.
+// HOME unset on Linux) — exercises that early-return branch.
+func TestWriteProfileConfig_NoHomeDirNoOp(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	// Should not panic even though there's nowhere to write.
+	writeProfileConfig("web")
+}

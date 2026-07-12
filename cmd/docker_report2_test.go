@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -230,5 +231,35 @@ func TestPrintDockerReportFullDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "Docker healthy") {
 		t.Errorf("a clean docker host should read healthy, got:\n%s", out)
+	}
+}
+
+// TestRunDocker exercises runDocker's real (read-only) collector wiring in
+// --plain and --json mode. No Docker/Podman is expected on this test host, so
+// both should render the "not available" report without error — the same
+// real-I/O precedent as cpu_report_test.go / hardware_test.go.
+func TestRunDocker(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runDocker(plainCmd, nil); err != nil {
+			t.Fatalf("runDocker (plain): %v", err)
+		}
+	})
+	if plainOut == "" {
+		t.Error("runDocker (plain) produced no output")
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runDocker(jsonCmd, nil); err != nil {
+			t.Fatalf("runDocker (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
 	}
 }

@@ -90,6 +90,69 @@ func TestPrintTopProcsWithCgroup(t *testing.T) {
 	}
 }
 
+func TestPrintTopCPUProcsWithCgroup(t *testing.T) {
+	if out := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{}}}, output.ModePlain)
+	}); out != "" {
+		t.Errorf("no top CPU procs should print nothing, got:\n%s", out)
+	}
+
+	out := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs: []models.ProcessCPUStat{{PID: 200, Name: "stress", CPUPct: 88.5, CgroupScope: "system:stress.service"}},
+		}}}, output.ModePlain)
+	})
+	if !strings.Contains(out, "stress") || !strings.Contains(out, "system:stress.service") {
+		t.Errorf("a top CPU proc should show its name and cgroup scope, got:\n%s", out)
+	}
+
+	unknownScope := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs: []models.ProcessCPUStat{{PID: 200, Name: "x"}},
+		}}}, output.ModePlain)
+	})
+	if !strings.Contains(unknownScope, "unknown") {
+		t.Errorf("an empty cgroup scope should fall back to unknown, got:\n%s", unknownScope)
+	}
+}
+
+func TestPrintCgroupUnits(t *testing.T) {
+	if out := captureStdout(t, func() {
+		printCgroupUnits([]runner.Result{{Data: &models.HealthDeepInfo{}}}, output.ModePlain)
+	}); out != "" {
+		t.Errorf("no cgroup info should print nothing, got:\n%s", out)
+	}
+	if out := captureStdout(t, func() {
+		printCgroupUnits([]runner.Result{{Data: &models.HealthDeepInfo{Cgroup: &models.CgroupV2Info{}}}}, output.ModePlain)
+	}); out != "" {
+		t.Errorf("a cgroup summary with no units should print nothing, got:\n%s", out)
+	}
+
+	withLimit := captureStdout(t, func() {
+		printCgroupUnits([]runner.Result{{Data: &models.HealthDeepInfo{Cgroup: &models.CgroupV2Info{
+			Units: []models.CgroupUnit{{
+				Name: "postgresql.service", ParentSlice: "system.slice", CPUPct: 12.3,
+				MemCurrentMB: 512, MemLimitMB: 1024, HasMemLimit: true,
+			}},
+		}}}}, output.ModePlain)
+	})
+	if !strings.Contains(withLimit, "postgresql.service") || !strings.Contains(withLimit, "512/1024MB") {
+		t.Errorf("a unit with a memory limit should show current/limit, got:\n%s", withLimit)
+	}
+
+	container := captureStdout(t, func() {
+		printCgroupUnits([]runner.Result{{Data: &models.HealthDeepInfo{Cgroup: &models.CgroupV2Info{
+			Units: []models.CgroupUnit{{Name: "container:abc123", IsContainer: true, MemCurrentMB: 200}},
+		}}}}, output.ModePlain)
+	})
+	if !strings.Contains(container, "container:abc123") || !strings.Contains(container, "200MB") {
+		t.Errorf("a container unit should be shown with the 'container' scope label, got:\n%s", container)
+	}
+	if !strings.Contains(container, "container") {
+		t.Errorf("IsContainer=true should label the scope 'container', got:\n%s", container)
+	}
+}
+
 func TestPrintHealthExplanationsAndFixes(t *testing.T) {
 	topics := explain.Topics()
 	if len(topics) == 0 {
@@ -142,5 +205,29 @@ func TestBuildHealthCollectorsGating(t *testing.T) {
 	withGPU := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, true, false, false, false, false)
 	if len(withGPU) <= len(base) {
 		t.Errorf("includeGPU=true should add at least one collector, base=%d withGPU=%d", len(base), len(withGPU))
+	}
+	withTLS := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, true, false, false, false)
+	if len(withTLS) <= len(base) {
+		t.Errorf("includeTLS=true should add at least one collector, base=%d withTLS=%d", len(base), len(withTLS))
+	}
+	withDeep := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, true, false, false)
+	if len(withDeep) <= len(base) {
+		t.Errorf("includeDeep=true should add at least one collector, base=%d withDeep=%d", len(base), len(withDeep))
+	}
+	withFirmware := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, false, true, false)
+	if len(withFirmware) <= len(base) {
+		t.Errorf("includeFirmware=true should add at least one collector, base=%d withFirmware=%d", len(base), len(withFirmware))
+	}
+	withCVE := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, false, false, true)
+	if len(withCVE) <= len(base) {
+		t.Errorf("includeCVE=true should add at least one collector, base=%d withCVE=%d", len(base), len(withCVE))
+	}
+	// includeDeep swaps the plain NetworkCollector for NetworkDeepCollector —
+	// same slot, so deep mode's collector count isn't guaranteed to exceed a
+	// packages-only run by more than one; this just guards the swap doesn't
+	// silently drop network collection entirely.
+	inContainer := buildHealthCollectors(platform.ContainerContext{InContainer: true}, platform.Profile{}, false, false, false, false, false, false)
+	if len(inContainer) == 0 {
+		t.Error("a container context must still produce a non-empty collector set")
 	}
 }

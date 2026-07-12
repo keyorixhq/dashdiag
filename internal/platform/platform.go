@@ -10,6 +10,11 @@ func IsMacOS() bool { return runtime.GOOS == "darwin" }
 
 // SystemdAvailable reports whether systemd is the init system on this host.
 func SystemdAvailable() bool {
-	_, err := os.Stat("/run/systemd/private")
+	return systemdAvailableAt("/run/systemd/private")
+}
+
+// systemdAvailableAt is the testable core of SystemdAvailable.
+func systemdAvailableAt(path string) bool {
+	_, err := os.Stat(path)
 	return err == nil
 }

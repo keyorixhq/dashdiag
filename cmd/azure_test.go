@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -61,6 +62,37 @@ func TestPrintAzureReport_TwoBlockSplit(t *testing.T) {
 	}
 	if !strings.Contains(out, "4 Azure issue(s) found") {
 		t.Errorf("summary should report 4 issues; got:\n%s", out)
+	}
+}
+
+// TestRunAzure_NotOnAzure exercises runAzure's real availability gate in both
+// --plain and --json mode. Skipped on Azure hosts (GitHub-hosted runners are
+// Azure VMs) because those reach the full-check branch, not the gate. No
+// t.Parallel() — captureStdout swaps the shared os.Stdout.
+func TestRunAzure_NotOnAzure(t *testing.T) {
+	if collectors.AzureGuestAvailable() {
+		t.Skip("test requires a non-Azure host; this runner is on Azure")
+	}
+	plainCmd := newBareCloudCmd()
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runAzure(plainCmd, nil); err != nil {
+			t.Fatalf("runAzure (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "not running on Azure") {
+		t.Errorf("plain mode should report 'not running on Azure', got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runAzure(jsonCmd, nil); err != nil {
+			t.Fatalf("runAzure (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"is_azure"`) {
+		t.Errorf("json mode should encode an empty AzureInfo, got: %q", jsonOut)
 	}
 }
 

@@ -64,6 +64,44 @@ func TestPrintAWSReport_TwoBlockSplit(t *testing.T) {
 	}
 }
 
+// TestRunAWS_NotOnEC2 exercises runAWS's real availability gate (this test
+// host is not on EC2) in both --plain and --json mode. No t.Parallel() —
+// captureStdout swaps the shared os.Stdout, same constraint as net_dns_test.go.
+func TestRunAWS_NotOnEC2(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runAWS(plainCmd, nil); err != nil {
+			t.Fatalf("runAWS (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "not running on EC2") {
+		t.Errorf("plain mode should report 'not running on EC2', got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runAWS(jsonCmd, nil); err != nil {
+			t.Fatalf("runAWS (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"is_ec2"`) {
+		t.Errorf("json mode should encode an empty AWSInfo, got: %q", jsonOut)
+	}
+}
+
+// An empty InstanceType (metadata service unreachable) falls back to the
+// generic "instance" label rather than printing a blank identity line.
+func TestPrintAWSReport_NoInstanceTypeFallback(t *testing.T) {
+	var buf bytes.Buffer
+	printAWSReport(&buf, &models.AWSInfo{IsEC2: true}, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if !strings.Contains(out, "EC2 guest — instance") {
+		t.Errorf("empty instance type should fall back to generic 'instance', got:\n%s", out)
+	}
+}
+
 func TestPrintAWSReport_Healthy(t *testing.T) {
 	clean := &models.AWSInfo{IsEC2: true, InstanceType: "t4g.small", IMDSChecked: true} // IMDSv2 enforced, nothing else
 	var buf bytes.Buffer

@@ -16,7 +16,9 @@ import (
 )
 
 // quietStdout runs f with os.Stdout redirected to /dev/null so renderer output
-// (which writes directly to stdout) doesn't pollute test logs.
+// (which writes directly to stdout) doesn't pollute test logs. Swaps the
+// shared global os.Stdout — callers (and their subtests) must NOT call
+// t.Parallel(), or this races with any other test touching os.Stdout.
 func quietStdout(t *testing.T, f func()) {
 	t.Helper()
 	old := os.Stdout

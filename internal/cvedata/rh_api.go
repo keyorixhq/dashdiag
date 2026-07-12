@@ -17,7 +17,12 @@ import (
 
 // rhSecurityAPI is the Red Hat Security Data API base URL.
 // Free, no authentication required, covers RHEL/Rocky/Fedora/CentOS.
-const rhSecurityAPI = "https://access.redhat.com/hydra/rest/securitydata/cve/%s.json"
+// Var (not const) so tests can redirect it at an httptest server.
+var rhSecurityAPI = "https://access.redhat.com/hydra/rest/securitydata/cve/%s.json"
+
+// osReleasePath is the path readOSRelease reads. Var (not a literal) so tests
+// can redirect it at a fixture file instead of the real /etc/os-release.
+var osReleasePath = "/etc/os-release"
 
 // rhCVEResponse is the relevant subset of the Red Hat Security Data API response.
 type rhCVEResponse struct {
@@ -128,9 +133,10 @@ func detectRHELMajor() string {
 	return "enterprise_linux:" + major
 }
 
-// readOSRelease reads /etc/os-release and returns its content.
+// readOSRelease reads /etc/os-release (or osReleasePath, when a test
+// redirects it) and returns its content.
 func readOSRelease() (string, error) {
-	data, err := os.ReadFile("/etc/os-release") // #nosec G304
+	data, err := os.ReadFile(osReleasePath) // #nosec G304
 	if err != nil {
 		return "", err
 	}

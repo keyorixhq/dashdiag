@@ -17,6 +17,13 @@ func TestTruncateRuneSafe(t *testing.T) {
 	if got := truncateStr("short", 10); got != "short" {
 		t.Errorf("truncateStr passthrough = %q", got)
 	}
+	// n<=0 is a degenerate case: always empty, regardless of input.
+	if got := truncateStr("anything", 0); got != "" {
+		t.Errorf("truncateStr(_, 0) = %q, want empty", got)
+	}
+	if got := truncateStr("anything", -1); got != "" {
+		t.Errorf("truncateStr(_, -1) = %q, want empty", got)
+	}
 
 	// Multibyte: the result must stay valid UTF-8 — byte-slicing would split the
 	// accented/CJK rune at the boundary into an invalid sequence.

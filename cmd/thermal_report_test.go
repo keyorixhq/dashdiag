@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -57,4 +59,53 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 	if !strings.Contains(healthy, "CRIT") {
 		t.Errorf("a 96C core sensor should render CRIT even if the primary CPU temp is fine, got:\n%s", healthy)
 	}
+}
+
+// TestRunThermal exercises runThermal's real (read-only) collector wiring in
+// --plain and --json mode (non-watch). Same real-I/O precedent as
+// cpu_report_test.go.
+func TestRunThermal(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runThermal(plainCmd, nil); err != nil {
+			t.Fatalf("runThermal (plain): %v", err)
+		}
+	})
+	if plainOut == "" {
+		t.Error("runThermal (plain) produced no output")
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runThermal(jsonCmd, nil); err != nil {
+			t.Fatalf("runThermal (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
+	}
+}
+
+// TestWatchThermal exercises watchThermal's one-shot run (real collector,
+// same cost as TestRunThermal) plus its ctx.Done() exit path — an
+// already-cancelled context makes the select loop return immediately after
+// the first run instead of blocking on the ticker.
+func TestWatchThermal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out := captureStdout(t, func() {
+		if err := watchThermal(ctx, time.Millisecond, output.ModePlain); err != nil {
+			t.Fatalf("watchThermal: %v", err)
+		}
+	})
+	// A container/VM with no thermal source produces no ThermalInfo (nil result
+	// data), which is the run() early-return branch — still valid coverage of
+	// watchThermal's body, just not guaranteed to print a report line. Assert
+	// only that it didn't panic/error, mirroring the honest-degradation pattern
+	// used elsewhere in this package.
+	_ = out
 }

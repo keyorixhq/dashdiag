@@ -19,7 +19,14 @@ func DetectDistroID() string {
 	if err != nil {
 		return ""
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
+	return parseDistroID(string(data))
+}
+
+// parseDistroID extracts the ID= field from /etc/os-release content. Split out
+// from DetectDistroID as a pure-parsing seam so the field-extraction logic can
+// be unit tested without reading the real filesystem.
+func parseDistroID(data string) string {
+	for line := range strings.SplitSeq(data, "\n") {
 		if after, ok := strings.CutPrefix(line, "ID="); ok {
 			return strings.Trim(after, `"`)
 		}

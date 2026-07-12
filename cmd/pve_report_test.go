@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -270,5 +271,135 @@ func TestPrintPVEReportSummary(t *testing.T) {
 	})
 	if !strings.Contains(concern, "concern(s) found") {
 		t.Errorf("a full storage pool should surface as a concern, got:\n%s", concern)
+	}
+}
+
+// TestPrintPVENodeFields covers the version/kernel host line, the CPU/cores/
+// memory/uptime lines (all suppressed when their zero-value trigger is not
+// met), which the subscription-focused test above doesn't reach.
+func TestPrintPVENodeFields(t *testing.T) {
+	minimal := captureStdout(t, func() {
+		printPVENode(&models.PVEInfo{}, output.ModePlain)
+	})
+	if strings.Contains(minimal, "Host:") || strings.Contains(minimal, "CPU:") ||
+		strings.Contains(minimal, "Cores:") || strings.Contains(minimal, "Memory:") || strings.Contains(minimal, "Uptime:") {
+		t.Errorf("an empty PVEInfo should suppress every optional node line, got:\n%s", minimal)
+	}
+
+	full := captureStdout(t, func() {
+		printPVENode(&models.PVEInfo{
+			PVEVersion: "8.1.4", KernelVersion: "6.5.11-7-pve",
+			UptimeSec: 90000, PhysicalCores: 16, HostMemGB: 64, CPUPct: 12,
+		}, output.ModePlain)
+	})
+	if !strings.Contains(full, "PVE 8.1.4") || !strings.Contains(full, "kernel 6.5.11-7-pve") {
+		t.Errorf("version and kernel should both appear on the host line, got:\n%s", full)
+	}
+	if !strings.Contains(full, "16 cores") || !strings.Contains(full, "64.0 GB") {
+		t.Errorf("cores and memory should be shown, got:\n%s", full)
+	}
+}
+
+// TestPrintPVEBackupAgeBands covers every branch of the global BackupAgeDays
+// switch (used when no per-VM BackupStatuses audit is present).
+func TestPrintPVEBackupAgeBands(t *testing.T) {
+	cases := []struct {
+		days int
+		want string
+	}{
+		{0, "today"},
+		{1, "yesterday"},
+		{5, "5 days ago"},
+		{20, "20 days ago"},
+	}
+	for _, c := range cases {
+		out := captureStdout(t, func() { printPVEBackup(&models.PVEInfo{BackupAgeDays: c.days}, output.ModePlain) })
+		if !strings.Contains(out, c.want) {
+			t.Errorf("BackupAgeDays=%d: printPVEBackup output missing %q, got:\n%s", c.days, c.want, out)
+		}
+	}
+}
+
+// TestPrintPVEPerfThresholds covers the AvgSeekMs/CPUBogomips/DNSExtMs metric
+// branches (BufferedReadMB and FsyncsPerSec CRIT bands are already covered by
+// TestPrintPVEPerf).
+func TestPrintPVEPerfThresholds(t *testing.T) {
+	warnSeek := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, AvgSeekMs: 5}, output.ModePlain)
+	})
+	if !strings.Contains(warnSeek, "WARN") {
+		t.Errorf("a 5ms avg seek (>2ms) should be WARN, got:\n%s", warnSeek)
+	}
+	critSeek := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, AvgSeekMs: 15}, output.ModePlain)
+	})
+	if !strings.Contains(critSeek, "CRIT") {
+		t.Errorf("a 15ms avg seek (>10ms) should be CRIT, got:\n%s", critSeek)
+	}
+	bogomips := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, CPUBogomips: 45000}, output.ModePlain)
+	})
+	if !strings.Contains(bogomips, "45000") {
+		t.Errorf("CPU bogomips should be shown, got:\n%s", bogomips)
+	}
+	slowDNS := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, DNSExtMs: 600}, output.ModePlain)
+	})
+	if !strings.Contains(slowDNS, "WARN") {
+		t.Errorf("a 600ms external DNS (>500ms) should be WARN, got:\n%s", slowDNS)
+	}
+}
+
+// TestCountPVEIssuesExtras covers the bridges, vCPU-ratio, memory-ratio, and
+// per-VM-backup-audit contributions to the concern tally (storage is already
+// covered by TestCountPVEIssuesStorageThreshold in pve_test.go).
+func TestCountPVEIssuesExtras(t *testing.T) {
+	bridges := countPVEIssues(&models.PVEInfo{Bridges: []models.PVEBridge{{Name: "vmbr0", Active: false}}})
+	if bridges != 1 {
+		t.Errorf("a down bridge should count as 1 issue, got %d", bridges)
+	}
+	vcpuRatio := countPVEIssues(&models.PVEInfo{PhysicalCores: 4, TotalVCPUs: 20, Guests: []models.PVEGuest{{}}})
+	if vcpuRatio != 1 {
+		t.Errorf("a >4:1 vCPU overcommit should count as 1 issue, got %d", vcpuRatio)
+	}
+	memRatio := countPVEIssues(&models.PVEInfo{HostMemGB: 16, TotalMemGB: 20})
+	if memRatio != 1 {
+		t.Errorf("assigned memory exceeding host RAM should count as 1 issue, got %d", memRatio)
+	}
+	perVMBackups := countPVEIssues(&models.PVEInfo{BackupStatuses: []models.PVEBackupStatus{
+		{VMID: 100, LastBackupDays: 30}, {VMID: 101, LastBackupDays: -1},
+	}})
+	if perVMBackups != 2 {
+		t.Errorf("2 stale/never per-VM backups should count as 2 issues, got %d", perVMBackups)
+	}
+}
+
+// TestRunPVE exercises runPVE's real (read-only) IsPVEHost gate in --plain and
+// --json mode. This test host is not a Proxmox node, so both should take the
+// short-circuit "not a PVE node" path without error — the same real-I/O
+// precedent as cpu_report_test.go / hardware_test.go.
+func TestRunPVE(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runPVE(plainCmd, nil); err != nil {
+			t.Fatalf("runPVE (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "Proxmox VE") {
+		t.Errorf("the not-a-PVE-node message should mention Proxmox VE, got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runPVE(jsonCmd, nil); err != nil {
+			t.Fatalf("runPVE (json): %v", err)
+		}
+	})
+	if jsonOut == "" {
+		t.Error("runPVE (json, not a PVE node) should still print the info message")
 	}
 }

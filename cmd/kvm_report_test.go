@@ -41,6 +41,8 @@ func TestPrintKVMVMsFindings(t *testing.T) {
 		{"emulated nic", models.KVMVM{Name: "vm1", State: models.KVMRunning, EmulatedNICs: []string{"52:54:00:aa (rtl8139)"}}, "emulated driver"},
 		{"emulated disk", models.KVMVM{Name: "vm1", State: models.KVMRunning, EmulatedDisks: []string{"vda (ide)"}}, "emulated bus"},
 		{"shut off with autostart", models.KVMVM{Name: "vm1", State: models.KVMShutOff, AutoStart: true}, "autostart=yes"},
+		{"max mem shown", models.KVMVM{Name: "vm1", State: models.KVMRunning, MaxMemMB: 4096}, "4096MB RAM"},
+		{"last log error shown", models.KVMVM{Name: "vm1", State: models.KVMCrashed, LastLogError: "qemu: terminating on signal 15"}, "last log error: qemu: terminating on signal 15"},
 	}
 	for _, c := range cases {
 		info := &models.KVMInfo{VMs: []models.KVMVM{c.vm}}
@@ -126,5 +128,15 @@ func TestPrintKVMReportSummary(t *testing.T) {
 	})
 	if !strings.Contains(concern, "concern(s) found") {
 		t.Errorf("an emulated-disk finding should surface as a concern, got:\n%s", concern)
+	}
+}
+
+// A non-empty LibvirtVer/QEMUVer prints the version suffix on the identity line.
+func TestPrintKVMReportVersionString(t *testing.T) {
+	out := captureStdout(t, func() {
+		printKVMReport(&models.KVMInfo{Detected: true, LibvirtVer: "9.0.0", QEMUVer: "7.2.0"}, 0, output.ModePlain)
+	})
+	if !strings.Contains(out, "[libvirt 9.0.0 / QEMU 7.2.0]") {
+		t.Errorf("libvirt/QEMU versions should be shown, got:\n%s", out)
 	}
 }
