@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"math"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,7 +33,7 @@ func nvmeUnreadReason() string {
 	if sbinToolPath("nvme") == "" {
 		return "tool_absent"
 	}
-	if os.Geteuid() != 0 {
+	if geteuid() != 0 {
 		return "needs_root"
 	}
 	return "error"

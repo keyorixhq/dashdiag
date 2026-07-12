@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,7 +35,7 @@ func tcpStatesLinux(ctx context.Context) (*models.Details, error) {
 	if err == nil {
 		return parseSsOutput(out, os.Geteuid() != 0), nil
 	}
-	return parseProcNetTCP(ctx)
+	return parseProcNetTCPAt(ctx, "/proc/net")
 }
 
 // parseSsOutput parses `ss -tnp --no-header` output. nonRoot must reflect
@@ -155,10 +156,13 @@ func parseSSProc(users string) string {
 	return fmt.Sprintf("%s[%s]", name, pidStr)
 }
 
-// parseProcNetTCP falls back to /proc/net/tcp when ss is unavailable.
-func parseProcNetTCP(ctx context.Context) (*models.Details, error) {
+// parseProcNetTCPAt falls back to <netRoot>/tcp and <netRoot>/tcp6 when ss is
+// unavailable. netRoot is normally "/proc/net"; tests pass a testdata fixture
+// directory instead.
+func parseProcNetTCPAt(_ context.Context, netRoot string) (*models.Details, error) {
 	states := map[string]int{}
-	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+	for _, name := range []string{"tcp", "tcp6"} {
+		path := filepath.Join(netRoot, name)
 		f, err := os.Open(path)
 		if err != nil {
 			continue

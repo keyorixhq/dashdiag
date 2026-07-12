@@ -56,6 +56,89 @@ func TestPrintDiffNoChange(t *testing.T) {
 	}
 }
 
+// TestPrintDiffNoChangeHumanMode covers the styled (ModeHuman) "No changes
+// detected" branch — TestPrintDiffNoChange above only exercises ModePlain.
+func TestPrintDiffNoChangeHumanMode(t *testing.T) {
+	t.Parallel()
+	s := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"})
+	var buf bytes.Buffer
+	if err := PrintDiff(&buf, s, s, output.ModeHuman); err != nil {
+		t.Fatalf("PrintDiff: %v", err)
+	}
+	if !strings.Contains(buf.String(), "No changes detected") {
+		t.Errorf("expected styled 'No changes detected', got:\n%s", buf.String())
+	}
+}
+
+// TestPrintDiffHumanMode exercises the styled (ModeHuman) branches: a CRIT->OK
+// improvement (styled OK, not the raw target level), a degradation, and the
+// dim "Unchanged" summary line — none of which the plain-mode tests above touch.
+func TestPrintDiffHumanMode(t *testing.T) {
+	t.Parallel()
+	before := diffSnap("host1",
+		baseline.CheckResult{Name: "Disk", Status: "CRIT", Value: "/ 94%"},
+		baseline.CheckResult{Name: "Memory", Status: "OK", Value: "8%"},
+	)
+	after := diffSnap("host1",
+		baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 20%"},
+		baseline.CheckResult{Name: "Memory", Status: "OK", Value: "8%"},
+	)
+	var buf bytes.Buffer
+	if err := PrintDiff(&buf, before, after, output.ModeHuman); err != nil {
+		t.Fatalf("PrintDiff: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Disk") {
+		t.Errorf("expected Disk change line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Unchanged") || !strings.Contains(out, "Memory") {
+		t.Errorf("expected dim Unchanged summary with Memory, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Run: dsd health deep") {
+		t.Errorf("expected trailing hint line, got:\n%s", out)
+	}
+}
+
+// TestTimeAgo covers each of the three buckets (minutes, hours[+minutes], days)
+// plus the "at least 1 minute" floor for a just-now timestamp.
+func TestTimeAgo(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		ago  time.Duration
+		want string
+	}{
+		{"just now floors to 1 min", 0, "1 min ago"},
+		{"partial minute floors to 1 min", 30 * time.Second, "1 min ago"},
+		{"whole minutes", 5 * time.Minute, "5 min ago"},
+		{"hours with remainder minutes", 2*time.Hour + 15*time.Minute, "2h 15m ago"},
+		{"exact hours, no minute remainder", 3 * time.Hour, "3h ago"},
+		{"days", 50 * time.Hour, "2 days ago"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := timeAgo(time.Now().Add(-tc.ago))
+			if got != tc.want {
+				t.Errorf("timeAgo(-%v) = %q, want %q", tc.ago, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAfterLevel covers the malformed-input fallback: a StatusChange string
+// without the "->" separator must default to "OK" rather than panicking or
+// mis-parsing.
+func TestAfterLevel(t *testing.T) {
+	t.Parallel()
+	if got := afterLevel("OK->CRIT"); got != "CRIT" {
+		t.Errorf("afterLevel(OK->CRIT) = %q, want CRIT", got)
+	}
+	if got := afterLevel("garbage"); got != "OK" {
+		t.Errorf("afterLevel(malformed) = %q, want OK fallback", got)
+	}
+}
+
 // TestPrintDiffJSON: --json emits a machine-readable DiffEntry array with the
 // changed entry flagged.
 func TestPrintDiffJSON(t *testing.T) {

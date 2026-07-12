@@ -346,3 +346,29 @@ func TestTopProcessesByCPUMac(t *testing.T) {
 		}
 	}
 }
+
+// TestTopProcessesByCPUMac_CapsAtN guards the len(rows) >= n break: with more
+// well-formed ps lines than n, the loop must stop early rather than returning
+// every row.
+func TestTopProcessesByCPUMac_CapsAtN(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "ps" {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return "  PID  %CPU COMMAND\n" +
+			"  1   5.0 procA\n" +
+			"  2   4.0 procB\n" +
+			"  3   3.0 procC\n", nil
+	})
+
+	got, err := topProcessesByCPUMac(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("topProcessesByCPUMac: %v", err)
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	if got.Rows[0][0] != "1" || got.Rows[1][0] != "2" {
+		t.Errorf("expected first two rows in ps order, got %+v", got.Rows)
+	}
+}

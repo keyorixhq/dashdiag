@@ -170,6 +170,46 @@ func TestParseTCPCounters(t *testing.T) {
 	}
 }
 
+// TestMeasureJitterCanceledContext guards the early-exit branch: a context
+// canceled before the sampling loop starts must make measureJitter return
+// immediately without attempting any real ping (ctx.Err() check at top of
+// the loop body).
+func TestMeasureJitterCanceledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := measureJitter(ctx, "127.0.0.1", 5)
+	if got != 0 {
+		t.Errorf("measureJitter() with canceled context = %v, want 0 (no samples collected)", got)
+	}
+}
+
+// TestSinglePingRTTCanceledContext guards singlePingRTT's ctx.Done() select
+// branch: a context canceled before Run() completes must return -1 (no RTT)
+// rather than blocking or panicking. This never depends on real network
+// reachability — the pinger is started against localhost and the context is
+// already canceled, so the ctx.Done() case always wins the select.
+func TestSinglePingRTTCanceledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := singlePingRTT(ctx, "127.0.0.1")
+	if got != -1 {
+		t.Errorf("singlePingRTT() with canceled context = %v, want -1", got)
+	}
+}
+
+// TestSinglePingRTTInvalidHost guards the goping.NewPinger error branch: an
+// unparsable/invalid host string must make NewPinger fail for both privileged
+// and unprivileged attempts, falling through the loop to return -1.
+func TestSinglePingRTTInvalidHost(t *testing.T) {
+	t.Parallel()
+	got := singlePingRTT(context.Background(), "")
+	if got != -1 {
+		t.Errorf("singlePingRTT() with empty host = %v, want -1 (NewPinger should fail)", got)
+	}
+}
+
 // TestParseTCPCountersMissingConntrack guards the "module not loaded" case:
 // without both nf_conntrack files present, ConntrackUsedPct must stay 0, not
 // divide-by-zero or read a partial value.

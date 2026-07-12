@@ -371,3 +371,30 @@ func TestParseLogTimestamp(t *testing.T) {
 		t.Errorf("expected error for malformed stamp")
 	}
 }
+
+// TestParseLogTimestamp_RFC3339Nano guards the ISO8601/journalctl-style branch:
+// a line whose first space-delimited token contains a "-" (a full date, e.g.
+// journalctl's --output=short-iso timestamp) must be parsed as RFC3339Nano,
+// carrying its own year rather than the current-year injection used for
+// classic syslog "Mon  2 15:04:05" stamps.
+func TestParseLogTimestamp_RFC3339Nano(t *testing.T) {
+	t.Parallel()
+	ts, err := parseLogTimestamp("2024-03-15T10:30:00.123456+00:00 host sshd[123]: message")
+	if err != nil {
+		t.Fatalf("parseLogTimestamp returned error: %v", err)
+	}
+	if ts.Year() != 2024 || ts.Month() != 3 || ts.Day() != 15 || ts.Hour() != 10 || ts.Minute() != 30 {
+		t.Errorf("parsed wrong fields: %v", ts)
+	}
+}
+
+// TestParseLogTimestamp_TooShort guards the "line too short for a timestamp"
+// error branch: any line under 15 characters (and without an early "-" before
+// the first space) must error immediately rather than attempting the fixed 15
+// -byte syslog-format slice, which would otherwise panic or silently misparse.
+func TestParseLogTimestamp_TooShort(t *testing.T) {
+	t.Parallel()
+	if _, err := parseLogTimestamp("short"); err == nil {
+		t.Error("expected error for a line under 15 characters")
+	}
+}

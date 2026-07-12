@@ -51,6 +51,49 @@ func TestMockRawData_BackwardCompat(t *testing.T) {
 	}
 }
 
+// TestMockRawData_AllModelMappings covers the Disk/ZFS/IO name→model branches
+// of the type switch, none exercised by the LVM-only tests above.
+func TestMockRawData_AllModelMappings(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want any
+	}{
+		{"Disk", `{"filesystems":[{"mount":"/","used_pct":50}]}`, &models.DiskInfo{}},
+		{"ZFS", `{"pools":[{"name":"tank","state":"ONLINE"}]}`, &models.ZFSInfo{}},
+		{"IO", `{"devices":[{"device":"sda"}]}`, &models.IOInfo{}},
+	}
+	for _, c := range cases {
+		got := mockRawData(c.name, c.raw)
+		if got == nil {
+			t.Errorf("%s: mockRawData returned nil for valid raw JSON", c.name)
+			continue
+		}
+		gotType := ""
+		switch got.(type) {
+		case *models.DiskInfo:
+			gotType = "*models.DiskInfo"
+		case *models.ZFSInfo:
+			gotType = "*models.ZFSInfo"
+		case *models.IOInfo:
+			gotType = "*models.IOInfo"
+		}
+		wantType := ""
+		switch c.want.(type) {
+		case *models.DiskInfo:
+			wantType = "*models.DiskInfo"
+		case *models.ZFSInfo:
+			wantType = "*models.ZFSInfo"
+		case *models.IOInfo:
+			wantType = "*models.IOInfo"
+		}
+		if gotType != wantType {
+			t.Errorf("%s: mockRawData returned %s, want %s", c.name, gotType, wantType)
+		}
+	}
+}
+
 func TestBuildFixtureRow_PreservesDiskRaw(t *testing.T) {
 	c := captureCheck{
 		Name:   "LVM",

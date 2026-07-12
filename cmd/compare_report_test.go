@@ -36,6 +36,43 @@ func TestPrintCompareDiverging(t *testing.T) {
 	}
 }
 
+// TestPrintCompareShowAllAndEmoji covers the showAll=true branch (all checks
+// printed, including non-diverging ones, with the "use --all" hint suppressed)
+// and the plain=false emoji statusSymbol branch.
+func TestPrintCompareShowAllAndEmoji(t *testing.T) {
+	snaps := []*compareSnapshot{
+		{Hostname: "web01", Timestamp: "2026-01-01T00:00:00Z", Checks: []compareCheck{
+			{Name: "Disk", Status: "OK"}, {Name: "CPU", Status: "WARN"},
+		}},
+		{Hostname: "web02", Timestamp: "2026-01-01T00:00:00Z", Checks: []compareCheck{
+			{Name: "Disk", Status: "OK"}, {Name: "CPU", Status: "CRIT"},
+		}},
+	}
+	out := captureStdout(t, func() { printCompare(snaps, false, true) })
+	if !strings.Contains(out, "Disk") {
+		t.Errorf("showAll=true should include the non-diverging Disk check, got:\n%s", out)
+	}
+	if strings.Contains(out, "use --all") {
+		t.Errorf("showAll=true should not print the --all hint, got:\n%s", out)
+	}
+	if !strings.Contains(out, "⚠️  WARN") || !strings.Contains(out, "❌ CRIT") {
+		t.Errorf("plain=false should render emoji status symbols, got:\n%s", out)
+	}
+}
+
+// TestPrintCompareIdenticalShowAllHint covers the "(use --all to show all N
+// checks)" hint printed when nothing diverges and showAll is false.
+func TestPrintCompareIdenticalShowAllHint(t *testing.T) {
+	snaps := []*compareSnapshot{
+		{Hostname: "web01", Checks: []compareCheck{{Name: "Disk", Status: "OK"}}},
+		{Hostname: "web02", Checks: []compareCheck{{Name: "Disk", Status: "OK"}}},
+	}
+	out := captureStdout(t, func() { printCompare(snaps, true, false) })
+	if !strings.Contains(out, "use --all to show all 1 checks") {
+		t.Errorf("expected the --all hint naming the total check count, got:\n%s", out)
+	}
+}
+
 func TestPrintOutlierAnalysis(t *testing.T) {
 	// Fewer than 3 hosts: outlier detection is skipped entirely (needs a
 	// baseline to detect a minority-of-one against).

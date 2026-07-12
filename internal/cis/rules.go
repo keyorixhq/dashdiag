@@ -336,30 +336,10 @@ func buildRules() []Rule {
 		{ID: "5.4.1", StigID: "V-238380", Framework: "BOTH", Level: 1, Section: "Auth",
 			Description: "Ensure password expiration is 365 days or less",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("5.4.1")
-				data, err := os.ReadFile("/etc/login.defs") // #nosec G304
-				if err != nil {
-					return skipr(r, "could not read /etc/login.defs")
-				}
-				for line := range strings.SplitSeq(string(data), "\n") {
-					if strings.HasPrefix(strings.TrimSpace(line), "#") {
-						continue
-					}
-					if strings.HasPrefix(line, "PASS_MAX_DAYS") {
-						fields := strings.Fields(line)
-						if len(fields) >= 2 {
-							days := 0
-							fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
-							if days > 365 || days == 0 {
-								return failr(r, fmt.Sprintf("PASS_MAX_DAYS is %d", days),
-									"set PASS_MAX_DAYS 365 in /etc/login.defs")
-							}
-						}
-						return pass(r)
-					}
-				}
-				return failr(r, "PASS_MAX_DAYS not set in /etc/login.defs",
-					"add PASS_MAX_DAYS 365 to /etc/login.defs")
+				return checkLoginDefsField(ruleByID("5.4.1"), loginDefsPath, "PASS_MAX_DAYS",
+					func(days int) bool { return days > 365 || days == 0 },
+					"PASS_MAX_DAYS is %d", "set PASS_MAX_DAYS 365 in /etc/login.defs",
+					"PASS_MAX_DAYS not set in /etc/login.defs", "add PASS_MAX_DAYS 365 to /etc/login.defs")
 			}},
 
 		// ── 6.x System Maintenance ────────────────────────────────────────────
@@ -503,92 +483,70 @@ func buildRules() []Rule {
 		{ID: "V-238380", Framework: "STIG", Level: 1, Section: "Auth",
 			Description: "The Ubuntu OS must enforce a 60-day maximum password age",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("V-238380")
-				data, err := os.ReadFile("/etc/login.defs") // #nosec G304
-				if err != nil {
-					return skipr(r, "could not read /etc/login.defs")
-				}
-				for line := range strings.SplitSeq(string(data), "\n") {
-					if strings.HasPrefix(strings.TrimSpace(line), "#") {
-						continue
-					}
-					if strings.HasPrefix(line, "PASS_MAX_DAYS") {
-						fields := strings.Fields(line)
-						if len(fields) >= 2 {
-							days := 0
-							fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
-							if days > 60 || days == 0 {
-								return failr(r, fmt.Sprintf("PASS_MAX_DAYS is %d (STIG requires ≤ 60)", days),
-									"set PASS_MAX_DAYS 60 in /etc/login.defs")
-							}
-						}
-						return pass(r)
-					}
-				}
-				return failr(r, "PASS_MAX_DAYS not set",
-					"add PASS_MAX_DAYS 60 to /etc/login.defs")
+				return checkLoginDefsField(ruleByID("V-238380"), loginDefsPath, "PASS_MAX_DAYS",
+					func(days int) bool { return days > 60 || days == 0 },
+					"PASS_MAX_DAYS is %d (STIG requires ≤ 60)", "set PASS_MAX_DAYS 60 in /etc/login.defs",
+					"PASS_MAX_DAYS not set", "add PASS_MAX_DAYS 60 to /etc/login.defs")
 			}},
 
 		// V-238382: Minimum password age (STIG-specific)
 		{ID: "V-238382", Framework: "STIG", Level: 1, Section: "Auth",
 			Description: "The Ubuntu OS must enforce a minimum 1-day password age",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("V-238382")
-				data, err := os.ReadFile("/etc/login.defs") // #nosec G304
-				if err != nil {
-					return skipr(r, "could not read /etc/login.defs")
-				}
-				for line := range strings.SplitSeq(string(data), "\n") {
-					if strings.HasPrefix(strings.TrimSpace(line), "#") {
-						continue
-					}
-					if strings.HasPrefix(line, "PASS_MIN_DAYS") {
-						fields := strings.Fields(line)
-						if len(fields) >= 2 {
-							days := 0
-							fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
-							if days < 1 {
-								return failr(r, fmt.Sprintf("PASS_MIN_DAYS is %d (must be ≥ 1)", days),
-									"set PASS_MIN_DAYS 1 in /etc/login.defs")
-							}
-						}
-						return pass(r)
-					}
-				}
-				return failr(r, "PASS_MIN_DAYS not set in /etc/login.defs",
-					"add PASS_MIN_DAYS 1 to /etc/login.defs")
+				return checkLoginDefsField(ruleByID("V-238382"), loginDefsPath, "PASS_MIN_DAYS",
+					func(days int) bool { return days < 1 },
+					"PASS_MIN_DAYS is %d (must be ≥ 1)", "set PASS_MIN_DAYS 1 in /etc/login.defs",
+					"PASS_MIN_DAYS not set in /etc/login.defs", "add PASS_MIN_DAYS 1 to /etc/login.defs")
 			}},
 
 		// V-238383: Password warning age (STIG-specific)
 		{ID: "V-238383", Framework: "STIG", Level: 1, Section: "Auth",
 			Description: "The Ubuntu OS must warn users 7 days before password expiry",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("V-238383")
-				data, err := os.ReadFile("/etc/login.defs") // #nosec G304
-				if err != nil {
-					return skipr(r, "could not read /etc/login.defs")
-				}
-				for line := range strings.SplitSeq(string(data), "\n") {
-					if strings.HasPrefix(strings.TrimSpace(line), "#") {
-						continue
-					}
-					if strings.HasPrefix(line, "PASS_WARN_AGE") {
-						fields := strings.Fields(line)
-						if len(fields) >= 2 {
-							days := 0
-							fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
-							if days < 7 {
-								return failr(r, fmt.Sprintf("PASS_WARN_AGE is %d (must be ≥ 7)", days),
-									"set PASS_WARN_AGE 7 in /etc/login.defs")
-							}
-						}
-						return pass(r)
-					}
-				}
-				return failr(r, "PASS_WARN_AGE not set in /etc/login.defs",
-					"add PASS_WARN_AGE 7 to /etc/login.defs")
+				return checkLoginDefsField(ruleByID("V-238383"), loginDefsPath, "PASS_WARN_AGE",
+					func(days int) bool { return days < 7 },
+					"PASS_WARN_AGE is %d (must be ≥ 7)", "set PASS_WARN_AGE 7 in /etc/login.defs",
+					"PASS_WARN_AGE not set in /etc/login.defs", "add PASS_WARN_AGE 7 to /etc/login.defs")
 			}},
 	}
+}
+
+// loginDefsPath is the /etc/login.defs location consulted by the password-aging
+// rules (5.4.1, V-238380, V-238382, V-238383). It is a package-level var — not a
+// const — so tests can point it at a t.TempDir() fixture instead of the real host
+// file, per the project rule against reading live host paths in tests.
+var loginDefsPath = "/etc/login.defs"
+
+// checkLoginDefsField reads path (normally /etc/login.defs) for the first
+// uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
+// notSetFinding/notSetFix are used when the field is entirely absent from the
+// file. All four password-aging rules (CIS 5.4.1 and STIG V-238380/382/383)
+// share this exact read/scan/parse shape and differ only in the field name and
+// threshold predicate.
+func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool,
+	failFmt, failFix, notSetFinding, notSetFix string,
+) models.CISResult {
+	data, err := os.ReadFile(path) // #nosec G304 -- hardcoded/injected login.defs path
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s", path))
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.HasPrefix(line, field) {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				days := 0
+				fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
+				if fails(days) {
+					return failr(r, fmt.Sprintf(failFmt, days), failFix)
+				}
+			}
+			return pass(r)
+		}
+	}
+	return failr(r, notSetFinding, notSetFix)
 }
 
 // checkSysctl reads a /proc/sys path and compares to wantVal.

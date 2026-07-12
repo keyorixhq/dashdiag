@@ -72,6 +72,74 @@ func TestPrintCVEResultUnknown(t *testing.T) {
 	}
 }
 
+// TestPrintCVEResultCVSSAndFixState covers the CVSS3Score line (with and
+// without ThreatSev) and the Red Hat fix-state line (with and without
+// AffectedPkg), plus the VULNERABLE status's FallbackURL "more info" line —
+// none exercised by the tests above.
+func TestPrintCVEResultCVSSAndFixState(t *testing.T) {
+	withSev := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0010", Status: models.CVENotAffected,
+			CVSS3Score: "7.5", ThreatSev: "high"})
+	})
+	if !strings.Contains(withSev, "CVSS3: 7.5") || !strings.Contains(withSev, "(high)") {
+		t.Errorf("a CVSS score with a known severity should show both, got:\n%s", withSev)
+	}
+
+	noSev := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0011", Status: models.CVENotAffected,
+			CVSS3Score: "5.0"})
+	})
+	if !strings.Contains(noSev, "unknown severity") {
+		t.Errorf("a CVSS score with no ThreatSev should fall back to unknown severity, got:\n%s", noSev)
+	}
+
+	fixStateWithPkg := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0012", Status: models.CVENotAffected,
+			FixState: "Will not fix", AffectedPkg: "openssl-libs"})
+	})
+	if !strings.Contains(fixStateWithPkg, "Will not fix") || !strings.Contains(fixStateWithPkg, "openssl-libs") {
+		t.Errorf("a fix state with an affected package should show both, got:\n%s", fixStateWithPkg)
+	}
+
+	fixStateNoPkg := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0013", Status: models.CVENotAffected, FixState: "Fixed"})
+	})
+	if !strings.Contains(fixStateNoPkg, "Red Hat fix state: Fixed") {
+		t.Errorf("a fix state with no affected package should still print, got:\n%s", fixStateNoPkg)
+	}
+
+	vulnWithURL := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{CVE: "CVE-2026-0014", Status: models.CVEVulnerable,
+			FallbackURL: "https://nvd.nist.gov/vuln/detail/CVE-2026-0014"})
+	})
+	if !strings.Contains(vulnWithURL, "more info:") || !strings.Contains(vulnWithURL, "nvd.nist.gov") {
+		t.Errorf("a vulnerable result with a fallback URL should show the more-info line, got:\n%s", vulnWithURL)
+	}
+}
+
+// TestPrintAdvisoryGroup covers the empty (no-op), CVEs-set, and
+// Summary-fallback branches — printAllCVEs' KEV test above only exercises the
+// bare-ID (neither CVEs nor Summary set) branch.
+func TestPrintAdvisoryGroup(t *testing.T) {
+	if out := captureStdout(t, func() { printAdvisoryGroup("CRITICAL", nil) }); out != "" {
+		t.Errorf("an empty advisory list should print nothing, got:\n%s", out)
+	}
+
+	withCVEs := captureStdout(t, func() {
+		printAdvisoryGroup("CRITICAL", []models.CVEAdvisory{{ID: "RHSA-2026:1", CVEs: "CVE-2026-0001, CVE-2026-0002"}})
+	})
+	if !strings.Contains(withCVEs, "CVE-2026-0001, CVE-2026-0002") {
+		t.Errorf("a set CVEs field should be shown, got:\n%s", withCVEs)
+	}
+
+	withSummary := captureStdout(t, func() {
+		printAdvisoryGroup("CRITICAL", []models.CVEAdvisory{{ID: "openssl", Summary: "OpenSSL security update addressing multiple CVEs"}})
+	})
+	if !strings.Contains(withSummary, "OpenSSL security update") {
+		t.Errorf("an empty CVEs field should fall back to the Summary, got:\n%s", withSummary)
+	}
+}
+
 func TestPrintOVALResult(t *testing.T) {
 	notInOVAL := captureStdout(t, func() { printOVALResult(&cvedata.OVALResult{CVE: "CVE-2026-0001", Found: false}) })
 	if !strings.Contains(notInOVAL, "NOT IN OVAL") {
@@ -115,5 +183,22 @@ func TestPrintOVALScanResults(t *testing.T) {
 	}
 	if !strings.Contains(out, "2 finding(s)") {
 		t.Errorf("the total finding count should be shown, got:\n%s", out)
+	}
+}
+
+// TestPrintOVALScanResultsHighAndMediumBuckets covers the two bucket branches
+// (CVSS 7.0-9.0 "High" and 4.0-7.0 "Medium") not exercised by the
+// Critical/Low-only test above.
+func TestPrintOVALScanResultsHighAndMediumBuckets(t *testing.T) {
+	results := []cvedata.OVALCVSSResult{
+		{CVEID: "CVE-2026-0003", CVSS3: 8.1, Severity: "High", Installed: []string{"nginx"}},
+		{CVEID: "CVE-2026-0004", CVSS3: 5.5, Severity: "Medium", Installed: []string{"bash"}},
+	}
+	out := captureStdout(t, func() { printOVALScanResults(results) })
+	if !strings.Contains(out, "High (CVSS") || !strings.Contains(out, "nginx") {
+		t.Errorf("a CVSS 8.1 finding should land in the High bucket, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Medium (CVSS") || !strings.Contains(out, "bash") {
+		t.Errorf("a CVSS 5.5 finding should land in the Medium bucket, got:\n%s", out)
 	}
 }

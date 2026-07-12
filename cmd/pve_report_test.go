@@ -219,6 +219,35 @@ func TestPrintPVEPerf(t *testing.T) {
 	}
 }
 
+// TestPrintPVEPerfHealthyAndFsyncWarn covers the OK-icon branches of
+// BufferedReadMB/FsyncsPerSec (values above their WARN bands) and the
+// FsyncsPerSec WARN band (100–500), none exercised by the CRIT-only cases above.
+func TestPrintPVEPerfHealthyAndFsyncWarn(t *testing.T) {
+	healthy := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, BufferedReadMB: 400, FsyncsPerSec: 800}, output.ModePlain)
+	})
+	if !strings.Contains(healthy, "OK") {
+		t.Errorf("healthy buffered-read and fsync rates should render OK, got:\n%s", healthy)
+	}
+	if strings.Contains(healthy, "WARN") || strings.Contains(healthy, "CRIT") {
+		t.Errorf("healthy values must not also render WARN/CRIT, got:\n%s", healthy)
+	}
+
+	fsyncWarn := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, FsyncsPerSec: 300}, output.ModePlain)
+	})
+	if !strings.Contains(fsyncWarn, "WARN") {
+		t.Errorf("300 fsyncs/sec (100-500 band) should be WARN, got:\n%s", fsyncWarn)
+	}
+
+	readWarn := captureStdout(t, func() {
+		printPVEPerf(&models.PVEPerf{Available: true, BufferedReadMB: 100}, output.ModePlain)
+	})
+	if !strings.Contains(readWarn, "WARN") {
+		t.Errorf("100 MB/s buffered reads (50-200 band) should be WARN, got:\n%s", readWarn)
+	}
+}
+
 func TestPrintPVEBridges(t *testing.T) {
 	down := captureStdout(t, func() {
 		printPVEBridges(&models.PVEInfo{Bridges: []models.PVEBridge{{Name: "vmbr0", Active: false}}}, output.ModePlain)

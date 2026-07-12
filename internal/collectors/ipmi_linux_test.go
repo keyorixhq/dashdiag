@@ -262,13 +262,11 @@ func TestIPMICollector_Collect_FallbackToPlainSDR(t *testing.T) {
 	}
 }
 
-// TestIPMICollector_Collect_BothSDRFail guards the both-commands-failed branch:
-// which sub-branch fires (NeedsRoot vs a real error Status) depends on the real
-// os.Geteuid() with no injectable seam in this file — matching the established
-// pattern (see hwraid_linux_test.go / nvme_linux_test.go), the assertion only
-// pins the shared invariant that a failed read is flagged one way or the other,
-// never a silent healthy verdict.
-func TestIPMICollector_Collect_BothSDRFail(t *testing.T) {
+// TestIPMICollector_Collect_BothSDRFail_NonRoot guards the both-commands-
+// failed + non-root branch: NeedsRoot must be set (never a silent healthy
+// verdict), forced deterministically via the geteuid seam.
+func TestIPMICollector_Collect_BothSDRFail_NonRoot(t *testing.T) {
+	swapGeteuid(t, 1000)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/dev/ipmi0", source.FileMeta{})
 		b.PutCmd("ipmitool", []string{"sdr", "list", "full"}, "", 1)
@@ -283,7 +281,36 @@ func TestIPMICollector_Collect_BothSDRFail(t *testing.T) {
 	if info.Available {
 		t.Error("Available = true, want false when both sdr reads failed")
 	}
-	if !info.NeedsRoot && info.Status == "" {
-		t.Errorf("expected NeedsRoot or a Status set on a failed read, got %+v (silent healthy verdict)", info)
+	if !info.NeedsRoot {
+		t.Errorf("expected NeedsRoot=true for a non-root failed read, got %+v", info)
+	}
+}
+
+// TestIPMICollector_Collect_BothSDRFail_Root guards the both-commands-failed
+// + root branch: a root run failing both sdr reads is a genuine unexplained
+// error (ipmitool present, privilege sufficient), never mis-classified as
+// NeedsRoot. Forced deterministically via the geteuid seam (real test
+// binaries aren't root, so this branch was previously unreachable in CI).
+func TestIPMICollector_Collect_BothSDRFail_Root(t *testing.T) {
+	swapGeteuid(t, 0)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/dev/ipmi0", source.FileMeta{})
+		b.PutCmd("ipmitool", []string{"sdr", "list", "full"}, "", 1)
+		b.PutCmd("ipmitool", []string{"sdr"}, "", 1)
+	})
+	c := NewIPMICollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.IPMIInfo)
+	if info.Available {
+		t.Error("Available = true, want false when both sdr reads failed")
+	}
+	if info.NeedsRoot {
+		t.Error("NeedsRoot = true, want false — a root run's failure is a genuine error, not a privilege gap")
+	}
+	if info.Status != "error" {
+		t.Errorf("Status = %q, want error", info.Status)
 	}
 }

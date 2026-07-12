@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -98,7 +97,7 @@ func collectPostgresMetrics(ctx context.Context, dir string, info *models.Postgr
 	base := []string{"-X", "-q", "-t", "-A", "-F", "|", "-h", dir, "-U", "postgres", "-d", "postgres", "-c", sql}
 	var out string
 	var err error
-	if os.Geteuid() == 0 {
+	if geteuid() == 0 {
 		// Run as the postgres OS user for peer auth; -n so sudo never blocks on a
 		// password prompt (just fails → graceful degrade).
 		out, err = runCmd(ctx, "sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, base...)...)

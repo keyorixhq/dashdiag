@@ -228,23 +228,34 @@ func TestFirstLineTrim(t *testing.T) {
 }
 
 // TestCollectPostgresMetrics_NonRootPsqlPath directly exercises
-// collectPostgresMetrics end to end. The root/sudo branch is gated on
-// os.Geteuid() == 0 with no injectable seam in this file, so — like
-// TestRabbitmqRun_AsRoot elsewhere in this package — whichever branch
-// actually runs depends on the real euid of the test process (root inside
-// the golang:1.26 container, non-root on a typical local run). Both the
-// plain psql and the sudo -u postgres variant are seeded so the test passes
-// regardless of which branch fires.
+// collectPostgresMetrics's non-root branch (plain `psql`, no sudo), forced
+// deterministically via the geteuid seam.
 func TestCollectPostgresMetrics_NonRootPsqlPath(t *testing.T) {
+	swapGeteuid(t, 1000)
 	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
 		b.PutCmd("psql", postgresMetricsArgs("/tmp"), "14.1|50|2|0|f|-1|t", 0)
+	})
+	info := &models.PostgresInfo{}
+	collectPostgresMetrics(context.Background(), "/tmp", info)
+	if !info.MetricsRead || info.ServerVersion != "14.1" {
+		t.Errorf("info = %+v, want MetricsRead=true ServerVersion=14.1", info)
+	}
+}
+
+// TestCollectPostgresMetrics_RootSudoPath drives the root branch: `sudo -n -u
+// postgres -- psql`, forced deterministically via the geteuid seam (real test
+// binaries aren't root, so this branch was previously unreachable in CI
+// without it).
+func TestCollectPostgresMetrics_RootSudoPath(t *testing.T) {
+	swapGeteuid(t, 0)
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
 		b.PutCmd("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/tmp")...),
 			"14.1|50|2|0|f|-1|t", 0)
 	})
 	info := &models.PostgresInfo{}
 	collectPostgresMetrics(context.Background(), "/tmp", info)
 	if !info.MetricsRead || info.ServerVersion != "14.1" {
-		t.Errorf("info = %+v, want MetricsRead=true ServerVersion=14.1 (whichever of root/non-root branch ran in this environment)", info)
+		t.Errorf("info = %+v, want MetricsRead=true ServerVersion=14.1 (via sudo -u postgres)", info)
 	}
 }
 

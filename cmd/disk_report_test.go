@@ -209,6 +209,29 @@ func TestPrintDiskSteamOS(t *testing.T) {
 	if !strings.Contains(brokenMount, "broken") {
 		t.Errorf("a broken bind mount should be flagged, got:\n%s", brokenMount)
 	}
+
+	warnCache := captureStdout(t, func() {
+		printDiskSteamOS(&models.DiskInfo{SteamOS: &models.SteamOSDisk{ShaderCacheGB: 15}}, output.ModePlain)
+	})
+	if !strings.Contains(warnCache, "WARN") {
+		t.Errorf("15GB shader cache (10-30GB band) should render WARN, got:\n%s", warnCache)
+	}
+
+	okCache := captureStdout(t, func() {
+		printDiskSteamOS(&models.DiskInfo{SteamOS: &models.SteamOSDisk{ShaderCacheGB: 2}}, output.ModePlain)
+	})
+	if !strings.Contains(okCache, "OK") {
+		t.Errorf("2GB shader cache should render OK, got:\n%s", okCache)
+	}
+
+	intactMount := captureStdout(t, func() {
+		printDiskSteamOS(&models.DiskInfo{SteamOS: &models.SteamOSDisk{
+			BindMounts: []models.SteamOSBindMount{{Path: "/opt", Target: "/home/.steamos/offload/opt", OK: true}},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(intactMount, "intact") {
+		t.Errorf("an OK bind mount should render as intact, got:\n%s", intactMount)
+	}
 }
 
 func TestPrintDiskLVM(t *testing.T) {

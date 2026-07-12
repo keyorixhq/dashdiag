@@ -10,6 +10,230 @@ import (
 // back to the base mount (the behaviour these tests assert).
 const noSelfCgroup = "/nonexistent/proc/self/cgroup"
 
+// TestDetectContainerContext_RealPaths is a smoke test for the production
+// wrapper: it hits the real /.dockerenv, /run/.containerenv, cgroup, and
+// /proc/self/cgroup paths on whatever host runs the suite. It can't assert a
+// specific ContainerContext (this test binary itself may or may not be running
+// containerized), only that the call completes without panicking and returns
+// internally consistent fields — the actual decision logic is exhaustively
+// covered via detectContainerContextFromPaths elsewhere in this file.
+func TestDetectContainerContext_RealPaths(t *testing.T) {
+	t.Parallel()
+	cc := DetectContainerContext()
+	if cc.CgroupVersion != 1 && cc.CgroupVersion != 2 {
+		t.Errorf("CgroupVersion = %d, want 1 or 2", cc.CgroupVersion)
+	}
+	if cc.IsDocker && !cc.InContainer {
+		t.Error("IsDocker=true implies InContainer=true")
+	}
+	if cc.IsPodman && !cc.InContainer {
+		t.Error("IsPodman=true implies InContainer=true")
+	}
+	if cc.IsKubernetes && !cc.InContainer {
+		t.Error("IsKubernetes=true implies InContainer=true")
+	}
+}
+
+// TestDetectContainer_Kubernetes covers the KUBERNETES_SERVICE_HOST env-var
+// branch. It mutates process-global environment state, so — matching the
+// convention in identity_test.go/sysinfo_test.go for shared mutable state —
+// it does NOT call t.Parallel().
+func TestDetectContainer_Kubernetes(t *testing.T) {
+	prev, hadPrev := os.LookupEnv("KUBERNETES_SERVICE_HOST")
+	if err := os.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1"); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+	defer func() {
+		if hadPrev {
+			_ = os.Setenv("KUBERNETES_SERVICE_HOST", prev)
+		} else {
+			_ = os.Unsetenv("KUBERNETES_SERVICE_HOST")
+		}
+	}()
+
+	dir := t.TempDir()
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"),
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"),
+		noSelfCgroup,
+	)
+	if !cc.IsKubernetes {
+		t.Error("expected IsKubernetes=true when KUBERNETES_SERVICE_HOST is set")
+	}
+	if !cc.InContainer {
+		t.Error("expected InContainer=true when IsKubernetes=true")
+	}
+}
+
+// TestCgroupV2SelfDir_ReadError covers the /proc/self/cgroup-unreadable fallback:
+// resolution must collapse to the base mount rather than erroring.
+func TestCgroupV2SelfDir_ReadError(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	if got := cgroupV2SelfDir(base, filepath.Join(base, "does-not-exist")); got != base {
+		t.Errorf("cgroupV2SelfDir with unreadable self path = %q, want base %q", got, base)
+	}
+}
+
+// TestCgroupV2SelfDir_NoMatchingLine covers the loop-completes-without-a-"0::"-
+// line fallback (a self-cgroup file present but without the expected line).
+func TestCgroupV2SelfDir_NoMatchingLine(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	selfCgroup := filepath.Join(base, "self-cgroup")
+	if err := os.WriteFile(selfCgroup, []byte("1:cpu:/foo\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if got := cgroupV2SelfDir(base, selfCgroup); got != base {
+		t.Errorf("cgroupV2SelfDir with no 0:: line = %q, want base %q", got, base)
+	}
+}
+
+// TestCgroupV1ControllerDir_ReadError covers the /proc/self/cgroup-unreadable
+// fallback: resolution must collapse to <base>/<controller>.
+func TestCgroupV1ControllerDir_ReadError(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	want := filepath.Join(base, "memory")
+	if got := cgroupV1ControllerDir(base, filepath.Join(base, "does-not-exist"), "memory"); got != want {
+		t.Errorf("cgroupV1ControllerDir with unreadable self path = %q, want %q", got, want)
+	}
+}
+
+// TestCgroupV1ControllerDir_NoMatchingController covers two non-matching cases:
+// a malformed line (not 3 colon-separated fields) and a line whose controller
+// list doesn't include the one being resolved. Both must fall through to the
+// <base>/<controller> fallback.
+func TestCgroupV1ControllerDir_NoMatchingController(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	selfCgroup := filepath.Join(base, "self-cgroup")
+	content := "malformed-line-no-colons\n4:pids:/foo\n"
+	if err := os.WriteFile(selfCgroup, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	want := filepath.Join(base, "memory")
+	if got := cgroupV1ControllerDir(base, selfCgroup, "memory"); got != want {
+		t.Errorf("cgroupV1ControllerDir with no matching controller = %q, want %q", got, want)
+	}
+}
+
+// TestParseCgroupV2Memory_Errors covers the ReadFile-error and
+// ParseUint-error branches directly (bypassing detectContainerContextFromPaths).
+func TestParseCgroupV2Memory_Errors(t *testing.T) {
+	t.Parallel()
+	t.Run("file absent", func(t *testing.T) {
+		t.Parallel()
+		if got := parseCgroupV2Memory(filepath.Join(t.TempDir(), "does-not-exist")); got != 0 {
+			t.Errorf("parseCgroupV2Memory(absent) = %f, want 0", got)
+		}
+	})
+	t.Run("unparseable content", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "memory.max")
+		if err := os.WriteFile(path, []byte("not-a-number\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV2Memory(path); got != 0 {
+			t.Errorf("parseCgroupV2Memory(garbage) = %f, want 0", got)
+		}
+	})
+}
+
+// TestParseCgroupV2CPU_Errors covers the ReadFile-error, malformed-fields, and
+// ParseFloat-error branches directly.
+func TestParseCgroupV2CPU_Errors(t *testing.T) {
+	t.Parallel()
+	t.Run("file absent", func(t *testing.T) {
+		t.Parallel()
+		if got := parseCgroupV2CPU(filepath.Join(t.TempDir(), "does-not-exist")); got != 0 {
+			t.Errorf("parseCgroupV2CPU(absent) = %f, want 0", got)
+		}
+	})
+	t.Run("wrong field count", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cpu.max")
+		if err := os.WriteFile(path, []byte("100000\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV2CPU(path); got != 0 {
+			t.Errorf("parseCgroupV2CPU(one field) = %f, want 0", got)
+		}
+	})
+	t.Run("unparseable quota", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cpu.max")
+		if err := os.WriteFile(path, []byte("garbage 100000\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV2CPU(path); got != 0 {
+			t.Errorf("parseCgroupV2CPU(unparseable quota) = %f, want 0", got)
+		}
+	})
+	t.Run("unparseable period", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cpu.max")
+		if err := os.WriteFile(path, []byte("100000 garbage\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV2CPU(path); got != 0 {
+			t.Errorf("parseCgroupV2CPU(unparseable period) = %f, want 0", got)
+		}
+	})
+}
+
+// TestParseCgroupV1Memory_Errors covers the ReadFile-error, ParseUint-error,
+// and near-MaxUint64-"unlimited" branches directly.
+func TestParseCgroupV1Memory_Errors(t *testing.T) {
+	t.Parallel()
+	t.Run("file absent", func(t *testing.T) {
+		t.Parallel()
+		if got := parseCgroupV1Memory(filepath.Join(t.TempDir(), "does-not-exist")); got != 0 {
+			t.Errorf("parseCgroupV1Memory(absent) = %f, want 0", got)
+		}
+	})
+	t.Run("unparseable content", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "memory.limit_in_bytes")
+		if err := os.WriteFile(path, []byte("not-a-number\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV1Memory(path); got != 0 {
+			t.Errorf("parseCgroupV1Memory(garbage) = %f, want 0", got)
+		}
+	})
+	t.Run("near max uint64 is unlimited", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "memory.limit_in_bytes")
+		// 2^62, well above the 1<<60 "unlimited" threshold.
+		if err := os.WriteFile(path, []byte("4611686018427387904\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV1Memory(path); got != 0 {
+			t.Errorf("parseCgroupV1Memory(near-max) = %f, want 0 (unlimited)", got)
+		}
+	})
+}
+
+// TestCgroupMentionsContainer_RealPath is a smoke test for the production
+// function: it reads the real /proc/self/cgroup on whatever host runs the
+// suite. On a bare (non-docker/non-k8s) CI/dev host this exercises the "no
+// match" return-false path; it can't force the true branch without faking
+// /proc/self/cgroup content, which this function does not accept as a
+// parameter (unlike its detectContainerContextFromPaths-injected siblings).
+func TestCgroupMentionsContainer_RealPath(t *testing.T) {
+	t.Parallel()
+	// Must not panic; result is host-dependent so only call-completes is asserted.
+	_ = cgroupMentionsContainer()
+}
+
 func TestDetectContainer_Docker(t *testing.T) {
 	dir := t.TempDir()
 	dockerenv := filepath.Join(dir, "dockerenv")

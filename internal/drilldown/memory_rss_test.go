@@ -50,6 +50,31 @@ func TestTopProcessesByRSSLinux(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByRSSLinux_MissingStatusFileSkipped guards the os.Open
+// error branch: a PID directory whose "status" file vanished between the
+// /proc listing and the read (the process exited mid-scan) must be silently
+// skipped rather than erroring the whole scan.
+func TestTopProcessesByRSSLinux_MissingStatusFileSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeMeminfoFixture(t, procRoot, 1_000_000)
+	const pid = 654
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	// Create the PID directory (so walkProcs treats it as a valid PID) but
+	// deliberately omit the "status" file entirely.
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got, err := topProcessesByRSSLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByRSSLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the process with a missing status file to be skipped, got %+v", got.Rows)
+	}
+}
+
 func TestTopProcessesByRSSLinux_ZeroRSSExcluded(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()
@@ -115,6 +140,22 @@ func TestSystemTotalMemKB_MissingFile(t *testing.T) {
 	t.Parallel()
 	if got := systemTotalMemKB(t.TempDir()); got != 0 {
 		t.Errorf("systemTotalMemKB() with no meminfo = %d, want 0", got)
+	}
+}
+
+// TestSystemTotalMemKB_NoMemTotalLine guards the fall-through-to-0 return: a
+// meminfo file that exists and parses but never contains a "MemTotal:" line
+// (a stripped-down or corrupted fixture) must yield 0, not panic on an empty
+// scan.
+func TestSystemTotalMemKB_NoMemTotalLine(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(procRoot, "meminfo"), []byte("MemFree:    1000 kB\n"), 0644); err != nil {
+		t.Fatalf("WriteFile meminfo: %v", err)
+	}
+
+	if got := systemTotalMemKB(procRoot); got != 0 {
+		t.Errorf("systemTotalMemKB() with no MemTotal line = %d, want 0", got)
 	}
 }
 

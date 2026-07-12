@@ -133,6 +133,44 @@ func TestLoadState_ReadPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestStateFilePath_HomeDirUnavailable(t *testing.T) {
+	// os.UserHomeDir() returns an error on Unix when $HOME is unset/empty —
+	// exercise the fallback branch in stateFilePath.
+	t.Setenv("HOME", "")
+
+	got := stateFilePath()
+	want := ".dsd/state.json"
+	if got != want {
+		t.Errorf("stateFilePath() = %q, want %q when HOME is unavailable", got, want)
+	}
+}
+
+func TestLoadState_ExistingFileWithoutCommandCounts(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	if err := os.MkdirAll(filepath.Join(dir, ".dsd"), 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	// Deliberately omit command_counts so the JSON unmarshal leaves it nil.
+	raw := []byte(`{"total_runs": 5, "tips_enabled": true}`)
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.WriteFile(statePath, raw, 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	s, err := LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if s.CommandCounts == nil {
+		t.Error("expected CommandCounts to be initialized when absent from stored JSON")
+	}
+	if s.TotalRuns != 5 {
+		t.Errorf("expected TotalRuns=5, got %d", s.TotalRuns)
+	}
+}
+
 func TestLoadState_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

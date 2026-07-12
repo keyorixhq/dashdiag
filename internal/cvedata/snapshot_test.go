@@ -126,3 +126,62 @@ func TestLoadSnapshot_Errors(t *testing.T) {
 		t.Error("malformed JSON should error")
 	}
 }
+
+// TestLoadSnapshot_BadGzipMagic exercises the gzip.NewReader error branch: a
+// .gz-suffixed file that isn't actually gzip data must surface the gzip
+// error rather than falling through to the JSON decoder.
+func TestLoadSnapshot_BadGzipMagic(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "corrupt.json.gz")
+	if err := os.WriteFile(path, []byte("not gzip data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSnapshot(path); err == nil {
+		t.Error("expected gzip error for non-gzip .gz file")
+	}
+}
+
+// TestLoadSnapshot_NoCVEsFieldGetsEmptyMap exercises the "s.CVEs == nil"
+// nil-safety branch: a well-formed snapshot with no "cves" key at all must
+// decode to a non-nil empty map, not a nil map that would panic on lookup.
+func TestLoadSnapshot_NoCVEsFieldGetsEmptyMap(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no-cves.json")
+	if err := os.WriteFile(path, []byte(`{"_source": "empty-feed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	if s.CVEs == nil {
+		t.Fatal("CVEs must be initialised to an empty map, not left nil")
+	}
+	if !s.IsEmpty() {
+		t.Error("snapshot with no cves field should report IsEmpty")
+	}
+}
+
+// TestLoadSnapshot_Bzip2NonXMLSuffix exercises the ".bz2 but not .xml.bz2"
+// branch: a bzip2-compressed snapshot named "cvedata.json.bz2" must decode
+// through the bzip2 reader (the ".xml.bz2" exclusion exists so an OVAL file
+// mistakenly pointed at LoadSnapshot doesn't get bzip2-decoded twice
+// upstream — a plain ".json.bz2" snapshot is the intended use of this path).
+func TestLoadSnapshot_Bzip2NonXMLSuffix(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cvedata.json.bz2")
+	// Go's stdlib compress/bzip2 package is decode-only (no writer), so a
+	// non-bzip2 payload under this suffix will hit the bzip2 decode error
+	// once read — still exercises the reader-selection branch at line
+	// 165-168, distinct from the JSON-decode-error case covered by
+	// TestLoadSnapshot_Errors (which uses a non-bz2-suffixed path).
+	if err := os.WriteFile(path, []byte("not bzip2 data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSnapshot(path); err == nil {
+		t.Error("expected a decode error for non-bzip2 content under .json.bz2")
+	}
+}

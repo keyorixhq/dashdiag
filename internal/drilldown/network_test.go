@@ -3,17 +3,19 @@ package drilldown
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // TestTCPStatesLinux_SsFailsFallsBackToProcNetTCP guards the fallback branch
 // of tcpStatesLinux: when `ss` is unavailable/errors, it must fall through to
-// the /proc/net/tcp reader (parseProcNetTCP) rather than propagating the ss
-// error. parseProcNetTCP reads real fixed paths ("/proc/net/tcp"/"tcp6"), so
-// this only asserts the fallback is actually invoked (no panic, honest Note)
-// rather than mocking its contents — the container may or may not have those
-// files, and either way os.Open failing is handled gracefully inside it.
+// the /proc/net/tcp reader (parseProcNetTCPAt) rather than propagating the ss
+// error. tcpStatesLinux hardcodes "/proc/net", so this only asserts the
+// fallback is actually invoked (no panic, honest Note) against the real
+// container filesystem — parseProcNetTCPAt's own parsing logic is exercised
+// against fixtures directly below.
 func TestTCPStatesLinux_SsFailsFallsBackToProcNetTCP(t *testing.T) {
 	swapRunCmd(t, func(_ context.Context, name string, _ ...string) (string, error) {
 		if name != "ss" {
@@ -50,6 +52,55 @@ func TestTCPStatesLinux_SsSucceeds(t *testing.T) {
 	}
 	if got.KV["ESTAB"] != "1" {
 		t.Errorf("KV[ESTAB] = %q, want %q (full KV: %+v)", got.KV["ESTAB"], "1", got.KV)
+	}
+}
+
+// TestParseProcNetTCPAt_MissingFilesSkipped guards the os.Open error branch:
+// a netRoot with neither "tcp" nor "tcp6" present (both os.Open calls fail)
+// must degrade to an empty-but-valid Details rather than an error.
+func TestParseProcNetTCPAt_MissingFilesSkipped(t *testing.T) {
+	t.Parallel()
+	got, err := parseProcNetTCPAt(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("parseProcNetTCPAt: %v", err)
+	}
+	if got == nil || len(got.KV) != 0 {
+		t.Errorf("expected an empty tcp_states table when both files are missing, got %+v", got)
+	}
+	if got.Note != procAttrNote {
+		t.Errorf("expected the per-process-attribution caveat, got %q", got.Note)
+	}
+}
+
+// TestParseProcNetTCPAt_ShortLineSkipped guards the len(fields) < 4 skip: a
+// malformed/truncated line (e.g. a header or a corrupted row) in tcp/tcp6
+// must be ignored rather than panicking on an out-of-range field access, and
+// a well-formed row on either file must still be counted.
+func TestParseProcNetTCPAt_ShortLineSkipped(t *testing.T) {
+	t.Parallel()
+	netRoot := t.TempDir()
+	// /proc/net/tcp real format: sl local_address rem_address st ...
+	// state field (index 3) is hex; 0A = LISTEN, 01 = ESTABLISHED.
+	tcpContent := "  sl  local_address rem_address   st\n" + // header: 4 fields, but "st" isn't hex — exercises the ParseInt-error continue too
+		"   0: 0100007F:0050 00000000:0000 0A\n" + // well-formed LISTEN, 5 fields (>=4)
+		"   1: short\n" // too few fields, must be skipped
+	if err := os.WriteFile(filepath.Join(netRoot, "tcp"), []byte(tcpContent), 0644); err != nil {
+		t.Fatalf("WriteFile tcp: %v", err)
+	}
+	tcp6Content := "   0: 00000000000000000000000000000001:1F90 00000000000000000000000000000000:0000 01\n" // ESTABLISHED
+	if err := os.WriteFile(filepath.Join(netRoot, "tcp6"), []byte(tcp6Content), 0644); err != nil {
+		t.Fatalf("WriteFile tcp6: %v", err)
+	}
+
+	got, err := parseProcNetTCPAt(context.Background(), netRoot)
+	if err != nil {
+		t.Fatalf("parseProcNetTCPAt: %v", err)
+	}
+	if got.KV["LISTEN"] != "1" {
+		t.Errorf("KV[LISTEN] = %q, want %q (full KV: %+v)", got.KV["LISTEN"], "1", got.KV)
+	}
+	if got.KV["ESTABLISHED"] != "1" {
+		t.Errorf("KV[ESTABLISHED] = %q, want %q (full KV: %+v)", got.KV["ESTABLISHED"], "1", got.KV)
 	}
 }
 
@@ -103,7 +154,7 @@ func TestTCPStatesMac_NonTCPAndShortLinesSkipped(t *testing.T) {
 			t.Fatalf("unexpected command: %s %v", name, args)
 		}
 		return "Active Internet connections\n" +
-			"udp4       0      0  *.68              *.*               \n" + // wrong proto
+			"udp4       0      0  *.68              *.*               *\n" + // wrong proto, 6 fields
 			"tcp4       0\n" + // too few fields
 			"tcp4       0      0  127.0.0.1.5000    127.0.0.1.54321   ESTABLISHED\n", nil
 	})

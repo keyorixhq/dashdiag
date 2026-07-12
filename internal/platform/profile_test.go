@@ -130,6 +130,15 @@ func TestDetectDarwin(t *testing.T) {
 	}
 }
 
+func TestNormalizeDistroArchFamily(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"arch", "manjaro", "endeavouros"} {
+		if got := normalizeDistro(id); got != "arch" {
+			t.Errorf("normalizeDistro(%q) = %q, want arch", id, got)
+		}
+	}
+}
+
 func TestNormalizeDistroPreservesUnknown(t *testing.T) {
 	// Unknown IDs must be preserved verbatim, not mapped to "unknown".
 	if got := normalizeDistro("gentoo"); got != "gentoo" {
@@ -181,6 +190,15 @@ func TestDetectSELinuxFromPaths_ConfigDisabled(t *testing.T) {
 	// enforce node absent + no config → "not-present".
 	if got := detectSELinuxFromPaths(absentEnforce, filepath.Join(dir, "no-config")); got != "not-present" {
 		t.Errorf("no SELinux at all = %q, want not-present", got)
+	}
+	// enforce node absent + config present but with no SELINUX= line at all
+	// (loop runs to completion without a match) → "not-present", not "disabled".
+	noKeyCfg := filepath.Join(dir, "config-no-key")
+	if err := os.WriteFile(noKeyCfg, []byte("# just a comment\nSELINUXTYPE=targeted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := detectSELinuxFromPaths(absentEnforce, noKeyCfg); got != "not-present" {
+		t.Errorf("config without SELINUX= line = %q, want not-present", got)
 	}
 	// enforce node present (enforcing) wins regardless of config.
 	enf := filepath.Join(dir, "enforce")

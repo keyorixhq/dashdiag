@@ -2,7 +2,10 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -367,4 +370,88 @@ func TestApply_ErrorPaths(t *testing.T) {
 			t.Fatal("expected downloadToTemp error")
 		}
 	})
+}
+
+// TestApply_SignatureVerificationFails covers the verifyChecksumsSignature
+// error branch in Apply: a build with a signing key configured must refuse to
+// apply an update whose release ships no checksums.txt.minisig asset, before
+// ever reaching the checksum/download steps.
+func TestApply_SignatureVerificationFails(t *testing.T) {
+	oldKey := signingPublicKey
+	signingPublicKey = "some-configured-key"
+	defer func() { signingPublicKey = oldKey }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("aaa  " + AssetName() + "\n"))
+	}))
+	defer srv.Close()
+
+	rel := &Release{TagName: "v1", Assets: []Asset{
+		{Name: AssetName(), URL: "http://example/bin"},
+		{Name: "checksums.txt", URL: srv.URL},
+	}}
+
+	_, err := Apply(context.Background(), rel)
+	if err == nil || !strings.Contains(err.Error(), "not signed") {
+		t.Fatalf("expected 'not signed' error from signature verification, got %v", err)
+	}
+}
+
+// TestApply_ChmodAndRenameFail exercises the os.Chmod and os.Rename error
+// branches in Apply by pointing "exe" (the resolved running-binary path) at a
+// directory that does not exist, so filepath.Dir(exe) — where downloadToTemp
+// stages the file — also does not exist. downloadToTemp itself fails first in
+// that case, so instead this drives the failure via a target directory that
+// exists but is not writable enough to rename into, while downloadToTemp still
+// succeeds because os.CreateTemp falls back within the same (writable) dir.
+//
+// The reliable way to isolate Chmod/Rename specifically (without racing
+// downloadToTemp) is to remove the staged temp file the instant it is created,
+// using a directory FileSystemWatch substitute: since the package does not
+// expose a hook there, this test instead verifies the Rename failure branch by
+// targeting an "exe" path that is itself a directory — os.Rename onto an
+// existing non-empty directory fails on all platforms, giving a deterministic,
+// non-racy repro of the Apply post-download failure path.
+func TestApply_ChmodAndRenameFail(t *testing.T) {
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	defer func() { signingPublicKey = oldKey }()
+
+	payload := []byte("new-binary-contents")
+	sum := sha256.Sum256(payload)
+	sumHex := hex.EncodeToString(sum[:])
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/bin", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) })
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "%s  %s\n", sumHex, AssetName())
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	rel := &Release{TagName: "v1", Assets: []Asset{
+		{Name: AssetName(), URL: srv.URL + "/bin"},
+		{Name: "checksums.txt", URL: srv.URL + "/sums"},
+	}}
+
+	dir := t.TempDir()
+	// "exe" is a non-empty directory, not a regular file: filepath.Dir(exe)
+	// still resolves to dir (writable, so downloadToTemp/Chmod succeed), but
+	// the final os.Rename(tmp, exe) fails because exe is an existing
+	// non-empty directory.
+	target := filepath.Join(dir, "dsd")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "occupied"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldExe := executable
+	executable = func() (string, error) { return target, nil }
+	defer func() { executable = oldExe }()
+
+	_, err := Apply(context.Background(), rel)
+	if err == nil || !strings.Contains(err.Error(), "replacing") {
+		t.Fatalf("expected a 'replacing ... failed' error from a non-empty-directory rename target, got %v", err)
+	}
 }

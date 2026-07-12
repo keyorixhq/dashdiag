@@ -376,3 +376,125 @@ func TestPutCmdAndPutCmdNotFound(t *testing.T) {
 		t.Fatalf("Run(smartctl) should report ErrNotFound (tool not installed), got %v", err)
 	}
 }
+
+// TestLiveGlobReadDir exercises Live.Glob and Live.ReadDir directly against a
+// real temp dir — the thin os/filepath wrappers that Live delegates to.
+func TestLiveGlobReadDir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"b.conf", "a.conf", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	live := Live{}
+	matches, err := live.Glob(filepath.Join(dir, "*.conf"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("Glob matches = %v, want 2 entries", matches)
+	}
+
+	names, err := live.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	want := []string{"a.conf", "b.conf", "c.txt"}
+	if len(names) != len(want) {
+		t.Fatalf("ReadDir = %v, want %v", names, want)
+	}
+	for i, n := range want {
+		if names[i] != n {
+			t.Fatalf("ReadDir[%d] = %q, want %q (should be sorted)", i, names[i], n)
+		}
+	}
+
+	if _, err := live.ReadDir(filepath.Join(dir, "no-such-subdir")); err == nil {
+		t.Fatal("ReadDir of missing dir should error")
+	}
+}
+
+// TestLiveRunWithInjectedExec verifies Live.Run prefers l.Exec when set (the
+// collector-injected locale-safe runner path) instead of falling back to
+// defaultExec.
+func TestLiveRunWithInjectedExec(t *testing.T) {
+	t.Parallel()
+	called := false
+	live := Live{
+		Exec: func(_ context.Context, name string, args ...string) (Result, error) {
+			called = true
+			return Result{Stdout: []byte("injected:" + name)}, nil
+		},
+	}
+	res, err := live.Run(context.Background(), "uptime")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !called {
+		t.Fatal("Live.Run did not use the injected Exec function")
+	}
+	if string(res.Stdout) != "injected:uptime" {
+		t.Fatalf("Run stdout = %q, want injected result", res.Stdout)
+	}
+}
+
+// TestRecorderGlobReadDir verifies Recorder tees Glob/ReadDir results into the
+// bundle so a subsequent Replay can serve them without touching the live FS.
+func TestRecorderGlobReadDir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"one.conf", "two.conf"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pattern := filepath.Join(dir, "*.conf")
+
+	rec := NewRecorder(Live{})
+	matches, err := rec.Glob(pattern)
+	if err != nil || len(matches) != 2 {
+		t.Fatalf("record Glob = %v, %v", matches, err)
+	}
+	names, err := rec.ReadDir(dir)
+	if err != nil || len(names) != 2 {
+		t.Fatalf("record ReadDir = %v, %v", names, err)
+	}
+
+	rp := NewReplay(rec.Bundle())
+	rmatches, err := rp.Glob(pattern)
+	if err != nil || len(rmatches) != 2 {
+		t.Fatalf("replay Glob = %v, %v", rmatches, err)
+	}
+	rnames, err := rp.ReadDir(dir)
+	if err != nil || len(rnames) != 2 {
+		t.Fatalf("replay ReadDir = %v, %v", rnames, err)
+	}
+	if _, err := rp.Glob(filepath.Join(dir, "never-globbed", "*.conf")); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unrecorded Glob should be ErrNotRecorded, got %v", err)
+	}
+	if _, err := rp.ReadDir(filepath.Join(dir, "never-read")); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("unrecorded ReadDir should be ErrNotRecorded, got %v", err)
+	}
+}
+
+// TestRecorderGlobReadDirErrorNotRecorded verifies a failed ReadDir at the
+// inner Source is forwarded but NOT recorded into the bundle (mirroring
+// ReadFile/Stat which always record — Glob/ReadDir only record on success
+// since the bundle has no "not exist" encoding for them).
+func TestRecorderGlobReadDirErrorNotRecorded(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist")
+
+	rec := NewRecorder(Live{})
+	if _, err := rec.ReadDir(missing); err == nil {
+		t.Fatal("ReadDir of missing dir should error")
+	}
+
+	rp := NewReplay(rec.Bundle())
+	if _, err := rp.ReadDir(missing); !errors.Is(err, ErrNotRecorded) {
+		t.Fatalf("a failed ReadDir should not be recorded, replay should be ErrNotRecorded, got %v", err)
+	}
+}

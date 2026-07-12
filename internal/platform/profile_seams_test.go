@@ -252,6 +252,118 @@ func TestSystemctlIsActiveWithLookup_Present(t *testing.T) {
 	}
 }
 
+// TestDetect_RealPaths is a smoke test for the production Detect() wrapper:
+// it hits the real /etc/os-release and the chain of real-path detectors
+// (detectInitSystem, detectNetworkStack, detectResolved, detectSELinux,
+// detectAppArmor, detectPackageManager) on whatever host runs the suite. It
+// can't assert specific field values (host-dependent), only that the call
+// completes without panicking and returns internally consistent output — the
+// actual parsing/decision logic is exhaustively covered via detectFromContent
+// and the *FromPaths/*WithLookup seams elsewhere in this file.
+func TestDetect_RealPaths(t *testing.T) {
+	t.Parallel()
+	p := Detect()
+	if p.OS == "" {
+		t.Error("Detect().OS is empty, want runtime.GOOS")
+	}
+	if p.OS == "darwin" && p.PackageManager != "brew" {
+		t.Errorf("Detect() on darwin: PackageManager = %q, want brew", p.PackageManager)
+	}
+}
+
+// TestDetectFromContent covers the testable core Detect() delegates to after
+// reading /etc/os-release: it wires together parseOSRelease with the live
+// real-path detectors, so the assertions here can only check the fields
+// parseOSRelease controls; the live-probed fields (InitSystem, NetworkStack,
+// etc.) are host-dependent and are exhaustively covered separately via their
+// *FromPaths/*WithLookup seams.
+func TestDetectFromContent(t *testing.T) {
+	t.Parallel()
+	p := detectFromContent(Profile{OS: "linux"}, ubuntu2404)
+	if p.Distro != "ubuntu" {
+		t.Errorf("detectFromContent Distro = %q, want ubuntu", p.Distro)
+	}
+	if p.MajorVersion != 24 {
+		t.Errorf("detectFromContent MajorVersion = %d, want 24", p.MajorVersion)
+	}
+	// InitSystem/NetworkStack/PackageManager/etc. are set from live host probes
+	// (not from the injected os-release content) — just assert the call wired
+	// them to *some* value rather than leaving the zero-value "" for a string
+	// field that detectInitSystem/detectPackageManager always populate.
+	if p.InitSystem == "" {
+		t.Error("detectFromContent InitSystem is empty, want a value from detectInitSystem")
+	}
+	if p.PackageManager == "" {
+		t.Error("detectFromContent PackageManager is empty, want a value from detectPackageManager")
+	}
+}
+
+// TestDetectInitSystem_RealPath / TestDetectNetworkStack_RealPath /
+// TestNetplanConfigured_RealPath / TestDetectResolved_RealPath /
+// TestDetectSELinux_RealPath / TestDetectAppArmor_RealPath /
+// TestDetectPackageManager_RealPath / TestSystemctlIsActive_RealPath are smoke
+// tests for the production real-path wrappers. Each delegates to a fully
+// covered *FromPaths/*WithLookup core, so these only assert the call
+// completes without panicking on whatever host runs the suite.
+func TestDetectInitSystem_RealPath(t *testing.T) {
+	t.Parallel()
+	got := detectInitSystem()
+	if got == "" {
+		t.Error("detectInitSystem() returned empty string, want a value (possibly \"unknown\")")
+	}
+}
+
+func TestDetectNetworkStack_RealPath(t *testing.T) {
+	t.Parallel()
+	got := detectNetworkStack()
+	if got == "" {
+		t.Error("detectNetworkStack() returned empty string, want a value (possibly \"unknown\")")
+	}
+}
+
+func TestNetplanConfigured_RealPath(t *testing.T) {
+	t.Parallel()
+	// Must not panic; result is host-dependent.
+	_ = netplanConfigured()
+}
+
+func TestDetectResolved_RealPath(t *testing.T) {
+	t.Parallel()
+	// Must not panic; result is host-dependent.
+	_ = detectResolved()
+}
+
+func TestDetectSELinux_RealPath(t *testing.T) {
+	t.Parallel()
+	got := detectSELinux()
+	switch got {
+	case "enforcing", "permissive", "disabled", "not-present":
+		// expected
+	default:
+		t.Errorf("detectSELinux() = %q, not a recognized SELinux mode", got)
+	}
+}
+
+func TestDetectAppArmor_RealPath(t *testing.T) {
+	t.Parallel()
+	// Must not panic; result is host-dependent.
+	_ = detectAppArmor()
+}
+
+func TestDetectPackageManager_RealPath(t *testing.T) {
+	t.Parallel()
+	got := detectPackageManager()
+	if got == "" {
+		t.Error("detectPackageManager() returned empty string, want a value (possibly \"unknown\")")
+	}
+}
+
+func TestSystemctlIsActive_RealPath(t *testing.T) {
+	t.Parallel()
+	// Must not panic; result is host-dependent.
+	_ = systemctlIsActive("dashdiag-test-unit-that-does-not-exist")
+}
+
 func TestDebugLine(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -1,6 +1,11 @@
 package init_pkg
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
 
 func TestContainsAny(t *testing.T) {
 	t.Parallel()
@@ -79,5 +84,63 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 		if n == "" {
 			t.Errorf("darwinProcessNames() returned an empty name among %v", names)
 		}
+	}
+}
+
+// With PATH cleared, exec.Command("ps", "aux") cannot find the "ps" binary,
+// so darwinProcessNames() takes its error branch and returns nil — exercises
+// that path without needing a real macOS host. t.Setenv forbids t.Parallel()
+// per Go's testing package (same constraint as firstrun_test.go).
+func TestDarwinProcessNames_PsNotFound(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	if names := darwinProcessNames(); names != nil {
+		t.Errorf("darwinProcessNames() = %v, want nil when `ps` is not on PATH", names)
+	}
+}
+
+// runningProcessNames dispatches on runtime.GOOS. This smoke test just
+// confirms it returns without panicking on whichever branch the current
+// build/OS takes; the darwin-only branch (runtime.GOOS != "linux") is not
+// reachable on this Linux test host and is recorded as a known gap.
+func TestRunningProcessNames_Smoke(t *testing.T) {
+	t.Parallel()
+	_ = runningProcessNames()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("unexpected GOOS for this smoke test")
+	}
+}
+
+func TestLinuxProcessNamesFrom(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Pid directory with a comm file.
+	pid1 := filepath.Join(dir, "1")
+	if err := os.Mkdir(pid1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid1, "comm"), []byte("systemd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pid directory without a comm file — silently skipped.
+	pid2 := filepath.Join(dir, "2")
+	if err := os.Mkdir(pid2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Non-directory entry — skipped by the IsDir guard.
+	if err := os.WriteFile(filepath.Join(dir, "version"), []byte("Linux\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := linuxProcessNamesFrom(dir)
+	if len(got) != 1 || got[0] != "systemd" {
+		t.Errorf("linuxProcessNamesFrom() = %v, want [systemd]", got)
+	}
+}
+
+func TestLinuxProcessNamesFrom_MissingDir(t *testing.T) {
+	t.Parallel()
+	if got := linuxProcessNamesFrom("/nonexistent/proc-dir"); got != nil {
+		t.Errorf("linuxProcessNamesFrom() = %v, want nil for missing dir", got)
 	}
 }

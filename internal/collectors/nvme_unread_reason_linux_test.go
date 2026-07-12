@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/source"
@@ -51,11 +50,12 @@ func (presentToolSource) Cached(string, func() ([]byte, error)) ([]byte, error) 
 
 // TestNVMeUnreadReason_RootWithToolReportsError guards the final fallback: when
 // nvme-cli IS installed and the caller IS root, a read failure is a genuine
-// unexplained error — never mis-classified as tool_absent or needs_root.
+// unexplained error — never mis-classified as tool_absent or needs_root. Forced
+// deterministically via the geteuid seam (real test binaries aren't root, so
+// os.Geteuid()==0 could never fire this in CI — that's why this branch was
+// previously always skipped).
 func TestNVMeUnreadReason_RootWithToolReportsError(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("requires root — this guards the root branch specifically")
-	}
+	swapGeteuid(t, 0)
 	defer SetSource(SetSource(presentToolSource{}))
 
 	if got := nvmeUnreadReason(); got != "error" {
@@ -67,9 +67,7 @@ func TestNVMeUnreadReason_RootWithToolReportsError(t *testing.T) {
 // present but running unprivileged must ask for root, not report a bare
 // "error" that gives the operator no remediation hint.
 func TestNVMeUnreadReason_NonRootWithToolNeedsRoot(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("requires non-root — this guards the non-root branch specifically")
-	}
+	swapGeteuid(t, 1000)
 	defer SetSource(SetSource(presentToolSource{}))
 
 	if got := nvmeUnreadReason(); got != "needs_root" {

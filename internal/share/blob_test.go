@@ -1,6 +1,7 @@
 package share
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,52 @@ func TestDecodeTruncatedGzipCaught(t *testing.T) {
 	truncated := append([]string{lines[0], lines[1]}, lines[4:]...)
 	if _, err := Decode(strings.Join(truncated, "\n")); err == nil {
 		t.Error("expected gzip/CRC error for truncated blob, got nil")
+	}
+}
+
+// TestDecodeTruncatedTailAfterValidHeaderCaught covers the io.ReadAll/CRC
+// failure path specifically: unlike TestDecodeTruncatedGzipCaught (which
+// truncates a highly-compressible payload so severely that even
+// gzip.NewReader's header check fails), this uses incompressible data so the
+// gzip stream spans multiple wrapped base64 lines. Dropping only the final
+// line leaves a valid gzip magic/header (NewReader succeeds) but truncates
+// the compressed data mid-stream, so the failure must surface from
+// io.ReadAll's CRC/EOF check instead.
+func TestDecodeTruncatedTailAfterValidHeaderCaught(t *testing.T) {
+	t.Parallel()
+	rnd := make([]byte, 4000)
+	for i := range rnd {
+		rnd[i] = byte((i*2654435761 + 17) % 251) // deterministic, low-compressibility filler
+	}
+	blob := Encode(rnd)
+	lines := strings.Split(strings.TrimRight(blob, "\n"), "\n")
+	if len(lines) < 6 {
+		t.Fatalf("test payload didn't produce a multi-line blob (got %d lines) — need more data lines to truncate only the tail", len(lines))
+	}
+	// Keep BEGIN, version, and all but the last data line + END; drop the
+	// final data line so the stream is truncated but the header remains intact.
+	truncated := append(append([]string{}, lines[:len(lines)-2]...), lines[len(lines)-1])
+	_, err := Decode(strings.Join(truncated, "\n"))
+	if err == nil {
+		t.Fatal("expected decompress/CRC error for tail-truncated blob, got nil")
+	}
+	if !strings.Contains(err.Error(), "decompress/CRC failed") {
+		t.Errorf("expected decompress/CRC error, got %v", err)
+	}
+}
+
+// TestDecodeValidBase64NotGzip covers the case where the base64 payload
+// decodes cleanly but the resulting bytes are not a gzip stream at all
+// (distinct from TestDecodeTruncatedGzipCaught, which is valid-gzip-header
+// but truncated mid-stream / bad CRC).
+func TestDecodeValidBase64NotGzip(t *testing.T) {
+	t.Parallel()
+	// "hello world" base64-encoded — valid base64, but not gzip magic bytes.
+	notGzip := base64.StdEncoding.EncodeToString([]byte("hello world, not a gzip stream"))
+	bad := beginMarker + "\n" + formatVersion + "\n" + notGzip + "\n" + endMarker + "\n"
+	_, err := Decode(bad)
+	if err == nil || !strings.Contains(err.Error(), "not valid gzip") {
+		t.Errorf("expected 'not valid gzip' error, got %v", err)
 	}
 }
 

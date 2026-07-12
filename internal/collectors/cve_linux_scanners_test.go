@@ -712,10 +712,26 @@ func TestRHSubscriptionNote_NonRHFamily(t *testing.T) {
 	}
 }
 
-func TestRHSubscriptionNote_RootNotRegistered(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root — the not-registered branch only checks entitlement certs as root")
+// TestRHSubscriptionNote_NonRootRHFamily guards the "needs root" branch: an
+// RH-family distro observed as a non-root uid must report the sudo-hint
+// message, never attempt to read /etc/pki/entitlement.
+func TestRHSubscriptionNote_NonRootRHFamily(t *testing.T) {
+	swapGetuid(t, 1000)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=rhel\n"))
+	})
+	got := rhSubscriptionNote()
+	if !strings.Contains(got, "require root access") {
+		t.Errorf("expected a root-required message, got %q", got)
 	}
+}
+
+// TestRHSubscriptionNote_RootNotRegistered drives the root + no entitlement
+// certs branch, forced deterministically via the getuid seam (real CI/dev
+// binaries aren't root, so os.Getuid()==0 could never fire this in
+// practice — that's why the coverage was previously stuck skipping).
+func TestRHSubscriptionNote_RootNotRegistered(t *testing.T) {
+	swapGetuid(t, 0)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/os-release", []byte("ID=rhel\n"))
 	})
@@ -726,9 +742,7 @@ func TestRHSubscriptionNote_RootNotRegistered(t *testing.T) {
 }
 
 func TestRHSubscriptionNote_RootExpiredCerts(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root")
-	}
+	swapGetuid(t, 0)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/os-release", []byte("ID=centos\n"))
 		b.PutDir("/etc/pki/entitlement", []string{"1234567890-key.pem"})
@@ -740,9 +754,7 @@ func TestRHSubscriptionNote_RootExpiredCerts(t *testing.T) {
 }
 
 func TestRHSubscriptionNote_RootActiveSubscription(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root")
-	}
+	swapGetuid(t, 0)
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/os-release", []byte("ID=rocky\n"))
 		b.PutDir("/etc/pki/entitlement", []string{"1234567890.pem", "1234567890-key.pem"})

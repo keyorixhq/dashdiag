@@ -35,4 +35,35 @@ func TestPrintAllCVEsScanFailed(t *testing.T) {
 	if !strings.Contains(out2, "✅") {
 		t.Errorf("a clean up-to-date scan should still show ✅; got:\n%s", out2)
 	}
+
+	// Total==0 with no StatusReason set at all falls back to the generic
+	// "up to date" message (a different branch than the StatusReason case above).
+	cleanNoReason := &models.CVEAllResult{PackageManager: "dnf", Total: 0}
+	out3 := captureStdout(t, func() { printAllCVEs(cleanNoReason) })
+	if !strings.Contains(out3, "No pending security advisories") {
+		t.Errorf("Total==0 with no StatusReason should print the generic up-to-date line; got:\n%s", out3)
+	}
+}
+
+// TestPrintAllCVEsKEVFixCommandSubscription covers the KEVCount>0 callout,
+// the "to fix all" FixCommand line, and the SubscriptionNote line — none
+// exercised by the scan-failed/apt-caveat tests above.
+func TestPrintAllCVEsKEVFixCommandSubscription(t *testing.T) {
+	r := &models.CVEAllResult{
+		PackageManager: "dnf", Total: 2,
+		KEVCount: 1, KEVCVEs: []string{"CVE-2026-0099"},
+		Critical:         []models.CVEAdvisory{{ID: "RHSA-2026:1", Severity: "Critical"}},
+		FixCommand:       "dnf update --security",
+		SubscriptionNote: "Some advisories require an active Red Hat subscription.",
+	}
+	out := captureStdout(t, func() { printAllCVEs(r) })
+	if !strings.Contains(out, "actively exploited (CISA KEV)") || !strings.Contains(out, "CVE-2026-0099") {
+		t.Errorf("a KEV-listed advisory should show the CISA KEV callout, got:\n%s", out)
+	}
+	if !strings.Contains(out, "to fix all:  dnf update --security") {
+		t.Errorf("a set FixCommand should show the to-fix-all line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Red Hat subscription") {
+		t.Errorf("a set SubscriptionNote should be shown, got:\n%s", out)
+	}
 }

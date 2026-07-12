@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -794,7 +793,7 @@ func rhSubscriptionNote() string {
 		return ""
 	}
 	// Non-root: subscription-manager needs root to refresh repo metadata
-	if os.Getuid() != 0 {
+	if getuid() != 0 {
 		return "ℹ️  CVE IDs require root access on RHEL — run: sudo dsd cve --all"
 	}
 	// Root: check for entitlement certificates — present when registered

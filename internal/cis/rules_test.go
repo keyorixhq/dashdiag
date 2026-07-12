@@ -30,6 +30,36 @@ func TestResultHelpers(t *testing.T) {
 	}
 }
 
+// ── parseMaxStartups ─────────────────────────────────────────────────────────
+
+func TestParseMaxStartups(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		in        string
+		wantStart int
+		wantFull  int
+		wantOK    bool
+	}{
+		{"bare value has no throttling, full==start", "10", 10, 10, true},
+		{"full triplet parses both ends", "10:30:60", 10, 60, true},
+		{"whitespace is trimmed", "  10:30:60  ", 10, 60, true},
+		{"non-numeric start fails to parse", "abc:30:60", 0, 0, false},
+		{"non-numeric full fails to parse", "10:30:xyz", 0, 0, false},
+		{"empty string fails to parse", "", 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			start, full, ok := parseMaxStartups(tc.in)
+			if start != tc.wantStart || full != tc.wantFull || ok != tc.wantOK {
+				t.Errorf("parseMaxStartups(%q) = (%d, %d, %v), want (%d, %d, %v)",
+					tc.in, start, full, ok, tc.wantStart, tc.wantFull, tc.wantOK)
+			}
+		})
+	}
+}
+
 // ── checkSysctl ──────────────────────────────────────────────────────────────
 
 func TestCheckSysctl(t *testing.T) {
@@ -121,6 +151,143 @@ func TestCheckFilePerm(t *testing.T) {
 			t.Errorf("0620 has group-write beyond 0644 — must FAIL, got %s", got.Status)
 		}
 	})
+}
+
+// ── checkLoginDefsField ──────────────────────────────────────────────────────
+
+func TestCheckLoginDefsField(t *testing.T) {
+	t.Parallel()
+	r := Rule{ID: "5.4.1", Framework: "BOTH"}
+
+	write := func(t *testing.T, content string) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "login.defs")
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	failsOver365 := func(days int) bool { return days > 365 || days == 0 }
+
+	t.Run("compliant value passes", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t90\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISPass {
+			t.Errorf("90 days should PASS, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value exceeding threshold fails", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t99999\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "set PASS_MAX_DAYS 365", "not set", "add it")
+		if got.Status != models.CISFail || got.Remediation != "set PASS_MAX_DAYS 365" {
+			t.Errorf("99999 days should FAIL with remediation, got %s (%s)", got.Status, got.Remediation)
+		}
+		if got.Finding != "PASS_MAX_DAYS is 99999" {
+			t.Errorf("finding = %q, want formatted value", got.Finding)
+		}
+	})
+	t.Run("zero is treated as unbounded and fails", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t0\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISFail {
+			t.Errorf("0 (no expiry) should FAIL, got %s", got.Status)
+		}
+	})
+	t.Run("commented line is ignored, field then reported not set", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, write(t, "# PASS_MAX_DAYS 90\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "PASS_MAX_DAYS not set", "add PASS_MAX_DAYS")
+		if got.Status != models.CISFail || got.Finding != "PASS_MAX_DAYS not set" {
+			t.Errorf("commented-out field should read as not set, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("field entirely absent fails with notSet message", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, write(t, "PASS_MIN_DAYS\t0\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "PASS_MAX_DAYS not set", "add PASS_MAX_DAYS")
+		if got.Status != models.CISFail || got.Finding != "PASS_MAX_DAYS not set" || got.Remediation != "add PASS_MAX_DAYS" {
+			t.Errorf("absent field: got %+v", got)
+		}
+	})
+	t.Run("unreadable file skips", func(t *testing.T) {
+		t.Parallel()
+		got := checkLoginDefsField(r, filepath.Join(t.TempDir(), "nope"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISSkipped {
+			t.Errorf("want SKIP for missing file, got %s", got.Status)
+		}
+	})
+	t.Run("field present with no value defers to pass", func(t *testing.T) {
+		t.Parallel()
+		// Line matches the prefix but has no second field — the predicate is
+		// never evaluated and the rule falls through to pass, matching the
+		// original inline implementation's behavior for a malformed line.
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISPass {
+			t.Errorf("malformed line (no value) should fall through to PASS, got %s", got.Status)
+		}
+	})
+}
+
+// ── password-aging rules wired through checkLoginDefsField via loginDefsPath ──
+// These exercise the shipped 5.4.1 / V-238380 / V-238382 / V-238383 Check
+// closures end-to-end by pointing the package-level loginDefsPath at a fixture
+// file instead of the real host /etc/login.defs.
+
+func TestPasswordAgingRules_LoginDefsFixture(t *testing.T) {
+	saved := loginDefsPath
+	t.Cleanup(func() { loginDefsPath = saved })
+
+	writeDefs := func(t *testing.T, content string) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "login.defs")
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	cases := []struct {
+		name    string
+		id      string
+		content string
+		want    models.CISStatus
+	}{
+		{"5.4.1 compliant 90 days passes", "5.4.1", "PASS_MAX_DAYS\t90\n", models.CISPass},
+		{"5.4.1 default 99999 fails", "5.4.1", "PASS_MAX_DAYS\t99999\n", models.CISFail},
+		{"5.4.1 missing file skips", "5.4.1", "", models.CISSkipped},
+
+		{"V-238380 STIG stricter threshold: 90 days fails (>60)", "V-238380", "PASS_MAX_DAYS\t90\n", models.CISFail},
+		{"V-238380 60 days passes", "V-238380", "PASS_MAX_DAYS\t60\n", models.CISPass},
+
+		{"V-238382 min days 0 fails", "V-238382", "PASS_MIN_DAYS\t0\n", models.CISFail},
+		{"V-238382 min days 1 passes", "V-238382", "PASS_MIN_DAYS\t1\n", models.CISPass},
+
+		{"V-238383 warn age 3 fails", "V-238383", "PASS_WARN_AGE\t3\n", models.CISFail},
+		{"V-238383 warn age 7 passes", "V-238383", "PASS_WARN_AGE\t7\n", models.CISPass},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.content == "" {
+				loginDefsPath = filepath.Join(t.TempDir(), "nope-login.defs")
+			} else {
+				loginDefsPath = writeDefs(t, tc.content)
+			}
+			rule := ruleByID(tc.id)
+			if rule.Check == nil {
+				t.Fatalf("rule %s has no Check func", tc.id)
+			}
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != tc.want {
+				t.Errorf("rule %s: got %s, want %s (finding=%q)", tc.id, got.Status, tc.want, got.Finding)
+			}
+		})
+	}
 }
 
 // ── ruleByID ─────────────────────────────────────────────────────────────────
@@ -381,6 +548,32 @@ func TestEvaluate_StigSupersedesBoth(t *testing.T) {
 	}
 	if status != models.CISFail {
 		t.Errorf("surviving V-9 status = %v, want the dedicated STIG verdict (FAIL)", status)
+	}
+	assertTally(t, rep)
+}
+
+// TestEvaluate_NotApplicableTally exercises the CISNotApplicable branch of the
+// per-status tally switch in Evaluate. No shipped rule currently returns N/A,
+// but the status is part of the models.CISStatus contract (models/cis.go) and
+// Evaluate must tally it correctly if/when a rule does — same fixture-swap
+// pattern as TestEvaluate/TestEvaluate_StigSupersedesBoth.
+func TestEvaluate_NotApplicableTally(t *testing.T) {
+	saved := CISRules
+	t.Cleanup(func() { CISRules = saved })
+
+	CISRules = []Rule{
+		{ID: "N1", Framework: "CIS", Level: 1, Section: "S", Description: "na-rule",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return models.CISResult{ID: "N1", Status: models.CISNotApplicable}
+			}},
+	}
+
+	rep := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+	if rep.NA != 1 {
+		t.Errorf("NA = %d, want 1", rep.NA)
+	}
+	if len(rep.Results) != 1 || rep.Results[0].Status != models.CISNotApplicable {
+		t.Errorf("results = %+v, want single N/A result", rep.Results)
 	}
 	assertTally(t, rep)
 }

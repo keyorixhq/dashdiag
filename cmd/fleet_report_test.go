@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -48,5 +49,40 @@ func TestPrintFleetIssues(t *testing.T) {
 	out := captureStdout(t, func() { printFleetIssues(withIssues, output.ModePlain) })
 	if !strings.Contains(out, "Disk") {
 		t.Errorf("a fleet-wide grouped issue should name the check, got:\n%s", out)
+	}
+}
+
+// TestPrintFleetIssues_Outlier covers the "outlier" scope branch, where the
+// issue's single host is shown by name instead of an "N/M" ratio (3+
+// reachable hosts, only one carrying the issue).
+func TestPrintFleetIssues_Outlier(t *testing.T) {
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "OK"},
+		{Host: "web02", Reachable: true, Worst: "OK"},
+		{Host: "web03", Reachable: true, Worst: "WARN", Warn: 1, Issues: []fleet.Issue{{Check: "Disk", Level: "WARN", Message: "disk at 90%"}}},
+	})
+	out := captureStdout(t, func() { printFleetIssues(summary, output.ModePlain) })
+	if !strings.Contains(out, "web03") {
+		t.Errorf("an outlier issue should show the single affected host by name, got:\n%s", out)
+	}
+	if strings.Contains(out, "1/3") {
+		t.Errorf("an outlier issue must not show the N/M ratio form, got:\n%s", out)
+	}
+}
+
+// TestPrintFleetIssues_TruncatedAt15 covers the "N more (see --json)" branch
+// when the number of distinct grouped issues exceeds the 15-row display limit.
+func TestPrintFleetIssues_TruncatedAt15(t *testing.T) {
+	var results []fleet.Result
+	for i := 0; i < 20; i++ {
+		results = append(results, fleet.Result{
+			Host: fmt.Sprintf("web%02d", i), Reachable: true, Worst: "WARN", Warn: 1,
+			Issues: []fleet.Issue{{Check: fmt.Sprintf("Check%02d", i), Level: "WARN", Message: "distinct issue"}},
+		})
+	}
+	summary := fleet.Summarize(results)
+	out := captureStdout(t, func() { printFleetIssues(summary, output.ModePlain) })
+	if !strings.Contains(out, "more (see --json)") {
+		t.Errorf("more than 15 distinct issues should truncate with a 'more' hint, got:\n%s", out)
 	}
 }

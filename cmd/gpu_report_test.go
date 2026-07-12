@@ -30,6 +30,31 @@ func TestPrintGPUHeader(t *testing.T) {
 	}
 }
 
+// TestPrintGPUHeaderNvidia covers the NVIDIA-specific branches: an empty
+// DRMDriver falls back to "nvidia", and a non-empty driverVersion is appended.
+func TestPrintGPUHeaderNvidia(t *testing.T) {
+	out := captureStdout(t, func() {
+		printGPUHeader(models.GPUDevice{Name: "RTX 4090", Vendor: "nvidia"}, "550.120", output.ModePlain)
+	})
+	if !strings.Contains(out, "Driver: nvidia") {
+		t.Errorf("an NVIDIA device with no DRMDriver should fall back to 'nvidia', got:\n%s", out)
+	}
+	if !strings.Contains(out, "550.120") {
+		t.Errorf("a non-empty driverVersion should be shown for NVIDIA, got:\n%s", out)
+	}
+}
+
+// TestPrintGPUHeaderNoExtras covers the empty-suffix branch: no driver, no
+// version, no Mesa — just the bare device name.
+func TestPrintGPUHeaderNoExtras(t *testing.T) {
+	out := captureStdout(t, func() {
+		printGPUHeader(models.GPUDevice{Name: "Bare GPU"}, "", output.ModePlain)
+	})
+	if !strings.Contains(out, "[Bare GPU]\n") {
+		t.Errorf("no driver/version/Mesa info should print just the bracketed name, got:\n%s", out)
+	}
+}
+
 func TestPrintGPUTemps(t *testing.T) {
 	if out := captureStdout(t, func() { printGPUTemps(models.GPUDevice{}, output.ModePlain) }); out != "" {
 		t.Errorf("a device with no temp readings should print nothing, got:\n%s", out)
@@ -131,6 +156,37 @@ func TestGPUHints(t *testing.T) {
 	apuNoHint := gpuHints(&models.GPUInfo{Devices: []models.GPUDevice{{VRAMUsedPct: 95, IsAPU: true}}}, false, output.ModePlain)
 	if len(apuNoHint) != 0 {
 		t.Errorf("an APU at 95%% VRAM must not hint memory pressure, got:\n%s", strings.Join(apuNoHint, "\n"))
+	}
+
+	// A discrete GPU's high VRAM usage DOES hint memory pressure.
+	vramPressure := gpuHints(&models.GPUInfo{Devices: []models.GPUDevice{{VRAMUsedPct: 92, IsAPU: false}}}, false, output.ModePlain)
+	joined = strings.Join(vramPressure, "\n")
+	if !strings.Contains(joined, "high memory pressure") {
+		t.Errorf("a non-APU at 92%% VRAM should hint memory pressure, got:\n%s", joined)
+	}
+
+	// A non-SteamOS host gets the generic throttling remediation, not the Deck one.
+	nonDeck := gpuHints(&models.GPUInfo{Devices: []models.GPUDevice{{Throttling: true, TDPLimitW: 300, TDPCurrentW: 300}}}, false, output.ModePlain)
+	joined = strings.Join(nonDeck, "\n")
+	if !strings.Contains(joined, "Raise the power cap") {
+		t.Errorf("throttling off SteamOS should give the generic hint, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "Steam Deck") {
+		t.Errorf("throttling off SteamOS must not mention Steam Deck, got:\n%s", joined)
+	}
+
+	// The 90-99C WARN band (below the 100C emergency threshold).
+	warnBand := gpuHints(&models.GPUInfo{Devices: []models.GPUDevice{{TempJunctionC: 92}}}, false, output.ModePlain)
+	joined = strings.Join(warnBand, "\n")
+	if !strings.Contains(joined, "approaching 90") {
+		t.Errorf("a 92C junction temp should hit the approaching-90C WARN hint, got:\n%s", joined)
+	}
+
+	// DPM stuck in low-power mode under load.
+	dpmStuck := gpuHints(&models.GPUInfo{Devices: []models.GPUDevice{{PowerDPMLevel: "low", UtilPct: 75}}}, false, output.ModePlain)
+	joined = strings.Join(dpmStuck, "\n")
+	if !strings.Contains(joined, "stuck in low-power DPM mode") {
+		t.Errorf("a GPU stuck in low DPM under load should hint so, got:\n%s", joined)
 	}
 }
 

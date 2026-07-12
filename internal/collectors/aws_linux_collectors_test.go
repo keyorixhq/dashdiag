@@ -357,6 +357,23 @@ func TestEnaExpressState_NoENAInterfaces(t *testing.T) {
 	}
 }
 
+// TestEnaExpressState_EthtoolFails guards the runCmd-error "continue" branch:
+// an ENA interface whose `ethtool -S` invocation fails must be skipped
+// (never counted toward checked) rather than aborting the whole scan, so a
+// second, healthy interface is still reported.
+func TestEnaExpressState_EthtoolFails(t *testing.T) {
+	withAWSFixture(t, nil, map[string]string{
+		"/sys/class/net/eth0/device/driver": "../../../bus/pci/drivers/ena",
+	}, func(b *source.Bundle) {
+		b.PutDir("/sys/class/net", []string{"eth0"})
+		b.PutCmdNotFound("ethtool", []string{"-S", "eth0"})
+	})
+	checked, active := enaExpressState(context.Background())
+	if checked || active {
+		t.Errorf("checked=%v active=%v, want false/false (ethtool failure must not count as checked)", checked, active)
+	}
+}
+
 func TestAwsInstanceType(t *testing.T) {
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok123"),

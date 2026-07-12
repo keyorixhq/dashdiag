@@ -112,6 +112,76 @@ func TestRenderJSON_SkipsAbsentChecks(t *testing.T) {
 	}
 }
 
+// TestRenderJSON_QualifiedInsightRollsUpToBaseCheckStatus covers buildOutput's
+// prefix-match fallback: a subsystem-qualified insight ("Network/DNS") with no
+// exact "Network" insight in the map must still roll its severity up onto the
+// "Network" JSON check row (mirrors the markdown/HTML report's snapshot-status
+// trust, but here it's re-derived directly from insights since no baseline
+// snapshot is involved in the JSON/YAML path).
+func TestRenderJSON_QualifiedInsightRollsUpToBaseCheckStatus(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Network", Data: &models.NetworkInfo{}},
+	}
+	insights := []models.Insight{
+		{Check: "Network/DNS", Level: "CRIT", Message: "resolver unreachable"},
+	}
+	data, err := RenderJSON(results, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if len(out.Checks) != 1 || out.Checks[0].Name != "Network" {
+		t.Fatalf("expected a single Network check, got %+v", out.Checks)
+	}
+	if out.Checks[0].Status != "CRIT" {
+		t.Errorf("Network status = %q, want CRIT rolled up from Network/DNS", out.Checks[0].Status)
+	}
+}
+
+// TestRenderJSON_SkipsOKInsights covers the OK-level skip in buildOutput's
+// jsonInsights loop — an OK insight must not appear in the .insights array
+// (only actionable/informational levels do).
+func TestRenderJSON_SkipsOKInsights(t *testing.T) {
+	insights := []models.Insight{
+		{Check: "Disk", Level: "OK", Message: "clean"},
+		{Check: "Memory", Level: "WARN", Message: "high"},
+	}
+	data, err := RenderJSON(nil, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Insights) != 1 || out.Insights[0].Check != "Memory" {
+		t.Errorf("expected only the WARN insight, got %+v", out.Insights)
+	}
+}
+
+// TestRenderJSON_InsightOrderMessageTiebreak covers the final sort tiebreak:
+// same level, same check — order falls back to comparing Message.
+func TestRenderJSON_InsightOrderMessageTiebreak(t *testing.T) {
+	insights := []models.Insight{
+		{Check: "Disk", Level: "WARN", Message: "zzz second"},
+		{Check: "Disk", Level: "WARN", Message: "aaa first"},
+	}
+	data, err := RenderJSON(nil, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Insights) != 2 || out.Insights[0].Message != "aaa first" || out.Insights[1].Message != "zzz second" {
+		t.Errorf("expected message-tiebreak order [aaa first, zzz second], got %+v", out.Insights)
+	}
+}
+
 // TestRenderJSON_StableOrdering guards TRIAGE §I: checks[] and insights[] must come
 // out in a deterministic order regardless of collector completion order, so
 // `dsd health --json` / `capture` / `replay` are byte-stable and cleanly diffable.
