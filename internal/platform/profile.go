@@ -164,11 +164,17 @@ func setLogPaths(p *Profile) {
 // Returns "unknown" when none match (the hint adapter then leaves systemd-form
 // remedies alone rather than guessing wrong).
 func detectInitSystem() string {
+	return detectInitSystemFromPaths("/run/systemd/private", "/sbin/openrc", "/etc/inittab", "/proc/1/comm")
+}
+
+// detectInitSystemFromPaths is the testable core of detectInitSystem — injects
+// every path it probes so tests never touch the real filesystem/procfs.
+func detectInitSystemFromPaths(systemdPriv, openrcBin, inittab, procComm string) string {
 	return classifyInit(
-		fileExists("/run/systemd/private"),
-		fileExists("/sbin/openrc"),
-		fileExists("/etc/inittab"),
-		pid1Comm(),
+		fileExists(systemdPriv),
+		fileExists(openrcBin),
+		fileExists(inittab),
+		pid1CommFromPath(procComm),
 	)
 }
 
@@ -196,10 +202,10 @@ func classifyInit(hasSystemdPriv, hasOpenrcBin, hasInittab bool, pid1 string) st
 	return "unknown"
 }
 
-// pid1Comm returns the command name of PID 1 from /proc/1/comm (world-readable,
-// so it works non-root). "" when unreadable (non-Linux / no procfs).
-func pid1Comm() string {
-	data, err := os.ReadFile("/proc/1/comm")
+// pid1CommFromPath returns the command name of PID 1 from /proc/1/comm
+// (world-readable, so it works non-root). "" when unreadable (non-Linux / no procfs).
+func pid1CommFromPath(path string) string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -209,16 +215,29 @@ func pid1Comm() string {
 // detectNetworkStack identifies the active network management layer, in priority
 // order. netplan wins only when both the binary and a populated config dir exist.
 func detectNetworkStack() string {
-	if _, err := exec.LookPath("netplan"); err == nil && netplanConfigured() {
+	_, lookErr := exec.LookPath("netplan")
+	return detectNetworkStackFrom(
+		lookErr == nil,
+		netplanConfigured(),
+		systemctlIsActive("NetworkManager"),
+		systemctlIsActive("systemd-networkd"),
+		fileExists("/etc/network/interfaces"),
+	)
+}
+
+// detectNetworkStackFrom is the testable core of detectNetworkStack — the
+// priority-ordered decision, with every live probe already resolved to a bool.
+func detectNetworkStackFrom(hasNetplanBin, netplanConf, nmActive, networkdActive, hasIfupdown bool) string {
+	if hasNetplanBin && netplanConf {
 		return "netplan"
 	}
-	if systemctlIsActive("NetworkManager") {
+	if nmActive {
 		return "networkmanager"
 	}
-	if systemctlIsActive("systemd-networkd") {
+	if networkdActive {
 		return "networkd"
 	}
-	if fileExists("/etc/network/interfaces") {
+	if hasIfupdown {
 		return "ifupdown"
 	}
 	return "unknown"
@@ -226,7 +245,12 @@ func detectNetworkStack() string {
 
 // netplanConfigured reports whether /etc/netplan holds at least one .yaml file.
 func netplanConfigured() bool {
-	entries, err := os.ReadDir("/etc/netplan")
+	return netplanConfiguredInDir("/etc/netplan")
+}
+
+// netplanConfiguredInDir is the testable core of netplanConfigured.
+func netplanConfiguredInDir(dir string) bool {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
@@ -299,12 +323,23 @@ func detectSELinuxFromPath(path string) string {
 
 // detectAppArmor reports whether AppArmor has profiles loaded.
 func detectAppArmor() bool {
-	data, err := os.ReadFile("/sys/kernel/security/apparmor/profiles")
+	return detectAppArmorFromPath("/sys/kernel/security/apparmor/profiles")
+}
+
+// detectAppArmorFromPath is the testable core of detectAppArmor.
+func detectAppArmorFromPath(path string) bool {
+	data, err := os.ReadFile(path)
 	return err == nil && len(strings.TrimSpace(string(data))) > 0
 }
 
 // detectPackageManager returns the first package-manager binary found on PATH.
 func detectPackageManager() string {
+	return detectPackageManagerWithLookup(exec.LookPath)
+}
+
+// detectPackageManagerWithLookup is the testable core of detectPackageManager —
+// lookup is exec.LookPath in production, a fake in tests.
+func detectPackageManagerWithLookup(lookup func(string) (string, error)) string {
 	for _, pm := range []struct{ bin, name string }{
 		{"apt-get", "apt"},
 		{"dnf", "dnf"},
@@ -316,7 +351,7 @@ func detectPackageManager() string {
 		{"pacman", "pacman"},
 		{"brew", "brew"},
 	} {
-		if _, err := exec.LookPath(pm.bin); err == nil {
+		if _, err := lookup(pm.bin); err == nil {
 			return pm.name
 		}
 	}
@@ -327,7 +362,15 @@ func detectPackageManager() string {
 // reports whether the unit is active. Returns false fast when systemctl is
 // absent (non-systemd hosts, macOS).
 func systemctlIsActive(unit string) bool {
-	if _, err := exec.LookPath("systemctl"); err != nil {
+	return systemctlIsActiveWithLookup(unit, exec.LookPath)
+}
+
+// systemctlIsActiveWithLookup is the testable core of systemctlIsActive's
+// fast-absent path — lookup is exec.LookPath in production, a fake in tests.
+// The actual `systemctl is-active` invocation still requires a real systemctl
+// binary and is not exercised by unit tests.
+func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error)) bool {
+	if _, err := lookup("systemctl"); err != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

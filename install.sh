@@ -50,15 +50,28 @@ detect_platform() {
 
 # ── fetch latest tag from GitHub ─────────────────────────────────────────────
 fetch_latest_version() {
+    _url="https://api.github.com/repos/${REPO}/releases/latest"
+    # GITHUB_TOKEN (if set) avoids rate-limit 403s on shared CI runner IPs.
     if command -v curl >/dev/null 2>&1; then
-        VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            VERSION="$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
+                | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        else
+            VERSION="$(curl -fsSL "$_url" \
+                | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        VERSION="$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            VERSION="$(wget -qO- --header="Authorization: token ${GITHUB_TOKEN}" "$_url" \
+                | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        else
+            VERSION="$(wget -qO- "$_url" \
+                | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        fi
     else
         die "curl or wget is required"
     fi
+    unset _url
 
     [ -n "$VERSION" ] || die "Could not determine latest version from GitHub"
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -89,6 +90,13 @@ func TestPrintMySQLState(t *testing.T) {
 	if !strings.Contains(defaultName, "MySQL") || !strings.Contains(defaultName, "Role: primary") {
 		t.Errorf("no flavor should default to MySQL and report primary, got:\n%s", defaultName)
 	}
+
+	unmeasured := captureStdout(t, func() {
+		printMySQLState(&models.MySQLInfo{Detected: true, MetricsRead: false}, output.ModePlain)
+	})
+	if !strings.Contains(unmeasured, "metrics unavailable") {
+		t.Errorf("unread MySQL metrics should say so, got:\n%s", unmeasured)
+	}
 }
 
 func TestPrintRedisState(t *testing.T) {
@@ -111,6 +119,13 @@ func TestPrintRedisState(t *testing.T) {
 	})
 	if !strings.Contains(defaultRole, "Role: master") {
 		t.Errorf("an empty role should default to master, got:\n%s", defaultRole)
+	}
+
+	unmeasured := captureStdout(t, func() {
+		printRedisState(&models.RedisInfo{Detected: true, MetricsRead: false}, output.ModePlain)
+	})
+	if !strings.Contains(unmeasured, "metrics unavailable") {
+		t.Errorf("unread Redis metrics should say so, got:\n%s", unmeasured)
 	}
 }
 
@@ -170,5 +185,39 @@ func TestPrintDBDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "Databases healthy") {
 		t.Errorf("no insights should read healthy, got:\n%s", out)
+	}
+}
+
+// TestPrintDBDispatchMemcachedMongo covers the remaining two type-switch
+// cases in printDB not exercised by TestPrintDBDispatch above.
+func TestPrintDBDispatchMemcachedMongo(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDB([]runner.Result{
+			{Data: &models.MemcachedInfo{Detected: true, MetricsRead: true}},
+			{Data: &models.MongoDBInfo{Detected: true, MetricsRead: true}},
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "Memcached") || !strings.Contains(out, "MongoDB") {
+		t.Errorf("both detected engines should be rendered, got:\n%s", out)
+	}
+}
+
+// TestRunDB exercises runDB's real (read-only) collector-detection wiring.
+// This dev container has no local DB engines, so it exercises the
+// no-database-detected early-return path — the collector-detected diagnostic
+// path is exercised implicitly wherever the CI/dev host does run a DB (the
+// gated code itself has no branch logic beyond dispatch, already covered by
+// TestPrintDBDispatch above and the per-engine renderer tests).
+func TestRunDB(t *testing.T) {
+	cmd := newBareCloudCmd()
+	cmd.SetContext(context.Background())
+	_ = cmd.Flags().Set("plain", "true")
+	out := captureStdout(t, func() {
+		if err := runDB(cmd, nil); err != nil {
+			t.Fatalf("runDB: %v", err)
+		}
+	})
+	if out == "" {
+		t.Error("runDB produced no output")
 	}
 }

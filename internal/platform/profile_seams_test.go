@@ -1,0 +1,291 @@
+package platform
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// TestPid1CommFromPath covers both the happy path (comm file readable) and the
+// absent-file fallback ("") that detectInitSystemFromPaths relies on to fall
+// through to "unknown" rather than misreading a missing procfs entry as some
+// init system name.
+func TestPid1CommFromPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	t.Run("present", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(dir, "comm-present")
+		if err := os.WriteFile(path, []byte("systemd\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := pid1CommFromPath(path); got != "systemd" {
+			t.Errorf("pid1CommFromPath = %q, want systemd", got)
+		}
+	})
+
+	t.Run("absent", func(t *testing.T) {
+		t.Parallel()
+		if got := pid1CommFromPath(filepath.Join(dir, "does-not-exist")); got != "" {
+			t.Errorf("pid1CommFromPath(absent) = %q, want empty", got)
+		}
+	})
+}
+
+// TestDetectInitSystemFromPaths exercises the full priority chain (systemd
+// marker > openrc marker > pid1 identity) through injected paths only — no
+// real filesystem/procfs access.
+func TestDetectInitSystemFromPaths(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	present := filepath.Join(dir, "present")
+	if err := os.WriteFile(present, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absent := filepath.Join(dir, "absent")
+	commPath := filepath.Join(dir, "comm")
+
+	cases := []struct {
+		name                          string
+		systemdPresent, openrcPresent bool
+		inittabPresent                bool
+		comm                          string
+		want                          string
+	}{
+		{"systemd marker wins", true, false, false, "", "systemd"},
+		{"openrc marker wins over pid1", false, true, false, "init", "openrc"},
+		{"pid1 systemd fallback", false, false, false, "systemd", "systemd"},
+		{"pid1 runit", false, false, false, "runit", "runit"},
+		{"pid1 init with inittab", false, false, true, "init", "sysvinit"},
+		{"pid1 init without inittab", false, false, false, "init", "unknown"},
+		{"nothing matches", false, false, false, "", "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			systemdPath, openrcPath, inittabPath := absent, absent, absent
+			if tc.systemdPresent {
+				systemdPath = present
+			}
+			if tc.openrcPresent {
+				openrcPath = present
+			}
+			if tc.inittabPresent {
+				inittabPath = present
+			}
+			myComm := filepath.Join(commPath, tc.name)
+			if tc.comm != "" {
+				if err := os.MkdirAll(filepath.Dir(myComm), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(myComm, []byte(tc.comm), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := detectInitSystemFromPaths(systemdPath, openrcPath, inittabPath, myComm)
+			if got != tc.want {
+				t.Errorf("detectInitSystemFromPaths(...) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNetplanConfiguredInDir(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent dir", func(t *testing.T) {
+		t.Parallel()
+		if netplanConfiguredInDir(filepath.Join(t.TempDir(), "nope")) {
+			t.Error("expected false for missing dir")
+		}
+	})
+
+	t.Run("empty dir", func(t *testing.T) {
+		t.Parallel()
+		if netplanConfiguredInDir(t.TempDir()) {
+			t.Error("expected false for empty dir")
+		}
+	})
+
+	t.Run("has yaml", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "01-netcfg.yaml"), []byte("network: {}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if !netplanConfiguredInDir(dir) {
+			t.Error("expected true when a .yaml file is present")
+		}
+	})
+
+	t.Run("has non-yaml only", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "README"), []byte("nope"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if netplanConfiguredInDir(dir) {
+			t.Error("expected false when only non-yaml files present")
+		}
+	})
+}
+
+func TestDetectNetworkStackFrom(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name                                                       string
+		hasNetplanBin, netplanConf, nmActive, networkdActive, ifup bool
+		want                                                       string
+	}{
+		{"netplan wins when bin+config present", true, true, true, true, true, "netplan"},
+		{"netplan bin without config falls through", true, false, true, false, false, "networkmanager"},
+		{"networkmanager", false, false, true, false, false, "networkmanager"},
+		{"networkd", false, false, false, true, false, "networkd"},
+		{"ifupdown", false, false, false, false, true, "ifupdown"},
+		{"unknown", false, false, false, false, false, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := detectNetworkStackFrom(tc.hasNetplanBin, tc.netplanConf, tc.nmActive, tc.networkdActive, tc.ifup)
+			if got != tc.want {
+				t.Errorf("detectNetworkStackFrom(...) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectAppArmorFromPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	cases := []struct {
+		name    string
+		content *string // nil → file absent
+		want    bool
+	}{
+		{"absent", nil, false},
+		{"empty", new(""), false},
+		{"whitespace only", new("   \n"), false},
+		{"has profiles", new("/usr/sbin/sshd (enforce)\n"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(dir, tc.name)
+			if tc.content != nil {
+				if err := os.WriteFile(path, []byte(*tc.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := detectAppArmorFromPath(path); got != tc.want {
+				t.Errorf("detectAppArmorFromPath(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectPackageManagerWithLookup(t *testing.T) {
+	t.Parallel()
+
+	fakeLookup := func(present ...string) func(string) (string, error) {
+		set := make(map[string]bool, len(present))
+		for _, p := range present {
+			set[p] = true
+		}
+		return func(bin string) (string, error) {
+			if set[bin] {
+				return "/usr/bin/" + bin, nil
+			}
+			return "", errors.New("not found")
+		}
+	}
+
+	cases := []struct {
+		name    string
+		present []string
+		want    string
+	}{
+		{"apt", []string{"apt-get"}, "apt"},
+		{"dnf", []string{"dnf"}, "dnf"},
+		// tdnf before yum: Photon OS ships a yum shim over tdnf.
+		{"tdnf wins over yum", []string{"tdnf", "yum"}, "tdnf"},
+		{"yum alone", []string{"yum"}, "yum"},
+		{"zypper", []string{"zypper"}, "zypper"},
+		{"pacman", []string{"pacman"}, "pacman"},
+		{"brew", []string{"brew"}, "brew"},
+		{"none found", nil, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := detectPackageManagerWithLookup(fakeLookup(tc.present...))
+			if got != tc.want {
+				t.Errorf("detectPackageManagerWithLookup(%v) = %q, want %q", tc.present, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSystemctlIsActiveWithLookup_Absent(t *testing.T) {
+	t.Parallel()
+	absentLookup := func(string) (string, error) { return "", errors.New("not found") }
+	if systemctlIsActiveWithLookup("some-unit", absentLookup) {
+		t.Error("expected false when systemctl binary is absent")
+	}
+}
+
+// TestSystemctlIsActiveWithLookup_Present exercises the branch where lookup
+// succeeds and the real `systemctl is-active` invocation runs. The unit name
+// is deliberately implausible so that on hosts where systemctl IS installed
+// the command still exits non-zero (inactive/not-found), and on hosts where
+// it isn't installed exec.CommandContext itself fails to start — either way
+// the function must return false without panicking, and the exec branch
+// (previously uncovered) executes.
+func TestSystemctlIsActiveWithLookup_Present(t *testing.T) {
+	t.Parallel()
+	presentLookup := func(string) (string, error) { return "/usr/bin/systemctl", nil }
+	if systemctlIsActiveWithLookup("dashdiag-test-unit-that-does-not-exist", presentLookup) {
+		t.Error("expected false for a nonexistent unit")
+	}
+}
+
+func TestDebugLine(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		p    Profile
+		want string
+	}{
+		{
+			"selinux enforcing",
+			Profile{Distro: "rhel", DistroVersion: "10.1", NetworkStack: "networkmanager", SELinuxMode: "enforcing", PackageManager: "dnf"},
+			"rhel 10.1, networkmanager, SELinux enforcing, dnf",
+		},
+		{
+			"apparmor active, no selinux",
+			Profile{Distro: "ubuntu", DistroVersion: "24.04", NetworkStack: "netplan", SELinuxMode: "not-present", AppArmorActive: true, PackageManager: "apt"},
+			"ubuntu 24.04, netplan, AppArmor, apt",
+		},
+		{
+			"neither selinux nor apparmor",
+			Profile{Distro: "nixos", DistroVersion: "25.05", NetworkStack: "networkd", SELinuxMode: "not-present", PackageManager: "unknown"},
+			"nixos 25.05, networkd, SELinux not-present, unknown",
+		},
+		{
+			"empty distro falls back to OS",
+			Profile{OS: "linux", NetworkStack: "unknown", SELinuxMode: "not-present", PackageManager: "unknown"},
+			"linux, unknown, SELinux not-present, unknown",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.p.DebugLine(); got != tc.want {
+				t.Errorf("DebugLine() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

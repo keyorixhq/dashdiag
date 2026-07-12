@@ -66,6 +66,34 @@ func TestExtractHealthHelpers(t *testing.T) {
 	if got := extractSysctl(results); got != nil {
 		t.Errorf("no Sysctl result present should return nil, got %+v", got)
 	}
+	if got := extractOOM(nil); got != nil {
+		t.Errorf("no results at all should return nil for extractOOM, got %+v", got)
+	}
+	if got := extractDocker([]runner.Result{{Name: "OOM", Data: oomWant}}); got != nil {
+		t.Errorf("no Docker result present should return nil, got %+v", got)
+	}
+}
+
+func TestExtractCPUAndHealthDeep(t *testing.T) {
+	cpuWant := &models.CPUInfo{LoadAvg1: 1.5}
+	deepWant := &models.HealthDeepInfo{}
+	results := []runner.Result{
+		{Name: "CPU Load", Data: cpuWant},
+		{Name: "Deep", Data: deepWant},
+		{Name: "Bad CPU", Data: &models.CPUInfo{}, Err: errors.New("cpu failed")},
+	}
+	if got := extractCPU(results); got != cpuWant {
+		t.Errorf("extractCPU should find the first non-errored CPUInfo result, got %+v", got)
+	}
+	if got := extractHealthDeep(results); got != deepWant {
+		t.Errorf("extractHealthDeep should find the HealthDeepInfo result, got %+v", got)
+	}
+	if got := extractCPU(nil); got != nil {
+		t.Errorf("no results should return nil, got %+v", got)
+	}
+	if got := extractHealthDeep([]runner.Result{{Name: "OOM", Data: &models.OOMInfo{}}}); got != nil {
+		t.Errorf("no HealthDeepInfo result present should return nil, got %+v", got)
+	}
 }
 
 func TestTimelineDur(t *testing.T) {

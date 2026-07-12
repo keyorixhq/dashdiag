@@ -83,3 +83,33 @@ func TestPrintCPUReportThermalAndVerdict(t *testing.T) {
 		t.Errorf("low usage with no thermal data should read healthy, got:\n%s", healthy)
 	}
 }
+
+// TestRunCPU exercises runCPU's real (read-only) collector wiring in --plain
+// and --json mode. Same real-I/O precedent as this file's other tests
+// (drilldown.TopProcessesByCPU is a cheap real call the live command already
+// pays for).
+func TestRunCPU(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runCPU(plainCmd, nil); err != nil {
+			t.Fatalf("runCPU (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "Load") {
+		t.Errorf("plain mode should render the Load section, got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runCPU(jsonCmd, nil); err != nil {
+			t.Fatalf("runCPU (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"cpu"`) {
+		t.Errorf("json mode should emit a top-level cpu key, got: %q", jsonOut)
+	}
+}

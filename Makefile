@@ -209,6 +209,40 @@ test-linux:
 .PHONY: test-all
 test-all: test test-integration test-contract
 
+# ── BATCHED TEST ITERATION (host XProtect / thermal mitigation) ───────────────
+## Compile-once-run-many, to stop the tight write→build→run loop from spraying
+## fresh executables that macOS XProtect scans (sustained ~50% CPU + heat on the
+## M-series Air — see CLAUDE.md "Test iteration cadence"). Compiles the package's
+## test binary ONCE to .scratch/ (stable path → fewer new-inode scan events) and
+## runs that artifact. Re-running without a source change re-executes the SAME
+## binary — no recompile, nothing for XProtect to rescan.
+##
+##   make test-batch PKG=tips              # → ./internal/tips/...
+##   make test-batch PKG=output RUN=Golden # filter to -test.run=Golden
+##   make test-batch PKG=collectors ARGS='-test.count=5'
+##
+## Inside the dashdiag-dev container (Linux FS, XProtect-invisible) this simply
+## runs the compiled binary too — no docker, no host-path dance. RTK is a
+## context-trim proxy on the model transport and is orthogonal: it neither helps
+## nor hinders this, so the target works identically with or without RTK.
+PKG ?=
+RUN ?=
+.PHONY: test-batch
+test-batch:
+	@test -n "$(PKG)" || { echo "✗ set PKG=<pkg> (e.g. make test-batch PKG=tips)"; exit 1; }
+	@mkdir -p .scratch
+	@bin=.scratch/$(PKG).test; \
+	newest=$$(find ./internal/$(PKG) -name '*.go' -newer "$$bin" 2>/dev/null | head -1); \
+	if [ ! -f "$$bin" ] || [ -n "$$newest" ]; then \
+		echo "→ Compiling ./internal/$(PKG)/... test binary once → $$bin"; \
+		go test -c -o "$$bin" ./internal/$(PKG)/... || { echo "✗ compile failed"; exit 1; }; \
+	else \
+		echo "→ No source change — reusing $$bin (no recompile, no new scan event)"; \
+	fi; \
+	if [ ! -f "$$bin" ]; then echo "ℹ package has no test files — nothing to run"; exit 0; fi; \
+	echo "→ Running $$bin$(if $(RUN), (-test.run=$(RUN)),)"; \
+	"./$$bin" -test.v $(if $(RUN),-test.run=$(RUN),) $(ARGS)
+
 .PHONY: bench
 bench:
 	go test -bench=. -benchmem -benchtime=3x -run=^$$ ./internal/...
@@ -280,6 +314,7 @@ help:
 	@echo "  make test         → unit tests with race detector"
 	@echo "  make cover        → unit tests + coverage.html"
 	@echo "  make test-all     → unit + integration + contract"
+	@echo "  make test-batch   → compile-once-run-many (PKG=tips [RUN=x]) — XProtect/heat mitigation"
 	@echo "  make test-linux   → Linux-only collector tests in Docker (no host needed)"
 	@echo "  make deploy       → build linux + deploy (set LINUX_HOST=user@host)"
 	@echo "  make run-root     → run dsd as root on LINUX_HOST (ARGS='health --json')"

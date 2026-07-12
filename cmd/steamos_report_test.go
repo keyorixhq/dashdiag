@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -218,5 +219,136 @@ func TestSteamOSConcernCount(t *testing.T) {
 	}}
 	if got := steamOSConcernCount(remotePlayIssues); got != 3 {
 		t.Errorf("unbound port + firewall blocking + AP isolation should each count, got %d, want 3", got)
+	}
+}
+
+// TestPrintSteamOSReportDispatch covers printSteamOSReport's top-level
+// healthy branch and the --deep dispatch (the not-detected branch is already
+// covered by TestPrintSteamOSReportNotDetected).
+func TestPrintSteamOSReportDispatch(t *testing.T) {
+	healthy := captureStdout(t, func() {
+		printSteamOSReport(&models.SteamOSInfo{Detected: true}, 0, output.ModePlain)
+	})
+	if !strings.Contains(healthy, "SteamOS healthy") {
+		t.Errorf("no concerns should read healthy, got:\n%s", healthy)
+	}
+
+	deep := captureStdout(t, func() {
+		printSteamOSReport(&models.SteamOSInfo{Detected: true, Deep: true, BIOSVersion: "F7A0113"}, 0, output.ModePlain)
+	})
+	if !strings.Contains(deep, "F7A0113") {
+		t.Errorf("Deep=true should render the [Deep] section, got:\n%s", deep)
+	}
+}
+
+// TestPrintSteamOSDeviceRecognisedAndSecureBoot covers the recognised-device
+// and Secure-Boot-disabled/unknown branches that TestPrintSteamOSDevice
+// doesn't reach.
+func TestPrintSteamOSDeviceRecognisedAndSecureBoot(t *testing.T) {
+	recognised := captureStdout(t, func() {
+		printSteamOSDevice(&models.SteamOSInfo{DeviceName: "Steam Deck", DeviceProductRaw: "Jupiter", DeviceRecognised: true}, output.ModePlain)
+	})
+	if !strings.Contains(recognised, "Steam Deck") || strings.Contains(recognised, "unrecognised") {
+		t.Errorf("a recognised device should be shown without the unrecognised caveat, got:\n%s", recognised)
+	}
+
+	sbOff := false
+	sbDisabled := captureStdout(t, func() {
+		printSteamOSDevice(&models.SteamOSInfo{DeviceName: "x", SecureBootApplicable: true, SecureBootEnabled: &sbOff}, output.ModePlain)
+	})
+	if !strings.Contains(sbDisabled, "disabled") {
+		t.Errorf("Secure Boot explicitly disabled should say so, got:\n%s", sbDisabled)
+	}
+
+	sbUnknown := captureStdout(t, func() {
+		printSteamOSDevice(&models.SteamOSInfo{DeviceName: "x", SecureBootApplicable: true, SecureBootEnabled: nil}, output.ModePlain)
+	})
+	if !strings.Contains(sbUnknown, "EFI not available") {
+		t.Errorf("a nil SecureBootEnabled (EFI unavailable) should say so, got:\n%s", sbUnknown)
+	}
+}
+
+// TestPrintSteamOSSessionUnknownMode covers the empty-SessionMode fallback.
+func TestPrintSteamOSSessionUnknownMode(t *testing.T) {
+	out := captureStdout(t, func() { printSteamOSSession(&models.SteamOSInfo{}, output.ModePlain) })
+	if !strings.Contains(out, "unknown") {
+		t.Errorf("an empty session mode should read unknown, got:\n%s", out)
+	}
+}
+
+// TestPrintSteamOSRemotePlayBoundAndFirewall covers the bound-port-with-process
+// branch and the firewall-known/blocking and firewall-clean branches.
+func TestPrintSteamOSRemotePlayBoundAndFirewall(t *testing.T) {
+	bound := captureStdout(t, func() {
+		printSteamOSRemotePlay(&models.SteamOSInfo{RemotePlay: &models.SteamOSRemotePlay{
+			Ports:         []models.RemotePlayPort{{Protocol: "udp", Port: 27036, Bound: true, Process: "steam", PID: 4242}},
+			FirewallKnown: true, FirewallBlocking: false,
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(bound, "steam (PID 4242)") {
+		t.Errorf("a bound port with a process+PID should show both, got:\n%s", bound)
+	}
+	if !strings.Contains(bound, "no blocking rules found") {
+		t.Errorf("a known, non-blocking firewall should say so, got:\n%s", bound)
+	}
+
+	blocking := captureStdout(t, func() {
+		printSteamOSRemotePlay(&models.SteamOSInfo{RemotePlay: &models.SteamOSRemotePlay{
+			FirewallKnown: true, FirewallBlocking: true,
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(blocking, "may block a Remote Play port") {
+		t.Errorf("a blocking firewall should warn, got:\n%s", blocking)
+	}
+}
+
+// TestPrintSteamOSDeepExtras covers the Proton/GamescopeErrors/RAUCLastLog
+// branches of printSteamOSDeep, which TestPrintSteamOSDeep doesn't reach.
+func TestPrintSteamOSDeepExtras(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSteamOSDeep(&models.SteamOSInfo{
+			ProtonPrefixCount: 5, CompatDataGB: 12.5,
+			GamescopeErrors: []string{"failed to init vulkan"},
+			RAUCLastLog:     "slot A: marked good",
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "Proton prefixes: 5") || !strings.Contains(out, "12.5 GB") {
+		t.Errorf("Proton prefix count and compatdata size should be shown, got:\n%s", out)
+	}
+	if !strings.Contains(out, "failed to init vulkan") {
+		t.Errorf("gamescope errors should be listed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "slot A: marked good") {
+		t.Errorf("the last RAUC log line should be shown, got:\n%s", out)
+	}
+}
+
+// TestRunSteamOS exercises runSteamOS's real (read-only) collector wiring in
+// --plain and --json mode. This test host is not a SteamOS system, so both
+// should render the "not detected" report without error — the same real-I/O
+// precedent as cpu_report_test.go / hardware_test.go.
+func TestRunSteamOS(t *testing.T) {
+	plainCmd := newBareCloudCmd()
+	plainCmd.SetContext(context.Background())
+	_ = plainCmd.Flags().Set("plain", "true")
+	plainOut := captureStdout(t, func() {
+		if err := runSteamOS(plainCmd, nil); err != nil {
+			t.Fatalf("runSteamOS (plain): %v", err)
+		}
+	})
+	if !strings.Contains(plainOut, "SteamOS") {
+		t.Errorf("plain mode should mention SteamOS, got: %q", plainOut)
+	}
+
+	jsonCmd := newBareCloudCmd()
+	jsonCmd.SetContext(context.Background())
+	_ = jsonCmd.Flags().Set("json", "true")
+	jsonOut := captureStdout(t, func() {
+		if err := runSteamOS(jsonCmd, nil); err != nil {
+			t.Fatalf("runSteamOS (json): %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, "{") {
+		t.Errorf("json mode should emit JSON, got: %q", jsonOut)
 	}
 }
