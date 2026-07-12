@@ -393,6 +393,34 @@ func TestCollectWiFiIwconfig(t *testing.T) {
 	}
 }
 
+// TestCollectWiFiIwconfig_FrequencyBands is a table-driven boundary test for
+// the FreqGHz -> Band classification: below 3.0 GHz is 2.4GHz, [3.0,6.0) is
+// 5GHz (guarded above), and >= 6.0 GHz is 6GHz (Wi-Fi 6E).
+func TestCollectWiFiIwconfig_FrequencyBands(t *testing.T) {
+	tests := []struct {
+		name     string
+		freqLine string
+		wantBand string
+	}{
+		{"2.4GHz band", "Frequency:2.437 GHz", "2.4GHz"},
+		{"6GHz band", "Frequency:6.135 GHz", "6GHz"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withFixtureSource(t, func(b *source.Bundle) {
+				b.PutCmd("iwconfig", []string{"wlan0"},
+					`wlan0     IEEE 802.11  ESSID:"HomeNet"  `+"\n"+
+						`          `+tt.freqLine+`  `+"\n", 0)
+			})
+			w := &models.WiFiInfo{}
+			collectWiFiIwconfig("wlan0", w)
+			if w.Band != tt.wantBand {
+				t.Errorf("Band = %q, want %q (FreqGHz=%v)", w.Band, tt.wantBand, w.FreqGHz)
+			}
+		})
+	}
+}
+
 func TestCollectWiFiIwconfig_NotAssociated(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("iwconfig", []string{"wlan0"},
@@ -451,6 +479,22 @@ func TestCollectWiFiNmcli_FallsBackToIfnameFilter(t *testing.T) {
 	collectWiFiNmcli("wlan0", w)
 	if w.SSID != "HomeNet" || w.Band != "2.4GHz" {
 		t.Errorf("SSID=%q Band=%q, want HomeNet/2.4GHz", w.SSID, w.Band)
+	}
+}
+
+// TestCollectWiFiNmcli_MalformedLine guards the "len(parts) < 5" skip: a
+// "yes:"-prefixed line with too few colon-delimited fields (garbled nmcli
+// output) must be skipped rather than panicking on an out-of-range index or
+// populating WiFiInfo with partial/garbage data.
+func TestCollectWiFiNmcli_MalformedLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("nmcli", []string{"-t", "-f", "ACTIVE,SSID,SIGNAL,RATE,CHAN,BSSID", "dev", "wifi", "list"},
+			"yes:OnlyTwoFields\n", 0)
+	})
+	w := &models.WiFiInfo{}
+	collectWiFiNmcli("wlan0", w)
+	if *w != (models.WiFiInfo{}) {
+		t.Errorf("expected untouched WiFiInfo for a malformed 'yes:' line, got %+v", w)
 	}
 }
 
@@ -698,6 +742,35 @@ func TestRunConnectivityProbes(t *testing.T) {
 	}
 	if !p.DNSFailed && p.DNSMs < 0 {
 		t.Errorf("DNSFailed=false must report a non-negative DNSMs, got %v", p.DNSMs)
+	}
+}
+
+// TestPingRTT_NoPingBinary_ProBingLoopback drives pingRTT's "no sys ping
+// binary" path down into the pro-bing loop against loopback. Deterministic in
+// this container: there's no `ping` binary (sysPing always fails — same
+// precondition as TestSysPing_NoPingBinary) and ping_group_range is wide open
+// (confirmed alongside TestTryOnePing_UnreachableUnprivileged's sibling
+// cases), so an unprivileged pro-bing ICMP echo to 127.0.0.1 genuinely
+// receives a reply — landing on tryOnePing's success branch inside pingRTT
+// (icmpBlocked=false), never reaching the tcpProbe fallback.
+func TestPingRTT_NoPingBinary_ProBingLoopback(t *testing.T) {
+	if _, err := exec.LookPath("ping"); err == nil {
+		t.Skip("ping is installed in this environment; the no-sys-ping path is unreachable here")
+	}
+	if !icmpAvailable() {
+		t.Skip("ICMP unavailable to this process; the pro-bing success path is unreachable here")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	ms, loss, icmpBlocked := pingRTT(ctx, "127.0.0.1", "")
+	if ms < 0 {
+		t.Errorf("ms = %v, want >= 0 (loopback ICMP echo succeeded)", ms)
+	}
+	if loss != 0 {
+		t.Errorf("lossPct = %v, want 0 on the tryOnePing-success branch", loss)
+	}
+	if icmpBlocked {
+		t.Error("icmpBlocked = true, want false — a successful ICMP probe must not report ICMP as blocked")
 	}
 }
 

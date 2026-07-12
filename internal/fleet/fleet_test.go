@@ -162,6 +162,19 @@ func TestSummarize_AllOK(t *testing.T) {
 	}
 }
 
+// A fleet with a WARN as its worst (no CRIT, no unreachable) rolls up to
+// WARN/1 — the middle rung of Summarize's exit-code switch that
+// TestSummarize (which mixes in a CRIT) never exercises on its own.
+func TestSummarize_WarnOnly(t *testing.T) {
+	s := Summarize([]Result{
+		{Host: "a", Reachable: true, Worst: "OK"},
+		{Host: "b", Reachable: true, Worst: "WARN", Warn: 1},
+	})
+	if s.Verdict != "WARN" || s.ExitCode != 1 {
+		t.Errorf("got verdict=%q exit=%d, want WARN/1", s.Verdict, s.ExitCode)
+	}
+}
+
 func TestOptionsDefaults(t *testing.T) {
 	o := Options{}.withDefaults()
 	if o.RemoteCmd == "" || o.Concurrency == 0 || o.ConnectTimeout == 0 || o.RunTimeout == 0 || o.RemoteBinDir == "" {

@@ -187,6 +187,43 @@ func TestPrintHealthExplanationsAndFixes(t *testing.T) {
 	if !strings.Contains(fixOut, "resize2fs") {
 		t.Errorf("a fix hint should be consolidated into the fixes block, got:\n%s", fixOut)
 	}
+
+	// ModeHuman exercises the lipgloss-styled bold/dim branches of both tails.
+	explHuman := captureStdout(t, func() {
+		printHealthExplanations([]models.Insight{{Level: "CRIT", Check: knownCheck}}, output.ModeHuman)
+	})
+	if !strings.Contains(explHuman, topics[0].Title) {
+		t.Errorf("ModeHuman should still explain a WARN/CRIT insight, got:\n%s", explHuman)
+	}
+	fixHuman := captureStdout(t, func() {
+		printHealthFixes([]models.Insight{{Level: "CRIT", Check: "Disk", Hints: []string{"to fix: resize2fs /dev/sda1"}}}, output.ModeHuman)
+	})
+	if !strings.Contains(fixHuman, "resize2fs") {
+		t.Errorf("ModeHuman should still render the fixes block, got:\n%s", fixHuman)
+	}
+
+	// ModeJSON must render nothing for printHealthFixes too (human/plain-only tail).
+	if out := captureStdout(t, func() {
+		printHealthFixes([]models.Insight{{Level: "CRIT", Check: "Disk", Hints: []string{"to fix: resize2fs /dev/sda1"}}}, output.ModeJSON)
+	}); out != "" {
+		t.Errorf("ModeJSON must not render fixes, got:\n%s", out)
+	}
+
+	// No WARN/CRIT insight with a "to fix:" hint at all → the fixes block is
+	// entirely omitted (not just an empty heading).
+	if out := captureStdout(t, func() {
+		printHealthFixes([]models.Insight{{Level: "OK", Check: "Disk"}}, output.ModePlain)
+	}); out != "" {
+		t.Errorf("no fix-worthy insights should print nothing, got:\n%s", out)
+	}
+
+	// A WARN/CRIT insight whose Check has no matching explain topic yields no
+	// matched entries, so printHealthExplanations prints nothing.
+	if out := captureStdout(t, func() {
+		printHealthExplanations([]models.Insight{{Level: "CRIT", Check: "zzz-unknown-check-zzz"}}, output.ModePlain)
+	}); out != "" {
+		t.Errorf("an unmatched check should print nothing, got:\n%s", out)
+	}
 }
 
 // TestBuildHealthCollectorsGating is a smoke/regression guard on the flat

@@ -56,6 +56,34 @@ func TestTopProcessesByFDLinux(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByFDLinux_MissingFDDirSkipped guards the generic
+// (non-permission) os.ReadDir error branch: a PID directory that vanished its
+// "fd" subdirectory between the /proc listing and the read (the process
+// exited mid-scan — ENOENT, not EACCES) must be silently skipped rather than
+// erroring the whole scan.
+func TestTopProcessesByFDLinux_MissingFDDirSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	const pid = 555
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	// Create the PID directory (so walkProcs treats it as a valid PID) but
+	// deliberately omit the "fd" subdirectory entirely.
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got, err := topProcessesByFDLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByFDLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the process with a missing fd dir to be skipped, got %+v", got.Rows)
+	}
+	if got.Note != "" {
+		t.Errorf("expected no partial-visibility note (this isn't a permission error), got %q", got.Note)
+	}
+}
+
 func TestTopProcessesByFDLinux_ZeroLimitSkipped(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()
@@ -201,6 +229,50 @@ func TestTopProcessesByFDPercent_RealProc(t *testing.T) {
 	}
 	if len(got.Rows) > 5 {
 		t.Errorf("expected at most 5 rows, got %d", len(got.Rows))
+	}
+}
+
+// TestTopProcessesByFDMac_LsofError guards the error-propagation branch: a
+// failing `lsof` invocation must surface the error rather than a partial or
+// empty result.
+func TestTopProcessesByFDMac_LsofError(t *testing.T) {
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "", errNotFound
+	})
+
+	_, err := topProcessesByFDMac(context.Background(), 5)
+	if err == nil {
+		t.Error("expected an error when lsof fails")
+	}
+}
+
+// TestTopProcessesByFDMac_CapsAtN guards the len(sorted) > n truncation: more
+// distinct PIDs than requested must be capped to n, keeping the busiest ones
+// first.
+func TestTopProcessesByFDMac_CapsAtN(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		switch name {
+		case "lsof":
+			return "p1\nn/a\nn/b\nn/c\n" + // pid 1: 3 fds
+				"p2\nn/a\nn/b\n" + // pid 2: 2 fds
+				"p3\nn/a\n", nil // pid 3: 1 fd
+		case "ps":
+			return "proc" + args[1] + "\n", nil
+		default:
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return "", nil
+	})
+
+	got, err := topProcessesByFDMac(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("topProcessesByFDMac: %v", err)
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("expected n=2 to cap rows at 2, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	if got.Rows[0][0] != "1" {
+		t.Errorf("expected pid 1 (highest fd count) first, got %+v", got.Rows)
 	}
 }
 

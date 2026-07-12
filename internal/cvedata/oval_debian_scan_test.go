@@ -84,3 +84,60 @@ func TestScanUbuntuOVALPackages_ParseError(t *testing.T) {
 		t.Error("expected error for malformed OVAL XML")
 	}
 }
+
+// TestQueryInstalledDPKG_NotAvailable exercises the "dpkg-query failed"
+// error branch by emptying PATH so exec.CommandContext can't resolve the
+// binary — mirrors the rpmUnavailable pattern used for the RHEL/SUSE
+// scanners, and the PATH-shadowing pattern from
+// internal/collectors/fsaccess_test.go.
+func TestQueryInstalledDPKG_NotAvailable(t *testing.T) {
+	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
+	t.Setenv("PATH", "")
+	if _, err := QueryInstalledDPKG(context.Background()); err == nil {
+		t.Error("expected error when dpkg-query is not on PATH")
+	}
+}
+
+// TestScanUbuntuOVALPackages_QueryInstalledDPKGFails confirms the dpkg-query
+// failure from QueryInstalledDPKG propagates out of the higher-level scan
+// (the OVAL parse itself succeeds first).
+func TestScanUbuntuOVALPackages_QueryInstalledDPKGFails(t *testing.T) {
+	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
+	t.Setenv("PATH", "")
+	path := writeFixture(t, "ubuntu-nodpkg.xml", sniffableUbuntuOVAL)
+	if _, err := ScanUbuntuOVALPackages(context.Background(), path); err == nil {
+		t.Error("expected error when dpkg-query is unavailable to query installed packages")
+	}
+}
+
+// TestScanUbuntuOVALPackages_NoInstalledMatches exercises the "components
+// found in OVAL but none are installed" skip branch: the OVAL feed names a
+// package that's guaranteed absent from any real system's dpkg database.
+func TestScanUbuntuOVALPackages_NoInstalledMatches(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("dpkg-query"); err != nil {
+		t.Skip("dpkg-query not available on this host")
+	}
+	const feed = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-4444"/>
+        <advisory><severity>high</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion comment="some-nonexistent-pkg-abc123 package in noble is affected and may need fixing."/>
+      </criteria>
+    </definition>
+  </definitions>
+</oval_definitions>`
+	path := writeFixture(t, "no-match.xml", feed)
+	results, err := ScanUbuntuOVALPackages(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ScanUbuntuOVALPackages: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("results = %+v, want empty (no installed match for the named package)", results)
+	}
+}

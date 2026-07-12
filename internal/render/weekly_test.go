@@ -67,6 +67,49 @@ func TestWeeklyHeavyUsage(t *testing.T) {
 	}
 }
 
+// TestCapitalize covers the empty-string guard alongside normal capitalization.
+func TestCapitalize(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"weekly", "Weekly"},
+		{"a", "A"},
+	}
+	for _, tc := range cases {
+		if got := capitalize(tc.in); got != tc.want {
+			t.Errorf("capitalize(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestCenterPadAndPadRightTruncate cover the truncation branch (input already
+// at/over width) alongside normal padding, for both helpers.
+func TestCenterPadAndPadRightTruncate(t *testing.T) {
+	t.Parallel()
+	long := "this string is definitely longer than ten chars"
+	if got := centerPad(long, 10); got != long[:10] {
+		t.Errorf("centerPad truncation = %q, want %q", got, long[:10])
+	}
+	if got := padRight(long, 10); got != long[:10] {
+		t.Errorf("padRight truncation = %q, want %q", got, long[:10])
+	}
+	// Exact-width input also hits the truncation branch (len(s) >= width).
+	exact := "1234567890"
+	if got := centerPad(exact, 10); got != exact {
+		t.Errorf("centerPad exact-width = %q, want %q", got, exact)
+	}
+	if got := padRight(exact, 10); got != exact {
+		t.Errorf("padRight exact-width = %q, want %q", got, exact)
+	}
+	// Normal padding still works.
+	if got := centerPad("hi", 6); got != "  hi  " {
+		t.Errorf("centerPad short = %q, want %q", got, "  hi  ")
+	}
+	if got := padRight("hi", 6); got != "hi    " {
+		t.Errorf("padRight short = %q, want %q", got, "hi    ")
+	}
+}
+
 func TestWeeklyTitleVariants(t *testing.T) {
 	state := &tips.State{TotalRuns: 14}
 	cases := []struct {

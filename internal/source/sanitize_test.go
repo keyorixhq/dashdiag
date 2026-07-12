@@ -165,6 +165,100 @@ func TestBundleSanitizeSensitiveCacheKey(t *testing.T) {
 	}
 }
 
+// TestBundleSanitizeSkipsEmptyFiles verifies Sanitize skips zero-length
+// recorded files entirely (nothing to redact, no report increment) rather
+// than running the regex passes over empty data.
+func TestBundleSanitizeSkipsEmptyFiles(t *testing.T) {
+	t.Parallel()
+
+	b := NewBundle()
+	b.PutFile("/etc/empty", []byte(""))
+	b.putFile("/etc/absent", nil, nil) // notExist-style record with nil data
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 0 || rep.TotalRedactions != 0 {
+		t.Fatalf("report = %+v, want no redactions for empty/absent files", rep)
+	}
+}
+
+// TestBundleSanitizeStderrOnly verifies Sanitize redacts a secret that
+// appears ONLY in a command's stderr (not stdout), exercising the stderr
+// redaction branch independently of stdout.
+func TestBundleSanitizeStderrOnly(t *testing.T) {
+	t.Parallel()
+
+	b := NewBundle()
+	b.putCmd("curl", []string{"-v"}, Result{
+		Stdout: []byte("200 OK"),
+		Stderr: []byte("Authorization: Bearer eyJhbGciOi.payload.sig"),
+	}, nil)
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.CommandsRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want cmds=1 total=1", rep)
+	}
+	cr, _ := b.getCmd("curl", []string{"-v"})
+	if strings.Contains(string(cr.res.Stderr), "eyJhbGciOi.payload.sig") {
+		t.Errorf("secret left in stderr: %q", cr.res.Stderr)
+	}
+	if string(cr.res.Stdout) != "200 OK" {
+		t.Errorf("stdout should be untouched, got %q", cr.res.Stdout)
+	}
+}
+
+// TestBundleSanitizeWithIdentifiers exercises Sanitize(SanitizeOptions{Identifiers:
+// true}) end to end — the branch that also redacts IPs/MACs/hostname (not just
+// secrets), including the manifest.Host replacement.
+func TestBundleSanitizeWithIdentifiers(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.Manifest.Host = "web01"
+	b.PutFile("/etc/hosts", []byte("192.168.1.1 web01\npassword=hunter2"))
+	b.putCmd("ip", []string{"addr"}, Result{Stdout: []byte("link/ether aa:bb:cc:dd:ee:ff")}, nil)
+
+	rep := b.Sanitize(SanitizeOptions{Identifiers: true})
+	if rep.FilesRedacted == 0 || rep.CommandsRedacted == 0 {
+		t.Fatalf("report = %+v, want both files and commands redacted", rep)
+	}
+
+	fr, _ := b.getFile("/etc/hosts")
+	got := string(fr.data)
+	if strings.Contains(got, "192.168.1.1") {
+		t.Errorf("IP survived Sanitize(Identifiers:true): %q", got)
+	}
+	if strings.Contains(got, "web01") {
+		t.Errorf("hostname survived Sanitize(Identifiers:true): %q", got)
+	}
+	if strings.Contains(got, "hunter2") {
+		t.Errorf("secret survived Sanitize(Identifiers:true): %q", got)
+	}
+
+	cr, _ := b.getCmd("ip", []string{"addr"})
+	if strings.Contains(string(cr.res.Stdout), "aa:bb:cc:dd:ee:ff") {
+		t.Errorf("MAC survived Sanitize(Identifiers:true): %q", cr.res.Stdout)
+	}
+
+	if b.Manifest.Host != hostPlaceholder {
+		t.Errorf("manifest.Host = %q, want %q", b.Manifest.Host, hostPlaceholder)
+	}
+}
+
+// TestBundleSanitizeIdentifiersHostGuard verifies Sanitize does NOT replace
+// Manifest.Host when it is empty or the literal placeholder "host" — both are
+// non-identifying sentinel values, not a real hostname to redact.
+func TestBundleSanitizeIdentifiersHostGuard(t *testing.T) {
+	t.Parallel()
+	for _, host := range []string{"", "host"} {
+		b := NewBundle()
+		b.Manifest.Host = host
+		b.PutFile("/etc/motd", []byte("welcome"))
+		b.Sanitize(SanitizeOptions{Identifiers: true})
+		if b.Manifest.Host != host {
+			t.Errorf("Manifest.Host changed from %q to %q, want unchanged", host, b.Manifest.Host)
+		}
+	}
+}
+
 func TestRedactIdentifiers(t *testing.T) {
 	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
 		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +

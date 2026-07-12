@@ -73,6 +73,56 @@ func TestInsightChanges(t *testing.T) {
 			t.Errorf("expected CRIT first, got %+v", added)
 		}
 	})
+
+	// TestInsightChanges/multiple_changes_sorted_by_check exercises the
+	// `changed` slice's own sort comparator (changed[i].Insight.Check <
+	// changed[j].Insight.Check), which needs 2+ simultaneous severity changes
+	// to actually invoke the comparison body.
+	t.Run("multiple changes sorted by check", func(t *testing.T) {
+		// Same message on both ticks (just the level escalates) so the
+		// signature — Check + digit-normalized message — still matches and
+		// each pair lands in `changed`, not added+resolved.
+		prev := []models.Insight{ins("WARN", "Zebra", "high"), ins("WARN", "Apple", "high")}
+		cur := []models.Insight{ins("CRIT", "Zebra", "high"), ins("CRIT", "Apple", "high")}
+		_, _, changed := InsightChanges(prev, cur)
+		if len(changed) != 2 || changed[0].Insight.Check != "Apple" || changed[1].Insight.Check != "Zebra" {
+			t.Errorf("expected changed sorted [Apple, Zebra], got %+v", changed)
+		}
+	})
+}
+
+// TestSortInsightsSameSeverityTiebreak covers sortInsights' Check-name
+// tiebreak branch (same severity rank, different check name) — the existing
+// InsightChanges subtests only exercise cross-severity ordering.
+func TestSortInsightsSameSeverityTiebreak(t *testing.T) {
+	t.Parallel()
+	in := []models.Insight{ins("WARN", "Zebra", "z"), ins("WARN", "Apple", "a")}
+	sortInsights(in)
+	if in[0].Check != "Apple" || in[1].Check != "Zebra" {
+		t.Errorf("same-severity insights should tiebreak by Check name, got %+v", in)
+	}
+}
+
+// TestSeverityRank covers the default branch (an "OK" or unrecognized level
+// ranks lowest, below INFO) alongside the three named levels.
+func TestSeverityRank(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		level string
+		want  int
+	}{
+		{"CRIT", 3},
+		{"WARN", 2},
+		{"INFO", 1},
+		{"OK", 0},
+		{"", 0},
+		{"garbage", 0},
+	}
+	for _, tc := range cases {
+		if got := severityRank(tc.level); got != tc.want {
+			t.Errorf("severityRank(%q) = %d, want %d", tc.level, got, tc.want)
+		}
+	}
 }
 
 func TestPrintInsightChanges(t *testing.T) {

@@ -39,6 +39,24 @@ func TestCheckIMDS_MalformedURL(t *testing.T) {
 	}
 }
 
+// TestDetectCloudEnvironment_RealPaths is a smoke test for the production
+// wrapper: it hits the real DMI/hypervisor/block/IMDS paths on whatever host
+// runs the suite. It can't assert a specific CloudEnvironment (the CI/dev host
+// varies), only that the call completes and returns a valid, known value —
+// the actual classification logic is exhaustively covered via
+// detectCloudEnvironmentFromPaths in cloud_test.go.
+func TestDetectCloudEnvironment_RealPaths(t *testing.T) {
+	t.Parallel()
+	got := DetectCloudEnvironment()
+	switch got {
+	case EnvUnknown, EnvBareMetal, EnvAWSEBS, EnvAWSNVMe, EnvGCP, EnvAzure,
+		EnvDigitalOcean, EnvHetzner, EnvOracleCloud, EnvVultr, EnvVirtualized:
+		// expected — one of the declared consts.
+	default:
+		t.Errorf("DetectCloudEnvironment() = %v, not a recognized CloudEnvironment", got)
+	}
+}
+
 // TestDetectAWSStorageTypeFromPaths covers the branches TestDetectCloud_* don't:
 // a ReadDir error (block dir missing entirely) and an nvme device present whose
 // model does NOT mention Instance Storage (falls through to EBS).

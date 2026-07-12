@@ -56,6 +56,53 @@ func TestDiskHasUnverifiedReads(t *testing.T) {
 	}
 }
 
+// TestCountDiskIssuesFilesystemsBtrfsZFSAndLVM covers countDiskIssues'
+// remaining branches not exercised by the SMART-only table above: filesystem
+// capacity/inode thresholds (and the inherently-read-only skip), unhealthy
+// Btrfs volumes, unhealthy/full/erroring ZFS pools, and degraded LVM RAID.
+func TestCountDiskIssuesFilesystemsBtrfsZFSAndLVM(t *testing.T) {
+	t.Parallel()
+
+	// A filesystem over the warn threshold counts; one under does not; an
+	// inherently read-only filesystem (squashfs) is always skipped regardless
+	// of how full it is.
+	fsInfo := &models.DiskInfo{Filesystems: []models.FilesystemInfo{
+		{FSType: "ext4", UsedPct: 95},
+		{FSType: "ext4", UsedPct: 10},
+		{FSType: "squashfs", UsedPct: 100},
+	}}
+	if got := countDiskIssues(fsInfo, nil); got != 1 {
+		t.Errorf("expected 1 issue (one over-threshold ext4, squashfs skipped), got %d", got)
+	}
+
+	inodeInfo := &models.DiskInfo{Filesystems: []models.FilesystemInfo{{FSType: "ext4", InodesUsedPct: 99}}}
+	if got := countDiskIssues(inodeInfo, nil); got != 1 {
+		t.Errorf("high inode usage should count as an issue, got %d", got)
+	}
+
+	btrfsInfo := &models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{
+		{Status: "healthy"}, {Status: "degraded"},
+	}}
+	if got := countDiskIssues(btrfsInfo, nil); got != 1 {
+		t.Errorf("one degraded Btrfs volume should count as 1 issue, got %d", got)
+	}
+
+	zfsInfo := &models.DiskInfo{ZFSPools: []models.ZFSPool{
+		{State: "ONLINE", UsedPct: 10},
+		{State: "DEGRADED", UsedPct: 10},
+		{State: "ONLINE", UsedPct: 95},
+		{State: "ONLINE", UsedPct: 10, ReadErrors: 1},
+	}}
+	if got := countDiskIssues(zfsInfo, nil); got != 3 {
+		t.Errorf("degraded state + over-capacity + read errors should each count, got %d", got)
+	}
+
+	lvmInfo := &models.LVMInfo{RaidLVs: []models.LVMRaidLV{{Degraded: true}, {Degraded: false}}}
+	if got := countDiskIssues(&models.DiskInfo{}, lvmInfo); got != 1 {
+		t.Errorf("one degraded RAID LV should count as 1 issue, got %d", got)
+	}
+}
+
 // TestCountSteamOSDiskIssues exercises every independent branch: nil (non-
 // SteamOS host), a large shader cache, and broken bind mounts.
 func TestCountSteamOSDiskIssues(t *testing.T) {

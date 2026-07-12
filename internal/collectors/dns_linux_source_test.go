@@ -199,6 +199,29 @@ func TestDNSCollector_Collect_FullHappyPath(t *testing.T) {
 	}
 }
 
+// TestRunDNSProbeLive_CanceledContext guards the error branch: a context
+// that's already canceled must make the external LookupHost("google.com")
+// call fail immediately (context.Canceled), so ExternalResolvesOK stays false
+// and ResolvTestError is populated — deterministic and network-independent,
+// since the Go resolver checks ctx.Err() before attempting any external I/O.
+// (InternalResolvesOK is not asserted here: the hostname lookup can resolve
+// purely from /etc/hosts/NSS without any network I/O, so it may still succeed
+// even on a canceled context — that's environment-dependent, not part of this
+// guard.)
+func TestRunDNSProbeLive_CanceledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	pr := runDNSProbeLive(ctx)
+	if pr.ExternalResolvesOK {
+		t.Error("ExternalResolvesOK = true with a canceled context, want false")
+	}
+	if pr.ResolvTestError == "" {
+		t.Error("ResolvTestError should be populated when LookupHost fails on a canceled context")
+	}
+}
+
 func TestParseResolvConf(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/resolv.conf", []byte(

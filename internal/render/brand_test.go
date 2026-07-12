@@ -90,6 +90,44 @@ func TestBrandBarHTMLEscapesAndGates(t *testing.T) {
 	}
 }
 
+// TestBrandBarHTMLLogoOnly covers the branch where a logo is set but no company
+// name — the <img> tag must render without the <span class="brand-name"> block.
+func TestBrandBarHTMLLogoOnly(t *testing.T) {
+	resetBrand(t)
+	SetBrand(Brand{Logo: "data:image/png;base64,AAAA"})
+	got := brandBarHTML()
+	if !strings.Contains(got, `class="brand-logo"`) {
+		t.Errorf("expected logo img tag, got %q", got)
+	}
+	if strings.Contains(got, "brand-name") {
+		t.Errorf("no company set — brand-name span should be absent, got %q", got)
+	}
+}
+
+// TestLogoMIME covers every extension branch, case-insensitively, plus the
+// image/png default for an unrecognized/absent extension.
+func TestLogoMIME(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"logo.jpg", "image/jpeg"},
+		{"logo.JPEG", "image/jpeg"},
+		{"logo.svg", "image/svg+xml"},
+		{"logo.gif", "image/gif"},
+		{"logo.webp", "image/webp"},
+		{"logo.png", "image/png"},
+		{"logo.bmp", "image/png"}, // unrecognized ext -> default
+		{"logo", "image/png"},     // no ext -> default
+	}
+	for _, tc := range cases {
+		if got := logoMIME(tc.path); got != tc.want {
+			t.Errorf("logoMIME(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestBuildHTMLBrandingSwitches(t *testing.T) {
 	resetBrand(t)
 	snap := &baseline.Snapshot{Hostname: "h1", Timestamp: time.Now()}

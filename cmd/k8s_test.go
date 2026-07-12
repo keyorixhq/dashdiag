@@ -25,6 +25,22 @@ func TestPrintK8sOSLayer(t *testing.T) {
 	if !strings.Contains(ipForwardOff, "CRIT") || !strings.Contains(ipForwardOff, "IP forwarding disabled") {
 		t.Errorf("IP forwarding confirmed disabled should render CRIT, got:\n%s", ipForwardOff)
 	}
+
+	// WARN branch: firewalld active without masquerade while flannel is in use.
+	warnOut := captureStdout(t, func() {
+		printK8sOSLayer(models.K8sOSLayer{FirewalldChecked: true, FlannelInUse: true, FirewalldMasquOK: false}, output.ModePlain)
+	})
+	if !strings.Contains(warnOut, "WARN") || !strings.Contains(warnOut, "masquerade") {
+		t.Errorf("firewalld without masquerade should render WARN, got:\n%s", warnOut)
+	}
+
+	// INFO (default) branch: OS-layer checks limited by running non-root.
+	infoOut := captureStdout(t, func() {
+		printK8sOSLayer(models.K8sOSLayer{OSLayerNeedsRoot: true}, output.ModePlain)
+	})
+	if !strings.Contains(infoOut, "INFO") || !strings.Contains(infoOut, "run as root") {
+		t.Errorf("a root-limited check should render INFO, got:\n%s", infoOut)
+	}
 }
 
 // TestPrintK8sSummary exercises every concern branch individually — each is an
@@ -43,6 +59,7 @@ func TestPrintK8sSummary(t *testing.T) {
 		{"crash looping", &models.K8sInfo{CrashLooping: 1}, "1 pod(s) crash looping"},
 		{"pods not ready", &models.K8sInfo{PodsNotReady: 3}, "3 pod(s) not ready"},
 		{"pending", &models.K8sInfo{Pending: 1}, "1 pod(s) pending"},
+		{"unknown status", &models.K8sInfo{UnknownStatus: 2}, "2 pod(s) unknown status"},
 		{"high restarts", &models.K8sInfo{HighRestarts: 4}, "4 pod(s) high restarts"},
 		{"workloads down", &models.K8sInfo{WorkloadsDown: 1}, "1 workload(s) degraded"},
 		{"pvcs not bound", &models.K8sInfo{PVCsNotBound: 2}, "2 PVC(s) not bound"},

@@ -37,6 +37,15 @@ func TestApplyOneDispatch(t *testing.T) {
 		models.DNSResolverInfo{},
 		models.KdumpInfo{}, models.TunedInfo{}, models.KernelPatchInfo{},
 		models.KspliceInfo{}, models.ServiceRestartInfo{},
+		models.NetworkdConfigInfo{}, models.RootFSInfo{}, models.FstabInfo{},
+		models.PostgresInfo{}, models.MySQLInfo{}, models.RedisInfo{}, models.MemcachedInfo{},
+		models.NginxInfo{}, models.ApacheInfo{}, models.HAProxyInfo{}, models.RabbitMQInfo{},
+		models.ElasticsearchInfo{}, models.MongoDBInfo{}, models.KafkaInfo{}, models.PrometheusInfo{},
+		models.AlertmanagerInfo{}, models.GrafanaInfo{}, models.TraefikInfo{}, models.EnvoyInfo{},
+		models.RancherInfo{}, models.HAInfo{}, models.MTEInfo{}, models.HWRaidInfo{},
+		models.VMwareInfo{}, models.KVMGuestInfo{}, models.ContainerGuestInfo{},
+		models.AWSInfo{}, models.AzureInfo{}, models.GCPInfo{}, models.OCIInfo{}, models.PostBootInfo{},
+		models.KernelRetentionInfo{}, models.LivePatchInfo{}, models.TransactionalInfo{}, models.ServicesInfo{},
 	}
 	for _, v := range values {
 		_ = applyOne(v, defaultThresh, ctr) // must not panic; result content covered elsewhere
@@ -62,6 +71,15 @@ func TestApplyOneDispatch(t *testing.T) {
 		&models.DNSResolverInfo{},
 		&models.KdumpInfo{}, &models.TunedInfo{}, &models.KernelPatchInfo{},
 		&models.KspliceInfo{}, &models.ServiceRestartInfo{},
+		&models.NetworkdConfigInfo{}, &models.RootFSInfo{}, &models.FstabInfo{},
+		&models.PostgresInfo{}, &models.MySQLInfo{}, &models.RedisInfo{}, &models.MemcachedInfo{},
+		&models.NginxInfo{}, &models.ApacheInfo{}, &models.HAProxyInfo{}, &models.RabbitMQInfo{},
+		&models.ElasticsearchInfo{}, &models.MongoDBInfo{}, &models.KafkaInfo{}, &models.PrometheusInfo{},
+		&models.AlertmanagerInfo{}, &models.GrafanaInfo{}, &models.TraefikInfo{}, &models.EnvoyInfo{},
+		&models.RancherInfo{}, &models.HAInfo{}, &models.MTEInfo{}, &models.HWRaidInfo{},
+		&models.VMwareInfo{}, &models.KVMGuestInfo{}, &models.ContainerGuestInfo{},
+		&models.AWSInfo{}, &models.AzureInfo{}, &models.GCPInfo{}, &models.OCIInfo{}, &models.PostBootInfo{},
+		&models.KernelRetentionInfo{}, &models.LivePatchInfo{}, &models.TransactionalInfo{}, &models.ServicesInfo{},
 	}
 	for _, p := range pointers {
 		_ = applyOne(p, defaultThresh, ctr)

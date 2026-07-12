@@ -5,7 +5,6 @@ package collectors
 import (
 	"bufio"
 	"context"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,7 +54,7 @@ func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 			// is expected, not evidence of a real IPMI/sensor problem. Without this
 			// check, a non-root `dsd health` WARNed on every physical server with a
 			// perfectly healthy BMC (root/non-root divergence).
-			if os.Geteuid() != 0 {
+			if geteuid() != 0 {
 				info.NeedsRoot = true
 				return info, nil
 			}

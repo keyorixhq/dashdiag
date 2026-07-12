@@ -226,6 +226,64 @@ func TestParseRHELOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestParseRHELOVAL_BZ2SuffixUsesBzip2Reader exercises the ".bz2"
+// reader-selection branch. Go's stdlib compress/bzip2 is decode-only, so
+// real compressed content can't be produced here, but a .bz2-suffixed path
+// still exercises bzip2.NewReader construction and the decode-error path.
+func TestParseRHELOVAL_BZ2SuffixUsesBzip2Reader(t *testing.T) {
+	t.Parallel()
+	if _, err := ParseRHELOVAL(writeFixture(t, "rhel.xml.bz2", "not real bzip2 data")); err == nil {
+		t.Error("expected a decode error for non-bzip2 content under .xml.bz2")
+	}
+}
+
+// TestParseRHELOVAL_KeepsHighestScoreAcrossDuplicateDefinitions exercises the
+// "CVE appears in multiple definitions -> keep the higher CVSS score" merge
+// branch: two separate <definition> elements both reference the same CVE ID
+// with different scores.
+func TestParseRHELOVAL_KeepsHighestScoreAcrossDuplicateDefinitions(t *testing.T) {
+	t.Parallel()
+	const feed = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-8888"/>
+        <advisory>
+          <severity>Moderate</severity>
+          <cve cvss3="5.0/CVSS:3.1/AV:L" impact="moderate">CVE-2030-8888</cve>
+          <affected><resolution state="Affected"><component>pkg-a</component></resolution></affected>
+        </advisory>
+      </metadata>
+    </definition>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-8888"/>
+        <advisory>
+          <severity>Critical</severity>
+          <cve cvss3="9.5/CVSS:3.1/AV:N" impact="critical">CVE-2030-8888</cve>
+          <affected><resolution state="Affected"><component>pkg-b</component></resolution></affected>
+        </advisory>
+      </metadata>
+    </definition>
+  </definitions>
+</oval_definitions>`
+	m, err := ParseRHELOVAL(writeFixture(t, "dup-cve.xml", feed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := m["CVE-2030-8888"]
+	if !ok {
+		t.Fatal("CVE-2030-8888 missing")
+	}
+	if rec.CVSS3 != 9.5 {
+		t.Errorf("CVSS3 = %v, want 9.5 (the higher of the two definitions)", rec.CVSS3)
+	}
+	if rec.Severity != "Critical" {
+		t.Errorf("Severity = %q, want Critical (from the winning higher-score definition)", rec.Severity)
+	}
+}
+
 // ── ParseUbuntuOVAL ──────────────────────────────────────────────────────────
 
 const ubuntuOVAL = `<?xml version="1.0"?>
@@ -321,6 +379,51 @@ func TestParseUbuntuOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestParseUbuntuOVAL_BZ2SuffixUsesBzip2Reader exercises the ".bz2"
+// reader-selection branch. Go's stdlib compress/bzip2 is decode-only, so
+// real compressed content can't be produced here, but a .bz2-suffixed path
+// still exercises bzip2.NewReader construction and the decode-error path.
+func TestParseUbuntuOVAL_BZ2SuffixUsesBzip2Reader(t *testing.T) {
+	t.Parallel()
+	if _, err := ParseUbuntuOVAL(writeFixture(t, "ubuntu.xml.bz2", "not real bzip2 data")); err == nil {
+		t.Error("expected a decode error for non-bzip2 content under .xml.bz2")
+	}
+}
+
+// TestParseUbuntuOVAL_SkipsNonVulnerabilityClassAndMissingCVERef confirms two
+// distinct skip branches: a definition whose class isn't "vulnerability", and
+// a vulnerability definition that carries no CVE reference at all (e.g. only
+// a Launchpad bug reference) — neither should produce a result record.
+func TestParseUbuntuOVAL_SkipsNonVulnerabilityClassAndMissingCVERef(t *testing.T) {
+	t.Parallel()
+	const feed = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="patch">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-1111"/>
+        <advisory><severity>high</severity></advisory>
+      </metadata>
+      <criteria><criterion comment="openssl package in noble is affected and may need fixing."/></criteria>
+    </definition>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="LP" ref_id="1234567"/>
+        <advisory><severity>high</severity></advisory>
+      </metadata>
+      <criteria><criterion comment="curl package in noble is affected and may need fixing."/></criteria>
+    </definition>
+  </definitions>
+</oval_definitions>`
+	m, err := ParseUbuntuOVAL(writeFixture(t, "skip-cases.xml", feed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m) != 0 {
+		t.Errorf("got %d records, want 0 (non-vulnerability class and missing CVE ref both skipped): %+v", len(m), m)
+	}
+}
+
 // ── loadOVAL + CheckCVEFromOVAL (SUSE-shaped) ────────────────────────────────
 
 const suseOVAL = `<?xml version="1.0"?>
@@ -375,6 +478,17 @@ func TestLoadOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestLoadOVAL_BZ2SuffixUsesBzip2Reader exercises the ".bz2" reader-selection
+// branch. Go's stdlib compress/bzip2 is decode-only, so real compressed
+// content can't be produced here, but a .bz2-suffixed path still exercises
+// bzip2.NewReader construction and the subsequent decode-error path.
+func TestLoadOVAL_BZ2SuffixUsesBzip2Reader(t *testing.T) {
+	t.Parallel()
+	if _, err := loadOVAL(writeFixture(t, "feed.xml.bz2", "not real bzip2 data")); err == nil {
+		t.Error("expected a decode error for non-bzip2 content under .xml.bz2")
+	}
+}
+
 // CheckCVEFromOVAL: the not-found path is fully deterministic (no rpm query is
 // reached when the CVE is absent from the OVAL file).
 func TestCheckCVEFromOVAL_NotFound(t *testing.T) {
@@ -404,10 +518,13 @@ func TestCollectMatches(t *testing.T) {
 		"t1": {ID: "t1", Object: ovalObjectRef{Ref: "o1"}, State: ovalStateRef{Ref: "s1"}},
 		"t2": {ID: "t2", Object: ovalObjectRef{Ref: "o2"}, State: ovalStateRef{Ref: "s2"}},
 		"t3": {ID: "t3", Object: ovalObjectRef{Ref: "oX"}, State: ovalStateRef{Ref: "sX"}}, // dangling obj
+		"t4": {ID: "t4", Object: ovalObjectRef{Ref: "o1"}, State: ovalStateRef{Ref: "sX"}}, // dangling state
+		"t5": {ID: "t5", Object: ovalObjectRef{Ref: "o3"}, State: ovalStateRef{Ref: "s1"}}, // pkg not installed
 	}
 	objects := map[string]*ovalRPMObject{
 		"o1": {ID: "o1", Name: "vulnpkg"},
 		"o2": {ID: "o2", Name: "safepkg"},
+		"o3": {ID: "o3", Name: "notinstalledpkg"},
 	}
 	states := map[string]*ovalRPMState{
 		"s1": {ID: "s1", EVR: ovalEVR{Value: "0:2.0-1"}},
@@ -417,11 +534,16 @@ func TestCollectMatches(t *testing.T) {
 		"vulnpkg": "0:1.0-1", // older than fixed 2.0-1 -> vulnerable
 		"safepkg": "0:2.0-1", // equal to fixed -> not vulnerable
 		// "otherpkg" not installed
+		// "notinstalledpkg" also not installed -> exercises the "present" guard
 	}
 	// Nested criteria: outer criterion (vulnpkg) + a sub-criteria with safepkg
-	// and a criterion whose test (t3) has a dangling object ref (skipped).
+	// and criteria whose tests have a dangling object ref (t3), dangling state
+	// ref (t4), and a not-installed package (t5) — all should be skipped.
 	crit := ovalCriteria{
-		Criterion: []ovalCriterion{{TestRef: "t1"}, {TestRef: "t3"}, {TestRef: "missing"}},
+		Criterion: []ovalCriterion{
+			{TestRef: "t1"}, {TestRef: "t3"}, {TestRef: "missing"},
+			{TestRef: "t4"}, {TestRef: "t5"},
+		},
 		Criteria: []ovalCriteria{
 			{Criterion: []ovalCriterion{{TestRef: "t2"}}},
 		},

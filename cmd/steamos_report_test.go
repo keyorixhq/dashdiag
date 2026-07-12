@@ -50,6 +50,35 @@ func TestPrintSteamOSSystemReadonly(t *testing.T) {
 	}
 }
 
+// TestPrintSteamOSSystemVersionAndChannel covers the version/channel/BuildID
+// identity line's fallback and populated branches, plus the
+// ChannelConfigMissing WARN, none exercised by the readonly-focused table above.
+func TestPrintSteamOSSystemVersionAndChannel(t *testing.T) {
+	fallback := captureStdout(t, func() {
+		printSteamOSSystem(&models.SteamOSInfo{}, output.ModePlain)
+	})
+	if !strings.Contains(fallback, "SteamOS unknown") || !strings.Contains(fallback, "unknown channel") {
+		t.Errorf("no version/channel set should fall back to 'unknown', got:\n%s", fallback)
+	}
+
+	populated := captureStdout(t, func() {
+		printSteamOSSystem(&models.SteamOSInfo{Version: "3.6.19", Channel: "stable", BuildID: "20240611.1"}, output.ModePlain)
+	})
+	if !strings.Contains(populated, "SteamOS 3.6.19") || !strings.Contains(populated, "stable channel") {
+		t.Errorf("a set version/channel should be shown, got:\n%s", populated)
+	}
+	if !strings.Contains(populated, "BUILD_ID: 20240611.1") {
+		t.Errorf("a set BuildID should be shown, got:\n%s", populated)
+	}
+
+	missingConfig := captureStdout(t, func() {
+		printSteamOSSystem(&models.SteamOSInfo{ChannelConfigMissing: true}, output.ModePlain)
+	})
+	if !strings.Contains(missingConfig, "client.conf missing") {
+		t.Errorf("a missing channel config should warn, got:\n%s", missingConfig)
+	}
+}
+
 func TestPrintSteamOSDevice(t *testing.T) {
 	// No DMI at all: section suppressed entirely.
 	if out := captureStdout(t, func() { printSteamOSDevice(&models.SteamOSInfo{}, output.ModePlain) }); out != "" {
@@ -127,6 +156,13 @@ func TestPrintSteamOSNetwork(t *testing.T) {
 	})
 	if !strings.Contains(notTested, "not tested") {
 		t.Errorf("an untested update server must not claim reachable/unreachable, got:\n%s", notTested)
+	}
+
+	reachable := captureStdout(t, func() {
+		printSteamOSNetwork(&models.SteamOSInfo{UpdateServerKnown: true, UpdateServerReachable: true, UpdateServerLatencyMs: 42}, output.ModePlain)
+	})
+	if !strings.Contains(reachable, "reachable (42ms)") {
+		t.Errorf("a reachable update server should show its latency, got:\n%s", reachable)
 	}
 }
 

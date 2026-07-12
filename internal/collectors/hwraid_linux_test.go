@@ -99,14 +99,11 @@ func TestHWRaidCollector_Collect_SsacliDegraded(t *testing.T) {
 	}
 }
 
-// TestHWRaidCollector_Collect_CommandFails guards the "CLI present but the
-// command failed" branch. Which sub-branch fires (NeedsRoot vs ReadFailed) is
-// gated on the real os.Geteuid() with no injectable seam in this file, so —
-// like TestCollectPostgresMetrics_NonRootPsqlPath elsewhere in this package —
-// the assertion only pins the shared invariant (Available=true, and never a
-// silent healthy verdict), regardless of which euid the test runs under
-// (root inside the golang:1.26 container, non-root on a typical local run).
-func TestHWRaidCollector_Collect_CommandFails(t *testing.T) {
+// TestHWRaidCollector_Collect_CommandFails_NonRoot guards the "CLI present
+// but the command failed" + non-root branch: degrade to NeedsRoot, never a
+// silent healthy verdict. Forced deterministically via the geteuid seam.
+func TestHWRaidCollector_Collect_CommandFails_NonRoot(t *testing.T) {
+	swapGeteuid(t, 1000)
 	withCombinedFixture(t, map[string][]byte{
 		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
 	}, nil, func(b *source.Bundle) {
@@ -121,8 +118,40 @@ func TestHWRaidCollector_Collect_CommandFails(t *testing.T) {
 	if !info.Available {
 		t.Error("Available = false, want true (command failed, but tool IS installed)")
 	}
-	if !info.NeedsRoot && !info.ReadFailed {
-		t.Errorf("info = %+v, want NeedsRoot or ReadFailed set (never a silent healthy verdict on command failure)", info)
+	if !info.NeedsRoot {
+		t.Errorf("info = %+v, want NeedsRoot=true for a non-root command failure", info)
+	}
+	if len(info.Controllers) != 0 {
+		t.Errorf("Controllers = %+v, want empty on a failed read", info.Controllers)
+	}
+}
+
+// TestHWRaidCollector_Collect_CommandFails_Root guards the same branch when
+// running as root: a root failure is a genuine ReadFailed, never mis-
+// classified as NeedsRoot (sudo cannot fix an already-root failure). Forced
+// deterministically via the geteuid seam (real test binaries aren't root, so
+// this branch was previously unreachable in CI without the seam).
+func TestHWRaidCollector_Collect_CommandFails_Root(t *testing.T) {
+	swapGeteuid(t, 0)
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"}, "", 1)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.HWRaidInfo)
+	if !info.Available {
+		t.Error("Available = false, want true (command failed, but tool IS installed)")
+	}
+	if info.NeedsRoot {
+		t.Error("NeedsRoot = true, want false — a root run's failure is a genuine error, not a privilege gap")
+	}
+	if !info.ReadFailed {
+		t.Errorf("info = %+v, want ReadFailed=true for a root command failure", info)
 	}
 	if len(info.Controllers) != 0 {
 		t.Errorf("Controllers = %+v, want empty on a failed read", info.Controllers)

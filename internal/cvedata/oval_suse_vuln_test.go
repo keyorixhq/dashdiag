@@ -122,6 +122,21 @@ func TestDedupOVALByCVE(t *testing.T) {
 	}
 }
 
+// TestDedupOVALByCVE_ShortInputReturnsUnchanged exercises the "len(in) < 2"
+// early return: 0 and 1 element inputs can't contain a duplicate, so the
+// function returns them as-is without allocating the seen-map/output slice.
+func TestDedupOVALByCVE_ShortInputReturnsUnchanged(t *testing.T) {
+	t.Parallel()
+	if got := dedupOVALByCVE(nil); got != nil {
+		t.Errorf("dedupOVALByCVE(nil) = %+v, want nil", got)
+	}
+	one := []OVALCVSSResult{{CVEID: "CVE-1", CVSS3: 9.0}}
+	got := dedupOVALByCVE(one)
+	if len(got) != 1 || got[0].CVEID != "CVE-1" {
+		t.Errorf("dedupOVALByCVE(single) = %+v, want unchanged [CVE-1]", got)
+	}
+}
+
 func TestScanSUSEVulnClass_PatchedHostIsClean(t *testing.T) {
 	oval := buildSUSEVulnDef("1.0-2")
 	// foo installed AT the fixed version → not below → not vulnerable.
@@ -135,6 +150,53 @@ func TestScanSUSEVulnClass_UninstalledPackageNotFlagged(t *testing.T) {
 	oval := buildSUSEVulnDef("1.0-2")
 	if got := scanSUSEVulnClass(oval, []InstalledPackage{{Name: "bar", EVR: "0:0.1-1"}}); len(got) != 0 {
 		t.Errorf("package not installed must not be flagged, got %+v", got)
+	}
+}
+
+// TestScanSUSEVulnClass_SkipsNonVulnerabilityClass confirms definitions whose
+// class isn't "vulnerability" (e.g. "patch", handled by the sibling
+// presence-based scanner) are skipped rather than double-counted.
+func TestScanSUSEVulnClass_SkipsNonVulnerabilityClass(t *testing.T) {
+	t.Parallel()
+	oval := buildSUSEVulnDef("1.0-2")
+	oval.Definitions[0].Class = "patch"
+	pkgs := []InstalledPackage{{Name: "foo", EVR: "0:1.0-1"}}
+	if got := scanSUSEVulnClass(oval, pkgs); len(got) != 0 {
+		t.Errorf("non-vulnerability class must be skipped, got %+v", got)
+	}
+}
+
+// TestScanSUSEVulnClass_SkipsDefinitionWithNoCVERefs confirms a definition
+// carrying no CVE reference (e.g. only a bugzilla/vendor reference) is
+// skipped rather than emitting a result with an empty CVE ID.
+func TestScanSUSEVulnClass_SkipsDefinitionWithNoCVERefs(t *testing.T) {
+	t.Parallel()
+	oval := buildSUSEVulnDef("1.0-2")
+	oval.Definitions[0].Metadata.References = []ovalReference{
+		{Source: "BUGZILLA", RefID: "12345"},
+	}
+	pkgs := []InstalledPackage{{Name: "foo", EVR: "0:1.0-1"}}
+	if got := scanSUSEVulnClass(oval, pkgs); len(got) != 0 {
+		t.Errorf("definition with no CVE refs must be skipped, got %+v", got)
+	}
+}
+
+// TestCollectSUSEVulnMatches_PlatformMarkerSkippedEvenBelowFixedVersion
+// guards against flagging the SUSE platform-version sentinel package (e.g.
+// "openSUSE-release") as a vulnerable component even when its test happens to
+// carry a "less than" operation below its installed version — the marker
+// check (isSUSEPlatformMarker) must still exclude it.
+func TestCollectSUSEVulnMatches_PlatformMarkerSkippedEvenBelowFixedVersion(t *testing.T) {
+	t.Parallel()
+	tests := map[string]susePkgFixTest{
+		"tst:marker": {pkg: "openSUSE-release", fixed: ovalEVR{Value: "0:17.0-1", Operation: "less than"}},
+	}
+	installed := map[string]string{"openSUSE-release": "0:16.0-1"}
+	c := ovalCriteria{Criterion: []ovalCriterion{{TestRef: "tst:marker"}}}
+	out := map[string]string{}
+	collectSUSEVulnMatches(c, tests, installed, out)
+	if len(out) != 0 {
+		t.Errorf("platform marker must never be flagged, got %+v", out)
 	}
 }
 
@@ -186,5 +248,33 @@ func TestSniffOVALVendor(t *testing.T) {
 	ubuntu := write("u.xml", `<?xml version="1.0"?><oval_definitions><definition id="oval:com.ubuntu.noble:def:1"/></oval_definitions>`)
 	if v := sniffOVALVendor(ubuntu); v != "ubuntu" {
 		t.Errorf("sniffOVALVendor(ubuntu content) = %q, want ubuntu", v)
+	}
+}
+
+// TestSniffOVALVendor_MissingFileReturnsEmpty exercises the os.Open error
+// branch: a nonexistent path can't be sniffed, so the vendor is
+// inconclusive ("") rather than the function erroring out — callers fall
+// back to filename-based detection in that case.
+func TestSniffOVALVendor_MissingFileReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	if v := sniffOVALVendor(filepath.Join(t.TempDir(), "missing.xml")); v != "" {
+		t.Errorf("sniffOVALVendor(missing) = %q, want empty", v)
+	}
+}
+
+// TestSniffOVALVendor_BZ2SuffixUsesBzip2Reader exercises the ".bz2" reader-
+// selection branch. Go's stdlib compress/bzip2 is decode-only, so real
+// compressed content can't be generated here, but a .bz2-suffixed path still
+// exercises the bzip2.NewReader construction + the head read that follows —
+// on non-bzip2 bytes it degrades to a head with no vendor markers, i.e. "".
+func TestSniffOVALVendor_BZ2SuffixUsesBzip2Reader(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "feed.xml.bz2")
+	if err := os.WriteFile(path, []byte("not real bzip2 data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if v := sniffOVALVendor(path); v != "" {
+		t.Errorf("sniffOVALVendor(non-bzip2 .bz2 content) = %q, want empty (no vendor marker found)", v)
 	}
 }

@@ -53,6 +53,51 @@ func TestHungProcessesLinux(t *testing.T) {
 	}
 }
 
+// TestHungProcessesLinuxAt_MalformedStatSkipped guards the !ok || len(rest) <
+// 2 skip: a /proc/<pid>/stat with no closing paren for comm (unparseable) and
+// one with too few trailing fields must both be ignored rather than
+// panicking on an out-of-range index.
+func TestHungProcessesLinuxAt_MalformedStatSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	unparseable := filepath.Join(procRoot, "101")
+	if err := os.MkdirAll(unparseable, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unparseable, "stat"), []byte("101 (noclosingparen D 1\n"), 0644); err != nil {
+		t.Fatalf("WriteFile stat: %v", err)
+	}
+	tooShort := filepath.Join(procRoot, "102")
+	if err := os.MkdirAll(tooShort, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tooShort, "stat"), []byte("102 (short) D\n"), 0644); err != nil {
+		t.Fatalf("WriteFile stat: %v", err)
+	}
+
+	got, err := hungProcessesLinuxAt(context.Background(), procRoot)
+	if err != nil {
+		t.Fatalf("hungProcessesLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected both malformed stat entries to be skipped, got %+v", got.Rows)
+	}
+}
+
+// TestHungProcessesLinuxAt_WalkProcsErrorPropagates guards the early-return
+// branch: when walkProcs itself fails (procRoot doesn't exist) and zero
+// entries were collected, the error must propagate rather than be swallowed
+// into an empty "no hung processes" result.
+func TestHungProcessesLinuxAt_WalkProcsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := hungProcessesLinuxAt(context.Background(), missing)
+	if err == nil {
+		t.Error("expected an error when procRoot itself cannot be read")
+	}
+}
+
 func TestHungProcessesLinux_NoneHung(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()
@@ -91,6 +136,42 @@ func TestZombiesWithParentLinux(t *testing.T) {
 	}
 }
 
+// TestZombiesWithParentLinuxAt_MalformedStatSkipped guards the !ok ||
+// len(rest) < 2 skip in the zombie scanner (same shape as the hung-processes
+// equivalent): an unparseable stat line must be ignored, not crash the scan.
+func TestZombiesWithParentLinuxAt_MalformedStatSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	unparseable := filepath.Join(procRoot, "301")
+	if err := os.MkdirAll(unparseable, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unparseable, "stat"), []byte("301 (noclosingparen Z 1\n"), 0644); err != nil {
+		t.Fatalf("WriteFile stat: %v", err)
+	}
+
+	got, err := zombiesWithParentLinuxAt(context.Background(), procRoot)
+	if err != nil {
+		t.Fatalf("zombiesWithParentLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the malformed stat entry to be skipped, got %+v", got.Rows)
+	}
+}
+
+// TestZombiesWithParentLinuxAt_WalkProcsErrorPropagates guards the
+// early-return branch: when walkProcs itself fails (procRoot doesn't exist)
+// and zero entries were collected, the error must propagate.
+func TestZombiesWithParentLinuxAt_WalkProcsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := zombiesWithParentLinuxAt(context.Background(), missing)
+	if err == nil {
+		t.Error("expected an error when procRoot itself cannot be read")
+	}
+}
+
 // zombiesWithParentMac is only invoked at runtime on darwin, but it's a plain
 // function, callable directly on any host — mocking runCmd lets it be
 // exercised on Linux CI too. No t.Parallel(): see swapRunCmd's doc comment.
@@ -114,6 +195,30 @@ func TestZombiesWithParentMac(t *testing.T) {
 		if got.Rows[0][i] != w {
 			t.Errorf("row[%d] = %q, want %q (full row: %+v)", i, got.Rows[0][i], w, got.Rows[0])
 		}
+	}
+}
+
+// TestZombiesWithParentMac_ShortLineSkippedInBothPasses guards the
+// len(fields) < 4 skip, which appears twice: once while building the
+// pid->comm index, once while scanning for zombies. A truncated line must be
+// ignored in both passes rather than causing an out-of-range panic.
+func TestZombiesWithParentMac_ShortLineSkippedInBothPasses(t *testing.T) {
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "ps" {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return "  PID STAT PPID COMM\n" +
+			"  1\n" + // too few fields — skipped in both passes
+			"  1    Ss    0 launchd\n" +
+			"  200    Z     1 deadproc\n", nil
+	})
+
+	got, err := zombiesWithParentMac(context.Background())
+	if err != nil {
+		t.Fatalf("zombiesWithParentMac: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0][0] != "200" || got.Rows[0][3] != "launchd" {
+		t.Errorf("expected the truncated line skipped and the real zombie resolved, got %+v", got.Rows)
 	}
 }
 

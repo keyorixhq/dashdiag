@@ -54,3 +54,45 @@ func TestRenderReportTextNoFindings(t *testing.T) {
 		t.Errorf("clean report should say no findings:\n%s", out)
 	}
 }
+
+// TestOrDash covers both branches directly: empty input renders the dash
+// placeholder, non-empty input passes through unchanged.
+func TestOrDash(t *testing.T) {
+	t.Parallel()
+	if got := orDash(""); got != "—" {
+		t.Errorf("orDash(\"\") = %q, want the dash placeholder", got)
+	}
+	if got := orDash("web01"); got != "web01" {
+		t.Errorf("orDash(%q) = %q, want passthrough", "web01", got)
+	}
+}
+
+// TestRenderReportText_SameSeverityChecknameTiebreak covers the sort
+// tiebreak when two insights share the same severity: order falls back to
+// comparing Check name (the existing test only has distinct severities).
+func TestRenderReportText_SameSeverityChecknameTiebreak(t *testing.T) {
+	t.Parallel()
+	o := JSONOutput{
+		Verdict: "WARN",
+		Insights: []JSONInsight{
+			{Check: "Zebra", Level: "WARN", Message: "z"},
+			{Check: "Apple", Level: "WARN", Message: "a"},
+		},
+	}
+	out := RenderReportText(o)
+	if strings.Index(out, "[WARN] Apple") > strings.Index(out, "[WARN] Zebra") {
+		t.Errorf("same-severity insights should tiebreak by Check name (Apple before Zebra):\n%s", out)
+	}
+}
+
+// TestRenderReportText_EmptyHostAndOS exercises orDash's empty branch through
+// the full renderer (not just the helper in isolation) — blank identity fields
+// must render as the dash placeholder, not an empty gap in the header line.
+func TestRenderReportText_EmptyHostAndOS(t *testing.T) {
+	t.Parallel()
+	o := JSONOutput{Verdict: "OK"}
+	out := RenderReportText(o)
+	if !strings.Contains(out, "DashDiag report — — · —") {
+		t.Errorf("expected dash placeholders for blank hostname/OS, got:\n%s", out)
+	}
+}

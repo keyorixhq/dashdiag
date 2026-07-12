@@ -58,6 +58,20 @@ func TestOSPrettyName_Override(t *testing.T) {
 	}
 }
 
+// TestOSPrettyName_RealPath is a smoke test for the production wrapper's
+// non-override branch: it reads the real /etc/os-release on whatever host
+// runs the suite. Matching TestOSPrettyName_Override/TestSystemLabel (which
+// mutate the same package-level identity override), it does NOT call
+// t.Parallel() so it can't race with them over hostOverride/osOverride.
+func TestOSPrettyName_RealPath(t *testing.T) {
+	restore := SetIdentity("", "") // ensure no override leaks in from another test
+	defer restore()
+	got := OSPrettyName()
+	if got == "" {
+		t.Error("OSPrettyName() (no override) returned empty string, want a value")
+	}
+}
+
 func TestSystemLabel(t *testing.T) {
 	liveHost, _ := os.Hostname()
 

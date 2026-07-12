@@ -68,3 +68,23 @@ func TestRenderTLSResultsAllHealthy(t *testing.T) {
 		t.Errorf("all-OK results should summarize as healthy with no exit call, got:\n%s", out)
 	}
 }
+
+// TestRenderTLSResultsAllHealthy_ShowAllFalse covers the showAll=false branch
+// of the all-OK summary (the "use --all" hint) and the showAll=false skip of
+// per-cert OK detail lines — still the no-os.Exit path.
+func TestRenderTLSResultsAllHealthy_ShowAllFalse(t *testing.T) {
+	out := captureStdout(t, func() {
+		renderTLSResults([]certResult{
+			{Path: "a.pem", Subject: "CN=a.example", Expiry: time.Now().AddDate(0, 6, 0), DaysLeft: 180, Level: "OK"},
+		}, false, output.ModePlain)
+	})
+	if !strings.Contains(out, "All 1 certificate(s) healthy") {
+		t.Errorf("all-OK results should summarize as healthy, got:\n%s", out)
+	}
+	if !strings.Contains(out, "use --all to show individual certs") {
+		t.Errorf("showAll=false should hint at --all, got:\n%s", out)
+	}
+	if strings.Contains(out, "a.example") {
+		t.Errorf("showAll=false should skip individual OK cert detail lines, got:\n%s", out)
+	}
+}

@@ -267,6 +267,45 @@ func TestMemcachedCmdSampled_LiveComputeDialsMemcachedCmdLive(t *testing.T) {
 	}
 }
 
+// TestMemcachedCmdLive_DialError guards the DialContext error branch: an
+// address with nothing listening must return ("", false), not panic or block.
+func TestMemcachedCmdLive_DialError(t *testing.T) {
+	t.Parallel()
+	// Bind then immediately close to get a guaranteed-free local port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("finding free port: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("closing probe listener: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, ok := memcachedCmdLive(ctx, "tcp", addr, "version", false)
+	if ok || out != "" {
+		t.Errorf("memcachedCmdLive() against a closed port = (%q,%v), want (\"\",false)", out, ok)
+	}
+}
+
+// TestMemcachedCmdLive_UntilEND guards the untilEND=true termination branch:
+// the read loop must stop as soon as "\r\nEND\r\n" appears in the accumulated
+// buffer, returning the full multi-line response (e.g. a "stats" reply).
+func TestMemcachedCmdLive_UntilEND(t *testing.T) {
+	t.Parallel()
+	addr := memcachedVersionListener(t, "STAT pid 123\r\nSTAT uptime 456\r\nEND\r\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, ok := memcachedCmdLive(ctx, "tcp", addr, "stats", true)
+	if !ok {
+		t.Fatal("expected ok=true from a real listener terminating with END")
+	}
+	if out != "STAT pid 123\r\nSTAT uptime 456\r\nEND\r\n" {
+		t.Errorf("out = %q, want the full multi-line stats reply", out)
+	}
+}
+
 func TestParseMemcachedStats(t *testing.T) {
 	t.Parallel()
 	t.Run("well-formed multi-line input", func(t *testing.T) {

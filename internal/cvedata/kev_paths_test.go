@@ -86,7 +86,10 @@ func TestFindKEVFile_NotFound(t *testing.T) {
 
 // TestFindKEVFile_IgnoresUnrelatedFiles confirms a directory containing only
 // unrelated files (wrong extension, or no "kev"/"known_exploited" substring)
-// is skipped.
+// is skipped. It also plants a subdirectory whose name would otherwise match
+// the "*kev*.json" glob heuristic (e.g. "kev.json" as a directory, not a
+// file) to exercise the e.IsDir() skip — a directory must never be returned
+// as if it were the catalog file.
 func TestFindKEVFile_IgnoresUnrelatedFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -100,8 +103,11 @@ func TestFindKEVFile_IgnoresUnrelatedFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "kev-archive.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if got := FindKEVFile(); got != "" {
-		t.Errorf("FindKEVFile() = %q, want \"\" (no matching file)", got)
+		t.Errorf("FindKEVFile() = %q, want \"\" (no matching file, directory entries ignored)", got)
 	}
 }
 

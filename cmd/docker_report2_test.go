@@ -43,6 +43,50 @@ func TestPrintDockerDaemon(t *testing.T) {
 		t.Errorf("active swarm should show its role, got:\n%s", swarm)
 	}
 
+	// Swarm active but with no role set falls back to the generic "node" label.
+	swarmNoRole := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{SwarmState: "active"}}, output.ModePlain)
+	})
+	if !strings.Contains(swarmNoRole, "role: node") {
+		t.Errorf("an active swarm with no role should default to 'node', got:\n%s", swarmNoRole)
+	}
+
+	// Version+API version formatting, and the overlayfs→overlay display normalization.
+	verAndDriver := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{
+			Version: "24.0", APIVersion: "1.43", StorageDriver: "overlayfs",
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(verAndDriver, "24.0 (API 1.43)") {
+		t.Errorf("version with API version should show both, got:\n%s", verAndDriver)
+	}
+	if !strings.Contains(verAndDriver, "Storage: overlay") || strings.Contains(verAndDriver, "Storage: overlayfs") {
+		t.Errorf("overlayfs should normalize to 'overlay' in the display, got:\n%s", verAndDriver)
+	}
+
+	// Compose: plugin-only, standalone-only, and neither installed — the three
+	// remaining branches of the switch not exercised by the "both present" case.
+	pluginOnly := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{ComposePlugin: "2.29.1"}}, output.ModePlain)
+	})
+	if !strings.Contains(pluginOnly, "Compose: v2.29.1 (plugin)") {
+		t.Errorf("plugin-only compose should show its version, got:\n%s", pluginOnly)
+	}
+
+	standaloneOnly := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{ComposeStandalone: "1.29.2"}}, output.ModePlain)
+	})
+	if !strings.Contains(standaloneOnly, "standalone — deprecated") {
+		t.Errorf("standalone-only compose should be flagged deprecated, got:\n%s", standaloneOnly)
+	}
+
+	noCompose := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{}}, output.ModePlain)
+	})
+	if !strings.Contains(noCompose, "Compose: not installed") {
+		t.Errorf("no compose at all should say not installed, got:\n%s", noCompose)
+	}
+
 	recentErrs := captureStdout(t, func() {
 		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{RecentErrors: 3, LastDaemonError: "OOM"}}, output.ModePlain)
 	})
@@ -83,6 +127,36 @@ func TestPrintDockerContainers(t *testing.T) {
 	})
 	if !strings.Contains(noneRunning, "WARN") {
 		t.Errorf("zero running containers should render WARN on the running count, got:\n%s", noneRunning)
+	}
+
+	// The UnhealthyCount and CrashLoopCount summary lines (distinct from the
+	// per-container CRASH-LOOP row icon tested above).
+	summaryCounts := captureStdout(t, func() {
+		printDockerContainers(&models.DockerInfo{TotalContainers: 3, RunningCount: 3, UnhealthyCount: 1, CrashLoopCount: 1}, output.ModePlain)
+	})
+	if !strings.Contains(summaryCounts, "unhealthy: 1") {
+		t.Errorf("a nonzero UnhealthyCount should be summarized, got:\n%s", summaryCounts)
+	}
+	if !strings.Contains(summaryCounts, "crash loop: 1") {
+		t.Errorf("a nonzero CrashLoopCount should be summarized, got:\n%s", summaryCounts)
+	}
+
+	// Per-container Health label, restart count, and exit code (with and
+	// without an ExitLabel) — none exercised by the crash-loop/stabilized cases.
+	detail := captureStdout(t, func() {
+		printDockerContainers(&models.DockerInfo{TotalContainers: 2, Containers: []models.ContainerInfo{
+			{Name: "web", State: "running", Health: "healthy", Restart: 2},
+			{Name: "worker", State: "exited", ExitCode: 137, ExitLabel: "OOMKilled"},
+		}}, output.ModePlain)
+	})
+	if !strings.Contains(detail, "[healthy]") {
+		t.Errorf("a set Health should be shown in brackets, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "restarts:2") {
+		t.Errorf("a nonzero restart count should be shown, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "exit:137 (OOMKilled)") {
+		t.Errorf("a nonzero exit code with a label should show both, got:\n%s", detail)
 	}
 }
 
@@ -180,6 +254,13 @@ func TestPrintDockerResources(t *testing.T) {
 	if !strings.Contains(bigDisk, "WARN") {
 		t.Errorf("25GB disk usage (>20GB) should render WARN, got:\n%s", bigDisk)
 	}
+
+	withVolumes := captureStdout(t, func() {
+		printDockerResources(&models.DockerInfo{VolumesCount: 7}, output.ModePlain)
+	})
+	if !strings.Contains(withVolumes, "Volumes: 7") {
+		t.Errorf("a nonzero VolumesCount should be shown, got:\n%s", withVolumes)
+	}
 }
 
 func TestPrintDockerLogDriver(t *testing.T) {
@@ -202,6 +283,16 @@ func TestPrintDockerLogDriver(t *testing.T) {
 	})
 	if !strings.Contains(bounded, "max-size and max-file set") {
 		t.Errorf("a fully bounded json-file driver should say so, got:\n%s", bounded)
+	}
+
+	sizeOnlySet := captureStdout(t, func() {
+		printDockerLogDriver(&models.DockerLogDriverInfo{Driver: "json-file", MaxSizeSet: true, MaxFileSet: false}, output.ModePlain)
+	})
+	if !strings.Contains(sizeOnlySet, "max-size set, max-file not set") {
+		t.Errorf("max-size set but not max-file should say so distinctly, got:\n%s", sizeOnlySet)
+	}
+	if strings.Contains(sizeOnlySet, "daemon.json") {
+		t.Errorf("with max-size set, the fix hint (which only guards !MaxSizeSet) must not print, got:\n%s", sizeOnlySet)
 	}
 
 	largeLog := captureStdout(t, func() {

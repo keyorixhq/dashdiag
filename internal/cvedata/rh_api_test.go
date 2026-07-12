@@ -130,6 +130,84 @@ func TestDetectRHELMajor_ReadError(t *testing.T) {
 
 // ── EnrichFromRHAPI (httptest server + both seams) ──────────────────────────
 
+// TestEnrichFromRHAPI_ReadOSReleaseErrorIsSilent exercises the earliest
+// return in EnrichFromRHAPI: when /etc/os-release (redirected via
+// osReleasePath) can't be read at all, enrichment must silently no-op rather
+// than propagate the error (best-effort by design — see the function doc).
+func TestEnrichFromRHAPI_ReadOSReleaseErrorIsSilent(t *testing.T) {
+	prev := osReleasePath
+	osReleasePath = filepath.Join(t.TempDir(), "does-not-exist")
+	t.Cleanup(func() { osReleasePath = prev })
+
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+	prevAPI := rhSecurityAPI
+	rhSecurityAPI = srv.URL + "/%s.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	result := &models.CVEResult{}
+	EnrichFromRHAPI(context.Background(), "CVE-2024-0006", result)
+	if called {
+		t.Error("EnrichFromRHAPI must not call the network when os-release can't be read")
+	}
+	if result.CVSS3Score != "" {
+		t.Errorf("result should be untouched, got %+v", result)
+	}
+}
+
+// TestEnrichFromRHAPI_MalformedURLIsSilent exercises the
+// http.NewRequestWithContext error branch: a CVE ID containing control
+// characters (here embedded via a rhSecurityAPI template with no %s, so the
+// literal cveID lands in the URL) produces a URL http.NewRequestWithContext
+// rejects, and EnrichFromRHAPI must swallow the error rather than panic.
+func TestEnrichFromRHAPI_MalformedURLIsSilent(t *testing.T) {
+	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	prevAPI := rhSecurityAPI
+	// A control character (raw newline) in the URL path makes
+	// http.NewRequestWithContext return "net/url: invalid control character
+	// in URL" — deterministic without needing a live listener.
+	rhSecurityAPI = "http://127.0.0.1:0/%s\n.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	result := &models.CVEResult{}
+	EnrichFromRHAPI(context.Background(), "CVE-2024-0007", result) // must not panic
+	if result.CVSS3Score != "" {
+		t.Errorf("expected untouched result on malformed request URL, got %+v", result)
+	}
+}
+
+// TestEnrichFromRHAPI_BodyReadErrorIsSilent exercises the io.ReadAll error
+// branch: the server advertises a Content-Length larger than what it
+// actually sends and then closes the connection, so reading the body fails
+// partway through. EnrichFromRHAPI must swallow that error too.
+func TestEnrichFromRHAPI_BodyReadErrorIsSilent(t *testing.T) {
+	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{")) // far short of the advertised length
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				_ = conn.Close() // force a truncated read on the client side
+			}
+		}
+	}))
+	defer srv.Close()
+	prevAPI := rhSecurityAPI
+	rhSecurityAPI = srv.URL + "/%s.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	result := &models.CVEResult{}
+	EnrichFromRHAPI(context.Background(), "CVE-2024-0008", result) // must not panic
+	if result.CVSS3Score != "" {
+		t.Errorf("expected untouched result on truncated body read, got %+v", result)
+	}
+}
+
 func TestEnrichFromRHAPI_NonRHFamilySkipsNetworkCall(t *testing.T) {
 	withOSRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
 	called := false

@@ -39,6 +39,14 @@ func TestPrintTCPCounter(t *testing.T) {
 	if !strings.Contains(crit, "❌") {
 		t.Errorf("a counter above crit should render the fail icon, got:\n%s", crit)
 	}
+	warn := captureStdout(t, func() { printTCPCounter("TIME_WAIT", 700, 500, 1000) })
+	if !strings.Contains(warn, "⚠️") {
+		t.Errorf("a counter between warn and crit should render the warn icon, got:\n%s", warn)
+	}
+	ok := captureStdout(t, func() { printTCPCounter("TIME_WAIT", 100, 500, 1000) })
+	if !strings.Contains(ok, "✅") {
+		t.Errorf("a counter below warn should render the ok icon, got:\n%s", ok)
+	}
 }
 
 func TestPrintTCPCounterLevel(t *testing.T) {
@@ -312,6 +320,20 @@ func TestPrintResolverIdentityAndConfMode(t *testing.T) {
 	if strings.Contains(customUnmanaged, "not managing it") {
 		t.Errorf("a custom resolv.conf when resolved isn't active must not flag the resolved-specific inconsistency, got:\n%s", customUnmanaged)
 	}
+
+	inactive := captureStdout(t, func() {
+		printResolverIdentity(&models.ResolverAuditInfo{ResolverType: "none", ResolverActive: false})
+	})
+	if !strings.Contains(inactive, "ℹ️") || strings.Contains(inactive, "active)") {
+		t.Errorf("an inactive resolver should render INFO without the '(active)' suffix, got:\n%s", inactive)
+	}
+
+	stub := captureStdout(t, func() {
+		printResolverIdentity(&models.ResolverAuditInfo{ResolvConfMode: "stub", ResolvConfTarget: "127.0.0.53"})
+	})
+	if !strings.Contains(stub, "stub mode (correct — 127.0.0.53)") {
+		t.Errorf("stub mode should confirm correctness with its target, got:\n%s", stub)
+	}
 }
 
 func TestPrintResolverDNSSEC(t *testing.T) {
@@ -339,6 +361,12 @@ func TestPrintResolverDNSSECTest(t *testing.T) {
 	if !strings.Contains(failed, "⚠️") {
 		t.Errorf("a genuine DNSSEC validation failure should warn, got:\n%s", failed)
 	}
+	passed := captureStdout(t, func() {
+		printResolverDNSSECTest(&models.ResolverAuditInfo{DNSSECTestRan: true, DNSSECTestPassed: true})
+	})
+	if !strings.Contains(passed, "passed") {
+		t.Errorf("a passing DNSSEC validation test should say so, got:\n%s", passed)
+	}
 }
 
 func TestPrintResolverVPN(t *testing.T) {
@@ -361,6 +389,13 @@ func TestPrintResolverVPN(t *testing.T) {
 	})
 	if !strings.Contains(leak, "is up but DNS is not routed") {
 		t.Errorf("a VPN up but not carrying DNS (a leak) must be flagged, got:\n%s", leak)
+	}
+
+	cannotVerify := captureStdout(t, func() {
+		printResolverVPN(&models.ResolverAuditInfo{VPNInterface: "wg0", VPNDNSIntegrated: nil})
+	})
+	if !strings.Contains(cannotVerify, "cannot verify without systemd-resolved") {
+		t.Errorf("a VPN interface with no verification data should say so, got:\n%s", cannotVerify)
 	}
 }
 

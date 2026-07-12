@@ -68,6 +68,29 @@ func TestLargestDirsFallback(t *testing.T) {
 	}
 }
 
+// TestLargestDirsFallback_CancelledContextStopsEarly guards the ctx.Done()
+// select branch inside the per-entry loop: a context cancelled before the
+// walk starts must make the very first iteration return ctx.Err() rather
+// than walking every child.
+func TestLargestDirsFallback_CancelledContextStopsEarly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for i := range 3 {
+		sub := filepath.Join(dir, string(rune('a'+i)))
+		if err := os.MkdirAll(sub, 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := largestDirsFallback(ctx, dir)
+	if err == nil {
+		t.Error("expected ctx.Err() to propagate from a pre-cancelled context")
+	}
+}
+
 func TestLargestDirsFallback_NonexistentMount(t *testing.T) {
 	t.Parallel()
 	_, err := largestDirsFallback(context.Background(), filepath.Join(t.TempDir(), "nope"))

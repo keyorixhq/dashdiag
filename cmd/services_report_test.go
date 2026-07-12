@@ -146,6 +146,94 @@ func TestPrintSystemdHealthUserUnits(t *testing.T) {
 	}
 }
 
+// TestPrintSystemdHealthDaemonReload covers the NeedsDaemonReload branch
+// (both the printLine and, in ModeHuman, the extra fix-hint line).
+func TestPrintSystemdHealthDaemonReload(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true, JournalHealthy: true,
+		NeedsDaemonReload: []string{"nginx.service", "postgresql.service"},
+	}
+	plain := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if !strings.Contains(plain, "nginx.service, postgresql.service") {
+		t.Errorf("units needing reload should be listed, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "daemon-reload") {
+		t.Errorf("plain mode should not print the human-only fix hint, got:\n%s", plain)
+	}
+
+	human := captureStdout(t, func() { printSystemdHealth(info, output.ModeHuman) })
+	if !strings.Contains(human, "systemctl daemon-reload") {
+		t.Errorf("ModeHuman should print the daemon-reload fix hint, got:\n%s", human)
+	}
+}
+
+// TestPrintSystemdHealthJournalCorruption_Human covers the ModeHuman-only
+// journalctl fix-hint lines under journal corruption.
+func TestPrintSystemdHealthJournalCorruption_Human(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSystemdHealth(&models.ServicesDeepInfo{FailedUnitsQueried: true, JournalHealthy: false}, output.ModeHuman)
+	})
+	if !strings.Contains(out, "journalctl --verify") || !strings.Contains(out, "journalctl --rotate") {
+		t.Errorf("ModeHuman should print the journal fix hints, got:\n%s", out)
+	}
+}
+
+// TestPrintSystemdHealthBootOffenders covers the BootOffenders block,
+// including its ModeHuman-only section header.
+func TestPrintSystemdHealthBootOffenders(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true, JournalHealthy: true,
+		BootOffenders: []models.BootOffender{{Unit: "cloud-init.service", DurationMs: 4200}},
+	}
+	human := captureStdout(t, func() { printSystemdHealth(info, output.ModeHuman) })
+	if !strings.Contains(human, "Boot top offenders") || !strings.Contains(human, "cloud-init.service") {
+		t.Errorf("ModeHuman should show the boot-offenders section header and unit, got:\n%s", human)
+	}
+	if !strings.Contains(human, "4200ms") {
+		t.Errorf("boot offender duration should be shown, got:\n%s", human)
+	}
+
+	plain := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if strings.Contains(plain, "Boot top offenders") {
+		t.Errorf("plain mode should not print the human-only section header, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "cloud-init.service") {
+		t.Errorf("plain mode should still list the offender itself, got:\n%s", plain)
+	}
+}
+
+// TestPrintSystemdHealthNextSteps covers the ModeHuman-only "Next:" block
+// printed after failed units.
+func TestPrintSystemdHealthNextSteps(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true, JournalHealthy: true,
+		FailedUnits: []models.SystemdUnit{{Name: "nginx.service", SubState: "failed"}},
+	}
+	human := captureStdout(t, func() { printSystemdHealth(info, output.ModeHuman) })
+	if !strings.Contains(human, "Next:") || !strings.Contains(human, "systemctl status nginx.service") ||
+		!strings.Contains(human, "journalctl -u nginx.service") {
+		t.Errorf("ModeHuman should print the Next steps block for failed units, got:\n%s", human)
+	}
+
+	plain := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if strings.Contains(plain, "Next:") {
+		t.Errorf("plain mode should not print the human-only Next steps block, got:\n%s", plain)
+	}
+}
+
+// TestPrintServicesDeepDispatch_Human covers printServicesDeep's ModeHuman-only
+// section headers ("Services deep", "[Port health]", "[Systemd health]").
+func TestPrintServicesDeepDispatch_Human(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		PortResults:        []models.ServiceResult{{Name: "web", Host: "localhost", Port: 80, Reachable: true}},
+		FailedUnitsQueried: true, JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printServicesDeep(info, output.ModeHuman) })
+	if !strings.Contains(out, "Services deep") || !strings.Contains(out, "[Port health]") || !strings.Contains(out, "[Systemd health]") {
+		t.Errorf("ModeHuman should print all section headers, got:\n%s", out)
+	}
+}
+
 func TestPrintServicesDeepDispatch(t *testing.T) {
 	info := &models.ServicesDeepInfo{
 		PortResults:        []models.ServiceResult{{Name: "web", Host: "localhost", Port: 80, Reachable: true}},

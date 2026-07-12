@@ -56,6 +56,14 @@ func TestInlineDataDispatch(t *testing.T) {
 		"HugePages":   models.HugePagesInfo{Available: true, Configured: 100, Used: 50},
 		"CPUFreq":     models.CPUFreqInfo{Governor: "performance", CurrentMHz: 3000, MaxMHz: 3000},
 		"Containerd":  models.ContainerdInfo{Available: true, ServiceState: "active"},
+		// RHEL/Oracle maintenance rows — dispatched through inlineData's switch
+		// but otherwise unit-tested directly (health_maintenance_test.go) rather
+		// than via this table; included here so the switch itself is fully hit.
+		"Kdump":          models.KdumpInfo{Available: true, Enabled: true, CrashLoaded: true, ReservedBytes: 1 << 20},
+		"Tuned":          models.TunedInfo{Available: true, Active: true, Profile: "virtual-guest"},
+		"Kernel":         models.KernelPatchInfo{Available: true, RebootNeeded: true},
+		"Ksplice":        models.KspliceInfo{Available: true, PendingUpdates: 1},
+		"ServiceRestart": models.ServiceRestartInfo{Available: true, StaleCount: 2, StaleNames: []string{"nginx"}},
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {

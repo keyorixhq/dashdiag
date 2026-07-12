@@ -41,6 +41,46 @@ func TestTopProcessesBySwapLinux_PermissionDeniedSetsPartial(t *testing.T) {
 	}
 }
 
+// TestTopProcessesBySwapLinuxAt_MissingStatusFileSkipped guards the generic
+// (non-permission) os.Open error branch: a PID directory whose "status" file
+// vanished between the /proc listing and the read (the process exited
+// mid-scan — ENOENT, not EACCES) must be silently skipped without setting
+// the partial-visibility flag.
+func TestTopProcessesBySwapLinuxAt_MissingStatusFileSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	const pid = 987
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got, err := topProcessesBySwapLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesBySwapLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the process with a missing status file to be skipped, got %+v", got.Rows)
+	}
+	if got.Note != "" {
+		t.Errorf("expected no partial-visibility note (this isn't a permission error), got %q", got.Note)
+	}
+}
+
+// TestTopProcessesBySwapLinuxAt_WalkProcsErrorPropagates guards the
+// early-return branch: when walkProcs itself fails (procRoot doesn't exist)
+// and zero entries were collected, the error must propagate rather than be
+// swallowed into an empty result.
+func TestTopProcessesBySwapLinuxAt_WalkProcsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := topProcessesBySwapLinuxAt(context.Background(), 5, missing)
+	if err == nil {
+		t.Error("expected an error when procRoot itself cannot be read")
+	}
+}
+
 func writeSwapStatusFixture(t *testing.T, procRoot string, pid int, name string, swapKB int) {
 	t.Helper()
 	dir := filepath.Join(procRoot, strconv.Itoa(pid))

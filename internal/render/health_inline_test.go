@@ -24,15 +24,47 @@ type inlineCase struct {
 
 func inlineCases() map[string]inlineCase {
 	return map[string]inlineCase{
-		"CPULoad":  {inlineCPULoad, models.CPUInfo{UsagePct: 50}, &models.CPUInfo{UsagePct: 50}},
-		"Memory":   {inlineMemory, models.MemoryInfo{TotalGB: 16, UsedPct: 50}, &models.MemoryInfo{TotalGB: 16, UsedPct: 50}},
-		"Swap":     {inlineSwap, models.SwapInfo{TotalGB: 4, UsedGB: 1}, &models.SwapInfo{TotalGB: 4, UsedGB: 1}},
-		"Entropy":  {inlineEntropy, models.EntropyInfo{Available: true, EntropyBits: 256}, &models.EntropyInfo{Available: true, EntropyBits: 256}},
-		"FDLimits": {inlineFDLimits, models.FDInfo{MaxCount: 1000, OpenCount: 500, UsedPct: 50}, &models.FDInfo{MaxCount: 1000, OpenCount: 500, UsedPct: 50}},
-		"OOM":      {inlineOOM, models.OOMInfo{Available: true, EventsLast24h: 3}, &models.OOMInfo{Available: true, EventsLast24h: 3}},
-		"LVM":      {inlineLVM, models.LVMInfo{VGs: []models.LVMVG{{}}}, &models.LVMInfo{VGs: []models.LVMVG{{}}}},
-		"Sessions": {inlineSessions, models.SessionsInfo{TotalCount: 2}, &models.SessionsInfo{TotalCount: 2}},
-		"IPMI":     {inlineIPMI, models.IPMIInfo{Available: true}, &models.IPMIInfo{Available: true}},
+		"CPULoad":    {inlineCPULoad, models.CPUInfo{UsagePct: 50}, &models.CPUInfo{UsagePct: 50}},
+		"Memory":     {inlineMemory, models.MemoryInfo{TotalGB: 16, UsedPct: 50}, &models.MemoryInfo{TotalGB: 16, UsedPct: 50}},
+		"Swap":       {inlineSwap, models.SwapInfo{TotalGB: 4, UsedGB: 1}, &models.SwapInfo{TotalGB: 4, UsedGB: 1}},
+		"Entropy":    {inlineEntropy, models.EntropyInfo{Available: true, EntropyBits: 256}, &models.EntropyInfo{Available: true, EntropyBits: 256}},
+		"FDLimits":   {inlineFDLimits, models.FDInfo{MaxCount: 1000, OpenCount: 500, UsedPct: 50}, &models.FDInfo{MaxCount: 1000, OpenCount: 500, UsedPct: 50}},
+		"OOM":        {inlineOOM, models.OOMInfo{Available: true, EventsLast24h: 3}, &models.OOMInfo{Available: true, EventsLast24h: 3}},
+		"LVM":        {inlineLVM, models.LVMInfo{VGs: []models.LVMVG{{}}}, &models.LVMInfo{VGs: []models.LVMVG{{}}}},
+		"Sessions":   {inlineSessions, models.SessionsInfo{TotalCount: 2}, &models.SessionsInfo{TotalCount: 2}},
+		"IPMI":       {inlineIPMI, models.IPMIInfo{Available: true}, &models.IPMIInfo{Available: true}},
+		"IO":         {inlineIO, models.IOInfo{Devices: []models.IODeviceInfo{{Name: "sda", AwaitMs: 2}}}, &models.IOInfo{Devices: []models.IODeviceInfo{{Name: "sda", AwaitMs: 2}}}},
+		"KernelSec":  {inlineKernelSec, models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing"}, &models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing"}},
+		"Clock":      {inlineClock, models.ClockInfo{Synced: true, OffsetMs: 1}, &models.ClockInfo{Synced: true, OffsetMs: 1}},
+		"Logs":       {inlineLogs, models.LogsInfo{JournalSizeGB: 1}, &models.LogsInfo{JournalSizeGB: 1}},
+		"CPUThermal": {inlineCPUThermal, models.ThermalInfo{CPUTempC: 50}, &models.ThermalInfo{CPUTempC: 50}},
+		"Battery":    {inlineBattery, models.BatteryInfo{Present: true, CapacityPct: 80}, &models.BatteryInfo{Present: true, CapacityPct: 80}},
+		"Drives":     {inlineDrives, models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "nvme0", SmartRead: true, TempC: 30}}}, &models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "nvme0", SmartRead: true, TempC: 30}}}},
+		"Systemd":    {inlineSystemd, models.SystemdInfo{Available: true, TotalBootSec: 10}, &models.SystemdInfo{Available: true, TotalBootSec: 10}},
+		"Processes":  {inlineProcesses, models.ProcessInfo{Total: 100}, &models.ProcessInfo{Total: 100}},
+		"Bonding":    {inlineBonding, models.BondingInfo{Bonds: []models.BondInterface{{Name: "bond0", Slaves: []models.BondSlave{{Name: "eth0"}}}}}, &models.BondingInfo{Bonds: []models.BondInterface{{Name: "bond0", Slaves: []models.BondSlave{{Name: "eth0"}}}}}},
+		"HBA":        {inlineHBA, models.HBAInfo{Ports: []models.HBAPort{{PortState: "Online"}}}, &models.HBAInfo{Ports: []models.HBAPort{{PortState: "Online"}}}},
+		"Pressure":   {inlinePressure, models.PressureInfo{Available: true}, &models.PressureInfo{Available: true}},
+		"Multipath":  {inlineMultipath, models.MultipathInfo{Available: true, Devices: []models.MultipathDevice{{Name: "mpatha", TotalPaths: 2}}}, &models.MultipathInfo{Available: true, Devices: []models.MultipathDevice{{Name: "mpatha", TotalPaths: 2}}}},
+		"Ceph":       {inlineCeph, models.CephInfo{Available: true, Health: "HEALTH_OK"}, &models.CephInfo{Available: true, Health: "HEALTH_OK"}},
+		"Firewall":   {inlineFirewall, models.FirewallInfo{Available: true, Active: true, TotalRules: 5, Backend: "nft"}, &models.FirewallInfo{Available: true, Active: true, TotalRules: 5, Backend: "nft"}},
+		"Auth":       {inlineAuth, models.AuthInfo{Checked: true}, &models.AuthInfo{Checked: true}},
+		"CloudMeta":  {inlineCloudMeta, models.CloudInfo{Available: true, Provider: "aws"}, &models.CloudInfo{Available: true, Provider: "aws"}},
+		"CloudInit":  {inlineCloudInit, models.CloudInitInfo{Available: true, Status: "done"}, &models.CloudInitInfo{Available: true, Status: "done"}},
+		"Auditd":     {inlineAuditd, models.AuditInfo{Available: true, Running: true, RulesLoaded: 3}, &models.AuditInfo{Available: true, Running: true, RulesLoaded: 3}},
+		"NUMA":       {inlineNUMA, models.NUMAInfo{Available: true, NodeCount: 2}, &models.NUMAInfo{Available: true, NodeCount: 2}},
+		"VLAN":       {inlineVLAN, models.VLANInfo{Interfaces: []models.VLANInterface{{Name: "eth0.10", Up: true}}}, &models.VLANInfo{Interfaces: []models.VLANInterface{{Name: "eth0.10", Up: true}}}},
+		"ISCSI":      {inlineISCSI, models.ISCSIInfo{Available: true, Sessions: []models.ISCSISession{{State: "LOGGED_IN"}}}, &models.ISCSIInfo{Available: true, Sessions: []models.ISCSISession{{State: "LOGGED_IN"}}}},
+		"InfiniBand": {inlineInfiniBand, models.InfiniBandInfo{Ports: []models.IBPort{{State: "ACTIVE"}}}, &models.InfiniBandInfo{Ports: []models.IBPort{{State: "ACTIVE"}}}},
+		"SRIOV":      {inlineSRIOV, models.SRIOVInfo{Devices: []models.SRIOVDevice{{NumVFs: 2}}}, &models.SRIOVInfo{Devices: []models.SRIOVDevice{{NumVFs: 2}}}},
+		"Nspawn":     {inlineNspawn, models.NspawnInfo{Available: true, Containers: []models.NspawnContainer{{State: "running"}}}, &models.NspawnInfo{Available: true, Containers: []models.NspawnContainer{{State: "running"}}}},
+		"GPU":        {inlineGPU, models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 45}}}, &models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 45}}}},
+		"HugePages":  {inlineHugePages, models.HugePagesInfo{Configured: 100, Used: 50}, &models.HugePagesInfo{Configured: 100, Used: 50}},
+		"CPUFreq":    {inlineCPUFreq, models.CPUFreqInfo{Governor: "performance", CurrentMHz: 3000, MaxMHz: 3000}, &models.CPUFreqInfo{Governor: "performance", CurrentMHz: 3000, MaxMHz: 3000}},
+		"Launchd":    {inlineLaunchd, models.LaunchdInfo{Total: 10, Running: 10}, &models.LaunchdInfo{Total: 10, Running: 10}},
+		"Packages":   {inlinePackages, models.PackagesInfo{Checked: true}, &models.PackagesInfo{Checked: true}},
+		"CVE":        {inlineCVE, models.CVEAllResult{Total: 0}, &models.CVEAllResult{Total: 0}},
+		"Containerd": {inlineContainerd, models.ContainerdInfo{Available: true, Version: "1.7"}, &models.ContainerdInfo{Available: true, Version: "1.7"}},
 	}
 }
 
@@ -102,6 +134,12 @@ func TestInlinePackagesQueryFailedNotUpToDate(t *testing.T) {
 // A drive detected via sysfs but with no SMART log read (no nvme-cli, common on
 // minimal cloud/ARM images) must NOT be rendered "healthy" — that's a false-OK.
 func TestInlineDrivesSmartUnread(t *testing.T) {
+	// n non-nil (type-asserted OK) but no devices at all -> empty, not a panic
+	// or a false "0 drives" line.
+	if got := inlineDrives(models.NVMeInfo{}); got != "" {
+		t.Errorf("no devices at all: inlineDrives = %q, want empty", got)
+	}
+
 	unread := models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "/dev/nvme0", SmartRead: false}}}
 	if got := inlineDrives(unread); got != "/dev/nvme0  detected (SMART not read)" {
 		t.Errorf("unread drive: inlineDrives = %q, want SMART-not-read text", got)
@@ -155,6 +193,16 @@ func TestInlineDrivesSmartUnread(t *testing.T) {
 	}}
 	if got := inlineDrives(realNVMe); got != "/dev/nvme0  healthy" {
 		t.Errorf("real NVMe: inlineDrives = %q, want healthy", got)
+	}
+
+	// 2+ drives, all verified — the plain "N drives healthy" summary (distinct
+	// from both the single-drive and the some-unread branches above).
+	allHealthy := models.NVMeInfo{Devices: []models.NVMeDevice{
+		{Name: "/dev/nvme0", SmartRead: true, TempC: 35},
+		{Name: "/dev/nvme1", SmartRead: true, TempC: 40},
+	}}
+	if got := inlineDrives(allHealthy); got != "2 drives  healthy" {
+		t.Errorf("all healthy multi-drive: inlineDrives = %q, want %q", got, "2 drives  healthy")
 	}
 }
 

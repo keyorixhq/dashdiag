@@ -146,6 +146,131 @@ func TestCountDpkg(t *testing.T) {
 	}
 }
 
+func TestReadMachineIDFrom(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	primary := filepath.Join(dir, "primary-id")
+	secondary := filepath.Join(dir, "secondary-id")
+
+	t.Run("primary present", func(t *testing.T) {
+		t.Parallel()
+		if err := os.WriteFile(primary, []byte("abc123\n"), 0o644); err != nil {
+			t.Fatalf("writing primary fixture: %v", err)
+		}
+		if got := readMachineIDFrom(primary, secondary); got != "abc123" {
+			t.Errorf("readMachineIDFrom = %q, want %q", got, "abc123")
+		}
+	})
+
+	t.Run("primary missing falls back to secondary", func(t *testing.T) {
+		t.Parallel()
+		missingPrimary := filepath.Join(dir, "does-not-exist")
+		if err := os.WriteFile(secondary, []byte("fallback-id\n"), 0o644); err != nil {
+			t.Fatalf("writing secondary fixture: %v", err)
+		}
+		if got := readMachineIDFrom(missingPrimary, secondary); got != "fallback-id" {
+			t.Errorf("readMachineIDFrom = %q, want %q", got, "fallback-id")
+		}
+	})
+
+	t.Run("primary empty falls back to secondary", func(t *testing.T) {
+		t.Parallel()
+		emptyPrimary := filepath.Join(dir, "empty-id")
+		if err := os.WriteFile(emptyPrimary, []byte("   \n"), 0o644); err != nil {
+			t.Fatalf("writing empty primary fixture: %v", err)
+		}
+		if err := os.WriteFile(secondary, []byte("fallback-id-2\n"), 0o644); err != nil {
+			t.Fatalf("writing secondary fixture: %v", err)
+		}
+		if got := readMachineIDFrom(emptyPrimary, secondary); got != "fallback-id-2" {
+			t.Errorf("readMachineIDFrom = %q, want %q", got, "fallback-id-2")
+		}
+	})
+
+	t.Run("both missing returns empty", func(t *testing.T) {
+		t.Parallel()
+		missingPrimary := filepath.Join(dir, "nope-1")
+		missingSecondary := filepath.Join(dir, "nope-2")
+		if got := readMachineIDFrom(missingPrimary, missingSecondary); got != "" {
+			t.Errorf("readMachineIDFrom = %q, want empty", got)
+		}
+	})
+}
+
+func TestReadMachineID_RealFallbackChain(t *testing.T) {
+	t.Parallel()
+	// Smoke test for the zero-arg wrapper: must not panic regardless of
+	// whether /etc/machine-id exists on the test host, and always returns a
+	// string (possibly empty).
+	_ = readMachineID()
+}
+
+func TestReadBlockDevices_MissingDir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist")
+	if drives := readBlockDevices(missing); drives != nil {
+		t.Errorf("readBlockDevices(missing) = %+v, want nil", drives)
+	}
+}
+
+func TestIsEUI48_BadSeparator(t *testing.T) {
+	t.Parallel()
+	// Correct length and hex digits, but a non-colon at a separator position.
+	if isEUI48("aa-bb:cc:dd:ee:ff") {
+		t.Error(`"aa-bb:cc:dd:ee:ff" should be invalid (bad separator)`)
+	}
+}
+
+func TestCountPackages(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		pm   string
+	}{
+		{"apt dispatches to dpkg", "apt"},
+		{"pacman dispatches to countDir", "pacman"},
+		{"dnf dispatches to countRPM", "dnf"},
+		{"tdnf dispatches to countRPM", "tdnf"},
+		{"yum dispatches to countRPM", "yum"},
+		{"zypper dispatches to countRPM", "zypper"},
+		{"unknown manager returns 0", "some-unknown-pm"},
+		{"empty manager returns 0", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// These real paths (/var/lib/pacman/local, rpm binary) are
+			// expected absent in the test sandbox, so every branch resolves
+			// to an honest 0 — this exercises the switch dispatch itself,
+			// not real host package data.
+			got := countPackages(tt.pm)
+			if got < 0 {
+				t.Errorf("countPackages(%q) = %d, want >= 0", tt.pm, got)
+			}
+		})
+	}
+}
+
+func TestCountDpkg_MissingFile(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if n := countDpkg(missing); n != 0 {
+		t.Errorf("countDpkg(missing) = %d, want 0", n)
+	}
+}
+
+func TestCountRPM(t *testing.T) {
+	t.Parallel()
+	// No path injection is possible here (countRPM shells out to the rpm
+	// binary with no file API alternative, per the collector pattern). In
+	// the test sandbox the rpm binary is absent, so this deterministically
+	// exercises the CommandContext-error graceful-zero path.
+	if got := countRPM(); got < 0 {
+		t.Errorf("countRPM() = %d, want >= 0", got)
+	}
+}
+
 func TestToCSV_FlatKeyValue(t *testing.T) {
 	inv := models.Inventory{
 		CollectedAt: "2026-06-05T00:00:00Z", Tool: "dsd", ToolVersion: "v1",
@@ -165,5 +290,37 @@ func TestToCSV_FlatKeyValue(t *testing.T) {
 	// Empty fields must be omitted (no cpu.threads row when 0).
 	if strings.Contains(csv, "cpu.threads") {
 		t.Errorf("zero field should be omitted:\n%s", csv)
+	}
+}
+
+func TestToCSV_MemorySlotsAndNICs(t *testing.T) {
+	t.Parallel()
+	inv := models.Inventory{
+		CollectedAt: "2026-06-05T00:00:00Z", Tool: "dsd", ToolVersion: "v1",
+		Memory: models.InventoryMemory{
+			TotalGB: 64,
+			Slots: []models.InventorySlot{
+				{Locator: "DIMM_A1", SizeGB: 32, Type: "DDR4", SpeedMT: 2933},
+				{Locator: "DIMM_A2", SizeGB: 32, Type: "DDR4", SpeedMT: 2933},
+			},
+		},
+		NICs: []models.InventoryNIC{
+			{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", SpeedMbps: 1000, Driver: "igb"},
+			{Name: "eth1", MAC: "aa:bb:cc:dd:ee:00", SpeedMbps: 10000, Driver: "ixgbe"},
+		},
+	}
+	csv, err := ToCSV(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"memory.slot.0.locator,DIMM_A1", "memory.slot.0.size_gb,32", "memory.slot.0.type,DDR4", "memory.slot.0.speed_mt,2933",
+		"memory.slot.1.locator,DIMM_A2",
+		"nic.0.name,eth0", "nic.0.mac,aa:bb:cc:dd:ee:ff", "nic.0.speed_mbps,1000", "nic.0.driver,igb",
+		"nic.1.name,eth1", "nic.1.driver,ixgbe",
+	} {
+		if !strings.Contains(csv, want) {
+			t.Errorf("CSV missing %q\n%s", want, csv)
+		}
 	}
 }

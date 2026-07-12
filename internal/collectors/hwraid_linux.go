@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +62,7 @@ func (c *HWRaidCollector) Collect(ctx context.Context) (interface{}, error) {
 	if err != nil {
 		// These CLIs read the controller device, which is root-only. A non-root run
 		// gets permission-denied — degrade honestly to "could not read", NOT healthy.
-		if os.Geteuid() != 0 {
+		if geteuid() != 0 {
 			info.Available, info.NeedsRoot = true, true
 			return info, nil
 		}

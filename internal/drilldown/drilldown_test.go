@@ -3,6 +3,9 @@ package drilldown
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
@@ -49,6 +52,34 @@ func TestDispatchReplaysCachedDetails(t *testing.T) {
 	got := dispatch(ctx, ins, nil)
 	if got == nil || len(got.Rows) != 1 || got.Rows[0][0] != "4242" {
 		t.Fatalf("dispatch did not replay the cached drill-down details (live re-read leaked?): %+v", got)
+	}
+}
+
+// TestDispatch_MalformedCachedJSONReturnsNil guards the json.Unmarshal error
+// branch in dispatch: a cached blob that isn't valid Details JSON (a corrupt
+// bundle, or a schema mismatch from an older dsd version) must degrade to nil
+// rather than propagating a decode error or panicking.
+func TestDispatch_MalformedCachedJSONReturnsNil(t *testing.T) {
+	ins := models.Insight{Level: "WARN", Check: "CPU Load", Message: "load high malformed"}
+	key := "drilldown\x00" + ins.Check + "\x00" + ins.Message
+
+	rec := source.NewRecorder(source.Live{})
+	prev := collectors.SetSource(rec)
+	if _, err := rec.Cached(key, func() ([]byte, error) { return []byte("{not valid json"), nil }); err != nil {
+		collectors.SetSource(prev)
+		t.Fatalf("seeding cached drilldown: %v", err)
+	}
+	collectors.SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := collectors.SetSource(rp)
+	defer collectors.SetSource(restore)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := dispatch(ctx, ins, nil)
+	if got != nil {
+		t.Errorf("expected nil for malformed cached JSON, got %+v", got)
 	}
 }
 
@@ -199,6 +230,28 @@ func TestZombiesFromResults_ParentNameFallsBackToProc(t *testing.T) {
 	}
 }
 
+// TestZombiesFromResults_ParentNameWithSlashIsBasenamed guards the
+// LastIndexByte(parentName, '/') branch: a ParentName carrying a full path
+// (as some collectors/platforms may report) must be reduced to its base name
+// so it doesn't break the table's column formatting.
+func TestZombiesFromResults_ParentNameWithSlashIsBasenamed(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Processes", Data: &models.ProcessInfo{
+			ZombieProcs: []models.ProcessState{
+				{PID: 302, PPID: 2, ParentName: "/usr/lib/systemd/systemd"},
+			},
+		}},
+	}
+	got := zombiesFromResults(results)
+	if got == nil || len(got.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %+v", got)
+	}
+	if got.Rows[0][2] != "systemd" {
+		t.Errorf("expected ParentName reduced to base name %q, got %q", "systemd", got.Rows[0][2])
+	}
+}
+
 func TestZombiesFromResults_NoProcessesResult(t *testing.T) {
 	t.Parallel()
 	if got := zombiesFromResults(nil); got != nil {
@@ -260,6 +313,26 @@ func TestHungProcessesFromResults_NoProcessesResult(t *testing.T) {
 	t.Parallel()
 	if got := hungProcessesFromResults(nil); got != nil {
 		t.Errorf("expected nil with no Processes result, got %+v", got)
+	}
+}
+
+// TestHungProcessesFromResults_SkipsNonMatchingResultFirst guards the
+// `r.Name != "Processes" { continue }` loop branch: a non-matching result
+// entry preceding the real Processes entry must be skipped, not cause an
+// early wrong return.
+func TestHungProcessesFromResults_SkipsNonMatchingResultFirst(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Memory", Data: nil},
+		{Name: "Processes", Data: &models.ProcessInfo{
+			HungProcs: []models.ProcessState{
+				{PID: 401, Name: "stuckproc2", PPID: 1, WChan: "io_wait"},
+			},
+		}},
+	}
+	got := hungProcessesFromResults(results)
+	if got == nil || len(got.Rows) != 1 || got.Rows[0][0] != "401" {
+		t.Errorf("expected the Processes entry to be found after skipping Memory, got %+v", got)
 	}
 }
 
@@ -354,6 +427,24 @@ func TestHardeningFromResults_NoHardeningResult(t *testing.T) {
 	t.Parallel()
 	if got := hardeningFromResults(nil, "unexpected port 22 listening"); got != nil {
 		t.Errorf("expected nil with no Hardening result, got %+v", got)
+	}
+}
+
+// TestHardeningFromResults_SkipsNonMatchingResultFirst guards the
+// `r.Name != "Hardening" { continue }` loop branch: a non-matching result
+// entry preceding the real Hardening entry must be skipped, not cause an
+// early wrong return.
+func TestHardeningFromResults_SkipsNonMatchingResultFirst(t *testing.T) {
+	t.Parallel()
+	results := []runner.Result{
+		{Name: "Memory", Data: nil},
+		{Name: "Hardening", Data: &models.SecurityInfo{
+			ListeningPorts: []models.PortEntry{{Port: 31337, Protocol: "tcp", Process: "evil", Expected: false}},
+		}},
+	}
+	got := hardeningFromResults(results, "unexpected port 31337 listening")
+	if got == nil || len(got.Rows) != 1 || got.Rows[0][0] != "31337" {
+		t.Errorf("expected the Hardening entry to be found after skipping Memory, got %+v", got)
 	}
 }
 
@@ -461,6 +552,28 @@ func TestDispatchLive_HardeningNilData(t *testing.T) {
 	got := dispatchLive(context.Background(), models.Insight{Check: "Hardening", Message: "unexpected port 22 listening"}, results)
 	if got != nil {
 		t.Errorf("expected nil Details, got %+v", got)
+	}
+}
+
+// TestWalkProcs_NonPermissionFnErrorSkipped guards the `err != nil &&
+// !os.IsPermission(err) { return nil }` branch: every real caller's fn always
+// returns nil internally (they encode failures as "skip, don't propagate"),
+// so this asserts walkProcs's OWN defensive handling directly — a fn that
+// returns a genuine, non-permission error for one PID must not fail the
+// whole walk or propagate that error through g.Wait(), matching the "/proc
+// entries vanish" comment on that line.
+func TestWalkProcs_NonPermissionFnErrorSkipped(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(procRoot, "111"), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	err := walkProcs(context.Background(), procRoot, func(pid int) error {
+		return fmt.Errorf("synthetic non-permission failure for pid %d", pid)
+	})
+	if err != nil {
+		t.Errorf("expected walkProcs to swallow a non-permission fn error, got %v", err)
 	}
 }
 

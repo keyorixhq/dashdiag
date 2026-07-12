@@ -137,6 +137,78 @@ func TestPluralIes(t *testing.T) {
 	}
 }
 
+// TestLargestDirs_UnreadableMountFallsBackAndFails guards the os.ReadDir(mount)
+// error branch: when the mount itself can't be listed (permission denied),
+// LargestDirs must fall through to largestDirsFallback, which hits the exact
+// same permission error and must propagate it rather than panicking or
+// returning a misleading empty table.
+func TestLargestDirs_UnreadableMountFallsBackAndFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-bit semantics differ on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root — cannot test a permission-denied dir because root bypasses permission bits")
+	}
+
+	parent := t.TempDir()
+	locked := filepath.Join(parent, "locked")
+	if err := os.MkdirAll(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	_, err := LargestDirs(context.Background(), locked)
+	if err == nil {
+		t.Error("expected an error when both the primary read and the fallback can't list the mount")
+	}
+}
+
+// TestLargestDirs_DuEmptyOutputSkipsChild guards the len(fields) < 1 skip in
+// the du-output parser: a child whose `du -sh` invocation succeeds but
+// returns empty/whitespace-only output must be silently skipped rather than
+// panicking on an out-of-range field access.
+func TestLargestDirs_DuEmptyOutputSkipsChild(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "   \n", nil
+	})
+
+	got, err := LargestDirs(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("LargestDirs: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the empty-du-output child to be skipped, got %+v", got.Rows)
+	}
+}
+
+func TestParseDuSize_EmptyString(t *testing.T) {
+	t.Parallel()
+	if got := parseDuSize(""); got != 0 {
+		t.Errorf("parseDuSize(\"\") = %d, want 0", got)
+	}
+}
+
+// TestParseDuSize_NoUnitSuffixDefaultsToRawBytes guards the default branch of
+// the unit switch. parseDuSize always strips the LAST character as a
+// presumed unit suffix; when that character is actually a digit (no T/G/M/K
+// unit at all — `du -h` output below 1024 bytes has no suffix), it falls
+// through to default and the value is parsed from the remaining digits, which
+// documents a real quirk: the final digit is dropped from the numeric value
+// in this no-suffix case (an inherent tradeoff of the fixed
+// strip-last-char approach; only used for approximate sort ordering, so exact
+// precision on sub-1024-byte doesn't affect real sorting behaviour above).
+func TestParseDuSize_NoUnitSuffixDefaultsToRawBytes(t *testing.T) {
+	t.Parallel()
+	if got := parseDuSize("512"); got != 51 {
+		t.Errorf("parseDuSize(\"512\") = %d, want 51 (last digit dropped as the presumed unit suffix)", got)
+	}
+}
+
 func TestParseDuSize_Ordering(t *testing.T) {
 	// du -h units are 1024-based; cross-unit comparisons must order correctly.
 	// 1023M < 1G < 2G < 1T, and 900K < 1M.

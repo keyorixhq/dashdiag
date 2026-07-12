@@ -43,6 +43,49 @@ func TestLookupAmbiguous(t *testing.T) {
 	}
 }
 
+func TestLookupFuzzy(t *testing.T) {
+	t.Parallel()
+	t.Run("single fuzzy hit via key substring", func(t *testing.T) {
+		t.Parallel()
+		// "kube" is not an exact key or alias anywhere, but it's a substring of
+		// the k8s topic's aliases ("kubernetes", "kubelet") — a clean single
+		// fuzzy match via aliasContains.
+		got, cands := Lookup("kube")
+		if got == nil || got.Key != "k8s" || len(cands) != 0 {
+			t.Errorf("Lookup(%q) = %v cands=%v, want single hit k8s", "kube", got, cands)
+		}
+	})
+
+	t.Run("ambiguous fuzzy hit across multiple topics", func(t *testing.T) {
+		t.Parallel()
+		// "proc" is a substring of cpu's alias "processor" AND of the
+		// processes topic's key "processes" (and alias "procs") — two
+		// distinct topics match, so Lookup must report ambiguity rather
+		// than guessing.
+		got, cands := Lookup("proc")
+		if got != nil {
+			t.Errorf("Lookup(%q) = %v, want nil (ambiguous)", "proc", got)
+		}
+		want := []string{"cpu", "processes"}
+		if len(cands) != len(want) {
+			t.Fatalf("Lookup(%q) candidates = %v, want %v", "proc", cands, want)
+		}
+		for i, w := range want {
+			if cands[i] != w {
+				t.Errorf("Lookup(%q) candidates[%d] = %q, want %q (want sorted: %v)", "proc", i, cands[i], w, want)
+			}
+		}
+	})
+
+	t.Run("no fuzzy match at all", func(t *testing.T) {
+		t.Parallel()
+		got, cands := Lookup("zzznotathing")
+		if got != nil || cands != nil {
+			t.Errorf("Lookup(%q) = %v cands=%v, want nil, nil", "zzznotathing", got, cands)
+		}
+	})
+}
+
 func TestTopicsContentIntegrity(t *testing.T) {
 	seen := map[string]bool{}
 	for _, tp := range Topics() {

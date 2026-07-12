@@ -82,10 +82,17 @@ func readKernel() string {
 }
 
 func readMachineID() string {
-	if id := readTrim("/etc/machine-id"); id != "" {
+	return readMachineIDFrom("/etc/machine-id", "/var/lib/dbus/machine-id")
+}
+
+// readMachineIDFrom reads the machine ID from primary, falling back to
+// secondary when primary is missing or empty. Paths are injectable so tests
+// never need to touch the real /etc or /var/lib.
+func readMachineIDFrom(primary, secondary string) string {
+	if id := readTrim(primary); id != "" {
 		return id
 	}
-	return readTrim("/var/lib/dbus/machine-id")
+	return readTrim(secondary)
 }
 
 func readDMI(field string) string {

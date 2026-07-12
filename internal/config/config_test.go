@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -188,6 +189,35 @@ services:
 	}
 	if cfg.Services[1].Name != "redis" || cfg.Services[1].Port != 6379 {
 		t.Errorf("services[1]: got %+v", cfg.Services[1])
+	}
+}
+
+// TestLoad_UnmarshalTypeMismatch covers the v.Unmarshal error path
+// specifically: this is syntactically valid YAML (ReadInConfig succeeds) but
+// a field's shape doesn't coerce into the target Go struct (a mapping where a
+// float64 scalar is expected), so mapstructure decoding fails. This is
+// distinct from TestLoad_InvalidYAML, which is malformed YAML syntax that
+// fails earlier at ReadInConfig — that path returns defaults with no error,
+// never reaching Unmarshal at all.
+func TestLoad_UnmarshalTypeMismatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	yaml := `
+thresholds:
+  disk_warn_pct:
+    nested: not-a-number
+`
+	cfgFile := filepath.Join(dir, "typemismatch.yaml")
+	if err := os.WriteFile(cfgFile, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected an error decoding a mapping into a float64 field, got nil")
+	}
+	if !strings.Contains(err.Error(), "parsing config") {
+		t.Errorf("expected 'parsing config' wrapped error, got %v", err)
 	}
 }
 

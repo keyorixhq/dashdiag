@@ -21,6 +21,8 @@ func TestFleetStatusLabel(t *testing.T) {
 		{"ok plain", fleet.Result{Reachable: true, Worst: "OK"}, output.ModePlain, "OK"},
 		{"crit human", fleet.Result{Reachable: true, Worst: "CRIT"}, output.ModeHuman, "❌ CRIT"},
 		{"unreachable human", fleet.Result{Reachable: false, Worst: "OK"}, output.ModeHuman, "🔌 UNREACHABLE"},
+		{"warn human", fleet.Result{Reachable: true, Worst: "WARN"}, output.ModeHuman, "⚠️  WARN"},
+		{"ok human", fleet.Result{Reachable: true, Worst: "OK"}, output.ModeHuman, "✅ OK"},
 	}
 	for _, c := range cases {
 		if got := fleetStatusLabel(c.r, c.mode); got != c.want {

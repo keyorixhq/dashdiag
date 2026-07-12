@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 // newBareSecurityCmd builds a bare cobra.Command with the flags runSecurity
@@ -133,5 +135,32 @@ func TestRunSecuritySaveBaselineAndDrift(t *testing.T) {
 	})
 	if !strings.Contains(outClean, "No security drift detected") {
 		t.Errorf("an unchanged host should report no drift, got: %q", outClean)
+	}
+}
+
+// TestRunSaveBaselineAndDrift_RealDrift exercises runSaveBaseline/runDrift
+// directly against a hand-built SecurityInfo (not runSecurity's live collector),
+// so a genuine change (a new SUID binary) can be injected between save and
+// drift — the runDrift branch that calls printSecurityDrift, not exercised by
+// TestRunSecuritySaveBaselineAndDrift's identical-baseline case above.
+func TestRunSaveBaselineAndDrift_RealDrift(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	before := &models.SecurityInfo{SUIDBinaries: []string{"/usr/bin/passwd"}}
+	if err := runSaveBaseline(before, output.ModePlain); err != nil {
+		t.Fatalf("runSaveBaseline: %v", err)
+	}
+
+	after := &models.SecurityInfo{SUIDBinaries: []string{"/usr/bin/passwd", "/tmp/evil-suid"}}
+	out := captureStdout(t, func() {
+		if err := runDrift(after, output.ModePlain); err != nil {
+			t.Fatalf("runDrift: %v", err)
+		}
+	})
+	if strings.Contains(out, "No security drift detected") {
+		t.Errorf("a new SUID binary must be detected as drift, got: %q", out)
+	}
+	if !strings.Contains(out, "evil-suid") {
+		t.Errorf("the new SUID binary should be named in the drift report, got: %q", out)
 	}
 }

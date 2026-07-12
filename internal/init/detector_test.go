@@ -1,6 +1,9 @@
 package init_pkg
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestContainsAny(t *testing.T) {
 	t.Parallel()
@@ -79,5 +82,29 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 		if n == "" {
 			t.Errorf("darwinProcessNames() returned an empty name among %v", names)
 		}
+	}
+}
+
+// With PATH cleared, exec.Command("ps", "aux") cannot find the "ps" binary,
+// so darwinProcessNames() takes its error branch and returns nil — exercises
+// that path without needing a real macOS host. t.Setenv forbids t.Parallel()
+// per Go's testing package (same constraint as firstrun_test.go).
+func TestDarwinProcessNames_PsNotFound(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	if names := darwinProcessNames(); names != nil {
+		t.Errorf("darwinProcessNames() = %v, want nil when `ps` is not on PATH", names)
+	}
+}
+
+// runningProcessNames dispatches on runtime.GOOS. This smoke test just
+// confirms it returns without panicking on whichever branch the current
+// build/OS takes; the darwin-only branch (runtime.GOOS != "linux") is not
+// reachable on this Linux test host and is recorded as a known gap.
+func TestRunningProcessNames_Smoke(t *testing.T) {
+	t.Parallel()
+	_ = runningProcessNames()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("unexpected GOOS for this smoke test")
 	}
 }

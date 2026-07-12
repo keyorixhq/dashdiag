@@ -36,3 +36,43 @@ func TestGuestReportHTML(t *testing.T) {
 		t.Error("report must be self-contained (no external assets)")
 	}
 }
+
+// TestVerdictClass covers all three levels plus the default fallback for an
+// unrecognized/empty level, and confirms matching is case-insensitive.
+func TestVerdictClass(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ level, want string }{
+		{"crit", "crit"},
+		{"CRIT", "crit"},
+		{"warn", "warn"},
+		{"WARN", "warn"},
+		{"ok", "ok"},
+		{"", "ok"},
+		{"unknown", "ok"},
+	}
+	for _, tc := range cases {
+		if got := verdictClass(tc.level); got != tc.want {
+			t.Errorf("verdictClass(%q) = %q, want %q", tc.level, got, tc.want)
+		}
+	}
+}
+
+// TestGuestFooterHTMLBranded covers the branded-footer branch (guestFooterHTML)
+// — a company set via SetBrand credits it instead of the default dsd footer.
+func TestGuestFooterHTMLBranded(t *testing.T) {
+	resetBrand(t)
+	SetBrand(Brand{Company: "Acme <script> Co"})
+	got := guestFooterHTML()
+	if !strings.Contains(got, "Prepared by") || !strings.Contains(got, "powered by") {
+		t.Errorf("branded footer missing expected copy, got %q", got)
+	}
+	if strings.Contains(got, "<script>") {
+		t.Errorf("company name must be HTML-escaped in footer, got %q", got)
+	}
+
+	SetBrand(Brand{})
+	unbranded := guestFooterHTML()
+	if strings.Contains(unbranded, "Prepared by") {
+		t.Errorf("unbranded footer should not credit a company, got %q", unbranded)
+	}
+}

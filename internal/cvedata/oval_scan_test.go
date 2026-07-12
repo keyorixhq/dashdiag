@@ -103,14 +103,80 @@ func TestScanOVALPackages_DispatchToSUSEByFilename(t *testing.T) {
 	}
 }
 
+// sniffableSUSEOVAL carries a content marker ("suse.linux.enterprise") that
+// sniffOVALVendor recognises, so ScanOVALPackages routes to
+// ScanSUSEOVALPackages purely from content, distinct from
+// TestScanOVALPackages_DispatchToSUSEByFilename above (filename-only hint).
+const sniffableSUSEOVAL = `<?xml version="1.0"?>
+<!-- source: suse.linux.enterprise oval feed -->
+<oval_definitions>
+  <definitions>
+    <definition id="oval:test:def:1" class="patch">
+      <metadata>
+        <title>Security update for foo (Important)</title>
+        <reference source="CVE" ref_id="CVE-2030-2222"/>
+        <advisory><severity>important</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion test_ref="oval:tst:1" comment="foo-1.0-1 is installed"/>
+      </criteria>
+    </definition>
+  </definitions>
+</oval_definitions>`
+
+func TestScanOVALPackages_DispatchToSUSEOnContentSniff(t *testing.T) {
+	t.Parallel()
+	rpmUnavailable(t)
+	// Neutral filename — content alone must route this to the SUSE scanner.
+	path := writeFixture(t, "feed.xml", sniffableSUSEOVAL)
+	if _, err := ScanOVALPackages(context.Background(), path); err == nil {
+		t.Error("expected the SUSE dispatch path (by content sniff) to surface the rpm-unavailable error")
+	}
+}
+
+// TestScanOVALPackages_DispatchFallsBackToRHEL exercises the RHEL scanner via
+// content sniffing: rhelOVAL's "RHSA-2024:1" reference ID contains the "rhsa"
+// marker sniffOVALVendor looks for, so this reaches scanRHELOVALPackages via
+// the "rhel" case in the switch (oval_rhel.go:203-204), not the trailing
+// default fallback at line 213 — that line is covered separately by
+// TestScanOVALPackages_DispatchFallsBackToRHELWhenContentIsFullyNeutral below.
 func TestScanOVALPackages_DispatchFallsBackToRHEL(t *testing.T) {
 	t.Parallel()
 	rpmUnavailable(t)
-	// Content doesn't sniff, filename doesn't match ubuntu/suse hints either
-	// -> falls through to the RHEL scanner as the final default.
 	path := writeFixture(t, "neutral-name.xml", rhelOVAL)
 	if _, err := ScanOVALPackages(context.Background(), path); err == nil {
-		t.Error("expected the default RHEL dispatch path to surface the rpm-unavailable error")
+		t.Error("expected the RHEL dispatch path to surface the rpm-unavailable error")
+	}
+}
+
+// fullyNeutralOVAL carries no vendor content marker at all (no "rhsa"/
+// "redhat"/"canonical"/"suse" substring anywhere), and is written under a
+// filename that matches neither the Ubuntu/Debian nor SUSE filename hints —
+// so ScanOVALPackages must exhaust every dispatch check and reach the final
+// unconditional "return scanRHELOVALPackages(...)" default at the end of the
+// function (oval_rhel.go:213), not any of the earlier switch/if branches.
+const fullyNeutralOVAL = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-3333"/>
+        <advisory>
+          <severity>Important</severity>
+          <cve cvss3="7.5/CVSS:3.1/AV:N" impact="important">CVE-2030-3333</cve>
+          <affected><resolution state="Affected"><component>testpkg</component></resolution></affected>
+        </advisory>
+      </metadata>
+    </definition>
+  </definitions>
+</oval_definitions>`
+
+func TestScanOVALPackages_DispatchFallsBackToRHELWhenContentIsFullyNeutral(t *testing.T) {
+	t.Parallel()
+	rpmUnavailable(t)
+	path := writeFixture(t, "generic-feed.xml", fullyNeutralOVAL)
+	if _, err := ScanOVALPackages(context.Background(), path); err == nil {
+		t.Error("expected the default (final fallback) RHEL dispatch path to surface the rpm-unavailable error")
 	}
 }
 
@@ -134,6 +200,44 @@ const sniffableUbuntuOVAL = `<?xml version="1.0"?>
     </definition>
   </definitions>
 </oval_definitions>`
+
+// TestScanOVALPackages_DispatchToUbuntuByFilename exercises the filename-hint
+// fallback for Ubuntu/Debian: content doesn't sniff to any vendor (no
+// "canonical"/"ubuntu.com" marker), so dispatch falls back to the "ubuntu" in
+// the filename — distinct from the content-sniff path exercised by
+// TestScanOVALPackages_DispatchToUbuntuAndFindsRealPackage below. Uses the
+// same sniffableUbuntuOVAL feed (naming "bash", always installed) but under a
+// neutral-content/ubuntu-named file so only the filename hint can route it.
+func TestScanOVALPackages_DispatchToUbuntuByFilename(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("dpkg-query"); err != nil {
+		t.Skip("dpkg-query not available on this host")
+	}
+	const feed = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2030-0009"/>
+        <advisory><severity>high</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion comment="bash package in noble is affected and may need fixing."/>
+      </criteria>
+    </definition>
+  </definitions>
+</oval_definitions>`
+	// No vendor content marker present -> sniffOVALVendor returns "" and
+	// dispatch must fall back to the "ubuntu" substring in the filename.
+	path := writeFixture(t, "ubuntu-custom-feed.xml", feed)
+	results, err := ScanOVALPackages(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ScanOVALPackages: %v", err)
+	}
+	if len(results) != 1 || results[0].CVEID != "CVE-2030-0009" {
+		t.Fatalf("results = %+v, want 1 hit for CVE-2030-0009 (bash is always installed)", results)
+	}
+}
 
 // TestScanOVALPackages_DispatchToUbuntuAndFindsRealPackage exercises the full
 // Ubuntu dispatch path against the REAL system dpkg database (dpkg-query is

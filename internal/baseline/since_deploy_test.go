@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,14 @@ func TestParseBootTime_Malformed(t *testing.T) {
 	}
 }
 
+// A reader that fails mid-scan (not a clean EOF) must surface as ok=false via
+// scanner.Err(), not be treated the same as "no btime line found".
+func TestParseBootTime_ScanError(t *testing.T) {
+	if _, ok := parseBootTime(errReader{}); ok {
+		t.Error("a reader that fails should return ok=false")
+	}
+}
+
 // parseProcStart reads field 2 (comm) and field 22 (starttime, ticks) from a
 // /proc/<pid>/stat record and offsets from boot (100 ticks/sec).
 func TestParseProcStart(t *testing.T) {
@@ -61,6 +70,20 @@ func TestParseProcStart(t *testing.T) {
 	}
 	if want := boot.Add(5 * time.Second); !ts.Equal(want) {
 		t.Errorf("start time: got %v, want %v", ts, want)
+	}
+}
+
+// errReader always fails on Read, exercising parseProcStart's io.ReadAll
+// error branch.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("simulated read failure")
+}
+
+func TestParseProcStart_ReadError(t *testing.T) {
+	if _, _, ok := parseProcStart(errReader{}, time.Now()); ok {
+		t.Error("a reader that fails should return ok=false")
 	}
 }
 
@@ -112,6 +135,19 @@ func TestNewestProcStart(t *testing.T) {
 	}
 }
 
+// newestProcStart with maxAge=0 must reject every running process (every
+// process has age > 0), exercising the age-filter skip branch and returning
+// the "no recent process" error deterministically.
+func TestNewestProcStart_ZeroMaxAgeRejectsAll(t *testing.T) {
+	ts, name, err := newestProcStart(0)
+	if err == nil {
+		t.Fatalf("expected error with maxAge=0, got (%v, %q)", ts, name)
+	}
+	if !ts.IsZero() || name != "" {
+		t.Errorf("error path should return zero values, got (%v, %q)", ts, name)
+	}
+}
+
 // RunSinceDeployDiff degrades gracefully to a nil error (info message) when no
 // pre-deploy baseline exists for the host.
 func TestRunSinceDeployDiff_NoBaseline(t *testing.T) {
@@ -120,6 +156,46 @@ func TestRunSinceDeployDiff_NoBaseline(t *testing.T) {
 
 	if err := RunSinceDeployDiff(output.ModePlain); err != nil {
 		t.Errorf("RunSinceDeployDiff should not error with no baseline, got %v", err)
+	}
+}
+
+// RunSinceDeployDiff's success path (a deploy signal is found AND a baseline
+// predates it) prints the "Changes since last deploy" header rather than one
+// of the two info fallbacks. DetectLastDeployTime has no injection seam (it
+// cascades through systemctl / /proc / git), so this test relies on the test
+// process itself being a "recently started process" — true for every go test
+// invocation — to make newestProcStart succeed, then plants a baseline file
+// old enough to predate it.
+func TestRunSinceDeployDiff_WithBaseline(t *testing.T) {
+	deployTime, _, err := DetectLastDeployTime()
+	if err != nil {
+		t.Skip("no deploy signal available in this environment")
+	}
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	hostname, _ := os.Hostname()
+	bdir := filepath.Join(dir, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	snap := Snapshot{Hostname: hostname, Version: "pre-deploy"}
+	data, err := json.MarshalIndent(&snap, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(bdir, hostname+"-20260101-000000.json")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Backdate the baseline file so its mtime is well before the deploy signal.
+	before := deployTime.Add(-1 * time.Hour)
+	if err := os.Chtimes(p, before, before); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunSinceDeployDiff(output.ModePlain); err != nil {
+		t.Errorf("RunSinceDeployDiff should not error on the success path, got %v", err)
 	}
 }
 
