@@ -362,7 +362,7 @@ func TestProcFDBusyProcesses(t *testing.T) {
 	})
 
 	t.Run("caps at fsBusyMaxProcs", func(t *testing.T) {
-		var pids []string
+		pids := make([]string, 0, fsBusyMaxProcs+5)
 		links := map[string]string{}
 		for i := range fsBusyMaxProcs + 5 {
 			pid := strconv.Itoa(2000 + i)
