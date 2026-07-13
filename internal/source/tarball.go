@@ -29,11 +29,18 @@ func LoadTarball(path string) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := untarGz(path, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
 		return nil, err
 	}
-	return Load(tmp)
+	// Load reads every blob into []byte before returning — tmp is fully consumed
+	// after this call and can be removed regardless of the outcome.
+	b, err := Load(tmp)
+	_ = os.RemoveAll(tmp)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func tarGzDir(srcDir, dstPath string) error {
