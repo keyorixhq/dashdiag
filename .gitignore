@@ -26,7 +26,10 @@ PRODUCT_IDEAS.md
 
 # Content drafts — release coordinated with launch
 CONTENT_*.md
-dsd
+
+# Root-anchored: locally built `dsd` binary (e.g. `go build -o dsd`).
+# Unanchored `dsd` would also match cmd/dsd/ (directory component match).
+/dsd
 deploy.sh
 .dsd/oval/
 marketing-assets/**/*.oval.xml.bz2
