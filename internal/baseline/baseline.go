@@ -38,6 +38,19 @@ type DiffEntry struct {
 	Improved     bool
 }
 
+// writeAndCloseFn writes data to f and closes it, returning any error from
+// either step (closing f on a write failure first so no fd leaks). A
+// package-level var — like hashSSHConfigFilesFn below — so tests can
+// simulate a write/close failure on an already-successfully-created temp
+// file, a state not otherwise reachable without a real disk-full/IO error.
+var writeAndCloseFn = func(f *os.File, data []byte) error {
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 func baselineDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".dsd", "baselines")
@@ -68,11 +81,7 @@ func SaveBaseline(snap *Snapshot) error {
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
+	if err := writeAndCloseFn(tmp, data); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpName, tsFile); err != nil {
@@ -90,11 +99,7 @@ func SaveBaseline(snap *Snapshot) error {
 	}
 	tmp2Name := tmp2.Name()
 	defer func() { _ = os.Remove(tmp2Name) }()
-	if _, err := tmp2.Write(data); err != nil {
-		_ = tmp2.Close()
-		return err
-	}
-	if err := tmp2.Close(); err != nil {
+	if err := writeAndCloseFn(tmp2, data); err != nil {
 		return err
 	}
 	return os.Rename(tmp2Name, latest)

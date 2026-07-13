@@ -80,11 +80,7 @@ func SaveSecurityBaseline(b *SecurityBaseline) error {
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
+	if err := writeAndCloseFn(tmp, data); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)

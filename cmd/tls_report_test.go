@@ -69,6 +69,73 @@ func TestRenderTLSResultsAllHealthy(t *testing.T) {
 	}
 }
 
+// TestRenderTLSResultsAllHealthy_MultipleSorted exercises renderTLSResults'
+// real sort.Slice call (not just the standalone comparator test) with
+// multiple same-severity results, confirming soonest-expiry-first ordering
+// end to end on the one path that never calls os.Exit.
+func TestRenderTLSResultsAllHealthy_MultipleSorted(t *testing.T) {
+	out := captureStdout(t, func() {
+		renderTLSResults([]certResult{
+			{Path: "later.pem", Subject: "CN=later", Expiry: time.Now().AddDate(1, 0, 0), DaysLeft: 365, Level: "OK"},
+			{Path: "sooner.pem", Subject: "CN=sooner", Expiry: time.Now().AddDate(0, 1, 0), DaysLeft: 30, Level: "OK"},
+		}, true, output.ModePlain)
+	})
+	soonerIdx := strings.Index(out, "sooner.pem")
+	laterIdx := strings.Index(out, "later.pem")
+	if soonerIdx == -1 || laterIdx == -1 || soonerIdx > laterIdx {
+		t.Errorf("soonest-expiring cert should print first, got:\n%s", out)
+	}
+}
+
+// TestCertResultLess covers both branches of the sort comparator pulled out
+// of renderTLSResults: differing severity (CRIT sorts before OK) and same
+// severity, differing expiry (soonest-expiring sorts first). Kept as a
+// standalone pure-function test since exercising both branches through
+// renderTLSResults itself would require a non-OK result, which triggers that
+// function's os.Exit calls.
+func TestCertResultLess(t *testing.T) {
+	t.Parallel()
+	crit := certResult{Level: "CRIT", DaysLeft: 100}
+	ok := certResult{Level: "OK", DaysLeft: 1}
+	if !certResultLess(crit, ok) {
+		t.Errorf("CRIT should sort before OK regardless of DaysLeft")
+	}
+	if certResultLess(ok, crit) {
+		t.Errorf("OK should not sort before CRIT")
+	}
+
+	soon := certResult{Level: "OK", DaysLeft: 5}
+	later := certResult{Level: "OK", DaysLeft: 30}
+	if !certResultLess(soon, later) {
+		t.Errorf("same-severity results should sort by soonest expiry first")
+	}
+	if certResultLess(later, soon) {
+		t.Errorf("later-expiring result should not sort before sooner one")
+	}
+}
+
+// TestCountTLSLevels covers the level-tally logic pulled out of
+// renderTLSResults, including all four Level branches (CRIT/WARN/OK/ERR) in
+// one pass — something renderTLSResults itself can never safely exercise
+// together since any non-OK result triggers its os.Exit calls.
+func TestCountTLSLevels(t *testing.T) {
+	t.Parallel()
+	crits, warns, oks, errs := countTLSLevels([]certResult{
+		{Level: "CRIT"}, {Level: "CRIT"},
+		{Level: "WARN"},
+		{Level: "OK"}, {Level: "OK"}, {Level: "OK"},
+		{Level: "ERR"},
+	})
+	if crits != 2 || warns != 1 || oks != 3 || errs != 1 {
+		t.Errorf("countTLSLevels = (%d,%d,%d,%d), want (2,1,3,1)", crits, warns, oks, errs)
+	}
+
+	crits, warns, oks, errs = countTLSLevels(nil)
+	if crits != 0 || warns != 0 || oks != 0 || errs != 0 {
+		t.Errorf("countTLSLevels(nil) = (%d,%d,%d,%d), want all zero", crits, warns, oks, errs)
+	}
+}
+
 // TestRenderTLSResultsAllHealthy_ShowAllFalse covers the showAll=false branch
 // of the all-OK summary (the "use --all" hint) and the showAll=false skip of
 // per-cert OK detail lines — still the no-os.Exit path.
