@@ -3,11 +3,14 @@ name: CodeQL
 # First-party SAST (SSDLC Layer 1, ADR-0007). gosec (via golangci-lint) and our
 # semgrep rules catch known patterns on every PR; CodeQL adds GitHub's deeper
 # dataflow analysis for the security bug classes those miss, with results in the
-# Security tab. Runs on push to main + weekly (not per-PR) to keep the PR gate
-# fast — the PR gate already has gosec + semgrep + race tests.
+# Security tab. Runs on push to main, on every PR, and weekly.
+# Note: pull_request is required for OpenSSF Scorecard's SAST check (alert #30)
+# to count commits as "checked with a SAST tool".
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   schedule:
     - cron: '41 9 * * 1' # weekly, offset from the other security jobs
