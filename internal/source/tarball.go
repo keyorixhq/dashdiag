@@ -3,11 +3,14 @@ package source
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+const maxUntarFileSize int64 = 100 << 20 // 100 MiB per extracted file
 
 // SaveTarball writes the bundle as a gzipped tar in the raw-v1 layout. This is
 // the artifact `dsd capture --raw` hands back: one self-contained file.
@@ -57,8 +60,11 @@ func tarGzDir(srcDir, dstPath string) error {
 	tw := tar.NewWriter(gz)
 
 	walkErr := filepath.Walk(srcDir, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
+		if err != nil {
 			return err
+		}
+		if fi.IsDir() {
+			return nil
 		}
 		rel, err := filepath.Rel(srcDir, p)
 		if err != nil {
@@ -121,13 +127,21 @@ func untarGz(srcPath, dstDir string) error {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
+		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
+			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+		}
 		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- dst is under our temp dir
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(out, tr); err != nil { // #nosec G110 -- our own bundle, bounded
+		n, err := io.Copy(out, io.LimitReader(tr, maxUntarFileSize+1))
+		if err != nil {
 			_ = out.Close()
 			return err
+		}
+		if n > maxUntarFileSize {
+			_ = out.Close()
+			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
 		}
 		if err := out.Close(); err != nil {
 			return err
