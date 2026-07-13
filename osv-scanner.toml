@@ -1,0 +1,9 @@
+# OSV-Scanner ignore list.
+# Add an entry here only when: (a) the vulnerable import path is NOT reachable
+# in this codebase AND (b) no fixed version exists upstream (so a dependency
+# upgrade cannot clear it). govulncheck --show=verbose is the authoritative
+# call-graph oracle; cross-check before adding any new entry.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "golang.org/x/crypto/openpgp and its sub-packages are not imported by this project. Only golang.org/x/crypto/blake2b is used. No fixed version exists upstream — the openpgp sub-packages are unmaintained by design and cannot be patched away from this module. govulncheck ./... confirms 0 reachable vulnerabilities."
