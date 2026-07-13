@@ -119,10 +119,12 @@ func untarGz(srcPath, dstDir string) error {
 			return err
 		}
 		if _, err := io.Copy(out, tr); err != nil { // #nosec G110 -- our own bundle, bounded
-			out.Close()
+			_ = out.Close()
 			return err
 		}
-		out.Close()
+		if err := out.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
