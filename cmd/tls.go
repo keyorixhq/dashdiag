@@ -113,25 +113,24 @@ func runTLS(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// renderTLSResults sorts, prints, and summarizes scan results. It calls
-// os.Exit(2) when any cert is CRIT and os.Exit(1) when any is WARN — matching
-// the original dsd tls exit-code contract.
-func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode) {
-	// Sort: CRIT first, then WARN, then OK, then ERR
-	order := map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, "ERR": 3}
-	sort.Slice(results, func(i, j int) bool {
-		if order[results[i].Level] != order[results[j].Level] {
-			return order[results[i].Level] < order[results[j].Level]
-		}
-		return results[i].DaysLeft < results[j].DaysLeft
-	})
+// tlsResultOrder ranks a cert result's severity for sorting: CRIT first, then
+// WARN, then OK, then ERR.
+var tlsResultOrder = map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, "ERR": 3}
 
-	sep := strings.Repeat("─", 60)
-	fmt.Printf("\n%s\n", sep)
-	fmt.Printf("TLS certificate health — %d certificate(s) found\n", len(results))
-	fmt.Printf("%s\n\n", sep)
+// certResultLess orders two results by severity, then by soonest expiry —
+// pulled out of renderTLSResults so the comparator is directly testable
+// without going anywhere near that function's os.Exit calls.
+func certResultLess(a, b certResult) bool {
+	if tlsResultOrder[a.Level] != tlsResultOrder[b.Level] {
+		return tlsResultOrder[a.Level] < tlsResultOrder[b.Level]
+	}
+	return a.DaysLeft < b.DaysLeft
+}
 
-	crits, warns, oks, errs := 0, 0, 0, 0
+// countTLSLevels tallies results by Level — pulled out of renderTLSResults so
+// the counting logic is directly testable without going anywhere near that
+// function's os.Exit calls.
+func countTLSLevels(results []certResult) (crits, warns, oks, errs int) {
 	for _, r := range results {
 		switch r.Level {
 		case "CRIT":
@@ -143,6 +142,23 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 		case "ERR":
 			errs++
 		}
+	}
+	return crits, warns, oks, errs
+}
+
+// renderTLSResults sorts, prints, and summarizes scan results. It calls
+// os.Exit(2) when any cert is CRIT and os.Exit(1) when any is WARN — matching
+// the original dsd tls exit-code contract.
+func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode) {
+	sort.Slice(results, func(i, j int) bool { return certResultLess(results[i], results[j]) })
+
+	sep := strings.Repeat("─", 60)
+	fmt.Printf("\n%s\n", sep)
+	fmt.Printf("TLS certificate health — %d certificate(s) found\n", len(results))
+	fmt.Printf("%s\n\n", sep)
+
+	crits, warns, oks, errs := countTLSLevels(results)
+	for _, r := range results {
 		if !showAll && r.Level == "OK" {
 			continue
 		}

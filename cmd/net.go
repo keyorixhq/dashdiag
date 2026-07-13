@@ -574,6 +574,10 @@ func tcpCounterIsIssue(level string) bool {
 }
 
 func netReadTCPStates() map[string]int {
+	return netReadTCPStatesFrom("/proc/net/tcp", "/proc/net/tcp6")
+}
+
+func netReadTCPStatesFrom(tcp4Path, tcp6Path string) map[string]int {
 	states := make(map[string]int)
 	tcpStateNames := map[string]string{
 		"01": "ESTAB", "02": "SYN-SENT", "03": "SYN-RECV",
@@ -581,8 +585,8 @@ func netReadTCPStates() map[string]int {
 		"07": "CLOSE", "08": "CLOSE-WAIT", "09": "LAST-ACK",
 		"0B": "CLOSING",
 	}
-	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
-		data, err := os.ReadFile(path) // #nosec G304 -- hardcoded /proc path
+	for _, path := range []string{tcp4Path, tcp6Path} {
+		data, err := os.ReadFile(path) // #nosec G304 -- caller-controlled path; production callers pass hardcoded /proc paths
 		if err != nil {
 			continue
 		}
