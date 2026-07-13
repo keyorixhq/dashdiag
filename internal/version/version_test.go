@@ -4,13 +4,13 @@ import "testing"
 
 func TestDefaults(t *testing.T) {
 	t.Parallel()
-	if Version == "" {
-		t.Error("Version should never be empty")
+	if Version != "dev" {
+		t.Errorf("Version default mismatch: expected %q, got %q", "dev", Version)
 	}
-	if Commit == "" {
-		t.Error("Commit should never be empty")
+	if Commit != "none" {
+		t.Errorf("Commit default mismatch: expected %q, got %q", "none", Commit)
 	}
-	if Built == "" {
-		t.Error("Built should never be empty")
+	if Built != "unknown" {
+		t.Errorf("Built default mismatch: expected %q, got %q", "unknown", Built)
 	}
 }
