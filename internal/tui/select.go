@@ -170,7 +170,7 @@ func RunMultiSelect(title string, options []string) ([]string, error) {
 	var chosen []string
 	for i, sel := range final.selected {
 		if sel {
-			chosen = append(chosen, options[i])
+			chosen = append(chosen, options[i]) //nolint:gosec // G602 false-positive: selected is always init with make([]bool, len(options))
 		}
 	}
 	return chosen, nil
