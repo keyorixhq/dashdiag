@@ -10,6 +10,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// checkTTY and teaRun are overridable in tests to cover the TTY dispatch path
+// without a real terminal.
+var (
+	checkTTY = IsTTY
+	teaRun   = func(p *tea.Program) (tea.Model, error) { return p.Run() }
+)
+
 // ── Single select ─────────────────────────────────────────────────────────────
 
 type SingleSelectModel struct {
@@ -61,12 +68,12 @@ func (m SingleSelectModel) View() string {
 }
 
 func RunSingleSelect(title string, options []string) (string, error) {
-	if !IsTTY() {
+	if !checkTTY() {
 		return singleSelectText(title, options)
 	}
 	m := SingleSelectModel{title: title, options: options}
 	p := tea.NewProgram(m)
-	result, err := p.Run()
+	result, err := teaRun(p)
 	if err != nil {
 		return "", err
 	}
@@ -146,7 +153,7 @@ func (m MultiSelectModel) View() string {
 }
 
 func RunMultiSelect(title string, options []string) ([]string, error) {
-	if !IsTTY() {
+	if !checkTTY() {
 		return multiSelectText(title, options)
 	}
 	m := MultiSelectModel{
@@ -155,7 +162,7 @@ func RunMultiSelect(title string, options []string) ([]string, error) {
 		selected: make([]bool, len(options)),
 	}
 	p := tea.NewProgram(m)
-	result, err := p.Run()
+	result, err := teaRun(p)
 	if err != nil {
 		return nil, err
 	}
