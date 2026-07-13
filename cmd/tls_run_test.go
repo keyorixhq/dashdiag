@@ -154,6 +154,38 @@ func TestAutoDetectCertPathsNoPanic(t *testing.T) {
 	_ = autoDetectCertPaths()
 }
 
+// TestAutoDetectCertPathsFindsUserCerts covers the "glob found matches"
+// branch: every hardcoded /etc/... pattern is unreachable in a test sandbox,
+// but the ~/.dsd/certs/*.{crt,pem} pattern respects $HOME, so seeding files
+// there exercises the match-append (and dedup-map) path that an empty host
+// never reaches.
+func TestAutoDetectCertPathsFindsUserCerts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	certsDir := filepath.Join(home, ".dsd", "certs")
+	if err := os.MkdirAll(certsDir, 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	crtPath := filepath.Join(certsDir, "a.crt")
+	pemPath := filepath.Join(certsDir, "b.pem")
+	if err := os.WriteFile(crtPath, []byte("crt"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(pemPath, []byte("pem"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got := autoDetectCertPaths()
+	found := map[string]bool{}
+	for _, p := range got {
+		found[p] = true
+	}
+	if !found[crtPath] || !found[pemPath] {
+		t.Errorf("expected both seeded certs in result, got %v", got)
+	}
+}
+
 func TestReadEndpointsFile(t *testing.T) {
 	t.Parallel()
 	if got := readEndpointsFile(""); got != nil {
