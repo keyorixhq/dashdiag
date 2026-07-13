@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -496,5 +497,86 @@ func TestRunMultiSelect_TextFallback_NoneValid(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("RunMultiSelect() = %v, want nil when nothing valid was selected", got)
+	}
+}
+
+// TTY-path tests swap package-level vars and cannot call t.Parallel().
+
+func TestRunSingleSelect_TTYPath(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return SingleSelectModel{chosen: "beta", done: true}, nil
+	}
+
+	got, err := RunSingleSelect("Pick one", []string{"alpha", "beta"})
+	if err != nil {
+		t.Fatalf("RunSingleSelect: %v", err)
+	}
+	if got != "beta" {
+		t.Errorf("RunSingleSelect: got %q, want beta", got)
+	}
+}
+
+func TestRunSingleSelect_TTYPath_Error(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return nil, errors.New("terminal error")
+	}
+
+	_, err := RunSingleSelect("Pick one", []string{"alpha"})
+	if err == nil {
+		t.Error("expected error from teaRun, got nil")
+	}
+}
+
+func TestRunMultiSelect_TTYPath(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	opts := []string{"a", "b", "c"}
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return MultiSelectModel{
+			options:  opts,
+			selected: []bool{true, false, true},
+			done:     true,
+		}, nil
+	}
+
+	got, err := RunMultiSelect("Pick some", opts)
+	if err != nil {
+		t.Fatalf("RunMultiSelect: %v", err)
+	}
+	if len(got) != 2 || got[0] != "a" || got[1] != "c" {
+		t.Errorf("RunMultiSelect: got %v, want [a c]", got)
+	}
+}
+
+func TestRunMultiSelect_TTYPath_Error(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return nil, errors.New("terminal error")
+	}
+
+	_, err := RunMultiSelect("Pick some", []string{"x"})
+	if err == nil {
+		t.Error("expected error from teaRun, got nil")
 	}
 }

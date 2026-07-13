@@ -297,6 +297,129 @@ func TestLoadHistory_BadGlobPattern(t *testing.T) {
 	}
 }
 
+func TestNewestProcStartFrom(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	boot := time.Now().Add(-1000 * time.Second)
+
+	makeStatFile := func(pidDir, comm, ticks string) {
+		t.Helper()
+		if err := os.Mkdir(pidDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		fields := make([]string, 22)
+		for i := range fields {
+			fields[i] = "0"
+		}
+		fields[1] = "(" + comm + ")"
+		fields[21] = ticks
+		if err := os.WriteFile(filepath.Join(pidDir, "stat"), []byte(strings.Join(fields, " ")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Process 100: started 500s after boot → 500s old, within maxAge
+	makeStatFile(filepath.Join(dir, "100"), "older", "50000")
+	// Process 200: started 900s after boot → 100s old, within maxAge and newer
+	makeStatFile(filepath.Join(dir, "200"), "newer", "90000")
+	// Process 300: malformed stat → parseProcStart returns ok=false → skipped
+	if err := os.Mkdir(filepath.Join(dir, "300"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "300", "stat"), []byte("bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	glob := filepath.Join(dir, "[0-9]*/stat")
+	ts, name, err := newestProcStartFrom(glob, boot, 2*time.Hour)
+	if err != nil {
+		t.Fatalf("newestProcStartFrom: %v", err)
+	}
+	if name != "newer" {
+		t.Errorf("name: got %q, want newer", name)
+	}
+	want := boot.Add(900 * time.Second)
+	if diff := ts.Sub(want); diff < -time.Second || diff > time.Second {
+		t.Errorf("start time: got %v, want ~%v", ts, want)
+	}
+}
+
+func TestNewestProcStartFrom_MaxAgeRejectsOld(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Boot was 10000s ago; process started 500s after boot → 9500s old > 1h
+	boot := time.Now().Add(-10000 * time.Second)
+	if err := os.Mkdir(filepath.Join(dir, "100"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fields := make([]string, 22)
+	for i := range fields {
+		fields[i] = "0"
+	}
+	fields[1] = "(oldproc)"
+	fields[21] = "50000"
+	if err := os.WriteFile(filepath.Join(dir, "100", "stat"), []byte(strings.Join(fields, " ")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	glob := filepath.Join(dir, "[0-9]*/stat")
+	_, _, err := newestProcStartFrom(glob, boot, 1*time.Hour)
+	if err == nil {
+		t.Error("expected error when all processes are older than maxAge")
+	}
+}
+
+func TestNewestProcStartFrom_BadGlob(t *testing.T) {
+	t.Parallel()
+	_, _, err := newestProcStartFrom("[invalid", time.Now(), time.Hour)
+	if err == nil {
+		t.Error("expected error for bad glob pattern")
+	}
+}
+
+func TestNewestProcStartFrom_EmptyGlob(t *testing.T) {
+	t.Parallel()
+	_, _, err := newestProcStartFrom("/nonexistent/[0-9]*/stat", time.Now(), time.Hour)
+	if err == nil {
+		t.Error("expected 'no recent process' error when glob matches nothing")
+	}
+}
+
+func TestGetBootTimeFrom(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proc_stat")
+	content := "cpu  1 2 3 4\nbtime 1700000000\nprocesses 999\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bt := getBootTimeFrom(path)
+	if bt.Unix() != 1700000000 {
+		t.Errorf("getBootTimeFrom: got unix %d, want 1700000000", bt.Unix())
+	}
+}
+
+func TestGetBootTimeFrom_Missing(t *testing.T) {
+	t.Parallel()
+	bt := getBootTimeFrom("/nonexistent/proc/stat")
+	age := time.Since(bt)
+	if age < 23*time.Hour || age > 25*time.Hour {
+		t.Errorf("expected ~24h-ago fallback, got age %v", age)
+	}
+}
+
+func TestGetBootTimeFrom_NoBtimeLine(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proc_stat")
+	if err := os.WriteFile(path, []byte("cpu  1 2 3 4\nprocesses 999\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bt := getBootTimeFrom(path)
+	age := time.Since(bt)
+	if age < 23*time.Hour || age > 25*time.Hour {
+		t.Errorf("expected ~24h-ago fallback when no btime line, got age %v", age)
+	}
+}
+
 func versions(snaps []*Snapshot) []string {
 	out := make([]string, 0, len(snaps))
 	for _, s := range snaps {

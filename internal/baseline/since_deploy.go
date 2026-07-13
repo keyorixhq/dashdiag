@@ -51,11 +51,14 @@ func DetectLastDeployTime() (time.Time, string, error) {
 }
 
 func newestProcStart(maxAge time.Duration) (time.Time, string, error) {
-	entries, err := filepath.Glob("/proc/[0-9]*/stat")
+	return newestProcStartFrom("/proc/[0-9]*/stat", getBootTime(), maxAge)
+}
+
+func newestProcStartFrom(glob string, boot time.Time, maxAge time.Duration) (time.Time, string, error) {
+	entries, err := filepath.Glob(glob)
 	if err != nil {
 		return time.Time{}, "", err
 	}
-	boot := getBootTime()
 	var newest time.Time
 	var newestName string
 	for _, entry := range entries {
@@ -105,7 +108,11 @@ func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
 }
 
 func getBootTime() time.Time {
-	f, err := os.Open("/proc/stat")
+	return getBootTimeFrom("/proc/stat")
+}
+
+func getBootTimeFrom(path string) time.Time {
+	f, err := os.Open(path)
 	if err != nil {
 		return time.Now().Add(-24 * time.Hour)
 	}
