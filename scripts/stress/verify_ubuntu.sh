@@ -10,15 +10,16 @@ FAIL=0
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; RESET='\033[0m'
 
-pass() { echo -e "${GREEN}[PASS]${RESET} $*"; PASS=$(( PASS + 1 )); }
-fail() { echo -e "${RED}[FAIL]${RESET} $*"; FAIL=$(( FAIL + 1 )); }
-info() { echo -e "${CYAN}[INFO]${RESET} $*"; }
-hdr()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
+pass() { echo -e "${GREEN}[PASS]${RESET} $*"; PASS=$(( PASS + 1 )); return 0; }
+fail() { echo -e "${RED}[FAIL]${RESET} $*"; FAIL=$(( FAIL + 1 )); return 0; }
+info() { echo -e "${CYAN}[INFO]${RESET} $*"; return 0; }
+hdr()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; return 0; }
 
-run_dsd() { "$DSD" "$@" 2>/dev/null || true; }
+run_dsd() { "$DSD" "$@" 2>/dev/null || true; return 0; }
 exit_code() {
     "$DSD" health "$@" > /dev/null 2>&1
     echo ${?}
+    return 0
 }
 
 # ── TEST 1: Binary sanity ─────────────────────────────────────────────────────

@@ -277,7 +277,7 @@ func enaComputeDelta(first, second map[string]map[string]uint64) map[string]map[
 	return delta
 }
 
-func enaAssemble(totals map[string]map[string]uint64, delta map[string]map[string]uint64) []models.ENAStats {
+func enaAssemble(totals, delta map[string]map[string]uint64) []models.ENAStats {
 	if len(totals) == 0 {
 		return nil
 	}
@@ -424,7 +424,7 @@ func ebsComputeDelta(first, second map[string]ebsRaw) map[string]ebsRaw {
 	return delta
 }
 
-func ebsAssemble(totals map[string]ebsRaw, delta map[string]ebsRaw) []models.EBSStats {
+func ebsAssemble(totals, delta map[string]ebsRaw) []models.EBSStats {
 	if len(totals) == 0 {
 		return nil
 	}

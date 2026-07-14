@@ -813,8 +813,8 @@ func rhSubscriptionNote() string {
 	// Root: check for entitlement certificates — present when registered
 	entries, err := readDirNames("/etc/pki/entitlement")
 	if err != nil || len(entries) == 0 {
-		return "⚠️  System not registered with Red Hat — CVE IDs unavailable\n" + // NOSONAR — <pass> is a placeholder in user-facing help text, not a credential
-			"   → to register: subscription-manager register --username=<user> --password=<pass>\n" +
+		return "⚠️  System not registered with Red Hat — CVE IDs unavailable\n" +
+			"   → to register: subscription-manager register --username=<user> --password=<pass>\n" + // NOSONAR — <pass> is a placeholder in user-facing help text, not a credential
 			"   → or activate: subscription-manager attach --auto"
 	}
 	// Has certs but no CVE data — may be expired or repos not synced

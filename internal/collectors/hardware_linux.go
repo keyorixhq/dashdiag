@@ -181,7 +181,7 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 				drive.PendingSectors = int(attr.Raw.Value)
 			case 198: // Offline Uncorrectable Sector Count
 				drive.UncorrectableErrors = int(attr.Raw.Value)
-			case 231, 233: // SSD Life Left / Media Wearout Indicator
+			case 231, 233: // SSD Life Left / Media Wearout Indicator // NOSONAR — same guard as 173/177: different SMART IDs, identical normalisation logic by design (see §J)
 				// Normalised value (0-100) = remaining life. Guard against
 				// non-normalised firmware values exactly as the 173/177 branch
 				// does — without it, 100-Value yields garbage (the 173 raw on the
