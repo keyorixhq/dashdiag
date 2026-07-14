@@ -1,0 +1,46 @@
+name: SonarCloud
+
+# Runs on every PR and push to main (new-code gate), plus a weekly schedule so
+# a newly published rule or a regression on unchanged code is caught without
+# waiting for the next PR. Complements CodeQL (SARIF/Security tab) with
+# deeper maintainability, duplication, and Go-specific reliability checks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 9 * * 1' # Monday 09:00 UTC — same cadence as security.yml
+
+permissions:
+  contents: read
+  pull-requests: read # SonarCloud PR decoration (inline annotations on diffs)
+
+jobs:
+  sonarcloud:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0 # full history required for blame/new-code detection
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with: {go-version: '1.26', cache: true}
+
+      - name: Generate coverage report
+        # coverage.out is passed to SonarCloud so it can populate the Coverage
+        # dimension (otherwise it stays blank, as in a manual scan without CI).
+        run: go test -coverprofile=coverage.out -covermode=set ./...
+
+      - name: Analyze with SonarCloud
+        uses: SonarSource/sonarcloud-github-action@4006f663ecaf1f8093e8e4abb9227f6041f52216 # v2.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.projectKey=keyorixhq_dashdiag
+            -Dsonar.organization=keyorixhq
+            -Dsonar.go.coverage.reportPaths=coverage.out
+            -Dsonar.exclusions=testdata/**,**/testdata/**,vendor/**
+            -Dsonar.test.inclusions=**/*_test.go
