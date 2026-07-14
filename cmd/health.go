@@ -25,6 +25,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
+// healthRunOpts groups the optional feature flags for a single health run,
+// reducing the parameter count of runHealthOnce below the 7-param threshold.
+type healthRunOpts struct {
+	Terse           bool
+	IncludePackages bool
+	IncludeGPU      bool
+	IncludeTLS      bool
+	IncludeDeep     bool
+	IncludeFirmware bool
+	IncludeCVE      bool
+}
+
 func init() {
 	rootCmd.AddCommand(healthCmd)
 	healthCmd.AddCommand(healthDeepCmd)
@@ -137,7 +149,16 @@ func runHealth(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, terse, pkgFlag, gpuFlag, tlsFlag, deepFlag, firmwareFlag, cveFlag, policy)
+	opts := healthRunOpts{
+		Terse:           terse,
+		IncludePackages: pkgFlag,
+		IncludeGPU:      gpuFlag,
+		IncludeTLS:      tlsFlag,
+		IncludeDeep:     deepFlag,
+		IncludeFirmware: firmwareFlag,
+		IncludeCVE:      cveFlag,
+	}
+	results, insights, snap, elapsed := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, opts, policy)
 
 	weeklyFlag, _ := cmd.Flags().GetBool("weekly")
 	sdFlag, _ := cmd.Flags().GetBool("since-deploy")
@@ -442,8 +463,8 @@ func handlePostMortemMode(pmFlag string, snap *baseline.Snapshot, insights []mod
 	return true, nil
 }
 
-func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, terse bool, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, profile, includePackages, includeGPU, includeTLS, includeDeep, includeFirmware, includeCVE)
+func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, opts healthRunOpts, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+	cols := buildHealthCollectors(ctrCtx, profile, opts.IncludePackages, opts.IncludeGPU, opts.IncludeTLS, opts.IncludeDeep, opts.IncludeFirmware, opts.IncludeCVE)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -460,7 +481,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	}
 	thresh = analysis.ApplyPolicy(thresh, policy)
 	insights := analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx)
-	if !terse {
+	if !opts.Terse {
 		insights = drilldown.PopulateAll(ctx, insights, results)
 	}
 	snap := baseline.BuildSnapshot(results, insights)
@@ -499,7 +520,7 @@ func runWatch(ctx context.Context, interval time.Duration, ctrCtx platform.Conta
 		if mode == output.ModeHuman {
 			fmt.Print("\033[H\033[2J") // clear screen + move cursor to top
 		}
-		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, false, false, false, false, false, false, false, nil)
+		results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, mode, healthRunOpts{}, nil)
 		renderer := render.NewRenderer(mode)
 		fmt.Printf("\n── %s ──\n", time.Now().Format("2006-01-02 15:04:05"))
 		renderer.PrintAll(results, insights)
