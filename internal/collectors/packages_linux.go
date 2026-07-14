@@ -25,7 +25,9 @@ const (
 	pkgSevSecurity    = "security"
 	pkgFlagVersion    = "--version"
 	pkgFlagQ          = "-q"
-	pkgCmdAptGet      = "apt-get"
+	pkgCmdAptGet   = "apt-get"
+	pkgFlagNoColor = "--no-color"
+	pkgFlagStatus  = "--status"
 )
 
 // PackagesCollector checks for available security updates.
@@ -316,10 +318,10 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	scanCtx, scanCancel := context.WithTimeout(ctx, 18*time.Second)
 	defer scanCancel()
 	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4 (RHEL/Rocky)
-	out, err := runCmd(scanCtx, "dnf", "advisory", "list", "--security", "--quiet")
+	out, err := runCmd(scanCtx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
 		// DNF4 fallback: RHEL/Rocky/older Fedora
-		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", pkgSevSecurity, "--quiet")
+		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", pkgSevSecurity, flagQuiet)
 	}
 	if err != nil {
 		// The advisory query failed (broken plugin, transient dnf error, permission)
@@ -405,10 +407,10 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 	info.HasSecurityRepo = true
 
-	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
+	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", flagSecurity)
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
-		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", "--security")
+		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
 			info.Status = pkgQueryFailed
@@ -715,7 +717,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err = runCmdCombined(ctx, "zypper", pkgNonInteractive, "--no-color",
+		out, err = runCmdCombined(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor,
 			"list-patches", "--category", pkgSevSecurity)
 		locked = err != nil && zypperLocked(out)
 		if !locked {
@@ -816,7 +818,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 // On SLES, security patches require SUSEConnect registration.
 // On openSUSE Tumbleweed, update-tumbleweed is the security channel.
 func zypperHasSecurityRepo(ctx context.Context) bool {
-	out, err := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color", "repos")
+	out, err := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor, "repos")
 	if err != nil {
 		return false
 	}
@@ -828,9 +830,9 @@ func zypperHasSecurityRepo(ctx context.Context) bool {
 	}
 
 	// SLES: check if SUSEConnect is registered — without it, no security repos
-	if _, err := runCmd(ctx, "SUSEConnect", "--status"); err == nil {
+	if _, err := runCmd(ctx, "SUSEConnect", pkgFlagStatus); err == nil {
 		// SUSEConnect present — check if system is registered
-		statusOut, _ := runCmd(ctx, "SUSEConnect", "--status")
+		statusOut, _ := runCmd(ctx, "SUSEConnect", pkgFlagStatus)
 		if strings.Contains(strings.ToLower(statusOut), "registered") {
 			return true
 		}
@@ -897,11 +899,11 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	if runtime.GOARCH == "arm64" {
 		grubPkg = "grub2-arm64-efi"
 	}
-	grubOut, err := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color",
+	grubOut, err := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor,
 		"search", "--installed-only", grubPkg)
 	if err == nil && strings.Contains(grubOut, grubPkg) {
 		// Check if it's locked
-		lockOut, _ := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color", "locks")
+		lockOut, _ := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor, "locks")
 		if !strings.Contains(lockOut, grubPkg) {
 			risks = append(risks,
 				grubPkg+" is installed but NOT locked — migration may overwrite grub config and break boot",
@@ -910,7 +912,7 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	}
 
 	// Check 2: SUSEConnect registration health
-	statusOut, err := runCmd(ctx, "SUSEConnect", "--status")
+	statusOut, err := runCmd(ctx, "SUSEConnect", pkgFlagStatus)
 	if err == nil {
 		lower := strings.ToLower(statusOut)
 		if strings.Contains(lower, "not registered") || strings.Contains(lower, "expired") {
@@ -1022,7 +1024,7 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 	// `dnf check` EXITS NON-ZERO when it finds broken deps (writing them to stdout),
 	// so capture stdout regardless of exit — runCmd would discard the findings and
 	// the check would read clean (false-OK).
-	out, _ := runCmdOutput(dnfCtx, "dnf", "check", "--quiet")
+	out, _ := runCmdOutput(dnfCtx, "dnf", "check", flagQuiet)
 	if strings.TrimSpace(out) != "" {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			if line = strings.TrimSpace(line); line != "" &&

@@ -14,6 +14,11 @@ const (
 	inspectSysctlSwap     = "to inspect: sysctl vm.swappiness"
 	inspectSysctlMaxMap   = "to inspect: sysctl vm.max_map_count"
 	inspectJournalDiskUse = "to inspect: journalctl --disk-usage"
+	fixSysctlMaxMapCount  = "to fix: sysctl -w vm.max_map_count=262144"
+	persistMaxMapCount    = "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"
+	fixSysctlSwappiness   = "to fix: sysctl -w vm.swappiness=10"
+	persistSwappiness     = "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"
+	fixSELinuxRelabel     = "to fix:     touch /.autorelabel && reboot"
 )
 
 func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
@@ -170,7 +175,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
@@ -182,7 +187,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlSwap, fixSysctlSwappiness, persistSwappiness},
 			))
 		}
 
@@ -204,7 +209,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlSwap, fixSysctlSwappiness, persistSwappiness},
 			))
 		}
 		if sysctl.VMDirtyRatio > 10 {
@@ -218,7 +223,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("CRIT", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d \u2014 Elasticsearch requires \u2265 262144 or it will refuse to start", sysctl.VMMaxMapCount),
-				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.VMSwappiness > 1 {
@@ -232,7 +237,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for container host running JVM workloads (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 131072 {
@@ -251,7 +256,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 30 && sysctl.SwapActive {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high and the host is actively swapping (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
-				[]string{"to inspect: cat /proc/sys/vm/swappiness; vmstat 1 5", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{"to inspect: cat /proc/sys/vm/swappiness; vmstat 1 5", fixSysctlSwappiness, persistSwappiness},
 			))
 		}
 		// NOTE: no general net.core.rmem_max check here. The kernel default
@@ -436,7 +441,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				[]string{
 					"to inspect: cat /etc/selinux/config",
 					"to fix:     set SELINUXTYPE=targeted in /etc/selinux/config",
-					"to fix:     touch /.autorelabel && reboot",
+					fixSELinuxRelabel,
 					"note: invalid SELINUXTYPE causes dbus to fail, cascading to NetworkManager and systemd-logind",
 				},
 			))
@@ -445,7 +450,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				fmt.Sprintf("SELinux SELINUXTYPE=%q policy directory /etc/selinux/%s/ does not exist", mac.SELinuxType, mac.SELinuxType),
 				[]string{
 					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
-					"to fix:     touch /.autorelabel && reboot",
+					fixSELinuxRelabel,
 					"note: missing policy directory causes dbus to fail at boot",
 				},
 			))
@@ -454,7 +459,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				fmt.Sprintf("SELinux policy package selinux-policy-%s is not installed", mac.SELinuxType),
 				[]string{
 					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
-					"to fix:     touch /.autorelabel && reboot",
+					fixSELinuxRelabel,
 				},
 			))
 		}
@@ -1074,7 +1079,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
 			"to inspect: dmesg | grep -i 'out of memory'",
 			inspectFreeH,
-			"to inspect: ps aux --sort=-%mem | head -10",
+			inspectPsMemHead,
 			"note: OOM kills are silent — services may restart without apparent cause",
 		},
 	)}
@@ -1132,7 +1137,7 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 			[]string{
 				"to inspect: cat /proc/pressure/memory",
 				inspectFreeH,
-				"to inspect: ps aux --sort=-%mem | head -10",
+				inspectPsMemHead,
 				"note: OOM kill may be imminent — act now",
 			},
 		))
@@ -1151,8 +1156,8 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 			fmt.Sprintf("IO full stall %.1f%% avg60 — all tasks blocked on disk IO", p.IOFull.Avg60),
 			[]string{
 				"to inspect: cat /proc/pressure/io",
-				"to inspect: iostat -x 1 5",
-				"to inspect: iotop -ao",
+				inspectIOStat,
+				inspectIotop,
 			},
 		))
 	}

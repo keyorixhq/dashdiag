@@ -920,13 +920,13 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 
 	// apt-get --simulate upgrade lists all pending upgrades.
 	// We filter to security repos by matching the repo string in each line.
-	out, err := runCmd(ctx, "apt-get", "--simulate", "upgrade")
+	out, err := runCmd(ctx, cmdAptGet, "--simulate", "upgrade")
 	if err != nil && len(out) == 0 {
 		// Reassign err so the both-failed case is distinguishable below — without
 		// it, a failed apt (lock held, broken sources, no privilege) parsed to 0
 		// advisories and reported "no pending upgrades found" → a green CVE OK on a
 		// host we never actually scanned (false-OK).
-		out, err = runCmd(ctx, "apt-get", "--simulate", "dist-upgrade")
+		out, err = runCmd(ctx, cmdAptGet, "--simulate", "dist-upgrade")
 	}
 
 	var advisories []models.CVEAdvisory
@@ -1240,7 +1240,7 @@ type tdnfUpdateInfoEntry struct {
 func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "tdnf"}
 
-	out, err := runCmd(ctx, "tdnf", "updateinfo", "info", "--security")
+	out, err := runCmd(ctx, "tdnf", "updateinfo", "info", flagSecurity)
 	if err != nil && strings.TrimSpace(out) == "" {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "tdnf updateinfo failed — CVE exposure NOT verified for " + cveID
@@ -1300,11 +1300,11 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 		return result
 	}
 
-	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", "--security")
+	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", flagSecurity)
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
 		// JSON unavailable/garbled (older tdnf, refresh noise) — fall back to text.
-		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", "--security")
+		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
 			result.StatusReason = "tdnf updateinfo failed: " + err.Error()
@@ -1395,7 +1395,7 @@ func parseTDNFUpdateInfoText(out string) []tdnfUpdateInfoEntry {
 func enrichTDNFAdvisoryWithCVEs(ctx context.Context, byID map[string]*models.CVEAdvisory) {
 	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := runCmd(eCtx, "tdnf", "updateinfo", "info", "--security")
+	out, err := runCmd(eCtx, "tdnf", "updateinfo", "info", flagSecurity)
 	if err != nil && strings.TrimSpace(out) == "" {
 		return
 	}

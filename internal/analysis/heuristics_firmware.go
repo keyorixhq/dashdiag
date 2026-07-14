@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	fwCatFirmware  = "Firmware"
-	fwCatSnapshots = "Snapshots"
+	fwCatFirmware      = "Firmware"
+	fwCatSnapshots     = "Snapshots"
+	fwInspectFwupd     = "to inspect: fwupdmgr get-upgrades"
+	fwFixSUSERenewShrt = "to fix: renew at https://scc.suse.com"
 )
 
 func checkFirmware(f models.FirmwareInfo) []models.Insight {
@@ -28,7 +30,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 		return []models.Insight{insight("INFO", fwCatFirmware,
 			"firmware update status could not be verified: "+f.StatusReason,
 			[]string{
-				"to inspect: fwupdmgr get-upgrades",
+				fwInspectFwupd,
 				"to refresh: fwupdmgr refresh   (run as root)",
 			},
 		)}
@@ -50,7 +52,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 			fmt.Sprintf("%d security-relevant firmware upgrade(s) pending: %s",
 				f.SecurityCount, strings.Join(names, ", ")),
 			[]string{
-				"to inspect: fwupdmgr get-upgrades",
+				fwInspectFwupd,
 				"to apply:   fwupdmgr update",
 				"note: most firmware updates require a reboot",
 			},
@@ -62,7 +64,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	if nonSec > 0 {
 		out = append(out, insight("INFO", fwCatFirmware,
 			fmt.Sprintf("%d non-security firmware upgrade(s) available", nonSec),
-			[]string{"to inspect: fwupdmgr get-upgrades"},
+			[]string{fwInspectFwupd},
 		))
 	}
 
@@ -206,17 +208,17 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 	case s.ExpiresDays == 0:
 		return []models.Insight{insight("CRIT", "Subscription",
 			"SUSE subscription EXPIRED — security patches unavailable",
-			[]string{"to fix: renew at https://scc.suse.com"},
+			[]string{fwFixSUSERenewShrt},
 		)}
 	case s.ExpiresDays > 0 && s.ExpiresDays <= 14:
 		return []models.Insight{insight("CRIT", "Subscription",
 			fmt.Sprintf("SUSE subscription expires in %d day(s) — renew immediately", s.ExpiresDays),
-			[]string{"to fix: renew at https://scc.suse.com"},
+			[]string{fwFixSUSERenewShrt},
 		)}
 	case s.ExpiresDays > 14 && s.ExpiresDays <= 30:
 		return []models.Insight{insight("WARN", "Subscription",
 			fmt.Sprintf("SUSE subscription expires in %d day(s)", s.ExpiresDays),
-			[]string{"to fix: renew at https://scc.suse.com"},
+			[]string{fwFixSUSERenewShrt},
 		)}
 	default:
 		return nil // OK — no insight needed

@@ -52,7 +52,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 		if cpu.LoadAvg1 > 0 {
 			msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)
 		}
-		out = append(out, insight(l, "CPU Load",
+		out = append(out, insight(l, corrCatCPULoad,
 			msg,
 			[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
 		))
@@ -85,7 +85,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 	// High iowait with normal/low CPU usage means load is I/O-driven, not compute-driven.
 	// This is the canonical "high load average but CPU is not busy" pattern.
 	if cpu.IOwaitPct >= 40 {
-		out = append(out, insight("CRIT", "CPU Load/IOWait",
+		out = append(out, insight("CRIT", corrCatCPUIOwait,
 			fmt.Sprintf("I/O wait at %.1f%% — CPU is stalled waiting for disk or network I/O", cpu.IOwaitPct),
 			[]string{
 				inspectIOStat,
@@ -95,7 +95,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			},
 		))
 	} else if cpu.IOwaitPct >= 20 {
-		out = append(out, insight("WARN", "CPU Load/IOWait",
+		out = append(out, insight("WARN", corrCatCPUIOwait,
 			fmt.Sprintf("I/O wait at %.1f%% — load may be I/O-driven rather than CPU-bound", cpu.IOwaitPct),
 			[]string{
 				inspectIOStat,
@@ -385,7 +385,7 @@ func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, boo
 	}
 
 	if hostCPULimitMHz > 0 {
-		return insight(level, "CPU Load/Steal",
+		return insight(level, corrCatCPUSteal,
 			fmt.Sprintf("CPU steal at %.1f%% with a host CPU limit of %d MHz configured on this VM — the guest is being throttled to its configured cap, not losing CPU to noisy neighbours",
 				stealPct, hostCPULimitMHz),
 			[]string{
@@ -397,7 +397,7 @@ func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, boo
 	}
 
 	if level == "CRIT" {
-		return insight("CRIT", "CPU Load/Steal",
+		return insight("CRIT", corrCatCPUSteal,
 			fmt.Sprintf("CPU steal at %.1f%% — hypervisor is withholding CPU time from this VM", stealPct),
 			[]string{
 				"to inspect: top -b -n1 | grep Cpu",
@@ -407,7 +407,7 @@ func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, boo
 			},
 		), true
 	}
-	return insight("WARN", "CPU Load/Steal",
+	return insight("WARN", corrCatCPUSteal,
 		fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", stealPct),
 		[]string{
 			"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
@@ -432,17 +432,17 @@ func cpuOfflineInsight(cpu models.CPUInfo) (models.Insight, bool) {
 	offline := cpu.PresentCPUs - cpu.OnlineCPUs
 	switch {
 	case cpu.SMTControl == "off" || cpu.SMTControl == "forceoff":
-		return insight("INFO", "CPU Load",
+		return insight("INFO", corrCatCPULoad,
 			fmt.Sprintf("%d of %d CPUs are offline because SMT is disabled — the hyperthread siblings are parked (a security mitigation, expected)", offline, cpu.PresentCPUs),
 			[]string{"to inspect: cat /sys/devices/system/cpu/smt/control"},
 		), true
 	case cpu.CPUsIsolated:
-		return insight("INFO", "CPU Load",
+		return insight("INFO", corrCatCPULoad,
 			fmt.Sprintf("%d of %d CPUs are offline/isolated — isolcpus or nohz_full is set on the kernel cmdline (intentional)", offline, cpu.PresentCPUs),
 			[]string{"to inspect: cat /proc/cmdline"},
 		), true
 	default:
-		return insight("WARN", "CPU Load",
+		return insight("WARN", corrCatCPULoad,
 			fmt.Sprintf("%d of %d allocated vCPUs are offline — the guest is using only %d; a hot-added vCPU the OS never onlined (some distros lack the auto-online udev rule RHEL ships), so the VM runs on a fraction of its allocation", offline, cpu.PresentCPUs, cpu.OnlineCPUs),
 			[]string{
 				"to online now: for c in /sys/devices/system/cpu/cpu[0-9]*/online; do echo 1 > $c; done   (as root)",
