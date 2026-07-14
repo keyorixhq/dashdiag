@@ -1881,10 +1881,10 @@ func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 // Split out so it is unit-testable against real command output.
 func applySUSEConnectStatus(out string, info *models.SecurityInfo) {
 	var products []struct {
-		Identifier         string `json:secFldIdentifier`
-		Status             string `json:secFldStatus`
-		SubscriptionStatus string `json:secFldSubscription`
-		ExpiresAt          string `json:secFldExpiresAt`
+		Identifier         string `json:"identifier"`
+		Status             string `json:"status"`
+		SubscriptionStatus string `json:"subscription_status"`
+		ExpiresAt          string `json:"expires_at"`
 	}
 	if err := json.Unmarshal([]byte(out), &products); err != nil {
 		info.SUSEConnectStatus = "query-failed" // unparseable — can't determine registration
