@@ -21,7 +21,7 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		"redis", "redis-server", "docker", "containerd", "node", "gunicorn",
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		out, err := exec.CommandContext(ctx, "systemctl", "show", svc, // #nosec G204 -- command is hardcoded "systemctl"; svc is from internal hardcoded service list, not user input
+		out, err := exec.CommandContext(ctx, "systemctl", "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
 			"--property=ActiveEnterTimestamp", "--value").Output()
 		cancel()
 		if err != nil || strings.TrimSpace(string(out)) == "" {
@@ -39,7 +39,7 @@ func DetectLastDeployTime() (time.Time, string, error) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	out, err := exec.CommandContext(ctx, "git", "log", "-1", "--format=%ct").Output()
+	out, err := exec.CommandContext(ctx, "git", "log", "-1", "--format=%ct").Output() // NOSONAR — hardcoded binary
 	cancel()
 	if err == nil {
 		if ts, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {

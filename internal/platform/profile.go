@@ -375,7 +375,7 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "systemctl", "is-active", unit).Run() == nil
+	return exec.CommandContext(ctx, "systemctl", "is-active", unit).Run() == nil // NOSONAR — hardcoded binary
 }
 
 // DebugLine renders a one-line platform summary for `--debug` output.

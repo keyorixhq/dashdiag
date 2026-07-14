@@ -200,7 +200,7 @@ func countDir(dir string) int {
 func countRPM() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "rpm", "-qa").Output()
+	out, err := exec.CommandContext(ctx, "rpm", "-qa").Output() // NOSONAR — hardcoded binary
 	if err != nil {
 		return 0
 	}
