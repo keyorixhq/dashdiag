@@ -32,7 +32,7 @@ echo "------------------------------------------------------------"
 
 # --size is a name-prefix filter; --all surfaces restricted SKUs (without it they're hidden).
 args=(vm list-skus --resource-type virtualMachines --size "$SKU" --all --output json)
-[ -n "$REGION" ] && args+=(--location "$REGION")
+[[ -n "$REGION" ]] && args+=(--location "$REGION")
 
 json="$(az "${args[@]}")"
 

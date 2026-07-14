@@ -61,14 +61,14 @@ hdr "TEST 3: --plain and --json status agreement"
 
 AGREE=true
 while IFS=: read -r check status; do
-    [ -z "$check" ] && continue
+    [[ -z "$check" ]] && continue
     if echo "$PLAIN_OUT" | grep -qE "^${check}[[:space:]]+${status}"; then
         pass "--plain agrees: $check=$status"
     else
         # Check if plain shows a valid-but-different status (timing drift)
         PLAIN_STATUS=$(echo "$PLAIN_OUT" | grep -E "^${check}[[:space:]]+" | \
             awk '{print $2}' | head -1)
-        if [ -n "$PLAIN_STATUS" ] && \
+        if [[ -n "$PLAIN_STATUS" ]] && \
            echo "$PLAIN_STATUS" | grep -qE "^(OK|WARN|CRIT|INFO)$"; then
             fail "--plain disagrees: $check should be $status (plain shows $PLAIN_STATUS — possible timing drift, rerun on idle system)"
         else
@@ -83,7 +83,7 @@ for c in data.get('checks', []):
     print(f\"{c.get('name','')}:{c.get('status','')}\")
 " 2>/dev/null)
 
-[ "$AGREE" = true ] && info "All check statuses match between --json and --plain"
+[[ "$AGREE" = true ]] && info "All check statuses match between --json and --plain"
 
 # ── TEST 4: JSON schema fields ────────────────────────────────────────────────
 hdr "TEST 4: JSON schema required fields"
@@ -93,7 +93,7 @@ import sys, json
 data = json.load(sys.stdin)
 print('yes' if '$field' in data else 'no')
 " 2>/dev/null)
-    if [ "$val" = "yes" ]; then pass "JSON field present: $field"
+    if [[ "$val" = "yes" ]]; then pass "JSON field present: $field"
     else fail "JSON field MISSING: $field"; fi
 done
 
@@ -102,7 +102,7 @@ import sys, json
 data = json.load(sys.stdin)
 print(type(data.get('insights','missing')).__name__)
 ")
-if [ "$INSIGHTS_TYPE" = "list" ]; then pass "insights is array (not null)"
+if [[ "$INSIGHTS_TYPE" = "list" ]]; then pass "insights is array (not null)"
 else fail "insights is $INSIGHTS_TYPE (expected list)"; fi
 
 # ── TEST 5: --json is valid JSON ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ fi
 hdr "TEST 7: Exit code contract (0=OK 1=WARN 2=CRIT)"
 CURRENT_EXIT=$(exit_code)
 info "Current exit code: $CURRENT_EXIT"
-if [ "$CURRENT_EXIT" -le 2 ]; then pass "Exit code valid: $CURRENT_EXIT"
+if [[ "$CURRENT_EXIT" -le 2 ]]; then pass "Exit code valid: $CURRENT_EXIT"
 else fail "Exit code $CURRENT_EXIT (must be 0, 1, or 2)"; fi
 
 WORST=$(echo "$JSON_OUT" | python3 -c "
@@ -139,7 +139,7 @@ print(worst)
 ")
 # JSON_EXIT is from the same invocation as JSON_OUT — eliminates race between
 # a stressed earlier run (WORST=1) and a fresh idle run (CURRENT_EXIT=0).
-if [ "$JSON_EXIT" = "$WORST" ]; then
+if [[ "$JSON_EXIT" = "$WORST" ]]; then
     pass "Exit code matches worst insight ($JSON_EXIT)"
 else
     fail "Exit code $JSON_EXIT does not match worst insight $WORST (check: dsd health --json; echo \$?)"
@@ -184,7 +184,7 @@ fi
 # ── TEST 12: --story ──────────────────────────────────────────────────────────
 hdr "TEST 12: --story"
 STORY_OUT=$("$DSD" health --story 2>&1 || true)
-if [ -n "$STORY_OUT" ] && [ ${#STORY_OUT} -gt 20 ]; then
+if [[ -n "$STORY_OUT" ]] && [[ ${#STORY_OUT} -gt 20 ]]; then
     pass "--story produces narrative output"
 else
     fail "--story output too short or empty"
@@ -221,7 +221,7 @@ else fail "dsd examples failed"; fi
 # ── TEST 16: USB NIC (enx* naming) ───────────────────────────────────────────
 hdr "TEST 16: USB NIC (enx* naming)"
 NIC=$(ip -br link 2>/dev/null | grep "^enx" | awk '{print $1}' | head -1 || true)
-if [ -n "$NIC" ]; then
+if [[ -n "$NIC" ]]; then
     info "USB NIC detected: $NIC"
     NET_JSON=$(echo "$JSON_OUT" | python3 -c "
 import sys, json
@@ -229,7 +229,7 @@ data = json.load(sys.stdin)
 for c in data.get('checks',[]):
     if 'Network' in c.get('name',''): print('found')
 " 2>/dev/null || true)
-    if [ "$NET_JSON" = "found" ]; then pass "Network check present with USB NIC ($NIC)"
+    if [[ "$NET_JSON" = "found" ]]; then pass "Network check present with USB NIC ($NIC)"
     else fail "Network check missing with USB NIC"; fi
 else
     info "No USB NIC on this machine — skipping"
@@ -238,7 +238,7 @@ fi
 # ── TEST 17: Docker bridges filtered ─────────────────────────────────────────
 hdr "TEST 17: Docker bridge interfaces filtered"
 BRIDGE=$(ip -br link 2>/dev/null | grep -E "^(docker|br-)" | head -1 | awk '{print $1}' || true)
-if [ -n "$BRIDGE" ]; then
+if [[ -n "$BRIDGE" ]]; then
     info "Docker bridge detected: $BRIDGE"
     pass "Docker bridges present — network collector ran without crash"
 else
@@ -248,7 +248,7 @@ fi
 # ── TEST 18: state.json ───────────────────────────────────────────────────────
 hdr "TEST 18: State management"
 STATE_FILE="$HOME/.dsd/state.json"
-if [ -f "$STATE_FILE" ]; then
+if [[ -f "$STATE_FILE" ]]; then
     if python3 -m json.tool "$STATE_FILE" > /dev/null 2>&1; then
         pass "state.json is valid JSON"
         RUNS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('total_runs',0))")
@@ -269,9 +269,9 @@ for c in data.get('checks',[]):
     if c.get('name') == 'Clock':
         print(c.get('status','MISSING'))
 ")
-if [ "$CLOCK_STATUS" = "OK" ]; then
+if [[ "$CLOCK_STATUS" = "OK" ]]; then
     pass "Clock: OK (timesync-status parsing working)"
-elif [ "$CLOCK_STATUS" = "WARN" ]; then
+elif [[ "$CLOCK_STATUS" = "WARN" ]]; then
     pass "Clock: WARN (real condition — offset high)"
 else
     fail "Clock: $CLOCK_STATUS (expected OK or WARN)"
@@ -289,7 +289,7 @@ echo -e "${BOLD}━━━ RESULTS ━━━${RESET}"
 echo -e "  ${GREEN}Passed: $PASS${RESET}"
 echo -e "  ${RED}Failed: $FAIL${RESET}"
 echo ""
-if [ $FAIL -eq 0 ]; then
+if [[ $FAIL -eq 0 ]]; then
     echo -e "${GREEN}${BOLD}✅ All tests passed — P1.1 Ubuntu 24.04 COMPLETE${RESET}"
     echo ""
     echo "Next: run the stress suite"

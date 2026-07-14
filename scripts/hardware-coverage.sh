@@ -54,10 +54,10 @@ scp -q -r "$PVE_HOST:$REMOTE_WORKDIR/data/*" "$LOCAL_COVDIR/" 2>/dev/null || {
 echo "→ merging coverage data from all guests"
 DIRS=""
 for d in "$LOCAL_COVDIR"/*/; do
-	[ -n "$(ls -A "$d" 2>/dev/null)" ] || continue
+	[[ -n "$(ls -A "$d" 2>/dev/null)" ]] || continue
 	DIRS="${DIRS:+$DIRS,}${d%/}"
 done
-if [ -z "$DIRS" ]; then
+if [[ -z "$DIRS" ]]; then
 	echo "❌ every guest's coverage directory was empty — aborting"
 	exit 2
 fi

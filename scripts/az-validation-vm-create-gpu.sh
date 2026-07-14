@@ -50,7 +50,7 @@ vcpus="${vcpus:-4}"
 restrict="$(az vm list-skus --resource-type virtualMachines --size "$SIZE" -l "$REGION" \
   --query "[0].restrictions[].reasonCode" -o tsv 2>/dev/null || true)"
 echo "Family : ${fam:-<unknown>}   vCPUs/box : $vcpus   Restrictions($REGION): ${restrict:-none}"
-if [ -z "$fam" ]; then
+if [[ -z "$fam" ]]; then
   echo "✗ $SIZE is not offered to this subscription anywhere. GPU SKUs usually need a quota/access request first."
   echo "  Probe regions with:  ./scripts/az-find-region-with-quota.sh $SIZE"
   exit 1
@@ -60,12 +60,12 @@ case "$restrict" in
 esac
 
 # --- quota pre-flight: need a full box's worth of family vCPUs free ---
-if [ -n "$fam" ]; then
+if [[ -n "$fam" ]]; then
   read -r used lim < <(az vm list-usage -l "$REGION" -o json 2>/dev/null \
     | jq -r --arg f "$fam" '([.[]|select(.name.value==$f)]|.[0]) as $x | "\(($x.currentValue)//0) \(($x.limit)//0)"')
   free=$(( ${lim:-0} - ${used:-0} ))
   echo "Quota ($fam) in $REGION: ${used:-?}/${lim:-?} used → ${free} free  (need $vcpus)"
-  if [ "${free:-0}" -lt "$vcpus" ]; then
+  if [[ "${free:-0}" -lt "$vcpus" ]]; then
     echo "✗ Not enough vCPU quota for $SIZE in $REGION (need $vcpus). Request an increase for '$fam', or edit REGION."
     echo "  Probe other regions with:  ./scripts/az-find-region-with-quota.sh $SIZE"
     exit 1
@@ -94,7 +94,7 @@ az group create -n "$RG" -l "$REGION" -o none
 CREATED_VM="" CREATED_ZONE=""
 try_create() { # $1=vmname  $2=zone-or-empty
   local vmname="$1" zone="$2" zoneargs=()
-  [ -n "$zone" ] && zoneargs=(--zone "$zone")
+  [[ -n "$zone" ]] && zoneargs=(--zone "$zone")
   az vm create \
     -g "$RG" -n "$vmname" -l "$REGION" "${zoneargs[@]}" \
     --image "$IMAGE" --size "$SIZE" \
@@ -109,14 +109,14 @@ for z in $ZONES; do
   echo "  ✗ zone $z unavailable — cleaning the partial attempt, trying the next..."
   az vm delete -g "$RG" -n "$vmname" --yes 2>/dev/null || true
 done
-if [ -z "$CREATED_VM" ]; then
+if [[ -z "$CREATED_VM" ]]; then
   echo "→ No zone took it — attempting a NON-zonal create (normal for T4)..."
   vmname="${VM}-nozone"
   if try_create "$vmname" ""; then CREATED_VM="$vmname" CREATED_ZONE="none"; else
     az vm delete -g "$RG" -n "$vmname" --yes 2>/dev/null || true
   fi
 fi
-if [ -z "$CREATED_VM" ]; then
+if [[ -z "$CREATED_VM" ]]; then
   echo "✗ No capacity for $SIZE in $REGION (zonal or non-zonal). Try later or another region."
   echo "  Probe regions:  ./scripts/az-find-region-with-quota.sh $SIZE"
   echo "  Then remove the empty RG:  bash az-validation-vm-destroy.sh"
