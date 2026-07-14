@@ -68,6 +68,26 @@ jobs:
           go install github.com/zricethezav/gitleaks/v8@v8.30.1
           gitleaks detect --no-banner
 
+  # Complements govulncheck: govulncheck only reports vulns reachable through
+  # the actual call graph; OSV Scanner covers the full go.sum transitive graph
+  # and the broader OSV ecosystem database — catching a dependency that is
+  # vulnerable even if DashDiag doesn't call the affected symbol. Same
+  # schedule and trigger as govulncheck so a newly published CVE fires both.
+  osv-scanner:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with: {go-version: '1.26', cache: true}
+
+      - name: osv-scanner
+        # Pinned, not @latest — same Scorecard rationale as govulncheck above.
+        # v2 module path (github.com/google/osv-scanner/v2); bumped from v1 which
+        # reached end-of-active-development after v1.9.2. Bump deliberately.
+        run: |
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
+          osv-scanner scan .
+
   # Blocks a PR that INTRODUCES a new vulnerable/license-flagged dependency —
   # distinct from govulncheck (only scans what's already merged and imported)
   # and from Dependabot (schedule-based, proposes an update, doesn't gate a
