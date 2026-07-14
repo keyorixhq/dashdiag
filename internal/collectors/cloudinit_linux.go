@@ -76,7 +76,7 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 // cloudInitStatusJSON mirrors the fields of `cloud-init status --format=json`.
 // recoverable_errors is keyed by level (WARNING/ERROR) → list of messages.
 type cloudInitStatusJSON struct {
-	Status            string              `json:ciFldStatus`
+	Status            string              `json:"status"`
 	ExtendedStatus    string              `json:"extended_status"`
 	BootStatusCode    string              `json:"boot_status_code"`
 	Datasource        string              `json:"datasource"`

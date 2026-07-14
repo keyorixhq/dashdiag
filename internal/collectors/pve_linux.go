@@ -177,7 +177,7 @@ func collectPVESubscription(ctx context.Context) models.PVESubscription {
 		return collectPVESubscriptionFile()
 	}
 	var result struct {
-		Status  string `json:pveFldStatus`
+		Status  string `json:"status"`
 		Level   string `json:"level"`
 		Product string `json:"product"`
 	}
@@ -223,7 +223,7 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 	}
 
 	var items []struct {
-		Type    string `json:pveFldType`
+		Type    string `json:"type"`
 		Name    string `json:"name"`
 		Quorate int    `json:"quorate"`
 		Online  int    `json:"online"`
@@ -266,8 +266,8 @@ func collectPVEHAFencing(ctx context.Context) (ok bool, msg string, verified boo
 	}
 	var entries []struct {
 		ID     string `json:"id"`
-		Type   string `json:pveFldType`
-		Status string `json:pveFldStatus`
+		Type   string `json:"type"`
+		Status string `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		// The API responded but we couldn't parse it — fencing state NOT verified.
@@ -296,10 +296,10 @@ func collectPVEStorages(ctx context.Context) (storagesOut []models.PVEStorage, v
 
 	var items []struct {
 		Storage string  `json:"storage"`
-		Type    string  `json:pveFldType`
+		Type    string  `json:"type"`
 		Used    float64 `json:"used"`
 		Total   float64 `json:"total"`
-		Active  int     `json:secValActive`
+		Active  int     `json:"active"`
 		Enabled int     `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
@@ -387,7 +387,7 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 func parsePVEBackupTasks(out string) (tasks []models.PVEBackupTask, ageDays int, byVM map[int]time.Time) {
 	var items []struct {
 		VMID    string  `json:"id"`
-		Status  string  `json:pveFldStatus`
+		Status  string  `json:"status"`
 		EndTime float64 `json:"endtime"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
@@ -578,7 +578,7 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 	type guestRaw struct {
 		VMID     int     `json:"vmid"`
 		Name     string  `json:"name"`
-		Status   string  `json:pveFldStatus`
+		Status   string  `json:"status"`
 		OnBoot   int     `json:"onboot"`
 		CPUs     int     `json:"cpus"`
 		MaxMem   float64 `json:"maxmem"`   // bytes
@@ -680,10 +680,10 @@ func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, v
 		return nil, false
 	}
 	var raw []struct {
-		Type       string  `json:pveFldType`
+		Type       string  `json:"type"`
 		ID         string  `json:"id"`
 		ExitStatus string  `json:"exitstatus"`
-		Status     string  `json:pveFldStatus`
+		Status     string  `json:"status"`
 		StartTime  float64 `json:"starttime"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
@@ -722,8 +722,8 @@ func collectPVEBridges(ctx context.Context) []models.PVEBridge {
 	}
 	var items []struct {
 		Iface       string `json:"iface"`
-		Type        string `json:pveFldType`
-		Active      int    `json:secValActive`
+		Type        string `json:"type"`
+		Active      int    `json:"active"`
 		BridgePorts string `json:"bridge_ports"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {

@@ -104,7 +104,7 @@ func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bo
 	var result struct {
 		Items []struct {
 			Metadata struct {
-				Name   string            `json:k8sFldName`
+				Name   string            `json:"name"`
 				Labels map[string]string `json:"labels"`
 			} `json:"metadata"`
 			Status struct {
@@ -113,9 +113,9 @@ func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bo
 				} `json:"nodeInfo"`
 				Conditions []struct {
 					Type   string `json:"type"`
-					Status string `json:k8sFldStatus`
+					Status string `json:"status"`
 				} `json:"conditions"`
-			} `json:k8sFldStatus`
+			} `json:"status"`
 			Spec struct {
 				Taints []struct {
 					Key string `json:"key"`
@@ -209,13 +209,13 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 	var result struct {
 		Items []struct {
 			Metadata struct {
-				Name              string `json:k8sFldName`
+				Name              string `json:"name"`
 				Namespace         string `json:"namespace"`
 				DeletionTimestamp string `json:"deletionTimestamp"`
 				CreationTimestamp string `json:"creationTimestamp"`
 				OwnerReferences   []struct {
 					Kind string `json:"kind"`
-					Name string `json:k8sFldName`
+					Name string `json:"name"`
 				} `json:"ownerReferences"`
 			} `json:"metadata"`
 			Spec struct {
@@ -224,7 +224,7 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 					Image string `json:"image"`
 				} `json:"containers"`
 				InitContainers []struct {
-					Name string `json:k8sFldName`
+					Name string `json:"name"`
 				} `json:"initContainers"`
 			} `json:"spec"`
 			Status struct {
@@ -234,9 +234,9 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 					RestartCount int  `json:"restartCount"`
 					State        struct {
 						Waiting struct {
-							Reason string `json:k8sFldReason`
-						} `json:k8sStateWaiting`
-					} `json:k8sFldState`
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
 					LastTerminationState struct {
 						Terminated struct {
 							Message string `json:"message"`
@@ -246,11 +246,11 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 				InitContainerStatuses []struct {
 					State struct {
 						Waiting struct {
-							Reason string `json:k8sFldReason`
-						} `json:k8sStateWaiting`
-					} `json:k8sFldState`
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
 				} `json:"initContainerStatuses"`
-			} `json:k8sFldStatus`
+			} `json:"status"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -297,12 +297,12 @@ func parseInitError(
 	statuses []struct {
 		State struct {
 			Waiting struct {
-				Reason string `json:k8sFldReason`
-			} `json:k8sStateWaiting`
-		} `json:k8sFldState`
+				Reason string `json:"reason"`
+			} `json:"waiting"`
+		} `json:"state"`
 	},
 	containers []struct {
-		Name string `json:k8sFldName`
+		Name string `json:"name"`
 	},
 ) string {
 	for i, ic := range statuses {
@@ -325,9 +325,9 @@ func summarizeContainerStatuses(statuses []struct {
 	RestartCount int  `json:"restartCount"`
 	State        struct {
 		Waiting struct {
-			Reason string `json:k8sFldReason`
-		} `json:k8sStateWaiting`
-	} `json:k8sFldState`
+			Reason string `json:"reason"`
+		} `json:"waiting"`
+	} `json:"state"`
 	LastTerminationState struct {
 		Terminated struct {
 			Message string `json:"message"`

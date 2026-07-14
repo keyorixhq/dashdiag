@@ -117,10 +117,10 @@ type storcliOutput struct {
 			VDList      []storcliVD `json:"VD LIST"`
 			PDList      []storcliPD `json:"PD LIST"`
 			BBUInfo     []struct {
-				State string `json:hwrFldState`
+				State string `json:"State"`
 			} `json:"BBU_Info"`
 			CachevaultInfo []struct {
-				State string `json:hwrFldState`
+				State string `json:"State"`
 			} `json:"Cachevault_Info"`
 		} `json:"Response Data"`
 	} `json:"Controllers"`
@@ -129,13 +129,13 @@ type storcliOutput struct {
 type storcliVD struct {
 	DGVD  string `json:"DG/VD"`
 	Type  string `json:"TYPE"`
-	State string `json:hwrFldState`
+	State string `json:"State"`
 	Name  string `json:"Name"`
 }
 
 type storcliPD struct {
 	EIDSlt string `json:"EID:Slt"`
-	State  string `json:hwrFldState`
+	State  string `json:"State"`
 }
 
 // parseStorcli turns "storcli /cALL show all J" JSON into normalized controllers.
@@ -214,7 +214,7 @@ func normalizeStorcliPD(pd storcliPD) models.HWRaidPD {
 }
 
 func storcliBBU(bbu, cv []struct {
-	State string `json:hwrFldState`
+	State string `json:"State"`
 }) (string, bool) {
 	state := ""
 	if len(bbu) > 0 {
