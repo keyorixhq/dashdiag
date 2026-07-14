@@ -535,7 +535,7 @@ var loginDefsPath = "/etc/login.defs"
 // file. All four password-aging rules (CIS 5.4.1 and STIG V-238380/382/383)
 // share this exact read/scan/parse shape and differ only in the field name and
 // threshold predicate.
-func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool,
+func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool, // NOSONAR — CIS rule helper; each param is a distinct configurable aspect of the check
 	failFmt, failFix, notSetFinding, notSetFix string,
 ) models.CISResult {
 	data, err := os.ReadFile(path) // #nosec G304 -- hardcoded/injected login.defs path

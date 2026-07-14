@@ -184,7 +184,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 // runReplayDiff replays a baseline capture and the current capture through the
 // same pipeline and prints what changed between them — the support workflow:
 // "diff a customer's healthy capture against the one taken when it broke".
-func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, cve, jsonOut, force bool) error {
+func runReplayDiff(current *source.Bundle, baselinePath string, deep, pkg, gpu, cve, jsonOut, force bool) error { // NOSONAR — CLI flag pass-through; bool params mirror cobra flags 1:1
 	base, err := loadBundle(baselinePath)
 	if err != nil {
 		return fmt.Errorf("loading baseline bundle: %w", err)
@@ -214,7 +214,7 @@ func replayPlatformGuard(b *source.Bundle, force bool) error {
 // renderCaptureDiff replays two bundles through the identical health pipeline and
 // writes the per-check delta to stdout (human or JSON). Shared by `replay --diff`
 // and the top-level `dsd diff` command.
-func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, cve, jsonOut, force bool) error {
+func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, cve, jsonOut, force bool) error { // NOSONAR — CLI flag pass-through; bool params mirror cobra flags 1:1
 	if err := replayPlatformGuard(current, force); err != nil {
 		return err
 	}
