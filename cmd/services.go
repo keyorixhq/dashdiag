@@ -16,6 +16,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	svcSectionUserUnits   = "User units"
+	svcSectionFailedUnits = "Failed units"
+	svcValNone            = "none"
+)
+
 func init() {
 	rootCmd.AddCommand(servicesCmd)
 	servicesCmd.AddCommand(servicesDeepCmd)
@@ -212,12 +218,12 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 
 	if len(info.FailedUnits) == 0 && !info.FailedUnitsQueried {
 		// systemctl couldn't be queried (non-systemd host, or it errored) — an empty
-		// list means "couldn't look", not "none". Don't render the green "none".
-		printLine(mode, "info", "Failed units", "not queried — systemctl unavailable (non-systemd host?)")
+		// list means "couldn't look", not svcValNone. Don't render the green svcValNone.
+		printLine(mode, "info", svcSectionFailedUnits, "not queried — systemctl unavailable (non-systemd host?)")
 	} else if len(info.FailedUnits) == 0 {
-		printLine(mode, "ok", "Failed units", "none")
+		printLine(mode, "ok", svcSectionFailedUnits, svcValNone)
 	} else {
-		printLine(mode, "fail", "Failed units", fmt.Sprintf("%d", len(info.FailedUnits)))
+		printLine(mode, "fail", svcSectionFailedUnits, fmt.Sprintf("%d", len(info.FailedUnits)))
 		for _, u := range info.FailedUnits {
 			exitStr := ""
 			if u.ExitCode != 0 {
@@ -243,7 +249,7 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 	}
 
 	if len(info.MaskedUnits) == 0 {
-		printLine(mode, "ok", "Masked units", "none")
+		printLine(mode, "ok", "Masked units", svcValNone)
 	} else {
 		printLine(mode, "info", "Masked units",
 			fmt.Sprintf("%d: %s", len(info.MaskedUnits), strings.Join(capSlice(info.MaskedUnits, 3), ", ")))
@@ -274,11 +280,11 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 	// User units
 	if info.UserUnits != nil {
 		if !info.UserUnits.Available {
-			printLine(mode, "info", "User units", "no user systemd daemon running")
+			printLine(mode, "info", svcSectionUserUnits, "no user systemd daemon running")
 		} else if len(info.UserUnits.Failed) == 0 {
-			printLine(mode, "ok", "User units", "none failed")
+			printLine(mode, "ok", svcSectionUserUnits, "none failed")
 		} else {
-			printLine(mode, "warn", "User units",
+			printLine(mode, "warn", svcSectionUserUnits,
 				fmt.Sprintf("%d failed", len(info.UserUnits.Failed)))
 			for _, u := range info.UserUnits.Failed {
 				fmt.Printf("     %s\n", u.Name)

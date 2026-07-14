@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
+const tipDateFmt = "2006-01-02"
+
 var runMilestones = []int{10, 50, 100, 500}
 var streakMilestones = []int{7, 30}
 
@@ -18,8 +20,8 @@ func daysBetween(a, b string) int {
 	if a == "" || b == "" {
 		return 0
 	}
-	ta, err1 := time.Parse("2006-01-02", a)
-	tb, err2 := time.Parse("2006-01-02", b)
+	ta, err1 := time.Parse(tipDateFmt, a)
+	tb, err2 := time.Parse(tipDateFmt, b)
 	if err1 != nil || err2 != nil {
 		return 0
 	}
@@ -75,7 +77,7 @@ func MaybePrintReengagement(state *State, mode output.OutputMode, ver string) {
 	if mode != output.ModeHuman || isPlainMode() {
 		return
 	}
-	today := time.Now().Format("2006-01-02")
+	today := time.Now().Format(tipDateFmt)
 	gap := daysBetween(state.LastRunDate, today)
 	if gap >= 7 {
 		fmt.Fprintf(os.Stdout, "\n👋 Welcome back! %d days since your last check.\n", gap)
@@ -93,7 +95,7 @@ func MaybePrintChangelog(state *State, mode output.OutputMode, ver string) {
 }
 
 func MaybePrintMilestone(state *State, mode output.OutputMode) {
-	today := time.Now().Format("2006-01-02")
+	today := time.Now().Format(tipDateFmt)
 
 	state.TotalRuns++
 

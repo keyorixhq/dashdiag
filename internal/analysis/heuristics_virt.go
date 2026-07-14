@@ -8,6 +8,15 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	virtCatK8s        = "K8s"
+	virtCatDocker     = "Docker"
+	virtCatKVM        = "KVM"
+	virtCatContainerd = "Containerd"
+	virtInspectVirsh  = "to inspect: virsh dominfo <name>"
+	virtFixK3sRestart = "to fix (k3s): sudo systemctl restart k3s"
+)
+
 // checkKVMVMs covers the per-domain state verdicts (crashed, abnormal/stuck,
 // unreadable, paused, shut-off-with-autostart, disk I/O). Split out of checkKVM
 // to keep each under the funlen limit; the two compose into the full KVM verdict.
@@ -24,7 +33,7 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 			if vm.LastLogError != "" {
 				hints = append([]string{"last log: " + vm.LastLogError}, hints...)
 			}
-			out = append(out, insight("CRIT", "KVM",
+			out = append(out, insight("CRIT", virtCatKVM,
 				fmt.Sprintf("VM %s is in CRASHED state", vm.Name), hints))
 		}
 	}
@@ -38,28 +47,28 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 				names = append(names, fmt.Sprintf("%s (%s)", vm.Name, vm.State))
 			}
 		}
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) in an abnormal state: %s — not running and not cleanly stopped",
 				kvm.VMsAbnormal, strings.Join(firstN(names, 3), ", ")),
 			[]string{
-				"to inspect: virsh dominfo <name>",
+				virtInspectVirsh,
 				"to recover: virsh dompmwakeup <name> (pmsuspended), or virsh destroy then virsh start",
 			},
 		))
 	}
 	// State could not be read (virsh dominfo failed) — couldn't verify, not healthy.
 	if kvm.VMsUnreadable > 0 {
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) defined but their state could not be read (virsh dominfo failed) — true state unknown", kvm.VMsUnreadable),
 			[]string{
-				"to inspect: virsh dominfo <name>",
+				virtInspectVirsh,
 				"note: a transient libvirt error or permission issue hid the VM's real state",
 			},
 		))
 	}
 	// Paused VMs — WARN
 	if kvm.VMsPaused > 0 {
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) paused — may indicate a problem or forgotten snapshot", kvm.VMsPaused),
 			[]string{
 				"to inspect: virsh list --all | grep paused",
@@ -75,18 +84,18 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 				names = append(names, vm.Name)
 			}
 		}
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) shut off with autostart=yes: %s",
 				kvm.VMsDownAutostart, strings.Join(firstN(names, 3), ", ")),
 			[]string{
 				"to start:   virsh start <name>",
-				"to inspect: virsh dominfo <name>",
+				virtInspectVirsh,
 			},
 		))
 	}
 	// Disk I/O errors — CRIT
 	if kvm.DiskIOErrors > 0 {
-		out = append(out, insight("CRIT", "KVM",
+		out = append(out, insight("CRIT", virtCatKVM,
 			fmt.Sprintf("%d VM(s) have recorded disk I/O errors", kvm.DiskIOErrors),
 			[]string{
 				"to inspect: virsh domblkerror <name>",
@@ -106,7 +115,7 @@ func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
 	var out []models.Insight
 	for _, vm := range kvm.VMs {
 		if vm.MissingDiskPath != "" {
-			out = append(out, insight("CRIT", "KVM",
+			out = append(out, insight("CRIT", virtCatKVM,
 				fmt.Sprintf("VM %s's disk image is missing: %s — the VM cannot start", vm.Name, vm.MissingDiskPath),
 				[]string{
 					fmt.Sprintf("to inspect: virsh domblklist %s", vm.Name),
@@ -115,14 +124,14 @@ func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
 			))
 		}
 		if len(vm.EmulatedNICs) > 0 {
-			out = append(out, insight("WARN", "KVM",
+			out = append(out, insight("WARN", virtCatKVM,
 				fmt.Sprintf("VM %s: NIC(s) on an emulated driver (%s) — switch to VirtIO (virtio-net) for higher throughput at lower host CPU",
 					vm.Name, strings.Join(vm.EmulatedNICs, ", ")),
 				[]string{fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<interface'", vm.Name)},
 			))
 		}
 		if len(vm.EmulatedDisks) > 0 {
-			out = append(out, insight("WARN", "KVM",
+			out = append(out, insight("WARN", virtCatKVM,
 				fmt.Sprintf("VM %s: disk(s) on an emulated bus (%s) — switch to VirtIO Block/SCSI; emulated IDE/SATA is a common cause of slow guest I/O",
 					vm.Name, strings.Join(vm.EmulatedDisks, ", ")),
 				[]string{
@@ -143,14 +152,14 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 	// libvirt is up but its domains couldn't be enumerated — surface that rather than
 	// letting an empty VM list read as "no VMs / healthy" (a crashed VM would be hidden).
 	if kvm.Status == "enum-failed" {
-		return []models.Insight{insight("WARN", "KVM", kvm.StatusReason,
+		return []models.Insight{insight("WARN", virtCatKVM, kvm.StatusReason,
 			[]string{"to inspect: virsh list --all", "to inspect: systemctl status libvirtd"})}
 	}
 	out = append(out, checkKVMVMs(kvm)...)
 
 	// Inactive networks — WARN
 	if kvm.NetworksInactive > 0 {
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d virtual network(s) inactive — VMs may lose connectivity", kvm.NetworksInactive),
 			[]string{
 				"to inspect: virsh net-list --all",
@@ -161,7 +170,7 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 	}
 	// Inactive storage pools — WARN
 	if kvm.PoolsInactive > 0 {
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d storage pool(s) inactive — disk images may be inaccessible", kvm.PoolsInactive),
 			[]string{
 				"to inspect: virsh pool-list --all",
@@ -171,7 +180,7 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 	}
 	// Full storage pools — WARN/CRIT
 	if kvm.PoolsNearFull > 0 {
-		out = append(out, insight("WARN", "KVM",
+		out = append(out, insight("WARN", virtCatKVM,
 			fmt.Sprintf("%d storage pool(s) >85%% full — VMs may fail to write disk", kvm.PoolsNearFull),
 			[]string{
 				"to inspect: virsh pool-info <name>",
@@ -194,12 +203,12 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		// runtime for podman/crio.
 		if d.SocketPermDenied {
 			if d.StatusReason != "" {
-				out = append(out, insight("INFO", "Docker", d.StatusReason, nil))
+				out = append(out, insight("INFO", virtCatDocker, d.StatusReason, nil))
 			}
 			return out
 		}
 		if d.StatusReason != "" {
-			out = append(out, insight("WARN", "Docker",
+			out = append(out, insight("WARN", virtCatDocker,
 				d.StatusReason,
 				[]string{"to inspect: systemctl status docker"},
 			))
@@ -216,7 +225,7 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		if reason == "" {
 			reason = "Docker daemon is reachable but its containers could not be listed — health not verified"
 		}
-		return []models.Insight{insight("WARN", "Docker", reason,
+		return []models.Insight{insight("WARN", virtCatDocker, reason,
 			[]string{"to inspect: docker ps -a", "to inspect: journalctl -u docker --since '10 min ago'"})}
 	}
 
@@ -239,12 +248,12 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 		// INFO like checkDocker's identical SocketPermDenied case, never WARN.
 		if d.SocketPermDenied {
 			if d.StatusReason != "" {
-				out = append(out, insight("INFO", "Containerd", d.StatusReason, nil))
+				out = append(out, insight("INFO", virtCatContainerd, d.StatusReason, nil))
 			}
 			return out
 		}
 		// Socket not found but service might be installed — give actionable hint
-		out = append(out, insight("WARN", "Containerd",
+		out = append(out, insight("WARN", virtCatContainerd,
 			d.StatusReason,
 			[]string{
 				"to inspect: systemctl status containerd",
@@ -256,7 +265,7 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 
 	// Service not active despite socket being reachable — transient state
 	if d.ServiceState != "" && d.ServiceState != "active" && d.ServiceState != "unknown" {
-		out = append(out, insight("CRIT", "Containerd",
+		out = append(out, insight("CRIT", virtCatContainerd,
 			fmt.Sprintf("containerd.service is %s — runtime may be unstable", d.ServiceState),
 			[]string{
 				"to inspect: systemctl status containerd",
@@ -301,13 +310,13 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 
 	var out []models.Insight
 	if len(failed) > 0 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
 			[]string{fmt.Sprintf("to inspect: systemctl status %s", firstFailed)},
 		))
 	}
 	if len(inactive) > 0 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d Podman quadlet(s) present but not active: %s", len(inactive), strings.Join(inactive, ", ")),
 			[]string{
 				fmt.Sprintf("to inspect: systemctl status %s", firstInactive),
@@ -316,7 +325,7 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 		))
 	}
 	if len(unverified) > 0 {
-		out = append(out, insight("INFO", "Docker",
+		out = append(out, insight("INFO", virtCatDocker,
 			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(unverified, ", ")),
 			[]string{"to inspect: systemctl show <unit> --property=ActiveState,LoadState   (systemctl unavailable or unit not found)"},
 		))
@@ -327,7 +336,7 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 func checkDockerContainers(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
 	for _, name := range d.CrashLooping {
-		out = append(out, insight("CRIT", "Docker",
+		out = append(out, insight("CRIT", virtCatDocker,
 			fmt.Sprintf("container %q is crash looping (restarted >5 times)", name),
 			[]string{
 				fmt.Sprintf("to inspect: docker logs %s --tail 50", name),
@@ -336,7 +345,7 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 		))
 	}
 	for _, name := range d.Unhealthy {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("container %q health check failing", name),
 			[]string{
 				fmt.Sprintf("to inspect: docker inspect %s | grep -A10 Health", name),
@@ -356,7 +365,7 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 		}
 	}
 	if failedStopped > 5 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d stopped container(s) exited with errors — crashes or failed jobs (clean-exit init/oneshot containers not counted)", failedStopped),
 			[]string{
 				"to inspect: docker ps -a --filter status=exited --filter status=dead",
@@ -365,7 +374,7 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 		))
 	}
 	if d.OOMEvents > 0 {
-		out = append(out, insight("CRIT", "Docker",
+		out = append(out, insight("CRIT", virtCatDocker,
 			fmt.Sprintf("%d container OOM kill(s) in the last hour — containers are out of memory", d.OOMEvents),
 			[]string{
 				"to inspect: docker events --filter event=oom",
@@ -382,7 +391,7 @@ func checkDockerContainers(d models.DockerInfo) []models.Insight {
 				mismatched = append(mismatched, fmt.Sprintf("%s (image: %s, host: %s)", c.Name, c.ImageArch, d.HostArch))
 			}
 		}
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d container(s) have image architecture mismatch — will fail with 'exec format error': %s",
 				d.ArchMismatchCount, strings.Join(firstN(mismatched, 3), ", ")),
 			[]string{
@@ -399,7 +408,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	var out []models.Insight
 	// Deprecated storage driver
 	if d.Daemon != nil && d.Daemon.StorageDriver == "devicemapper" {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			"storage driver is devicemapper (deprecated) — known performance and stability issues",
 			[]string{
 				"to fix: migrate to overlay2 (requires re-creating all containers and images)",
@@ -411,7 +420,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// Spec 7d: Compose version
 	if d.Daemon != nil {
 		if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin != "" {
-			out = append(out, insight("WARN", "Docker",
+			out = append(out, insight("WARN", virtCatDocker,
 				fmt.Sprintf("both docker-compose v1 (%s) and docker compose v2 (%s) installed — scripts may use the wrong one",
 					d.Daemon.ComposeStandalone, d.Daemon.ComposePlugin),
 				[]string{
@@ -420,7 +429,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 				},
 			))
 		} else if d.Daemon.ComposeStandalone != "" && d.Daemon.ComposePlugin == "" {
-			out = append(out, insight("WARN", "Docker",
+			out = append(out, insight("WARN", virtCatDocker,
 				fmt.Sprintf("docker-compose v1 (%s) installed — standalone is deprecated, migrate to docker compose plugin",
 					d.Daemon.ComposeStandalone),
 				[]string{
@@ -436,7 +445,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 		if d.Daemon.LastDaemonError != "" {
 			hints = append([]string{"last error: " + d.Daemon.LastDaemonError}, hints...)
 		}
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d Docker daemon error(s) in the last 10 minutes", d.Daemon.RecentErrors),
 			hints,
 		))
@@ -446,7 +455,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// --log-opt (or Compose's `logging:` stanza) commonly overrides the daemon
 	// default, and checking only the daemon default false-WARNed those containers.
 	if d.LogDriver != nil && len(d.LogDriver.UnboundedContainers) > 0 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d container(s) logging json-file with no max-size — logs grow unbounded: %s",
 				len(d.LogDriver.UnboundedContainers), strings.Join(firstN(d.LogDriver.UnboundedContainers, 3), ", ")),
 			[]string{
@@ -459,14 +468,14 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// could not be checked at all; must not be silently dropped from the
 	// unbounded-logging picture as if confirmed clean.
 	if d.LogDriver != nil && len(d.LogDriver.UnverifiedContainers) > 0 {
-		out = append(out, insight("INFO", "Docker",
+		out = append(out, insight("INFO", virtCatDocker,
 			fmt.Sprintf("%d container(s) log config could not be verified (inspect failed): %s",
 				len(d.LogDriver.UnverifiedContainers), strings.Join(firstN(d.LogDriver.UnverifiedContainers, 3), ", ")),
 			[]string{"to inspect: docker inspect <container>"},
 		))
 	}
 	if d.LogDriver != nil && d.LogDriver.LargeLogCount > 0 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d container log file(s) >500MB — disk usage risk", d.LogDriver.LargeLogCount),
 			[]string{
 				"to inspect: ls -lh /var/lib/docker/containers/*/*-json.log",
@@ -480,13 +489,13 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// the INFO printed "0 MB". Surfacing real sizes/orphans needs `docker system df` /
 	// a dangling-volume query validated against a live daemon — deferred.
 	if d.DanglingImages > 0 {
-		out = append(out, insight("INFO", "Docker",
+		out = append(out, insight("INFO", virtCatDocker,
 			fmt.Sprintf("%d dangling image(s) — reclaimable with a prune", d.DanglingImages),
 			[]string{"to fix: docker image prune"},
 		))
 	}
 	if d.MTUMismatch {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("container network MTU (%d) > host interface MTU (%d) — silent packet fragmentation",
 				d.ContainerMTU, d.HostMTU),
 			[]string{
@@ -501,7 +510,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// Gate on IPForwardChecked: an unreadable /proc path (macOS, proc-less
 	// container) means state is unknown, not disabled — don't fire a false CRIT.
 	if d.IPForwardChecked && !d.IPForwardEnabled && d.Available {
-		out = append(out, insight("CRIT", "Docker",
+		out = append(out, insight("CRIT", virtCatDocker,
 			"IP forwarding disabled (net.ipv4.ip_forward=0) — container outbound traffic will fail",
 			[]string{
 				"to fix:    sysctl -w net.ipv4.ip_forward=1",
@@ -515,7 +524,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// fix below). Skip the WARN when that fix is in place, or we flag a host the
 	// admin already remediated.
 	if d.FirewalldActive && d.FirewalldBackend == "nftables" && !d.DockerZoneTrusted {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			"firewalld is active with nftables backend — Docker iptables rules are silently ignored",
 			[]string{
 				"fix A (switch backend): sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf && systemctl restart firewalld docker",
@@ -529,13 +538,13 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 			// Mitigated: the daemon hands containers explicit DNS, so the host's
 			// loopback resolv.conf is not the resolver they use. Informational —
 			// not a WARN (the admin already did the documented fix).
-			out = append(out, insight("INFO", "Docker",
+			out = append(out, insight("INFO", virtCatDocker,
 				fmt.Sprintf("host resolv.conf uses %s (loopback), but Docker daemon DNS is configured (%s) — containers use that",
 					d.DNSTrapServer, strings.Join(d.DaemonDNSServers, ", ")),
 				nil,
 			))
 		} else {
-			out = append(out, insight("WARN", "Docker",
+			out = append(out, insight("WARN", virtCatDocker,
 				fmt.Sprintf("host resolv.conf uses %s (loopback) — containers cannot reach it and fall back to 8.8.8.8", d.DNSTrapServer),
 				[]string{
 					"note: if 8.8.8.8 is blocked by corporate firewall, container DNS fails silently",
@@ -559,7 +568,7 @@ func checkDockerSecurity(d models.DockerInfo) []models.Insight {
 				names = append(names, c.Name)
 			}
 		}
-		out = append(out, insight("CRIT", "Docker",
+		out = append(out, insight("CRIT", virtCatDocker,
 			fmt.Sprintf("%d container(s) have docker.sock mounted — grants root-equivalent host access: %s",
 				d.SocketMountedCount, strings.Join(firstN(names, 3), ", ")),
 			[]string{
@@ -572,7 +581,7 @@ func checkDockerSecurity(d models.DockerInfo) []models.Insight {
 
 	// Running as root
 	if d.RunningAsRootCount > 0 {
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d running container(s) using root user — reduces container isolation", d.RunningAsRootCount),
 			[]string{
 				"to fix: add 'USER <non-root>' directive to Dockerfile",
@@ -589,7 +598,7 @@ func checkDockerSecurity(d models.DockerInfo) []models.Insight {
 				names = append(names, c.Name)
 			}
 		}
-		out = append(out, insight("WARN", "Docker",
+		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d container(s) have plaintext secrets in env vars: %s",
 				d.ContainersWithSecrets, strings.Join(firstN(names, 3), ", ")),
 			[]string{
@@ -617,7 +626,7 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	// not raise the verdict (a kubectl-on-a-workstation pointing at a remote
 	// cluster shouldn't WARN).
 	if !k.APIReachable {
-		return []models.Insight{insight("INFO", "K8s",
+		return []models.Insight{insight("INFO", virtCatK8s,
 			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
 			[]string{
 				"to inspect: kubectl get nodes",
@@ -640,7 +649,7 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 func checkK8sNodes(k models.K8sInfo) []models.Insight {
 	var out []models.Insight
 	if k.NodesNotReady > 0 {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			fmt.Sprintf("%d node(s) not Ready — cluster may be degraded", k.NodesNotReady),
 			[]string{
 				"to inspect: kubectl get nodes -o wide",
@@ -658,7 +667,7 @@ func checkK8sNodes(k models.K8sInfo) []models.Insight {
 			if status != "True" || !nodeProblemConditions[cond] {
 				continue
 			}
-			out = append(out, insight("CRIT", "K8s",
+			out = append(out, insight("CRIT", virtCatK8s,
 				fmt.Sprintf("node %s: %s condition True — workloads may be evicted", node.Name, cond),
 				[]string{
 					fmt.Sprintf("to inspect: kubectl describe node %s | grep -A5 Conditions", node.Name),
@@ -699,7 +708,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 					p.Namespace, p.Name, k8sFirstLine(p.TerminationMsg)))
 			}
 		}
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			fmt.Sprintf("%d pod(s) crash looping", k.CrashLooping), hints))
 	}
 	// Pods stuck in init errors — a failing init container blocks the pod from
@@ -713,7 +722,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		}
 	}
 	if len(initErr) > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d pod(s) stuck in init errors — workload cannot start: %s",
 				len(initErr), strings.Join(firstN(initErr, 3), ", ")),
 			[]string{
@@ -724,7 +733,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		))
 	}
 	if k.PodsNotReady > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d pod(s) running but containers not ready", k.PodsNotReady),
 			[]string{
 				"to inspect: kubectl get pods -A | grep '0/'",
@@ -733,7 +742,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		))
 	}
 	if k.Pending > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d pod(s) stuck in Pending — check node resources or PVC availability",
 				k.Pending),
 			[]string{
@@ -743,7 +752,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		))
 	}
 	if k.HighRestarts > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d pod(s) with ≥10 restarts — instability detected", k.HighRestarts),
 			[]string{
 				"to inspect: kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'",
@@ -752,7 +761,7 @@ func checkK8sPodHealth(k models.K8sInfo) []models.Insight {
 		))
 	}
 	if k.Terminating > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d pod(s) stuck Terminating — finalizer or webhook blocking deletion",
 				k.Terminating),
 			[]string{
@@ -795,7 +804,7 @@ func k8sUnknownStatusInsight(k models.K8sInfo) models.Insight {
 		"to inspect: kubectl describe node <node>  (confirm node is actually unreachable before deleting)",
 		"to force (only if node confirmed dead): kubectl delete pod <name> -n <ns> --grace-period=0 --force",
 	)
-	return insight("WARN", "K8s",
+	return insight("WARN", virtCatK8s,
 		fmt.Sprintf("%d pod(s) in Unknown status — node may be unreachable", k.UnknownStatus),
 		hints)
 }
@@ -803,7 +812,7 @@ func k8sUnknownStatusInsight(k models.K8sInfo) models.Insight {
 func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 	var out []models.Insight
 	if k.PVCsNotBound > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d PVC(s) not Bound — pods waiting for storage may stay Pending",
 				k.PVCsNotBound),
 			[]string{
@@ -820,7 +829,7 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 					w.Namespace, w.Name, w.Ready, w.Desired))
 			}
 		}
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("%d workload(s) degraded: %s",
 				k.WorkloadsDown, strings.Join(firstN(names, 3), ", ")),
 			[]string{
@@ -908,7 +917,7 @@ func k8sEventInsight(level string, events []models.K8sEvent) models.Insight {
 		msg = fmt.Sprintf("%d Warning event(s), all quiesced (none seen in last %dm): %s",
 			len(events), k8sEventRecentWindowSec/60, strings.Join(summary, ", "))
 	}
-	return insight(level, "K8s", msg, hints)
+	return insight(level, virtCatK8s, msg, hints)
 }
 
 // parseK8sEventAgeSeconds parses kubectl's compact age format ("47s", "6m5s",
@@ -962,7 +971,7 @@ func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
 	// (e.g. a laptop pointed at a remote cluster) never has kubelet/containerd
 	// installed at all — that must NOT read as "kubelet down".
 	if l.KubeletChecked && !l.KubeletActive {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			"kubelet is not running on this node — pods cannot be scheduled or managed here",
 			[]string{
 				"to inspect: sudo systemctl status kubelet k3s k3s-agent rke2-server rke2-agent k0scontroller k0sworker",
@@ -972,7 +981,7 @@ func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
 	}
 
 	if l.ContainerdChecked && !l.ContainerdActive {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			"container runtime is not active on this node — no containers can be started here",
 			[]string{
 				"to inspect: sudo systemctl status containerd",
@@ -985,7 +994,7 @@ func checkK8sNodeDaemons(l models.K8sOSLayer) []models.Insight {
 	// requirement); FirewalldChecked is only true when firewalld.service itself is
 	// active, so a host without firewalld (the k3s/RKE2 default) never false-fires.
 	if l.FirewalldChecked && l.FlannelInUse && !l.FirewalldMasquOK {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			"firewalld is active without masquerade enabled — flannel pod networking across nodes will fail",
 			[]string{
 				"to fix: sudo firewall-cmd --add-masquerade --permanent && sudo firewall-cmd --reload",
@@ -1009,7 +1018,7 @@ func checkK8sServicesChain(l models.K8sOSLayer) []models.Insight {
 	}
 	switch l.KubeProxyMode {
 	case "iptables":
-		return []models.Insight{insight("WARN", "K8s",
+		return []models.Insight{insight("WARN", virtCatK8s,
 			"KUBE-SERVICES chain has 0 entries — ClusterIP service routing is not programmed, kube-proxy may not have synced",
 			[]string{
 				"to inspect: sudo iptables -t nat -L KUBE-SERVICES -n --line-numbers",
@@ -1017,7 +1026,7 @@ func checkK8sServicesChain(l models.K8sOSLayer) []models.Insight {
 			},
 		)}
 	case "ipvs":
-		return []models.Insight{insight("WARN", "K8s",
+		return []models.Insight{insight("WARN", virtCatK8s,
 			"kube-proxy is in IPVS mode but ipvsadm shows 0 TCP virtual servers — service routing is not programmed",
 			[]string{
 				"to inspect: sudo ipvsadm -ln",
@@ -1047,7 +1056,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// which looks identical to a genuinely clean/not-configured node — surface it
 	// once, rather than per-field, to avoid repeating the same root hint per check.
 	if l.OSLayerNeedsRoot {
-		out = append(out, insight("INFO", "K8s",
+		out = append(out, insight("INFO", virtCatK8s,
 			"some OS-layer checks limited — run as root for KUBE-SERVICES/KUBE-FORWARD chain and CNI config verification",
 			nil,
 		))
@@ -1058,7 +1067,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// the firewalld-masquerade check below silently can't fire even if flannel IS
 	// in use and misconfigured.
 	if l.FlannelCNIUnreadable {
-		out = append(out, insight("INFO", "K8s",
+		out = append(out, insight("INFO", virtCatK8s,
 			"CNI config directory not readable — could not verify whether flannel is in use (firewalld-masquerade check skipped)",
 			[]string{"to audit: re-run as root (sudo dsd k8s --deep)"},
 		))
@@ -1074,7 +1083,7 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 	// Gate on IPForwardChecked: an unreadable /proc path leaves IPForwardEnabled
 	// at its false zero value, which must not be reported as a real "disabled".
 	if l.IPForwardChecked && !l.IPForwardEnabled {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			"IP forwarding disabled — pod-to-pod networking will fail",
 			[]string{
 				"to fix (persistent): echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.d/99-k8s.conf && sysctl -p",
@@ -1084,27 +1093,27 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 	}
 
 	if l.FlannelInUse && !l.FlannelSubnetOK {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			"/run/flannel/subnet.env missing — CNI network plugin cannot configure pod networking",
 			[]string{
-				"to fix (k3s): sudo systemctl restart k3s",
+				virtFixK3sRestart,
 				"to inspect: sudo journalctl -u k3s -n 50 | grep -i flannel",
 			},
 		))
 	}
 
 	if l.CNIChecked && !l.CNIBinsOK {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			"/opt/cni/bin/ is empty — CNI plugins not installed, networking will fail",
 			[]string{
-				"to fix (k3s): sudo systemctl restart k3s",
+				virtFixK3sRestart,
 				"to fix (kubeadm): reinstall kubeadm network plugin",
 			},
 		))
 	}
 
 	if l.KubeForwardChecked && !l.KubeForwardChain {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			"KUBE-FORWARD chain not found in iptables/nftables — kube-proxy may not be running",
 			[]string{
 				"to inspect: sudo iptables -L KUBE-FORWARD -n 2>/dev/null || sudo nft list tables",
@@ -1116,7 +1125,7 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 	out = append(out, checkK8sServicesChain(l)...)
 
 	if len(l.CertExpiredNames) > 0 {
-		out = append(out, insight("CRIT", "K8s",
+		out = append(out, insight("CRIT", virtCatK8s,
 			fmt.Sprintf("k8s certificate(s) EXPIRED: %s — API server will reject requests",
 				strings.Join(l.CertExpiredNames, ", ")),
 			[]string{
@@ -1131,17 +1140,17 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 		if l.CertExpirySoonDays == 0 {
 			when = "in less than a day"
 		}
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("k8s certificate(s) expire %s — renew before expiry", when),
 			[]string{
 				"to fix (kubeadm): kubeadm certs renew all",
-				"to fix (k3s): sudo systemctl restart k3s",
+				virtFixK3sRestart,
 			},
 		))
 	}
 
 	if len(l.KubeletErrors) > 0 {
-		out = append(out, insight("WARN", "K8s",
+		out = append(out, insight("WARN", virtCatK8s,
 			fmt.Sprintf("kubelet errors in journal: %s", l.KubeletErrors[0]),
 			append([]string{"to inspect: journalctl -u kubelet -u k3s -n 50 --no-pager"},
 				l.KubeletErrors[1:]...),

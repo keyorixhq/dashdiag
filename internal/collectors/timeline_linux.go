@@ -14,6 +14,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const tlTimeFmt = "15:04:05"
+
 // TimelineCollector merges journal errors, dmesg kernel events, and load
 // spikes into a single chronological incident timeline.
 type TimelineCollector struct {
@@ -191,7 +193,7 @@ func parseJournalLine(line string) *models.TimelineEvent {
 
 	return &models.TimelineEvent{
 		TimestampUnix: ts.Unix(),
-		TimeStr:       ts.Format("15:04:05"),
+		TimeStr:       ts.Format(tlTimeFmt),
 		Source:        "journal",
 		Level:         level,
 		Unit:          stripServiceSuffix(unit),
@@ -428,7 +430,7 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 
 	return &models.TimelineEvent{
 		TimestampUnix: ts.Unix(),
-		TimeStr:       ts.Format("15:04:05"),
+		TimeStr:       ts.Format(tlTimeFmt),
 		Source:        "dmesg",
 		Level:         level,
 		Unit:          unit,
@@ -492,7 +494,7 @@ func currentLoadSpike() *models.LoadSpike {
 	l15 := parseFloat(fields[2])
 	return &models.LoadSpike{
 		TimestampUnix: now.Unix(),
-		TimeStr:       now.Format("15:04:05") + " (now)",
+		TimeStr:       now.Format(tlTimeFmt) + " (now)",
 		Load1:         l1,
 		Load5:         l5,
 		Load15:        l15,
@@ -529,7 +531,7 @@ func parseSarLoadLine(line, today string) *models.LoadSpike {
 	if len(fields) < 6 {
 		return nil
 	}
-	if _, err := time.Parse("15:04:05", fields[0]); err != nil {
+	if _, err := time.Parse(tlTimeFmt, fields[0]); err != nil {
 		return nil
 	}
 	l1, ok1 := parseFiniteFloat(fields[3])

@@ -16,6 +16,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	pkgQueryFailed    = "query-failed"
+	pkgNoSecurityRepo = "no-security-repo"
+	pkgNonInteractive = "--non-interactive"
+	pkgSevCritical    = "Critical"
+	pkgSevImportant   = "Important"
+	pkgSevSecurity    = "security"
+	pkgFlagVersion    = "--version"
+	pkgFlagQ          = "-q"
+	pkgCmdAptGet      = "apt-get"
+)
+
 // PackagesCollector checks for available security updates.
 // This collector intentionally shells out — there is no kernel interface
 // for package state. Distro detection happens at collection time.
@@ -88,10 +100,10 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Fold a hard query error into a status rather than returning it: the runner/render
 	// path ignores a collector's Data when it returns an error, which would DROP the
 	// DB-health verdict below — and a blocked/locked/corrupt package DB is exactly what
-	// makes the query fail. Surfacing it as "query-failed" keeps the result (the
+	// makes the query fail. Surfacing it as pkgQueryFailed keeps the result (the
 	// existing query-failed handling in checkPackageUpdates renders it).
 	if qErr != nil && info.Status == "" {
-		info.Status = "query-failed"
+		info.Status = pkgQueryFailed
 		info.StatusReason = "package-manager query failed: " + qErr.Error()
 	}
 
@@ -113,18 +125,18 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 // detectPackageManager returns the host's package manager ("zypper"/"dnf"/"apt"), or
 // "" when none is recognised. Probed in the same order as before (zypper, dnf, apt).
 func detectPackageManager(ctx context.Context) string {
-	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
+	if _, e := runCmd(ctx, "zypper", pkgFlagVersion); e == nil {
 		return "zypper"
 	}
-	if _, e := runCmd(ctx, "dnf", "--version"); e == nil {
+	if _, e := runCmd(ctx, "dnf", pkgFlagVersion); e == nil {
 		return "dnf"
 	}
-	if _, e := runCmd(ctx, "apt-get", "--version"); e == nil {
+	if _, e := runCmd(ctx, pkgCmdAptGet, pkgFlagVersion); e == nil {
 		return "apt"
 	}
 	// tdnf — VMware Photon OS (vCSA/Tanzu/appliances). Probed last: it is
 	// Photon-specific, so the rpm-family managers above never co-exist with it.
-	if _, e := runCmd(ctx, "tdnf", "--version"); e == nil {
+	if _, e := runCmd(ctx, "tdnf", pkgFlagVersion); e == nil {
 		return "tdnf"
 	}
 	return ""
@@ -180,13 +192,13 @@ func rpmDBHealth(ctx context.Context) (checked, blocked bool, reason, fix string
 	// for ~a second on a perfectly healthy host (observed live on AlmaLinux 9). Retry
 	// once before asserting the DB is blocked — otherwise a momentary lock reads as a
 	// false "rpmdb corrupt" alarm.
-	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err == nil {
+	if _, err := runCmd(ctx, "rpm", pkgFlagQ, "rpm"); err == nil {
 		return true, false, "", ""
 	}
 	if !sleepCtx(ctx, 1500*time.Millisecond) {
 		return true, false, "", "" // ctx cancelled — don't assert blocked on a partial probe
 	}
-	if _, err := runCmd(ctx, "rpm", "-q", "rpm"); err == nil {
+	if _, err := runCmd(ctx, "rpm", pkgFlagQ, "rpm"); err == nil {
 		return true, false, "", "" // cleared on retry — it was a transient lock
 	}
 	return true, true,
@@ -201,7 +213,7 @@ const packageMetadataStaleDays = 7
 // markStaleMetadata flags a clean "0 updates" result as unverified when the update
 // metadata is absent or older than packageMetadataStaleDays. Only managers whose
 // cache location we can read are considered; others are left untouched (no false
-// "stale"). It never overrides an existing Status (e.g. "no-security-repo").
+// "stale"). It never overrides an existing Status (e.g. pkgNoSecurityRepo).
 func markStaleMetadata(info *models.PackagesInfo) {
 	if info == nil || !info.Checked || info.SecurityUpdates > 0 || info.Status != "" {
 		return
@@ -290,7 +302,7 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	reposOk := dnfHasUpdateRepo(repoCtx)
 	repoCancel()
 	if !reposOk {
-		info.Status = "no-security-repo"
+		info.Status = pkgNoSecurityRepo
 		info.StatusReason = "no enabled dnf repositories found"
 		return info, nil
 	}
@@ -307,13 +319,13 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	out, err := runCmd(scanCtx, "dnf", "advisory", "list", "--security", "--quiet")
 	if err != nil {
 		// DNF4 fallback: RHEL/Rocky/older Fedora
-		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", "security", "--quiet")
+		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", pkgSevSecurity, "--quiet")
 	}
 	if err != nil {
 		// The advisory query failed (broken plugin, transient dnf error, permission)
 		// — we did NOT learn there are 0 updates. Mark it so the verdict reports
 		// "couldn't verify" instead of a silent clean 0-updates OK (false-OK).
-		info.Status = "query-failed"
+		info.Status = pkgQueryFailed
 		if scanCtx.Err() != nil {
 			// BUG-098: a cancelled/deadline-exceeded call is not "unavailable" —
 			// it's an honest "ran out of time," almost always a cold cache. Say so.
@@ -354,10 +366,10 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		sevLower := strings.ToLower(severity)
 		switch {
 		case strings.HasPrefix(sevLower, "critical"):
-			sev = "Critical"
+			sev = pkgSevCritical
 			info.CriticalUpdates++
 		case strings.HasPrefix(sevLower, "important"):
-			sev = "Important"
+			sev = pkgSevImportant
 			info.ImportantUpdates++
 		case strings.HasPrefix(sevLower, "moderate"):
 			sev = "Moderate"
@@ -377,7 +389,7 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 // tdnf. Photon publishes advisories as PHSA notices with no per-package CVSS, so
 // every pending advisory is classed Important (WARN-worthy) — never a name- or
 // guess-minted Critical. Mirrors collectDNF's shape; reuses the shared tdnf
-// updateinfo parsers in cve_linux.go. A failed query is surfaced as "query-failed"
+// updateinfo parsers in cve_linux.go. A failed query is surfaced as pkgQueryFailed
 // (an unverified result), never a silent clean 0 (the false-OK this closes).
 func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{Checked: true, PackageManager: "tdnf"}
@@ -387,7 +399,7 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	// (query-failed → INFO) rather than a silent clean 0 — the false-OK guard a
 	// post-Broadcom-migration host (dead packages.vmware.com repos) needs.
 	if !tdnfHasEnabledRepo(ctx) {
-		info.Status = "query-failed"
+		info.Status = pkgQueryFailed
 		info.StatusReason = "no enabled tdnf repositories — security updates cannot be determined (check: tdnf repolist)"
 		return info, nil
 	}
@@ -399,7 +411,7 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", "--security")
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
-			info.Status = "query-failed"
+			info.Status = pkgQueryFailed
 			info.StatusReason = "tdnf updateinfo unavailable"
 			return info, nil
 		}
@@ -414,7 +426,7 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		info.ImportantUpdates++ // Photon advisories carry no CVSS — never Critical
 		info.Updates = append(info.Updates, models.PackageUpdate{
 			Name:     pkg,
-			Severity: "Important",
+			Severity: pkgSevImportant,
 			Advisory: tdnfTrimPatchPrefix(e.UpdateID),
 		})
 	}
@@ -441,7 +453,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	// If no security repo is configured, apt will never show security updates
 	// and the collector will silently return 0 — worse than no data at all.
 	if !aptHasSecurityRepo() {
-		info.Status = "no-security-repo"
+		info.Status = pkgNoSecurityRepo
 		info.StatusReason = "no security repository configured in apt sources — add security.debian.org or ubuntu security mirror"
 		return info, nil
 	}
@@ -449,11 +461,11 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 
 	// apt-get update is NOT run here — too slow and requires root for lock.
 	// We read whatever is cached; caller should ensure cache is fresh.
-	out, err := runCmd(ctx, "apt-get", "-s", "upgrade")
+	out, err := runCmd(ctx, pkgCmdAptGet, "-s", "upgrade")
 	if err != nil {
 		// apt-get -s (simulate) requires no lock but may fail (apt lock, broken
 		// sources) — we didn't verify, so don't read as a clean 0-updates result.
-		info.Status = "query-failed"
+		info.Status = pkgQueryFailed
 		info.StatusReason = "apt-get unavailable"
 		return info, nil
 	}
@@ -493,15 +505,15 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 		pkgName := fields[1]
 
 		// Classify severity by package base name
-		sev := "Important"
+		sev := pkgSevImportant
 		for critPrefix := range criticalPkgs {
 			if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
-				sev = "Critical"
+				sev = pkgSevCritical
 				break
 			}
 		}
 
-		if sev == "Critical" {
+		if sev == pkgSevCritical {
 			info.CriticalUpdates++
 		} else {
 			info.ImportantUpdates++
@@ -534,7 +546,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.PackagesInfo, error) {
 	info.HasSecurityRepo = true // kali-rolling is the security channel
 
-	out, err := runCmd(ctx, "apt-get", "-s", "upgrade")
+	out, err := runCmd(ctx, pkgCmdAptGet, "-s", "upgrade")
 	if err != nil {
 		info.StatusReason = "apt-get unavailable"
 		return info, nil
@@ -558,14 +570,14 @@ func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.Pac
 			continue
 		}
 		pkgName := fields[1]
-		sev := "Important"
+		sev := pkgSevImportant
 		for critPrefix := range criticalPkgs {
 			if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
-				sev = "Critical"
+				sev = pkgSevCritical
 				break
 			}
 		}
-		if sev == "Critical" {
+		if sev == pkgSevCritical {
 			info.CriticalUpdates++
 		} else {
 			info.ImportantUpdates++
@@ -703,8 +715,8 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err = runCmdCombined(ctx, "zypper", "--non-interactive", "--no-color",
-			"list-patches", "--category", "security")
+		out, err = runCmdCombined(ctx, "zypper", pkgNonInteractive, "--no-color",
+			"list-patches", "--category", pkgSevSecurity)
 		locked = err != nil && zypperLocked(out)
 		if !locked {
 			break
@@ -715,7 +727,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 	if err != nil {
 		// Couldn't check — NOT "OK"; report unverified with the accurate reason.
-		info.Status = "query-failed"
+		info.Status = pkgQueryFailed
 		switch {
 		case locked:
 			info.StatusReason = "zypper is locked by another process — security updates not verified"
@@ -734,7 +746,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	for _, line := range strings.Split(out, "\n") {
 		lower := strings.ToLower(line)
 		// Must be a security patch
-		if !strings.Contains(lower, "security") {
+		if !strings.Contains(lower, pkgSevSecurity) {
 			continue
 		}
 		// Only count patches with status exactly "needed" — not "not needed"
@@ -766,9 +778,9 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 		sev := "Moderate"
 		switch severity {
 		case "critical":
-			sev = "Critical"
+			sev = pkgSevCritical
 		case "important":
-			sev = "Important"
+			sev = pkgSevImportant
 		}
 		info.Updates = append(info.Updates, models.PackageUpdate{
 			Name:     name,
@@ -787,7 +799,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	// instead of a silent clean 0 (the same false-OK apt already guards against).
 	info.HasSecurityRepo = zypperHasSecurityRepo(ctx)
 	if !info.HasSecurityRepo {
-		info.Status = "no-security-repo"
+		info.Status = pkgNoSecurityRepo
 		info.StatusReason = "no security repository configured — add openSUSE security or SLES update repo"
 	}
 
@@ -804,12 +816,12 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 // On SLES, security patches require SUSEConnect registration.
 // On openSUSE Tumbleweed, update-tumbleweed is the security channel.
 func zypperHasSecurityRepo(ctx context.Context) bool {
-	out, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "repos")
+	out, err := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color", "repos")
 	if err != nil {
 		return false
 	}
 	lower := strings.ToLower(out)
-	for _, keyword := range []string{"security", "update", "sle-module", "opensuse-update", "tumbleweed"} {
+	for _, keyword := range []string{pkgSevSecurity, "update", "sle-module", "opensuse-update", "tumbleweed"} {
 		if strings.Contains(lower, keyword) {
 			return true
 		}
@@ -829,7 +841,7 @@ func zypperHasSecurityRepo(ctx context.Context) bool {
 // dnfHasUpdateRepo returns true when at least one enabled dnf repo is available.
 // Rocky Linux and RHEL ship security updates via baseos — no separate security repo needed.
 func dnfHasUpdateRepo(ctx context.Context) bool {
-	out, err := runCmd(ctx, "dnf", "repolist", "--enabled", "-q")
+	out, err := runCmd(ctx, "dnf", "repolist", "--enabled", pkgFlagQ)
 	if err != nil {
 		return false
 	}
@@ -861,7 +873,7 @@ func dnfWarmCache(ctx context.Context) {
 	dnfWarmCacheOnce.Do(func() {
 		warmCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		_, _ = runCmd(warmCtx, "dnf", "makecache", "-q")
+		_, _ = runCmd(warmCtx, "dnf", "makecache", pkgFlagQ)
 	})
 }
 
@@ -885,11 +897,11 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	if runtime.GOARCH == "arm64" {
 		grubPkg = "grub2-arm64-efi"
 	}
-	grubOut, err := runCmd(ctx, "zypper", "--non-interactive", "--no-color",
+	grubOut, err := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color",
 		"search", "--installed-only", grubPkg)
 	if err == nil && strings.Contains(grubOut, grubPkg) {
 		// Check if it's locked
-		lockOut, _ := runCmd(ctx, "zypper", "--non-interactive", "--no-color", "locks")
+		lockOut, _ := runCmd(ctx, "zypper", pkgNonInteractive, "--no-color", "locks")
 		if !strings.Contains(lockOut, grubPkg) {
 			risks = append(risks,
 				grubPkg+" is installed but NOT locked — migration may overwrite grub config and break boot",
@@ -1066,7 +1078,7 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 	// for). runCmdCombined keeps stdout+stderr regardless of exit.
 	checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer checkCancel()
-	checkOut, _ := runCmdCombined(checkCtx, "apt-get", "check")
+	checkOut, _ := runCmdCombined(checkCtx, pkgCmdAptGet, "check")
 	for _, line := range strings.Split(checkOut, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "unmet dep") || strings.Contains(lower, "broken package") {
@@ -1094,7 +1106,7 @@ func pkgIntegrityZypper(ctx context.Context, pi *models.PackageIntegrity) {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 4; attempt++ {
-		out, err = runCmdCombined(zCtx, "zypper", "--non-interactive", "verify", "--dry-run")
+		out, err = runCmdCombined(zCtx, "zypper", pkgNonInteractive, "verify", "--dry-run")
 		// exit 1 = "problems found" (err != nil but NOT a lock — parse it); exit 7 =
 		// locked. Only a lock should retry.
 		locked = err != nil && zypperLocked(out)

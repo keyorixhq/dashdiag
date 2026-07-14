@@ -8,6 +8,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+const (
+	inspectVMStat    = "to inspect: vmstat 1 5"
+	inspectIOStat    = "to inspect: iostat -x 1 5"
+	inspectPsMemHead = "to inspect: ps aux --sort=-%mem | head -10"
+	inspectIotop     = "to inspect: iotop -ao"
+)
+
 func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
 
@@ -81,8 +88,8 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 		out = append(out, insight("CRIT", "CPU Load/IOWait",
 			fmt.Sprintf("I/O wait at %.1f%% — CPU is stalled waiting for disk or network I/O", cpu.IOwaitPct),
 			[]string{
-				"to inspect: iostat -x 1 5",
-				"to inspect: iotop -ao",
+				inspectIOStat,
+				inspectIotop,
 				"to inspect: ps aux | grep ' D '  (D-state processes blocked on I/O)",
 				"note: high iowait with normal CPU usage = disk bottleneck, not CPU",
 			},
@@ -91,7 +98,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 		out = append(out, insight("WARN", "CPU Load/IOWait",
 			fmt.Sprintf("I/O wait at %.1f%% — load may be I/O-driven rather than CPU-bound", cpu.IOwaitPct),
 			[]string{
-				"to inspect: iostat -x 1 5",
+				inspectIOStat,
 				"to inspect: ps aux | grep ' D '",
 			},
 		))
@@ -144,7 +151,7 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 		if runtime.GOOS == "darwin" {
 			memHints = []string{"to inspect: vm_stat", "to inspect: top -l 1 | grep PhysMem", "to inspect: ps aux -m | head -10"}
 		} else {
-			memHints = []string{"to inspect: free -h", "to inspect: ps aux --sort=-%mem | head -10"}
+			memHints = []string{inspectFreeH, inspectPsMemHead}
 		}
 		out = append(out, insight(l, "Memory",
 			fmt.Sprintf("RAM usage at %.0f%% (%.1f GB free of %.1f GB total)", mem.UsedPct, mem.FreeGB, mem.TotalGB),
@@ -214,12 +221,12 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 	case swap.UsedPct >= thresh.SwapCritPct:
 		out = append(out, insight("CRIT", "Swap",
 			fmt.Sprintf("swap %.0f%% full (%.1f GB used) — near exhaustion; the OOM killer starts when swap fills", swap.UsedPct, swap.UsedGB),
-			[]string{"to inspect: free -h", "to inspect: ps aux --sort=-%mem | head -10", "to inspect: vmstat 1 5"},
+			[]string{inspectFreeH, inspectPsMemHead, inspectVMStat},
 		))
 	case swap.UsedPct >= thresh.SwapWarnPct && maxAct > 0 && maxAct <= thresh.SwapActivityWarn:
 		out = append(out, insight("WARN", "Swap",
 			fmt.Sprintf("swap %.0f%% used (%.1f GB) and paging — memory may be under real pressure", swap.UsedPct, swap.UsedGB),
-			[]string{"to inspect: free -h", "to inspect: vmstat 1 5"},
+			[]string{inspectFreeH, inspectVMStat},
 		))
 	}
 	switch {
@@ -228,7 +235,7 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 		// (de)compression CPU cost and the memory shortfall it implies both bite.
 		out = append(out, insight("CRIT", "Swap",
 			fmt.Sprintf("heavy swap activity: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			[]string{"to inspect: vmstat 1 5", "to inspect: sar -W 1 5", "to inspect: ps aux --sort=-%mem | head -10"},
+			[]string{inspectVMStat, "to inspect: sar -W 1 5", inspectPsMemHead},
 		))
 	case maxAct > thresh.SwapActivityWarn && swap.ZramDevices > 0:
 		// zram-backed swap is compressed RAM, not disk. Moderate paging is normal
@@ -236,12 +243,12 @@ func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
 		// latency cliff a disk-swap WARN implies — report it as context, not a fault.
 		out = append(out, insight("INFO", "Swap",
 			fmt.Sprintf("swap activity: %.0f pages/s in, %.0f pages/s out — zram-backed (compressed RAM, not disk thrash)", actIn, actOut),
-			[]string{"to inspect: zramctl", "to inspect: vmstat 1 5"},
+			[]string{"to inspect: zramctl", inspectVMStat},
 		))
 	case maxAct > thresh.SwapActivityWarn:
 		out = append(out, insight("WARN", "Swap",
 			fmt.Sprintf("swap activity detected: %.0f pages/s in, %.0f pages/s out", actIn, actOut),
-			[]string{"to inspect: vmstat 1 5", "to inspect: free -h"},
+			[]string{inspectVMStat, inspectFreeH},
 		))
 	}
 	return out
@@ -255,7 +262,7 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 		warnAwait, critAwait := ioAwaitThresholds(dev.DriveType, thresh)
 
 		if l := levelPct(dev.UtilPct, warnUtil, critUtil); l != "" {
-			hints := []string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"}
+			hints := []string{inspectIOStat, inspectIotop}
 			// Item 6: 100% util with btrfs-cleaner note
 			if dev.UtilPct >= 99 {
 				hints = append(hints,
@@ -274,7 +281,7 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 		if l := levelPct(dev.AwaitMs, warnAwait, critAwait); l != "" {
 			out = append(out, insight(l, "IO",
 				fmt.Sprintf("disk %s await latency %.1f ms", dev.Name, dev.AwaitMs),
-				[]string{"to inspect: iostat -x 1 5", "to inspect: iotop -ao"},
+				[]string{inspectIOStat, inspectIotop},
 			))
 		}
 	}
@@ -345,7 +352,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 			fmt.Sprintf("%.0f MB of dirty pages pending write-back — data loss risk on crash", d.DirtyMB),
 			[]string{
 				"to inspect: cat /proc/meminfo | grep Dirty",
-				"to inspect: iostat -x 1 5",
+				inspectIOStat,
 			},
 		))
 	}
@@ -404,7 +411,7 @@ func cpuStealInsight(stealPct float64, hostCPULimitMHz int) (models.Insight, boo
 		fmt.Sprintf("CPU steal at %.1f%% — VM is not getting all requested CPU cycles", stealPct),
 		[]string{
 			"to inspect: top -b -n1 | grep Cpu  (look for 'st' column)",
-			"to inspect: vmstat 1 5",
+			inspectVMStat,
 			"note: steal time indicates host over-provisioning — consider VM migration",
 		},
 	), true

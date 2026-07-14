@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const storyTimeFmt = "15:04 02.01.2006"
+
 // RenderStory narrates system health — uses history if available, single point otherwise.
 func RenderStory(insights []models.Insight, snap *baseline.Snapshot) string {
 	history, err := baseline.LoadHistory(48)
@@ -25,7 +27,7 @@ func RenderStoryFromHistory(history []*baseline.Snapshot) string {
 
 // renderStorySinglePoint is the fallback when no history exists yet.
 func renderStorySinglePoint(insights []models.Insight, snap *baseline.Snapshot) string {
-	ts := snap.Timestamp.Local().Format("15:04 02.01.2006")
+	ts := snap.Timestamp.Local().Format(storyTimeFmt)
 	active := activeInsights(insights)
 	if len(active) == 0 {
 		return fmt.Sprintf("System health at %s on %s — all %d checks passed.",
@@ -47,8 +49,8 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 
 	first := history[0]
 	last := history[len(history)-1]
-	start := first.Timestamp.Local().Format("15:04 02.01.2006")
-	end := last.Timestamp.Local().Format("15:04 02.01.2006")
+	start := first.Timestamp.Local().Format(storyTimeFmt)
+	end := last.Timestamp.Local().Format(storyTimeFmt)
 	hostname := last.Hostname
 	n := len(history)
 
@@ -72,7 +74,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 
 	// Walk history looking for status changes
 	for _, snap := range history[1:] {
-		ts := snap.Timestamp.Local().Format("15:04 02.01.2006")
+		ts := snap.Timestamp.Local().Format(storyTimeFmt)
 		for _, c := range snap.Checks {
 			prev := prevStatus[c.Name]
 			if prev != "" && prev != c.Status {

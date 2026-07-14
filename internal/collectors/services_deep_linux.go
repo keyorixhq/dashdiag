@@ -11,6 +11,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	svcNoPager   = "--no-pager"
+	svcListUnits = "list-units"
+	svcPlain     = "--plain"
+	svcNoLegend  = "--no-legend"
+	svcUserFlag  = "--user"
+)
+
 // ServicesDeepCollector runs systemd health checks:
 // failed units + last journal lines, boot offenders, journal integrity,
 // masked unit detection, and daemon-reload status.
@@ -26,8 +34,8 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	info := &models.ServicesDeepInfo{JournalHealthy: true}
 
 	// 1. Failed units
-	failedOut, err := runCmd(ctx, "systemctl", "list-units",
-		"--failed", "--plain", "--no-legend", "--no-pager")
+	failedOut, err := runCmd(ctx, "systemctl", svcListUnits,
+		"--failed", svcPlain, svcNoLegend, svcNoPager)
 	info.FailedUnitsQueried = err == nil // false on non-systemd hosts / systemctl error
 	if err == nil {
 		// Filter environmental noise (transient sshd@<conn> instances, cloud-init
@@ -52,7 +60,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	for i := range info.FailedUnits {
 		unit := &info.FailedUnits[i]
 		logOut, err := runCmd(ctx, "journalctl", "-u", unit.Name,
-			"-n", "8", "--no-pager", "--output=short", "--no-hostname")
+			"-n", "8", svcNoPager, "--output=short", "--no-hostname")
 		if err == nil {
 			unit.LastLogLines = parseJournalLines(logOut)
 		}
@@ -68,8 +76,8 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	info.NeedsDaemonReload = collectNeedsDaemonReload(ctx)
 
 	// 4. Masked units
-	maskedOut, err := runCmd(ctx, "systemctl", "list-units",
-		"--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager")
+	maskedOut, err := runCmd(ctx, "systemctl", svcListUnits,
+		"--type=service", "--state=masked", svcPlain, svcNoLegend, svcNoPager)
 	if err == nil {
 		info.MaskedUnits = parseMaskedUnits(maskedOut)
 	}
@@ -85,7 +93,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	}
 
 	// 6. Boot offenders (top 5 real services, exclude .device/.socket/.mount)
-	blameOut, err := runCmd(ctx, "systemd-analyze", "blame", "--no-pager")
+	blameOut, err := runCmd(ctx, "systemd-analyze", "blame", svcNoPager)
 	if err == nil {
 		info.BootOffenders = parseBlame(blameOut, 5, timerTriggeredExcluder(ctx))
 	}
@@ -174,8 +182,8 @@ func parseUnitShow(out string, unit *models.SystemdUnit) {
 // Queries a batch of loaded service units to keep overhead low.
 func collectNeedsDaemonReload(ctx context.Context) []string {
 	// Get the list of loaded service units
-	listOut, err := runCmd(ctx, "systemctl", "list-units",
-		"--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager")
+	listOut, err := runCmd(ctx, "systemctl", svcListUnits,
+		"--type=service", "--state=loaded", svcPlain, svcNoLegend, svcNoPager)
 	if err != nil {
 		return nil
 	}
@@ -327,7 +335,7 @@ func collectUserUnits(ctx context.Context) *models.UserUnitsInfo {
 	// Check if user daemon is reachable. runCmdCombined (not runCmd) because the
 	// "no user bus" diagnostic comes back on stdout/stderr, not in the Go error —
 	// runCmd's cmdError only carries the exit code, never the command's own text.
-	out, err := runCmdCombined(ctx, "systemctl", "--user", "is-system-running")
+	out, err := runCmdCombined(ctx, "systemctl", svcUserFlag, "is-system-running")
 	if err != nil {
 		// Exit code != 0 is normal for "degraded"; connection refused means no user daemon
 		if strings.Contains(out, "Failed to connect") ||
@@ -337,15 +345,15 @@ func collectUserUnits(ctx context.Context) *models.UserUnitsInfo {
 	}
 
 	info := &models.UserUnitsInfo{Available: true}
-	failedOut, err := runCmd(ctx, "systemctl", "--user",
-		"list-units", "--failed", "--plain", "--no-legend", "--no-pager")
+	failedOut, err := runCmd(ctx, "systemctl", svcUserFlag,
+		svcListUnits, "--failed", svcPlain, svcNoLegend, svcNoPager)
 	if err == nil {
 		info.Failed = parseFailedUnits(failedOut)
 		// Fetch last log lines for user failed units too
 		for i := range info.Failed {
 			unit := &info.Failed[i]
-			logOut, err := runCmd(ctx, "journalctl", "--user",
-				"-u", unit.Name, "-n", "5", "--no-pager", "--output=short")
+			logOut, err := runCmd(ctx, "journalctl", svcUserFlag,
+				"-u", unit.Name, "-n", "5", svcNoPager, "--output=short")
 			if err == nil {
 				unit.LastLogLines = parseJournalLines(logOut)
 			}

@@ -15,6 +15,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	ddNetKeyTCPStates   = "tcp_states"
+	ddNetLabelTCPStates = "TCP connection state summary"
+)
+
 // procAttrNote is the honest caveat shown whenever per-process TCP-state
 // attribution may be incomplete because we lack the privilege to see another
 // user's socket owner.
@@ -116,8 +121,8 @@ func parseSsOutput(out string, nonRoot bool) *models.Details {
 	}
 
 	d := &models.Details{
-		Type:    "tcp_states",
-		Title:   "TCP connection state summary",
+		Type:    ddNetKeyTCPStates,
+		Title:   ddNetLabelTCPStates,
 		Columns: []string{"PROCESS", "STATE", "COUNT"},
 		Rows:    rows,
 		KV:      kv,
@@ -191,8 +196,8 @@ func parseProcNetTCPAt(_ context.Context, netRoot string) (*models.Details, erro
 		}
 	}
 	return &models.Details{
-		Type:  "tcp_states",
-		Title: "TCP connection state summary",
+		Type:  ddNetKeyTCPStates,
+		Title: ddNetLabelTCPStates,
 		KV:    kv,
 		Note:  procAttrNote,
 	}, nil
@@ -235,8 +240,8 @@ func tcpStatesMac(ctx context.Context) (*models.Details, error) {
 		}
 	}
 	return &models.Details{
-		Type:  "tcp_states",
-		Title: "TCP connection state summary",
+		Type:  ddNetKeyTCPStates,
+		Title: ddNetLabelTCPStates,
 		KV:    kv,
 	}, nil
 }

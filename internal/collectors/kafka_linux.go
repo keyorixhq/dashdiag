@@ -10,6 +10,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const kafkaBootstrapLocal = "127.0.0.1:9092"
+
 // kafkaCLI returns the kafka topics admin tool to use, or "" if none is installed
 // (so a non-Kafka service on 9092 isn't mislabelled). Apache distributions ship
 // `kafka-topics.sh`; some packages (Confluent, certain images) ship `kafka-topics`.
@@ -25,12 +27,12 @@ func kafkaCLI() string {
 // kafkaBootstrap returns the first reachable loopback broker address. Kafka often
 // binds the IPv6 wildcard, so try both families; default to the IPv4 form.
 func kafkaBootstrap() string {
-	for _, addr := range []string{"127.0.0.1:9092", "[::1]:9092"} {
+	for _, addr := range []string{kafkaBootstrapLocal, "[::1]:9092"} {
 		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return addr
 		}
 	}
-	return "127.0.0.1:9092"
+	return kafkaBootstrapLocal
 }
 
 // KafkaAvailable reports whether a local Kafka broker is installed (a kafka CLI is
@@ -39,7 +41,7 @@ func KafkaAvailable() bool {
 	if kafkaCLI() == "" {
 		return false
 	}
-	for _, addr := range []string{"127.0.0.1:9092", "[::1]:9092"} {
+	for _, addr := range []string{kafkaBootstrapLocal, "[::1]:9092"} {
 		if dialReachable("tcp", addr, 300*time.Millisecond) {
 			return true
 		}

@@ -12,6 +12,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	ciCmdCloudInit = "cloud-init"
+	ciFldStatus    = "status"
+)
+
 // CloudInitCollector reports cloud-init provisioning state — primarily whether
 // the instance finished configuring or errored out mid-boot ("booted but never
 // configured"). All work is gated behind CloudInitAvailable() so this is
@@ -28,7 +33,7 @@ func (c *CloudInitCollector) Timeout() time.Duration { return 5 * time.Second }
 // PATH or the runtime status file exists (covers minimal images where the CLI is
 // pruned but the datasource still ran).
 func CloudInitAvailable() bool {
-	if _, err := lookPath("cloud-init"); err == nil {
+	if _, err := lookPath(ciCmdCloudInit); err == nil {
 		return true
 	}
 	if fileExists("/run/cloud-init/status.json") {
@@ -48,14 +53,14 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 	// stdout. So parse the output regardless of exit code; gating on err == nil
 	// discarded the very JSON that says status:"error", silently hiding a failed
 	// instance (the case we most need to flag).
-	out, _ := runCmdOutput(ctx, "cloud-init", "status", "--format=json")
+	out, _ := runCmdOutput(ctx, ciCmdCloudInit, ciFldStatus, "--format=json")
 	if strings.TrimSpace(out) != "" && parseCloudInitJSON(out, info) {
 		return info, nil
 	}
 
 	// Fallback for old cloud-init without --format=json: plain text "status: X".
 	// Same exit-code semantics — parse whatever it prints, ignore the exit code.
-	if txt, _ := runCmdOutput(ctx, "cloud-init", "status"); strings.TrimSpace(txt) != "" {
+	if txt, _ := runCmdOutput(ctx, ciCmdCloudInit, ciFldStatus); strings.TrimSpace(txt) != "" {
 		parseCloudInitText(txt, info)
 	}
 	// status.json exists (CloudInitAvailable gate) but neither CLI form produced a
@@ -71,7 +76,7 @@ func (c *CloudInitCollector) Collect(ctx context.Context) (interface{}, error) {
 // cloudInitStatusJSON mirrors the fields of `cloud-init status --format=json`.
 // recoverable_errors is keyed by level (WARNING/ERROR) → list of messages.
 type cloudInitStatusJSON struct {
-	Status            string              `json:"status"`
+	Status            string              `json:ciFldStatus`
 	ExtendedStatus    string              `json:"extended_status"`
 	BootStatusCode    string              `json:"boot_status_code"`
 	Datasource        string              `json:"datasource"`

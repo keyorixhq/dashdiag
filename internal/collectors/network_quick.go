@@ -22,11 +22,22 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	nqCatNetwork  = "Network"
+	nqKeyHost     = "host"
+	nqKeyMode     = "mode"
+	nqSysClassNet = "/sys/class/net/"
+	nqKeyPort     = "port"
+	nqOSLinux     = "linux"
+	nqOSDarwin    = "darwin"
+	nqKeyErr      = "err"
+)
+
 type NetworkCollector struct{}
 
 func NewNetworkCollector() *NetworkCollector { return &NetworkCollector{} }
 
-func (c *NetworkCollector) Name() string           { return "Network" }
+func (c *NetworkCollector) Name() string           { return nqCatNetwork }
 func (c *NetworkCollector) Timeout() time.Duration { return 15 * time.Second }
 
 var skipIfaceExact = map[string]bool{"lo": true, "docker0": true}
@@ -49,7 +60,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 
 	// macOS: build USB interface map upfront from networksetup
 	darwinUSB := map[string]string{}
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == nqOSDarwin {
 		darwinUSB = darwinUSBInterfaces(ctx)
 	}
 
@@ -99,7 +110,7 @@ func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 	}
 
 	route := detectDefaultGateway(ctx)
-	debug.Log(ctx, "Network", "gateway", "ip", route.GatewayIP, "iface", route.Iface)
+	debug.Log(ctx, nqCatNetwork, "gateway", "ip", route.GatewayIP, "iface", route.Iface)
 
 	// Detect primary interface state by scanning all interfaces (before skip filter).
 	if route.Iface != "" {
@@ -158,7 +169,7 @@ func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *mod
 	_ = cachedJSON("net/connectivity", func() (any, error) {
 		return runConnectivityProbes(ctx, gatewayIP, srcIP), nil
 	}, &p)
-	debug.Log(ctx, "Network", "probe results",
+	debug.Log(ctx, nqCatNetwork, "probe results",
 		"gw_ms", p.GatewayMs, "gw_loss_pct", p.GatewayLoss,
 		"inet_ms", p.InternetMs, "inet_loss_pct", p.InternetLoss,
 		"dns_ms", p.DNSMs, "dns_failed", p.DNSFailed)
@@ -235,18 +246,18 @@ func firstIPv4(addrs gopsutilnet.InterfaceAddrList) string {
 func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmpBlocked bool) {
 	// On Linux, prefer system ping binary — reliable across all configurations
 	// (bonds, VMs, containers, multiple default routes) without raw socket quirks.
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == nqOSLinux {
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok {
 			return ms, loss, false
 		}
 		// sysPing failed (no ping binary?) — fall through to pro-bing
 	}
 	if !icmpAvailable() {
-		debug.Log(ctx, "Network", "ICMP unavailable for this process — skipping to TCP", "host", host)
+		debug.Log(ctx, nqCatNetwork, "ICMP unavailable for this process — skipping to TCP", nqKeyHost, host)
 		if ms, ok := tcpProbe(ctx, host); ok {
 			return ms, 0, true
 		}
-		debug.Log(ctx, "Network", "all probes failed", "host", host)
+		debug.Log(ctx, nqCatNetwork, "all probes failed", nqKeyHost, host)
 		return -1, 100, false
 	}
 	for _, privileged := range []bool{true, false} {
@@ -261,10 +272,10 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 	// Fall back to TCP — this can happen if e.g. iptables blocks ICMP
 	// despite our process having permission to send it.
 	if ms, ok := tcpProbe(ctx, host); ok {
-		debug.Log(ctx, "Network", "ICMP probes failed despite availability — TCP fallback", "host", host, "ms", ms)
+		debug.Log(ctx, nqCatNetwork, "ICMP probes failed despite availability — TCP fallback", nqKeyHost, host, "ms", ms)
 		return ms, 0, true
 	}
-	debug.Log(ctx, "Network", "all probes failed", "host", host)
+	debug.Log(ctx, nqCatNetwork, "all probes failed", nqKeyHost, host)
 	return -1, 100, false
 }
 
@@ -292,7 +303,7 @@ func icmpAvailable() bool {
 }
 
 func detectICMPAvailability() bool {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != nqOSLinux {
 		return true
 	}
 	if hasCapNetRaw() {
@@ -446,14 +457,14 @@ func tcpProbe(ctx context.Context, host string) (ms float64, ok bool) {
 		rtt := float64(time.Since(start).Milliseconds())
 		if conn != nil {
 			_ = conn.Close()
-			debug.Log(ctx, "Network", "TCP probe connected", "host", host, "port", port, "ms", rtt)
+			debug.Log(ctx, nqCatNetwork, "TCP probe connected", nqKeyHost, host, nqKeyPort, port, "ms", rtt)
 			return rtt, true
 		}
 		if err != nil && strings.Contains(err.Error(), "connection refused") {
-			debug.Log(ctx, "Network", "TCP probe refused (reachable)", "host", host, "port", port, "ms", rtt)
+			debug.Log(ctx, nqCatNetwork, "TCP probe refused (reachable)", nqKeyHost, host, nqKeyPort, port, "ms", rtt)
 			return rtt, true
 		}
-		debug.Log(ctx, "Network", "TCP probe failed", "host", host, "port", port, "err", err)
+		debug.Log(ctx, nqCatNetwork, "TCP probe failed", nqKeyHost, host, nqKeyPort, port, nqKeyErr, err)
 	}
 	return -1, false
 }
@@ -463,13 +474,13 @@ func tryOnePing(ctx context.Context, host, srcIP string, privileged bool) (ms, l
 	if privileged {
 		mode = "privileged"
 	}
-	debug.Log(ctx, "Network", "ping attempt", "host", host, "mode", mode, "src", srcIP)
+	debug.Log(ctx, nqCatNetwork, "ping attempt", nqKeyHost, host, nqKeyMode, mode, "src", srcIP)
 
 	// When a source IP is specified (multi-route host), use system ping directly.
 	// pro-bing's Source binding is unreliable with privileged raw sockets on some kernels.
 	// Also use sysPing for all Linux privileged probes — more reliable than raw ICMP sockets
 	// on systems where the kernel's raw socket behaviour is inconsistent (bonds, VMs, containers).
-	if privileged && runtime.GOOS == "linux" {
+	if privileged && runtime.GOOS == nqOSLinux {
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok || loss == 0 {
 			return ms, loss, ok
 		}
@@ -478,7 +489,7 @@ func tryOnePing(ctx context.Context, host, srcIP string, privileged bool) (ms, l
 
 	p, err := goping.NewPinger(host)
 	if err != nil {
-		debug.Log(ctx, "Network", "ping new pinger failed", "host", host, "mode", mode, "err", err)
+		debug.Log(ctx, nqCatNetwork, "ping new pinger failed", nqKeyHost, host, nqKeyMode, mode, nqKeyErr, err)
 		return -1, 100, false
 	}
 	p.Count = 3
@@ -499,21 +510,21 @@ func tryOnePing(ctx context.Context, host, srcIP string, privileged bool) (ms, l
 	select {
 	case <-ctx.Done():
 		p.Stop()
-		debug.Log(ctx, "Network", "ping cancelled", "host", host, "mode", mode)
+		debug.Log(ctx, nqCatNetwork, "ping cancelled", nqKeyHost, host, nqKeyMode, mode)
 		return -1, 100, false
 	case err := <-errCh:
 		if err != nil {
-			debug.Log(ctx, "Network", "ping run failed", "host", host, "mode", mode, "err", err)
+			debug.Log(ctx, nqCatNetwork, "ping run failed", nqKeyHost, host, nqKeyMode, mode, nqKeyErr, err)
 			return -1, 100, false
 		}
 	}
 	stats := p.Statistics()
 	if stats.PacketsRecv == 0 {
-		debug.Log(ctx, "Network", "ping 100% loss", "host", host, "mode", mode, "sent", stats.PacketsSent)
+		debug.Log(ctx, nqCatNetwork, "ping 100% loss", nqKeyHost, host, nqKeyMode, mode, "sent", stats.PacketsSent)
 		return -1, 100, false
 	}
 	avgMs := float64(stats.AvgRtt) / float64(time.Millisecond)
-	debug.Log(ctx, "Network", "ping ok", "host", host, "mode", mode, "ms", avgMs, "loss_pct", stats.PacketLoss)
+	debug.Log(ctx, nqCatNetwork, "ping ok", nqKeyHost, host, nqKeyMode, mode, "ms", avgMs, "loss_pct", stats.PacketLoss)
 	return avgMs, stats.PacketLoss, true
 }
 
@@ -524,7 +535,7 @@ type routeInfo struct {
 }
 
 func detectDefaultGateway(ctx context.Context) routeInfo {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == nqOSDarwin {
 		return detectGatewayDarwin(ctx)
 	}
 	r := detectGatewayLinux()
@@ -631,10 +642,10 @@ func detectGatewayDarwin(ctx context.Context) routeInfo {
 // On macOS: parses 'networksetup -getmedia <name>' output.
 // Returns 0 when unavailable (loopback, tunnel, wifi with driver quirks).
 func readIfaceSpeed(name string) int {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == nqOSDarwin {
 		return readIfaceSpeedDarwin(name)
 	}
-	data, err := readFile("/sys/class/net/" + name + "/speed") // #nosec G304
+	data, err := readFile(nqSysClassNet + name + "/speed") // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -683,14 +694,14 @@ func readIfaceSpeedDarwin(name string) int {
 // readIfaceUSB returns true when the network interface is USB-attached.
 // Detected by checking if the sysfs device path passes through a USB bus.
 func readIfaceUSB(name string) (bool, string) {
-	devPath := "/sys/class/net/" + name + "/device"
+	devPath := nqSysClassNet + name + "/device"
 	resolved, err := readLink(devPath)
 	if err != nil {
 		return false, ""
 	}
 	// Resolve relative symlink
 	if !strings.HasPrefix(resolved, "/") {
-		resolved = "/sys/class/net/" + name + "/" + resolved
+		resolved = nqSysClassNet + name + "/" + resolved
 	}
 	isUSB := strings.Contains(resolved, "/usb") || strings.Contains(resolved, "usb/")
 
@@ -741,14 +752,14 @@ func darwinUSBInterfaces(ctx context.Context) map[string]string {
 //  3. nmcli dev wifi list — SSID, signal %, rate, channel (when NM active)
 func collectWiFiInfo(iface string) *models.WiFiInfo {
 	// Check if this is a wireless interface via sysfs
-	if !fileExists("/sys/class/net/" + iface + "/wireless") {
+	if !fileExists(nqSysClassNet + iface + "/wireless") {
 		return nil // not wireless
 	}
 
 	w := &models.WiFiInfo{}
 
 	// Read driver from uevent
-	if data, err := readFile("/sys/class/net/" + iface + "/device/uevent"); err == nil { // #nosec G304
+	if data, err := readFile(nqSysClassNet + iface + "/device/uevent"); err == nil { // #nosec G304
 		for line := range strings.SplitSeq(string(data), "\n") {
 			if after, ok := strings.CutPrefix(line, "DRIVER="); ok {
 				w.Driver = after

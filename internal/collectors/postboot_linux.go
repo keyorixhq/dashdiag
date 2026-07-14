@@ -11,6 +11,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	pbCmdJournalctl = "journalctl"
+	pbFlagBoot1     = "--boot=-1"
+)
+
 // PostBootCollector answers "what happened to the box across the last reboot, and could
 // we even tell?". It first decides what evidence is readable (assessPostBootSource — the
 // FOUND/ABSENT/UNMEASURABLE trichotomy), and only then reads the prior boot. The
@@ -38,7 +43,7 @@ func PostBootAvailable() bool {
 	if ContainerContextViaSource().InContainer {
 		return false
 	}
-	return lookPathOK("journalctl") || fileExists("/var/log/wtmp")
+	return lookPathOK(pbCmdJournalctl) || fileExists("/var/log/wtmp")
 }
 
 func (c *PostBootCollector) Collect(ctx context.Context) (interface{}, error) {
@@ -69,7 +74,7 @@ func (c *PostBootCollector) Collect(ctx context.Context) (interface{}, error) {
 // journalctl (the only durable cross-boot source); hasWtmp on the wtmp file.
 func livePostBootEnv(_ context.Context) pbEnv {
 	return pbEnv{
-		isSystemd:       lookPathOK("journalctl"),
+		isSystemd:       lookPathOK(pbCmdJournalctl),
 		hasWtmp:         fileExists("/var/log/wtmp"),
 		readDir:         readDirEntries,
 		countPriorBoots: countPriorBootsLive,
@@ -81,7 +86,7 @@ func livePostBootEnv(_ context.Context) pbEnv {
 // An error (EACCES on the journal) propagates so the trichotomy reports it as
 // journal_unreadable rather than "first boot".
 func countPriorBootsLive(ctx context.Context) (int, error) {
-	out, err := runCmd(ctx, "journalctl", "--list-boots", "--no-pager", "-q")
+	out, err := runCmd(ctx, pbCmdJournalctl, "--list-boots", svcNoPager, "-q")
 	if err != nil {
 		return 0, err
 	}
@@ -108,7 +113,7 @@ func readPriorBootJournal(ctx context.Context, info *models.PostBootInfo) {
 
 // priorBootOOM reuses the OOM parser against the PRIOR boot's kernel log.
 func priorBootOOM(ctx context.Context) (kills int, victims []string) {
-	out, err := runCmd(ctx, "journalctl", "-k", "--boot=-1", "--no-pager",
+	out, err := runCmd(ctx, pbCmdJournalctl, "-k", pbFlagBoot1, svcNoPager,
 		"-o", "short-iso", "--grep", "Out of memory|Killed process")
 	if err != nil {
 		return 0, nil
@@ -136,7 +141,7 @@ var panicRe = regexp.MustCompile(`Kernel panic|Oops:|general protection fault|BU
 // journalctl's server-side --grep so only matching lines are returned (bounded output,
 // no full-boot-log pull).
 func priorBootPanic(ctx context.Context) (panicked bool, hint string) {
-	out, err := runCmd(ctx, "journalctl", "-k", "--boot=-1", "--no-pager", "-q", "-o", "cat",
+	out, err := runCmd(ctx, pbCmdJournalctl, "-k", pbFlagBoot1, svcNoPager, "-q", "-o", "cat",
 		"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at")
 	if err != nil {
 		return false, ""
@@ -170,7 +175,7 @@ var shutdownMarkerRe = regexp.MustCompile(`(?i)reached target.*(shutdown|reboot|
 // boot -1 is already confirmed readable, so a non-empty tail with no marker is a real
 // unclean stop.
 func priorBootUncleanJournal(ctx context.Context) (unclean, checked bool) {
-	out, err := runCmd(ctx, "journalctl", "--boot=-1", "--no-pager", "-q", "-o", "cat", "-n", "200")
+	out, err := runCmd(ctx, pbCmdJournalctl, pbFlagBoot1, svcNoPager, "-q", "-o", "cat", "-n", "200")
 	if err != nil || strings.TrimSpace(out) == "" {
 		return false, false
 	}

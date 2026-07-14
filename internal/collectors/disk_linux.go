@@ -15,6 +15,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	diskSysBlock      = "/sys/block"
+	diskSysClassBlock = "/sys/class/block/"
+)
+
 // collectPhysicalDrives builds PhysicalDrive entries from /proc/partitions,
 // /sys/block/*/queue/rotational, and /proc/mounts. Replaces the renderer-side
 // diskEnumeratePhysical() with a collector-side version that populates the model.
@@ -126,7 +131,7 @@ func diskDetectType(name string) models.DriveType {
 	if strings.HasPrefix(name, "nvme") {
 		return models.DriveTypeNVMe
 	}
-	data, err := readFile(filepath.Join("/sys/block", name, "queue/rotational")) // #nosec G304
+	data, err := readFile(filepath.Join(diskSysBlock, name, "queue/rotational")) // #nosec G304
 	if err != nil {
 		return models.DriveTypeSSD
 	}
@@ -138,7 +143,7 @@ func diskDetectType(name string) models.DriveType {
 
 // diskSizeGB returns device capacity from sysfs sectors.
 func diskSizeGB(name string) float64 {
-	data, err := readFile(filepath.Join("/sys/block", name, "size")) // #nosec G304
+	data, err := readFile(filepath.Join(diskSysBlock, name, "size")) // #nosec G304
 	if err != nil {
 		return 0
 	}
@@ -152,8 +157,8 @@ func diskSizeGB(name string) float64 {
 // diskModel reads the device model string from sysfs.
 func diskModel(name string) string {
 	paths := []string{
-		filepath.Join("/sys/block", name, "device/model"),
-		filepath.Join("/sys/block", name, "device/device/model"),
+		filepath.Join(diskSysBlock, name, "device/model"),
+		filepath.Join(diskSysBlock, name, "device/device/model"),
 	}
 	for _, p := range paths {
 		if data, err := readFile(p); err == nil { // #nosec G304
@@ -563,7 +568,7 @@ func deviceSizeBytes(devPath string) (int64, bool) {
 	if kname == "" {
 		return 0, false
 	}
-	data, err := readFile("/sys/class/block/" + kname + "/size") // #nosec G304 -- sysfs, kname is a basename
+	data, err := readFile(diskSysClassBlock + kname + "/size") // #nosec G304 -- sysfs, kname is a basename
 	if err != nil {
 		return 0, false
 	}
@@ -583,12 +588,12 @@ func deviceKernelName(devPath string) string {
 		return ""
 	}
 	base := devPath[strings.LastIndex(devPath, "/")+1:]
-	if base != "" && fileExists("/sys/class/block/"+base) {
+	if base != "" && fileExists(diskSysClassBlock+base) {
 		return base
 	}
 	if target, err := readLink(devPath); err == nil && target != "" {
 		rb := target[strings.LastIndex(target, "/")+1:]
-		if rb != "" && fileExists("/sys/class/block/"+rb) {
+		if rb != "" && fileExists(diskSysClassBlock+rb) {
 			return rb
 		}
 	}

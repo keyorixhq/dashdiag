@@ -7,6 +7,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	fwCatFirmware  = "Firmware"
+	fwCatSnapshots = "Snapshots"
+)
+
 func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	var out []models.Insight
 
@@ -20,7 +25,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	// updates. Surface it rather than pass as clean. Status=="OK" is the recognized
 	// "nothing to do" path, which is a genuine clean.
 	if f.StatusReason != "" && f.Status != "OK" {
-		return []models.Insight{insight("INFO", "Firmware",
+		return []models.Insight{insight("INFO", fwCatFirmware,
 			"firmware update status could not be verified: "+f.StatusReason,
 			[]string{
 				"to inspect: fwupdmgr get-upgrades",
@@ -41,7 +46,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 				names = append(names, u.Name)
 			}
 		}
-		out = append(out, insight("WARN", "Firmware",
+		out = append(out, insight("WARN", fwCatFirmware,
 			fmt.Sprintf("%d security-relevant firmware upgrade(s) pending: %s",
 				f.SecurityCount, strings.Join(names, ", ")),
 			[]string{
@@ -55,7 +60,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	// Non-security firmware upgrades
 	nonSec := f.UpgradeCount - f.SecurityCount
 	if nonSec > 0 {
-		out = append(out, insight("INFO", "Firmware",
+		out = append(out, insight("INFO", fwCatFirmware,
 			fmt.Sprintf("%d non-security firmware upgrade(s) available", nonSec),
 			[]string{"to inspect: fwupdmgr get-upgrades"},
 		))
@@ -84,7 +89,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 		if strings.Contains(s.Error, "run as root") {
 			level = "INFO"
 		}
-		out = append(out, insight(level, "Snapshots",
+		out = append(out, insight(level, fwCatSnapshots,
 			fmt.Sprintf("snapper: %s", s.Error),
 			nil,
 		))
@@ -93,7 +98,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 
 	// No snapshots at all
 	if s.SnapshotCount == 0 {
-		out = append(out, insight("WARN", "Snapshots",
+		out = append(out, insight("WARN", fwCatSnapshots,
 			"snapper is installed but no snapshots exist — system has no rollback points",
 			[]string{
 				"to fix: snapper create --description 'initial'",
@@ -107,12 +112,12 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 	switch {
 	case s.LastSnapshotH < 0:
 		// Could not determine last snapshot time — treat as stale
-		out = append(out, insight("WARN", "Snapshots",
+		out = append(out, insight("WARN", fwCatSnapshots,
 			fmt.Sprintf("%d snapshot(s) found but last snapshot time could not be determined", s.SnapshotCount),
 			[]string{"to check: sudo snapper list"},
 		))
 	case s.LastSnapshotH >= 72:
-		out = append(out, insight("CRIT", "Snapshots",
+		out = append(out, insight("CRIT", fwCatSnapshots,
 			fmt.Sprintf("no Btrfs snapshot in %dh — system has no recent rollback point", s.LastSnapshotH),
 			[]string{
 				"to fix: snapper create --description 'manual'",
@@ -120,7 +125,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 			},
 		))
 	case s.LastSnapshotH >= 24:
-		out = append(out, insight("WARN", "Snapshots",
+		out = append(out, insight("WARN", fwCatSnapshots,
 			fmt.Sprintf("last Btrfs snapshot was %dh ago — rollback window may be stale", s.LastSnapshotH),
 			[]string{
 				"to fix: snapper create --description 'manual'",
@@ -132,7 +137,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 	// Space usage
 	switch {
 	case s.TotalSpaceGB >= 50:
-		out = append(out, insight("CRIT", "Snapshots",
+		out = append(out, insight("CRIT", fwCatSnapshots,
 			fmt.Sprintf("Btrfs snapshots consuming %.1f GB — filesystem space at risk", s.TotalSpaceGB),
 			[]string{
 				"to clean up: snapper delete --sync <number>",
@@ -141,7 +146,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 			},
 		))
 	case s.TotalSpaceGB >= 20:
-		out = append(out, insight("WARN", "Snapshots",
+		out = append(out, insight("WARN", fwCatSnapshots,
 			fmt.Sprintf("Btrfs snapshots consuming %.1f GB — consider pruning old snapshots", s.TotalSpaceGB),
 			[]string{
 				"to clean up: snapper delete --sync <number>",
@@ -159,7 +164,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 		if s.TotalSpaceGB > 0 {
 			msg += fmt.Sprintf(", %.1f GB used", s.TotalSpaceGB)
 		}
-		out = append(out, insight("OK", "Snapshots", msg, nil))
+		out = append(out, insight("OK", fwCatSnapshots, msg, nil))
 	}
 
 	return out

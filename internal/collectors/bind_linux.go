@@ -12,6 +12,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	bindProcNamed    = "named"
+	bindProcNamedSDB = "named-sdb"
+	bindProcBIND9    = "bind9"
+)
+
 // BINDCollector checks BIND/named server health.
 // Gate: named or bind9 process must be running.
 // Linux only — BIND is a server component not relevant on other platforms.
@@ -64,22 +70,22 @@ func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
 // fully running → a false "named service is not active" CRIT. On a non-systemd host
 // (Alpine/OpenRC/Devuan) systemctl is absent, so fall back to the running process.
 func bindServiceActive(ctx context.Context) bool {
-	for _, unit := range []string{"named", "bind9", "named-sdb"} {
+	for _, unit := range []string{bindProcNamed, bindProcBIND9, bindProcNamedSDB} {
 		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil && strings.TrimSpace(out) == "active" {
 			return true
 		}
 	}
-	return anyProcessNamed("named", "bind9", "named-sdb")
+	return anyProcessNamed(bindProcNamed, bindProcBIND9, bindProcNamedSDB)
 }
 
 // bindDetect returns true when a BIND daemon process is running. Matches
 // /proc/<pid>/comm (portable; busybox `pgrep -x` matches argv[0] incl. path) with a
 // systemctl fallback for setups where the process name differs from the unit.
 func bindDetect() bool {
-	if anyProcessNamed("named", "bind9", "named-sdb") {
+	if anyProcessNamed(bindProcNamed, bindProcBIND9, bindProcNamedSDB) {
 		return true
 	}
-	_, err := runCmd(context.Background(), "systemctl", "is-active", "--quiet", "named")
+	_, err := runCmd(context.Background(), "systemctl", "is-active", "--quiet", bindProcNamed)
 	return err == nil
 }
 
@@ -136,7 +142,7 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 			continue
 		}
 		// Check that it's actually named (not dnsmasq / systemd-resolved / unbound
-		// also on :53) via ss -p's users:(("named",pid=...)) column — matching on
+		// also on :53) via ss -p's users:((bindProcNamed,pid=...)) column — matching on
 		// the port alone credited whatever else happened to hold :53, silently
 		// clearing the "named running but not listening" WARN for a real bind
 		// failure (socket-open error, address-specific bind).
@@ -155,7 +161,7 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 // isBindProcess reports whether an `ss -tulpn` line's process-owner column
 // (users:(("name",pid=...))) names a BIND server binary.
 func isBindProcess(line string) bool {
-	for _, name := range []string{"named", "bind9", "named-sdb"} {
+	for _, name := range []string{bindProcNamed, bindProcBIND9, bindProcNamedSDB} {
 		if strings.Contains(line, "\""+name+"\"") {
 			return true
 		}

@@ -8,6 +8,26 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	corrCatMemory     = "Memory"
+	corrCatCPULoad    = "CPU Load"
+	corrCatSwap       = "Swap"
+	corrCatLogs       = "Logs"
+	corrCatIO         = "IO"
+	corrCatCPUThermal = "CPU Thermal"
+	corrCatCPUSteal   = "CPU Load/Steal"
+	corrCatTLS        = "TLS"
+	corrCatSystemd    = "Systemd"
+	corrCatProcesses  = "Processes"
+	corrCatOOM        = "oom"
+	corrCatDocker     = "Docker"
+	corrKwDie         = "die"
+	corrCatCPUIOwait  = "CPU Load/IOWait"
+	corrCatOOMUpper   = "OOM"
+	corrCatNetwork    = "Network"
+	corrCatGPU        = "GPU"
+)
+
 // Correlation is a diagnosed cause inferred from multiple simultaneous signals.
 // v0: hardcoded ruleset. v1: history-aware pattern matching across snapshots.
 type Correlation struct {
@@ -107,7 +127,7 @@ func buildIndex(insights []models.Insight) map[string]indexEntry {
 
 // indexKeys returns the lookup keys for a Check string.
 // "Memory/Slab" → ["memory/slab", "memory"]
-// "IO" → ["io"]
+// corrCatIO → ["io"]
 func indexKeys(check string) []string {
 	lower := strings.ToLower(check)
 	keys := []string{lower}
@@ -148,21 +168,21 @@ func exact(idx map[string]indexEntry, key, level string) bool {
 //   - Processes CRIT       (hung/uninterruptible — blocked on I/O during swap)
 //     OR Logs CRIT         (OOM kills already happened)
 func ruleMemoryCascade(idx map[string]indexEntry) (Correlation, bool) {
-	memFired := atLeast(idx, "Memory", "WARN")
-	swapCrit := exact(idx, "Swap", "CRIT")
-	processesCrit := exact(idx, "Processes", "CRIT")
-	logsCrit := exact(idx, "Logs", "CRIT")
+	memFired := atLeast(idx, corrCatMemory, "WARN")
+	swapCrit := exact(idx, corrCatSwap, "CRIT")
+	processesCrit := exact(idx, corrCatProcesses, "CRIT")
+	logsCrit := exact(idx, corrCatLogs, "CRIT")
 
 	if !memFired || !swapCrit || (!processesCrit && !logsCrit) {
 		return Correlation{}, false
 	}
 
-	checks := []string{"Memory", "Swap"}
+	checks := []string{corrCatMemory, corrCatSwap}
 	if processesCrit {
-		checks = append(checks, "Processes")
+		checks = append(checks, corrCatProcesses)
 	}
 	if logsCrit {
-		checks = append(checks, "Logs")
+		checks = append(checks, corrCatLogs)
 	}
 
 	return Correlation{
@@ -182,9 +202,9 @@ func ruleMemoryCascade(idx map[string]indexEntry) (Correlation, bool) {
 //   - Logs CRIT    (OOM kills recorded)
 //   - Swap NOT CRIT (swap wasn't the pressure valve — it wasn't being hit hard)
 func ruleHardOOM(idx map[string]indexEntry) (Correlation, bool) {
-	memCrit := exact(idx, "Memory", "CRIT")
-	logsCrit := exact(idx, "Logs", "CRIT")
-	swapNotCrit := !exact(idx, "Swap", "CRIT")
+	memCrit := exact(idx, corrCatMemory, "CRIT")
+	logsCrit := exact(idx, corrCatLogs, "CRIT")
+	swapNotCrit := !exact(idx, corrCatSwap, "CRIT")
 
 	if !memCrit || !logsCrit || !swapNotCrit {
 		return Correlation{}, false
@@ -195,7 +215,7 @@ func ruleHardOOM(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "Processes killed directly — memory hit a hard ceiling with no swap acting as a buffer",
 		Action:  "check which processes were killed: dmesg | grep -i 'out of memory'",
-		Checks:  []string{"Memory", "Logs"},
+		Checks:  []string{corrCatMemory, corrCatLogs},
 	}, true
 }
 
@@ -208,9 +228,9 @@ func ruleHardOOM(idx map[string]indexEntry) (Correlation, bool) {
 //   - Memory WARN/CRIT (RAM pressure active)
 //   - Swap CRIT        (kernel actively moving pages — competes with I/O scheduler)
 func ruleIOUnderMemoryPressure(idx map[string]indexEntry) (Correlation, bool) {
-	ioCrit := exact(idx, "IO", "CRIT")
-	memFired := atLeast(idx, "Memory", "WARN")
-	swapCrit := exact(idx, "Swap", "CRIT")
+	ioCrit := exact(idx, corrCatIO, "CRIT")
+	memFired := atLeast(idx, corrCatMemory, "WARN")
+	swapCrit := exact(idx, corrCatSwap, "CRIT")
 
 	if !ioCrit || !memFired || !swapCrit {
 		return Correlation{}, false
@@ -221,7 +241,7 @@ func ruleIOUnderMemoryPressure(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "Disk latency spiked while kernel is swapping — page eviction and I/O compete for the same storage bandwidth",
 		Action:  "check what is swapping: vmstat 1 5 && iotop -ao",
-		Checks:  []string{"IO", "Memory", "Swap"},
+		Checks:  []string{corrCatIO, corrCatMemory, corrCatSwap},
 	}, true
 }
 
@@ -238,13 +258,13 @@ func ruleIOUnderMemoryPressure(idx map[string]indexEntry) (Correlation, bool) {
 //   - Network CRIT (gateway latency or packet loss past critical threshold)
 //   - CPU CRIT or WARN, OR Swap CRIT (system under load — not a pure network fault)
 func ruleNetworkDegradedUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
-	netCrit := exact(idx, "Network", "CRIT")
-	// "CPU Load" (key "cpu load") covers both the utilisation insight and the
-	// sub-checks ("CPU Load/Steal" etc.), which index under "cpu load" via the
+	netCrit := exact(idx, corrCatNetwork, "CRIT")
+	// corrCatCPULoad (key "cpu load") covers both the utilisation insight and the
+	// sub-checks (corrCatCPUSteal etc.), which index under "cpu load" via the
 	// namespace prefix — so any CPU-load signal qualifies as "system under load".
-	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
-	swapCrit := exact(idx, "Swap", "CRIT")
-	memCrit := exact(idx, "Memory", "CRIT")
+	cpuLoaded := atLeast(idx, corrCatCPULoad, "WARN")
+	swapCrit := exact(idx, corrCatSwap, "CRIT")
+	memCrit := exact(idx, corrCatMemory, "CRIT")
 
 	if !netCrit {
 		return Correlation{}, false
@@ -258,15 +278,15 @@ func ruleNetworkDegradedUnderLoad(idx map[string]indexEntry) (Correlation, bool)
 	summary := "Network latency spiked under system load — kernel may be starved for cycles to service interrupts"
 	action := "check if load clears first: uptime && ping -c5 $(ip route | awk '/default/{print $3}')"
 
-	checks := []string{"Network"}
+	checks := []string{corrCatNetwork}
 	if cpuLoaded {
 		checks = append(checks, "CPU")
 	}
 	if swapCrit {
-		checks = append(checks, "Swap")
+		checks = append(checks, corrCatSwap)
 	}
 	if memCrit {
-		checks = append(checks, "Memory")
+		checks = append(checks, corrCatMemory)
 	}
 
 	return Correlation{
@@ -295,30 +315,30 @@ func ruleGPUSustainedLoad(idx map[string]indexEntry) (Correlation, bool) {
 	// GPU active = INFO (sustained load insight) OR WARN (VRAM pressure).
 	// When VRAM is WARN, the index key "gpu" holds WARN (worst wins),
 	// so we check atLeast INFO to catch both cases.
-	gpuActive := atLeast(idx, "GPU", "INFO")
+	gpuActive := atLeast(idx, corrCatGPU, "INFO")
 	if !gpuActive {
 		return Correlation{}, false
 	}
 
-	// The thermal collector emits its check as "CPU Thermal" (index key
+	// The thermal collector emits its check as corrCatCPUThermal (index key
 	// "cpu thermal") — there is no bare "Thermal" check, so this must match it
 	// exactly or the thermal dimension of this correlation never fires.
-	thermalElevated := atLeast(idx, "CPU Thermal", "WARN")
-	memoryElevated := atLeast(idx, "Memory", "WARN")
-	vramElevated := atLeast(idx, "GPU", "WARN") // VRAM WARN fires at 85%
+	thermalElevated := atLeast(idx, corrCatCPUThermal, "WARN")
+	memoryElevated := atLeast(idx, corrCatMemory, "WARN")
+	vramElevated := atLeast(idx, corrCatGPU, "WARN") // VRAM WARN fires at 85%
 
 	if !thermalElevated && !memoryElevated && !vramElevated {
 		return Correlation{}, false
 	}
 
-	checks := []string{"GPU"}
+	checks := []string{corrCatGPU}
 	summary := "GPU under sustained compute load"
 	if thermalElevated {
 		checks = append(checks, "Thermal")
 		summary += " — thermal elevation likely GPU-driven"
 	}
 	if memoryElevated {
-		checks = append(checks, "Memory")
+		checks = append(checks, corrCatMemory)
 		summary += " — check if GPU and system RAM are competing"
 	}
 	if vramElevated {
@@ -343,9 +363,9 @@ func ruleGPUSustainedLoad(idx map[string]indexEntry) (Correlation, bool) {
 //   - CPU/IOWait WARN or CRIT (iowait_pct > 20%)
 //   - CPU/Steal NOT firing (rules out hypervisor as the cause)
 func ruleIODrivenLoad(idx map[string]indexEntry) (Correlation, bool) {
-	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
-	iowaitElevated := atLeast(idx, "CPU Load/IOWait", "WARN")
-	stealElevated := atLeast(idx, "CPU Load/Steal", "WARN")
+	cpuLoaded := atLeast(idx, corrCatCPULoad, "WARN")
+	iowaitElevated := atLeast(idx, corrCatCPUIOwait, "WARN")
+	stealElevated := atLeast(idx, corrCatCPUSteal, "WARN")
 
 	if !cpuLoaded || !iowaitElevated || stealElevated {
 		return Correlation{}, false
@@ -356,7 +376,7 @@ func ruleIODrivenLoad(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "WARN",
 		Summary: "Load average is elevated but the CPU is mostly idle — tasks are stalled waiting for disk I/O, not running on CPU",
 		Action:  "iostat -x 1 5 && iotop -ao",
-		Checks:  []string{"CPU Load", "CPU Load/IOWait"},
+		Checks:  []string{corrCatCPULoad, corrCatCPUIOwait},
 	}, true
 }
 
@@ -368,8 +388,8 @@ func ruleIODrivenLoad(idx map[string]indexEntry) (Correlation, bool) {
 //   - CPU Load WARN or CRIT
 //   - CPU/Steal WARN or CRIT (steal_pct > 10%)
 func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
-	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
-	stealElevated := atLeast(idx, "CPU Load/Steal", "WARN")
+	cpuLoaded := atLeast(idx, corrCatCPULoad, "WARN")
+	stealElevated := atLeast(idx, corrCatCPUSteal, "WARN")
 
 	if !cpuLoaded || !stealElevated {
 		return Correlation{}, false
@@ -380,7 +400,7 @@ func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "VM is under load AND losing CPU to the hypervisor — the host is over-provisioned, adding vCPUs will not help",
 		Action:  "escalate to cloud provider or migrate VM to a less-loaded host",
-		Checks:  []string{"CPU Load", "CPU Load/Steal"},
+		Checks:  []string{corrCatCPULoad, corrCatCPUSteal},
 	}, true
 }
 
@@ -397,8 +417,8 @@ func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
 //   - CPU/Steal NOT firing (rules out hypervisor steal)
 func ruleRunQueueSaturation(idx map[string]indexEntry) (Correlation, bool) {
 	rqSaturated := atLeast(idx, "CPU Load/RunQueue", "WARN")
-	iowaitElevated := atLeast(idx, "CPU Load/IOWait", "WARN")
-	stealElevated := atLeast(idx, "CPU Load/Steal", "WARN")
+	iowaitElevated := atLeast(idx, corrCatCPUIOwait, "WARN")
+	stealElevated := atLeast(idx, corrCatCPUSteal, "WARN")
 
 	if !rqSaturated || iowaitElevated || stealElevated {
 		return Correlation{}, false
@@ -423,7 +443,7 @@ func ruleRunQueueSaturation(idx map[string]indexEntry) (Correlation, bool) {
 //   - Systemd CRIT (at least one other unit failed)
 func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
 	dbusFailed := exact(idx, "DBus", "CRIT")
-	systemdFailed := atLeast(idx, "Systemd", "CRIT")
+	systemdFailed := atLeast(idx, corrCatSystemd, "CRIT")
 
 	if !dbusFailed || !systemdFailed {
 		return Correlation{}, false
@@ -434,7 +454,7 @@ func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "D-Bus system message bus has failed — all other service failures are likely downstream effects of this single root cause",
 		Action:  "systemctl status dbus.service && journalctl -u dbus.service -n 20",
-		Checks:  []string{"DBus", "Systemd"},
+		Checks:  []string{"DBus", corrCatSystemd},
 	}, true
 }
 
@@ -449,7 +469,7 @@ func ruleDBusCascade(idx map[string]indexEntry) (Correlation, bool) {
 //   - TLS    WARN or CRIT   (expired or expiring-soon certs present)
 func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
 	entropyLow := atLeast(idx, "Entropy", "WARN")
-	tlsFired := atLeast(idx, "TLS", "WARN")
+	tlsFired := atLeast(idx, corrCatTLS, "WARN")
 
 	if !entropyLow || !tlsFired {
 		return Correlation{}, false
@@ -460,7 +480,7 @@ func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "entropy pool is critically low while TLS certificates are in use — SSL handshakes and key operations will stall or time out waiting for randomness",
 		Action:  "apt install haveged OR dnf install rng-tools && " + PlatformServiceCmd("systemctl enable --now rngd"),
-		Checks:  []string{"Entropy", "TLS"},
+		Checks:  []string{"Entropy", corrCatTLS},
 	}, true
 }
 
@@ -475,8 +495,8 @@ func ruleEntropyTLSFailure(idx map[string]indexEntry) (Correlation, bool) {
 //   - Systemd CRIT OR Logs CRIT    (a unit failed, or write/ENOSPC errors logged)
 func ruleDiskFullServiceFailure(idx map[string]indexEntry) (Correlation, bool) {
 	diskCrit := exact(idx, "Disk", "CRIT")
-	systemdCrit := exact(idx, "Systemd", "CRIT")
-	logsCrit := exact(idx, "Logs", "CRIT")
+	systemdCrit := exact(idx, corrCatSystemd, "CRIT")
+	logsCrit := exact(idx, corrCatLogs, "CRIT")
 
 	if !diskCrit || (!systemdCrit && !logsCrit) {
 		return Correlation{}, false
@@ -484,10 +504,10 @@ func ruleDiskFullServiceFailure(idx map[string]indexEntry) (Correlation, bool) {
 
 	checks := []string{"Disk"}
 	if systemdCrit {
-		checks = append(checks, "Systemd")
+		checks = append(checks, corrCatSystemd)
 	}
 	if logsCrit {
-		checks = append(checks, "Logs")
+		checks = append(checks, corrCatLogs)
 	}
 
 	return Correlation{
@@ -507,7 +527,7 @@ func ruleDiskFullServiceFailure(idx map[string]indexEntry) (Correlation, bool) {
 //   - NFS CRIT        (a stale or unreachable mount)
 //   - Processes CRIT  (uninterruptible-sleep / hung tasks)
 func ruleNFSStaleProcessHang(idx map[string]indexEntry) (Correlation, bool) {
-	if !exact(idx, "NFS", "CRIT") || !exact(idx, "Processes", "CRIT") {
+	if !exact(idx, "NFS", "CRIT") || !exact(idx, corrCatProcesses, "CRIT") {
 		return Correlation{}, false
 	}
 	return Correlation{
@@ -515,7 +535,7 @@ func ruleNFSStaleProcessHang(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "Processes are stuck in uninterruptible sleep on a stale NFS mount — they can't be killed until the mount responds or is force-unmounted",
 		Action:  "find the bad mount: nfsstat -m; then: umount -f -l <mount>  (or restore the NFS server)",
-		Checks:  []string{"NFS", "Processes"},
+		Checks:  []string{"NFS", corrCatProcesses},
 	}, true
 }
 
@@ -528,7 +548,7 @@ func ruleNFSStaleProcessHang(idx map[string]indexEntry) (Correlation, bool) {
 //   - TLS CRIT OR Auth WARN     (cert validation or authentication failing)
 func ruleClockSkewTLSAuth(idx map[string]indexEntry) (Correlation, bool) {
 	clockCrit := exact(idx, "Clock", "CRIT")
-	tlsCrit := exact(idx, "TLS", "CRIT")
+	tlsCrit := exact(idx, corrCatTLS, "CRIT")
 	authFired := atLeast(idx, "Auth", "WARN")
 
 	if !clockCrit || (!tlsCrit && !authFired) {
@@ -537,7 +557,7 @@ func ruleClockSkewTLSAuth(idx map[string]indexEntry) (Correlation, bool) {
 
 	checks := []string{"Clock"}
 	if tlsCrit {
-		checks = append(checks, "TLS")
+		checks = append(checks, corrCatTLS)
 	}
 	if authFired {
 		checks = append(checks, "Auth")
@@ -561,9 +581,9 @@ func ruleClockSkewTLSAuth(idx map[string]indexEntry) (Correlation, bool) {
 //   - Cgroup CRIT        (a cgroup at its memory limit)
 //   - Memory NOT CRIT    (the host as a whole has headroom)
 func ruleContainerCgroupOOM(idx map[string]indexEntry) (Correlation, bool) {
-	dockerCrit := exact(idx, "Docker", "CRIT")
+	dockerCrit := exact(idx, corrCatDocker, "CRIT")
 	cgroupCrit := exact(idx, "Cgroup", "CRIT")
-	hostMemOK := !exact(idx, "Memory", "CRIT")
+	hostMemOK := !exact(idx, corrCatMemory, "CRIT")
 
 	if !dockerCrit || !cgroupCrit || !hostMemOK {
 		return Correlation{}, false
@@ -574,7 +594,7 @@ func ruleContainerCgroupOOM(idx map[string]indexEntry) (Correlation, bool) {
 		Level:   "CRIT",
 		Summary: "A container hit its own cgroup memory limit while the host still has RAM — the container's limit is too low; adding host memory won't fix it",
 		Action:  "raise the container's limit (docker update --memory / k8s resources.limits), or find its leak",
-		Checks:  []string{"Docker", "Cgroup"},
+		Checks:  []string{corrCatDocker, "Cgroup"},
 	}, true
 }
 
@@ -586,15 +606,15 @@ func ruleContainerCgroupOOM(idx map[string]indexEntry) (Correlation, bool) {
 //   - CPU Thermal WARN/CRIT  (throttling temperature reached)
 //   - CPU Load WARN          (the box is actually busy — not idle-and-hot)
 func ruleThermalThrottleUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
-	thermalFired := atLeast(idx, "CPU Thermal", "WARN")
-	cpuLoaded := atLeast(idx, "CPU Load", "WARN")
+	thermalFired := atLeast(idx, corrCatCPUThermal, "WARN")
+	cpuLoaded := atLeast(idx, corrCatCPULoad, "WARN")
 
 	if !thermalFired || !cpuLoaded {
 		return Correlation{}, false
 	}
 
 	level := "WARN"
-	if exact(idx, "CPU Thermal", "CRIT") {
+	if exact(idx, corrCatCPUThermal, "CRIT") {
 		level = "CRIT"
 	}
 
@@ -603,7 +623,7 @@ func ruleThermalThrottleUnderLoad(idx map[string]indexEntry) (Correlation, bool)
 		Level:   level,
 		Summary: "The CPU is throttling on temperature while busy — performance is capped by heat, not by core count; more vCPUs won't help",
 		Action:  "check cooling/airflow: sensors; reduce sustained load or improve heat dissipation",
-		Checks:  []string{"CPU Thermal", "CPU Load"},
+		Checks:  []string{corrCatCPUThermal, corrCatCPULoad},
 	}, true
 }
 
@@ -616,7 +636,7 @@ func ruleThermalThrottleUnderLoad(idx map[string]indexEntry) (Correlation, bool)
 //   - Network NOT CRIT  (the link/gateway is up — so it's not connectivity)
 func ruleDNSResolverNotConnectivity(idx map[string]indexEntry) (Correlation, bool) {
 	dnsCrit := exact(idx, "DNS", "CRIT")
-	networkOK := !exact(idx, "Network", "CRIT")
+	networkOK := !exact(idx, corrCatNetwork, "CRIT")
 
 	if !dnsCrit || !networkOK {
 		return Correlation{}, false
@@ -703,7 +723,7 @@ func ruleIOWaitCulprit(cpu *models.CPUInfo, io *models.IOInfo, deep *models.Heal
 		Level:   level,
 		Summary: summary,
 		Action:  fmt.Sprintf("iotop -ao -p %d && iostat -x 1 5 %s", top.PID, dev.Name),
-		Checks:  []string{"CPU Load/IOWait", "IO"},
+		Checks:  []string{corrCatCPUIOwait, corrCatIO},
 	}, true
 }
 
@@ -753,7 +773,7 @@ func ruleIOSingleDeviceDegradation(io *models.IOInfo) (Correlation, bool) {
 		Summary: fmt.Sprintf("%s has critically high IO latency (%.0fms await, %.0f%% util) while %d peer device(s) are healthy — likely a failing or heavily contended drive",
 			dev.Name, dev.AwaitMs, dev.UtilPct, len(healthy)),
 		Action: fmt.Sprintf("smartctl -a /dev/%s && iostat -x 1 5", dev.Name),
-		Checks: []string{"IO"},
+		Checks: []string{corrCatIO},
 	}, true
 }
 
@@ -803,7 +823,7 @@ func ruleServiceMemoryLeak(oom *models.OOMInfo) (Correlation, bool) {
 			leaker, maxCount),
 		Action: fmt.Sprintf("check %s memory growth: ps aux | grep %s && journalctl -u %s --since '24h ago' | grep -i 'memory\\|oom'",
 			leaker, leaker, leaker),
-		Checks: []string{"OOM"},
+		Checks: []string{corrCatOOMUpper},
 	}, true
 }
 
@@ -912,7 +932,7 @@ func ruleDockerOOMCascade(oom *models.OOMInfo, docker *models.DockerInfo) (Corre
 			Level:   "CRIT",
 			Summary: "kernel OOM killer and Docker container OOM exit confirmed within 5 minutes — memory pressure killed a container",
 			Action:  action,
-			Checks:  []string{"OOM", "Docker"},
+			Checks:  []string{corrCatOOMUpper, corrCatDocker},
 		}, true
 	}
 
@@ -922,7 +942,7 @@ func ruleDockerOOMCascade(oom *models.OOMInfo, docker *models.DockerInfo) (Corre
 		Level:   "CRIT",
 		Summary: "kernel OOM kills and Docker container OOM events co-occurred — containers are being killed by memory pressure",
 		Action:  "docker stats --no-stream && docker events --filter type=container --filter event=oom",
-		Checks:  []string{"OOM", "Docker"},
+		Checks:  []string{corrCatOOMUpper, corrCatDocker},
 	}, true
 }
 
@@ -931,7 +951,7 @@ func ruleDockerOOMCascade(oom *models.OOMInfo, docker *models.DockerInfo) (Corre
 func findTimedDockerOOM(oom *models.OOMInfo, docker *models.DockerInfo) (actor string, found bool) {
 	const window = 5 * time.Minute
 	for _, de := range docker.RecentEvents {
-		if de.Action != "oom" && de.Action != "die" {
+		if de.Action != corrCatOOM && de.Action != corrKwDie {
 			continue
 		}
 		deTime := time.Unix(de.TimeUnix, 0)

@@ -18,6 +18,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	hdLibpodPrefix  = "libpod-"
+	hdDockerPrefix  = "docker-"
+	hdCgroupRoot    = "0::"
+	hdCgroupProc    = "/proc/[0-9]*"
+	hdCgroupTypeCtx = "container"
+)
+
 // HealthDeepCollector extends dsd health with per-core CPU breakdown
 // and top memory consumers. Requires two /proc/stat reads 500ms apart
 // for accurate per-core usage.
@@ -223,7 +231,7 @@ func computeCoreUsage(s1, s2 []coreSnapshot) []models.CoreStat {
 
 // topMemoryProcs reads /proc/<pid>/status for RSS and returns top N by RSS.
 func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
-	entries, err := glob("/proc/[0-9]*")
+	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, 0
 	}
@@ -320,7 +328,7 @@ func procCommName(pid int) string {
 // for lack of privilege — that process's I/O is invisible to this sample, so
 // the ranking below may not reflect the true top consumer.
 func readAllProcIO() (map[int]procIOCounters, bool) {
-	entries, err := glob("/proc/[0-9]*")
+	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, false
 	}
@@ -427,7 +435,7 @@ type procCPUCounters struct {
 // tick counters keyed by PID, plus the system-wide aggregate tick total (the
 // "cpu " line of /proc/stat) needed to normalize per-process ticks into a %.
 func readAllProcCPU() (map[int]procCPUCounters, uint64) {
-	entries, err := glob("/proc/[0-9]*")
+	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, 0
 	}
@@ -646,10 +654,10 @@ func classifyCgroupUnitDir(parentSlice, dirName string) (isContainer bool, label
 	switch {
 	case parentSlice == "docker":
 		return true, containerIDLabel(dirName)
-	case strings.HasPrefix(dirName, "docker-"):
-		return true, containerIDLabel(strings.TrimPrefix(dirName, "docker-"))
-	case strings.HasPrefix(dirName, "libpod-"):
-		return true, containerIDLabel(strings.TrimPrefix(dirName, "libpod-"))
+	case strings.HasPrefix(dirName, hdDockerPrefix):
+		return true, containerIDLabel(strings.TrimPrefix(dirName, hdDockerPrefix))
+	case strings.HasPrefix(dirName, hdLibpodPrefix):
+		return true, containerIDLabel(strings.TrimPrefix(dirName, hdLibpodPrefix))
 	default:
 		return false, dirName
 	}
@@ -907,7 +915,7 @@ func cgroupScope(pid int) string {
 // scopeIsContainer reports whether a parseCgroupPath scope label denotes a container
 // (Docker/Podman/Kubernetes pod) as opposed to the host (kernel/init/system:/user:).
 func scopeIsContainer(scope string) bool {
-	return strings.HasPrefix(scope, "container") ||
+	return strings.HasPrefix(scope, hdCgroupTypeCtx) ||
 		strings.HasPrefix(scope, "k8s") ||
 		strings.HasPrefix(scope, "pod:")
 }
@@ -934,11 +942,11 @@ func cgroupScopeIn(procDir, pid string) string {
 	}
 	// cgroup v2: single line "0::/<path>"
 	// cgroup v1: multiple lines "N:<subsystem>:<path>"
-	// We want the v2 unified hierarchy path (line starting with "0::")
+	// We want the v2 unified hierarchy path (line starting with hdCgroupRoot)
 	cgPath := ""
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if strings.HasPrefix(line, "0::") {
-			cgPath = strings.TrimPrefix(line, "0::")
+		if strings.HasPrefix(line, hdCgroupRoot) {
+			cgPath = strings.TrimPrefix(line, hdCgroupRoot)
 			break
 		}
 	}
@@ -977,22 +985,22 @@ func parseCgroupPath(path string) string {
 		return "kernel"
 	case path == "/init.scope":
 		return "init"
-	case strings.Contains(path, "/docker/") || strings.Contains(path, "docker-"):
+	case strings.Contains(path, "/docker/") || strings.Contains(path, hdDockerPrefix):
 		// Extract container ID prefix: /docker/<64-char-id>
 		parts := strings.Split(path, "/docker/")
 		if len(parts) >= 2 {
 			return containerIDLabel(parts[1])
 		}
-		return "container"
-	case strings.Contains(path, "libpod-") || strings.Contains(path, "machine.slice"):
+		return hdCgroupTypeCtx
+	case strings.Contains(path, hdLibpodPrefix) || strings.Contains(path, "machine.slice"):
 		// Podman: machine.slice/libpod-<id>.scope
-		if idx := strings.Index(path, "libpod-"); idx >= 0 {
-			return containerIDLabel(strings.TrimPrefix(path[idx:], "libpod-"))
+		if idx := strings.Index(path, hdLibpodPrefix); idx >= 0 {
+			return containerIDLabel(strings.TrimPrefix(path[idx:], hdLibpodPrefix))
 		}
 		if idx := strings.Index(path, "libpod_pod"); idx >= 0 {
 			return "pod:podman"
 		}
-		return "container"
+		return hdCgroupTypeCtx
 	case strings.Contains(path, "/kubepods/") || strings.Contains(path, "kubepods"):
 		// Kubernetes pod
 		parts := strings.Split(path, "/")

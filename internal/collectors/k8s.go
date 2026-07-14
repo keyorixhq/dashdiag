@@ -17,6 +17,23 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	k8sDistK3s      = "k3s"
+	k8sCmdGet       = "get"
+	k8sFldName      = "name"
+	k8sDistMicroK8s = "microk8s"
+	k8sCmdKubectl   = "kubectl"
+	k8sDistK0s      = "k0s"
+	k8sStateWaiting = "waiting"
+	k8sFldState     = "state"
+	k8sFldReason    = "reason"
+	k8sFwNFT        = "nft"
+	k8sStatMissing  = "missing"
+	k8sFlagNoHdr    = "--no-headers"
+	k8sFldStatus    = "status"
+	k8sFwIPTables   = "iptables"
+)
+
 // K8sCollector reads cluster health via kubectl or k3s kubectl.
 // No kubeconfig needed when running on the control plane node.
 // Uses JSON output for rich pod metadata (Spec 23 + addendums 23a–23g).
@@ -67,7 +84,7 @@ func (c *K8sCollector) Collect(ctx context.Context) (any, error) {
 // ── nodes ─────────────────────────────────────────────────────────────────────
 
 func collectK8sNodes(ctx context.Context, bin string, info *models.K8sInfo) {
-	data, err := k8sRunJSON(ctx, bin, "get", "nodes", "-o", "json")
+	data, err := k8sRunJSON(ctx, bin, k8sCmdGet, "nodes", "-o", "json")
 	if err != nil {
 		return
 	}
@@ -87,7 +104,7 @@ func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bo
 	var result struct {
 		Items []struct {
 			Metadata struct {
-				Name   string            `json:"name"`
+				Name   string            `json:k8sFldName`
 				Labels map[string]string `json:"labels"`
 			} `json:"metadata"`
 			Status struct {
@@ -96,9 +113,9 @@ func parseK8sNodes(data []byte) (nodes []models.K8sNodeInfo, notReady int, ok bo
 				} `json:"nodeInfo"`
 				Conditions []struct {
 					Type   string `json:"type"`
-					Status string `json:"status"`
+					Status string `json:k8sFldStatus`
 				} `json:"conditions"`
-			} `json:"status"`
+			} `json:k8sFldStatus`
 			Spec struct {
 				Taints []struct {
 					Key string `json:"key"`
@@ -185,20 +202,20 @@ func podAge(creationTimestamp string) string {
 }
 
 func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
-	data, err := k8sRunJSON(ctx, bin, "get", "pods", "-A", "-o", "json")
+	data, err := k8sRunJSON(ctx, bin, k8sCmdGet, "pods", "-A", "-o", "json")
 	if err != nil {
 		return
 	}
 	var result struct {
 		Items []struct {
 			Metadata struct {
-				Name              string `json:"name"`
+				Name              string `json:k8sFldName`
 				Namespace         string `json:"namespace"`
 				DeletionTimestamp string `json:"deletionTimestamp"`
 				CreationTimestamp string `json:"creationTimestamp"`
 				OwnerReferences   []struct {
 					Kind string `json:"kind"`
-					Name string `json:"name"`
+					Name string `json:k8sFldName`
 				} `json:"ownerReferences"`
 			} `json:"metadata"`
 			Spec struct {
@@ -207,7 +224,7 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 					Image string `json:"image"`
 				} `json:"containers"`
 				InitContainers []struct {
-					Name string `json:"name"`
+					Name string `json:k8sFldName`
 				} `json:"initContainers"`
 			} `json:"spec"`
 			Status struct {
@@ -217,9 +234,9 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 					RestartCount int  `json:"restartCount"`
 					State        struct {
 						Waiting struct {
-							Reason string `json:"reason"`
-						} `json:"waiting"`
-					} `json:"state"`
+							Reason string `json:k8sFldReason`
+						} `json:k8sStateWaiting`
+					} `json:k8sFldState`
 					LastTerminationState struct {
 						Terminated struct {
 							Message string `json:"message"`
@@ -229,11 +246,11 @@ func collectK8sPods(ctx context.Context, bin string, info *models.K8sInfo) {
 				InitContainerStatuses []struct {
 					State struct {
 						Waiting struct {
-							Reason string `json:"reason"`
-						} `json:"waiting"`
-					} `json:"state"`
+							Reason string `json:k8sFldReason`
+						} `json:k8sStateWaiting`
+					} `json:k8sFldState`
 				} `json:"initContainerStatuses"`
-			} `json:"status"`
+			} `json:k8sFldStatus`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -280,12 +297,12 @@ func parseInitError(
 	statuses []struct {
 		State struct {
 			Waiting struct {
-				Reason string `json:"reason"`
-			} `json:"waiting"`
-		} `json:"state"`
+				Reason string `json:k8sFldReason`
+			} `json:k8sStateWaiting`
+		} `json:k8sFldState`
 	},
 	containers []struct {
-		Name string `json:"name"`
+		Name string `json:k8sFldName`
 	},
 ) string {
 	for i, ic := range statuses {
@@ -308,9 +325,9 @@ func summarizeContainerStatuses(statuses []struct {
 	RestartCount int  `json:"restartCount"`
 	State        struct {
 		Waiting struct {
-			Reason string `json:"reason"`
-		} `json:"waiting"`
-	} `json:"state"`
+			Reason string `json:k8sFldReason`
+		} `json:k8sStateWaiting`
+	} `json:k8sFldState`
 	LastTerminationState struct {
 		Terminated struct {
 			Message string `json:"message"`
@@ -382,10 +399,10 @@ func fetchPreviousLogs(ctx context.Context, bin string, info *models.K8sInfo, cr
 // ── events ────────────────────────────────────────────────────────────────────
 
 func collectK8sEvents(ctx context.Context, bin string, info *models.K8sInfo) {
-	out, err := k8sRun(ctx, bin, "get", "events", "-A",
+	out, err := k8sRun(ctx, bin, k8sCmdGet, "events", "-A",
 		"--field-selector", "type=Warning",
 		"--sort-by=.lastTimestamp",
-		"--no-headers")
+		k8sFlagNoHdr)
 	if err != nil {
 		return
 	}
@@ -435,7 +452,7 @@ func parseK8sWarningEvents(out string) []models.K8sEvent {
 // ── PVCs ──────────────────────────────────────────────────────────────────────
 
 func collectK8sPVCs(ctx context.Context, bin string, info *models.K8sInfo) {
-	out, err := k8sRun(ctx, bin, "get", "pvc", "-A", "--no-headers")
+	out, err := k8sRun(ctx, bin, k8sCmdGet, "pvc", "-A", k8sFlagNoHdr)
 	if err != nil {
 		return // no PVCs configured is normal
 	}
@@ -463,7 +480,7 @@ func collectK8sPVCs(ctx context.Context, bin string, info *models.K8sInfo) {
 
 func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) {
 	for _, kind := range []string{"deploy", "statefulset"} {
-		out, err := k8sRun(ctx, bin, "get", kind, "-A", "--no-headers")
+		out, err := k8sRun(ctx, bin, k8sCmdGet, kind, "-A", k8sFlagNoHdr)
 		if err != nil {
 			continue
 		}
@@ -560,7 +577,7 @@ func k8sBundledContainerdSockPresent() bool {
 // check could be made. kubeadm uses /opt/cni/bin; k3s bundles them under
 // /var/lib/rancher/k3s/data/current/bin — checking only the former false-CRIT'd
 // every k3s node. checked is false only when every candidate was unreadable
-// (permission denied), so the verdict treats that as unknown, not "missing".
+// (permission denied), so the verdict treats that as unknown, not k8sStatMissing.
 func cniBinsPresent() (checked, ok bool) {
 	return cniBinsPresentIn("/opt/cni/bin", "/var/lib/rancher/k3s/data/current/bin")
 }
@@ -586,13 +603,13 @@ func cniBinsPresentIn(dirs ...string) (checked, ok bool) {
 // detectKubeForward reports whether the KUBE-FORWARD chain (kube-proxy) is present,
 // and whether it could be verified at all. nft is tried first, then iptables. If
 // neither tool can run (e.g. k3s, which keeps iptables off the host PATH), checked is
-// false so the verdict treats it as unknown rather than a false "present" or "missing".
+// false so the verdict treats it as unknown rather than a false "present" or k8sStatMissing.
 func detectKubeForward(ctx context.Context) (checked, present bool) {
-	nftOut, nftErr := runCmd(ctx, "nft", "list", "tables")
+	nftOut, nftErr := runCmd(ctx, k8sFwNFT, "list", "tables")
 	if nftErr == nil && strings.Contains(nftOut, "kube") {
 		return true, true
 	}
-	if iptOut, iptErr := runCmd(ctx, "iptables", "-L", "KUBE-FORWARD", "-n"); iptErr == nil {
+	if iptOut, iptErr := runCmd(ctx, k8sFwIPTables, "-L", "KUBE-FORWARD", "-n"); iptErr == nil {
 		return true, !strings.Contains(iptOut, "No chain")
 	}
 	if nftErr == nil {
@@ -604,28 +621,28 @@ func detectKubeForward(ctx context.Context) (checked, present bool) {
 // detectKubeServices reports whether the KUBE-SERVICES chain (ClusterIP → pod DNAT
 // routing) is actually programmed, and by which kube-proxy backend. A modern
 // nftables-backend kube-proxy never populates the legacy iptables KUBE-SERVICES
-// chain by design — that's reported as mode "nft" with no verdict, not a false
+// chain by design — that's reported as mode k8sFwNFT with no verdict, not a false
 // WARN. A cluster with no kube-proxy pod at all (eBPF replacement such as Cilium's
 // kube-proxy-replacement, or kube-proxy explicitly disabled) is left unchecked:
 // the chain's absence there is expected, not a fault.
 func detectKubeServices(ctx context.Context, bin string) (checked bool, mode string, svcCount, chainCount int) {
-	if nftOut, err := runCmd(ctx, "nft", "list", "tables"); err == nil && strings.Contains(nftOut, "kube") {
-		return true, "nft", 0, 0
+	if nftOut, err := runCmd(ctx, k8sFwNFT, "list", "tables"); err == nil && strings.Contains(nftOut, "kube") {
+		return true, k8sFwNFT, 0, 0
 	}
 
-	proxyOut, err := k8sRun(ctx, bin, "get", "pods", "-A", "-l", "k8s-app=kube-proxy", "--no-headers")
+	proxyOut, err := k8sRun(ctx, bin, k8sCmdGet, "pods", "-A", "-l", "k8s-app=kube-proxy", k8sFlagNoHdr)
 	if err != nil || strings.TrimSpace(proxyOut) == "" {
 		return false, "", 0, 0
 	}
 
 	svcOut, svcErr := runCmd(ctx, "iptables-save", "-t", "nat")
 	if svcErr != nil {
-		return false, "", 0, 0 // tool unavailable — unknown, not "missing"
+		return false, "", 0, 0 // tool unavailable — unknown, not k8sStatMissing
 	}
 	svcCount = countLinesWithPrefix(svcOut, "-A KUBE-SERVICES")
 	chainCount = countLinesWithPrefix(svcOut, ":KUBE-SVC-")
 	if svcCount > 0 {
-		return true, "iptables", svcCount, chainCount
+		return true, k8sFwIPTables, svcCount, chainCount
 	}
 
 	// 0 entries: either a real fault, or this cluster runs IPVS instead.
@@ -637,7 +654,7 @@ func detectKubeServices(ctx context.Context, bin string) (checked bool, mode str
 		}
 		return true, "ipvs", countLinesWithPrefix(ipvsOut, "TCP "), 0
 	}
-	return true, "iptables", 0, chainCount
+	return true, k8sFwIPTables, 0, chainCount
 }
 
 // countLinesWithPrefix counts lines starting with prefix. strings.Count with a
@@ -675,11 +692,11 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 	// embedded-kubelet node as "kubelet inactive" (found on live RKE2/k0s/MicroK8s,
 	// 2026-07-01). Probe each known unit singly (k8sUnitActive returns true on the
 	// first active one).
-	layer.KubeletActive = k8sUnitActive(ctx, "kubelet", "k3s", "k3s-agent",
+	layer.KubeletActive = k8sUnitActive(ctx, "kubelet", k8sDistK3s, "k3s-agent",
 		"rke2-server", "rke2-agent", "k0scontroller", "k0sworker",
 		"snap.microk8s.daemon-kubelite")
 	if layer.KubeletActive {
-		logOut, _ := runCmd(ctx, "journalctl", "-u", "kubelet", "-u", "k3s",
+		logOut, _ := runCmd(ctx, "journalctl", "-u", "kubelet", "-u", k8sDistK3s,
 			"-u", "rke2-server", "-u", "k0scontroller", "-u", "snap.microk8s.daemon-kubelite",
 			"-n", "30", "--no-pager", "-q")
 		for line := range strings.SplitSeq(logOut, "\n") {
@@ -717,14 +734,14 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 	layer.FlannelSubnetOK = fileExists("/run/flannel/subnet.env")
 
 	// CNI binaries — check both the kubeadm path (/opt/cni/bin) and the k3s bundle
-	// (/var/lib/rancher/k3s/data/current/bin); only report "missing" when neither
+	// (/var/lib/rancher/k3s/data/current/bin); only report k8sStatMissing when neither
 	// holds plugins, and only when at least one path was actually readable.
 	layer.CNIChecked, layer.CNIBinsOK = cniBinsPresent()
 
 	// KUBE-FORWARD chain check (iptables or nft). The old code defaulted to "present"
 	// when iptables was absent (`!Contains("", "No chain")` == true) — a false-OK, and
 	// it fires nowhere useful on k3s, whose bundled iptables isn't on the host PATH.
-	// Track whether a tool actually ran so the verdict can say "unknown" vs "missing".
+	// Track whether a tool actually ran so the verdict can say "unknown" vs k8sStatMissing.
 	layer.KubeForwardChecked, layer.KubeForwardChain = detectKubeForward(ctx)
 
 	// KUBE-SERVICES chain (ClusterIP -> pod DNAT routing) — a different failure mode
@@ -815,38 +832,38 @@ func k8sDetectBin() string {
 	}
 	// Direct path checks first (sudo safe paths)
 	directPaths := []struct{ bin, bin2 string }{
-		{"/usr/local/bin/k3s", "k3s"},
-		{"/usr/bin/k3s", "k3s"},
-		{"/usr/local/bin/k0s", "k0s"},
-		{"/usr/bin/k0s", "k0s"},
-		{"/usr/local/bin/kubectl", "kubectl"},
-		{"/usr/bin/kubectl", "kubectl"},
-		{"/snap/bin/microk8s", "microk8s"},
-		{"/usr/bin/microk8s", "microk8s"},
+		{"/usr/local/bin/k3s", k8sDistK3s},
+		{"/usr/bin/k3s", k8sDistK3s},
+		{"/usr/local/bin/k0s", k8sDistK0s},
+		{"/usr/bin/k0s", k8sDistK0s},
+		{"/usr/local/bin/kubectl", k8sCmdKubectl},
+		{"/usr/bin/kubectl", k8sCmdKubectl},
+		{"/snap/bin/microk8s", k8sDistMicroK8s},
+		{"/usr/bin/microk8s", k8sDistMicroK8s},
 	}
 	for _, p := range directPaths {
 		if fileExists(p.bin) {
 			// k3s/k0s/microk8s are single-binary distros with no standalone kubectl —
 			// they wrap it as `<bin> kubectl` (which also carries their embedded, often
 			// root-only, kubeconfig). A plain kubectl gets the kubeadm admin.conf flag.
-			if p.bin2 == "kubectl" {
+			if p.bin2 == k8sCmdKubectl {
 				return p.bin + kubeadmKubeconfigFlag()
 			}
 			return p.bin + " kubectl"
 		}
 	}
 	// Fall back to PATH lookup
-	if _, err := lookPath("k3s"); err == nil {
+	if _, err := lookPath(k8sDistK3s); err == nil {
 		return "k3s kubectl"
 	}
-	if _, err := lookPath("k0s"); err == nil {
+	if _, err := lookPath(k8sDistK0s); err == nil {
 		return "k0s kubectl"
 	}
-	if _, err := lookPath("microk8s"); err == nil {
+	if _, err := lookPath(k8sDistMicroK8s); err == nil {
 		return "microk8s kubectl"
 	}
-	if _, err := lookPath("kubectl"); err == nil {
-		return "kubectl" + kubeadmKubeconfigFlag()
+	if _, err := lookPath(k8sCmdKubectl); err == nil {
+		return k8sCmdKubectl + kubeadmKubeconfigFlag()
 	}
 	return ""
 }
@@ -877,8 +894,8 @@ func kubeadmKubeconfigFlagFor(euid int, kubeconfigEnv string, rootKubeExists, ad
 	return " --kubeconfig=/etc/kubernetes/admin.conf"
 }
 
-// k8sDistribution returns the Kubernetes distribution in use ("rke2", "k3s", "k0s",
-// "microk8s", "kubeadm") from on-disk markers, or "" when undetermined. Order matters:
+// k8sDistribution returns the Kubernetes distribution in use ("rke2", k8sDistK3s, k8sDistK0s,
+// k8sDistMicroK8s, "kubeadm") from on-disk markers, or "" when undetermined. Order matters:
 // RKE2 also lays down /var/lib/rancher, so check its rke2-specific path before the k3s
 // one; k0s runs its own kubelet (creating /var/lib/kubelet/config.yaml), so check its
 // /var/lib/k0s marker before the kubeadm one or it would misdetect as kubeadm.
@@ -887,11 +904,11 @@ func k8sDistribution() string {
 	case fileExists("/var/lib/rancher/rke2") || fileExists("/etc/rancher/rke2/rke2.yaml"):
 		return "rke2"
 	case fileExists("/var/lib/rancher/k3s") || fileExists("/etc/rancher/k3s/k3s.yaml"):
-		return "k3s"
+		return k8sDistK3s
 	case fileExists("/var/lib/k0s") || fileExists("/etc/k0s"):
-		return "k0s"
+		return k8sDistK0s
 	case fileExists("/var/snap/microk8s") || fileExists("/snap/bin/microk8s"):
-		return "microk8s"
+		return k8sDistMicroK8s
 	case fileExists("/etc/kubernetes/manifests") || fileExists("/var/lib/kubelet/config.yaml"):
 		return "kubeadm"
 	}

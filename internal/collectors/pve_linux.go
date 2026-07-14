@@ -16,6 +16,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	pveCmdPvesh   = "pvesh"
+	pveFmtJSON    = "json"
+	pveCmdGet     = "get"
+	pveFlagOutFmt = "--output-format"
+	pveFldStatus  = "status"
+	pveFldType    = "type"
+	pveValRunning = "running"
+	pveGuestQEMU  = "qemu"
+	pveGuestLXC   = "lxc"
+)
+
 // IsPVEHost returns true when this machine is a Proxmox VE host.
 // Fast check — just tests for the pvedaemon binary.
 func IsPVEHost() bool {
@@ -144,7 +156,7 @@ func collectKernelVersion() string {
 // collectPVENodeStatus reads CPU usage and uptime from the node status endpoint.
 // The "cpu" field is a 0..1 fraction; multiply by 100 for a percentage.
 func collectPVENodeStatus(ctx context.Context) (cpuPct float64, uptimeSec int64) {
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/status", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/status", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return 0, 0
 	}
@@ -160,12 +172,12 @@ func collectPVENodeStatus(ctx context.Context) (cpuPct float64, uptimeSec int64)
 
 // collectPVESubscription runs pvesh to get subscription status.
 func collectPVESubscription(ctx context.Context) models.PVESubscription {
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/subscription", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/subscription", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return collectPVESubscriptionFile()
 	}
 	var result struct {
-		Status  string `json:"status"`
+		Status  string `json:pveFldStatus`
 		Level   string `json:"level"`
 		Product string `json:"product"`
 	}
@@ -189,7 +201,7 @@ func collectPVESubscriptionFile() models.PVESubscription {
 	}
 	// File exists — a subscription key is CONFIGURED, but the file's presence does
 	// NOT prove the subscription is currently active: an expired-but-still-configured
-	// subscription leaves this file in place. Returning "active" here (the old
+	// subscription leaves this file in place. Returning secValActive here (the old
 	// behaviour) let a wedged subscription API silently flip a genuinely EXPIRED
 	// subscription to active and suppress the CRIT (FALSE_OK_SWEEP #40). Report
 	// "unverified" so the analysis layer surfaces it honestly.
@@ -201,7 +213,7 @@ func collectPVESubscriptionFile() models.PVESubscription {
 
 // collectPVECluster reads cluster quorum and node status via pvesh.
 func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes []models.PVENode, reachable bool) {
-	out, err := runCmd(ctx, "pvesh", "get", "/cluster/status", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/cluster/status", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		// pvesh failed — API/pmxcfs unreachable. NOT the same as a standalone node:
 		// a standalone node returns exit 0 with a single `node` item (verified live
@@ -211,7 +223,7 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 	}
 
 	var items []struct {
-		Type    string `json:"type"`
+		Type    string `json:pveFldType`
 		Name    string `json:"name"`
 		Quorate int    `json:"quorate"`
 		Online  int    `json:"online"`
@@ -242,27 +254,27 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 
 // collectPVEHAFencing checks HA fencing/manager status. The endpoint returns a JSON
 // ARRAY of status entries — on a node without HA configured, just the quorum entry
-// ([{"id":"quorum","status":"OK",...}]); with HA, additional lrm/crm/service entries.
+// ([{"id":"quorum",pveFldStatus:"OK",...}]); with HA, additional lrm/crm/service entries.
 // (The previous single-object struct never matched this array, so fence detection
 // was dead and always fell through to a clean OK.) verified is false only when the
 // API answered but the body was unparseable; a runCmd error means the endpoint is
 // absent (HA not available) and stays verified — nothing to read.
 func collectPVEHAFencing(ctx context.Context) (ok bool, msg string, verified bool) {
-	out, err := runCmd(ctx, "pvesh", "get", "/cluster/ha/status/current", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/cluster/ha/status/current", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return true, "", true
 	}
 	var entries []struct {
 		ID     string `json:"id"`
-		Type   string `json:"type"`
-		Status string `json:"status"`
+		Type   string `json:pveFldType`
+		Status string `json:pveFldStatus`
 	}
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		// The API responded but we couldn't parse it — fencing state NOT verified.
 		return true, "", false
 	}
 	// Conservatively flag only an explicit error/fence state on any entry; an idle
-	// node's quorum entry is "OK" and healthy HA services are "started"/"running".
+	// node's quorum entry is "OK" and healthy HA services are "started"/pveValRunning.
 	for _, e := range entries {
 		s := strings.ToLower(e.Status)
 		if strings.Contains(s, "fence") || strings.Contains(s, "error") {
@@ -276,18 +288,18 @@ func collectPVEHAFencing(ctx context.Context) (ok bool, msg string, verified boo
 // query failed or was unparseable, so the analysis layer can say "storage health
 // not verified" instead of silently reporting no storage problems.
 func collectPVEStorages(ctx context.Context) (storagesOut []models.PVEStorage, verified bool) {
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/storage",
-		"--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/storage",
+		pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return nil, false
 	}
 
 	var items []struct {
 		Storage string  `json:"storage"`
-		Type    string  `json:"type"`
+		Type    string  `json:pveFldType`
 		Used    float64 `json:"used"`
 		Total   float64 `json:"total"`
-		Active  int     `json:"active"`
+		Active  int     `json:secValActive`
 		Enabled int     `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
@@ -326,8 +338,8 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 	dumpByVM := scanBackupDumpDir() // authoritative per-VM source
 
 	// 200 tasks gives enough history to age backups older than 30 days.
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
-		"--output-format", "json",
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/tasks",
+		pveFlagOutFmt, pveFmtJSON,
 		"--typefilter", "vzdump",
 		"--limit", "200")
 	if err != nil {
@@ -375,7 +387,7 @@ func collectPVEBackups(ctx context.Context, guests []models.PVEGuest) (
 func parsePVEBackupTasks(out string) (tasks []models.PVEBackupTask, ageDays int, byVM map[int]time.Time) {
 	var items []struct {
 		VMID    string  `json:"id"`
-		Status  string  `json:"status"`
+		Status  string  `json:pveFldStatus`
 		EndTime float64 `json:"endtime"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
@@ -472,11 +484,11 @@ func parseVzdumpVMID(name string) (int, bool) {
 		return 0, false
 	}
 	parts := strings.Split(name, "-")
-	// parts: ["vzdump", "qemu"|"lxc", "<vmid>", "<date>", "<time>.<ext>"]
+	// parts: ["vzdump", pveGuestQEMU|pveGuestLXC, "<vmid>", "<date>", "<time>.<ext>"]
 	if len(parts) < 4 {
 		return 0, false
 	}
-	if parts[1] != "qemu" && parts[1] != "lxc" {
+	if parts[1] != pveGuestQEMU && parts[1] != pveGuestLXC {
 		return 0, false
 	}
 	vmid, err := strconv.Atoi(parts[2])
@@ -566,14 +578,14 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 	type guestRaw struct {
 		VMID     int     `json:"vmid"`
 		Name     string  `json:"name"`
-		Status   string  `json:"status"`
+		Status   string  `json:pveFldStatus`
 		OnBoot   int     `json:"onboot"`
 		CPUs     int     `json:"cpus"`
 		MaxMem   float64 `json:"maxmem"`   // bytes
 		Template int     `json:"template"` // 1 = template
 	}
-	for _, gtype := range []string{"qemu", "lxc"} {
-		out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/"+gtype, "--output-format", "json")
+	for _, gtype := range []string{pveGuestQEMU, pveGuestLXC} {
+		out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/"+gtype, pveFlagOutFmt, pveFmtJSON)
 		if err != nil {
 			continue
 		}
@@ -594,7 +606,7 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 			}
 			guests = append(guests, g)
 			switch r.Status {
-			case "running":
+			case pveValRunning:
 				running++
 			case "paused":
 				paused++
@@ -609,7 +621,7 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 // collectPVEResourceUsage sums vCPUs and memory assigned to running guests.
 func collectPVEResourceUsage(guests []models.PVEGuest) (vcpus int, memGB float64) {
 	for _, g := range guests {
-		if g.Status != "running" {
+		if g.Status != pveValRunning {
 			continue
 		}
 		vcpus += g.CPUs
@@ -662,16 +674,16 @@ func collectHostMemGB() float64 {
 // list could not be read or parsed, so a nil result is reported as "task log
 // unreadable" rather than a clean "no recent failures".
 func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, verified bool) {
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/tasks",
-		"--limit", "100", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/tasks",
+		"--limit", "100", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return nil, false
 	}
 	var raw []struct {
-		Type       string  `json:"type"`
+		Type       string  `json:pveFldType`
 		ID         string  `json:"id"`
 		ExitStatus string  `json:"exitstatus"`
-		Status     string  `json:"status"`
+		Status     string  `json:pveFldStatus`
 		StartTime  float64 `json:"starttime"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
@@ -683,7 +695,7 @@ func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, v
 		if t.StartTime < cutoff {
 			continue
 		}
-		exitOK := t.ExitStatus == "" || t.ExitStatus == "OK" || t.Status == "running"
+		exitOK := t.ExitStatus == "" || t.ExitStatus == "OK" || t.Status == pveValRunning
 		if exitOK {
 			continue
 		}
@@ -704,14 +716,14 @@ func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, v
 // collectPVEBridges reads the node network config and returns one entry per
 // bridge interface, with active/uplink/STP state for misconfiguration checks.
 func collectPVEBridges(ctx context.Context) []models.PVEBridge {
-	out, err := runCmd(ctx, "pvesh", "get", "/nodes/localhost/network", "--output-format", "json")
+	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/network", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
 		return nil
 	}
 	var items []struct {
 		Iface       string `json:"iface"`
-		Type        string `json:"type"`
-		Active      int    `json:"active"`
+		Type        string `json:pveFldType`
+		Active      int    `json:secValActive`
 		BridgePorts string `json:"bridge_ports"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {

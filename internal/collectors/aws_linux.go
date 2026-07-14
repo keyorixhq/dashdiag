@@ -16,6 +16,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
+const (
+	awsDrvENA      = "ena"
+	awsPlatformEC2 = "ec2"
+	awsSvcSSMAgent = "amazon-ssm-agent"
+)
+
 // AWSCollector reports guest-side health for a Linux EC2 instance: ENA network
 // allowance throttling, EBS volume performance throttling, IMDS security posture,
 // Amazon Time Sync, the SSM agent, and the spot rebalance recommendation. All work
@@ -34,7 +40,7 @@ func (c *AWSCollector) Timeout() time.Duration { return 5 * time.Second }
 
 // AWSGuestAvailable reports whether this host is a Linux EC2 instance. Cheap gate
 // (same shape as VMwareGuestAvailable): world-readable DMI vendor strings, or the
-// "ec2" hypervisor-UUID prefix as a fallback — no root, no command execution.
+// awsPlatformEC2 hypervisor-UUID prefix as a fallback — no root, no command execution.
 func AWSGuestAvailable() bool {
 	return isAWSGuest(
 		readFileTrimmedLocal(filepath.Join(dmiIDDir, "sys_vendor")),
@@ -52,7 +58,7 @@ func isAWSGuest(sysVendor, biosVendor, productName, hypervisorUUID string) bool 
 	if strings.Contains(hay, "amazon ec2") {
 		return true
 	}
-	return strings.HasPrefix(strings.ToLower(hypervisorUUID), "ec2")
+	return strings.HasPrefix(strings.ToLower(hypervisorUUID), awsPlatformEC2)
 }
 
 func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
@@ -195,7 +201,7 @@ var enaAllowanceKeys = map[string]string{
 }
 
 // enaRead returns, per ENA interface, the current allowance-exceeded counters
-// (canonical-short-name -> value). Interfaces whose driver is not "ena" are skipped.
+// (canonical-short-name -> value). Interfaces whose driver is not awsDrvENA are skipped.
 func enaRead(ctx context.Context) map[string]map[string]uint64 {
 	out := map[string]map[string]uint64{}
 	for _, iface := range enaInterfaces() {
@@ -210,12 +216,12 @@ func enaRead(ctx context.Context) map[string]map[string]uint64 {
 	return out
 }
 
-// enaInterfaces lists non-loopback interfaces whose kernel driver is "ena".
+// enaInterfaces lists non-loopback interfaces whose kernel driver is awsDrvENA.
 func enaInterfaces() []string {
 	drivers, _ := collectNICDrivers("/sys/class/net")
 	var ifaces []string
 	for iface, drv := range drivers {
-		if strings.EqualFold(drv, "ena") {
+		if strings.EqualFold(drv, awsDrvENA) {
 			ifaces = append(ifaces, iface)
 		}
 	}
@@ -592,7 +598,7 @@ func amazonTimeSyncConfigured() (checked, uses bool) {
 // Installed-but-not-running is the actionable case (SSM-based management is silently
 // broken); not-installed is silent (plenty of instances don't use SSM).
 func ssmState(ctx context.Context) (installed, running bool) {
-	if _, err := lookPath("amazon-ssm-agent"); err == nil {
+	if _, err := lookPath(awsSvcSSMAgent); err == nil {
 		installed = true
 	}
 	for _, p := range []string{
@@ -608,10 +614,10 @@ func ssmState(ctx context.Context) (installed, running bool) {
 	if !installed {
 		return false, false
 	}
-	if r, ok := procCommRunning("amazon-ssm-agent"); ok && r {
+	if r, ok := procCommRunning(awsSvcSSMAgent); ok && r {
 		return true, true
 	}
-	for _, unit := range []string{"amazon-ssm-agent", "snap.amazon-ssm-agent.amazon-ssm-agent"} {
+	for _, unit := range []string{awsSvcSSMAgent, "snap.amazon-ssm-agent.amazon-ssm-agent"} {
 		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
 			strings.TrimSpace(out) == "active" {
 			return true, true

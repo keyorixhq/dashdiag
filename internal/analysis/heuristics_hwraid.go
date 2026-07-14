@@ -6,6 +6,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	hwRaidCat        = "HardwareRAID"
+	hwRaidInspectPfx = "to inspect: "
+)
+
 // checkHWRaid turns hardware-RAID controller state into insights. This is the false-OK
 // hardware RAID is built to cause: the OS sees one healthy block device while the
 // controller runs a degraded array with no redundancy, or a failed drive that hasn't
@@ -18,14 +23,14 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 		return nil
 	}
 	if d.NeedsRoot {
-		return []models.Insight{insight("INFO", "HardwareRAID",
+		return []models.Insight{insight("INFO", hwRaidCat,
 			"hardware RAID controller detected but its status is root-only — re-run as root to verify the array is healthy",
 			[]string{"to inspect: sudo " + hwRaidInspectHint(d.Tool)})}
 	}
 	if d.ReadFailed {
-		return []models.Insight{insight("INFO", "HardwareRAID",
+		return []models.Insight{insight("INFO", hwRaidCat,
 			"hardware RAID controller detected but its status output could not be parsed — treat as UNVERIFIED, not healthy",
-			[]string{"to inspect: " + hwRaidInspectHint(d.Tool)})}
+			[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)})}
 	}
 
 	var out []models.Insight
@@ -34,42 +39,42 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 		for _, vd := range c.VirtualDrives {
 			switch {
 			case vd.Offline:
-				out = append(out, insight("CRIT", "HardwareRAID",
+				out = append(out, insight("CRIT", hwRaidCat,
 					fmt.Sprintf("%s: virtual drive %q is OFFLINE — the volume is inaccessible and data on it is unavailable", label, vd.Name),
-					[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			case vd.Degraded:
-				out = append(out, insight("CRIT", "HardwareRAID",
+				out = append(out, insight("CRIT", hwRaidCat,
 					fmt.Sprintf("%s: virtual drive %q (%s) is DEGRADED — the array is running WITHOUT redundancy; one more drive failure means data loss", label, vd.Name, vd.RaidLevel),
 					[]string{
-						"to inspect: " + hwRaidInspectHint(d.Tool),
+						hwRaidInspectPfx + hwRaidInspectHint(d.Tool),
 						"action:     replace the failed physical drive so the array can rebuild",
 					}))
 			case vd.Rebuilding:
-				out = append(out, insight("WARN", "HardwareRAID",
+				out = append(out, insight("WARN", hwRaidCat,
 					fmt.Sprintf("%s: virtual drive %q is REBUILDING — redundancy is not restored until the rebuild completes", label, vd.Name),
-					[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			}
 		}
 		for _, pd := range c.PhysicalDrives {
 			switch {
 			case pd.Failed:
-				out = append(out, insight("CRIT", "HardwareRAID",
+				out = append(out, insight("CRIT", hwRaidCat,
 					fmt.Sprintf("%s: physical drive %s has FAILED — replace it; the array behind it has lost a member", label, pd.Location),
-					[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			case pd.Predictive:
-				out = append(out, insight("WARN", "HardwareRAID",
+				out = append(out, insight("WARN", hwRaidCat,
 					fmt.Sprintf("%s: physical drive %s reports PREDICTIVE FAILURE — it is about to fail; replace it proactively", label, pd.Location),
-					[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			case pd.Rebuilding:
-				out = append(out, insight("WARN", "HardwareRAID",
+				out = append(out, insight("WARN", hwRaidCat,
 					fmt.Sprintf("%s: physical drive %s is REBUILDING into the array", label, pd.Location),
-					[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			}
 		}
 		if c.BBUDegraded {
-			out = append(out, insight("WARN", "HardwareRAID",
+			out = append(out, insight("WARN", hwRaidCat,
 				fmt.Sprintf("%s: controller cache battery/capacitor is not healthy (%s) — the controller may have disabled write-back cache (slower writes), and unflushed cache is at risk on power loss", label, c.BBUStatus),
-				[]string{"to inspect: " + hwRaidInspectHint(d.Tool)}))
+				[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 		}
 	}
 	return out

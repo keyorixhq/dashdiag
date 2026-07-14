@@ -13,6 +13,16 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	hInitOpenRC = "openrc"
+	hFixPrefix  = "to fix: "
+	hInitSysV   = "sysvinit"
+	hInitRunit  = "runit"
+	hCmdStatus  = "status"
+	hCmdRestart = "restart"
+	hCmdSuffix  = "&& <cmd>"
+)
+
 func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.CloudEnvironment, ctrCtx platform.ContainerContext) []models.Insight {
 	// Pre-scan results to extract context shared across checks.
 	prescan := prescanContext(results, &thresh)
@@ -256,7 +266,7 @@ func swapInUse(s models.SwapInfo) bool {
 	return s.TotalGB > 0 && (s.UsedPct > 0 || s.PagesInPerSec > 0 || s.PagesOutPerSec > 0)
 }
 
-// hostInitSystem returns the init system ("systemd", "openrc", "unknown") so the
+// hostInitSystem returns the init system ("systemd", hInitOpenRC, "unknown") so the
 // hint adapter can pick the right service command. Indirection keeps
 // adaptHintsToPlatform unit-testable without the real host.
 var hostInitSystem = func() string { return platform.Detect().InitSystem }
@@ -293,7 +303,7 @@ func effectiveInitSystem() string {
 // differ from systemd, so systemd-form remedy/inspect lines must be rewritten.
 func isNonSystemdInit(initSystem string) bool {
 	switch initSystem {
-	case "openrc", "sysvinit", "runit":
+	case hInitOpenRC, hInitSysV, hInitRunit:
 		return true
 	}
 	return false
@@ -340,13 +350,13 @@ var (
 // equivalent of that verb (caller then leaves the line or drops it).
 func serviceCmd(verb, unit, initSystem string) string {
 	switch initSystem {
-	case "openrc":
+	case hInitOpenRC:
 		return fmt.Sprintf("rc-service %s %s", unit, verb)
-	case "sysvinit":
+	case hInitSysV:
 		return fmt.Sprintf("service %s %s", unit, verb)
-	case "runit":
+	case hInitRunit:
 		// runit's sv uses up/down for start/stop; restart/status are the same word.
-		v := map[string]string{"start": "up", "stop": "down", "restart": "restart", "status": "status"}[verb]
+		v := map[string]string{"start": "up", "stop": "down", hCmdRestart: hCmdRestart, hCmdStatus: hCmdStatus}[verb]
 		if v == "" {
 			return ""
 		}
@@ -382,7 +392,7 @@ func adaptHint(hint, goos, initSystem string) (string, bool) {
 func adaptNonSystemdHint(hint, initSystem string) (string, bool) {
 	if m := reSystemctlAction.FindStringSubmatch(hint); m != nil {
 		if c := serviceCmd(m[1], m[2], initSystem); c != "" {
-			return "to fix: " + c, false
+			return hFixPrefix + c, false
 		}
 	}
 	if m := reSystemctlStatus.FindStringSubmatch(hint); m != nil {
@@ -393,7 +403,7 @@ func adaptNonSystemdHint(hint, initSystem string) (string, bool) {
 		if len(svc) == 0 || strings.HasPrefix(svc[0], "systemd-") {
 			return "", true
 		}
-		if c := serviceCmd("status", svc[0], initSystem); c != "" {
+		if c := serviceCmd(hCmdStatus, svc[0], initSystem); c != "" {
 			return "to inspect: " + c, false
 		}
 	}
@@ -401,7 +411,7 @@ func adaptNonSystemdHint(hint, initSystem string) (string, bool) {
 		return "", true // no timedatectl/journalctl equivalent without systemd
 	}
 	if m := reEmbeddedRestart.FindStringSubmatch(hint); m != nil {
-		if c := serviceCmd("restart", m[1], initSystem); c != "" {
+		if c := serviceCmd(hCmdRestart, m[1], initSystem); c != "" {
 			return reEmbeddedRestart.ReplaceAllString(hint, "&& "+c), false
 		}
 	}
@@ -416,11 +426,11 @@ func adaptNonSystemdHint(hint, initSystem string) (string, bool) {
 
 func enableHint(unit, initSystem string) string {
 	switch initSystem {
-	case "openrc":
+	case hInitOpenRC:
 		return fmt.Sprintf("to fix: rc-update add %s && rc-service %s start", unit, unit)
-	case "sysvinit":
+	case hInitSysV:
 		return fmt.Sprintf("to fix: update-rc.d %s enable && service %s start", unit, unit)
-	case "runit":
+	case hInitRunit:
 		return fmt.Sprintf("to fix: ln -s /etc/sv/%s /var/service/", unit)
 	}
 	return "to fix: systemctl enable --now " + unit
@@ -428,11 +438,11 @@ func enableHint(unit, initSystem string) string {
 
 func disableHint(unit, initSystem string) string {
 	switch initSystem {
-	case "openrc":
+	case hInitOpenRC:
 		return "to fix: rc-update del " + unit
-	case "sysvinit":
+	case hInitSysV:
 		return "to fix: update-rc.d " + unit + " disable"
-	case "runit":
+	case hInitRunit:
 		return "to fix: rm /var/service/" + unit
 	}
 	return "to fix: systemctl disable " + unit
@@ -455,8 +465,8 @@ func PlatformServiceCmd(systemdCmd string) string {
 // platformServiceCmd is the host-independent core, split out so it is
 // unit-testable without the real GOOS/init system (see hostInitSystem).
 func platformServiceCmd(systemdCmd, goos, initSystem string) string {
-	out, _ := adaptHint("to fix: "+systemdCmd, goos, initSystem)
-	return strings.TrimPrefix(out, "to fix: ")
+	out, _ := adaptHint(hFixPrefix+systemdCmd, goos, initSystem)
+	return strings.TrimPrefix(out, hFixPrefix)
 }
 
 // PlatformServiceCmdSudo is like PlatformServiceCmd but for callers that print the
@@ -603,7 +613,7 @@ func idMatchesAny(id string, subs ...string) bool {
 }
 
 // distroifyInstallHints rewrites each insight's package-install fix hint to lead with
-// the host's package manager (pm), preserving any trailing "&& <cmd>" action. Hints
+// the host's package manager (pm), preserving any trailing hCmdSuffix action. Hints
 // with no install suggestion (notes, inspect lines, config edits) pass through.
 func distroifyInstallHints(insights []models.Insight, pm string) []models.Insight {
 	for i := range insights {
@@ -616,14 +626,14 @@ func distroifyInstallHints(insights []models.Insight, pm string) []models.Insigh
 }
 
 // distroFixHint rewrites one install hint to "to fix: <pm> install <pkg>", preserving
-// any trailing "&& <cmd>" action. Returns the hint unchanged when it carries no
+// any trailing hCmdSuffix action. Returns the hint unchanged when it carries no
 // package-install suggestion (mirrors gentooFixHint).
 func distroFixHint(hint, pm string) string {
 	m := rePkgInstall.FindStringSubmatch(hint)
 	if m == nil {
 		return hint
 	}
-	out := "to fix: " + pmInstallCmd(pm, m[1])
+	out := hFixPrefix + pmInstallCmd(pm, m[1])
 	if idx := strings.Index(hint, "&&"); idx >= 0 {
 		out += " " + strings.TrimSpace(hint[idx:])
 	}
@@ -644,7 +654,7 @@ func pmInstallCmd(pm, pkg string) string {
 }
 
 // gentooFixHint rewrites a single install hint to "to fix (Gentoo): emerge <pkg>",
-// preserving any trailing "&& <cmd>" action (e.g. enabling a service). Returns the
+// preserving any trailing hCmdSuffix action (e.g. enabling a service). Returns the
 // hint unchanged when it carries no package-install suggestion.
 func gentooFixHint(hint string) string {
 	m := rePkgInstall.FindStringSubmatch(hint)

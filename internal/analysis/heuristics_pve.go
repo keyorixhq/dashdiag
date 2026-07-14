@@ -7,6 +7,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	pveCatPVE          = "PVE"
+	inspectPVETasks    = "to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump"
+	inspectPVECMStatus = "to inspect: pvecm status"
+	inspectPVESMStatus = "to inspect: pvesm status"
+)
+
 // checkPVE surfaces Proxmox VE host health issues.
 // Silent no-op on non-Proxmox hosts.
 func checkPVE(p models.PVEInfo) []models.Insight {
@@ -14,7 +21,7 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 		return nil
 	}
 	if p.NeedsRoot {
-		return []models.Insight{insight("INFO", "PVE",
+		return []models.Insight{insight("INFO", pveCatPVE,
 			"Proxmox VE detected — run as root for full cluster/storage/backup checks",
 			[]string{"to run: sudo dsd health"},
 		)}
@@ -24,7 +31,7 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 	// this the node reads as a clean "healthy" with quorum implicitly OK (false-OK).
 	// Stop here: we cannot verify quorum, storage, or backups, so don't pretend to.
 	if !p.APIReachable {
-		return []models.Insight{insight("WARN", "PVE",
+		return []models.Insight{insight("WARN", pveCatPVE,
 			"Proxmox VE API (pvesh) not responding — cluster quorum, storage, and backup health could NOT be verified",
 			[]string{
 				"to inspect: systemctl status pve-cluster corosync pvedaemon",
@@ -66,7 +73,7 @@ func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
 			// The task list couldn't be read — recent failed migrations/restores/
 			// snapshots are invisible exactly when the task API is unhealthy
 			// (FALSE_OK_SWEEP #7). Report "not verified" instead of a silent clean.
-			return []models.Insight{insight("INFO", "PVE",
+			return []models.Insight{insight("INFO", pveCatPVE,
 				"Proxmox task log unreadable — recent task failures could NOT be verified",
 				[]string{
 					"to inspect: pvesh get /nodes/localhost/tasks --errors 1",
@@ -76,7 +83,7 @@ func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
 		}
 		return nil
 	}
-	return []models.Insight{insight("WARN", "PVE",
+	return []models.Insight{insight("WARN", pveCatPVE,
 		fmt.Sprintf("%d Proxmox task(s) failed in the last 24h (%s)", n, strings.Join(types, ", ")),
 		[]string{
 			"to inspect: pvesh get /nodes/localhost/tasks --errors 1",
@@ -88,7 +95,7 @@ func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
 func checkPVESubscription(p models.PVEInfo) []models.Insight {
 	switch p.Subscription.Status {
 	case "notfound", "":
-		return []models.Insight{insight("WARN", "PVE",
+		return []models.Insight{insight("WARN", pveCatPVE,
 			"no Proxmox VE subscription — security updates require an active subscription",
 			[]string{
 				"note: without a subscription, security patches lag behind the enterprise repo",
@@ -96,7 +103,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 			},
 		)}
 	case "expired":
-		return []models.Insight{insight("CRIT", "PVE",
+		return []models.Insight{insight("CRIT", pveCatPVE,
 			"Proxmox VE subscription has EXPIRED — no access to security updates",
 			[]string{
 				"to renew: https://www.proxmox.com/en/proxmox-ve/pricing",
@@ -106,7 +113,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 	case "unverified":
 		// pvesh failed and we fell back to the auth file — a key is configured but
 		// its live status (active vs EXPIRED) could not be read. Don't claim healthy.
-		return []models.Insight{insight("INFO", "PVE",
+		return []models.Insight{insight("INFO", pveCatPVE,
 			"Proxmox VE subscription configured but live status could NOT be verified (pvesh failed)",
 			[]string{
 				"to inspect: pvesh get /nodes/localhost/subscription",
@@ -121,10 +128,10 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 	out := make([]models.Insight, 0, 4)
 
 	if !p.QuorumOK {
-		out = append(out, insight("CRIT", "PVE",
+		out = append(out, insight("CRIT", pveCatPVE,
 			"cluster quorum LOST — VMs cannot start or migrate until quorum is restored",
 			[]string{
-				"to inspect: pvecm status",
+				inspectPVECMStatus,
 				"to inspect: systemctl status corosync pve-cluster",
 				"note: do not force quorum unless certain of network partition vs node failure",
 			},
@@ -132,10 +139,10 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 	}
 
 	if !p.HAFencingOK {
-		out = append(out, insight("CRIT", "PVE",
+		out = append(out, insight("CRIT", pveCatPVE,
 			"HA fencing device unreachable — "+p.HAFencingMsg,
 			[]string{
-				"to inspect: pvecm status",
+				inspectPVECMStatus,
 				"to inspect: ha-manager status",
 				"note: without fencing, HA cannot safely restart VMs from a failed node",
 			},
@@ -144,7 +151,7 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 		// The HA endpoint answered but the response was unparseable — we cannot say
 		// fencing is healthy. (A node without HA configured stays verified, so this
 		// does not fire on the common standalone case.)
-		out = append(out, insight("INFO", "PVE",
+		out = append(out, insight("INFO", pveCatPVE,
 			"HA fencing state could NOT be verified — the HA status response was unreadable",
 			[]string{
 				"to inspect: pvesh get /cluster/ha/status/current",
@@ -161,20 +168,20 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 			}
 		}
 		if len(versions) > 1 {
-			out = append(out, insight("WARN", "PVE",
+			out = append(out, insight("WARN", pveCatPVE,
 				fmt.Sprintf("cluster has mixed PVE versions across %d nodes — live migration may fail", len(p.Nodes)),
 				[]string{
-					"to inspect: pvecm status",
+					inspectPVECMStatus,
 					"to fix: apt update && apt full-upgrade  (on each node, one at a time)",
 				},
 			))
 		}
 		for _, n := range p.Nodes {
 			if !n.Online {
-				out = append(out, insight("CRIT", "PVE",
+				out = append(out, insight("CRIT", pveCatPVE,
 					fmt.Sprintf("cluster node %s is OFFLINE", n.Name),
 					[]string{
-						"to inspect: pvecm status",
+						inspectPVECMStatus,
 						fmt.Sprintf("to inspect: ssh root@%s 'systemctl status pve-cluster corosync'", n.Name),
 					},
 				))
@@ -189,10 +196,10 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 	if !p.StoragesVerified {
 		// The storage list query failed — inactive/full storage (the exact failure
 		// dsd pve exists to catch) would otherwise read clean (FALSE_OK_SWEEP #6).
-		out = append(out, insight("INFO", "PVE",
+		out = append(out, insight("INFO", pveCatPVE,
 			"Proxmox storage health NOT verified — the storage list query failed",
 			[]string{
-				"to inspect: pvesm status",
+				inspectPVESMStatus,
 				"to inspect: pvesh get /nodes/localhost/storage",
 			},
 		))
@@ -202,27 +209,27 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 			if !s.Enabled {
 				// Intentionally disabled in storage.cfg (admin-disabled or an
 				// optional/removable mount) — not a fault. §O.4.
-				out = append(out, insight("INFO", "PVE",
+				out = append(out, insight("INFO", pveCatPVE,
 					fmt.Sprintf("storage %s (%s) is disabled — skipping", s.Name, s.Type),
 					nil,
 				))
 				continue
 			}
-			out = append(out, insight("CRIT", "PVE",
+			out = append(out, insight("CRIT", pveCatPVE,
 				fmt.Sprintf("storage %s (%s) is INACTIVE", s.Name, s.Type),
 				[]string{
-					"to inspect: pvesm status",
+					inspectPVESMStatus,
 					fmt.Sprintf("to inspect: pvesh get /nodes/localhost/storage/%s/status", s.Name),
 				},
 			))
 			continue
 		}
 		if l := PVEStorageLevel(s.UsedPct); l != "" {
-			out = append(out, insight(l, "PVE",
+			out = append(out, insight(l, pveCatPVE,
 				fmt.Sprintf("storage %s (%s) is %.0f%% full (%.1f GB free of %.1f GB)",
 					s.Name, s.Type, s.UsedPct, s.TotalGB-s.UsedGB, s.TotalGB),
 				[]string{
-					"to inspect: pvesm status",
+					inspectPVESMStatus,
 					"note: full storage prevents VM disk writes and snapshot creation",
 					"to free: remove old backups, snapshots, or ISO images",
 				},
@@ -239,10 +246,10 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 		// the "no successful backup" CRIT below (gated on len(BackupStatuses)>0) can
 		// never fire — backup health unverified would read as a silent OK
 		// (FALSE_OK_SWEEP #8). Surface it honestly instead.
-		return []models.Insight{insight("INFO", "PVE",
+		return []models.Insight{insight("INFO", pveCatPVE,
 			"Proxmox backup health NOT verified — the vzdump task query failed and no backup archives were found",
 			[]string{
-				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				inspectPVETasks,
 				"to inspect: ls /var/log/vzdump/",
 			},
 		)}
@@ -254,18 +261,18 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 		// Gate on BackupStatuses (one entry per NON-template guest): a fresh node
 		// or a template-only node has nothing to back up, so "no recovery point"
 		// there is a false positive — don't CRIT when there's nothing to protect.
-		out = append(out, insight("CRIT", "PVE",
+		out = append(out, insight("CRIT", pveCatPVE,
 			"no successful backup found — VMs have no recovery point",
 			[]string{
-				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				inspectPVETasks,
 				"to schedule: Datacenter → Backup → Add",
 			},
 		))
 	case p.BackupAgeDays > 7:
-		out = append(out, insight("WARN", "PVE",
+		out = append(out, insight("WARN", pveCatPVE,
 			fmt.Sprintf("last successful backup was %d days ago", p.BackupAgeDays),
 			[]string{
-				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				inspectPVETasks,
 				"to run now: vzdump --all --compress zstd --storage local",
 			},
 		))
@@ -277,10 +284,10 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 		}
 	}
 	if failed > 0 {
-		out = append(out, insight("WARN", "PVE",
+		out = append(out, insight("WARN", pveCatPVE,
 			fmt.Sprintf("%d backup task(s) failed in the last 7 days", failed),
 			[]string{
-				"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump",
+				inspectPVETasks,
 				"to inspect: ls /var/log/vzdump/",
 			},
 		))
@@ -307,7 +314,7 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 			}
 		}
 		if len(never) > 0 {
-			out = append(out, insight("WARN", "PVE",
+			out = append(out, insight("WARN", pveCatPVE,
 				fmt.Sprintf("%d VM/CT have no backup while others on this node do: %s — no recovery point",
 					len(never), strings.Join(firstN(never, 5), ", ")),
 				[]string{
@@ -317,10 +324,10 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 			))
 		}
 		if len(stale) > 0 {
-			out = append(out, insight("WARN", "PVE",
+			out = append(out, insight("WARN", pveCatPVE,
 				fmt.Sprintf("%d VM/CT backup(s) older than 7 days: %s",
 					len(stale), strings.Join(firstN(stale, 5), ", ")),
-				[]string{"to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump"},
+				[]string{inspectPVETasks},
 			))
 		}
 	}

@@ -12,6 +12,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	ksecModeComplain   = "complain"
+	ksecModePermissive = "permissive"
+	ksecModeDisabled   = "disabled"
+	ksecCmdAAStatus    = "aa-status"
+)
+
 // PoliciesNotEnforcing lists security policies that are not in enforcing mode.
 func PoliciesNotEnforcing(ctx context.Context) (*models.Details, error) {
 	if runtime.GOOS == "darwin" {
@@ -26,7 +33,7 @@ func policiesLinux(ctx context.Context) (*models.Details, error) {
 }
 
 // selinuxEnforceMode returns the global SELinux mode in lowercase
-// ("enforcing"/"permissive"/"disabled"), or "" when SELinux is not present
+// ("enforcing"/ksecModePermissive/ksecModeDisabled), or "" when SELinux is not present
 // (getenforce absent or failed).
 func selinuxEnforceMode(ctx context.Context) string {
 	out, err := runCmd(ctx, "getenforce")
@@ -54,14 +61,14 @@ func buildPolicyTable(appArmorComplain []string, aaPartial bool, selinuxMode str
 	var rows [][]string
 
 	for _, profile := range appArmorComplain {
-		rows = append(rows, []string{profile, "complain", "AppArmor profile not enforcing"})
+		rows = append(rows, []string{profile, ksecModeComplain, "AppArmor profile not enforcing"})
 	}
 
 	switch selinuxMode {
-	case "permissive":
-		rows = append(rows, []string{"SELinux", "permissive", "global policy logs but does not enforce"})
-	case "disabled":
-		rows = append(rows, []string{"SELinux", "disabled", "no SELinux enforcement"})
+	case ksecModePermissive:
+		rows = append(rows, []string{"SELinux", ksecModePermissive, "global policy logs but does not enforce"})
+	case ksecModeDisabled:
+		rows = append(rows, []string{"SELinux", ksecModeDisabled, "no SELinux enforcement"})
 	}
 
 	// aaPartial means aa-status could not be queried (permission gap, most
@@ -95,25 +102,25 @@ func buildPolicyTable(appArmorComplain []string, aaPartial bool, selinuxMode str
 // mode, and whether the query is only PARTIAL (aa-status could not be run at
 // all). It prefers `aa-status --pretty-json` (parsed as real JSON) and falls
 // back to the plain `aa-status` text. The previous implementation grepped the
-// JSON output line-by-line for "complain", capturing the surrounding JSON
-// punctuation verbatim (`"Xorg": "complain",` instead of `Xorg`) — BUG-023.
+// JSON output line-by-line for ksecModeComplain, capturing the surrounding JSON
+// punctuation verbatim (`"Xorg": ksecModeComplain,` instead of `Xorg`) — BUG-023.
 //
 // aa-status requires root (or CAP_MAC_ADMIN) to read AppArmor's securityfs
 // state; an unprivileged failure was previously indistinguishable from "no
 // profiles in complain mode", a false-OK — the caller now gets an honest
 // partial=true instead of a silent empty result.
 func appArmorComplainProfiles(ctx context.Context) (names []string, partial bool) {
-	if _, err := lookPath("aa-status"); err != nil {
+	if _, err := lookPath(ksecCmdAAStatus); err != nil {
 		return nil, false // no AppArmor tooling on this host — nothing to report, not a gap
 	}
-	if out, err := runCmd(ctx, "aa-status", "--pretty-json"); err == nil && out != "" {
+	if out, err := runCmd(ctx, ksecCmdAAStatus, "--pretty-json"); err == nil && out != "" {
 		if names, ok := parseAAStatusJSON(out); ok {
 			return names, false
 		}
 	}
 	// Fallback: plain `aa-status` text — older releases lack --pretty-json, and
 	// the JSON parse may fail on an unexpected schema.
-	out, err := runCmd(ctx, "aa-status")
+	out, err := runCmd(ctx, ksecCmdAAStatus)
 	if err != nil {
 		return nil, os.Geteuid() != 0
 	}
@@ -122,7 +129,7 @@ func appArmorComplainProfiles(ctx context.Context) (names []string, partial bool
 
 // parseAAStatusJSON extracts complain-mode profile names from the JSON emitted
 // by `aa-status --pretty-json`, whose top-level "profiles" key maps each
-// profile name to its mode ("enforce" / "complain" / ...). The bool is false
+// profile name to its mode ("enforce" / ksecModeComplain / ...). The bool is false
 // when the output is not the expected JSON shape, so the caller can fall back.
 func parseAAStatusJSON(out string) ([]string, bool) {
 	var doc struct {
@@ -133,7 +140,7 @@ func parseAAStatusJSON(out string) ([]string, bool) {
 	}
 	var names []string
 	for name, mode := range doc.Profiles {
-		if mode == "complain" {
+		if mode == ksecModeComplain {
 			names = append(names, name)
 		}
 	}
