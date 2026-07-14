@@ -19,7 +19,7 @@ const (
 	cisBenchCIS       = "CIS"
 	cisRuleSSH52      = "5.2.1"
 	cisRuleAudit41    = "4.1.1"
-	stigPassMaxDaysID = "V-238380"
+	stigPassMaxDaysID = "V-238380" //nolint:gosec // G101: STIG rule identifier, not a credential
 )
 
 // parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare

@@ -431,9 +431,9 @@ func printSUSESecuritySection(info *models.SecurityInfo, mode output.OutputMode)
 		case info.SupportconfigLastRunDays == -1:
 			fmt.Printf("  %s  never run — run before contacting SUSE support\n", asciiOr(secLvlInfo, "\u2139\ufe0f", mode))
 		case info.SupportconfigLastRunDays > 30:
-			fmt.Printf("  %s  last run %d days ago\n", asciiOr(secLvlWarn, "secIconWarn", mode), info.SupportconfigLastRunDays)
+			fmt.Printf("  %s  last run %d days ago\n", asciiOr(secLvlWarn, secIconWarn, mode), info.SupportconfigLastRunDays)
 		default:
-			fmt.Printf("  %s  last run %d days ago (%s)\n", asciiOr("ok", "secIconOK", mode), info.SupportconfigLastRunDays, info.SupportconfigArchive)
+			fmt.Printf("  %s  last run %d days ago (%s)\n", asciiOr("ok", secIconOK, mode), info.SupportconfigLastRunDays, info.SupportconfigArchive)
 		}
 	}
 
@@ -450,9 +450,9 @@ func printSUSESecuritySection(info *models.SecurityInfo, mode output.OutputMode)
 		case info.SUSEConnectExpiresDays > 0 && info.SUSEConnectExpiresDays <= 14:
 			fmt.Printf("  %s  expires in %d day(s) \u2014 renew immediately\n", asciiOr(secLvlFail, "\U0001f534", mode), info.SUSEConnectExpiresDays)
 		case info.SUSEConnectExpiresDays > 14 && info.SUSEConnectExpiresDays <= 30:
-			fmt.Printf("  %s   expires in %d day(s) \u2014 renew soon\n", asciiOr(secLvlWarn, "secIconWarn", mode), info.SUSEConnectExpiresDays)
+			fmt.Printf("  %s   expires in %d day(s) \u2014 renew soon\n", asciiOr(secLvlWarn, secIconWarn, mode), info.SUSEConnectExpiresDays)
 		case info.SUSEConnectExpiresDays > 30:
-			fmt.Printf("  %s  active \u2014 expires in %d day(s) (%s)\n", asciiOr("ok", "secIconOK", mode), info.SUSEConnectExpiresDays, status)
+			fmt.Printf("  %s  active \u2014 expires in %d day(s) (%s)\n", asciiOr("ok", secIconOK, mode), info.SUSEConnectExpiresDays, status)
 		default:
 			fmt.Printf("  %s   registered, expiry unknown\n", asciiOr(secLvlInfo, "\u2139\ufe0f", mode))
 		}
@@ -466,7 +466,7 @@ func printSnapperSection(snap *models.SnapperInfo, mode output.OutputMode) {
 	if snap != nil && snap.Available {
 		fmt.Println("\nBtrfs snapshots (snapper)")
 		if snap.SnapshotCount == 0 {
-			fmt.Printf("  %s  no snapshots found\n", asciiOr(secLvlWarn, "secIconWarn", mode))
+			fmt.Printf("  %s  no snapshots found\n", asciiOr(secLvlWarn, secIconWarn, mode))
 		} else {
 			spaceStr := ""
 			if snap.TotalSpaceGB > 0 {
@@ -474,11 +474,11 @@ func printSnapperSection(snap *models.SnapperInfo, mode output.OutputMode) {
 			}
 			switch {
 			case snap.LastSnapshotH < 0:
-				fmt.Printf("  %s  %d snapshot(s)%s — no recent snapshot\n", asciiOr(secLvlWarn, "secIconWarn", mode), snap.SnapshotCount, spaceStr)
+				fmt.Printf("  %s  %d snapshot(s)%s — no recent snapshot\n", asciiOr(secLvlWarn, secIconWarn, mode), snap.SnapshotCount, spaceStr)
 			case snap.LastSnapshotH == 0:
-				fmt.Printf("  %s  %d snapshot(s)%s — last: < 1h ago\n", asciiOr("ok", "secIconOK", mode), snap.SnapshotCount, spaceStr)
+				fmt.Printf("  %s  %d snapshot(s)%s — last: < 1h ago\n", asciiOr("ok", secIconOK, mode), snap.SnapshotCount, spaceStr)
 			default:
-				fmt.Printf("  %s  %d snapshot(s)%s — last: %dh ago\n", asciiOr("ok", "secIconOK", mode), snap.SnapshotCount, spaceStr, snap.LastSnapshotH)
+				fmt.Printf("  %s  %d snapshot(s)%s — last: %dh ago\n", asciiOr("ok", secIconOK, mode), snap.SnapshotCount, spaceStr, snap.LastSnapshotH)
 			}
 		}
 	}
