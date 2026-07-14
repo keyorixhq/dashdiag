@@ -8,6 +8,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	inspectW              = "to inspect: w"
+	inspectFreeH          = "to inspect: free -h"
+	inspectSysctlSwap     = "to inspect: sysctl vm.swappiness"
+	inspectSysctlMaxMap   = "to inspect: sysctl vm.max_map_count"
+	inspectJournalDiskUse = "to inspect: journalctl --disk-usage"
+)
+
 func checkFD(fd models.FDInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if l := levelPct(fd.UsedPct, thresh.FDSystemWarnPct, thresh.FDSystemCritPct); l != "" {
@@ -126,7 +134,7 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	return out
 }
 
-func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,funlen // workload-profile switch — each case is a distinct set of checks, splitting would harm readability
+func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,funlen // NOSONAR — workload-profile switch — each case is a distinct set of checks, splitting would harm readability
 	var out []models.Insight
 
 	// somaxconn — the listen() backlog: a TUNING parameter, not a fault. 128 is the
@@ -162,7 +170,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
@@ -174,7 +182,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -196,7 +204,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMSwappiness > 10 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: \u2264 10)", sysctl.VMSwappiness),
-				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=10", "to persist: echo 'vm.swappiness=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMDirtyRatio > 10 {
@@ -210,13 +218,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("CRIT", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d \u2014 Elasticsearch requires \u2265 262144 or it will refuse to start", sysctl.VMMaxMapCount),
-				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMSwappiness > 1 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.swappiness=%d \u2014 Elasticsearch recommends 1 to minimise GC pauses from swapping", sysctl.VMSwappiness),
-				[]string{"to inspect: sysctl vm.swappiness", "to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 
@@ -224,7 +232,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
 			out = append(out, insight("WARN", "Sysctl",
 				fmt.Sprintf("vm.max_map_count=%d is low for container host running JVM workloads (recommended: 262144)", sysctl.VMMaxMapCount),
-				[]string{"to inspect: sysctl vm.max_map_count", "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
+				[]string{inspectSysctlMaxMap, "to fix: sysctl -w vm.max_map_count=262144", "to persist: echo 'vm.max_map_count=262144' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 131072 {
@@ -702,14 +710,14 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
 		out = append(out, insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),
-			[]string{"to inspect: journalctl --disk-usage", "to fix: journalctl --vacuum-size=1G", "to fix: journalctl --vacuum-time=7d"},
+			[]string{inspectJournalDiskUse, "to fix: journalctl --vacuum-size=1G", "to fix: journalctl --vacuum-time=7d"},
 		))
 	}
 	if logs.OOMKills > 0 {
 		procs := strings.Join(logs.OOMProcesses, ", ")
 		out = append(out, insight("CRIT", "Logs",
 			fmt.Sprintf("%d OOM kill(s) in the last hour — processes killed: %s", logs.OOMKills, procs),
-			[]string{"to inspect: dmesg | grep -i 'out of memory'", "to inspect: free -h"},
+			[]string{"to inspect: dmesg | grep -i 'out of memory'", inspectFreeH},
 		))
 	}
 	if logs.Segfaults > 0 {
@@ -857,7 +865,7 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 				logs.LogDiskMount, logs.LogDiskUsedPct),
 			[]string{
 				"to inspect: df -h " + logs.LogDiskMount,
-				"to inspect: journalctl --disk-usage",
+				inspectJournalDiskUse,
 				"to fix:     journalctl --vacuum-size=500M",
 				"to fix:     journalctl --vacuum-time=7d",
 			},
@@ -868,7 +876,7 @@ func checkJournalConfig(logs models.LogsInfo) []models.Insight {
 				logs.LogDiskMount, logs.LogDiskUsedPct),
 			[]string{
 				"to inspect: df -h " + logs.LogDiskMount,
-				"to inspect: journalctl --disk-usage",
+				inspectJournalDiskUse,
 				"to fix:     journalctl --vacuum-size=1G",
 			},
 		))
@@ -1065,7 +1073,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 		[]string{
 			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
 			"to inspect: dmesg | grep -i 'out of memory'",
-			"to inspect: free -h",
+			inspectFreeH,
 			"to inspect: ps aux --sort=-%mem | head -10",
 			"note: OOM kills are silent — services may restart without apparent cause",
 		},
@@ -1123,7 +1131,7 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 			fmt.Sprintf("memory full stall %.1f%% avg60 — tasks blocked waiting for memory", p.MemoryFull.Avg60),
 			[]string{
 				"to inspect: cat /proc/pressure/memory",
-				"to inspect: free -h",
+				inspectFreeH,
 				"to inspect: ps aux --sort=-%mem | head -10",
 				"note: OOM kill may be imminent — act now",
 			},
@@ -1133,7 +1141,7 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 			fmt.Sprintf("memory pressure %.1f%% avg60 — some tasks delayed waiting for memory", p.MemorySome.Avg60),
 			[]string{
 				"to inspect: cat /proc/pressure/memory",
-				"to inspect: free -h",
+				inspectFreeH,
 			},
 		))
 	}
@@ -1256,13 +1264,13 @@ func checkSessions(s models.SessionsInfo) []models.Insight {
 		if s.IsPVE {
 			out = append(out, insight("INFO", "Sessions",
 				"root is logged in via SSH — expected on Proxmox VE (cluster management requires it)",
-				[]string{"to inspect: w"},
+				[]string{inspectW},
 			))
 		} else {
 			out = append(out, insight("CRIT", "Sessions",
 				"root is logged in via SSH — direct root SSH access is a security risk",
 				[]string{
-					"to inspect: w",
+					inspectW,
 					"to fix: set PermitRootLogin no in /etc/ssh/sshd_config",
 					"to fix: use sudo or su instead of direct root SSH",
 				},
@@ -1277,7 +1285,7 @@ func checkSessions(s models.SessionsInfo) []models.Insight {
 			fmt.Sprintf("%d session(s) idle > 8h: %s — unattended terminal risk",
 				len(s.LongIdle), users),
 			[]string{
-				"to inspect: w",
+				inspectW,
 				"to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config to auto-disconnect",
 			},
 		))
@@ -1288,7 +1296,7 @@ func checkSessions(s models.SessionsInfo) []models.Insight {
 		out = append(out, insight("WARN", "Sessions",
 			fmt.Sprintf("%d concurrent sessions active — unusually high for a single server",
 				s.TotalCount),
-			[]string{"to inspect: w", "to inspect: last | head -20"},
+			[]string{inspectW, "to inspect: last | head -20"},
 		))
 	}
 
@@ -1298,7 +1306,7 @@ func checkSessions(s models.SessionsInfo) []models.Insight {
 			fmt.Sprintf("%d session(s) from %d unique IP(s): %s",
 				s.RemoteCount, len(s.UniqueIPs),
 				strings.Join(s.UniqueIPs, ", ")),
-			[]string{"to inspect: w"},
+			[]string{inspectW},
 		))
 	}
 

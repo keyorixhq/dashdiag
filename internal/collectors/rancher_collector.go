@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const rancherNamespace = "cattle-system"
+
 // RancherCollector reports Rancher (SUSE's Kubernetes management platform) health on a
 // cluster where it's installed. Gated on a usable kubectl; the real "is Rancher here"
 // test is the cattle-system namespace, queried in Collect, so it's silent on every
@@ -32,13 +34,13 @@ func (c *RancherCollector) Collect(ctx context.Context) (any, error) {
 	// cattle-system namespace == Rancher is installed here. A failed query (non-root /
 	// no kubeconfig / API down) leaves Available=false and the check silent — like the
 	// k8s collector's APIReachable, dsd does not invent a verdict it couldn't measure.
-	out, err := k8sRun(ctx, bin, "get", "namespace", "cattle-system", "-o", "name")
-	if err != nil || !strings.Contains(out, "cattle-system") {
+	out, err := k8sRun(ctx, bin, "get", "namespace", rancherNamespace, "-o", "name")
+	if err != nil || !strings.Contains(out, rancherNamespace) {
 		return info, nil
 	}
 	info.Available = true
-	info.ServerReady, info.ServerDesired = rancherDeployReady(ctx, bin, "rancher", "cattle-system")
-	info.WebhookReady, info.WebhookDesired = rancherDeployReady(ctx, bin, "rancher-webhook", "cattle-system")
+	info.ServerReady, info.ServerDesired = rancherDeployReady(ctx, bin, "rancher", rancherNamespace)
+	info.WebhookReady, info.WebhookDesired = rancherDeployReady(ctx, bin, "rancher-webhook", rancherNamespace)
 	return info, nil
 }
 

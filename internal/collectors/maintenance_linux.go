@@ -14,6 +14,15 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+const (
+	maintCmdRPM       = "rpm"
+	maintCmdZypper    = "zypper"
+	maintCmdTunedAdm  = "tuned-adm"
+	maintCmdSystemctl = "systemctl"
+	maintValEnabled   = "enabled"
+	maintCmdDPKG      = "dpkg"
+)
+
 // RHEL/Oracle-family maintenance & patch-effectiveness collectors. Each is gated
 // (silent on hosts without the subsystem) and reads every input through the
 // Source-routed helpers (readFile/runCmd*/glob/hasCmd) so capture → replay is
@@ -58,13 +67,13 @@ func (c *KdumpCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info := &models.KdumpInfo{Available: true}
 
-	if out, _ := runCmdOutput(ctx, "systemctl", "is-enabled", "kdump"); out != "" {
+	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-enabled", "kdump"); out != "" {
 		s := strings.TrimSpace(out)
-		info.Enabled = s == "enabled" || s == "static" || s == "enabled-runtime"
+		info.Enabled = s == maintValEnabled || s == "static" || s == "enabled-runtime"
 	}
-	if out, _ := runCmdOutput(ctx, "systemctl", "is-active", "kdump"); out != "" {
+	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "kdump"); out != "" {
 		info.ServiceState = strings.TrimSpace(out)
-		info.ServiceActive = info.ServiceState == "active"
+		info.ServiceActive = info.ServiceState == secValActive
 	}
 	if b, err := readFile("/sys/kernel/kexec_crash_loaded"); err == nil {
 		info.CrashLoaded = strings.TrimSpace(string(b)) == "1"
@@ -91,7 +100,7 @@ func (c *TunedCollector) Name() string           { return "Tuned" }
 func (c *TunedCollector) Timeout() time.Duration { return 4 * time.Second }
 
 func TunedAvailable() bool {
-	return hasCmd("tuned-adm") ||
+	return hasCmd(maintCmdTunedAdm) ||
 		fileExists("/usr/lib/systemd/system/tuned.service") ||
 		fileExists("/lib/systemd/system/tuned.service")
 }
@@ -102,17 +111,17 @@ func (c *TunedCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info := &models.TunedInfo{Available: true}
 
-	if out, _ := runCmdOutput(ctx, "systemctl", "is-active", "tuned"); strings.TrimSpace(out) == "active" {
+	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "tuned"); strings.TrimSpace(out) == secValActive {
 		info.Active = true
 	}
 	// "Current active profile: virtual-guest"
-	if out, err := runCmd(ctx, "tuned-adm", "active"); err == nil {
+	if out, err := runCmd(ctx, maintCmdTunedAdm, secValActive); err == nil {
 		if i := strings.LastIndex(out, ":"); i >= 0 {
 			info.Profile = strings.TrimSpace(out[i+1:])
 		}
 	}
 	// tuned's own verdict for this hardware (e.g. "virtual-guest" on a VM).
-	if out, err := runCmd(ctx, "tuned-adm", "recommend"); err == nil {
+	if out, err := runCmd(ctx, maintCmdTunedAdm, "recommend"); err == nil {
 		info.Recommended = strings.TrimSpace(out)
 	}
 	return info, nil
@@ -128,7 +137,7 @@ func NewKernelPatchCollector(cc platform.ContainerContext) *KernelPatchCollector
 func (c *KernelPatchCollector) Name() string           { return "Kernel" }
 func (c *KernelPatchCollector) Timeout() time.Duration { return 5 * time.Second }
 
-func KernelPatchAvailable() bool { return hasCmd("rpm") || debianRebootMechanism() }
+func KernelPatchAvailable() bool { return hasCmd(maintCmdRPM) || debianRebootMechanism() }
 
 // debianRebootMechanism reports whether the host uses Ubuntu/Debian's
 // /run/reboot-required signal — written by update-notifier-common /
@@ -159,13 +168,13 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 	if b, err := readFile("/proc/sys/kernel/osrelease"); err == nil {
 		info.Running = strings.TrimSpace(string(b))
 	}
-	if hasCmd("rpm") {
+	if hasCmd(maintCmdRPM) {
 		// RHEL/Oracle family: the running uname and the kernel package NVRA line up, so
 		// compare directly against the newest-INSTALLED kernel (--last orders by install
 		// time; rpm exits non-zero when a queried package is absent, so runCmdOutput to
 		// keep the installed lines). kernel-uek-core is the actual UEK package on Oracle
 		// Linux (the `kernel-uek` meta is often absent); kernel-core is EL9+ RHCK.
-		out, _ := runCmdOutput(ctx, "rpm", "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
+		out, _ := runCmdOutput(ctx, maintCmdRPM, "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
 		for _, line := range strings.Split(out, "\n") {
 			line = strings.TrimSpace(line)
 			fields := strings.Fields(line)
@@ -182,7 +191,7 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 		}
 		// SUSE (kernel-default): the package NVRA and uname don't line up (uname carries
 		// the `-default` flavor), so use zypper's own signal instead of parsing versions.
-		if hasCmd("zypper") {
+		if hasCmd(maintCmdZypper) {
 			if ok, rebootNeeded, unverified := suseRebootSignal(ctx); ok {
 				info.Available, info.RebootNeeded, info.CheckUnverified = true, rebootNeeded, unverified
 				return info, nil
@@ -307,7 +316,7 @@ func (c *ServiceRestartCollector) Timeout() time.Duration  { return 8 * time.Sec
 // ServiceRestartAvailable: the /proc/<pid>/maps "(deleted)" scan is package-manager
 // agnostic, so gate on any mainstream Linux (rpm OR dpkg) — Ubuntu/Debian have the
 // exact same "patched but not restarted" problem after an apt glibc/openssl update.
-func ServiceRestartAvailable() bool { return hasCmd("rpm") || hasCmd("dpkg") }
+func ServiceRestartAvailable() bool { return hasCmd(maintCmdRPM) || hasCmd(maintCmdDPKG) }
 
 // mapsHasDeletedLib reports whether a /proc/<pid>/maps body maps a shared library
 // whose on-disk file was replaced (the kernel marks the stale mapping "(deleted)").
@@ -377,7 +386,7 @@ func (c *KernelRetentionCollector) Name() string           { return "KernelReten
 func (c *KernelRetentionCollector) Timeout() time.Duration { return 5 * time.Second }
 
 // KernelRetentionAvailable gates on a recognized kernel package manager.
-func KernelRetentionAvailable() bool { return hasCmd("rpm") || hasCmd("dpkg") }
+func KernelRetentionAvailable() bool { return hasCmd(maintCmdRPM) || hasCmd(maintCmdDPKG) }
 
 func (c *KernelRetentionCollector) Collect(_ context.Context) (interface{}, error) {
 	if maintenanceSkip(KernelRetentionAvailable(), c.cc.InContainer) {
@@ -392,8 +401,8 @@ func (c *KernelRetentionCollector) Collect(_ context.Context) (interface{}, erro
 	info.InstalledKernels = len(imgs)
 
 	switch {
-	case hasCmd("zypper"):
-		info.PackageManager = "zypper"
+	case hasCmd(maintCmdZypper):
+		info.PackageManager = maintCmdZypper
 		if b, err := readFile("/etc/zypp/zypp.conf"); err == nil {
 			info.RetentionPolicy, info.Unbounded = parseMultiversionKernels(string(b))
 		}
@@ -402,7 +411,7 @@ func (c *KernelRetentionCollector) Collect(_ context.Context) (interface{}, erro
 		if b, err := readFile("/etc/dnf/dnf.conf"); err == nil {
 			info.RetentionPolicy, info.Unbounded = parseInstallonlyLimit(string(b))
 		}
-	case hasCmd("dpkg"):
+	case hasCmd(maintCmdDPKG):
 		info.PackageManager = "apt"
 		// apt has no built-in retention limit; old kernels are cleared by `apt autoremove`.
 		// Don't claim a policy is unbounded — just report the boot-space risk below.
@@ -485,7 +494,7 @@ func LivePatchAvailable() bool {
 	return len(dirs) > 0
 }
 
-// livePatchState is the verdict for a single livepatch's "enabled" sysfs attribute.
+// livePatchState is the verdict for a single livepatch's maintValEnabled sysfs attribute.
 type livePatchState int
 
 const (
@@ -494,7 +503,7 @@ const (
 	livePatchUnverified                       // could not read enabled (non-root / kernel lockdown / SELinux)
 )
 
-// classifyLivePatchEnabled interprets a livepatch "enabled" attribute. A READ ERROR is
+// classifyLivePatchEnabled interprets a livepatch maintValEnabled attribute. A READ ERROR is
 // "unverified", NOT disabled: on most kernels the attribute is world-readable (0644), but
 // where it isn't (lockdown, SELinux, a future root-only build) a non-root run can't read
 // it — and reporting an unreadable patch as "disabled" would false-WARN a healthy, active

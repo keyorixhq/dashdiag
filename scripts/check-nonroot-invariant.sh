@@ -26,13 +26,13 @@
 set -euo pipefail
 
 DSD="${DSD:-}"
-if [ -z "$DSD" ]; then
+if [[ -z "$DSD" ]]; then
   DSD="$(mktemp -d)/dsd"
   echo "building dsd -> $DSD"
   CGO_ENABLED=0 go build -o "$DSD" ./cmd/dsd
 fi
 
-if [ "$(id -u)" -eq 0 ]; then
+if [[ "$(id -u)" -eq 0 ]]; then
   echo "FAIL: run this as a NON-root user with sudo (it needs both privilege levels)" >&2
   exit 1
 fi
@@ -90,7 +90,7 @@ VIOLATIONS="$(jq -n \
 ')"
 
 COUNT="$(echo "$VIOLATIONS" | jq 'length')"
-if [ "$COUNT" -gt 0 ]; then
+if [[ "$COUNT" -gt 0 ]]; then
   echo "FAIL: $COUNT check(s) report a WORSE verdict non-root than root (false-verdict bug class):" >&2
   echo "$VIOLATIONS" | jq -r '.[] | "  - \(.check): non-root=\(.nonroot)  root=\(.root)"' >&2
   echo >&2

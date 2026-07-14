@@ -44,7 +44,7 @@ read -r FAMILY VCPUS < <(echo "$skus_json" | jq -r --arg sku "$SKU" '
   [ .[] | select(.name == $sku) ] | .[0]
   | "\(.family // "?") \((.capabilities[]? | select(.name=="vCPUs") | .value) // "?")"')
 
-if [ "$FAMILY" = "?" ] || [ -z "${FAMILY:-}" ]; then
+if [[ "$FAMILY" = "?" ]] || [[ -z "${FAMILY:-}" ]]; then
   echo "No record for $SKU — the size name may be wrong or not offered to this subscription."
   exit 1
 fi
@@ -58,13 +58,13 @@ mapfile -t CANDIDATES < <(echo "$skus_json" | jq -r --arg sku "$SKU" '
   | .locationInfo[0].location' | sort -u)
 
 # Apply the optional allowlist.
-if [ "${#REGION_ALLOWLIST[@]}" -gt 0 ]; then
+if [[ "${#REGION_ALLOWLIST[@]}" -gt 0 ]]; then
   declare -A want=(); for r in "${REGION_ALLOWLIST[@]}"; do want["$r"]=1; done
-  filtered=(); for r in "${CANDIDATES[@]}"; do [ -n "${want[$r]:-}" ] && filtered+=("$r"); done
+  filtered=(); for r in "${CANDIDATES[@]}"; do [[ -n "${want[$r]:-}" ]] && filtered+=("$r"); done
   CANDIDATES=("${filtered[@]}")
 fi
 
-if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+if [[ "${#CANDIDATES[@]}" -eq 0 ]]; then
   echo "✗ $SKU is restricted in every region in scope (Location restriction). Request quota/access, or try another size."
   exit 0
 fi
@@ -84,14 +84,14 @@ for loc in "${CANDIDATES[@]}"; do
     | ([ .[] | select(.name.value == "cores" or (.localName // "") == "Total Regional vCPUs") ] | .[0]) as $r
     | "\(($f.currentValue) // "?") \(($f.limit) // "?") \(($r.currentValue) // "?") \(($r.limit) // "?")"')
 
-  if [ "$fam_lim" = "?" ]; then
+  if [[ "$fam_lim" = "?" ]]; then
     echo "• $loc: deployable, but no '$FAMILY' quota entry returned (family may be unfamiliar here) — verify manually"
     continue
   fi
 
   fam_free=$(( fam_lim - fam_used ))
   reg_free=$(( reg_lim - reg_used ))
-  if [ "$fam_free" -ge "$VCPUS" ] && [ "$reg_free" -ge "$VCPUS" ]; then
+  if [[ "$fam_free" -ge "$VCPUS" ]] && [[ "$reg_free" -ge "$VCPUS" ]]; then
     echo "✓ $loc: deployable + quota OK  (family $fam_used/$fam_lim → $fam_free free; regional $reg_used/$reg_lim → $reg_free free; need $VCPUS)"
     ok_regions+=("$loc")
   else
@@ -100,7 +100,7 @@ for loc in "${CANDIDATES[@]}"; do
 done
 
 echo "------------------------------------------------------------"
-if [ "${#ok_regions[@]}" -gt 0 ]; then
+if [[ "${#ok_regions[@]}" -gt 0 ]]; then
   echo "Pick one of: ${ok_regions[*]}"
   echo "Then: az vm create -g dsd-val -n dsd-val --location ${ok_regions[0]} --image Ubuntu2204 --size $SKU ..."
 else

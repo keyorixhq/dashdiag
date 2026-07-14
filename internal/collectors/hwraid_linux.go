@@ -12,6 +12,17 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	hwrFldState    = "State"
+	hwrStatRebuilt = "Rebuilding"
+	hwrKwRebuild   = "rebuild"
+	hwrStatOptimal = "Optimal"
+	hwrPfxSlot     = " in Slot "
+	hwrStatOffline = "Offline"
+	hwrStatFailed  = "Failed"
+	hwrKwFail      = "fail"
+)
+
 // HWRaidCollector reads hardware-RAID controller health via the vendor CLI:
 // storcli/perccli (LSI/Broadcom MegaRAID + Dell PERC — identical output) and
 // ssacli/hpssacli (HPE Smart Array). Built against the vendors' documented output
@@ -167,15 +178,15 @@ func normalizeStorcliVD(name string, vd storcliVD) models.HWRaidVD {
 	out := models.HWRaidVD{Name: name, RaidLevel: vd.Type}
 	switch {
 	case s == "optl" || strings.HasPrefix(s, "optimal"):
-		out.State = "Optimal"
+		out.State = hwrStatOptimal
 	case s == "dgrd" || strings.HasPrefix(s, "degrad"):
 		out.State, out.Degraded = "Degraded", true
 	case s == "pdgd" || strings.HasPrefix(s, "partially"):
 		out.State, out.Degraded = "Partially Degraded", true
 	case s == "ofln" || strings.HasPrefix(s, "offl"):
-		out.State, out.Offline = "Offline", true
-	case s == "rec" || strings.HasPrefix(s, "recov") || strings.HasPrefix(s, "rebuild"):
-		out.State, out.Rebuilding = "Rebuilding", true
+		out.State, out.Offline = hwrStatOffline, true
+	case s == "rec" || strings.HasPrefix(s, "recov") || strings.HasPrefix(s, hwrKwRebuild):
+		out.State, out.Rebuilding = hwrStatRebuilt, true
 	default:
 		out.State = vd.State // surface unknown states verbatim rather than assume OK
 	}
@@ -190,12 +201,12 @@ func normalizeStorcliPD(pd storcliPD) models.HWRaidPD {
 	switch {
 	case s == "onln" || strings.HasPrefix(s, "onlin"):
 		out.State = "Online"
-	case s == "rbld" || strings.HasPrefix(s, "rebuild"):
-		out.State, out.Rebuilding = "Rebuilding", true
-	case s == "failed" || s == "ubad" || strings.HasPrefix(s, "fail"):
-		out.State, out.Failed = "Failed", true
+	case s == "rbld" || strings.HasPrefix(s, hwrKwRebuild):
+		out.State, out.Rebuilding = hwrStatRebuilt, true
+	case s == "failed" || s == "ubad" || strings.HasPrefix(s, hwrKwFail):
+		out.State, out.Failed = hwrStatFailed, true
 	case s == "offln" || strings.HasPrefix(s, "offl"):
-		out.State, out.Failed = "Offline", true
+		out.State, out.Failed = hwrStatOffline, true
 	default:
 		out.State = pd.State
 	}
@@ -214,8 +225,8 @@ func storcliBBU(bbu, cv []struct {
 	if state == "" {
 		return "", false
 	}
-	// "Optimal" is the healthy state for both BBU and CacheVault.
-	return state, !strings.EqualFold(strings.TrimSpace(state), "Optimal")
+	// hwrStatOptimal is the healthy state for both BBU and CacheVault.
+	return state, !strings.EqualFold(strings.TrimSpace(state), hwrStatOptimal)
 }
 
 // ── ssacli / hpssacli (HPE Smart Array) — structured text ─────────────────────
@@ -234,7 +245,7 @@ func parseSsacli(out string) []models.HWRaidController {
 	for _, raw := range strings.Split(out, "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
-		case strings.Contains(line, " in Slot "):
+		case strings.Contains(line, hwrPfxSlot):
 			if cur != nil {
 				ctrls = append(ctrls, *cur)
 			}
@@ -253,15 +264,15 @@ func parseSsacli(out string) []models.HWRaidController {
 }
 
 func ssacliModel(line string) string {
-	if i := strings.Index(line, " in Slot "); i > 0 {
+	if i := strings.Index(line, hwrPfxSlot); i > 0 {
 		return strings.TrimSpace(line[:i])
 	}
 	return ""
 }
 
 func slotNumber(line string, fallback int) int {
-	if i := strings.Index(line, " in Slot "); i >= 0 {
-		rest := strings.TrimSpace(line[i+len(" in Slot "):])
+	if i := strings.Index(line, hwrPfxSlot); i >= 0 {
+		rest := strings.TrimSpace(line[i+len(hwrPfxSlot):])
 		fields := strings.FieldsFunc(rest, func(r rune) bool { return r < '0' || r > '9' })
 		if len(fields) > 0 {
 			if n, err := strconv.Atoi(fields[0]); err == nil {
@@ -302,18 +313,18 @@ func ssacliLogicalDrive(line string) models.HWRaidVD {
 
 // applySsacliVDStatus maps HPE logical-drive status. "OK"; "Interim Recovery Mode" =
 // degraded (running on a failed member); "Recovering"/"Rebuild" = rebuilding;
-// "Failed" = offline.
+// hwrStatFailed = offline.
 func applySsacliVDStatus(vd *models.HWRaidVD, status string) {
 	s := strings.ToLower(status)
 	switch {
 	case s == "ok":
-		vd.State = "Optimal"
+		vd.State = hwrStatOptimal
 	case strings.Contains(s, "interim recovery") || strings.Contains(s, "degrad"):
 		vd.State, vd.Degraded = "Degraded", true
-	case strings.Contains(s, "recover") || strings.Contains(s, "rebuild") || strings.Contains(s, "expand"):
-		vd.State, vd.Rebuilding = "Rebuilding", true
-	case strings.Contains(s, "fail"):
-		vd.State, vd.Offline = "Offline", true
+	case strings.Contains(s, "recover") || strings.Contains(s, hwrKwRebuild) || strings.Contains(s, "expand"):
+		vd.State, vd.Rebuilding = hwrStatRebuilt, true
+	case strings.Contains(s, hwrKwFail):
+		vd.State, vd.Offline = hwrStatOffline, true
 	default:
 		vd.State = status
 	}
@@ -342,10 +353,10 @@ func applySsacliPDStatus(pd *models.HWRaidPD, status string) {
 		pd.State = "Online"
 	case strings.Contains(s, "predictive"):
 		pd.State, pd.Predictive = "Predictive Failure", true
-	case strings.Contains(s, "rebuild"):
-		pd.State, pd.Rebuilding = "Rebuilding", true
-	case strings.Contains(s, "fail"):
-		pd.State, pd.Failed = "Failed", true
+	case strings.Contains(s, hwrKwRebuild):
+		pd.State, pd.Rebuilding = hwrStatRebuilt, true
+	case strings.Contains(s, hwrKwFail):
+		pd.State, pd.Failed = hwrStatFailed, true
 	default:
 		pd.State = status
 	}

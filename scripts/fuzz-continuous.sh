@@ -28,7 +28,7 @@ log() { echo "[$(date -u +%FT%TZ)] $*"; }
 # turning into a firehose if it's wired to a push service.
 alert() {
   log "$*"
-  if [ -n "$NOTIFY_URL" ]; then
+  if [[ -n "$NOTIFY_URL" ]]; then
     curl -fsS -m 10 -d "$*" "$NOTIFY_URL" >/dev/null 2>&1 || true
   fi
 }
@@ -65,7 +65,7 @@ publish_crashers() {
   # that would make the whole check report "nothing to publish" even when a
   # real crash reproducer exists. Capture first, then test on the variable.
   status_output=$(git status --porcelain -- '*/testdata/fuzz/*')
-  if [ -z "$status_output" ]; then
+  if [[ -z "$status_output" ]]; then
     return 0
   fi
   alert "new fuzz crash reproducer(s) found — opening/updating PR on $CORPUS_BRANCH"

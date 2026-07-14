@@ -30,14 +30,14 @@ echo "╚═══════════════════════�
 echo -e "${RESET}"
 
 # Verify binary
-if [ ! -x "$DSD_BIN" ]; then
+if [[ ! -x "$DSD_BIN" ]]; then
     echo -e "${RED}ERROR: dsd binary not found at $DSD_BIN${RESET}"
     echo "Copy binary first: scp dist/dsd-linux-amd64 user@host:/tmp/dsd"
     exit 1
 fi
 
 # Verify stress script
-if [ ! -f "$STRESS" ]; then
+if [[ ! -f "$STRESS" ]]; then
     echo -e "${RED}ERROR: stress script not found at $STRESS${RESET}"
     echo "Copy script first: scp scripts/stress/stress.sh user@host:/tmp/stress.sh"
     exit 1
@@ -50,7 +50,7 @@ echo -e "${CYAN}[INFO]${RESET} Mode:    --physical (NIC/DNS/gateway tests enable
 echo ""
 
 # Must run as root for physical tests
-if [ "$(id -u)" -ne 0 ]; then
+if [[ "$(id -u)" -ne 0 ]]; then
     echo -e "${RED}ERROR: must run as root for physical tests${RESET}"
     if command -v sudo &>/dev/null; then
         echo "Run: sudo bash /tmp/run_stress.sh $TEST"

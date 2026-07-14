@@ -8,6 +8,17 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	hwCatHardware    = "Hardware"
+	hwCatIPMI        = "IPMI"
+	hwDriveTypeNVMe  = "nvme"
+	hwCatBattery     = "Battery"
+	hwCatCPUFreq     = "CPUFreq"
+	hwSevLow         = "low"
+	inspectIPMISel   = "to inspect: ipmitool sel list | tail -20"
+	inspectHwmonTemp = "to inspect: cat /sys/class/hwmon/hwmon*/temp*_input"
+)
+
 func checkBattery(b models.BatteryInfo) []models.Insight {
 	if !b.Present {
 		return nil // desktop or no battery
@@ -17,12 +28,12 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 	// Battery wear
 	if b.HealthPct > 0 {
 		if b.HealthPct < 60 {
-			out = append(out, insight("CRIT", "Battery",
+			out = append(out, insight("CRIT", hwCatBattery,
 				fmt.Sprintf("battery health at %.0f%% — replacement recommended", b.HealthPct),
 				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full_design"},
 			))
 		} else if b.HealthPct < 80 {
-			out = append(out, insight("WARN", "Battery",
+			out = append(out, insight("WARN", hwCatBattery,
 				fmt.Sprintf("battery health at %.0f%% (%.0f cycle(s)) — degraded", b.HealthPct, float64(b.CycleCounts)),
 				[]string{"to inspect: cat /sys/class/power_supply/BAT0/energy_full"},
 			))
@@ -31,12 +42,12 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 
 	// Low charge while discharging
 	if b.Status == "Discharging" && b.CapacityPct <= 10 {
-		out = append(out, insight("CRIT", "Battery",
+		out = append(out, insight("CRIT", hwCatBattery,
 			fmt.Sprintf("battery at %d%% and discharging — connect power", b.CapacityPct),
 			nil,
 		))
 	} else if b.Status == "Discharging" && b.CapacityPct <= 20 {
-		out = append(out, insight("WARN", "Battery",
+		out = append(out, insight("WARN", hwCatBattery,
 			fmt.Sprintf("battery at %d%% and discharging", b.CapacityPct),
 			nil,
 		))
@@ -55,26 +66,26 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	// than firing a false "thermal throttling active" CRIT — same gate the dsd
 	// hardware display path and every drive-temp verdict already apply.
 	if !TempPlausible(t.CPUTempC, TempCeilSilicon) {
-		return []models.Insight{insight("WARN", "CPU Thermal",
+		return []models.Insight{insight("WARN", corrCatCPUThermal,
 			fmt.Sprintf("implausible CPU temperature %g°C (source: %s) — sensor likely faulted; reading rejected, health unverified", t.CPUTempC, t.Source),
 			[]string{
-				"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+				inspectHwmonTemp,
 				"to inspect: sensors  (compare against a second source)",
 			},
 		)}
 	}
 	hints := []string{
-		"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+		inspectHwmonTemp,
 		"to inspect: check cooling and airflow",
 	}
 	if t.CPUTempC >= 95 {
-		return []models.Insight{insight("CRIT", "CPU Thermal",
+		return []models.Insight{insight("CRIT", corrCatCPUThermal,
 			fmt.Sprintf("CPU temperature %g°C — thermal throttling active", t.CPUTempC),
 			hints,
 		)}
 	}
 	if t.CPUTempC >= 85 {
-		return []models.Insight{insight("WARN", "CPU Thermal",
+		return []models.Insight{insight("WARN", corrCatCPUThermal,
 			fmt.Sprintf("CPU temperature %g°C — elevated (source: %s)", t.CPUTempC, t.Source),
 			hints,
 		)}
@@ -87,11 +98,11 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	// mini-PCs/NUCs, laptops, and high-TDP desktop chips (Ryzen, etc.) routinely
 	// idle there with healthy cooling. Only ≥75°C at idle is genuinely suspect.
 	if thresh.CPULoadPct > 0 && t.CPUTempC >= 75 && thresh.CPULoadPct < 20 {
-		return []models.Insight{insight("WARN", "CPU Thermal",
+		return []models.Insight{insight("WARN", corrCatCPUThermal,
 			fmt.Sprintf("CPU temperature %g°C at %.0f%% load — elevated for low CPU activity, possible cooling issue",
 				t.CPUTempC, thresh.CPULoadPct),
 			[]string{
-				"to inspect: cat /sys/class/hwmon/hwmon*/temp*_input",
+				inspectHwmonTemp,
 				"to inspect: check for dust buildup and blocked vents",
 				"to inspect: consider reseating thermal paste on older hardware",
 			},
@@ -170,7 +181,7 @@ func checkGPU(gpu models.GPUInfo) []models.Insight {
 
 	// NVIDIA detected but driver/nvidia-smi not available
 	if gpu.Status == "nvidia-no-driver" {
-		out = append(out, insight("INFO", "GPU",
+		out = append(out, insight("INFO", corrCatGPU,
 			"NVIDIA GPU detected — install driver for GPU health monitoring",
 			[]string{
 				"to fix (Debian/Ubuntu): apt-get install nvidia-driver",
@@ -230,7 +241,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// card has fallen off the bus or faulted. Its temp/util/mem are bogus zeros,
 	// so emit the fault and skip the per-metric checks (which would read healthy).
 	if dev.Unreadable {
-		return append(out, insight("CRIT", "GPU",
+		return append(out, insight("CRIT", corrCatGPU,
 			fmt.Sprintf("%s metrics unreadable — nvidia-smi reported [N/A] for temperature and memory (GPU likely fallen off the bus / hardware fault)", prefix),
 			[]string{
 				"to inspect: nvidia-smi",
@@ -245,7 +256,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Say so instead. `dsd gpu` already does this; this keeps `dsd health --gpu`
 	// consistent. (Real AMD/NVIDIA GPUs populate temp+VRAM, so they're unaffected.)
 	if !GPUDeviceHasMetrics(dev) {
-		return append(out, insight("INFO", "GPU",
+		return append(out, insight("INFO", corrCatGPU,
 			fmt.Sprintf("%s detected but exposed no health metrics — temperature/utilization not available, health NOT verified", prefix),
 			[]string{"to inspect: ls /sys/class/drm/card*/device/hwmon/hwmon*/"},
 		))
@@ -254,17 +265,17 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// (§L/§Q raw-tool implausible-value class — garbage hwmon reads as thousands
 	// of degrees). Surface it as unverified rather than a false thermal alarm.
 	if !GPUTempPlausible(dev.TempC) {
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s reported an implausible temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal-throttling alarm"},
 		))
 	} else if dev.TempC >= 90 {
-		out = append(out, insight("CRIT", "GPU",
+		out = append(out, insight("CRIT", corrCatGPU,
 			fmt.Sprintf("%s temperature %d°C — thermal throttling likely", prefix, dev.TempC),
 			[]string{"to inspect: nvidia-smi", "to inspect: check cooling and airflow"},
 		))
 	} else if dev.TempC >= 80 {
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s temperature %d°C — elevated", prefix, dev.TempC),
 			[]string{"to inspect: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"},
 		))
@@ -272,17 +283,17 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
 	// Same plausibility gate as the edge sensor.
 	if !GPUTempPlausible(dev.TempJunctionC) {
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s reported an implausible junction temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempJunctionC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal alarm"},
 		))
 	} else if dev.TempJunctionC >= 100 {
-		out = append(out, insight("CRIT", "GPU",
+		out = append(out, insight("CRIT", corrCatGPU,
 			fmt.Sprintf("%s junction temperature %d°C — emergency thermal threshold", prefix, dev.TempJunctionC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "shut down and check cooling immediately"},
 		))
 	} else if dev.TempJunctionC >= 90 {
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s junction temperature %d°C — approaching thermal limit", prefix, dev.TempJunctionC),
 			[]string{"to inspect: check thermal paste and fan curve if sustained"},
 		))
@@ -293,7 +304,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 		if steamOS {
 			hint = "to fix: on Steam Deck, increase the TDP limit in Performance settings when plugged in"
 		}
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s TDP throttling — at power limit (%.1fW / %.1fW)", prefix, dev.TDPCurrentW, dev.TDPLimitW),
 			[]string{hint},
 		))
@@ -303,7 +314,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// under any GPU load by design — a high % there is normal, not pressure.
 	// Genuine memory exhaustion on an APU surfaces via system-RAM checks.
 	if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
-		out = append(out, insight("WARN", "GPU",
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", prefix, dev.VRAMUsedPct),
 			[]string{"to inspect: reduce texture/resolution settings or close GPU-heavy apps"},
 		))
@@ -314,14 +325,14 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// correct behavior, not a fault. Only a genuine workload (UtilPct >= 50, the
 	// same load-evidence bar used by the sustained-compute-load INFO below)
 	// pinned at "low" indicates the GPU failed to ramp up under demand.
-	if dev.PowerDPMLevel == "low" && UtilPctPlausible(dev.UtilPct) && dev.UtilPct >= 50 {
-		out = append(out, insight("WARN", "GPU",
+	if dev.PowerDPMLevel == hwSevLow && UtilPctPlausible(dev.UtilPct) && dev.UtilPct >= 50 {
+		out = append(out, insight("WARN", corrCatGPU,
 			fmt.Sprintf("%s stuck in low-power DPM mode under load (%d%% util) — performance capped", prefix, dev.UtilPct),
 			[]string{"to fix: echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level"},
 		))
 	}
 	if l := levelPct(dev.MemUsedPct, 85, 95); l != "" && !dev.IsAPU {
-		out = append(out, insight(l, "GPU",
+		out = append(out, insight(l, corrCatGPU,
 			fmt.Sprintf("%s VRAM usage at %.0f%% (%d/%d MB)", prefix, dev.MemUsedPct, dev.MemUsedMB, dev.MemTotalMB),
 			[]string{"to inspect: nvidia-smi --query-gpu=memory.used,memory.total --format=csv"},
 		))
@@ -330,7 +341,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Not a fault on its own, but provides context when combined with
 	// thermal or memory pressure signals.
 	if UtilPctPlausible(dev.UtilPct) && dev.UtilPct >= 80 && dev.PowerDrawW >= 80 {
-		out = append(out, insight("INFO", "GPU",
+		out = append(out, insight("INFO", corrCatGPU,
 			fmt.Sprintf("%s sustained compute load — util %d%%, %.0fW", prefix, dev.UtilPct, dev.PowerDrawW),
 			nil,
 		))
@@ -339,20 +350,20 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 }
 
 // checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
-func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // flat independent hardware checks — splitting would harm readability
+func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // NOSONAR — flat independent hardware checks — splitting would harm readability
 	var out []models.Insight
 
 	// ── Drive health ──────────────────────────────────────────────────────────
 	for _, d := range h.Drives {
 		if !d.SmartctlAvailable {
-			out = append(out, insight("INFO", "Hardware",
+			out = append(out, insight("INFO", hwCatHardware,
 				"smartctl not installed — drive health unavailable",
 				[]string{"to fix: install smartmontools (apt/dnf/zypper install smartmontools)"},
 			))
 			continue // skip this drive only — EDAC/ECC checks below are independent of smartctl
 		}
 		if d.Error != "" {
-			out = append(out, insight("WARN", "Hardware",
+			out = append(out, insight("WARN", hwCatHardware,
 				fmt.Sprintf("%s: %s", d.Device, d.Error),
 				nil,
 			))
@@ -370,15 +381,15 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 		// CRIT ("back up immediately") on healthy drives.
 		switch {
 		case !d.SmartRead:
-			out = append(out, insight("INFO", "Hardware",
+			out = append(out, insight("INFO", hwCatHardware,
 				fmt.Sprintf("%s — SMART health not reported (behind a RAID/HBA controller or USB bridge, or a virtual disk)", prefix),
-				[]string{"to inspect: smartctl -a " + d.Device + "  (try -d sat / -d cciss,N)"},
+				[]string{inspectSmartCtlPrefix + d.Device + "  (try -d sat / -d cciss,N)"},
 			))
 		case !d.SmartOK:
-			out = append(out, insight("CRIT", "Hardware",
+			out = append(out, insight("CRIT", hwCatHardware,
 				fmt.Sprintf("%s — SMART FAILED: drive may fail imminently, back up immediately", prefix),
 				[]string{
-					"to inspect: smartctl -a " + d.Device,
+					inspectSmartCtlPrefix + d.Device,
 					"to run self-test: smartctl -t short " + d.Device,
 				},
 			))
@@ -386,37 +397,37 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 
 		// Drive temperature
 		switch {
-		case d.Type == "nvme" && d.TempC >= 80:
-			out = append(out, insight("CRIT", "Hardware",
+		case d.Type == hwDriveTypeNVMe && d.TempC >= 80:
+			out = append(out, insight("CRIT", hwCatHardware,
 				fmt.Sprintf("%s temperature %d°C — NVMe critical thermal threshold", prefix, d.TempC),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
-		case d.Type == "nvme" && d.TempC >= 70:
-			out = append(out, insight("WARN", "Hardware",
+		case d.Type == hwDriveTypeNVMe && d.TempC >= 70:
+			out = append(out, insight("WARN", hwCatHardware,
 				fmt.Sprintf("%s temperature %d°C — NVMe running hot", prefix, d.TempC),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
-		case d.Type != "nvme" && d.TempC >= 60:
-			out = append(out, insight("CRIT", "Hardware",
+		case d.Type != hwDriveTypeNVMe && d.TempC >= 60:
+			out = append(out, insight("CRIT", hwCatHardware,
 				fmt.Sprintf("%s temperature %d°C — HDD critical thermal threshold", prefix, d.TempC),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
-		case d.Type != "nvme" && d.TempC >= 50:
-			out = append(out, insight("WARN", "Hardware",
+		case d.Type != hwDriveTypeNVMe && d.TempC >= 50:
+			out = append(out, insight("WARN", hwCatHardware,
 				fmt.Sprintf("%s temperature %d°C — HDD running hot", prefix, d.TempC),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
 		}
 
 		// Wear / endurance
 		switch {
 		case d.WearPct >= 95:
-			out = append(out, insight("CRIT", "Hardware",
+			out = append(out, insight("CRIT", hwCatHardware,
 				fmt.Sprintf("%s wear at %d%% — drive near end of rated life, replace soon", prefix, d.WearPct),
 				[]string{"to plan: schedule drive replacement"},
 			))
 		case d.WearPct >= 80:
-			out = append(out, insight("WARN", "Hardware",
+			out = append(out, insight("WARN", hwCatHardware,
 				fmt.Sprintf("%s wear at %d%% — approaching end of rated endurance", prefix, d.WearPct),
 				[]string{"to plan: schedule drive replacement"},
 			))
@@ -428,10 +439,10 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 			if d.ReallocatedSectors >= 10 {
 				level = "CRIT"
 			}
-			out = append(out, insight(level, "Hardware",
+			out = append(out, insight(level, hwCatHardware,
 				fmt.Sprintf("%s: %d reallocated sector(s) — drive remapping failed reads", prefix, d.ReallocatedSectors),
 				[]string{
-					"to inspect: smartctl -a " + d.Device,
+					inspectSmartCtlPrefix + d.Device,
 					"to test: smartctl -t long " + d.Device,
 				},
 			))
@@ -441,16 +452,16 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 			if d.PendingSectors >= 5 {
 				level = "CRIT"
 			}
-			out = append(out, insight(level, "Hardware",
+			out = append(out, insight(level, hwCatHardware,
 				fmt.Sprintf("%s: %d pending sector(s) — unreadable sectors awaiting remap", prefix, d.PendingSectors),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
 		}
 		if d.UncorrectableErrors > 0 {
-			out = append(out, insight("CRIT", "Hardware",
+			out = append(out, insight("CRIT", hwCatHardware,
 				fmt.Sprintf("%s: %d offline uncorrectable sector(s) — data loss risk", prefix, d.UncorrectableErrors),
 				[]string{
-					"to inspect: smartctl -a " + d.Device,
+					inspectSmartCtlPrefix + d.Device,
 					"to rescue: back up immediately",
 				},
 			))
@@ -462,16 +473,16 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 			if d.MediaErrors >= 10 {
 				level = "CRIT"
 			}
-			out = append(out, insight(level, "Hardware",
+			out = append(out, insight(level, hwCatHardware,
 				fmt.Sprintf("%s: %d media error(s) — NVMe data integrity events", prefix, d.MediaErrors),
-				[]string{"to inspect: smartctl -a " + d.Device},
+				[]string{inspectSmartCtlPrefix + d.Device},
 			))
 		}
 
 		// Healthy drive — emit OK so it shows in output
 		healthy := len(out) == 0 || func() bool {
 			for _, i := range out {
-				if i.Check == "Hardware" && strings.HasPrefix(i.Message, prefix) {
+				if i.Check == hwCatHardware && strings.HasPrefix(i.Message, prefix) {
 					return false
 				}
 			}
@@ -488,13 +499,13 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 			if d.WearPct > 0 {
 				msg += fmt.Sprintf(", %d%% worn", d.WearPct)
 			}
-			out = append(out, insight("OK", "Hardware", msg, nil))
+			out = append(out, insight("OK", hwCatHardware, msg, nil))
 		}
 	}
 
 	// ── EDAC memory ───────────────────────────────────────────────────────────
 	if h.Memory.EDACAvailable {
-		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, "Hardware")...)
+		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, hwCatHardware)...)
 	}
 
 	return out
@@ -506,7 +517,7 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 	// than the WARN below, which would otherwise fire on every non-root
 	// `dsd health` run on a physical server, healthy BMC or not.
 	if ipmi.NeedsRoot {
-		return []models.Insight{insight("INFO", "IPMI",
+		return []models.Insight{insight("INFO", hwCatIPMI,
 			"IPMI hardware detected but sensor read requires root — re-run as root to verify sensor health",
 			[]string{"to inspect: sudo ipmitool sdr"})}
 	}
@@ -519,10 +530,10 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 		if reason == "" {
 			reason = "IPMI sensor read failed"
 		}
-		return []models.Insight{insight("WARN", "IPMI", reason,
+		return []models.Insight{insight("WARN", hwCatIPMI, reason,
 			[]string{
 				"to inspect: ipmitool sdr",
-				"to inspect: ipmitool sel list | tail -20",
+				inspectIPMISel,
 				"note: check BMC access — kernel module ipmi_devintf and /dev/ipmi0 permissions",
 			})}
 	}
@@ -531,26 +542,26 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if ipmi.PSUFailed > 0 {
-		out = append(out, insight("CRIT", "IPMI",
+		out = append(out, insight("CRIT", hwCatIPMI,
 			fmt.Sprintf("%d PSU(s) in fault state — risk of host going offline", ipmi.PSUFailed),
 			[]string{
 				"to inspect: ipmitool sdr type 'Power Supply'",
-				"to inspect: ipmitool sel list | tail -20",
+				inspectIPMISel,
 				"note: replace failed PSU before removing redundant one",
 			},
 		))
 	}
 	if ipmi.FanFailed > 0 {
-		out = append(out, insight("WARN", "IPMI",
+		out = append(out, insight("WARN", hwCatIPMI,
 			fmt.Sprintf("%d fan(s) in fault state — thermal risk", ipmi.FanFailed),
 			[]string{
 				"to inspect: ipmitool sdr type Fan",
-				"to inspect: ipmitool sel list | tail -20",
+				inspectIPMISel,
 			},
 		))
 	}
 	if ipmi.TempCritical > 0 {
-		out = append(out, insight("CRIT", "IPMI",
+		out = append(out, insight("CRIT", hwCatIPMI,
 			fmt.Sprintf("%d temperature sensor(s) in critical state", ipmi.TempCritical),
 			[]string{
 				"to inspect: ipmitool sdr type Temperature",
@@ -597,13 +608,13 @@ func checkCPUFreq(f models.CPUFreqInfo, thresh Thresholds) []models.Insight {
 		case isDynamicPstateDriver(f.ScalingDriver):
 			// silent — dynamic powersave is the recommended default, not a problem
 		case f.HasBattery:
-			out = append(out, insight("INFO", "CPUFreq",
+			out = append(out, insight("INFO", hwCatCPUFreq,
 				fmt.Sprintf("CPU governor is 'powersave' (%d MHz, max %d MHz) — expected on a battery device for power saving",
 					f.CurrentMHz, f.MaxMHz),
 				[]string{"on AC and want full speed: cpupower frequency-set -g performance (or 'schedutil')"},
 			))
 		default:
-			out = append(out, insight("WARN", "CPUFreq",
+			out = append(out, insight("WARN", hwCatCPUFreq,
 				fmt.Sprintf("CPU governor is 'powersave' — CPU running at %d MHz (max %d MHz), performance limited",
 					f.CurrentMHz, f.MaxMHz),
 				[]string{
@@ -625,7 +636,7 @@ func checkCPUFreq(f models.CPUFreqInfo, thresh Thresholds) []models.Insight {
 	// frequency stuck well below max is a genuine thermal/power-throttle signal.
 	// thresh.CPULoadPct==0 means load is unknown → don't fire (can't tell idle apart).
 	if f.Governor != "powersave" && f.ThrottledPct >= 40 && f.MaxMHz > 0 && thresh.CPULoadPct >= 20 {
-		out = append(out, insight("WARN", "CPUFreq",
+		out = append(out, insight("WARN", hwCatCPUFreq,
 			fmt.Sprintf("CPU running at %d MHz (%d%% below max %d MHz) — possible thermal or power throttle",
 				f.CurrentMHz, int(f.ThrottledPct), f.MaxMHz),
 			[]string{

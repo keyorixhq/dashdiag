@@ -8,6 +8,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	sshConfigFile    = "sshd_config"
+	sshCmdT          = "sshd -T"
+	sshEffectiveConf = "sshd -T (effective config)"
+)
+
 // checkSSHWeakCiphers flags CBC-mode and arcfour ciphers.
 // CBC-mode ciphers are vulnerable to BEAST and Lucky13 attacks.
 // Data source: sshd -T (preferred, root) or sshd_config file parse.
@@ -29,9 +35,9 @@ func checkSSHWeakCiphers(sec models.SecurityInfo) []models.Insight {
 	if len(found) == 0 {
 		return nil
 	}
-	source := "sshd_config"
-	if sec.SSHAuditSource == "sshd -T" {
-		source = "sshd -T (effective config)"
+	source := sshConfigFile
+	if sec.SSHAuditSource == sshCmdT {
+		source = sshEffectiveConf
 	}
 	return []models.Insight{insight("WARN", "Hardening",
 		fmt.Sprintf("SSH weak cipher(s) enabled (%s): %s", source, strings.Join(found, ", ")),
@@ -71,9 +77,9 @@ func checkSSHWeakMACs(sec models.SecurityInfo) []models.Insight {
 	if len(found) == 0 {
 		return nil
 	}
-	source := "sshd_config"
-	if sec.SSHAuditSource == "sshd -T" {
-		source = "sshd -T (effective config)"
+	source := sshConfigFile
+	if sec.SSHAuditSource == sshCmdT {
+		source = sshEffectiveConf
 	}
 	return []models.Insight{insight("WARN", "Hardening",
 		fmt.Sprintf("SSH weak MAC(s) enabled (%s): %s", source, strings.Join(found, ", ")),
@@ -106,9 +112,9 @@ func checkSSHWeakKEX(sec models.SecurityInfo) []models.Insight {
 	if len(found) == 0 {
 		return nil
 	}
-	source := "sshd_config"
-	if sec.SSHAuditSource == "sshd -T" {
-		source = "sshd -T (effective config)"
+	source := sshConfigFile
+	if sec.SSHAuditSource == sshCmdT {
+		source = sshEffectiveConf
 	}
 	return []models.Insight{insight("WARN", "Hardening",
 		fmt.Sprintf("SSH weak KEX algorithm(s) enabled (%s): %s", source, strings.Join(found, ", ")),

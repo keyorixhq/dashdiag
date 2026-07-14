@@ -10,6 +10,19 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	secCatHardening      = "Hardening"
+	secCatFirewall       = "Firewall"
+	secCatAuth           = "Auth"
+	secCatAuditd         = "Auditd"
+	secFixUpdateBaseline = "to update baseline once verified intentional: dsd security --save-baseline"
+	secFixRestartSSHD    = "to fix: systemctl restart sshd"
+	secAuditRunAsRoot    = "to audit: re-run as root (sudo dsd security)"
+	secKwPrometheus      = "prometheus"
+	secKwK8s             = "k8s"
+	secFixSUSESub        = "to fix: renew subscription at https://scc.suse.com"
+)
+
 // SecurityConcernCount returns the number of WARN/CRIT security insights that
 // checkSecurity raises for sec. It is the single source of truth for the
 // standalone `dsd security` verdict so it CANNOT diverge from `dsd health` (the
@@ -59,7 +72,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	var out []models.Insight
 
 	if sec.NeedsRoot {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"some checks limited — run as root for port process names, failed logins, and SELinux audit log",
 			nil,
 		))
@@ -71,18 +84,18 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// nothing — a false-OK on a security check. Surface it; INFO doesn't raise the
 	// verdict.
 	if sec.SSHConfigUnreadable && sec.SSHAuditSource == "" {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"SSH config present but not readable — sshd settings (root login, password auth, ciphers) were NOT audited",
-			[]string{"to audit: re-run as root (sudo dsd security)"},
+			[]string{secAuditRunAsRoot},
 		))
 	}
 
 	// /etc/shadow couldn't be read (non-root), so the empty/never-expiring-password
 	// audits read nothing — an empty-password account would otherwise pass as clean.
 	if sec.ShadowUnreadable {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"/etc/shadow not readable — empty/never-expiring password accounts were NOT audited",
-			[]string{"to audit: re-run as root (sudo dsd security)"},
+			[]string{secAuditRunAsRoot},
 		))
 	}
 
@@ -90,16 +103,16 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// failed-login/PAM checks below silently see zero, indistinguishable from
 	// a genuinely clean host, unless this is surfaced explicitly.
 	if sec.FailedLoginsUnreadable {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"SSH auth log not readable — failed-login/brute-force attempts were NOT audited",
-			[]string{"to audit: re-run as root (sudo dsd security)"},
+			[]string{secAuditRunAsRoot},
 		))
 	}
 
 	if sec.PAMFailuresUnreadable {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"PAM auth log not readable — su/sudo/login/cron authentication failures were NOT audited",
-			[]string{"to audit: re-run as root (sudo dsd security)"},
+			[]string{secAuditRunAsRoot},
 		))
 	}
 
@@ -117,32 +130,32 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 		case sec.IsOffensiveDistro:
 			// On offensive/pentest distros (Kali, Parrot), root SSH is intentional.
 			// Downgrade to INFO with a note rather than CRIT.
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				"SSH root login enabled — expected on offensive security distro (Kali/Parrot)",
 				nil,
 			))
 		case sec.IsPVE:
 			// Proxmox VE requires root SSH for cluster management — not a
 			// misconfiguration. Downgrade to INFO (see BUG-018).
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				"Root SSH login enabled — required for PVE management. Restrict to key-based auth if not already done.",
 				[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
 			))
 		default:
-			out = append(out, insight("CRIT", "Hardening",
+			out = append(out, insight("CRIT", secCatHardening,
 				"SSH permits root login",
-				[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", "to fix: systemctl restart sshd"},
+				[]string{"to fix: set PermitRootLogin no in /etc/ssh/sshd_config", secFixRestartSSHD},
 			))
 		}
 	}
 	if sec.SSHPasswordAuth {
 		if sec.IsOffensiveDistro {
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				"SSH password auth enabled — expected on offensive security distro (Kali/Parrot)",
 				nil,
 			))
 		} else {
-			out = append(out, insight("WARN", "Hardening",
+			out = append(out, insight("WARN", secCatHardening,
 				"SSH allows password authentication — key-based auth recommended",
 				[]string{"to fix: set PasswordAuthentication no in /etc/ssh/sshd_config"},
 			))
@@ -153,7 +166,7 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 
 	// Protocol 1 is cryptographically broken (DES, 1990s-era)
 	if sec.SSHProtocol1 {
-		out = append(out, insight("CRIT", "Hardening",
+		out = append(out, insight("CRIT", secCatHardening,
 			"SSH Protocol 1 is enabled — cryptographically broken, remove from sshd_config",
 			[]string{
 				"to fix: remove or comment out 'Protocol' line in /etc/ssh/sshd_config",
@@ -164,11 +177,11 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 
 	// PermitEmptyPasswords — allows login with no password at all
 	if sec.SSHPermitEmptyPwd {
-		out = append(out, insight("CRIT", "Hardening",
+		out = append(out, insight("CRIT", secCatHardening,
 			"SSH allows empty passwords — any account with no password is remotely accessible",
 			[]string{
 				"to fix: set PermitEmptyPasswords no in /etc/ssh/sshd_config",
-				"to fix: systemctl restart sshd",
+				secFixRestartSSHD,
 				"to audit: awk -F: '($2==\"\"){print $1}' /etc/shadow",
 			},
 		))
@@ -177,7 +190,7 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 	// StrictModes disabled — sshd won't check file permissions on ~/.ssh
 	// This allows world-writable authorized_keys to be used (privilege escalation vector)
 	if !sec.SSHStrictModes {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			"SSH StrictModes disabled — sshd will not check ~/.ssh file permissions",
 			[]string{
 				"to fix: set StrictModes yes in /etc/ssh/sshd_config",
@@ -189,11 +202,11 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 	// MaxAuthTries > 6 — too many attempts before disconnect (brute force risk)
 	// CIS benchmark recommends ≤ 4; we warn at > 6 to avoid noise on defaults
 	if sec.SSHMaxAuthTries > 6 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("SSH MaxAuthTries is %d — reduce to 4 or fewer to limit brute force attempts", sec.SSHMaxAuthTries),
 			[]string{
 				"to fix: set MaxAuthTries 4 in /etc/ssh/sshd_config",
-				"to fix: systemctl restart sshd",
+				secFixRestartSSHD,
 			},
 		))
 	}
@@ -201,19 +214,19 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 	// LoginGraceTime > 60s — long window for unauthenticated connections (DoS risk)
 	// Default is 120s in older OpenSSH; CIS recommends ≤ 60s
 	if sec.SSHLoginGraceTime > 60 {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			fmt.Sprintf("SSH LoginGraceTime is %ds — recommend ≤60s to limit unauthenticated connection window",
 				sec.SSHLoginGraceTime),
 			[]string{
 				"to fix: set LoginGraceTime 60 in /etc/ssh/sshd_config",
-				"to fix: systemctl restart sshd",
+				secFixRestartSSHD,
 			},
 		))
 	}
 
 	// X11Forwarding — attack surface on servers, should be off
 	if sec.SSHX11Forwarding && !sec.IsOffensiveDistro {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"SSH X11Forwarding enabled — unnecessary on servers, increases attack surface",
 			[]string{
 				"to fix: set X11Forwarding no in /etc/ssh/sshd_config",
@@ -224,7 +237,7 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 
 	// AgentForwarding — allows attackers with root on a jump host to use your keys
 	if sec.SSHAgentForwarding && !sec.IsOffensiveDistro {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"SSH AgentForwarding enabled — if this server is compromised, agent keys on your laptop can be stolen",
 			[]string{
 				"to fix: set AllowAgentForwarding no in /etc/ssh/sshd_config",
@@ -239,7 +252,7 @@ func checkSSHHardening(sec models.SecurityInfo) []models.Insight { //nolint:funl
 	// audited at all — gate on SSHAuditSource so a host with no sshd doesn't get told
 	// to set ClientAliveInterval in a config it doesn't have. (TRIAGE §A minor.)
 	if sec.SSHClientAliveInterval == 0 && sec.SSHAuditSource != "" && !sec.IsOffensiveDistro {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			"SSH idle timeout not set — sessions stay open indefinitely (set ClientAliveInterval)",
 			[]string{
 				"to fix: set ClientAliveInterval 300 in /etc/ssh/sshd_config",
@@ -273,11 +286,11 @@ func checkFailedLoginAttempts(sec models.SecurityInfo) []models.Insight {
 		if len(sec.FailedLoginIPs) > 0 {
 			msg += fmt.Sprintf(" — top sources: %s", strings.Join(sec.FailedLoginIPs[:min(3, len(sec.FailedLoginIPs))], ", "))
 		}
-		out = append(out, insight("CRIT", "Hardening", msg,
+		out = append(out, insight("CRIT", secCatHardening, msg,
 			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20", "to inspect: last -f /var/log/wtmp | head -20", "to fix: consider fail2ban or firewall rules"},
 		))
 	} else if sec.FailedLogins >= 5 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d failed login attempts in the last hour", sec.FailedLogins),
 			[]string{"to inspect: journalctl _COMM=sshd | grep -E 'Failed|penalty' | tail -20"},
 		))
@@ -297,18 +310,18 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 	knownServiceProcesses := map[string]string{
 		// Kubernetes / k8s distributions
 		"kubelite":        "k8s/microk8s",
-		"kubelet":         "k8s",
-		"kube-apiserver":  "k8s",
-		"kube-scheduler":  "k8s",
-		"kube-controller": "k8s",
+		"kubelet":         secKwK8s,
+		"kube-apiserver":  secKwK8s,
+		"kube-scheduler":  secKwK8s,
+		"kube-controller": secKwK8s,
 		"cluster-agent":   "k8s/microk8s",
 		"containerd":      "container-runtime",
 		"dockerd":         "docker",
 		// Observability
-		"prometheus":    "prometheus",
-		"node_exporter": "prometheus",
+		secKwPrometheus: secKwPrometheus,
+		"node_exporter": secKwPrometheus,
 		"grafana":       "grafana",
-		"alertmanager":  "prometheus",
+		"alertmanager":  secKwPrometheus,
 		// Databases
 		"mysqld":       "mysql",
 		"postgres":     "postgresql",
@@ -361,7 +374,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 
 	// PVE service ports — informational only (expected on Proxmox VE)
 	if len(pvePorts) > 0 {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			fmt.Sprintf("%d PVE service port(s) listening (expected): %s — Proxmox web UI, spiceproxy, and rpcbind",
 				len(pvePorts), strings.Join(pvePorts, ", ")),
 			nil,
@@ -370,7 +383,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 
 	// Known services — downgrade to INFO
 	if len(knownPorts) > 0 {
-		out = append(out, insight("INFO", "Hardening",
+		out = append(out, insight("INFO", secCatHardening,
 			fmt.Sprintf("%d port(s) from known service(s) (%s) listening on all interfaces — consider binding to specific interfaces in production",
 				len(knownPorts), strings.Join(knownServices, ", ")),
 			[]string{
@@ -381,7 +394,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 	}
 	// Truly unexpected ports — keep as WARN
 	if len(unexpectedPorts) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d unexpected port(s) listening on all interfaces: %s",
 				len(unexpectedPorts), strings.Join(unexpectedPorts, ", ")),
 			portHints,
@@ -391,7 +404,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 	// Cockpit (port 9090) — informational: management UI exposed
 	for _, p := range sec.ListeningPorts {
 		if p.Port == 9090 {
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				"Cockpit management UI listening on port 9090 — ensure it is not exposed to the internet",
 				[]string{
 					"to inspect: systemctl status cockpit",
@@ -405,7 +418,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 
 	// Firewall
 	if sec.FirewallActive && !sec.SSHAllowed {
-		out = append(out, insight("CRIT", "Hardening",
+		out = append(out, insight("CRIT", secCatHardening,
 			fmt.Sprintf("firewall (%s) active but SSH (port 22) not in allowed services — you may lose remote access after reconnect", sec.FirewallType),
 			[]string{
 				"to fix (firewalld): firewall-cmd --add-service=ssh --permanent && firewall-cmd --reload",
@@ -429,12 +442,12 @@ func checkPrivilegeEscalationVectors(sec models.SecurityInfo) []models.Insight {
 		// On offensive distros (Kali, Parrot), NOPASSWD groups like %kali-trusted
 		// and service accounts like _gvm are intentional defaults — downgrade to INFO.
 		if sec.IsOffensiveDistro {
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				fmt.Sprintf("NOPASSWD sudo for: %s — expected on offensive security distro", strings.Join(sec.SudoNopasswd, ", ")),
 				nil,
 			))
 		} else {
-			out = append(out, insight("WARN", "Hardening",
+			out = append(out, insight("WARN", secCatHardening,
 				fmt.Sprintf("NOPASSWD sudo for: %s", strings.Join(sec.SudoNopasswd, ", ")),
 				[]string{"to inspect: sudo -l", "to inspect: cat /etc/sudoers"},
 			))
@@ -443,7 +456,7 @@ func checkPrivilegeEscalationVectors(sec models.SecurityInfo) []models.Insight {
 
 	// Unexpected SUID binaries
 	if len(sec.SUIDBinaries) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d unexpected SUID binary(ies): %s", len(sec.SUIDBinaries),
 				strings.Join(sec.SUIDBinaries[:min(3, len(sec.SUIDBinaries))], ", ")),
 			[]string{"to inspect: find / -perm -4000 -type f 2>/dev/null"},
@@ -452,7 +465,7 @@ func checkPrivilegeEscalationVectors(sec models.SecurityInfo) []models.Insight {
 
 	// Non-root users with UID 0 — always CRIT
 	if len(sec.UID0Users) > 0 {
-		out = append(out, insight("CRIT", "Hardening",
+		out = append(out, insight("CRIT", secCatHardening,
 			fmt.Sprintf("non-root user(s) with UID 0: %s", strings.Join(sec.UID0Users, ", ")),
 			[]string{"to inspect: awk -F: '$3==0' /etc/passwd", "to inspect: getent passwd | awk -F: '$3==0'", "to fix: remove or reassign UID for affected accounts"},
 		))
@@ -460,7 +473,7 @@ func checkPrivilegeEscalationVectors(sec models.SecurityInfo) []models.Insight {
 
 	// Suspect cron entries
 	if len(sec.SuspectCrons) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d suspect cron entry(ies) — pipes to shell or writes to sensitive paths", len(sec.SuspectCrons)),
 			[]string{"to inspect: cat /etc/cron.d/* /var/spool/cron/crontabs/*", "to inspect: review entries piping to bash or wget/curl"},
 		))
@@ -496,7 +509,7 @@ func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
 			}
 			hints = append(hints, summary)
 		}
-		out = append(out, insight("WARN", "Hardening", msg, hints))
+		out = append(out, insight("WARN", secCatHardening, msg, hints))
 	}
 
 	// SELinux port-label scan (§6-add-2) — proactive: catches a listening
@@ -511,7 +524,7 @@ func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
 			}
 			hints = append(hints, fmt.Sprintf("to fix: semanage port -a -t <service>_port_t -p %s %d  # %s", p.Protocol, p.Port, proc))
 		}
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d listening port(s) have no SELinux port label", len(sec.SELinuxUnlabeledPorts)),
 			hints,
 		))
@@ -526,7 +539,7 @@ func checkSecuritySELinuxDenials(sec models.SecurityInfo) []models.Insight {
 		for _, ci := range sec.SELinuxContextIssues {
 			hints = append(hints, fmt.Sprintf("%s — actual: %s, expected: %s", ci.Path, ci.ActualContext, ci.ExpectedContext))
 		}
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d denial-implicated path(s) have a temporary chcon context — will be lost on the next relabel", len(sec.SELinuxContextIssues)),
 			hints,
 		))
@@ -558,12 +571,12 @@ func checkAppArmorDenials(sec models.SecurityInfo) []models.Insight {
 			}
 			hints = append(hints, fmt.Sprintf("  %s [%s] %s ×%d", g.Profile, g.Operation, g.Path, g.Count))
 		}
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d AppArmor denial group(s) in the last 24h", len(sec.AppArmorGroups)),
 			hints,
 		))
 	case sec.AppArmorDenials > 0:
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d AppArmor denial(s) in the last 24h", sec.AppArmorDenials),
 			[]string{"to inspect: journalctl -t kernel -g 'apparmor=\"DENIED\"' --since '24 hours ago'"},
 		))
@@ -591,7 +604,7 @@ func checkPAMFailures(sec models.SecurityInfo) []models.Insight {
 			hints = append(hints, fmt.Sprintf("  %s: %s ×%d", f.Service, f.User, f.Count))
 		}
 	}
-	return []models.Insight{insight("WARN", "Hardening",
+	return []models.Insight{insight("WARN", secCatHardening,
 		fmt.Sprintf("%d PAM authentication failure(s) in the last 24h across %d service(s)", total, len(sec.PAMModuleFailures)),
 		hints,
 	)}
@@ -604,7 +617,7 @@ func checkRHELSecurityHardening(sec models.SecurityInfo) []models.Insight {
 
 	// RHEL/Rocky: crypto-policies — LEGACY is a security risk
 	if sec.CryptoPolicy == "LEGACY" {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			"system-wide crypto policy is LEGACY — weak algorithms (MD5, SHA-1, DH<1024) are permitted",
 			[]string{
 				"to inspect: update-crypto-policies --show",
@@ -615,7 +628,7 @@ func checkRHELSecurityHardening(sec models.SecurityInfo) []models.Insight {
 
 	// RHEL/Rocky: auditd running but no rules — security theater
 	if sec.AuditRules == 0 && sec.SELinuxMode != "" {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			"auditd is running but has no active rules — system calls and file access are not being audited",
 			[]string{
 				"to inspect: auditctl -l",
@@ -626,7 +639,7 @@ func checkRHELSecurityHardening(sec models.SecurityInfo) []models.Insight {
 
 	// RHEL/Rocky: AIDE installed but database never initialised
 	if sec.AIDEInstalled && !sec.AIDEDBExists {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			"AIDE is installed but database has never been initialised — file integrity monitoring is inactive",
 			[]string{
 				"to fix: aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db",
@@ -636,7 +649,7 @@ func checkRHELSecurityHardening(sec models.SecurityInfo) []models.Insight {
 
 	// RHEL/Rocky: AIDE database stale (> 7 days)
 	if sec.AIDEInstalled && sec.AIDEDBExists && sec.AIDELastRunDays > 7 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("AIDE file integrity database is %d day(s) old — run a fresh check", sec.AIDELastRunDays),
 			[]string{
 				"to fix: aide --check",
@@ -657,12 +670,12 @@ func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
 	if sec.SupportconfigAvailable {
 		switch {
 		case sec.SupportconfigLastRunDays == -1:
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				"supportconfig available but never run — collect before opening SUSE support ticket",
 				[]string{"to run: supportconfig", "archives saved to /var/log/scc_*.txz"},
 			))
 		case sec.SupportconfigLastRunDays > 30:
-			out = append(out, insight("INFO", "Hardening",
+			out = append(out, insight("INFO", secCatHardening,
 				fmt.Sprintf("supportconfig last run %d day(s) ago — consider refreshing before a support call", sec.SupportconfigLastRunDays),
 				[]string{"to run: supportconfig"},
 			))
@@ -673,19 +686,19 @@ func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
 	if sec.SUSEConnectRegistered {
 		switch {
 		case sec.SUSEConnectExpiresDays == 0:
-			out = append(out, insight("CRIT", "Hardening",
+			out = append(out, insight("CRIT", secCatHardening,
 				"SUSEConnect subscription EXPIRED — security patches no longer available",
-				[]string{"to fix: renew subscription at https://scc.suse.com"},
+				[]string{secFixSUSESub},
 			))
 		case sec.SUSEConnectExpiresDays > 0 && sec.SUSEConnectExpiresDays <= 14:
-			out = append(out, insight("CRIT", "Hardening",
+			out = append(out, insight("CRIT", secCatHardening,
 				fmt.Sprintf("SUSEConnect subscription expires in %d day(s) — renew immediately", sec.SUSEConnectExpiresDays),
-				[]string{"to fix: renew subscription at https://scc.suse.com"},
+				[]string{secFixSUSESub},
 			))
 		case sec.SUSEConnectExpiresDays > 14 && sec.SUSEConnectExpiresDays <= 30:
-			out = append(out, insight("WARN", "Hardening",
+			out = append(out, insight("WARN", secCatHardening,
 				fmt.Sprintf("SUSEConnect subscription expires in %d day(s)", sec.SUSEConnectExpiresDays),
-				[]string{"to fix: renew subscription at https://scc.suse.com"},
+				[]string{secFixSUSESub},
 			))
 		}
 	}
@@ -701,7 +714,7 @@ func checkMacOSHardening(sec models.SecurityInfo) []models.Insight {
 
 	if sec.IsDarwin {
 		if !sec.FileVaultEnabled {
-			out = append(out, insight("WARN", "Hardening",
+			out = append(out, insight("WARN", secCatHardening,
 				"FileVault disk encryption is off — data is readable if the disk is removed",
 				[]string{
 					"to fix: System Settings → Privacy & Security → FileVault → Turn On",
@@ -709,7 +722,7 @@ func checkMacOSHardening(sec models.SecurityInfo) []models.Insight {
 			))
 		}
 		if !sec.SIPEnabled {
-			out = append(out, insight("CRIT", "Hardening",
+			out = append(out, insight("CRIT", secCatHardening,
 				"System Integrity Protection (SIP) is disabled — system files are unprotected",
 				[]string{
 					"to fix: boot to Recovery, open Terminal, run: csrutil enable",
@@ -718,7 +731,7 @@ func checkMacOSHardening(sec models.SecurityInfo) []models.Insight {
 			))
 		}
 		if !sec.GatekeeperEnabled {
-			out = append(out, insight("WARN", "Hardening",
+			out = append(out, insight("WARN", secCatHardening,
 				"Gatekeeper is disabled — unsigned apps can run without quarantine",
 				[]string{
 					"to fix: System Settings → Privacy & Security → set to App Store and identified developers",
@@ -748,22 +761,22 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 
 	// New SUID binary = CRIT — privilege escalation vector, the most serious drift.
 	if len(diff.NewSUIDs) > 0 {
-		out = append(out, insight("CRIT", "Hardening",
+		out = append(out, insight("CRIT", secCatHardening,
 			fmt.Sprintf("%d new SUID binary(ies) since last security baseline", len(diff.NewSUIDs)),
 			[]string{
 				"to investigate: ls -la <path> && file <path>",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
 
 	// Changed SSH config = WARN
 	if len(diff.ChangedSSHFiles) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d SSH config file(s) changed since last security baseline", len(diff.ChangedSSHFiles)),
 			[]string{
 				"to review: inspect changes to sshd_config and restart sshd if intentional",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
@@ -771,11 +784,11 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 	// Added SSH config file = WARN — a new sshd_config.d/*.conf drop-in can
 	// silently re-enable PermitRootLogin or password auth.
 	if len(diff.AddedSSHFiles) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d new SSH config file(s) since last security baseline", len(diff.AddedSSHFiles)),
 			[]string{
 				"to review: inspect the new drop-in(s) for PermitRootLogin/PasswordAuthentication overrides",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
@@ -783,33 +796,33 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 	// Removed SSH config file = WARN — a deleted hardening drop-in reverts its
 	// directives to the daemon default.
 	if len(diff.RemovedSSHFiles) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d SSH config file(s) removed since last security baseline", len(diff.RemovedSSHFiles)),
 			[]string{
 				"to review: confirm the removed drop-in's hardening is still applied elsewhere",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
 
 	// New sudo NOPASSWD = WARN
 	if len(diff.NewSudoEntries) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d new sudoers NOPASSWD entry(ies) since last security baseline", len(diff.NewSudoEntries)),
 			[]string{
 				"to review: visudo and confirm each NOPASSWD grant is intentional",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
 
 	// New suspect cron = WARN
 	if len(diff.NewCronEntries) > 0 {
-		out = append(out, insight("WARN", "Hardening",
+		out = append(out, insight("WARN", secCatHardening,
 			fmt.Sprintf("%d new suspect cron entry(ies) since last security baseline", len(diff.NewCronEntries)),
 			[]string{
 				"to review: inspect cron entries writing to sensitive paths",
-				"to update baseline once verified intentional: dsd security --save-baseline",
+				secFixUpdateBaseline,
 			},
 		))
 	}
@@ -823,13 +836,13 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 		// run — or no nft/iptables tooling). Don't let !Available pass as a silent
 		// "no firewall problems"; surface it as INFO (doesn't raise the verdict).
 		if f.PVEFirewallActive {
-			return []models.Insight{insight("INFO", "Firewall",
+			return []models.Insight{insight("INFO", secCatFirewall,
 				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox; base ruleset not read",
 				[]string{"to inspect: pve-firewall status"},
 			)}
 		}
 		if f.StatusReason != "" {
-			return []models.Insight{insight("INFO", "Firewall",
+			return []models.Insight{insight("INFO", secCatFirewall,
 				"firewall state not verified — "+f.StatusReason,
 				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
 			)}
@@ -840,7 +853,7 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 		// On Proxmox VE, pve-firewall manages the host firewall and loads its
 		// rules dynamically — an empty base ruleset is expected (see BUG-017).
 		if f.PVEFirewallActive {
-			return []models.Insight{insight("INFO", "Firewall",
+			return []models.Insight{insight("INFO", secCatFirewall,
 				"PVE firewall active (pve-firewall) — host firewall managed by Proxmox",
 				[]string{"to inspect: pve-firewall status", "to inspect: cat /etc/pve/firewall/cluster.fw"},
 			)}
@@ -852,14 +865,14 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 		// surface it as INFO and point at the layer dsd can't see.
 		if f.CloudGuest {
 			label, term, where := cloudFirewallLabels(f.CloudProvider)
-			return []models.Insight{insight("INFO", "Firewall",
+			return []models.Insight{insight("INFO", secCatFirewall,
 				fmt.Sprintf("%s has no active host rules — on %s, network filtering is typically enforced by the %s, which dsd cannot see from inside the guest", f.Backend, label, term),
 				[]string{
 					"to verify: " + where,
 					fmt.Sprintf("note: no host rules is expected if you rely on the %s; otherwise add ufw/nft/iptables rules", term),
 				})}
 		}
-		return []models.Insight{insight("WARN", "Firewall",
+		return []models.Insight{insight("WARN", secCatFirewall,
 			fmt.Sprintf("%s is installed but no rules are active — host is unprotected", f.Backend),
 			[]string{
 				"to inspect: iptables -L -n",
@@ -873,7 +886,7 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 	// reachable service. The 0.0.0.0 bind signals the service intends to be reachable,
 	// so the firewall block is a likely misconfiguration → WARN.
 	if len(f.BlockedListeners) > 0 {
-		return []models.Insight{insight("WARN", "Firewall",
+		return []models.Insight{insight("WARN", secCatFirewall,
 			fmt.Sprintf("%d service(s) listen on all interfaces but the INPUT policy is DROP with no rule permitting them — unreachable from outside: port(s) %s",
 				len(f.BlockedListeners), joinInts(f.BlockedListeners)),
 			[]string{
@@ -899,7 +912,7 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 		if msg == "" {
 			msg = "SSH auth log could not be read — failed-login detection skipped"
 		}
-		return []models.Insight{insight("INFO", "Auth", msg,
+		return []models.Insight{insight("INFO", secCatAuth, msg,
 			[]string{"run as root (sudo) to verify SSH authentication failures"})}
 	}
 	if a.FailedLast24h == 0 {
@@ -915,7 +928,7 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 	var out []models.Insight
 	if a.FailedLast24h > 1000 {
 		if keyOnly {
-			out = append(out, insight("INFO", "Auth",
+			out = append(out, insight("INFO", secCatAuth,
 				fmt.Sprintf("%d failed SSH login attempts in 24h — all rejected: password authentication is disabled (key-only), so these cannot succeed", a.FailedLast24h),
 				[]string{"no action needed; to silence the log noise: consider fail2ban or sshguard"}))
 		} else {
@@ -929,12 +942,12 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 				hints = append(hints, fmt.Sprintf("top attacker: %s (%d attempts)",
 					a.TopSources[0].Source, a.TopSources[0].Count))
 			}
-			out = append(out, insight("WARN", "Auth",
+			out = append(out, insight("WARN", secCatAuth,
 				fmt.Sprintf("%d failed SSH login attempts in 24h — brute force likely", a.FailedLast24h),
 				hints))
 		}
 	} else if a.FailedLast24h > 100 {
-		out = append(out, insight("INFO", "Auth",
+		out = append(out, insight("INFO", secCatAuth,
 			fmt.Sprintf("%d failed SSH login attempts in 24h", a.FailedLast24h),
 			[]string{"to inspect: journalctl _COMM=sshd --since '24 hours ago' | grep Failed"}))
 	}
@@ -945,11 +958,11 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 		// the "set PermitRootLogin no" advice would be stale, so drop it.
 		rootPwImpossible := a.SSHConfigChecked && (!a.PasswordAuthEnabled || !a.RootPasswordLoginAllowed)
 		if rootPwImpossible {
-			out = append(out, insight("INFO", "Auth",
+			out = append(out, insight("INFO", secCatAuth,
 				fmt.Sprintf("%d root login attempt(s) — all rejected: root password login is disabled", a.RootAttempts),
 				[]string{"to verify: sshd -T | grep -E 'permitrootlogin|passwordauthentication'"}))
 		} else {
-			out = append(out, insight("WARN", "Auth",
+			out = append(out, insight("WARN", secCatAuth,
 				fmt.Sprintf("%d root login attempt(s) — ensure PermitRootLogin no in sshd_config", a.RootAttempts),
 				[]string{
 					"to inspect: grep PermitRootLogin /etc/ssh/sshd_config",
@@ -966,7 +979,7 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if !a.Running {
-		out = append(out, insight("WARN", "Auditd",
+		out = append(out, insight("WARN", secCatAuditd,
 			"auditd is installed but not running — compliance logging inactive",
 			[]string{
 				"to fix: systemctl enable --now auditd",
@@ -974,11 +987,11 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 			}))
 	}
 	if a.AuditLogSizeUnreadable {
-		out = append(out, insight("INFO", "Auditd",
+		out = append(out, insight("INFO", secCatAuditd,
 			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
 			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
 	} else if a.AuditLogSizeGB > 10 {
-		out = append(out, insight("WARN", "Auditd",
+		out = append(out, insight("WARN", secCatAuditd,
 			fmt.Sprintf("audit log is %.1f GB — consider log rotation", a.AuditLogSizeGB),
 			[]string{
 				"to inspect: ls -lh /var/log/audit/",

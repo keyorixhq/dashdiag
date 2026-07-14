@@ -15,6 +15,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const envoyClusterPfx = "cluster."
+
 // detectEnvoy finds a local Envoy admin interface on 9901 and returns its base URL
 // plus version/state from /server_info. Identity is confirmed by the {version,state}
 // JSON shape so a different service on 9901 isn't mislabelled.
@@ -85,15 +87,15 @@ func parseEnvoyMembership(stats string, info *models.EnvoyInfo) {
 	}
 	for _, line := range strings.Split(stats, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "cluster.") {
+		if !strings.HasPrefix(line, envoyClusterPfx) {
 			continue
 		}
 		switch {
 		case strings.Contains(line, ".membership_healthy:"):
-			name := strings.TrimPrefix(line[:strings.Index(line, ".membership_healthy:")], "cluster.")
+			name := strings.TrimPrefix(line[:strings.Index(line, ".membership_healthy:")], envoyClusterPfx)
 			get(name).healthy = envoyStatValue(line)
 		case strings.Contains(line, ".membership_total:"):
-			name := strings.TrimPrefix(line[:strings.Index(line, ".membership_total:")], "cluster.")
+			name := strings.TrimPrefix(line[:strings.Index(line, ".membership_total:")], envoyClusterPfx)
 			get(name).total = envoyStatValue(line)
 		}
 	}

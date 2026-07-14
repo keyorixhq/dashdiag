@@ -24,7 +24,7 @@ REMOTE_BIN="${REMOTE_BIN:-/usr/local/bin/dsd}"
 PASS=0; FAIL=0; SKIP=0
 
 # Ensure the agent socket is available (matches the repo's SSH convention).
-if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
   SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)"
   export SSH_AUTH_SOCK
 fi
@@ -57,7 +57,7 @@ echo "→ DashDiag HARDWARE smoke test against $HW_HOST"
 
 # Optionally build + push a fresh binary so we test the current tree, not a
 # stale deploy. Off by default (CI/release can set PUSH=1).
-if [ "${PUSH:-0}" = "1" ]; then
+if [[ "${PUSH:-0}" = "1" ]]; then
   echo "→ building linux/amd64 and pushing to $HW_HOST:$REMOTE_BIN"
   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/dsd-hwsmoke ./cmd/dsd
   scp -q /tmp/dsd-hwsmoke "$HW_HOST:/tmp/dsd-hwsmoke"
@@ -77,7 +77,7 @@ echo ""
 HW_JSON="$(ssh_run "$REMOTE_BIN hardware --json 2>/dev/null" || true)"
 HEALTH_JSON="$(ssh_run "$REMOTE_BIN health --json 2>/dev/null" || true)"
 
-if [ -z "$HW_JSON" ]; then
+if [[ -z "$HW_JSON" ]]; then
   echo "❌ 'dsd hardware --json' returned nothing — aborting"; exit 2
 fi
 
@@ -93,18 +93,18 @@ fi
 # ── DRIVES / SMART ────────────────────────────────────────────────────────────
 # The wear% range check is the whole reason this script exists.
 DRIVE_COUNT="$(j '.drives | length')"
-if [ "${DRIVE_COUNT:-0}" = "0" ] || [ -z "$DRIVE_COUNT" ]; then
+if [[ "${DRIVE_COUNT:-0}" = "0" ]] || [[ -z "$DRIVE_COUNT" ]]; then
   bad "drives: none reported on a physical host — collector regression?"
 else
   ok "drives: $DRIVE_COUNT reported"
   # Per-drive wear% must be 0..100 (the garbage value was ~3.4e12).
   while IFS= read -r w; do
-    [ -z "$w" ] && continue
+    [[ -z "$w" ]] && continue
     num_in_range "drive wear%" "$w" 0 100
   done < <(j '.drives[].wear_pct')
   # SMART must report a boolean health on a smartctl-capable drive (not absent).
   SMART_PRESENT="$(j '[.drives[] | select(.smartctl_available == true) | .smart_ok] | length')"
-  if [ "${SMART_PRESENT:-0}" -ge 1 ]; then
+  if [[ "${SMART_PRESENT:-0}" -ge 1 ]]; then
     ok "SMART smart_ok present on >=1 smartctl-capable drive"
   else
     skip "SMART health (no smartctl-capable drive)"
@@ -115,7 +115,7 @@ fi
 # .thermals[] = [{sensor,label,temp_c}, ...]. Take the hottest; must be a
 # plausible CPU temp (above freezing, below 100°C Tjmax). 0/empty/absurd = bad.
 CPU_TEMP="$(j '[.thermals[].temp_c] | max // empty')"
-if [ -n "$CPU_TEMP" ] && [ "$CPU_TEMP" != "0" ]; then
+if [[ -n "$CPU_TEMP" ]] && [[ "$CPU_TEMP" != "0" ]]; then
   num_in_range "CPU temp °C (max sensor)" "$CPU_TEMP" 1 99
 else
   skip "CPU thermal (no sensor reported)"
@@ -124,7 +124,7 @@ fi
 # ── BATTERY (present-path) ────────────────────────────────────────────────────
 # Battery lives in `health --json` as a check named "Battery", not in `hardware`.
 BATT_PRESENT="$(jh '[.checks[] | select(.name=="Battery") | .raw.present] | first // false')"
-if [ "$BATT_PRESENT" = "true" ] || [ "$BATT_PRESENT" = "True" ]; then
+if [[ "$BATT_PRESENT" = "true" ]] || [[ "$BATT_PRESENT" = "True" ]]; then
   num_in_range "battery capacity%" \
     "$(jh '[.checks[] | select(.name=="Battery") | .raw.capacity_pct] | first')" 0 100
 else
@@ -140,4 +140,4 @@ fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $SKIP skipped"
-[ "$FAIL" -eq 0 ]
+[[ "$FAIL" -eq 0 ]]

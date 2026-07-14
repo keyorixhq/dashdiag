@@ -14,12 +14,58 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	renderCatCPULoad    = "CPU Load"
+	renderCatCPUThermal = "CPU Thermal"
+	renderCatMemory     = "Memory"
+	renderCatSwap       = "Swap"
+	renderCatGPU        = "GPU"
+	renderCatIO         = "IO"
+	renderCatDrives     = "Drives"
+	renderCatDisk       = "Disk"
+	renderCatLVM        = "LVM"
+	renderCatNetwork    = "Network"
+	renderCatSystemd    = "Systemd"
+	renderCatProcesses  = "Processes"
+	renderCatFDLimits   = "FDLimits"
+	renderCatEntropy    = "Entropy"
+	renderCatLogs       = "Logs"
+	renderCatOOM        = "OOM"
+	renderCatIPMI       = "IPMI"
+	renderCatBonding    = "Bonding"
+	renderCatFirewall   = "Firewall"
+	renderCatAuth       = "Auth"
+	renderCatAuditd     = "Auditd"
+	renderCatPressure   = "Pressure"
+	renderCatMultipath  = "Multipath"
+	renderCatVMware     = "VMware"
+	renderCatVLAN       = "VLAN"
+	renderCatSRIOV      = "SRIOV"
+	renderCatNspawn     = "Nspawn"
+	renderCatLaunchd    = "Launchd"
+	renderCatKernelSec  = "KernelSec"
+	renderCatIscsi      = "iSCSI"
+	renderCatInfiniBand = "InfiniBand"
+	renderCatHugePages  = "HugePages"
+	renderCatHBA        = "HBA"
+	renderCatCPUFreq    = "CPUFreq"
+	renderCatContainerd = "Containerd"
+	renderCatCloudMeta  = "CloudMeta"
+	renderCatCloudInit  = "CloudInit"
+	renderCatClock      = "Clock"
+	renderCatCeph       = "Ceph"
+	renderCatBattery    = "Battery"
+	renderCatNUMA       = "NUMA"
+	renderCatPackages   = "Packages"
+	renderCatOther      = "Other"
+)
+
 type Renderer struct{ mode output.OutputMode }
 
 func NewRenderer(mode output.OutputMode) *Renderer { return &Renderer{mode: mode} }
 
 // insightForResult returns the highest-severity insight for a collector result.
-// It matches on exact check name or the "Name " prefix (e.g. "IO" matches "IO sda").
+// It matches on exact check name or the "Name " prefix (e.g. renderCatIO matches "IO sda").
 // Analysis check names must equal the collector name; this prefix rule is a safety net.
 func insightForResult(name string, insights []models.Insight) *models.Insight {
 	order := map[string]int{"CRIT": 3, "WARN": 2, "INFO": 1, "OK": 0}
@@ -46,26 +92,26 @@ func DisplayOrder() []string { return displayOrder }
 // Groups: identity → compute → storage → network → security → platform-specific
 var displayOrder = []string{
 	// Compute
-	"CPU Load", "CPU Thermal", "Memory", "Swap", "GPU",
+	renderCatCPULoad, renderCatCPUThermal, renderCatMemory, renderCatSwap, renderCatGPU,
 	// Storage
-	"Disk", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD",
+	renderCatDisk, renderCatIO, renderCatDrives, renderCatLVM, "RAID", "ZFS", "DRBD",
 	// Network
-	"Network",
+	renderCatNetwork,
 	// System
-	"Systemd", "Processes", "FDLimits", "Entropy",
-	"Clock", "Logs", "Sysctl",
+	renderCatSystemd, renderCatProcesses, renderCatFDLimits, renderCatEntropy,
+	renderCatClock, renderCatLogs, "Sysctl",
 	// Security
-	"KernelSec", "Hardening", "Packages",
+	renderCatKernelSec, "Hardening", renderCatPackages,
 	// RHEL/Oracle maintenance & patch-effectiveness
 	"Kdump", "Tuned", "Kernel", "Ksplice", "ServiceRestart",
 	// Platform-specific
-	"Subscription", "Snapshots", "Battery", "Launchd", "PVE",
-	"Bonding", "IPMI", "OOM", "HBA", "Pressure", "Multipath",
-	"Ceph", "Firewall", "Auth", "CloudMeta", "CloudInit", "Auditd",
-	"NUMA", "VLAN", "iSCSI", "InfiniBand", "SRIOV", "Nspawn",
-	"HugePages", "CPUFreq",
+	"Subscription", "Snapshots", renderCatBattery, renderCatLaunchd, "PVE",
+	renderCatBonding, renderCatIPMI, renderCatOOM, renderCatHBA, renderCatPressure, renderCatMultipath,
+	renderCatCeph, renderCatFirewall, renderCatAuth, renderCatCloudMeta, renderCatCloudInit, renderCatAuditd,
+	renderCatNUMA, renderCatVLAN, renderCatIscsi, renderCatInfiniBand, renderCatSRIOV, renderCatNspawn,
+	renderCatHugePages, renderCatCPUFreq,
 	// Optional
-	"TLS", "Docker", "Containerd", "K8s", "Hardware",
+	"TLS", "Docker", renderCatContainerd, "K8s", "Hardware",
 }
 
 // sortedResults reorders runner results into the canonical display order.
@@ -213,7 +259,7 @@ type healthLayer struct {
 	title    string
 	subtitle string
 	hint     string   // optional "zoom in" command shown when a member is present
-	hintFor  string   // collector name that triggers hint (e.g. "VMware" → dsd vmware)
+	hintFor  string   // collector name that triggers hint (e.g. renderCatVMware → dsd vmware)
 	members  []string // collector names in this layer
 }
 
@@ -222,15 +268,15 @@ type healthLayer struct {
 // are more root-cause-y, so they print first — a cause reads above its symptoms.
 // This is a PRESENTATION grouping only (the --json schema is unchanged); it's a
 // flat, deliberately-easy-to-retune table. Any collector not listed here falls
-// into a trailing "Other" group, so nothing is ever hidden.
+// into a trailing renderCatOther group, so nothing is ever hidden.
 var healthLayers = []healthLayer{
 	{
 		title: "Hardware & storage", subtitle: "your machine's resources & devices",
 		members: []string{
-			"CPU Load", "CPU Thermal", "CPUFreq", "CPUDeep", "Memory", "Swap", "GPU",
-			"Disk", "Fstab", "Root FS", "IO", "Drives", "LVM", "RAID", "ZFS", "DRBD",
-			"Multipath", "iSCSI", "HBA", "Ceph", "Battery", "IPMI", "NUMA",
-			"InfiniBand", "SRIOV", "HugePages", "Firmware", "Hardware",
+			renderCatCPULoad, renderCatCPUThermal, renderCatCPUFreq, "CPUDeep", renderCatMemory, renderCatSwap, renderCatGPU,
+			renderCatDisk, "Fstab", "Root FS", renderCatIO, renderCatDrives, renderCatLVM, "RAID", "ZFS", "DRBD",
+			renderCatMultipath, renderCatIscsi, renderCatHBA, renderCatCeph, renderCatBattery, renderCatIPMI, renderCatNUMA,
+			renderCatInfiniBand, renderCatSRIOV, renderCatHugePages, "Firmware", "Hardware",
 		},
 	},
 	{
@@ -238,25 +284,25 @@ var healthLayers = []healthLayer{
 		// VMware/AWS/Azure/GCP) or PROVIDES it (a KVM/Proxmox node IS the hypervisor).
 		// Both are "the platform," viewed from opposite sides.
 		title: "Platform", subtitle: "the hypervisor / cloud platform layer",
-		hint: "dsd vmware", hintFor: "VMware",
+		hint: "dsd vmware", hintFor: renderCatVMware,
 		members: []string{
-			"VMware", "KVMGuest", "ContainerGuest", "AWS", "Azure", "GCP",
-			"CloudMeta", "CloudInit", "KVM", "PVE",
+			renderCatVMware, "KVMGuest", "ContainerGuest", "AWS", "Azure", "GCP",
+			renderCatCloudMeta, renderCatCloudInit, "KVM", "PVE",
 		},
 	},
 	{
 		title: "OS & services", subtitle: "Linux configuration & workloads",
 		members: []string{
 			// Core OS / kernel / config
-			"Systemd", "DBus", "Processes", "Proc", "FDLimits", "Entropy", "Clock",
-			"Logs", "Sysctl", "KernelSec", "Hardening", "Packages", "Subscription",
-			"Auth", "Auditd", "Snapshots", "Pressure", "OOM", "Nspawn", "Launchd",
+			renderCatSystemd, "DBus", renderCatProcesses, "Proc", renderCatFDLimits, renderCatEntropy, renderCatClock,
+			renderCatLogs, "Sysctl", renderCatKernelSec, "Hardening", renderCatPackages, "Subscription",
+			renderCatAuth, renderCatAuditd, "Snapshots", renderCatPressure, renderCatOOM, renderCatNspawn, renderCatLaunchd,
 			"Sessions", "PostBoot", "Cron", "Timeline", "CVE", "SteamOS",
 			// Networking
-			"Network", "Networkd", "DNS", "DNS resolver", "NFS",
-			"BIND", "Firewall", "Bonding", "VLAN", "TLS",
+			renderCatNetwork, "Networkd", "DNS", "DNS resolver", "NFS",
+			"BIND", renderCatFirewall, renderCatBonding, renderCatVLAN, "TLS",
 			// Containers / orchestration
-			"Docker", "Containerd", "K8s",
+			"Docker", renderCatContainerd, "K8s",
 			// Service workloads (gate-detected; silent when absent)
 			"Services", "ServicesDeep", "Postgres", "MySQL", "Redis", "Memcached",
 			"Nginx", "Apache", "HAProxy", "RabbitMQ", "Elasticsearch", "MongoDB",
@@ -286,7 +332,7 @@ func (r *Renderer) PrintAllLayered(results []runner.Result, insights []models.In
 			if !member[res.Name] {
 				continue
 			}
-			assigned[res.Name] = true // claim it so "Other" can't, even if hidden
+			assigned[res.Name] = true // claim it so renderCatOther can't, even if hidden
 			present = true
 			if !shouldHideRow(res, insights) {
 				rows = append(rows, res)
@@ -323,7 +369,7 @@ func (r *Renderer) PrintAllLayered(results []runner.Result, insights []models.In
 		}
 	}
 	if len(other) > 0 {
-		r.printLayerHeader("Other", "unclassified")
+		r.printLayerHeader(renderCatOther, "unclassified")
 		for _, res := range other {
 			r.printRow(res, insights)
 		}
@@ -401,17 +447,17 @@ func shouldHideRow(res runner.Result, insights []models.Insight) bool {
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
 //
 //nolint:cyclop // flat name→function dispatch; splitting would harm readability
-func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch table; splitting would not improve readability
+func inlineData(res runner.Result) string { //nolint:funlen // NOSONAR — flat dispatch table; CC is entry count, not branch depth
 	switch res.Name {
-	case "CPU Load":
+	case renderCatCPULoad:
 		return inlineCPULoad(res.Data)
-	case "Memory":
+	case renderCatMemory:
 		return inlineMemory(res.Data)
-	case "Swap":
+	case renderCatSwap:
 		return inlineSwap(res.Data)
-	case "Disk":
+	case renderCatDisk:
 		return diskInline(res.Data)
-	case "Network":
+	case renderCatNetwork:
 		return networkInline(res.Data)
 	case "Kdump":
 		return inlineKdump(res.Data)
@@ -423,81 +469,81 @@ func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch tab
 		return inlineKsplice(res.Data)
 	case "ServiceRestart":
 		return inlineServiceRestart(res.Data)
-	case "Entropy":
+	case renderCatEntropy:
 		return inlineEntropy(res.Data)
-	case "FDLimits":
+	case renderCatFDLimits:
 		return inlineFDLimits(res.Data)
-	case "IO":
+	case renderCatIO:
 		return inlineIO(res.Data)
-	case "KernelSec":
+	case renderCatKernelSec:
 		return inlineKernelSec(res.Data)
-	case "Clock":
+	case renderCatClock:
 		return inlineClock(res.Data)
-	case "Logs":
+	case renderCatLogs:
 		return inlineLogs(res.Data)
-	case "GPU":
+	case renderCatGPU:
 		return inlineGPU(res.Data)
-	case "CPU Thermal":
+	case renderCatCPUThermal:
 		return inlineCPUThermal(res.Data)
-	case "Battery":
+	case renderCatBattery:
 		return inlineBattery(res.Data)
-	case "Launchd":
+	case renderCatLaunchd:
 		return inlineLaunchd(res.Data)
-	case "Packages":
+	case renderCatPackages:
 		return inlinePackages(res.Data)
 	case "CVE":
 		return inlineCVE(res.Data)
-	case "Drives":
+	case renderCatDrives:
 		return inlineDrives(res.Data)
-	case "Systemd":
+	case renderCatSystemd:
 		return inlineSystemd(res.Data)
-	case "Processes":
+	case renderCatProcesses:
 		return inlineProcesses(res.Data)
-	case "Bonding":
+	case renderCatBonding:
 		return inlineBonding(res.Data)
-	case "OOM":
+	case renderCatOOM:
 		return inlineOOM(res.Data)
-	case "LVM":
+	case renderCatLVM:
 		return inlineLVM(res.Data)
 	case "Sessions":
 		return inlineSessions(res.Data)
-	case "IPMI":
+	case renderCatIPMI:
 		return inlineIPMI(res.Data)
-	case "HBA":
+	case renderCatHBA:
 		return inlineHBA(res.Data)
-	case "Pressure":
+	case renderCatPressure:
 		return inlinePressure(res.Data)
-	case "Multipath":
+	case renderCatMultipath:
 		return inlineMultipath(res.Data)
-	case "Ceph":
+	case renderCatCeph:
 		return inlineCeph(res.Data)
-	case "Firewall":
+	case renderCatFirewall:
 		return inlineFirewall(res.Data)
-	case "Auth":
+	case renderCatAuth:
 		return inlineAuth(res.Data)
-	case "CloudMeta":
+	case renderCatCloudMeta:
 		return inlineCloudMeta(res.Data)
-	case "CloudInit":
+	case renderCatCloudInit:
 		return inlineCloudInit(res.Data)
-	case "Auditd":
+	case renderCatAuditd:
 		return inlineAuditd(res.Data)
-	case "NUMA":
+	case renderCatNUMA:
 		return inlineNUMA(res.Data)
-	case "VLAN":
+	case renderCatVLAN:
 		return inlineVLAN(res.Data)
-	case "iSCSI":
+	case renderCatIscsi:
 		return inlineISCSI(res.Data)
-	case "InfiniBand":
+	case renderCatInfiniBand:
 		return inlineInfiniBand(res.Data)
-	case "SRIOV":
+	case renderCatSRIOV:
 		return inlineSRIOV(res.Data)
-	case "Nspawn":
+	case renderCatNspawn:
 		return inlineNspawn(res.Data)
-	case "HugePages":
+	case renderCatHugePages:
 		return inlineHugePages(res.Data)
-	case "CPUFreq":
+	case renderCatCPUFreq:
 		return inlineCPUFreq(res.Data)
-	case "Containerd":
+	case renderCatContainerd:
 		return inlineContainerd(res.Data)
 	}
 	return ""

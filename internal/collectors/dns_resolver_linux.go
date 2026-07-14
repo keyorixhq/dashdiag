@@ -14,6 +14,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	dnsResDNSSECField = "DNSSEC="
+	dnsResResolvedSvc = "systemd-resolved"
+	dnsResStatusYes   = "yes"
+	dnsResStatusNo    = "no"
+	dnsResLinkGlobal  = "global"
+)
+
 // DNSResolverCollector audits the resolver feature set for `dsd net deep`:
 // systemd-resolved vs NetworkManager, resolv.conf mode (stub/uplink/custom),
 // DNSSEC configuration vs effective state, DNS-over-TLS, a live DNSSEC
@@ -35,7 +43,7 @@ func (c *DNSResolverCollector) Collect(ctx context.Context) (interface{}, error)
 
 	detectResolver(ctx, info)
 
-	if info.ResolverType == "systemd-resolved" && info.ResolverActive {
+	if info.ResolverType == dnsResResolvedSvc && info.ResolverActive {
 		if status, err := runResolvectl(ctx, "status"); err == nil {
 			parseResolvectlStatus(status, info)
 		}
@@ -67,9 +75,9 @@ func detectResolver(ctx context.Context, info *models.ResolverAuditInfo) {
 	}
 	info.ResolvConfMode = resolvConfMode(target, err == nil)
 
-	if out, e := runCmd(ctx, "systemctl", "is-active", "systemd-resolved"); e == nil &&
+	if out, e := runCmd(ctx, "systemctl", "is-active", dnsResResolvedSvc); e == nil &&
 		strings.TrimSpace(out) == "active" {
-		info.ResolverType = "systemd-resolved"
+		info.ResolverType = dnsResResolvedSvc
 		info.ResolverActive = true
 		return
 	}
@@ -134,7 +142,7 @@ func parseResolvectlStatus(status string, info *models.ResolverAuditInfo) {
 		switch {
 		case strings.HasPrefix(line, "Global"):
 			flush()
-			cur = &models.ResolverLinkDNS{Link: "global"}
+			cur = &models.ResolverLinkDNS{Link: dnsResLinkGlobal}
 		case strings.HasPrefix(line, "Link "):
 			flush()
 			cur = &models.ResolverLinkDNS{Link: linkName(line)}
@@ -147,7 +155,7 @@ func parseResolvectlStatus(status string, info *models.ResolverAuditInfo) {
 			if cur != nil {
 				cur.DNSSEC = dnssec
 			}
-			if cur != nil && cur.Link == "global" {
+			if cur != nil && cur.Link == dnsResLinkGlobal {
 				info.DNSSECActive = dnssec
 				info.DoTStatus = dot
 			}
@@ -159,7 +167,7 @@ func parseResolvectlStatus(status string, info *models.ResolverAuditInfo) {
 	// Global section (older resolvectl) so degrade detection still works.
 	if info.DNSSECActive == "" {
 		for _, l := range info.LinkDNS {
-			if l.Link != "global" && l.DNSSEC != "" {
+			if l.Link != dnsResLinkGlobal && l.DNSSEC != "" {
 				info.DNSSECActive = l.DNSSEC
 				break
 			}
@@ -178,21 +186,21 @@ func linkName(line string) string {
 }
 
 // parseProtocols extracts the DNSSEC and DNS-over-TLS state from a Protocols line.
-// DNSSEC token looks like "DNSSEC=no/unsupported" → returns ("no", reason kept by
+// DNSSEC token looks like "DNSSEC=no/unsupported" → returns (dnsResStatusNo, reason kept by
 // caller via the raw token). DoT is "+DNSOverTLS"/"-DNSOverTLS" or
 // "DNSOverTLS=opportunistic".
 func parseProtocols(line string) (dnssec, dot string) {
 	for _, tok := range strings.Fields(line) {
 		switch {
-		case strings.HasPrefix(tok, "DNSSEC="):
-			dnssec = strings.TrimPrefix(tok, "DNSSEC=") // may be "no/unsupported"
+		case strings.HasPrefix(tok, dnsResDNSSECField):
+			dnssec = strings.TrimPrefix(tok, dnsResDNSSECField) // may be "no/unsupported"
 		case strings.HasPrefix(tok, "DNSOverTLS="):
 			dot = strings.TrimPrefix(tok, "DNSOverTLS=")
 		case tok == "+DNSOverTLS":
-			dot = "yes"
+			dot = dnsResStatusYes
 		case tok == "-DNSOverTLS":
 			if dot == "" {
-				dot = "no"
+				dot = dnsResStatusNo
 			}
 		}
 	}
@@ -211,8 +219,8 @@ func parseResolvedConfDNSSEC(r io.Reader) (string, error) {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
-		if strings.HasPrefix(line, "DNSSEC=") {
-			val = strings.TrimSpace(strings.TrimPrefix(line, "DNSSEC="))
+		if strings.HasPrefix(line, dnsResDNSSECField) {
+			val = strings.TrimSpace(strings.TrimPrefix(line, dnsResDNSSECField))
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -221,25 +229,25 @@ func parseResolvedConfDNSSEC(r io.Reader) (string, error) {
 	return val, nil
 }
 
-// computeDNSSECDegrade flags the case where DNSSEC is configured "yes" but the
-// effective state on a link is not "yes" (systemd downgraded it because an
+// computeDNSSECDegrade flags the case where DNSSEC is configured dnsResStatusYes but the
+// effective state on a link is not dnsResStatusYes (systemd downgraded it because an
 // upstream resolver does not support validation).
 func computeDNSSECDegrade(info *models.ResolverAuditInfo) {
-	if !strings.EqualFold(info.DNSSECConfigured, "yes") {
+	if !strings.EqualFold(info.DNSSECConfigured, dnsResStatusYes) {
 		return // not configured strict — a downgrade is expected, not a fault
 	}
 	active := dnssecState(info.DNSSECActive)
-	if active == "yes" {
+	if active == dnsResStatusYes {
 		return
 	}
 
 	// Find the offending link to name it and its upstream server in the reason.
 	link, server := "", ""
 	for _, l := range info.LinkDNS {
-		if l.Link == "global" {
+		if l.Link == dnsResLinkGlobal {
 			continue
 		}
-		if dnssecState(l.DNSSEC) != "yes" {
+		if dnssecState(l.DNSSEC) != dnsResStatusYes {
 			link = l.Link
 			if len(l.Servers) > 0 {
 				server = l.Servers[0]
@@ -263,7 +271,7 @@ func computeDNSSECDegrade(info *models.ResolverAuditInfo) {
 	info.DNSSECDegradedReason = reason
 }
 
-// dnssecState normalises "no/unsupported" → "no", "yes/..." → "yes".
+// dnssecState normalises "no/unsupported" → dnsResStatusNo, "yes/..." → dnsResStatusYes.
 func dnssecState(v string) string {
 	if i := strings.Index(v, "/"); i >= 0 {
 		return v[:i]

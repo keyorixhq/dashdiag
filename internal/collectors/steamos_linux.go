@@ -14,6 +14,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+const (
+	steamCmdRAUC  = "rauc"
+	steamHomeDeck = "/home/deck"
+)
+
 // SteamOSCollector gathers Steam Deck / SteamOS diagnostics: RAUC A/B slot
 // health, read-only rootfs state, the Gamescope session, the tiny /var and
 // /home partitions, and Wi-Fi backend. All shell-outs are gated behind
@@ -260,7 +265,7 @@ func (c *SteamOSCollector) collectSystem(ctx context.Context, info *models.Steam
 	}
 
 	// steamos-readonly status → "enabled" / "disabled"
-	if out, err := runCmd(ctx, "steamos-readonly", "status"); err == nil {
+	if out, err := runCmd(ctx, "steamos-readonly", secFldStatus); err == nil {
 		info.ReadonlyKnown = true
 		info.ReadonlyEnabled = strings.Contains(strings.TrimSpace(out), "enabled")
 	}
@@ -270,13 +275,13 @@ func (c *SteamOSCollector) collectSystem(ctx context.Context, info *models.Steam
 
 func (c *SteamOSCollector) collectRAUC(ctx context.Context, info *models.SteamOSInfo) {
 	// Prefer JSON (modern RAUC); fall back to text on older versions.
-	if out, err := runCmd(ctx, "rauc", "status", "--output-format=json"); err == nil && out != "" {
+	if out, err := runCmd(ctx, steamCmdRAUC, secFldStatus, "--output-format=json"); err == nil && out != "" {
 		if applyRAUCJSON(out, info) {
 			info.RAUCAvailable = true
 			return
 		}
 	}
-	if out, err := runCmd(ctx, "rauc", "status"); err == nil && out != "" {
+	if out, err := runCmd(ctx, steamCmdRAUC, secFldStatus); err == nil && out != "" {
 		applyRAUCText(out, info)
 		info.RAUCAvailable = true
 	}
@@ -376,7 +381,7 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 		info.GamescopeErrors = filterGamescopeErrors(out, 5)
 	}
 	// Last RAUC log line (most recent update attempt result).
-	if out, err := runCmd(ctx, "journalctl", "-u", "rauc", "-n", "30", "--no-pager"); err == nil {
+	if out, err := runCmd(ctx, "journalctl", "-u", steamCmdRAUC, "-n", "30", "--no-pager"); err == nil {
 		if last := lastNonEmptyLine(out); last != "" {
 			info.RAUCLastLog = last
 		}
@@ -409,13 +414,13 @@ func (c *SteamOSCollector) collectDeep(ctx context.Context, info *models.SteamOS
 // steamUserHome returns the Steam Deck user's home. The default user is "deck";
 // fall back to $HOME when that path is absent (HoloISO/Bazzite use other names).
 func steamUserHome() string {
-	if fileExists("/home/deck") {
-		return "/home/deck"
+	if fileExists(steamHomeDeck) {
+		return steamHomeDeck
 	}
 	if h := os.Getenv("HOME"); h != "" {
 		return h
 	}
-	return "/home/deck"
+	return steamHomeDeck
 }
 
 // duGB returns the size of a directory tree in GB via `du -sb` (bytes). Returns

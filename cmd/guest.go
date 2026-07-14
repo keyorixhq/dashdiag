@@ -19,6 +19,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const guestSectionVM = "Your VM — you can fix these"
+
 func init() {
 	rootCmd.AddCommand(guestCmd)
 	guestCmd.Flags().Bool("report-html", false,
@@ -206,7 +208,7 @@ func azureGuestView(ctx context.Context) guestView {
 		insights:   analysis.AzureInsights(*info),
 		hostSide:   azureInsightProviderSide,
 		recognized: isAzureRecognitionLine,
-		guestTitle: "Your VM — you can fix these",
+		guestTitle: guestSectionVM,
 		hostTitle:  "Accelerated networking — evidence to share with Azure support",
 		healthyMsg: "Azure VM healthy — no guest-side config or datapath issues found",
 	}
@@ -234,7 +236,7 @@ func gcpGuestView(ctx context.Context) guestView {
 		insights:   analysis.GCPInsights(*info),
 		hostSide:   gcpInsightProviderSide,
 		recognized: isGCPRecognitionLine,
-		guestTitle: "Your VM — you can fix these",
+		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — Google Cloud activity to correlate",
 		healthyMsg: "GCE guest healthy — no guest-side config or host-maintenance issues found",
 	}
@@ -296,7 +298,7 @@ func vmwareGuestView(ctx context.Context) guestView {
 		insights:   analysis.VMwareInsights(*info),
 		hostSide:   vmwareInsightHostSide,
 		recognized: isVMwareRecognitionLine,
-		guestTitle: "Your VM — you can fix these",
+		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — evidence to share with your cloud provider",
 		healthyMsg: "VMware guest healthy — guest tools running, paravirtual drivers in use, no host pressure",
 	}
@@ -320,7 +322,7 @@ func kvmGuestView(ctx context.Context) guestView {
 		insights:   analysis.KVMGuestInsights(*info),
 		hostSide:   kvmGuestInsightHostSide,
 		recognized: isKVMGuestRecognitionLine,
-		guestTitle: "Your VM — you can fix these",
+		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — evidence for whoever runs your hypervisor",
 		healthyMsg: "KVM guest healthy — VirtIO NIC+disk, qemu-guest-agent running, no host pressure",
 	}

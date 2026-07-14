@@ -31,4 +31,4 @@ check "dsd examples exits 0"           bash -c "$BINARY examples; [ \$? -eq 0 ]"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
-[ $FAIL -eq 0 ]
+[[ $FAIL -eq 0 ]]

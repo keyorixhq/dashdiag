@@ -33,6 +33,9 @@ const (
 	// months-old record must not be flagged as a current problem. Anything older
 	// than this is treated as stale and skipped.
 	crashFileMaxAgeDays = 30
+	logsNoPager         = "--no-pager"
+	logsSyslogPath      = "/var/log/syslog"
+	logsMessagesPath    = "/var/log/messages"
 )
 
 type LogsCollector struct {
@@ -193,7 +196,7 @@ func readKmsgLive(ctx context.Context) string {
 // parseKmsg reads /dev/kmsg and extracts OOM kills and segfaults from the last hour.
 // /dev/kmsg entries are: "priority,sequence,timestamp_usec,flags;message"
 // timestamp_usec is monotonic time since boot in microseconds.
-func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // kernel-log level classification is an inherently long, branchy dispatch
+func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // NOSONAR — kernel-log level classification is an inherently long, branchy dispatch
 	kmsgLines := kmsgRecords(ctx)
 	if len(kmsgLines) == 0 {
 		return
@@ -364,7 +367,7 @@ func dirSizeViaSource(dir string) int64 {
 // detectCrashLoops uses systemctl to find units that have restarted frequently.
 // This is an acceptable wrapper — crash loop state isn't in /proc or /sys.
 func detectCrashLoops(ctx context.Context) []string {
-	out, err := runCmd(ctx, "systemctl", "list-units", "--state=failed", "--no-legend", "--no-pager", "--plain")
+	out, err := runCmd(ctx, "systemctl", "list-units", "--state=failed", "--no-legend", logsNoPager, "--plain")
 	if err != nil {
 		return nil
 	}
@@ -699,7 +702,7 @@ func detectNoTextFallback(profile platform.Profile) bool {
 		return true
 	}
 	// If a text syslog file exists, there is a fallback.
-	for _, f := range []string{"/var/log/syslog", "/var/log/messages", "/var/log/auth.log"} {
+	for _, f := range []string{logsSyslogPath, logsMessagesPath, "/var/log/auth.log"} {
 		if fileExists(f) {
 			return false
 		}
@@ -778,7 +781,7 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 
 	// Error count: emerg(0) through err(3).
 	errOut, err := runCmd(summaryCtx, "journalctl", "-p", "err", "--since", since,
-		"--no-pager", "-q", "--output=short-iso")
+		logsNoPager, "-q", "--output=short-iso")
 	if err != nil {
 		// The journal error query failed — ErrorCount stays 0. Flag it so the verdict
 		// doesn't read a host with a flooded error log as healthy (the /var/log
@@ -817,7 +820,7 @@ func collectSeveritySummary(ctx context.Context, info *models.LogsInfo, lookback
 
 	// Warning count
 	warnOut, err := runCmd(summaryCtx, "journalctl", "-p", "warning", "--since", since,
-		"--no-pager", "-q", "--output=short")
+		logsNoPager, "-q", "--output=short")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(warnOut), "\n") {
 			if line == "" || isBenignKernelErr(strings.ToLower(line)) {
@@ -1039,7 +1042,7 @@ func detectLogSource(profile platform.Profile) string {
 	}
 	// Check for syslog text files (common co-existence on Ubuntu/RHEL)
 	hasSyslog := false
-	for _, p := range []string{"/var/log/syslog", "/var/log/messages"} {
+	for _, p := range []string{logsSyslogPath, logsMessagesPath} {
 		if fi, err := statFile(p); err == nil && fi.Size > 0 {
 			hasSyslog = true
 			break
@@ -1086,7 +1089,7 @@ const varLogTailLines = 500
 // Only called when journald is volatile and produced no errors, so it never
 // duplicates journald output. Updates LogSource to the file used.
 func collectVarLogErrors(info *models.LogsInfo) {
-	collectVarLogErrorsFrom(info, []string{"/var/log/syslog", "/var/log/messages"})
+	collectVarLogErrorsFrom(info, []string{logsSyslogPath, logsMessagesPath})
 }
 
 // collectVarLogErrorsFrom is the testable core: it scans the first non-empty

@@ -12,6 +12,16 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	ksAuditLog        = "/var/log/audit/audit.log"
+	ksAuditMsgPfx     = "msg=audit("
+	ksAuditTypeAVC    = "type=AVC"
+	ksStatusUnknown   = "unknown"
+	ksStatusDenied    = "denied"
+	ksStatusDisabled  = "disabled"
+	ksStatusEnforcing = "enforcing"
+)
+
 type KernelSecurityCollector struct{}
 
 func NewKernelSecurityCollector() *KernelSecurityCollector { return &KernelSecurityCollector{} }
@@ -29,7 +39,7 @@ func parseSELinuxMode(out string) string {
 func parseSELinuxEnforce(data string) string {
 	switch strings.TrimSpace(data) {
 	case "1":
-		return "enforcing"
+		return ksStatusEnforcing
 	case "0":
 		return "permissive"
 	}
@@ -39,7 +49,7 @@ func parseSELinuxEnforce(data string) string {
 // resolveSELinuxMode is the pure decision behind collectSELinux, and the BUG-074
 // regression surface: prefer the mode from the world-readable `enforce` node, fall
 // back to `getenforce`, and — when NEITHER yields a mode — report present-but-
-// "unknown" if the SELinux fs is mounted (loaded but unreadable) rather than a false
+// ksStatusUnknown if the SELinux fs is mounted (loaded but unreadable) rather than a false
 // "not present"/"not enforced". The enforce-node value MUST win over an absent
 // getenforce: that getenforce-absent-on-a-non-root-PATH case (Leap Micro `nobody`,
 // Tumbleweed `andrei`) is exactly the false-OK this guards. Inputs are "" when the
@@ -51,7 +61,7 @@ func resolveSELinuxMode(enforceMode, getenforceMode string, fsMounted bool) (pre
 	}
 	if mode == "" {
 		if fsMounted {
-			return true, "unknown"
+			return true, ksStatusUnknown
 		}
 		return false, ""
 	}
@@ -77,11 +87,11 @@ func collectSELinux(ctx context.Context) (present bool, mode string, denials int
 	if !present {
 		return false, "", 0
 	}
-	if mode != "enforcing" {
+	if mode != ksStatusEnforcing {
 		return present, mode, 0
 	}
 	present = true
-	if mode != "enforcing" {
+	if mode != ksStatusEnforcing {
 		return present, mode, 0
 	}
 
@@ -141,7 +151,7 @@ func ExtractAVCProcesses(samples []string) []string {
 // Returns (count, true) on success, (0, false) if the file is unreadable.
 // When the direct read fails (non-root), falls back to ausearch if available.
 func countAVCsFromAuditLog(window time.Duration) (int, bool) {
-	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile(ksAuditLog) // #nosec G304
 	if err != nil {
 		// Fallback: try ausearch which uses the auditd socket (works non-root)
 		return countAVCsViaAusearch(window)
@@ -177,19 +187,19 @@ func avcIsPermissive(line string) bool {
 
 // isRecentAVCDenial reports whether an audit.log line is an *enforced* SELinux
 // AVC denial whose audit(EPOCH.ms:serial) timestamp is after cutoff. It requires
-// "type=AVC" and "denied" so an `avc: granted` record (logged by an auditallow
+// ksAuditTypeAVC and ksStatusDenied so an `avc: granted` record (logged by an auditallow
 // policy rule) is NOT counted, and excludes permissive=1 records (logged but not
 // enforced) — the verdict means "operations SELinux actually blocked", so every
 // counting path must agree.
 func isRecentAVCDenial(line string, cutoff time.Time) bool {
-	if !strings.Contains(line, "type=AVC") || !strings.Contains(line, "denied") {
+	if !strings.Contains(line, ksAuditTypeAVC) || !strings.Contains(line, ksStatusDenied) {
 		return false
 	}
 	if avcIsPermissive(line) {
 		return false
 	}
 	// Parse Unix timestamp from: msg=audit(1715000000.000:1)
-	_, after, ok := strings.Cut(line, "msg=audit(")
+	_, after, ok := strings.Cut(line, ksAuditMsgPfx)
 	if !ok {
 		return false
 	}
@@ -215,14 +225,14 @@ func apparmorEnabled() bool {
 
 // apparmorMode returns the AppArmor enforcement mode by inspecting the
 // loaded profiles list. Distinguishes three outcomes:
-//   - "enforce" / "complain" / "disabled": confirmed mode
-//   - "unknown": cannot determine mode (typically EACCES because
+//   - "enforce" / "complain" / ksStatusDisabled: confirmed mode
+//   - ksStatusUnknown: cannot determine mode (typically EACCES because
 //     /sys/kernel/security/apparmor/profiles is root-readable only).
 //
 // The EACCES distinction matters: on Ubuntu and most Debian-family
 // systems the profiles file is mode 0440 root:root. As non-root, the
-// previous behaviour was to silently report "disabled" — a wrong
-// system-fact claim. Reporting "unknown" lets the analysis layer
+// previous behaviour was to silently report ksStatusDisabled — a wrong
+// system-fact claim. Reporting ksStatusUnknown lets the analysis layer
 // surface the privilege limitation honestly instead of producing a
 // false "no kernel security module enforcing" verdict.
 func apparmorMode() string {
@@ -233,9 +243,9 @@ func apparmorModeFromPath(path string) string {
 	data, err := readFile(path) // #nosec G304
 	if err != nil {
 		if os.IsPermission(err) {
-			return "unknown"
+			return ksStatusUnknown
 		}
-		return "disabled"
+		return ksStatusDisabled
 	}
 	return parseApparmorProfiles(string(data))
 }
@@ -250,7 +260,7 @@ func parseApparmorProfiles(data string) string {
 			return "complain"
 		}
 	}
-	return "disabled"
+	return ksStatusDisabled
 }
 
 // apparmorDetail returns profile counts by mode from the profiles list.
@@ -279,7 +289,7 @@ func apparmorDetail() (total, enforce, complain int) {
 // countAppArmorDenials counts AppArmor DENIED entries in the audit log
 // within the last hour. Returns -1 when the audit log is unreadable.
 func countAppArmorDenials(window time.Duration) int {
-	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile(ksAuditLog) // #nosec G304
 	if err != nil {
 		// Try dmesg fallback — kernel logs AppArmor denials there too
 		return countAppArmorDenialsDmesg(window)
@@ -294,11 +304,11 @@ func countAppArmorDenials(window time.Duration) int {
 		if !strings.Contains(line, "apparmor") && !strings.Contains(line, "APPARMOR") {
 			continue
 		}
-		if !strings.Contains(line, "DENIED") && !strings.Contains(line, "denied") {
+		if !strings.Contains(line, "DENIED") && !strings.Contains(line, ksStatusDenied) {
 			continue
 		}
 		// Parse timestamp from msg=audit(TS.ms:n)
-		_, after, ok := strings.Cut(line, "msg=audit(")
+		_, after, ok := strings.Cut(line, ksAuditMsgPfx)
 		if !ok {
 			count++ // count even if no timestamp
 			continue
@@ -338,7 +348,7 @@ func countAppArmorDenialsDmesg(window time.Duration) int {
 	count := 0
 	for line := range strings.SplitSeq(out, "\n") {
 		lower := strings.ToLower(line)
-		if strings.Contains(lower, "apparmor") && strings.Contains(lower, "denied") {
+		if strings.Contains(lower, "apparmor") && strings.Contains(lower, ksStatusDenied) {
 			count++
 		}
 	}
@@ -501,7 +511,7 @@ func selinuxPolicyPkgInstalled(policyType string) bool {
 // These are shown in dsd output so the admin can see exactly what was denied
 // and generate a fix with audit2allow without manual grepping.
 func collectAVCSamples(n int) []string {
-	f, err := openFile("/var/log/audit/audit.log") // #nosec G304
+	f, err := openFile(ksAuditLog) // #nosec G304
 	if err != nil {
 		return nil
 	}
@@ -512,7 +522,7 @@ func collectAVCSamples(n int) []string {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.Contains(line, "type=AVC") {
+		if !strings.Contains(line, ksAuditTypeAVC) {
 			continue
 		}
 		// Only sample enforced denials — the count excludes permissive=1, so the
@@ -522,7 +532,7 @@ func collectAVCSamples(n int) []string {
 			continue
 		}
 		// Parse timestamp to stay within 1h window
-		_, after, ok := strings.Cut(line, "msg=audit(")
+		_, after, ok := strings.Cut(line, ksAuditMsgPfx)
 		if ok {
 			rest := after
 			dotIdx := strings.IndexByte(rest, '.')
@@ -585,7 +595,7 @@ func countAVCsViaAusearch(window time.Duration) (int, bool) {
 		// Count enforced denials only — exclude `avc: granted` (auditallow) records
 		// and permissive=1 (logged, not blocked), matching the audit-log path and
 		// the verdict's meaning.
-		if strings.Contains(line, "type=AVC") && strings.Contains(line, "denied") && !avcIsPermissive(line) {
+		if strings.Contains(line, ksAuditTypeAVC) && strings.Contains(line, ksStatusDenied) && !avcIsPermissive(line) {
 			count++
 		}
 	}

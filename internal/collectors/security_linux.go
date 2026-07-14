@@ -20,6 +20,27 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+const (
+	secValYes          = "yes"
+	secTypeFile        = "file"
+	secTypePort        = "port"
+	secFwIPTables      = "iptables"
+	secSvcHTTPD        = "httpd"
+	secFldStatus       = "status"
+	secSvcSSH          = "ssh"
+	secFwNFTables      = "nftables"
+	secFwFirewallCmd   = "firewall-cmd"
+	secFldExpiresAt    = "expires_at"
+	secTypeContainer   = "container"
+	secValALL          = "ALL"
+	secPfxUser         = "user="
+	secProtoTCP        = "tcp"
+	secFldSubscription = "subscription_status"
+	secFldIdentifier   = "identifier"
+	secValAllowed      = "allowed"
+	secValActive       = "active"
+)
+
 // SecurityCollector reads system security posture directly from kernel and
 // config files. No external tools except SUID detection (find).
 type SecurityCollector struct {
@@ -115,7 +136,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 		}
 	}
 	if readAny {
-		info.SSHAuditSource = "file"
+		info.SSHAuditSource = secTypeFile
 	}
 }
 
@@ -150,7 +171,7 @@ func parseSSHFile(path string, info *models.SecurityInfo) bool {
 }
 
 // parseSSHFileContent parses sshd_config content from a string — used by tests.
-func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // sshd_config has many independent directives; a flat scan reads clearest
+func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // NOSONAR — sshd_config has many independent directives; a flat scan reads clearest
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	// inMatch tracks whether we're inside a conditional `Match` block. Directives
 	// there are per-connection overrides, NOT the global policy we audit — e.g.
@@ -180,16 +201,16 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:c
 
 		switch key {
 		case "permitrootlogin":
-			info.SSHRootLogin = val == "yes"
+			info.SSHRootLogin = val == secValYes
 			// "without-password" is an alias for "prohibit-password" in older OpenSSH.
 			// Both mean: key-based root login allowed, but not password-based.
-			// This is a weaker restriction than "no" but not as bad as "yes".
+			// This is a weaker restriction than "no" but not as bad as secValYes.
 			info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
 		case "passwordauthentication":
-			info.SSHPasswordAuth = val == "yes"
+			info.SSHPasswordAuth = val == secValYes
 		case "pubkeyauthentication":
-			info.SSHPubkeyAuth = val == "yes"
-		case "port":
+			info.SSHPubkeyAuth = val == secValYes
+		case secTypePort:
 			if p, err := strconv.Atoi(val); err == nil && p != 22 {
 				info.SSHPort = p
 			}
@@ -211,11 +232,11 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:c
 		case "allowgroups":
 			info.SSHAllowGroups = append(info.SSHAllowGroups, fields[1:]...)
 		case "x11forwarding":
-			info.SSHX11Forwarding = val == "yes"
+			info.SSHX11Forwarding = val == secValYes
 		case "allowagentforwarding":
-			info.SSHAgentForwarding = val == "yes"
+			info.SSHAgentForwarding = val == secValYes
 		case "permitemptypasswords":
-			info.SSHPermitEmptyPwd = val == "yes"
+			info.SSHPermitEmptyPwd = val == secValYes
 		case "strictmodes":
 			// StrictModes defaults to yes — only flag when explicitly disabled
 			info.SSHStrictModes = val != "no"
@@ -226,11 +247,11 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:c
 		case "ignorerhosts":
 			info.SSHIgnoreRhosts = val != "no"
 		case "hostbasedauthentication":
-			info.SSHHostbasedAuth = val == "yes"
+			info.SSHHostbasedAuth = val == secValYes
 		case "permituserenvironment":
-			info.SSHPermitUserEnv = val == "yes"
+			info.SSHPermitUserEnv = val == secValYes
 		case "allowtcpforwarding":
-			info.SSHTCPForwarding = val == "yes"
+			info.SSHTCPForwarding = val == secValYes
 		case "loglevel":
 			info.SSHLogLevel = strings.ToUpper(val)
 		case "banner":
@@ -298,7 +319,7 @@ func parseSSHDuration(s string) int {
 //   - Legacy (OpenSSH ≤8): "Failed password for [invalid user] X from IP port P ssh2"
 //   - Modern (OpenSSH 9+): "drop connection #N from [IP]:P on [IP]:P penalty: failed authentication"
 func parseFailedLogins(ctx context.Context, info *models.SecurityInfo) {
-	lines, unreadable := authLogSourceLines(ctx, "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q")
+	lines, unreadable := authLogSourceLines(ctx, "_COMM=sshd", "--since=1 hour ago", svcNoPager, "-q")
 	if unreadable {
 		info.FailedLoginsUnreadable = true
 		return
@@ -480,7 +501,7 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 			}
 			info.ListeningPorts = append(info.ListeningPorts, models.PortEntry{
 				Port:     port,
-				Protocol: "tcp",
+				Protocol: secProtoTCP,
 				Process:  procName,
 				Expected: isExpectedPort(port),
 			})
@@ -580,11 +601,11 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
 			user := fields[0]
-			// A system-wide (user "ALL") NOPASSWD rule for a SPECIFIC command is
+			// A system-wide (user secValALL) NOPASSWD rule for a SPECIFIC command is
 			// benign and noisy (e.g. Mint's mintdrivers/mintupdate) — skip it. But
 			// "ALL ... NOPASSWD: ALL" is full passwordless root for everyone, the
 			// most dangerous escalation there is; it must NOT be skipped.
-			if user == "ALL" && !sudoGrantsAllCommands(line) {
+			if user == secValALL && !sudoGrantsAllCommands(line) {
 				continue
 			}
 			info.SudoNopasswd = append(info.SudoNopasswd, user)
@@ -601,9 +622,9 @@ func sudoGrantsAllCommands(line string) bool {
 		return false
 	}
 	cmds := strings.TrimSpace(line[idx+len("NOPASSWD:"):])
-	// First command in a possibly comma-separated list; "ALL" means all commands.
+	// First command in a possibly comma-separated list; secValALL means all commands.
 	first := strings.TrimSpace(strings.SplitN(cmds, ",", 2)[0])
-	return first == "ALL"
+	return first == secValALL
 }
 
 // parseSELinuxDenials reads the audit log directly for recent AVC denials.
@@ -743,7 +764,7 @@ type pamKey struct{ service, user string }
 // (1h window); this is a distinct, non-network privilege/auth vector,
 // counted over 24h.
 func parsePAMModuleFailures(ctx context.Context, info *models.SecurityInfo) {
-	lines, unreadable := authLogSourceLines(ctx, "--since=24 hours ago", "--no-pager", "-q",
+	lines, unreadable := authLogSourceLines(ctx, "--since=24 hours ago", svcNoPager, "-q",
 		"-g", "pam_unix.*authentication failure")
 	if unreadable {
 		info.PAMFailuresUnreadable = true
@@ -781,8 +802,8 @@ func parsePAMFailureLine(line string) (pamKey, bool) {
 	if svc == "" || svc == "sshd" {
 		return pamKey{}, false
 	}
-	// A leading space distinguishes the "user=" field from "ruser=", which
-	// contains "user=" as a substring — a bare extractAAField(line, "user=")
+	// A leading space distinguishes the secPfxUser field from "ruser=", which
+	// contains secPfxUser as a substring — a bare extractAAField(line, secPfxUser)
 	// would match inside "ruser=bob" and silently report the wrong account.
 	user := extractAAField(line, " user=")
 	if user == "" {
@@ -827,7 +848,7 @@ func selinuxDeepDiagnosisGate(info *models.SecurityInfo) bool {
 // ever logs a denial for it (the service just hasn't (re)bound under
 // enforcement since the gap appeared).
 func parseSELinuxUnlabeledPorts(ctx context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
-	out, err := runCmdTimeout(5*time.Second, "semanage", "port", "-l")
+	out, err := runCmdTimeout(5*time.Second, "semanage", secTypePort, "-l")
 	if err != nil {
 		return nil // semanage unavailable (not installed / no policy-utils) — unknown, not "unlabeled"
 	}
@@ -859,7 +880,7 @@ type semanagePortRange struct {
 //	http_port_t                    tcp    80, 443, 8008-8010
 //	ssh_port_t                     tcp    22
 //
-// Header/blank lines are skipped naturally — their 2nd field is never "tcp"/"udp".
+// Header/blank lines are skipped naturally — their 2nd field is never secProtoTCP/"udp".
 func parseSemanagePortRanges(out string) []semanagePortRange {
 	var ranges []semanagePortRange
 	for _, line := range strings.Split(out, "\n") {
@@ -868,7 +889,7 @@ func parseSemanagePortRanges(out string) []semanagePortRange {
 			continue
 		}
 		proto := fields[1]
-		if proto != "tcp" && proto != "udp" {
+		if proto != secProtoTCP && proto != "udp" {
 			continue
 		}
 		for _, tok := range strings.Split(strings.Join(fields[2:], ""), ",") {
@@ -1060,10 +1081,10 @@ func collectRelevantBooleans(ctx context.Context, groups []models.SELinuxAVCGrou
 		return nil
 	}
 
-	// Build set of scontext prefixes to search for (e.g. "httpd" from "httpd_t")
+	// Build set of scontext prefixes to search for (e.g. secSvcHTTPD from "httpd_t")
 	keywords := make(map[string]bool)
 	for _, g := range groups {
-		// "httpd_t" → "httpd"; "container_runtime_t" → "container"
+		// "httpd_t" → secSvcHTTPD; "container_runtime_t" → secTypeContainer
 		stype := strings.TrimSuffix(g.Scontext, "_t")
 		if idx := strings.LastIndex(stype, ":"); idx >= 0 {
 			stype = stype[idx+1:]
@@ -1112,7 +1133,7 @@ func collectAppArmorDenials(ctx context.Context) []models.AppArmorDenial {
 	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	out, err := runCmd(jCtx, "journalctl", "-t", "kernel", "-g", `apparmor="DENIED"`,
-		"--no-pager", "--since", "24 hours ago", "-o", "short")
+		svcNoPager, "--since", "24 hours ago", "-o", "short")
 	if err != nil || strings.TrimSpace(out) == "" {
 		return nil
 	}
@@ -1322,7 +1343,7 @@ func parseFirewall(ctx context.Context, info *models.SecurityInfo) {
 }
 
 func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
-	out, err := runCmd(ctx, "firewall-cmd", "--state")
+	out, err := runCmd(ctx, secFwFirewallCmd, "--state")
 	if err != nil || strings.TrimSpace(out) != "running" {
 		return false
 	}
@@ -1330,13 +1351,13 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 	info.FirewallType = "firewalld"
 
 	// Active zone
-	if zoneOut, err := runCmd(ctx, "firewall-cmd", "--get-default-zone"); err == nil {
+	if zoneOut, err := runCmd(ctx, secFwFirewallCmd, "--get-default-zone"); err == nil {
 		info.FirewallZone = strings.TrimSpace(zoneOut)
 	}
 
 	// Allowed services in active zone
 	rulesRead := false
-	if svcOut, err := runCmd(ctx, "firewall-cmd", "--list-services"); err == nil {
+	if svcOut, err := runCmd(ctx, secFwFirewallCmd, "--list-services"); err == nil {
 		rulesRead = true
 		info.FirewallServices = append(info.FirewallServices, strings.Fields(svcOut)...)
 	}
@@ -1344,14 +1365,14 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 	// SSH allowed?
 	info.SSHAllowed = false
 	for _, svc := range info.FirewallServices {
-		if svc == "ssh" {
+		if svc == secSvcSSH {
 			info.SSHAllowed = true
 			break
 		}
 	}
 	// Also check explicit port 22
 	if !info.SSHAllowed {
-		if portsOut, err := runCmd(ctx, "firewall-cmd", "--list-ports"); err == nil {
+		if portsOut, err := runCmd(ctx, secFwFirewallCmd, "--list-ports"); err == nil {
 			rulesRead = true
 			if strings.Contains(portsOut, "22/tcp") {
 				info.SSHAllowed = true
@@ -1368,12 +1389,12 @@ func detectFirewalld(ctx context.Context, info *models.SecurityInfo) bool {
 }
 
 func detectUFW(ctx context.Context, info *models.SecurityInfo) bool {
-	out, err := runCmd(ctx, "ufw", "status")
+	out, err := runCmd(ctx, "ufw", secFldStatus)
 	if err != nil {
 		return false
 	}
 	lower := strings.ToLower(out)
-	// "Status: inactive" contains "active" as substring — check for "status: active" specifically
+	// "Status: inactive" contains secValActive as substring — check for "status: active" specifically
 	if !strings.Contains(lower, "status: active") {
 		return false
 	}
@@ -1402,7 +1423,7 @@ func sshAllowedUFW(out string, port int) bool {
 		}
 		to := fields[0] // the "To" column: the rule's destination
 		matchesSSH := to == p || strings.HasPrefix(to, p+"/") ||
-			strings.EqualFold(to, "ssh") || strings.EqualFold(to, "openssh")
+			strings.EqualFold(to, secSvcSSH) || strings.EqualFold(to, "openssh")
 		if !matchesSSH {
 			continue
 		}
@@ -1439,11 +1460,11 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 			// binary is off a non-root $PATH). State unknown — record it so the
 			// renderer says "not verified" instead of a clean-looking "none
 			// detected", and do NOT fall through to the on-disk-config probe: the
-			// binary IS present, so inferring "active" from a config file we can't
+			// binary IS present, so inferring secValActive from a config file we can't
 			// confirm is loaded would be a false-OK.
 			info.FirewallUnreadable = true
 			if info.FirewallType == "" {
-				info.FirewallType = "nftables"
+				info.FirewallType = secFwNFTables
 			}
 			return false
 		}
@@ -1451,30 +1472,30 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 		parseNFTRuleset(out, fw)
 		if fw.TotalRules > 0 {
 			info.FirewallActive = true
-			info.FirewallType = "nftables"
+			info.FirewallType = secFwNFTables
 			info.SSHAllowed = sshAllowedNFT(out, sshPort(info))
 			return true
 		}
 		// nft is installed but the ruleset is empty — tooling present, host
 		// unprotected. Record it (renderer mirrors the health Firewall WARN) and
 		// return: an empty LIVE ruleset is authoritative, so don't let the on-disk
-		// config probe upgrade this to a misleading "active".
+		// config probe upgrade this to a misleading secValActive.
 		info.FirewallToolingPresent = true
 		if info.FirewallType == "" {
-			info.FirewallType = "nftables"
+			info.FirewallType = secFwNFTables
 		}
 		return false
 	}
 	// Fallback: nft binary not found on $PATH or in sbin — infer from on-disk
 	// config. We can't read the ruleset here, so leave SSH reachability
-	// conservatively "allowed".
+	// conservatively secValAllowed.
 	entries, _ := glob("/etc/nftables.conf")
 	if len(entries) == 0 {
 		entries, _ = glob("/etc/nftables.d/*.nft")
 	}
 	if len(entries) > 0 {
 		info.FirewallActive = true
-		info.FirewallType = "nftables"
+		info.FirewallType = secFwNFTables
 		info.SSHAllowed = true // conservative — config present but rules unread
 		return true
 	}
@@ -1488,17 +1509,17 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 // distros) the legacy ip_tables kernel module is never loaded, so that proc
 // file is absent even though the iptables-nft wrapper can list a full ruleset.
 func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
-	if sbinToolPath("iptables") == "" { // sbin-aware gate (see detectNFTables)
+	if sbinToolPath(secFwIPTables) == "" { // sbin-aware gate (see detectNFTables)
 		return false
 	}
 	// Bare name keeps the replay key stable (see detectNFTables); a non-root
 	// launch failure is treated as unreadable below.
-	out, err := runCmd(ctx, "iptables", "-L", "-n", "--line-numbers")
+	out, err := runCmd(ctx, secFwIPTables, "-L", "-n", "--line-numbers")
 	if err != nil {
 		// iptables installed but unreadable (non-root EPERM) — state unknown.
 		info.FirewallUnreadable = true
 		if info.FirewallType == "" {
-			info.FirewallType = "iptables"
+			info.FirewallType = secFwIPTables
 		}
 		return false
 	}
@@ -1506,7 +1527,7 @@ func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
 	parseIPTList(out, fw)
 	if fw.TotalRules > 0 {
 		info.FirewallActive = true
-		info.FirewallType = "iptables"
+		info.FirewallType = secFwIPTables
 		info.SSHAllowed = sshAllowedIPT(out, sshPort(info))
 		return true
 	}
@@ -1514,7 +1535,7 @@ func detectIPTables(ctx context.Context, info *models.SecurityInfo) bool {
 	// claim the backend name if nft didn't already (nft is the modern default).
 	info.FirewallToolingPresent = true
 	if info.FirewallType == "" {
-		info.FirewallType = "iptables"
+		info.FirewallType = secFwIPTables
 	}
 	return false
 }
@@ -1530,7 +1551,7 @@ func sshPort(info *models.SecurityInfo) int {
 
 // sshAllowedNFT decides whether an nftables ruleset admits NEW inbound SSH on
 // the given port. It is a heuristic matching the coarseness of the
-// firewalld/ufw service checks, and biases toward "allowed": it reports blocked
+// firewalld/ufw service checks, and biases toward secValAllowed: it reports blocked
 // only when the input hook defaults to drop with no matching accept, or no
 // accept exists and the port is explicitly dropped/rejected. Stateful and
 // interface rules (ct state, iifname lo) don't admit new SSH and are ignored.
@@ -1546,7 +1567,7 @@ func sshAllowedNFT(out string, port int) bool {
 		if !strings.Contains(low, "dport") {
 			continue
 		}
-		if !portWord.MatchString(low) && !strings.Contains(low, "ssh") {
+		if !portWord.MatchString(low) && !strings.Contains(low, secSvcSSH) {
 			continue
 		}
 		switch {
@@ -1597,7 +1618,7 @@ func sshAllowedIPT(out string, port int) bool {
 	return decideSSHAllowed(acceptSSH, blockSSH, inputPolicyDrop)
 }
 
-// decideSSHAllowed applies the shared decision, biased toward "allowed": an
+// decideSSHAllowed applies the shared decision, biased toward secValAllowed: an
 // explicit accept anywhere wins (covers accept-from-subnet); otherwise an
 // explicit block or a default-drop input policy means blocked; absent any
 // filtering signal, assume reachable.
@@ -1822,9 +1843,9 @@ func parseAppArmor(info *models.SecurityInfo) {
 
 // parseSUSEConnect reads SUSEConnect registration + subscription expiry.
 // `SUSEConnect --status` returns JSON like:
-// [{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE",
+// [{secFldIdentifier:"SLES",secFldStatus:"Registered",secFldSubscription:"ACTIVE",
 //
-//	"expires_at":"2026-07-13 00:00:00 UTC","type":"evaluation",...}]
+//	secFldExpiresAt:"2026-07-13 00:00:00 UTC","type":"evaluation",...}]
 func parseSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 	CollectSUSEConnect(ctx, info)
 }
@@ -1850,8 +1871,8 @@ func CollectSUSEConnect(ctx context.Context, info *models.SecurityInfo) {
 // applySUSEConnectStatus parses `SUSEConnect --status` JSON into info. The output is
 // an array, one entry per product, e.g.
 //
-//	[{"identifier":"SLES","status":"Registered","subscription_status":"ACTIVE",
-//	  "expires_at":"2026-07-13 00:00:00 UTC"}]
+//	[{secFldIdentifier:"SLES",secFldStatus:"Registered",secFldSubscription:"ACTIVE",
+//	  secFldExpiresAt:"2026-07-13 00:00:00 UTC"}]
 //
 // An UNREGISTERED host returns status:"Not Registered" (verified live on openSUSE
 // Leap). The old code matched the substring "registered" — which is INSIDE "Not
@@ -1885,7 +1906,7 @@ func applySUSEConnectStatus(out string, info *models.SecurityInfo) {
 	}
 }
 
-// parseSUSEExpiry parses a SUSEConnect "expires_at" timestamp ("2026-07-13 00:00:00
+// parseSUSEExpiry parses a SUSEConnect secFldExpiresAt timestamp ("2026-07-13 00:00:00
 // UTC") into whole days remaining (0 = already expired). ok is false when the field
 // is empty or unparseable, so the caller leaves ExpiresDays at -1 (unknown).
 func parseSUSEExpiry(expiresAt string) (days int, ok bool) {
@@ -2097,7 +2118,7 @@ func scanAVCLine(line string, groups map[avcGroupKey]*avcGroupData, cutoff time.
 	// then not always absolute (the audit record alone doesn't always resolve
 	// it) — only track it when it is, so the chcon check never runs against a
 	// guessed/relative path (§6-add-3).
-	if tclass == "file" || tclass == "dir" {
+	if tclass == secTypeFile || tclass == "dir" {
 		if name := strings.Trim(avcField(line, "name="), `"`); strings.HasPrefix(name, "/") {
 			groups[key].paths[name] = true
 		}
@@ -2209,19 +2230,19 @@ func suggestSELinuxFix(ctx context.Context, stype, ttype, tclass string, perms [
 	type booleanRule struct{ sPrefix, tPrefix, tclass, boolName string }
 	knownBooleans := []booleanRule{
 		// Container/Podman patterns
-		{"container", "", "bpf", "container_use_devices"},
-		{"container", "", "file", "container_file_lock"},
-		{"container", "httpd", "", "httpd_can_network_connect"},
-		{"httpd", "db", "", "httpd_can_network_connect_db"},
-		{"httpd", "", "port", "httpd_can_network_relay"},
+		{secTypeContainer, "", "bpf", "container_use_devices"},
+		{secTypeContainer, "", secTypeFile, "container_file_lock"},
+		{secTypeContainer, secSvcHTTPD, "", "httpd_can_network_connect"},
+		{secSvcHTTPD, "db", "", "httpd_can_network_connect_db"},
+		{secSvcHTTPD, "", secTypePort, "httpd_can_network_relay"},
 		// SSH / network patterns
-		{"sshd", "", "port", "selinuxuser_tcp_server"},
-		{"ssh", "", "port", "ssh_use_tcpd"},
+		{"sshd", "", secTypePort, "selinuxuser_tcp_server"},
+		{secSvcSSH, "", secTypePort, "ssh_use_tcpd"},
 		// NFS / file patterns
-		{"nfsd", "", "file", "nfs_export_all_rw"},
-		{"smbd", "", "file", "samba_export_all_rw"},
+		{"nfsd", "", secTypeFile, "nfs_export_all_rw"},
+		{"smbd", "", secTypeFile, "samba_export_all_rw"},
 		// Cron patterns
-		{"crond", "", "file", "cron_can_relabel"},
+		{"crond", "", secTypeFile, "cron_can_relabel"},
 	}
 
 	stypeLower := strings.ToLower(stype)
@@ -2248,7 +2269,7 @@ func suggestSELinuxFix(ctx context.Context, stype, ttype, tclass string, perms [
 	}
 
 	// File context — semanage fcontext
-	if tclass == "file" || tclass == "dir" {
+	if tclass == secTypeFile || tclass == "dir" {
 		for _, perm := range perms {
 			if perm == "read" || perm == "write" || perm == "open" || perm == "create" {
 				fixCmd = fmt.Sprintf("semanage fcontext -a -t %s_t '/path/to/file'  && restorecon -v /path/to/file", ttype)

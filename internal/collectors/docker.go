@@ -20,7 +20,16 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
-const crashLoopRestartThreshold = 5
+const (
+	crashLoopRestartThreshold = 5
+	dockerLogDriverJSON       = "json-file"
+	dockerSvcSuffix           = ".container"
+	dockerEvtOOM              = "oom"
+	dockerEvtDie              = "die"
+	dockerStatRunning         = "running"
+	dockerNetNone             = "none"
+	dockerNetNetavark         = "netavark"
+)
 
 // DockerCollector reads container health from the Docker or Podman socket.
 // Uses direct Unix socket HTTP — no Docker SDK dependency.
@@ -260,7 +269,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 		state := strings.ToLower(c.State)
-		if state == "running" {
+		if state == dockerStatRunning {
 			info.RunningCount++
 		} else {
 			info.StoppedCount++
@@ -288,7 +297,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 		if det.socketMounted {
 			info.SocketMountedCount++
 		}
-		if det.runsAsRoot && state == "running" {
+		if det.runsAsRoot && state == dockerStatRunning {
 			info.RunningAsRootCount++
 		}
 
@@ -308,7 +317,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 			LogMaxSizeSet:       det.logMaxSizeSet,
 			DetailUnavailable:   det.detailFailed,
 		}
-		if state != "running" && det.exitCode != 0 {
+		if state != dockerStatRunning && det.exitCode != 0 {
 			ci.ExitCode = det.exitCode
 			ci.ExitLabel = dockerExitLabel(det.exitCode)
 		}
@@ -350,7 +359,7 @@ func crashLoopStabilized(running bool, startedAt time.Time) bool {
 func containerDetail(ctx context.Context, client *http.Client, id string) containerDetailResult {
 	data, err := apiGet(ctx, client, "/containers/"+id+"/json")
 	if err != nil {
-		return containerDetailResult{health: "none", detailFailed: true}
+		return containerDetailResult{health: dockerNetNone, detailFailed: true}
 	}
 	var detail struct {
 		RestartCount int `json:"RestartCount"`
@@ -375,11 +384,11 @@ func containerDetail(ctx context.Context, client *http.Client, id string) contai
 		} `json:"HostConfig"`
 	}
 	if err := json.Unmarshal(data, &detail); err != nil {
-		return containerDetailResult{health: "none", detailFailed: true}
+		return containerDetailResult{health: dockerNetNone, detailFailed: true}
 	}
 	h := detail.State.Health.Status
 	if h == "" {
-		h = "none"
+		h = dockerNetNone
 	}
 	u := strings.ToLower(strings.TrimSpace(detail.Config.User))
 	runsAsRoot := u == "" || u == "0" || u == "root" || u == "root:root"
@@ -518,7 +527,7 @@ func parseDockerEvents(data []byte) (events []models.DockerEvent, oomCount int) 
 		if exitCode == "" {
 			exitCode = ev.Actor.Attributes["containerExitCode"]
 		}
-		if ev.Action == "oom" || (ev.Action == "die" && exitCode == "137") {
+		if ev.Action == dockerEvtOOM || (ev.Action == dockerEvtDie && exitCode == "137") {
 			oomCount++
 		}
 	}
@@ -618,14 +627,14 @@ func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo
 		if json.Unmarshal(data, &cfg) == nil {
 			ld.Driver = cfg.LogDriver
 			if ld.Driver == "" {
-				ld.Driver = "json-file" // default when not set
+				ld.Driver = dockerLogDriverJSON // default when not set
 			}
 			_, ld.MaxSizeSet = cfg.LogOpts["max-size"]
 			_, ld.MaxFileSet = cfg.LogOpts["max-file"]
 		}
 	} else {
 		// No daemon.json → all defaults → json-file, unbounded
-		ld.Driver = "json-file"
+		ld.Driver = dockerLogDriverJSON
 	}
 
 	// A container is only unbounded when its OWN effective log config (from its
@@ -642,13 +651,13 @@ func collectLogDriverHealth(info *models.DockerInfo) *models.DockerLogDriverInfo
 			ld.UnverifiedContainers = append(ld.UnverifiedContainers, c.Name)
 			continue
 		}
-		if c.LogDriver == "json-file" && !c.LogMaxSizeSet {
+		if c.LogDriver == dockerLogDriverJSON && !c.LogMaxSizeSet {
 			ld.UnboundedContainers = append(ld.UnboundedContainers, c.Name)
 		}
 	}
 
 	// Scan container log files under /var/lib/docker/containers/*/
-	if ld.Driver == "json-file" {
+	if ld.Driver == dockerLogDriverJSON {
 		ld.ContainerLogs = collectContainerLogSizes(info)
 		for _, cl := range ld.ContainerLogs {
 			if cl.SizeMB >= 500 {
@@ -908,7 +917,7 @@ func quadletFilesPresent(dir string) bool {
 			continue
 		}
 		n := e.Name()
-		if strings.HasSuffix(n, ".container") || strings.HasSuffix(n, ".pod") {
+		if strings.HasSuffix(n, dockerSvcSuffix) || strings.HasSuffix(n, ".pod") {
 			return true
 		}
 	}
@@ -1065,7 +1074,7 @@ func scanQuadletFiles(dirs []string) []quadletFile {
 				continue
 			}
 			n := e.Name()
-			if strings.HasSuffix(n, ".container") || strings.HasSuffix(n, ".pod") {
+			if strings.HasSuffix(n, dockerSvcSuffix) || strings.HasSuffix(n, ".pod") {
 				out = append(out, quadletFile{name: n, path: filepath.Join(dir, n)})
 			}
 		}
@@ -1077,7 +1086,7 @@ func scanQuadletFiles(dirs []string) []quadletFile {
 // "test-nginx.container" → "test-nginx"; "myapp.pod" → "myapp".
 func quadletBaseName(filename string) string {
 	base := filepath.Base(filename)
-	base = strings.TrimSuffix(base, ".container")
+	base = strings.TrimSuffix(base, dockerSvcSuffix)
 	base = strings.TrimSuffix(base, ".pod")
 	return base
 }
@@ -1204,17 +1213,17 @@ func detectNetworkBackend(runtime string) string {
 	}
 	// Check for netavark nft table via /run/netavark or nft list tables
 	if fileExists("/usr/libexec/podman/netavark") {
-		return "netavark"
+		return dockerNetNetavark
 	}
 	if fileExists("/usr/bin/netavark") {
-		return "netavark"
+		return dockerNetNetavark
 	}
 	if runtime == "podman" {
 		// Podman 4+ defaults to netavark; older uses CNI
 		if fileExists("/etc/cni/net.d") {
 			return "cni"
 		}
-		return "netavark"
+		return dockerNetNetavark
 	}
 	// Docker always uses iptables/nftables via dockerd
 	return "iptables"

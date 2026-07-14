@@ -6,6 +6,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	dbCatPostgres = "Postgres"
+	dbCatRedis    = "Redis"
+	dbCatMySQL    = "MySQL"
+)
+
 // checkPostgres surfaces health issues for a local PostgreSQL server. Gated on
 // Detected (a reachable local socket), silent on hosts without one. Returns nil
 // when healthy — except when the server is up but its metrics couldn't be read,
@@ -22,7 +28,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 		if reason == "" {
 			reason = "not accepting connections"
 		}
-		return []models.Insight{insight("CRIT", "Postgres",
+		return []models.Insight{insight("CRIT", dbCatPostgres,
 			fmt.Sprintf("PostgreSQL is up but not accepting connections — %s", reason),
 			[]string{
 				"to inspect: pg_isready -h " + pg.SocketDir,
@@ -33,7 +39,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 	}
 
 	if !pg.MetricsRead {
-		return []models.Insight{insight("INFO", "Postgres",
+		return []models.Insight{insight("INFO", dbCatPostgres,
 			"PostgreSQL is up and accepting connections; connection/replication metrics were not read",
 			[]string{
 				"note: run dsd as root or the postgres user for connection-saturation and replica-lag checks",
@@ -47,7 +53,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 		ratio := float64(pg.ActiveConns) / float64(pg.MaxConnections)
 		switch {
 		case ratio >= 0.95:
-			out = append(out, insight("CRIT", "Postgres",
+			out = append(out, insight("CRIT", dbCatPostgres,
 				fmt.Sprintf("PostgreSQL connections at %d/%d (%.0f%%) — new connections will be refused",
 					pg.ActiveConns, pg.MaxConnections, ratio*100),
 				[]string{
@@ -55,7 +61,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 					"to fix: add a connection pooler (pgbouncer), or raise max_connections (costs RAM)",
 				}))
 		case ratio >= 0.80:
-			out = append(out, insight("WARN", "Postgres",
+			out = append(out, insight("WARN", dbCatPostgres,
 				fmt.Sprintf("PostgreSQL connections at %d/%d (%.0f%%) — approaching the limit",
 					pg.ActiveConns, pg.MaxConnections, ratio*100),
 				[]string{"to inspect: SELECT state, count(*) FROM pg_stat_activity GROUP BY state",
@@ -65,7 +71,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 
 	// Idle-in-transaction connections hold locks and block VACUUM → bloat.
 	if pg.IdleInTxn >= 5 {
-		out = append(out, insight("WARN", "Postgres",
+		out = append(out, insight("WARN", dbCatPostgres,
 			fmt.Sprintf("%d connection(s) idle in transaction — they hold locks and block VACUUM (bloat risk)", pg.IdleInTxn),
 			[]string{
 				"to inspect: SELECT pid, state, query FROM pg_stat_activity WHERE state='idle in transaction'",
@@ -78,7 +84,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 	// ReplayCaughtUp (last-received vs last-replayed WAL position) so a
 	// perfectly-synced replica during an idle period doesn't false-fire.
 	if pg.InRecovery && !pg.ReplayCaughtUp && pg.ReplayLagSec > 300 {
-		out = append(out, insight("WARN", "Postgres",
+		out = append(out, insight("WARN", dbCatPostgres,
 			fmt.Sprintf("replica is %.0fs behind the primary — replay lag growing", pg.ReplayLagSec),
 			[]string{
 				"to inspect: SELECT now()-pg_last_xact_replay_timestamp() AS lag",
@@ -98,10 +104,10 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 	}
 	name := my.Flavor
 	if name == "" {
-		name = "MySQL"
+		name = dbCatMySQL
 	}
 	if !my.MetricsRead {
-		return []models.Insight{insight("INFO", "MySQL",
+		return []models.Insight{insight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s is reachable; connection/replication metrics were not read", name),
 			[]string{
 				"note: run dsd as root (root@localhost socket auth) for connection-saturation and replica-lag checks",
@@ -118,7 +124,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		ratio := float64(my.ThreadsConnected) / float64(my.MaxConnections)
 		switch {
 		case ratio >= 0.95:
-			out = append(out, insight("CRIT", "MySQL",
+			out = append(out, insight("CRIT", dbCatMySQL,
 				fmt.Sprintf("%s connections at %d/%d (%.0f%%) — new connections will be refused (ERROR 1040)",
 					name, my.ThreadsConnected, my.MaxConnections, ratio*100),
 				[]string{
@@ -126,7 +132,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 					"to fix: add a connection pooler (ProxySQL), or raise max_connections (costs RAM)",
 				}))
 		case ratio >= 0.80:
-			out = append(out, insight("WARN", "MySQL",
+			out = append(out, insight("WARN", dbCatMySQL,
 				fmt.Sprintf("%s connections at %d/%d (%.0f%%) — approaching the limit",
 					name, my.ThreadsConnected, my.MaxConnections, ratio*100),
 				[]string{"to inspect: SHOW PROCESSLIST",
@@ -136,7 +142,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		// max_connections / Threads_connected come from separate queries that can
 		// fail after VERSION() succeeded; without both the saturation check can't
 		// run. Surface that rather than let an unread dimension pass as clean.
-		out = append(out, insight("INFO", "MySQL",
+		out = append(out, insight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s metrics were read, but the connection counters were not — connection-saturation was not assessed", name),
 			[]string{"to inspect: mysqladmin --socket=" + my.SocketPath + " status"}))
 	}
@@ -145,7 +151,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 	// NULL here, so the lag check below would report 0s and the replica would look
 	// healthy while serving ever-staler data. CRIT, ahead of the lag WARN.
 	if my.IsReplica && my.ReplStopped {
-		out = append(out, insight("CRIT", "MySQL",
+		out = append(out, insight("CRIT", dbCatMySQL,
 			"replication is STOPPED on this replica — it is serving stale data and not following the primary",
 			[]string{
 				"to inspect: SHOW SLAVE STATUS\\G  (Slave_IO_Running / Slave_SQL_Running should both be 'Yes')",
@@ -156,7 +162,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 
 	// Replica falling behind.
 	if my.IsReplica && !my.ReplStopped && my.SecondsBehind > 300 {
-		out = append(out, insight("WARN", "MySQL",
+		out = append(out, insight("WARN", dbCatMySQL,
 			fmt.Sprintf("replica is %ds behind the primary — replication lag growing", my.SecondsBehind),
 			[]string{
 				"to inspect: SHOW SLAVE STATUS\\G  (look at Seconds_Behind_Master, Slave_IO/SQL_Running)",
@@ -175,7 +181,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		return nil
 	}
 	if !r.MetricsRead {
-		return []models.Insight{insight("INFO", "Redis",
+		return []models.Insight{insight("INFO", dbCatRedis,
 			"Redis is reachable (answered PING); memory/replication metrics were not read",
 			[]string{
 				"note: install redis-cli (or pass auth) for memory-pressure and replica checks",
@@ -192,18 +198,18 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		noEvict := r.MaxMemoryPolicy == "noeviction"
 		switch {
 		case ratio >= 0.95 && noEvict:
-			out = append(out, insight("CRIT", "Redis",
+			out = append(out, insight("CRIT", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory with noeviction policy — writes will be rejected (OOM)", ratio*100),
 				[]string{
 					"to inspect: redis-cli -s " + r.Addr + " INFO memory",
 					"to fix: raise maxmemory, set an eviction policy, or shed keys",
 				}))
 		case ratio >= 0.95:
-			out = append(out, insight("WARN", "Redis",
+			out = append(out, insight("WARN", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory — actively evicting keys (%s)", ratio*100, r.MaxMemoryPolicy),
 				[]string{"to inspect: redis-cli -s " + r.Addr + " INFO stats | grep evicted_keys"}))
 		case ratio >= 0.85:
-			out = append(out, insight("WARN", "Redis",
+			out = append(out, insight("WARN", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory — approaching the limit", ratio*100),
 				[]string{"to inspect: redis-cli -s " + r.Addr + " INFO memory"}))
 		}
@@ -211,7 +217,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 
 	// Client saturation (default maxclients is 10000, so this is a real signal).
 	if r.MaxClients > 0 && float64(r.ConnectedClients)/float64(r.MaxClients) >= 0.90 {
-		out = append(out, insight("WARN", "Redis",
+		out = append(out, insight("WARN", dbCatRedis,
 			fmt.Sprintf("clients at %d/%d — approaching maxclients (new connections will be refused at the limit)",
 				r.ConnectedClients, r.MaxClients),
 			[]string{"to inspect: redis-cli -s " + r.Addr + " INFO clients"}))
@@ -219,14 +225,14 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		// maxclients comes from a separate CONFIG GET that can fail after INFO
 		// succeeded; without it the saturation check above can't run. Don't let an
 		// unread limit pass as clean.
-		out = append(out, insight("INFO", "Redis",
+		out = append(out, insight("INFO", dbCatRedis,
 			"Redis metrics were read, but maxclients could not be — client-saturation was not assessed",
 			[]string{"to inspect: redis-cli -s " + r.Addr + " CONFIG GET maxclients"}))
 	}
 
 	// A replica that lost its link is serving stale data.
 	if r.Role == "slave" && r.ReplLinkDown {
-		out = append(out, insight("CRIT", "Redis",
+		out = append(out, insight("CRIT", dbCatRedis,
 			"replica is disconnected from its master — it is serving stale data and not receiving updates",
 			[]string{
 				"to inspect: redis-cli -s " + r.Addr + " INFO replication",
@@ -236,7 +242,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 
 	// Persistence broken — recent writes are not durable.
 	if r.LastSaveKnown && !r.LastSaveOK {
-		out = append(out, insight("WARN", "Redis",
+		out = append(out, insight("WARN", dbCatRedis,
 			"last RDB background save failed — recent writes are not being persisted to disk",
 			[]string{
 				"to inspect: redis-cli -s " + r.Addr + " INFO persistence",

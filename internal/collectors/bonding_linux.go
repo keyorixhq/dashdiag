@@ -14,6 +14,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	bondingGlob       = "/proc/net/bonding/bond*"
+	bondingMode8023ad = "802.3ad"
+	bondingDown       = "down"
+)
+
 // BondingCollector reads /proc/net/bonding/bond* — no commands, no root needed.
 type BondingCollector struct{}
 
@@ -24,7 +30,7 @@ func (c *BondingCollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.BondingInfo{}
 
-	files, err := glob("/proc/net/bonding/bond*")
+	files, err := glob(bondingGlob)
 	if err != nil || len(files) == 0 {
 		return info, nil
 	}
@@ -41,13 +47,13 @@ func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 
 // IsBondingPresent returns true if any bond interfaces exist.
 func IsBondingPresent() bool {
-	files, _ := glob("/proc/net/bonding/bond*")
+	files, _ := glob(bondingGlob)
 	return len(files) > 0
 }
 
 // collectBonds returns bond health for all bond interfaces — used by NetworkCollector.
 func collectBonds() []models.BondInterface {
-	files, err := glob("/proc/net/bonding/bond*")
+	files, err := glob(bondingGlob)
 	if err != nil || len(files) == 0 {
 		return nil
 	}
@@ -120,8 +126,8 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 		}
 		if strings.HasPrefix(line, "MII Status:") {
 			currentSlave.MIIStatus = strings.TrimSpace(strings.TrimPrefix(line, "MII Status:"))
-			if currentSlave.MIIStatus == "down" {
-				currentSlave.State = "down"
+			if currentSlave.MIIStatus == bondingDown {
+				currentSlave.State = bondingDown
 			} else {
 				currentSlave.State = "up"
 			}
@@ -154,7 +160,7 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 	}
 
 	for _, s := range bond.Slaves {
-		if s.State == "down" {
+		if s.State == bondingDown {
 			bond.DownSlaves++
 		}
 	}
@@ -180,7 +186,7 @@ func parseBondFileContent(name, content string) (models.BondInterface, error) {
 // All three degrade safely to "no signal" when the /proc data lacks LACP fields (older
 // kernels, non-LACP modes), so this never fires outside 802.3ad.
 func lacpNotAggregating(bond models.BondInterface) bool {
-	if bond.ModeShort != "802.3ad" {
+	if bond.ModeShort != bondingMode8023ad {
 		return false
 	}
 	upSlaves := len(bond.Slaves) - bond.DownSlaves
@@ -197,7 +203,7 @@ func lacpNotAggregating(bond models.BondInterface) bool {
 
 	aggIDs := make(map[int]struct{})
 	for _, s := range bond.Slaves {
-		if s.State != "down" && s.AggregatorID > 0 {
+		if s.State != bondingDown && s.AggregatorID > 0 {
 			aggIDs[s.AggregatorID] = struct{}{}
 		}
 	}
@@ -218,8 +224,8 @@ func isZeroMAC(mac string) bool {
 func shortMode(mode string) string {
 	mode = strings.ToLower(mode)
 	switch {
-	case strings.Contains(mode, "802.3ad"):
-		return "802.3ad"
+	case strings.Contains(mode, bondingMode8023ad):
+		return bondingMode8023ad
 	case strings.Contains(mode, "active-backup"):
 		return "active-backup"
 	case strings.Contains(mode, "round-robin"):

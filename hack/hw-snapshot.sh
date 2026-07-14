@@ -41,14 +41,14 @@ run() {
   fi
   "$@" > "$DIR/${name}.txt" 2> "$DIR/${name}.err"
   echo "$?" > "$DIR/${name}.exit"
-  [ -s "$DIR/${name}.err" ] || rm -f "$DIR/${name}.err"
+  [[ -s "$DIR/${name}.err" ]] || rm -f "$DIR/${name}.err"
 }
 
 # dumptree <name> <dir> : snapshot a sysfs/proc subtree, one file per line with a
 # header, guarded by timeout so a blocking sysfs node can't hang the run.
 dumptree() {
   local name="$1" root="$2"
-  if [ ! -d "$root" ]; then
+  if [[ ! -d "$root" ]]; then
     echo "absent: $root" > "$DIR/${name}.missing"
     return
   fi
@@ -106,7 +106,7 @@ run  smartctl_scan    smartctl --scan
 # per-device SMART (SATA/SAS) — iterate whatever --scan finds
 if command -v smartctl >/dev/null 2>&1; then
   smartctl --scan 2>/dev/null | awk '{print $1}' | while read -r dev; do
-    [ -n "$dev" ] || continue
+    [[ -n "$dev" ]] || continue
     safe="$(echo "$dev" | tr '/' '_')"
     smartctl -x "$dev" > "$DIR/smartctl${safe}.txt" 2>&1
   done
@@ -144,12 +144,12 @@ run  pct_list         pct list
 run  pve_resources    pvesh get /cluster/resources --output-format json
 
 # ---- Layer 2: what dsd currently produces (for diffing against the raw data) ----
-if command -v "$DSD_BIN" >/dev/null 2>&1 || [ -x "$DSD_BIN" ]; then
+if command -v "$DSD_BIN" >/dev/null 2>&1 || [[ -x "$DSD_BIN" ]]; then
   log "running dsd ($DSD_BIN)"
   "$DSD_BIN" version            > "$DIR/dsd-version.txt"     2>&1
   "$DSD_BIN" health --gpu --json > "$DIR/dsd-health.json"    2>"$DIR/dsd-health.err"
   "$DSD_BIN" health --gpu        > "$DIR/dsd-health.txt"     2>&1
-  if [ -s "$DIR/dsd-health.json" ]; then
+  if [[ -s "$DIR/dsd-health.json" ]]; then
     "$DSD_BIN" capture < "$DIR/dsd-health.json" > "$DIR/dsd-capture.yaml" 2>&1
   fi
 else

@@ -20,6 +20,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	cveFmtItem   = "  %s\n"
+	cveNoneFound = "  ─   none found"
+)
+
 func init() {
 	rootCmd.AddCommand(cveCmd)
 	cveCmd.Flags().Bool("all", false, "scan all pending security advisories (not just a specific CVE)")
@@ -227,19 +232,19 @@ func printCVEResult(r *models.CVEResult) {
 	case models.CVEPatched:
 		fmt.Println(render.StyleOK.Render("✅ PATCHED — fix already installed"))
 		if r.StatusReason != "" {
-			fmt.Printf("  %s\n", r.StatusReason)
+			fmt.Printf(cveFmtItem, r.StatusReason)
 		}
 
 	case models.CVENotAffected:
 		fmt.Println(render.StyleOK.Render("✅ NOT AFFECTED — no packages impacted on this system"))
 		if r.StatusReason != "" {
-			fmt.Printf("  %s\n", r.StatusReason)
+			fmt.Printf(cveFmtItem, r.StatusReason)
 		}
 
 	case models.CVEUnknown:
 		fmt.Println(render.StyleWarn.Render("⚠️  UNKNOWN — cannot determine status"))
 		if r.StatusReason != "" {
-			fmt.Printf("  %s\n", r.StatusReason)
+			fmt.Printf(cveFmtItem, r.StatusReason)
 		}
 		if r.FallbackURL != "" {
 			fmt.Printf("\n  Check manually: %s\n", r.FallbackURL)
@@ -419,7 +424,7 @@ func runCVEInfo() {
 		}
 	}
 	if !foundOVAL {
-		fmt.Println("  ─   none found")
+		fmt.Println(cveNoneFound)
 		fmt.Println()
 		if isNixOS(cvedata.DetectDistroID()) {
 			// NixOS has no OVAL feed — CVE scanning is done with vulnix against
@@ -449,7 +454,7 @@ func runCVEInfo() {
 			fmt.Printf("  ⚠️   %s (could not load: %v)\n", kevPath, err)
 		}
 	} else {
-		fmt.Println("  ─   none found")
+		fmt.Println(cveNoneFound)
 		fmt.Printf("  Download: curl -sL https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json \\\n")
 		fmt.Println("              -o /var/lib/dsd/kev/known_exploited_vulnerabilities.json")
 		fmt.Println("  (mkdir -p /var/lib/dsd/kev first)")
@@ -466,7 +471,7 @@ func runCVEInfo() {
 			fmt.Printf("  ⚠️   %s (could not load)\n", snap)
 		}
 	} else {
-		fmt.Println("  ─   none found")
+		fmt.Println(cveNoneFound)
 		fmt.Println("  Generate: make update-cve-data  (requires internet)")
 		fmt.Printf("  Place at: %s\n", cvedata.SnapshotStandardPaths()[0])
 	}

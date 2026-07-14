@@ -31,7 +31,7 @@ FLAGS="-X ${MODULE}/internal/version.Version=v${VERSION} -X ${MODULE}/internal/v
 
 for ARCH in amd64 arm64; do
   BIN="dist/dsd-linux-${ARCH}"
-  if [ ! -x "$BIN" ]; then
+  if [[ ! -x "$BIN" ]]; then
     echo "→ building ${BIN}"
     GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o "$BIN" ./cmd/dsd
   fi

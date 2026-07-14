@@ -20,6 +20,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
+const (
+	tlsLvlERR  = "ERR"
+	tlsDateFmt = "2006-01-02"
+)
+
 var tlsCmd = &cobra.Command{
 	Use:   "tls [path...]",
 	Short: "Check TLS certificate expiry on local files and well-known paths",
@@ -115,7 +120,7 @@ func runTLS(cmd *cobra.Command, args []string) error {
 
 // tlsResultOrder ranks a cert result's severity for sorting: CRIT first, then
 // WARN, then OK, then ERR.
-var tlsResultOrder = map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, "ERR": 3}
+var tlsResultOrder = map[string]int{"CRIT": 0, "WARN": 1, "OK": 2, tlsLvlERR: 3}
 
 // certResultLess orders two results by severity, then by soonest expiry —
 // pulled out of renderTLSResults so the comparator is directly testable
@@ -139,7 +144,7 @@ func countTLSLevels(results []certResult) (crits, warns, oks, errs int) {
 			warns++
 		case "OK":
 			oks++
-		case "ERR":
+		case tlsLvlERR:
 			errs++
 		}
 	}
@@ -171,17 +176,17 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 	fmt.Printf("%s\n", sep)
 	errPart := ""
 	if errs > 0 {
-		errPart = fmt.Sprintf("  %s %d ERR", asciiOr("fail", "❌ ", mode), errs)
+		errPart = fmt.Sprintf("  %s %d ERR", asciiOr(secLvlFail, "❌ ", mode), errs)
 	}
 	okPart := fmt.Sprintf("%s %d OK", asciiOr("ok", "✅ ", mode), oks)
 	if crits > 0 {
 		fmt.Printf("%s %d CRIT  %s %d WARN%s  %s\n",
-			asciiOr("fail", "❌ ", mode), crits, asciiOr("warn", "⚠️ ", mode), warns, errPart, okPart)
+			asciiOr(secLvlFail, "❌ ", mode), crits, asciiOr("warn", netIconWarn, mode), warns, errPart, okPart)
 		os.Exit(2)
 	}
 	if warns > 0 || errs > 0 {
 		fmt.Printf("%s %d WARN%s  %s\n",
-			asciiOr("warn", "⚠️ ", mode), warns, errPart, okPart)
+			asciiOr("warn", netIconWarn, mode), warns, errPart, okPart)
 		os.Exit(1)
 	}
 	fmt.Printf("%s All %d certificate(s) healthy\n", asciiOr("ok", "✅ ", mode), oks)
@@ -206,7 +211,7 @@ func printCertResult(r certResult, mode output.OutputMode) {
 		return
 	}
 	fmt.Printf("   Subject:  %s\n", r.Subject)
-	fmt.Printf("   Expires:  %s", r.Expiry.Format("2006-01-02"))
+	fmt.Printf("   Expires:  %s", r.Expiry.Format(tlsDateFmt))
 	if r.DaysLeft <= 0 {
 		fmt.Printf(" (EXPIRED %d days ago)\n", -r.DaysLeft)
 	} else {
@@ -218,7 +223,7 @@ func printCertResult(r certResult, mode output.OutputMode) {
 func scanCertFile(path string, warnDays, critDays int) []certResult {
 	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- user-provided or auto-detected paths
 	if err != nil {
-		return []certResult{{Path: path, Level: "ERR", Err: err.Error()}}
+		return []certResult{{Path: path, Level: tlsLvlERR, Err: err.Error()}}
 	}
 
 	var results []certResult
@@ -237,7 +242,7 @@ func scanCertFile(path string, warnDays, critDays int) []certResult {
 		if err != nil {
 			results = append(results, certResult{
 				Path:  path,
-				Level: "ERR",
+				Level: tlsLvlERR,
 				Err:   fmt.Sprintf("parse error: %v", err),
 			})
 			continue
@@ -318,9 +323,9 @@ func autoDetectCertPaths() []string {
 func levelIcon(level string, mode output.OutputMode) string {
 	switch level {
 	case "CRIT":
-		return asciiOr("fail", "❌", mode)
+		return asciiOr(secLvlFail, "❌", mode)
 	case "WARN":
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", netIconWarn, mode)
 	case "OK":
 		return asciiOr("ok", "✅", mode)
 	default:
@@ -369,7 +374,7 @@ func scanRemoteEndpoints(remotes []string, warnDays, critDays int) []certResult 
 			if err != nil {
 				msg = err.Error()
 			}
-			out = append(out, certResult{Path: ep, Level: "ERR", Err: msg, Remote: true})
+			out = append(out, certResult{Path: ep, Level: tlsLvlERR, Err: msg, Remote: true})
 			continue
 		}
 		// Leaf cert is first in the chain — match the local one-line-per-file form.
@@ -381,7 +386,7 @@ func scanRemoteEndpoints(remotes []string, warnDays, critDays int) []certResult 
 		case leaf.ExpiresIn <= warnDays:
 			level = "WARN"
 		}
-		expiry, _ := time.Parse("2006-01-02", leaf.NotAfter)
+		expiry, _ := time.Parse(tlsDateFmt, leaf.NotAfter)
 		out = append(out, certResult{
 			Path:       ep,
 			Subject:    leaf.Subject,
@@ -413,7 +418,7 @@ func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.
 			IsSelfSigned: r.SelfSigned,
 		}
 		if !r.Expiry.IsZero() {
-			ci.NotAfter = r.Expiry.Format("2006-01-02")
+			ci.NotAfter = r.Expiry.Format(tlsDateFmt)
 		}
 		ti.Certs = append(ti.Certs, ci)
 		if r.DaysLeft < 0 {

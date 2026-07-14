@@ -14,6 +14,20 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	flagSecurity      = "--security"
+	flagQuiet         = "--quiet"
+	cmdAptGet         = "apt-get"
+	tdnfUpdateIDLabel = "Update ID :"
+	cmdArchAudit      = "arch-audit"
+	fixPacmanSyu      = "pacman -Syu"
+	fixTDNFSecurity   = "tdnf update --security"
+	etcOSRelease      = "/etc/os-release"
+	fixAptGetUpgrade  = "apt-get upgrade"
+	fixDNFSecurity    = "dnf upgrade --security"
+	fixZypperSecurity = "zypper patch --category security"
+)
+
 // CheckCVE queries the system package manager to determine if a CVE
 // is affecting the current system. Supports zypper, dnf (4+5), and apt.
 // Falls back to OVAL file auto-discovery when package manager has stale metadata.
@@ -37,7 +51,7 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 		result = checkCVEZypper(ctx, cveID)
 	case hasCmd("dnf"):
 		result = checkCVEDNF(ctx, cveID)
-	case hasCmd("apt-get"):
+	case hasCmd(cmdAptGet):
 		result = checkCVEApt(ctx, cveID)
 	case hasCmd("pacman"):
 		result = checkCVEPacman(ctx, cveID)
@@ -126,10 +140,10 @@ func readDistroID() string {
 	return ReadDistroID()
 }
 
-// ReadDistroID returns the distro ID from /etc/os-release (e.g. "rhel", "ubuntu").
+// ReadDistroID returns the distro ID from etcOSRelease (e.g. "rhel", "ubuntu").
 // Exported for use by cmd layer.
 func ReadDistroID() string {
-	data, err := readFile("/etc/os-release")
+	data, err := readFile(etcOSRelease)
 	if err != nil {
 		return ""
 	}
@@ -144,15 +158,15 @@ func ReadDistroID() string {
 func fixCommand() string {
 	switch {
 	case hasCmd("zypper"):
-		return "zypper patch --category security"
+		return fixZypperSecurity
 	case hasCmd("dnf"):
-		return "dnf upgrade --security"
-	case hasCmd("apt-get"):
-		return "apt-get upgrade"
+		return fixDNFSecurity
+	case hasCmd(cmdAptGet):
+		return fixAptGetUpgrade
 	case hasCmd("pacman"):
-		return "pacman -Syu"
+		return fixPacmanSyu
 	case hasCmd("tdnf"):
-		return "tdnf update --security"
+		return fixTDNFSecurity
 	}
 	return ""
 }
@@ -235,9 +249,9 @@ func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "dnf"}
 
 	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4
-	out, err := runCmd(ctx, "dnf", "advisory", "info", "--cve", cveID, "--quiet")
+	out, err := runCmd(ctx, "dnf", "advisory", "info", "--cve", cveID, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", "updateinfo", "info", "--cve", cveID, "--quiet")
+		out, err = runCmd(ctx, "dnf", "updateinfo", "info", "--cve", cveID, flagQuiet)
 	}
 
 	lower := strings.ToLower(out)
@@ -359,7 +373,7 @@ func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResul
 	case len(pkgs) > 0:
 		result.Status = models.CVEVulnerable
 		result.AffectedPackages = pkgs
-		result.FixCommand = "apt-get upgrade"
+		result.FixCommand = fixAptGetUpgrade
 	case err != nil:
 		// debsecan failed (not installed properly, no vulnerability DB / no network)
 		// and produced no findings — we CANNOT tell whether the host is affected.
@@ -383,9 +397,9 @@ func isUbuntu() bool {
 	return strings.Contains(strings.ToLower(out), "ubuntu")
 }
 
-// isKali checks /etc/os-release for Kali Linux.
+// isKali checks etcOSRelease for Kali Linux.
 func isKali() bool {
-	data, err := readFile("/etc/os-release") // #nosec G304
+	data, err := readFile(etcOSRelease) // #nosec G304
 	if err != nil {
 		return false
 	}
@@ -428,7 +442,7 @@ func scanAllViaPackageManager(ctx context.Context) *models.CVEAllResult {
 	if _, err := lookPath("dnf"); err == nil {
 		return markCVEStaleMetadata(scanAllDNF(ctx))
 	}
-	if _, err := lookPath("apt-get"); err == nil {
+	if _, err := lookPath(cmdAptGet); err == nil {
 		return markCVEStaleMetadata(scanAllApt(ctx))
 	}
 	if _, err := lookPath("pacman"); err == nil {
@@ -582,7 +596,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 	}
 	if hasNoPatchMsg {
 		result.StatusReason = "no pending security patches — system is up to date"
-		result.FixCommand = "zypper patch --category security"
+		result.FixCommand = fixZypperSecurity
 		return result
 	}
 
@@ -627,7 +641,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 
 	result.Total = len(result.Critical) + len(result.Important) +
 		len(result.Moderate) + len(result.Low)
-	result.FixCommand = "zypper patch --category security"
+	result.FixCommand = fixZypperSecurity
 	return result
 }
 
@@ -641,9 +655,9 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	dnfWarmCache(ctx)
 
 	// Try DNF5 first, then DNF4
-	out, err := runCmd(ctx, "dnf", "advisory", "list", "--security", "--quiet")
+	out, err := runCmd(ctx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", "--quiet")
+		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", flagQuiet)
 	}
 	if err != nil && len(out) == 0 {
 		if ctx.Err() != nil {
@@ -658,7 +672,7 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	}
 	if strings.TrimSpace(out) == "" {
 		result.StatusReason = "no pending security advisories — system is up to date"
-		result.FixCommand = "dnf upgrade --security"
+		result.FixCommand = fixDNFSecurity
 		return result
 	}
 
@@ -708,7 +722,7 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 
 	result.Total = len(result.Critical) + len(result.Important) +
 		len(result.Moderate) + len(result.Low)
-	result.FixCommand = "dnf upgrade --security"
+	result.FixCommand = fixDNFSecurity
 
 	// On subscribed RHEL, enrich advisories with CVE IDs from `dnf updateinfo info`.
 	// This is a best-effort pass — falls through silently if not subscribed.
@@ -724,7 +738,7 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	out, err := runCmd(eCtx, "dnf", "updateinfo", "info", "--security", "--quiet")
+	out, err := runCmd(eCtx, "dnf", "updateinfo", "info", flagSecurity, flagQuiet)
 	if err != nil || len(out) == 0 {
 		result.SubscriptionNote = rhSubscriptionNote()
 		return
@@ -953,7 +967,7 @@ func scanAllApt(ctx context.Context) *models.CVEAllResult {
 			result.Low = append(result.Low, a)
 		}
 	}
-	result.FixCommand = "apt-get upgrade"
+	result.FixCommand = fixAptGetUpgrade
 	result.StatusReason = aptScanStatusReason(result.Total, err)
 	result.ScanFailed = result.Total == 0 && err != nil
 	return result
@@ -1067,14 +1081,14 @@ func distroKeyFor(distroID string) string {
 func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "pacman"}
 
-	if !hasCmd("arch-audit") {
+	if !hasCmd(cmdArchAudit) {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
 		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
 		return result
 	}
 
-	out, err := runCmd(ctx, "arch-audit", "--format", "%n %c %s")
+	out, err := runCmd(ctx, cmdArchAudit, "--format", "%n %c %s")
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "arch-audit failed: " + err.Error()
@@ -1111,7 +1125,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if len(pkgs) > 0 {
 		result.Status = models.CVEVulnerable
 		result.AffectedPackages = pkgs
-		result.FixCommand = "pacman -Syu"
+		result.FixCommand = fixPacmanSyu
 	} else {
 		result.Status = models.CVENotAffected
 		result.StatusReason = "arch-audit: no installed packages affected by " + cveID
@@ -1125,14 +1139,14 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "pacman"}
 
-	if !hasCmd("arch-audit") {
+	if !hasCmd(cmdArchAudit) {
 		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
 		result.ScanFailed = true
 		return result
 	}
 
 	// arch-audit default output: "pkgname is affected by CVE-XXXX [Severity]: description"
-	out, err := runCmd(ctx, "arch-audit", "-u")
+	out, err := runCmd(ctx, cmdArchAudit, "-u")
 	if err != nil && len(out) == 0 {
 		result.StatusReason = "arch-audit failed: " + err.Error()
 		result.ScanFailed = true
@@ -1141,7 +1155,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 
 	if strings.TrimSpace(out) == "" {
 		result.StatusReason = "no vulnerable packages found — system is up to date"
-		result.FixCommand = "pacman -Syu"
+		result.FixCommand = fixPacmanSyu
 		return result
 	}
 
@@ -1203,7 +1217,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 
 	result.Total = len(result.Critical) + len(result.Important) +
 		len(result.Moderate) + len(result.Low)
-	result.FixCommand = "pacman -Syu"
+	result.FixCommand = fixPacmanSyu
 	return result
 }
 
@@ -1242,8 +1256,8 @@ func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
 		switch {
 		case strings.HasPrefix(line, "Name :"):
 			curPkg = strings.TrimSpace(strings.TrimPrefix(line, "Name :"))
-		case strings.HasPrefix(line, "Update ID :"):
-			curAdvisory = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, "Update ID :")))
+		case strings.HasPrefix(line, tdnfUpdateIDLabel):
+			curAdvisory = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, tdnfUpdateIDLabel)))
 		case strings.HasPrefix(line, "Description :"):
 			if strings.Contains(strings.ToUpper(line), cveUpper) {
 				pkgs = append(pkgs, models.CVEPackage{
@@ -1257,7 +1271,7 @@ func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
 	if len(pkgs) > 0 {
 		result.Status = models.CVEVulnerable
 		result.AffectedPackages = pkgs
-		result.FixCommand = "tdnf update --security"
+		result.FixCommand = fixTDNFSecurity
 		result.FixAdvisory = pkgs[0].Advisory
 	} else {
 		result.Status = models.CVENotAffected
@@ -1301,7 +1315,7 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 
 	if len(entries) == 0 {
 		result.StatusReason = "no pending security advisories — system is up to date"
-		result.FixCommand = "tdnf update --security"
+		result.FixCommand = fixTDNFSecurity
 		return result
 	}
 
@@ -1335,7 +1349,7 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 		result.Important = append(result.Important, *byID[id])
 	}
 	result.Total = len(result.Important)
-	result.FixCommand = "tdnf update --security"
+	result.FixCommand = fixTDNFSecurity
 	return result
 }
 
@@ -1389,8 +1403,8 @@ func enrichTDNFAdvisoryWithCVEs(ctx context.Context, byID map[string]*models.CVE
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
-		case strings.HasPrefix(line, "Update ID :"):
-			curID = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, "Update ID :")))
+		case strings.HasPrefix(line, tdnfUpdateIDLabel):
+			curID = tdnfTrimPatchPrefix(strings.TrimSpace(strings.TrimPrefix(line, tdnfUpdateIDLabel)))
 		case strings.HasPrefix(line, "Description :") && curID != "":
 			adv, ok := byID[curID]
 			if !ok {
@@ -1471,7 +1485,7 @@ func parseTDNFEnabledReposText(out string) int {
 // photonMajor returns the Photon major version from VERSION_ID (e.g. "5"), used
 // to build the per-release security-advisory wiki URL. Defaults to "5".
 func photonMajor() string {
-	data, err := readFile("/etc/os-release")
+	data, err := readFile(etcOSRelease)
 	if err != nil {
 		return "5"
 	}

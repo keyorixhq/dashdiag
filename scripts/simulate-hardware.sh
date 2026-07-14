@@ -107,7 +107,7 @@ simulate_oom() {
 }
 
 simulate_pressure() {
-    if ! [ -f /proc/pressure/memory ]; then
+    if ! [[ -f /proc/pressure/memory ]]; then
         echo "❌ PSI not available on this kernel (need Linux 4.20+ with CONFIG_PSI=y)"
         exit 1
     fi

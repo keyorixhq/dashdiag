@@ -10,6 +10,29 @@ import (
 	"time"
 )
 
+const (
+	profValUnknown    = "unknown"
+	profValNotPresent = "not-present"
+	profValDisabled   = "disabled"
+	profDistSteamOS   = "steamos"
+	profPkgYum        = "yum"
+	profDistUbuntu    = "ubuntu"
+	profInitSystemd   = "systemd"
+	profDistSLES      = "sles"
+	profDistRHEL      = "rhel"
+	profDistDebian    = "debian"
+	profPkgBrew       = "brew"
+	profDistArch      = "arch"
+	profPkgZypper     = "zypper"
+	profPkgTDNF       = "tdnf"
+	profInitRunit     = "runit"
+	profPkgPacman     = "pacman"
+	profDistOpenSUSE  = "opensuse"
+	profDistNixOS     = "nixos"
+	profNetNetplan    = "netplan"
+	profPkgDNF        = "dnf"
+)
+
 // Profile is the centralized, distro-normalized view of the host platform.
 // It is the single source of truth for distro-specific paths and behaviour
 // (SteamOS specs, log path resolution, package-manager-aware fix commands),
@@ -17,26 +40,26 @@ import (
 type Profile struct {
 	// OS identity
 	OS     string // "linux", "darwin"
-	Distro string // normalized ID: "rhel", "debian", "ubuntu", "sles", "arch",
-	// "nixos", "opensuse", "steamos", or the raw ID for unknowns
+	Distro string // normalized ID: profDistRHEL, profDistDebian, profDistUbuntu, profDistSLES, profDistArch,
+	// profDistNixOS, profDistOpenSUSE, profDistSteamOS, or the raw ID for unknowns
 	DistroVersion string // raw VERSION_ID: "10.1", "22.04", "15.6"
 	MajorVersion  int    // parsed major: 10, 22, 15
 	Codename      string // VERSION_CODENAME: "bookworm", "noble", ""
 	IsSteamOS     bool   // ID=steamos OR VARIANT_ID=steamdeck
 
 	// Init system
-	InitSystem string // "systemd", "openrc", "runit", "sysvinit", "unknown"
+	InitSystem string // profInitSystemd, "openrc", profInitRunit, "sysvinit", profValUnknown
 
 	// Networking
-	NetworkStack string // "networkmanager", "networkd", "netplan", "ifupdown", "unknown"
+	NetworkStack string // "networkmanager", "networkd", profNetNetplan, "ifupdown", profValUnknown
 	HasResolved  bool   // systemd-resolved is active
 
 	// Security modules
-	SELinuxMode    string // "enforcing", "permissive", "disabled", "not-present"
+	SELinuxMode    string // "enforcing", "permissive", profValDisabled, profValNotPresent
 	AppArmorActive bool
 
 	// Package manager
-	PackageManager string // "apt", "dnf", "tdnf", "yum", "zypper", "pacman", "brew", "unknown"
+	PackageManager string // "apt", profPkgDNF, profPkgTDNF, profPkgYum, profPkgZypper, profPkgPacman, profPkgBrew, profValUnknown
 
 	// Log paths (distro-resolved)
 	SyslogPath   string // "/var/log/syslog" or "/var/log/messages" or ""
@@ -50,7 +73,7 @@ type Profile struct {
 func Detect() Profile {
 	p := Profile{OS: runtime.GOOS}
 	if runtime.GOOS == "darwin" {
-		p.PackageManager = "brew"
+		p.PackageManager = profPkgBrew
 		return p
 	}
 	data, err := os.ReadFile("/etc/os-release")
@@ -96,9 +119,9 @@ func parseOSRelease(p *Profile, osRelease string) {
 	}
 
 	p.Distro = normalizeDistro(id)
-	if id == "steamos" || variantID == "steamdeck" {
+	if id == profDistSteamOS || variantID == "steamdeck" {
 		p.IsSteamOS = true
-		p.Distro = "steamos"
+		p.Distro = profDistSteamOS
 	}
 	p.MajorVersion = parseMajor(p.DistroVersion)
 }
@@ -107,22 +130,22 @@ func parseOSRelease(p *Profile, osRelease string) {
 // Unknown IDs are preserved verbatim so future distros still get a stable key.
 func normalizeDistro(id string) string {
 	switch id {
-	case "rhel", "centos", "rocky", "almalinux", "fedora":
-		return "rhel"
-	case "debian":
-		return "debian"
-	case "ubuntu":
-		return "ubuntu"
-	case "sles", "sle-micro":
-		return "sles"
+	case profDistRHEL, "centos", "rocky", "almalinux", "fedora":
+		return profDistRHEL
+	case profDistDebian:
+		return profDistDebian
+	case profDistUbuntu:
+		return profDistUbuntu
+	case profDistSLES, "sle-micro":
+		return profDistSLES
 	case "opensuse-leap", "opensuse-tumbleweed":
-		return "opensuse"
-	case "arch", "manjaro", "endeavouros":
-		return "arch"
-	case "nixos":
-		return "nixos"
-	case "steamos":
-		return "steamos"
+		return profDistOpenSUSE
+	case profDistArch, "manjaro", "endeavouros":
+		return profDistArch
+	case profDistNixOS:
+		return profDistNixOS
+	case profDistSteamOS:
+		return profDistSteamOS
 	default:
 		return id
 	}
@@ -142,10 +165,10 @@ func parseMajor(versionID string) int {
 // distros (NixOS, SteamOS) and macOS get empty syslog/auth paths.
 func setLogPaths(p *Profile) {
 	switch p.Distro {
-	case "rhel", "opensuse", "sles", "arch":
+	case profDistRHEL, profDistOpenSUSE, profDistSLES, profDistArch:
 		p.SyslogPath = "/var/log/messages"
 		p.AuthLogPath = "/var/log/secure"
-	case "debian", "ubuntu":
+	case profDistDebian, profDistUbuntu:
 		p.SyslogPath = "/var/log/syslog"
 		p.AuthLogPath = "/var/log/auth.log"
 	}
@@ -161,7 +184,7 @@ func setLogPaths(p *Profile) {
 // and OpenRC uses sysvinit for /sbin/init too. So after the unambiguous systemd
 // and openrc-binary markers, the actual PID1 identity from /proc/1/comm is the
 // ground truth (verified live on a sysvinit Devuan that had /run/runit present).
-// Returns "unknown" when none match (the hint adapter then leaves systemd-form
+// Returns profValUnknown when none match (the hint adapter then leaves systemd-form
 // remedies alone rather than guessing wrong).
 func detectInitSystem() string {
 	return detectInitSystemFromPaths("/run/systemd/private", "/sbin/openrc", "/etc/inittab", "/proc/1/comm")
@@ -184,22 +207,22 @@ func detectInitSystemFromPaths(systemdPriv, openrcBin, inittab, procComm string)
 // is classified sysvinit, not runit — the trap found live on Devuan.
 func classifyInit(hasSystemdPriv, hasOpenrcBin, hasInittab bool, pid1 string) string {
 	if hasSystemdPriv {
-		return "systemd"
+		return profInitSystemd
 	}
 	if hasOpenrcBin {
 		return "openrc" // OpenRC runs on a sysvinit PID1; its binary is the marker.
 	}
 	switch pid1 {
-	case "systemd":
-		return "systemd"
-	case "runit", "runit-init":
-		return "runit"
+	case profInitSystemd:
+		return profInitSystemd
+	case profInitRunit, "runit-init":
+		return profInitRunit
 	case "init":
 		if hasInittab {
 			return "sysvinit"
 		}
 	}
-	return "unknown"
+	return profValUnknown
 }
 
 // pid1CommFromPath returns the command name of PID 1 from /proc/1/comm
@@ -215,7 +238,7 @@ func pid1CommFromPath(path string) string {
 // detectNetworkStack identifies the active network management layer, in priority
 // order. netplan wins only when both the binary and a populated config dir exist.
 func detectNetworkStack() string {
-	_, lookErr := exec.LookPath("netplan")
+	_, lookErr := exec.LookPath(profNetNetplan)
 	return detectNetworkStackFrom(
 		lookErr == nil,
 		netplanConfigured(),
@@ -229,7 +252,7 @@ func detectNetworkStack() string {
 // priority-ordered decision, with every live probe already resolved to a bool.
 func detectNetworkStackFrom(hasNetplanBin, netplanConf, nmActive, networkdActive, hasIfupdown bool) string {
 	if hasNetplanBin && netplanConf {
-		return "netplan"
+		return profNetNetplan
 	}
 	if nmActive {
 		return "networkmanager"
@@ -240,7 +263,7 @@ func detectNetworkStackFrom(hasNetplanBin, netplanConf, nmActive, networkdActive
 	if hasIfupdown {
 		return "ifupdown"
 	}
-	return "unknown"
+	return profValUnknown
 }
 
 // netplanConfigured reports whether /etc/netplan holds at least one .yaml file.
@@ -268,21 +291,21 @@ func detectResolved() bool {
 }
 
 // detectSELinux reports the SELinux mode from /sys/fs/selinux/enforce, falling
-// back to /etc/selinux/config to tell a config-disabled install ("disabled")
-// from a system without SELinux at all ("not-present").
+// back to /etc/selinux/config to tell a config-disabled install (profValDisabled)
+// from a system without SELinux at all (profValNotPresent).
 func detectSELinux() string {
 	return detectSELinuxFromPaths("/sys/fs/selinux/enforce", "/etc/selinux/config")
 }
 
 // detectSELinuxFromPaths layers the /etc/selinux/config check on top of the
 // enforce-node read: when the enforce node is absent (SELinux not mounted) but
-// the config explicitly says SELINUX=disabled, report "disabled" rather than
-// "not-present" — the former is an actionable admin choice, the latter just
+// the config explicitly says SELINUX=disabled, report profValDisabled rather than
+// profValNotPresent — the former is an actionable admin choice, the latter just
 // means the distro ships no SELinux.
 func detectSELinuxFromPaths(enforcePath, configPath string) string {
 	mode := detectSELinuxFromPath(enforcePath)
-	if mode == "not-present" && selinuxConfigDisabled(configPath) {
-		return "disabled"
+	if mode == profValNotPresent && selinuxConfigDisabled(configPath) {
+		return profValDisabled
 	}
 	return mode
 }
@@ -299,7 +322,7 @@ func selinuxConfigDisabled(configPath string) bool {
 			continue
 		}
 		if v, ok := strings.CutPrefix(line, "SELINUX="); ok {
-			return strings.TrimSpace(v) == "disabled"
+			return strings.TrimSpace(v) == profValDisabled
 		}
 	}
 	return false
@@ -309,7 +332,7 @@ func selinuxConfigDisabled(configPath string) bool {
 func detectSELinuxFromPath(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "not-present"
+		return profValNotPresent
 	}
 	switch strings.TrimSpace(string(data)) {
 	case "1":
@@ -317,7 +340,7 @@ func detectSELinuxFromPath(path string) string {
 	case "0":
 		return "permissive"
 	default:
-		return "disabled"
+		return profValDisabled
 	}
 }
 
@@ -342,20 +365,20 @@ func detectPackageManager() string {
 func detectPackageManagerWithLookup(lookup func(string) (string, error)) string {
 	for _, pm := range []struct{ bin, name string }{
 		{"apt-get", "apt"},
-		{"dnf", "dnf"},
+		{profPkgDNF, profPkgDNF},
 		// tdnf BEFORE yum: VMware Photon OS ships a `yum` shim that wraps tdnf, so a
-		// yum-first probe mislabels Photon as "yum". tdnf is the real manager there.
-		{"tdnf", "tdnf"},
-		{"yum", "yum"},
-		{"zypper", "zypper"},
-		{"pacman", "pacman"},
-		{"brew", "brew"},
+		// yum-first probe mislabels Photon as profPkgYum. tdnf is the real manager there.
+		{profPkgTDNF, profPkgTDNF},
+		{profPkgYum, profPkgYum},
+		{profPkgZypper, profPkgZypper},
+		{profPkgPacman, profPkgPacman},
+		{profPkgBrew, profPkgBrew},
 	} {
 		if _, err := lookup(pm.bin); err == nil {
 			return pm.name
 		}
 	}
-	return "unknown"
+	return profValUnknown
 }
 
 // systemctlIsActive runs `systemctl is-active <unit>` with a 2s timeout and
@@ -382,7 +405,7 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 // Example: "rhel 10.1, networkmanager, SELinux enforcing, dnf".
 func (p Profile) DebugLine() string {
 	sec := "SELinux " + p.SELinuxMode
-	if p.AppArmorActive && p.SELinuxMode == "not-present" {
+	if p.AppArmorActive && p.SELinuxMode == profValNotPresent {
 		sec = "AppArmor"
 	}
 	distro := p.Distro

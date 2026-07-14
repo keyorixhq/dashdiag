@@ -10,6 +10,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	lvmNoHeadings = "--noheadings"
+	lvmNoSuffix   = "--nosuffix"
+	lvmUnits      = "--units"
+	lvmFieldSep   = "-o"
+)
+
 // IsLVMPresent returns true when LVM tools are installed on this host.
 func IsLVMPresent() bool {
 	_, err := runCmd(context.Background(), "lvs", "--version")
@@ -34,8 +41,8 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// --- Volume groups ---
-	vgsOut, err := runCmd(ctx, "vgs", "--noheadings", "--nosuffix", "--units", "g",
-		"-o", "vg_name,vg_size,vg_free,vg_attr")
+	vgsOut, err := runCmd(ctx, "vgs", lvmNoHeadings, lvmNoSuffix, lvmUnits, "g",
+		lvmFieldSep, "vg_name,vg_size,vg_free,vg_attr")
 	if err == nil {
 		info.VGs = parseVGs(vgsOut)
 	} else {
@@ -43,7 +50,7 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// --- PV health: count missing PVs per VG ---
-	pvsOut, err := runCmd(ctx, "pvs", "--noheadings", "-o", "vg_name,pv_attr")
+	pvsOut, err := runCmd(ctx, "pvs", lvmNoHeadings, lvmFieldSep, "vg_name,pv_attr")
 	if err == nil {
 		mergeMissingPVs(pvsOut, info.VGs)
 	} else {
@@ -51,8 +58,8 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	// --- LVs: thin pools and snapshots ---
-	lvsOut, err := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
-		"-o", "lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size")
+	lvsOut, err := runCmd(ctx, "lvs", lvmNoHeadings, lvmNoSuffix, lvmUnits, "g",
+		lvmFieldSep, "lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size")
 	if err == nil {
 		info.ThinPools, info.Snapshots = parseLVs(lvsOut)
 	} else {
@@ -65,8 +72,8 @@ func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	mergeMountedLVs(info.VGs)
 
 	// RAID/mirror LV health — copy_percent and lv_attr sync/degraded flags
-	raidOut, raidErr := runCmd(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "g",
-		"-o", "lv_name,vg_name,lv_attr,lv_size,copy_percent")
+	raidOut, raidErr := runCmd(ctx, "lvs", lvmNoHeadings, lvmNoSuffix, lvmUnits, "g",
+		lvmFieldSep, "lv_name,vg_name,lv_attr,lv_size,copy_percent")
 	if raidErr != nil {
 		// Only a command error is a gap. Success with empty output legitimately
 		// means "no RAID/mirror LVs" (clean), so it leaves RaidReadFailed false.

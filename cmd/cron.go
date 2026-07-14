@@ -15,6 +15,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	cronSectionDaemon   = "Daemon"
+	cronPfxCron         = "cron."
+	cronSectionFailures = "Failures (24h)"
+)
+
 func init() {
 	rootCmd.AddCommand(cronCmd)
 }
@@ -57,17 +63,17 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 
 	// Daemon status
 	if info.DaemonActive {
-		printLine(mode, "ok", "Daemon", info.DaemonName+" active")
+		printLine(mode, "ok", cronSectionDaemon, info.DaemonName+" active")
 	} else if info.AnacronPresent {
-		printLine(mode, "info", "Daemon", "anacron only (no persistent cron daemon)")
+		printLine(mode, "info", cronSectionDaemon, "anacron only (no persistent cron daemon)")
 	} else if info.SystemdTimers > 0 {
 		// No cron daemon, but systemd timers handle scheduling — a legitimate modern
 		// setup (Photon and other systemd-only images ship no cron at all). Not a
 		// fault, so INFO not WARN. Mirrors checkCron's heuristic so cmd↔health agree.
-		printLine(mode, "info", "Daemon",
+		printLine(mode, "info", cronSectionDaemon,
 			fmt.Sprintf("no cron daemon — %d systemd timer(s) handle scheduling", info.SystemdTimers))
 	} else {
-		printLine(mode, "warn", "Daemon",
+		printLine(mode, "warn", cronSectionDaemon,
 			"not running — no cron daemon, anacron, or systemd timers; scheduled jobs will not run")
 	}
 
@@ -80,11 +86,11 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 		// Neither journalctl nor /var/log/cron* was readable — an empty list means
 		// "couldn't look", not "no failures". Don't render the green "none" (false-OK);
 		// mirrors the health heuristic's "failure history not readable" INFO.
-		printLine(mode, "info", "Failures (24h)", "not readable — recent job failures could be hidden (run as root / check journalctl)")
+		printLine(mode, "info", cronSectionFailures, "not readable — recent job failures could be hidden (run as root / check journalctl)")
 	} else if len(info.Failures) == 0 {
-		printLine(mode, "ok", "Failures (24h)", "none")
+		printLine(mode, "ok", cronSectionFailures, "none")
 	} else {
-		printLine(mode, "warn", "Failures (24h)", fmt.Sprintf("%d job(s)", len(info.Failures)))
+		printLine(mode, "warn", cronSectionFailures, fmt.Sprintf("%d job(s)", len(info.Failures)))
 		for _, f := range info.Failures {
 			ago := "?"
 			if f.AgoMin > 0 {
@@ -120,16 +126,16 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 			case j.LastRunH < 0:
 				// health logs never-run anacron as INFO (machine may simply have been
 				// off at the scheduled time), not WARN — keep the two in step.
-				printLine(mode, "info", "cron."+j.Name, "never run")
+				printLine(mode, "info", cronPfxCron+j.Name, "never run")
 			case j.OverdueH > 0:
-				printLine(mode, "warn", "cron."+j.Name,
+				printLine(mode, "warn", cronPfxCron+j.Name,
 					fmt.Sprintf("overdue by %dh (last: %dh ago)", j.OverdueH, j.LastRunH))
 			default:
 				if j.LastRunH < 48 {
-					printLine(mode, "ok", "cron."+j.Name,
+					printLine(mode, "ok", cronPfxCron+j.Name,
 						fmt.Sprintf("ran %dh ago", j.LastRunH))
 				} else {
-					printLine(mode, "ok", "cron."+j.Name,
+					printLine(mode, "ok", cronPfxCron+j.Name,
 						fmt.Sprintf("ran %dd ago", j.LastRunH/24))
 				}
 			}

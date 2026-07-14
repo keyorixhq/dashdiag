@@ -35,7 +35,7 @@ sha_for() {
   local asset="$1"
   local line
   line="$(grep -E "  ${asset}\$" "${TMP}/checksums.txt" || true)"
-  [ -n "$line" ] || { echo "ERROR: no sha256 for ${asset} in checksums.txt" >&2; exit 1; }
+  [[ -n "$line" ]] || { echo "ERROR: no sha256 for ${asset} in checksums.txt" >&2; exit 1; }
   echo "${line%% *}"
 }
 

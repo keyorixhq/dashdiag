@@ -40,7 +40,7 @@ FLAGS="-X ${MODULE}/internal/version.Version=v${VERSION} -X ${MODULE}/internal/v
 HOST_ARCH="$(uname -m)"   # x86_64 | aarch64
 TOOL_DIR="${ROOT}/dist/.appimagetool"
 TOOL="${TOOL_DIR}/squashfs-root/AppRun"
-if ! command -v appimagetool >/dev/null 2>&1 && [ ! -x "$TOOL" ]; then
+if ! command -v appimagetool >/dev/null 2>&1 && [[ ! -x "$TOOL" ]]; then
   echo "→ fetching appimagetool (${HOST_ARCH})"
   mkdir -p "$TOOL_DIR"
   URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${HOST_ARCH}.AppImage"
@@ -58,7 +58,7 @@ declare -A ARCHNAME=( [amd64]=x86_64 [arm64]=aarch64 )
 for GOARCH in amd64 arm64; do
   AIARCH="${ARCHNAME[$GOARCH]}"
   BIN="dist/dsd-linux-${GOARCH}"
-  if [ ! -x "$BIN" ]; then
+  if [[ ! -x "$BIN" ]]; then
     echo "→ building ${BIN}"
     GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 go build -ldflags "$FLAGS" -trimpath -o "$BIN" ./cmd/dsd
   fi

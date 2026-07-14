@@ -105,9 +105,7 @@ func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, 
 	results, insights, snap, _ := runHealthOnce(
 		context.Background(), collectors.ContainerContextViaSource(), collectors.CloudEnvironmentViaSource(),
 		collectors.ProfileViaSource(), output.ModePlain,
-		!deep,    // terse unless deep: drilldown's extra reads aren't in the bundle
-		pkg, gpu, // includePackages, includeGPU
-		false, deep, false, cve, // tls, deep, firmware, cve
+		healthRunOpts{Terse: !deep, IncludePackages: pkg, IncludeGPU: gpu, IncludeDeep: deep, IncludeCVE: cve},
 		nil,
 	)
 	return results, insights, snap

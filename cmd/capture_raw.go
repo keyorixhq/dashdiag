@@ -70,7 +70,7 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	// the point). Off by default — the scan can be slow and most captures don't need it.
 	cveScan, _ := cmd.Flags().GetBool("cve-scan")
 	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile, output.ModePlain,
-		!deep /*terse*/, pkg, gpu, false /*tls*/, deep, false /*firmware*/, cveScan /*cve*/, nil)
+		healthRunOpts{Terse: !deep, IncludePackages: pkg, IncludeGPU: gpu, IncludeDeep: deep, IncludeCVE: cveScan}, nil)
 
 	b := rec.Bundle()
 	b.Manifest = source.Manifest{

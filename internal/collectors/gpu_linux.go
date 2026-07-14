@@ -14,6 +14,16 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	gpuPCIIDPrefix  = "PCI_ID="
+	gpuDriverNvidia = "nvidia"
+	gpuNotAvailable = "[N/A]"
+	gpuDRMCardGlob  = "/sys/class/drm/card[0-9]"
+	gpuDeviceDir    = "/device"
+	gpuDriverAMD    = "amdgpu"
+	gpuUeventFile   = "/uevent"
+)
+
 // GPUCollector reads GPU health.
 // NVIDIA: via nvidia-smi (no stable kernel interface for VRAM/power/Xid).
 // AMD:    via /sys/class/drm/card*/device/ sysfs (stable, no commands needed).
@@ -58,8 +68,8 @@ func (c *GPUCollector) Collect(ctx context.Context) (interface{}, error) {
 			if err != nil {
 				continue
 			}
-			dev.Vendor = "nvidia"
-			dev.DRMDriver = "nvidia"
+			dev.Vendor = gpuDriverNvidia
+			dev.DRMDriver = gpuDriverNvidia
 			if driverVer != "" && info.DriverVersion == "" {
 				info.DriverVersion = driverVer
 			}
@@ -150,7 +160,7 @@ func sampleAMDBusy(ctx context.Context, cards []string, ch chan<- []busySample) 
 	}
 	out := make([]busySample, len(cards))
 	for i, card := range cards {
-		devPath := card + "/device"
+		devPath := card + gpuDeviceDir
 		s := busySample{gpuBusy: -1, memBusy: -1}
 		if v := readSysfsStr(devPath + "/gpu_busy_percent"); v != "" {
 			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
@@ -193,7 +203,7 @@ func parseGPUProcesses(out string) []models.GPUProcess {
 		}
 		pid, _ := strconv.Atoi(strings.TrimSpace(fields[0]))
 		memStr := strings.TrimSpace(fields[1])
-		// memory field may be "6823 MiB", just "6823", or empty/"[N/A]" on
+		// memory field may be "6823 MiB", just "6823", or empty/gpuNotAvailable on
 		// MIG / vGPU / no-accounting GPUs — guard against an empty slice.
 		memFields := strings.Fields(memStr)
 		mem := 0
@@ -211,12 +221,12 @@ func parseGPUProcesses(out string) []models.GPUProcess {
 }
 
 // naAtoi parses an nvidia-smi integer field, returning ok=false when the value is
-// "[N/A]" / "ERR!" / blank or otherwise non-numeric — the values nvidia-smi emits
+// gpuNotAvailable / "ERR!" / blank or otherwise non-numeric — the values nvidia-smi emits
 // for a GPU that has fallen off the bus or faulted. The plain strconv.Atoi path
 // discarded that error and coerced such fields to 0, so a dead GPU read as healthy.
 func naAtoi(s string) (int, bool) {
 	s = strings.TrimSpace(s)
-	if s == "" || s == "[N/A]" || strings.HasPrefix(s, "ERR") {
+	if s == "" || s == gpuNotAvailable || strings.HasPrefix(s, "ERR") {
 		return 0, false
 	}
 	n, err := strconv.Atoi(s)
@@ -246,7 +256,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	unreadable := !tempOK && !memTotalOK
 	powerStr := trim(fields[6])
 	var power float64
-	if powerStr != "[N/A]" {
+	if powerStr != gpuNotAvailable {
 		power = parseFloat(powerStr)
 	}
 	driverVer := trim(fields[7])
@@ -254,7 +264,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 	// power.limit is appended only on newer nvidia-smi; parse when present.
 	var powerLimit float64
 	if len(fields) >= 9 {
-		if ls := trim(fields[8]); ls != "" && ls != "[N/A]" {
+		if ls := trim(fields[8]); ls != "" && ls != gpuNotAvailable {
 			powerLimit = parseFloat(ls)
 		}
 	}
@@ -289,7 +299,7 @@ func parseNvidiaSMILine(line string) (models.GPUDevice, string, error) {
 // hasNvidiaCard returns true when an NVIDIA GPU is present in the system
 // via /sys/class/drm sysfs — works even without the proprietary driver loaded.
 func hasNvidiaCard() bool {
-	cards, _ := glob("/sys/class/drm/card[0-9]")
+	cards, _ := glob(gpuDRMCardGlob)
 	for _, card := range cards {
 		vendor := strings.TrimSpace(readSysfsStr(card + "/device/vendor"))
 		if strings.EqualFold(vendor, "0x10de") {
@@ -303,7 +313,7 @@ func hasNvidiaCard() bool {
 // (0x1002). The order is the glob order and is reused to align the async busy
 // sample with the collected devices.
 func amdCardPaths() []string {
-	cards, err := glob("/sys/class/drm/card[0-9]")
+	cards, err := glob(gpuDRMCardGlob)
 	if err != nil {
 		return nil
 	}
@@ -334,7 +344,7 @@ func amdCardPaths() []string {
 func collectAMDGPUs(cards []string, deep bool) []models.GPUDevice {
 	devices := make([]models.GPUDevice, 0, len(cards))
 	for _, card := range cards {
-		devPath := card + "/device"
+		devPath := card + gpuDeviceDir
 
 		dev := models.GPUDevice{
 			Index:     cardIndex(card),
@@ -400,13 +410,13 @@ func collectAMDGPUs(cards []string, deep bool) []models.GPUDevice {
 // hwmon temperature and, where present, power1_input. Clock and VRAM require
 // debugfs + root and are skipped.
 func collectIntelGPUs() []models.GPUDevice {
-	cards, err := glob("/sys/class/drm/card[0-9]")
+	cards, err := glob(gpuDRMCardGlob)
 	if err != nil {
 		return nil
 	}
 	var devices []models.GPUDevice
 	for _, card := range cards {
-		devPath := card + "/device"
+		devPath := card + gpuDeviceDir
 		vendor := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
 		if !strings.EqualFold(vendor, "0x8086") {
 			continue
@@ -482,7 +492,7 @@ func detectMesaVersion(ctx context.Context) string {
 	return ""
 }
 
-// drmDriver returns the kernel driver bound to a DRM device (e.g. "amdgpu",
+// drmDriver returns the kernel driver bound to a DRM device (e.g. gpuDriverAMD,
 // "i915", "nouveau") from the device/driver symlink. Empty if none is bound.
 func drmDriver(devPath string) string {
 	link, err := readLink(devPath + "/driver")
@@ -500,10 +510,10 @@ func cardIndex(card string) int {
 
 // intelGPUName returns a human-readable name for an Intel GPU.
 func intelGPUName(devPath string) string {
-	uevent := readSysfsStr(devPath + "/uevent")
+	uevent := readSysfsStr(devPath + gpuUeventFile)
 	for _, line := range strings.Split(uevent, "\n") {
-		if strings.HasPrefix(line, "PCI_ID=") {
-			parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+		if strings.HasPrefix(line, gpuPCIIDPrefix) {
+			parts := strings.SplitN(strings.TrimPrefix(line, gpuPCIIDPrefix), ":", 2)
 			if len(parts) == 2 {
 				return "Intel GPU (" + parts[1] + ")"
 			}
@@ -551,15 +561,15 @@ func readSysfsMicroW(pattern string) float64 {
 // proprietary nvidia module (i.e. nvidia-smi won't work).
 // Returns entries for: nouveau-bound, no-driver-at-all, or vfio-bound.
 func detectNvidiaWithoutSMI() []models.GPUDetected {
-	cards, _ := glob("/sys/class/drm/card[0-9]")
+	cards, _ := glob(gpuDRMCardGlob)
 	var found []models.GPUDetected
 	for _, card := range cards {
-		devPath := card + "/device"
+		devPath := card + gpuDeviceDir
 		v := strings.TrimSpace(readSysfsStr(devPath + "/vendor"))
 		if !strings.EqualFold(v, "0x10de") {
 			continue
 		}
-		uevent := readSysfsStr(devPath + "/uevent")
+		uevent := readSysfsStr(devPath + gpuUeventFile)
 		// Check bound driver from uevent DRIVER= field
 		driverName := ""
 		for _, line := range strings.Split(uevent, "\n") {
@@ -570,7 +580,7 @@ func detectNvidiaWithoutSMI() []models.GPUDetected {
 			}
 		}
 		// Skip if proprietary nvidia driver is bound (shouldn't happen — smi would work)
-		if driverName == "nvidia" {
+		if driverName == gpuDriverNvidia {
 			continue
 		}
 
@@ -578,8 +588,8 @@ func detectNvidiaWithoutSMI() []models.GPUDetected {
 		pciAddr := ""
 		for _, line := range strings.Split(uevent, "\n") {
 			switch {
-			case strings.HasPrefix(line, "PCI_ID="):
-				parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+			case strings.HasPrefix(line, gpuPCIIDPrefix):
+				parts := strings.SplitN(strings.TrimPrefix(line, gpuPCIIDPrefix), ":", 2)
 				if len(parts) == 2 {
 					name = "NVIDIA GPU (" + parts[1] + ")"
 				}
@@ -589,13 +599,13 @@ func detectNvidiaWithoutSMI() []models.GPUDetected {
 		}
 
 		// Annotate with actual driver name so user knows what's bound
-		if driverName != "" && driverName != "nvidia" {
+		if driverName != "" && driverName != gpuDriverNvidia {
 			name += " [" + driverName + "]"
 		}
 
 		found = append(found, models.GPUDetected{
 			Name:    name,
-			Vendor:  "nvidia",
+			Vendor:  gpuDriverNvidia,
 			PCIAddr: strings.TrimSpace(pciAddr),
 		})
 	}
@@ -605,19 +615,19 @@ func detectNvidiaWithoutSMI() []models.GPUDetected {
 // amdGPUName returns a human-readable name for an AMD GPU.
 // Tries hwmon name first, falls back to uevent MODEL, then device ID.
 func amdGPUName(devPath string) string {
-	// hwmon name (e.g. "amdgpu") — sysfs attribute reads always carry a trailing
+	// hwmon name (e.g. gpuDriverAMD) — sysfs attribute reads always carry a trailing
 	// newline, so trim before comparing against the generic driver name or the
 	// PCI-ID fallback below is unreachable for every real card.
 	name := strings.TrimSpace(readSysfsFirstGlob(devPath + "/hwmon/hwmon*/name"))
-	if name != "" && name != "amdgpu" {
+	if name != "" && name != gpuDriverAMD {
 		return name
 	}
 	// uevent — may contain MODEL or PCI_ID
-	uevent := readSysfsStr(devPath + "/uevent")
+	uevent := readSysfsStr(devPath + gpuUeventFile)
 	for _, line := range strings.Split(uevent, "\n") {
-		if strings.HasPrefix(line, "PCI_ID=") {
+		if strings.HasPrefix(line, gpuPCIIDPrefix) {
 			// Format: "PCI_ID=1002:687F" → show as "AMD GPU (687F)"
-			parts := strings.SplitN(strings.TrimPrefix(line, "PCI_ID="), ":", 2)
+			parts := strings.SplitN(strings.TrimPrefix(line, gpuPCIIDPrefix), ":", 2)
 			if len(parts) == 2 {
 				return "AMD GPU (" + parts[1] + ")"
 			}

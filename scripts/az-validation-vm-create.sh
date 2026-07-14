@@ -34,12 +34,12 @@ echo "------------------------------------------------------------"
 # --- quota pre-flight: fail fast rather than a cryptic create error ---
 fam="$(az vm list-skus --resource-type virtualMachines --size "$SIZE" --all -o json \
   | jq -r --arg s "$SIZE" '[.[]|select(.name==$s)]|.[0].family // ""')"
-if [ -n "$fam" ]; then
+if [[ -n "$fam" ]]; then
   read -r used lim < <(az vm list-usage -l "$REGION" -o json 2>/dev/null \
     | jq -r --arg f "$fam" '([.[]|select(.name.value==$f)]|.[0]) as $x | "\(($x.currentValue)//0) \(($x.limit)//0)"')
   free=$(( ${lim:-0} - ${used:-0} ))
   echo "Quota ($fam) in $REGION: ${used:-?}/${lim:-?} used → ${free} free"
-  if [ "${free:-0}" -lt 2 ]; then
+  if [[ "${free:-0}" -lt 2 ]]; then
     echo "✗ Not enough vCPU quota for $SIZE in $REGION (need 2). Request an increase for '$fam', or edit REGION."
     exit 1
   fi
@@ -85,7 +85,7 @@ for z in $ZONES; do
   az vm delete -g "$RG" -n "$vmname" --yes 2>/dev/null || true
 done
 
-if [ -z "$CREATED_VM" ]; then
+if [[ -z "$CREATED_VM" ]]; then
   echo "✗ No zone in [$ZONES] had capacity for $SIZE in $REGION. Try later or another region."
   echo "  Run az-validation-vm-destroy.sh to remove the (empty) resource group."
   exit 1

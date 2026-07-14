@@ -19,6 +19,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	netIconWarn    = "⚠️ "
+	netSvcResolved = "systemd-resolved"
+	netFmtMbps     = "  %d Mbps"
+	netIconUp      = "▲  "
+)
+
 func init() {
 	rootCmd.AddCommand(netCmd)
 	netCmd.AddCommand(netDeepCmd)
@@ -193,7 +200,7 @@ func netMark(level string, mode output.OutputMode) string {
 	case "ok":
 		return "✅"
 	case "warn":
-		return "⚠️ "
+		return netIconWarn
 	case "fail":
 		return "❌"
 	case "info":
@@ -245,7 +252,7 @@ func netConcerns(info *models.NetworkInfo) int {
 	return issues
 }
 
-func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // report renderer — each branch is a distinct display condition
+func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // NOSONAR — report renderer; each branch is a distinct display condition, not nested logic
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -286,7 +293,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 				details += fmt.Sprintf("  %.2fGHz", iface.WiFi.FreqGHz)
 			}
 			if iface.WiFi.RateMbps > 0 {
-				details += fmt.Sprintf("  %d Mbps", iface.WiFi.RateMbps)
+				details += fmt.Sprintf(netFmtMbps, iface.WiFi.RateMbps)
 			}
 			if iface.WiFi.SignalDBm != 0 {
 				var sigIcon string
@@ -296,7 +303,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 				case iface.WiFi.SignalDBm >= -70:
 					sigIcon = "▲▲ "
 				case iface.WiFi.SignalDBm >= -80:
-					sigIcon = "▲  "
+					sigIcon = netIconUp
 				default:
 					sigIcon = "!  "
 				}
@@ -310,7 +317,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 			// Wired interface: IP  speed  [USB]  drops  errors
 			details := iface.IP
 			if iface.SpeedMbps > 0 {
-				details += fmt.Sprintf("  %d Mbps", iface.SpeedMbps)
+				details += fmt.Sprintf(netFmtMbps, iface.SpeedMbps)
 			}
 			if iface.IsUSB {
 				if iface.Driver != "" {
@@ -468,14 +475,14 @@ func bandLabel(ghz float64) string {
 
 func iconBand(ghz float64) string {
 	if ghz == 2.4 {
-		return "⚠️ "
+		return netIconWarn
 	}
 	return "✅"
 }
 
 func iconWidth(mhz int) string {
 	if mhz == 20 {
-		return "⚠️ "
+		return netIconWarn
 	}
 	return "✅"
 }
@@ -485,7 +492,7 @@ func iconSignal(dbm int) string {
 	case dbm < -75:
 		return "❌"
 	case dbm <= -65:
-		return "⚠️ "
+		return netIconWarn
 	default:
 		return "✅"
 	}
@@ -542,7 +549,7 @@ func printTCPCounter(label string, val int, warn, crit int) {
 	if val >= crit {
 		icon = "❌"
 	} else if val >= warn {
-		icon = "⚠️ "
+		icon = netIconWarn
 	}
 	fmt.Printf("  %s  %-24s %d\n", icon, label+":", val)
 }
@@ -560,7 +567,7 @@ func printTCPCounterLevel(label string, val int, level string) {
 	case "CRIT":
 		icon = "❌"
 	case "WARN":
-		icon = "⚠️ "
+		icon = netIconWarn
 	case "INFO":
 		icon = "ℹ️ "
 	}
@@ -663,10 +670,10 @@ func printNetBonds(info *models.NetworkInfo) {
 			icon = "❌"
 			statusStr = "  ALL SLAVES DOWN"
 		} else if b.Degraded {
-			icon = "⚠️ "
+			icon = netIconWarn
 			statusStr = fmt.Sprintf("  DEGRADED — %d/%d slaves up", len(b.Slaves)-b.DownSlaves, len(b.Slaves))
 		} else if len(b.Slaves) < 2 {
-			icon = "⚠️ "
+			icon = netIconWarn
 			statusStr = "  only 1 slave — no redundancy"
 		}
 		modeStr := b.ModeShort
@@ -681,7 +688,7 @@ func printNetBonds(info *models.NetworkInfo) {
 			}
 			speedStr := ""
 			if s.SpeedMbps > 0 {
-				speedStr = fmt.Sprintf("  %d Mbps", s.SpeedMbps)
+				speedStr = fmt.Sprintf(netFmtMbps, s.SpeedMbps)
 			}
 			usbStr := ""
 			if isUSBSlave(s.Name) {
@@ -808,7 +815,7 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 			icon = "❌"
 			status = "STALE (timeout after 2s)"
 		} else if !m.Healthy {
-			icon = "⚠️ "
+			icon = netIconWarn
 			status = "error"
 		}
 		fmt.Printf("  %s %-22s  %s:%s  %s\n",
@@ -849,7 +856,7 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 			// host shows ⚠️ forever after one transient blip.
 			icon := "✅"
 			if analysis.NFSRetransConcern(*info) {
-				icon = "⚠️ "
+				icon = netIconWarn
 			}
 			fmt.Printf("  %s Retransmissions:  %.0f\n", icon, info.RetransPerMin)
 		}
@@ -940,7 +947,7 @@ func printResolverAudit(info *models.ResolverAuditInfo) {
 	fmt.Println("\n[DNS Resolver]")
 	printResolverIdentity(info)
 
-	if info.ResolverType == "systemd-resolved" && info.ResolverActive {
+	if info.ResolverType == netSvcResolved && info.ResolverActive {
 		printResolverDNSSEC(info)
 		printResolverDoT(info)
 		printResolverDNSSECTest(info)
@@ -970,7 +977,7 @@ func printResolverIdentity(info *models.ResolverAuditInfo) {
 	case "uplink":
 		fmt.Printf("  ⚠️  resolv.conf: uplink mode (bypasses stub — loses split-DNS)\n")
 	default:
-		if info.ResolverType == "systemd-resolved" && info.ResolverActive {
+		if info.ResolverType == netSvcResolved && info.ResolverActive {
 			fmt.Println("  ⚠️  resolv.conf: custom file — systemd-resolved is not managing it")
 		} else {
 			fmt.Println("  ℹ️  resolv.conf: custom/unmanaged file")
@@ -1038,7 +1045,7 @@ func printResolverVPN(info *models.ResolverAuditInfo) {
 
 // printResolverNext prints the investigation commands.
 func printResolverNext(info *models.ResolverAuditInfo) {
-	if info.ResolverType != "systemd-resolved" || !info.ResolverActive {
+	if info.ResolverType != netSvcResolved || !info.ResolverActive {
 		return
 	}
 	fmt.Println("\nNext:")

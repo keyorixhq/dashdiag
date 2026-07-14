@@ -9,6 +9,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	netCatBonding        = "Bonding"
+	netCatBIND           = "BIND"
+	netCatNFS            = "NFS"
+	netInspectIPLink     = "to inspect: ip link show"
+	netInspectIPRoute    = "to inspect: ip route"
+	netInspectBondingFmt = "to inspect: cat /proc/net/bonding/%s"
+	netKwSynRetrans      = "syn_retrans"
+	netKwRetransFail     = "retrans_fail"
+	netKwListenOverflow  = "listen_overflow"
+)
+
 func checkNFS(nfs models.NFSInfo) []models.Insight {
 	var out []models.Insight
 	for _, m := range nfs.Mounts {
@@ -21,7 +33,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 				hints = append(hints,
 					fmt.Sprintf("server %s unreachable — check network/firewall", m.Server))
 			}
-			out = append(out, insight("CRIT", "NFS",
+			out = append(out, insight("CRIT", netCatNFS,
 				fmt.Sprintf("mount %s is STALE — processes accessing it will hang in D-state", m.Mount),
 				hints))
 		} else if !m.Healthy {
@@ -29,7 +41,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			// an export-permission change). The collector marks the mount unhealthy and
 			// the `dsd net` renderer shows it as "error", but checkNFS keyed only on
 			// Stale — so dsd health emitted nothing and the mount read green (false-OK).
-			out = append(out, insight("WARN", "NFS",
+			out = append(out, insight("WARN", netCatNFS,
 				fmt.Sprintf("mount %s is not responding normally (statfs error) — check exports/permissions", m.Mount),
 				[]string{
 					fmt.Sprintf("to inspect: stat -f %s", m.Mount),
@@ -37,7 +49,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 				}))
 		}
 		for _, warn := range m.OptionsWarnings {
-			out = append(out, insight("WARN", "NFS",
+			out = append(out, insight("WARN", netCatNFS,
 				fmt.Sprintf("%s: %s", m.Mount, warn),
 				[]string{"to fix: remount with correct options in /etc/fstab"},
 			))
@@ -48,7 +60,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 	// instead, with a call-volume floor so a freshly-mounted share isn't flagged on a
 	// handful of calls. >5% retransmitted is the conventional nfsstat concern line.
 	if NFSRetransConcern(nfs) {
-		out = append(out, insight("WARN", "NFS",
+		out = append(out, insight("WARN", netCatNFS,
 			fmt.Sprintf("NFS retransmission rate %.1f%% (%.0f/%.0f calls) — transport may be unreliable",
 				nfs.RetransPerMin/nfs.RPCCalls*100, nfs.RetransPerMin, nfs.RPCCalls),
 			[]string{
@@ -61,7 +73,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 	// well-known port 2049 and needs no rpcbind, so a v4-only host legitimately
 	// runs without it — don't warn unless at least one v3 mount is present.
 	if !nfs.RpcbindActive && NFSHasV3Mount(nfs.Mounts) {
-		out = append(out, insight("WARN", "NFS",
+		out = append(out, insight("WARN", netCatNFS,
 			"rpcbind inactive with NFSv3 mounts present — NFS client operations may fail",
 			[]string{
 				"to fix: systemctl enable --now rpcbind",
@@ -102,7 +114,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 		return out
 	}
 	if !b.ServiceActive {
-		out = append(out, insight("CRIT", "BIND",
+		out = append(out, insight("CRIT", netCatBIND,
 			"named service is not active — DNS server not running",
 			[]string{
 				"to start: systemctl start named",
@@ -112,7 +124,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 		return out
 	}
 	if b.PortsChecked && (!b.Port53TCP || !b.Port53UDP) {
-		out = append(out, insight("WARN", "BIND",
+		out = append(out, insight("WARN", netCatBIND,
 			"named is running but not listening on port 53 — config error or firewall",
 			[]string{
 				"to inspect: ss -tulpn | grep :53",
@@ -120,13 +132,13 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 			},
 		))
 	} else if !b.PortsChecked {
-		out = append(out, insight("INFO", "BIND",
+		out = append(out, insight("INFO", netCatBIND,
 			"could not verify named is listening on port 53 — ss (iproute2) unavailable",
 			[]string{"to install: apt install iproute2  /  dnf install iproute"},
 		))
 	}
 	if !b.ConfigOK {
-		out = append(out, insight("CRIT", "BIND",
+		out = append(out, insight("CRIT", netCatBIND,
 			fmt.Sprintf("named-checkconf error: %s", b.ConfigError),
 			[]string{
 				fmt.Sprintf("to fix: named-checkconf %s", b.ConfigFile),
@@ -141,7 +153,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 				failed = append(failed, z.Name)
 			}
 		}
-		out = append(out, insight("CRIT", "BIND",
+		out = append(out, insight("CRIT", netCatBIND,
 			fmt.Sprintf("%d zone file(s) failed validation: %s",
 				b.ZonesFailed, strings.Join(firstN(failed, 3), ", ")),
 			[]string{
@@ -152,7 +164,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 	}
 	switch {
 	case b.QueryTested && !b.QueryOK:
-		out = append(out, insight("CRIT", "BIND",
+		out = append(out, insight("CRIT", netCatBIND,
 			"named is running but not answering DNS queries on 127.0.0.1:53",
 			[]string{
 				"to test: dig @127.0.0.1 localhost A +time=2 +tries=1",
@@ -162,7 +174,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 	case !b.QueryTested:
 		// dig isn't installed, so we couldn't verify named is answering — say so
 		// rather than falsely asserting an outage.
-		out = append(out, insight("INFO", "BIND",
+		out = append(out, insight("INFO", netCatBIND,
 			"could not verify named is answering — dig not installed",
 			[]string{"to enable the check: install bind-utils (RHEL) / dnsutils (Debian)"},
 		))
@@ -200,23 +212,23 @@ const (
 // DeepTCPCounterLevel is the single source of truth for how a cumulative
 // since-boot TcpExt counter maps to a health severity, shared by the health
 // heuristics and the `dsd net` renderer so the two never diverge. kind is one of
-// "syn_retrans", "listen_overflow", "retrans_fail". It returns "", "INFO",
+// netKwSynRetrans, netKwListenOverflow, netKwRetransFail. It returns "", "INFO",
 // "WARN", or "CRIT": at/below the floor is ""; above it, a sustained per-hour
 // rate (relative to uptime) escalates, while a small historical total — or one
 // that can't be rated because uptime is unknown — stays INFO.
 func DeepTCPCounterLevel(kind string, count int, uptimeSec float64) string {
 	switch kind {
-	case "syn_retrans":
+	case netKwSynRetrans:
 		if count <= synRetransFloor {
 			return ""
 		}
 		return tcpCounterLevel(count, uptimeSec, synRetransWarnRate, 0)
-	case "listen_overflow":
+	case netKwListenOverflow:
 		if count <= listenOverflowFloor {
 			return ""
 		}
 		return tcpCounterLevel(count, uptimeSec, listenOverflowWarnRate, listenCrit)
-	case "retrans_fail":
+	case netKwRetransFail:
 		if count <= retransFailFloor {
 			return ""
 		}
@@ -248,7 +260,7 @@ func tcpCounterLevel(count int, uptimeSec, warnRate, critRate float64) string {
 func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 	var out []models.Insight
 
-	if lvl := DeepTCPCounterLevel("syn_retrans", net.SynRetransCount, net.UptimeSec); lvl != "" {
+	if lvl := DeepTCPCounterLevel(netKwSynRetrans, net.SynRetransCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.SynRetransCount, net.UptimeSec)
 		if lvl == "WARN" { // sustained — active packet loss or overload
 			out = append(out, insight("WARN", "Network",
@@ -263,7 +275,7 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 		}
 	}
 
-	if lvl := DeepTCPCounterLevel("listen_overflow", net.ListenOverflows, net.UptimeSec); lvl != "" {
+	if lvl := DeepTCPCounterLevel(netKwListenOverflow, net.ListenOverflows, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.ListenOverflows, net.UptimeSec)
 		fix := []string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"}
 		switch lvl {
@@ -285,7 +297,7 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 		}
 	}
 
-	if lvl := DeepTCPCounterLevel("retrans_fail", net.RetransFailCount, net.UptimeSec); lvl != "" {
+	if lvl := DeepTCPCounterLevel(netKwRetransFail, net.RetransFailCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.RetransFailCount, net.UptimeSec)
 		if lvl == "WARN" { // retransmits giving up entirely at a real rate — active failure
 			out = append(out, insight("WARN", "Network",
@@ -319,7 +331,7 @@ func nicErrorRateHigh(errors, packets uint64) bool {
 	return float64(errors)/float64(packets) > rateLimit
 }
 
-func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
+func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // NOSONAR — network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
 	if net.SteamOSWifi != nil {
@@ -429,12 +441,12 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	if net.PrimaryInterfaceDown {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
-			[]string{"to inspect: ip link show", "to inspect: ip route", fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
+			[]string{netInspectIPLink, netInspectIPRoute, fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
 		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs < 0 {
 		out = append(out, insight("CRIT", "Network",
 			"gateway and internet unreachable — host appears offline",
-			[]string{"to inspect: ip route", "to inspect: ip link show", "to inspect: ping -c3 $(ip route | awk '/default/{print $3}')"},
+			[]string{netInspectIPRoute, netInspectIPLink, "to inspect: ping -c3 $(ip route | awk '/default/{print $3}')"},
 		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs >= 0 {
 		out = append(out, insight("INFO", "Network",
@@ -444,7 +456,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	} else if net.GatewayPingMs > 200 {
 		out = append(out, insight("CRIT", "Network",
 			fmt.Sprintf("gateway ping is %.0f ms — severe latency", net.GatewayPingMs),
-			[]string{"to inspect: ping -c5 $(ip route | awk '/default/{print $3}')", "to inspect: ip route"},
+			[]string{"to inspect: ping -c5 $(ip route | awk '/default/{print $3}')", netInspectIPRoute},
 		))
 	} else if net.GatewayPingMs > 50 {
 		out = append(out, insight("WARN", "Network",
@@ -458,7 +470,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		if lv := GatewayPacketLossLevel(net.GatewayPacketLossPct); lv != "" {
 			hints := []string{"to inspect: ping -c20 $(ip route | awk '/default/{print $3}')"}
 			if lv == "CRIT" {
-				hints = append(hints, "to inspect: ip link show")
+				hints = append(hints, netInspectIPLink)
 			}
 			out = append(out, insight(lv, "Network",
 				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct), hints))
@@ -557,11 +569,11 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 	for _, bond := range b.Bonds {
 		// Single-slave bond — no redundancy
 		if len(bond.Slaves) < 2 {
-			out = append(out, insight("WARN", "Bonding",
+			out = append(out, insight("WARN", netCatBonding,
 				fmt.Sprintf("%s has only 1 slave — no redundancy (second NIC missing or disconnected)", bond.Name),
 				[]string{
-					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
-					"to inspect: ip link show",
+					fmt.Sprintf(netInspectBondingFmt, bond.Name),
+					netInspectIPLink,
 					"note:       bonding provides no benefit with a single slave",
 				},
 			))
@@ -577,7 +589,7 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 			if !isZeroMACHeuristic(bond.PartnerMAC) {
 				cause = "some links failed to join the active aggregator"
 			}
-			out = append(out, insight("WARN", "Bonding",
+			out = append(out, insight("WARN", netCatBonding,
 				fmt.Sprintf("%s: 802.3ad (LACP) bond is link-up but NOT aggregating — %s (%s)",
 					bond.Name, reason, cause),
 				[]string{
@@ -591,7 +603,7 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 			// Healthy — check for USB slaves as a reliability advisory
 			for _, s := range bond.Slaves {
 				if isUSBNetworkInterface(s.Name) {
-					out = append(out, insight("INFO", "Bonding",
+					out = append(out, insight("INFO", netCatBonding,
 						fmt.Sprintf("%s: slave %s is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)",
 							bond.Name, s.Name),
 						[]string{
@@ -604,20 +616,20 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 			continue
 		}
 		if bond.DownSlaves == len(bond.Slaves) {
-			out = append(out, insight("CRIT", "Bonding",
+			out = append(out, insight("CRIT", netCatBonding,
 				fmt.Sprintf("%s: all %d slaves down — bond is completely failed", bond.Name, bond.DownSlaves),
 				[]string{
-					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
-					"to inspect: ip link show",
+					fmt.Sprintf(netInspectBondingFmt, bond.Name),
+					netInspectIPLink,
 				},
 			))
 		} else {
-			out = append(out, insight("WARN", "Bonding",
+			out = append(out, insight("WARN", netCatBonding,
 				fmt.Sprintf("%s: %d/%d slave(s) down (%s mode) — running degraded",
 					bond.Name, bond.DownSlaves, len(bond.Slaves), bond.ModeShort),
 				[]string{
-					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s", bond.Name),
-					"to inspect: ip link show",
+					fmt.Sprintf(netInspectBondingFmt, bond.Name),
+					netInspectIPLink,
 					"to inspect: ethtool <slave-interface>",
 				},
 			))
@@ -625,7 +637,7 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 		// Surface individual down slaves
 		for _, s := range bond.Slaves {
 			if s.State == "down" {
-				out = append(out, insight("INFO", "Bonding",
+				out = append(out, insight("INFO", netCatBonding,
 					fmt.Sprintf("%s: slave %s is down (MII: %s)", bond.Name, s.Name, s.MIIStatus),
 					[]string{
 						fmt.Sprintf("to inspect: ethtool %s", s.Name),
@@ -637,7 +649,7 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 		// High link failures on any slave
 		for _, s := range bond.Slaves {
 			if s.LinkFails > 10 {
-				out = append(out, insight("WARN", "Bonding",
+				out = append(out, insight("WARN", netCatBonding,
 					fmt.Sprintf("%s: slave %s has %d link failures — check cable or switch port",
 						bond.Name, s.Name, s.LinkFails),
 					[]string{fmt.Sprintf("to inspect: ethtool %s", s.Name)},
@@ -664,7 +676,7 @@ func checkVLAN(v models.VLANInfo) []models.Insight {
 	return []models.Insight{insight("WARN", "VLAN",
 		fmt.Sprintf("%d VLAN interface(s) down: %s", len(down), strings.Join(down, ", ")),
 		[]string{
-			"to inspect: ip link show",
+			netInspectIPLink,
 			"to inspect: cat /proc/net/vlan/config",
 		})}
 }

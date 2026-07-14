@@ -88,7 +88,7 @@ collect_vm() {
 	local cmds=("$@")
 	local remote_dir="/tmp/covdata-$pass"
 	local run_prefix=""
-	[ "$pass" = "root" ] && [ "$user" != "root" ] && run_prefix="sudo -n"
+	[[ "$pass" = "root" ]] && [[ "$user" != "root" ]] && run_prefix="sudo -n"
 	ssh -o BatchMode=yes "$user@$ip" "rm -rf $remote_dir && mkdir -p $remote_dir"
 	for c in "${cmds[@]}"; do
 		log "  [$label/$pass] -> dsd $c"

@@ -14,6 +14,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	cloudMetadataFlavorHeader = "Metadata-Flavor"
+	cloudGCPProvider          = "Google"
+	cloudAWSTokenHeader       = "X-aws-ec2-metadata-token" //nolint:gosec // HTTP header name, not a credential
+)
+
 // imdsMaxBodyBytes caps an IMDS response body. A single fixed-size Read() used
 // to silently truncate anything past 4KB — Azure's compute/storageProfile
 // document for a multi-data-disk VM (each managedDisk.id is a ~200-char ARM
@@ -106,7 +112,7 @@ func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
 		return false
 	}
 
-	headers := map[string]string{"X-aws-ec2-metadata-token": token}
+	headers := map[string]string{cloudAWSTokenHeader: token}
 
 	iid, err := imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-id", headers)
 	if err != nil || iid == "" {
@@ -178,7 +184,7 @@ func awsSpotTermination(ctx context.Context, client *http.Client, token string) 
 	if err != nil {
 		return awsSpotStatus{CheckFailed: true}
 	}
-	req.Header.Set("X-aws-ec2-metadata-token", token)
+	req.Header.Set(cloudAWSTokenHeader, token)
 	resp, err := client.Do(req)
 	if err != nil {
 		return awsSpotStatus{CheckFailed: true}
@@ -264,7 +270,7 @@ func parseAzureScheduledEvents(body string) (pending bool, details string) {
 func collectGCP(ctx context.Context, info *models.CloudInfo) bool {
 	iid, err := imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/id",
-		map[string]string{"Metadata-Flavor": "Google"})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
 	if err != nil || iid == "" {
 		return false
 	}
@@ -273,15 +279,15 @@ func collectGCP(ctx context.Context, info *models.CloudInfo) bool {
 	info.InstanceID = iid
 	info.InstanceType, _ = imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/machine-type",
-		map[string]string{"Metadata-Flavor": "Google"})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
 	info.Region, _ = imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/zone",
-		map[string]string{"Metadata-Flavor": "Google"})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
 
 	// Preemptible termination notice
 	preempt, err := imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/preempted",
-		map[string]string{"Metadata-Flavor": "Google"})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
 	if err == nil && strings.TrimSpace(preempt) == "TRUE" {
 		info.SpotTermination = true
 		info.StatusReason = "GCP preemptible instance scheduled for termination"
@@ -310,12 +316,12 @@ func IsCloudInstance() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	_, err := imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-id",
-		map[string]string{"X-aws-ec2-metadata-token": ""})
+		map[string]string{cloudAWSTokenHeader: ""})
 	if err == nil {
 		return true
 	}
 	_, err = imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/id",
-		map[string]string{"Metadata-Flavor": "Google"})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
 	return err == nil
 }

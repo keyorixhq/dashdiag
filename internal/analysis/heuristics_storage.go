@@ -7,6 +7,17 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	inspectNVMEPrefix     = "to inspect: nvme smart-log "
+	inspectSmartCtlPrefix = "to inspect: smartctl -a "
+	inspectDRBDStatusFmt  = "to inspect: drbdadm status %s"
+	inspectZPoolStatusFmt = "to inspect: zpool status -v %s"
+	inspectZPoolEventsFmt = "to inspect: zpool events %s"
+	inspectBtrfsStatsFmt  = "to inspect: btrfs device stats %s"
+	inspectMultipath      = "to inspect: multipathd show paths"
+	inspectLVSFmt         = "to inspect: lvs %s/%s"
+)
+
 // nvmeSmartPlausible reports whether an NVMe SMART reading is physically
 // possible. Some virtual NVMe devices (notably VMware Cloud Director's vNVMe,
 // TRIAGE §L) return a SMART log that parses cleanly but is garbage — e.g.
@@ -110,7 +121,7 @@ func sataSmartPlausible(dev models.SATADevice) bool {
 	return true
 }
 
-func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NVMe + SATA/SAS checks — flat registry of independent per-drive checks
+func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NOSONAR — NVMe + SATA/SAS checks — flat registry of independent per-drive checks
 	var out []models.Insight
 
 	// NVMe drives
@@ -137,13 +148,13 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		if dev.CriticalWarning > 0 {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s critical warning flag set (0x%02x) — drive may be failing", dev.Name, dev.CriticalWarning),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 		if dev.MediaErrors > 0 {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s has %d media error(s) — data integrity risk", dev.Name, dev.MediaErrors),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 		// Gate on the threshold (a defined NVMe SMART field, ~10% on healthy
@@ -155,30 +166,30 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		if dev.SpareThresholdPct > 0 && dev.AvailableSparePct <= dev.SpareThresholdPct {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s spare capacity at %d%% (threshold: %d%%) — drive near end of life", dev.Name, dev.AvailableSparePct, dev.SpareThresholdPct),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		} else if dev.AvailableSparePct > 0 && dev.AvailableSparePct < 20 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s spare capacity low at %d%%", dev.Name, dev.AvailableSparePct),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 		if dev.PercentageUsed >= 90 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s wear at %d%% — consider replacement planning", dev.Name, dev.PercentageUsed),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 		if dev.TempC >= 70 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s temperature %g°C — elevated for NVMe", dev.Name, dev.TempC),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 		if dev.UnsafeShutdowns > 100 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s has %d unsafe shutdown(s) — power cuts risk filesystem corruption", dev.Name, dev.UnsafeShutdowns),
-				[]string{"to inspect: nvme smart-log " + dev.Name, "to inspect: nvme list", "to fix: ensure clean shutdowns, check UPS"},
+				[]string{inspectNVMEPrefix + dev.Name, "to inspect: nvme list", "to fix: ensure clean shutdowns, check UPS"},
 			))
 		}
 		if dev.PowerOnHours > 35000 {
@@ -187,7 +198,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			// so this is INFO context, not a WARN.
 			out = append(out, insight("INFO", "Drives",
 				fmt.Sprintf("%s has %d power-on hours (~%.1f years) — age only; wear is tracked via percentage-used/spare, not hours", dev.Name, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
-				[]string{"to inspect: nvme smart-log " + dev.Name},
+				[]string{inspectNVMEPrefix + dev.Name},
 			))
 		}
 	}
@@ -238,7 +249,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme smart-log failed",
 				len(unreadErr), strings.Join(unreadErr, ", ")),
 			[]string{
-				"to inspect: nvme smart-log " + unreadErr[0],
+				inspectNVMEPrefix + unreadErr[0],
 				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
 			},
 		))
@@ -254,7 +265,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			fmt.Sprintf("%d NVMe drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
 				len(implausible), strings.Join(implausible, ", ")),
 			[]string{
-				"to inspect: nvme smart-log " + implausible[0],
+				inspectNVMEPrefix + implausible[0],
 				"note: out-of-range temperature/spare/counters (common on virtual NVMe, e.g. VMware) — readings ignored to avoid a false end-of-life alarm",
 			},
 		))
@@ -310,31 +321,31 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		if !dev.SmartOK {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s (%s) SMART check FAILED — drive may be failing", dev.Name, dev.Type),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 		if dev.ReallocatedSectors > 0 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s has %d reallocated sector(s) — early sign of drive failure", dev.Name, dev.ReallocatedSectors),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 		if dev.PendingSectors > 0 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s has %d pending sector(s) — unreadable sectors awaiting reallocation", dev.Name, dev.PendingSectors),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 		if dev.UncorrectableErrors > 0 {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s has %d uncorrectable error(s) — data loss risk", dev.Name, dev.UncorrectableErrors),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 		if dev.TempC >= 55 {
 			out = append(out, insight("WARN", "Drives",
 				fmt.Sprintf("%s (%s) temperature %d°C — elevated for SATA drive", dev.Name, dev.Type, dev.TempC),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 		if dev.PowerOnHours > 43800 {
@@ -343,7 +354,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			// and a failing SMART self-assessment (checked above) are. INFO context.
 			out = append(out, insight("INFO", "Drives",
 				fmt.Sprintf("%s (%s) has %d power-on hours (~%.1f years) — age only; not a failure signal on its own (check reallocated/pending sectors)", dev.Name, dev.Type, dev.PowerOnHours, float64(dev.PowerOnHours)/8760),
-				[]string{"to inspect: smartctl -a " + dev.Name},
+				[]string{inspectSmartCtlPrefix + dev.Name},
 			))
 		}
 	}
@@ -352,7 +363,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			fmt.Sprintf("%d SATA/SAS drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
 				len(sataImplausible), strings.Join(sataImplausible, ", ")),
 			[]string{
-				"to inspect: smartctl -a " + sataImplausible[0],
+				inspectSmartCtlPrefix + sataImplausible[0],
 				"note: out-of-range temperature/sector-counts (vendor-encoded raw attributes, or virtual/USB-bridged SATA) — readings ignored to avoid a false drive-failure alarm",
 			},
 		))
@@ -373,7 +384,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			fmt.Sprintf("%d SATA/SAS drive(s) detected but no SMART data exposed (%s) — a virtual disk, or a drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART through",
 				len(sataNoSmart), strings.Join(sataNoSmart, ", ")),
 			[]string{
-				"to inspect: smartctl -a " + sataNoSmart[0] + "  (try -d sat / -d cciss,N for controllers)",
+				inspectSmartCtlPrefix + sataNoSmart[0] + "  (try -d sat / -d cciss,N for controllers)",
 				"note: drive presence is known; SMART health, wear, and errors are unverified — virtual disks expose none",
 			},
 		))
@@ -415,7 +426,7 @@ func zfsVdevErrorInsight(p models.ZFSPool, check string) (models.Insight, bool) 
 		return insight("WARN", check,
 			fmt.Sprintf("ZFS pool %s recorded vdev errors (%s) since last clear — repaired (pool ONLINE, last scrub clean); investigate if recurring", p.Name, counts),
 			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", p.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, p.Name),
 				"note: counters persist until cleared — recurring checksum errors can mean bad disk/RAM/cable",
 				fmt.Sprintf("to clear after confirming healthy: zpool clear %s", p.Name),
 			},
@@ -428,7 +439,7 @@ func zfsVdevErrorInsight(p models.ZFSPool, check string) (models.Insight, bool) 
 	return insight("CRIT", check,
 		fmt.Sprintf("ZFS pool %s has vdev errors (%s) — %s", p.Name, counts, reason),
 		[]string{
-			fmt.Sprintf("to inspect: zpool status -v %s", p.Name),
+			fmt.Sprintf(inspectZPoolStatusFmt, p.Name),
 			"note: checksum errors indicate data corruption or bad hardware",
 			fmt.Sprintf("to clear after fixing root cause: zpool clear %s", p.Name),
 		},
@@ -464,7 +475,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS", msg,
 			[]string{
 				fmt.Sprintf("to inspect: zpool status %s", pool.Name),
-				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
 				"note: replace failed vdev and run: zpool replace <pool> <old> <new>",
 				"note: data is at risk — restore redundancy immediately",
 			},
@@ -473,7 +484,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s is FAULTED — pool may be unrecoverable", pool.Name),
 			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
 				"note: FAULTED means pool was taken offline due to unrecoverable error",
 				"note: import with: zpool import -F <pool>  (force recovery, may lose data)",
 			},
@@ -487,8 +498,8 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s is SUSPENDED — I/O is halted (too many devices lost); all access to the pool blocks", pool.Name),
 			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
-				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
+				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
 				"note: restore the missing devices, then: zpool clear " + pool.Name,
 			},
 		))
@@ -496,8 +507,8 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s state: %s", pool.Name, pool.State),
 			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
-				fmt.Sprintf("to inspect: zpool events %s", pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
+				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
 			},
 		))
 	}
@@ -546,7 +557,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s: last scrub found %d unrepairable error(s) — permanent data corruption", pool.Name, pool.ScrubErrors),
 			[]string{
-				fmt.Sprintf("to inspect: zpool status -v %s", pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
 				"note: 'zpool status -v' lists the affected files — restore them from backup",
 			},
 		))
@@ -602,7 +613,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 				fmt.Sprintf("thin pool %s/%s data at %.0f%% (%.1f GB total)",
 					pool.VG, pool.Name, pool.DataPct, pool.SizeGB),
 				[]string{
-					fmt.Sprintf("to inspect: lvs %s/%s", pool.VG, pool.Name),
+					fmt.Sprintf(inspectLVSFmt, pool.VG, pool.Name),
 					fmt.Sprintf("to extend:  lvextend -l +50%%FREE %s/%s", pool.VG, pool.Name),
 					"note: thin pool exhaustion silently freezes all VMs writing to it",
 					"note: set lvm.conf thin_pool_autoextend_threshold=80 to auto-extend",
@@ -616,7 +627,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 				fmt.Sprintf("thin pool %s/%s metadata at %.0f%% — metadata exhaustion is unrecoverable without deactivation",
 					pool.VG, pool.Name, pool.MetaPct),
 				[]string{
-					fmt.Sprintf("to inspect: lvs %s/%s", pool.VG, pool.Name),
+					fmt.Sprintf(inspectLVSFmt, pool.VG, pool.Name),
 					fmt.Sprintf("to extend:  lvextend --poolmetadatasize +1G %s/%s", pool.VG, pool.Name),
 					"note: metadata exhaustion is worse than data exhaustion — act immediately",
 				},
@@ -688,7 +699,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 				fmt.Sprintf("snapshot %s/%s is %.0f%% full — overflow will corrupt the snapshot",
 					snap.VG, snap.Name, snap.DataPct),
 				[]string{
-					fmt.Sprintf("to inspect: lvs %s/%s", snap.VG, snap.Name),
+					fmt.Sprintf(inspectLVSFmt, snap.VG, snap.Name),
 					fmt.Sprintf("to extend:  lvextend -L +1G %s/%s", snap.VG, snap.Name),
 					fmt.Sprintf("to remove:  lvremove %s/%s  (if snapshot is no longer needed)", snap.VG, snap.Name),
 				},
@@ -816,7 +827,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		out = append(out, insight("WARN", "DRBD",
 			fmt.Sprintf("%s: waiting for peer connection (%s) — peer may be down", name, res.ConnState),
 			[]string{
-				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				fmt.Sprintf(inspectDRBDStatusFmt, name),
 				"to inspect: ping <peer-ip>",
 				"to inspect: dmesg | grep -i drbd",
 			},
@@ -824,7 +835,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 	case "Disconnecting":
 		out = append(out, insight("WARN", "DRBD",
 			fmt.Sprintf("%s: disconnecting from peer", name),
-			[]string{fmt.Sprintf("to inspect: drbdadm status %s", name)},
+			[]string{fmt.Sprintf(inspectDRBDStatusFmt, name)},
 		))
 	case "SyncSource", "SyncTarget":
 		// Syncing — degraded but recoverable. Show progress.
@@ -848,7 +859,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		out = append(out, insight("WARN", "DRBD",
 			fmt.Sprintf("%s: connection state %s — peer link down/failing, replication not active", name, res.ConnState),
 			[]string{
-				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				fmt.Sprintf(inspectDRBDStatusFmt, name),
 				"to inspect: ping <peer-ip>; check the replication network",
 				"note: the resource is running without redundancy until the link recovers",
 			},
@@ -861,7 +872,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		out = append(out, insight("CRIT", "DRBD",
 			fmt.Sprintf("%s: local disk state FAILED — underlying device has errors", name),
 			[]string{
-				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				fmt.Sprintf(inspectDRBDStatusFmt, name),
 				"to inspect: dmesg | grep -E 'drbd|sda|sdb|nvme'",
 				"to inspect: smartctl -a /dev/<underlying-device>",
 			},
@@ -880,7 +891,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 			out = append(out, insight("CRIT", "DRBD",
 				fmt.Sprintf("%s: local disk INCONSISTENT and not syncing", name),
 				[]string{
-					fmt.Sprintf("to inspect: drbdadm status %s", name),
+					fmt.Sprintf(inspectDRBDStatusFmt, name),
 					fmt.Sprintf("to force sync: drbdadm -- --overwrite-data-of-peer primary %s", name),
 					"warning: only use --overwrite-data-of-peer if you are certain this node has correct data",
 				},
@@ -890,7 +901,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		out = append(out, insight("WARN", "DRBD",
 			fmt.Sprintf("%s: local disk OUTDATED — peer has newer data", name),
 			[]string{
-				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				fmt.Sprintf(inspectDRBDStatusFmt, name),
 				"note: disk will sync automatically when peer connection is restored",
 			},
 		))
@@ -901,7 +912,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		out = append(out, insight("WARN", "DRBD",
 			fmt.Sprintf("%s: local disk state %s — no usable local backing device, serving over the network only", name, res.LocalDisk),
 			[]string{
-				fmt.Sprintf("to inspect: drbdadm status %s", name),
+				fmt.Sprintf(inspectDRBDStatusFmt, name),
 				"to inspect: dmesg | grep -i drbd   (check whether the backing device failed)",
 				fmt.Sprintf("to reattach (if intended): drbdadm attach %s", name),
 			},
@@ -1110,7 +1121,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 			fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
 			[]string{
 				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
-				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
 				"to fix:     reattach missing device and run: btrfs device scan",
 			},
 		)}
@@ -1135,7 +1146,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	if !v.StatsRead {
 		return []models.Insight{insight("INFO", "Disk",
 			fmt.Sprintf("btrfs %s device error counters not read — run as root: btrfs device stats %s", v.MountPoint, v.MountPoint),
-			[]string{fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint)},
+			[]string{fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint)},
 		)}
 	}
 	if v.Status != "errors" {
@@ -1153,7 +1164,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 		return []models.Insight{insight("CRIT", "Disk",
 			fmt.Sprintf("btrfs %s has %d device I/O error(s) — failing storage or cabling", v.MountPoint, ioErrs),
 			[]string{
-				fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+				fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
 				"to inspect: dmesg | grep -i 'btrfs\\|i/o error'",
 				"note: back up data now — I/O errors are not scrub-correctable",
 			},
@@ -1163,7 +1174,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	return []models.Insight{insight("WARN", "Disk",
 		fmt.Sprintf("btrfs %s has %d checksum/corruption error(s) — may be scrub-correctable", v.MountPoint, corruptErrs),
 		[]string{
-			fmt.Sprintf("to inspect: btrfs device stats %s", v.MountPoint),
+			fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
 			fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
 		},
 	)}
@@ -1286,7 +1297,7 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 		return []models.Insight{insight("WARN", "Multipath",
 			"multipath path health could NOT be verified — "+reason,
 			[]string{
-				"to inspect: multipathd show paths",
+				inspectMultipath,
 				"to inspect: multipath -l   (run as root)",
 			},
 		)}
@@ -1304,7 +1315,7 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 			out = append(out, insight("CRIT", "Multipath",
 				fmt.Sprintf("%s: all paths failed — device unavailable", label),
 				[]string{
-					"to inspect: multipathd show paths",
+					inspectMultipath,
 					"to inspect: multipath -l",
 					"to inspect: check SAN fabric and HBA",
 				},
@@ -1314,7 +1325,7 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 				fmt.Sprintf("%s: %d/%d paths failed — running degraded",
 					label, dev.FailedPaths, dev.TotalPaths),
 				[]string{
-					"to inspect: multipathd show paths",
+					inspectMultipath,
 					"to inspect: multipath -l",
 					fmt.Sprintf("to inspect: cat /sys/block/%s/dm/state", dev.DM),
 					"note: replace failed path before removing redundant one",
