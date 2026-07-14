@@ -98,7 +98,7 @@ var healthDeepCmd = &cobra.Command{
 // or STIG profiles. Enterprise-only. Implement after core product is stable and paying
 // customers exist. Estimated scope: ~2 weeks.
 
-func runHealth(cmd *cobra.Command, _ []string) error {
+func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra handler — flag-reading wiring only, no logic
 	ctx := context.Background()
 	debugFlag, _ := cmd.Flags().GetBool("debug")
 	ctx = debug.With(ctx, debugFlag)

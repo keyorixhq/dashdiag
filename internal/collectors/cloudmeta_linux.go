@@ -17,7 +17,7 @@ import (
 const (
 	cloudMetadataFlavorHeader = "Metadata-Flavor"
 	cloudGCPProvider          = "Google"
-	cloudAWSTokenHeader       = "X-aws-ec2-metadata-token"
+	cloudAWSTokenHeader       = "X-aws-ec2-metadata-token" //nolint:gosec // HTTP header name, not a credential
 )
 
 // imdsMaxBodyBytes caps an IMDS response body. A single fixed-size Read() used
