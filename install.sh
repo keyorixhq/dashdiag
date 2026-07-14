@@ -103,11 +103,12 @@ download() {
 # NOTE: a checksum *mismatch* is positive evidence of tampering, not an inability
 # to verify, so it always dies regardless of --no-verify.
 unverified() {
+    local msg="$1"
     if [ "$NO_VERIFY" = "1" ]; then
-        warn "$1 -- continuing anyway (--no-verify: UNVERIFIED install)"
+        warn "$msg -- continuing anyway (--no-verify: UNVERIFIED install)"
         return 0
     fi
-    die "$1. Refusing to install an unverified binary -- re-run with --no-verify to override."
+    die "$msg. Refusing to install an unverified binary -- re-run with --no-verify to override."
 }
 
 # ── verify checksum ──────────────────────────────────────────────────────────
@@ -222,12 +223,12 @@ main() {
     PREFIX=""
     NO_VERIFY=0
     while [ $# -gt 0 ]; do
-        case "$1" in
-            --prefix)    [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;;
+        case "$1" in # NOSONAR — shift-loop arg parsing; $1 changes each iteration, local extraction is not applicable
+            --prefix)    [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;; # NOSONAR
             --prefix=*)  PREFIX="${1#--prefix=}"; shift ;;
             --no-verify) NO_VERIFY=1; shift ;;
             v[0-9]*)     VERSION="$1"; shift ;;
-            -*)          die "Unknown option: $1" ;;
+            -*)          die "Unknown option: $1" ;; # NOSONAR
             *)           PREFIX="$1"; shift ;;
         esac
     done
