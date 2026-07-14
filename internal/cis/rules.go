@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	cisBenchBOTH   = "BOTH"
-	cisCatSSH      = "SSH"
-	cisBenchSTIG   = "STIG"
-	cisCatNetwork  = "Network"
-	cisCatAuth     = "Auth"
-	cisCatFiles    = "Files"
-	cisBenchCIS    = "CIS"
+	cisBenchBOTH      = "BOTH"
+	cisCatSSH         = "SSH"
+	cisBenchSTIG      = "STIG"
+	cisCatNetwork     = "Network"
+	cisCatAuth        = "Auth"
+	cisCatFiles       = "Files"
+	cisBenchCIS       = "CIS"
 	cisRuleSSH52      = "5.2.1"
 	cisRuleAudit41    = "4.1.1"
 	stigPassMaxDaysID = "V-238380"
