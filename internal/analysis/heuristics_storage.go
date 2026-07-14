@@ -16,6 +16,9 @@ const (
 	inspectBtrfsStatsFmt  = "to inspect: btrfs device stats %s"
 	inspectMultipath      = "to inspect: multipathd show paths"
 	inspectLVSFmt         = "to inspect: lvs %s/%s"
+	inspectFCHostPrefix   = "to inspect: cat /sys/class/fc_host/"
+	inspectCephDetail     = "to inspect: ceph health detail"
+	noteNVMeUnverified    = "note: drive presence is known; wear, media errors, and spare capacity are unverified"
 )
 
 // nvmeSmartPlausible reports whether an NVMe SMART reading is physically
@@ -230,7 +233,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 				len(unreadRoot), strings.Join(unreadRoot, ", ")),
 			[]string{
 				"to fix: re-run as root — NVMe SMART reads require privilege (sudo dsd health)",
-				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+				noteNVMeUnverified,
 			},
 		))
 	}
@@ -240,7 +243,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 				len(unreadAbsent), strings.Join(unreadAbsent, ", ")),
 			[]string{
 				"to fix: install nvme-cli  (apt install nvme-cli  /  dnf install nvme-cli  /  zypper install nvme-cli)",
-				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+				noteNVMeUnverified,
 			},
 		))
 	}
@@ -250,7 +253,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 				len(unreadErr), strings.Join(unreadErr, ", ")),
 			[]string{
 				inspectNVMEPrefix + unreadErr[0],
-				"note: drive presence is known; wear, media errors, and spare capacity are unverified",
+				noteNVMeUnverified,
 			},
 		))
 	}
@@ -1246,7 +1249,7 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 			out = append(out, insight("WARN", "HBA",
 				fmt.Sprintf("FC port %s state could not be read — storage path health unknown", p.Name),
 				[]string{
-					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					inspectFCHostPrefix + p.Name + "/port_state",
 					"to inspect: systool -c fc_host -v",
 				},
 			))
@@ -1254,7 +1257,7 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 			out = append(out, insight("CRIT", "HBA",
 				fmt.Sprintf("FC port %s is %s — storage path lost", p.Name, p.PortState),
 				[]string{
-					"to inspect: cat /sys/class/fc_host/" + p.Name + "/port_state",
+					inspectFCHostPrefix + p.Name + "/port_state",
 					"to inspect: systool -c fc_host -v",
 					"note: check SFP cable, switch zoning, and target port",
 				},
@@ -1273,7 +1276,7 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 				fmt.Sprintf("FC port %s: %d link failures, %d loss-of-sync — check fibre and SFP",
 					p.Name, p.LinkFailures, p.LossOfSync),
 				[]string{
-					"to inspect: cat /sys/class/fc_host/" + p.Name + "/statistics/link_failure_count",
+					inspectFCHostPrefix + p.Name + "/statistics/link_failure_count",
 					"to inspect: check SFP module and fibre cable",
 				},
 			))
@@ -1367,20 +1370,20 @@ func checkCeph(c models.CephInfo) []models.Insight {
 			msg = "Ceph: " + c.Summary[0]
 		}
 		return []models.Insight{insight("CRIT", "Ceph", msg,
-			[]string{"to inspect: ceph health detail", "to inspect: ceph osd tree"})}
+			[]string{inspectCephDetail, "to inspect: ceph osd tree"})}
 	case "HEALTH_WARN":
 		msg := "Ceph cluster health is WARN"
 		if len(c.Summary) > 0 {
 			msg = "Ceph: " + c.Summary[0]
 		}
 		return []models.Insight{insight("WARN", "Ceph", msg,
-			[]string{"to inspect: ceph health detail", "to inspect: ceph osd stat"})}
+			[]string{inspectCephDetail, "to inspect: ceph osd stat"})}
 	case "HEALTH_UNKNOWN":
 		// `ceph health detail` ran but returned no parseable status — surface that
 		// rather than letting an empty Health read as a healthy cluster.
 		return []models.Insight{insight("WARN", "Ceph",
 			"Ceph cluster health could not be read — `ceph health detail` returned no parseable status",
-			[]string{"to inspect: ceph health detail", "to inspect: ceph -s"})}
+			[]string{inspectCephDetail, "to inspect: ceph -s"})}
 	}
 	downOSDs := c.OSDTotal - c.OSDUp
 	if downOSDs > 0 {
