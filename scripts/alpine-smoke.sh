@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC3043  # local is supported by busybox ash (the actual runtime)
 # scripts/alpine-smoke.sh — runs INSIDE an alpine:latest container (busybox ash).
 #
 # CI otherwise has ZERO non-systemd / musl coverage (every job is ubuntu/debian/

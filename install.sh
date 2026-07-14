@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC3043  # local is used intentionally; widely supported by ash/dash/busybox sh
 # DashDiag (dsd) installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
 # Or:    curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh -s -- --prefix /usr/local
