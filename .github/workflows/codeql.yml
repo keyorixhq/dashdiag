@@ -28,14 +28,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26'
+          cache: true
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           languages: go
           queries: security-and-quality
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+      # Autobuild only compiles the main binary, leaving all _test.go files
+      # invisible to CodeQL (the bulk of the codebase by file count). Build
+      # explicitly: production packages first, then compile every test package
+      # without running tests so CodeQL sees the full surface.
+      - name: Build
+        run: go build ./...
+
+      - name: Compile tests
+        run: go test -run ^$ ./...
 
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
