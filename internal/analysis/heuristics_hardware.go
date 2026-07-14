@@ -350,7 +350,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 }
 
 // checkHardware evaluates physical hardware health from SMART, hwmon, and EDAC.
-func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // flat independent hardware checks — splitting would harm readability
+func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,funlen // NOSONAR — flat independent hardware checks — splitting would harm readability
 	var out []models.Insight
 
 	// ── Drive health ──────────────────────────────────────────────────────────

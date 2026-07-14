@@ -121,7 +121,7 @@ func dockerConcerns(info *models.DockerInfo) int {
 	return issues
 }
 
-func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop
+func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop // NOSONAR — flat display renderer — each branch is a distinct display condition
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 

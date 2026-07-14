@@ -447,7 +447,7 @@ func shouldHideRow(res runner.Result, insights []models.Insight) bool {
 // Follows Option C: ≤2 items shown individually, 3+ shows count + worst.
 //
 //nolint:cyclop // flat name→function dispatch; splitting would harm readability
-func inlineData(res runner.Result) string { //nolint:funlen // flat dispatch table; splitting would not improve readability
+func inlineData(res runner.Result) string { //nolint:funlen // NOSONAR — flat dispatch table; CC is entry count, not branch depth
 	switch res.Name {
 	case renderCatCPULoad:
 		return inlineCPULoad(res.Data)

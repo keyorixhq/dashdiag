@@ -121,7 +121,7 @@ func sataSmartPlausible(dev models.SATADevice) bool {
 	return true
 }
 
-func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NVMe + SATA/SAS checks — flat registry of independent per-drive checks
+func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NOSONAR — NVMe + SATA/SAS checks — flat registry of independent per-drive checks
 	var out []models.Insight
 
 	// NVMe drives

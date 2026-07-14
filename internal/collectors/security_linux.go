@@ -171,7 +171,7 @@ func parseSSHFile(path string, info *models.SecurityInfo) bool {
 }
 
 // parseSSHFileContent parses sshd_config content from a string — used by tests.
-func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // sshd_config has many independent directives; a flat scan reads clearest
+func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // NOSONAR — sshd_config has many independent directives; a flat scan reads clearest
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	// inMatch tracks whether we're inside a conditional `Match` block. Directives
 	// there are per-connection overrides, NOT the global policy we audit — e.g.

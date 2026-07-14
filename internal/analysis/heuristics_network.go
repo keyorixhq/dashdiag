@@ -331,7 +331,7 @@ func nicErrorRateHigh(errors, packets uint64) bool {
 	return float64(errors)/float64(packets) > rateLimit
 }
 
-func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // network checks are a flat list; splitting would hurt readability
+func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyclop // NOSONAR — network checks are a flat list; splitting would hurt readability
 	var out []models.Insight
 
 	if net.SteamOSWifi != nil {

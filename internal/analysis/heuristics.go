@@ -193,7 +193,7 @@ type prescanResult struct {
 // to a configured cap rather than host over-provisioning (§N.4).
 //
 //nolint:cyclop // flat type-switch dispatch — each case extracts one shared field; splitting would obscure it
-func prescanContext(results []runner.Result, thresh *Thresholds) prescanResult {
+func prescanContext(results []runner.Result, thresh *Thresholds) prescanResult { // NOSONAR — flat type-switch dispatch; CC is entry count, not branch depth
 	var p prescanResult
 	for _, r := range results {
 		if r.Err != nil {
@@ -739,7 +739,7 @@ func isNilTypedPointer(data any) bool {
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOne(data any, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
+func applyOne(data any, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight { // NOSONAR — type dispatch; each case is trivial and independent
 	if isNilTypedPointer(data) {
 		return nil
 	}
@@ -797,7 +797,7 @@ func applyOne(data any, thresh Thresholds, ctrCtx platform.ContainerContext) []m
 }
 
 //nolint:cyclop // type dispatch — each case is trivial
-func applyOneExtended(data any, thresh Thresholds) []models.Insight { //nolint:funlen // flat type switch — splitting would harm readability
+func applyOneExtended(data any, thresh Thresholds) []models.Insight { //nolint:funlen // NOSONAR — flat type switch; CC is entry count, not branch depth
 	if isNilTypedPointer(data) {
 		return nil
 	}

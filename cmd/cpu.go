@@ -92,7 +92,7 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // flat display renderer — each section is independent
+func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // NOSONAR — flat display renderer — each section is independent
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 

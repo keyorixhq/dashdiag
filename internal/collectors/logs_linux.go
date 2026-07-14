@@ -196,7 +196,7 @@ func readKmsgLive(ctx context.Context) string {
 // parseKmsg reads /dev/kmsg and extracts OOM kills and segfaults from the last hour.
 // /dev/kmsg entries are: "priority,sequence,timestamp_usec,flags;message"
 // timestamp_usec is monotonic time since boot in microseconds.
-func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // kernel-log level classification is an inherently long, branchy dispatch
+func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // NOSONAR — kernel-log level classification is an inherently long, branchy dispatch
 	kmsgLines := kmsgRecords(ctx)
 	if len(kmsgLines) == 0 {
 		return
