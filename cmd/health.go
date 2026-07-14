@@ -800,6 +800,10 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.KafkaAvailable() {
 		cols = append(cols, collectors.NewKafkaCollector())
 	}
+	// Vault — gate on port 8200 accepting connections or the vault binary on PATH.
+	if collectors.VaultAvailable() {
+		cols = append(cols, collectors.NewVaultCollector())
+	}
 	// Prometheus — gate on the HTTP API (9090) answering as Prometheus.
 	if collectors.PrometheusAvailable() {
 		cols = append(cols, collectors.NewPrometheusCollector())

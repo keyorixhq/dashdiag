@@ -1160,6 +1160,10 @@ func applyOneExtended(data any, thresh Thresholds) []models.Insight { //nolint:f
 		return checkServices(d)
 	case *models.ServicesInfo:
 		return checkServices(*d)
+	case models.VaultInfo:
+		return checkVault(d)
+	case *models.VaultInfo:
+		return checkVault(*d)
 	}
 	return nil
 }

@@ -46,6 +46,7 @@ func TestApplyOneDispatch(t *testing.T) {
 		models.VMwareInfo{}, models.KVMGuestInfo{}, models.ContainerGuestInfo{},
 		models.AWSInfo{}, models.AzureInfo{}, models.GCPInfo{}, models.OCIInfo{}, models.PostBootInfo{},
 		models.KernelRetentionInfo{}, models.LivePatchInfo{}, models.TransactionalInfo{}, models.ServicesInfo{},
+		models.VaultInfo{},
 	}
 	for _, v := range values {
 		_ = applyOne(v, defaultThresh, ctr) // must not panic; result content covered elsewhere
@@ -80,6 +81,7 @@ func TestApplyOneDispatch(t *testing.T) {
 		&models.VMwareInfo{}, &models.KVMGuestInfo{}, &models.ContainerGuestInfo{},
 		&models.AWSInfo{}, &models.AzureInfo{}, &models.GCPInfo{}, &models.OCIInfo{}, &models.PostBootInfo{},
 		&models.KernelRetentionInfo{}, &models.LivePatchInfo{}, &models.TransactionalInfo{}, &models.ServicesInfo{},
+		&models.VaultInfo{},
 	}
 	for _, p := range pointers {
 		_ = applyOne(p, defaultThresh, ctr)
