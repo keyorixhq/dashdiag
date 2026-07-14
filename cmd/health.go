@@ -313,7 +313,7 @@ func healthOutputMode(cmd *cobra.Command) output.OutputMode {
 // main output, diff notice, summary, explain/fix) and saves the baseline,
 // returning the exit code and the writer subsequent notices should use (stderr
 // in machine modes, so JSON/YAML stdout stays a single parseable document).
-func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mode output.OutputMode, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot, elapsed time.Duration, deepFlag bool) (exitCode int, noticeW io.Writer) {
+func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mode output.OutputMode, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot, elapsed time.Duration, deepFlag bool) (exitCode int, noticeW io.Writer) { // NOSONAR — render dispatcher; all params are distinct required context, not reducible without a struct churn
 	renderer := render.NewRenderer(mode)
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)
