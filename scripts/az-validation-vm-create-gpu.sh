@@ -57,6 +57,7 @@ if [[ -z "$fam" ]]; then
 fi
 case "$restrict" in
   *NotAvailableForSubscription*) echo "✗ $SIZE is RESTRICTED in $REGION (no access/quota). Try another REGION or request access."; exit 1 ;;
+  *) ;;
 esac
 
 # --- quota pre-flight: need a full box's worth of family vCPUs free ---

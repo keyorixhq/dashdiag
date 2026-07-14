@@ -17,8 +17,9 @@ const (
 	cisCatAuth     = "Auth"
 	cisCatFiles    = "Files"
 	cisBenchCIS    = "CIS"
-	cisRuleSSH52   = "5.2.1"
-	cisRuleAudit41 = "4.1.1"
+	cisRuleSSH52      = "5.2.1"
+	cisRuleAudit41    = "4.1.1"
+	stigPassMaxDaysID = "V-238380"
 )
 
 // parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare
@@ -345,7 +346,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 
 		// ── 5.3/5.4 Auth ──────────────────────────────────────────────────────
 
-		{ID: "5.4.1", StigID: "V-238380", Framework: cisBenchBOTH, Level: 1, Section: cisCatAuth,
+		{ID: "5.4.1", StigID: stigPassMaxDaysID, Framework: cisBenchBOTH, Level: 1, Section: cisCatAuth,
 			Description: "Ensure password expiration is 365 days or less",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkLoginDefsField(ruleByID("5.4.1"), loginDefsPath, "PASS_MAX_DAYS",
@@ -492,10 +493,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			}},
 
 		// V-238380 STIG version: PASS_MAX_DAYS must be 60 (stricter than CIS 365)
-		{ID: "V-238380", Framework: cisBenchSTIG, Level: 1, Section: cisCatAuth,
+		{ID: stigPassMaxDaysID, Framework: cisBenchSTIG, Level: 1, Section: cisCatAuth,
 			Description: "The Ubuntu OS must enforce a 60-day maximum password age",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkLoginDefsField(ruleByID("V-238380"), loginDefsPath, "PASS_MAX_DAYS",
+				return checkLoginDefsField(ruleByID(stigPassMaxDaysID), loginDefsPath, "PASS_MAX_DAYS",
 					func(days int) bool { return days > 60 || days == 0 },
 					"PASS_MAX_DAYS is %d (STIG requires ≤ 60)", "set PASS_MAX_DAYS 60 in /etc/login.defs",
 					"PASS_MAX_DAYS not set", "add PASS_MAX_DAYS 60 to /etc/login.defs")
