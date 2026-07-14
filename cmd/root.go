@@ -43,17 +43,17 @@ var rootCmd = &cobra.Command{
 		version.Version, version.Commit, version.Built),
 }
 
-// TODO(backlog): --share flag — upload snapshot to dashdiag.sh, return shareable URL.
+// Backlog: --share flag — upload snapshot to dashdiag.sh, return shareable URL.
 // Viral: every shared link is a product impression. Requires dashdiag.sh backend.
-// Estimated scope: ~1 day CLI side + backend. See BACKLOG.md.
+// Estimated scope: ~1 day CLI side + backend.
 
-// TODO(backlog): --badge flag — shields.io-compatible badge showing system health status.
+// Backlog: --badge flag — shields.io-compatible badge showing system health status.
 // Embeds in GitHub README. Viral — visible to every repo visitor.
-// Requires dashdiag.sh backend. Estimated scope: ~2 hours CLI + backend. See BACKLOG.md.
+// Requires dashdiag.sh backend. Estimated scope: ~2 hours CLI + backend.
 
-// TODO(backlog): team workspace MVP — shared snapshot history across a team.
+// Backlog: team workspace MVP — shared snapshot history across a team.
 // First paid product. Requires dashdiag.sh backend, auth, billing.
-// Design session required before implementation. See BACKLOG.md §Strategic Discussions.
+// Design session required before implementation.
 // Estimated scope: ~10 days.
 
 // applyBrand reads the --brand/--logo persistent flags and sets the HTML-report brand.

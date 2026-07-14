@@ -33,13 +33,13 @@ func (c *SecurityCollector) Name() string           { return "Hardening" }
 func (c *SecurityCollector) Timeout() time.Duration { return 8 * time.Second }
 
 // CollectSUSEConnect is a no-op on darwin (SUSE-only).
-func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) {}
+func CollectSUSEConnect(_ context.Context, _ *models.SecurityInfo) { /* no-op */ }
 
 // SUIDBinScanPaths mirrors the Linux variable; unused on darwin (no SUID scan).
 var SUIDBinScanPaths []string
 
 // ScanSUIDBinaries is a no-op on darwin (Linux SUID scan only).
-func ScanSUIDBinaries(_ *models.SecurityInfo) {}
+func ScanSUIDBinaries(_ *models.SecurityInfo) { /* no-op */ }
 
 func (c *SecurityCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.SecurityInfo{}

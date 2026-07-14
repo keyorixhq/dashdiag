@@ -36,7 +36,7 @@ more intuitive two-argument form.
 NOTE: run inside a linux binary to exercise linux-specific parsers; the bundles
 are portable but the binary is not (use an OrbStack container on macOS).`,
 	Args:             cobra.ExactArgs(2),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) {},
+	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
 	RunE:             runDiff,
 }
 

@@ -43,7 +43,7 @@ keys; IPv6 and disk serials are not handled. Review the bundle either way.
 
 NOTE: best-effort only — REVIEW a bundle before sharing it.`,
 	Args:             cobra.ExactArgs(1),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) {},
+	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
 	RunE:             runSanitize,
 }
 

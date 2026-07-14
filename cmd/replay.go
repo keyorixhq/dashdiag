@@ -57,7 +57,7 @@ broke). The positional bundle is "current"; --diff names the baseline:
 NOTE: run dsd replay inside a linux binary to exercise linux-specific parsers.
 On macOS the linux build tags are absent; use an OrbStack container.`,
 	Args:             cobra.ExactArgs(1),
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {},
+	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
 	RunE:             runReplay,
 }
 

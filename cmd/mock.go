@@ -108,7 +108,7 @@ Example fixture (legion.yaml):
       hints:
         - "to fix: apt-get upgrade"`,
 	Args:             cobra.ExactArgs(1),
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {}, // suppress root brand header
+	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
 	RunE:             runMock,
 }
 
