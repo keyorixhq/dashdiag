@@ -25,9 +25,9 @@ const (
 	pkgSevSecurity    = "security"
 	pkgFlagVersion    = "--version"
 	pkgFlagQ          = "-q"
-	pkgCmdAptGet   = "apt-get"
-	pkgFlagNoColor = "--no-color"
-	pkgFlagStatus  = "--status"
+	pkgCmdAptGet      = "apt-get"
+	pkgFlagNoColor    = "--no-color"
+	pkgFlagStatus     = "--status"
 )
 
 // PackagesCollector checks for available security updates.
