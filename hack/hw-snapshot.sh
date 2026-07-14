@@ -35,8 +35,9 @@ log() { echo "[hwsnap] $*"; }
 # with "ran but produced nothing".
 run() {
   local name="$1"; shift
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "tool not found: $1" > "$DIR/${name}.missing"
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "tool not found: $cmd" > "$DIR/${name}.missing"
     return
   fi
   "$@" > "$DIR/${name}.txt" 2> "$DIR/${name}.err"

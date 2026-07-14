@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC3043  # local is supported by busybox ash (the actual runtime)
 # scripts/alpine-smoke.sh — runs INSIDE an alpine:latest container (busybox ash).
 #
 # CI otherwise has ZERO non-systemd / musl coverage (every job is ubuntu/debian/
@@ -24,15 +25,16 @@ adduser -D tester 2>/dev/null || true
 
 PASS=0
 FAIL=0
-ok()  { echo "✅ $1"; PASS=$((PASS + 1)); }
-bad() { echo "❌ $1"; FAIL=$((FAIL + 1)); }
+ok()  { local msg="$1"; echo "✅ $msg"; PASS=$((PASS + 1)); }
+bad() { local msg="$1"; echo "❌ $msg"; FAIL=$((FAIL + 1)); }
 
 # Capture json + stderr; tolerate dsd's non-zero exit on WARN/CRIT (1/2).
 run_health() { # <outfile> <errfile> [user]
+  local outfile="$1" errfile="$2"
   if [ -n "${3:-}" ]; then
-    su "$3" -c "$DSD health --json" >"$1" 2>"$2" || true
+    su "$3" -c "$DSD health --json" >"$outfile" 2>"$errfile" || true
   else
-    "$DSD" health --json >"$1" 2>"$2" || true
+    "$DSD" health --json >"$outfile" 2>"$errfile" || true
   fi
 }
 

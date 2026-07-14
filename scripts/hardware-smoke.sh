@@ -34,9 +34,9 @@ ssh_run() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$HW_HOST" "$@"; }
 # pass/fail/skip helpers. ok = assertion held; bad = regression; skip = surface
 # not present on this hardware (e.g. no battery) — NOT a failure, but reported so
 # absence is never silently read as success (the project's false-OK rule).
-ok()   { echo "✅ $1"; PASS=$((PASS+1)); }
-bad()  { echo "❌ $1"; FAIL=$((FAIL+1)); }
-skip() { echo "⏭️  $1 (not present on this host)"; SKIP=$((SKIP+1)); }
+ok()   { local msg="$1"; echo "✅ $msg"; PASS=$((PASS+1)); }
+bad()  { local msg="$1"; echo "❌ $msg"; FAIL=$((FAIL+1)); }
+skip() { local msg="$1"; echo "⏭️  $msg (not present on this host)"; SKIP=$((SKIP+1)); }
 
 # num_in_range NAME VALUE MIN MAX — assert VALUE is numeric and within [MIN,MAX].
 # Empty/non-numeric is a FAIL, not a skip: "couldn't measure" must not pass.
@@ -83,11 +83,11 @@ fi
 
 # jq if available locally, else python3. j '<filter>' reads from $HW_JSON.
 if command -v jq >/dev/null 2>&1; then
-  j() { printf '%s' "$HW_JSON" | jq -r "$1" 2>/dev/null; }
-  jh(){ printf '%s' "$HEALTH_JSON" | jq -r "$1" 2>/dev/null; }
+  j() { local f="$1"; printf '%s' "$HW_JSON" | jq -r "$f" 2>/dev/null; }
+  jh(){ local f="$1"; printf '%s' "$HEALTH_JSON" | jq -r "$f" 2>/dev/null; }
 else
-  j() { printf '%s' "$HW_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
-  jh(){ printf '%s' "$HEALTH_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
+  j() { local f="$1"; printf '%s' "$HW_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print($f)" 2>/dev/null; }
+  jh(){ local f="$1"; printf '%s' "$HEALTH_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print($f)" 2>/dev/null; }
 fi
 
 # ── DRIVES / SMART ────────────────────────────────────────────────────────────
