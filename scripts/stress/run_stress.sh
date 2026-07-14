@@ -31,15 +31,15 @@ echo -e "${RESET}"
 
 # Verify binary
 if [[ ! -x "$DSD_BIN" ]]; then
-    echo -e "${RED}ERROR: dsd binary not found at $DSD_BIN${RESET}"
-    echo "Copy binary first: scp dist/dsd-linux-amd64 user@host:/tmp/dsd"
+    echo -e "${RED}ERROR: dsd binary not found at $DSD_BIN${RESET}" >&2
+    echo "Copy binary first: scp dist/dsd-linux-amd64 user@host:/tmp/dsd" >&2
     exit 1
 fi
 
 # Verify stress script
 if [[ ! -f "$STRESS" ]]; then
-    echo -e "${RED}ERROR: stress script not found at $STRESS${RESET}"
-    echo "Copy script first: scp scripts/stress/stress.sh user@host:/tmp/stress.sh"
+    echo -e "${RED}ERROR: stress script not found at $STRESS${RESET}" >&2
+    echo "Copy script first: scp scripts/stress/stress.sh user@host:/tmp/stress.sh" >&2
     exit 1
 fi
 
@@ -51,7 +51,7 @@ echo ""
 
 # Must run as root for physical tests
 if [[ "$(id -u)" -ne 0 ]]; then
-    echo -e "${RED}ERROR: must run as root for physical tests${RESET}"
+    echo -e "${RED}ERROR: must run as root for physical tests${RESET}" >&2
     if command -v sudo &>/dev/null; then
         echo "Run: sudo bash /tmp/run_stress.sh $TEST"
     else

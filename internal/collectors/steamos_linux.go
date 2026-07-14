@@ -90,7 +90,7 @@ func (c *SteamOSCollector) collectRemotePlay(ctx context.Context, info *models.S
 	if rule, err := runCmd(ctx, "nft", "list", "ruleset"); err == nil {
 		rp.FirewallKnown = true
 		rp.FirewallBlocking = firewallBlocksPorts(rule, remotePlayPrimaryPorts)
-	} else if rule, err := runCmd(ctx, "iptables", "-L", "INPUT", "-n"); err == nil {
+	} else if rule, err := runCmd(ctx, "iptables", "-L", "INPUT", "-n"); err == nil { // NOSONAR — same body as nft branch: both parse firewall rules; iptables is fallback when nft unavailable
 		rp.FirewallKnown = true
 		rp.FirewallBlocking = firewallBlocksPorts(rule, remotePlayPrimaryPorts)
 	}

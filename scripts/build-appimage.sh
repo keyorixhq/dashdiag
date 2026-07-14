@@ -44,7 +44,7 @@ if ! command -v appimagetool >/dev/null 2>&1 && [[ ! -x "$TOOL" ]]; then
   echo "→ fetching appimagetool (${HOST_ARCH})"
   mkdir -p "$TOOL_DIR"
   URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${HOST_ARCH}.AppImage"
-  curl -fsSL "$URL" -o "${TOOL_DIR}/appimagetool.AppImage"
+  curl -fsSL --proto '=https' "$URL" -o "${TOOL_DIR}/appimagetool.AppImage"
   chmod +x "${TOOL_DIR}/appimagetool.AppImage"
   # Extract instead of running directly — CI runners usually lack FUSE.
   ( cd "$TOOL_DIR" && ./appimagetool.AppImage --appimage-extract >/dev/null )

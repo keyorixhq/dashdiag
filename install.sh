@@ -55,10 +55,10 @@ fetch_latest_version() {
     # GITHUB_TOKEN (if set) avoids rate-limit 403s on shared CI runner IPs.
     if command -v curl >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION="$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
+            VERSION="$(curl -fsSL --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         else
-            VERSION="$(curl -fsSL "$_url" \
+            VERSION="$(curl -fsSL --proto '=https' "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         fi
     elif command -v wget >/dev/null 2>&1; then
@@ -87,7 +87,7 @@ download() {
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
+        curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
     else
         wget -q --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL"
     fi
@@ -119,7 +119,7 @@ verify_checksum() {
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
+        curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     else
         wget -qO "$SUMS_FILE" "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     fi
@@ -157,7 +157,7 @@ verify_signature() {
     SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
     SIG_FILE="${SUMS_FILE}.minisig"                # minisign -Vm looks for <file>.minisig
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+        curl -fsSL --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     else
         wget -qO "$SIG_FILE" "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     fi

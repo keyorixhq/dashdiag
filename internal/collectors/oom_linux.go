@@ -133,7 +133,7 @@ func parseOOMEvents(out string) []models.OOMEvent {
 			pid, _ := strconv.Atoi(m[1])
 			ev.PID = pid
 			ev.Process = m[2]
-		} else if m := oomKilledRe.FindStringSubmatch(line); len(m) == 3 {
+		} else if m := oomKilledRe.FindStringSubmatch(line); len(m) == 3 { // NOSONAR — same extraction as oomKillRe branch; two OOM message formats, identical fields
 			pid, _ := strconv.Atoi(m[1])
 			ev.PID = pid
 			ev.Process = m[2]
