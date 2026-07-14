@@ -125,7 +125,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 // detectPackageManager returns the host's package manager ("zypper"/"dnf"/"apt"), or
 // "" when none is recognised. Probed in the same order as before (zypper, dnf, apt).
 func detectPackageManager(ctx context.Context) string {
-	if _, e := runCmd(ctx, "zypper", pkgFlagVersion); e == nil {
+	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
 		return "zypper"
 	}
 	if _, e := runCmd(ctx, "dnf", pkgFlagVersion); e == nil {

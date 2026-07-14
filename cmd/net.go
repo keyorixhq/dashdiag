@@ -22,7 +22,6 @@ import (
 const (
 	netIconWarn    = "⚠️ "
 	netSvcResolved = "systemd-resolved"
-	netPfxFalse    = ", false: "
 	netFmtMbps     = "  %d Mbps"
 	netIconUp      = "▲  "
 )
@@ -827,10 +826,10 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 				srvIcon = "✅"
 			}
 			fmt.Printf("       %s server %s: %s\n", srvIcon, m.Server,
-				map[bool]string{true: "reachablenetPfxFalseunreachable (ping timeout)"}[m.ServerReachable])
-			portIcon := map[bool]string{true: "✅netPfxFalse❌"}[m.NFSPortOpen]
+				map[bool]string{true: "reachable", false: "unreachable (ping timeout)"}[m.ServerReachable])
+			portIcon := map[bool]string{true: "✅", false: "❌"}[m.NFSPortOpen]
 			fmt.Printf("       %s NFS port 2049: %s\n", portIcon,
-				map[bool]string{true: "opennetPfxFalseunreachable"}[m.NFSPortOpen])
+				map[bool]string{true: "open", false: "unreachable"}[m.NFSPortOpen])
 		}
 		for _, warn := range m.OptionsWarnings {
 			fmt.Printf("       ⚠️   mount option: %s\n", warn)
@@ -882,9 +881,9 @@ func printBINDReport(info *models.BINDInfo) {
 	fmt.Printf("\n[DNS server (BIND)]%s\n", verStr)
 
 	// Service
-	svcIcon := map[bool]string{true: "✅netPfxFalse❌"}[info.ServiceActive]
+	svcIcon := map[bool]string{true: "✅", false: "❌"}[info.ServiceActive]
 	fmt.Printf("  %s named: %s\n", svcIcon,
-		map[bool]string{true: "activenetPfxFalseinactive"}[info.ServiceActive])
+		map[bool]string{true: "active", false: "inactive"}[info.ServiceActive])
 
 	// Port 53. When ss was unavailable we couldn't verify listeners — say so
 	// instead of a false "NOT listening" (matches checkBIND).
@@ -902,7 +901,7 @@ func printBINDReport(info *models.BINDInfo) {
 	}
 
 	// Config check
-	cfgIcon := map[bool]string{true: "✅netPfxFalse❌"}[info.ConfigOK]
+	cfgIcon := map[bool]string{true: "✅", false: "❌"}[info.ConfigOK]
 	cfgStatus := "no syntax errors"
 	if !info.ConfigOK {
 		cfgStatus = info.ConfigError

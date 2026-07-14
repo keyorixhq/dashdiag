@@ -232,7 +232,7 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 // distro signals instead of asserting an unverified SUSE row on a misread.
 func suseRebootSignal(ctx context.Context) (ok, rebootNeeded, unverified bool) {
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err := runCmdCombined(ctx, maintCmdZypper, "needs-rebooting")
+		out, err := runCmdCombined(ctx, "zypper", "needs-rebooting")
 		var ce *cmdError
 		isExit := errors.As(err, &ce)
 		switch {
