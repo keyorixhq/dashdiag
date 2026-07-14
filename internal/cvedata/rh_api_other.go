@@ -9,4 +9,4 @@ import (
 )
 
 // EnrichFromRHAPI is a no-op on non-Linux platforms.
-func EnrichFromRHAPI(_ context.Context, _ string, _ *models.CVEResult) {}
+func EnrichFromRHAPI(_ context.Context, _ string, _ *models.CVEResult) { /* no-op */ }

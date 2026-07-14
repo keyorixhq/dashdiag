@@ -535,7 +535,7 @@ func buildInodeProcMap() (map[string]string, bool) {
 // isExpectedPort returns true for universally standard ports that are
 // almost never a security concern. Kubernetes and other services are
 // intentionally NOT listed here — users should see them and decide.
-// TODO(backlog): let users configure expected ports via dsd config.
+// Backlog: let users configure expected ports via dsd config.
 func isExpectedPort(port int) bool {
 	expected := map[int]bool{
 		22:    true, // SSH

@@ -82,9 +82,9 @@ var healthDeepCmd = &cobra.Command{
 // advisory-list scan measures. KEV catalog is a local sidecar file (no cloud
 // registration) — see `dsd cve info` for the fetch command.
 
-// TODO(backlog): CIS/STIG compliance checks — compare system config against CIS Benchmark
+// Backlog: CIS/STIG compliance checks — compare system config against CIS Benchmark
 // or STIG profiles. Enterprise-only. Implement after core product is stable and paying
-// customers exist. Estimated scope: ~2 weeks. See BACKLOG.md.
+// customers exist. Estimated scope: ~2 weeks.
 
 func runHealth(cmd *cobra.Command, _ []string) error {
 	ctx := context.Background()

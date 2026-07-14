@@ -55,7 +55,7 @@ Workflow:
 
   # Replay anywhere:
   dsd mock fixtures/my-host.yaml`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {}, // suppress brand header
+	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
 	RunE:             runCapture,
 }
 

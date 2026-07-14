@@ -19,7 +19,7 @@ import (
 
 // exitCodeContract classifies each subcommand for the standalone exit-code
 // contract (CRIT→2, WARN→1, clean→0). A registered command absent here fails
-// TestEverySubcommandClassified — forcing the gates/exempt/todo decision.
+// TestEverySubcommandClassified — forcing the gates/exempt/pending decision.
 var exitCodeContract = map[string]string{
 	// Diagnostic commands that gate CI — must propagate findings to the exit code.
 	"health": "gates", "cpu": "gates", "disk": "gates", "net": "gates",
