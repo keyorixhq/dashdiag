@@ -28,7 +28,7 @@ OUT="hwsnap-${HOST}-${TS}"
 DIR="$(mktemp -d)/${OUT}"
 mkdir -p "$DIR"
 
-log() { echo "[hwsnap] $*"; }
+log() { echo "[hwsnap] $*"; return 0; }
 
 # run <name> <cmd> [args...] : capture stdout, stderr, exit code.
 # A missing tool leaves a .missing marker so "tool absent" is never confused

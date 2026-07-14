@@ -17,7 +17,7 @@ BIN="$WORKDIR/dsd-cov"
 DATA="$WORKDIR/data"
 mkdir -p "$DATA"
 
-log() { echo "[$(date +%H:%M:%S 2>/dev/null || echo t)] $*"; }
+log() { echo "[$(date +%H:%M:%S 2>/dev/null || echo t)] $*"; return 0; }
 
 # ── pve01 itself: runPVE gate, always on, no start/stop. Also the only guest
 # we have that is NOT a KVM guest and NOT any recognized cloud/virt guest, so
@@ -43,6 +43,7 @@ start_lxc() {
 	done
 	pct push "$vmid" "$BIN" /tmp/dsd-cov
 	pct exec "$vmid" -- chmod +x /tmp/dsd-cov
+	return 0
 }
 
 collect_lxc() {
@@ -68,6 +69,7 @@ collect_lxc() {
 	else
 		log "  (pull failed for $label/$pass)"
 	fi
+	return 0
 }
 
 # ── VM helpers (SSH from pve01 — the only trusted path to these guests) ─────
@@ -99,6 +101,7 @@ collect_vm() {
 	local dir="$DATA/${label}-${pass}"
 	mkdir -p "$dir"
 	scp -q -o BatchMode=yes -r "$user@$ip:$remote_dir/*" "$dir/" 2>/dev/null || log "  (pull failed for $label/$pass)"
+	return 0
 }
 
 # ── almalinux9-lxc: RHEL OVAL real dispatch + runDB (4 real DB engines) ─────
