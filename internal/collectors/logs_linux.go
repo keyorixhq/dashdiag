@@ -33,9 +33,9 @@ const (
 	// months-old record must not be flagged as a current problem. Anything older
 	// than this is treated as stale and skipped.
 	crashFileMaxAgeDays = 30
-	logsNoPager      = "--no-pager"
-	logsSyslogPath   = "/var/log/syslog"
-	logsMessagesPath = "/var/log/messages"
+	logsNoPager         = "--no-pager"
+	logsSyslogPath      = "/var/log/syslog"
+	logsMessagesPath    = "/var/log/messages"
 )
 
 type LogsCollector struct {

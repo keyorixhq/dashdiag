@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	hwCatHardware   = "Hardware"
-	hwCatIPMI       = "IPMI"
-	hwDriveTypeNVMe = "nvme"
-	hwCatBattery    = "Battery"
-	hwCatCPUFreq    = "CPUFreq"
-	hwSevLow        = "low"
-	inspectIPMISel  = "to inspect: ipmitool sel list | tail -20"
+	hwCatHardware    = "Hardware"
+	hwCatIPMI        = "IPMI"
+	hwDriveTypeNVMe  = "nvme"
+	hwCatBattery     = "Battery"
+	hwCatCPUFreq     = "CPUFreq"
+	hwSevLow         = "low"
+	inspectIPMISel   = "to inspect: ipmitool sel list | tail -20"
 	inspectHwmonTemp = "to inspect: cat /sys/class/hwmon/hwmon*/temp*_input"
 )
 

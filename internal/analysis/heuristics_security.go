@@ -318,7 +318,7 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 		"containerd":      "container-runtime",
 		"dockerd":         "docker",
 		// Observability
-		secKwPrometheus:    secKwPrometheus,
+		secKwPrometheus: secKwPrometheus,
 		"node_exporter": secKwPrometheus,
 		"grafana":       "grafana",
 		"alertmanager":  secKwPrometheus,
