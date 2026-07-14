@@ -27,7 +27,7 @@ trap 'rm -rf "$TMP"' EXIT
 if command -v gh >/dev/null 2>&1; then
   gh release download "$TAG" --repo "$REPO" --pattern checksums.txt --dir "$TMP" --clobber
 else
-  curl -fsSL "${BASE}/checksums.txt" -o "${TMP}/checksums.txt"
+  curl -fsSL --proto '=https' "${BASE}/checksums.txt" -o "${TMP}/checksums.txt"
 fi
 
 # Pull a sha256 for a given asset name out of checksums.txt.

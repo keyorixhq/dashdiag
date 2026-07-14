@@ -126,7 +126,7 @@ func (m MultiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case " ":
 			m.selected[m.cursor] = !m.selected[m.cursor]
-		case "enter":
+		case "enter": // NOSONAR — same body as ctrl+c/q: both quit; confirm and cancel both terminate the selector
 			m.done = true
 			return m, tea.Quit
 		}

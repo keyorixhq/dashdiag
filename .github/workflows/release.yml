@@ -90,7 +90,7 @@ jobs:
           # Fetch the upstream prebuilt binary directly instead, pinned to an
           # exact version + sha256, matching this repo's own convention of not
           # trusting OS package availability for a release-critical tool.
-          curl -fsSL -o /tmp/minisign.tar.gz \
+          curl -fsSL --proto '=https' -o /tmp/minisign.tar.gz \
             https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  /tmp/minisign.tar.gz" | sha256sum -c -
           tar -xzf /tmp/minisign.tar.gz -C /tmp
