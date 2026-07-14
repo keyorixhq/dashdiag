@@ -256,7 +256,7 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	// "--" terminates ssh option parsing so a host that survived validation can
 	// never be reinterpreted as a flag; ValidateHost is the primary guard.
 	args := append(sshBaseArgs(opts), "--", host, cmd)
-	return exec.CommandContext(ctx, "ssh", args...).Output()
+	return exec.CommandContext(ctx, "ssh", args...).Output() // NOSONAR — hardcoded binary, PATH lookup is intentional
 }
 
 func scp(ctx context.Context, opts Options, localPath, host, remotePath string) error {
@@ -264,7 +264,7 @@ func scp(ctx context.Context, opts Options, localPath, host, remotePath string) 
 		"-o", "ConnectTimeout=" + seconds(opts.ConnectTimeout),
 		"-o", "StrictHostKeyChecking=accept-new",
 		"--", localPath, host + ":" + remotePath}
-	return exec.CommandContext(ctx, "scp", scpArgs...).Run()
+	return exec.CommandContext(ctx, "scp", scpArgs...).Run() // NOSONAR — hardcoded binary, PATH lookup is intentional
 }
 
 func sshBaseArgs(opts Options) []string {

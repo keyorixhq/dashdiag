@@ -57,7 +57,7 @@ func linuxProcessNamesFrom(procDir string) []string {
 }
 
 func darwinProcessNames() []string {
-	out, err := exec.Command("ps", "aux").Output()
+	out, err := exec.Command("ps", "aux").Output() // NOSONAR — hardcoded binary
 	if err != nil {
 		return nil
 	}

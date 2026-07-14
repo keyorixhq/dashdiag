@@ -233,7 +233,7 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 	if !strings.EqualFold(gotSum, wantSum) {
 		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, gotSum, wantSum)
 	}
-	if err := os.Chmod(tmp, 0o755); err != nil {
+	if err := os.Chmod(tmp, 0o755); err != nil { // NOSONAR — executable permission is correct for a self-updating binary
 		return "", err
 	}
 	if err := os.Rename(tmp, exe); err != nil {
