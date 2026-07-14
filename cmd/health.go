@@ -567,7 +567,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool) []collectors.Collector { //nolint:funlen,cyclop // registration list — each line is a presence-gated collector
+func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool) []collectors.Collector { //nolint:funlen,cyclop // NOSONAR — flat collector registry; CC is entry count, not branch depth
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),

@@ -37,7 +37,7 @@ func init() {
 }
 
 //nolint:cyclop,funlen // rule registry — each entry is a self-contained check, splitting would harm readability
-func buildRules() []Rule {
+func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entry count, not logic branches
 	return []Rule{
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
