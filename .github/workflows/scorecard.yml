@@ -16,7 +16,8 @@ on:
     branches: [main]
 
 # Read-only by default; the analysis job below elevates only what it needs.
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   analysis:

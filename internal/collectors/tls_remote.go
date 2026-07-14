@@ -45,9 +45,9 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 	// Extract host for SNI (strip port)
 	host, _, _ := net.SplitHostPort(endpoint)
 
-	tlsConn := tls.Client(rawConn, &tls.Config{
+	tlsConn := tls.Client(rawConn, &tls.Config{ // NOSONAR — intentional: collector must read expired/invalid certs to diagnose them
 		ServerName:         host,
-		InsecureSkipVerify: true, // #nosec G402 — intentional: report expired certs
+		InsecureSkipVerify: true, //nolint:gosec // G402: same rationale as above
 	})
 	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 
