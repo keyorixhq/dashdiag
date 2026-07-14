@@ -83,6 +83,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"CloudInitInfo.StatusUnverified":    "analysis/firmware_cloudinit_unverified_test.go",
 	"SteamOSInfo.UpdateServerReachable": "analysis/steamos_test.go + heuristics_round9_test.go",
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
+	"VaultInfo.Reachable":               "analysis/heuristics_vault.go checkVault (!Reachable → WARN, never silent OK)",
 	"IPMIInfo.NeedsRoot":                "analysis/heuristics_round9_test.go (non-root BMC read → INFO 're-run as root', not a WARN) + collectors/ipmi_linux_test.go",
 
 	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.

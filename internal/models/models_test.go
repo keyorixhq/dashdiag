@@ -401,3 +401,20 @@ func TestMTEInfoRoundTrip(t *testing.T) {
 		t.Errorf("RecentFaults[0].Timestamp mismatch: got %v, want %v", out.RecentFaults[0].Timestamp, in.RecentFaults[0].Timestamp)
 	}
 }
+
+func TestVaultInfo(t *testing.T) {
+	t.Parallel()
+	in := VaultInfo{
+		Available: true, Reachable: true, StatusRead: true,
+		Initialized: true, Sealed: false, DevMode: false,
+		TLSEnabled: true, StorageType: "raft", Version: "1.15.0",
+		Status: "OK", StatusReason: "",
+	}
+	var out VaultInfo
+	roundTrip(t, &in, &out)
+	if out.Available != in.Available || out.DevMode != in.DevMode ||
+		out.TLSEnabled != in.TLSEnabled || out.StorageType != in.StorageType ||
+		out.Version != in.Version {
+		t.Errorf("VaultInfo round-trip mismatch: got %+v", out)
+	}
+}
