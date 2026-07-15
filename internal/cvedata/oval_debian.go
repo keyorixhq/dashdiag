@@ -130,39 +130,44 @@ func parseUbuntuOVALVersionAware(r io.Reader) ([]ubuntuVulnEntry, error) {
 			continue
 		}
 
-		// Preserve insertion order for deterministic output: iterate over
-		// criterion lists again to build the ordered slice.
-		seen := map[string]bool{}
-		var pkgs []ubuntuPkgFix
-		addOrdered := func(comment string) {
-			var name string
-			if m := dpkgEarlierRe.FindStringSubmatch(comment); m != nil {
-				name = m[1]
-			} else if m := pkgInDistroRe.FindStringSubmatch(comment); m != nil {
-				name = m[1]
-			}
-			if name != "" && !seen[name] && pkgMap[name] != nil {
-				seen[name] = true
-				pkgs = append(pkgs, *pkgMap[name])
-			}
-		}
-		for _, c := range def.Criteria.Criterions {
-			addOrdered(c.Comment)
-		}
-		for _, cr := range def.Criteria.Criteria {
-			for _, c := range cr.Criterions {
-				addOrdered(c.Comment)
-			}
-		}
-
 		entries = append(entries, ubuntuVulnEntry{
 			cveID:    cveID,
 			cvss:     cvss,
 			severity: severity,
-			pkgs:     pkgs,
+			pkgs:     orderedUbuntuPkgs(def.Criteria, pkgMap),
 		})
 	}
 	return entries, nil
+}
+
+// orderedUbuntuPkgs builds a deterministically-ordered slice of ubuntuPkgFix
+// from the pkgMap, iterating the criteria in document order to preserve the
+// original criterion sequence. A name that appears in both a version-bearing
+// and a no-version criterion uses the already-resolved pkgMap entry.
+func orderedUbuntuPkgs(crit ubuntuOVALCritTop, pkgMap map[string]*ubuntuPkgFix) []ubuntuPkgFix {
+	seen := map[string]bool{}
+	var pkgs []ubuntuPkgFix
+	add := func(comment string) {
+		var name string
+		if m := dpkgEarlierRe.FindStringSubmatch(comment); m != nil {
+			name = m[1]
+		} else if m := pkgInDistroRe.FindStringSubmatch(comment); m != nil {
+			name = m[1]
+		}
+		if name != "" && !seen[name] && pkgMap[name] != nil {
+			seen[name] = true
+			pkgs = append(pkgs, *pkgMap[name])
+		}
+	}
+	for _, c := range crit.Criterions {
+		add(c.Comment)
+	}
+	for _, cr := range crit.Criteria {
+		for _, c := range cr.Criterions {
+			add(c.Comment)
+		}
+	}
+	return pkgs
 }
 
 // ubuntuOVALDefs is the minimal XML structure for Ubuntu/Debian OVAL.
