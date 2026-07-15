@@ -184,7 +184,7 @@ func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 	// CVEUnknown ("zypper lp failed") instead of CVEVulnerable. Same exit-code-carries-
 	// findings reason collectZypper / pkgIntegrityZypper use combined output. A real
 	// failure (lock/permission) still arrives as err WITH empty stdout → handled below.
-	out, err := runCmdOutput(ctx, cmdZypper, "--non-interactive", "--no-color",
+	out, err := runCmdOutput(ctx, "zypper", "--non-interactive", "--no-color",
 		"lp", "--cve="+cveID)
 
 	lower := strings.ToLower(out)
@@ -567,7 +567,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err = runCmdCombined(ctx, cmdZypper, "--non-interactive", "--no-color",
+		out, err = runCmdCombined(ctx, "zypper", "--non-interactive", "--no-color",
 			"list-patches", "--category", "security")
 		locked = err != nil && zypperLocked(out)
 		if !locked {
