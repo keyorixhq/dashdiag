@@ -47,8 +47,7 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 
 	tlsConn := tls.Client(rawConn, &tls.Config{ // NOSONAR — intentional: collector must read expired/invalid certs to diagnose them
 		ServerName: host,
-		// codeql[go/disabled-certificate-check] -- intentional: collector reads expired/invalid certs to diagnose them
-		InsecureSkipVerify: true, //nolint:gosec // G402: same rationale as above
+		InsecureSkipVerify: true, //nolint:gosec // G402: intentional: collector reads expired/invalid certs to diagnose them // codeql[go/disabled-certificate-check]
 	})
 	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 
