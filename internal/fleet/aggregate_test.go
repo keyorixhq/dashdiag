@@ -2,6 +2,8 @@ package fleet
 
 import "testing"
 
+const scopeFleetWide = "fleet-wide"
+
 func mkResult(host string, issues ...Issue) Result {
 	r := Result{Host: host, Reachable: true, Worst: "OK", Issues: issues}
 	for _, i := range issues {
@@ -43,7 +45,7 @@ func TestAggregateIssues_FleetWideVsOutlier(t *testing.T) {
 	groups := AggregateIssues(results)
 
 	clock := findGroup(groups, "Clock", "WARN")
-	if clock == nil || clock.Count != 3 || clock.Scope != "fleet-wide" {
+	if clock == nil || clock.Count != 3 || clock.Scope != scopeFleetWide {
 		t.Fatalf("Clock should be fleet-wide across 3 hosts, got %+v", clock)
 	}
 	sysd := findGroup(groups, "Systemd", "CRIT")
@@ -63,7 +65,7 @@ func TestAggregateIssues_OrderingFleetWideFirst(t *testing.T) {
 		mkResult("c", Issue{"Network", "WARN", "latency 250 ms"}), // fleet-wide WARN (2/3)
 	}
 	groups := AggregateIssues(results)
-	if len(groups) == 0 || groups[0].Scope != "fleet-wide" {
+	if len(groups) == 0 || groups[0].Scope != scopeFleetWide {
 		t.Fatalf("fleet-wide should sort first, got %+v", groups)
 	}
 }
@@ -116,8 +118,8 @@ func TestClassifyScope(t *testing.T) {
 		{"zero reachable can't classify", 1, 0, "common"},
 		{"single reachable can't classify", 1, 1, "common"},
 		{"lone host among many is an outlier", 1, 4, "outlier"},
-		{"exact majority is fleet-wide", 3, 4, "fleet-wide"},
-		{"bare majority (more than half) is fleet-wide", 2, 3, "fleet-wide"},
+		{"exact majority is fleet-wide", 3, 4, scopeFleetWide},
+		{"bare majority (more than half) is fleet-wide", 2, 3, scopeFleetWide},
 		{"shared but not a majority is common", 2, 5, "common"},
 		{"exactly half is common, not fleet-wide", 2, 4, "common"},
 	}

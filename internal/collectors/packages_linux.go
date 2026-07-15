@@ -83,7 +83,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	var info *models.PackagesInfo
 	var qErr error
 	switch pm {
-	case "zypper":
+	case cmdZypper:
 		info, qErr = collectZypper(ctx)
 	case "dnf":
 		info, qErr = collectDNF(ctx)
@@ -124,11 +124,11 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// detectPackageManager returns the host's package manager ("zypper"/"dnf"/"apt"), or
+// detectPackageManager returns the host's package manager (cmdZypper/"dnf"/"apt"), or
 // "" when none is recognised. Probed in the same order as before (zypper, dnf, apt).
 func detectPackageManager(ctx context.Context) string {
 	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
-		return "zypper"
+		return cmdZypper
 	}
 	if _, e := runCmd(ctx, "dnf", pkgFlagVersion); e == nil {
 		return "dnf"
@@ -152,7 +152,7 @@ func pkgDBHealth(ctx context.Context, pm string) (checked, blocked bool, reason,
 	switch pm {
 	case "apt":
 		return aptDBHealth(ctx)
-	case "dnf", "yum", "zypper", "tdnf":
+	case "dnf", "yum", cmdZypper, "tdnf":
 		// All are rpm-based (zypper/SLES and Photon/tdnf included) — the package DB
 		// that blocks updates when corrupt is the rpmdb. A stale zypper front-end lock
 		// (/run/zypp.pid) was tried and rejected: a dead-PID lock does NOT block modern
@@ -238,7 +238,7 @@ func markStaleMetadata(info *models.PackagesInfo) {
 
 func supportedMetadataManager(pm string) bool {
 	switch pm {
-	case "apt", "dnf", "yum", "zypper", "tdnf":
+	case "apt", "dnf", "yum", cmdZypper, "tdnf":
 		return true
 	}
 	return false
@@ -255,7 +255,7 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 		globs = []string{"/var/lib/apt/lists/*InRelease", "/var/lib/apt/lists/*Release", "/var/lib/apt/lists/*_Packages*"}
 	case "dnf", "yum":
 		globs = []string{"/var/cache/dnf/*/repodata/repomd.xml", "/var/cache/yum/*/repodata/repomd.xml"}
-	case "zypper":
+	case cmdZypper:
 		globs = []string{"/var/cache/zypp/raw/*/repodata/repomd.xml", "/var/cache/zypp/solv/*/solv"}
 	case "tdnf":
 		globs = []string{"/var/cache/tdnf/*/repodata/repomd.xml"}
@@ -701,7 +701,7 @@ func zypperLocked(out string) bool {
 // zypper list-patches exits 0 whether or not patches are available.
 // Security patches are identified by category "security" in the output.
 func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
-	info := &models.PackagesInfo{Checked: true, PackageManager: "zypper"}
+	info := &models.PackagesInfo{Checked: true, PackageManager: cmdZypper}
 
 	// Check for security patches. zypper holds ONE global lock (/run/zypp.pid); dsd
 	// runs collectors in parallel, so a sibling (SUSEConnect, snapper, another zypper)
@@ -1003,7 +1003,7 @@ func collectPackageIntegrity(ctx context.Context, pm string) *models.PackageInte
 		pkgIntegrityDNF(ctx, pi)
 	case "apt":
 		pkgIntegrityAPT(ctx, pi)
-	case "zypper":
+	case cmdZypper:
 		pkgIntegrityZypper(ctx, pi)
 	}
 

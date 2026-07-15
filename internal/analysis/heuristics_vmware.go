@@ -8,6 +8,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const catVMware = "VMware"
+
 // VMwareInsights is the exported entry point for the standalone `dsd vmware`
 // command. It returns exactly what `dsd health` evaluates for a VMware guest (it
 // IS checkVMware), so the two verdicts cannot drift — the same single source of
@@ -31,17 +33,17 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 
 	switch {
 	case !v.ToolsInstalled:
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			"open-vm-tools not installed on this VMware guest — no time sync, quiesced backups, graceful shutdown, or memory ballooning",
 			[]string{"to fix: apt install open-vm-tools   (RHEL/SUSE: dnf/zypper install open-vm-tools)"}))
 	case !v.ToolsRunning:
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			"open-vm-tools installed but not running — quiesced snapshots/backups and graceful guest shutdown will fail",
 			[]string{"to fix: systemctl enable --now vmtoolsd   (some distros: open-vm-tools)"}))
 	}
 
 	if len(v.EmulatedNICs) > 0 {
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			fmt.Sprintf("NIC(s) on an emulated driver (%s) — vmxnet3 (paravirtual) gives higher throughput at lower host CPU",
 				strings.Join(emulatedNICDescs(v), ", ")),
 			[]string{"to fix: set the VM's network adapter type to VMXNET 3 in vSphere, then reboot the guest"}))
@@ -57,7 +59,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	// read nothing. Don't let the all-clean INFO below imply ballooning/host-swap/
 	// host caps were verified — surface that they could NOT be checked.
 	if v.ToolsRunning && !v.StatAvailable {
-		out = append(out, insight("INFO", "VMware",
+		out = append(out, insight("INFO", catVMware,
 			"VMware resource-pressure stats unavailable (vmware-toolbox-cmd stat failed) — ballooning / host-swap / host caps NOT verified",
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat balloon",
@@ -69,7 +71,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	// enriched with the paravirtual-driver state so the operator sees dsd's full
 	// VMware-guest read at a glance (no WARN — these are informational facts).
 	if len(out) == 0 {
-		out = append(out, insight("INFO", "VMware",
+		out = append(out, insight("INFO", catVMware,
 			fmt.Sprintf("VMware guest (%s) — open-vm-tools running; NICs: %s; paravirtual SCSI: %s; balloon: %s",
 				name, vmwareNICSummary(v), vmwareYesNo(v.PVSCSILoaded), vmwareYesNo(v.BalloonLoaded)),
 			nil))
@@ -88,7 +90,7 @@ func vmwareResourceConstraints(v models.VMwareInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if v.BalloonMB > 0 {
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			fmt.Sprintf("host is reclaiming %d MB of this guest's RAM via the balloon driver — the ESXi host is under memory pressure", v.BalloonMB),
 			[]string{
 				"this is host-side memory pressure, not a guest fault",
@@ -97,7 +99,7 @@ func vmwareResourceConstraints(v models.VMwareInfo) []models.Insight {
 			}))
 	}
 	if v.HostSwapMB > 0 {
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			fmt.Sprintf("host has swapped %d MB of this guest's memory to disk — severe host memory pressure (hypervisor-level swap is far slower than guest swap)", v.HostSwapMB),
 			[]string{
 				"this is host-side memory pressure, not a guest fault",
@@ -123,18 +125,18 @@ func vmwareMemLimitInsight(v models.VMwareInfo) models.Insight {
 	binding, known := vmwareMemLimitBinding(v)
 	switch {
 	case known && !binding:
-		return insight("INFO", "VMware",
+		return insight("INFO", catVMware,
 			fmt.Sprintf("a host memory limit of %d MB is configured but it is at/above this VM's RAM (%d MB), so it is currently non-binding", v.MemLimitMB, v.TotalRAMMB),
 			[]string{"note: it would only cause ballooning/swap if this VM's RAM were raised above the limit"})
 	case known: // && binding
-		return insight("WARN", "VMware",
+		return insight("WARN", catVMware,
 			fmt.Sprintf("a host memory limit of %d MB is set below this VM's RAM (%d MB) — RAM above the limit is ballooned/swapped even when the host has free memory", v.MemLimitMB, v.TotalRAMMB),
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat memlimit",
 				"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
 			})
 	default: // RAM unknown — can't tell whether the limit bites
-		return insight("WARN", "VMware",
+		return insight("WARN", catVMware,
 			fmt.Sprintf("a host memory limit of %d MB is configured on this VM; this VM's RAM could not be read, so whether the limit is currently binding could not be determined", v.MemLimitMB),
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat memlimit; cat /proc/meminfo",
@@ -156,18 +158,18 @@ func vmwareCPULimitInsight(v models.VMwareInfo) models.Insight {
 	binding, known := vmwareCPULimitBinding(v)
 	switch {
 	case known && !binding:
-		return insight("INFO", "VMware",
+		return insight("INFO", catVMware,
 			fmt.Sprintf("a host CPU limit of %d MHz is configured but it is at/above this VM's capacity (%d vCPU × %d MHz), so it is currently non-binding", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU),
 			[]string{"note: it would only throttle the guest if the limit were lowered below capacity, or capacity raised above it — watch CPU steal"})
 	case known: // && binding
-		return insight("WARN", "VMware",
+		return insight("WARN", catVMware,
 			fmt.Sprintf("a host CPU limit of %d MHz is set below this VM's capacity (%d vCPU × %d MHz = %d MHz) — the guest is throttled regardless of host load", v.CPULimitMHz, v.NumVCPU, v.HostMHzPerCPU, v.NumVCPU*v.HostMHzPerCPU),
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat cpulimit",
 				"note: a CPU limit below capacity is an invisible cause of guest slowness — remove it in vSphere unless intentional",
 			})
 	default: // capacity unknown — can't tell whether the limit throttles
-		return insight("WARN", "VMware",
+		return insight("WARN", catVMware,
 			fmt.Sprintf("a host CPU limit of %d MHz is configured on this VM; its per-vCPU host clock is unknown (vmware-toolbox-cmd stat speed unavailable), so whether it currently throttles the guest could not be determined", v.CPULimitMHz),
 			[]string{
 				"to size it: vmware-toolbox-cmd stat speed   (per-vCPU MHz; capacity = vCPUs × this)",
@@ -227,7 +229,7 @@ func vmwareSCSITimeoutCheck(v models.VMwareInfo) []models.Insight {
 	for _, dev := range v.LowSCSITimeouts {
 		descs = append(descs, fmt.Sprintf("%s (%ds)", dev, v.SCSITimeouts[dev]))
 	}
-	return []models.Insight{insight("WARN", "VMware",
+	return []models.Insight{insight("WARN", catVMware,
 		fmt.Sprintf("SCSI disk command timeout below VMware's recommended 180s (%s) — the guest filesystem may go read-only during a vMotion or storage failover",
 			strings.Join(descs, ", ")),
 		[]string{
@@ -246,7 +248,7 @@ func vmwareEnableUUIDCheck(v models.VMwareInfo) []models.Insight {
 	if !v.SCSIDisksChecked || len(v.DisksNoStableID) == 0 {
 		return nil
 	}
-	return []models.Insight{insight("WARN", "VMware",
+	return []models.Insight{insight("WARN", catVMware,
 		fmt.Sprintf("disk.EnableUUID appears disabled — SCSI disk(s) %s expose no stable hardware ID (no SCSI page 0x83), so /dev/disk/by-id naming and the vSphere CSI driver cannot identify them; k8s persistent volumes can mis-bind",
 			strings.Join(v.DisksNoStableID, ", ")),
 		[]string{
@@ -277,7 +279,7 @@ func vmwareVMXNETCheck(v models.VMwareInfo) []models.Insight {
 		if len(reasons) == 0 {
 			continue
 		}
-		out = append(out, insight("WARN", "VMware",
+		out = append(out, insight("WARN", catVMware,
 			fmt.Sprintf("vmxnet3 %s: %s — the driver rings are undersized for the traffic and packets are being dropped",
 				s.Iface, strings.Join(reasons, ", ")),
 			[]string{

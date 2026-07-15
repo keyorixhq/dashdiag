@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	catKernelSec          = "KernelSec"
+	catSysctl             = "Sysctl"
 	inspectW              = "to inspect: w"
 	inspectFreeH          = "to inspect: free -h"
 	inspectSysctlSwap     = "to inspect: sysctl vm.swappiness"
@@ -150,7 +152,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	// OS default (found live on CentOS 7; the codebase already treats 128 as a
 	// historical default, see correlate.go sysctlAllAtStockDefaults).
 	if sysctl.NetSomaxconn != 0 && sysctl.NetSomaxconn < 1024 {
-		out = append(out, insight("WARN", "Sysctl",
+		out = append(out, insight("WARN", catSysctl,
 			fmt.Sprintf("net.core.somaxconn=%d is low for a high-connection server — kernels <5.4 default to 128; raise to 4096 if this host serves many concurrent connections", sysctl.NetSomaxconn),
 			[]string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to persist: echo 'net.core.somaxconn=4096' >> /etc/sysctl.d/99-dsd.conf"},
 		))
@@ -161,7 +163,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	if sysctl.KernelPIDMax > 0 {
 		pidPct := float64(sysctl.PIDCount) / float64(sysctl.KernelPIDMax) * 100
 		if l := levelPct(pidPct, 80, 90); l != "" {
-			out = append(out, insight(l, "Sysctl",
+			out = append(out, insight(l, catSysctl,
 				fmt.Sprintf("PID/task table at %.0f%% (%d / %d)", pidPct, sysctl.PIDCount, sysctl.KernelPIDMax),
 				[]string{"to inspect: cat /proc/sys/kernel/pid_max", "to inspect: cat /proc/loadavg  (4th field: running/total tasks)", "to inspect: ps -eLf | wc -l  (includes threads, unlike ps aux)"},
 			))
@@ -173,19 +175,19 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 	switch sysctl.Workload {
 	case "k8s":
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.max_map_count=%d is low for k8s/Elasticsearch (recommended: 262144)", sysctl.VMMaxMapCount),
 				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 524288 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for k8s (recommended: 524288)", sysctl.FSInotifyWatches),
 				[]string{"to inspect: sysctl fs.inotify.max_user_watches", "to fix: sysctl -w fs.inotify.max_user_watches=524288", "to persist: echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.VMSwappiness > 10 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.swappiness=%d is high for k8s node (recommended: \u2264 10)", sysctl.VMSwappiness),
 				[]string{inspectSysctlSwap, fixSysctlSwappiness, persistSwappiness},
 			))
@@ -193,13 +195,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 
 	case "webserver":
 		if sysctl.TCPTWReuse == 0 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				"net.ipv4.tcp_tw_reuse=0 \u2014 enabling helps high-traffic web servers reuse TIME_WAIT sockets",
 				[]string{"to fix: sysctl -w net.ipv4.tcp_tw_reuse=1", "to persist: echo 'net.ipv4.tcp_tw_reuse=1' >> /etc/sysctl.d/99-dsd.conf"},
 			))
 		}
 		if sysctl.NetRmemMax > 0 && sysctl.NetRmemMax < 16777216 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("net.core.rmem_max=%d is low for high-throughput web server (recommended: 16MB)", sysctl.NetRmemMax),
 				[]string{"to inspect: sysctl net.core.rmem_max", "to fix: sysctl -w net.core.rmem_max=16777216", "to persist: echo 'net.core.rmem_max=16777216' >> /etc/sysctl.d/99-dsd.conf"},
 			))
@@ -207,13 +209,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 
 	case "database":
 		if sysctl.VMSwappiness > 10 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.swappiness=%d is high for database workload (recommended: \u2264 10)", sysctl.VMSwappiness),
 				[]string{inspectSysctlSwap, fixSysctlSwappiness, persistSwappiness},
 			))
 		}
 		if sysctl.VMDirtyRatio > 10 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.dirty_ratio=%d is high for database (recommended: \u2264 10 to reduce write latency spikes)", sysctl.VMDirtyRatio),
 				[]string{"to inspect: sysctl vm.dirty_ratio", "to fix: sysctl -w vm.dirty_ratio=10", "to fix: sysctl -w vm.dirty_background_ratio=3", "to persist: echo 'vm.dirty_ratio=10' >> /etc/sysctl.d/99-dsd.conf"},
 			))
@@ -221,13 +223,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 
 	case "elasticsearch":
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
-			out = append(out, insight("CRIT", "Sysctl",
+			out = append(out, insight("CRIT", catSysctl,
 				fmt.Sprintf("vm.max_map_count=%d \u2014 Elasticsearch requires \u2265 262144 or it will refuse to start", sysctl.VMMaxMapCount),
 				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.VMSwappiness > 1 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.swappiness=%d \u2014 Elasticsearch recommends 1 to minimise GC pauses from swapping", sysctl.VMSwappiness),
 				[]string{inspectSysctlSwap, "to fix: sysctl -w vm.swappiness=1", "to persist: echo 'vm.swappiness=1' >> /etc/sysctl.d/99-dsd.conf"},
 			))
@@ -235,13 +237,13 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 
 	case "container":
 		if sysctl.VMMaxMapCount > 0 && sysctl.VMMaxMapCount < 262144 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.max_map_count=%d is low for container host running JVM workloads (recommended: 262144)", sysctl.VMMaxMapCount),
 				[]string{inspectSysctlMaxMap, fixSysctlMaxMapCount, persistMaxMapCount},
 			))
 		}
 		if sysctl.FSInotifyWatches > 0 && sysctl.FSInotifyWatches < 131072 {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("fs.inotify.max_user_watches=%d is low for container host (recommended: 131072+)", sysctl.FSInotifyWatches),
 				[]string{"to inspect: sysctl fs.inotify.max_user_watches", "to fix: sysctl -w fs.inotify.max_user_watches=131072", "to persist: echo 'fs.inotify.max_user_watches=131072' >> /etc/sysctl.d/99-dsd.conf"},
 			))
@@ -254,7 +256,7 @@ func checkSysctl(sysctl models.SysctlInfo) []models.Insight { //nolint:cyclop,fu
 		// this gate every stock server WARNed on its default. (SwapActive is injected
 		// by the analysis pre-scan from SwapInfo.)
 		if sysctl.VMSwappiness > 30 && sysctl.SwapActive {
-			out = append(out, insight("WARN", "Sysctl",
+			out = append(out, insight("WARN", catSysctl,
 				fmt.Sprintf("vm.swappiness=%d is high and the host is actively swapping (recommended: \u2264 30; production servers typically use 10)", sysctl.VMSwappiness),
 				[]string{"to inspect: cat /proc/sys/vm/swappiness; vmstat 1 5", fixSysctlSwappiness, persistSwappiness},
 			))
@@ -436,7 +438,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// directory / package mismatch still prevents dbus from loading its context file.
 	if mac.SELinuxPresent && mac.SELinuxType != "" {
 		if !mac.SELinuxTypeValid {
-			out = append(out, insight("CRIT", "KernelSec",
+			out = append(out, insight("CRIT", catKernelSec,
 				fmt.Sprintf("SELinux SELINUXTYPE=%q is not a valid policy type (must be: targeted, minimum, mls)", mac.SELinuxType),
 				[]string{
 					"to inspect: cat /etc/selinux/config",
@@ -446,7 +448,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				},
 			))
 		} else if !mac.SELinuxPolicyDirOK {
-			out = append(out, insight("CRIT", "KernelSec",
+			out = append(out, insight("CRIT", catKernelSec,
 				fmt.Sprintf("SELinux SELINUXTYPE=%q policy directory /etc/selinux/%s/ does not exist", mac.SELinuxType, mac.SELinuxType),
 				[]string{
 					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
@@ -455,7 +457,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 				},
 			))
 		} else if !mac.SELinuxPolicyPkgOK {
-			out = append(out, insight("CRIT", "KernelSec",
+			out = append(out, insight("CRIT", catKernelSec,
 				fmt.Sprintf("SELinux policy package selinux-policy-%s is not installed", mac.SELinuxType),
 				[]string{
 					fmt.Sprintf("to fix:     dnf install selinux-policy-%s", mac.SELinuxType),
@@ -464,7 +466,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			))
 		}
 		if mac.SELinuxRelabelPending {
-			out = append(out, insight("WARN", "KernelSec",
+			out = append(out, insight("WARN", catKernelSec,
 				"SELinux filesystem relabel is pending — reboot required to complete relabeling",
 				[]string{
 					"note: /.autorelabel exists — system will relabel on next boot",
@@ -482,7 +484,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// so it shouldn't flip the health verdict on every AL2023 host — but it must not
 	// read as OK either.
 	if mac.SELinuxPresent && mac.SELinuxMode == "permissive" {
-		out = append(out, insight("INFO", "KernelSec",
+		out = append(out, insight("INFO", catKernelSec,
 			"SELinux is permissive — policy is loaded but NOT enforcing (denials are logged, not blocked)",
 			[]string{
 				"note: permissive provides audit only, not protection (the Amazon Linux default)",
@@ -498,7 +500,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			// NOT a privilege gap. Re-running as root would NOT help (non-root can
 			// read the same node), so don't suggest it — point at the node instead.
 			// (Contrast AppArmor below, whose mode lives in a root-only node.)
-			return append(out, insight("INFO", "KernelSec",
+			return append(out, insight("INFO", catKernelSec,
 				"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
 				[]string{
 					"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
@@ -510,7 +512,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
 			// is root-only — so here "unknown" genuinely IS a privilege gap and
 			// re-running as root resolves it.
-			return append(out, insight("INFO", "KernelSec",
+			return append(out, insight("INFO", catKernelSec,
 				"AppArmor present but mode unreadable — re-run as root",
 				nil,
 			))
@@ -521,7 +523,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			return nil
 		}
 		if len(out) == 0 {
-			return []models.Insight{insight("INFO", "KernelSec",
+			return []models.Insight{insight("INFO", catKernelSec,
 				"kernel security module not enforced",
 				nil,
 			)}
@@ -547,7 +549,7 @@ func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
 	var out []models.Insight
 	// Profiles in complain mode mean enforcement is bypassed
 	if mac.AppArmorComplain > 0 {
-		out = append(out, insight("WARN", "KernelSec",
+		out = append(out, insight("WARN", catKernelSec,
 			fmt.Sprintf("%d AppArmor profile(s) in complain mode — not enforcing", mac.AppArmorComplain),
 			[]string{
 				"to inspect: aa-status --complaining",
@@ -562,7 +564,7 @@ func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
 	// /var/log/audit unreadable AND dmesg restricted), so we can't claim "no
 	// denials" — surface it as unverified rather than a silent OK.
 	if mac.AppArmorDenials < 0 {
-		out = append(out, insight("INFO", "KernelSec",
+		out = append(out, insight("INFO", catKernelSec,
 			"AppArmor enforcing but its denial log could NOT be read — denials are unverified",
 			[]string{
 				"to inspect: dmesg | grep -i apparmor   (run as root)",
@@ -570,7 +572,7 @@ func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
 			},
 		))
 	} else if mac.AppArmorDenials > 0 {
-		out = append(out, insight("WARN", "KernelSec",
+		out = append(out, insight("WARN", catKernelSec,
 			fmt.Sprintf("%d AppArmor denial(s) in the last hour", mac.AppArmorDenials),
 			[]string{
 				"to inspect: dmesg | grep -i apparmor",
@@ -617,7 +619,7 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		for _, avc := range mac.SELinuxAVCSamples {
 			hints = append(hints, "sample AVC: "+avc)
 		}
-		out = append(out, insight(l, "KernelSec",
+		out = append(out, insight(l, catKernelSec,
 			fmt.Sprintf("%d SELinux denial(s) in the last hour (mode: %s)", mac.SELinuxDenials, mac.SELinuxMode),
 			hints,
 		))
@@ -626,7 +628,7 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// unreadable, ausearch absent, journald also failed). Don't read that as "no
 	// denials" — surface it as unverified.
 	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials < 0 {
-		out = append(out, insight("INFO", "KernelSec",
+		out = append(out, insight("INFO", catKernelSec,
 			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
 			[]string{
 				"to inspect: ausearch -m avc -ts recent   (run as root)",
@@ -637,7 +639,7 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// dontaudit suppression warning — zero denials does not mean clean.
 	// dontaudit rules silently suppress certain denials — the "invisible SELinux" problem.
 	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials == 0 {
-		out = append(out, insight("INFO", "KernelSec",
+		out = append(out, insight("INFO", catKernelSec,
 			"SELinux enforcing — if services fail unexpectedly, dontaudit rules may suppress denials silently",
 			[]string{
 				"to expose hidden denials: semodule -DB  (disables dontaudit rules)",
