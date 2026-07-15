@@ -213,23 +213,9 @@ func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSRes
 
 	var results []OVALCVSSResult
 	for _, rec := range cveMap {
-		var installedMatches []string
-		for _, comp := range rec.Components {
-			if installed[strings.ToLower(comp)] {
-				installedMatches = append(installedMatches, comp)
-			}
+		if res, ok := ovalBuildResult(installed, rec); ok {
+			results = append(results, res)
 		}
-		if len(installedMatches) == 0 {
-			continue
-		}
-		results = append(results, OVALCVSSResult{
-			CVEID:      rec.CVEID,
-			CVSS3:      rec.CVSS3,
-			Severity:   rec.Severity,
-			State:      rec.State,
-			Components: rec.Components,
-			Installed:  installedMatches,
-		})
 	}
 
 	sortOVALResults(results)

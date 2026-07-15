@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -106,27 +105,7 @@ func ociInstanceMeta(ctx context.Context) (shape, region, ad string) {
 // configured instance returns 403). checked is false when IMDS itself was
 // unreachable, so we never imply a posture we couldn't read.
 func ociIMDSv1Open(ctx context.Context) (checked, open bool) {
-	data, err := curSource().Cached("oci-imdsv1-probe", func() ([]byte, error) {
-		req, e := http.NewRequestWithContext(ctx, http.MethodGet,
-			"http://169.254.169.254/opc/v2/instance/", nil)
-		if e != nil {
-			return nil, e
-		}
-		client := &http.Client{Timeout: 2 * time.Second}
-		resp, e := client.Do(req)
-		if e != nil {
-			return nil, e
-		}
-		defer resp.Body.Close() //nolint:errcheck
-		if resp.StatusCode == http.StatusOK {
-			return []byte("open"), nil
-		}
-		return []byte("blocked"), nil
-	})
-	if err != nil {
-		return false, false
-	}
-	return true, string(data) == "open"
+	return probeIMDSOpen(ctx, "oci-imdsv1-probe", "http://169.254.169.254/opc/v2/instance/")
 }
 
 // ---------- oracle-cloud-agent ----------

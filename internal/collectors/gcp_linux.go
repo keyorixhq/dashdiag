@@ -174,26 +174,5 @@ func gcpOSLogin(ctx context.Context) (checked, enabled bool) {
 // (metadata.google.internal / 169.254.169.254), GCP's recommended time source. checked
 // is false when no chrony/timesyncd config was found to read.
 func gcpTimeSyncConfigured() (checked, uses bool) {
-	files := []string{
-		"/etc/chrony.conf",
-		"/etc/chrony/chrony.conf",
-		"/etc/systemd/timesyncd.conf",
-	}
-	for _, pat := range []string{"/etc/chrony/conf.d/*.conf", "/etc/chrony/sources.d/*.sources"} {
-		if matches, err := curSource().Glob(pat); err == nil {
-			files = append(files, matches...)
-		}
-	}
-	for _, f := range files {
-		body := readFileTrimmedLocal(f)
-		if body == "" {
-			continue
-		}
-		checked = true
-		low := strings.ToLower(body)
-		if strings.Contains(low, "metadata.google.internal") || strings.Contains(low, "169.254.169.254") {
-			return true, true
-		}
-	}
-	return checked, false
+	return timeSyncSearchConfigs([]string{"metadata.google.internal", "169.254.169.254"})
 }

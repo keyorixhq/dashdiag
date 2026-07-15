@@ -140,6 +140,25 @@ func sortedResults(results []runner.Result) []runner.Result {
 	return sorted
 }
 
+// formatStatusLine renders one row's name+icon+message into a display string,
+// applying lipgloss styling in human mode.
+func (r *Renderer) formatStatusLine(name, icon, level, msg string) string {
+	switch r.mode {
+	case output.ModeHuman:
+		styledName := StyleBold.Render(name)
+		styledIcon := styleForStatus(level).Render(icon)
+		if msg != "" {
+			return fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
+		}
+		return fmt.Sprintf("%s %s", styledName, styledIcon)
+	default:
+		if msg != "" {
+			return fmt.Sprintf("%s %s  %s", name, icon, msg)
+		}
+		return fmt.Sprintf("%s %s", name, icon)
+	}
+}
+
 func levelToStatusKey(level string) string {
 	switch level {
 	case "CRIT":
@@ -171,25 +190,7 @@ func (r *Renderer) PrintAllMock(results []runner.Result, insights []models.Insig
 
 		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
 		name := fmt.Sprintf("%-12s", res.Name)
-
-		var line string
-		switch r.mode {
-		case output.ModeHuman:
-			styledName := StyleBold.Render(name)
-			styledIcon := styleForStatus(level).Render(icon)
-			if msg != "" {
-				line = fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
-			} else {
-				line = fmt.Sprintf("%s %s", styledName, styledIcon)
-			}
-		default:
-			if msg != "" {
-				line = fmt.Sprintf("%s %s  %s", name, icon, msg)
-			} else {
-				line = fmt.Sprintf("%s %s", name, icon)
-			}
-		}
-		fmt.Fprintln(os.Stdout, line)
+		fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, msg))
 
 		if ins != nil && ins.Details != nil {
 			r.renderDetails(ins.Details)
@@ -229,25 +230,7 @@ func (r *Renderer) printRow(res runner.Result, insights []models.Insight) {
 
 	icon := output.StatusIcon(levelToStatusKey(level), r.mode)
 	name := fmt.Sprintf("%-12s", res.Name)
-
-	var line string
-	switch r.mode {
-	case output.ModeHuman:
-		styledName := StyleBold.Render(name)
-		styledIcon := styleForStatus(level).Render(icon)
-		if msg != "" {
-			line = fmt.Sprintf("%s %s  %s", styledName, styledIcon, StyleDim.Render(msg))
-		} else {
-			line = fmt.Sprintf("%s %s", styledName, styledIcon)
-		}
-	default:
-		if msg != "" {
-			line = fmt.Sprintf("%s %s  %s", name, icon, msg)
-		} else {
-			line = fmt.Sprintf("%s %s", name, icon)
-		}
-	}
-	fmt.Fprintln(os.Stdout, line)
+	fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, msg))
 
 	if ins != nil && ins.Details != nil && (r.mode == output.ModeHuman || r.mode == output.ModePlain) {
 		r.renderDetails(ins.Details)

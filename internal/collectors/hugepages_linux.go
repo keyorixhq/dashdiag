@@ -21,40 +21,12 @@ func (c *HugePagesCollector) Name() string           { return "HugePages" }
 func (c *HugePagesCollector) Timeout() time.Duration { return 2 * time.Second }
 
 func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
-	info := &models.HugePagesInfo{Available: true}
-
-	// Read /proc/meminfo for huge page stats
 	data, err := readFile("/proc/meminfo")
 	if err != nil {
-		return info, nil
+		return &models.HugePagesInfo{Available: true}, nil
 	}
-
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		key := strings.TrimSuffix(fields[0], ":")
-		val, err := strconv.Atoi(fields[1])
-		if err != nil {
-			continue
-		}
-		switch key {
-		case "HugePages_Total":
-			info.Configured = val
-		case "HugePages_Free":
-			info.Free = val
-		case "Hugepagesize":
-			info.PageSizeKB = val // value is in kB
-		}
-	}
-
-	info.Used = info.Configured - info.Free
-	if info.Configured > 0 && info.PageSizeKB > 0 {
-		info.ReservedGB = float64(info.Configured) * float64(info.PageSizeKB) / (1024 * 1024)
-	}
+	info := parseHugePagesMeminfo(string(data))
+	info.Available = true
 
 	// Transparent huge pages — /sys/kernel/mm/transparent_hugepage/enabled
 	thpData, err := readFile("/sys/kernel/mm/transparent_hugepage/enabled")
@@ -72,7 +44,7 @@ func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 		}
 	}
 
-	return info, nil
+	return &info, nil
 }
 
 // IsHugePagesConfigured returns true when static huge pages are reserved.

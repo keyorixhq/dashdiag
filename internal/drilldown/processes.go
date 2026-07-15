@@ -30,15 +30,19 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 	return hungProcessesLinuxAt(ctx, "/proc")
 }
 
-func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details, error) {
-	var mu sync.Mutex
-	type hungInfo struct {
-		pid  int
-		name string
-		ppid int
-	}
-	var hung []hungInfo
+// procStatEntry is a minimal parsed /proc/PID/stat result.
+type procStatEntry struct {
+	pid  int
+	name string
+	ppid int
+}
 
+// walkProcsByState returns all processes whose /proc/PID/stat state field equals
+// stateChar ('D' = uninterruptible, 'Z' = zombie, etc.). Processes that exit
+// between directory listing and stat read are silently skipped.
+func walkProcsByState(ctx context.Context, procRoot, stateChar string) ([]procStatEntry, error) {
+	var mu sync.Mutex
+	var entries []procStatEntry
 	err := walkProcs(ctx, procRoot, func(pid int) error {
 		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 		data, err := os.ReadFile(path)
@@ -49,27 +53,31 @@ func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details
 		if !ok || len(rest) < 2 {
 			return nil
 		}
-		if rest[0] != "D" { // stat field 3 = state
+		if rest[0] != stateChar {
 			return nil
 		}
-		ppid, _ := strconv.Atoi(rest[1]) // stat field 4
+		ppid, _ := strconv.Atoi(rest[1])
 		mu.Lock()
-		hung = append(hung, hungInfo{pid: pid, name: name, ppid: ppid})
+		entries = append(entries, procStatEntry{pid: pid, name: name, ppid: ppid})
 		mu.Unlock()
 		return nil
 	})
-	if err != nil && len(hung) == 0 {
+	return entries, err
+}
+
+func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details, error) {
+	entries, err := walkProcsByState(ctx, procRoot, "D")
+	if err != nil && len(entries) == 0 {
 		return nil, err
 	}
 
-	rows := make([][]string, 0, len(hung))
-	for _, h := range hung {
-		parentCmd := procComm(procRoot, h.ppid)
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
 		rows = append(rows, []string{
-			fmt.Sprintf("%d", h.pid),
-			h.name,
-			fmt.Sprintf("%d", h.ppid),
-			parentCmd,
+			fmt.Sprintf("%d", e.pid),
+			e.name,
+			fmt.Sprintf("%d", e.ppid),
+			procComm(procRoot, e.ppid),
 		})
 	}
 
@@ -97,55 +105,23 @@ func ZombiesWithParent(ctx context.Context) (*models.Details, error) {
 	return zombiesWithParentLinux(ctx)
 }
 
-type zombieInfo struct {
-	pid       int
-	name      string
-	ppid      int
-	parentCmd string
-}
-
 func zombiesWithParentLinux(ctx context.Context) (*models.Details, error) {
 	return zombiesWithParentLinuxAt(ctx, "/proc")
 }
 
 func zombiesWithParentLinuxAt(ctx context.Context, procRoot string) (*models.Details, error) {
-	var mu sync.Mutex
-	var zombies []zombieInfo
-
-	err := walkProcs(ctx, procRoot, func(pid int) error {
-		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		name, rest, ok := parseProcStatComm(string(data))
-		if !ok || len(rest) < 2 {
-			return nil
-		}
-		if rest[0] != "Z" { // stat field 3 = state
-			return nil
-		}
-		ppid, _ := strconv.Atoi(rest[1]) // stat field 4
-
-		parentComm := procComm(procRoot, ppid)
-		mu.Lock()
-		zombies = append(zombies, zombieInfo{
-			pid: pid, name: name, ppid: ppid, parentCmd: parentComm,
-		})
-		mu.Unlock()
-		return nil
-	})
-	if err != nil && len(zombies) == 0 {
+	entries, err := walkProcsByState(ctx, procRoot, "Z")
+	if err != nil && len(entries) == 0 {
 		return nil, err
 	}
 
-	rows := make([][]string, 0, len(zombies))
-	for _, z := range zombies {
+	rows := make([][]string, 0, len(entries))
+	for _, z := range entries {
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", z.pid),
 			z.name,
 			fmt.Sprintf("%d", z.ppid),
-			z.parentCmd,
+			procComm(procRoot, z.ppid),
 		})
 	}
 

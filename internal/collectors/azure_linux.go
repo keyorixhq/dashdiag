@@ -391,26 +391,5 @@ func waagentState() (installed, running bool) {
 // checked is false when no chrony/timesyncd config was found to read, so we never
 // claim a verdict on a host whose time config we couldn't see.
 func azureTimeSyncConfigured() (checked, uses bool) {
-	files := []string{
-		"/etc/chrony.conf",
-		"/etc/chrony/chrony.conf",
-		"/etc/systemd/timesyncd.conf",
-	}
-	for _, pat := range []string{"/etc/chrony/conf.d/*.conf", "/etc/chrony/sources.d/*.sources"} {
-		if matches, err := curSource().Glob(pat); err == nil {
-			files = append(files, matches...)
-		}
-	}
-	for _, f := range files {
-		body := readFileTrimmedLocal(f)
-		if body == "" {
-			continue
-		}
-		checked = true
-		low := strings.ToLower(body)
-		if strings.Contains(low, "ptp_hyperv") || strings.Contains(low, "refclock phc") {
-			return true, true
-		}
-	}
-	return checked, false
+	return timeSyncSearchConfigs([]string{"ptp_hyperv", "refclock phc"})
 }

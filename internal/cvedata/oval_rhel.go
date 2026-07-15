@@ -289,25 +289,9 @@ func scanRHELOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResul
 			continue
 		}
 
-		// Find which affected components are installed
-		var installedMatches []string
-		for _, comp := range rec.Components {
-			if installed[strings.ToLower(comp)] {
-				installedMatches = append(installedMatches, comp)
-			}
+		if res, ok := ovalBuildResult(installed, rec); ok {
+			results = append(results, res)
 		}
-		if len(installedMatches) == 0 {
-			continue
-		}
-
-		results = append(results, OVALCVSSResult{
-			CVEID:      rec.CVEID,
-			CVSS3:      rec.CVSS3,
-			Severity:   rec.Severity,
-			State:      rec.State,
-			Components: rec.Components,
-			Installed:  installedMatches,
-		})
 	}
 
 	// Sort by CVSS descending
