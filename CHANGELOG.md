@@ -9,6 +9,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.19.1] - 2026-07-15
+
+### Fixed
+- `dsd security --drift` no longer triggers an unnecessary SUID filesystem
+  scan; drift comparison reads the saved baseline only, so the live scan is
+  reserved for `--suid` and baseline-persist paths where it is actually needed.
+- Package collector: apt stale-cache path now sets `Status` (not just
+  `StatusReason`), so the "stale cache" verdict propagates to the tally
+  correctly and never silently reads as OK.
+- Package collector: `aptHasSecurityRepo` now skips non-`.list`/`.sources`
+  files in `/etc/apt/sources.list.d/` (e.g. `.bak`, `.disabled`, `.save`),
+  preventing a false-positive "has security repository" result from inactive
+  or disabled source files.
+- Package collector: `SUSEConnect --status` was invoked twice in the
+  registration check; deduplicated to a single call.
+- Package collector: `dnfWarmCache` now uses `context.Background()` for its
+  internal timeout instead of the caller's cancellable context, so background
+  DNF metadata warm-up is not cancelled when the parent collector's own
+  timeout fires.
+- TLS collector: self-signed certificate detection now compares raw DER-encoded
+  subject and issuer bytes (`RawSubject` / `RawIssuer`) rather than string
+  common names, correctly identifying certs where the CN happens to match but
+  the full distinguished name differs.
+- TLS collector: `SetDeadline` error is now checked and propagated instead of
+  being silently dropped.
+- Renderer: CRIT/WARN verdict-tally colouring now routes through the correct
+  `styleForStatus(levelToStatusKey(...))` path; the previous wrong key produced
+  unstyled (plain) output for critical and warning tallies.
+- Renderer: LVM active-VG summary now shows `"N VG(s)  1 active"` when exactly
+  one VG is active; the previous single-active fast-path omitted the
+  active-count indicator entirely.
+- TUI selectors: type assertions in `RunSingleSelect` / `RunMultiSelect` now
+  return a typed error when bubbletea yields an unexpected model, instead of
+  silently returning empty results.
+
 ## [1.19.0] - 2026-07-08
 
 ### Added
