@@ -86,7 +86,7 @@ func printGPUReport(info *models.GPUInfo, elapsed time.Duration, mode output.Out
 	fmt.Println("\n🎮 GPU")
 
 	if len(info.Devices) == 0 && len(info.NoDriver) == 0 {
-		fmt.Printf("\nGPU   %s no GPU detected (virtual machine or no sysfs data)\n", asciiOr("info", "ℹ️ ", mode))
+		fmt.Printf("\nGPU   %s no GPU detected (virtual machine or no sysfs data)\n", asciiOr("info", iconInfoSp, mode))
 		return
 	}
 
@@ -176,14 +176,14 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 		if dev.ClockMaxMHz > 0 {
 			pct = dev.ClockMHz * 100 / dev.ClockMaxMHz
 		}
-		lines = append(lines, fmt.Sprintf("    %s Clock:       %d / %d MHz  (%d%%)", asciiOr("ok", "✅", mode), dev.ClockMHz, dev.ClockMaxMHz, pct))
+		lines = append(lines, fmt.Sprintf("    %s Clock:       %d / %d MHz  (%d%%)", asciiOr("ok", iconOK, mode), dev.ClockMHz, dev.ClockMaxMHz, pct))
 	}
 
 	if dev.TDPLimitW > 0 {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		tail := ""
 		if dev.Throttling {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 			tail = " ← throttling"
 		}
 		lines = append(lines, fmt.Sprintf("    %s TDP:         %.1f / %.1f W limit  (current: %.1fW)%s",
@@ -203,23 +203,23 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 	}
 
 	if dev.UtilPct > 0 {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if dev.UtilPct >= 95 {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		lines = append(lines, fmt.Sprintf("    %s Utilization: %d%%", icon, dev.UtilPct))
 	}
 
 	if dev.PowerDPMLevel != "" {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		lines = append(lines, fmt.Sprintf("    %s DPM level:   %s", icon, dev.PowerDPMLevel))
 	}
 
 	if dev.Unreadable {
-		lines = append(lines, fmt.Sprintf("    %s Metrics unreadable: nvidia-smi reported [N/A] — GPU may have fallen off the bus / faulted", asciiOr("fail", "❌", mode)))
+		lines = append(lines, fmt.Sprintf("    %s Metrics unreadable: nvidia-smi reported [N/A] — GPU may have fallen off the bus / faulted", asciiOr("fail", iconFail, mode)))
 	}
 
 	if len(lines) == 0 {
@@ -247,20 +247,20 @@ func gpuHints(info *models.GPUInfo, steamOS bool, mode output.OutputMode) []stri
 			// rather than firing a scary false "emergency thermal threshold" CRIT.
 			// Matches checkGPUDevice (dsd health) so the two verdict paths agree.
 			hints = append(hints,
-				fmt.Sprintf("%s Junction temperature %d°C is implausible — sensor faulted/virtual, thermal health unverified", asciiOr("warn", "⚠️ ", mode), dev.TempJunctionC),
+				fmt.Sprintf("%s Junction temperature %d°C is implausible — sensor faulted/virtual, thermal health unverified", asciiOr("warn", iconWarnSp, mode), dev.TempJunctionC),
 				"   → reading ignored to avoid a false thermal alarm; check the hwmon sensor")
 		} else if dev.TempJunctionC >= 100 {
 			hints = append(hints,
-				fmt.Sprintf("%s Junction temperature %d°C — emergency thermal threshold (100°C)", asciiOr("fail", "❌", mode), dev.TempJunctionC),
+				fmt.Sprintf("%s Junction temperature %d°C — emergency thermal threshold (100°C)", asciiOr("fail", iconFail, mode), dev.TempJunctionC),
 				"   → Shut down and inspect cooling immediately")
 		} else if dev.TempJunctionC >= 90 {
 			hints = append(hints,
-				fmt.Sprintf("%s Junction temperature %d°C — approaching 90°C threshold", asciiOr("warn", "⚠️ ", mode), dev.TempJunctionC),
+				fmt.Sprintf("%s Junction temperature %d°C — approaching 90°C threshold", asciiOr("warn", iconWarnSp, mode), dev.TempJunctionC),
 				"   → Check thermal paste and fan curve if sustained")
 		}
 		if dev.Throttling {
 			hints = append(hints,
-				fmt.Sprintf("%s TDP throttling — GPU at power limit (%.1fW / %.1fW)", asciiOr("warn", "⚠️ ", mode), dev.TDPCurrentW, dev.TDPLimitW))
+				fmt.Sprintf("%s TDP throttling — GPU at power limit (%.1fW / %.1fW)", asciiOr("warn", iconWarnSp, mode), dev.TDPCurrentW, dev.TDPLimitW))
 			if steamOS {
 				hints = append(hints, "   → On Steam Deck: increase TDP limit in Performance settings when plugged in")
 			} else {
@@ -272,12 +272,12 @@ func gpuHints(info *models.GPUInfo, steamOS bool, mode output.OutputMode) []stri
 		// on a Steam Deck / AMD APU at normal load (the two verdict paths exclude APUs).
 		if dev.VRAMUsedPct >= 90 && !dev.IsAPU {
 			hints = append(hints,
-				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", asciiOr("warn", "⚠️ ", mode), dev.VRAMUsedPct),
+				fmt.Sprintf("%s VRAM at %.0f%% — high memory pressure", asciiOr("warn", iconWarnSp, mode), dev.VRAMUsedPct),
 				"   → Reduce texture/resolution settings or close GPU-heavy apps")
 		}
 		if dev.PowerDPMLevel == "low" && dev.UtilPct >= 50 {
 			hints = append(hints,
-				fmt.Sprintf("%s GPU stuck in low-power DPM mode under load (%d%% util) — performance capped", asciiOr("warn", "⚠️ ", mode), dev.UtilPct),
+				fmt.Sprintf("%s GPU stuck in low-power DPM mode under load (%d%% util) — performance capped", asciiOr("warn", iconWarnSp, mode), dev.UtilPct),
 				"   → echo auto > /sys/class/drm/card*/device/power_dpm_force_performance_level")
 		}
 	}
@@ -295,7 +295,7 @@ func printGPUNoDriver(noDriver []models.GPUDetected, mode output.OutputMode) {
 			pci = " @ " + nd.PCIAddr
 		}
 		fmt.Printf("GPU — %s%s\n", nd.Name, pci)
-		fmt.Printf("  %s  proprietary driver not loaded — power/VRAM metrics unavailable\n", asciiOr("warn", "⚠️ ", mode))
+		fmt.Printf("  %s  proprietary driver not loaded — power/VRAM metrics unavailable\n", asciiOr("warn", iconWarnSp, mode))
 		switch nd.Vendor {
 		case "nvidia":
 			nixos := isNixOS(cvedata.DetectDistroID())
@@ -368,21 +368,21 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 	metricless := len(info.Devices) > 0 && metriclessCount == len(info.Devices)
 	switch {
 	case crits > 0:
-		return render.StyleCrit.Render(fmt.Sprintf("%s %d GPU issue(s) found%s", asciiOr("fail", "❌", mode), crits, timing))
+		return render.StyleCrit.Render(fmt.Sprintf("%s %d GPU issue(s) found%s", asciiOr("fail", iconFail, mode), crits, timing))
 	case warns > 0:
-		return render.StyleWarn.Render(fmt.Sprintf("%s GPU elevated%s", asciiOr("warn", "⚠️ ", mode), timing))
+		return render.StyleWarn.Render(fmt.Sprintf("%s GPU elevated%s", asciiOr("warn", iconWarnSp, mode), timing))
 	case n > 0 && len(info.Devices) == 0:
-		return render.StyleWarn.Render(fmt.Sprintf("%s %d GPU(s) detected, no driver loaded%s", asciiOr("warn", "⚠️ ", mode), n, timing))
+		return render.StyleWarn.Render(fmt.Sprintf("%s %d GPU(s) detected, no driver loaded%s", asciiOr("warn", iconWarnSp, mode), n, timing))
 	case metricless:
-		return render.StyleInfo.Render(fmt.Sprintf("%s GPU detected — no health metrics exposed (driver reports no temperature/utilization); health not verified%s", asciiOr("info", "ℹ️ ", mode), timing))
+		return render.StyleInfo.Render(fmt.Sprintf("%s GPU detected — no health metrics exposed (driver reports no temperature/utilization); health not verified%s", asciiOr("info", iconInfoSp, mode), timing))
 	case metriclessCount > 0:
 		// Some GPUs are healthy but at least one exposed no metrics — don't let the
 		// readable one(s) mask the unmeasured device with a plain "Checks passed".
-		return render.StyleInfo.Render(fmt.Sprintf("%s GPU(s) healthy, but %d exposed no health metrics (not verified)%s", asciiOr("info", "ℹ️ ", mode), metriclessCount, timing))
+		return render.StyleInfo.Render(fmt.Sprintf("%s GPU(s) healthy, but %d exposed no health metrics (not verified)%s", asciiOr("info", iconInfoSp, mode), metriclessCount, timing))
 	case n > 0:
-		return render.StyleWarn.Render(fmt.Sprintf("%s active GPU healthy — %d GPU(s) without driver%s", asciiOr("ok", "✅", mode), n, timing))
+		return render.StyleWarn.Render(fmt.Sprintf("%s active GPU healthy — %d GPU(s) without driver%s", asciiOr("ok", iconOK, mode), n, timing))
 	default:
-		return render.StyleOK.Render(fmt.Sprintf("%s GPU healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing))
+		return render.StyleOK.Render(fmt.Sprintf("%s GPU healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing))
 	}
 }
 
@@ -390,11 +390,11 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 func tempIcon(temp, warn, crit int, mode output.OutputMode) string {
 	switch {
 	case temp >= crit:
-		return asciiOr("fail", "❌", mode)
+		return asciiOr("fail", iconFail, mode)
 	case temp >= warn:
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", iconWarnSp, mode)
 	default:
-		return asciiOr("ok", "✅", mode)
+		return asciiOr("ok", iconOK, mode)
 	}
 }
 
@@ -402,10 +402,10 @@ func tempIcon(temp, warn, crit int, mode output.OutputMode) string {
 func vramIcon(pct float64, mode output.OutputMode) string {
 	switch {
 	case pct >= 95:
-		return asciiOr("fail", "❌", mode)
+		return asciiOr("fail", iconFail, mode)
 	case pct >= 85:
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", iconWarnSp, mode)
 	default:
-		return asciiOr("ok", "✅", mode)
+		return asciiOr("ok", iconOK, mode)
 	}
 }

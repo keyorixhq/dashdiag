@@ -123,11 +123,11 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	fmt.Printf("\nThermal Health  (source: %s)\n", info.Source)
 
 	// Primary CPU temp
-	cpuIcon := asciiOr("ok", "✅", mode)
+	cpuIcon := asciiOr("ok", iconOK, mode)
 	if info.CPUTempC >= 95 {
-		cpuIcon = asciiOr("fail", "❌", mode)
+		cpuIcon = asciiOr("fail", iconFail, mode)
 	} else if info.CPUTempC >= 85 {
-		cpuIcon = asciiOr("warn", "⚠️ ", mode)
+		cpuIcon = asciiOr("warn", iconWarnSp, mode)
 	}
 	fmt.Printf("\n  %s  CPU temperature:  %.1f°C\n", cpuIcon, info.CPUTempC)
 
@@ -141,11 +141,11 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 		sort.Strings(keys)
 		for _, k := range keys {
 			t := info.CoreTemps[k]
-			icon := asciiOr("ok", "✅", mode)
+			icon := asciiOr("ok", iconOK, mode)
 			if t >= 95 {
-				icon = asciiOr("fail", "❌", mode)
+				icon = asciiOr("fail", iconFail, mode)
 			} else if t >= 85 {
-				icon = asciiOr("warn", "⚠️ ", mode)
+				icon = asciiOr("warn", iconWarnSp, mode)
 			}
 			fmt.Printf("    %s  %-20s %.1f°C\n", icon, k, t)
 		}
@@ -159,7 +159,7 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	// health heuristic already gates CPUTempC==0; mirror that here.
 	if info.CPUTempC <= 0 {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s Thermal sensor present (%s) but temperature unreadable%s",
-			asciiOr("warn", "⚠️ ", mode), info.Source, timing)))
+			asciiOr("warn", iconWarnSp, mode), info.Source, timing)))
 		return
 	}
 
@@ -171,10 +171,10 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	}
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Thermal healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Thermal healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
 	} else if info.CPUTempC >= 95 {
-		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s CPU temperature critical%s", asciiOr("fail", "❌", mode), timing)))
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s CPU temperature critical%s", asciiOr("fail", iconFail, mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s CPU temperature elevated%s", asciiOr("warn", "⚠️ ", mode), timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s CPU temperature elevated%s", asciiOr("warn", iconWarnSp, mode), timing)))
 	}
 }

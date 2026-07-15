@@ -29,20 +29,20 @@ func TestBandLabel(t *testing.T) {
 
 func TestIconBand(t *testing.T) {
 	// 2.4GHz is flagged (crowded/legacy band); 5/6GHz are not.
-	if got := iconBand(2.4); got != "⚠️ " {
+	if got := iconBand(2.4); got != iconWarnSp {
 		t.Errorf("iconBand(2.4) = %q, want warn", got)
 	}
-	if got := iconBand(5); got != "✅" {
+	if got := iconBand(5); got != iconOK {
 		t.Errorf("iconBand(5) = %q, want ok", got)
 	}
 }
 
 func TestIconWidth(t *testing.T) {
 	// A 20MHz channel width is the flagged case (narrow/legacy); wider is fine.
-	if got := iconWidth(20); got != "⚠️ " {
+	if got := iconWidth(20); got != iconWarnSp {
 		t.Errorf("iconWidth(20) = %q, want warn", got)
 	}
-	if got := iconWidth(80); got != "✅" {
+	if got := iconWidth(80); got != iconOK {
 		t.Errorf("iconWidth(80) = %q, want ok", got)
 	}
 }
@@ -52,9 +52,9 @@ func TestIconSignal(t *testing.T) {
 		dbm  int
 		want string
 	}{
-		{-50, "✅"},
-		{-65, "⚠️ "},
-		{-70, "⚠️ "},
+		{-50, iconOK},
+		{-65, iconWarnSp},
+		{-70, iconWarnSp},
 		{-76, "❌"},
 	}
 	for _, c := range cases {

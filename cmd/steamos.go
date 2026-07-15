@@ -75,12 +75,12 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode ou
 
 	if !info.Detected {
 		fmt.Println()
-		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) + "Not a SteamOS / Steam Deck system — `dsd steamos` only applies there."))
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", iconInfo2, mode) + "Not a SteamOS / Steam Deck system — `dsd steamos` only applies there."))
 		fmt.Println("   On a Steam Deck this checks RAUC slots, rootfs read-only state,")
 		fmt.Println("   the Gamescope session, /var + /home space, and Wi-Fi.")
 		fmt.Println()
 		fmt.Println(sep)
-		fmt.Println(render.StyleInfo.Render(asciiOr("info", "ℹ️  ", mode) + "SteamOS not detected" + timing))
+		fmt.Println(render.StyleInfo.Render(asciiOr("info", iconInfo2, mode) + "SteamOS not detected" + timing))
 		return
 	}
 
@@ -98,7 +98,7 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode ou
 	fmt.Println()
 	fmt.Println(sep)
 	if c := steamOSConcernCount(info); c == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sSteamOS healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sSteamOS healthy. Checks passed%s", asciiOr("ok", iconOKSp, mode), timing)))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s%d SteamOS concern(s) found%s", asciiOr("warn", "⚠️  ", mode), c, timing)))
 	}
@@ -121,16 +121,16 @@ func printSteamOSSystem(info *models.SteamOSInfo, mode output.OutputMode) {
 	if info.BuildID != "" {
 		build = fmt.Sprintf("  (BUILD_ID: %s)", info.BuildID)
 	}
-	fmt.Printf("  %sSteamOS %s  %s%s\n", asciiOr("ok", "✅ ", mode), ver, channel, build)
+	fmt.Printf("  %sSteamOS %s  %s%s\n", asciiOr("ok", iconOKSp, mode), ver, channel, build)
 	if info.ChannelConfigMissing {
 		fmt.Println("  " + asciiOr("warn", "⚠️  ", mode) + "steamos-atomupd client.conf missing — updater channel unknown")
 	}
 
 	switch {
 	case !info.ReadonlyKnown:
-		fmt.Println("  " + asciiOr("info", "ℹ️  ", mode) + "steamos-readonly: status unavailable")
+		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "steamos-readonly: status unavailable")
 	case info.ReadonlyEnabled:
-		fmt.Println("  " + asciiOr("ok", "✅ ", mode) + "steamos-readonly: enabled (rootfs protected)")
+		fmt.Println("  " + asciiOr("ok", iconOKSp, mode) + "steamos-readonly: enabled (rootfs protected)")
 	default:
 		fmt.Println("  " + asciiOr("fail", "❌ ", mode) + "steamos-readonly: DISABLED (rootfs writable — next update will overwrite changes)")
 	}
@@ -146,27 +146,27 @@ func printSteamOSDevice(info *models.SteamOSInfo, mode output.OutputMode) {
 		// no DMI read
 	case !info.DeviceRecognised:
 		fmt.Printf("  %sDevice: %s (DMI: %q) — unrecognised; thresholds may not be accurate\n",
-			asciiOr("info", "ℹ️  ", mode), info.DeviceName, info.DeviceProductRaw)
+			asciiOr("info", iconInfo2, mode), info.DeviceName, info.DeviceProductRaw)
 	default:
-		fmt.Printf("  %sDevice: %s (%s)\n", asciiOr("ok", "✅ ", mode), info.DeviceName, info.DeviceProductRaw)
+		fmt.Printf("  %sDevice: %s (%s)\n", asciiOr("ok", iconOKSp, mode), info.DeviceName, info.DeviceProductRaw)
 	}
 
 	switch {
 	case !info.SecureBootApplicable:
-		fmt.Println("  " + asciiOr("ok", "✅ ", mode) + "Secure Boot: n/a (Steam Deck firmware)")
+		fmt.Println("  " + asciiOr("ok", iconOKSp, mode) + "Secure Boot: n/a (Steam Deck firmware)")
 	case info.SecureBootEnabled == nil:
-		fmt.Println("  " + asciiOr("info", "ℹ️  ", mode) + "Secure Boot: EFI not available")
+		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "Secure Boot: EFI not available")
 	case *info.SecureBootEnabled:
 		fmt.Println("  " + asciiOr("warn", "⚠️  ", mode) + "Secure Boot: ENABLED — USB recovery requires a BIOS change first")
 	default:
-		fmt.Println("  " + asciiOr("ok", "✅ ", mode) + "Secure Boot: disabled")
+		fmt.Println("  " + asciiOr("ok", iconOKSp, mode) + "Secure Boot: disabled")
 	}
 }
 
 func printSteamOSRAUC(info *models.SteamOSInfo, mode output.OutputMode) {
 	fmt.Println("\n[RAUC update slots]")
 	if !info.RAUCAvailable {
-		fmt.Println("  " + asciiOr("info", "ℹ️  ", mode) + "rauc status unavailable")
+		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "rauc status unavailable")
 		return
 	}
 	fmt.Printf("  %s Booted slot:   %s  (boot status: %s)\n",
@@ -184,7 +184,7 @@ func printSteamOSSession(info *models.SteamOSInfo, mode output.OutputMode) {
 	if sessionMode == "" {
 		sessionMode = "unknown"
 	}
-	fmt.Printf("  %sMode: %s\n", asciiOr("info", "ℹ️  ", mode), sessionMode)
+	fmt.Printf("  %sMode: %s\n", asciiOr("info", iconInfo2, mode), sessionMode)
 	fmt.Printf("  %s gamescope-session: %s\n", activeIcon(info.GamescopeActive, mode), activeWord(info.GamescopeActive))
 	fmt.Printf("  %s steam-launcher:    %s\n", activeIcon(info.SteamLauncherActive, mode), activeWord(info.SteamLauncherActive))
 	if info.SessionMode == "gamemode" && !info.GamescopeActive {
@@ -206,9 +206,9 @@ func printSteamOSNetwork(info *models.SteamOSInfo, mode output.OutputMode) {
 	fmt.Println("\n[Update server]")
 	switch {
 	case !info.UpdateServerKnown:
-		fmt.Println("  " + asciiOr("info", "ℹ️  ", mode) + "SteamOS update server: not tested")
+		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "SteamOS update server: not tested")
 	case info.UpdateServerReachable:
-		fmt.Printf("  %sSteamOS update server: reachable (%dms)\n", asciiOr("ok", "✅ ", mode), info.UpdateServerLatencyMs)
+		fmt.Printf("  %sSteamOS update server: reachable (%dms)\n", asciiOr("ok", iconOKSp, mode), info.UpdateServerLatencyMs)
 	default:
 		fmt.Println("  " + asciiOr("warn", "⚠️  ", mode) + "SteamOS update server: unreachable  (Wi-Fi details: dsd net)")
 	}
@@ -232,9 +232,9 @@ func printSteamOSRemotePlay(info *models.SteamOSInfo, mode output.OutputMode) {
 			} else if p.PID > 0 {
 				who = fmt.Sprintf("%s (PID %d)", p.Process, p.PID)
 			}
-			fmt.Printf("  %s%-10s %s\n", asciiOr("ok", "✅ ", mode), label, who)
+			fmt.Printf("  %s%-10s %s\n", asciiOr("ok", iconOKSp, mode), label, who)
 		case p.Optional:
-			fmt.Printf("  %s%-10s not bound (VR — optional)\n", asciiOr("info", "ℹ️  ", mode), label)
+			fmt.Printf("  %s%-10s not bound (VR — optional)\n", asciiOr("info", iconInfo2, mode), label)
 		default:
 			fmt.Printf("  %s%-10s not bound\n", asciiOr("fail", "❌ ", mode), label)
 		}
@@ -246,16 +246,16 @@ func printSteamOSRemotePlay(info *models.SteamOSInfo, mode output.OutputMode) {
 	case rp.FirewallBlocking:
 		fmt.Println("  " + asciiOr("warn", "⚠️  ", mode) + "Firewall: a rule may block a Remote Play port — run: nft list ruleset")
 	default:
-		fmt.Println("  " + asciiOr("ok", "✅ ", mode) + "Firewall: no blocking rules found")
+		fmt.Println("  " + asciiOr("ok", iconOKSp, mode) + "Firewall: no blocking rules found")
 	}
 
 	switch {
 	case !rp.ARPChecked:
-		fmt.Println("  " + asciiOr("info", "ℹ️  ", mode) + "LAN peer visibility: not checked (recent boot or no gateway)")
+		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "LAN peer visibility: not checked (recent boot or no gateway)")
 	case rp.APIsolationSuspected:
 		fmt.Println("  " + asciiOr("warn", "⚠️  ", mode) + "LAN peer visibility: 0 peers — AP client isolation may be active")
 	default:
-		fmt.Printf("  %sLAN peer visibility: %d peer(s) in ARP cache\n", asciiOr("ok", "✅ ", mode), rp.LANPeersVisible)
+		fmt.Printf("  %sLAN peer visibility: %d peer(s) in ARP cache\n", asciiOr("ok", iconOKSp, mode), rp.LANPeersVisible)
 	}
 }
 
@@ -266,9 +266,9 @@ func printSteamOSDeep(info *models.SteamOSInfo, mode output.OutputMode) {
 	}
 	// Shader cache is reported by `dsd disk` (single home).
 	if info.FlatpakAppCount > 0 || info.FlatpakDataGB > 0 {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if info.FlatpakDataGB > 20 {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		fmt.Printf("  %s Flatpak: %d app(s), %.1f GB\n", icon, info.FlatpakAppCount, info.FlatpakDataGB)
 	}
@@ -343,7 +343,7 @@ func raucIcon(status string, mode output.OutputMode) string {
 	if status == "" {
 		return asciiOr("info", "ℹ️ ", mode)
 	}
-	return asciiOr("ok", "✅", mode)
+	return asciiOr("ok", iconOK, mode)
 }
 
 func usageIcon(pct, warn, crit float64, mode output.OutputMode) string {
@@ -351,17 +351,17 @@ func usageIcon(pct, warn, crit float64, mode output.OutputMode) string {
 	case pct >= crit:
 		return asciiOr("fail", "❌", mode)
 	case pct >= warn:
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", iconWarnSp, mode)
 	default:
-		return asciiOr("ok", "✅", mode)
+		return asciiOr("ok", iconOK, mode)
 	}
 }
 
 func activeIcon(active bool, mode output.OutputMode) string {
 	if active {
-		return asciiOr("ok", "✅", mode)
+		return asciiOr("ok", iconOK, mode)
 	}
-	return asciiOr("warn", "⚠️ ", mode)
+	return asciiOr("warn", iconWarnSp, mode)
 }
 
 func activeWord(active bool) string {

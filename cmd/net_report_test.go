@@ -40,7 +40,7 @@ func TestPrintTCPCounter(t *testing.T) {
 		t.Errorf("a counter above crit should render the fail icon, got:\n%s", crit)
 	}
 	warn := captureStdout(t, func() { printTCPCounter("TIME_WAIT", 700, 500, 1000) })
-	if !strings.Contains(warn, "⚠️") {
+	if !strings.Contains(warn, iconWarn) {
 		t.Errorf("a counter between warn and crit should render the warn icon, got:\n%s", warn)
 	}
 	ok := captureStdout(t, func() { printTCPCounter("TIME_WAIT", 100, 500, 1000) })
@@ -54,7 +54,7 @@ func TestPrintTCPCounterLevel(t *testing.T) {
 		t.Errorf("a zero counter should be skipped regardless of level, got:\n%s", out)
 	}
 	for _, c := range []struct{ level, icon string }{
-		{"CRIT", "❌"}, {"WARN", "⚠️"}, {"INFO", "ℹ️"}, {"", "✅"},
+		{"CRIT", "❌"}, {"WARN", iconWarn}, {"INFO", "ℹ️"}, {"", "✅"},
 	} {
 		out := captureStdout(t, func() { printTCPCounterLevel("SYN retrans", 5, c.level) })
 		if !strings.Contains(out, c.icon) {
@@ -254,7 +254,7 @@ func TestPrintNFSReport(t *testing.T) {
 			RetransPerMin: 100, RPCCalls: 1000, StaleMounts: 0,
 		}, output.ModePlain)
 	})
-	if !strings.Contains(highRetransRate, "⚠️") {
+	if !strings.Contains(highRetransRate, iconWarn) {
 		t.Errorf("a high retransmission rate should render the WARN icon, got:\n%s", highRetransRate)
 	}
 
@@ -419,7 +419,7 @@ func TestPrintResolverDNSSECTest(t *testing.T) {
 	failed := captureStdout(t, func() {
 		printResolverDNSSECTest(&models.ResolverAuditInfo{DNSSECTestRan: true, DNSSECTestPassed: false, DNSSECTestError: "SERVFAIL"})
 	})
-	if !strings.Contains(failed, "⚠️") {
+	if !strings.Contains(failed, iconWarn) {
 		t.Errorf("a genuine DNSSEC validation failure should warn, got:\n%s", failed)
 	}
 	passed := captureStdout(t, func() {

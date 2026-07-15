@@ -131,16 +131,16 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 		// detected" — that flatly contradicts "installed". Only the truly-nothing case
 		// gets the green "no runtime" verdict.
 		if info.StatusReason != "" {
-			fmt.Printf("\n  %s  %s\n", asciiOr("warn", "⚠️ ", mode), info.StatusReason)
+			fmt.Printf("\n  %s  %s\n", asciiOr("warn", iconWarnSp, mode), info.StatusReason)
 			fmt.Println()
 			fmt.Println(sep)
-			fmt.Println(render.StyleWarn.Render(asciiOr("warn", "⚠️ ", mode) + " Container runtime installed but not running" + timing))
+			fmt.Println(render.StyleWarn.Render(asciiOr("warn", iconWarnSp, mode) + " Container runtime installed but not running" + timing))
 			return
 		}
-		fmt.Printf("\n  %s  Docker/Podman not available on this system\n", asciiOr("info", "ℹ️ ", mode))
+		fmt.Printf("\n  %s  Docker/Podman not available on this system\n", asciiOr("info", iconInfoSp, mode))
 		fmt.Println()
 		fmt.Println(sep)
-		fmt.Println(render.StyleOK.Render(asciiOr("ok", "✅", mode) + " No container runtime detected" + timing))
+		fmt.Println(render.StyleOK.Render(asciiOr("ok", iconOK, mode) + " No container runtime detected" + timing))
 		return
 	}
 
@@ -160,9 +160,9 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	fmt.Println()
 	fmt.Println(sep)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Docker healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Docker healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
 	} else {
-		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d container concern(s) found%s", asciiOr("warn", "⚠️ ", mode), issues, timing)))
+		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d container concern(s) found%s", asciiOr("warn", iconWarnSp, mode), issues, timing)))
 	}
 }
 
@@ -180,9 +180,9 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 	}
 	driverStr := ""
 	if d.StorageDriver != "" {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if d.StorageDriver == "devicemapper" {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		// normalise: "overlayfs" → "overlay2" display
 		driver := d.StorageDriver
@@ -196,16 +196,16 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 	switch {
 	case d.ComposePlugin != "" && d.ComposeStandalone != "":
 		fmt.Printf("  %s  Compose: v%s (plugin) + v%s (standalone) — both present\n",
-			asciiOr("warn", "⚠️ ", mode), d.ComposePlugin, d.ComposeStandalone)
+			asciiOr("warn", iconWarnSp, mode), d.ComposePlugin, d.ComposeStandalone)
 	case d.ComposePlugin != "":
-		fmt.Printf("  %s  Compose: v%s (plugin)\n", asciiOr("ok", "✅", mode), d.ComposePlugin)
+		fmt.Printf("  %s  Compose: v%s (plugin)\n", asciiOr("ok", iconOK, mode), d.ComposePlugin)
 	case d.ComposeStandalone != "":
-		fmt.Printf("  %s  Compose: v%s (standalone — deprecated)\n", asciiOr("warn", "⚠️ ", mode), d.ComposeStandalone)
+		fmt.Printf("  %s  Compose: v%s (standalone — deprecated)\n", asciiOr("warn", iconWarnSp, mode), d.ComposeStandalone)
 	default:
-		fmt.Printf("  %s  Compose: not installed\n", asciiOr("info", "ℹ️ ", mode))
+		fmt.Printf("  %s  Compose: not installed\n", asciiOr("info", iconInfoSp, mode))
 	}
 	if d.RecentErrors > 0 {
-		fmt.Printf("  %s  %d error(s) in last 10m", asciiOr("warn", "⚠️ ", mode), d.RecentErrors)
+		fmt.Printf("  %s  %d error(s) in last 10m", asciiOr("warn", iconWarnSp, mode), d.RecentErrors)
 		if d.LastDaemonError != "" {
 			fmt.Printf(": %s", d.LastDaemonError)
 		}
@@ -218,7 +218,7 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 		if role == "" {
 			role = "node"
 		}
-		fmt.Printf("  %s  Swarm mode: active (role: %s)\n", asciiOr("info", "ℹ️ ", mode), role)
+		fmt.Printf("  %s  Swarm mode: active (role: %s)\n", asciiOr("info", iconInfoSp, mode), role)
 		fmt.Println("     Container restarts and placement may be controlled by the Swarm scheduler.")
 		fmt.Println("     → docker node ls")
 		fmt.Println("     → docker service ps <svc>")
@@ -228,36 +228,36 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 func printDockerContainers(info *models.DockerInfo, mode output.OutputMode) {
 	fmt.Printf("\nContainers (%d total)\n", info.TotalContainers)
 	if info.TotalContainers == 0 {
-		fmt.Printf("  %s  no containers\n", asciiOr("ok", "✅", mode))
+		fmt.Printf("  %s  no containers\n", asciiOr("ok", iconOK, mode))
 		return
 	}
-	runIcon := asciiOr("ok", "✅", mode)
+	runIcon := asciiOr("ok", iconOK, mode)
 	if info.RunningCount == 0 {
-		runIcon = asciiOr("warn", "⚠️ ", mode)
+		runIcon = asciiOr("warn", iconWarnSp, mode)
 	}
 	fmt.Printf("  %s  running:   %d\n", runIcon, info.RunningCount)
 	if info.StoppedCount > 0 {
-		fmt.Printf("  %s  stopped:   %d\n", asciiOr("warn", "⚠️ ", mode), info.StoppedCount)
+		fmt.Printf("  %s  stopped:   %d\n", asciiOr("warn", iconWarnSp, mode), info.StoppedCount)
 	}
 	if info.UnhealthyCount > 0 {
-		fmt.Printf("  %s  unhealthy: %d\n", asciiOr("fail", "❌", mode), info.UnhealthyCount)
+		fmt.Printf("  %s  unhealthy: %d\n", asciiOr("fail", iconFail, mode), info.UnhealthyCount)
 	}
 	if info.CrashLoopCount > 0 {
-		fmt.Printf("  %s  crash loop: %d\n", asciiOr("fail", "❌", mode), info.CrashLoopCount)
+		fmt.Printf("  %s  crash loop: %d\n", asciiOr("fail", iconFail, mode), info.CrashLoopCount)
 	}
 	if len(info.Containers) == 0 {
 		return
 	}
 	fmt.Println()
 	for _, c := range info.Containers {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if c.State != "running" {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		// Key on the gated CrashLooping decision (not raw restart count) so a stabilized
 		// container's row doesn't show ❌ while the verdict says it's fine.
 		if c.Health == "unhealthy" || c.CrashLooping {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		}
 		health := ""
 		if c.Health != "" && c.Health != "none" {
@@ -297,17 +297,17 @@ func printPodmanQuadlets(info *models.DockerInfo, mode output.OutputMode) {
 		}
 	}
 	if allActive {
-		fmt.Printf("  %s %d quadlet(s) active\n", asciiOr("ok", "✅", mode), len(info.PodmanQuadlets))
+		fmt.Printf("  %s %d quadlet(s) active\n", asciiOr("ok", iconOK, mode), len(info.PodmanQuadlets))
 		return
 	}
 
 	for _, q := range info.PodmanQuadlets {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if !q.Active {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		if q.Failed {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		}
 		state := q.State
 		if state == "" {
@@ -332,7 +332,7 @@ func printDockerSecurity(info *models.DockerInfo, mode output.OutputMode) {
 	for _, c := range info.Containers {
 		if len(c.PlaintextSecrets) > 0 {
 			fmt.Printf("  %s  %-20s plaintext secrets in env: %s\n",
-				asciiOr("warn", "⚠️ ", mode), c.Name, strings.Join(c.PlaintextSecrets, ", "))
+				asciiOr("warn", iconWarnSp, mode), c.Name, strings.Join(c.PlaintextSecrets, ", "))
 		}
 	}
 	if info.ContainersWithSecrets > 0 {
@@ -342,7 +342,7 @@ func printDockerSecurity(info *models.DockerInfo, mode output.OutputMode) {
 	// Docker socket mounted
 	for _, c := range info.Containers {
 		if c.DockerSocketMounted {
-			fmt.Printf("  %s  %-20s docker socket mounted — grants root access to host\n", asciiOr("fail", "❌", mode), c.Name)
+			fmt.Printf("  %s  %-20s docker socket mounted — grants root access to host\n", asciiOr("fail", iconFail, mode), c.Name)
 		}
 	}
 	if info.SocketMountedCount > 0 {
@@ -357,7 +357,7 @@ func printDockerSecurity(info *models.DockerInfo, mode output.OutputMode) {
 		}
 	}
 	if rootCount > 0 {
-		fmt.Printf("  %s  %d running container(s) using root user\n", asciiOr("warn", "⚠️ ", mode), rootCount)
+		fmt.Printf("  %s  %d running container(s) using root user\n", asciiOr("warn", iconWarnSp, mode), rootCount)
 		fmt.Println("     → Add USER directive to Dockerfile or use --user flag.")
 	}
 }
@@ -368,9 +368,9 @@ func printDockerEvents(info *models.DockerInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\n[Recent events — last 1h]\n")
 	for _, ev := range info.RecentEvents {
-		evIcon := asciiOr("warn", "⚠️ ", mode)
+		evIcon := asciiOr("warn", iconWarnSp, mode)
 		if ev.Action == "oom" {
-			evIcon = asciiOr("fail", "❌", mode)
+			evIcon = asciiOr("fail", iconFail, mode)
 		}
 		fmt.Printf("  %s  %-8s  %s\n", evIcon, ev.Action, ev.Actor)
 	}
@@ -382,16 +382,16 @@ func printDockerEvents(info *models.DockerInfo, mode output.OutputMode) {
 func printDockerResources(info *models.DockerInfo, mode output.OutputMode) {
 	fmt.Printf("\nImages: %d", info.ImagesCount)
 	if info.DanglingImages > 0 {
-		fmt.Printf("  %s %d dangling", asciiOr("warn", "⚠️ ", mode), info.DanglingImages)
+		fmt.Printf("  %s %d dangling", asciiOr("warn", iconWarnSp, mode), info.DanglingImages)
 	}
 	fmt.Println()
 	if info.VolumesCount > 0 {
 		fmt.Printf("Volumes: %d\n", info.VolumesCount)
 	}
 	if info.DiskUsageGB > 0 {
-		diskIcon := asciiOr("ok", "✅", mode)
+		diskIcon := asciiOr("ok", iconOK, mode)
 		if info.DiskUsageGB > 20 {
-			diskIcon = asciiOr("warn", "⚠️ ", mode)
+			diskIcon = asciiOr("warn", iconWarnSp, mode)
 		}
 		fmt.Printf("Disk usage: %s %.1f GB\n", diskIcon, info.DiskUsageGB)
 	}
@@ -399,17 +399,17 @@ func printDockerResources(info *models.DockerInfo, mode output.OutputMode) {
 
 func printDockerLogDriver(ld *models.DockerLogDriverInfo, mode output.OutputMode) {
 	if ld.Driver == "journald" || ld.Driver == "local" {
-		fmt.Printf("\n[Log driver]  %s (managed/bounded) %s\n", ld.Driver, asciiOr("ok", "✅", mode))
+		fmt.Printf("\n[Log driver]  %s (managed/bounded) %s\n", ld.Driver, asciiOr("ok", iconOK, mode))
 		return
 	}
 	// json-file — check if bounded
-	icon := asciiOr("warn", "⚠️ ", mode)
+	icon := asciiOr("warn", iconWarnSp, mode)
 	status := "json-file — no max-size (logs grow unbounded)"
 	if ld.MaxSizeSet && ld.MaxFileSet {
-		icon = asciiOr("ok", "✅", mode)
+		icon = asciiOr("ok", iconOK, mode)
 		status = "json-file (max-size and max-file set)"
 	} else if ld.MaxSizeSet {
-		icon = asciiOr("ok", "✅", mode)
+		icon = asciiOr("ok", iconOK, mode)
 		status = "json-file (max-size set, max-file not set)"
 	}
 	fmt.Printf("\n[Log driver]  %s %s\n", icon, status)
@@ -424,9 +424,9 @@ func printDockerLogDriver(ld *models.DockerLogDriverInfo, mode output.OutputMode
 	for _, cl := range ld.ContainerLogs {
 		if cl.SizeMB >= 500 {
 			hasLarge = true
-			icon := asciiOr("warn", "⚠️ ", mode)
+			icon := asciiOr("warn", iconWarnSp, mode)
 			if cl.SizeMB >= 1024 {
-				icon = asciiOr("fail", "❌", mode)
+				icon = asciiOr("fail", iconFail, mode)
 			}
 			fmt.Printf("  %s %-20s  %.0f MB\n", icon, cl.Name, cl.SizeMB)
 		}

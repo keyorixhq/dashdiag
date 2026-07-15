@@ -6,6 +6,18 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
+// Shared emoji icon constants used across cmd/*.go renderers.
+// asciiOr() routes every glyph through --plain / --json mode stripping.
+const (
+	iconOK     = "✅"
+	iconOKSp   = "✅ "
+	iconWarn   = "⚠️"
+	iconWarnSp = "⚠️ "
+	iconInfoSp = "ℹ️ "
+	iconInfo2  = "ℹ️  "
+	iconFail   = "❌"
+)
+
 // asciiOr returns an ASCII status token in machine-readable modes (--plain and
 // the JSON/YAML formats) and the supplied emoji in human/report modes.
 //

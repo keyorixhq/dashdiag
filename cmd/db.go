@@ -111,9 +111,9 @@ func printPostgresState(p *models.PostgresInfo, mode output.OutputMode) {
 	}
 	fmt.Fprintf(os.Stdout, "\n🐘 PostgreSQL %s\n", p.ServerVersion)
 	if p.Accepting {
-		fmt.Fprintf(os.Stdout, "  %s accepting connections\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "  %s accepting connections\n", asciiOr("ok", iconOK, mode))
 	} else {
-		fmt.Fprintf(os.Stdout, "  %s NOT accepting — %s\n", asciiOr("fail", "❌", mode), p.AcceptReason)
+		fmt.Fprintf(os.Stdout, "  %s NOT accepting — %s\n", asciiOr("fail", iconFail, mode), p.AcceptReason)
 	}
 	if p.MetricsRead {
 		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", p.ActiveConns, p.MaxConnections)
@@ -136,7 +136,7 @@ func printMySQLState(m *models.MySQLInfo, mode output.OutputMode) {
 	}
 	fmt.Fprintf(os.Stdout, "\n🐬 %s %s\n", name, m.Version)
 	if m.MetricsRead {
-		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", iconOK, mode))
 		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", m.ThreadsConnected, m.MaxConnections)
 		if m.IsReplica {
 			fmt.Fprintf(os.Stdout, "  Role: replica (%ds behind)\n", m.SecondsBehind)
@@ -144,7 +144,7 @@ func printMySQLState(m *models.MySQLInfo, mode output.OutputMode) {
 			fmt.Fprintln(os.Stdout, "  Role: primary")
 		}
 	} else {
-		fmt.Fprintf(os.Stdout, "  %s reachable; metrics unavailable (run as root)\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "  %s reachable; metrics unavailable (run as root)\n", asciiOr("ok", iconOK, mode))
 	}
 }
 
@@ -153,7 +153,7 @@ func printRedisState(r *models.RedisInfo, mode output.OutputMode) {
 		return
 	}
 	fmt.Fprintf(os.Stdout, "\n🟥 Redis %s\n", r.Version)
-	fmt.Fprintf(os.Stdout, "  %s answered PING\n", asciiOr("ok", "✅", mode))
+	fmt.Fprintf(os.Stdout, "  %s answered PING\n", asciiOr("ok", iconOK, mode))
 	if r.MetricsRead {
 		if r.MaxMemoryBytes > 0 {
 			fmt.Fprintf(os.Stdout, "  Memory: %.0f%% of %s (%s)\n",
@@ -172,7 +172,7 @@ func printMemcachedState(m *models.MemcachedInfo, mode output.OutputMode) {
 		return
 	}
 	fmt.Fprintf(os.Stdout, "\n🧊 Memcached %s\n", m.Version)
-	fmt.Fprintf(os.Stdout, "  %s answering\n", asciiOr("ok", "✅", mode))
+	fmt.Fprintf(os.Stdout, "  %s answering\n", asciiOr("ok", iconOK, mode))
 	if m.MetricsRead {
 		if m.LimitMaxBytes > 0 {
 			fmt.Fprintf(os.Stdout, "  Memory: %.0f%% of %s\n",
@@ -194,7 +194,7 @@ func printMongoState(m *models.MongoDBInfo, mode output.OutputMode) {
 	}
 	fmt.Fprintf(os.Stdout, "\n🍃 MongoDB %s\n", m.Version)
 	if m.MetricsRead {
-		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", iconOK, mode))
 		if m.IsReplicaSet {
 			primary := "no PRIMARY"
 			if m.HasPrimary {
@@ -210,7 +210,7 @@ func printMongoState(m *models.MongoDBInfo, mode output.OutputMode) {
 		}
 		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", m.ConnCurrent, m.ConnCurrent+m.ConnAvailable)
 	} else {
-		fmt.Fprintf(os.Stdout, "  %s reachable; metrics unavailable (auth?)\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "  %s reachable; metrics unavailable (auth?)\n", asciiOr("ok", iconOK, mode))
 	}
 }
 
@@ -229,7 +229,7 @@ func printDBVerdict(insights []models.Insight, mode output.OutputMode) {
 		icon := asciiOr("info", "•", mode)
 		switch in.Level {
 		case "CRIT":
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		case "WARN":
 			icon = asciiOr("warn", "⚠️", mode)
 		}
@@ -237,11 +237,11 @@ func printDBVerdict(insights []models.Insight, mode output.OutputMode) {
 	}
 	switch {
 	case crit > 0:
-		fmt.Fprintf(os.Stdout, "%s %d database issue(s) found\n", asciiOr("fail", "❌", mode), crit+warn)
+		fmt.Fprintf(os.Stdout, "%s %d database issue(s) found\n", asciiOr("fail", iconFail, mode), crit+warn)
 	case warn > 0:
 		fmt.Fprintf(os.Stdout, "%s %d database concern(s) found\n", asciiOr("warn", "⚠️", mode), warn)
 	default:
-		fmt.Fprintf(os.Stdout, "%s Databases healthy. Checks passed\n", asciiOr("ok", "✅", mode))
+		fmt.Fprintf(os.Stdout, "%s Databases healthy. Checks passed\n", asciiOr("ok", iconOK, mode))
 	}
 }
 

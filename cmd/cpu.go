@@ -103,7 +103,7 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 
 	// cpuLine prints a labelled metric row with consistent column alignment:
 	//   <icon>  <label>         <value>
-	// icon: "✅", "⚠️ ", "❌", or "   " (3-char placeholder when no icon)
+	// icon: iconOK, iconWarnSp, "❌", or "   " (3-char placeholder when no icon)
 	cpuLine := func(icon, label, value string) {
 		fmt.Printf("  %s  %-20s %s\n", icon, label, value)
 	}
@@ -159,7 +159,7 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 			if freq.ThrottledPct > 5 && underLoad {
 				cpuLine(cpuIcon(freq.ThrottledPct, 20, 50, mode), "Throttled:", fmt.Sprintf("%.1f%%  <- CPU throttled under load", freq.ThrottledPct))
 			} else {
-				cpuLine(asciiOr("ok", "✅", mode), "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
+				cpuLine(asciiOr("ok", iconOK, mode), "Throttled:", fmt.Sprintf("%.1f%%", freq.ThrottledPct))
 			}
 		}
 	}
@@ -205,9 +205,9 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		issues++
 	}
 	if issues == 0 {
-		fmt.Printf("%s CPU healthy. Checks passed%s\n", asciiOr("ok", "✅", mode), timing)
+		fmt.Printf("%s CPU healthy. Checks passed%s\n", asciiOr("ok", iconOK, mode), timing)
 	} else {
-		fmt.Printf("%s %d CPU concern(s) found%s\n", asciiOr("warn", "⚠️ ", mode), issues, timing)
+		fmt.Printf("%s %d CPU concern(s) found%s\n", asciiOr("warn", iconWarnSp, mode), issues, timing)
 	}
 }
 
@@ -216,7 +216,7 @@ func cpuIcon(val, warn, crit float64, mode output.OutputMode) string {
 		return asciiOr("fail", "❌", mode)
 	}
 	if val >= warn {
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", iconWarnSp, mode)
 	}
-	return asciiOr("ok", "✅", mode)
+	return asciiOr("ok", iconOK, mode)
 }
