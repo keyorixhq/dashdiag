@@ -19,6 +19,7 @@ const (
 	flagQuiet         = "--quiet"
 	cmdAptGet         = "apt-get"
 	cmdUpdateinfo     = "updateinfo"
+	cmdZypper         = "zypper"
 	tdnfUpdateIDLabel = "Update ID :"
 	cmdArchAudit      = "arch-audit"
 	fixPacmanSyu      = "pacman -Syu"
@@ -48,7 +49,7 @@ func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 	// Try live package manager first
 	var result *models.CVEResult
 	switch {
-	case hasCmd("zypper"):
+	case hasCmd(cmdZypper):
 		result = checkCVEZypper(ctx, cveID)
 	case hasCmd("dnf"):
 		result = checkCVEDNF(ctx, cveID)
@@ -158,7 +159,7 @@ func ReadDistroID() string {
 
 func fixCommand() string {
 	switch {
-	case hasCmd("zypper"):
+	case hasCmd(cmdZypper):
 		return fixZypperSecurity
 	case hasCmd("dnf"):
 		return fixDNFSecurity
@@ -175,7 +176,7 @@ func fixCommand() string {
 // checkCVEZypper uses `zypper lp --cve CVE-XXXX` (SLES/openSUSE).
 // Exit 0 + output = patches available; "No patch" in output = not affected.
 func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
-	result := &models.CVEResult{CVE: cveID, PackageManager: "zypper"}
+	result := &models.CVEResult{CVE: cveID, PackageManager: cmdZypper}
 
 	// runCmdOutput, not runCmd: `zypper lp` EXITS NON-ZERO when patches are applicable
 	// (ZYPPER_EXIT_INF_*_UPDATE_NEEDED), writing the patch table to stdout — runCmd
@@ -183,7 +184,7 @@ func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 	// CVEUnknown ("zypper lp failed") instead of CVEVulnerable. Same exit-code-carries-
 	// findings reason collectZypper / pkgIntegrityZypper use combined output. A real
 	// failure (lock/permission) still arrives as err WITH empty stdout → handled below.
-	out, err := runCmdOutput(ctx, "zypper", "--non-interactive", "--no-color",
+	out, err := runCmdOutput(ctx, cmdZypper, "--non-interactive", "--no-color",
 		"lp", "--cve="+cveID)
 
 	lower := strings.ToLower(out)
@@ -437,7 +438,7 @@ func ScanAllCVEs(ctx context.Context) *models.CVEAllResult {
 // scanAllViaPackageManager runs the distro's native advisory scan (the primary,
 // authoritative source on a connected host).
 func scanAllViaPackageManager(ctx context.Context) *models.CVEAllResult {
-	if _, err := lookPath("zypper"); err == nil {
+	if _, err := lookPath(cmdZypper); err == nil {
 		return markCVEStaleMetadata(scanAllZypper(ctx))
 	}
 	if _, err := lookPath("dnf"); err == nil {
@@ -553,7 +554,7 @@ func ovalToCVEAllResult(results []cvedata.OVALCVSSResult, ovalPath string) *mode
 // scanAllZypper uses `zypper list-patches --category security` to find all
 // pending CVE-tagged advisories. Parses severity and advisory IDs.
 func scanAllZypper(ctx context.Context) *models.CVEAllResult {
-	result := &models.CVEAllResult{PackageManager: "zypper"}
+	result := &models.CVEAllResult{PackageManager: cmdZypper}
 
 	// runCmdCombined + lock retry, mirroring the package collector's collectZypper
 	// (#480): `zypper list-patches` shares the one global zypp lock and EXITS NON-ZERO
@@ -566,7 +567,7 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err = runCmdCombined(ctx, "zypper", "--non-interactive", "--no-color",
+		out, err = runCmdCombined(ctx, cmdZypper, "--non-interactive", "--no-color",
 			"list-patches", "--category", "security")
 		locked = err != nil && zypperLocked(out)
 		if !locked {

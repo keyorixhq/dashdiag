@@ -9,6 +9,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const catNetwork = "Network"
+
 const (
 	netCatBonding        = "Bonding"
 	netCatBIND           = "BIND"
@@ -263,12 +265,12 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 	if lvl := DeepTCPCounterLevel(netKwSynRetrans, net.SynRetransCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.SynRetransCount, net.UptimeSec)
 		if lvl == "WARN" { // sustained — active packet loss or overload
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("~%.0f SYN retransmissions/hr since boot (%d total) — packet loss or server overload", rate, net.SynRetransCount),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans", "to inspect: ss -tan state syn-sent"},
 			))
 		} else {
-			out = append(out, insight("INFO", "Network",
+			out = append(out, insight("INFO", catNetwork,
 				fmt.Sprintf("%d SYN retransmissions since boot%s — cumulative, low ongoing rate", net.SynRetransCount, rateSuffix(rate)),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPSynRetrans"},
 			))
@@ -280,17 +282,17 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 		fix := []string{"to inspect: sysctl net.core.somaxconn", "to fix: sysctl -w net.core.somaxconn=4096", "to fix: sysctl -w net.ipv4.tcp_max_syn_backlog=4096"}
 		switch lvl {
 		case "CRIT": // sustained saturation — connections actively dropped
-			out = append(out, insight("CRIT", "Network",
+			out = append(out, insight("CRIT", catNetwork,
 				fmt.Sprintf("listen queue overflowing (~%.0f/hr, %d since boot) — SYN backlog saturated, connections being dropped", rate, net.ListenOverflows),
 				fix,
 			))
 		case "WARN":
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("%d listen-queue overflow(s) since boot (~%.1f/hr) — SYN backlog saturated at times", net.ListenOverflows, rate),
 				fix,
 			))
 		default: // a handful since boot, or uptime unknown — historical, not necessarily live
-			out = append(out, insight("INFO", "Network",
+			out = append(out, insight("INFO", catNetwork,
 				fmt.Sprintf("%d listen-queue overflow(s) since boot%s — backlog saturated at least once, not necessarily ongoing", net.ListenOverflows, rateSuffix(rate)),
 				fix,
 			))
@@ -300,12 +302,12 @@ func deepTCPCounterInsights(net models.NetworkInfo) []models.Insight {
 	if lvl := DeepTCPCounterLevel(netKwRetransFail, net.RetransFailCount, net.UptimeSec); lvl != "" {
 		rate := eventsPerHour(net.RetransFailCount, net.UptimeSec)
 		if lvl == "WARN" { // retransmits giving up entirely at a real rate — active failure
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("~%.0f TCP retransmit failures/hr since boot (%d total) — persistent connectivity problems", rate, net.RetransFailCount),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail", "to inspect: ss -ti"},
 			))
 		} else {
-			out = append(out, insight("INFO", "Network",
+			out = append(out, insight("INFO", catNetwork,
 				fmt.Sprintf("%d TCP retransmit failures since boot%s — cumulative, low ongoing rate", net.RetransFailCount, rateSuffix(rate)),
 				[]string{"to inspect: cat /proc/net/netstat | grep TCPRetransFail"},
 			))
@@ -350,7 +352,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		}
 		switch {
 		case dbm < -80:
-			out = append(out, insight("CRIT", "Network",
+			out = append(out, insight("CRIT", catNetwork,
 				fmt.Sprintf("WiFi signal very weak on %s: %ddBm (ssid: %s) — connection likely unstable", iface.Name, dbm, ssid),
 				[]string{
 					"move closer to the access point",
@@ -359,7 +361,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 				},
 			))
 		case dbm < -70:
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("WiFi signal weak on %s: %ddBm (ssid: %s) — expect packet loss", iface.Name, dbm, ssid),
 				[]string{
 					"move closer to the access point or switch to 5GHz band",
@@ -379,7 +381,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		}
 		for _, s := range b.Slaves {
 			if isUSBNetworkInterface(s.Name) {
-				out = append(out, insight("INFO", "Network",
+				out = append(out, insight("INFO", catNetwork,
 					fmt.Sprintf("bond %s: slave %s is a USB NIC — less reliable than PCIe for production bonding", b.Name, s.Name),
 					[]string{
 						"note: USB adapters can be accidentally unplugged; USB bus is a single point of failure",
@@ -394,7 +396,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	// cable (Cat5 instead of Cat5e/Cat6) or switch port misconfiguration.
 	for _, iface := range net.Interfaces {
 		if iface.Name == net.PrimaryInterface && iface.SpeedMbps > 0 && iface.SpeedMbps < 1000 {
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("primary interface %s linked at %d Mbps — expected 1000+ Mbps (check cable or switch port)", iface.Name, iface.SpeedMbps),
 				[]string{
 					"to inspect: ethtool " + iface.Name,
@@ -414,7 +416,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			} else if iface.SpeedMbps > 0 {
 				speedInfo = fmt.Sprintf(" @ %dMbps", iface.SpeedMbps)
 			}
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("primary interface %s is USB-attached (%s%s) — susceptible to disconnect/reset, not recommended for production", iface.Name, driver, speedInfo),
 				[]string{
 					"to inspect: dmesg | grep -i usb",
@@ -428,7 +430,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		// require both a meaningful absolute floor AND >0.01% of traffic erroring.
 		if nicErrorRateHigh(iface.RxErrors, iface.RxPackets) ||
 			nicErrorRateHigh(iface.TxErrors, iface.TxPackets) {
-			out = append(out, insight("WARN", "Network",
+			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("%s has hardware errors: rx:%d tx:%d — may indicate bad cable, NIC, or switch port", iface.Name, iface.RxErrors, iface.TxErrors),
 				[]string{
 					"to inspect: ethtool -S " + iface.Name,
@@ -439,27 +441,27 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	}
 
 	if net.PrimaryInterfaceDown {
-		out = append(out, insight("CRIT", "Network",
+		out = append(out, insight("CRIT", catNetwork,
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
 			[]string{netInspectIPLink, netInspectIPRoute, fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
 		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs < 0 {
-		out = append(out, insight("CRIT", "Network",
+		out = append(out, insight("CRIT", catNetwork,
 			"gateway and internet unreachable — host appears offline",
 			[]string{netInspectIPRoute, netInspectIPLink, "to inspect: ping -c3 $(ip route | awk '/default/{print $3}')"},
 		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs >= 0 {
-		out = append(out, insight("INFO", "Network",
+		out = append(out, insight("INFO", catNetwork,
 			"gateway not responding to probes — internet traffic is flowing",
 			[]string{"to inspect: traceroute 8.8.8.8", "to inspect: ping -c3 $(ip route | awk '/default/{print $3}')"},
 		))
 	} else if net.GatewayPingMs > 200 {
-		out = append(out, insight("CRIT", "Network",
+		out = append(out, insight("CRIT", catNetwork,
 			fmt.Sprintf("gateway ping is %.0f ms — severe latency", net.GatewayPingMs),
 			[]string{"to inspect: ping -c5 $(ip route | awk '/default/{print $3}')", netInspectIPRoute},
 		))
 	} else if net.GatewayPingMs > 50 {
-		out = append(out, insight("WARN", "Network",
+		out = append(out, insight("WARN", catNetwork,
 			fmt.Sprintf("gateway ping is %.0f ms — elevated latency", net.GatewayPingMs),
 			[]string{"to inspect: ping -c5 $(ip route | awk '/default/{print $3}')"},
 		))
@@ -472,7 +474,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			if lv == "CRIT" {
 				hints = append(hints, netInspectIPLink)
 			}
-			out = append(out, insight(lv, "Network",
+			out = append(out, insight(lv, catNetwork,
 				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct), hints))
 		}
 	}
@@ -491,12 +493,12 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs), hints))
 	}
 	if net.CloseWaitCount > 500 {
-		out = append(out, insight("CRIT", "Network",
+		out = append(out, insight("CRIT", catNetwork,
 			fmt.Sprintf("%d CLOSE_WAIT connections — likely connection leak", net.CloseWaitCount),
 			[]string{"to inspect: ss -s", "to inspect: ss -tan state close-wait | head -20"},
 		))
 	} else if net.CloseWaitCount > 100 {
-		out = append(out, insight("WARN", "Network",
+		out = append(out, insight("WARN", catNetwork,
 			fmt.Sprintf("%d CLOSE_WAIT connections", net.CloseWaitCount),
 			[]string{"to inspect: ss -s", "to inspect: netstat -an | grep CLOSE_WAIT | wc -l"},
 		))
@@ -507,19 +509,19 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	// previously had no CRIT tier, so a host with 60k TIME_WAIT read the same WARN
 	// as one with 1001 (BUG-050 class).
 	if lv := TimeWaitLevel(net.TimeWaitCount); lv != "" {
-		out = append(out, insight(lv, "Network",
+		out = append(out, insight(lv, catNetwork,
 			fmt.Sprintf("%d TIME_WAIT sockets — high connection churn or missing tcp_tw_reuse", net.TimeWaitCount),
 			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to inspect: ss -tan state time-wait | head -10", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
 		))
 	}
 	out = append(out, deepTCPCounterInsights(net)...)
 	if net.ConntrackUsedPct >= 80 {
-		out = append(out, insight("CRIT", "Network",
+		out = append(out, insight("CRIT", catNetwork,
 			fmt.Sprintf("conntrack table %.0f%% full — new connections will be dropped when full", net.ConntrackUsedPct),
 			[]string{"to inspect: conntrack -C", "to inspect: cat /proc/sys/net/netfilter/nf_conntrack_count", "to fix: sysctl -w net.netfilter.nf_conntrack_max=262144"},
 		))
 	} else if net.ConntrackUsedPct >= 60 {
-		out = append(out, insight("WARN", "Network",
+		out = append(out, insight("WARN", catNetwork,
 			fmt.Sprintf("conntrack table %.0f%% full", net.ConntrackUsedPct),
 			[]string{"to inspect: conntrack -C", "to inspect: cat /proc/sys/net/netfilter/nf_conntrack_count"},
 		))

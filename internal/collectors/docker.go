@@ -21,6 +21,8 @@ import (
 )
 
 const (
+	cmdDocker                 = "docker"
+	cmdPodman                 = "podman"
 	crashLoopRestartThreshold = 5
 	dockerLogDriverJSON       = "json-file"
 	dockerSvcSuffix           = ".container"
@@ -62,7 +64,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 		if podmanInstalled() {
 			if quads := collectPodmanQuadlets(ctx); len(quads) > 0 {
 				info.Available = true
-				info.Runtime = "podman"
+				info.Runtime = cmdPodman
 				info.PodmanQuadlets = quads
 				return info, nil
 			}
@@ -108,7 +110,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 	// Podman quadlets — systemd-managed containers/pods defined as .container/.pod
 	// files. These are NOT visible via the Podman socket, so scan whenever Podman
 	// is installed (not just when the active runtime is Podman).
-	if info.Runtime == "podman" || podmanInstalled() {
+	if info.Runtime == cmdPodman || podmanInstalled() {
 		info.PodmanQuadlets = collectPodmanQuadlets(ctx)
 	}
 
@@ -137,7 +139,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 	}
 
 	// Deep: log driver config + container log file sizes (Docker only)
-	if c.Deep && info.Runtime == "docker" {
+	if c.Deep && info.Runtime == cmdDocker {
 		info.LogDriver = collectLogDriverHealth(info)
 	}
 
@@ -162,10 +164,10 @@ func DetectContainerSocket() (string, string) {
 // Returns ("", "", true) when a socket file exists but connection is permission-denied.
 func detectContainerSocket() (path, runtime string, permDenied bool) {
 	candidates := []struct{ path, runtime string }{
-		{"/var/run/docker.sock", "docker"},
-		{"/run/docker.sock", "docker"},
-		{"/run/podman/podman.sock", "podman"},
-		{"/var/run/podman/podman.sock", "podman"},
+		{"/var/run/docker.sock", cmdDocker},
+		{"/run/docker.sock", cmdDocker},
+		{"/run/podman/podman.sock", cmdPodman},
+		{"/var/run/podman/podman.sock", cmdPodman},
 		{"/var/run/crio/crio.sock", "crio"},
 		{"/run/crio/crio.sock", "crio"},
 	}
@@ -174,7 +176,7 @@ func detectContainerSocket() (path, runtime string, permDenied bool) {
 	// Common path: /run/user/<uid>/podman/podman.sock
 	if uid := os.Getuid(); uid > 0 {
 		xdgPath := fmt.Sprintf("/run/user/%d/podman/podman.sock", uid)
-		candidates = append(candidates, struct{ path, runtime string }{xdgPath, "podman"})
+		candidates = append(candidates, struct{ path, runtime string }{xdgPath, cmdPodman})
 	}
 
 	for _, c := range candidates {
@@ -752,7 +754,7 @@ func collectDaemonHealth(ctx context.Context, client *http.Client, runtime strin
 	d.ComposeStandalone = detectComposeStandalone(ctx)
 
 	// Daemon journal errors (last 10 minutes) — Docker only, not Podman
-	if runtime == "docker" {
+	if runtime == cmdDocker {
 		collectDaemonJournalErrors(ctx, d)
 	}
 
@@ -765,7 +767,7 @@ func collectDaemonHealth(ctx context.Context, client *http.Client, runtime strin
 func detectComposePlugin(ctx context.Context) string {
 	cCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := runCmd(cCtx, "docker", "compose", "version", "--short")
+	out, err := runCmd(cCtx, cmdDocker, "compose", "version", "--short")
 	if err != nil {
 		return ""
 	}
@@ -796,7 +798,7 @@ func detectComposeStandalone(ctx context.Context) string {
 func collectDaemonJournalErrors(ctx context.Context, d *models.DockerDaemon) {
 	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := runCmd(jCtx, "journalctl", "-u", "docker",
+	out, err := runCmd(jCtx, "journalctl", "-u", cmdDocker,
 		"-n", "30", "--no-pager", "--since", "10 minutes ago", "--output=short")
 	if err != nil {
 		return
@@ -804,7 +806,7 @@ func collectDaemonJournalErrors(ctx context.Context, d *models.DockerDaemon) {
 	for line := range strings.SplitSeq(out, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "level=error") || strings.Contains(lower, "level=warning") ||
-			(strings.Contains(lower, "error") && strings.Contains(lower, "docker")) {
+			(strings.Contains(lower, "error") && strings.Contains(lower, cmdDocker)) {
 			d.RecentErrors++
 			// Keep last meaningful error message (truncated)
 			msg := extractJournalMessage(line)
@@ -885,14 +887,14 @@ func collectVolumes(ctx context.Context, client *http.Client, info *models.Docke
 
 // dockerInstalled returns true if the docker binary is present on PATH.
 func dockerInstalled() bool {
-	_, err := runCmd(context.Background(), "docker", "--version")
+	_, err := runCmd(context.Background(), cmdDocker, "--version")
 	return err == nil
 }
 
 // podmanInstalled returns true if the podman binary is present on PATH.
 // Used to scan quadlets even when the Podman API socket is inactive.
 func podmanInstalled() bool {
-	_, err := lookPath("podman")
+	_, err := lookPath(cmdPodman)
 	return err == nil
 }
 
@@ -1203,7 +1205,7 @@ func collectFirewalldCheck(ctx context.Context, info *models.DockerInfo) {
 	// Check if docker0 is in any firewalld zone
 	zonesOut, _ := runCmd(ctx, "firewall-cmd", "--get-active-zones")
 	info.DockerZoneTrusted = strings.Contains(zonesOut, "docker0") ||
-		strings.Contains(zonesOut, "docker")
+		strings.Contains(zonesOut, cmdDocker)
 }
 
 func detectNetworkBackend(runtime string) string {
@@ -1218,7 +1220,7 @@ func detectNetworkBackend(runtime string) string {
 	if fileExists("/usr/bin/netavark") {
 		return dockerNetNetavark
 	}
-	if runtime == "podman" {
+	if runtime == cmdPodman {
 		// Podman 4+ defaults to netavark; older uses CNI
 		if fileExists("/etc/cni/net.d") {
 			return "cni"
@@ -1249,7 +1251,7 @@ func getContainerNetworkMTU(ctx context.Context, client *http.Client) int {
 		return 0
 	}
 	for _, n := range networks {
-		if n.Name == "bridge" || n.Name == "podman" {
+		if n.Name == "bridge" || n.Name == cmdPodman {
 			if n.Options.MTU != "" {
 				mtu := 0
 				if _, err := fmt.Sscanf(n.Options.MTU, "%d", &mtu); err == nil {
@@ -1270,7 +1272,7 @@ func getHostMTU() int {
 	if err != nil {
 		return 0
 	}
-	skipPrefixes := []string{"lo", "docker", "podman", "cni", "veth", "virbr", "br-", "tunl", "tun", "tap"}
+	skipPrefixes := []string{"lo", cmdDocker, cmdPodman, "cni", "veth", "virbr", "br-", "tunl", "tun", "tap"}
 	for _, e := range entries {
 		name := e.Name()
 		skip := false

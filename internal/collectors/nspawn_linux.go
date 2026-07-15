@@ -11,6 +11,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const cmdMachineCtl = "machinectl"
+
 type NspawnCollector struct{}
 
 func NewNspawnCollector() *NspawnCollector        { return &NspawnCollector{} }
@@ -20,11 +22,11 @@ func (c *NspawnCollector) Timeout() time.Duration { return 4 * time.Second }
 func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NspawnInfo{}
 
-	if _, err := lookPath("machinectl"); err != nil {
+	if _, err := lookPath(cmdMachineCtl); err != nil {
 		return info, nil
 	}
 
-	out, err := runCmd(ctx, "machinectl", "list", "--no-legend", "--no-pager")
+	out, err := runCmd(ctx, cmdMachineCtl, "list", "--no-legend", "--no-pager")
 	if err != nil || strings.TrimSpace(out) == "" {
 		return info, nil
 	}
@@ -57,7 +59,7 @@ func countFailedNspawnUnits(ctx context.Context) int {
 
 // IsNspawnPresent returns true when machinectl is available.
 func IsNspawnPresent() bool {
-	_, err := lookPath("machinectl")
+	_, err := lookPath(cmdMachineCtl)
 	return err == nil
 }
 
