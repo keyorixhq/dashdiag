@@ -46,8 +46,9 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 	host, _, _ := net.SplitHostPort(endpoint)
 
 	tlsConn := tls.Client(rawConn, &tls.Config{ // NOSONAR — intentional: collector must read expired/invalid certs to diagnose them
-		ServerName:         host,
-		InsecureSkipVerify: true, //nolint:gosec // G402: same rationale as above // codeql[go/disabled-certificate-check]
+		ServerName: host,
+		// codeql[go/disabled-certificate-check] -- intentional: collector reads expired/invalid certs to diagnose them
+		InsecureSkipVerify: true, //nolint:gosec // G402: same rationale as above
 	})
 	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 
