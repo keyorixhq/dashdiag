@@ -63,10 +63,10 @@ fetch_latest_version() {
         fi
     elif command -v wget >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION="$(wget -qO- --header="Authorization: token ${GITHUB_TOKEN}" "$_url" \
+            VERSION="$(wget -qO- --https-only --header="Authorization: token ${GITHUB_TOKEN}" "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         else
-            VERSION="$(wget -qO- "$_url" \
+            VERSION="$(wget -qO- --https-only "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         fi
     else
@@ -89,7 +89,7 @@ download() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
     else
-        wget -q --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL"
+        wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL"
     fi
 
     chmod +x "$TMPFILE"
@@ -121,7 +121,7 @@ verify_checksum() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     else
-        wget -qO "$SUMS_FILE" "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
+        wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     fi
 
     EXPECTED="$(grep "${BINARY}-${PLATFORM}" "$SUMS_FILE" | awk '{print $1}')"
@@ -159,7 +159,7 @@ verify_signature() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     else
-        wget -qO "$SIG_FILE" "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+        wget -qO "$SIG_FILE" --https-only "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     fi
 
     if ! command -v minisign >/dev/null 2>&1; then
