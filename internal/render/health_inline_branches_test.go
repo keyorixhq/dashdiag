@@ -173,8 +173,8 @@ func TestInlineLVMBranches(t *testing.T) {
 	if got := inlineLVM(models.LVMInfo{VGs: []models.LVMVG{{HasMountedLV: false}, {HasMountedLV: false}}}); got != "2 VG(s)" {
 		t.Errorf("no active: got %q, want %q", got, "2 VG(s)")
 	}
-	if got := inlineLVM(models.LVMInfo{VGs: []models.LVMVG{{HasMountedLV: true}}}); got != "1 VG" {
-		t.Errorf("single active: got %q, want %q", got, "1 VG")
+	if got := inlineLVM(models.LVMInfo{VGs: []models.LVMVG{{HasMountedLV: true}}}); got != "1 VG(s)  1 active" {
+		t.Errorf("single active: got %q, want %q", got, "1 VG(s)  1 active")
 	}
 	if got := inlineLVM(models.LVMInfo{VGs: []models.LVMVG{{HasMountedLV: true}, {HasMountedLV: true}}}); got != "2 VG(s)  2 active" {
 		t.Errorf("multi active: got %q, want %q", got, "2 VG(s)  2 active")

@@ -505,6 +505,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 
 	if info.SecurityUpdates == 0 && !strings.Contains(out, "0 upgraded") {
 		// apt cache may be stale — no security repo configured or cache not updated
+		info.Status = pkgQueryFailed
 		info.StatusReason = "no security updates found — ensure security repo is configured and apt cache is current"
 	}
 
@@ -635,10 +636,14 @@ func parseJSONInt(line string) int {
 func aptHasSecurityRepo() bool {
 	paths := []string{"/etc/apt/sources.list"}
 
-	// Include all .list and .sources files from sources.list.d/
+	// Include only active apt source files from sources.list.d/
 	entries, _ := readDirEntries("/etc/apt/sources.list.d")
 	for _, e := range entries {
-		if !e.IsDir() {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if ext == ".list" || ext == ".sources" {
 			paths = append(paths, "/etc/apt/sources.list.d/"+e.Name())
 		}
 	}
@@ -808,9 +813,8 @@ func zypperHasSecurityRepo(ctx context.Context) bool {
 	}
 
 	// SLES: check if SUSEConnect is registered — without it, no security repos
-	if _, err := runCmd(ctx, "SUSEConnect", pkgFlagStatus); err == nil {
+	if statusOut, err := runCmd(ctx, "SUSEConnect", pkgFlagStatus); err == nil {
 		// SUSEConnect present — check if system is registered
-		statusOut, _ := runCmd(ctx, "SUSEConnect", pkgFlagStatus)
 		if strings.Contains(strings.ToLower(statusOut), "registered") {
 			return true
 		}
@@ -849,9 +853,9 @@ var dnfWarmCacheOnce sync.Once
 // Best-effort — the callers below have their own bounded timeouts and will
 // honestly report "could not verify" / "timed out" if metadata genuinely can't
 // be fetched.
-func dnfWarmCache(ctx context.Context) {
+func dnfWarmCache(_ context.Context) {
 	dnfWarmCacheOnce.Do(func() {
-		warmCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		warmCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		_, _ = runCmd(warmCtx, "dnf", "makecache", pkgFlagQ)
 	})
@@ -928,7 +932,7 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 
 // splitVersionTokens splits a version-like string into alternating digit and
 // non-digit runs, e.g. "5.14.21-150500.55.30-default" →
-// ["5", ".", "14", ".", "21-150500.", "55", ".", "30", "-default"].
+// ["5", ".", "14", ".", "21", "-", "150500", ".", "55", ".", "30", "-default"].
 func splitVersionTokens(s string) []string {
 	var tokens []string
 	var cur strings.Builder

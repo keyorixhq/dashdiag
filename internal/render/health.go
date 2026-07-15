@@ -380,9 +380,9 @@ func (r *Renderer) printLayeredVerdict(insights []models.Insight) {
 	style := StyleOK
 	switch {
 	case crit > 0:
-		style = styleForStatus("CRIT")
+		style = styleForStatus(levelToStatusKey("CRIT"))
 	case warn > 0:
-		style = styleForStatus("WARN")
+		style = styleForStatus(levelToStatusKey("WARN"))
 	}
 	fmt.Fprintln(os.Stdout, style.Render(tally))
 }
@@ -874,9 +874,6 @@ func inlineLVM(data any) string {
 	}
 	if active == 0 {
 		return fmt.Sprintf("%d VG(s)", len(l.VGs))
-	}
-	if active == 1 {
-		return fmt.Sprintf("%d VG", len(l.VGs))
 	}
 	return fmt.Sprintf("%d VG(s)  %d active", len(l.VGs), active)
 }

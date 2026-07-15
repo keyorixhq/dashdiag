@@ -77,7 +77,11 @@ func RunSingleSelect(title string, options []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return result.(SingleSelectModel).chosen, nil
+	selected, ok := result.(SingleSelectModel)
+	if !ok {
+		return "", fmt.Errorf("unexpected model type from teaRun: %T", result)
+	}
+	return selected.chosen, nil
 }
 
 func singleSelectText(title string, options []string) (string, error) {
@@ -166,7 +170,10 @@ func RunMultiSelect(title string, options []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	final := result.(MultiSelectModel)
+	final, ok := result.(MultiSelectModel)
+	if !ok {
+		return nil, fmt.Errorf("unexpected model type from teaRun: %T", result)
+	}
 	var chosen []string
 	for i, sel := range final.selected {
 		if sel {
