@@ -177,8 +177,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	if len(diff.NewSudoEntries) > 0 {
 		fmt.Println("\nNew sudoers NOPASSWD entries:")
 		for _, s := range diff.NewSudoEntries {
-			// codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
-			fmt.Printf("  %s  %s\n", asciiOr(secLvlWarn, secIconWarn, mode), s)
+			fmt.Printf("  %s  %s\n", asciiOr(secLvlWarn, secIconWarn, mode), s) // codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
 		}
 	}
 
@@ -328,8 +327,7 @@ func printSudoSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if len(info.SudoNopasswd) > 0 {
 		fmt.Println("\nSudo NOPASSWD entries:")
 		for _, entry := range info.SudoNopasswd {
-			// codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
-			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), entry)
+			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), entry) // codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
 		}
 	} else if info.NeedsRoot {
 		fmt.Println("\nSudo NOPASSWD entries: unknown (needs root)")
