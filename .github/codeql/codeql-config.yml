@@ -1,0 +1,17 @@
+name: "CodeQL config"
+
+# go/disabled-certificate-check: tls_remote.go intentionally uses InsecureSkipVerify=true
+# so the collector can connect to servers with expired/invalid certs and inspect them.
+# That is the feature — a TLS cert diagnostic tool MUST skip verification to read bad certs.
+#
+# go/clear-text-logging: dsd security is a terminal audit tool; printing security findings
+# (sudo nopasswd entries, open ports, firewall rules) to stdout IS the product behaviour,
+# not credential exfiltration. Both patterns are also covered by gosec (nolint:gosec G402).
+#
+# Inline // codeql[rule-id] comments were attempted and do not suppress these specific
+# Go rules in the current CodeQL query pack — hence the project-level exclusion here.
+query-filters:
+  - exclude:
+      id: go/disabled-certificate-check
+  - exclude:
+      id: go/clear-text-logging
