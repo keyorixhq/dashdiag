@@ -75,9 +75,9 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 	drift, _ := cmd.Flags().GetBool("drift")
 	deepFlag, _ := cmd.Flags().GetBool("deep")
 	suidAlias, _ := cmd.Flags().GetBool(secKwSUID)
-	if saveBaseline || drift || deepFlag || suidAlias {
-		// The SUID scan is skipped by Collect() to keep `dsd health` fast; the
-		// drift baseline needs it, so run it explicitly here.
+	if saveBaseline || deepFlag || suidAlias {
+		// The SUID scan is skipped by Collect() to keep `dsd health` fast; run
+		// it only when explicitly requested or when persisting a baseline.
 		collectors.ScanSUIDBinaries(info)
 	}
 	switch {

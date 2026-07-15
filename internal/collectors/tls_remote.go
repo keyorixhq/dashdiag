@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"net"
@@ -49,7 +50,9 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 		ServerName:         host,
 		InsecureSkipVerify: true, //nolint:gosec // G402: intentional: collector reads expired/invalid certs to diagnose them // codeql[go/disabled-certificate-check]
 	})
-	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, err
+	}
 
 	if err := tlsConn.Handshake(); err != nil {
 		// Handshake may fail for expired certs on strict servers — still try to
@@ -69,7 +72,7 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 			Issuer:       cert.Issuer.CommonName,
 			ExpiresIn:    expiresIn,
 			NotAfter:     cert.NotAfter.Format("2006-01-02"),
-			IsSelfSigned: cert.Subject.CommonName == cert.Issuer.CommonName,
+			IsSelfSigned: bytes.Equal(cert.RawSubject, cert.RawIssuer),
 		})
 	}
 	return certs, nil
