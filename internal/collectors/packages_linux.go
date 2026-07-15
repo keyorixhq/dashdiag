@@ -500,33 +500,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 			continue
 		}
 
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pkgName := fields[1]
-
-		// Classify severity by package base name
-		sev := pkgSevImportant
-		for critPrefix := range criticalPkgs {
-			if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
-				sev = pkgSevCritical
-				break
-			}
-		}
-
-		if sev == pkgSevCritical {
-			info.CriticalUpdates++
-		} else {
-			info.ImportantUpdates++
-		}
-		info.SecurityUpdates++
-		info.Updates = append(info.Updates, models.PackageUpdate{
-			Name:     pkgName,
-			Severity: sev,
-			// No DSA advisory number in apt-get -s upgrade output.
-			// Future: query security-tracker.debian.org/tracker/data/json
-		})
+		aptAccumulateUpdate(info, criticalPkgs, line)
 	}
 
 	if info.SecurityUpdates == 0 && !strings.Contains(out, "0 upgraded") {
@@ -540,6 +514,31 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 	checkESMUpdates(ctx, info)
 
 	return info, nil
+}
+
+// aptAccumulateUpdate parses one "Inst pkgname ..." line and appends a
+// PackageUpdate to info, incrementing the appropriate severity counter.
+// No DSA advisory number is available in apt-get -s upgrade output.
+func aptAccumulateUpdate(info *models.PackagesInfo, criticalPkgs map[string]bool, line string) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return
+	}
+	pkgName := fields[1]
+	sev := pkgSevImportant
+	for critPrefix := range criticalPkgs {
+		if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
+			sev = pkgSevCritical
+			break
+		}
+	}
+	if sev == pkgSevCritical {
+		info.CriticalUpdates++
+	} else {
+		info.ImportantUpdates++
+	}
+	info.SecurityUpdates++
+	info.Updates = append(info.Updates, models.PackageUpdate{Name: pkgName, Severity: sev})
 }
 
 // collectAPTKali counts all pending upgrades on Kali Linux.
@@ -567,28 +566,7 @@ func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.Pac
 		if !strings.HasPrefix(line, "Inst ") {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pkgName := fields[1]
-		sev := pkgSevImportant
-		for critPrefix := range criticalPkgs {
-			if pkgName == critPrefix || strings.HasPrefix(pkgName, critPrefix+"-") {
-				sev = pkgSevCritical
-				break
-			}
-		}
-		if sev == pkgSevCritical {
-			info.CriticalUpdates++
-		} else {
-			info.ImportantUpdates++
-		}
-		info.SecurityUpdates++
-		info.Updates = append(info.Updates, models.PackageUpdate{
-			Name:     pkgName,
-			Severity: sev,
-		})
+		aptAccumulateUpdate(info, criticalPkgs, line)
 	}
 	return info, nil
 }
