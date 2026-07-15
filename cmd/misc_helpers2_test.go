@@ -231,31 +231,31 @@ func TestPrintHealthExplanationsAndFixes(t *testing.T) {
 // a future edit that accidentally drops a gated collector from the list
 // fails loudly here instead of silently shrinking `dsd health --deep`.
 func TestBuildHealthCollectorsGating(t *testing.T) {
-	base := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, false, false, false)
+	base := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{})
 	if len(base) == 0 {
 		t.Fatal("the base collector set must never be empty")
 	}
-	withPackages := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, true, false, false, false, false, false)
+	withPackages := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludePackages: true})
 	if len(withPackages) <= len(base) {
 		t.Errorf("includePackages=true should add at least one collector, base=%d withPackages=%d", len(base), len(withPackages))
 	}
-	withGPU := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, true, false, false, false, false)
+	withGPU := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludeGPU: true})
 	if len(withGPU) <= len(base) {
 		t.Errorf("includeGPU=true should add at least one collector, base=%d withGPU=%d", len(base), len(withGPU))
 	}
-	withTLS := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, true, false, false, false)
+	withTLS := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludeTLS: true})
 	if len(withTLS) <= len(base) {
 		t.Errorf("includeTLS=true should add at least one collector, base=%d withTLS=%d", len(base), len(withTLS))
 	}
-	withDeep := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, true, false, false)
+	withDeep := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludeDeep: true})
 	if len(withDeep) <= len(base) {
 		t.Errorf("includeDeep=true should add at least one collector, base=%d withDeep=%d", len(base), len(withDeep))
 	}
-	withFirmware := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, false, true, false)
+	withFirmware := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludeFirmware: true})
 	if len(withFirmware) <= len(base) {
 		t.Errorf("includeFirmware=true should add at least one collector, base=%d withFirmware=%d", len(base), len(withFirmware))
 	}
-	withCVE := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, false, false, false, false, false, true)
+	withCVE := buildHealthCollectors(platform.ContainerContext{}, platform.Profile{}, healthRunOpts{IncludeCVE: true})
 	if len(withCVE) <= len(base) {
 		t.Errorf("includeCVE=true should add at least one collector, base=%d withCVE=%d", len(base), len(withCVE))
 	}
@@ -263,7 +263,7 @@ func TestBuildHealthCollectorsGating(t *testing.T) {
 	// same slot, so deep mode's collector count isn't guaranteed to exceed a
 	// packages-only run by more than one; this just guards the swap doesn't
 	// silently drop network collection entirely.
-	inContainer := buildHealthCollectors(platform.ContainerContext{InContainer: true}, platform.Profile{}, false, false, false, false, false, false)
+	inContainer := buildHealthCollectors(platform.ContainerContext{InContainer: true}, platform.Profile{}, healthRunOpts{})
 	if len(inContainer) == 0 {
 		t.Error("a container context must still produce a non-empty collector set")
 	}

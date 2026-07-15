@@ -1453,7 +1453,7 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 	// is invoked by BARE name (not the resolved path) to keep the capture/replay
 	// key stable; on a non-root run the bare-name exec fails to launch, which we
 	// treat as unreadable below.
-	if nft := sbinToolPath("nft"); nft != "" {
+	if sbinToolPath("nft") != "" {
 		out, err := runCmd(ctx, "nft", "list", "ruleset")
 		if err != nil {
 			// nft installed but the ruleset is unreadable (non-root EPERM, or the
