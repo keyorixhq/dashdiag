@@ -105,7 +105,7 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 	issues += len(info.CrashLoops)
 	switch {
 	case issues > 0:
-		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s %d log issue(s) found%s", asciiOr("fail", "❌", mode), issues, timing)))
+		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s %d log issue(s) found%s", asciiOr("fail", iconFail, mode), issues, timing)))
 	case info.ErrorCountUnverified:
 		// The journal error scan failed AND no /var/log fallback — error history was
 		// never read. "Checks passed" would be a false-OK; say it wasn't verified.
@@ -126,7 +126,7 @@ func printLogsSeverity(info *models.LogsInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\nSeverity summary:\n")
 	if info.ErrorCount > 0 {
-		fmt.Printf("  %s  Errors:   %d\n", asciiOr("fail", "❌", mode), info.ErrorCount)
+		fmt.Printf("  %s  Errors:   %d\n", asciiOr("fail", iconFail, mode), info.ErrorCount)
 		if len(info.TopCritical) > 0 {
 			for _, e := range info.TopCritical {
 				if age := formatAgeMin(e.AgeMin); age != "" {
@@ -142,7 +142,7 @@ func printLogsSeverity(info *models.LogsInfo, mode output.OutputMode) {
 		}
 	}
 	if info.WarningCount > 0 {
-		fmt.Printf("  %s   Warnings: %d\n", asciiOr("warn", "⚠️", mode), info.WarningCount)
+		fmt.Printf("  %s   Warnings: %d\n", asciiOr("warn", iconWarn, mode), info.WarningCount)
 	}
 }
 
@@ -174,7 +174,7 @@ func printLogsOOM(info *models.LogsInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("%d\n", info.OOMKills)
 	for _, p := range info.OOMProcesses {
-		fmt.Printf("    %s  %s\n", asciiOr("fail", "❌", mode), p)
+		fmt.Printf("    %s  %s\n", asciiOr("fail", iconFail, mode), p)
 	}
 	fmt.Println("  → to inspect: dmesg | grep -i 'out of memory'")
 }
@@ -187,7 +187,7 @@ func printLogsSegfaults(info *models.LogsInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("%d\n", info.Segfaults)
 	for _, p := range info.SegfaultProcs {
-		fmt.Printf("    %s   %s\n", asciiOr("warn", "⚠️", mode), p)
+		fmt.Printf("    %s   %s\n", asciiOr("warn", iconWarn, mode), p)
 	}
 	fmt.Println("  → to inspect: dmesg | grep segfault")
 }
@@ -201,7 +201,7 @@ func printLogsCrashLoops(info *models.LogsInfo, mode output.OutputMode) {
 	fmt.Println()
 	for _, u := range info.CrashLoops {
 		unit := strings.Fields(u)[0]
-		fmt.Printf("    %s  %s\n", asciiOr("fail", "❌", mode), u)
+		fmt.Printf("    %s  %s\n", asciiOr("fail", iconFail, mode), u)
 		fmt.Printf("       → journalctl -u %s -n 20\n", unit)
 	}
 }
@@ -216,7 +216,7 @@ func printLogsCrashFiles(info *models.LogsInfo, mode output.OutputMode) {
 		if cf.AgeDays > 0 {
 			ago = fmt.Sprintf("%dd ago", cf.AgeDays)
 		}
-		fmt.Printf("    %s   %-50s %6.1fMB  %s\n", asciiOr("warn", "⚠️", mode), cf.Path, cf.SizeMB, ago)
+		fmt.Printf("    %s   %-50s %6.1fMB  %s\n", asciiOr("warn", iconWarn, mode), cf.Path, cf.SizeMB, ago)
 	}
 	fmt.Println("  → to analyse: journalctl -k -b -1 | tail -50")
 }

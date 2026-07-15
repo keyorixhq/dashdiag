@@ -145,7 +145,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	if len(diff.NewSUIDs) > 0 {
 		fmt.Println("\nNew SUID binaries (not in baseline):")
 		for _, s := range diff.NewSUIDs {
-			fmt.Printf("  %s  %s  [investigate: ls -la && file]\n", asciiOr(secLvlFail, "❌", mode), s)
+			fmt.Printf("  %s  %s  [investigate: ls -la && file]\n", asciiOr(secLvlFail, iconFail, mode), s)
 		}
 	}
 
@@ -201,7 +201,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	fmt.Println(sep)
 	summary := fmt.Sprintf("%s  %d security change(s) since baseline (%s)", asciiOr(secLvlWarn, secIconWarn, mode), changes, baselineDate)
 	if hasCrit(insights) {
-		summary = fmt.Sprintf("%s  %d security change(s) since baseline (%s) — includes CRITICAL drift", asciiOr(secLvlFail, "❌", mode), changes, baselineDate)
+		summary = fmt.Sprintf("%s  %d security change(s) since baseline (%s) — includes CRITICAL drift", asciiOr(secLvlFail, iconFail, mode), changes, baselineDate)
 		fmt.Println(render.StyleCrit.Render(summary))
 	} else {
 		fmt.Println(render.StyleWarn.Render(summary))
@@ -300,7 +300,7 @@ func printListeningPortsSection(info *models.SecurityInfo, mode output.OutputMod
 		icon := asciiOr("ok", secIconOK, mode)
 		tag := ""
 		if !p.Expected {
-			icon = asciiOr(secLvlWarn, "⚠️ ", mode)
+			icon = asciiOr(secLvlWarn, iconWarnSp, mode)
 			tag = " ← unexpected"
 		}
 		// Proxmox VE mandates 8006 (web UI), 3128 (spiceproxy), 111 (rpcbind) —
@@ -344,7 +344,7 @@ func printFirewallSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if info.FirewallActive {
 		sshIcon := asciiOr("ok", secIconOK, mode)
 		if !info.SSHAllowed {
-			sshIcon = asciiOr(secLvlFail, "❌", mode)
+			sshIcon = asciiOr(secLvlFail, iconFail, mode)
 		}
 		zone := ""
 		if info.FirewallZone != "" {
@@ -360,7 +360,7 @@ func printFirewallSection(info *models.SecurityInfo, mode output.OutputMode) {
 		// the health Firewall WARN rather than reporting a benign "none detected".
 		fmt.Printf("\nFirewall: %s installed but no active rules — host is unprotected\n",
 			info.FirewallType)
-		fmt.Printf("  %s  no active firewall rules\n", asciiOr(secLvlWarn, "⚠️ ", mode))
+		fmt.Printf("  %s  no active firewall rules\n", asciiOr(secLvlWarn, iconWarnSp, mode))
 	} else if info.FirewallUnreadable {
 		// Tooling installed but ruleset unreadable (non-root) — state unknown.
 		// Report "not verified", not "none detected" (which implies no firewall).
@@ -397,7 +397,7 @@ func printRHELSecuritySection(info *models.SecurityInfo, mode output.OutputMode)
 		if info.CryptoPolicy != "" {
 			policyIcon := asciiOr("ok", secIconOK, mode)
 			if info.CryptoPolicy == "LEGACY" {
-				policyIcon = asciiOr(secLvlWarn, "⚠️ ", mode)
+				policyIcon = asciiOr(secLvlWarn, iconWarnSp, mode)
 			}
 			fmt.Printf("  %s  Crypto policy: %s\n", policyIcon, info.CryptoPolicy)
 		}
@@ -561,9 +561,9 @@ func printAppArmorSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" && info.AppArmorMode != "unknown" {
 		fmt.Printf("\nAppArmor mode: %s (%d profiles loaded)\n", info.AppArmorMode, info.AppArmorProfiles)
 		if info.AppArmorComplain > 0 {
-			fmt.Printf("  %s  %d profile(s) in complain mode\n", asciiOr(secLvlWarn, "secIconWarn", mode), info.AppArmorComplain)
+			fmt.Printf("  %s  %d profile(s) in complain mode\n", asciiOr(secLvlWarn, secIconWarn, mode), info.AppArmorComplain)
 		} else if info.AppArmorProfiles > 0 {
-			fmt.Printf("  %s  All profiles enforcing\n", asciiOr("ok", "secIconOK", mode))
+			fmt.Printf("  %s  All profiles enforcing\n", asciiOr("ok", secIconOK, mode))
 		}
 		switch {
 		case len(info.AppArmorGroups) > 0:
@@ -576,9 +576,9 @@ func printAppArmorSection(info *models.SecurityInfo, mode output.OutputMode) {
 			}
 			fmt.Println("  → aa-logprof  (auto-suggest profile updates)")
 		case info.AppArmorDenials > 0:
-			fmt.Printf("  %s  %d denial(s) in the last hour\n", asciiOr(secLvlWarn, "secIconWarn", mode), info.AppArmorDenials)
+			fmt.Printf("  %s  %d denial(s) in the last hour\n", asciiOr(secLvlWarn, secIconWarn, mode), info.AppArmorDenials)
 		default:
-			fmt.Printf("  %s  No denials in the last 24h\n", asciiOr("ok", "secIconOK", mode))
+			fmt.Printf("  %s  No denials in the last 24h\n", asciiOr("ok", secIconOK, mode))
 		}
 	}
 }
@@ -607,7 +607,7 @@ func printPAMSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if len(info.PAMLockedAccounts) > 0 {
 		fmt.Println("  Locked accounts:")
 		for _, a := range info.PAMLockedAccounts {
-			fmt.Printf("    %s  %s\n", asciiOr(secLvlFail, "❌", mode), a)
+			fmt.Printf("    %s  %s\n", asciiOr(secLvlFail, iconFail, mode), a)
 		}
 		fmt.Println("    → faillock --reset --user <name>  (to unlock)")
 	}

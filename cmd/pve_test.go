@@ -56,14 +56,14 @@ func TestPVEBackupIconAge(t *testing.T) {
 		wantIcon string
 		wantAge  string
 	}{
-		{-1, "❌", "never"},
-		{0, "✅", "today"},
-		{1, "✅", "1 day ago"},
-		{7, "✅", "7 days ago"},
+		{-1, iconFail, "never"},
+		{0, iconOK, "today"},
+		{1, iconOK, "1 day ago"},
+		{7, iconOK, "7 days ago"},
 		{8, "⚠️ ", "8 days ago"},
 		{30, "⚠️ ", "30 days ago"},
-		{31, "❌", "31 days ago"},
-		{45, "❌", "45 days ago"},
+		{31, iconFail, "31 days ago"},
+		{45, iconFail, "45 days ago"},
 	}
 	for _, c := range cases {
 		icon, age := pveBackupIconAge(c.days, output.ModeHuman)
@@ -72,7 +72,7 @@ func TestPVEBackupIconAge(t *testing.T) {
 		}
 		// In plain mode the icon must be an ASCII token, never an emoji.
 		plainIcon, _ := pveBackupIconAge(c.days, output.ModePlain)
-		for _, g := range []string{"❌", "⚠️", "✅"} {
+		for _, g := range []string{iconFail, "⚠️", iconOK} {
 			if plainIcon == g {
 				t.Errorf("pveBackupIconAge(%d) plain leaked emoji %q", c.days, g)
 			}

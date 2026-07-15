@@ -87,7 +87,7 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 
 	// Event table
 	if len(info.Events) == 0 {
-		fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", "✅", mode))
+		fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", iconOK, mode))
 	} else {
 		fmt.Printf("\n  %-8s  %-8s  %-18s  %s\n", "TIME", "LEVEL", "UNIT", "MESSAGE")
 		fmt.Printf("  %s\n", strings.Repeat("─", 60))
@@ -103,7 +103,7 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s Timeline incomplete — could not read journald or the kernel log (run as root?)%s",
 			asciiOr("info", "ℹ️", mode), timing)))
 	} else if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Timeline clean%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Timeline clean%s", asciiOr("ok", iconOK, mode), timing)))
 	} else {
 		var parts []string
 		if info.CritCount > 0 {
@@ -128,7 +128,7 @@ func printTimelineIncidents(info *models.TimelineInfo, mode output.OutputMode) {
 		icon := asciiOr("info", "•", mode)
 		switch inc.Level {
 		case "CRIT":
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		case "WARN":
 			icon = asciiOr("warn", "⚠️", mode)
 		}
@@ -165,9 +165,9 @@ func printTimelineLoad(info *models.TimelineInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\n  Load average:\n")
 	for _, s := range info.LoadSpikes {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if s.Load1 >= 8 {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		} else if s.Load1 >= 4 {
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
@@ -187,7 +187,7 @@ func printTimelineEvents(events []models.TimelineEvent, mode output.OutputMode) 
 		icon := asciiOr("warn", "⚠️ ", mode)
 		switch e.Level {
 		case "CRIT":
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		case "INFO":
 			icon = asciiOr("info", "ℹ️ ", mode)
 		}

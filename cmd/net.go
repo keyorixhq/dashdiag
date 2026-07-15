@@ -198,11 +198,11 @@ func netMark(level string, mode output.OutputMode) string {
 	}
 	switch level {
 	case "ok":
-		return "✅"
+		return iconOK
 	case "warn":
 		return netIconWarn
 	case "fail":
-		return "❌"
+		return iconFail
 	case "info":
 		return "ℹ️ "
 	}
@@ -477,24 +477,24 @@ func iconBand(ghz float64) string {
 	if ghz == 2.4 {
 		return netIconWarn
 	}
-	return "✅"
+	return iconOK
 }
 
 func iconWidth(mhz int) string {
 	if mhz == 20 {
 		return netIconWarn
 	}
-	return "✅"
+	return iconOK
 }
 
 func iconSignal(dbm int) string {
 	switch {
 	case dbm < -75:
-		return "❌"
+		return iconFail
 	case dbm <= -65:
 		return netIconWarn
 	default:
-		return "✅"
+		return iconOK
 	}
 }
 
@@ -545,9 +545,9 @@ func printTCPCounter(label string, val int, warn, crit int) {
 	if val == 0 {
 		return // skip zero counters
 	}
-	icon := "✅"
+	icon := iconOK
 	if val >= crit {
-		icon = "❌"
+		icon = iconFail
 	} else if val >= warn {
 		icon = netIconWarn
 	}
@@ -562,10 +562,10 @@ func printTCPCounterLevel(label string, val int, level string) {
 	if val == 0 {
 		return // skip zero counters
 	}
-	icon := "✅"
+	icon := iconOK
 	switch level {
 	case "CRIT":
-		icon = "❌"
+		icon = iconFail
 	case "WARN":
 		icon = netIconWarn
 	case "INFO":
@@ -664,10 +664,10 @@ func printNetBonds(info *models.NetworkInfo) {
 	}
 	fmt.Printf("\nBond interfaces (%d)\n", len(info.Bonds))
 	for _, b := range info.Bonds {
-		icon := "✅"
+		icon := iconOK
 		statusStr := ""
 		if b.AllDown {
-			icon = "❌"
+			icon = iconFail
 			statusStr = "  ALL SLAVES DOWN"
 		} else if b.Degraded {
 			icon = netIconWarn
@@ -809,10 +809,10 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\n[NFS mounts] — %d found\n", len(info.Mounts))
 	for _, m := range info.Mounts {
-		icon := "✅"
+		icon := iconOK
 		status := fmt.Sprintf("healthy (%dms)", m.LatencyMs)
 		if m.Stale {
-			icon = "❌"
+			icon = iconFail
 			status = "STALE (timeout after 2s)"
 		} else if !m.Healthy {
 			icon = netIconWarn
@@ -821,13 +821,13 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 		fmt.Printf("  %s %-22s  %s:%s  %s\n",
 			icon, m.Mount, m.Server, m.Export, status)
 		if m.Stale {
-			srvIcon := "❌"
+			srvIcon := iconFail
 			if m.ServerReachable {
-				srvIcon = "✅"
+				srvIcon = iconOK
 			}
 			fmt.Printf("       %s server %s: %s\n", srvIcon, m.Server,
 				map[bool]string{true: "reachable", false: "unreachable (ping timeout)"}[m.ServerReachable])
-			portIcon := map[bool]string{true: "✅", false: "❌"}[m.NFSPortOpen]
+			portIcon := map[bool]string{true: iconOK, false: iconFail}[m.NFSPortOpen]
 			fmt.Printf("       %s NFS port 2049: %s\n", portIcon,
 				map[bool]string{true: "open", false: "unreachable"}[m.NFSPortOpen])
 		}
@@ -854,7 +854,7 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 			// retrans is cumulative since boot; flag on the RATE, not the raw count
 			// (matches analysis.NFSRetransConcern / checkNFS), else a long-uptime
 			// host shows ⚠️ forever after one transient blip.
-			icon := "✅"
+			icon := iconOK
 			if analysis.NFSRetransConcern(*info) {
 				icon = netIconWarn
 			}
@@ -881,7 +881,7 @@ func printBINDReport(info *models.BINDInfo) {
 	fmt.Printf("\n[DNS server (BIND)]%s\n", verStr)
 
 	// Service
-	svcIcon := map[bool]string{true: "✅", false: "❌"}[info.ServiceActive]
+	svcIcon := map[bool]string{true: iconOK, false: iconFail}[info.ServiceActive]
 	fmt.Printf("  %s named: %s\n", svcIcon,
 		map[bool]string{true: "active", false: "inactive"}[info.ServiceActive])
 
@@ -901,7 +901,7 @@ func printBINDReport(info *models.BINDInfo) {
 	}
 
 	// Config check
-	cfgIcon := map[bool]string{true: "✅", false: "❌"}[info.ConfigOK]
+	cfgIcon := map[bool]string{true: iconOK, false: iconFail}[info.ConfigOK]
 	cfgStatus := "no syntax errors"
 	if !info.ConfigOK {
 		cfgStatus = info.ConfigError

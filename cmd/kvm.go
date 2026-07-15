@@ -187,14 +187,14 @@ func kvmVMIcon(vm models.KVMVM, mode output.OutputMode) string {
 	case models.KVMCrashed:
 		return asciiOr("fail", "❌", mode)
 	case models.KVMPaused:
-		return asciiOr("warn", "⚠️ ", mode)
+		return asciiOr("warn", iconWarnSp, mode)
 	case models.KVMShutOff, models.KVMShutDown:
 		if vm.AutoStart {
-			return asciiOr("warn", "⚠️ ", mode)
+			return asciiOr("warn", iconWarnSp, mode)
 		}
 		return asciiOr("off", "⏹ ", mode)
 	default:
-		return asciiOr("ok", "✅", mode)
+		return asciiOr("ok", iconOK, mode)
 	}
 }
 
@@ -205,18 +205,18 @@ func printKVMNetworks(info *models.KVMInfo, mode output.OutputMode) {
 	fmt.Printf("\n[Networks]\n")
 	for _, n := range info.Networks {
 		if n.State != "active" {
-			fmt.Printf("  %s %-20s inactive\n", asciiOr("warn", "⚠️ ", mode), n.Name)
+			fmt.Printf("  %s %-20s inactive\n", asciiOr("warn", iconWarnSp, mode), n.Name)
 			continue
 		}
 		bridgeStr := ""
 		if n.Bridge != "" {
-			bIcon := asciiOr("ok", "✅", mode)
+			bIcon := asciiOr("ok", iconOK, mode)
 			if !n.BridgeUp {
-				bIcon = asciiOr("warn", "⚠️ ", mode)
+				bIcon = asciiOr("warn", iconWarnSp, mode)
 			}
 			bridgeStr = fmt.Sprintf("  %s %s", bIcon, n.Bridge)
 		}
-		fmt.Printf("  %s  %-20s active%s\n", asciiOr("ok", "✅", mode), n.Name, bridgeStr)
+		fmt.Printf("  %s  %-20s active%s\n", asciiOr("ok", iconOK, mode), n.Name, bridgeStr)
 	}
 }
 
@@ -227,16 +227,16 @@ func printKVMPools(info *models.KVMInfo, mode output.OutputMode) {
 	fmt.Printf("\n[Storage Pools]\n")
 	for _, p := range info.StoragePools {
 		if p.State != "active" {
-			fmt.Printf("  %s %-20s inactive\n", asciiOr("warn", "⚠️ ", mode), p.Name)
+			fmt.Printf("  %s %-20s inactive\n", asciiOr("warn", iconWarnSp, mode), p.Name)
 			continue
 		}
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		usedStr := ""
 		if p.CapacityGB > 0 {
 			if p.UsedPct >= 95 {
 				icon = asciiOr("fail", "❌", mode)
 			} else if p.UsedPct >= 85 {
-				icon = asciiOr("warn", "⚠️ ", mode)
+				icon = asciiOr("warn", iconWarnSp, mode)
 			}
 			usedStr = fmt.Sprintf("  %.1fGB free / %.1fGB  (%.0f%%)",
 				p.AvailableGB, p.CapacityGB, p.UsedPct)

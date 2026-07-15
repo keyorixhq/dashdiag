@@ -116,7 +116,7 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 func printK8sNodes(nodes []models.K8sNodeInfo, mode output.OutputMode) {
 	fmt.Printf("\nNodes (%d)\n", len(nodes))
 	for _, n := range nodes {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if n.Status != "Ready" {
 			icon = asciiOr("fail", "❌", mode)
 		}
@@ -154,15 +154,15 @@ func printK8sPodsOverview(pods []models.K8sPodInfo, mode output.OutputMode) {
 	fmt.Printf("\nPods (%d total, %d healthy)\n", len(pods), running)
 
 	if len(problemPods) == 0 {
-		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  All pods healthy")
+		fmt.Println("  " + asciiOr("ok", iconOK, mode) + "  All pods healthy")
 		return
 	}
 
-	fmt.Printf("  %s  %d pod(s) need attention:\n", asciiOr("warn", "⚠️ ", mode), len(problemPods))
+	fmt.Printf("  %s  %d pod(s) need attention:\n", asciiOr("warn", iconWarnSp, mode), len(problemPods))
 	fmt.Printf("  %-20s %-42s %-22s %-8s %s\n",
 		"NAMESPACE", "NAME", "STATUS", "RESTARTS", "AGE")
 	for _, p := range problemPods {
-		icon := asciiOr("warn", "⚠️ ", mode)
+		icon := asciiOr("warn", iconWarnSp, mode)
 		if strings.Contains(p.Status, "CrashLoop") || strings.Contains(p.Status, "Error") {
 			icon = asciiOr("fail", "❌", mode)
 		}
@@ -223,7 +223,7 @@ func k8sHasConcern(info *models.K8sInfo) bool {
 func printK8sOSLayer(l models.K8sOSLayer, mode output.OutputMode) {
 	insights := analysis.CheckK8sOSLayer(l)
 	if len(insights) == 0 {
-		fmt.Println("  " + asciiOr("ok", "✅", mode) + "  No OS-layer issues")
+		fmt.Println("  " + asciiOr("ok", iconOK, mode) + "  No OS-layer issues")
 		return
 	}
 	for _, ins := range insights {
@@ -240,7 +240,7 @@ func printK8sOSLayer(l models.K8sOSLayer, mode output.OutputMode) {
 
 func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
 	if !k8sHasConcern(info) {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
 		return
 	}
 	var parts []string
@@ -274,5 +274,5 @@ func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode
 	if osIssues := len(k8sOSLayerInsights(info)); osIssues > 0 {
 		parts = append(parts, fmt.Sprintf("%d OS-layer issue(s)", osIssues))
 	}
-	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %s%s", asciiOr("warn", "⚠️ ", mode), strings.Join(parts, ", "), timing)))
+	fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %s%s", asciiOr("warn", iconWarnSp, mode), strings.Join(parts, ", "), timing)))
 }

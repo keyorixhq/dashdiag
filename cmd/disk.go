@@ -89,7 +89,7 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 		// health avoids with an INFO); say so explicitly instead.
 		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%sDisk: checks passed, but some state could not be verified — run as root%s", asciiOr("info", "ℹ️  ", mode), timing)))
 	default:
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sDisk healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
+		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sDisk healthy. Checks passed%s", asciiOr("ok", iconOKSp, mode), timing)))
 	}
 }
 
@@ -139,13 +139,13 @@ func printDiskBtrfs(info *models.DiskInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\nBtrfs volumes (%d)\n", len(info.BtrfsVolumes))
 	for _, v := range info.BtrfsVolumes {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		statusStr := ""
 		if v.Status == "degraded" || v.MissingDevs > 0 {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 			statusStr = fmt.Sprintf("  DEGRADED — %d missing device(s)", v.MissingDevs)
 		} else if v.Status == "errors" {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 			statusStr = "  device errors detected"
 		}
 		devStr := fmt.Sprintf("%d device(s)", v.TotalDevices)
@@ -157,7 +157,7 @@ func printDiskBtrfs(info *models.DiskInfo, mode output.OutputMode) {
 			devIcon := "  "
 			label := d.Path
 			if d.Missing {
-				devIcon = "  " + asciiOr("fail", "❌", mode)
+				devIcon = "  " + asciiOr("fail", iconFail, mode)
 				label = "<missing disk>"
 			}
 			errStr := ""
@@ -183,20 +183,20 @@ func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\nZFS Pools (%d)\n", len(info.ZFSPools))
 	for _, p := range info.ZFSPools {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		switch p.State {
 		case "DEGRADED", "FAULTED", "OFFLINE":
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		case "ONLINE":
 			if p.UsedPct >= analysis.DefaultDiskCritPct {
-				icon = asciiOr("fail", "❌", mode)
+				icon = asciiOr("fail", iconFail, mode)
 			} else if p.UsedPct >= analysis.DefaultDiskWarnPct {
-				icon = asciiOr("warn", "⚠️ ", mode)
+				icon = asciiOr("warn", iconWarnSp, mode)
 			}
 		}
 		errStr := ""
 		if p.ReadErrors+p.WriteErrors+p.CksumErrors > 0 {
-			errStr = fmt.Sprintf("  %s R:%d W:%d C:%d", asciiOr("warn", "⚠️ ", mode), p.ReadErrors, p.WriteErrors, p.CksumErrors)
+			errStr = fmt.Sprintf("  %s R:%d W:%d C:%d", asciiOr("warn", iconWarnSp, mode), p.ReadErrors, p.WriteErrors, p.CksumErrors)
 		}
 		scrubStr := ""
 		if p.ScrubAgeDays > 30 {
@@ -204,7 +204,7 @@ func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 			// note so the row severity matches the verdict.
 			scrubStr = fmt.Sprintf("  last scrub %dd ago", p.ScrubAgeDays)
 		} else if p.ScrubAgeDays < 0 {
-			scrubStr = "  " + asciiOr("warn", "⚠️ ", mode) + " never scrubbed"
+			scrubStr = "  " + asciiOr("warn", iconWarnSp, mode) + " never scrubbed"
 		}
 		fmt.Printf("  %s  %-20s %s  %.0f%%  %.1fGB%s%s\n",
 			icon, p.Name, p.State, p.UsedPct, p.SizeGB, errStr, scrubStr)
@@ -221,11 +221,11 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 		// design — show the row (transparent) but never a fault icon, matching the
 		// verdict (#382). Otherwise the usage/inode thresholds apply.
 		imageFS := analysis.IsInherentlyReadOnlyFS(fs.FSType)
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if !imageFS && fs.UsedPct >= analysis.DefaultDiskCritPct {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		} else if !imageFS && fs.UsedPct >= analysis.DefaultDiskWarnPct {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		roNote := ""
 		if fs.ReadOnly {
@@ -234,7 +234,7 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 		fmt.Printf("  %s  %-22s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
 			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
 		if !imageFS && fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
-			fmt.Printf("       %s  inodes at %.0f%%\n", asciiOr("warn", "⚠️ ", mode), fs.InodesUsedPct)
+			fmt.Printf("       %s  inodes at %.0f%%\n", asciiOr("warn", iconWarnSp, mode), fs.InodesUsedPct)
 		}
 	}
 }
@@ -334,20 +334,20 @@ func printDiskSteamOS(info *models.DiskInfo, mode output.OutputMode) {
 	fmt.Printf("\n[SteamOS storage]\n")
 
 	if d.ShaderCacheGB > 0 {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		if d.ShaderCacheGB > 30 {
-			icon = asciiOr("fail", "❌", mode)
+			icon = asciiOr("fail", iconFail, mode)
 		} else if d.ShaderCacheGB > 10 {
-			icon = asciiOr("warn", "⚠️ ", mode)
+			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		fmt.Printf("  %s Shader cache: %.1f GB at ~/.steam/steam/shadercache/\n", icon, d.ShaderCacheGB)
 	}
 
 	for _, bm := range d.BindMounts {
 		if bm.OK {
-			fmt.Printf("  %s Bind mount %s → %s — intact\n", asciiOr("ok", "✅", mode), bm.Path, bm.Target)
+			fmt.Printf("  %s Bind mount %s → %s — intact\n", asciiOr("ok", iconOK, mode), bm.Path, bm.Target)
 		} else {
-			fmt.Printf("  %s Bind mount %s → %s — broken\n", asciiOr("warn", "⚠️ ", mode), bm.Path, bm.Target)
+			fmt.Printf("  %s Bind mount %s → %s — broken\n", asciiOr("warn", iconWarnSp, mode), bm.Path, bm.Target)
 		}
 	}
 }
@@ -366,13 +366,13 @@ func printSMARTLine(s *models.SMARTInfo, mode output.OutputMode) {
 			asciiOr("info", "ℹ️ ", mode))
 		return
 	}
-	icon := asciiOr("ok", "✅", mode)
+	icon := asciiOr("ok", iconOK, mode)
 	if !s.Healthy {
-		icon = asciiOr("fail", "❌", mode)
+		icon = asciiOr("fail", iconFail, mode)
 	} else if s.PercentUsed >= 90 {
-		icon = asciiOr("warn", "⚠️ ", mode)
+		icon = asciiOr("warn", iconWarnSp, mode)
 	} else if s.MediaErrors > 0 {
-		icon = asciiOr("warn", "⚠️ ", mode)
+		icon = asciiOr("warn", iconWarnSp, mode)
 	}
 	health := "PASSED"
 	if !s.Healthy {
@@ -432,7 +432,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 
 	// Volume groups
 	for _, vg := range lvm.VGs {
-		icon := asciiOr("ok", "✅", mode)
+		icon := asciiOr("ok", iconOK, mode)
 		note := ""
 		// A fully-allocated VG is the normal default-install layout (root+swap take
 		// the whole VG), NOT a near-full disk — so it stays OK here, matching dsd
@@ -448,7 +448,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 		fmt.Printf("  %s  %-20s %.1fGB total  %.1fGB free  (%.0f%%)%s\n",
 			icon, vg.Name, vg.SizeGB, vg.FreeGB, vg.FreePct, note)
 		if vg.MissingPVs > 0 {
-			fmt.Printf("       %s %d missing PV(s) — data at risk\n", asciiOr("fail", "❌", mode), vg.MissingPVs)
+			fmt.Printf("       %s %d missing PV(s) — data at risk\n", asciiOr("fail", iconFail, mode), vg.MissingPVs)
 		}
 	}
 
@@ -456,12 +456,12 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	if len(lvm.ThinPools) > 0 {
 		fmt.Printf("\n  Thin pools (%d):\n", len(lvm.ThinPools))
 		for _, p := range lvm.ThinPools {
-			dIcon := asciiOr("ok", "✅", mode)
+			dIcon := asciiOr("ok", iconOK, mode)
 			switch analysis.LVMThinPoolLevel(p.DataPct) {
 			case "CRIT":
-				dIcon = asciiOr("fail", "❌", mode)
+				dIcon = asciiOr("fail", iconFail, mode)
 			case "WARN":
-				dIcon = asciiOr("warn", "⚠️ ", mode)
+				dIcon = asciiOr("warn", iconWarnSp, mode)
 			}
 			fmt.Printf("  %s  %-20s Data: %.0f%%  Meta: %.0f%%\n",
 				dIcon, fmt.Sprintf("%s/%s", p.VG, p.Name), p.DataPct, p.MetaPct)
@@ -472,12 +472,12 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	if len(lvm.Snapshots) > 0 {
 		fmt.Printf("\n  Snapshots (%d):\n", len(lvm.Snapshots))
 		for _, s := range lvm.Snapshots {
-			sIcon := asciiOr("ok", "✅", mode)
+			sIcon := asciiOr("ok", iconOK, mode)
 			switch analysis.LVMSnapshotLevel(s.DataPct) {
 			case "CRIT":
-				sIcon = asciiOr("fail", "❌", mode)
+				sIcon = asciiOr("fail", iconFail, mode)
 			case "WARN":
-				sIcon = asciiOr("warn", "⚠️ ", mode)
+				sIcon = asciiOr("warn", iconWarnSp, mode)
 			}
 			fmt.Printf("  %s  %-20s → %-20s  Snap%%: %.0f%%\n",
 				sIcon, fmt.Sprintf("%s/%s", s.VG, s.Name), s.Origin, s.DataPct)
@@ -488,13 +488,13 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	if len(lvm.RaidLVs) > 0 {
 		fmt.Printf("\n  RAID/mirror LVs (%d):\n", len(lvm.RaidLVs))
 		for _, r := range lvm.RaidLVs {
-			rIcon := asciiOr("ok", "✅", mode)
+			rIcon := asciiOr("ok", iconOK, mode)
 			status := fmt.Sprintf("sync: %.0f%%", r.SyncPct)
 			if r.Degraded {
-				rIcon = asciiOr("fail", "❌", mode)
+				rIcon = asciiOr("fail", iconFail, mode)
 				status = "DEGRADED"
 			} else if r.Resyncing {
-				rIcon = asciiOr("warn", "⚠️ ", mode)
+				rIcon = asciiOr("warn", iconWarnSp, mode)
 				status = fmt.Sprintf("resyncing %.0f%%", r.SyncPct)
 			} else if r.SyncPct >= 100 {
 				status = "in sync"
