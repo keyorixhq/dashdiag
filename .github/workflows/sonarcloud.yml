@@ -42,5 +42,5 @@ jobs:
             -Dsonar.projectKey=keyorixhq_dashdiag
             -Dsonar.organization=keyorixhq
             -Dsonar.go.coverage.reportPaths=coverage.out
-            -Dsonar.exclusions=testdata/**,**/testdata/**,vendor/**
+            -Dsonar.exclusions=testdata/**,**/testdata/**,vendor/**,fixtures/**,packaging/appimage/**,**/*.png,**/*.tar.gz
             -Dsonar.test.inclusions=**/*_test.go
