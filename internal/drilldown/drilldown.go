@@ -87,7 +87,7 @@ func dispatchLive(ctx context.Context, ins models.Insight, results []runner.Resu
 	defer cancel()
 
 	defer func() {
-		if r := recover(); r != nil {
+		if recover() != nil {
 			d = nil
 		}
 	}()

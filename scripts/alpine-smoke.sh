@@ -30,9 +30,9 @@ bad() { local msg="$1"; echo "❌ $msg"; FAIL=$((FAIL + 1)); }
 
 # Capture json + stderr; tolerate dsd's non-zero exit on WARN/CRIT (1/2).
 run_health() { # <outfile> <errfile> [user]
-  local outfile="$1" errfile="$2"
-  if [ -n "${3:-}" ]; then
-    su "$3" -c "$DSD health --json" >"$outfile" 2>"$errfile" || true
+  local outfile="$1" errfile="$2" user="${3:-}"
+  if [ -n "$user" ]; then
+    su "$user" -c "$DSD health --json" >"$outfile" 2>"$errfile" || true
   else
     "$DSD" health --json >"$outfile" 2>"$errfile" || true
   fi

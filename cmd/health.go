@@ -464,7 +464,7 @@ func handlePostMortemMode(pmFlag string, snap *baseline.Snapshot, insights []mod
 }
 
 func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, opts healthRunOpts, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, profile, opts.IncludePackages, opts.IncludeGPU, opts.IncludeTLS, opts.IncludeDeep, opts.IncludeFirmware, opts.IncludeCVE)
+	cols := buildHealthCollectors(ctrCtx, profile, opts)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -567,7 +567,7 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, includePackages bool, includeGPU bool, includeTLS bool, includeDeep bool, includeFirmware bool, includeCVE bool) []collectors.Collector { //nolint:funlen,cyclop // NOSONAR — flat collector registry; CC is entry count, not branch depth
+func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, opts healthRunOpts) []collectors.Collector { //nolint:funlen,cyclop // NOSONAR — flat collector registry; CC is entry count, not branch depth
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -590,7 +590,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// by checkNetwork — it already reads these fields zero-value-safe (comment at
 	// heuristics_network.go: "only populated when NetworkDeepCollector is used"),
 	// they were just never collected in `dsd health`, only `dsd net deep`.
-	if includeDeep {
+	if opts.IncludeDeep {
 		cols = append(cols, collectors.NewNetworkDeepCollector())
 	} else {
 		cols = append(cols, collectors.NewNetworkCollector())
@@ -603,7 +603,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.HasSubscriptionManager() {
 		cols = append(cols, collectors.NewSUSEConnectCollector())
 	}
-	if includePackages && !includeDeep {
+	if opts.IncludePackages && !opts.IncludeDeep {
 		// Fast package check — security advisory summary (no integrity scan)
 		cols = append(cols, collectors.NewPackagesCollector())
 	}
@@ -771,7 +771,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
 	// In deep mode also enable Deep for the log-driver check (per-container unbounded
 	// json-file logging) — otherwise collected only by `dsd docker --deep`.
-	cols = appendDockerCollector(cols, profile, includeDeep)
+	cols = appendDockerCollector(cols, profile, opts.IncludeDeep)
 	// Containerd standalone — only when containerd socket is present AND no k8s layer.
 	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
 	if collectors.ContainerdAvailable() && !collectors.K8sAvailable() {
@@ -850,7 +850,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
 	// otherwise collected only by `dsd k8s --deep` and never surfaced in health.
 	if collectors.K8sAvailable() {
-		if includeDeep {
+		if opts.IncludeDeep {
 			cols = append(cols, collectors.NewK8sDeepCollector())
 		} else {
 			cols = append(cols, collectors.NewK8sCollector())
@@ -870,7 +870,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	// file) are gathered and judged — they were otherwise collected only by
 	// `dsd kvm --deep` and never surfaced in health.
 	if collectors.KVMAvailable() {
-		if includeDeep {
+		if opts.IncludeDeep {
 			cols = append(cols, collectors.NewKVMDeepCollector())
 		} else {
 			cols = append(cols, collectors.NewKVMCollector())
@@ -886,28 +886,28 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if collectors.IsCPUFreqAvailable() {
 		cols = append(cols, collectors.NewCPUFreqCollector())
 	}
-	if includeGPU {
+	if opts.IncludeGPU {
 		// Deep mode adds PowerDPMLevel (checkGPUDevice only WARNs it under real load,
 		// UtilPct >= 50 — otherwise it's collected only by `dsd gpu --deep`).
-		if includeDeep {
+		if opts.IncludeDeep {
 			cols = append(cols, collectors.NewGPUDeepCollector())
 		} else {
 			cols = append(cols, collectors.NewGPUCollector())
 		}
 	}
-	if includeTLS {
+	if opts.IncludeTLS {
 		cols = append(cols, collectors.NewTLSCollector())
 	}
-	if includeDeep {
+	if opts.IncludeDeep {
 		cols = append(cols, collectors.NewHealthDeepCollector())
 		// Package integrity always included in deep mode (Spec 12):
 		// dpkg --audit, dnf check, missing shared libs
 		cols = append(cols, collectors.NewPackagesDeepCollector())
 	}
-	if includeFirmware {
+	if opts.IncludeFirmware {
 		cols = append(cols, collectors.NewFirmwareCollector())
 	}
-	if includeCVE {
+	if opts.IncludeCVE {
 		cols = append(cols, collectors.NewCVEHealthCollector())
 	}
 	return cols

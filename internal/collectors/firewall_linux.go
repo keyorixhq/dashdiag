@@ -189,8 +189,8 @@ func parseNFTInputAccept(ruleset string) (accepted map[int]bool, determinable bo
 		case strings.HasPrefix(line, "type "):
 			inInput = strings.Contains(line, "hook input") // chain config line
 			continue
-		case strings.HasPrefix(line, "}"): // NOSONAR — same body as the chain case: both reset inInput; identical action, distinct trigger
-			inInput = false
+		case strings.HasPrefix(line, "}"):
+			inInput = false // NOSONAR — same body as the chain case: both reset inInput; identical action, distinct trigger
 			continue
 		}
 		if !inInput {

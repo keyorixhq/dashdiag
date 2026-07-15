@@ -997,7 +997,7 @@ func parseCgroupPath(path string) string {
 		if idx := strings.Index(path, hdLibpodPrefix); idx >= 0 {
 			return containerIDLabel(strings.TrimPrefix(path[idx:], hdLibpodPrefix))
 		}
-		if idx := strings.Index(path, "libpod_pod"); idx >= 0 {
+		if strings.Contains(path, "libpod_pod") {
 			return "pod:podman"
 		}
 		return hdCgroupTypeCtx
