@@ -485,27 +485,7 @@ func awsInstanceType(ctx context.Context) string {
 // the Capital One class of breach; 401 means IMDSv2 is required (good). checked is
 // false when IMDS itself was unreachable, so we never imply a posture we couldn't read.
 func awsIMDSv1Open(ctx context.Context) (checked, open bool) {
-	data, err := curSource().Cached("aws-imdsv1-probe", func() ([]byte, error) {
-		req, e := http.NewRequestWithContext(ctx, http.MethodGet,
-			"http://169.254.169.254/latest/meta-data/instance-id", nil)
-		if e != nil {
-			return nil, e
-		}
-		client := &http.Client{Timeout: 2 * time.Second}
-		resp, e := client.Do(req)
-		if e != nil {
-			return nil, e
-		}
-		defer resp.Body.Close() //nolint:errcheck
-		if resp.StatusCode == http.StatusOK {
-			return []byte("open"), nil
-		}
-		return []byte("blocked"), nil
-	})
-	if err != nil {
-		return false, false
-	}
-	return true, string(data) == "open"
+	return probeIMDSOpen(ctx, "aws-imdsv1-probe", "http://169.254.169.254/latest/meta-data/instance-id")
 }
 
 // awsRebalance probes the EC2 rebalance-recommendation endpoint (200 = AWS signals
