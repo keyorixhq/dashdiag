@@ -99,6 +99,17 @@ vet:
 lint:
 	@golangci-lint run ./... 2>/dev/null || (echo "⚠️  golangci-lint not installed — run: make tools" && go vet ./...)
 
+# lint-linux runs golangci-lint inside the dashdiag-dev OrbStack container so
+# linux-only code paths (//go:build linux) are linted with the real linux tags.
+# Use this before pushing when you've touched linux-only files.
+.PHONY: lint-linux
+lint-linux:
+	docker run --rm \
+		-v $(CURDIR):/src \
+		-w /src \
+		dashdiag-dev:latest \
+		golangci-lint run ./...
+
 # ── TESTING ───────────────────────────────────────────────────────────────────
 .PHONY: test
 test:
