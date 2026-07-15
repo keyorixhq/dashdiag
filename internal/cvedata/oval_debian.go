@@ -29,6 +29,142 @@ var ubuntuPriorityToCVSS = map[string]float64{
 // "PACKAGE package in noble is affected and may need fixing."
 var pkgInDistroRe = regexp.MustCompile(`^(\S+) package in \S+ (?:is affected|needs fixing|may need fixing)`)
 
+// dpkgEarlierRe matches criterion comments of the form:
+// "openssl DPKG is earlier than 3.0.13-0ubuntu3.4"
+// capturing (packageName, fixedVersion). This form only appears when a fix
+// has been published for this release; "may need fixing" appears when it has not.
+var dpkgEarlierRe = regexp.MustCompile(`^(\S+) DPKG is earlier than (\S+)$`)
+
+// ubuntuPkgFix pairs a package name with the first version that fixes the CVE.
+// fixedIn is empty when the criterion uses the "is affected and may need fixing"
+// form — no fix has been published for this series yet.
+type ubuntuPkgFix struct {
+	name    string
+	fixedIn string
+}
+
+// ubuntuVulnEntry is the version-aware internal representation of one
+// Ubuntu/Debian OVAL vulnerability definition.
+type ubuntuVulnEntry struct {
+	cveID    string
+	cvss     float64
+	severity string
+	pkgs     []ubuntuPkgFix
+}
+
+// parseUbuntuOVALVersionAware decodes Ubuntu/Debian OVAL XML and returns one
+// ubuntuVulnEntry per CVE definition. For each affected package it captures:
+//   - the fixedIn version from "X DPKG is earlier than VERSION" comments, or
+//   - an empty fixedIn from "X package in Y is affected…" comments (no fix yet).
+//
+// The two comment forms are mutually exclusive within a definition for the same
+// package: one appears when a fix is published, the other when it is not.
+// Preference order: if a version-bearing comment is seen for a package, a later
+// no-version comment for the same package does not downgrade it.
+func parseUbuntuOVALVersionAware(r io.Reader) ([]ubuntuVulnEntry, error) {
+	var defs ubuntuOVALDefs
+	if err := xml.NewDecoder(r).Decode(&defs); err != nil {
+		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
+	}
+
+	var entries []ubuntuVulnEntry
+	for _, def := range defs.Definitions {
+		if def.Class != "vulnerability" {
+			continue
+		}
+
+		var cveID string
+		for _, ref := range def.Metadata.References {
+			if strings.EqualFold(ref.Source, "CVE") && strings.HasPrefix(ref.RefID, "CVE-") {
+				cveID = strings.ToUpper(ref.RefID)
+				break
+			}
+		}
+		if cveID == "" {
+			continue
+		}
+
+		priority := strings.ToLower(strings.TrimSpace(def.Metadata.Advisory.Severity))
+		for _, c := range def.Metadata.Advisory.CVEs {
+			if c.Priority != "" {
+				priority = strings.ToLower(c.Priority)
+				break
+			}
+		}
+		cvss := ubuntuPriorityToCVSS[priority]
+		severity := priority
+		if priority != "" {
+			severity = strings.ToUpper(priority[:1]) + strings.ToLower(priority[1:])
+		}
+
+		// pkgMap accumulates per-package information. A version-specific entry
+		// (fixedIn != "") is never overwritten by a no-version entry for the
+		// same package; the version-specific form is more informative.
+		pkgMap := map[string]*ubuntuPkgFix{}
+		addComment := func(comment string) {
+			if m := dpkgEarlierRe.FindStringSubmatch(comment); m != nil {
+				name := m[1]
+				if existing, ok := pkgMap[name]; ok && existing.fixedIn != "" {
+					return // already have a version for this package
+				}
+				pkgMap[name] = &ubuntuPkgFix{name: name, fixedIn: m[2]}
+				return
+			}
+			if m := pkgInDistroRe.FindStringSubmatch(comment); m != nil {
+				name := m[1]
+				if _, ok := pkgMap[name]; !ok {
+					pkgMap[name] = &ubuntuPkgFix{name: name}
+				}
+			}
+		}
+		for _, c := range def.Criteria.Criterions {
+			addComment(c.Comment)
+		}
+		for _, cr := range def.Criteria.Criteria {
+			for _, c := range cr.Criterions {
+				addComment(c.Comment)
+			}
+		}
+
+		if len(pkgMap) == 0 {
+			continue
+		}
+
+		// Preserve insertion order for deterministic output: iterate over
+		// criterion lists again to build the ordered slice.
+		seen := map[string]bool{}
+		var pkgs []ubuntuPkgFix
+		addOrdered := func(comment string) {
+			var name string
+			if m := dpkgEarlierRe.FindStringSubmatch(comment); m != nil {
+				name = m[1]
+			} else if m := pkgInDistroRe.FindStringSubmatch(comment); m != nil {
+				name = m[1]
+			}
+			if name != "" && !seen[name] && pkgMap[name] != nil {
+				seen[name] = true
+				pkgs = append(pkgs, *pkgMap[name])
+			}
+		}
+		for _, c := range def.Criteria.Criterions {
+			addOrdered(c.Comment)
+		}
+		for _, cr := range def.Criteria.Criteria {
+			for _, c := range cr.Criterions {
+				addOrdered(c.Comment)
+			}
+		}
+
+		entries = append(entries, ubuntuVulnEntry{
+			cveID:    cveID,
+			cvss:     cvss,
+			severity: severity,
+			pkgs:     pkgs,
+		})
+	}
+	return entries, nil
+}
+
 // ubuntuOVALDefs is the minimal XML structure for Ubuntu/Debian OVAL.
 type ubuntuOVALDefs struct {
 	Definitions []ubuntuOVALDef `xml:"definitions>definition"`
@@ -194,10 +330,28 @@ func QueryInstalledDPKG(ctx context.Context) ([]InstalledPackage, error) {
 	return pkgs, nil
 }
 
-// ScanUbuntuOVALPackages parses an Ubuntu OVAL file and cross-references
+// ScanUbuntuOVALPackages parses an Ubuntu/Debian OVAL file and cross-references
 // with installed dpkg packages. Returns CVE findings bucketed by priority.
+//
+// Version-aware suppression: when the OVAL criterion carries a fixed version
+// ("X DPKG is earlier than VERSION"), a package whose installed version is
+// already >= fixedIn is silently skipped — the system is patched for that CVE.
+// When no fixed version is known ("X package in Y is affected and may need
+// fixing"), the package is flagged if installed: conservative, matches prior
+// behaviour, avoids a false-OK on a CVE with no fix yet.
 func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
-	cveMap, err := ParseUbuntuOVAL(ovalPath)
+	f, err := os.Open(ovalPath) // #nosec G304
+	if err != nil {
+		return nil, fmt.Errorf("opening OVAL: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	var r io.Reader = f
+	if strings.HasSuffix(strings.ToLower(ovalPath), ".bz2") {
+		r = bzip2.NewReader(f)
+	}
+
+	entries, err := parseUbuntuOVALVersionAware(r)
 	if err != nil {
 		return nil, err
 	}
@@ -206,16 +360,40 @@ func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSRes
 	if err != nil {
 		return nil, fmt.Errorf("querying installed packages: %w", err)
 	}
-	installed := make(map[string]bool, len(pkgs))
+	installed := make(map[string]string, len(pkgs)) // name (lower) → EVR
 	for _, p := range pkgs {
-		installed[strings.ToLower(p.Name)] = true
+		installed[strings.ToLower(p.Name)] = p.EVR
 	}
 
 	var results []OVALCVSSResult
-	for _, rec := range cveMap {
-		if res, ok := ovalBuildResult(installed, rec); ok {
-			results = append(results, res)
+	for _, entry := range entries {
+		var allComponents []string
+		var installedMatches []string
+		for _, pkg := range entry.pkgs {
+			allComponents = append(allComponents, pkg.name)
+			installedEVR, ok := installed[strings.ToLower(pkg.name)]
+			if !ok {
+				continue // not installed
+			}
+			// Version-aware: if a fixed version is known AND the installed
+			// version is already at or past it, the CVE is patched on this host.
+			// Guard: an empty fixedIn (no published fix) → always report.
+			if pkg.fixedIn != "" && CompareDpkg(installedEVR, pkg.fixedIn) >= 0 {
+				continue // already patched
+			}
+			installedMatches = append(installedMatches, pkg.name)
 		}
+		if len(installedMatches) == 0 {
+			continue
+		}
+		results = append(results, OVALCVSSResult{
+			CVEID:      entry.cveID,
+			CVSS3:      entry.cvss,
+			Severity:   entry.severity,
+			State:      "Affected",
+			Components: allComponents,
+			Installed:  installedMatches,
+		})
 	}
 
 	sortOVALResults(results)
