@@ -321,7 +321,7 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	out, err := runCmd(scanCtx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
 		// DNF4 fallback: RHEL/Rocky/older Fedora
-		out, err = runCmd(scanCtx, "dnf", "updateinfo", "list", pkgSevSecurity, flagQuiet)
+		out, err = runCmd(scanCtx, "dnf", cmdUpdateinfo, "list", pkgSevSecurity, flagQuiet)
 	}
 	if err != nil {
 		// The advisory query failed (broken plugin, transient dnf error, permission)
@@ -407,10 +407,10 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 	info.HasSecurityRepo = true
 
-	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", flagSecurity)
+	out, err := runCmd(ctx, "tdnf", "-j", cmdUpdateinfo, "list", flagSecurity)
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
-		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", flagSecurity)
+		textOut, textErr := runCmd(ctx, "tdnf", cmdUpdateinfo, "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
 			info.Status = pkgQueryFailed

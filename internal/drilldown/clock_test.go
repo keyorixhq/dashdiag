@@ -14,7 +14,7 @@ System time     : 0.000012345 seconds fast of NTP time
 Leap status     : Normal
 `
 	got := parseChronyTracking(sample)
-	if got.Type != "kv_table" || got.Title != "chronyc tracking" {
+	if got.Type != tableKV || got.Title != "chronyc tracking" {
 		t.Fatalf("unexpected shape: %+v", got)
 	}
 	want := map[string]string{
@@ -53,7 +53,7 @@ NTP service=active
 System clock synchronized=yes
 `
 	got := parseTimedatectl(sample)
-	if got.Type != "kv_table" || got.Title != "timedatectl status" {
+	if got.Type != tableKV || got.Title != "timedatectl status" {
 		t.Fatalf("unexpected shape: %+v", got)
 	}
 	want := map[string]string{
@@ -91,7 +91,7 @@ func TestClockTracking_RealDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClockTracking: %v", err)
 	}
-	if got != nil && got.Type != "kv_table" {
+	if got != nil && got.Type != tableKV {
 		t.Errorf("unexpected shape: %+v", got)
 	}
 }

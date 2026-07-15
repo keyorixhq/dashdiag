@@ -25,7 +25,7 @@ func TestDispatchReplaysCachedDetails(t *testing.T) {
 	ins := models.Insight{Level: "WARN", Check: "CPU Load", Message: "load high"}
 	key := "drilldown\x00" + ins.Check + "\x00" + ins.Message
 	want := &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by CPU%",
 		Columns: []string{"PID", "CPU%", "COMMAND"},
 		Rows:    [][]string{{"4242", "99.9%", "busy"}},
@@ -196,7 +196,7 @@ func TestZombiesFromResults_HappyPath(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil Details")
 	}
-	if got.Type != "process_table" {
+	if got.Type != tableProcesses {
 		t.Errorf("unexpected Type: %q", got.Type)
 	}
 	if len(got.Rows) != 1 {
@@ -295,7 +295,7 @@ func TestHungProcessesFromResults_HappyPath(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil Details")
 	}
-	if got.Type != "process_table" {
+	if got.Type != tableProcesses {
 		t.Errorf("unexpected Type: %q", got.Type)
 	}
 	if len(got.Rows) != 1 {

@@ -84,7 +84,7 @@ func topProcessesByFDLinuxAt(ctx context.Context, n int, procRoot string) (*mode
 	}
 
 	d := &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by FD usage",
 		Columns: []string{"PID", "OPEN", "LIMIT", "USED%", "COMMAND"},
 		Rows:    rows,
@@ -163,7 +163,7 @@ func topProcessesByFDMac(ctx context.Context, n int) (*models.Details, error) {
 		rows = append(rows, []string{e.pid, fmt.Sprintf("%d", e.count), name})
 	}
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by open file count",
 		Columns: []string{"PID", "OPEN_FDS", "COMMAND"},
 		Rows:    rows,

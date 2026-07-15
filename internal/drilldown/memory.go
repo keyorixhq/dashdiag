@@ -93,7 +93,7 @@ func topProcessesByRSSLinuxAt(ctx context.Context, n int, procRoot string) (*mod
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by memory (RSS)",
 		Columns: []string{"PID", "MEM%", "RSS", "COMMAND"},
 		Rows:    rows,
@@ -124,7 +124,7 @@ func topProcessesByRSSMac(ctx context.Context, n int) (*models.Details, error) {
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by memory (RSS)",
 		Columns: []string{"PID", "MEM%", "RSS", "COMMAND"},
 		Rows:    rows,

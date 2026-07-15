@@ -10,6 +10,7 @@ import (
 const (
 	fwCatFirmware      = "Firmware"
 	fwCatSnapshots     = "Snapshots"
+	fwCatSubscription  = "Subscription"
 	fwInspectFwupd     = "to inspect: fwupdmgr get-upgrades"
 	fwFixSUSERenewShrt = "to fix: renew at https://scc.suse.com"
 )
@@ -191,12 +192,12 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 		// SUSEConnect present but the status query failed — we couldn't read whether
 		// the host is registered, so don't assert it's unregistered (FALSE_OK_SWEEP #14).
 		if s.Status == "query-failed" {
-			return []models.Insight{insight("INFO", "Subscription",
+			return []models.Insight{insight("INFO", fwCatSubscription,
 				"SUSE registration not verified — SUSEConnect --status failed (network/SCC error?)",
 				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
 			)}
 		}
-		return []models.Insight{insight("WARN", "Subscription",
+		return []models.Insight{insight("WARN", fwCatSubscription,
 			"SUSE system is not registered — security patches unavailable without SUSEConnect",
 			[]string{
 				"to fix: SUSEConnect -r <REGCODE>",
@@ -206,17 +207,17 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 	}
 	switch {
 	case s.ExpiresDays == 0:
-		return []models.Insight{insight("CRIT", "Subscription",
+		return []models.Insight{insight("CRIT", fwCatSubscription,
 			"SUSE subscription EXPIRED — security patches unavailable",
 			[]string{fwFixSUSERenewShrt},
 		)}
 	case s.ExpiresDays > 0 && s.ExpiresDays <= 14:
-		return []models.Insight{insight("CRIT", "Subscription",
+		return []models.Insight{insight("CRIT", fwCatSubscription,
 			fmt.Sprintf("SUSE subscription expires in %d day(s) — renew immediately", s.ExpiresDays),
 			[]string{fwFixSUSERenewShrt},
 		)}
 	case s.ExpiresDays > 14 && s.ExpiresDays <= 30:
-		return []models.Insight{insight("WARN", "Subscription",
+		return []models.Insight{insight("WARN", fwCatSubscription,
 			fmt.Sprintf("SUSE subscription expires in %d day(s)", s.ExpiresDays),
 			[]string{fwFixSUSERenewShrt},
 		)}
@@ -234,7 +235,7 @@ func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
 		// RHEL host. (Actual update availability is reported by the Packages check.)
 		return nil
 	case "unregistered":
-		return []models.Insight{insight("WARN", "Subscription",
+		return []models.Insight{insight("WARN", fwCatSubscription,
 			"RHEL/Oracle system is not registered — security updates may be unavailable",
 			[]string{
 				"to fix: subscription-manager register --auto-attach",
@@ -243,7 +244,7 @@ func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
 			},
 		)}
 	case "expired":
-		return []models.Insight{insight("CRIT", "Subscription",
+		return []models.Insight{insight("CRIT", fwCatSubscription,
 			"Red Hat subscription EXPIRED — security patches unavailable",
 			[]string{
 				"to fix: renew at https://access.redhat.com",
@@ -258,7 +259,7 @@ func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
 func checkUbuntuPro(s models.SUSEConnectInfo) []models.Insight {
 	if s.Status == "detached" {
 		// Ubuntu Pro is optional — INFO not WARN (Ubuntu still works without it)
-		return []models.Insight{insight("INFO", "Subscription",
+		return []models.Insight{insight("INFO", fwCatSubscription,
 			"Ubuntu Pro not attached — ESM security patches and Livepatch unavailable",
 			[]string{
 				"to attach: pro attach <token>  (free for up to 5 personal machines)",

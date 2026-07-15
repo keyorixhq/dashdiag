@@ -94,7 +94,7 @@ func topProcessesBySwapLinuxAt(ctx context.Context, n int, procRoot string) (*mo
 	}
 
 	d := &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by swap usage",
 		Columns: []string{"PID", "SWAP", "COMMAND"},
 		Rows:    rows,

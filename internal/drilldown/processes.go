@@ -13,6 +13,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const (
+	colParentPID = "PARENT_PID"
+	colParentCmd = "PARENT_CMD"
+)
+
 // HungProcesses returns processes in uninterruptible sleep (state D).
 func HungProcesses(ctx context.Context) (*models.Details, error) {
 	if runtime.GOOS == "darwin" {
@@ -77,9 +82,9 @@ func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Hung (uninterruptible) processes",
-		Columns: []string{"PID", "NAME", "PARENT_PID", "PARENT_CMD"},
+		Columns: []string{"PID", "NAME", colParentPID, colParentCmd},
 		Rows:    rows,
 	}, nil
 }
@@ -145,9 +150,9 @@ func zombiesWithParentLinuxAt(ctx context.Context, procRoot string) (*models.Det
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Zombie processes (parent is the reaping offender)",
-		Columns: []string{"ZOMBIE_PID", "ZOMBIE_NAME", "PARENT_PID", "PARENT_CMD"},
+		Columns: []string{"ZOMBIE_PID", "ZOMBIE_NAME", colParentPID, colParentCmd},
 		Rows:    rows,
 	}, nil
 }
@@ -189,9 +194,9 @@ func zombiesWithParentMac(ctx context.Context) (*models.Details, error) {
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Zombie processes (parent is the reaping offender)",
-		Columns: []string{"ZOMBIE_PID", "ZOMBIE_NAME", "PARENT_PID", "PARENT_CMD"},
+		Columns: []string{"ZOMBIE_PID", "ZOMBIE_NAME", colParentPID, colParentCmd},
 		Rows:    rows,
 	}, nil
 }

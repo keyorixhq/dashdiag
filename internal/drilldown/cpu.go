@@ -116,7 +116,7 @@ func topProcessesByCPULinuxAt(ctx context.Context, n int, procRoot string) (*mod
 	}
 
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by CPU%",
 		Columns: []string{"PID", "CPU%", "COMMAND"},
 		Rows:    rows,
@@ -167,7 +167,7 @@ func topProcessesByCPUMac(ctx context.Context, n int) (*models.Details, error) {
 		rows = append(rows, []string{pid, cpu, cmd})
 	}
 	return &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by CPU%",
 		Columns: []string{"PID", "CPU%", "COMMAND"},
 		Rows:    rows,
