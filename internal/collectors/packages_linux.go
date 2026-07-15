@@ -127,7 +127,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (interface{}, error) {
 // detectPackageManager returns the host's package manager (cmdZypper/"dnf"/"apt"), or
 // "" when none is recognised. Probed in the same order as before (zypper, dnf, apt).
 func detectPackageManager(ctx context.Context) string {
-	if _, e := runCmd(ctx, cmdZypper, "--version"); e == nil {
+	if _, e := runCmd(ctx, "zypper", "--version"); e == nil {
 		return cmdZypper
 	}
 	if _, e := runCmd(ctx, "dnf", pkgFlagVersion); e == nil {
@@ -717,7 +717,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 5; attempt++ {
-		out, err = runCmdCombined(ctx, cmdZypper, pkgNonInteractive, pkgFlagNoColor,
+		out, err = runCmdCombined(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor,
 			"list-patches", "--category", pkgSevSecurity)
 		locked = err != nil && zypperLocked(out)
 		if !locked {
@@ -818,7 +818,7 @@ func collectZypper(ctx context.Context) (*models.PackagesInfo, error) {
 // On SLES, security patches require SUSEConnect registration.
 // On openSUSE Tumbleweed, update-tumbleweed is the security channel.
 func zypperHasSecurityRepo(ctx context.Context) bool {
-	out, err := runCmd(ctx, cmdZypper, pkgNonInteractive, pkgFlagNoColor, "repos")
+	out, err := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor, "repos")
 	if err != nil {
 		return false
 	}
@@ -899,11 +899,11 @@ func checkSUSEMigrationRisks(ctx context.Context) []string {
 	if runtime.GOARCH == "arm64" {
 		grubPkg = "grub2-arm64-efi"
 	}
-	grubOut, err := runCmd(ctx, cmdZypper, pkgNonInteractive, pkgFlagNoColor,
+	grubOut, err := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor,
 		"search", "--installed-only", grubPkg)
 	if err == nil && strings.Contains(grubOut, grubPkg) {
 		// Check if it's locked
-		lockOut, _ := runCmd(ctx, cmdZypper, pkgNonInteractive, pkgFlagNoColor, "locks")
+		lockOut, _ := runCmd(ctx, "zypper", pkgNonInteractive, pkgFlagNoColor, "locks")
 		if !strings.Contains(lockOut, grubPkg) {
 			risks = append(risks,
 				grubPkg+" is installed but NOT locked — migration may overwrite grub config and break boot",
@@ -1108,7 +1108,7 @@ func pkgIntegrityZypper(ctx context.Context, pi *models.PackageIntegrity) {
 	var err error
 	locked := false
 	for attempt := 0; attempt < 4; attempt++ {
-		out, err = runCmdCombined(zCtx, cmdZypper, pkgNonInteractive, "verify", "--dry-run")
+		out, err = runCmdCombined(zCtx, "zypper", pkgNonInteractive, "verify", "--dry-run")
 		// exit 1 = "problems found" (err != nil but NOT a lock — parse it); exit 7 =
 		// locked. Only a lock should retry.
 		locked = err != nil && zypperLocked(out)
