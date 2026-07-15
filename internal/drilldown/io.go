@@ -141,7 +141,7 @@ func topProcessesByIOLinuxAt(ctx context.Context, n int, procRoot string) (*mode
 	}
 
 	d := &models.Details{
-		Type:    "process_table",
+		Type:    tableProcesses,
 		Title:   "Top processes by I/O",
 		Columns: []string{"PID", "READ/s", "WRITE/s", "COMMAND"},
 		Rows:    rows,

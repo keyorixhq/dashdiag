@@ -43,7 +43,7 @@ func parseChronyTracking(out string) *models.Details {
 		}
 	}
 	return &models.Details{
-		Type:  "kv_table",
+		Type:  tableKV,
 		Title: "chronyc tracking",
 		KV:    kv,
 	}
@@ -59,7 +59,7 @@ func parseTimedatectl(out string) *models.Details {
 		kv[parts[0]] = parts[1]
 	}
 	return &models.Details{
-		Type:  "kv_table",
+		Type:  tableKV,
 		Title: "timedatectl status",
 		KV:    kv,
 	}
@@ -89,7 +89,7 @@ func clockTrackingMac(ctx context.Context) (*models.Details, error) {
 	}
 
 	return &models.Details{
-		Type:  "kv_table",
+		Type:  tableKV,
 		Title: "Network time status",
 		KV:    kv,
 	}, nil

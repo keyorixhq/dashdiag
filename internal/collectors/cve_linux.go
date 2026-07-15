@@ -18,6 +18,7 @@ const (
 	flagSecurity      = "--security"
 	flagQuiet         = "--quiet"
 	cmdAptGet         = "apt-get"
+	cmdUpdateinfo     = "updateinfo"
 	tdnfUpdateIDLabel = "Update ID :"
 	cmdArchAudit      = "arch-audit"
 	fixPacmanSyu      = "pacman -Syu"
@@ -251,7 +252,7 @@ func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
 	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4
 	out, err := runCmd(ctx, "dnf", "advisory", "info", "--cve", cveID, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", "updateinfo", "info", "--cve", cveID, flagQuiet)
+		out, err = runCmd(ctx, "dnf", cmdUpdateinfo, "info", "--cve", cveID, flagQuiet)
 	}
 
 	lower := strings.ToLower(out)
@@ -657,7 +658,7 @@ func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	// Try DNF5 first, then DNF4
 	out, err := runCmd(ctx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", "updateinfo", "list", "security", flagQuiet)
+		out, err = runCmd(ctx, "dnf", cmdUpdateinfo, "list", "security", flagQuiet)
 	}
 	if err != nil && len(out) == 0 {
 		if ctx.Err() != nil {
@@ -738,7 +739,7 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	out, err := runCmd(eCtx, "dnf", "updateinfo", "info", flagSecurity, flagQuiet)
+	out, err := runCmd(eCtx, "dnf", cmdUpdateinfo, "info", flagSecurity, flagQuiet)
 	if err != nil || len(out) == 0 {
 		result.SubscriptionNote = rhSubscriptionNote()
 		return
@@ -1240,7 +1241,7 @@ type tdnfUpdateInfoEntry struct {
 func checkCVETDNF(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "tdnf"}
 
-	out, err := runCmd(ctx, "tdnf", "updateinfo", "info", flagSecurity)
+	out, err := runCmd(ctx, "tdnf", cmdUpdateinfo, "info", flagSecurity)
 	if err != nil && strings.TrimSpace(out) == "" {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "tdnf updateinfo failed — CVE exposure NOT verified for " + cveID
@@ -1300,11 +1301,11 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 		return result
 	}
 
-	out, err := runCmd(ctx, "tdnf", "-j", "updateinfo", "list", flagSecurity)
+	out, err := runCmd(ctx, "tdnf", "-j", cmdUpdateinfo, "list", flagSecurity)
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
 		// JSON unavailable/garbled (older tdnf, refresh noise) — fall back to text.
-		textOut, textErr := runCmd(ctx, "tdnf", "updateinfo", "list", flagSecurity)
+		textOut, textErr := runCmd(ctx, "tdnf", cmdUpdateinfo, "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
 			result.StatusReason = "tdnf updateinfo failed: " + err.Error()
@@ -1395,7 +1396,7 @@ func parseTDNFUpdateInfoText(out string) []tdnfUpdateInfoEntry {
 func enrichTDNFAdvisoryWithCVEs(ctx context.Context, byID map[string]*models.CVEAdvisory) {
 	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := runCmd(eCtx, "tdnf", "updateinfo", "info", flagSecurity)
+	out, err := runCmd(eCtx, "tdnf", cmdUpdateinfo, "info", flagSecurity)
 	if err != nil && strings.TrimSpace(out) == "" {
 		return
 	}

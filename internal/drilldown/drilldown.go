@@ -20,7 +20,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
-const drilldownTimeout = 5 * time.Second
+const (
+	drilldownTimeout = 5 * time.Second
+	tableProcesses   = "process_table"
+	tableKV          = "kv_table"
+)
 
 // PopulateAll runs drill-down for each WARN/CRIT insight in parallel.
 // OK-level insights pass through unchanged. Results are written into
@@ -261,7 +265,7 @@ func zombiesFromResults(results []runner.Result) *models.Details {
 			})
 		}
 		return &models.Details{
-			Type:    "process_table",
+			Type:    tableProcesses,
 			Title:   "Zombie processes (parent is the reaping offender)",
 			Columns: []string{"ZOMBIE_PID", "PARENT_PID", "PARENT_NAME"},
 			Rows:    rows,
@@ -292,7 +296,7 @@ func hungProcessesFromResults(results []runner.Result) *models.Details {
 			})
 		}
 		return &models.Details{
-			Type:    "process_table",
+			Type:    tableProcesses,
 			Title:   "Hung (uninterruptible) processes",
 			Columns: []string{"PID", "NAME", "PPID", "WCHAN"},
 			Rows:    rows,
@@ -331,7 +335,7 @@ func hardeningFromResults(results []runner.Result, msg string) *models.Details {
 					note = "process names require root — run: sudo dsd health"
 				}
 				return &models.Details{
-					Type:    "process_table",
+					Type:    tableProcesses,
 					Title:   "Unexpected ports listening on all interfaces",
 					Columns: []string{"PORT", "PROTO", "PROCESS"},
 					Rows:    rows,
@@ -347,7 +351,7 @@ func hardeningFromResults(results []runner.Result, msg string) *models.Details {
 				rows = append(rows, []string{ip})
 			}
 			return &models.Details{
-				Type:    "process_table",
+				Type:    tableProcesses,
 				Title:   "Top source IPs for failed logins",
 				Columns: []string{"IP (attempts)"},
 				Rows:    rows,

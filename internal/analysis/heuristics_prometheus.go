@@ -6,6 +6,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const catPrometheus = "Prometheus"
+
 // checkPrometheus surfaces health for a local Prometheus server. Gated on Detected.
 // Two headline signals: scrape targets that are DOWN (their series are silently not
 // collected — monitoring blind spots) and a FAILED config reload (Prometheus keeps
@@ -17,7 +19,7 @@ func checkPrometheus(p models.PrometheusInfo) []models.Insight {
 	}
 
 	if !p.MetricsRead {
-		return []models.Insight{insight("INFO", "Prometheus",
+		return []models.Insight{insight("INFO", catPrometheus,
 			"Prometheus is up, but its API could not be read",
 			[]string{
 				"note: the targets API must be reachable (a reverse proxy or auth may block it)",
@@ -30,7 +32,7 @@ func checkPrometheus(p models.PrometheusInfo) []models.Insight {
 
 	// A failed config reload means recent edits are silently not applied.
 	if p.ConfigReloadRead && !p.ConfigReloadOK {
-		out = append(out, insight("WARN", "Prometheus",
+		out = append(out, insight("WARN", catPrometheus,
 			"configuration reload FAILED — Prometheus is serving its last-good config, so recent rule/scrape edits are not applied",
 			[]string{
 				"to inspect: promtool check config /etc/prometheus/prometheus.yml",
@@ -41,11 +43,11 @@ func checkPrometheus(p models.PrometheusInfo) []models.Insight {
 	// Scrape targets that are down: their metrics are not being collected.
 	switch {
 	case p.TargetsTotal > 0 && p.TargetsDown == p.TargetsTotal:
-		out = append(out, insight("CRIT", "Prometheus",
+		out = append(out, insight("CRIT", catPrometheus,
 			fmt.Sprintf("ALL %d scrape target(s) are DOWN — Prometheus is collecting nothing (monitoring is blind)", p.TargetsTotal),
 			promTargetSteps(p.DownSample)))
 	case p.TargetsDown > 0:
-		out = append(out, insight("WARN", "Prometheus",
+		out = append(out, insight("WARN", catPrometheus,
 			fmt.Sprintf("%d of %d scrape target(s) are DOWN — their series are not being collected (blind spots)", p.TargetsDown, p.TargetsTotal),
 			promTargetSteps(p.DownSample)))
 	}
