@@ -96,11 +96,11 @@ func TestBuildWaveReport(t *testing.T) {
 	t.Parallel()
 	results := []waveResult{
 		{
-			Verdict: certPass,
+			Verdict:     certPass,
 			Regressions: nil,
 		},
 		{
-			Verdict: certWarn,
+			Verdict:     certWarn,
 			Regressions: []baseline.DiffEntry{{Name: "Memory", Before: "OK value", After: "WARN value"}},
 		},
 		{
