@@ -178,6 +178,84 @@ func TestBuildWaveReport_WithError(t *testing.T) {
 	}
 }
 
+func TestPrintWaveTable_NoName(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certPass},
+		{Verdict: certWarn},
+		{Verdict: certFail},
+	}
+	// Just verify it doesn't panic — output goes to stdout.
+	printWaveTable(results, "")
+}
+
+func TestPrintWaveTable_WithName(t *testing.T) {
+	t.Parallel()
+	printWaveTable([]waveResult{{Verdict: certPass}}, "Acme Corp Wave")
+}
+
+func TestEmitWaveJSON(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certPass, Regressions: nil},
+		{
+			Verdict:     certWarn,
+			Regressions: []baseline.DiffEntry{{Name: "Memory", Before: "OK", After: "WARN"}},
+		},
+		{Verdict: certFail, Err: fmt.Errorf("bundle load failed")},
+	}
+	if err := emitWaveJSON(results, "Test Wave"); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestEmitWaveJSON_AllPass(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{{Verdict: certPass}, {Verdict: certPass}}
+	if err := emitWaveJSON(results, ""); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestCertifyPair_SrcNotFound(t *testing.T) {
+	t.Parallel()
+	p := wavePair{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"}
+	r := certifyPair(p, false, false, false)
+	if r.Verdict != certFail {
+		t.Errorf("expected FAIL for missing src bundle, got %q", r.Verdict)
+	}
+	if r.Err == nil {
+		t.Error("expected non-nil error for missing src bundle")
+	}
+}
+
+func TestCertifyWave_SrcNotFound_Verbose(t *testing.T) {
+	t.Parallel()
+	pairs := []wavePair{
+		{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"},
+	}
+	// quiet=false: exercises the stderr printing branch
+	results := certifyWave(pairs, false, false, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Verdict != certFail {
+		t.Errorf("expected FAIL, got %q", results[0].Verdict)
+	}
+}
+
+func TestCertifyWave_SrcNotFound_Quiet(t *testing.T) {
+	t.Parallel()
+	pairs := []wavePair{
+		{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"},
+	}
+	// quiet=true: skips the stderr printing branch
+	results := certifyWave(pairs, false, false, false, true)
+	if len(results) != 1 || results[0].Verdict != certFail {
+		t.Errorf("expected 1 FAIL result, got %v", results)
+	}
+}
+
 // Verify WavePairRow and WaveReport are exported from the render package
 // (compile-time check — no runtime assertions needed).
 var _ render.WaveReport
