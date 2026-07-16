@@ -23,6 +23,8 @@ func chmodRestoring(t *testing.T, path string, mode os.FileMode) {
 	t.Cleanup(func() {
 		_ = os.Chmod(path, orig)
 	})
+	// If the path is still accessible after chmod (root bypasses permission bits),
+	// the test cannot exercise the error path — skip rather than fail.
 	if fi.IsDir() {
 		if f, err := os.Open(path); err == nil {
 			f.Close()
