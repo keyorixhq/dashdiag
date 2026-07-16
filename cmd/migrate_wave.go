@@ -107,8 +107,15 @@ func certifyWave(pairs []wavePair, force, deep, pkg, quiet bool) []waveResult {
 		r := certifyPair(p, force, deep, pkg)
 		if !quiet && r.Verdict != "" {
 			mark := map[string]string{certPass: "✅", certWarn: "⚠️", certFail: "❌"}[r.Verdict]
-			fmt.Fprintf(os.Stderr, "  %s  %-22s → %-22s  %s\n",
-				mark, manifestHost(r.SrcBundle), manifestHost(r.DstBundle), r.Verdict)
+			srcLabel := p.Src
+			if r.SrcBundle != nil {
+				srcLabel = manifestHost(r.SrcBundle)
+			}
+			dstLabel := p.Dst
+			if r.DstBundle != nil {
+				dstLabel = manifestHost(r.DstBundle)
+			}
+			fmt.Fprintf(os.Stderr, "  %s  %-22s → %-22s  %s\n", mark, srcLabel, dstLabel, r.Verdict)
 		}
 		results = append(results, r)
 	}
