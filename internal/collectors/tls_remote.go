@@ -46,7 +46,7 @@ func checkRemoteEndpointLive(ctx context.Context, endpoint string) ([]models.Cer
 	// Extract host for SNI (strip port)
 	host, _, _ := net.SplitHostPort(endpoint)
 
-	tlsConn := tls.Client(rawConn, &tls.Config{ // NOSONAR — intentional: collector must read expired/invalid certs to diagnose them
+	tlsConn := tls.Client(rawConn, &tls.Config{ // NOSONAR nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion — intentional: collector must connect to any TLS version to diagnose expired/invalid certs
 		ServerName:         host,
 		InsecureSkipVerify: true, //nolint:gosec // G402: intentional: collector reads expired/invalid certs to diagnose them // codeql[go/disabled-certificate-check]
 	})
