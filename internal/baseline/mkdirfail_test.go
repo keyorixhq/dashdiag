@@ -164,6 +164,11 @@ func TestSaveBaseline_CreateTempFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o750) }) // let TempDir clean up
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
 
 	hostname, _ := os.Hostname()
 	snap := makeSnap(hostname, "v1", "cpu", "OK")
@@ -183,6 +188,11 @@ func TestSaveGolden_CreateTempFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o750) })
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
 
 	snap := &Snapshot{Hostname: "h", Version: "v1", Timestamp: time.Now()}
 	if err := SaveGolden(snap, "prod"); err == nil {
@@ -201,6 +211,11 @@ func TestSaveSecurityBaseline_CreateTempFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o750) })
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
 
 	b := &SecurityBaseline{Hostname: "h"}
 	if err := SaveSecurityBaseline(b); err == nil {
