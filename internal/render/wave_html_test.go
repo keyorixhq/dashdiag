@@ -1,6 +1,7 @@
 package render
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,53 @@ func TestBuildWaveHTML_NamedWave(t *testing.T) {
 	}
 	if !strings.Contains(html, "Acme Corp July Wave") {
 		t.Errorf("expected wave name in HTML output")
+	}
+}
+
+func TestBuildWaveHTML_YearZero(t *testing.T) {
+	t.Parallel()
+	// Year intentionally zero — buildWaveHTML should fill it from time.Now().
+	report := WaveReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "PASS", VerdictClass: "ok",
+		VerdictText: "All pairs passed certification — the migration wave is clean.",
+		Total:       1, CountPass: 1,
+		Pairs: []WavePairRow{{Source: "vm01-src", Destination: "vm01-dst", Verdict: "PASS", VerdictClass: "ok"}},
+	}
+	html, err := buildWaveHTML(report)
+	if err != nil {
+		t.Fatalf("buildWaveHTML error: %v", err)
+	}
+	if !strings.Contains(html, "All pairs passed certification") {
+		t.Errorf("expected verdict text in wave HTML output")
+	}
+}
+
+func TestGenerateWaveHTMLReport(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	report := WaveReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "PASS", VerdictClass: "ok",
+		VerdictText: "All pairs passed certification — the migration wave is clean.",
+		Total:       1, CountPass: 1, Year: 2026,
+		Pairs: []WavePairRow{{Source: "vm01-src", Destination: "vm01-dst", Verdict: "PASS", VerdictClass: "ok"}},
+	}
+	path, err := GenerateWaveHTMLReport(report)
+	if err != nil {
+		t.Fatalf("GenerateWaveHTMLReport error: %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("report file not created at %q: %v", path, statErr)
 	}
 }
 
