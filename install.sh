@@ -53,12 +53,14 @@ detect_platform() {
 fetch_latest_version() {
     _url="https://api.github.com/repos/${REPO}/releases/latest"
     # GITHUB_TOKEN (if set) avoids rate-limit 403s on shared CI runner IPs.
+    # --retry 3 --retry-delay 5: curl retries natively on HTTP 5xx (incl. 503)
+    # and on network errors; covers transient GitHub API / CDN hiccups.
     if command -v curl >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION="$(curl -fsSL --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         else
-            VERSION="$(curl -fsSL --proto '=https' "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         fi
     elif command -v wget >/dev/null 2>&1; then
@@ -88,20 +90,11 @@ download() {
 
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
-    # Retry up to 3 times with 5-second backoff — GitHub Releases CDN occasionally
-    # returns transient 503s that resolve within seconds.
-    _dl_n=3; _dl_delay=5
-    while true; do
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" && break
-        else
-            wget -q --https-only --show-progress "$URL" -O "$TMPFILE" && break # NOSONAR -- shelldre:S6506
-        fi
-        _dl_n=$((_dl_n - 1))
-        [ "$_dl_n" -gt 0 ] || die "Download failed after 3 attempts: $URL"
-        info "Download failed (attempt $((3 - _dl_n))/3), retrying in ${_dl_delay}s..."
-        sleep "$_dl_delay"
-    done
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
+    else
+        wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL" # NOSONAR -- shelldre:S6506
+    fi
 
     chmod +x "$TMPFILE"
     echo "$TMPFILE"
@@ -129,17 +122,11 @@ verify_checksum() {
     SUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
-    _cs_n=3; _cs_delay=5
-    while true; do
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null && break
-        else
-            wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null && break # NOSONAR -- shelldre:S6506
-        fi
-        _cs_n=$((_cs_n - 1))
-        [ "$_cs_n" -gt 0 ] || { unverified "Could not fetch checksums.txt from the release after 3 attempts"; return; }
-        sleep "$_cs_delay"
-    done
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
+    else
+        wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; } # NOSONAR -- shelldre:S6506
+    fi
 
     EXPECTED="$(grep "${BINARY}-${PLATFORM}" "$SUMS_FILE" | awk '{print $1}')"
     [ -n "$EXPECTED" ] || { unverified "No checksum for ${BINARY}-${PLATFORM} in checksums.txt"; return; }
@@ -174,7 +161,7 @@ verify_signature() {
     SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
     SIG_FILE="${SUMS_FILE}.minisig"                # minisign -Vm looks for <file>.minisig
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     else
         wget -qO "$SIG_FILE" --https-only "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; } # NOSONAR -- shelldre:S6506
     fi
