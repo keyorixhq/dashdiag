@@ -69,12 +69,12 @@ func SaveSecurityBaseline(b *SecurityBaseline) error {
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating dsd dir: %w", err)
 	}
-	data, err := json.MarshalIndent(b, "", "  ")
+	data, err := marshalSecBaselineFn(b)
 	if err != nil {
 		return fmt.Errorf("marshalling security baseline: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".secbase-*.tmp")
+	tmp, err := createSecBaseTempFn(dir, ".secbase-*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
@@ -126,7 +126,7 @@ func BuildSecurityBaseline(info *models.SecurityInfo) *SecurityBaseline {
 func hashSSHConfigFiles() map[string]string {
 	hashes := make(map[string]string)
 
-	paths := []string{"/etc/ssh/sshd_config"}
+	paths := append([]string{"/etc/ssh/sshd_config"}, sshConfigExtraPaths...)
 	if matches, err := filepath.Glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
 		paths = append(paths, matches...)
 	}
@@ -211,6 +211,18 @@ func DiffSecurityBaseline(baseline *SecurityBaseline, current *models.SecurityIn
 // in tests so drift detection can be exercised without depending on the host's
 // /etc/ssh contents.
 var hashSSHConfigFilesFn = hashSSHConfigFiles
+
+var marshalSecBaselineFn = func(b *SecurityBaseline) ([]byte, error) {
+	return json.MarshalIndent(b, "", "  ")
+}
+
+var createSecBaseTempFn = func(dir, pattern string) (*os.File, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
+// sshConfigExtraPaths is appended to the default path list in
+// hashSSHConfigFiles, allowing tests to inject synthetic config files.
+var sshConfigExtraPaths []string
 
 // toSet converts a slice to a membership set. A nil slice yields an empty set.
 func toSet(items []string) map[string]bool {

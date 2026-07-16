@@ -361,6 +361,11 @@ func TestWriteGuestReportHTML_WriteError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // let t.TempDir clean up
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
 	t.Chdir(dir)
 
 	view := guestView{
