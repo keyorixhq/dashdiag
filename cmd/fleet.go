@@ -35,7 +35,6 @@ Examples:
   dsd fleet --hosts-file hosts.txt
   dsd fleet --bin ./dist/dsd-linux-amd64 root@10.0.0.5 root@10.0.0.6
   dsd fleet --json web1 web2 | jq .verdict   # OK | WARN | CRIT (fleet-wide)
-  dsd fleet --report-html --hosts-file hosts.txt  # estate health report
 
 Exit code: 2 if any host is CRIT or unreachable, 1 if any WARN, else 0.`,
 	RunE: runFleet,
@@ -112,8 +111,8 @@ func runFleet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildFleetReport converts fleet.Summary to render.FleetReport. It lives in
-// cmd/ so render/ never needs to import fleet/ — the cmd layer bridges the two.
+// buildFleetReport converts fleet.Summary to render.FleetReport. It lives here
+// so render/ never needs to import fleet/ — the cmd layer bridges the two packages.
 func buildFleetReport(s fleet.Summary) render.FleetReport {
 	now := time.Now()
 	report := render.FleetReport{
@@ -172,6 +171,7 @@ func buildFleetReport(s fleet.Summary) render.FleetReport {
 			Sample:     truncate(strings.ReplaceAll(g.Sample, "\n", " "), 80),
 		})
 	}
+	report.Consequences = fleetConsequences(s)
 	return report
 }
 
@@ -194,7 +194,7 @@ func resolveHosts(args []string, hostsFile string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading --hosts-file: %w", err)
 		}
-		defer f.Close() //nolint:errcheck
+		defer f.Close()
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			add(sc.Text())

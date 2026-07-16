@@ -34,6 +34,13 @@ func TestSaveBaseline_SecondCreateTempFails(t *testing.T) {
 			// First temp file written — make dir unwritable so the next
 			// CreateTemp (for "-latest.json") fails.
 			_ = os.Chmod(bdir, 0o500)
+			// Skip if root bypasses the permission restriction.
+			if tf, cerr := os.CreateTemp(bdir, "rootcheck-*"); cerr == nil {
+				tf.Close()
+				_ = os.Remove(tf.Name())
+				_ = os.Chmod(bdir, 0o750)
+				t.Skip("running as root; directory-permission restriction cannot be triggered")
+			}
 		}
 		return err
 	}

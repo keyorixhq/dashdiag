@@ -53,10 +53,8 @@ var (
 	// Apply()'s checksum/download path without also having to forge a real
 	// minisign signature for the fake release fixture.
 	signingPublicKey = MinisignPublicKey
-	// osChmod is overridable in tests to simulate Chmod failures.
-	osChmod = os.Chmod
-	// closeFile is overridable in tests to simulate file Close failures.
-	closeFile = (*os.File).Close
+	osChmod          = os.Chmod
+	closeFile        = (*os.File).Close
 )
 
 // AssetName is the release asset for the running platform, e.g. dsd-linux-amd64.

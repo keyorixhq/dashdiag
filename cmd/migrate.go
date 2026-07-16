@@ -320,6 +320,9 @@ func emitCertifyJSON(src, dst *source.Bundle, verdict string, regressions []base
 }
 
 func manifestHost(b *source.Bundle) string {
+	if b == nil {
+		return "?"
+	}
 	if b.Manifest.Host != "" {
 		return b.Manifest.Host
 	}
@@ -327,6 +330,9 @@ func manifestHost(b *source.Bundle) string {
 }
 
 func manifestOS(b *source.Bundle) string {
+	if b == nil {
+		return "?"
+	}
 	if b.Manifest.OS != "" {
 		return b.Manifest.OS
 	}
