@@ -12,8 +12,8 @@ import (
 func TestSlowBootFix_RemainingCases(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		unit        string
-		wantSubstr  string
+		unit       string
+		wantSubstr string
 	}{
 		{"plymouth-quit-wait.service", "plymouth"},
 		{"fwupd-refresh.service", "fwupdmgr"},
@@ -104,10 +104,10 @@ func TestExtractAVCProcessNames(t *testing.T) {
 func TestCheckKernelSecurity_PolicyDirMissing(t *testing.T) {
 	t.Parallel()
 	mac := models.KernelSecurityInfo{
-		SELinuxPresent:    true,
-		SELinuxMode:       "enforcing",
-		SELinuxType:       "targeted",
-		SELinuxTypeValid:  true,
+		SELinuxPresent:     true,
+		SELinuxMode:        "enforcing",
+		SELinuxType:        "targeted",
+		SELinuxTypeValid:   true,
 		SELinuxPolicyDirOK: false, // the missing-dir branch
 		SELinuxPolicyPkgOK: true,
 	}

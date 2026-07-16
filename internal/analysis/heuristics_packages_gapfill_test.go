@@ -34,8 +34,8 @@ func TestCheckPackageDBHealth_EmptyReason(t *testing.T) {
 func TestSecurityUpdateInsight_ImportantUpdates(t *testing.T) {
 	t.Parallel()
 	pkg := models.PackagesInfo{
-		PackageManager: "dnf",
-		SecurityUpdates: 5,
+		PackageManager:   "dnf",
+		SecurityUpdates:  5,
 		ImportantUpdates: 3,
 		CriticalUpdates:  0,
 	}

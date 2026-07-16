@@ -158,16 +158,16 @@ func TestUntarGz_OversizeHeader(t *testing.T) {
 	// octal digits, fits in the 11-digit size field).
 	var block [512]byte
 	name := "oversize.bin"
-	copy(block[0:100], name)                    // name
-	copy(block[100:108], "0000644\x00")          // mode
-	copy(block[108:116], "0001750\x00")          // uid
-	copy(block[116:124], "0001750\x00")          // gid
+	copy(block[0:100], name)            // name
+	copy(block[100:108], "0000644\x00") // mode
+	copy(block[108:116], "0001750\x00") // uid
+	copy(block[116:124], "0001750\x00") // gid
 	oversized := maxUntarFileSize + 1
 	sizeOctal := fmt.Sprintf("%011o\x00", oversized)
-	copy(block[124:136], sizeOctal)             // size (12 bytes incl. NUL)
-	copy(block[136:148], "00000000000\x00")     // mtime
-	copy(block[156:157], "0")                   // typeflag: regular file
-	copy(block[257:265], "ustar  \x00")         // magic (GNU variant)
+	copy(block[124:136], sizeOctal)         // size (12 bytes incl. NUL)
+	copy(block[136:148], "00000000000\x00") // mtime
+	copy(block[156:157], "0")               // typeflag: regular file
+	copy(block[257:265], "ustar  \x00")     // magic (GNU variant)
 
 	// Compute and write the header checksum (bytes 148-155).
 	// Fill the checksum field with spaces for the computation.
