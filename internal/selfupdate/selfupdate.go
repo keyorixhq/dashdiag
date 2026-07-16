@@ -53,6 +53,10 @@ var (
 	// Apply()'s checksum/download path without also having to forge a real
 	// minisign signature for the fake release fixture.
 	signingPublicKey = MinisignPublicKey
+	// osChmod is overridable in tests to simulate Chmod failures.
+	osChmod = os.Chmod
+	// closeFile is overridable in tests to simulate file Close failures.
+	closeFile = (*os.File).Close
 )
 
 // AssetName is the release asset for the running platform, e.g. dsd-linux-amd64.
@@ -132,9 +136,6 @@ func versionParts(v string) [3]int {
 		return out
 	}
 	for i, part := range strings.SplitN(n, ".", 3) {
-		if i > 2 {
-			break
-		}
 		num := part
 		if j := strings.IndexAny(part, "-+"); j >= 0 {
 			num = part[:j]
@@ -233,7 +234,7 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 	if !strings.EqualFold(gotSum, wantSum) {
 		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, gotSum, wantSum)
 	}
-	if err := os.Chmod(tmp, 0o755); err != nil { // NOSONAR — executable permission is correct for a self-updating binary
+	if err := osChmod(tmp, 0o755); err != nil { // NOSONAR — executable permission is correct for a self-updating binary
 		return "", err
 	}
 	if err := os.Rename(tmp, exe); err != nil {
@@ -317,7 +318,7 @@ func downloadToTemp(ctx context.Context, url, dir string) (string, string, error
 		_ = os.Remove(f.Name())
 		return "", "", err
 	}
-	if err := f.Close(); err != nil {
+	if err := closeFile(f); err != nil {
 		_ = os.Remove(f.Name())
 		return "", "", err
 	}

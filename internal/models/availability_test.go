@@ -56,6 +56,7 @@ func TestIsAvailableMethods(t *testing.T) {
 		{"KernelRetentionInfo", func(a bool) bool { return KernelRetentionInfo{Available: a}.IsAvailable() }},
 		{"LivePatchInfo", func(a bool) bool { return LivePatchInfo{Available: a}.IsAvailable() }},
 		{"TransactionalInfo", func(a bool) bool { return TransactionalInfo{Available: a}.IsAvailable() }},
+		{"VaultInfo", func(a bool) bool { return VaultInfo{Available: a}.IsAvailable() }},
 	}
 
 	for _, tt := range tests {

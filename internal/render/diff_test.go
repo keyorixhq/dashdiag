@@ -22,6 +22,7 @@ func diffSnap(host string, checks ...baseline.CheckResult) *baseline.Snapshot {
 // TestPrintDiffPlainChange covers the support-workflow core: a degraded check is
 // surfaced with its before→after status, and an unchanged check is summarised.
 func TestPrintDiffPlainChange(t *testing.T) {
+	t.Parallel()
 	before := diffSnap("host1",
 		baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"},
 		baseline.CheckResult{Name: "Memory", Status: "OK", Value: "8%"},
@@ -46,6 +47,7 @@ func TestPrintDiffPlainChange(t *testing.T) {
 
 // TestPrintDiffNoChange: identical snapshots report no changes (not a false diff).
 func TestPrintDiffNoChange(t *testing.T) {
+	t.Parallel()
 	s := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"})
 	var buf bytes.Buffer
 	if err := PrintDiff(&buf, s, s, output.ModePlain); err != nil {
@@ -139,9 +141,22 @@ func TestAfterLevel(t *testing.T) {
 	}
 }
 
+// TestPrintDiffJSON_WriteError covers the w.Write error path in ModeJSON: when the
+// writer fails after a successful marshal, PrintDiff propagates the error.
+func TestPrintDiffJSON_WriteError(t *testing.T) {
+	t.Parallel()
+	before := diffSnap("h", baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"})
+	after := diffSnap("h", baseline.CheckResult{Name: "Disk", Status: "CRIT", Value: "/ 94%"})
+
+	if err := PrintDiff(&errWriter{}, before, after, output.ModeJSON); err == nil {
+		t.Error("expected error from failing writer, got nil")
+	}
+}
+
 // TestPrintDiffJSON: --json emits a machine-readable DiffEntry array with the
 // changed entry flagged.
 func TestPrintDiffJSON(t *testing.T) {
+	t.Parallel()
 	before := diffSnap("h", baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"})
 	after := diffSnap("h", baseline.CheckResult{Name: "Disk", Status: "CRIT", Value: "/ 94%"})
 

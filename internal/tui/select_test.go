@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"strings"
@@ -8,6 +9,18 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// defaultTeaRun captures the package-level teaRun at init time so tests
+// can invoke it directly to cover its closure body (select.go:17).
+var defaultTeaRun = teaRun
+
+// quitImmediatelyModel is a bubbletea model that quits on the first message
+// so that p.Run() returns without blocking, used to exercise the default teaRun closure.
+type quitImmediatelyModel struct{}
+
+func (quitImmediatelyModel) Init() tea.Cmd                       { return tea.Quit }
+func (quitImmediatelyModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return quitImmediatelyModel{}, nil }
+func (quitImmediatelyModel) View() string                        { return "" }
 
 // isQuitCmd reports whether cmd is bubbletea's tea.Quit — the model asked
 // the program to exit.
@@ -578,5 +591,63 @@ func TestRunMultiSelect_TTYPath_Error(t *testing.T) {
 	_, err := RunMultiSelect("Pick some", []string{"x"})
 	if err == nil {
 		t.Error("expected error from teaRun, got nil")
+	}
+}
+
+// TestDefaultTeaRun_ClosureBody covers select.go:17 — the body of the default
+// teaRun closure (return p.Run()).  We invoke it directly with a program whose
+// model quits on Init so p.Run() returns immediately without a real TTY.
+func TestDefaultTeaRun_ClosureBody(t *testing.T) {
+	t.Parallel()
+	var in bytes.Buffer
+	var out bytes.Buffer
+	p := tea.NewProgram(quitImmediatelyModel{}, tea.WithInput(&in), tea.WithOutput(&out), tea.WithoutRenderer())
+	_, err := defaultTeaRun(p)
+	if err != nil {
+		t.Fatalf("defaultTeaRun: unexpected error: %v", err)
+	}
+}
+
+// TestRunSingleSelect_TTYPath_WrongModelType covers select.go:81 — the branch
+// where teaRun returns a model of the wrong type.
+func TestRunSingleSelect_TTYPath_WrongModelType(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return MultiSelectModel{}, nil
+	}
+
+	_, err := RunSingleSelect("Pick one", []string{"a"})
+	if err == nil {
+		t.Error("RunSingleSelect: expected error for wrong model type, got nil")
+	}
+	if !strings.Contains(err.Error(), "unexpected model type") {
+		t.Errorf("RunSingleSelect: error = %q, want 'unexpected model type'", err.Error())
+	}
+}
+
+// TestRunMultiSelect_TTYPath_WrongModelType covers select.go:174 — the branch
+// where teaRun returns a model of the wrong type.
+func TestRunMultiSelect_TTYPath_WrongModelType(t *testing.T) {
+	oldCheck := checkTTY
+	t.Cleanup(func() { checkTTY = oldCheck })
+	checkTTY = func() bool { return true }
+
+	oldRun := teaRun
+	t.Cleanup(func() { teaRun = oldRun })
+	teaRun = func(p *tea.Program) (tea.Model, error) {
+		return SingleSelectModel{}, nil
+	}
+
+	_, err := RunMultiSelect("Pick some", []string{"a"})
+	if err == nil {
+		t.Error("RunMultiSelect: expected error for wrong model type, got nil")
+	}
+	if !strings.Contains(err.Error(), "unexpected model type") {
+		t.Errorf("RunMultiSelect: error = %q, want 'unexpected model type'", err.Error())
 	}
 }

@@ -3,6 +3,7 @@ package inventory
 import (
 	"bytes"
 	"encoding/csv"
+	"io"
 	"strconv"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -12,7 +13,16 @@ import (
 // ingest directly. List items get indexed keys (drive.0.model, nic.1.mac, …).
 func ToCSV(inv models.Inventory) (string, error) {
 	var buf bytes.Buffer
-	w := csv.NewWriter(&buf)
+	if err := writeCSV(&buf, inv); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// writeCSV encodes inv as CSV into dst. Extracted so tests can inject a failing
+// io.Writer to exercise the error path.
+func writeCSV(dst io.Writer, inv models.Inventory) error {
+	w := csv.NewWriter(dst)
 	rows := [][]string{{"key", "value"}}
 
 	add := func(k, v string) {
@@ -81,8 +91,8 @@ func ToCSV(inv models.Inventory) (string, error) {
 	addInt("software.package_count", inv.Software.PackageCount)
 
 	if err := w.WriteAll(rows); err != nil {
-		return "", err
+		return err
 	}
 	w.Flush()
-	return buf.String(), w.Error()
+	return w.Error()
 }

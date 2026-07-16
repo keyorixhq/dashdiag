@@ -2,7 +2,11 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -131,5 +135,82 @@ func TestSaveCache_WriteFileFails(t *testing.T) {
 	err := saveCache(&checkCache{CheckedAt: time.Now().UTC(), LatestVersion: "v1.0.0"})
 	if err == nil {
 		t.Fatal("expected saveCache to fail when the .tmp staging path is a directory")
+	}
+}
+
+// TestApply_ChmodFails covers the osChmod error branch in Apply: after a
+// successful download and checksum match, os.Chmod is overridden to return an
+// error, so Apply must return that error before attempting os.Rename.
+func TestApply_ChmodFails(t *testing.T) {
+	// no t.Parallel(): mutates package-level osChmod/executable/signingPublicKey,
+	// matching the convention in selfupdate_test.go and selfupdate_extra_test.go.
+
+	payload := []byte("new-binary")
+	sum := sha256.Sum256(payload)
+	sumHex := hex.EncodeToString(sum[:])
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/bin", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) })
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "%s  %s\n", sumHex, AssetName())
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	rel := &Release{TagName: "v1", Assets: []Asset{
+		{Name: AssetName(), URL: srv.URL + "/bin"},
+		{Name: "checksums.txt", URL: srv.URL + "/sums"},
+	}}
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dsd")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	t.Cleanup(func() { signingPublicKey = oldKey })
+
+	oldExe := executable
+	executable = func() (string, error) { return target, nil }
+	t.Cleanup(func() { executable = oldExe })
+
+	chmodErr := errors.New("chmod: permission denied")
+	oldChmod := osChmod
+	osChmod = func(_ string, _ os.FileMode) error { return chmodErr }
+	t.Cleanup(func() { osChmod = oldChmod })
+
+	_, err := Apply(context.Background(), rel)
+	if err == nil || !strings.Contains(err.Error(), "chmod: permission denied") {
+		t.Fatalf("expected chmod error, got %v", err)
+	}
+}
+
+// TestDownloadToTemp_CloseError covers the closeFile error branch in
+// downloadToTemp: after io.Copy succeeds the overridden closeFile returns an
+// error, so downloadToTemp must remove the staged file and propagate the error.
+func TestDownloadToTemp_CloseError(t *testing.T) {
+	// no t.Parallel(): mutates package-level closeFile, matching the convention
+	// in selfupdate_test.go and selfupdate_extra_test.go.
+
+	payload := []byte("file-content")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	closeErr := errors.New("close: I/O error")
+	oldClose := closeFile
+	closeFile = func(f *os.File) error {
+		_ = f.Close()
+		return closeErr
+	}
+	t.Cleanup(func() { closeFile = oldClose })
+
+	dir := t.TempDir()
+	_, _, err := downloadToTemp(context.Background(), srv.URL, dir)
+	if err == nil || !strings.Contains(err.Error(), "close: I/O error") {
+		t.Fatalf("expected close error, got %v", err)
 	}
 }
