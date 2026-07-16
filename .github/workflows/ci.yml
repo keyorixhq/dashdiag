@@ -209,7 +209,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: pipx install semgrep
-      - run: semgrep scan --config .semgrep/ --config p/go --error --severity ERROR --severity WARNING .
+      - run: semgrep scan --config .semgrep/ --config p/golang --error --severity ERROR --severity WARNING .
 
   # Fail the build on any dependency whose license is not in the enterprise-safe
   # allowlist (MIT/Apache-2.0/BSD/ISC/MPL-2.0). Catches a new transitive dep
