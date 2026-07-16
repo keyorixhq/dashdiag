@@ -91,8 +91,29 @@ docs: update CONTRIBUTING with golden file instructions
 chore: update dependencies
 ```
 
+## Sign Your Work (DCO)
+
+Every commit must carry a `Signed-off-by` trailer certifying that you have the
+right to submit the contribution under the project's license (DCO v1.1 — see
+the `DCO` file at the repo root).
+
+```bash
+git commit --signoff -m "feat: your message"
+# or the short form:
+git commit -s -m "feat: your message"
+```
+
+To sign off all commits on a branch in one step:
+
+```bash
+git rebase --signoff origin/main
+```
+
+CI will fail any PR that contains unsigned commits.
+
 ## Pull Request Checklist
 
+- [ ] Every commit carries `Signed-off-by` (`git commit -s`)
 - [ ] `make check` passes (format + vet + lint)
 - [ ] `make test` passes with race detector
 - [ ] New collectors have: unit tests + fixtures + golden file

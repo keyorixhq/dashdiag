@@ -23,6 +23,31 @@ permissions:
 # without anyone remembering to bump go.mod.
 
 jobs:
+  # Every commit on a PR must carry a Signed-off-by trailer (DCO v1.1).
+  # Co-founders and external contributors: use `git commit --signoff` (or -s).
+  # To fix a branch: `git rebase --signoff origin/main`.
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+      - name: Check every PR commit carries Signed-off-by
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          FAIL=0
+          for sha in $(git log --no-merges --format="%H" "origin/${BASE}..HEAD"); do
+            if ! git show -s --format="%B" "$sha" | grep -q "^Signed-off-by:"; then
+              echo "::error::$sha missing Signed-off-by — fix: git rebase --signoff origin/${BASE}"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] && echo "✅ All PR commits carry Signed-off-by"
+          exit $FAIL
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -183,6 +208,23 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: pipx install semgrep
       - run: semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING .
+
+  # Fail the build on any dependency whose license is not in the enterprise-safe
+  # allowlist (MIT/Apache-2.0/BSD/ISC/MPL-2.0). Catches a new transitive dep
+  # before it lands in a customer audit — faster to fix than after the fact.
+  license-gate:
+    name: License allowlist (go-licenses)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@v1.6.0
+      - name: Check dependency licenses
+        run: go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 
   # Guards the install front door — a P0 (broken one-liner for every new user,
   # #123) slipped through because install.sh had ZERO automated coverage. This
