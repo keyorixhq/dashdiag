@@ -13,6 +13,8 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/fleet"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
 var fleetCmd = &cobra.Command{
@@ -33,6 +35,7 @@ Examples:
   dsd fleet --hosts-file hosts.txt
   dsd fleet --bin ./dist/dsd-linux-amd64 root@10.0.0.5 root@10.0.0.6
   dsd fleet --json web1 web2 | jq .verdict   # OK | WARN | CRIT (fleet-wide)
+  dsd fleet --report-html --hosts-file hosts.txt  # estate health report
 
 Exit code: 2 if any host is CRIT or unreachable, 1 if any WARN, else 0.`,
 	RunE: runFleet,
@@ -46,6 +49,7 @@ func init() {
 	fleetCmd.Flags().Duration("connect-timeout", 8*time.Second, "SSH connect timeout per host")
 	fleetCmd.Flags().Duration("timeout", 45*time.Second, "overall timeout per host")
 	fleetCmd.Flags().Int("concurrency", 8, "max hosts checked in parallel")
+	fleetCmd.Flags().Bool("report-html", false, "write a self-contained fleet HTML report (printable to PDF) to dsd-fleet-report-<date>.html")
 }
 
 func runFleet(cmd *cobra.Command, args []string) error {
@@ -94,10 +98,81 @@ func runFleet(cmd *cobra.Command, args []string) error {
 		printFleetTable(summary, mode)
 	}
 
+	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
+		if path, err := render.GenerateFleetHTMLReport(buildFleetReport(summary)); err != nil {
+			fmt.Fprintf(os.Stderr, "fleet report: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n📄 Fleet HTML report saved: %s\n", path)
+		}
+	}
+
 	// Use the shared exit-code mechanism (applied by Execute after defers run),
 	// matching dsd health: 2 = any CRIT/unreachable, 1 = any WARN, 0 = clean.
 	recordExitCode(summary.ExitCode)
 	return nil
+}
+
+// buildFleetReport converts fleet.Summary to render.FleetReport. It lives in
+// cmd/ so render/ never needs to import fleet/ — the cmd layer bridges the two.
+func buildFleetReport(s fleet.Summary) render.FleetReport {
+	now := time.Now()
+	report := render.FleetReport{
+		Date:             now.Format("2006-01-02 15:04:05 MST"),
+		Version:          version.Version,
+		Verdict:          s.Verdict,
+		Total:            s.Total,
+		CountOK:          s.Counts.OK,
+		CountWarn:        s.Counts.WARN,
+		CountCrit:        s.Counts.CRIT,
+		CountUnreachable: s.Counts.Unreachable,
+		Year:             now.Year(),
+	}
+	switch s.Verdict {
+	case "CRIT":
+		report.VerdictClass = "crit"
+		report.VerdictText = fmt.Sprintf("%d host(s) have critical issues or are unreachable.", s.Counts.CRIT+s.Counts.Unreachable)
+	case "WARN":
+		report.VerdictClass = "warn"
+		report.VerdictText = fmt.Sprintf("%d host(s) have warnings — review recommended.", s.Counts.WARN)
+	default:
+		report.VerdictClass = "ok"
+		report.VerdictText = "All hosts are healthy."
+	}
+	for _, h := range s.Hosts {
+		row := render.FleetHostRow{
+			Host:      h.Host,
+			Hostname:  h.Hostname,
+			Crit:      h.Crit,
+			Warn:      h.Warn,
+			ElapsedMs: h.ElapsedMs,
+		}
+		if !h.Reachable || h.Worst == "ERROR" {
+			row.Status, row.StatusClass = "UNREACHABLE", "error"
+			row.TopIssue = h.Error
+		} else {
+			row.Status = h.Worst
+			row.StatusClass = strings.ToLower(h.Worst)
+			row.TopIssue = h.TopIssue
+		}
+		report.Hosts = append(report.Hosts, row)
+	}
+	reachable := s.Total - s.Counts.Unreachable
+	for _, g := range s.Issues {
+		where := fmt.Sprintf("%d/%d", g.Count, reachable)
+		if g.Scope == "outlier" && len(g.Hosts) == 1 {
+			where = g.Hosts[0]
+		}
+		report.Issues = append(report.Issues, render.FleetIssueRow{
+			Scope:      g.Scope,
+			ScopeClass: strings.ReplaceAll(g.Scope, "-", ""),
+			Level:      g.Level,
+			LevelClass: strings.ToLower(g.Level),
+			Check:      g.Check,
+			Where:      where,
+			Sample:     truncate(strings.ReplaceAll(g.Sample, "\n", " "), 80),
+		})
+	}
+	return report
 }
 
 func resolveHosts(args []string, hostsFile string) ([]string, error) {
@@ -119,7 +194,7 @@ func resolveHosts(args []string, hostsFile string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading --hosts-file: %w", err)
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			add(sc.Text())
