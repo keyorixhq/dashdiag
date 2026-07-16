@@ -7,6 +7,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/fleet"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/render"
 )
 
 // Golden-output tests for fleet.go's table renderers. No t.Parallel()
@@ -83,6 +84,49 @@ func TestPrintFleetIssues_Outlier(t *testing.T) {
 	}
 	if strings.Contains(out, "1/3") {
 		t.Errorf("an outlier issue must not show the N/M ratio form, got:\n%s", out)
+	}
+}
+
+// TestBuildFleetReport verifies the fleet.Summary → render.FleetReport conversion.
+func TestBuildFleetReport(t *testing.T) {
+	t.Parallel()
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "CRIT", Crit: 1, TopIssue: "disk full",
+			Issues: []fleet.Issue{{Check: "Disk", Level: "CRIT", Message: "disk full"}}},
+		{Host: "web02", Reachable: true, Worst: "OK"},
+		{Host: "web03", Reachable: false, Error: "connection refused"},
+	})
+	report := buildFleetReport(summary)
+	if report.Verdict != "CRIT" {
+		t.Errorf("expected CRIT verdict, got %q", report.Verdict)
+	}
+	if report.VerdictClass != "crit" {
+		t.Errorf("expected crit class, got %q", report.VerdictClass)
+	}
+	if report.Total != 3 {
+		t.Errorf("expected total=3, got %d", report.Total)
+	}
+	if report.CountCrit != 1 || report.CountOK != 1 || report.CountUnreachable != 1 {
+		t.Errorf("count mismatch: crit=%d ok=%d unreachable=%d", report.CountCrit, report.CountOK, report.CountUnreachable)
+	}
+	if len(report.Hosts) != 3 {
+		t.Fatalf("expected 3 host rows, got %d", len(report.Hosts))
+	}
+	// Unreachable host should carry error as top issue and use "error" status class.
+	var unreachable *render.FleetHostRow
+	for i := range report.Hosts {
+		if report.Hosts[i].Host == "web03" {
+			unreachable = &report.Hosts[i]
+		}
+	}
+	if unreachable == nil {
+		t.Fatal("web03 not in host rows")
+	}
+	if unreachable.StatusClass != "error" {
+		t.Errorf("unreachable host should have status class 'error', got %q", unreachable.StatusClass)
+	}
+	if unreachable.TopIssue != "connection refused" {
+		t.Errorf("unreachable host top issue should be the error, got %q", unreachable.TopIssue)
 	}
 }
 

@@ -329,6 +329,7 @@ func buildWaveReport(results []waveResult, name string) render.WaveReport {
 	default:
 		report.VerdictText = "All pairs passed certification — the migration wave is clean."
 	}
+	report.Consequences = waveConsequences(results)
 	return report
 }
 
