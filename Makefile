@@ -110,6 +110,11 @@ lint-linux:
 		dashdiag-dev:latest \
 		golangci-lint run ./...
 
+.PHONY: license-check
+license-check:
+	@command -v go-licenses >/dev/null 2>&1 || { echo "⚠️  go-licenses not installed — run: make tools"; exit 0; }
+	go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+
 # ── TESTING ───────────────────────────────────────────────────────────────────
 .PHONY: test
 test:
@@ -296,6 +301,7 @@ tools:
 	go install golang.org/x/tools/cmd/goimports@latest
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install github.com/google/go-licenses@v1.6.0
 	@echo "✅ Tools installed"
 
 .PHONY: hooks
