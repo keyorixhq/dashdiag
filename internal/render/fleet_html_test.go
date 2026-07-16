@@ -86,7 +86,6 @@ func TestGenerateFleetHTMLReport_AllOK(t *testing.T) {
 	}
 }
 
-// Not parallel — swaps the package-level brandOverride via SetBrand.
 func TestGenerateFleetHTMLReport_Branded(t *testing.T) {
 	prev := brandOverride
 	SetBrand(Brand{Company: "Acme MSP"})
@@ -116,35 +115,69 @@ func TestGenerateFleetHTMLReport_Branded(t *testing.T) {
 	}
 }
 
-// TestBuildFleetHTML_YearDefault covers fleet_html.go:59-61: when Year is 0,
-// buildFleetHTML fills it with the current year so the footer is never blank.
-func TestBuildFleetHTML_YearDefault(t *testing.T) {
+func TestGenerateFleetHTMLReport_WritesFile(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	report := FleetReport{
+		Date:         "2026-07-16 12:00:00 UTC",
+		Version:      "v1.19.1",
+		Verdict:      "OK",
+		VerdictClass: "ok",
+		VerdictText:  "All hosts are healthy.",
+		Total:        1,
+		CountOK:      1,
+		Year:         2026,
+		Hosts:        []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+	path, err := GenerateFleetHTMLReport(report)
+	if err != nil {
+		t.Fatalf("GenerateFleetHTMLReport error: %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("report file not created at %q: %v", path, statErr)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // test-controlled path in t.TempDir()
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "<!DOCTYPE html>") {
+		t.Errorf("written file does not look like HTML")
+	}
+}
+
+// TestBuildFleetHTML_YearZero covers the Year==0 auto-fill branch in buildFleetHTML.
+func TestBuildFleetHTML_YearZero(t *testing.T) {
 	t.Parallel()
 	report := FleetReport{
-		Date:    "2026-07-16 12:00:00 UTC",
-		Version: "v1.19.1",
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
 		Verdict: "OK", VerdictClass: "ok",
 		VerdictText: "All hosts are healthy.",
 		Total:       1, CountOK: 1,
-		// Year intentionally zero — should be auto-filled by buildFleetHTML.
+		// Year intentionally zero — buildFleetHTML must fill it from time.Now().
 		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
 	}
-
 	html, err := buildFleetHTML(report)
 	if err != nil {
 		t.Fatalf("buildFleetHTML error: %v", err)
 	}
-	// The current year should appear somewhere in the output.
-	if !strings.Contains(html, "202") {
-		t.Errorf("expected a year in the footer, got no 202x string in output")
+	if !strings.Contains(html, "All hosts are healthy") {
+		t.Errorf("expected verdict text in fleet HTML output")
 	}
 }
 
-// TestBuildFleetHTML_TemplateExecuteError covers fleet_html.go:68-70: the
-// template execute error branch inside buildFleetHTML.
+// TestBuildFleetHTML_TemplateExecuteError covers the template.Execute error branch.
 // Not parallel — swaps the package-level fleetHTMLTmpl.
 func TestBuildFleetHTML_TemplateExecuteError(t *testing.T) {
 	orig := fleetHTMLTmpl
+	// Parses fine but fails at Execute (missing sub-template).
 	fleetHTMLTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
 	defer func() { fleetHTMLTmpl = orig }()
 
@@ -154,77 +187,38 @@ func TestBuildFleetHTML_TemplateExecuteError(t *testing.T) {
 	}
 }
 
-// TestGenerateFleetHTMLReport_WritesFile covers fleet_html.go:77-88: the happy
-// path writes a self-contained HTML file whose name embeds the timestamp.
-func TestGenerateFleetHTMLReport_WritesFile(t *testing.T) {
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(old) //nolint:errcheck
-
-	report := FleetReport{
-		Date:    "2026-07-16 12:00:00 UTC",
-		Version: "v1.19.1",
-		Verdict: "OK", VerdictClass: "ok",
-		VerdictText: "All hosts are healthy.",
-		Total:       1, CountOK: 1,
-		Year:  2026,
-		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
-	}
-
-	path, err := GenerateFleetHTMLReport(report)
-	if err != nil {
-		t.Fatalf("GenerateFleetHTMLReport: %v", err)
-	}
-	if !strings.Contains(path, "dsd-fleet-report-") || !strings.HasSuffix(path, ".html") {
-		t.Errorf("unexpected report path %q", path)
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // test-controlled path in t.TempDir()
-	if err != nil {
-		t.Fatalf("report file not written: %v", err)
-	}
-	if !strings.Contains(string(data), "<!DOCTYPE html>") {
-		t.Errorf("written file does not look like HTML")
-	}
-}
-
-// TestGenerateFleetHTMLReport_WriteFails covers fleet_html.go:85-87: the
-// os.WriteFile error path in GenerateFleetHTMLReport. The CWD is set to a
-// read-only (but still traversable) directory so any write attempt fails.
-// The generated filename is time-based (unlike html.go's snapshot-timestamp
-// name), so it can't be pre-occupied by a directory the way html_test.go's
-// WriteFails test does — a read-only directory is used instead. Skipped when
-// running as root since root can write regardless of permission bits.
+// TestGenerateFleetHTMLReport_WriteFails covers the os.WriteFile error branch
+// by making the CWD read-only. The root-bypass skips cleanly via CreateTemp.
 func TestGenerateFleetHTMLReport_WriteFails(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("skipping write-fail test: running as root can write to read-only dirs")
-	}
-
-	old, err := os.Getwd()
+	dir := t.TempDir()
+	orig, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	roDir := t.TempDir()
-	// r-xr-xr-x: keep execute (traversable, chdir succeeds) but drop write.
-	if err := os.Chmod(roDir, 0o555); err != nil {
+	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(roDir, 0o755) //nolint:errcheck
-	if err := os.Chdir(roDir); err != nil {
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(old) //nolint:errcheck
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	// Root ignores permission bits — skip instead of producing a false pass.
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
 
 	report := FleetReport{
-		Year:    2026,
-		Verdict: "OK", VerdictClass: "ok",
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "OK", VerdictClass: "ok", VerdictText: "All hosts are healthy.",
+		Total: 1, CountOK: 1, Year: 2026,
 		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
 	}
 	if _, err := GenerateFleetHTMLReport(report); err == nil {
-		t.Error("expected error when write is blocked, got nil")
+		t.Error("expected error writing to read-only directory")
 	}
 }

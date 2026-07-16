@@ -199,6 +199,45 @@ func TestRunSinceDeployDiff_WithBaseline(t *testing.T) {
 	}
 }
 
+// TestRunSinceDeployDiff_NoPreDeployBaseline covers the "baseline exists but
+// none predates the deploy time" branch (lines 183-187 in since_deploy.go).
+// A baseline file is planted but dated AFTER the deploy signal so
+// FindBaselineBeforeTime returns an error, triggering the "no pre-deploy
+// baseline found" info message instead of the success or no-signal paths.
+func TestRunSinceDeployDiff_NoPreDeployBaseline(t *testing.T) {
+	deployTime, _, err := DetectLastDeployTime()
+	if err != nil {
+		t.Skip("no deploy signal available in this environment")
+	}
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	hostname, _ := os.Hostname()
+	bdir := filepath.Join(dir, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// Plant a baseline file with mtime AFTER the deploy signal so it doesn't
+	// predate it — FindBaselineBeforeTime finds no matching file and returns error.
+	snap := Snapshot{Hostname: hostname, Version: "after-deploy"}
+	data, err := json.MarshalIndent(&snap, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(bdir, hostname+"-20260101-000000.json")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := deployTime.Add(1 * time.Hour)
+	if err := os.Chtimes(p, after, after); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunSinceDeployDiff(output.ModePlain); err != nil {
+		t.Errorf("RunSinceDeployDiff should not error when no baseline predates deploy, got %v", err)
+	}
+}
+
 // LoadHistory returns the last n timestamped snapshots oldest-first, ignoring
 // the -latest/-prev rolling files (which lack the numeric timestamp glob shape).
 func TestLoadHistory(t *testing.T) {
