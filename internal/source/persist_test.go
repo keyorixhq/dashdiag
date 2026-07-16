@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// chmodRestoring chmods path and registers a cleanup that restores the
-// original mode — needed because t.TempDir()'s own cleanup can fail to
-// remove a directory tree containing unwritable entries.
+// chmodRestoring chmods path, registers a cleanup that restores the original
+// mode, and skips the calling test when the process can still access the path
+// after the chmod (e.g. running as root, where permission bits are advisory).
 func chmodRestoring(t *testing.T, path string, mode os.FileMode) {
 	t.Helper()
 	fi, err := os.Stat(path)
@@ -23,6 +23,19 @@ func chmodRestoring(t *testing.T, path string, mode os.FileMode) {
 	t.Cleanup(func() {
 		_ = os.Chmod(path, orig)
 	})
+	// If the path is still accessible after chmod (root bypasses permission bits),
+	// the test cannot exercise the error path — skip rather than fail.
+	if fi.IsDir() {
+		if f, err := os.Open(path); err == nil {
+			f.Close()
+			t.Skip("running as root; directory-permission restriction cannot be triggered")
+		}
+	} else {
+		if f, err := os.Open(path); err == nil {
+			f.Close()
+			t.Skip("running as root; file-permission restriction cannot be triggered")
+		}
+	}
 }
 
 // TestSaveMkdirAllFailure exercises Save's os.MkdirAll failure path: dir has a

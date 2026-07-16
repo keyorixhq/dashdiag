@@ -53,6 +53,7 @@ var (
 	// Apply()'s checksum/download path without also having to forge a real
 	// minisign signature for the fake release fixture.
 	signingPublicKey = MinisignPublicKey
+	osChmod          = os.Chmod
 )
 
 // AssetName is the release asset for the running platform, e.g. dsd-linux-amd64.
@@ -233,7 +234,7 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 	if !strings.EqualFold(gotSum, wantSum) {
 		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, gotSum, wantSum)
 	}
-	if err := os.Chmod(tmp, 0o755); err != nil { // NOSONAR — executable permission is correct for a self-updating binary
+	if err := osChmod(tmp, 0o755); err != nil { // NOSONAR — executable permission is correct for a self-updating binary
 		return "", err
 	}
 	if err := os.Rename(tmp, exe); err != nil {
