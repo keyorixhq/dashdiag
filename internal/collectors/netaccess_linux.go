@@ -50,7 +50,7 @@ func httpGetLive(ctx context.Context, url string) ([]byte, int, error) {
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // local health probe, not a trust decision
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec // local health probe, not a trust decision
 		},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
