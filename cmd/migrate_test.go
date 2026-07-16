@@ -122,6 +122,17 @@ func TestCertifyVerdict(t *testing.T) {
 	}
 }
 
+// TestManifestHostAndOS_Nil covers the nil-guard path in manifestHost/manifestOS.
+func TestManifestHostAndOS_Nil(t *testing.T) {
+	t.Parallel()
+	if got := manifestHost(nil); got != "?" {
+		t.Errorf("manifestHost(nil) = %q, want \"?\"", got)
+	}
+	if got := manifestOS(nil); got != "?" {
+		t.Errorf("manifestOS(nil) = %q, want \"?\"", got)
+	}
+}
+
 func TestStatusSeverityAbsentIsOK(t *testing.T) {
 	if statusSeverity("absent") != sevOK {
 		t.Error("absent must rank as OK — a vanished check is not a regression")

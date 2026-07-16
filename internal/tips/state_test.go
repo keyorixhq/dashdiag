@@ -112,6 +112,27 @@ func TestSave_WriteFileFails(t *testing.T) {
 	}
 }
 
+// TestLoadState_ReadErrorNotExist covers the `if err != nil { return nil, err }`
+// branch (line 47-49 of state.go): a read error that is NOT os.IsNotExist.
+// Pre-creating state.json as a directory produces EISDIR, which is neither
+// IsNotExist nor nil — and cannot be bypassed even when running as root.
+func TestLoadState_ReadErrorNotExist(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Create the path that LoadState will try to read as a DIRECTORY.
+	// os.ReadFile on a directory returns EISDIR — not ENOENT, so the non-ENOENT
+	// error branch fires regardless of privilege.
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.MkdirAll(statePath, 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := LoadState(); err == nil {
+		t.Error("expected non-ENOENT error reading state.json (it is a dir), got nil")
+	}
+}
+
 func TestLoadState_ReadPermissionDenied(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses file permission bits — a 0000 file is still readable")

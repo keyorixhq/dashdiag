@@ -130,6 +130,37 @@ func TestBuildFleetReport(t *testing.T) {
 	}
 }
 
+// TestBuildFleetReport_Warn covers the WARN verdict branch in buildFleetReport.
+func TestBuildFleetReport_Warn(t *testing.T) {
+	t.Parallel()
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "WARN", Warn: 1, TopIssue: "disk 85%"},
+		{Host: "web02", Reachable: true, Worst: "OK"},
+	})
+	report := buildFleetReport(summary)
+	if report.VerdictClass != "warn" {
+		t.Errorf("expected warn class, got %q", report.VerdictClass)
+	}
+	if report.VerdictText == "" {
+		t.Error("expected non-empty VerdictText for WARN verdict")
+	}
+}
+
+// TestBuildFleetReport_AllOK covers the default/OK verdict branch in buildFleetReport.
+func TestBuildFleetReport_AllOK(t *testing.T) {
+	t.Parallel()
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "OK"},
+	})
+	report := buildFleetReport(summary)
+	if report.VerdictClass != "ok" {
+		t.Errorf("expected ok class, got %q", report.VerdictClass)
+	}
+	if report.VerdictText == "" {
+		t.Error("expected non-empty VerdictText for OK verdict")
+	}
+}
+
 // TestPrintFleetIssues_TruncatedAt15 covers the "N more (see --json)" branch
 // when the number of distinct grouped issues exceeds the 15-row display limit.
 func TestPrintFleetIssues_TruncatedAt15(t *testing.T) {

@@ -1,6 +1,7 @@
 package render
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -110,5 +111,79 @@ func TestGenerateFleetHTMLReport_Branded(t *testing.T) {
 	}
 	if !strings.Contains(html, "powered by") {
 		t.Errorf("branded report should retain DashDiag attribution")
+	}
+}
+
+func TestGenerateFleetHTMLReport_WritesFile(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	report := FleetReport{
+		Date:         "2026-07-16 12:00:00 UTC",
+		Version:      "v1.19.1",
+		Verdict:      "OK",
+		VerdictClass: "ok",
+		VerdictText:  "All hosts are healthy.",
+		Total:        1,
+		CountOK:      1,
+		Year:         2026,
+		Hosts:        []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+	path, err := GenerateFleetHTMLReport(report)
+	if err != nil {
+		t.Fatalf("GenerateFleetHTMLReport error: %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("report file not created at %q: %v", path, statErr)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // test-controlled path in t.TempDir()
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "<!DOCTYPE html>") {
+		t.Errorf("written file does not look like HTML")
+	}
+}
+
+// TestGenerateFleetHTMLReport_WriteFails covers the os.WriteFile error branch
+// by making the CWD read-only. The root-bypass skips cleanly via CreateTemp.
+func TestGenerateFleetHTMLReport_WriteFails(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	// Root ignores permission bits — skip instead of producing a false pass.
+	if f, err := os.CreateTemp(dir, "rootcheck-*"); err == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
+
+	report := FleetReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "OK", VerdictClass: "ok", VerdictText: "All hosts are healthy.",
+		Total: 1, CountOK: 1, Year: 2026,
+		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+	if _, err := GenerateFleetHTMLReport(report); err == nil {
+		t.Error("expected error writing to read-only directory")
 	}
 }

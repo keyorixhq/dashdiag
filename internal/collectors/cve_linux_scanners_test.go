@@ -186,6 +186,37 @@ func TestTryOVALFallback_NotFound(t *testing.T) {
 	}
 }
 
+// TestTryOVALFallback_OVALParseError covers the err != nil branch: a staged OVAL
+// file whose XML parses cleanly but has zero definitions causes loadOVAL to
+// return an error, so tryOVALFallback returns nil rather than panicking or
+// propagating the error.
+func TestTryOVALFallback_OVALParseError(t *testing.T) {
+	home := isolateCVEHome(t)
+	writeStagedOVAL(t, home, `<?xml version="1.0"?><oval_definitions><definitions></definitions></oval_definitions>`)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+	if got := tryOVALFallback(context.Background(), "CVE-2024-1234"); got != nil {
+		t.Errorf("expected nil when OVAL file has zero definitions, got %+v", got)
+	}
+}
+
+// TestTryOVALFallback_CVENotFound covers the !ovalResult.Found branch: a
+// valid staged OVAL file is found and parsed, but the queried CVE ID is absent
+// from the feed, so tryOVALFallback returns nil.
+func TestTryOVALFallback_CVENotFound(t *testing.T) {
+	home := isolateCVEHome(t)
+	// ubuntuOVALWithRealPkg contains CVE-2024-1234; searching for a different ID
+	// exercises the matchDef==nil → Found=false → return nil path.
+	writeStagedOVAL(t, home, ubuntuOVALWithRealPkg)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+	if got := tryOVALFallback(context.Background(), "CVE-2099-9999"); got != nil {
+		t.Errorf("expected nil when CVE is absent from the OVAL feed, got %+v", got)
+	}
+}
+
 func TestScanAllViaOVAL_NotFound(t *testing.T) {
 	isolateCVEHome(t)
 	withFixtureSource(t, func(b *source.Bundle) {

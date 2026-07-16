@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -217,6 +218,51 @@ func TestEmitWaveJSON_AllPass(t *testing.T) {
 	}
 }
 
+func TestCertifyPair_DstNotFound(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	p := wavePair{Src: src, Dst: "/nonexistent/dst.tar.gz"}
+	r := certifyPair(p, false, false, false)
+	if r.Verdict != certFail {
+		t.Errorf("expected FAIL for missing dst bundle, got %q", r.Verdict)
+	}
+	if r.Err == nil {
+		t.Error("expected non-nil error for missing dst bundle")
+	}
+	if r.SrcBundle == nil {
+		t.Error("expected SrcBundle to be loaded before dst fails")
+	}
+}
+
+func TestCertifyPair_PlatformGuardFail(t *testing.T) {
+	dir := t.TempDir()
+	// Create a bundle with a foreign GOOS so replayPlatformGuard rejects it.
+	b := source.NewBundle()
+	b.Manifest = source.Manifest{
+		Format: source.FormatVersion,
+		Host:   "foreign-host",
+		OS:     "Foreign OS",
+		GOOS:   "plan9", // guaranteed to not match linux or darwin in CI
+	}
+	path := filepath.Join(dir, "foreign.tar.gz")
+	if err := b.SaveTarball(path); err != nil {
+		t.Fatalf("SaveTarball: %v", err)
+	}
+	// If somehow running on plan9, the platform guard won't fire — skip.
+	if b.Manifest.PlatformFamily() == runtime.GOOS {
+		t.Skip("plan9 matched runtime.GOOS — skipping platform guard test")
+	}
+	p := wavePair{Src: path, Dst: path}
+	r := certifyPair(p, false, false, false)
+	if r.Verdict != certFail {
+		t.Errorf("expected FAIL for platform mismatch, got %q", r.Verdict)
+	}
+	if r.Err == nil {
+		t.Error("expected error for platform guard rejection")
+	}
+}
+
 func TestCertifyPair_SrcNotFound(t *testing.T) {
 	t.Parallel()
 	p := wavePair{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"}
@@ -298,6 +344,70 @@ func TestEmitWaveJSON_WarnOnly(t *testing.T) {
 		{Verdict: certWarn, Regressions: []baseline.DiffEntry{{Name: "CPU", Before: "OK", After: "WARN"}}},
 	}
 	if err := emitWaveJSON(results, ""); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestBuildWaveReport_AllPass(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{{Verdict: certPass}, {Verdict: certPass}}
+	report := buildWaveReport(results, "Clean Wave")
+	if report.Verdict != certPass {
+		t.Errorf("expected PASS verdict, got %q", report.Verdict)
+	}
+	if report.VerdictText == "" {
+		t.Error("expected non-empty VerdictText for all-pass wave")
+	}
+	if report.CountPass != 2 || report.CountWarn != 0 || report.CountFail != 0 {
+		t.Errorf("count mismatch: pass=%d warn=%d fail=%d", report.CountPass, report.CountWarn, report.CountFail)
+	}
+}
+
+func TestCertifyPair_WithBundles(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host")
+	p := wavePair{Src: src, Dst: dst}
+	r := certifyPair(p, false, false, false)
+	if r.Err != nil {
+		t.Fatalf("certifyPair returned error: %v", r.Err)
+	}
+	if r.Verdict == "" {
+		t.Error("expected non-empty verdict")
+	}
+	if r.SrcBundle == nil || r.DstBundle == nil {
+		t.Error("expected bundles to be set on result")
+	}
+}
+
+func TestCertifyWave_WithBundles_Verbose(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host")
+	pairs := []wavePair{{Src: src, Dst: dst}}
+	// quiet=false: exercises the verbose branch with non-nil bundles
+	results := certifyWave(pairs, false, false, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err != nil {
+		t.Errorf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].SrcBundle == nil {
+		t.Error("expected SrcBundle to be set")
+	}
+}
+
+func TestEmitWaveJSON_WithBundles_Verbose(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "wave-src")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "wave-dst")
+	p := wavePair{Src: src, Dst: dst}
+	r := certifyPair(p, false, false, false)
+	if r.Err != nil {
+		t.Skipf("certifyPair failed (platform mismatch?): %v", r.Err)
+	}
+	if err := emitWaveJSON([]waveResult{r}, "Coverage Wave"); err != nil {
 		t.Fatalf("emitWaveJSON returned error: %v", err)
 	}
 }
