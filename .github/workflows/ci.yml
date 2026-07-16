@@ -23,6 +23,31 @@ permissions:
 # without anyone remembering to bump go.mod.
 
 jobs:
+  # Every commit on a PR must carry a Signed-off-by trailer (DCO v1.1).
+  # Co-founders and external contributors: use `git commit --signoff` (or -s).
+  # To fix a branch: `git rebase --signoff origin/main`.
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+      - name: Check every PR commit carries Signed-off-by
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          FAIL=0
+          for sha in $(git log --no-merges --format="%H" "origin/${BASE}..HEAD"); do
+            if ! git show -s --format="%B" "$sha" | grep -q "^Signed-off-by:"; then
+              echo "::error::$sha missing Signed-off-by — fix: git rebase --signoff origin/${BASE}"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] && echo "✅ All PR commits carry Signed-off-by"
+          exit $FAIL
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
