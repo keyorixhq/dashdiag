@@ -88,11 +88,20 @@ download() {
 
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
-    else
-        wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL" # NOSONAR -- shelldre:S6506
-    fi
+    # Retry up to 3 times with 5-second backoff — GitHub Releases CDN occasionally
+    # returns transient 503s that resolve within seconds.
+    _dl_n=3; _dl_delay=5
+    while true; do
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" && break
+        else
+            wget -q --https-only --show-progress "$URL" -O "$TMPFILE" && break # NOSONAR -- shelldre:S6506
+        fi
+        _dl_n=$((_dl_n - 1))
+        [ "$_dl_n" -gt 0 ] || die "Download failed after 3 attempts: $URL"
+        info "Download failed (attempt $((3 - _dl_n))/3), retrying in ${_dl_delay}s..."
+        sleep "$_dl_delay"
+    done
 
     chmod +x "$TMPFILE"
     echo "$TMPFILE"
@@ -120,11 +129,17 @@ verify_checksum() {
     SUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
-    else
-        wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; } # NOSONAR -- shelldre:S6506
-    fi
+    _cs_n=3; _cs_delay=5
+    while true; do
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null && break
+        else
+            wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null && break # NOSONAR -- shelldre:S6506
+        fi
+        _cs_n=$((_cs_n - 1))
+        [ "$_cs_n" -gt 0 ] || { unverified "Could not fetch checksums.txt from the release after 3 attempts"; return; }
+        sleep "$_cs_delay"
+    done
 
     EXPECTED="$(grep "${BINARY}-${PLATFORM}" "$SUMS_FILE" | awk '{print $1}')"
     [ -n "$EXPECTED" ] || { unverified "No checksum for ${BINARY}-${PLATFORM} in checksums.txt"; return; }
