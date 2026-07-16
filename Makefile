@@ -158,7 +158,8 @@ test-fuzz:
 	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
-	go test -run=NONE -fuzz='^FuzzParseOSRelease$$'      -fuzztime=$(FUZZTIME) ./internal/platform/
+	go test -run=NONE -fuzz='^FuzzParseOSRelease$$'      -fuzztime=$(FUZZTIME) ./internal/platform/; \
+	go test -run=NONE -fuzz='^FuzzCompareDpkg$$'         -fuzztime=$(FUZZTIME) ./internal/cvedata/
 	@echo "✅ all portable fuzz harnesses passed"
 	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
 	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid,"
@@ -203,7 +204,8 @@ test-fuzz-linux:
 	go test -run=NONE -fuzz='^FuzzParseDPMSclk$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseMiB$$'              -fuzztime=$(FUZZTIME) ./internal/collectors/; \
 	go test -run=NONE -fuzz='^FuzzParseNvidiaSMILine$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzApplySATASmartJSON$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/
+	go test -run=NONE -fuzz='^FuzzApplySATASmartJSON$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
+	go test -run=NONE -fuzz='^FuzzParseUbuntuOVAL$$'      -fuzztime=$(FUZZTIME) ./internal/cvedata/
 	@echo "✅ all Linux fuzz harnesses passed"
 
 .PHONY: test-contract
