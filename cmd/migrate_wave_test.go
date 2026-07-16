@@ -8,6 +8,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestResolvePairs_Args(t *testing.T) {
@@ -82,7 +83,6 @@ func TestWaveWorstVerdict(t *testing.T) {
 		{"empty", []waveResult{}, certPass},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := waveWorstVerdict(tc.results); got != tc.want {
@@ -175,6 +175,130 @@ func TestBuildWaveReport_WithError(t *testing.T) {
 	}
 	if row.Error == "" {
 		t.Errorf("expected non-empty error on pair row")
+	}
+}
+
+func TestPrintWaveTable_NoName(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certPass},
+		{Verdict: certWarn},
+		{Verdict: certFail},
+	}
+	// Just verify it doesn't panic — output goes to stdout.
+	printWaveTable(results, "")
+}
+
+func TestPrintWaveTable_WithName(t *testing.T) {
+	t.Parallel()
+	printWaveTable([]waveResult{{Verdict: certPass}}, "Acme Corp Wave")
+}
+
+func TestEmitWaveJSON(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certPass, Regressions: nil},
+		{
+			Verdict:     certWarn,
+			Regressions: []baseline.DiffEntry{{Name: "Memory", Before: "OK", After: "WARN"}},
+		},
+		{Verdict: certFail, Err: fmt.Errorf("bundle load failed")},
+	}
+	if err := emitWaveJSON(results, "Test Wave"); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestEmitWaveJSON_AllPass(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{{Verdict: certPass}, {Verdict: certPass}}
+	if err := emitWaveJSON(results, ""); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestCertifyPair_SrcNotFound(t *testing.T) {
+	t.Parallel()
+	p := wavePair{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"}
+	r := certifyPair(p, false, false, false)
+	if r.Verdict != certFail {
+		t.Errorf("expected FAIL for missing src bundle, got %q", r.Verdict)
+	}
+	if r.Err == nil {
+		t.Error("expected non-nil error for missing src bundle")
+	}
+}
+
+func TestCertifyWave_SrcNotFound_Verbose(t *testing.T) {
+	t.Parallel()
+	pairs := []wavePair{
+		{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"},
+	}
+	// quiet=false: exercises the stderr printing branch
+	results := certifyWave(pairs, false, false, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Verdict != certFail {
+		t.Errorf("expected FAIL, got %q", results[0].Verdict)
+	}
+}
+
+func TestCertifyWave_SrcNotFound_Quiet(t *testing.T) {
+	t.Parallel()
+	pairs := []wavePair{
+		{Src: "/nonexistent/src.tar.gz", Dst: "/nonexistent/dst.tar.gz"},
+	}
+	// quiet=true: skips the stderr printing branch
+	results := certifyWave(pairs, false, false, false, true)
+	if len(results) != 1 || results[0].Verdict != certFail {
+		t.Errorf("expected 1 FAIL result, got %v", results)
+	}
+}
+
+func TestBuildWaveReport_WarnVerdict(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certWarn, Regressions: []baseline.DiffEntry{{Name: "CPU", Before: "OK", After: "WARN"}}},
+	}
+	report := buildWaveReport(results, "")
+	if report.Verdict != certWarn {
+		t.Errorf("expected WARN verdict, got %q", report.Verdict)
+	}
+	if report.VerdictText == "" {
+		t.Error("expected non-empty VerdictText for certWarn")
+	}
+}
+
+func TestBuildWaveReport_WithBundles(t *testing.T) {
+	t.Parallel()
+	b := &source.Bundle{Manifest: source.Manifest{Host: "vm01", OS: "Ubuntu 24.04"}}
+	results := []waveResult{{Verdict: certPass, SrcBundle: b, DstBundle: b}}
+	report := buildWaveReport(results, "")
+	if report.Pairs[0].Source != "vm01" {
+		t.Errorf("expected Source=vm01, got %q", report.Pairs[0].Source)
+	}
+	if report.Pairs[0].SourceOS != "Ubuntu 24.04" {
+		t.Errorf("expected SourceOS=Ubuntu 24.04, got %q", report.Pairs[0].SourceOS)
+	}
+}
+
+func TestEmitWaveJSON_WithBundles(t *testing.T) {
+	t.Parallel()
+	b := &source.Bundle{Manifest: source.Manifest{Host: "vm01", OS: "Ubuntu 24.04"}}
+	results := []waveResult{{Verdict: certPass, SrcBundle: b, DstBundle: b}}
+	if err := emitWaveJSON(results, "Bundle Wave"); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
+	}
+}
+
+func TestEmitWaveJSON_WarnOnly(t *testing.T) {
+	t.Parallel()
+	results := []waveResult{
+		{Verdict: certWarn, Regressions: []baseline.DiffEntry{{Name: "CPU", Before: "OK", After: "WARN"}}},
+	}
+	if err := emitWaveJSON(results, ""); err != nil {
+		t.Fatalf("emitWaveJSON returned error: %v", err)
 	}
 }
 
