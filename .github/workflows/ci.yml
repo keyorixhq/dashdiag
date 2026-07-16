@@ -199,15 +199,17 @@ jobs:
 
   # SSDLC Layer 1 (ADR-0007): custom semgrep rules for our recurring risk
   # patterns (root-privileged exec + parsing). Rules live in .semgrep/.
+  # p/go adds the Semgrep community Go ruleset (format-string injection,
+  # integer overflow, improper error handling) that the custom rules don't cover.
   # Rule-per-finding discipline: every confirmed security finding ends with
   # the rule that catches its class.
   semgrep:
-    name: Semgrep (custom rules)
+    name: Semgrep (custom + p/go)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: pipx install semgrep
-      - run: semgrep scan --config .semgrep/ --error --severity ERROR --severity WARNING .
+      - run: semgrep scan --config .semgrep/ --config p/go --error --severity ERROR --severity WARNING .
 
   # Fail the build on any dependency whose license is not in the enterprise-safe
   # allowlist (MIT/Apache-2.0/BSD/ISC/MPL-2.0). Catches a new transitive dep
