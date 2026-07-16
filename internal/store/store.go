@@ -19,9 +19,9 @@ type Entry struct {
 	Timestamp time.Time          `json:"ts"`
 	Hostname  string             `json:"host"`
 	Version   string             `json:"version"`
-	Verdict   string             `json:"verdict"`              // OK | WARN | CRIT
-	Checks    map[string]string  `json:"checks"`               // check name → status
-	Metrics   map[string]float64 `json:"metrics,omitempty"`    // numeric trend values
+	Verdict   string             `json:"verdict"`           // OK | WARN | CRIT
+	Checks    map[string]string  `json:"checks"`            // check name → status
+	Metrics   map[string]float64 `json:"metrics,omitempty"` // numeric trend values
 }
 
 // Store is the persistence interface for health run snapshots.
@@ -43,9 +43,9 @@ type Store interface {
 // unless the caller explicitly opens a JSONLStore.
 type NullStore struct{}
 
-func (NullStore) Append(_ context.Context, _ Entry) error            { return nil }
+func (NullStore) Append(_ context.Context, _ Entry) error                     { return nil }
 func (NullStore) History(_ context.Context, _ string, _ int) ([]Entry, error) { return nil, nil }
-func (NullStore) Close() error                                        { return nil }
+func (NullStore) Close() error                                                { return nil }
 
 // VerdictFromInsights derives the overall verdict string from insight levels.
 // Matches the exit-code contract: CRIT > WARN > OK.
