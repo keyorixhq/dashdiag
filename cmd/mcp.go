@@ -40,7 +40,6 @@ import (
 )
 
 func init() {
-	mcpCmd.Hidden = true // hidden until end-to-end validated with a real MCP client
 	rootCmd.AddCommand(mcpCmd)
 }
 

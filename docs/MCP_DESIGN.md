@@ -1,9 +1,8 @@
 # MCP server design (`dsd mcp`)
 
-Status: design captured 2026-06-21. **Not implemented.** Proposed as the next
-build after the §O false-CRIT cleanup (TRIAGE §O). This document records the
-design so an implementation can start from a clear specification rather than
-re-deriving the choices in code.
+Status: **Implemented and shipped** (2026-07-18). Design captured 2026-06-21;
+implementation followed in a later session. Register with Claude Code:
+`claude mcp add dsd -- dsd mcp`
 
 Scope decided up front (with the founder): the first cut exposes **health +
 capture/replay** — the read-only verdict plus the snapshot/compare workflow. No
