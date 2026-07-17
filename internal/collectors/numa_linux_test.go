@@ -137,6 +137,22 @@ func TestParseNUMANode_UnreadableMeminfo(t *testing.T) {
 	}
 }
 
+// TestParseNUMANode_NonNumericMemField covers numa_linux.go:85.18,86.13 — the
+// strconv.ParseInt error path when a meminfo line has ≥4 fields but the 4th
+// field is non-numeric. The parser must skip that line without panicking, and
+// the MemGB/MemFreeGB fields stay at zero.
+func TestParseNUMANode_NonNumericMemField(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/devices/system/node/node0/meminfo",
+			[]byte("Node 0 MemTotal: notanumber kB\nNode 0 MemFree: also_invalid kB\n"))
+		b.PutFile("/sys/devices/system/node/node0/cpulist", []byte("0-1\n"))
+	})
+	node := parseNUMANode("/sys/devices/system/node/node0")
+	if node.MemGB != 0 || node.MemFreeGB != 0 {
+		t.Errorf("expected MemGB=0 MemFreeGB=0 for non-numeric fields, got %v/%v", node.MemGB, node.MemFreeGB)
+	}
+}
+
 // TestIsNUMAPresent guards the multi-node gate: >1 node → true, <=1 → false.
 func TestIsNUMAPresent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {

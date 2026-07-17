@@ -202,3 +202,17 @@ func TestParseSnapperPlainNoSnapshots(t *testing.T) {
 		t.Errorf("no dated snapshot should report LastSnapshotH=-1 (never), got %d", info.LastSnapshotH)
 	}
 }
+
+// TestParseSnapperPlain_HeaderRowSkipped covers snapper_linux.go:82.71,83.12 —
+// a line containing both "Type" and "Date" is recognised as a header and
+// skipped (SnapshotCount must not increment for it).
+func TestParseSnapperPlain_HeaderRowSkipped(t *testing.T) {
+	t.Parallel()
+	// Include a real header + a valid snapshot row so we can distinguish.
+	out := "Type | Date                     | User | Cleanup | Description\n" +
+		"single | 2024-01-15 10:00:00 | root |         | first snapshot\n"
+	info := parseSnapperPlain(out, &models.SnapperInfo{LastSnapshotH: -1})
+	if info.SnapshotCount != 1 {
+		t.Errorf("header row must be skipped: SnapshotCount = %d, want 1", info.SnapshotCount)
+	}
+}

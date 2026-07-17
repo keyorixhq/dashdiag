@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,4 +182,30 @@ func TestHistory_NonNotExistError(t *testing.T) {
 	_ = os.Remove(nestDir)
 	_ = os.Mkdir(nestDir, 0o755)
 	_ = s.f.Close()
+}
+
+// TestAppend_MarshalError covers the json.Marshal error return in Append.
+// A NaN float64 in Entry.Metrics causes json.Marshal to return an
+// UnsupportedValueError (encoding/json refuses to encode NaN as JSON).
+func TestAppend_MarshalError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "store.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	nanEntry := Entry{
+		Hostname: "h",
+		Verdict:  "OK",
+		Metrics:  map[string]float64{"bad": math.NaN()},
+	}
+	err = s.Append(context.Background(), nanEntry)
+	if err == nil {
+		t.Error("expected json.Marshal error from Append with NaN float64, got nil")
+	}
+	if !strings.Contains(err.Error(), "store: marshalling entry") {
+		t.Errorf("expected 'store: marshalling entry' prefix, got %q", err.Error())
+	}
 }

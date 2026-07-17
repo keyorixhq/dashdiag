@@ -861,6 +861,41 @@ func TestCollectPVEBackups_PveshFailsNoDiskData(t *testing.T) {
 	}
 }
 
+// TestCollectPVEStorages_BadJSON covers pve_linux.go:305.60,307.3 — the
+// json.Unmarshal error path when pvesh exits 0 but returns malformed JSON.
+func TestCollectPVEStorages_BadJSON(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/storage", "--output-format", "json"},
+			`not valid json`, 0)
+	})
+	storages, verified := collectPVEStorages(context.Background())
+	if storages != nil || verified {
+		t.Errorf("expected nil/false on bad JSON, got %v/%v", storages, verified)
+	}
+}
+
+// TestCollectPVEBackups_TasksSucceedAgeFromDisk covers pve_linux.go:375.58,377.4 —
+// the ageDays derivation from the dump-dir when pvesh task query succeeds but
+// returns no successful tasks (empty list). With disk backup data present,
+// ageDays must be derived from the newest archive mtime rather than staying -1.
+func TestCollectPVEBackups_TasksSucceedAgeFromDisk(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/tasks", "--output-format", "json",
+			"--typefilter", "vzdump", "--limit", "200"}, `[]`, 0)
+		path := "/mnt/data/dump/vzdump-qemu-100-2024_06_03-19_16_09.vma.zst"
+		b.PutGlob("/mnt/data/dump/vzdump-*.vma.zst", []string{path})
+		b.PutStat(path, source.FileMeta{ModTime: time.Now().Add(-3 * 24 * time.Hour)})
+	})
+	guests := []models.PVEGuest{{VMID: 100, Name: "web"}}
+	_, ageDays, _, verified := collectPVEBackups(context.Background(), guests)
+	if !verified {
+		t.Error("expected verified=true (pvesh task query succeeded)")
+	}
+	if ageDays != 3 {
+		t.Errorf("ageDays = %d, want 3 (derived from disk archive mtime)", ageDays)
+	}
+}
+
 func TestCollectPVEPerf_Available(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/usr/bin/pveperf", source.FileMeta{})

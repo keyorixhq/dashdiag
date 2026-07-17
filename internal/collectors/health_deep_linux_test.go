@@ -759,3 +759,196 @@ func TestComputeCgroupUnits_ZeroElapsedFallsBackToNominalWindow(t *testing.T) {
 		t.Errorf("expected fallback to the nominal 500ms window (42%%), got %.2f", got[0].CPUPct)
 	}
 }
+
+// TestParseProcStatCores_NonNumericSuffix covers the strconv.Atoi error path
+// in parseProcStatCores: a "cpuXYZ" line is skipped; "cpu0" is still parsed.
+func TestParseProcStatCores_NonNumericSuffix(t *testing.T) {
+	t.Parallel()
+	input := "cpuXYZ 10 0 5 100 0 0 0 0 0 0\ncpu0 10 0 5 100 0 0 0 0 0 0\n"
+	snaps, err := parseProcStatCores(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snaps) != 1 || snaps[0].core != 0 {
+		t.Errorf("expected only cpu0 parsed (cpuXYZ skipped), got %+v", snaps)
+	}
+}
+
+// TestComputeCoreUsage_CoreMissingInS1 covers the !ok branch in computeCoreUsage:
+// a core present in s2 but absent in s1 is silently skipped.
+func TestComputeCoreUsage_CoreMissingInS1(t *testing.T) {
+	t.Parallel()
+	s1 := []coreSnapshot{{core: 0, user: 10, idle: 90}}
+	s2 := []coreSnapshot{
+		{core: 0, user: 60, idle: 40},
+		{core: 1, user: 50, idle: 50},
+	}
+	stats := computeCoreUsage(s1, s2)
+	if len(stats) != 1 || stats[0].Core != 0 {
+		t.Errorf("expected only core 0 (core 1 skipped), got %+v", stats)
+	}
+}
+
+// TestCollectMemDetail_ReadError covers the early-return branch when
+// /proc/meminfo is absent from the fixture bundle.
+func TestCollectMemDetail_ReadError(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {})
+	info := &models.HealthDeepInfo{}
+	collectMemDetail(info)
+	if info.CachedMB != 0 || info.BuffersMB != 0 || info.DirtyMB != 0 || info.AnonPagesMB != 0 {
+		t.Errorf("expected no fields set after readFile error, got %+v", info)
+	}
+}
+
+// TestTopMemoryProcs_EntryReadError covers the path where the /proc/<pid>/status
+// read fails (pid directory exists in glob but status is not seeded).
+func TestTopMemoryProcs_EntryReadError(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/999"})
+	})
+	procs, _ := topMemoryProcs(5)
+	if len(procs) != 0 {
+		t.Errorf("expected empty result when status read fails, got %v", procs)
+	}
+}
+
+// TestTopMemoryProcs_ZeroRSS covers the skip-when-rssKB==0 branch.
+func TestTopMemoryProcs_ZeroRSS(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1001"})
+		b.PutFile("/proc/1001/status", []byte("Name:\tidle\nVmRSS:\t0 kB\n"))
+		b.PutFile("/proc/1001/comm", []byte("idle\n"))
+		b.PutFile("/proc/1001/cgroup", []byte("0::/\n"))
+	})
+	procs, _ := topMemoryProcs(5)
+	if len(procs) != 0 {
+		t.Errorf("expected empty result when rssKB==0, got %v", procs)
+	}
+}
+
+// TestTopMemoryProcs_ValidEntry covers the happy path and the totalKB→totalMB
+// accumulator.
+func TestTopMemoryProcs_ValidEntry(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1002"})
+		b.PutFile("/proc/1002/status", []byte("Name:\tworker\nVmRSS:\t4096 kB\n"))
+		b.PutFile("/proc/1002/comm", []byte("worker\n"))
+		b.PutFile("/proc/1002/cgroup", []byte("0::/system.slice/worker.service\n"))
+	})
+	procs, totalMB := topMemoryProcs(5)
+	if len(procs) != 1 {
+		t.Fatalf("expected 1 proc, got %d", len(procs))
+	}
+	if procs[0].Name != "worker" || procs[0].RSSMB != 4.0 {
+		t.Errorf("unexpected: %+v", procs[0])
+	}
+	if totalMB != 4.0 {
+		t.Errorf("expected totalMB=4.0, got %.2f", totalMB)
+	}
+}
+
+// TestTopMemoryProcs_TruncatesToN covers the sort.Slice comparator and the
+// truncation to n entries.
+func TestTopMemoryProcs_TruncatesToN(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/2001", "/proc/2002"})
+		b.PutFile("/proc/2001/status", []byte("Name:\tsmall\nVmRSS:\t1024 kB\n"))
+		b.PutFile("/proc/2001/comm", []byte("small\n"))
+		b.PutFile("/proc/2001/cgroup", []byte("0::/\n"))
+		b.PutFile("/proc/2002/status", []byte("Name:\tbig\nVmRSS:\t8192 kB\n"))
+		b.PutFile("/proc/2002/comm", []byte("big\n"))
+		b.PutFile("/proc/2002/cgroup", []byte("0::/\n"))
+	})
+	procs, _ := topMemoryProcs(1)
+	if len(procs) != 1 {
+		t.Fatalf("expected truncation to 1, got %d", len(procs))
+	}
+	if procs[0].Name != "big" {
+		t.Errorf("expected highest-RSS first, got %q", procs[0].Name)
+	}
+}
+
+// TestCollectMemDetail_MalformedLine covers the len(fields)<2 branch inside
+// collectMemDetail's parse closure: a "Cached:\n" line (key but no value) is
+// skipped while following well-formed lines are still parsed.
+func TestCollectMemDetail_MalformedLine(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/meminfo", []byte("Cached:\nBuffers:\t128 kB\nDirty:\t64 kB\nAnonPages:\t256 kB\n"))
+	})
+	info := &models.HealthDeepInfo{}
+	collectMemDetail(info)
+	if info.CachedMB != 0 {
+		t.Errorf("expected CachedMB=0 for malformed line, got %.2f", info.CachedMB)
+	}
+	if info.BuffersMB == 0 {
+		t.Error("expected BuffersMB non-zero for well-formed Buffers line")
+	}
+}
+
+// fixedErrReader always returns an error (for scanner error coverage).
+type fixedErrReader struct{}
+
+func (fixedErrReader) Read([]byte) (int, error) { return 0, fmt.Errorf("injected read error") }
+
+// TestParseProcStatCores_ScannerError covers the scanner.Err() != nil path.
+func TestParseProcStatCores_ScannerError(t *testing.T) {
+	t.Parallel()
+	_, err := parseProcStatCores(fixedErrReader{})
+	if err == nil {
+		t.Error("expected error from parseProcStatCores when reader returns an error")
+	}
+}
+
+// TestComputeCgroupUnits_MemUsedPct covers health_deep_linux.go:762.40,764.4 —
+// the MemUsedPct calculation branch when hasMemLimit && memLimitMB > 0.
+func TestComputeCgroupUnits_MemUsedPct(t *testing.T) {
+	t.Parallel()
+	samples := []cgroupRawSample{
+		{
+			dir:             "/sys/fs/cgroup/system.slice/memlimited.service",
+			usageBeforeUSec: 0,
+			usageAfterUSec:  250_000, // 50% CPU — above the 5% significance bar
+			hasMemLimit:     true,
+			memLimitMB:      1024,
+			memCurrentMB:    512,
+		},
+	}
+	got := computeCgroupUnits(samples, 500000)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 unit, got %d: %+v", len(got), got)
+	}
+	if got[0].MemUsedPct != 50 {
+		t.Errorf("MemUsedPct = %.1f, want 50 (512/1024*100)", got[0].MemUsedPct)
+	}
+}
+
+// TestComputeCgroupUnits_SecondarySortOnMemory covers health_deep_linux.go:772.3,772.55
+// — the secondary sort comparator that orders by MemCurrentMB when CPUPct is equal.
+func TestComputeCgroupUnits_SecondarySortOnMemory(t *testing.T) {
+	t.Parallel()
+	// Both units have 0% CPU but >500MB RAM so they pass the significance filter.
+	// The sort must place the higher-memory unit first.
+	samples := []cgroupRawSample{
+		{
+			dir:          "/sys/fs/cgroup/system.slice/small.service",
+			memCurrentMB: 600,
+		},
+		{
+			dir:          "/sys/fs/cgroup/system.slice/large.service",
+			memCurrentMB: 800,
+		},
+	}
+	got := computeCgroupUnits(samples, 500000)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 units, got %d: %+v", len(got), got)
+	}
+	if got[0].Name != "large.service" || got[0].MemCurrentMB != 800 {
+		t.Errorf("expected large.service first (800MB > 600MB), got %+v", got[0])
+	}
+}

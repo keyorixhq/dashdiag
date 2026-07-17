@@ -411,3 +411,33 @@ func TestPostBootCollector_Collect_Unmeasurable(t *testing.T) {
 		t.Errorf("State=%q Reason=%q, want unmeasurable/non_systemd_no_wtmp", info.State, info.Reason)
 	}
 }
+
+// TestPostBootCollector_Collect_AbsentFirstBoot covers postboot_linux.go:54.21,55.24 —
+// the PBStateAbsent case in Collect's switch: journald is persistent and readable, but
+// --list-boots shows only the current boot (priorBoots=0), meaning this is genuinely
+// the first recorded boot. info.State must be "absent", not "found" or "unmeasurable".
+func TestPostBootCollector_Collect_AbsentFirstBoot(t *testing.T) {
+	withPostBootFixture(t, map[string][]byte{
+		"platform/container-context": containerContextJSON(t, platform.ContainerContext{}),
+		"lookpath/journalctl":        []byte("/usr/bin/journalctl"),
+	}, func(b *source.Bundle) {
+		b.PutDir("/var/log/journal", []string{"machine-abc"})
+		b.PutDir("/var/log/journal/machine-abc", []string{"system.journal"})
+		// Only the current boot on record — no prior boot exists.
+		b.PutCmd("journalctl", []string{"--list-boots", "--no-pager", "-q"},
+			" 0 ghi 2026-06-01\n", 0)
+	})
+
+	c := NewPostBootCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.PostBootInfo)
+	if info.State != "absent" {
+		t.Errorf("State = %q, want absent (first boot on record)", info.State)
+	}
+	if info.Reason != string(PBReasonFirstBoot) {
+		t.Errorf("Reason = %q, want %q", info.Reason, PBReasonFirstBoot)
+	}
+}

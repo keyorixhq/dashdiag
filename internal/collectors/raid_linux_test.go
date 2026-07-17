@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +261,44 @@ func TestParseRecoveryPct(t *testing.T) {
 				t.Errorf("parseRecoveryPct(%q) = %v, want %v", c.line, got, c.want)
 			}
 		})
+	}
+}
+
+// errorAfterReader provides data then injects an error after errAfter bytes.
+type errorAfterReader struct {
+	data     []byte
+	errAfter int
+	pos      int
+}
+
+func (r *errorAfterReader) Read(p []byte) (int, error) {
+	if r.pos >= r.errAfter {
+		return 0, fmt.Errorf("injected read error")
+	}
+	end := r.errAfter
+	if end > len(r.data) {
+		end = len(r.data)
+	}
+	n := copy(p, r.data[r.pos:end])
+	r.pos += n
+	if r.pos >= r.errAfter {
+		return n, fmt.Errorf("injected read error at byte %d", r.errAfter)
+	}
+	return n, nil
+}
+
+// TestParseMDStat_ScannerError covers raid_linux.go:106.38,110.3 — the
+// scanner.Err() != nil path, reached when the io.Reader returns an error
+// mid-scan. The function returns whatever arrays were parsed before the error.
+func TestParseMDStat_ScannerError(t *testing.T) {
+	t.Parallel()
+	r := &errorAfterReader{
+		data:     []byte("Personalities : [raid1]\nmd0 : active raid1 sda1[0] sdb1[1]\n"),
+		errAfter: 40,
+	}
+	info := parseMDStat(r)
+	if info == nil {
+		t.Fatal("expected non-nil info even on scanner error")
 	}
 }
 

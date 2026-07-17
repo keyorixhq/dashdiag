@@ -101,6 +101,27 @@ func TestNVMeMountPoints(t *testing.T) {
 	})
 }
 
+// TestNVMeCollect_SkipsNamespaceEntry covers nvme_linux.go:60.30,61.12 — the
+// !isNVMeController(base) continue branch, triggered when the nvme* glob
+// returns a namespace (nvme0n1) rather than a controller (nvme0). The namespace
+// must be silently skipped and Collect must return (nil, nil) — same as no
+// devices — since no valid controller was found.
+func TestNVMeCollect_SkipsNamespaceEntry(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// nvme0n1 is a namespace, not a controller — isNVMeController returns false.
+		b.PutGlob("/sys/class/nvme/nvme*", []string{"/sys/class/nvme/nvme0n1"})
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil (namespace must be skipped, no devices)", raw)
+	}
+}
+
 // TestNVMeCollector_Collect_NoDevices guards the explicit gate-off case: no
 // NVMe controllers and no SATA/SAS devices -> Collect returns (nil, nil).
 func TestNVMeCollector_Collect_NoDevices(t *testing.T) {

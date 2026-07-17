@@ -767,3 +767,50 @@ func TestParseCgroupPath(t *testing.T) {
 		})
 	}
 }
+
+// TestParseCgroupPath_Unknown covers health_deep_linux.go:1039.3,1039.19 —
+// the `return "unknown"` fallback when the default branch's last path segment
+// is empty (a path of only slashes, not matched by any named case and producing
+// "" after TrimRight+Split).
+func TestParseCgroupPath_Unknown(t *testing.T) {
+	t.Parallel()
+	// "///" is not "", not "/", and doesn't match any named prefix.
+	// TrimRight("///", "/") = "" → Split("", "/") = [""] → parts[0] == "" → "unknown".
+	if got := parseCgroupPath("///"); got != "unknown" {
+		t.Errorf("parseCgroupPath(%q) = %q, want %q", "///", got, "unknown")
+	}
+}
+
+// TestReadAllProcIO_NonNumericEntry covers health_deep_linux.go:339.17,340.12 —
+// the strconv.Atoi error path in readAllProcIO when a glob entry has a
+// non-numeric base. The replay source returns /proc/notanumber, so Atoi fails
+// and the entry is skipped.
+func TestReadAllProcIO_NonNumericEntry(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/notanumber"})
+	})
+	result, needsRoot := readAllProcIO()
+	if needsRoot {
+		t.Error("expected needsRoot=false when no real IO reads were attempted")
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty result map, got %d entries", len(result))
+	}
+}
+
+// TestReadCgroupSlice_MalformedIOStatKV covers health_deep_linux.go:874.21,875.14 —
+// the `if len(kv) != 2 { continue }` guard in the io.stat field parser.
+// The "malformed" token has no "=" so SplitN returns one element; the valid
+// "rbytes=..." field that follows it is still parsed correctly.
+func TestReadCgroupSlice_MalformedIOStatKV(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/cgroup/test.slice/io.stat", []byte("253:0 malformed rbytes=1048576\n"))
+	})
+	s := readCgroupSlice("/sys/fs/cgroup/test.slice", "test.slice")
+	// rbytes=1048576 is 1 MiB; the malformed field should be silently skipped.
+	if s.IOReadMBs < 0.9 || s.IOReadMBs > 1.1 {
+		t.Errorf("IOReadMBs = %.2f, want ~1.0 (malformed field skipped, valid field parsed)", s.IOReadMBs)
+	}
+}

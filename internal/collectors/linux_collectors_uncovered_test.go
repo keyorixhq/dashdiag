@@ -685,3 +685,65 @@ func TestCGV1FallbackScope(t *testing.T) {
 		t.Error("expected non-empty cgroup scope from v1 cpu path")
 	}
 }
+
+// ── rootfs_linux.go ───────────────────────────────────────────────────────────
+
+// TestFstabRootRW_CommentLine covers rootfs_linux.go — fstab with only comment
+// lines must not be read as an rw root intent.
+func TestFstabRootRW_CommentLine(t *testing.T) {
+	t.Parallel()
+	content := "# this is a comment\n# another comment\n"
+	if fstabRootRW(content) {
+		t.Error("fstab with only comment lines must not read as rw intent")
+	}
+}
+
+// ── security_linux.go ─────────────────────────────────────────────────────────
+
+// TestSecurityCollect_OffensiveDistro covers the IsOffensiveDistro branch that
+// fires when the collector is constructed with a profile whose Distro is "kali".
+func TestSecurityCollect_OffensiveDistro(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/fd", []string{})
+	})
+	c := NewSecurityCollectorWithProfile(platform.Profile{Distro: "kali"})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	info, ok := raw.(*models.SecurityInfo)
+	if !ok {
+		t.Fatalf("expected *models.SecurityInfo, got %T", raw)
+	}
+	if !info.IsOffensiveDistro {
+		t.Error("expected IsOffensiveDistro=true for kali profile")
+	}
+}
+
+// ── pve_linux.go ──────────────────────────────────────────────────────────────
+
+// TestPVECollect_NonRoot covers the pve_linux.go non-root early-exit path that
+// sets NeedsRoot=true and leaves Subscription at its zero ("notfound") status.
+func TestPVECollect_NonRoot(t *testing.T) {
+	// no t.Parallel(): swapGetuid and withFixtureSource mutate package globals.
+	swapGetuid(t, 1000) // simulate non-root
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/bin/pvedaemon", source.FileMeta{Size: 1})
+	})
+	c := NewPVECollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	info, ok := raw.(*models.PVEInfo)
+	if !ok {
+		t.Fatalf("expected *models.PVEInfo, got %T", raw)
+	}
+	if !info.NeedsRoot {
+		t.Error("expected NeedsRoot=true when getuid()!=0")
+	}
+	if info.Subscription.Status != "notfound" {
+		t.Errorf("expected notfound subscription status, got %q", info.Subscription.Status)
+	}
+}
