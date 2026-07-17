@@ -78,6 +78,55 @@ func TestReadMemHotplugFromAbsent(t *testing.T) {
 	}
 }
 
+// TestReadMemHotplugFrom_MissingStateFile covers the !fileExists(statePath)
+// continue branch: a memoryN directory that exists in the root but has no "state"
+// file is skipped without incrementing offlineBlocks — a different memory block
+// with a state file still makes sawBlock=true so checked stays true.
+func TestReadMemHotplugFrom_MissingStateFile(t *testing.T) {
+	root := t.TempDir()
+	// memory0: directory exists but has no state file → !fileExists → continue
+	if err := os.MkdirAll(filepath.Join(root, "memory0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// memory1: has a state file → sawBlock = true, state = online
+	if err := os.MkdirAll(filepath.Join(root, "memory1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory1", "state"), []byte("online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "block_size_bytes"), []byte("8000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "auto_online_blocks"), []byte("online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checked, offline, _, _ := readMemHotplugFrom(root)
+	if !checked {
+		t.Fatal("checked = false, want true (memory1 has a state file)")
+	}
+	if offline != 0 {
+		t.Errorf("offlineBlocks = %d, want 0 (memory0 was skipped, memory1 is online)", offline)
+	}
+}
+
+// TestReadMemHotplugFrom_NoMemoryBlocks covers the !sawBlock → return false
+// path: the root directory exists and is readable, but contains no memoryN
+// block directories — only non-matching entries like "power". sawBlock stays
+// false so the function returns checked=false.
+func TestReadMemHotplugFrom_NoMemoryBlocks(t *testing.T) {
+	root := t.TempDir()
+	// Only a non-block entry — must be skipped by the memoryN filter.
+	if err := os.MkdirAll(filepath.Join(root, "power"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	checked, offline, offlineMB, auto := readMemHotplugFrom(root)
+	if checked || offline != 0 || offlineMB != 0 || auto {
+		t.Errorf("no blocks: got checked=%v offline=%d mb=%d auto=%v, want all zero/false",
+			checked, offline, offlineMB, auto)
+	}
+}
+
 // itoa avoids importing strconv just for the test loop.
 func itoa(i int) string {
 	if i == 0 {

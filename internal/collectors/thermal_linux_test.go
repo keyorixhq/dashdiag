@@ -192,3 +192,62 @@ func TestReadThermalZone_BadValueSkipped(t *testing.T) {
 		t.Errorf("Source = %q, want thermal_zone", info.Source)
 	}
 }
+
+// TestReadThermalZone_ReadErrorSkipped covers line 117-118: readFile on a zone
+// temp file fails (unseeded path) → continue to the next zone.
+func TestReadThermalZone_ReadErrorSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/thermal/thermal_zone*/temp", []string{
+			"/sys/class/thermal/thermal_zone0/temp",
+			"/sys/class/thermal/thermal_zone1/temp",
+		})
+		// zone0 temp NOT seeded → readFile returns ErrNotRecorded → continue
+		b.PutFile("/sys/class/thermal/thermal_zone1/temp", []byte("55000\n"))
+	})
+	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
+	readThermalZone(info)
+	if info.CPUTempC != 55.0 {
+		t.Errorf("CPUTempC = %v, want 55.0 (failed zone skipped, second zone read)", info.CPUTempC)
+	}
+}
+
+// TestReadHwmonTemps_ReadErrorSkipped covers line 80-81: readFile on a temp*_input
+// file fails (unseeded path) → continue to the next sensor.
+func TestReadHwmonTemps_ReadErrorSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/hwmon/hwmon0/temp*_input", []string{
+			"/sys/class/hwmon/hwmon0/temp1_input",
+			"/sys/class/hwmon/hwmon0/temp2_input",
+		})
+		// temp1_input NOT seeded → readFile fails → continue
+		b.PutFile("/sys/class/hwmon/hwmon0/temp2_input", []byte("62000\n"))
+		b.PutFile("/sys/class/hwmon/hwmon0/temp2_label", []byte("Tdie\n"))
+	})
+	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
+	readHwmonTemps("/sys/class/hwmon/hwmon0", info)
+	if info.CPUTempC != 62.0 {
+		t.Errorf("CPUTempC = %v, want 62.0 (failed sensor skipped, second sensor read)", info.CPUTempC)
+	}
+	if _, bad := info.CoreTemps["temp1"]; bad {
+		t.Error("failed-to-read sensor must not appear in CoreTemps")
+	}
+}
+
+// TestThermalCollector_Collect_HwmonNameReadError covers line 46-47: readFile on
+// the hwmon "name" file fails → continue to the next hwmon device.
+func TestThermalCollector_Collect_HwmonNameReadError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/hwmon/hwmon*", []string{"/sys/class/hwmon/hwmon0"})
+		// hwmon0/name NOT seeded → readFile returns error → continue
+		// No thermal_zone either → no CPU sensor → nil result
+		b.PutGlob("/sys/class/thermal/thermal_zone*/temp", []string{})
+	})
+	c := NewThermalCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil (hwmon name unreadable, no fallback)", raw)
+	}
+}

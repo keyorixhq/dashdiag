@@ -66,6 +66,22 @@ func TestCheckCVEZypperAlreadyPatched(t *testing.T) {
 	}
 }
 
+// TestCheckCVEZypperNotAffected covers the "no patches found" path (CVENotAffected)
+// in checkCVEZypper: when zypper explicitly outputs "No patch found", the CVE must
+// be reported as not affecting this system.
+func TestCheckCVEZypperNotAffected(t *testing.T) {
+	t.Parallel()
+	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
+		return source.Result{Stdout: []byte("No patch found for CVE-2024-1234."), ExitCode: 0}
+	}}
+	defer SetSource(SetSource(fake))
+
+	res := checkCVEZypper(context.Background(), "CVE-2024-1234")
+	if res.Status != models.CVENotAffected {
+		t.Fatalf("zypper 'No patch found' output must read CVENotAffected, got %s", res.Status)
+	}
+}
+
 func TestScanAllZypperKeepsTableOnNonZeroExit(t *testing.T) {
 	// 8-col list-patches table emitted with a non-zero "patches needed" exit.
 	table := "Repository | Patch Name | Category | Severity | Interactive | Status | Since | Summary\n" +

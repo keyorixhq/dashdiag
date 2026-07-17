@@ -187,6 +187,21 @@ func TestBuildFleetHTML_TemplateExecuteError(t *testing.T) {
 	}
 }
 
+// TestGenerateFleetHTMLReport_BuildError covers the buildFleetHTML error
+// propagation path inside GenerateFleetHTMLReport: a broken package-level
+// template causes the function to return an error before it tries to write.
+// Not parallel — swaps the package-level fleetHTMLTmpl.
+func TestGenerateFleetHTMLReport_BuildError(t *testing.T) {
+	orig := fleetHTMLTmpl
+	fleetHTMLTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { fleetHTMLTmpl = orig }()
+
+	report := FleetReport{Year: 2026, Hosts: []FleetHostRow{{Host: "h1", Status: "OK", StatusClass: "ok"}}}
+	if _, err := GenerateFleetHTMLReport(report); err == nil {
+		t.Error("expected error when template execution fails, got nil")
+	}
+}
+
 // TestGenerateFleetHTMLReport_WriteFails covers the os.WriteFile error branch
 // by making the CWD read-only. The root-bypass skips cleanly via CreateTemp.
 func TestGenerateFleetHTMLReport_WriteFails(t *testing.T) {

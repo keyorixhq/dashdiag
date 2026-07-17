@@ -10,6 +10,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestCgroupMemoryUsageBytes(t *testing.T) {
@@ -36,6 +37,22 @@ func TestCgroupMemoryUsageBytes(t *testing.T) {
 
 	if _, ok := cgroupMemoryUsageBytes(platform.ContainerContext{}); ok {
 		t.Error("no cgroup info (not a container) must return ok=false")
+	}
+}
+
+// TestCgroupMemoryUsageBytes_V2EmptyDirFallback covers the cgroupV2Base fallback
+// in cgroupMemoryUsageBytes: when CgroupVersion==2 but CgroupV2Dir is empty, the
+// function reads from cgroupV2Base ("/sys/fs/cgroup") instead.
+func TestCgroupMemoryUsageBytes_V2EmptyDirFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/cgroup/memory.current", []byte("262144000\n"))
+	})
+	got, ok := cgroupMemoryUsageBytes(platform.ContainerContext{CgroupVersion: 2, CgroupV2Dir: ""})
+	if !ok {
+		t.Fatal("ok = false, want true (reading from cgroupV2Base fallback)")
+	}
+	if got != 262144000 {
+		t.Errorf("got %d, want 262144000", got)
 	}
 }
 

@@ -706,6 +706,45 @@ func TestCollectSeveritySummary_QueryFails(t *testing.T) {
 	}
 }
 
+// TestCollectSeveritySummary_BenignKernelErrSkipped covers line 804-805: a line
+// from the error journal that matches a known benign kernel pattern (e.g.
+// "of_root node is null") is skipped rather than counted as a real error.
+func TestCollectSeveritySummary_BenignKernelErrSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-p", "err", "--since", "1 hours ago", "--no-pager", "-q", "--output=short-iso"},
+			"2026-06-03T09:00:00+00:00 host kernel: of_root node is null, cannot create root phandle\n"+
+				"2026-06-03T09:05:00+00:00 host myapp[100]: real error here\n", 0)
+		b.PutCmdNotFound("journalctl", []string{"-p", "warning", "--since", "1 hours ago", "--no-pager", "-q", "--output=short"})
+	})
+	info := &models.LogsInfo{}
+	collectSeveritySummary(context.Background(), info, time.Hour)
+	if info.ErrorCount != 1 {
+		t.Errorf("ErrorCount = %d, want 1 (benign kernel err must be skipped)", info.ErrorCount)
+	}
+}
+
+// TestCollectSeveritySummary_WarningCountClampedToZero covers line 833-835:
+// when ErrorCount exceeds the WarningCount computed from warnOut, the subtraction
+// goes negative and must be clamped to 0.
+func TestCollectSeveritySummary_WarningCountClampedToZero(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-p", "err", "--since", "1 hours ago", "--no-pager", "-q", "--output=short-iso"},
+			"2026-06-03T09:00:00+00:00 host myapp[100]: error one\n"+
+				"2026-06-03T09:05:00+00:00 host myapp[100]: error two\n", 0)
+		// warnOut is empty → WarningCount stays 0 before subtraction; 0 - 2 = -2 → clamped to 0.
+		b.PutCmd("journalctl", []string{"-p", "warning", "--since", "1 hours ago", "--no-pager", "-q", "--output=short"},
+			"", 0)
+	})
+	info := &models.LogsInfo{}
+	collectSeveritySummary(context.Background(), info, time.Hour)
+	if info.WarningCount != 0 {
+		t.Errorf("WarningCount = %d, want 0 (negative result must be clamped to zero)", info.WarningCount)
+	}
+	if info.ErrorCount != 2 {
+		t.Errorf("ErrorCount = %d, want 2", info.ErrorCount)
+	}
+}
+
 // ── collectCrashFiles ─────────────────────────────────────────────────────────
 
 func TestCollectCrashFiles(t *testing.T) {
@@ -906,5 +945,78 @@ func TestLogsCollector_Collect_ErrorScanFailedUnverified(t *testing.T) {
 	}
 	if !info.ErrorCountUnverified {
 		t.Error("expected ErrorCountUnverified=true: journalctl scan failed and no /var/log fallback covered it")
+	}
+}
+
+// TestParseKmsg_ContextCancelledMidLoop covers line 225-226: ctx.Done() fires
+// during the per-line loop → parseKmsg returns early.
+func TestParseKmsg_ContextCancelledMidLoop(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("100000.00 90000.00\n"))
+	kmsg := "6,100,99999000000,-;Out of memory: Kill process 1234 (nginx) score 900\n" +
+		"3,101,99999000000,-;nginx[5678]: segfault at 0 ip 0 sp 0 error 4\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately so the very first select case fires
+	info := &models.LogsInfo{}
+	parseKmsg(ctx, info, time.Hour)
+	// With a pre-cancelled context the loop exits before processing either line.
+	if info.OOMKills != 0 || info.Segfaults != 0 {
+		t.Errorf("expected no events processed with cancelled context, got %+v", info)
+	}
+}
+
+// TestParseKmsg_LineWithoutSemicolon covers line 232-233: a kmsg line that
+// contains no ';' has semi<0 and is skipped.
+func TestParseKmsg_LineWithoutSemicolon(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("100000.00 90000.00\n"))
+	kmsg := "malformed line no semicolon here\n" +
+		"6,200,99999000000,-;Out of memory: Kill process 9 (bad) score 1\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 1 {
+		t.Errorf("expected 1 OOM kill (malformed line skipped, valid line parsed), got %+v", info)
+	}
+}
+
+// TestParseKmsg_MetaFewFields covers line 239-240: the meta part before ';'
+// splits into fewer than 3 comma-separated fields → line is skipped.
+func TestParseKmsg_MetaFewFields(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("100000.00 90000.00\n"))
+	// "6,100" has only 2 comma-separated fields (need ≥3 for index [2]=timestamp)
+	kmsg := "6,100;Out of memory: Kill process 9 (bad) score 1\n" +
+		"6,200,99999000000,-;Out of memory: Kill process 7 (good) score 1\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 1 {
+		t.Errorf("expected 1 OOM kill (short-meta line skipped, valid line parsed), got %+v", info)
+	}
+}
+
+// TestParseKmsg_NonNumericTimestamp covers line 243-244: the timestamp field
+// in the meta part is not a valid float → line is skipped.
+func TestParseKmsg_NonNumericTimestamp(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/proc/uptime", []byte("100000.00 90000.00\n"))
+	// meta part has 3+ fields but field[2] is "notanumber"
+	kmsg := "6,100,notanumber,-;Out of memory: Kill process 9 (bad) score 1\n" +
+		"6,200,99999000000,-;Out of memory: Kill process 7 (good) score 1\n"
+	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte(kmsg)}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+	if info.OOMKills != 1 {
+		t.Errorf("expected 1 OOM kill (non-numeric timestamp skipped, valid line parsed), got %+v", info)
 	}
 }

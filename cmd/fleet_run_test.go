@@ -17,6 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func newFleetCmdWithHTML() *cobra.Command {
+	c := newBareFleetCmd()
+	c.Flags().Bool("report-html", false, "")
+	return c
+}
+
 func TestResolveHosts(t *testing.T) {
 	t.Parallel()
 	t.Run("args only", func(t *testing.T) {
@@ -165,5 +171,66 @@ func TestRunFleetJSONMode(t *testing.T) {
 	})
 	if !strings.Contains(out, `"host"`) {
 		t.Errorf("--json should emit the summary as JSON, got:\n%s", out)
+	}
+}
+
+// TestRunFleetBadHostsFile covers the resolveHosts error path inside runFleet
+// (line 57-59 of fleet.go): a --hosts-file pointing to a non-existent file
+// must cause runFleet to return an error that wraps "hosts-file".
+func TestRunFleetBadHostsFile(t *testing.T) {
+	defer func() { pendingExitCode = 0 }()
+	pendingExitCode = 0
+
+	c := newBareFleetCmd()
+	_ = c.Flags().Set("hosts-file", filepath.Join(t.TempDir(), "no-such-hosts.txt"))
+	err := runFleet(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "hosts-file") {
+		t.Errorf("expected a --hosts-file error, got: %v", err)
+	}
+}
+
+// TestRunFleetHTMLReport covers the --report-html branch in runFleet. It uses
+// the same non-routable address trick to avoid real SSH while still exercising
+// the buildFleetReport and GenerateFleetHTMLReport call paths.
+func TestRunFleetHTMLReport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow real-ssh-attempt test in short mode")
+	}
+	defer func() { pendingExitCode = 0 }()
+	pendingExitCode = 0
+
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	c := newFleetCmdWithHTML()
+	_ = c.Flags().Set("plain", "true")
+	_ = c.Flags().Set("report-html", "true")
+	_ = c.Flags().Set("connect-timeout", "1s")
+	_ = c.Flags().Set("timeout", "3s")
+	_ = c.Flags().Set("concurrency", "1")
+	if err := runFleet(c, []string{"192.0.2.1"}); err != nil {
+		t.Fatalf("runFleet --report-html: %v", err)
+	}
+
+	// Verify the HTML report file was created.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "dsd-fleet-report-") && strings.HasSuffix(e.Name(), ".html") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected dsd-fleet-report-*.html in %q, got: %v", dir, entries)
 	}
 }

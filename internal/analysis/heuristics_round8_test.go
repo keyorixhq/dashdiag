@@ -118,6 +118,17 @@ func TestCheckKernelSecurity(t *testing.T) {
 			mac:  models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce", AppArmorDenials: 3},
 			want: "WARN",
 		},
+		{
+			// SELinux disabled but with an invalid SELINUXTYPE — the type CRIT is
+			// still emitted even though SELinux is not enforcing. Covers the
+			// `return out` path when !seActive && len(out) > 0 on Linux.
+			name: "selinux disabled but invalid type surfaces CRIT",
+			mac: models.KernelSecurityInfo{
+				SELinuxPresent: true, SELinuxMode: "disabled",
+				SELinuxType: "bogus", SELinuxTypeValid: false,
+			},
+			want: "CRIT",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

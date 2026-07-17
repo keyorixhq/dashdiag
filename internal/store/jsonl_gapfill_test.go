@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,6 +94,56 @@ func TestClose_SyncError(t *testing.T) {
 	err = s.Close()
 	if err == nil {
 		t.Error("expected error from Close after underlying file is already closed")
+	}
+}
+
+// TestHistory_ScannerError covers the sc.Err() != nil branch in History:
+// a line longer than the 64 KB scanner buffer limit triggers bufio.ErrTooLong,
+// which History must surface as a non-nil error rather than silently skipping it.
+func TestHistory_ScannerError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "store.jsonl")
+	s, err := Open(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	// Write a line that exceeds the 64 KB scanner buffer (65 KB of JSON-like content).
+	longLine := `{"hostname":"h","verdict":"OK","value":"` + strings.Repeat("x", 65*1024) + `"}`
+	if err := os.WriteFile(storePath, []byte(longLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, histErr := s.History(context.Background(), "h", 10)
+	if histErr == nil {
+		t.Error("History must return an error when scanner hits a line exceeding the buffer limit")
+	}
+}
+
+// TestHistory_FileNotExist covers the os.IsNotExist branch in History (line 72):
+// when the store file has been removed after the store was opened, History must
+// return (nil, nil) rather than an error — the caller treats a missing history
+// file the same as an empty one.
+func TestHistory_FileNotExist(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "store.jsonl")
+	s, err := Open(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.f.Close() }()
+	// Delete the store file so the next History read triggers ENOENT.
+	if err := os.Remove(storePath); err != nil {
+		t.Fatal(err)
+	}
+	entries, histErr := s.History(context.Background(), "host1", 10)
+	if histErr != nil {
+		t.Errorf("History with missing file must return nil error (treated as empty), got %v", histErr)
+	}
+	if len(entries) != 0 {
+		t.Errorf("History with missing file must return empty slice, got %v", entries)
 	}
 }
 

@@ -758,3 +758,97 @@ func TestFilterTopEvents_NoCrits(t *testing.T) {
 		t.Errorf("got = %+v, want ts 2,3 (most recent warns)", got)
 	}
 }
+
+// TestFilterTopEvents_StartClampedToZero exercises the start<0 branch: when
+// there are fewer warns than the remaining capacity, start is clamped to 0 so
+// all warns are included (line 571-573).
+func TestFilterTopEvents_StartClampedToZero(t *testing.T) {
+	t.Parallel()
+	// cap=10, crits=1, warns=2: remaining=9 > len(warns)=2 → start=2-9=-7 < 0 → clamped to 0
+	events := []models.TimelineEvent{
+		{TimestampUnix: 1, Level: "CRIT"},
+		{TimestampUnix: 2, Level: "WARN"},
+		{TimestampUnix: 3, Level: "WARN"},
+	}
+	got := filterTopEvents(events, 10)
+	if len(got) != 3 {
+		t.Fatalf("got %d events, want 3 (all crits+warns fit within cap)", len(got))
+	}
+}
+
+// TestCollectJournalEvents_EmptyLineInOutput covers the `if line == "" { continue }`
+// guard (line 133-134): journalctl output with a blank line between two valid JSON
+// entries must not panic or produce a nil event.
+func TestCollectJournalEvents_EmptyLineInOutput(t *testing.T) {
+	since := time.Unix(1_700_000_000, 0).UTC()
+	sinceStr := since.Format("2006-01-02 15:04:05")
+	line1 := `{"__REALTIME_TIMESTAMP":"1700000100000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"first"}`
+	line2 := `{"__REALTIME_TIMESTAMP":"1700000200000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"second"}`
+	// "\n\n" produces an empty string in the middle after strings.Split.
+	output := line1 + "\n\n" + line2
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"--no-pager", "--output=json", "--since", sinceStr, "--priority=warning"}, output, 0)
+	})
+	events, err := collectJournalEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2 (empty line between entries must be skipped)", len(events))
+	}
+}
+
+// TestParseJournalLine_BenignKernelErrDowngraded covers line 190-192: a journal
+// entry that is CRIT by priority but whose message matches a known benign kernel
+// pattern must be downgraded to INFO.
+func TestParseJournalLine_BenignKernelErrDowngraded(t *testing.T) {
+	t.Parallel()
+	line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"3","_SYSTEMD_UNIT":"kernel","MESSAGE":"of_root node is null, cannot create root phandle"}`
+	ev := parseJournalLine(line)
+	if ev == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if ev.Level != "INFO" {
+		t.Errorf("Level = %q, want INFO (benign kernel err must be downgraded from CRIT)", ev.Level)
+	}
+}
+
+// TestDeduplicateEvents_LongMessage covers line 271-273: messages longer than 40
+// chars are truncated to a 40-char prefix for the dedup key.  Two events with the
+// same long message must collapse into a single entry with Count==2.
+func TestDeduplicateEvents_LongMessage(t *testing.T) {
+	t.Parallel()
+	msg := strings.Repeat("x", 50) // > 40 chars → triggers the truncation branch
+	events := []models.TimelineEvent{
+		{Level: "WARN", TimestampUnix: 100, Unit: "svc", Message: msg},
+		{Level: "WARN", TimestampUnix: 115, Unit: "svc", Message: msg}, // same minute (100/60 == 115/60 == 1)
+	}
+	result := deduplicateEvents(events)
+	if len(result) != 1 {
+		t.Fatalf("got %d events after dedup, want 1 (identical 40-char prefixes must collapse)", len(result))
+	}
+	if result[0].Count != 2 {
+		t.Errorf("Count = %d, want 2", result[0].Count)
+	}
+}
+
+// TestCollectDmesgEvents_CapAt500 covers line 324-325: more than 500 parseable
+// dmesg lines must be capped at exactly 500 events.
+func TestCollectDmesgEvents_CapAt500(t *testing.T) {
+	since := time.Unix(0, 0)
+	line := "kern  :err   : [Wed Jun  4 10:30:00 2025] repeated error message"
+	lines := make([]string, 600)
+	for i := range lines {
+		lines[i] = line
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dmesg", []string{"-T", "-x", "--level=err,warn,crit,emerg,alert"}, strings.Join(lines, "\n"), 0)
+	})
+	events, err := collectDmesgEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 500 {
+		t.Errorf("got %d events, want 500 (capped at 500)", len(events))
+	}
+}

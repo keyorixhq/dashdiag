@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,23 @@ func TestFDLimitsCollector_CollectLinux_OpenFileError(t *testing.T) {
 	c := NewFDLimitsCollector()
 	if _, err := c.collectLinux(context.Background()); err == nil {
 		t.Error("expected an error when file-nr can't be opened")
+	}
+}
+
+// TestFDLimitsCollector_CollectLinux_ParseError covers the "parsing file-nr"
+// error path: file-nr exists but contains too few fields, causing parseFileNr
+// to return an error.
+func TestFDLimitsCollector_CollectLinux_ParseError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/fs/file-nr", []byte("baddata\n")) // 1 field, not 3
+	})
+	c := NewFDLimitsCollector()
+	_, err := c.collectLinux(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when file-nr has too few fields")
+	}
+	if !strings.Contains(err.Error(), "parsing file-nr") {
+		t.Errorf("error = %q, want 'parsing file-nr' context", err)
 	}
 }
 
