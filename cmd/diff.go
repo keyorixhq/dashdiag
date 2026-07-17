@@ -114,8 +114,8 @@ func runDiffFromStore(cmd *cobra.Command) error {
 }
 
 type storeDiffOutput struct {
-	Before  store.Entry        `json:"before"`
-	After   store.Entry        `json:"after"`
+	Before  store.Entry         `json:"before"`
+	After   store.Entry         `json:"after"`
 	Changes []store.CheckChange `json:"changes"`
 }
 
