@@ -540,6 +540,18 @@ func TestCollectPVEGuests_QemuFailsLXCSucceeds(t *testing.T) {
 	}
 }
 
+func TestCollectPVEGuests_BadJSON(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/qemu", "--output-format", "json"},
+			"not valid json", 0)
+		b.PutCmdNotFound("pvesh", []string{"get", "/nodes/localhost/lxc", "--output-format", "json"})
+	})
+	guests, _, _, _ := collectPVEGuests(context.Background())
+	if len(guests) != 0 {
+		t.Errorf("expected 0 guests when JSON is invalid, got %d", len(guests))
+	}
+}
+
 func TestCollectPVEResourceUsage(t *testing.T) {
 	t.Parallel()
 	guests := []models.PVEGuest{
@@ -648,6 +660,17 @@ func TestCollectPVETaskErrors_QueryFails(t *testing.T) {
 	}
 }
 
+func TestCollectPVETaskErrors_BadJSON(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/tasks", "--limit", "100", "--output-format", "json"},
+			"not valid json", 0)
+	})
+	errs, verified := collectPVETaskErrors(context.Background())
+	if errs != nil || verified {
+		t.Errorf("expected nil/false on bad JSON, got %v/%v", errs, verified)
+	}
+}
+
 func TestCollectPVEBridges_Happy(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/network", "--output-format", "json"},
@@ -670,6 +693,23 @@ func TestCollectPVEBridges_QueryFails(t *testing.T) {
 	})
 	if got := collectPVEBridges(context.Background()); got != nil {
 		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestCollectPVEBridges_BadJSON(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/network", "--output-format", "json"},
+			"not valid json", 0)
+	})
+	if got := collectPVEBridges(context.Background()); got != nil {
+		t.Errorf("expected nil on bad JSON, got %v", got)
+	}
+}
+
+func TestCollectPhysicalCores_Unreadable(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/cpuinfo not seeded
+	if got := collectPhysicalCores(); got != 0 {
+		t.Errorf("collectPhysicalCores() = %d, want 0 when /proc/cpuinfo is unreadable", got)
 	}
 }
 

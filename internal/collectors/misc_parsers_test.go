@@ -15,6 +15,7 @@ func TestExtractAVCProcesses(t *testing.T) {
 		`type=AVC msg=audit(2:2): avc: denied { read } comm="httpd" scontext=x`, // duplicate — deduped
 		`type=AVC msg=audit(3:3): avc: denied { write } comm="sshd" scontext=x`,
 		`no comm field here`,
+		`type=AVC comm="unclosed`, // comm= found but no closing quote → end <= 0 → skip
 	}
 	procs := ExtractAVCProcesses(samples)
 	if len(procs) != 2 || procs[0] != "httpd" || procs[1] != "sshd" {
