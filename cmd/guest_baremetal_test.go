@@ -1,23 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/keyorixhq/dashdiag/internal/collectors"
 )
 
 // TestRunGuest_BareMetal covers the detectGuestView found==false branch of
-// runGuest. This test is the counterpart to TestRunGuest (which skips when
-// ContainerGuestAvailable returns false). It runs on any non-container host
-// (macOS, GitHub Actions Ubuntu runner without a guest hypervisor layer, etc.)
-// and verifies that runGuest correctly returns a "bare metal" message in plain
-// mode and a {"in_guest":false} object in JSON mode.
+// runGuest. It runs only when no guest environment (container, cloud VM, or
+// hypervisor) is detected — i.e. we're on genuine bare metal.
 // No t.Parallel() — captureStdout swaps the shared os.Stdout.
 func TestRunGuest_BareMetal(t *testing.T) {
-	if collectors.ContainerGuestAvailable() {
-		t.Skip("skipping bare-metal test when running inside a container")
+	if _, found := detectGuestView(context.Background()); found {
+		t.Skip("skipping: a guest environment was detected (container, VM, or cloud) — not bare metal")
 	}
 
 	// plain mode: should print a "bare metal" info line
