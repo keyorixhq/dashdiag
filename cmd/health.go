@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -209,8 +210,16 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 // persistHealthRun appends a snapshot of this health run to the local store.
 // Failures are printed to stderr but never abort the run — persistence is
 // best-effort; the health output is the primary product.
+// After a successful append, it reads the previous entry and prints a one-line
+// drift summary to stderr when any check status changed.
 func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []models.Insight) {
-	s, err := store.Open(store.StorePath())
+	path := store.StorePath()
+
+	// Read the most-recent prior entry before we write — we need the pre-append
+	// state to compute a meaningful diff.
+	prior, _ := store.ReadAll(path, snap.Hostname, 1)
+
+	s, err := store.Open(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "store: %v\n", err)
 		return
@@ -229,16 +238,54 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []m
 	for _, c := range snap.Checks {
 		checks[c.Name] = c.Status
 	}
-	e := store.Entry{
+	cur := store.Entry{
 		Timestamp: snap.Timestamp,
 		Hostname:  snap.Hostname,
 		Version:   snap.Version,
 		Verdict:   store.VerdictFromInsights(levels),
 		Checks:    checks,
 	}
-	if err := s.Append(ctx, e); err != nil {
+	if err := s.Append(ctx, cur); err != nil {
 		fmt.Fprintf(os.Stderr, "store: %v\n", err)
+		return
 	}
+
+	if len(prior) == 0 {
+		return // first ever run — nothing to diff against
+	}
+	printPersistDrift(prior[0], cur)
+}
+
+// printPersistDrift writes a one-line drift summary to stderr when check
+// statuses changed since the previous persisted run.
+func printPersistDrift(prev, cur store.Entry) {
+	changes := store.DiffChecks(prev, cur)
+	if len(changes) == 0 {
+		return
+	}
+	ago := cur.Timestamp.Sub(prev.Timestamp).Round(time.Minute)
+	const show = 3
+	parts := make([]string, 0, show)
+	for i, c := range changes {
+		if i >= show {
+			break
+		}
+		before := c.Before
+		if before == "" {
+			before = "new"
+		}
+		after := c.After
+		if after == "" {
+			after = "gone"
+		}
+		parts = append(parts, c.Name+" "+before+"→"+after)
+	}
+	summary := strings.Join(parts, " · ")
+	if len(changes) > show {
+		summary += fmt.Sprintf(" · +%d more", len(changes)-show)
+	}
+	fmt.Fprintf(os.Stderr, "persist: %d change(s) since last run (%s ago) — %s\n",
+		len(changes), ago, summary)
 }
 
 // writeHealthReports handles --report/--report-html: write shareable report

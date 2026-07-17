@@ -221,6 +221,51 @@ func TestStorePath_NonRoot(t *testing.T) {
 	}
 }
 
+func TestReadAll_AllHosts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.jsonl")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ctx := context.Background()
+	_ = s.Append(ctx, Entry{Hostname: "h1", Verdict: "OK"})
+	_ = s.Append(ctx, Entry{Hostname: "h2", Verdict: "WARN"})
+	_ = s.Append(ctx, Entry{Hostname: "h1", Verdict: "CRIT"})
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// hostname="" returns all entries across all hosts.
+	all, err := ReadAll(path, "", 0)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("ReadAll all-hosts: got %d entries, want 3", len(all))
+	}
+
+	// hostname="h1" filters correctly.
+	h1, err := ReadAll(path, "h1", 0)
+	if err != nil {
+		t.Fatalf("ReadAll h1: %v", err)
+	}
+	if len(h1) != 2 {
+		t.Errorf("ReadAll h1: got %d entries, want 2", len(h1))
+	}
+}
+
+func TestReadAll_MissingFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	entries, err := ReadAll(filepath.Join(dir, "nonexistent.jsonl"), "h", 10)
+	if err != nil || entries != nil {
+		t.Errorf("ReadAll missing file: got (%v, %v), want (nil, nil)", entries, err)
+	}
+}
+
 func verdicts(es []Entry) []string {
 	out := make([]string, len(es))
 	for i, e := range es {
