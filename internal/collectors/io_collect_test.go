@@ -341,3 +341,18 @@ func TestParseFiniteFloatIOBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// TestIOCollector_Collect_FirstParseError covers io.go:135.16,137.3 — the
+// branch that fires when the first parseDiskstats call fails (the file opens
+// fine but the content can't be scanned). A single 128 KB token with no
+// newlines exceeds bufio.MaxScanTokenSize (64 KB) and causes the scanner to
+// return bufio.ErrTooLong.
+func TestIOCollector_Collect_FirstParseError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/diskstats", []byte(strings.Repeat("x", 128*1024)))
+	})
+	c := NewIOCollector()
+	if _, err := c.Collect(context.Background()); err == nil {
+		t.Fatal("expected an error when the first diskstats parse fails (token too long)")
+	}
+}
