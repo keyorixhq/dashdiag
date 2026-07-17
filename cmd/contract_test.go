@@ -65,6 +65,8 @@ var exitCodeContract = map[string]string{
 	// cobra built-ins.
 	"completion": "exempt: cobra builtin",
 	"help":       "exempt: cobra builtin",
+
+	"mcp": "exempt: long-running MCP server over stdio — not a host-health gate",
 }
 
 // TestEverySubcommandClassified is the BUG-022 guard: a registered subcommand
@@ -155,6 +157,8 @@ var jsonContract = map[string]string{
 	"tips":       "exempt: prints tips",
 	"completion": "exempt: cobra builtin",
 	"help":       "exempt: cobra builtin",
+
+	"mcp": "exempt: MCP server over stdio — streams JSON-RPC, not a --json diagnostic payload",
 }
 
 // jsonMechanisms are the ways a command may satisfy --json: the builder (which
