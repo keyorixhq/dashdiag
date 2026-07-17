@@ -53,12 +53,14 @@ detect_platform() {
 fetch_latest_version() {
     _url="https://api.github.com/repos/${REPO}/releases/latest"
     # GITHUB_TOKEN (if set) avoids rate-limit 403s on shared CI runner IPs.
+    # --retry 3 --retry-delay 5: curl retries natively on HTTP 5xx (incl. 503)
+    # and on network errors; covers transient GitHub API / CDN hiccups.
     if command -v curl >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION="$(curl -fsSL --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         else
-            VERSION="$(curl -fsSL --proto '=https' "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         fi
     elif command -v wget >/dev/null 2>&1; then
@@ -89,7 +91,7 @@ download() {
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
     else
         wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL" # NOSONAR -- shelldre:S6506
     fi
@@ -121,7 +123,7 @@ verify_checksum() {
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     else
         wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; } # NOSONAR -- shelldre:S6506
     fi
@@ -159,7 +161,7 @@ verify_signature() {
     SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
     SIG_FILE="${SUMS_FILE}.minisig"                # minisign -Vm looks for <file>.minisig
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
     else
         wget -qO "$SIG_FILE" --https-only "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; } # NOSONAR -- shelldre:S6506
     fi
