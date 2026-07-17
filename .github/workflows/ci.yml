@@ -322,7 +322,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
+      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh scripts/fuzz-smoke-ci.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
@@ -397,3 +397,30 @@ jobs:
             -v "$RUNNER_TEMP/dsd:/usr/local/bin/dsd:ro" \
             -v "$PWD/scripts/container-honesty-smoke.sh:/smoke.sh:ro" \
             debian:13 sh /smoke.sh
+
+  # Fuzz smoke — runs every PR to catch a broken fuzz target before it silently
+  # disappears from the continuous rig's rotation. Not a corpus-building session:
+  # each target runs for 30s against the existing seed/crash corpus only. The
+  # permanent continuous rig on the Oracle Ampere A1 box handles real coverage
+  # growth (scripts/fuzz-continuous.sh + docs/CONTINUOUS_FUZZING.md). Targets are
+  # discovered dynamically (via scripts/fuzz-smoke-ci.sh) so the list can't go
+  # stale the way the hardcoded `make test-fuzz` list did for months (#728 context).
+  fuzz-smoke:
+    name: Fuzz smoke (30s per target)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Run fuzz smoke (30s per target)
+        run: bash scripts/fuzz-smoke-ci.sh
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fuzz-smoke-crashes-${{ github.run_id }}
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore
