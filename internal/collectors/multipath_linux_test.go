@@ -241,13 +241,17 @@ mpathb (uuid2) dm-1 LIO-ORG,disk1
 	})
 
 	// A path line appearing before any device header must be silently skipped
-	// (current == nil guard).
+	// (current == nil guard). The subsequent device header still produces a device,
+	// but with zero paths (the pre-header path didn't contribute).
 	t.Run("path line before first header is skipped", func(t *testing.T) {
 		const out = "  |- 3:0:0:0 sdb 8:16 active ready running\n" +
 			"mpatha (uuid) dm-0 LIO-ORG,disk0\n"
 		devices := parseMultipathL(out)
-		if len(devices) != 0 {
-			t.Errorf("expected no complete devices (sdb path appeared before header), got %+v", devices)
+		if len(devices) != 1 {
+			t.Fatalf("expected 1 device (header line), got %d: %+v", len(devices), devices)
+		}
+		if devices[0].TotalPaths != 0 {
+			t.Errorf("TotalPaths = %d, want 0 (pre-header path must not be counted)", devices[0].TotalPaths)
 		}
 	})
 
