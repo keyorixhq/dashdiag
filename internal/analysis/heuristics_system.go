@@ -518,9 +518,11 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			))
 		}
 		// On non-Linux platforms (macOS, etc.) neither SELinux nor AppArmor
-		// is applicable — hide the row rather than showing a misleading INFO.
+		// is applicable — suppress the "not enforced" INFO row. But any
+		// insights already in `out` (e.g. a CRIT for an invalid SELINUXTYPE=
+		// found in the policy-type block above) must still be returned.
 		if runtime.GOOS != "linux" {
-			return nil
+			return out
 		}
 		if len(out) == 0 {
 			return []models.Insight{insight("INFO", catKernelSec,
