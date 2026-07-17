@@ -216,7 +216,7 @@ validated (AWS + Azure captures, NVMe-timeout insight).
 
 | Item | Ref | Gate |
 |---|---|---|
-| state.Store + JSONL storage (correlation v2 / drift) | Gap Spec 9, CLAUDE.md | Decide before correlation work hardens around stateless assumptions |
+| state.Store + JSONL storage (correlation v2 / drift) | Gap Spec 9, ADR-0001 | PARTIAL — `internal/store/` shipped; `dsd health --persist` wired; correlation integration + `dsd diff` (general) deferred |
 | platform.Profile | Spec 8 | Architectural, deferred |
 | `dsd capture --cve`, `--timeline` | session notes | Demand |
 | containerd standalone detection | session notes | Demand, low priority |
