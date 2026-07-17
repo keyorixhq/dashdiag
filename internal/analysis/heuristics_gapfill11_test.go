@@ -17,7 +17,7 @@ func TestK8sEventInsight_UnequalCounts(t *testing.T) {
 	events := []models.K8sEvent{
 		{Reason: "BackOff", Age: "30s"},
 		{Reason: "BackOff", Age: "31s"},
-		{Reason: "BackOff", Age: "32s"}, // count=3
+		{Reason: "BackOff", Age: "32s"},   // count=3
 		{Reason: "Unhealthy", Age: "30s"}, // count=1
 	}
 	ins := k8sEventInsight("WARN", events)
@@ -41,7 +41,7 @@ func TestCheckBonding_USBSlaveHealthyBond(t *testing.T) {
 	defer collectors.SetSource(prev)
 
 	b := models.BondingInfo{Bonds: []models.BondInterface{{
-		Name:      "bond0",
+		Name:       "bond0",
 		DownSlaves: 0,
 		Slaves: []models.BondSlave{
 			{Name: "eth0", State: "up"},

@@ -80,7 +80,7 @@ func TestK8sEventInsight_FiveDistinctReasons(t *testing.T) {
 func TestCheckBonding_HighLinkFails(t *testing.T) {
 	t.Parallel()
 	b := models.BondingInfo{Bonds: []models.BondInterface{{
-		Name:      "bond0",
+		Name:       "bond0",
 		DownSlaves: 1,
 		Slaves: []models.BondSlave{
 			{Name: "eth0", State: "up", LinkFails: 50},
@@ -123,7 +123,7 @@ func TestBusyProcessHints_NeedsRootWithProcesses(t *testing.T) {
 	t.Parallel()
 	fs := models.FilesystemInfo{
 		Mount:              "/data",
-		BusyProcesses:     []models.FSBusyProcess{{PID: 99, Command: "app", User: "root"}},
+		BusyProcesses:      []models.FSBusyProcess{{PID: 99, Command: "app", User: "root"}},
 		BusyCheckNeedsRoot: true,
 	}
 	hints := busyProcessHints(fs)

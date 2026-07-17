@@ -55,7 +55,7 @@ func TestCheckPVE_NeedsRoot(t *testing.T) {
 func TestAdaptHintsToPlatform_EmptyHints(t *testing.T) {
 	t.Parallel()
 	ins := []models.Insight{
-		{Level: "WARN", Check: "Hardening", Hints: nil},                        // no hints
+		{Level: "WARN", Check: "Hardening", Hints: nil},                          // no hints
 		{Level: "WARN", Check: "Clock", Hints: []string{"to inspect: ss -tlnp"}}, // has hints
 	}
 	out := adaptHintsToPlatform(cloneInsights(ins), "darwin", "unknown")

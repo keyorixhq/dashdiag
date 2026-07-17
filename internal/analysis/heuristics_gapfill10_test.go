@@ -38,7 +38,7 @@ func TestK8sUnknownStatusInsight_SkipsNonUnknownPod(t *testing.T) {
 		UnknownStatus: 1,
 		Pods: []models.K8sPodInfo{
 			{Namespace: "kube-system", Name: "coredns-0", Status: "Running"}, // → continue
-			{Namespace: "default", Name: "app-0", Status: "Unknown"},          // → process
+			{Namespace: "default", Name: "app-0", Status: "Unknown"},         // → process
 		},
 	}
 	ins := k8sUnknownStatusInsight(info)
