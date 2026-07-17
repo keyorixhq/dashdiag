@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -155,6 +156,20 @@ func TestSubSat(t *testing.T) {
 	}
 	if subSat(4, 10) != 0 {
 		t.Error("underflow must saturate to 0 (counter reset mid-window)")
+	}
+}
+
+// TestSortENA covers aws_linux.go:298 — the insertion-sort swap path that fires
+// when two or more ENAStats entries are in reverse-alphabetical order by Iface.
+func TestSortENA(t *testing.T) {
+	t.Parallel()
+	s := []models.ENAStats{
+		{Iface: "eth1"},
+		{Iface: "eth0"}, // out of order → swap fires
+	}
+	sortENA(s)
+	if s[0].Iface != "eth0" || s[1].Iface != "eth1" {
+		t.Errorf("sortENA: got [%s %s], want [eth0 eth1]", s[0].Iface, s[1].Iface)
 	}
 }
 
