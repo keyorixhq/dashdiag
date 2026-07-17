@@ -20,6 +20,8 @@ func newBareDiffCmd() *cobra.Command {
 	f.Bool("deep", false, "")
 	f.Bool("cve", false, "")
 	f.Bool("force", false, "")
+	f.Bool("last", false, "")
+	f.String("host", "", "")
 	return c
 }
 
