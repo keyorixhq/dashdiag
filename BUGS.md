@@ -777,9 +777,8 @@ and the PAYG **Subscription** verdict was correct (`OK` registered as root, hone
   fails (locked / run-as-root / other) instead of the blanket "try running as root".
   Validated live: pre-fix 3/3 runs false-negative; post-fix **6/6 runs** correctly report
   `CRIT 18 critical security update(s)`, root AND non-root. Unit test for the lock detector.
-**Sibling (logged, not yet fixed):** `pkgIntegrityZypper` (deep `zypper verify`) hits the
-  same lock and currently reads clean on a lock error (a deep-mode false-OK) — same retry
-  guard should be applied. See TRIAGE §U.
+**Sibling (fixed):** `pkgIntegrityZypper` (deep `zypper verify`) — same retry guard applied
+  in #481; persistent lock sets `VerifyLocked` → INFO, never silent clean. See TRIAGE §U.
 **PR:** #480
 
 ### BUG-059 — zypper counts "important" patches as "critical" (severity over-escalation)
