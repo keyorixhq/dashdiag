@@ -157,6 +157,9 @@ func TestMCPHelp(t *testing.T) {
 	if !strings.Contains(out, "dsd_health") {
 		t.Errorf("mcp --help output missing 'dsd_health': %q", out)
 	}
+	if !strings.Contains(out, "dsd_cis") {
+		t.Errorf("mcp --help output missing 'dsd_cis': %q", out)
+	}
 }
 
 func TestHealthOutputContainsCollectors(t *testing.T) {

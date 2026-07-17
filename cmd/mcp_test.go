@@ -1,6 +1,6 @@
 package cmd
 
-// mcp_test.go — unit tests for the four MCP tool handler functions.
+// mcp_test.go — unit tests for the five MCP tool handler functions.
 //
 // The tool handlers are thin wrappers; the integration path (health pipeline,
 // bundle I/O) is exercised by the existing smoke and replay suites. These tests
@@ -9,10 +9,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // TestToolCaptureRequiresOutPath verifies that toolCapture returns an error
@@ -105,5 +108,53 @@ func TestToolDiffNonexistentBundle(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent bundles, got nil")
+	}
+}
+
+// TestToolCISReturnsValidReport verifies that toolCIS returns a non-empty
+// CISReport that can be unmarshalled and has at least one scored result.
+// On macOS most Linux-specific rules SKIP gracefully rather than erroring.
+func TestToolCISReturnsValidReport(t *testing.T) {
+	t.Parallel()
+	result, _, err := toolCIS(context.Background(), &mcp.CallToolRequest{}, mcpCISInput{})
+	if err != nil {
+		t.Fatalf("toolCIS: %v", err)
+	}
+	if result == nil || len(result.Content) == 0 {
+		t.Fatal("toolCIS: nil result or empty content")
+	}
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("toolCIS: content[0] is not TextContent")
+	}
+	var report models.CISReport
+	if err := json.Unmarshal([]byte(tc.Text), &report); err != nil {
+		t.Fatalf("toolCIS: unmarshal CISReport: %v", err)
+	}
+	if len(report.Results) == 0 {
+		t.Error("toolCIS: got empty results slice")
+	}
+	total := report.Pass + report.Fail + report.Manual + report.NA + report.Skipped
+	if total == 0 {
+		t.Error("toolCIS: all counters are zero")
+	}
+}
+
+// TestToolCISLevel0DefaultsTo1 verifies that an omitted level (0) produces the
+// same result count as an explicit level=1.
+func TestToolCISLevel0DefaultsTo1(t *testing.T) {
+	t.Parallel()
+	r0, _, err0 := toolCIS(context.Background(), &mcp.CallToolRequest{}, mcpCISInput{Level: 0})
+	r1, _, err1 := toolCIS(context.Background(), &mcp.CallToolRequest{}, mcpCISInput{Level: 1})
+	if err0 != nil || err1 != nil {
+		t.Fatalf("toolCIS errors: level0=%v level1=%v", err0, err1)
+	}
+	tc0, _ := r0.Content[0].(*mcp.TextContent)
+	tc1, _ := r1.Content[0].(*mcp.TextContent)
+	var rep0, rep1 models.CISReport
+	_ = json.Unmarshal([]byte(tc0.Text), &rep0)
+	_ = json.Unmarshal([]byte(tc1.Text), &rep1)
+	if len(rep0.Results) != len(rep1.Results) {
+		t.Errorf("level 0 → %d results, level 1 → %d (should be equal)", len(rep0.Results), len(rep1.Results))
 	}
 }

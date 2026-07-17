@@ -2,11 +2,12 @@ package cmd
 
 // mcp.go — `dsd mcp`: MCP (Model Context Protocol) server over stdio.
 //
-// Exposes four tools that give an AI agent structured, citable host context:
+// Exposes five tools that give an AI agent structured, citable host context:
 //   dsd_health   — run the health pipeline and return the JSON verdict
 //   dsd_capture  — record a raw bundle for offline replay/diff
 //   dsd_replay   — replay a bundle and return its JSON verdict
 //   dsd_diff     — diff two bundles and return per-check status transitions
+//   dsd_cis      — run the CIS/STIG compliance benchmark and return the report
 //
 // All tools are thin wrappers over existing code paths; no new collector or
 // verdict logic lives here. The output of every tool is the existing
@@ -30,11 +31,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
+	"github.com/keyorixhq/dashdiag/internal/cis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/source"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -50,11 +54,12 @@ var mcpCmd = &cobra.Command{
 stdin/stdout. This lets AI agents (Claude Code, Cursor, etc.) call dsd's
 diagnosis tools directly and cite the results as citable host evidence.
 
-Four tools are exposed:
+Five tools are exposed:
   dsd_health   — run the full health pipeline (same as dsd health --json)
   dsd_capture  — record a raw bundle to a file for offline replay
   dsd_replay   — replay a bundle and return its health verdict as JSON
   dsd_diff     — diff two bundles, returning per-check status transitions
+  dsd_cis      — run the CIS/STIG compliance benchmark (same as dsd cis --json)
 
 Register in Claude Code:
   claude mcp add dsd -- dsd mcp
@@ -92,6 +97,11 @@ type mcpReplayInput struct {
 type mcpDiffInput struct {
 	BaselinePath string `json:"baseline_path" jsonschema:"path to the baseline (before) bundle"`
 	CurrentPath  string `json:"current_path"  jsonschema:"path to the current (after) bundle"`
+}
+
+type mcpCISInput struct {
+	Level int  `json:"level,omitempty" jsonschema:"benchmark level: 1 = CIS Level 1 (default), 2 = Level 1 + Level 2"`
+	STIG  bool `json:"stig,omitempty"  jsonschema:"run DISA STIG Ubuntu 20.04 LTS checks instead of CIS"`
 }
 
 // ── tool handlers ──────────────────────────────────────────────────────────
@@ -231,6 +241,50 @@ func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	}, nil, nil
 }
 
+// toolCIS runs the CIS/STIG compliance benchmark and returns the full report
+// as JSON. Equivalent to `dsd cis [--level N] [--stig] --json`.
+func toolCIS(_ context.Context, _ *mcp.CallToolRequest, in mcpCISInput) (
+	*mcp.CallToolResult, any, error,
+) {
+	level := in.Level
+	if level < 1 {
+		level = 1
+	}
+	ctx := context.Background()
+
+	secC := collectors.NewSecurityCollector()
+	ksC := collectors.NewKernelSecurityCollector()
+	results := runner.RunAll(ctx, []runner.Collector{secC, ksC})
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	for r := range results {
+		switch r.Name {
+		case "Hardening":
+			if v, ok := r.Data.(*models.SecurityInfo); ok && v != nil {
+				sec = *v
+			}
+		case "KernelSec":
+			if v, ok := r.Data.(*models.KernelSecurityInfo); ok && v != nil {
+				ks = *v
+			}
+		}
+	}
+
+	prof := platform.Detect()
+	report := cis.Evaluate(sec, ks, level, in.STIG, prof.PackageManager)
+	report.Hostname, _ = os.Hostname()
+	report.Profile = cisProfileName(prof.Distro, level, in.STIG)
+
+	data, err := json.Marshal(report)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_cis: marshalling result: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+	}, nil, nil
+}
+
 // ── server ─────────────────────────────────────────────────────────────────
 
 func runMCP(_ *cobra.Command, _ []string) error {
@@ -275,6 +329,17 @@ func runMCP(_ *cobra.Command, _ []string) error {
 			"healthy state and a broken one, or to verify that a change had the intended " +
 			"effect. Each entry has: name, before, after, status_change, changed, improved.",
 	}, toolDiff)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "dsd_cis",
+		Description: "Run the CIS or DISA STIG compliance benchmark on this host and return " +
+			"the full report as JSON. Each rule has: id, section, description, status (PASS/" +
+			"FAIL/SKIP/MANUAL), finding (what was found), and remediation (how to fix it). " +
+			"Use this to assess the host's security posture before hardening, audit a " +
+			"remediation, or identify the highest-priority CIS failures. Set stig=true for " +
+			"DISA STIG IDs instead of CIS. The report reuses the same SecurityCollector data " +
+			"as dsd_health — no additional tools or network access required.",
+	}, toolCIS)
 
 	return srv.Run(context.Background(), &mcp.StdioTransport{})
 }
