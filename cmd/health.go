@@ -212,6 +212,10 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 // best-effort; the health output is the primary product.
 // After a successful append, it reads the previous entry and prints a one-line
 // drift summary to stderr when any check status changed.
+// defaultMaxHistory is the maximum number of entries kept per hostname in the
+// local store. At one entry per day this is ~1 year of history.
+const defaultMaxHistory = 365
+
 func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []models.Insight) {
 	path := store.StorePath()
 
@@ -224,11 +228,6 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []m
 		fmt.Fprintf(os.Stderr, "store: %v\n", err)
 		return
 	}
-	defer func() {
-		if cerr := s.Close(); cerr != nil {
-			fmt.Fprintf(os.Stderr, "store: %v\n", cerr)
-		}
-	}()
 
 	levels := make([]string, 0, len(insights))
 	for _, ins := range insights {
@@ -247,7 +246,16 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []m
 	}
 	if err := s.Append(ctx, cur); err != nil {
 		fmt.Fprintf(os.Stderr, "store: %v\n", err)
+		_ = s.Close()
 		return
+	}
+
+	// Close before pruning so the rename in Prune has no open writer racing it.
+	if cerr := s.Close(); cerr != nil {
+		fmt.Fprintf(os.Stderr, "store: %v\n", cerr)
+	}
+	if err := store.Prune(path, snap.Hostname, defaultMaxHistory); err != nil {
+		fmt.Fprintf(os.Stderr, "store: prune: %v\n", err)
 	}
 
 	if len(prior) == 0 {
