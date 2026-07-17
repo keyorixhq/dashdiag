@@ -21,6 +21,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/selfupdate"
 	"github.com/keyorixhq/dashdiag/internal/share"
+	"github.com/keyorixhq/dashdiag/internal/store"
 	"github.com/keyorixhq/dashdiag/internal/tips"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -64,6 +65,7 @@ func init() {
 	healthCmd.Flags().Bool("yaml", false, "YAML output")
 	healthCmd.Flags().Bool("layered", false, "group findings by abstraction layer (hardware / platform / OS & services)")
 	healthCmd.Flags().String("post-mortem", "", "generate post-mortem for given incident ID")
+	healthCmd.Flags().Bool("persist", false, "append a snapshot of this run to the local state store (~/.dsd/store.jsonl)")
 }
 
 var healthCmd = &cobra.Command{
@@ -186,6 +188,11 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 		return err
 	}
 
+	persistFlag, _ := cmd.Flags().GetBool("persist")
+	if persistFlag && snap != nil {
+		persistHealthRun(ctx, snap, insights)
+	}
+
 	exitCode, noticeW := printHealthResults(cmd, ctrCtx, mode, results, insights, snap, elapsed, deepFlag)
 
 	writeHealthReports(ctx, reportFlag, reportHTMLFlag, snap, insights, elapsed, noticeW)
@@ -197,6 +204,41 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 		os.Exit(exitCode)
 	}
 	return nil
+}
+
+// persistHealthRun appends a snapshot of this health run to the local store.
+// Failures are printed to stderr but never abort the run — persistence is
+// best-effort; the health output is the primary product.
+func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []models.Insight) {
+	s, err := store.Open(store.StorePath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "store: %v\n", err)
+		return
+	}
+	defer func() {
+		if cerr := s.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "store: %v\n", cerr)
+		}
+	}()
+
+	levels := make([]string, 0, len(insights))
+	for _, ins := range insights {
+		levels = append(levels, ins.Level)
+	}
+	checks := make(map[string]string, len(snap.Checks))
+	for _, c := range snap.Checks {
+		checks[c.Name] = c.Status
+	}
+	e := store.Entry{
+		Timestamp: snap.Timestamp,
+		Hostname:  snap.Hostname,
+		Version:   snap.Version,
+		Verdict:   store.VerdictFromInsights(levels),
+		Checks:    checks,
+	}
+	if err := s.Append(ctx, e); err != nil {
+		fmt.Fprintf(os.Stderr, "store: %v\n", err)
+	}
 }
 
 // writeHealthReports handles --report/--report-html: write shareable report
