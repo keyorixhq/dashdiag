@@ -381,7 +381,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return pass(r)
 				}
 				return failr(r, "no MAC framework detected",
-					"install apparmor (Ubuntu/Debian: apt install apparmor) or ensure selinux-policy is installed (RHEL/Rocky: dnf install selinux-policy-targeted)")
+					"install AppArmor or SELinux")
 			}},
 
 		{ID: "3.3.2", Framework: cisBenchCIS, Level: 1, Section: cisCatMAC,
@@ -432,7 +432,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				if !sec.FirewallToolingPresent {
 					return failr(r, "no firewall tooling detected",
-						"install a firewall: ufw (apt install ufw && ufw enable) or firewalld (dnf install firewalld && systemctl enable --now firewalld)")
+						"install a firewall")
 				}
 				return failr(r, fmt.Sprintf("firewall tooling present (%s) but not active", sec.FirewallType),
 					"enable the firewall: ufw enable (Ubuntu/Debian) or systemctl enable --now firewalld (RHEL/Rocky)")

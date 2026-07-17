@@ -55,9 +55,40 @@ func timeSyncInstallCmd(pkgMgr string) string {
 	}
 }
 
+// macInstallCmd returns the package-manager-appropriate command to install a MAC
+// framework. RHEL/Rocky/Fedora use SELinux; Debian/Ubuntu/SLES/Arch use AppArmor.
+func macInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install selinux-policy-targeted && reboot"
+	case "zypper":
+		return "zypper install apparmor-parser && systemctl enable --now apparmor"
+	case "pacman":
+		return "pacman -S apparmor && systemctl enable --now apparmor"
+	default: // apt and unknown
+		return "apt install apparmor && systemctl enable --now apparmor"
+	}
+}
+
+// firewallInstallCmd returns the package-manager-appropriate command to install and
+// enable a firewall. Debian/Ubuntu default to ufw; RHEL/SLES/Arch to firewalld.
+func firewallInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install firewalld && systemctl enable --now firewalld"
+	case "zypper":
+		return "zypper install firewalld && systemctl enable --now firewalld"
+	case "pacman":
+		return "pacman -S firewalld && systemctl enable --now firewalld"
+	default: // apt and unknown
+		return "apt install ufw && ufw enable"
+	}
+}
+
 // adaptRemediation rewrites a result's remediation for the host's package manager.
-// Most CIS remediations are package-manager-agnostic; install-type rules (2.1.1,
-// 4.1.1/4.1.2) are the exception — their commands differ by package manager.
+// Most CIS remediations are package-manager-agnostic; rules that install packages
+// or reference distro-specific paths are the exception — their commands differ by
+// family and must be produced here rather than hardcoded in rules.go.
 func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 	if res.Status != models.CISFail {
 		return res
@@ -65,6 +96,14 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 	switch res.ID {
 	case "2.1.1":
 		res.Remediation = timeSyncInstallCmd(pkgMgr)
+	case "3.3.1":
+		res.Remediation = macInstallCmd(pkgMgr)
+	case "3.5.1":
+		// Only rewrite the "no tooling" path; the "tooling present but inactive"
+		// path uses generic enable commands that need no package-manager switch.
+		if res.Finding == "no firewall tooling detected" {
+			res.Remediation = firewallInstallCmd(pkgMgr)
+		}
 	case "4.1.1":
 		res.Remediation = auditInstallCmd(pkgMgr)
 	case "4.1.2":
