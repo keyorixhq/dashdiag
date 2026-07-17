@@ -14,6 +14,7 @@ const (
 	cisCatSSH         = "SSH"
 	cisBenchSTIG      = "STIG"
 	cisCatNetwork     = "Network"
+	cisCatMAC         = "MAC"
 	cisCatAuth        = "Auth"
 	cisCatFiles       = "Files"
 	cisBenchCIS       = "CIS"
@@ -311,6 +312,77 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/log_martians", "1",
 					"log_martians is 0 — martian packets not logged",
 					"sysctl -w net.ipv4.conf.all.log_martians=1")
+			}},
+
+		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
+		//
+		// These rules are cross-distro: MAC checks prefer SELinux when present
+		// (RHEL/Rocky/AlmaLinux/Fedora/CentOS), falling back to AppArmor
+		// (Ubuntu/Debian/SLES). Firewall checks accept any active backend.
+
+		{ID: "3.3.1", Framework: cisBenchCIS, Level: 1, Section: cisCatMAC,
+			Description: "Ensure a Mandatory Access Control framework is installed (AppArmor or SELinux)",
+			Check: func(_ models.SecurityInfo, ks models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.3.1")
+				if ks.AppArmorPresent || ks.SELinuxPresent {
+					return pass(r)
+				}
+				return failr(r, "no MAC framework detected",
+					"install apparmor (Ubuntu/Debian: apt install apparmor) or ensure selinux-policy is installed (RHEL/Rocky: dnf install selinux-policy-targeted)")
+			}},
+
+		{ID: "3.3.2", Framework: cisBenchCIS, Level: 1, Section: cisCatMAC,
+			Description: "Ensure Mandatory Access Control is in enforce mode",
+			Check: func(_ models.SecurityInfo, ks models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.3.2")
+				// SELinux path (RHEL/Rocky/AlmaLinux/Fedora — SELinux is the MAC)
+				if ks.SELinuxPresent {
+					switch ks.SELinuxMode {
+					case "enforcing":
+						return pass(r)
+					case "permissive":
+						return failr(r, "SELinux is in permissive mode — denials logged but not blocked",
+							"set SELINUX=enforcing in /etc/selinux/config; setenforce 1")
+					default:
+						return failr(r, fmt.Sprintf("SELinux mode is %q (not enforcing)", ks.SELinuxMode),
+							"set SELINUX=enforcing in /etc/selinux/config; reboot to activate")
+					}
+				}
+				// AppArmor path (Ubuntu/Debian/SLES)
+				if ks.AppArmorPresent {
+					switch ks.AppArmorMode {
+					case "enforce":
+						return pass(r)
+					case "complain":
+						return failr(r, "AppArmor is in complain mode — denials logged but not blocked",
+							"switch profiles to enforce mode: aa-enforce /etc/apparmor.d/*")
+					case "unknown":
+						return skipr(r, "AppArmor profile list unreadable (run as root)")
+					default:
+						return failr(r, "AppArmor is not in enforcing mode",
+							"enable and enforce AppArmor: systemctl enable apparmor && aa-enforce /etc/apparmor.d/*")
+					}
+				}
+				// No MAC framework installed at all
+				return skipr(r, "no MAC framework installed — see 3.3.1")
+			}},
+
+		{ID: "3.5.1", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure a firewall is installed and active",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1")
+				if sec.FirewallUnreadable {
+					return skipr(r, "firewall state unreadable (run as root for full inspection)")
+				}
+				if sec.FirewallActive {
+					return pass(r)
+				}
+				if !sec.FirewallToolingPresent {
+					return failr(r, "no firewall tooling detected",
+						"install a firewall: ufw (apt install ufw && ufw enable) or firewalld (dnf install firewalld && systemctl enable --now firewalld)")
+				}
+				return failr(r, fmt.Sprintf("firewall tooling present (%s) but not active", sec.FirewallType),
+					"enable the firewall: ufw enable (Ubuntu/Debian) or systemctl enable --now firewalld (RHEL/Rocky)")
 			}},
 
 		// ── 4.x Logging and Auditing ──────────────────────────────────────────

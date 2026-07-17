@@ -45,6 +45,25 @@ func init() {
 	// --plain and --json: global, no local declaration needed
 }
 
+// cisProfileName returns the benchmark profile label based on the host distro.
+// The rule set covers common controls (SSH, network, MAC, audit, files) that
+// apply across all major Linux distributions; the profile name reflects this.
+func cisProfileName(distro string, level int, stig bool) string {
+	if stig {
+		return fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", level)
+	}
+	switch distro {
+	case "rhel", "centos", "fedora", "rocky", "almalinux":
+		return fmt.Sprintf("CIS RHEL/Rocky Level %d (SSH · Network · MAC · Audit · Files)", level)
+	case "debian":
+		return fmt.Sprintf("CIS Debian Level %d (SSH · Network · MAC · Audit · Files)", level)
+	case "sles", "opensuse":
+		return fmt.Sprintf("CIS SLES/openSUSE Level %d (SSH · Network · MAC · Audit · Files)", level)
+	default: // ubuntu and unknown
+		return fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", level)
+	}
+}
+
 func runCIS(cmd *cobra.Command, _ []string) error {
 	plain, _ := cmd.Flags().GetBool("plain")
 	jsonOut, _ := cmd.Flags().GetBool("json")
@@ -75,13 +94,10 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	report := cis.Evaluate(sec, ks, level, stig, platform.Detect().PackageManager)
+	prof := platform.Detect()
+	report := cis.Evaluate(sec, ks, level, stig, prof.PackageManager)
 	report.Hostname, _ = os.Hostname()
-	if stig {
-		report.Profile = fmt.Sprintf("DISA STIG Ubuntu 20.04 LTS Level %d", level)
-	} else {
-		report.Profile = fmt.Sprintf("CIS Ubuntu 22.04 LTS Level %d", level)
-	}
+	report.Profile = cisProfileName(prof.Distro, level, stig)
 
 	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)

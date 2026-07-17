@@ -825,3 +825,136 @@ func TestEvaluate_AuditUnreadableNotFailed(t *testing.T) {
 		t.Errorf("4.1.1 with AuditRulesUnreadable=false: status = %v, want Fail", r2.Status)
 	}
 }
+
+// ── 3.3.1 / 3.3.2 MAC rules ─────────────────────────────────────────────────
+
+// TestRule_331_MACInstalled covers the "no MAC present → FAIL" and "any MAC
+// present → PASS" cases for rule 3.3.1. It also verifies RHEL and AppArmor
+// hosts both pass.
+func TestRule_331_MACInstalled(t *testing.T) {
+	t.Parallel()
+	find := func(rep models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range rep.Results {
+			if r.ID == "3.3.1" {
+				return r
+			}
+		}
+		t.Fatal("3.3.1 not present in report")
+		return models.CISResult{}
+	}
+	cases := []struct {
+		name   string
+		ks     models.KernelSecurityInfo
+		wantSt models.CISStatus
+	}{
+		{"no MAC → FAIL", models.KernelSecurityInfo{}, models.CISFail},
+		{"AppArmor present → PASS", models.KernelSecurityInfo{AppArmorPresent: true}, models.CISPass},
+		{"SELinux present → PASS (RHEL path)", models.KernelSecurityInfo{SELinuxPresent: true}, models.CISPass},
+		{"both present → PASS", models.KernelSecurityInfo{AppArmorPresent: true, SELinuxPresent: true}, models.CISPass},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := find(Evaluate(models.SecurityInfo{}, tc.ks, 1, false, "apt"))
+			if r.Status != tc.wantSt {
+				t.Errorf("3.3.1 %s: status = %s, want %s (finding: %s)", tc.name, r.Status, tc.wantSt, r.Finding)
+			}
+		})
+	}
+}
+
+// TestRule_332_MACEnforcing covers all SELinux/AppArmor mode transitions and
+// the "no MAC" skip path for rule 3.3.2.
+func TestRule_332_MACEnforcing(t *testing.T) {
+	t.Parallel()
+	find := func(rep models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range rep.Results {
+			if r.ID == "3.3.2" {
+				return r
+			}
+		}
+		t.Fatal("3.3.2 not present in report")
+		return models.CISResult{}
+	}
+	cases := []struct {
+		name   string
+		ks     models.KernelSecurityInfo
+		wantSt models.CISStatus
+	}{
+		// SELinux path (RHEL/Rocky — SELinux present wins over AppArmor check)
+		{"SELinux enforcing → PASS",
+			models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "enforcing"}, models.CISPass},
+		{"SELinux permissive → FAIL",
+			models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "permissive"}, models.CISFail},
+		{"SELinux disabled → FAIL",
+			models.KernelSecurityInfo{SELinuxPresent: true, SELinuxMode: "disabled"}, models.CISFail},
+		// AppArmor path (Ubuntu/Debian — AppArmor present, no SELinux)
+		{"AppArmor enforce → PASS",
+			models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "enforce"}, models.CISPass},
+		{"AppArmor complain → FAIL",
+			models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "complain"}, models.CISFail},
+		{"AppArmor unknown → SKIP (root required)",
+			models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "unknown"}, models.CISSkipped},
+		{"AppArmor disabled → FAIL",
+			models.KernelSecurityInfo{AppArmorPresent: true, AppArmorMode: "disabled"}, models.CISFail},
+		// No MAC framework at all
+		{"no MAC → SKIP (see 3.3.1)",
+			models.KernelSecurityInfo{}, models.CISSkipped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := find(Evaluate(models.SecurityInfo{}, tc.ks, 1, false, "apt"))
+			if r.Status != tc.wantSt {
+				t.Errorf("3.3.2 %s: status = %s, want %s (finding: %s)", tc.name, r.Status, tc.wantSt, r.Finding)
+			}
+		})
+	}
+}
+
+// ── 3.5.1 firewall rule ──────────────────────────────────────────────────────
+
+// TestRule_351_FirewallActive covers the active/inactive/unreadable paths for
+// rule 3.5.1. The false-OK guard here is: FirewallUnreadable=true must never
+// produce a PASS (it would certify an unread firewall state as safe).
+func TestRule_351_FirewallActive(t *testing.T) {
+	t.Parallel()
+	find := func(rep models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range rep.Results {
+			if r.ID == "3.5.1" {
+				return r
+			}
+		}
+		t.Fatal("3.5.1 not present in report")
+		return models.CISResult{}
+	}
+	cases := []struct {
+		name   string
+		sec    models.SecurityInfo
+		wantSt models.CISStatus
+	}{
+		{"active firewall → PASS",
+			models.SecurityInfo{FirewallActive: true, FirewallToolingPresent: true}, models.CISPass},
+		{"tooling present but inactive → FAIL",
+			models.SecurityInfo{FirewallActive: false, FirewallToolingPresent: true}, models.CISFail},
+		{"no tooling → FAIL",
+			models.SecurityInfo{FirewallActive: false, FirewallToolingPresent: false}, models.CISFail},
+		{"unreadable must SKIP — never PASS",
+			models.SecurityInfo{FirewallUnreadable: true}, models.CISSkipped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := find(Evaluate(tc.sec, models.KernelSecurityInfo{}, 1, false, "apt"))
+			if r.Status != tc.wantSt {
+				t.Errorf("3.5.1 %s: status = %s, want %s (finding: %s)", tc.name, r.Status, tc.wantSt, r.Finding)
+			}
+			if tc.sec.FirewallUnreadable && r.Status == models.CISPass {
+				t.Error("3.5.1 must not PASS when FirewallUnreadable=true (false-OK guard)")
+			}
+		})
+	}
+}
