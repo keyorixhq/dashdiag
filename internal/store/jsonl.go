@@ -65,15 +65,21 @@ func (s *JSONLStore) History(_ context.Context, hostname string, n int) ([]Entry
 	s.mu.Lock()
 	path := s.f.Name()
 	s.mu.Unlock()
+	return ReadAll(path, hostname, n)
+}
 
+// ReadAll reads the last n entries for hostname from path without opening a
+// write handle — safe for concurrent callers and for read-only contexts (e.g.
+// dsd history). Pass n<=0 to return all matching entries.
+func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	f, err := os.Open(path) //nolint:gosec // path comes from StorePath(), not user input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("store: reading history: %w", err)
+		return nil, fmt.Errorf("store: reading %s: %w", path, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	var matches []Entry
 	sc := bufio.NewScanner(f)
@@ -83,15 +89,15 @@ func (s *JSONLStore) History(_ context.Context, hostname string, n int) ([]Entry
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
 			continue // skip malformed lines rather than aborting
 		}
-		if e.Hostname == hostname {
+		if hostname == "" || e.Hostname == hostname {
 			matches = append(matches, e)
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("store: scanning history: %w", err)
+		return nil, fmt.Errorf("store: scanning %s: %w", path, err)
 	}
 
-	if len(matches) <= n {
+	if n <= 0 || len(matches) <= n {
 		return matches, nil
 	}
 	return matches[len(matches)-n:], nil
