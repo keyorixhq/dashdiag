@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
