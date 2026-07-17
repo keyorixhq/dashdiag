@@ -128,6 +128,18 @@ func TestParseDiskstats_FixtureFile(t *testing.T) {
 	}
 }
 
+// TestComputeDelta_UtilOver100 covers io.go:103.16,105.3 — the util > 100
+// clamp when ioTimeMs exceeds the 1-second window (multi-queue NVMe).
+func TestComputeDelta_UtilOver100(t *testing.T) {
+	t.Parallel()
+	before := diskStatRaw{ioTimeMs: 0}
+	after := diskStatRaw{ioTimeMs: 1500} // 150% raw util → clamped to 100
+	result := computeDelta("sda", before, after)
+	if result.UtilPct != 100 {
+		t.Errorf("UtilPct = %v, want 100 (clamped from 150)", result.UtilPct)
+	}
+}
+
 func FuzzParseDiskstats(f *testing.F) {
 	f.Add("   8       0 sda 71816 2896 3467354 44032 37952 7292 819728 83776 0 76256 127808\n")
 	f.Add("   7       0 loop0 100 0 200 50 0 0 0 0 0 50 50\n")

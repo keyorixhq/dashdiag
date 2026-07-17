@@ -393,6 +393,32 @@ func TestCollectSocketPermReason_GroupMembershipPresent(t *testing.T) {
 	}
 }
 
+// TestCollectSocketPermReason_UserNotInGroup covers docker.go:996.2,998.40 —
+// the return branch that fires when the socket GID is not in the caller's
+// supplementary group list.
+func TestCollectSocketPermReason_UserNotInGroup(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "docker.sock")
+	if err := os.WriteFile(path, nil, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	// GID 65534 (nobody/nogroup) is typically not in any process's supplementary
+	// groups when running as root in Docker.
+	if err := os.Chown(path, -1, 65534); err != nil {
+		t.Skipf("cannot chown test socket to gid 65534: %v", err)
+	}
+	groups, _ := os.Getgroups()
+	for _, g := range groups {
+		if g == 65534 {
+			t.Skip("process is a member of gid 65534; cannot test the not-in-group branch")
+		}
+	}
+	got := collectSocketPermReason(path, "docker")
+	if !strings.Contains(got, "user not in socket group") {
+		t.Errorf("got %q, want the user-not-in-socket-group message", got)
+	}
+}
+
 func TestCollectPodmanQuadlets_Happy(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutDir("/etc/containers/systemd", []string{"web.container"})

@@ -9,6 +9,24 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
+// TestCollectLinux_LiveCachedClosure covers clock.go:75.72,77.3 — the
+// produce-function closure passed to Cached. source.Live always calls produce
+// rather than looking up a recorded value, so the closure body executes and
+// records the live clock state.
+func TestCollectLinux_LiveCachedClosure(t *testing.T) {
+	// no t.Parallel(): SetSource mutates the package-level activeSource.
+	prev := SetSource(source.Live{})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.ClockInfo{}
+	if _, err := (&ClockCollector{}).collectLinux(info); err != nil {
+		t.Fatalf("collectLinux with Live source: %v", err)
+	}
+	if info.Source == "" {
+		t.Error("expected non-empty Source from live collectLinux")
+	}
+}
+
 // TestCollectLinux_RTCInLocalTZ guards the /etc/adjtime-derived RTCInLocalTZ
 // flag: a file containing "LOCAL" must set it true, a file without "LOCAL"
 // (the standard UTC RTC configuration) must leave it false, and an absent
