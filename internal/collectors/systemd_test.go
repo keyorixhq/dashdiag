@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"runtime"
 	"slices"
@@ -93,6 +94,24 @@ func TestFilterNonBenignSSHD_UnreadableStaysSuppressed(t *testing.T) {
 	got := filterNonBenignSSHD(units, func(string) (string, bool) { return "", false })
 	if len(got) != 0 {
 		t.Errorf("unreadable status must stay suppressed, got %v", got)
+	}
+}
+
+// TestFilterNonBenignSSHD_MaxInspect covers the `if inspected >= sshdMaxInspect
+// { break }` guard (line 292): once sshdMaxInspect=20 per-connection instances
+// have been inspected the loop exits, leaving any surplus units uninspected.
+func TestFilterNonBenignSSHD_MaxInspect(t *testing.T) {
+	t.Parallel()
+	// Build 22 sshd@ connection instances. Each returns a non-benign exit (1).
+	// The first 20 are inspected (sshdMaxInspect=20) and all surface as non-benign.
+	// The last 2 are cut off by the break — they must NOT appear in the result.
+	units := make([]string, 22)
+	for i := range units {
+		units[i] = fmt.Sprintf("sshd@%d-a.service", i)
+	}
+	got := filterNonBenignSSHD(units, func(string) (string, bool) { return "1", true })
+	if len(got) != sshdMaxInspect {
+		t.Errorf("expected %d results (capped by sshdMaxInspect), got %d: %v", sshdMaxInspect, len(got), got)
 	}
 }
 

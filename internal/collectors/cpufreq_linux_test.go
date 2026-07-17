@@ -101,7 +101,8 @@ func TestCPUFreqCollector_Collect_FullFixture(t *testing.T) {
 func TestCPUFreqCollector_Collect_TurboAboveMaxClampsToZero(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		base := "/sys/devices/system/cpu/cpu0/cpufreq"
-		b.PutFile(base+"/scaling_cur_freq", []byte("5000000\n")) // above max — turbo
+		b.PutFile(base+"/scaling_governor", []byte("performance\n")) // required or gov=="" exits early
+		b.PutFile(base+"/scaling_cur_freq", []byte("5000000\n"))     // above max — turbo
 		b.PutFile(base+"/cpuinfo_max_freq", []byte("4800000\n"))
 		b.PutFile(base+"/cpuinfo_min_freq", []byte("400000\n"))
 	})

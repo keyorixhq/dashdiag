@@ -349,6 +349,68 @@ func TestProcUser_StatusUnreadable(t *testing.T) {
 	}
 }
 
+// TestProcUser_UidLineShort covers the `len(fields) < 2` break in procUser:
+// a "Uid:" line with no value after the colon produces only ["Uid:"] when split
+// by whitespace (len=1 < 2), so the break fires and procUser returns "".
+func TestProcUser_UidLineShort(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/301/status", []byte("Uid:\n"))
+	})
+	if got := procUser("/proc/301"); got != "" {
+		t.Errorf("procUser with short Uid: line = %q, want empty string", got)
+	}
+}
+
+// TestCollectProcPID_LongCmdlineTruncated covers the cmdline > 200 truncation
+// (line 58-60): a command line longer than 200 characters must be cut to 200
+// with an ellipsis appended so the ProcInfo field stays bounded.
+func TestCollectProcPID_LongCmdlineTruncated(t *testing.T) {
+	base := "/proc/250"
+	longCmd := make([]byte, 300)
+	for i := range longCmd {
+		longCmd[i] = 'x'
+	}
+	withReadlinkFixture(t, nil, func(b *source.Bundle) {
+		b.PutStat(base, source.FileMeta{IsDir: true})
+		b.PutFile(base+"/cmdline", longCmd)
+		b.PutFile(base+"/status", []byte("Name:\ttestproc\nState:\tS (sleeping)\nPid:\t250\nPPid:\t0\n"))
+	})
+	info, err := collectProcPID(250)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len([]rune(info.Cmdline)) > 205 {
+		t.Errorf("Cmdline length = %d, want ≤205 (200 chars + ellipsis)", len(info.Cmdline))
+	}
+	if !func() bool {
+		r := []rune(info.Cmdline)
+		return string(r[len(r)-1:]) == "…"
+	}() {
+		t.Errorf("Cmdline = %q, want trailing ellipsis", info.Cmdline)
+	}
+}
+
+// TestCollectProcPID_CgroupEmptyLine covers the `line == "" { continue }`
+// branch in the cgroup parsing block (line 99-100): a cgroup file that contains
+// an empty line between valid lines must parse the non-empty lines correctly and
+// silently skip the blank one.
+func TestCollectProcPID_CgroupEmptyLine(t *testing.T) {
+	base := "/proc/260"
+	withReadlinkFixture(t, nil, func(b *source.Bundle) {
+		b.PutStat(base, source.FileMeta{IsDir: true})
+		b.PutFile(base+"/status", []byte("Name:\ttestproc\nState:\tS (sleeping)\nPid:\t260\nPPid:\t0\n"))
+		// cgroup has a blank line before the valid entry — exercises the "" continue.
+		b.PutFile(base+"/cgroup", []byte("\n0::/system.slice/myservice.service\n"))
+	})
+	info, err := collectProcPID(260)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.CgroupName != "myservice.service" {
+		t.Errorf("CgroupName = %q, want myservice.service", info.CgroupName)
+	}
+}
+
 // ── collectOpenFiles ──────────────────────────────────────────────────────────
 
 func TestCollectOpenFiles(t *testing.T) {
@@ -469,5 +531,54 @@ func TestTCPState_Known(t *testing.T) {
 func TestTCPState_Unknown(t *testing.T) {
 	if got := tcpState("FF"); got != "FF" {
 		t.Errorf("tcpState(FF) = %q, want passthrough FF", got)
+	}
+}
+
+// TestParseProcStatus_ReadError covers line 129-130: parseProcStatus returns
+// early when /PID/status cannot be read.
+func TestParseProcStatus_ReadError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {}) // nothing seeded → status unreadable
+	info := &models.ProcInfo{PID: 270}
+	parseProcStatus("/proc/270", info)
+	if info.Name != "" {
+		t.Errorf("Name = %q, want empty (status file unreadable → early return)", info.Name)
+	}
+}
+
+// TestCollectOpenFiles_ReadlinkError covers line 337-338: readLink on a /fd entry
+// returns an error → that entry is skipped (continue).
+func TestCollectOpenFiles_ReadlinkError(t *testing.T) {
+	base := "/proc/271"
+	// Empty links map → every readLink call fails (no matching key, Replay also unseeded).
+	withReadlinkFixture(t, map[string]string{}, func(b *source.Bundle) {
+		b.PutDir(base+"/fd", []string{"0"})
+	})
+	info := &models.ProcInfo{}
+	inodes := collectOpenFiles(base, info)
+	if len(inodes) != 0 {
+		t.Errorf("expected no inodes when readlink fails, got %+v", inodes)
+	}
+	if len(info.OpenFiles) != 0 {
+		t.Errorf("expected no open files when readlink fails, got %+v", info.OpenFiles)
+	}
+}
+
+// TestProcNetConns_ShortLine covers line 396-397: a /proc/net/tcp line with fewer
+// than 10 fields is skipped.
+func TestProcNetConns_ShortLine(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// Header + a short line (8 fields) that must be skipped + a valid line
+		b.PutFile("/proc/net/tcp",
+			[]byte("  sl  local_address rem_address   st\n"+
+				"   0: 0100007F:1F90 00000000:0000 0A\n"+ // only 4 fields → skipped
+				"   1: 0100007F:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 55555 1 0000000000000000 100 0 0 10 0\n"))
+		b.PutFile("/proc/net/tcp6", []byte("  sl  local_address rem_address   st\n"))
+	})
+	conns, err := procNetConns(map[string]bool{"55555": true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conns) != 1 {
+		t.Errorf("got %d connections, want 1 (short line skipped, full line matched)", len(conns))
 	}
 }

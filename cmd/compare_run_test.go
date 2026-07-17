@@ -153,6 +153,34 @@ func TestReadCompareStream_ReaderErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestReadCompareStream_EmptyInputErrors covers the len(out)==0 guard: when
+// input is not a valid JSON object AND the NDJSON decoder finds no tokens
+// (empty string), the function returns "no valid JSON snapshots found".
+func TestReadCompareStream_EmptyInputErrors(t *testing.T) {
+	t.Parallel()
+	_, err := readCompareStream(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("empty input should error")
+	}
+	if !strings.Contains(err.Error(), "no valid JSON snapshots found") {
+		t.Errorf("error = %q, want 'no valid JSON snapshots found'", err)
+	}
+}
+
+// TestLoadCompareSnapshots_DashStdinErrors covers the "-" stdin-error branch
+// in loadCompareSnapshots (line 103-105): when "-" is given as a file arg but
+// stdin content is invalid, the error is wrapped with "reading stdin".
+func TestLoadCompareSnapshots_DashStdinErrors(t *testing.T) {
+	withHookStdin(t, "not json, not ndjson either {{{")
+	_, err := loadCompareSnapshots([]string{"-"})
+	if err == nil {
+		t.Fatal("garbage stdin via '-' arg should error")
+	}
+	if !strings.Contains(err.Error(), "reading stdin") {
+		t.Errorf("error = %q, want 'reading stdin' context", err)
+	}
+}
+
 func TestReadCompareStream_SingleObject(t *testing.T) {
 	t.Parallel()
 	snaps, err := readCompareStream(strings.NewReader(compareSnapA))

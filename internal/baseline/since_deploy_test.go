@@ -436,6 +436,28 @@ func TestGetBootTimeFrom(t *testing.T) {
 	}
 }
 
+// TestNewestProcStartFrom_OpenFails exercises the os.Open error path (the
+// continue inside the loop) by placing a dangling symlink as the stat file.
+// filepath.Glob matches the symlink (Lstat succeeds), but os.Open follows it
+// and fails with ENOENT since the target does not exist.
+func TestNewestProcStartFrom_OpenFails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pidDir := filepath.Join(dir, "100")
+	if err := os.Mkdir(pidDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a dangling symlink: glob sees "100/stat", open fails ENOENT.
+	if err := os.Symlink(filepath.Join(dir, "nonexistent-target"), filepath.Join(pidDir, "stat")); err != nil {
+		t.Fatal(err)
+	}
+	glob := filepath.Join(dir, "[0-9]*/stat")
+	_, _, err := newestProcStartFrom(glob, time.Now().Add(-1000*time.Second), time.Hour)
+	if err == nil {
+		t.Error("expected 'no recent process' error when all stat files fail to open")
+	}
+}
+
 func TestGetBootTimeFrom_Missing(t *testing.T) {
 	t.Parallel()
 	bt := getBootTimeFrom("/nonexistent/proc/stat")

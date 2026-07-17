@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -153,6 +154,52 @@ target     prot opt source               destination
 	}
 	if len(info.Chains) == 0 || info.Chains[0].Policy != "accept" {
 		t.Errorf("chain policy = %q, want accept", info.Chains[0].Policy)
+	}
+}
+
+// TestParseNFTInputAccept_DropRuleInInput covers the `if !hasField(line, "accept")
+// { continue }` branch: a drop rule inside an input base chain does not make the
+// ruleset indeterminable — it is simply skipped (accepted map stays determinable).
+func TestParseNFTInputAccept_DropRuleInInput(t *testing.T) {
+	t.Parallel()
+	const rs = `table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		drop
+		tcp dport 443 accept
+	}
+}`
+	accepted, determinable := parseNFTInputAccept(rs)
+	if !determinable {
+		t.Error("a drop rule inside input must not make the ruleset indeterminable")
+	}
+	if !accepted[443] {
+		t.Error("tcp dport 443 must be in accepted set")
+	}
+}
+
+// TestParseIPTList_MultipleChains covers the `if currentChain.Name != ""
+// { info.Chains = append(info.Chains, currentChain) }` branch inside parseIPTList:
+// when a second "Chain" header is seen, the previous chain is appended first.
+func TestParseIPTList_MultipleChains(t *testing.T) {
+	t.Parallel()
+	const out = `Chain INPUT (policy DROP)
+target     prot opt source               destination
+1    ACCEPT     tcp  --  0.0.0.0/0  0.0.0.0/0  tcp dpt:22
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination
+`
+	var info models.FirewallInfo
+	parseIPTList(out, &info)
+	if len(info.Chains) < 2 {
+		t.Fatalf("expected at least 2 chains (INPUT + FORWARD), got %d", len(info.Chains))
+	}
+	if info.Chains[0].Name != "INPUT" {
+		t.Errorf("Chains[0].Name = %q, want INPUT", info.Chains[0].Name)
+	}
+	if info.Chains[1].Name != "FORWARD" {
+		t.Errorf("Chains[1].Name = %q, want FORWARD", info.Chains[1].Name)
 	}
 }
 
@@ -348,6 +395,17 @@ func TestParseMDArrayCounts_GarbledNegative(t *testing.T) {
 	}
 }
 
+// TestParseMDArrayCounts_UnclosedBracket covers the `end < 0` branch (line
+// 124-126): when a "[" is present but no matching "]" exists, the function
+// returns (0, 0, false) rather than panicking on an out-of-bounds slice.
+func TestParseMDArrayCounts_UnclosedBracket(t *testing.T) {
+	t.Parallel()
+	total, active, ok := parseMDArrayCounts("1000 blocks [unclosed without closing bracket")
+	if ok || total != 0 || active != 0 {
+		t.Errorf("unclosed bracket must return (0,0,false), got (%d,%d,%v)", total, active, ok)
+	}
+}
+
 // TestParseMDStat_ResyncLine exercises the "resync" variant of the recovery
 // keyword (line 96 of raid_linux.go says `recovery` OR `resync`).
 func TestParseMDStat_ResyncLine(t *testing.T) {
@@ -461,6 +519,195 @@ func TestParseARPPeers_SkipsFAILEDandINCOMPLETE(t *testing.T) {
 	}
 }
 
+// ── security_linux.go:517 — buildInodeProcMap readLink error ─────────────────
+
+// TestBuildInodeProcMap_ReadLinkError covers the `if err != nil { continue }`
+// path at line ~542 of buildInodeProcMap: when a symlink read for an fd entry
+// fails, the fd must be silently skipped.
+func TestBuildInodeProcMap_ReadLinkError(t *testing.T) {
+	t.Parallel()
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/fd", []string{"/proc/9999/fd"})
+		b.PutFile("/proc/9999/comm", []byte("testproc\n"))
+		// Seed the fd dir with one fd entry "3".
+		b.PutDir("/proc/9999/fd", []string{"3"})
+		// Do NOT seed Readlink for /proc/9999/fd/3 → ErrNotRecorded → continue
+		// Do NOT seed ReadDir for /proc/9999/fd/3 → probeIsDir returns false → not a dir
+	})
+	inodeProc, hasRoot := buildInodeProcMap()
+	// hasRoot is set to true when at least one process's fds are read.
+	// Since the readLink failed, no inode was mapped, but hasRoot is still true
+	// (we successfully entered the fd loop for pid 9999).
+	if !hasRoot {
+		t.Error("buildInodeProcMap: hasRoot must be true when at least one process fd-dir is readable")
+	}
+	if len(inodeProc) != 0 {
+		t.Errorf("buildInodeProcMap: expected empty inode map (readLink failed), got %v", inodeProc)
+	}
+}
+
+// ── security_linux.go:1250 — parseSuspectCrons dir skip and readFile error ────
+
+// TestParseSuspectCrons_DirSkipAndReadError covers two branches:
+//  1. e.IsDir() → true → continue (line 1272-1274): a subdirectory inside a
+//     cron.d dir must be silently skipped.
+//  2. readFile error → continue (line 1277-1279): a regular-file entry whose
+//     content is not seeded in the fixture source triggers ErrNotRecorded and
+//     must be silently skipped without panicking.
+func TestParseSuspectCrons_DirSkipAndReadError(t *testing.T) {
+	t.Parallel()
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /etc/cron.d contains two entries: a subdirectory and a file.
+		b.PutDir("/etc/cron.d", []string{"scripts", "job1"})
+		// Seeding ReadDir for "scripts" makes probeIsDir return true → IsDir()=true → skipped.
+		b.PutDir("/etc/cron.d/scripts", []string{})
+		// "job1" is not seeded via PutDir → probeIsDir returns false → IsDir()=false.
+		// "job1" is not seeded via PutFile → readFile returns ErrNotRecorded → continue.
+	})
+	var info models.SecurityInfo
+	parseSuspectCrons(&info)
+	// Neither branch should produce a SuspectCron entry.
+	if len(info.SuspectCrons) != 0 {
+		t.Errorf("expected no suspect crons (dir skipped + readFile failed), got %v", info.SuspectCrons)
+	}
+}
+
+// ── security_linux.go:1964 — parsePasswordAging empty username ───────────────
+
+// TestParsePasswordAging_EmptyUsername covers the `if user == "" { continue }`
+// branch (line 1998): a shadow file line whose first colon-separated field is
+// empty (e.g. a blank line or a malformed entry) must be silently skipped.
+func TestParsePasswordAging_EmptyUsername(t *testing.T) {
+	t.Parallel()
+	// First field is empty — user == "" → must skip without appending.
+	const shadow = ":secret:19000:0:99999:7:::\nroot:!:19000:0:99999:7:::\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/etc/shadow", []byte(shadow))
+	})
+	var info models.SecurityInfo
+	parsePasswordAging(&info)
+	// The empty-username entry must NOT be appended to EmptyPasswordAccounts.
+	for _, u := range info.EmptyPasswordAccounts {
+		if u == "" {
+			t.Error("empty-username shadow entry must not appear in EmptyPasswordAccounts")
+		}
+	}
+}
+
+// ── security_linux.go:498 — parseProcNetTCP wellKnownPortName branch ─────────
+
+// TestParseProcNetTCP_WellKnownPort covers the `procName = name` branch in
+// parseProcNetTCP (line 499): when a listening port's inode resolves to no
+// known process (procName == ""), wellKnownPortName must supply a name for
+// socket-activated services. Port 9090 (0x238A) → "cockpit".
+func TestParseProcNetTCP_WellKnownPort(t *testing.T) {
+	t.Parallel()
+	// 0x2382 = 9090 (Cockpit port, socket-activated on RHEL/Rocky)
+	const tcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+ 0: 00000000:2382 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 99999 1 0000000000000000 100 0 0 10 0`
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/net/tcp", []byte(tcpContent))
+		// /proc/[0-9]*/fd glob is not seeded → buildInodeProcMap returns ({}, false)
+		// → procName="" for inode 99999 → wellKnownPortName(9090)="cockpit"
+	})
+	var info models.SecurityInfo
+	parseProcNetTCP("/proc/net/tcp", &info)
+	if len(info.ListeningPorts) == 0 {
+		t.Fatal("expected at least one listening port")
+	}
+	var found bool
+	for _, p := range info.ListeningPorts {
+		if p.Port == 9090 && p.Process == "cockpit" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("port 9090 must resolve to cockpit via wellKnownPortName; got %+v", info.ListeningPorts)
+	}
+}
+
+// ── security_linux.go:2103 — scanAVCLine missing required fields ─────────────
+
+// TestScanAVCLine_MissingRequiredFields covers the early-return guard at
+// line 2103: when an AVC line lacks scontext=, tcontext=, or tclass= (a
+// malformed or truncated audit record), scanAVCLine must drop the line without
+// adding any group entry.
+func TestScanAVCLine_MissingRequiredFields(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	recent := now.Add(-30 * time.Second).Unix()
+
+	// AVC line present and recent but tcontext= is absent → ttype="" → return
+	line := fmt.Sprintf(
+		`type=AVC msg=audit(%d.123:456): avc:  denied  { read } for pid=1234 `+
+			`scontext=system_u:system_r:httpd_t:s0 tclass=file permissive=0`,
+		recent,
+	)
+	groups := map[avcGroupKey]*avcGroupData{}
+	scanAVCLine(line, groups, now.Add(-1*time.Hour))
+	if len(groups) != 0 {
+		t.Errorf("scanAVCLine with missing tcontext= must not add a group entry, got %d", len(groups))
+	}
+}
+
+// ── security_linux.go:976 — uniqueAVCPaths cap at 10 ────────────────────────
+
+// TestUniqueAVCPaths_CapsAtTen covers the `return paths` early-exit at
+// line 977: once 10 unique paths have been accumulated, the function must
+// return immediately without processing further paths.
+func TestUniqueAVCPaths_CapsAtTen(t *testing.T) {
+	t.Parallel()
+	// Build one group with 11 distinct paths so the cap fires on the 10th.
+	paths := make([]string, 11)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("/data/file%02d", i)
+	}
+	groups := []models.SELinuxAVCGroup{
+		{Scontext: "httpd_t", Tcontext: "admin_home_t", Tclass: "file", Paths: paths},
+	}
+	got := uniqueAVCPaths(groups)
+	if len(got) != 10 {
+		t.Errorf("uniqueAVCPaths with 11 inputs must return exactly 10, got %d", len(got))
+	}
+}
+
+// ── security_linux.go:1089 — collectRelevantBooleans colon-in-stype ─────────
+
+// TestCollectRelevantBooleans_ColonInStype covers the `stype = stype[idx+1:]`
+// branch at line 1090: when the Scontext field contains a colon-qualified type
+// (e.g. "system_r:httpd_t"), the prefix up to and including the last colon must
+// be stripped before keyword matching, so "httpd_t" → "httpd" and a boolean
+// whose name starts with "httpd" is included.
+func TestCollectRelevantBooleans_ColonInStype(t *testing.T) {
+	t.Parallel()
+	// getsebool -a output: one relevant boolean for httpd, one unrelated.
+	const boolOut = "httpd_can_network_connect --> off\nftpd_full_access --> off\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("getsebool", []string{"-a"}, boolOut, 0)
+	})
+	// Scontext has a colon-separated prefix: "prefix:httpd_t"
+	// TrimSuffix removes "_t" → "prefix:httpd"
+	// LastIndex(":") fires → stype = "httpd"
+	// → keyword "httpd" matches "httpd_can_network_connect"
+	groups := []models.SELinuxAVCGroup{
+		{Scontext: "prefix:httpd_t"},
+	}
+	ctx := t.Context()
+	booleans := collectRelevantBooleans(ctx, groups)
+	if len(booleans) == 0 {
+		t.Fatal("expected at least one boolean for httpd scontext with colon-qualified type")
+	}
+	var found bool
+	for _, b := range booleans {
+		if b.Name == "httpd_can_network_connect" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("httpd_can_network_connect must be in booleans; got %+v", booleans)
+	}
+}
+
 // ── systemd.go:236 ───────────────────────────────────────────────────────────
 
 // TestFilterBenignFailedUnits_SysupdateSuppressedWhenUnconfigured exercises
@@ -517,5 +764,114 @@ func TestMergeZpoolStatus_StatusContinuationLine(t *testing.T) {
 	// The continuation line should also be appended.
 	if !strings.Contains(pools["tank"].StatusMsg, "zpool status") {
 		t.Errorf("StatusMsg = %q, expected continuation line about 'zpool status'", pools["tank"].StatusMsg)
+	}
+}
+
+// ── security_linux.go:407-408 — authLogSourceLines file-exists-but-unreadable ─
+
+// TestAuthLogSourceLines_FileExistsButOpenFails covers the "exists but requires
+// root" branch (line 407-408): a log path is present in the fixture source (Stat
+// succeeds so fileExists returns true) but its content is not seeded (ReadFile
+// returns ErrNotRecorded) so openFile fails → return nil, true.
+func TestAuthLogSourceLines_FileExistsButOpenFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// journalctl not seeded → runCmd errors → fall through to file paths.
+		// Stat seeded so fileExists("/var/log/auth.log") returns true.
+		b.PutStat("/var/log/auth.log", source.FileMeta{})
+		// PutFile intentionally omitted → ReadFile returns ErrNotRecorded → openFile fails.
+	})
+	lines, unreadable := authLogSourceLines(context.Background())
+	if !unreadable {
+		t.Error("expected unreadable=true when stat succeeds but open fails")
+	}
+	if lines != nil {
+		t.Errorf("expected nil lines when file is unreadable, got %v", lines)
+	}
+}
+
+// ── security_linux.go:1203 — extractAAField empty return ─────────────────────
+
+// TestExtractAAField_EmptyRest covers line 1203: when the key is found but
+// nothing follows it (rest is empty after the key), strings.Fields returns nil
+// and the function returns "".
+func TestExtractAAField_EmptyRest(t *testing.T) {
+	t.Parallel()
+	// key found at index 0, rest = "" → Fields([]) = nil → return ""
+	if got := extractAAField("profile=", "profile="); got != "" {
+		t.Errorf("extractAAField with empty rest = %q, want empty string", got)
+	}
+	// Trailing spaces still produce empty Fields after TrimSpace — but TrimSpace
+	// is NOT called here; rest = "  " → Fields("  ") = [] → return ""
+	if got := extractAAField("x=", "x="); got != "" {
+		t.Errorf("extractAAField(key at end) = %q, want empty string", got)
+	}
+}
+
+// ── security_linux.go:642-643 — parseSELinuxDenials default switch case ──────
+
+// TestParseSELinuxDenials_UnexpectedEnforceValue covers the `default: return`
+// branch (line 642-643) in parseSELinuxDenials: when /sys/fs/selinux/enforce
+// contains a value other than "0" or "1" the function returns early without
+// setting SELinuxMode, DenialCount, or any related fields.
+func TestParseSELinuxDenials_UnexpectedEnforceValue(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/fs/selinux/enforce", []byte("2\n")) // neither "0" nor "1"
+	})
+	info := &models.SecurityInfo{}
+	parseSELinuxDenials(context.Background(), info)
+	if info.SELinuxMode != "" {
+		t.Errorf("SELinuxMode = %q, want empty (unexpected enforce value hit default: return)", info.SELinuxMode)
+	}
+}
+
+// ── security_linux.go:1803-1804 — parseSupportconfig glob errors ─────────────
+
+// TestParseSupportconfig_GlobErrors covers lines 1803-1804: when none of the
+// four archive-glob patterns is seeded in the fixture source, glob() returns
+// ErrNotRecorded for each and the loop continues past them. The function still
+// sets SupportconfigAvailable and records SupportconfigLastRunDays=-1 (never run).
+func TestParseSupportconfig_GlobErrors(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+		// /var/log dir is not seeded → readDirEntries errors → dir scan skipped.
+		// None of the 4 glob patterns seeded → each glob() returns ErrNotRecorded → continue.
+	})
+	info := &models.SecurityInfo{}
+	parseSupportconfig(info)
+	if !info.SupportconfigAvailable {
+		t.Fatal("expected SupportconfigAvailable=true")
+	}
+	if info.SupportconfigLastRunDays != -1 {
+		t.Errorf("SupportconfigLastRunDays = %d, want -1 (glob errors skipped, no archive found)", info.SupportconfigLastRunDays)
+	}
+}
+
+// ── security_linux.go:1812-1813 — parseSupportconfig statFile error on match ─
+
+// TestParseSupportconfig_StatFileError covers lines 1812-1813: when a glob
+// pattern returns a match but statFile on that match fails (the path is not
+// seeded via PutStat), the match is silently skipped (continue). The function
+// records SupportconfigLastRunDays=-1 because no archive's mtime could be read.
+func TestParseSupportconfig_StatFileError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+		// /var/log dir not seeded → dir scan skipped.
+		b.PutGlob("/var/log/scc_*.txz", []string{"/var/log/scc_host_20260101.txz"})
+		b.PutGlob("/var/log/nts_*.tbz", nil)
+		b.PutGlob("/tmp/scc_*.txz", nil)
+		b.PutGlob("/tmp/nts_*.tbz", nil)
+		// Stat for /var/log/scc_host_20260101.txz intentionally NOT seeded →
+		// statFile returns ErrNotRecorded → continue (line 1812-1813).
+	})
+	info := &models.SecurityInfo{}
+	parseSupportconfig(info)
+	if !info.SupportconfigAvailable {
+		t.Fatal("expected SupportconfigAvailable=true")
+	}
+	if info.SupportconfigLastRunDays != -1 {
+		t.Errorf("SupportconfigLastRunDays = %d, want -1 (stat error on glob match)", info.SupportconfigLastRunDays)
+	}
+	if info.SupportconfigArchive != "" {
+		t.Errorf("SupportconfigArchive = %q, want empty (stat failed → match skipped)", info.SupportconfigArchive)
 	}
 }

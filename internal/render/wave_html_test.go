@@ -1,6 +1,7 @@
 package render
 
 import (
+	"html/template"
 	"os"
 	"strings"
 	"testing"
@@ -169,6 +170,68 @@ func TestGenerateWaveHTMLReport(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("report file not created at %q: %v", path, statErr)
+	}
+}
+
+// TestBuildWaveHTML_TemplateExecuteError covers the template.Execute error branch
+// in buildWaveHTML. Not parallel — swaps the package-level waveHTMLTmpl.
+func TestBuildWaveHTML_TemplateExecuteError(t *testing.T) {
+	orig := waveHTMLTmpl
+	waveHTMLTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { waveHTMLTmpl = orig }()
+
+	report := WaveReport{Year: 2026, Pairs: []WavePairRow{{Source: "s", Destination: "d", Verdict: "PASS", VerdictClass: "ok"}}}
+	if _, err := buildWaveHTML(report); err == nil {
+		t.Error("expected error from broken template, got nil")
+	}
+}
+
+// TestGenerateWaveHTMLReport_BuildError covers the buildWaveHTML error
+// propagation path inside GenerateWaveHTMLReport. Not parallel — swaps waveHTMLTmpl.
+func TestGenerateWaveHTMLReport_BuildError(t *testing.T) {
+	orig := waveHTMLTmpl
+	waveHTMLTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { waveHTMLTmpl = orig }()
+
+	report := WaveReport{Year: 2026, Pairs: []WavePairRow{{Source: "s", Destination: "d", Verdict: "PASS", VerdictClass: "ok"}}}
+	if _, err := GenerateWaveHTMLReport(report); err == nil {
+		t.Error("expected error when template execution fails, got nil")
+	}
+}
+
+// TestGenerateWaveHTMLReport_WriteFails covers the os.WriteFile error branch by
+// making the CWD read-only. Skips as root (root ignores permission bits).
+func TestGenerateWaveHTMLReport_WriteFails(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	if f, createErr := os.CreateTemp(dir, "rootcheck-*"); createErr == nil {
+		f.Close()
+		_ = os.Remove(f.Name())
+		t.Skip("running as root; directory-permission restriction cannot be triggered")
+	}
+
+	report := WaveReport{
+		Date: "2026-07-17 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "PASS", VerdictClass: "ok",
+		VerdictText: "All pairs passed certification — the migration wave is clean.",
+		Total:       1, CountPass: 1, Year: 2026,
+		Pairs: []WavePairRow{{Source: "vm01-src", Destination: "vm01-dst", Verdict: "PASS", VerdictClass: "ok"}},
+	}
+	if _, err := GenerateWaveHTMLReport(report); err == nil {
+		t.Error("expected error writing to read-only directory")
 	}
 }
 

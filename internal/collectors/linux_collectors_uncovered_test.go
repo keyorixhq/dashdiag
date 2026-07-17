@@ -424,6 +424,36 @@ func TestDiskDetectType_SysfsError(t *testing.T) {
 // TestDiskDetectType_HDD already exists in disk_linux_extras_test.go — omitted
 // here to avoid func redeclarations.
 
+// TestCollectPhysicalDrives_WindowsFS covers disk_linux.go line 97: the
+// `windowsFS[fs] && !linuxFS[fs]` branch fires when a partition has an ntfs/vfat
+// filesystem that the device name matches.
+func TestCollectPhysicalDrives_WindowsFS(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		// sda1 is an NTFS partition mounted at /mnt/windows (dual-boot).
+		b.PutFile("/proc/mounts", []byte("/dev/sda1 /mnt/windows ntfs rw,relatime 0 0\n"))
+		b.PutFile("/proc/partitions", []byte(
+			"major minor  #blocks  name\n\n"+
+				"   8        0   500000000 sda\n"))
+		// rotational file deliberately absent → diskDetectType returns SSD default.
+	})
+	drives := collectPhysicalDrives()
+	if len(drives) != 1 || drives[0].Name != "sda" {
+		t.Fatalf("drives = %+v, want exactly one sda entry", drives)
+	}
+	// sda has ntfs partition → hasLinux stays false → not mounted as Linux root.
+	// Just verify the drive was collected and has the Windows mount recorded.
+	found := false
+	for _, m := range drives[0].Mounts {
+		if m == "sda1->/mnt/windows" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("mounts = %v, want sda1->/mnt/windows in list", drives[0].Mounts)
+	}
+}
+
 // ── dns_linux.go ─────────────────────────────────────────────────────────────
 
 // NOTE: TestParseResolvConf_MissingFile already exists in dns_linux_source_test.go

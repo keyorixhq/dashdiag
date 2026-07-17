@@ -24,6 +24,14 @@ func TestVersionStringGreater(t *testing.T) {
 		// Major/minor version bumps still work.
 		{"6.4.0-150600.1.1-default", "5.14.21-150500.55.30-default", true},
 		{"5.14.21-150500.55.30-default", "6.4.0-150600.1.1-default", false},
+		// Non-numeric token comparison (branch: return ta[i] > tb[i]).
+		// "1beta" → ["1","beta"], "1alpha" → ["1","alpha"]: "beta" > "alpha" lexicographically.
+		{"1beta", "1alpha", true},
+		{"1alpha", "1beta", false},
+		// Length-wins comparison (branch: return len(ta) > len(tb)).
+		// Both have identical common tokens; the longer one wins.
+		{"1.0.1", "1.0", true},
+		{"1.0", "1.0.1", false},
 	}
 	for _, tc := range cases {
 		if got := versionStringGreater(tc.a, tc.b); got != tc.want {

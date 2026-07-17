@@ -683,6 +683,19 @@ func TestParseVLANConfig_ValidEntry(t *testing.T) {
 	}
 }
 
+// TestParseVLANConfig_ShortLine covers the `len(parts) < 3` continue branch:
+// a line that doesn't start with "Name" or "---" but has fewer than 3 "|"
+// separators must be silently skipped, not panicked on (parts[2] would panic).
+func TestParseVLANConfig_ShortLine(t *testing.T) {
+	t.Parallel()
+	const input = "Name-Device | VLAN ID | Parent\n---+---+---\nmalformed without enough pipes\neth0.100      | 100 | eth0\n"
+	result := parseVLANConfig(input)
+	// Only the valid eth0.100 line must parse; the short line is silently skipped.
+	if len(result) != 1 || result[0].VLANID != 100 {
+		t.Errorf("expected only eth0.100, got %+v", result)
+	}
+}
+
 // ── vmware_linux.go ───────────────────────────────────────────────────────────
 
 // TestIsVMwareGuest_TableCases covers the DMI matching (line 47-53). Named
