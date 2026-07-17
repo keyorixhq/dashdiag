@@ -106,7 +106,7 @@ func runDiffFromStore(cmd *cobra.Command) error {
 		return fmt.Errorf("need at least 2 stored runs for --last (have %d for %q); run 'dsd health --persist' to build history", len(entries), host)
 	}
 
-	prev, cur := entries[len(entries)-2], entries[len(entries)-1]
+	prev, cur := entries[len(entries)-2], entries[len(entries)-1] //nolint:gosec // len≥2 guard above
 	changes := store.DiffChecks(prev, cur)
 
 	jsonOut, _ := cmd.Flags().GetBool("json")
