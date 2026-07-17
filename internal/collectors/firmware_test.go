@@ -90,6 +90,26 @@ func TestFirmwareCollect_UpgradesJSONParseError(t *testing.T) {
 	}
 }
 
+// TestFirmwareCollect_GetUpgradesOtherFailure guards the fallthrough path in
+// firmware.go: get-upgrades exits non-zero but the stderr/stdout doesn't match
+// any of the known "nothing to do" strings, so StatusReason is set to the
+// generic failure message instead.
+func TestFirmwareCollect_GetUpgradesOtherFailure(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
+		b.PutCmd("fwupdmgr", []string{"get-upgrades", "--json"}, "daemon error: could not refresh metadata\n", 1)
+	})
+	c := NewFirmwareCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect must not error, got %v", err)
+	}
+	info := res.(*models.FirmwareInfo) //nolint:errcheck // asserted by identity test
+	if info.StatusReason != "fwupdmgr get-upgrades failed" {
+		t.Errorf("StatusReason = %q, want 'fwupdmgr get-upgrades failed'", info.StatusReason)
+	}
+}
+
 // TestFirmwareCollect_UpgradesFound guards the happy path: parses devices,
 // classifies security-relevant releases (urgency, security category, and the
 // dbx/secure-boot name/summary heuristics), and tallies counts.

@@ -5,7 +5,6 @@ package collectors
 import (
 	"context"
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -343,7 +342,7 @@ func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error
 	}
 	info := &models.ServiceRestartInfo{Available: true, ToolUsed: "proc-maps"}
 	mapsFiles, _ := glob("/proc/[0-9]*/maps")
-	nonRoot := os.Geteuid() != 0
+	nonRoot := geteuid() != 0
 	seen := map[string]bool{}
 	deniedOthers := false
 	for _, mapPath := range mapsFiles {

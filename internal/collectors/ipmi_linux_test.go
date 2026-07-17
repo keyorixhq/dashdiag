@@ -108,6 +108,19 @@ func TestParseIPMISDR(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("short field line skipped", func(t *testing.T) {
+		// A line with fewer than 3 pipe-separated fields must be skipped;
+		// only the valid 3-field line should produce a sensor.
+		out := "two_fields | only\nInlet | 22.000 degrees C | ok\n"
+		sensors := parseIPMISDR(out)
+		if len(sensors) != 1 {
+			t.Fatalf("parseIPMISDR with one short line = %d sensors, want 1", len(sensors))
+		}
+		if sensors[0].Name != "Inlet" {
+			t.Errorf("sensor name = %q, want Inlet", sensors[0].Name)
+		}
+	})
 }
 
 // TestIsPSUSensor pins the PSU-name matching, incl. the real Dell/Supermicro

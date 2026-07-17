@@ -291,3 +291,36 @@ func TestCollectSELinux_DenialsFullyUnreadable(t *testing.T) {
 		t.Errorf("expected denials=-1 (unverified) when every denial source is unreadable, got %d", denials)
 	}
 }
+
+// TestCollectSELinux_GetenforceFallback covers kernel_security.go:82 — the
+// getenforce fallback path when /sys/fs/selinux/enforce is unreadable.
+func TestCollectSELinux_GetenforceFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /sys/fs/selinux/enforce NOT seeded → readFile fails → enforceMode=""
+		// getenforce with no args succeeds → covers the getenforceMode = parseSELinuxMode(out) body
+		b.PutCmd("getenforce", nil, "Permissive\n", 0)
+	})
+	present, mode, denials := collectSELinux(context.Background())
+	if !present || mode != "permissive" {
+		t.Fatalf("expected present=true mode=permissive via getenforce fallback, got present=%v mode=%q", present, mode)
+	}
+	if denials != 0 {
+		t.Errorf("expected denials=0 for permissive mode, got %d", denials)
+	}
+}
+
+// TestCountAppArmorDenials_NonApparmorLineSkipped covers kernel_security.go:304 —
+// the early continue when a line contains neither "apparmor" nor "APPARMOR".
+func TestCountAppArmorDenials_NonApparmorLineSkipped(t *testing.T) {
+	lines := []string{
+		`type=SYSCALL msg=audit(1234.123:1): arch=c000003e syscall=2 success=yes`, // no "apparmor" → skip
+		fmt.Sprintf(`type=AVC msg=audit(%d.123:2): apparmor="DENIED" operation="open"`, time.Now().Add(-5*time.Minute).Unix()),
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte(strings.Join(lines, "\n")+"\n"))
+	})
+	n := countAppArmorDenials(1 * time.Hour)
+	if n != 1 {
+		t.Errorf("non-apparmor line must be skipped; expected count=1, got %d", n)
+	}
+}

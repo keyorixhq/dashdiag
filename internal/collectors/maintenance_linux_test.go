@@ -571,6 +571,39 @@ func TestServiceRestartCollector_Collect_PermissionDenied(t *testing.T) {
 	}
 }
 
+// TestServiceRestartCollector_Collect_PermissionDenied_AsRoot covers
+// maintenance_linux.go:352-355 — the permission-denied branch and continue
+// statement in the maps-file scan. Forces geteuid()==0 via the seam so the
+// test is deterministic regardless of whether CI runs as root or non-root.
+// With nonRoot=false, NeedsRoot must be false even when deniedOthers is true.
+func TestServiceRestartCollector_Collect_PermissionDenied_AsRoot(t *testing.T) {
+	swapGeteuid(t, 0)
+	b := source.NewBundle()
+	b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/789/maps"})
+	// /proc/789/maps is NOT seeded in the bundle — fakeLookPathPermDeniedSource
+	// intercepts it and returns EPERM before Replay.ReadFile is called.
+	prev := SetSource(fakeLookPathPermDeniedSource{
+		Replay:     source.NewReplay(b),
+		found:      map[string]bool{"dpkg": true},
+		deniedPath: "/proc/789/maps",
+	})
+	t.Cleanup(func() { SetSource(prev) })
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.ServiceRestartInfo)
+	// Running as root → nonRoot=false → NeedsRoot = false && deniedOthers
+	if info.NeedsRoot {
+		t.Error("expected NeedsRoot=false when running as root (nonRoot=false)")
+	}
+	// The denied pid must not be counted as stale.
+	if info.StaleCount != 0 {
+		t.Errorf("denied pid must be skipped, got StaleCount=%d", info.StaleCount)
+	}
+}
+
 func TestServiceRestartCollector_Collect_NotAvailable(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
 	c := NewServiceRestartCollector()

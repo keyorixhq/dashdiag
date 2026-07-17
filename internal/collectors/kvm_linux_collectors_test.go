@@ -240,6 +240,52 @@ func TestKVMCollectVMs_DeepCallsXML(t *testing.T) {
 	}
 }
 
+// TestKVMCollectVMs_BlankLineInOutput covers kvm_linux.go:98 — the blank-name
+// continue inside the virsh-list name loop (embedded empty line in output).
+func TestKVMCollectVMs_BlankLineInOutput(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("virsh", []string{"list", "--all", "--name"}, "vm1\n\nvm2\n", 0)
+		b.PutCmd("virsh", []string{"dominfo", "vm1"},
+			"Id:             1\nState:          running\nAutostart:      disable\n", 0)
+		b.PutCmd("virsh", []string{"domblkerror", "vm1"}, "No errors found\n", 0)
+		b.PutFile("/var/log/libvirt/qemu/vm1.log", []byte("ok\n"))
+		b.PutCmd("virsh", []string{"dominfo", "vm2"},
+			"Id:             2\nState:          running\nAutostart:      disable\n", 0)
+		b.PutCmd("virsh", []string{"domblkerror", "vm2"}, "No errors found\n", 0)
+		b.PutFile("/var/log/libvirt/qemu/vm2.log", []byte("ok\n"))
+	})
+	info := &models.KVMInfo{}
+	kvmCollectVMs(context.Background(), info, false)
+	if len(info.VMs) != 2 {
+		t.Errorf("blank line in virsh output must be skipped; expected 2 VMs, got %d", len(info.VMs))
+	}
+}
+
+// TestKVMCollectVMs_EmptyMACFallback covers kvm_linux.go:168 — the fallback that
+// uses the model type as the NIC identifier when the MAC address is empty.
+func TestKVMCollectVMs_EmptyMACFallback(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("virsh", []string{"list", "--all", "--name"}, "vm1\n", 0)
+		b.PutCmd("virsh", []string{"dominfo", "vm1"},
+			"Id:             -\nState:          shut off\nAutostart:      disable\n", 0)
+		b.PutFile("/var/log/libvirt/qemu/vm1.log", []byte("ok\n"))
+		// mac address='' → id = "" → fallback to model type "e1000"
+		b.PutCmd("virsh", []string{"dumpxml", "vm1"},
+			`<domain><devices><interface><mac address=''/><model type='e1000'/></interface></devices></domain>`, 0)
+	})
+	info := &models.KVMInfo{}
+	kvmCollectVMs(context.Background(), info, true)
+	if len(info.VMs) != 1 {
+		t.Fatalf("expected 1 VM, got %d", len(info.VMs))
+	}
+	if len(info.VMs[0].EmulatedNICs) != 1 {
+		t.Fatalf("expected 1 EmulatedNIC (model-type fallback), got %d: %v", len(info.VMs[0].EmulatedNICs), info.VMs[0].EmulatedNICs)
+	}
+	if !strings.Contains(info.VMs[0].EmulatedNICs[0], "e1000") {
+		t.Errorf("NIC identifier should use model type when MAC is empty, got %q", info.VMs[0].EmulatedNICs[0])
+	}
+}
+
 func TestKVMCollectNetworks(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("virsh", []string{"net-list", "--all"},
