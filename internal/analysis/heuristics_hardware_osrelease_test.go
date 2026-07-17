@@ -37,7 +37,7 @@ func (errOSReleaseSource) ReadFile(_ string) ([]byte, error) {
 // (2) ID=steamos           → true,
 // (3) VARIANT_ID=steamdeck → true.
 func TestIsSteamOSHost(t *testing.T) {
-	t.Parallel()
+	// Not parallel: subtests swap global source state.
 	tests := []struct {
 		name string
 		src  source.Source
@@ -84,7 +84,7 @@ func TestIsSteamOSHost(t *testing.T) {
 // (2) VARIANT_ID match (coreos/silverblue/kinoite/iot/sericea/onyx) → true,
 // (3) ID match (fedora-coreos / rhcos) → true.
 func TestHostIsOstree(t *testing.T) {
-	t.Parallel()
+	// Not parallel: subtests swap global source state.
 	tests := []struct {
 		name string
 		src  source.Source
