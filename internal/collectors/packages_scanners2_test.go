@@ -81,6 +81,77 @@ func TestPackagesCollector_Collect_DNFHappyPath(t *testing.T) {
 	}
 }
 
+// TestPackagesCollector_Collect_DNFShortAdvisoryLineSkipped covers
+// packages_linux.go:348 — the `if len(fields) < 3 { continue }` guard
+// that discards truncated/header advisory lines without counting them.
+func TestPackagesCollector_Collect_DNFShortAdvisoryLineSkipped(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("zypper", []string{"--version"})
+		b.PutCmd("dnf", []string{"--version"}, "dnf version 5.0\n", 0)
+		b.PutCmdNotFound("rpm", []string{"-q", "rpm"})
+		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "repo-id\nbaseos\n", 0)
+		// "short" has 1 field (<3) → must be skipped; the second line is a real advisory
+		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+			"short\n"+
+				"RHSA-2026:0002  Critical/Sec.  curl-8.0.1-1.el10.x86_64\n", 0)
+	})
+	c := NewPackagesCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.PackagesInfo)
+	if info.SecurityUpdates != 1 {
+		t.Errorf("short advisory line must be skipped; expected SecurityUpdates=1, got %d", info.SecurityUpdates)
+	}
+}
+
+// TestCollectDNF_ModerateAdvisory covers packages_linux.go:376 — the
+// "moderate" severity case in the DNF advisory severity normaliser.
+func TestCollectDNF_ModerateAdvisory(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos\n", 0)
+		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+			"RHSA-2026:0010  Moderate/Sec.  curl-8.0.1-1.el10.x86_64\n", 0)
+	})
+	info, err := collectDNF(context.Background())
+	if err != nil {
+		t.Fatalf("collectDNF: %v", err)
+	}
+	if info.SecurityUpdates != 1 {
+		t.Errorf("Moderate advisory must count as a security update, got SecurityUpdates=%d", info.SecurityUpdates)
+	}
+	// Moderate must NOT bump CriticalUpdates or ImportantUpdates.
+	if info.CriticalUpdates != 0 || info.ImportantUpdates != 0 {
+		t.Errorf("Moderate must not increment critical/important counters, got Critical=%d Important=%d",
+			info.CriticalUpdates, info.ImportantUpdates)
+	}
+}
+
+// TestCollectDNF_ScanContextTimeout covers packages_linux.go:331 — the
+// scanCtx.Err() != nil branch that sets a "timed out" reason when the context
+// is already cancelled before the advisory scan runs (simulates a cold-cache /
+// slow-mirror timeout — BUG-098 addendum).
+func TestCollectDNF_ScanContextTimeout(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// repolist must succeed so we pass the "no repos" gate before the scan.
+		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos\n", 0)
+		// advisory commands left unseeded → ErrNotRecorded → triggers err != nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancelled — scanCtx derived from it is also cancelled
+	info, err := collectDNF(ctx)
+	if err != nil {
+		t.Fatalf("collectDNF must not return a Go error: %v", err)
+	}
+	if info.Status != pkgQueryFailed {
+		t.Fatalf("expected pkgQueryFailed when scan fails, got %q", info.Status)
+	}
+	if !strings.Contains(info.StatusReason, "timed out") {
+		t.Errorf("StatusReason = %q, want timed-out message", info.StatusReason)
+	}
+}
+
 func TestPackagesCollector_Collect_DeepPopulatesIntegrity(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("zypper", []string{"--version"}, "", 1)
@@ -162,6 +233,45 @@ func TestPackagesCollector_Collect_APTDispatch(t *testing.T) {
 	}
 	if info.SecurityUpdates != 1 || info.CriticalUpdates != 1 {
 		t.Errorf("expected 1 security/1 critical update, got %+v", info)
+	}
+}
+
+// TestPackagesCollector_Collect_APT_NonSecurityLineAndQueryFailed covers three
+// branches in collectAPT / aptHasSecurityRepo:
+//   - packages_linux.go:499  — non-security "Inst " line (no "-security" / "security-updates") → skip
+//   - packages_linux.go:506  — SecurityUpdates==0 AND no "0 upgraded" → pkgQueryFailed
+//   - packages_linux.go:642  — IsDir entry in /etc/apt/sources.list.d → skip
+func TestPackagesCollector_Collect_APT_NonSecurityLineAndQueryFailed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("zypper", []string{"--version"}, "", 1)
+		b.PutCmd("dnf", []string{"--version"}, "", 1)
+		b.PutCmd("apt-get", []string{"--version"}, "apt 2.6.1\n", 0)
+		b.PutCmd("dpkg", []string{"--audit"}, "", 0) // aptDBHealth: clean
+		// sources.list.d has a subdirectory (probeIsDir returns true → IsDir skip fires)
+		// and a .list file (not seeded as a directory → treated as file → readFile misses → continue)
+		b.PutDir("/etc/apt/sources.list.d", []string{"snippets", "main.list"})
+		b.PutDir("/etc/apt/sources.list.d/snippets", []string{}) // directory entry → IsDir=true → skipped
+		// /etc/apt/sources.list has the security repo → aptHasSecurityRepo() = true
+		b.PutFile("/etc/apt/sources.list", []byte(
+			"deb http://security.debian.org/debian-security bookworm-security main\n"))
+		// apt-get -s upgrade: one "Inst " line from main (NOT -security) → skip at :499
+		// "1 upgraded" but no "0 upgraded" → pkgQueryFailed fires at :506
+		b.PutCmd("apt-get", []string{"-s", "upgrade"},
+			"Inst libc6 (2.35-0ubuntu1 Ubuntu:focal/main [amd64])\n"+
+				"1 upgraded, 0 newly installed.\n", 0)
+		b.PutCmdNotFound("pro", []string{"security-status", "--format", "json"})
+	})
+	c := NewPackagesCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.PackagesInfo)
+	if info.SecurityUpdates != 0 {
+		t.Errorf("non-security Inst line must be skipped, got SecurityUpdates=%d", info.SecurityUpdates)
+	}
+	if info.Status != pkgQueryFailed {
+		t.Errorf("expected pkgQueryFailed when no security updates and no '0 upgraded', got Status=%q", info.Status)
 	}
 }
 

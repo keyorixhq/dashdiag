@@ -207,6 +207,45 @@ func TestScanProcesses(t *testing.T) {
 	}
 }
 
+// TestScanProcesses_SortByUsedPct guards the inner sort branch that fires when
+// two Hot entries have different UsedPct values — covers fdlimits.go:212.43,214.4.
+// TestScanProcesses_CapsAtFive seeds equal UsedPct for all processes so the
+// tiebreak path fires instead; this test uses two distinct pressures.
+func TestScanProcesses_SortByUsedPct(t *testing.T) {
+	fds90 := make([]string, 90)
+	fds80 := make([]string, 80)
+	for i := range fds90 {
+		fds90[i] = strconv.Itoa(i)
+	}
+	for i := range fds80 {
+		fds80[i] = strconv.Itoa(i)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/10", "/proc/20"})
+		b.PutDir("/proc/10/fd", fds90)
+		b.PutFile("/proc/10/limits", []byte(
+			"Limit                     Soft Limit           Hard Limit           Units\n"+
+				"Max open files            100                  1000                 files\n"))
+		b.PutFile("/proc/10/comm", []byte("heavy\n"))
+		b.PutDir("/proc/20/fd", fds80)
+		b.PutFile("/proc/20/limits", []byte(
+			"Limit                     Soft Limit           Hard Limit           Units\n"+
+				"Max open files            100                  1000                 files\n"))
+		b.PutFile("/proc/20/comm", []byte("medium\n"))
+	})
+	c := NewFDLimitsCollector()
+	scan := c.scanProcesses(context.Background())
+	if len(scan.Hot) != 2 {
+		t.Fatalf("Hot = %+v, want exactly 2 entries", scan.Hot)
+	}
+	if scan.Hot[0].PID != 10 {
+		t.Errorf("Hot[0].PID = %d, want 10 (higher UsedPct first)", scan.Hot[0].PID)
+	}
+	if scan.Hot[1].PID != 20 {
+		t.Errorf("Hot[1].PID = %d, want 20", scan.Hot[1].PID)
+	}
+}
+
 // TestScanProcesses_CapsAtFive guards the top-5 cut and the FD-pressure-desc,
 // PID-asc tiebreak ordering. Each process opens 90 of a 100 soft limit (90%,
 // comfortably above both the 70% threshold and the small-transient-helper

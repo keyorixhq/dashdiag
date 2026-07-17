@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -45,6 +46,79 @@ func TestPkgIntegrityAPTNonZeroExit(t *testing.T) {
 
 // TestPkgIntegrityZypperNonZeroExit: `zypper verify` exits 1 when it finds
 // broken/missing deps and writes them to stdout — runCmd dropped them.
+// TestPkgIntegrityAPT_DpkgBrokenPackages covers packages_linux.go:1054 — the
+// "non-empty dpkg --audit line → BrokenPackages" branch. The existing
+// TestPkgIntegrityAPTNonZeroExit leaves dpkg clean (empty stdout); this test
+// seeds a broken-package report from dpkg.
+func TestPkgIntegrityAPT_DpkgBrokenPackages(t *testing.T) {
+	fake := fakeRunSource{run: func(name string, _ []string) source.Result {
+		if name == "dpkg" {
+			return source.Result{
+				Stdout:   []byte("dpkg: foo: dependency problems prevent configuration of foo:\n"),
+				ExitCode: 0,
+			}
+		}
+		return source.Result{} // apt-get check: clean
+	}}
+	defer SetSource(SetSource(fake))
+
+	var pi models.PackageIntegrity
+	pkgIntegrityAPT(context.Background(), &pi)
+	if len(pi.BrokenPackages) == 0 {
+		t.Fatal("non-empty dpkg --audit output must populate BrokenPackages")
+	}
+}
+
+// TestPkgIntegrityDNF_TenOrMoreBrokenPackages covers packages_linux.go:1016 —
+// the `if len(pi.BrokenPackages) >= 10 { break }` cap in pkgIntegrityDNF.
+func TestPkgIntegrityDNF_TenOrMoreBrokenPackages(t *testing.T) {
+	var dnfCheckOut strings.Builder
+	for i := range 11 {
+		dnfCheckOut.WriteString("broken-pkg-" + strings.Repeat("x", i) + ": requires missing-dep\n")
+	}
+	fake := fakeRunSource{run: func(name string, args []string) source.Result {
+		if name == "dnf" && len(args) > 0 && args[0] == "check" {
+			return source.Result{Stdout: []byte(dnfCheckOut.String()), ExitCode: 1}
+		}
+		// rpm --verify: clean
+		return source.Result{ExitCode: 0}
+	}}
+	defer SetSource(SetSource(fake))
+
+	var pi models.PackageIntegrity
+	pkgIntegrityDNF(context.Background(), &pi)
+	if len(pi.BrokenPackages) != 10 {
+		t.Errorf("BrokenPackages must be capped at 10, got %d", len(pi.BrokenPackages))
+	}
+}
+
+// TestPkgIntegrityDNF_RPMVerifyConfigSkipped covers packages_linux.go:1036 —
+// the `if len(line) >= 10 && line[9] == 'c' { continue }` guard that skips
+// config-file modifications from rpm --verify (expected changes, not tampering).
+func TestPkgIntegrityDNF_RPMVerifyConfigSkipped(t *testing.T) {
+	fake := fakeRunSource{run: func(name string, args []string) source.Result {
+		if name == "dnf" && len(args) > 0 && args[0] == "check" {
+			return source.Result{ExitCode: 0} // no broken packages
+		}
+		if name == "rpm" {
+			// 9 attribute chars, then 'c' at position 9 = config file modification.
+			// The guard must skip this line; RPMVerifyFailed must stay empty.
+			return source.Result{
+				Stdout:   []byte(".........c /etc/bash.bashrc\n"),
+				ExitCode: 1,
+			}
+		}
+		return source.Result{}
+	}}
+	defer SetSource(SetSource(fake))
+
+	var pi models.PackageIntegrity
+	pkgIntegrityDNF(context.Background(), &pi)
+	if len(pi.RPMVerifyFailed) != 0 {
+		t.Errorf("config file line (line[9]=='c') must be skipped, got RPMVerifyFailed=%v", pi.RPMVerifyFailed)
+	}
+}
+
 func TestPkgIntegrityZypperNonZeroExit(t *testing.T) {
 	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
 		return source.Result{

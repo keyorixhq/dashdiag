@@ -128,6 +128,33 @@ func TestNetworkdConfigCollector_Collect_NotDetected(t *testing.T) {
 	}
 }
 
+// TestNetworkdConfigCollector_Collect_StatFails guards the statFile-error path:
+// a glob match with no seeded stat entry causes statFile to return an error,
+// so the file is counted in TotalFiles but skipped before classification.
+// Covers networkd_config_linux.go:72.18,73.13.
+func TestNetworkdConfigCollector_Collect_StatFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "systemd-networkd"}, "active\n", 0)
+		b.PutGlob("/etc/systemd/network/*.network", []string{"/etc/systemd/network/10-eth0.network"})
+		b.PutGlob("/etc/systemd/network/*.link", []string{})
+		b.PutGlob("/etc/systemd/network/*.netdev", []string{})
+		// No PutStat for 10-eth0.network → statFile returns ErrNotRecorded → continue.
+		// networkctl commands left unseeded → collectNetworkdLinks returns nil.
+	})
+	c := NewNetworkdConfigCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NetworkdConfigInfo)
+	if info.TotalFiles != 1 {
+		t.Errorf("TotalFiles = %d, want 1", info.TotalFiles)
+	}
+	if len(info.UnreadableFiles) != 0 {
+		t.Errorf("UnreadableFiles = %+v, want empty (stat failed → file not classified)", info.UnreadableFiles)
+	}
+}
+
 func TestNetworkdConfigCollector_Collect_FullHappyPath(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"is-active", "systemd-networkd"}, "active\n", 0)

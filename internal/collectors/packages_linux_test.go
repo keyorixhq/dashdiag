@@ -147,6 +147,45 @@ func TestMarkStaleMetadata_NoCacheFound(t *testing.T) {
 	}
 }
 
+// TestMarkStaleMetadata_TDNFCache covers packages_linux.go:260 — the "tdnf"
+// case in packageMetadataAgeDays (Photon OS cache path).
+func TestMarkStaleMetadata_TDNFCache(t *testing.T) {
+	b := source.NewBundle()
+	b.PutGlob("/var/cache/tdnf/*/repodata/repomd.xml", []string{"/var/cache/tdnf/photon-release/repodata/repomd.xml"})
+	b.PutStat("/var/cache/tdnf/photon-release/repodata/repomd.xml", source.FileMeta{
+		ModTime: time.Now().Add(-2 * time.Hour),
+	})
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	info := &models.PackagesInfo{Checked: true, PackageManager: "tdnf"}
+	markStaleMetadata(info)
+	// 2h old → fresh (below the stale-days threshold) → no stale flag
+	if info.Status == "stale-metadata" {
+		t.Errorf("fresh tdnf cache must not be flagged stale, got Status=%q", info.Status)
+	}
+}
+
+// TestMarkStaleMetadata_GlobMatchStatError covers packages_linux.go:271 — the
+// continue when a glob match's stat call fails (file listed by glob but not stat-able).
+func TestMarkStaleMetadata_GlobMatchStatError(t *testing.T) {
+	b := source.NewBundle()
+	// Glob returns a match but no PutStat for it → statFile returns ErrNotRecorded → continue
+	b.PutGlob("/var/cache/dnf/*/repodata/repomd.xml", []string{"/var/cache/dnf/updates/repodata/repomd.xml"})
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	info := &models.PackagesInfo{Checked: true, PackageManager: "dnf"}
+	markStaleMetadata(info)
+	// All glob matches failed stat → found=false → stale with MetadataAgeDays=-1
+	if info.Status != "stale-metadata" {
+		t.Fatalf("expected stale-metadata when stat fails for every glob match, got %q", info.Status)
+	}
+	if info.MetadataAgeDays != -1 {
+		t.Errorf("MetadataAgeDays = %d, want -1 when stat fails for all matches", info.MetadataAgeDays)
+	}
+}
+
 // ── checkESMUpdates ────────────────────────────────────────────────────────
 
 func TestCheckESMUpdates_NotInstalled(t *testing.T) {
