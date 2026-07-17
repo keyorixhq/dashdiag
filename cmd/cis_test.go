@@ -19,7 +19,7 @@ func TestCisProfileName(t *testing.T) {
 		wantSub string // expected substring in the profile name
 	}{
 		{"ubuntu", 1, false, "CIS Ubuntu"},
-		{"", 1, false, "CIS Ubuntu"},  // unknown distro → Ubuntu default
+		{"", 1, false, "CIS Ubuntu"}, // unknown distro → Ubuntu default
 		{"rhel", 1, false, "RHEL"},
 		{"rocky", 1, false, "RHEL"},
 		{"almalinux", 1, false, "RHEL"},
@@ -28,7 +28,7 @@ func TestCisProfileName(t *testing.T) {
 		{"debian", 1, false, "Debian"},
 		{"sles", 1, false, "SLES"},
 		{"opensuse", 1, false, "SLES"},
-		{"rhel", 1, true, "STIG"},    // STIG mode always overrides
+		{"rhel", 1, true, "STIG"}, // STIG mode always overrides
 		{"ubuntu", 2, false, "Level 2"},
 	}
 	for _, tc := range cases {
