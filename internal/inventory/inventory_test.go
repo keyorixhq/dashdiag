@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -348,6 +349,20 @@ func TestToCSV_FlatKeyValue(t *testing.T) {
 	// Empty fields must be omitted (no cpu.threads row when 0).
 	if strings.Contains(csv, "cpu.threads") {
 		t.Errorf("zero field should be omitted:\n%s", csv)
+	}
+}
+
+type errWriter struct{ err error }
+
+func (e *errWriter) Write(_ []byte) (int, error) { return 0, e.err }
+
+func TestWriteCSV_WriteError(t *testing.T) {
+	t.Parallel()
+	inv := models.Inventory{Tool: "dsd"}
+	want := errors.New("disk full")
+	err := writeCSV(&errWriter{err: want}, inv)
+	if err == nil {
+		t.Fatal("writeCSV with failing writer: got nil error, want non-nil")
 	}
 }
 

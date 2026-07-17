@@ -60,7 +60,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			StigDescription: "The SSH daemon configuration file must have mode 0600 or less permissive",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID(cisRuleSSH52)
-				fi, err := os.Stat("/etc/ssh/sshd_config")
+				fi, err := os.Stat(sshdConfigPath)
 				if err != nil {
 					return skipr(r, "sshd_config not found")
 				}
@@ -382,7 +382,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure no legacy '+' entries in /etc/passwd, /etc/shadow, /etc/group",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.2.2")
-				for _, path := range []string{"/etc/passwd", "/etc/shadow", "/etc/group"} {
+				for _, path := range legacyNISPaths {
 					data, err := os.ReadFile(path) // #nosec G304
 					if err != nil {
 						continue
@@ -529,6 +529,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 // const — so tests can point it at a t.TempDir() fixture instead of the real host
 // file, per the project rule against reading live host paths in tests.
 var loginDefsPath = "/etc/login.defs"
+
+// sshdConfigPath is the sshd_config location checked by rule 5.2.1 for its file
+// mode. Package-level var so tests can point it at a t.TempDir() fixture.
+var sshdConfigPath = "/etc/ssh/sshd_config"
+
+// legacyNISPaths is the list of files scanned by rule 6.2.2 for legacy '+' NIS
+// entries. Package-level var so tests can supply in-memory fixture paths.
+var legacyNISPaths = []string{"/etc/passwd", "/etc/shadow", "/etc/group"}
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.

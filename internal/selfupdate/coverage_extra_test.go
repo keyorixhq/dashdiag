@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -131,5 +132,33 @@ func TestSaveCache_WriteFileFails(t *testing.T) {
 	err := saveCache(&checkCache{CheckedAt: time.Now().UTC(), LatestVersion: "v1.0.0"})
 	if err == nil {
 		t.Fatal("expected saveCache to fail when the .tmp staging path is a directory")
+	}
+}
+
+// TestDownloadToTemp_CloseError covers the closeFile error branch in
+// downloadToTemp: after io.Copy succeeds the overridden closeFile returns an
+// error, so downloadToTemp must remove the staged file and propagate the error.
+func TestDownloadToTemp_CloseError(t *testing.T) {
+	// no t.Parallel(): mutates package-level closeFile, matching the convention
+	// in selfupdate_test.go and selfupdate_extra_test.go.
+
+	payload := []byte("file-content")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	closeErr := errors.New("close: I/O error")
+	oldClose := closeFile
+	closeFile = func(f *os.File) error {
+		_ = f.Close()
+		return closeErr
+	}
+	t.Cleanup(func() { closeFile = oldClose })
+
+	dir := t.TempDir()
+	_, _, err := downloadToTemp(context.Background(), srv.URL, dir)
+	if err == nil || !strings.Contains(err.Error(), "close: I/O error") {
+		t.Fatalf("expected close error, got %v", err)
 	}
 }
