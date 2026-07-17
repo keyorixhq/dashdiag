@@ -190,6 +190,51 @@ func TestTLSCertPaths_IncludesRHUI(t *testing.T) {
 	}
 }
 
+// TestParseCertFile_TrailingNonPEMContent covers tls.go:140.19,141.9 — the
+// break that fires when pem.Decode returns nil because the remaining data
+// contains no valid PEM block (trailing comment, whitespace, etc.). The cert
+// itself must still be returned; the trailing junk must not cause an error.
+func TestParseCertFile_TrailingNonPEMContent(t *testing.T) {
+	now := time.Now()
+	certPEM := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+	combined := append(certPEM, []byte("# trailing comment\n")...)
+	dir := t.TempDir()
+	p := dir + "/cert-with-trailer.crt"
+	if err := osWriteFileBytes(p, combined); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(p, now)
+	if len(unc) != 0 {
+		t.Errorf("trailing non-PEM content must not cause an Uncheckable entry, got %+v", unc)
+	}
+	if len(certs) != 1 {
+		t.Fatalf("expected 1 cert before the trailer, got %d", len(certs))
+	}
+}
+
+// TestParseCertFile_NoCommonName covers tls.go:161.20,163.4 — the branch that
+// replaces an empty Subject.CommonName with Subject.String() so that the
+// displayed cert subject is never blank even when the CN field is absent.
+func TestParseCertFile_NoCommonName(t *testing.T) {
+	now := time.Now()
+	certPEM := makeTestCertPEMNoCommonName(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+	dir := t.TempDir()
+	p := dir + "/no-cn.crt"
+	if err := osWriteFileBytes(p, certPEM); err != nil {
+		t.Fatal(err)
+	}
+	certs, unc := parseCertFile(p, now)
+	if len(unc) != 0 {
+		t.Errorf("cert without CommonName must not be Uncheckable, got %+v", unc)
+	}
+	if len(certs) != 1 {
+		t.Fatalf("expected 1 cert, got %d", len(certs))
+	}
+	if certs[0].Subject == "" {
+		t.Error("Subject must fall back to cert.Subject.String() when CommonName is empty")
+	}
+}
+
 // TestTLSCertPaths_DarwinList guards the darwin-specific path list — the
 // runtime.GOOS branch tlsCertPaths_test can't force from a non-darwin CI
 // runner, so this only genuinely exercises that branch when run natively on

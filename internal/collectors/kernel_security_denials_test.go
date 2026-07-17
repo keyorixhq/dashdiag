@@ -324,3 +324,21 @@ func TestCountAppArmorDenials_NonApparmorLineSkipped(t *testing.T) {
 		t.Errorf("non-apparmor line must be skipped; expected count=1, got %d", n)
 	}
 }
+
+// TestCollectAVCSamples_NonAVCLineSkipped covers kernel_security.go:525.46,526.12 —
+// the continue when a line does not contain "type=AVC". A SYSCALL line must be
+// skipped and only the subsequent AVC denial line collected.
+func TestCollectAVCSamples_NonAVCLineSkipped(t *testing.T) {
+	recent := time.Now().Add(-5 * time.Minute).Unix()
+	lines := []string{
+		fmt.Sprintf("type=SYSCALL msg=audit(%d.123:1): arch=c000003e syscall=2", recent),
+		fmt.Sprintf("type=AVC msg=audit(%d.123:2): avc:  denied  { read } for pid=100 comm=\"test\" permissive=0", recent),
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/var/log/audit/audit.log", []byte(strings.Join(lines, "\n")+"\n"))
+	})
+	samples := collectAVCSamples(3)
+	if len(samples) != 1 {
+		t.Errorf("non-AVC line must be skipped; expected 1 sample, got %d: %v", len(samples), samples)
+	}
+}

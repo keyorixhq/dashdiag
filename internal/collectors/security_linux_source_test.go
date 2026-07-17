@@ -902,6 +902,34 @@ func TestCollectSUSEConnect(t *testing.T) {
 	})
 }
 
+// shadowPermDeniedSource wraps a Source and returns os.ErrPermission for
+// /etc/shadow — used to cover the ShadowUnreadable branch in parsePasswordAging.
+type shadowPermDeniedSource struct {
+	source.Source
+}
+
+func (s shadowPermDeniedSource) ReadFile(path string) ([]byte, error) {
+	if path == "/etc/shadow" {
+		return nil, os.ErrPermission
+	}
+	return s.Source.ReadFile(path)
+}
+
+// TestParsePasswordAgingPermissionDenied covers security_linux.go:1970.27,1972.4 —
+// the os.IsPermission branch that sets ShadowUnreadable when /etc/shadow can be
+// found but not read (non-root run). Without this flag the collector would
+// silently report "no stale passwords" even though it never checked.
+func TestParsePasswordAgingPermissionDenied(t *testing.T) {
+	inner := source.NewReplay(source.NewBundle())
+	prev := SetSource(shadowPermDeniedSource{Source: inner})
+	t.Cleanup(func() { SetSource(prev) })
+	info := &models.SecurityInfo{}
+	parsePasswordAging(info)
+	if !info.ShadowUnreadable {
+		t.Error("ShadowUnreadable must be true when /etc/shadow is permission-denied")
+	}
+}
+
 // TestCollectPAMLockedAccounts guards the faillock-driven lock-out audit: a
 // [Locked] line is extracted by username, faillock's absence/error must
 // return nil rather than a spurious entry.

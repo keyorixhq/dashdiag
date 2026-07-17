@@ -401,3 +401,14 @@ func TestKernelModulePresent(t *testing.T) {
 		t.Error("kernelModulePresent(absent) = true, want false")
 	}
 }
+
+// TestCollectVMwareDiskIDs_ReadDirError covers vmware_linux.go:163.16,165.3 —
+// the (false, nil) early-return when readDirEntries fails because /sys/block is
+// not seeded in the bundle.
+func TestCollectVMwareDiskIDs_ReadDirError(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // /sys/block not seeded
+	checked, noStableID := collectVMwareDiskIDs("/sys/block")
+	if checked || len(noStableID) != 0 {
+		t.Errorf("expected (false, nil) when readDirEntries fails, got checked=%v noStableID=%v", checked, noStableID)
+	}
+}
