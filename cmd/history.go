@@ -98,7 +98,7 @@ func buildHistoryRows(entries []store.Entry) []historyRow {
 	for i, e := range entries {
 		var changes []store.CheckChange
 		if i > 0 {
-			changes = store.DiffChecks(entries[i-1], e)
+			changes = store.DiffChecks(entries[i-1], e) //nolint:gosec // i>0 guard above ensures i-1 is valid
 		}
 		rows[i] = historyRow{
 			Timestamp: e.Timestamp.Local().Format("2006-01-02 15:04:05"),
