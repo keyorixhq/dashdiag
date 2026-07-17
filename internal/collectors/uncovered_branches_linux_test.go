@@ -19,7 +19,7 @@ import (
 // parseBondFile: a path that does not exist in the fixture source must return
 // an error, not an empty BondInterface.
 func TestParseBondFile_OpenError(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	withFixtureSource(t, func(_ *source.Bundle) {
 		// Deliberately seed nothing — /no/such/bond will not be found.
 	})
@@ -431,7 +431,7 @@ unused devices: <none>`
 // early-return (line 942): groups with no Paths must return nil without
 // invoking any shell commands.
 func TestParseSELinuxContextIssues_EmptyGroups(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	// Groups with no Paths — uniqueAVCPaths returns empty → immediate nil return.
 	groups := []models.SELinuxAVCGroup{
 		{Scontext: "httpd_t", Tcontext: "admin_home_t", Tclass: "bpf", Paths: nil},
@@ -525,7 +525,7 @@ func TestParseARPPeers_SkipsFAILEDandINCOMPLETE(t *testing.T) {
 // path at line ~542 of buildInodeProcMap: when a symlink read for an fd entry
 // fails, the fd must be silently skipped.
 func TestBuildInodeProcMap_ReadLinkError(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*/fd", []string{"/proc/9999/fd"})
 		b.PutFile("/proc/9999/comm", []byte("testproc\n"))
@@ -555,7 +555,7 @@ func TestBuildInodeProcMap_ReadLinkError(t *testing.T) {
 //     content is not seeded in the fixture source triggers ErrNotRecorded and
 //     must be silently skipped without panicking.
 func TestParseSuspectCrons_DirSkipAndReadError(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	withFixtureSource(t, func(b *source.Bundle) {
 		// /etc/cron.d contains two entries: a subdirectory and a file.
 		b.PutDir("/etc/cron.d", []string{"scripts", "job1"})
@@ -578,7 +578,7 @@ func TestParseSuspectCrons_DirSkipAndReadError(t *testing.T) {
 // branch (line 1998): a shadow file line whose first colon-separated field is
 // empty (e.g. a blank line or a malformed entry) must be silently skipped.
 func TestParsePasswordAging_EmptyUsername(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	// First field is empty — user == "" → must skip without appending.
 	const shadow = ":secret:19000:0:99999:7:::\nroot:!:19000:0:99999:7:::\n"
 	withFixtureSource(t, func(b *source.Bundle) {
@@ -601,7 +601,7 @@ func TestParsePasswordAging_EmptyUsername(t *testing.T) {
 // known process (procName == ""), wellKnownPortName must supply a name for
 // socket-activated services. Port 9090 (0x238A) → "cockpit".
 func TestParseProcNetTCP_WellKnownPort(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	// 0x2382 = 9090 (Cockpit port, socket-activated on RHEL/Rocky)
 	const tcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
  0: 00000000:2382 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 99999 1 0000000000000000 100 0 0 10 0`
@@ -679,7 +679,7 @@ func TestUniqueAVCPaths_CapsAtTen(t *testing.T) {
 // be stripped before keyword matching, so "httpd_t" → "httpd" and a boolean
 // whose name starts with "httpd" is included.
 func TestCollectRelevantBooleans_ColonInStype(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps global source state via withFixtureSource.
 	// getsebool -a output: one relevant boolean for httpd, one unrelated.
 	const boolOut = "httpd_can_network_connect --> off\nftpd_full_access --> off\n"
 	withFixtureSource(t, func(b *source.Bundle) {
