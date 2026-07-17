@@ -743,6 +743,19 @@ func TestParseDarwinCPUUsage(t *testing.T) {
 	}
 }
 
+// TestParseDarwinCPUUsage_NoUserSysValues covers cpu.go:435.2,435.10 — the
+// `return 0` when the "CPU usage:" line is found but yields no user or sys
+// percentages. The prior test covers lastLine=="" (line 410); this targets
+// the bottom return when user+sys==0 (line 435).
+func TestParseDarwinCPUUsage_NoUserSysValues(t *testing.T) {
+	t.Parallel()
+	// "idle" has no "user" or "sys" label after the percentage field —
+	// user and sys stay 0, so user+sys==0 → return 0 at line 435.
+	if got := parseDarwinCPUUsage("CPU usage: 86.25% idle\n"); got != 0 {
+		t.Errorf("parseDarwinCPUUsage = %v, want 0 (idle-only line has no user or sys fields)", got)
+	}
+}
+
 // TestParseCPUStatFull_ScannerError covers cpu.go:127.38,129.3 — the
 // scanner.Err() != nil path, reached when the io.Reader injects an error
 // mid-scan. The leading data must be read (CPU line found), then the error
