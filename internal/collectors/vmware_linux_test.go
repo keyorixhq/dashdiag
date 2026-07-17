@@ -121,7 +121,7 @@ func TestParseLeadingInt(t *testing.T) {
 		{"0 MB", 0, true},
 		{"Unlimited", 0, false},
 		{"", 0, false},
-		{"MB 128", 0, false},              // integer must be at the start
+		{"MB 128", 0, false},                     // integer must be at the start
 		{"99999999999999999999 bytes", 0, false}, // digit run too large for int64 → Atoi overflow
 	}
 	for _, c := range cases {
