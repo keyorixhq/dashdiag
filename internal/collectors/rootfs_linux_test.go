@@ -224,3 +224,18 @@ func TestRootFSCollect_EndToEnd(t *testing.T) {
 		t.Errorf("intended-ro root must not flag, got %+v", got)
 	}
 }
+
+// TestRootFSCollect_MountsReadError covers rootfs_linux.go:36.16,38.3 — the
+// early return when /proc/mounts is unreadable. Collect must return (nil, nil)
+// without propagating an error (the contract: nothing to assert, stay quiet).
+func TestRootFSCollect_MountsReadError(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/mounts not seeded
+	c := &RootFSCollector{}
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil when /proc/mounts is unreadable", raw)
+	}
+}

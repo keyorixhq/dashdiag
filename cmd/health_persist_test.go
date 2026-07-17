@@ -51,8 +51,7 @@ func TestPersistHealthRun_StoreOpenError(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	snap := &baseline.Snapshot{Hostname: "h"}
-	var stderr string
-	stderr = captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		persistHealthRun(context.Background(), snap, nil)
 	})
 	if !strings.Contains(stderr, "store:") {

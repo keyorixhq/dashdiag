@@ -742,3 +742,18 @@ func TestParseDarwinCPUUsage(t *testing.T) {
 		t.Errorf("parseDarwinCPUUsage with malformed user%% = %.2f, want 4.77 (sys only)", got)
 	}
 }
+
+// TestParseCPUStatFull_ScannerError covers cpu.go:127.38,129.3 — the
+// scanner.Err() != nil path, reached when the io.Reader injects an error
+// mid-scan. The leading data must be read (CPU line found), then the error
+// surfaces through scanner.Err().
+func TestParseCPUStatFull_ScannerError(t *testing.T) {
+	t.Parallel()
+	// MultiReader: CPU line first so foundCPU=true, then an immediate error.
+	cpuLine := "cpu  1000 0 500 8000 200 0 0 100 0 0\n"
+	r := io.MultiReader(strings.NewReader(cpuLine), iotest.ErrReader(fmt.Errorf("injected scan error")))
+	_, err := parseCPUStatFull(r)
+	if err == nil {
+		t.Error("expected error from scanner when reader injects an error mid-scan")
+	}
+}
