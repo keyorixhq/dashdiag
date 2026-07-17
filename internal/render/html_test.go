@@ -1,6 +1,7 @@
 package render
 
 import (
+	"html/template"
 	"os"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ func sampleSnap(status string) *baseline.Snapshot {
 }
 
 func TestBuildHTML_StructureAndContent(t *testing.T) {
+	t.Parallel()
 	snap := sampleSnap("CRIT")
 	insights := []models.Insight{
 		{Check: "Memory", Level: "CRIT", Message: "out of memory", Hints: []string{"free up RAM"}},
@@ -62,6 +64,7 @@ func TestBuildHTML_StructureAndContent(t *testing.T) {
 // value becomes stored XSS in a report a customer opens in a browser. html/template
 // does this; this test guards that we never switch to unsafe string concatenation.
 func TestBuildHTML_EscapesHostData(t *testing.T) {
+	t.Parallel()
 	snap := sampleSnap("WARN")
 	snap.Hostname = "<script>alert('host')</script>"
 	insights := []models.Insight{
@@ -81,6 +84,7 @@ func TestBuildHTML_EscapesHostData(t *testing.T) {
 }
 
 func TestBuildHTML_HealthyVerdict(t *testing.T) {
+	t.Parallel()
 	html, err := buildHTML(sampleSnap("OK"), nil, time.Second, nil)
 	if err != nil {
 		t.Fatalf("buildHTML: %v", err)
@@ -94,8 +98,36 @@ func TestBuildHTML_HealthyVerdict(t *testing.T) {
 }
 
 func TestGenerateHTMLReport_NilSnap(t *testing.T) {
+	t.Parallel()
 	if _, err := GenerateHTMLReport(nil, nil, 0, nil); err == nil {
 		t.Errorf("expected error on nil snapshot")
+	}
+}
+
+// TestBuildHTML_TemplateExecuteError covers html.go:143-145: the template
+// execute error branch inside buildHTML, and by extension html.go:29-31 where
+// GenerateHTMLReport propagates a buildHTML failure.
+// Not parallel — swaps the package-level htmlReportTmpl.
+func TestBuildHTML_TemplateExecuteError(t *testing.T) {
+	orig := htmlReportTmpl
+	htmlReportTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { htmlReportTmpl = orig }()
+
+	if _, err := buildHTML(sampleSnap("OK"), nil, time.Second, nil); err == nil {
+		t.Error("expected error from broken template, got nil")
+	}
+}
+
+// TestGenerateHTMLReport_BuildError covers html.go:29-31: GenerateHTMLReport
+// propagates a buildHTML error when the report template is broken.
+// Not parallel — swaps the package-level htmlReportTmpl.
+func TestGenerateHTMLReport_BuildError(t *testing.T) {
+	orig := htmlReportTmpl
+	htmlReportTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { htmlReportTmpl = orig }()
+
+	if _, err := GenerateHTMLReport(sampleSnap("OK"), nil, time.Second, nil); err == nil {
+		t.Error("expected error propagated from buildHTML, got nil")
 	}
 }
 

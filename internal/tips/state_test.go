@@ -11,6 +11,7 @@ import (
 // ── State load / save ────────────────────────────────────────────────────────
 
 func TestLoadState_Default(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -30,6 +31,7 @@ func TestLoadState_Default(t *testing.T) {
 }
 
 func TestLoadState_ExistingFile(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -54,6 +56,7 @@ func TestLoadState_ExistingFile(t *testing.T) {
 }
 
 func TestSave_Atomic(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -82,6 +85,7 @@ func TestSave_Atomic(t *testing.T) {
 }
 
 func TestSave_MkdirAllFails(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -98,6 +102,7 @@ func TestSave_MkdirAllFails(t *testing.T) {
 }
 
 func TestSave_WriteFileFails(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -134,6 +139,7 @@ func TestLoadState_ReadErrorNotExist(t *testing.T) {
 }
 
 func TestLoadState_ReadPermissionDenied(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses file permission bits — a 0000 file is still readable")
 	}
@@ -154,7 +160,23 @@ func TestLoadState_ReadPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestLoadState_StateFileIsDirectory(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.MkdirAll(statePath, 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := LoadState(); err == nil {
+		t.Error("expected error when state.json is a directory, got nil")
+	}
+}
+
 func TestStateFilePath_HomeDirUnavailable(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	// os.UserHomeDir() returns an error on Unix when $HOME is unset/empty —
 	// exercise the fallback branch in stateFilePath.
 	t.Setenv("HOME", "")
@@ -167,6 +189,7 @@ func TestStateFilePath_HomeDirUnavailable(t *testing.T) {
 }
 
 func TestLoadState_ExistingFileWithoutCommandCounts(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -193,6 +216,7 @@ func TestLoadState_ExistingFileWithoutCommandCounts(t *testing.T) {
 }
 
 func TestLoadState_InvalidJSON(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -212,6 +236,7 @@ func TestLoadState_InvalidJSON(t *testing.T) {
 // ── Milestone helpers ────────────────────────────────────────────────────────
 
 func TestHasShownMilestone(t *testing.T) {
+	t.Parallel()
 	s := &State{ShownMilestones: []int{10, 50}}
 	if !s.HasShownMilestone(10) {
 		t.Error("expected HasShownMilestone(10)=true")
@@ -222,6 +247,7 @@ func TestHasShownMilestone(t *testing.T) {
 }
 
 func TestMarkMilestone_Idempotent(t *testing.T) {
+	t.Parallel()
 	s := &State{}
 	s.MarkMilestone(10)
 	s.MarkMilestone(10)
@@ -231,6 +257,7 @@ func TestMarkMilestone_Idempotent(t *testing.T) {
 }
 
 func TestStreakTracking(t *testing.T) {
+	t.Parallel()
 	s := &State{}
 	s.MarkStreak(7)
 	if !s.HasShownStreak(7) {
@@ -245,6 +272,7 @@ func TestStreakTracking(t *testing.T) {
 }
 
 func TestIncrementCommand(t *testing.T) {
+	t.Parallel()
 	s := &State{}
 	s.IncrementCommand("health")
 	s.IncrementCommand("health")
@@ -260,6 +288,7 @@ func TestIncrementCommand(t *testing.T) {
 // ── Milestone fire logic ──────────────────────────────────────────────────────
 
 func TestMilestoneFiresAtCorrectCount(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		runs      int
 		wantFired []int
@@ -287,6 +316,7 @@ func TestMilestoneFiresAtCorrectCount(t *testing.T) {
 }
 
 func TestMilestoneNotFiredIfAlreadyShown(t *testing.T) {
+	t.Parallel()
 	fired := firedRunMilestones(10, []int{10})
 	if len(fired) != 0 {
 		t.Errorf("expected no milestones when already shown, got %v", fired)
@@ -296,6 +326,7 @@ func TestMilestoneNotFiredIfAlreadyShown(t *testing.T) {
 // ── Streak calculation ────────────────────────────────────────────────────────
 
 func TestStreakCalculation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		current     int
@@ -314,6 +345,7 @@ func TestStreakCalculation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotStreak, gotLongest := computeStreak(tc.current, tc.longest, tc.today, tc.lastRun)
 			if gotStreak != tc.wantStreak {
 				t.Errorf("streak: got %d, want %d", gotStreak, tc.wantStreak)
@@ -326,6 +358,7 @@ func TestStreakCalculation(t *testing.T) {
 }
 
 func TestDaysBetween(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		a, b string
 		want int
@@ -349,6 +382,7 @@ func TestDaysBetween(t *testing.T) {
 // ── Re-engagement ─────────────────────────────────────────────────────────────
 
 func TestReengagementAfterGap(t *testing.T) {
+	t.Parallel()
 	today := time.Now().Format("2006-01-02")
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	weekAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
@@ -365,6 +399,7 @@ func TestReengagementAfterGap(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gap := daysBetween(tc.lastRun, today)
 			got := gap >= 7
 			if got != tc.wantMessage {
@@ -377,6 +412,7 @@ func TestReengagementAfterGap(t *testing.T) {
 // ── Streak milestones ─────────────────────────────────────────────────────────
 
 func TestFiredStreakMilestones(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		streak    int
@@ -391,6 +427,7 @@ func TestFiredStreakMilestones(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := &State{ShownMilestones: tc.shown}
 			fired := firedStreakMilestones(tc.streak, s)
 			if len(fired) != len(tc.wantFired) {

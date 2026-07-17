@@ -34,7 +34,13 @@ func osPrettyNameFromPath(path string) string {
 // SystemLabel returns "hostname · OS" for use in command headers.
 // Example: "fedora44-test · Fedora Linux 44 (Server Edition)"
 func SystemLabel() string {
-	host, err := os.Hostname()
+	return systemLabelWithHostname(os.Hostname)
+}
+
+// systemLabelWithHostname is the testable core of SystemLabel — accepts a
+// hostname resolver so tests can inject errors without touching the OS.
+func systemLabelWithHostname(hostnameFunc func() (string, error)) string {
+	host, err := hostnameFunc()
 	if err != nil {
 		host = "unknown"
 	}
