@@ -546,3 +546,20 @@ func TestHasCorruptArchived_RecursesIntoSubdirs(t *testing.T) {
 		t.Error("expected true: a corrupt archive nested under a machine-ID subdir must be found by recursion")
 	}
 }
+
+// TestCollectCrashFiles_SkipsDirectoryEntries covers logs_linux.go:1006.17,1007.13 —
+// a subdirectory inside a crash dump dir must be skipped, not treated as a crash file.
+func TestCollectCrashFiles_SkipsDirectoryEntries(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/var/crash", []string{"subdir"})
+		// seeding /var/crash/subdir as a readable dir causes probeIsDir to return true
+		b.PutDir("/var/crash/subdir", []string{})
+		// /var/lib/systemd/coredump not seeded → readDirEntries errors → continue (already covered)
+	})
+	info := &models.LogsInfo{}
+	collectCrashFiles(info)
+	if info.CoreDumpCount != 0 || len(info.CrashFiles) != 0 {
+		t.Errorf("CoreDumpCount=%d CrashFiles=%v, want both zero (directory entries skipped)",
+			info.CoreDumpCount, info.CrashFiles)
+	}
+}
