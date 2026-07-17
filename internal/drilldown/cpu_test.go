@@ -46,7 +46,7 @@ func TestTopProcessesByCPULinux_Sorting(t *testing.T) {
 	writeProcStatFixture(t, procRoot, pid, "R", 1, 500, 200) // ticks0 = 700
 
 	go func() {
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		writeSystemStatFixture(t, procRoot, 1300)                // delta total = 300
 		writeProcStatFixture(t, procRoot, pid, "R", 1, 600, 300) // ticks1 = 900, delta = 200
 	}()
@@ -126,7 +126,7 @@ func TestTopProcessesByCPULinux_RecycledPIDSkipped(t *testing.T) {
 	writeProcStatFixture(t, procRoot, pid, "R", 1, 5000, 5000) // ticks0 = 10000 (high)
 
 	go func() {
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		writeSystemStatFixture(t, procRoot, 1300)
 		writeProcStatFixture(t, procRoot, pid, "R", 1, 10, 10) // ticks1 = 20 (recycled, lower)
 	}()
@@ -149,7 +149,7 @@ func TestTopProcessesByCPULinux_NewPidMidWindowSkipped(t *testing.T) {
 	writeProcStatFixture(t, procRoot, 1, "R", 1, 100, 0) // present in both, no activity
 
 	go func() {
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		writeSystemStatFixture(t, procRoot, 1300)
 		writeProcStatFixture(t, procRoot, 2, "R", 1, 50, 0) // new pid, only in s1
 	}()
@@ -243,7 +243,7 @@ func TestTopProcessesByCPULinux_TruncatesToN(t *testing.T) {
 	writeProcStatFixture(t, procRoot, 3, "R", 1, 300, 0)
 
 	go func() {
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		writeSystemStatFixture(t, procRoot, 1300)
 		writeProcStatFixture(t, procRoot, 1, "R", 1, 150, 0) // +50
 		writeProcStatFixture(t, procRoot, 2, "R", 1, 260, 0) // +60
