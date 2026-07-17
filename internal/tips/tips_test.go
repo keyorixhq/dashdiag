@@ -40,6 +40,7 @@ func withPlainMode(t *testing.T, plain bool, fn func()) {
 }
 
 func TestPrintAllTips(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout global.
 	out := captureStdout(t, PrintAllTips)
 
 	if !strings.Contains(out, "DashDiag Tips") {
@@ -59,6 +60,7 @@ func TestPrintAllTips(t *testing.T) {
 }
 
 func TestMaybePrintTip_Disabled(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		s := &State{TipsEnabled: false}
 		out := captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) })
@@ -72,6 +74,7 @@ func TestMaybePrintTip_Disabled(t *testing.T) {
 }
 
 func TestMaybePrintTip_NonHumanMode(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		s := &State{TipsEnabled: true}
 		out := captureStdout(t, func() { MaybePrintTip(s, output.ModeJSON) })
@@ -82,6 +85,7 @@ func TestMaybePrintTip_NonHumanMode(t *testing.T) {
 }
 
 func TestMaybePrintTip_PlainMode(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, true, func() {
 		s := &State{TipsEnabled: true}
 		out := captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) })
@@ -92,6 +96,7 @@ func TestMaybePrintTip_PlainMode(t *testing.T) {
 }
 
 func TestMaybePrintTip_AlreadyShownToday(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		today := time.Now().Format("2006-01-02")
 		s := &State{TipsEnabled: true, LastTipDate: today, TipIndex: 3}
@@ -106,6 +111,7 @@ func TestMaybePrintTip_AlreadyShownToday(t *testing.T) {
 }
 
 func TestMaybePrintTip_PrintsAndAdvances(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		s := &State{TipsEnabled: true, TipIndex: 0}
 		out := captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) })
@@ -129,6 +135,7 @@ func TestMaybePrintTip_PrintsAndAdvances(t *testing.T) {
 }
 
 func TestMaybePrintTip_WrapsIndex(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		s := &State{TipsEnabled: true, TipIndex: len(tips) - 1}
 		captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) })
@@ -139,6 +146,7 @@ func TestMaybePrintTip_WrapsIndex(t *testing.T) {
 }
 
 func TestMaybePrintTip_ShowsTierLabel(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {
 		idx := -1
 		for i, tip := range tips {
@@ -156,4 +164,11 @@ func TestMaybePrintTip_ShowsTierLabel(t *testing.T) {
 			t.Errorf("expected tier label %q in output, got: %s", tips[idx].Tier, out)
 		}
 	})
+}
+
+func TestMaybePrintTip_RealIsPlainMode(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout global.
+	s := &State{TipsEnabled: true, TipIndex: 0}
+	out := captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) })
+	_ = out
 }

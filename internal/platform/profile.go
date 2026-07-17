@@ -71,12 +71,19 @@ type Profile struct {
 // core is split into detectFromContent so tests can inject os-release content
 // without touching the filesystem.
 func Detect() Profile {
-	p := Profile{OS: runtime.GOOS}
-	if runtime.GOOS == "darwin" {
+	return detectInternal(runtime.GOOS, "/etc/os-release")
+}
+
+// detectInternal is the testable core of Detect — it accepts the OS name and
+// os-release path as parameters so tests can exercise the darwin branch and the
+// file-read error path without touching the real filesystem.
+func detectInternal(goos, osReleasePath string) Profile {
+	p := Profile{OS: goos}
+	if goos == "darwin" {
 		p.PackageManager = profPkgBrew
 		return p
 	}
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := os.ReadFile(osReleasePath)
 	if err != nil {
 		return p
 	}

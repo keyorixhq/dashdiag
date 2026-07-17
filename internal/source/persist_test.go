@@ -310,6 +310,75 @@ func TestLoadCommandBlobsMissingAreIgnored(t *testing.T) {
 	}
 }
 
+// TestSaveManifestWriteFailureRootSafe covers persist.go:61-63 without relying
+// on directory permissions (chmod), so it also passes when the test runs as
+// root.  Pre-creating manifest.json as a directory makes os.WriteFile fail
+// even for root.
+func TestSaveManifestWriteFailureRootSafe(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files/blobs"), 0o755); err != nil {
+		t.Fatalf("premkdir files/blobs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands/blobs"), 0o755); err != nil {
+		t.Fatalf("premkdir commands/blobs: %v", err)
+	}
+	// Pre-create manifest.json as a DIRECTORY so os.WriteFile always fails,
+	// even when the test process is root.
+	if err := os.MkdirAll(filepath.Join(dir, "manifest.json"), 0o755); err != nil {
+		t.Fatalf("premkdir manifest.json as dir: %v", err)
+	}
+
+	b := NewBundle()
+	if err := b.Save(dir); err == nil {
+		t.Fatal("Save should fail when manifest.json exists as a directory")
+	}
+}
+
+// TestSaveBlobWriteFailureRootSafe covers persist.go:74-76 without relying on
+// directory permissions: pre-creating the exact blob path Save would choose
+// (files/blobs/0000) as a directory makes os.WriteFile fail even as root.
+func TestSaveBlobWriteFailureRootSafe(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files/blobs/0000"), 0o755); err != nil {
+		t.Fatalf("premkdir files/blobs/0000 as dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands/blobs"), 0o755); err != nil {
+		t.Fatalf("premkdir commands/blobs: %v", err)
+	}
+
+	b := NewBundle()
+	b.PutFile("/etc/present", []byte("data"))
+	if err := b.Save(dir); err == nil {
+		t.Fatal("Save should fail when files/blobs/0000 exists as a directory")
+	}
+}
+
+// TestSaveStdoutBlobWriteFailureRootSafe covers persist.go:106-108 without
+// relying on directory permissions: pre-creating the exact stdout blob path
+// Save would choose (commands/blobs/0000.out) as a directory makes
+// os.WriteFile fail even as root.
+func TestSaveStdoutBlobWriteFailureRootSafe(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files/blobs"), 0o755); err != nil {
+		t.Fatalf("premkdir files/blobs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands/blobs/0000.out"), 0o755); err != nil {
+		t.Fatalf("premkdir commands/blobs/0000.out as dir: %v", err)
+	}
+
+	b := NewBundle()
+	b.putCmd("mytool", []string{"-x"}, Result{Stdout: []byte("out")}, nil)
+	if err := b.Save(dir); err == nil {
+		t.Fatal("Save should fail when commands/blobs/0000.out exists as a directory")
+	}
+}
+
 // TestSaveLoadFullRoundTripWithLinksStatsStatfs exercises Save/Load across
 // every section (files, globs, dirs, links, stats, statfs, commands) in one
 // pass, verifying saveInlineMeta and its Load counterpart end to end.

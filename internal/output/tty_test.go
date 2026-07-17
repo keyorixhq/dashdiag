@@ -1,6 +1,9 @@
 package output
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // withTTY forces isaTTY() to return the given value for the duration of fn,
 // then restores the original seam.
@@ -115,4 +118,34 @@ func TestIsPlain(t *testing.T) {
 	}
 	// flag=false: result depends on TTY state, just verify no panic
 	_ = IsPlain(false)
+}
+
+func TestIsaTTY_StatError(t *testing.T) {
+	// No t.Parallel(): mutates the package-global os.Stderr (and thus the
+	// isaTTY seam other tests read), so it must not run concurrently with
+	// them.
+
+	// Capture the real isaTTY closure before replacing os.Stderr.
+	realIsaTTY := isaTTY
+
+	// Replace os.Stderr with a closed file so Stat() returns an error.
+	oldStderr := os.Stderr
+	f, err := os.CreateTemp(t.TempDir(), "fake-stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	// Re-open to get a valid *os.File, then close it to make Stat fail.
+	closed, err := os.Open(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = closed.Close()
+	os.Stderr = closed
+	defer func() { os.Stderr = oldStderr }()
+
+	got := realIsaTTY()
+	if got {
+		t.Error("isaTTY() with stat-failing stderr should return false")
+	}
 }

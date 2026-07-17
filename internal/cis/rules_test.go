@@ -578,6 +578,149 @@ func TestEvaluate_NotApplicableTally(t *testing.T) {
 	assertTally(t, rep)
 }
 
+// ── 5.2.1 sshd_config file-mode check ───────────────────────────────────────
+// Rule 5.2.1 uses the package-level sshdConfigPath var (mirrors loginDefsPath)
+// so tests can point it at a fixture rather than the real host file.
+
+func TestRule5_2_1_SshdConfigNotFound(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level sshdConfigPath var,
+	// same reason TestPasswordAgingRules_LoginDefsFixture omits it for loginDefsPath.
+	saved := sshdConfigPath
+	t.Cleanup(func() { sshdConfigPath = saved })
+	sshdConfigPath = filepath.Join(t.TempDir(), "sshd_config_does_not_exist")
+
+	rule := ruleByID(cisRuleSSH52)
+	if rule.Check == nil {
+		t.Fatal("rule 5.2.1 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISSkipped {
+		t.Errorf("missing sshd_config: want Skipped, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_2_1_SshdConfigCompliantMode(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level sshdConfigPath var.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "sshd_config")
+	if err := os.WriteFile(p, []byte("# sshd_config fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := sshdConfigPath
+	t.Cleanup(func() { sshdConfigPath = saved })
+	sshdConfigPath = p
+
+	rule := ruleByID(cisRuleSSH52)
+	if rule.Check == nil {
+		t.Fatal("rule 5.2.1 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("sshd_config mode 0600: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_2_1_SshdConfigNonCompliantMode(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level sshdConfigPath var.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "sshd_config")
+	if err := os.WriteFile(p, []byte("# sshd_config fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := sshdConfigPath
+	t.Cleanup(func() { sshdConfigPath = saved })
+	sshdConfigPath = p
+
+	rule := ruleByID(cisRuleSSH52)
+	if rule.Check == nil {
+		t.Fatal("rule 5.2.1 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("sshd_config mode 0644: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+// ── 6.2.2 legacy NIS '+' entry check ─────────────────────────────────────────
+// Rule 6.2.2 uses the package-level legacyNISPaths var so tests can supply
+// fixture files rather than the real /etc/passwd, /etc/shadow, /etc/group.
+
+func TestRule6_2_2_NISEntryDetected(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level legacyNISPaths var.
+	dir := t.TempDir()
+	passwd := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/bash\n+::0:0:::\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := legacyNISPaths
+	t.Cleanup(func() { legacyNISPaths = saved })
+	legacyNISPaths = []string{passwd}
+
+	rule := ruleByID("6.2.2")
+	if rule.Check == nil {
+		t.Fatal("rule 6.2.2 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("'+' entry in passwd: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+	if !strings.Contains(got.Finding, "legacy NIS") {
+		t.Errorf("finding = %q, want NIS mention", got.Finding)
+	}
+}
+
+func TestRule6_2_2_UnreadableFileSkipped(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level legacyNISPaths var.
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "shadow_does_not_exist")
+	clean := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(clean, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := legacyNISPaths
+	t.Cleanup(func() { legacyNISPaths = saved })
+	legacyNISPaths = []string{missing, clean}
+
+	rule := ruleByID("6.2.2")
+	if rule.Check == nil {
+		t.Fatal("rule 6.2.2 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("unreadable file + clean file: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule6_2_2_CleanFilesPass(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level legacyNISPaths var.
+	dir := t.TempDir()
+	passwd := filepath.Join(dir, "passwd")
+	group := filepath.Join(dir, "group")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(group, []byte("root:x:0:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := legacyNISPaths
+	t.Cleanup(func() { legacyNISPaths = saved })
+	legacyNISPaths = []string{passwd, group}
+
+	rule := ruleByID("6.2.2")
+	if rule.Check == nil {
+		t.Fatal("rule 6.2.2 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("clean files: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
 func resultIDs(rep models.CISReport) map[string]bool {
 	m := make(map[string]bool, len(rep.Results))
 	for _, r := range rep.Results {

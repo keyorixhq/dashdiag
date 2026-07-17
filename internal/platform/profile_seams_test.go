@@ -252,6 +252,35 @@ func TestSystemctlIsActiveWithLookup_Present(t *testing.T) {
 	}
 }
 
+func TestDetectInternal_Darwin(t *testing.T) {
+	t.Parallel()
+	p := detectInternal("darwin", "/nonexistent/os-release")
+	if p.OS != "darwin" {
+		t.Errorf("OS = %q, want darwin", p.OS)
+	}
+	if p.PackageManager != profPkgBrew {
+		t.Errorf("PackageManager = %q, want %q", p.PackageManager, profPkgBrew)
+	}
+	if p.Distro != "" {
+		t.Errorf("Distro = %q, want empty on darwin", p.Distro)
+	}
+}
+
+func TestDetectInternal_MissingOSRelease(t *testing.T) {
+	t.Parallel()
+	path := t.TempDir() + "/no-such-file"
+	p := detectInternal("linux", path)
+	if p.OS != "linux" {
+		t.Errorf("OS = %q, want linux", p.OS)
+	}
+	if p.Distro != "" {
+		t.Errorf("Distro = %q, want empty when os-release is absent", p.Distro)
+	}
+	if p.PackageManager != "" {
+		t.Errorf("PackageManager = %q, want empty when os-release is absent", p.PackageManager)
+	}
+}
+
 // TestDetect_RealPaths is a smoke test for the production Detect() wrapper:
 // it hits the real /etc/os-release and the chain of real-path detectors
 // (detectInitSystem, detectNetworkStack, detectResolved, detectSELinux,

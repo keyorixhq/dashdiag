@@ -1,6 +1,7 @@
 package render
 
 import (
+	"html/template"
 	"os"
 	"strings"
 	"testing"
@@ -149,6 +150,40 @@ func TestGenerateFleetHTMLReport_WritesFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "<!DOCTYPE html>") {
 		t.Errorf("written file does not look like HTML")
+	}
+}
+
+// TestBuildFleetHTML_YearZero covers the Year==0 auto-fill branch in buildFleetHTML.
+func TestBuildFleetHTML_YearZero(t *testing.T) {
+	t.Parallel()
+	report := FleetReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "OK", VerdictClass: "ok",
+		VerdictText: "All hosts are healthy.",
+		Total:       1, CountOK: 1,
+		// Year intentionally zero — buildFleetHTML must fill it from time.Now().
+		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+	html, err := buildFleetHTML(report)
+	if err != nil {
+		t.Fatalf("buildFleetHTML error: %v", err)
+	}
+	if !strings.Contains(html, "All hosts are healthy") {
+		t.Errorf("expected verdict text in fleet HTML output")
+	}
+}
+
+// TestBuildFleetHTML_TemplateExecuteError covers the template.Execute error branch.
+// Not parallel — swaps the package-level fleetHTMLTmpl.
+func TestBuildFleetHTML_TemplateExecuteError(t *testing.T) {
+	orig := fleetHTMLTmpl
+	// Parses fine but fails at Execute (missing sub-template).
+	fleetHTMLTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
+	defer func() { fleetHTMLTmpl = orig }()
+
+	report := FleetReport{Year: 2026, Hosts: []FleetHostRow{{Host: "h1", Status: "OK", StatusClass: "ok"}}}
+	if _, err := buildFleetHTML(report); err == nil {
+		t.Error("expected error from broken template, got nil")
 	}
 }
 

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -69,6 +70,17 @@ func TestOSPrettyName_RealPath(t *testing.T) {
 	got := OSPrettyName()
 	if got == "" {
 		t.Error("OSPrettyName() (no override) returned empty string, want a value")
+	}
+}
+
+func TestSystemLabelWithHostname_Error(t *testing.T) {
+	t.Parallel()
+	restore := SetIdentity("", "TestOS")
+	defer restore()
+	failHostname := func() (string, error) { return "", errors.New("hostname unavailable") }
+	got := systemLabelWithHostname(failHostname)
+	if !strings.HasPrefix(got, "unknown · ") {
+		t.Errorf("systemLabelWithHostname(error) = %q, want prefix \"unknown · \"", got)
 	}
 }
 

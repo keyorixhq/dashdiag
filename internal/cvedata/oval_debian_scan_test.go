@@ -140,6 +140,28 @@ func TestQueryInstalledDPKG_SkipsEmptyPackageName(t *testing.T) {
 	}
 }
 
+// TestScanUbuntuOVALPackages_OpenError exercises the "opening OVAL" error
+// branch (oval_debian.go:349-351): a nonexistent path must return an error.
+func TestScanUbuntuOVALPackages_OpenError(t *testing.T) {
+	t.Parallel()
+	if _, err := ScanUbuntuOVALPackages(context.Background(), "/nonexistent/path/ubuntu.xml"); err == nil {
+		t.Error("expected error for nonexistent OVAL path")
+	}
+}
+
+// TestScanUbuntuOVALPackages_BZ2SuffixUsesBzip2Reader exercises the ".bz2"
+// reader-selection branch (oval_debian.go:355-357). Go's stdlib
+// compress/bzip2 is decode-only, so real compressed content cannot be
+// produced here, but a .bz2-suffixed file with non-bzip2 bytes still
+// exercises bzip2.NewReader construction — the subsequent decode error is
+// the expected outcome.
+func TestScanUbuntuOVALPackages_BZ2SuffixUsesBzip2Reader(t *testing.T) {
+	t.Parallel()
+	if _, err := ScanUbuntuOVALPackages(context.Background(), writeFixture(t, "ubuntu.xml.bz2", "not real bzip2 data")); err == nil {
+		t.Error("expected decode error for non-bzip2 content under .xml.bz2 suffix")
+	}
+}
+
 // TestScanUbuntuOVALPackages_NoInstalledMatches exercises the "components
 // found in OVAL but none are installed" skip branch: the OVAL feed names a
 // package that's guaranteed absent from any real system's dpkg database.
