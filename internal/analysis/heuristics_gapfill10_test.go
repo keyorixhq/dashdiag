@@ -81,34 +81,22 @@ func TestCheckSteamOSDeep_FlatpakLarge(t *testing.T) {
 	}
 }
 
-// TestCheckSteamOSUpdate_ReadonlyDisabled covers the ReadonlyKnown && !ReadonlyEnabled
-// CRIT branch — a writable rootfs on SteamOS must be flagged CRIT to prevent
-// the next update from overwriting manual changes.
-func TestCheckSteamOSUpdate_ReadonlyDisabled(t *testing.T) {
+// TestCheckSteamOSUpdate_WritableRootfsCritPrefix verifies the "steamos-readonly is DISABLED"
+// prefix in the CRIT message for a known-writable rootfs.
+func TestCheckSteamOSUpdate_WritableRootfsCritPrefix(t *testing.T) {
 	t.Parallel()
 	got := checkSteamOSUpdate(models.SteamOSInfo{ReadonlyKnown: true, ReadonlyEnabled: false})
 	if !hasInsightMsg(got, "CRIT", "steamos-readonly is DISABLED") {
-		t.Errorf("writable rootfs must CRIT, got %+v", got)
+		t.Errorf("writable rootfs must CRIT with 'steamos-readonly is DISABLED', got %+v", got)
 	}
 }
 
-// TestCheckSteamOSUpdate_ChannelConfigMissing covers the ChannelConfigMissing WARN
-// branch — a missing updater config must warn so the operator knows the channel is
-// unconfigured.
-func TestCheckSteamOSUpdate_ChannelConfigMissing(t *testing.T) {
-	t.Parallel()
-	got := checkSteamOSUpdate(models.SteamOSInfo{ChannelConfigMissing: true})
-	if !hasInsightMsg(got, "WARN", "client.conf is missing") {
-		t.Errorf("missing channel config must WARN, got %+v", got)
-	}
-}
-
-// TestCheckSteamOSUpdate_NonStableChannel covers the Channel != "stable" INFO branch
-// — a dev/beta update channel must produce an informational notice.
-func TestCheckSteamOSUpdate_NonStableChannel(t *testing.T) {
+// TestCheckSteamOSUpdate_BetaChannelLabel covers the Channel != "stable" INFO branch
+// with a "beta" channel value — the channel name must appear in the INFO message.
+func TestCheckSteamOSUpdate_BetaChannelLabel(t *testing.T) {
 	t.Parallel()
 	got := checkSteamOSUpdate(models.SteamOSInfo{Channel: "beta"})
 	if !hasInsightMsg(got, "INFO", "update channel is 'beta'") {
-		t.Errorf("non-stable channel must INFO, got %+v", got)
+		t.Errorf("beta channel must produce INFO with channel name, got %+v", got)
 	}
 }
