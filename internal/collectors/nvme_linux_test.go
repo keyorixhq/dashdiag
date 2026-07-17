@@ -553,6 +553,64 @@ func TestParseInt_EmptyAndGarbled(t *testing.T) {
 	}
 }
 
+// TestCollectSATADrives_BadJSONFromScan covers nvme_linux.go:293 — the early
+// return when smartctl --scan-open emits non-JSON output (e.g. a warning message).
+func TestCollectSATADrives_BadJSONFromScan(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"}, "not valid json", 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 0 {
+		t.Errorf("SATADevices = %+v, want nil when scan JSON is unparseable", info.SATADevices)
+	}
+}
+
+// TestCollectSATADrives_SASProtocol covers nvme_linux.go:308 — a device whose
+// protocol contains "scsi" or "sas" must produce Type="sas".
+func TestCollectSATADrives_SASProtocol(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"SCSI","open_error":"Permission denied"}]}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want 1 for SCSI protocol device", info.SATADevices)
+	}
+	if info.SATADevices[0].Type != "sas" {
+		t.Errorf("Type = %q, want sas for SCSI protocol", info.SATADevices[0].Type)
+	}
+}
+
+// TestCollectSATADrives_UnknownProtocol covers nvme_linux.go:310 — the default
+// case when the protocol doesn't match ata/sata/scsi/sas: Type = proto.
+func TestCollectSATADrives_UnknownProtocol(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/sda","protocol":"USB","open_error":"Permission denied"}]}`, 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want 1 for USB protocol device", info.SATADevices)
+	}
+	if info.SATADevices[0].Type != "usb" {
+		t.Errorf("Type = %q, want usb (protocol lowercased via default case)", info.SATADevices[0].Type)
+	}
+}
+
+// TestApplySATASmartJSON_ATAAttribute197 covers nvme_linux.go:404 — case 197
+// (pending-sector count) in the ATA smart attributes switch.
+func TestApplySATASmartJSON_ATAAttribute197(t *testing.T) {
+	t.Parallel()
+	var d models.SATADevice
+	applySATASmartJSON(`{"smart_status":{"passed":true},"ata_smart_attributes":{"table":[{"id":197,"raw":{"value":3}}]}}`, &d)
+	if d.PendingSectors != 3 {
+		t.Errorf("PendingSectors = %d, want 3 (ATA attribute ID 197)", d.PendingSectors)
+	}
+}
+
 // TestParseInt64_EmptyAndGarbled guards parseInt64's empty-fields short-circuit
 // directly — parseNVMeSmartLog callers only ever exercise the happy path.
 func TestParseInt64_EmptyAndGarbled(t *testing.T) {

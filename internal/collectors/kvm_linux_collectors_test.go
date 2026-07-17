@@ -359,6 +359,7 @@ func TestKVMParseBytes(t *testing.T) {
 		{"1024.00 KiB", 1024.0 / (1024 * 1024)},
 		{"garbage", 0},
 		{"5", 0},
+		{"5.0 UNKNOWN", 0},
 	}
 	for _, tt := range tests {
 		if got := kvmParseBytes(tt.in); got != tt.want {

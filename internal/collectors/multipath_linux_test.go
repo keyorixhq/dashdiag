@@ -136,6 +136,26 @@ func TestParseMultipathShow(t *testing.T) {
 		}
 	})
 
+	// A line starting with "hcil" is a column-header from the alternate
+	// "%h %d %t %s %m" format — must be skipped, not parsed as a path.
+	t.Run("hcil-prefix header line is skipped", func(t *testing.T) {
+		out := "hcil dev dm_st vend/prod/rev multipath\nsdb active LIO dm-0\n"
+		devices := parseMultipathShow(out)
+		if len(devices) != 1 || devices[0].DM != "dm-0" {
+			t.Errorf("expected 1 device dm-0, got %+v", devices)
+		}
+	})
+
+	// A non-empty line with fewer than 4 whitespace-delimited fields cannot be
+	// a valid path row — must be skipped without panic.
+	t.Run("line with fewer than 4 fields is skipped", func(t *testing.T) {
+		out := "a b c\nsdb active LIO dm-0\n"
+		devices := parseMultipathShow(out)
+		if len(devices) != 1 || devices[0].DM != "dm-0" {
+			t.Errorf("expected 1 device dm-0 (short line skipped), got %+v", devices)
+		}
+	})
+
 	// Regression (found via live 2-path iSCSI multipath on a VM): the format header
 	// row must not become a phantom "multipath" device that reads as degraded and
 	// raises a false CRIT. The real output has exactly ONE healthy device, mpatha.
@@ -204,6 +224,30 @@ func TestParseMultipathL(t *testing.T) {
 		devices := parseMultipathL("")
 		if len(devices) != 0 {
 			t.Errorf("expected no devices for empty input, got %+v", devices)
+		}
+	})
+
+	// When a second device header appears while current != nil, the existing
+	// device must be appended before switching to the new one.
+	t.Run("two device headers yields two devices", func(t *testing.T) {
+		const out = `mpatha (uuid1) dm-0 LIO-ORG,disk0
+  |- 3:0:0:0 sdb 8:16 active ready running
+mpathb (uuid2) dm-1 LIO-ORG,disk1
+  ` + "`- 4:0:0:0 sdc 8:32 active ready running"
+		devices := parseMultipathL(out)
+		if len(devices) != 2 {
+			t.Fatalf("expected 2 devices, got %d: %+v", len(devices), devices)
+		}
+	})
+
+	// A path line appearing before any device header must be silently skipped
+	// (current == nil guard).
+	t.Run("path line before first header is skipped", func(t *testing.T) {
+		const out = "  |- 3:0:0:0 sdb 8:16 active ready running\n" +
+			"mpatha (uuid) dm-0 LIO-ORG,disk0\n"
+		devices := parseMultipathL(out)
+		if len(devices) != 0 {
+			t.Errorf("expected no complete devices (sdb path appeared before header), got %+v", devices)
 		}
 	})
 
