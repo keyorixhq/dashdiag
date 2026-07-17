@@ -54,8 +54,8 @@ The store lives at ~/.dsd/store.jsonl (non-root) or
 
 // historyRow is one rendered row, used for both tabwriter and JSON output.
 type historyRow struct {
-	Timestamp string             `json:"ts"`
-	Verdict   string             `json:"verdict"`
+	Timestamp string              `json:"ts"`
+	Verdict   string              `json:"verdict"`
 	Changes   []store.CheckChange `json:"changes"`
 }
 
@@ -146,4 +146,3 @@ func formatChanges(changes []store.CheckChange) string {
 	}
 	return out
 }
-

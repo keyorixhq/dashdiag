@@ -10,10 +10,10 @@ func TestDiffChecks(t *testing.T) {
 	ts := time.Now()
 
 	cases := []struct {
-		name    string
-		prev    map[string]string
-		cur     map[string]string
-		want    []CheckChange // sorted by Name
+		name string
+		prev map[string]string
+		cur  map[string]string
+		want []CheckChange // sorted by Name
 	}{
 		{
 			name: "no changes",
