@@ -8,6 +8,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/fleet"
 )
 
+const (
+	catLoadError = "load-error"
+	catCloudInit = "cloud-init"
+)
+
 // fleetConsequences derives a short list of business-consequence bullets from a
 // fleet.Summary, ordered by severity (CRIT first) then affected-host count. Each
 // bullet names a consequence category in plain language — intended for a
@@ -154,7 +159,7 @@ func waveConsequences(results []waveResult) []string {
 		}
 		seen := make(map[string]struct{})
 		if r.Err != nil {
-			seen["load-error"] = struct{}{}
+			seen[catLoadError] = struct{}{}
 		}
 		for _, reg := range r.Regressions {
 			cat := waveRegressionCategory(reg.Name)
@@ -174,7 +179,7 @@ func waveConsequences(results []waveResult) []string {
 		entries = append(entries, entry{cat: cat, count: n})
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].cat == "load-error" {
+		if entries[i].cat == catLoadError {
 			return true
 		}
 		return entries[i].count > entries[j].count
@@ -198,9 +203,9 @@ func waveRegressionCategory(name string) string {
 	case hasAnySubstr(lower, "driver", "nic", "vmware", "network", "vnic", "ena",
 		"virtio", "paravirt"):
 		return "driver"
-	case hasAnySubstr(lower, "cloudinit", "cloud-init", "cloud_init", "firstboot",
+	case hasAnySubstr(lower, "cloudinit", catCloudInit, "cloud_init", "firstboot",
 		"first-boot", "first_boot"):
-		return "cloud-init"
+		return catCloudInit
 	case hasAnySubstr(lower, "disk", "storage", "filesystem", "fs", "mount", "lvm",
 		"raid", "zfs"):
 		return "storage"
@@ -221,7 +226,7 @@ func waveConsequenceLine(cat string, n, total int) string {
 	switch cat {
 	case "driver":
 		return fmt.Sprintf("%s landed on emulated network drivers — paravirtual performance not restored", vms)
-	case "cloud-init":
+	case catCloudInit:
 		return fmt.Sprintf("%s did not complete first-boot provisioning on the destination", vms)
 	case "storage":
 		return fmt.Sprintf("%s have storage or filesystem regressions post-migration", vms)
@@ -231,7 +236,7 @@ func waveConsequenceLine(cat string, n, total int) string {
 		return fmt.Sprintf("%s have security posture regressions that must be remediated", vms)
 	case "memory":
 		return fmt.Sprintf("%s have memory or swap regressions post-migration", vms)
-	case "load-error":
+	case catLoadError:
 		return fmt.Sprintf("%s could not be certified — bundle load or replay error", vms)
 	default:
 		return fmt.Sprintf("%s have regressions requiring remediation", vms)
