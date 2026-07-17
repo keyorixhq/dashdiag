@@ -528,3 +528,64 @@ func TestCollectNICs_NoNetDir(t *testing.T) {
 		t.Errorf("NICs = %v, want nil when /sys/class/net is absent", info.NICs)
 	}
 }
+
+const smartctlSASJSON = `{"model_name":"ST4000NM0025","device":{"type":"scsi","protocol":"SAS"},"smart_status":{"passed":true},"temperature":{"current":30}}`
+
+// TestCollectOneDrive_SAS covers hardware_linux.go:150.73,151.21 — the SAS/SCSI
+// drive-type case in getSmartctlDriveInfo's protocol switch.
+func TestCollectOneDrive_SAS(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sdb"}, smartctlSASJSON, 0)
+	})
+	drive := collectOneDrive(context.Background(), "/dev/sdb")
+	if drive.Type != "sas" {
+		t.Errorf("Type = %q, want %q (SCSI/SAS protocol → sas)", drive.Type, "sas")
+	}
+}
+
+const smartctlUnknownProtoJSON = `{"model_name":"FC-Drive-X","device":{"type":"fc","protocol":"Fibre Channel"},"smart_status":{"passed":true},"temperature":{"current":25}}`
+
+// TestCollectOneDrive_UnknownProtocol covers hardware_linux.go:152.10,153.33 — the
+// default case in the protocol switch (drive.Type = d.Device.Protocol verbatim).
+func TestCollectOneDrive_UnknownProtocol(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sdc"}, smartctlUnknownProtoJSON, 0)
+	})
+	drive := collectOneDrive(context.Background(), "/dev/sdc")
+	if drive.Type != "Fibre Channel" {
+		t.Errorf("Type = %q, want %q (unknown protocol falls through to default)", drive.Type, "Fibre Channel")
+	}
+}
+
+const smartctlSATAWearAttr173JSON = `{"model_name":"Samsung SSD 870","device":{"type":"sat","protocol":"ATA"},"smart_status":{"passed":true},"temperature":{"current":0},"ata_smart_attributes":{"table":[{"id":173,"name":"Wear_Leveling_Count","value":85,"raw":{"value":0}}]}}`
+
+// TestCollectOneDrive_Attr173WearLevel covers hardware_linux.go:173.66,175.6 — the
+// then-branch of the attr-173/177 wear guard when value is normalised (1–100).
+// Complementary to TestCollectOneDrive_WearGuardsNonNormalisedValue which proves
+// a value > 100 is rejected.
+func TestCollectOneDrive_Attr173WearLevel(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sdd"}, smartctlSATAWearAttr173JSON, 0)
+	})
+	drive := collectOneDrive(context.Background(), "/dev/sdd")
+	if drive.WearPct != 15 { // 100 - attr.Value(85)
+		t.Errorf("WearPct = %d, want 15 (100 - normalised attr-173 value 85)", drive.WearPct)
+	}
+}
+
+// TestCollectHwmonThermals_TempReadError covers hardware_linux.go:227.18,228.13 —
+// the readFile error branch: a temp*_input file listed in the glob but not
+// readable must be silently skipped (no thermal entry produced).
+func TestCollectHwmonThermals_TempReadError(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/class/hwmon", []string{"hwmon0"})
+		b.PutFile("/sys/class/hwmon/hwmon0/name", []byte("k10temp\n"))
+		b.PutGlob("/sys/class/hwmon/hwmon0/temp*_input", []string{"/sys/class/hwmon/hwmon0/temp1_input"})
+		// temp1_input intentionally not seeded → readFile returns an error
+	})
+	info := &models.HardwareInfo{}
+	collectHwmonThermals(info)
+	if len(info.Thermals) != 0 {
+		t.Errorf("Thermals = %v, want empty when temp file is unreadable", info.Thermals)
+	}
+}
