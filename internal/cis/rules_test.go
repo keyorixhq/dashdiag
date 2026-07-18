@@ -6360,6 +6360,58 @@ func TestRule5_5_4_ShellTimeout(t *testing.T) {
 	})
 }
 
+// TestRule1_2_4_UnattendedUpgrades verifies rule 1.2.4.
+// No t.Parallel() — mutates debianVersionPath and unattendedUpgradesBinPaths.
+func TestRule1_2_4_UnattendedUpgrades(t *testing.T) {
+	rule := ruleByID("1.2.4")
+	dir := t.TempDir()
+
+	origDebian := debianVersionPath
+	origBins := unattendedUpgradesBinPaths
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		unattendedUpgradesBinPaths = origBins
+	})
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_v")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unattended-upgrades binary present → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "debian_v1")
+		if err := os.WriteFile(f, []byte("22.04\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = f
+		bin := filepath.Join(dir, "unattended-upgrade")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		unattendedUpgradesBinPaths = []string{bin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("binary present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unattended-upgrades not installed → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "debian_v2")
+		if err := os.WriteFile(f, []byte("22.04\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = f
+		unattendedUpgradesBinPaths = []string{filepath.Join(dir, "no_unattended")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("not installed: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
 // TestRule1_2_3_AptAllowUnauthenticated verifies rule 1.2.3.
 // No t.Parallel() — mutates debianVersionPath and aptConfDPath.
 func TestRule1_2_3_AptAllowUnauthenticated(t *testing.T) {
@@ -6485,6 +6537,79 @@ func TestRule3_2_10_IPv6AcceptRedirects(t *testing.T) {
 	})
 
 	t.Run("check returns a valid CIS status", func(t *testing.T) {
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		valid := map[models.CISStatus]bool{
+			models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+		}
+		if !valid[got.Status] {
+			t.Errorf("unexpected status %q", got.Status)
+		}
+	})
+}
+
+// TestRule1_5_5_ProtectedHardlinks verifies rule 1.5.5 (hardlink protection).
+// checkSysctl reads a real /proc path; test verifies registration and valid status.
+func TestRule1_5_5_ProtectedHardlinks(t *testing.T) {
+	rule := ruleByID("1.5.5")
+
+	t.Run("rule registered", func(t *testing.T) {
+		if rule.ID != "1.5.5" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "hardlink") {
+			t.Errorf("description missing 'hardlink': %s", rule.Description)
+		}
+	})
+
+	t.Run("returns valid status", func(t *testing.T) {
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		valid := map[models.CISStatus]bool{
+			models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+		}
+		if !valid[got.Status] {
+			t.Errorf("unexpected status %q", got.Status)
+		}
+	})
+}
+
+// TestRule1_5_6_ProtectedSymlinks verifies rule 1.5.6 (symlink protection).
+func TestRule1_5_6_ProtectedSymlinks(t *testing.T) {
+	rule := ruleByID("1.5.6")
+
+	t.Run("rule registered", func(t *testing.T) {
+		if rule.ID != "1.5.6" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "symlink") {
+			t.Errorf("description missing 'symlink': %s", rule.Description)
+		}
+	})
+
+	t.Run("returns valid status", func(t *testing.T) {
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		valid := map[models.CISStatus]bool{
+			models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+		}
+		if !valid[got.Status] {
+			t.Errorf("unexpected status %q", got.Status)
+		}
+	})
+}
+
+// TestRule1_5_7_DmesgRestrict verifies rule 1.5.7 (kernel dmesg restriction).
+func TestRule1_5_7_DmesgRestrict(t *testing.T) {
+	rule := ruleByID("1.5.7")
+
+	t.Run("rule registered", func(t *testing.T) {
+		if rule.ID != "1.5.7" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "dmesg") {
+			t.Errorf("description missing 'dmesg': %s", rule.Description)
+		}
+	})
+
+	t.Run("returns valid status", func(t *testing.T) {
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		valid := map[models.CISStatus]bool{
 			models.CISPass: true, models.CISFail: true, models.CISSkipped: true,

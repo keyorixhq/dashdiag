@@ -80,6 +80,33 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w fs.suid_dumpable=0 && echo 'fs.suid_dumpable=0' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
+		{ID: "1.5.5", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure hardlink protection is enabled (fs.protected_hardlinks=1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.5")
+				return checkSysctl(r, "/proc/sys/fs/protected_hardlinks", "1",
+					"fs.protected_hardlinks=1 is not set — hardlink attacks possible",
+					"sysctl -w fs.protected_hardlinks=1 && echo 'fs.protected_hardlinks=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.6", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure symlink protection is enabled (fs.protected_symlinks=1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.6")
+				return checkSysctl(r, "/proc/sys/fs/protected_symlinks", "1",
+					"fs.protected_symlinks=1 is not set — symlink attacks possible",
+					"sysctl -w fs.protected_symlinks=1 && echo 'fs.protected_symlinks=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.7", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure kernel dmesg access is restricted (kernel.dmesg_restrict=1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.7")
+				return checkSysctl(r, "/proc/sys/kernel/dmesg_restrict", "1",
+					"kernel.dmesg_restrict=1 is not set — unprivileged users can read kernel ring buffer",
+					"sysctl -w kernel.dmesg_restrict=1 && echo 'kernel.dmesg_restrict=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
 		{ID: "2.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
@@ -811,6 +838,22 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				return pass(r)
+			}},
+
+		{ID: "1.2.4", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure software updates are applied automatically (unattended-upgrades)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.4")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				for _, p := range unattendedUpgradesBinPaths {
+					if _, err := os.Stat(p); err == nil { //nolint:gosec // package-level var
+						return pass(r)
+					}
+				}
+				return failr(r, "unattended-upgrades not installed",
+					unattendedUpgradesInstallCmd("apt"))
 			}},
 
 		// ── 1.3 Filesystem Integrity ─────────────────────────────────────────
@@ -3896,6 +3939,9 @@ var debianVersionPath = "/etc/debian_version"
 
 // aptConfDPath for APT configuration directory (unauthenticated package check 1.2.3).
 var aptConfDPath = "/etc/apt/apt.conf.d"
+
+// unattendedUpgradesBinPaths for automatic security updates check (1.2.4).
+var unattendedUpgradesBinPaths = []string{"/usr/bin/unattended-upgrade", "/usr/bin/unattended-upgrades"}
 
 // ufwBinPaths for ufw binary presence checks (3.5.1.1, 3.5.1.3).
 var ufwBinPaths = []string{"/usr/sbin/ufw", "/sbin/ufw"}

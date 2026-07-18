@@ -157,6 +157,20 @@ func firewallInstallCmd(pkgMgr string) string {
 	}
 }
 
+// unattendedUpgradesInstallCmd returns the install command for automatic security
+// updates. unattended-upgrades is Debian/Ubuntu-only; the rule gates on
+// /etc/debian_version so non-apt distros never reach this remediation.
+func unattendedUpgradesInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install dnf-automatic && systemctl enable --now dnf-automatic-install.timer"
+	case "zypper":
+		return "zypper install zypper-needs-restarting && zypper mr -e zypper-auto-update"
+	default: // apt and unknown
+		return "apt install unattended-upgrades && dpkg-reconfigure unattended-upgrades"
+	}
+}
+
 // adaptRemediation rewrites a result's remediation for the host's package manager.
 // Most CIS remediations are package-manager-agnostic; rules that install packages
 // or reference distro-specific paths are the exception — their commands differ by
