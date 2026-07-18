@@ -604,13 +604,29 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		// Defaults directives: scan for CIS 5.3.2 (use_pty) and 5.3.3 (logfile)
+		// Defaults directives: scan for CIS 5.3.2 (use_pty), 5.3.3 (logfile), 5.3.5 (timestamp_timeout)
 		if strings.HasPrefix(line, "Defaults") {
 			if strings.Contains(line, "use_pty") {
 				info.SudoDefaultsPTY = true
 			}
 			if strings.Contains(line, "logfile=") {
 				info.SudoDefaultsLogfile = true
+			}
+			if idx := strings.Index(line, "timestamp_timeout="); idx >= 0 {
+				valStr := line[idx+len("timestamp_timeout="):]
+				end := 0
+				for end < len(valStr) && (valStr[end] == '-' || (valStr[end] >= '0' && valStr[end] <= '9')) {
+					end++
+				}
+				if end > 0 {
+					if n, err := strconv.Atoi(valStr[:end]); err == nil {
+						if n < 0 {
+							info.SudoTimestampNever = true
+						} else {
+							info.SudoTimestampMins = n
+						}
+					}
+				}
 			}
 		}
 		if !strings.Contains(line, "NOPASSWD") {
