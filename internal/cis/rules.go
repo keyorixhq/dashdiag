@@ -2369,6 +2369,61 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "4.1.1.4", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure audit_backlog_limit is sufficient",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.4")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(procCmdlinePath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/proc/cmdline not readable")
+				}
+				for param := range strings.FieldsSeq(strings.TrimSpace(string(data))) {
+					rest, ok := strings.CutPrefix(param, "audit_backlog_limit=")
+					if !ok {
+						continue
+					}
+					n, parseErr := strconv.ParseInt(rest, 10, 64)
+					if parseErr != nil {
+						return failr(r, fmt.Sprintf("audit_backlog_limit=%q is not a valid integer", rest),
+							"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+					}
+					if n < 8192 {
+						return failr(r, fmt.Sprintf("audit_backlog_limit=%d is below the CIS minimum of 8192", n),
+							"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+					}
+					return pass(r)
+				}
+				return failr(r, "audit_backlog_limit not set in kernel command line (default 64 is too low)",
+					"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+			}},
+
+		{ID: "4.1.1.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure auditing for processes prior to auditd is enabled (audit=1 in kernel cmdline)",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.5")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(procCmdlinePath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/proc/cmdline not readable")
+				}
+				for param := range strings.FieldsSeq(strings.TrimSpace(string(data))) {
+					if param == "audit=1" {
+						return pass(r)
+					}
+					if param == "audit=0" {
+						return failr(r, "audit=0 in kernel cmdline — auditing explicitly disabled for early-boot processes",
+							"remove audit=0 and add audit=1 to GRUB_CMDLINE_LINUX in /etc/default/grub, then run update-grub")
+					}
+				}
+				return failr(r, "audit=1 not in kernel cmdline — processes starting before auditd may not be audited",
+					"add 'audit=1' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+			}},
+
 		{ID: "4.1.2", StigID: "V-238361",
 			StigDescription: "The auditd service must be running and enabled", Framework: cisBenchBOTH, Level: 1, Section: "Audit",
 			Description: "Ensure auditd has rules configured",

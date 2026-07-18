@@ -8339,3 +8339,72 @@ func TestRule5_2_30_SSHPrivKeyOwnership(t *testing.T) {
 		}
 	})
 }
+
+// ── 4.1.1.5 audit=1 in kernel cmdline ────────────────────────────────────────
+
+// TestRule4_1_1_5_AuditEarlyBoot verifies rule 4.1.1.5.
+// No t.Parallel() — mutates procCmdlinePath.
+func TestRule4_1_1_5_AuditEarlyBoot(t *testing.T) {
+	rule := ruleByID("4.1.1.5")
+	dir := t.TempDir()
+	available := models.SecurityInfo{AuditRules: 5}
+	unavailable := models.SecurityInfo{AuditRules: -1}
+
+	origPath := procCmdlinePath
+	t.Cleanup(func() { procCmdlinePath = origPath })
+
+	t.Run("auditd not available → SKIP", func(t *testing.T) {
+		procCmdlinePath = "/proc/cmdline" // irrelevant — gated early
+		got := rule.Check(unavailable, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("/proc/cmdline unreadable → SKIP", func(t *testing.T) {
+		procCmdlinePath = filepath.Join(dir, "nonexistent_cmdline")
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("unreadable: want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("audit=1 present → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_audit1.txt")
+		if err := os.WriteFile(f, []byte("quiet splash audit=1 audit_backlog_limit=8192\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("audit=1: want PASS, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("audit=0 present → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_audit0.txt")
+		if err := os.WriteFile(f, []byte("quiet splash audit=0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("audit=0: want FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+		if !strings.Contains(got.Finding, "audit=0") {
+			t.Errorf("finding should mention audit=0, got: %s", got.Finding)
+		}
+	})
+
+	t.Run("audit= absent → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_noaudit.txt")
+		if err := os.WriteFile(f, []byte("quiet splash audit_backlog_limit=8192\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("absent audit=1: want FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
