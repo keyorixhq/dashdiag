@@ -788,6 +788,58 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return pass(r)
 			}},
+		{ID: "5.2.21", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH StrictModes is enabled",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.21")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if !sec.SSHStrictModes {
+					return failr(r, "StrictModes no — SSH ignores file-permission checks on user keys and home dirs",
+						"set StrictModes yes in /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
+		{ID: "5.2.22", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH agent forwarding is disabled",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.22")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHAgentForwarding {
+					return failr(r, "AllowAgentForwarding yes — SSH agent can be hijacked if this host is compromised",
+						"set AllowAgentForwarding no in /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
+		{ID: "5.2.23", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH Protocol 1 is not enabled",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.23")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHProtocol1 {
+					return failr(r, "Protocol 1 is enabled — uses obsolete, broken cryptography",
+						"remove any 'Protocol' directive (or set 'Protocol 2') from /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
+		{ID: "5.2.24", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH PubkeyAuthentication is enabled",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.24")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if !sec.SSHPubkeyAuth {
+					return failr(r, "PubkeyAuthentication no — public-key login disabled, only password auth available",
+						"set PubkeyAuthentication yes in /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
 
 		// ── 3.x Network ───────────────────────────────────────────────────────
 

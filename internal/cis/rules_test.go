@@ -7805,3 +7805,72 @@ func TestRule6_1_33_36_EnvProfilePerms(t *testing.T) {
 		})
 	}
 }
+
+// TestRule5_2_21_24_SSHBoolChecks verifies 5.2.21 (StrictModes), 5.2.22 (AgentForwarding),
+// 5.2.23 (Protocol1), and 5.2.24 (PubkeyAuth) with unreadable→SKIP and state→PASS/FAIL.
+func TestRule5_2_21_24_SSHBoolChecks(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id       string
+		descHint string
+		passSec  func() models.SecurityInfo
+		failSec  func() models.SecurityInfo
+	}{
+		{
+			id: "5.2.21", descHint: "StrictModes",
+			passSec: func() models.SecurityInfo { return models.SecurityInfo{SSHStrictModes: true} },
+			failSec: func() models.SecurityInfo { return models.SecurityInfo{SSHStrictModes: false} },
+		},
+		{
+			id: "5.2.22", descHint: "agent forwarding",
+			passSec: func() models.SecurityInfo { return models.SecurityInfo{SSHAgentForwarding: false} },
+			failSec: func() models.SecurityInfo { return models.SecurityInfo{SSHAgentForwarding: true} },
+		},
+		{
+			id: "5.2.23", descHint: "Protocol",
+			passSec: func() models.SecurityInfo { return models.SecurityInfo{SSHProtocol1: false} },
+			failSec: func() models.SecurityInfo { return models.SecurityInfo{SSHProtocol1: true} },
+		},
+		{
+			id: "5.2.24", descHint: "PubkeyAuthentication",
+			passSec: func() models.SecurityInfo { return models.SecurityInfo{SSHPubkeyAuth: true} },
+			failSec: func() models.SecurityInfo { return models.SecurityInfo{SSHPubkeyAuth: false} },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(strings.ToLower(r.Description), strings.ToLower(tc.descHint)) {
+				t.Errorf("description missing %q: %s", tc.descHint, r.Description)
+			}
+		})
+		t.Run(tc.id+"_unreadable_→_SKIP", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{SSHConfigUnreadable: true}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_pass_state_→_PASS", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(tc.passSec(), models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_fail_state_→_FAIL", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(tc.failSec(), models.KernelSecurityInfo{})
+			if got.Status != models.CISFail {
+				t.Errorf("want CISFail, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+	}
+}
