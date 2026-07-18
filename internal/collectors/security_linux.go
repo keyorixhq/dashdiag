@@ -573,9 +573,12 @@ func isExpectedPort(port int) bool {
 	return expected[port]
 }
 
+// sudoersPath is the primary sudoers file, referenced by parseSudoers and parseSudoersFile.
+var sudoersPath = "/etc/sudoers"
+
 // parseSudoers scans /etc/sudoers and /etc/sudoers.d/ for NOPASSWD entries.
 func parseSudoers(info *models.SecurityInfo) {
-	paths := []string{"/etc/sudoers"}
+	paths := []string{sudoersPath}
 	if entries, err := glob("/etc/sudoers.d/*"); err == nil {
 		paths = append(paths, entries...)
 	}
@@ -587,10 +590,10 @@ func parseSudoers(info *models.SecurityInfo) {
 func parseSudoersFile(path string, info *models.SecurityInfo) {
 	f, err := openFile(filepath.Clean(path))
 	if err != nil {
-		if path == "/etc/sudoers" {
+		if path == sudoersPath {
 			// Primary sudoers file exists but is unreadable — signal to CIS rules
 			// that we can't distinguish "no NOPASSWD" from "couldn't check".
-			if _, statErr := statFile("/etc/sudoers"); statErr == nil {
+			if _, statErr := statFile(sudoersPath); statErr == nil {
 				info.SudoersUnreadable = true
 			}
 		}
@@ -601,7 +604,35 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") || !strings.Contains(line, "NOPASSWD") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Defaults directives: scan for CIS 5.3.2 (use_pty), 5.3.3 (logfile), 5.3.5 (timestamp_timeout)
+		if strings.HasPrefix(line, "Defaults") {
+			if strings.Contains(line, "use_pty") {
+				info.SudoDefaultsPTY = true
+			}
+			if strings.Contains(line, "logfile=") {
+				info.SudoDefaultsLogfile = true
+			}
+			if idx := strings.Index(line, "timestamp_timeout="); idx >= 0 {
+				valStr := line[idx+len("timestamp_timeout="):]
+				end := 0
+				for end < len(valStr) && (valStr[end] == '-' || (valStr[end] >= '0' && valStr[end] <= '9')) {
+					end++
+				}
+				if end > 0 {
+					if n, err := strconv.Atoi(valStr[:end]); err == nil {
+						if n < 0 {
+							info.SudoTimestampNever = true
+						} else {
+							info.SudoTimestampMins = n
+						}
+					}
+				}
+			}
+		}
+		if !strings.Contains(line, "NOPASSWD") {
 			continue
 		}
 		// Extract the user/group — first field before whitespace

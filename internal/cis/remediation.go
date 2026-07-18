@@ -72,6 +72,33 @@ func timeSyncInstallCmd(pkgMgr string) string {
 	}
 }
 
+// apparmorInstallCmd returns the package-manager-appropriate command to install
+// AppArmor and its utilities (rule 1.6.1, CIS Ubuntu-specific).
+func apparmorInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install apparmor apparmor-utils && systemctl enable --now apparmor"
+	case "zypper":
+		return "zypper install apparmor-parser apparmor-utils && systemctl enable --now apparmor"
+	case "pacman":
+		return "pacman -S apparmor && systemctl enable --now apparmor"
+	default: // apt
+		return "apt install apparmor apparmor-utils && systemctl enable --now apparmor"
+	}
+}
+
+// iptablesPersistentRemoveCmd returns the command to remove iptables-persistent,
+// which conflicts with ufw on Debian/Ubuntu systems (rule 3.5.1.2). The package is
+// Debian-specific; on other distros the rule is skipped so this is not called.
+func iptablesPersistentRemoveCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf", "zypper", "pacman":
+		return "not applicable on this distribution"
+	default: // apt
+		return "apt purge iptables-persistent netfilter-persistent && ufw enable"
+	}
+}
+
 // macInstallCmd returns the package-manager-appropriate command to install a MAC
 // framework. RHEL/Rocky/Fedora use SELinux; Debian/Ubuntu/SLES/Arch use AppArmor.
 func macInstallCmd(pkgMgr string) string {
@@ -98,6 +125,20 @@ func sudoInstallCmd(pkgMgr string) string {
 		return "pacman -S sudo"
 	default: // apt and unknown
 		return "apt install sudo"
+	}
+}
+
+// rsyslogInstallCmd returns the package-manager-appropriate command to install rsyslog.
+func rsyslogInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install rsyslog && systemctl enable --now rsyslog"
+	case "zypper":
+		return "zypper install rsyslog && systemctl enable --now rsyslog"
+	case "pacman":
+		return "pacman -S rsyslog && systemctl enable --now rsyslog"
+	default: // apt and unknown
+		return "apt install rsyslog && systemctl enable --now rsyslog"
 	}
 }
 
@@ -137,12 +178,20 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		if res.Finding == "no firewall tooling detected" {
 			res.Remediation = firewallInstallCmd(pkgMgr)
 		}
+	case "3.5.1.1":
+		res.Remediation = firewallInstallCmd(pkgMgr)
+	case "3.5.1.2":
+		res.Remediation = iptablesPersistentRemoveCmd(pkgMgr)
 	case "4.1.1":
 		res.Remediation = auditInstallCmd(pkgMgr)
 	case "4.1.2":
 		res.Remediation = auditRulesCmd(pkgMgr)
 	case "5.3.1":
 		res.Remediation = sudoInstallCmd(pkgMgr)
+	case "4.2.1":
+		res.Remediation = rsyslogInstallCmd(pkgMgr)
+	case "1.6.1":
+		res.Remediation = apparmorInstallCmd(pkgMgr)
 	}
 	return res
 }
