@@ -70,7 +70,9 @@ func TestCheckCVEZypperAlreadyPatched(t *testing.T) {
 // in checkCVEZypper: when zypper explicitly outputs "No patch found", the CVE must
 // be reported as not affecting this system.
 func TestCheckCVEZypperNotAffected(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel(): SetSource swaps the package-global activeSource; running
+	// concurrently with other parallel tests that call ReadFile/Statfs on the
+	// live source panics because fakeRunSource embeds a nil source.Source.
 	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
 		return source.Result{Stdout: []byte("No patch found for CVE-2024-1234."), ExitCode: 0}
 	}}
