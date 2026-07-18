@@ -87,6 +87,18 @@ func apparmorInstallCmd(pkgMgr string) string {
 	}
 }
 
+// iptablesPersistentRemoveCmd returns the command to remove iptables-persistent,
+// which conflicts with ufw on Debian/Ubuntu systems (rule 3.5.1.2). The package is
+// Debian-specific; on other distros the rule is skipped so this is not called.
+func iptablesPersistentRemoveCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf", "zypper", "pacman":
+		return "not applicable on this distribution"
+	default: // apt
+		return "apt purge iptables-persistent netfilter-persistent && ufw enable"
+	}
+}
+
 // macInstallCmd returns the package-manager-appropriate command to install a MAC
 // framework. RHEL/Rocky/Fedora use SELinux; Debian/Ubuntu/SLES/Arch use AppArmor.
 func macInstallCmd(pkgMgr string) string {
@@ -166,6 +178,10 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		if res.Finding == "no firewall tooling detected" {
 			res.Remediation = firewallInstallCmd(pkgMgr)
 		}
+	case "3.5.1.1":
+		res.Remediation = firewallInstallCmd(pkgMgr)
+	case "3.5.1.2":
+		res.Remediation = iptablesPersistentRemoveCmd(pkgMgr)
 	case "4.1.1":
 		res.Remediation = auditInstallCmd(pkgMgr)
 	case "4.1.2":

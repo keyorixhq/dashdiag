@@ -1148,6 +1148,62 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"enable the firewall: ufw enable (Ubuntu/Debian) or systemctl enable --now firewalld (RHEL/Rocky)")
 			}},
 
+		{ID: "3.5.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.1")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "ufw rule applies to Debian/Ubuntu systems only")
+				}
+				for _, p := range ufwBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r, "ufw binary not found", firewallInstallCmd("apt"))
+			}},
+
+		{ID: "3.5.1.2", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure iptables-persistent is not installed with ufw",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.2")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				for _, p := range netfilterPersistentPaths {
+					if _, err := os.Stat(p); err == nil {
+						return failr(r,
+							"iptables-persistent (netfilter-persistent) is installed — conflicts with ufw",
+							iptablesPersistentRemoveCmd("apt"))
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "3.5.1.3", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw service is enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.3")
+				ufwPresent := false
+				for _, p := range ufwBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						ufwPresent = true
+						break
+					}
+				}
+				if !ufwPresent {
+					return skipr(r, "ufw not installed")
+				}
+				for _, p := range ufwWantsPaths {
+					if _, err := os.Stat(p); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r,
+					"ufw service is not enabled",
+					"ufw enable && systemctl enable ufw")
+			}},
+
 		{ID: "3.5.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure ufw default deny firewall policy",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -1483,6 +1539,83 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				return pass(r)
+			}},
+
+		{ID: "4.2.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure rsyslog default file creation mode is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.5")
+				findMode := func(data []byte) (string, bool) {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						// Legacy directive: $FileCreateMode 0640
+						if rest, ok := strings.CutPrefix(trimmed, "$FileCreateMode"); ok {
+							return strings.TrimSpace(rest), true
+						}
+						// RainerScript: FileCreateMode="0640" inside module() or global()
+						if strings.Contains(trimmed, "FileCreateMode=") {
+							for field := range strings.FieldsSeq(trimmed) {
+								if rest, ok := strings.CutPrefix(field, "FileCreateMode="); ok {
+									return strings.Trim(rest, "\"'"), true
+								}
+							}
+						}
+					}
+					return "", false
+				}
+				checkMode := func(modeStr string) (bool, string) {
+					modeStr = strings.Trim(modeStr, "\"'")
+					v, err := strconv.ParseInt(modeStr, 8, 32)
+					if err != nil {
+						return false, fmt.Sprintf("unrecognised $FileCreateMode value %q", modeStr)
+					}
+					// Mode must not exceed 0640 (no write-other, no execute-owner)
+					if v&0o137 != 0 {
+						return false, fmt.Sprintf("$FileCreateMode %s is more permissive than 0640", modeStr)
+					}
+					return true, ""
+				}
+				tryFile := func(data []byte) (string, bool) {
+					if modeStr, found := findMode(data); found {
+						return modeStr, true
+					}
+					return "", false
+				}
+				var modeStr string
+				var found bool
+				if data, err := os.ReadFile(rsyslogConfPath); err == nil { //nolint:gosec // package-level var
+					if modeStr, found = tryFile(data); found {
+						if ok, reason := checkMode(modeStr); !ok {
+							return failr(r, reason,
+								"set '$FileCreateMode 0640' in /etc/rsyslog.conf or a /etc/rsyslog.d/ drop-in")
+						}
+						return pass(r)
+					}
+				}
+				if entries, err := os.ReadDir(rsyslogConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, rdErr := os.ReadFile(filepath.Join(rsyslogConfDPath, e.Name())) //nolint:gosec
+						if rdErr != nil {
+							continue
+						}
+						if modeStr, found = tryFile(data); found {
+							if ok, reason := checkMode(modeStr); !ok {
+								return failr(r, reason,
+									"set '$FileCreateMode 0640' in /etc/rsyslog.conf or a /etc/rsyslog.d/ drop-in")
+							}
+							return pass(r)
+						}
+					}
+				}
+				return failr(r,
+					"$FileCreateMode not explicitly set in rsyslog config",
+					"add '$FileCreateMode 0640' to /etc/rsyslog.conf to ensure log files are not world-readable")
 			}},
 
 		// ── 4.3 Log rotation ──────────────────────────────────────────────────
@@ -2842,6 +2975,24 @@ var etcEnvironmentPath = "/etc/environment"
 var cronWantsPaths = []string{
 	"/etc/systemd/system/multi-user.target.wants/cron.service",
 	"/etc/systemd/system/multi-user.target.wants/crond.service",
+}
+
+// debianVersionPath is the Debian/Ubuntu family indicator; gates Debian-specific rules.
+var debianVersionPath = "/etc/debian_version"
+
+// ufwBinPaths for ufw binary presence checks (3.5.1.1, 3.5.1.3).
+var ufwBinPaths = []string{"/usr/sbin/ufw", "/sbin/ufw"}
+
+// netfilterPersistentPaths for iptables-persistent conflict check (3.5.1.2).
+var netfilterPersistentPaths = []string{
+	"/lib/systemd/system/netfilter-persistent.service",
+	"/etc/init.d/iptables-persistent",
+}
+
+// ufwWantsPaths for ufw service enabled check (3.5.1.3).
+var ufwWantsPaths = []string{
+	"/etc/systemd/system/multi-user.target.wants/ufw.service",
+	"/run/systemd/generator.late/multi-user.target.wants/ufw.service",
 }
 
 // ufwDefaultPath: ufw default policy config (3.5.1.7).

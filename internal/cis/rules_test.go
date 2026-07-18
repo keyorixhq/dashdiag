@@ -4442,3 +4442,238 @@ func TestRule4_3_1_LogrotateConfigured(t *testing.T) {
 		}
 	})
 }
+
+// TestRule3_5_1_1_UFWInstalled verifies rule 3.5.1.1.
+// No t.Parallel(): mutates package-level debianVersionPath and ufwBinPaths.
+func TestRule3_5_1_1_UFWInstalled(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origBins := ufwBinPaths
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		ufwBinPaths = origBins
+	})
+
+	rule := ruleByID("3.5.1.1")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian without ufw binary → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		ufwBinPaths = []string{filepath.Join(dir, "no_ufw")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no binary: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian with ufw binary → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		fakeBin := filepath.Join(dir, "ufw")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("binary present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule3_5_1_2_IPTablesPersistentAbsent verifies rule 3.5.1.2.
+// No t.Parallel(): mutates package-level debianVersionPath and netfilterPersistentPaths.
+func TestRule3_5_1_2_IPTablesPersistentAbsent(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origPaths := netfilterPersistentPaths
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		netfilterPersistentPaths = origPaths
+	})
+
+	rule := ruleByID("3.5.1.2")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian without iptables-persistent → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		netfilterPersistentPaths = []string{filepath.Join(dir, "no_service")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("not installed: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian with netfilter-persistent service → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		svc := filepath.Join(dir, "netfilter-persistent.service")
+		if err := os.WriteFile(svc, []byte("[Unit]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		netfilterPersistentPaths = []string{svc}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("service present: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule3_5_1_3_UFWServiceEnabled verifies rule 3.5.1.3.
+// No t.Parallel(): mutates package-level ufwBinPaths and ufwWantsPaths.
+func TestRule3_5_1_3_UFWServiceEnabled(t *testing.T) {
+	dir := t.TempDir()
+	origBins := ufwBinPaths
+	origWants := ufwWantsPaths
+	t.Cleanup(func() {
+		ufwBinPaths = origBins
+		ufwWantsPaths = origWants
+	})
+
+	rule := ruleByID("3.5.1.3")
+
+	t.Run("ufw not installed → SKIP", func(t *testing.T) {
+		ufwBinPaths = []string{filepath.Join(dir, "no_ufw")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ufw installed but service not enabled → FAIL", func(t *testing.T) {
+		fakeBin := filepath.Join(dir, "ufw")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		ufwWantsPaths = []string{filepath.Join(dir, "no_wants_ufw.service")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("not enabled: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ufw service enabled → PASS", func(t *testing.T) {
+		fakeBin := filepath.Join(dir, "ufw2")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		wantsLink := filepath.Join(dir, "ufw.service")
+		if err := os.WriteFile(wantsLink, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwWantsPaths = []string{wantsLink}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("service enabled: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_5_RsyslogFileCreateMode verifies rule 4.2.5.
+// No t.Parallel(): mutates package-level rsyslogConfPath and rsyslogConfDPath.
+func TestRule4_2_5_RsyslogFileCreateMode(t *testing.T) {
+	dir := t.TempDir()
+	origConf := rsyslogConfPath
+	origConfD := rsyslogConfDPath
+	t.Cleanup(func() {
+		rsyslogConfPath = origConf
+		rsyslogConfDPath = origConfD
+	})
+
+	rule := ruleByID("4.2.5")
+
+	t.Run("no config files → FAIL (not configured)", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no config: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0640 → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0640.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0640\n*.* /var/log/syslog\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0640 mode: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0600 → PASS (more restrictive)", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0600.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0600\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0600 mode: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0644 → FAIL (world-readable)", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0644.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0644\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("0644 mode: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("FileCreateMode in conf.d → PASS", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		confD := filepath.Join(dir, "rsyslog_d_mode")
+		if err := os.MkdirAll(confD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(confD, "50-default.conf"),
+			[]byte("$FileCreateMode 0640\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = confD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("conf.d 0640: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
