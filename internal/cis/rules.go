@@ -352,6 +352,13 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "2.3.16", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure NIS server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.16"), nisServerBinPaths,
+					"remove NIS server: apt purge nis / dnf remove ypserv")
+			}},
+
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
 
 		{ID: cisRuleSSH52, StigID: "V-238201", Framework: cisBenchBOTH, Level: 1, Section: cisCatSSH,
@@ -1530,6 +1537,111 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					// remediation is rewritten per package manager in Evaluate
 					return failr(r, "auditd not installed or not running",
 						auditInstallCmd("apt"))
+				}
+				return pass(r)
+			}},
+
+		{ID: "4.1.1.1", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure audit log storage size is configured",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.1")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					if strings.TrimSpace(strings.ToLower(parts[0])) != "max_log_file" {
+						continue
+					}
+					val := strings.TrimSpace(parts[1])
+					n, err := strconv.Atoi(val)
+					if err != nil {
+						return skipr(r, fmt.Sprintf("max_log_file value %q not parseable", val))
+					}
+					if n == 0 {
+						return failr(r, "max_log_file = 0 — audit log size limit not configured",
+							"set max_log_file = 8 (or site-defined value) in /etc/audit/auditd.conf")
+					}
+					return pass(r)
+				}
+				return failr(r, "max_log_file not set in auditd.conf",
+					"add max_log_file = 8 to /etc/audit/auditd.conf")
+			}},
+
+		{ID: "4.1.1.2", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure audit logs are not automatically deleted",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.2")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					if strings.TrimSpace(strings.ToLower(parts[0])) != "max_log_file_action" {
+						continue
+					}
+					val := strings.ToLower(strings.TrimSpace(parts[1]))
+					if val == "rotate" || val == "ignore" {
+						return failr(r,
+							fmt.Sprintf("max_log_file_action = %q — old audit logs may be silently discarded", val),
+							"set max_log_file_action = keep_logs in /etc/audit/auditd.conf")
+					}
+					return pass(r)
+				}
+				return failr(r, "max_log_file_action not set in auditd.conf",
+					"add max_log_file_action = keep_logs to /etc/audit/auditd.conf")
+			}},
+
+		{ID: "4.1.1.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure system is disabled when audit logs are full",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.3")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				spaceLeft, adminSpaceLeft := "", ""
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					key := strings.TrimSpace(strings.ToLower(parts[0]))
+					val := strings.ToLower(strings.TrimSpace(parts[1]))
+					switch key {
+					case "space_left_action":
+						spaceLeft = val
+					case "admin_space_left_action":
+						adminSpaceLeft = val
+					}
+				}
+				safeActions := map[string]bool{"halt": true, "single": true, "email": true, "exec": true}
+				if !safeActions[spaceLeft] {
+					return failr(r,
+						fmt.Sprintf("space_left_action = %q — system won't halt/notify on low disk", spaceLeft),
+						"set space_left_action = email in /etc/audit/auditd.conf")
+				}
+				if adminSpaceLeft != "halt" && adminSpaceLeft != "single" {
+					return failr(r,
+						fmt.Sprintf("admin_space_left_action = %q — system won't halt when disk is critically full", adminSpaceLeft),
+						"set admin_space_left_action = halt in /etc/audit/auditd.conf")
 				}
 				return pass(r)
 			}},
@@ -3225,6 +3337,12 @@ var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 // auditRulesDPath and auditRulesFilePath for audit rule checks (4.1.3–4.1.17).
 var auditRulesDPath = "/etc/audit/rules.d"
 var auditRulesFilePath = "/etc/audit/audit.rules"
+
+// auditdConfPath for auditd configuration checks (4.1.1.1–4.1.1.3).
+var auditdConfPath = "/etc/audit/auditd.conf"
+
+// nisServerBinPaths for NIS server check (2.3.16).
+var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
 
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"

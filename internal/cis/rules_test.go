@@ -5296,3 +5296,210 @@ func TestRule3_6_1_WirelessDisabled(t *testing.T) {
 		}
 	})
 }
+
+// ── 2.3.16 NIS server ────────────────────────────────────────────────────────
+
+// TestRule2_3_16_NISServerNotInstalled verifies rule 2.3.16.
+// No t.Parallel(): mutates package-level nisServerBinPaths.
+func TestRule2_3_16_NISServerNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	orig := nisServerBinPaths
+	t.Cleanup(func() { nisServerBinPaths = orig })
+
+	rule := ruleByID("2.3.16")
+
+	t.Run("ypserv not present → PASS", func(t *testing.T) {
+		nisServerBinPaths = []string{filepath.Join(dir, "no_ypserv")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no ypserv: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ypserv found → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "ypserv")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		nisServerBinPaths = []string{bin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ypserv present: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 4.1.1.1 / 4.1.1.2 / 4.1.1.3 auditd.conf ────────────────────────────────
+
+// TestRule4_1_1_1_AuditLogStorageSize verifies rule 4.1.1.1.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_1_AuditLogStorageSize(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.1")
+	available := models.SecurityInfo{AuditRules: 5}
+	notAvail := models.SecurityInfo{AuditRules: -1}
+
+	t.Run("auditd not available → SKIP", func(t *testing.T) {
+		auditdConfPath = filepath.Join(dir, "no_auditd.conf")
+		got := rule.Check(notAvail, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no auditd: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("auditd.conf unreadable → SKIP", func(t *testing.T) {
+		auditdConfPath = filepath.Join(dir, "missing_auditd.conf")
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing conf: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file = 8 → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_ok.conf")
+		if err := os.WriteFile(cf, []byte("# comment\nmax_log_file = 8\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("max_log_file=8: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file = 0 → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_zero.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file = 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("max_log_file=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file not set → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_nokey.conf")
+		if err := os.WriteFile(cf, []byte("log_file = /var/log/audit/audit.log\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no max_log_file: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_1_1_2_AuditLogsNotDeleted verifies rule 4.1.1.2.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_2_AuditLogsNotDeleted(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.2")
+	available := models.SecurityInfo{AuditRules: 5}
+
+	t.Run("max_log_file_action = keep_logs → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_keep.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = keep_logs\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("keep_logs: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action = rotate → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_rotate.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = rotate\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("rotate: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action = ignore → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_ignore.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = ignore\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ignore: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action not set → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_noaction.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file = 8\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no max_log_file_action: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_1_1_3_AuditDiskFull verifies rule 4.1.1.3.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_3_AuditDiskFull(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.3")
+	available := models.SecurityInfo{AuditRules: 5}
+
+	t.Run("space_left_action=email admin_space_left_action=halt → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_halt.conf")
+		content := "space_left_action = email\nadmin_space_left_action = halt\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("email+halt: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("space_left_action=syslog (not safe) → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_syslog.conf")
+		content := "space_left_action = syslog\nadmin_space_left_action = halt\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("syslog space_left: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("admin_space_left_action=suspend (not halt/single) → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_suspend.conf")
+		content := "space_left_action = email\nadmin_space_left_action = suspend\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("suspend admin action: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
