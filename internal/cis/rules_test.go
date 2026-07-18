@@ -405,6 +405,11 @@ func TestStructDrivenRules(t *testing.T) {
 		{"1.1.22 no bad dirs passes", "1.1.22", models.SecurityInfo{}, models.CISPass},
 		{"1.1.22 missing sticky fails", "1.1.22", models.SecurityInfo{WorldWritableDirs: []string{"/tmp"}}, models.CISFail},
 
+		// 6.2.1 empty password fields
+		{"6.2.1 shadow unreadable skips", "6.2.1", models.SecurityInfo{ShadowUnreadable: true}, models.CISSkipped},
+		{"6.2.1 empty password account fails", "6.2.1", models.SecurityInfo{EmptyPasswordAccounts: []string{"baduser"}}, models.CISFail},
+		{"6.2.1 no empty passwords passes", "6.2.1", models.SecurityInfo{}, models.CISPass},
+
 		// 6.2.3 only root is UID 0
 		{"6.2.3 extra uid0 fails", "6.2.3", models.SecurityInfo{UID0Users: []string{"toor"}}, models.CISFail},
 		{"6.2.3 none passes", "6.2.3", models.SecurityInfo{}, models.CISPass},
