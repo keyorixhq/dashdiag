@@ -1648,6 +1648,19 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
 
+		{ID: "5.1.1", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure cron daemon is enabled and running",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.1")
+				for _, p := range cronWantsPaths {
+					if _, err := os.Stat(p); err == nil { // #nosec G304 -- hardcoded systemd paths
+						return pass(r)
+					}
+				}
+				return failr(r, "cron daemon not found in systemd wants directory — may not be enabled",
+					"systemctl enable --now cron || systemctl enable --now crond")
+			}},
+
 		{ID: "5.1.2", Framework: cisBenchCIS, Level: 1, Section: "Cron",
 			Description: "Ensure permissions on /etc/crontab are configured (0600)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -1716,6 +1729,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return failr(r, "neither /etc/at.allow nor /etc/at.deny exists",
 					"create /etc/at.allow with authorized users (one per line)")
+			}},
+
+		{ID: "1.1.19", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nosuid option is set on removable media partitions",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkRemovableMediaOption(ruleByID("1.1.19"), "nosuid")
+			}},
+
+		{ID: "1.1.20", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure noexec option is set on removable media partitions",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkRemovableMediaOption(ruleByID("1.1.20"), "noexec")
+			}},
+
+		{ID: "1.1.21", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nodev option is set on removable media partitions",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkRemovableMediaOption(ruleByID("1.1.21"), "nodev")
 			}},
 
 		// ── 1.1 Filesystem ────────────────────────────────────────────────────
@@ -2177,6 +2208,139 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "6.2.13", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure users' dot files are not world-writable",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.13")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var violations []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					entries, rdErr := os.ReadDir(homeDir) // #nosec G304 -- path from /etc/passwd
+					if rdErr != nil {
+						continue
+					}
+					for _, e := range entries {
+						if !strings.HasPrefix(e.Name(), ".") || e.IsDir() {
+							continue
+						}
+						fi, infoErr := e.Info()
+						if infoErr != nil {
+							continue
+						}
+						if fi.Mode().Perm()&0002 != 0 {
+							violations = append(violations,
+								fmt.Sprintf("%s/%s (%04o)", homeDir, e.Name(), fi.Mode().Perm()))
+						}
+					}
+				}
+				if len(violations) > 0 {
+					shown := violations[:min(3, len(violations))]
+					return failr(r,
+						fmt.Sprintf("%d dot file(s) are world-writable: %s", len(violations), strings.Join(shown, "; ")),
+						"chmod o-w <file> for each world-writable dot file in home directories")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.14", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no users have .forward files",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.14")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var found []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					fwd := filepath.Join(homeDir, ".forward")
+					if _, statErr := os.Stat(fwd); statErr == nil { // #nosec G304
+						found = append(found, fmt.Sprintf("%s (%s)", fields[0], fwd))
+					}
+				}
+				if len(found) > 0 {
+					shown := found[:min(3, len(found))]
+					return failr(r,
+						fmt.Sprintf("%d user(s) have .forward files: %s", len(found), strings.Join(shown, "; ")),
+						"rm ~/.forward for each affected user — .forward files can be abused for mail relay")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.15", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no users have .netrc files",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.15")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var found []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					netrc := filepath.Join(homeDir, ".netrc")
+					if _, statErr := os.Stat(netrc); statErr == nil { // #nosec G304
+						found = append(found, fmt.Sprintf("%s (%s)", fields[0], netrc))
+					}
+				}
+				if len(found) > 0 {
+					shown := found[:min(3, len(found))]
+					return failr(r,
+						fmt.Sprintf("%d user(s) have .netrc files: %s", len(found), strings.Join(shown, "; ")),
+						"rm ~/.netrc for each affected user — .netrc stores plaintext FTP credentials")
+				}
+				return pass(r)
+			}},
+
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
 
 		// V-238213: Approved ciphers — STIG mandates only FIPS-approved ciphers
@@ -2421,6 +2585,12 @@ var apparmorProfilesPath = "/sys/kernel/security/apparmor/profiles"
 // etcEnvironmentPath: system-wide environment file checked for root PATH integrity (6.2.10).
 var etcEnvironmentPath = "/etc/environment"
 
+// cronWantsPaths: systemd wants-directory symlinks that indicate cron is enabled (5.1.1).
+var cronWantsPaths = []string{
+	"/etc/systemd/system/multi-user.target.wants/cron.service",
+	"/etc/systemd/system/multi-user.target.wants/crond.service",
+}
+
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
 // notSetFinding/notSetFix are used when the field is entirely absent from the
@@ -2632,6 +2802,40 @@ func checkSeparateMountPoint(r Rule, mountPoint, fix string) models.CISResult {
 		}
 	}
 	return failr(r, fmt.Sprintf("%s is not on a separate partition", mountPoint), fix)
+}
+
+// checkRemovableMediaOption checks that all heuristically-detected removable
+// media mounts include the given option. Removable media is identified as block
+// devices (sd* or sr*) mounted under /media/ or /mnt/. If no such mounts exist
+// the check passes — compliant by absence.
+func checkRemovableMediaOption(r Rule, option string) models.CISResult {
+	data, err := os.ReadFile(procMountsPath) //nolint:gosec // package-level var
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s", procMountsPath))
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		dev, mp := fields[0], fields[1]
+		base := filepath.Base(dev)
+		isRemovable := (strings.HasPrefix(base, "sd") || strings.HasPrefix(base, "sr")) &&
+			(strings.HasPrefix(mp, "/media/") || strings.HasPrefix(mp, "/mnt/"))
+		if !isRemovable {
+			continue
+		}
+		for opt := range strings.SplitSeq(fields[3], ",") {
+			if opt == option {
+				goto nextMount
+			}
+		}
+		return failr(r,
+			fmt.Sprintf("removable media %s (%s) lacks %q option", mp, dev, option),
+			fmt.Sprintf("add '%s' to mount options in /etc/fstab for removable media", option))
+	nextMount:
+	}
+	return pass(r)
 }
 
 // checkAuditRule verifies that audit configuration files contain at least one
