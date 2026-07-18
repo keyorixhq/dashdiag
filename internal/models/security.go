@@ -71,6 +71,8 @@ type SecurityInfo struct {
 	// Privilege escalation
 	SudoNopasswd          []string `json:"sudo_nopasswd,omitempty"`           // users/groups with NOPASSWD
 	SudoersUnreadable     bool     `json:"sudoers_unreadable,omitempty"`      // true when /etc/sudoers was not readable (non-root)
+	SudoDefaultsPTY       bool     `json:"sudo_defaults_pty,omitempty"`       // "Defaults use_pty" present (CIS 5.3.2)
+	SudoDefaultsLogfile   bool     `json:"sudo_defaults_logfile,omitempty"`   // "Defaults logfile=..." present (CIS 5.3.3)
 	SUIDBinaries          []string `json:"suid_binaries,omitempty"`           // unexpected SUID binaries
 	UID0Users             []string `json:"uid0_users,omitempty"`              // non-root users with UID 0
 	SuspectCrons          []string `json:"suspect_crons,omitempty"`           // cron jobs writing to sensitive paths
