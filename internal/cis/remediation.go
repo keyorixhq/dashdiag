@@ -40,14 +40,31 @@ func auditRulesCmd(pkgMgr string) string {
 	}
 }
 
+// timeSyncInstallCmd returns the package-manager-appropriate command to install chrony.
+// The service name differs by family: Debian/Ubuntu use "chrony"; RHEL/SUSE use "chronyd".
+func timeSyncInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install chrony && systemctl enable --now chronyd"
+	case "zypper":
+		return "zypper install chrony && systemctl enable --now chronyd"
+	case "pacman":
+		return "pacman -S chrony && systemctl enable --now chronyd"
+	default: // apt and unknown
+		return "apt install chrony && systemctl enable --now chrony"
+	}
+}
+
 // adaptRemediation rewrites a result's remediation for the host's package manager.
-// Most CIS remediations are package-manager-agnostic; the auditd rules (4.1.1/4.1.2)
-// are the exception — their commands and file paths are Debian-specific by default.
+// Most CIS remediations are package-manager-agnostic; install-type rules (2.1.1,
+// 4.1.1/4.1.2) are the exception — their commands differ by package manager.
 func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 	if res.Status != models.CISFail {
 		return res
 	}
 	switch res.ID {
+	case "2.1.1":
+		res.Remediation = timeSyncInstallCmd(pkgMgr)
 	case "4.1.1":
 		res.Remediation = auditInstallCmd(pkgMgr)
 	case "4.1.2":

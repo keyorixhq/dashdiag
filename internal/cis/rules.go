@@ -14,6 +14,7 @@ const (
 	cisCatSSH         = "SSH"
 	cisBenchSTIG      = "STIG"
 	cisCatNetwork     = "Network"
+	cisCatServices    = "Services"
 	cisCatAuth        = "Auth"
 	cisCatFiles       = "Files"
 	cisBenchCIS       = "CIS"
@@ -42,7 +43,7 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -52,6 +53,58 @@ func init() {
 //nolint:cyclop,funlen // rule registry — each entry is a self-contained check, splitting would harm readability
 func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entry count, not logic branches
 	return []Rule{
+
+		// ── 2.1 Time Synchronization ──────────────────────────────────────────
+
+		{ID: "2.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure a time synchronization daemon is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.1.1")
+				configs := append(chronyCfgPaths, ntpCfgPath, timesyncdCfgPath)
+				for _, cfg := range configs {
+					if _, err := os.Stat(cfg); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r, "no time synchronization daemon installed",
+					"install a time sync daemon")
+			}},
+
+		{ID: "2.1.2", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure time synchronization daemon is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.1.2")
+				// chrony (RHEL path, then Debian/Ubuntu path)
+				for _, path := range chronyCfgPaths {
+					data, err := os.ReadFile(path) // #nosec G304
+					if err != nil {
+						continue
+					}
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "server") || strings.HasPrefix(line, "pool") {
+							return pass(r)
+						}
+					}
+					return failr(r, "chrony.conf has no server or pool directive",
+						"add 'pool pool.ntp.org iburst' to chrony.conf and restart chronyd")
+				}
+				// ntp
+				if data, err := os.ReadFile(ntpCfgPath); err == nil { // #nosec G304
+					for line := range strings.SplitSeq(string(data), "\n") {
+						if strings.HasPrefix(strings.TrimSpace(line), "server") {
+							return pass(r)
+						}
+					}
+					return failr(r, "ntp.conf has no server directive",
+						"add server directives to /etc/ntp.conf and restart ntp")
+				}
+				// systemd-timesyncd: uses compiled-in fallback NTP pool; presence is sufficient
+				if _, err := os.Stat(timesyncdCfgPath); err == nil {
+					return pass(r)
+				}
+				return skipr(r, "no time sync daemon config found — check rule 2.1.1")
+			}},
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
 
@@ -355,6 +408,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"PASS_MAX_DAYS not set in /etc/login.defs", "add PASS_MAX_DAYS 365 to /etc/login.defs")
 			}},
 
+		{ID: "5.3.4", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure users must provide password for privilege escalation",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.3.4")
+				if sec.SudoersUnreadable {
+					return skipr(r, "sudoers not readable — run as root for full coverage")
+				}
+				if len(sec.SudoNopasswd) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("NOPASSWD entries in sudoers: %s", strings.Join(sec.SudoNopasswd, ", ")),
+					"remove NOPASSWD from /etc/sudoers and /etc/sudoers.d/")
+			}},
+
 		// ── 6.x System Maintenance ────────────────────────────────────────────
 
 		{ID: "6.1.1", StigID: "V-238401", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
@@ -537,6 +605,16 @@ var sshdConfigPath = "/etc/ssh/sshd_config"
 // legacyNISPaths is the list of files scanned by rule 6.2.2 for legacy '+' NIS
 // entries. Package-level var so tests can supply in-memory fixture paths.
 var legacyNISPaths = []string{"/etc/passwd", "/etc/shadow", "/etc/group"}
+
+// chronyCfgPaths is the ordered list of chrony config file locations checked by
+// rules 2.1.1 and 2.1.2. RHEL/Rocky put the file at /etc/chrony.conf;
+// Debian/Ubuntu put it at /etc/chrony/chrony.conf. Package-level var for test injection.
+var chronyCfgPaths = []string{"/etc/chrony.conf", "/etc/chrony/chrony.conf"}
+
+// ntpCfgPath and timesyncdCfgPath are the config file locations for ntpd and
+// systemd-timesyncd respectively. Package-level vars for test injection.
+var ntpCfgPath = "/etc/ntp.conf"
+var timesyncdCfgPath = "/etc/systemd/timesyncd.conf"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
