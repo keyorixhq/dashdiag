@@ -2822,42 +2822,6 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'remember=5' to pam_unix.so or pam_pwhistory.so in /etc/pam.d/common-password")
 			}},
 
-		{ID: "5.4.13", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
-			Description: "Ensure inactive password lock is configured (INACTIVE=1-30 in /etc/default/useradd)",
-			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("5.4.13")
-				data, err := os.ReadFile(useraddDefaultPath) //nolint:gosec // package-level var
-				if err != nil {
-					return skipr(r, "could not read /etc/default/useradd")
-				}
-				for line := range strings.SplitSeq(string(data), "\n") {
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "#") {
-						continue
-					}
-					rest, ok := strings.CutPrefix(line, "INACTIVE=")
-					if !ok {
-						continue
-					}
-					val, convErr := strconv.Atoi(strings.TrimSpace(rest))
-					if convErr != nil {
-						return failr(r, fmt.Sprintf("INACTIVE value %q is not an integer", rest),
-							"set INACTIVE=30 in /etc/default/useradd")
-					}
-					if val <= 0 {
-						return failr(r, fmt.Sprintf("INACTIVE=%d — inactive account lock is disabled", val),
-							"set INACTIVE=30 in /etc/default/useradd")
-					}
-					if val > 30 {
-						return failr(r, fmt.Sprintf("INACTIVE=%d — lock period exceeds CIS 30-day maximum", val),
-							"set INACTIVE=30 in /etc/default/useradd")
-					}
-					return pass(r)
-				}
-				return failr(r, "INACTIVE not set in /etc/default/useradd",
-					"set INACTIVE=30 in /etc/default/useradd")
-			}},
-
 		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
 			Description: "Ensure sudo authentication timeout is 15 minutes or less",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
