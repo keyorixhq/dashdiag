@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -200,6 +201,62 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkServiceNotInstalled(ruleByID("2.3.5"), slapdBinPaths,
 					"remove LDAP server: apt purge slapd / dnf remove openldap-servers")
+			}},
+
+		{ID: "2.3.6", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure NFS server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.6"), nfsBinPaths,
+					"remove NFS: apt purge nfs-kernel-server / dnf remove nfs-utils")
+			}},
+
+		{ID: "2.3.7", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure DNS server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.7"), namedBinPaths,
+					"remove BIND/named: apt purge bind9 / dnf remove bind")
+			}},
+
+		{ID: "2.3.8", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure FTP server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.8"), ftpBinPaths,
+					"remove FTP server: apt purge vsftpd / dnf remove vsftpd")
+			}},
+
+		{ID: "2.3.9", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure HTTP server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.9"), httpBinPaths,
+					"remove HTTP server: apt purge apache2 nginx / dnf remove httpd nginx")
+			}},
+
+		{ID: "2.3.10", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure IMAP and POP3 server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.10"), imapBinPaths,
+					"remove Dovecot: apt purge dovecot-imapd dovecot-pop3d / dnf remove dovecot")
+			}},
+
+		{ID: "2.3.11", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure Samba server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.11"), sambaBinPaths,
+					"remove Samba: apt purge samba / dnf remove samba")
+			}},
+
+		{ID: "2.3.12", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure HTTP proxy server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.12"), squidBinPaths,
+					"remove Squid: apt purge squid / dnf remove squid")
+			}},
+
+		{ID: "2.3.13", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure SNMP server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.13"), snmpBinPaths,
+					"remove SNMP: apt purge snmpd / dnf remove net-snmp")
 			}},
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
@@ -561,6 +618,147 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return skipr(r, "grub.cfg not found at any known path (UEFI-only or non-GRUB system)")
 			}},
 
+		// ── 1.1.1 Disable Unused Filesystems ─────────────────────────────────────
+
+		{ID: "1.1.1.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure mounting of cramfs filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.1"), "cramfs",
+					"echo 'install cramfs /bin/true' > /etc/modprobe.d/cramfs.conf")
+			}},
+
+		{ID: "1.1.1.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure mounting of freevxfs filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.2"), "freevxfs",
+					"echo 'install freevxfs /bin/true' > /etc/modprobe.d/freevxfs.conf")
+			}},
+
+		{ID: "1.1.1.3", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure mounting of jffs2 filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.3"), "jffs2",
+					"echo 'install jffs2 /bin/true' > /etc/modprobe.d/jffs2.conf")
+			}},
+
+		{ID: "1.1.1.4", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure mounting of hfs filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.4"), "hfs",
+					"echo 'install hfs /bin/true' > /etc/modprobe.d/hfs.conf")
+			}},
+
+		{ID: "1.1.1.5", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure mounting of hfsplus filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.5"), "hfsplus",
+					"echo 'install hfsplus /bin/true' > /etc/modprobe.d/hfsplus.conf")
+			}},
+
+		{ID: "1.1.1.6", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure mounting of squashfs filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.6"), "squashfs",
+					"echo 'install squashfs /bin/true' > /etc/modprobe.d/squashfs.conf (disable only when snaps are not used)")
+			}},
+
+		{ID: "1.1.1.7", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure mounting of udf filesystems is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.1.7"), "udf",
+					"echo 'install udf /bin/true' > /etc/modprobe.d/udf.conf")
+			}},
+
+		// ── 1.1.2–1.1.14 Mount Point Options ─────────────────────────────────────
+		// /proc/mounts is authoritative for active mount options. Rules SKIP when
+		// the mount point is not a separate partition.
+
+		{ID: "1.1.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure /tmp is configured as a separate partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.2"), "/tmp",
+					"add tmpfs /tmp tmpfs defaults,rw,nosuid,nodev,noexec 0 0 to /etc/fstab")
+			}},
+
+		{ID: "1.1.3", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nodev option set on /tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.3"), "/tmp", "nodev",
+					"add 'nodev' to /tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.4", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.4"), "/tmp", "nosuid",
+					"add 'nosuid' to /tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.5", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure noexec option set on /tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.5"), "/tmp", "noexec",
+					"add 'noexec' to /tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.6", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nodev option set on /dev/shm partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.6"), "/dev/shm", "nodev",
+					"add 'nodev' to /dev/shm mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.7", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /dev/shm partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.7"), "/dev/shm", "nosuid",
+					"add 'nosuid' to /dev/shm mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.8", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure noexec option set on /dev/shm partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.8"), "/dev/shm", "noexec",
+					"add 'noexec' to /dev/shm mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.9", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nodev option set on /var/tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.9"), "/var/tmp", "nodev",
+					"add 'nodev' to /var/tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.10", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /var/tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.10"), "/var/tmp", "nosuid",
+					"add 'nosuid' to /var/tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.11", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure noexec option set on /var/tmp partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.11"), "/var/tmp", "noexec",
+					"add 'noexec' to /var/tmp mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.14", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure nodev option set on /home partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.14"), "/home", "nodev",
+					"add 'nodev' to /home mount options in /etc/fstab")
+			}},
+
+		// ── 1.5.2 Prelink ─────────────────────────────────────────────────────────
+
+		{ID: "1.5.2", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure prelink is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("1.5.2"), prelinkBinPaths,
+					"apt purge prelink / dnf remove prelink")
+			}},
+
 		// ── 1.7 Warning Banners ───────────────────────────────────────────────
 
 		{ID: "1.7.1", Framework: cisBenchCIS, Level: 1, Section: "Banners",
@@ -627,6 +825,47 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/rp_filter", "1",
 					"rp_filter is 0 — reverse path filtering disabled (IP spoofing possible)",
 					"sysctl -w net.ipv4.conf.all.rp_filter=1 && sysctl -w net.ipv4.conf.default.rp_filter=1")
+			}},
+
+		{ID: "3.2.8", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure TCP SYN cookies is enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.8")
+				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_syncookies", "1",
+					"tcp_syncookies is 0 — SYN flood protection disabled",
+					"sysctl -w net.ipv4.tcp_syncookies=1 && echo 'net.ipv4.tcp_syncookies=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
+		// These kernel modules implement uncommon network protocols rarely needed
+		// on servers. Disabling prevents them from being loaded on demand.
+
+		{ID: "3.4.1", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure DCCP is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("3.4.1"), "dccp",
+					"echo 'install dccp /bin/true' > /etc/modprobe.d/dccp.conf")
+			}},
+
+		{ID: "3.4.2", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure SCTP is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("3.4.2"), "sctp",
+					"echo 'install sctp /bin/true' > /etc/modprobe.d/sctp.conf")
+			}},
+
+		{ID: "3.4.3", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure RDS is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("3.4.3"), "rds",
+					"echo 'install rds /bin/true' > /etc/modprobe.d/rds.conf")
+			}},
+
+		{ID: "3.4.4", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure TIPC is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("3.4.4"), "tipc",
+					"echo 'install tipc /bin/true' > /etc/modprobe.d/tipc.conf")
 			}},
 
 		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
@@ -902,6 +1141,98 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"PASS_WARN_AGE not set in /etc/login.defs", "add PASS_WARN_AGE 7 to /etc/login.defs")
 			}},
 
+		{ID: "5.4.7", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure inactive password lock is 30 days or less",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.7")
+				data, err := os.ReadFile(useraddDefaultPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "/etc/default/useradd not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || line == "" {
+						continue
+					}
+					if val, ok := strings.CutPrefix(line, "INACTIVE="); ok {
+						n := 0
+						if _, err := fmt.Sscanf(val, "%d", &n); err != nil {
+							return skipr(r, fmt.Sprintf("cannot parse INACTIVE=%q", val))
+						}
+						if n < 0 {
+							return failr(r, fmt.Sprintf("INACTIVE=%d — no automatic account lockout configured", n),
+								"set INACTIVE=30 in /etc/default/useradd")
+						}
+						if n > 30 {
+							return failr(r, fmt.Sprintf("INACTIVE=%d days (must be ≤ 30)", n),
+								"set INACTIVE=30 in /etc/default/useradd")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "INACTIVE not set in /etc/default/useradd (no automatic lockout)",
+					"set INACTIVE=30 in /etc/default/useradd")
+			}},
+
+		{ID: "5.4.8", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure system accounts do not have interactive shells",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.8")
+				data, err := os.ReadFile(etcPasswdPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				const uidMin = 1000
+				noInteractive := map[string]bool{
+					"/sbin/nologin": true, "/usr/sbin/nologin": true,
+					"/bin/false": true, "/usr/bin/false": true,
+				}
+				var bad []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 7 {
+						continue
+					}
+					uid, err := strconv.Atoi(fields[2])
+					if err != nil || uid == 0 || uid >= uidMin {
+						continue
+					}
+					shell := strings.TrimSpace(fields[6])
+					if !noInteractive[shell] {
+						bad = append(bad, fmt.Sprintf("%s(uid=%d,shell=%s)", fields[0], uid, shell))
+					}
+				}
+				if len(bad) > 0 {
+					return failr(r,
+						fmt.Sprintf("system accounts with interactive shells: %s", strings.Join(bad, " ")),
+						"set shell: usermod -s /usr/sbin/nologin <user>")
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure sudo authentication timeout is 15 minutes or less",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.3.5")
+				if sec.SudoersUnreadable {
+					return skipr(r, "sudoers not readable — run as root for full coverage")
+				}
+				if sec.SudoTimestampNever {
+					return failr(r, "Defaults timestamp_timeout < 0 — sudo sessions never expire",
+						"add 'Defaults timestamp_timeout=15' to /etc/sudoers")
+				}
+				if sec.SudoTimestampMins > 15 {
+					return failr(r,
+						fmt.Sprintf("Defaults timestamp_timeout=%d minutes exceeds CIS 15-minute limit", sec.SudoTimestampMins),
+						"set 'Defaults timestamp_timeout=15' in /etc/sudoers")
+				}
+				return pass(r)
+			}},
+
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
 
 		{ID: "5.1.2", Framework: cisBenchCIS, Level: 1, Section: "Cron",
@@ -1150,6 +1481,134 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"set passwords or lock accounts: passwd -l <user>")
 			}},
 
+		{ID: "6.2.5", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no duplicate UIDs exist",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.5")
+				data, err := os.ReadFile(etcPasswdPath)
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				seen := map[string]bool{}
+				var dups []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 4)
+					if len(fields) < 3 {
+						continue
+					}
+					uid := fields[2]
+					if seen[uid] {
+						dups = append(dups, uid)
+					}
+					seen[uid] = true
+				}
+				if len(dups) > 0 {
+					return failr(r, fmt.Sprintf("duplicate UIDs in /etc/passwd: %s", strings.Join(dups, ", ")),
+						"remove or reassign duplicate UID accounts")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.6", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no duplicate GIDs exist",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.6")
+				data, err := os.ReadFile(etcGroupPath)
+				if err != nil {
+					return skipr(r, "could not read /etc/group")
+				}
+				seen := map[string]bool{}
+				var dups []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 4)
+					if len(fields) < 3 {
+						continue
+					}
+					gid := fields[2]
+					if seen[gid] {
+						dups = append(dups, gid)
+					}
+					seen[gid] = true
+				}
+				if len(dups) > 0 {
+					return failr(r, fmt.Sprintf("duplicate GIDs in /etc/group: %s", strings.Join(dups, ", ")),
+						"remove or reassign duplicate GID groups")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.7", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no duplicate user names exist",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.7")
+				data, err := os.ReadFile(etcPasswdPath)
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				seen := map[string]bool{}
+				var dups []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 2)
+					if len(fields) < 1 {
+						continue
+					}
+					username := fields[0]
+					if seen[username] {
+						dups = append(dups, username)
+					}
+					seen[username] = true
+				}
+				if len(dups) > 0 {
+					return failr(r, fmt.Sprintf("duplicate usernames in /etc/passwd: %s", strings.Join(dups, ", ")),
+						"remove or rename duplicate user accounts")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.8", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no duplicate group names exist",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.8")
+				data, err := os.ReadFile(etcGroupPath)
+				if err != nil {
+					return skipr(r, "could not read /etc/group")
+				}
+				seen := map[string]bool{}
+				var dups []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 2)
+					if len(fields) < 1 {
+						continue
+					}
+					groupname := fields[0]
+					if seen[groupname] {
+						dups = append(dups, groupname)
+					}
+					seen[groupname] = true
+				}
+				if len(dups) > 0 {
+					return failr(r, fmt.Sprintf("duplicate group names in /etc/group: %s", strings.Join(dups, ", ")),
+						"remove or rename duplicate groups")
+				}
+				return pass(r)
+			}},
+
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
 
 		// V-238213: Approved ciphers — STIG mandates only FIPS-approved ciphers
@@ -1337,6 +1796,34 @@ var atDenyPath = "/etc/at.deny"
 // Both rsyslog and syslog-ng satisfy the "logging daemon installed" requirement.
 var rsyslogBinPaths = []string{"/usr/sbin/rsyslogd", "/sbin/rsyslogd", "/usr/sbin/syslog-ng"}
 
+// procModulesPath is /proc/modules — checked by kernel-module disabled rules (1.1.1.x, 3.4.x).
+// Package-level var for test injection.
+var procModulesPath = "/proc/modules"
+
+// modprobeDPath is the modprobe.d config directory scanned by checkModuleDisabled.
+var modprobeDPath = "/etc/modprobe.d"
+
+// procMountsPath is /proc/mounts — checked by filesystem mount-option rules (1.1.x).
+var procMountsPath = "/proc/mounts"
+
+// etcPasswdPath and etcGroupPath are the user and group databases read by rules
+// 5.4.8 (system account shells) and 6.2.5-6.2.8 (duplicate UID/GID/name checks).
+var etcPasswdPath = "/etc/passwd"
+var etcGroupPath  = "/etc/group"
+
+// prelinkBinPaths for rule 1.5.2 (prelink not installed).
+var prelinkBinPaths = []string{"/usr/sbin/prelink"}
+
+// Service daemons that must not be installed (2.3.6-2.3.13).
+var nfsBinPaths   = []string{"/usr/sbin/nfsd", "/usr/sbin/rpc.nfsd"}
+var namedBinPaths = []string{"/usr/sbin/named", "/usr/bin/named"}
+var ftpBinPaths   = []string{"/usr/sbin/vsftpd", "/usr/sbin/proftpd", "/usr/sbin/pure-ftpd"}
+var httpBinPaths  = []string{"/usr/sbin/apache2", "/usr/sbin/httpd", "/usr/sbin/nginx"}
+var imapBinPaths  = []string{"/usr/sbin/dovecot"}
+var sambaBinPaths = []string{"/usr/sbin/smbd"}
+var squidBinPaths = []string{"/usr/sbin/squid", "/usr/sbin/squid3"}
+var snmpBinPaths  = []string{"/usr/sbin/snmpd"}
+
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
 // notSetFinding/notSetFix are used when the field is entirely absent from the
@@ -1471,6 +1958,83 @@ func checkServiceNotInstalled(r Rule, binPaths []string, fix string) models.CISR
 		}
 	}
 	return pass(r)
+}
+
+// checkModuleDisabled verifies that a Linux kernel module is not loaded and is
+// configured as disabled in /etc/modprobe.d/. Returns SKIP when /proc/modules
+// is unreadable (non-Linux system). Returns FAIL when the module is loaded or
+// when no disable configuration exists (module could load on demand).
+func checkModuleDisabled(r Rule, module, fix string) models.CISResult {
+	modulesData, err := os.ReadFile(procModulesPath) //nolint:gosec // package-level var
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s (not a Linux system)", procModulesPath))
+	}
+	for line := range strings.SplitSeq(string(modulesData), "\n") {
+		if strings.HasPrefix(line, module+" ") {
+			return failr(r, fmt.Sprintf("kernel module %q is currently loaded", module), fix)
+		}
+	}
+	// Module not loaded — verify it is explicitly disabled so it cannot load on demand
+	entries, err := os.ReadDir(modprobeDPath) //nolint:gosec // package-level var
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+				continue
+			}
+			confData, err := os.ReadFile(filepath.Join(modprobeDPath, e.Name())) //nolint:gosec
+			if err != nil {
+				continue
+			}
+			for line := range strings.SplitSeq(string(confData), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "install "+module+" /bin/true") ||
+					strings.HasPrefix(line, "blacklist "+module) {
+					return pass(r)
+				}
+			}
+		}
+	}
+	return failr(r, fmt.Sprintf("no modprobe disable config for %q (module can load on demand)", module), fix)
+}
+
+// checkMountOption verifies that mountPoint appears in /proc/mounts with the
+// given mount option (e.g. nodev, nosuid, noexec). Returns SKIP when the mount
+// point is not found (may not be a separate partition).
+func checkMountOption(r Rule, mountPoint, option, fix string) models.CISResult {
+	data, err := os.ReadFile(procMountsPath) //nolint:gosec // package-level var
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s", procMountsPath))
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[1] != mountPoint {
+			continue
+		}
+		for opt := range strings.SplitSeq(fields[3], ",") {
+			if opt == option {
+				return pass(r)
+			}
+		}
+		return failr(r, fmt.Sprintf("%s is mounted without '%s' option", mountPoint, option), fix)
+	}
+	return skipr(r, fmt.Sprintf("%s not found as a separate mount (option check skipped)", mountPoint))
+}
+
+// checkSeparateMountPoint verifies that mountPoint appears as its own entry in
+// /proc/mounts (i.e. is on a separate partition or tmpfs). Returns FAIL when it
+// is served by the root filesystem.
+func checkSeparateMountPoint(r Rule, mountPoint, fix string) models.CISResult {
+	data, err := os.ReadFile(procMountsPath) //nolint:gosec // package-level var
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s", procMountsPath))
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == mountPoint {
+			return pass(r)
+		}
+	}
+	return failr(r, fmt.Sprintf("%s is not on a separate partition", mountPoint), fix)
 }
 
 // ruleByID returns the Rule struct for the given ID by scanning CISRules.
