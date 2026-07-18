@@ -4225,3 +4225,220 @@ func TestRule6_2_18_ShadowGroupEmpty(t *testing.T) {
 		}
 	})
 }
+
+// TestRule3_5_1_7_UFWDefaultDeny verifies rule 3.5.1.7.
+// No t.Parallel(): mutates package-level ufwDefaultPath.
+func TestRule3_5_1_7_UFWDefaultDeny(t *testing.T) {
+	dir := t.TempDir()
+	origUFW := ufwDefaultPath
+	t.Cleanup(func() { ufwDefaultPath = origUFW })
+
+	rule := ruleByID("3.5.1.7")
+
+	t.Run("file missing → SKIP", func(t *testing.T) {
+		ufwDefaultPath = filepath.Join(dir, "no_ufw_default")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no policy keys → SKIP", func(t *testing.T) {
+		p := filepath.Join(dir, "ufw_no_policy")
+		if err := os.WriteFile(p, []byte("# ufw defaults\nIPV6=yes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no policy keys: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_INPUT_POLICY=DROP → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "ufw_drop")
+		content := "DEFAULT_INPUT_POLICY=\"DROP\"\nDEFAULT_FORWARD_POLICY=\"DROP\"\nDEFAULT_OUTPUT_POLICY=\"ACCEPT\"\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("DROP policy: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_INPUT_POLICY=ACCEPT → FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "ufw_accept")
+		content := "DEFAULT_INPUT_POLICY=\"ACCEPT\"\nDEFAULT_FORWARD_POLICY=\"DROP\"\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ACCEPT input policy: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_FORWARD_POLICY=ACCEPT → FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "ufw_forward_accept")
+		content := "DEFAULT_INPUT_POLICY=\"DROP\"\nDEFAULT_FORWARD_POLICY=\"ACCEPT\"\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ACCEPT forward policy: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_4_RsyslogNotAcceptingRemote verifies rule 4.2.4.
+// No t.Parallel(): mutates package-level rsyslogConfPath and rsyslogConfDPath.
+func TestRule4_2_4_RsyslogNotAcceptingRemote(t *testing.T) {
+	dir := t.TempDir()
+	origConf := rsyslogConfPath
+	origConfD := rsyslogConfDPath
+	t.Cleanup(func() {
+		rsyslogConfPath = origConf
+		rsyslogConfDPath = origConfD
+	})
+
+	rule := ruleByID("4.2.4")
+
+	t.Run("no config files → PASS", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no config: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("config without network modules → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_clean.conf")
+		content := "# rsyslog config\n$ModLoad imuxsock\n$ModLoad imklog\n*.* /var/log/syslog\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no network mods: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("legacy $ModLoad imtcp in main config → FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_imtcp.conf")
+		content := "$ModLoad imuxsock\n$ModLoad imtcp\n$InputTCPServerRun 514\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("imtcp loaded: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("RainerScript module load in conf.d → FAIL", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		confD := filepath.Join(dir, "rsyslog_d_imudp")
+		if err := os.MkdirAll(confD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := `module(load="imudp")` + "\ninput(type=\"imudp\" port=\"514\")\n"
+		if err := os.WriteFile(filepath.Join(confD, "50-udp.conf"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = confD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("imudp in conf.d: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("commented module load → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_commented.conf")
+		content := "# $ModLoad imtcp\n# $ModLoad imudp\n*.* /var/log/syslog\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("commented mods: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_3_1_LogrotateConfigured verifies rule 4.3.1.
+// No t.Parallel(): mutates package-level logrotateConfPath and logrotateConfDPath.
+func TestRule4_3_1_LogrotateConfigured(t *testing.T) {
+	dir := t.TempDir()
+	origConf := logrotateConfPath
+	origConfD := logrotateConfDPath
+	t.Cleanup(func() {
+		logrotateConfPath = origConf
+		logrotateConfDPath = origConfD
+	})
+
+	rule := ruleByID("4.3.1")
+
+	t.Run("no config anywhere → FAIL", func(t *testing.T) {
+		logrotateConfPath = filepath.Join(dir, "no_logrotate.conf")
+		logrotateConfDPath = filepath.Join(dir, "no_logrotate.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no config: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("logrotate.conf with content → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "logrotate.conf")
+		content := "# logrotate\nweekly\nrotate 4\ncompress\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		logrotateConfPath = p
+		logrotateConfDPath = filepath.Join(dir, "no_logrotate.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("conf with content: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("only conf.d entry → PASS", func(t *testing.T) {
+		logrotateConfPath = filepath.Join(dir, "no_logrotate.conf")
+		confD := filepath.Join(dir, "logrotate.d_only")
+		if err := os.MkdirAll(confD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(confD, "syslog"), []byte("/var/log/syslog {\n  rotate 7\n  daily\n}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		logrotateConfDPath = confD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("conf.d entry: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("conf with only comments → FAIL without conf.d", func(t *testing.T) {
+		p := filepath.Join(dir, "logrotate_comments_only.conf")
+		if err := os.WriteFile(p, []byte("# just a comment\n# another comment\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		logrotateConfPath = p
+		logrotateConfDPath = filepath.Join(dir, "no_logrotate.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("comments only: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

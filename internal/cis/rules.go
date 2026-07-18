@@ -1148,6 +1148,43 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"enable the firewall: ufw enable (Ubuntu/Debian) or systemctl enable --now firewalld (RHEL/Rocky)")
 			}},
 
+		{ID: "3.5.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw default deny firewall policy",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.7")
+				data, err := os.ReadFile(ufwDefaultPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "ufw not configured or /etc/default/ufw unreadable")
+				}
+				var inputPolicy, forwardPolicy string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+					if rest, ok := strings.CutPrefix(trimmed, "DEFAULT_INPUT_POLICY="); ok {
+						inputPolicy = strings.Trim(rest, "\"'")
+					}
+					if rest, ok := strings.CutPrefix(trimmed, "DEFAULT_FORWARD_POLICY="); ok {
+						forwardPolicy = strings.Trim(rest, "\"'")
+					}
+				}
+				if inputPolicy == "" && forwardPolicy == "" {
+					return skipr(r, "no DEFAULT_INPUT_POLICY or DEFAULT_FORWARD_POLICY found in /etc/default/ufw")
+				}
+				if strings.EqualFold(inputPolicy, "ACCEPT") {
+					return failr(r,
+						fmt.Sprintf("DEFAULT_INPUT_POLICY is %q — incoming traffic allowed by default", inputPolicy),
+						"set DEFAULT_INPUT_POLICY=\"DROP\" in /etc/default/ufw and run: ufw reload")
+				}
+				if strings.EqualFold(forwardPolicy, "ACCEPT") {
+					return failr(r,
+						fmt.Sprintf("DEFAULT_FORWARD_POLICY is %q — forwarding allowed by default", forwardPolicy),
+						"set DEFAULT_FORWARD_POLICY=\"DROP\" in /etc/default/ufw and run: ufw reload")
+				}
+				return pass(r)
+			}},
+
 		// ── 4.x Logging and Auditing ──────────────────────────────────────────
 
 		{ID: cisRuleAudit41, StigID: "V-238360",
@@ -1396,6 +1433,95 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return failr(r, "no remote log host configured in rsyslog",
 					"add '*.* @@loghost.example.com' or equivalent to /etc/rsyslog.d/50-remote.conf")
+			}},
+
+		{ID: "4.2.4", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure rsyslog is not accepting remote messages",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.4")
+				networkMods := []string{
+					"$modload imtcp", "$modload imudp", "$modload imrelp",
+					`module(load="imtcp"`, `module(load="imudp"`, `module(load="imrelp"`,
+					`input(type="imtcp"`, `input(type="imudp"`, `input(type="imrelp"`,
+				}
+				findMod := func(data []byte) string {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						lower := strings.ToLower(trimmed)
+						for _, mod := range networkMods {
+							if strings.Contains(lower, mod) {
+								return trimmed
+							}
+						}
+					}
+					return ""
+				}
+				if data, err := os.ReadFile(rsyslogConfPath); err == nil { //nolint:gosec // package-level var
+					if found := findMod(data); found != "" {
+						return failr(r,
+							fmt.Sprintf("rsyslog loads network receiver module: %q", found),
+							"comment out or remove imtcp/imudp/imrelp module load directives from /etc/rsyslog.conf")
+					}
+				}
+				if entries, err := os.ReadDir(rsyslogConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, rdErr := os.ReadFile(filepath.Join(rsyslogConfDPath, e.Name())) //nolint:gosec
+						if rdErr != nil {
+							continue
+						}
+						if found := findMod(data); found != "" {
+							return failr(r,
+								fmt.Sprintf("rsyslog config %s loads network receiver module: %q", e.Name(), found),
+								"comment out or remove imtcp/imudp/imrelp load directives from /etc/rsyslog.d/")
+						}
+					}
+				}
+				return pass(r)
+			}},
+
+		// ── 4.3 Log rotation ──────────────────────────────────────────────────
+
+		{ID: "4.3.1", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure logrotate is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.3.1")
+				hasConfig := func(data []byte) bool {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+							return true
+						}
+					}
+					return false
+				}
+				if data, err := os.ReadFile(logrotateConfPath); err == nil { //nolint:gosec // package-level var
+					if hasConfig(data) {
+						return pass(r)
+					}
+				}
+				if entries, err := os.ReadDir(logrotateConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() {
+							continue
+						}
+						data, rdErr := os.ReadFile(filepath.Join(logrotateConfDPath, e.Name())) //nolint:gosec
+						if rdErr != nil {
+							continue
+						}
+						if hasConfig(data) {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r,
+					"no logrotate configuration found",
+					"install logrotate and ensure /etc/logrotate.conf or /etc/logrotate.d/ entries exist")
 			}},
 
 		// ── 5.3/5.4 Auth ──────────────────────────────────────────────────────
@@ -2717,6 +2843,13 @@ var cronWantsPaths = []string{
 	"/etc/systemd/system/multi-user.target.wants/cron.service",
 	"/etc/systemd/system/multi-user.target.wants/crond.service",
 }
+
+// ufwDefaultPath: ufw default policy config (3.5.1.7).
+var ufwDefaultPath = "/etc/default/ufw"
+
+// logrotateConfPath and logrotateConfDPath for logrotate config check (4.3.1).
+var logrotateConfPath = "/etc/logrotate.conf"
+var logrotateConfDPath = "/etc/logrotate.d"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
