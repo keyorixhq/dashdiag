@@ -270,3 +270,68 @@ func FuzzParseFileNr(f *testing.F) {
 		parseFileNr(strings.NewReader(s)) //nolint:errcheck
 	})
 }
+
+// TestFDLimitsCollector_CollectDarwin_SysctlError covers fdlimits.go:223.88,225.16
+// and fdlimits.go:225.16,227.3 — when sysctl fails, collectDarwin returns an empty
+// FDInfo with no error (graceful degrade).
+func TestFDLimitsCollector_CollectDarwin_SysctlError(t *testing.T) {
+	t.Parallel()
+	b := source.NewBundle()
+	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "", 1) // non-zero exit → error
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	got, err := (&FDLimitsCollector{}).collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("collectDarwin returned unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil *models.FDInfo")
+	}
+	if got.MaxCount != 0 {
+		t.Errorf("MaxCount = %d, want 0 on sysctl error", got.MaxCount)
+	}
+}
+
+// TestFDLimitsCollector_CollectDarwin_ParseError covers fdlimits.go:228.2,229.16
+// and fdlimits.go:229.16,231.3 — when sysctl returns non-numeric output, ParseUint
+// fails and collectDarwin returns an empty FDInfo with no error.
+func TestFDLimitsCollector_CollectDarwin_ParseError(t *testing.T) {
+	t.Parallel()
+	b := source.NewBundle()
+	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "not-a-number\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	got, err := (&FDLimitsCollector{}).collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("collectDarwin returned unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil *models.FDInfo")
+	}
+	if got.MaxCount != 0 {
+		t.Errorf("MaxCount = %d, want 0 on parse error", got.MaxCount)
+	}
+}
+
+// TestFDLimitsCollector_CollectDarwin_Success covers fdlimits.go:232.2,232.43 —
+// the happy path where sysctl returns a valid integer and MaxCount is populated.
+func TestFDLimitsCollector_CollectDarwin_Success(t *testing.T) {
+	t.Parallel()
+	b := source.NewBundle()
+	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "65536\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	got, err := (&FDLimitsCollector{}).collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("collectDarwin returned unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil *models.FDInfo")
+	}
+	if got.MaxCount != 65536 {
+		t.Errorf("MaxCount = %d, want 65536", got.MaxCount)
+	}
+}

@@ -87,3 +87,60 @@ func TestClockReplayReproducesCapturedSyncState(t *testing.T) {
 		t.Errorf("replay Source = %q, want captured %q", info.Source, "adjtimex")
 	}
 }
+
+// TestClockCollector_CollectDarwin_PgrepFound covers clock.go:29.98,34.57 and
+// clock.go:34.57,37.3 — the `if _, err := runCmd(ctx, "pgrep", "timed"); err == nil`
+// success branch, which sets Synced=true and Source="timed".
+func TestClockCollector_CollectDarwin_PgrepFound(t *testing.T) {
+	t.Parallel()
+	b := source.NewBundle()
+	b.PutCmd("pgrep", []string{"timed"}, "", 0)
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	info := &models.ClockInfo{}
+	result, err := (&ClockCollector{}).collectDarwin(context.Background(), info)
+	if err != nil {
+		t.Fatalf("collectDarwin returned error: %v", err)
+	}
+	got, ok := result.(*models.ClockInfo)
+	if !ok {
+		t.Fatalf("result is not *models.ClockInfo, got %T", result)
+	}
+	if !got.Synced {
+		t.Error("expected Synced=true when pgrep timed succeeds")
+	}
+	if got.Source != "timed" {
+		t.Errorf("Source = %q, want %q", got.Source, "timed")
+	}
+	if got.OffsetMs != -1 {
+		t.Errorf("OffsetMs = %v, want -1 (darwin has no offset)", got.OffsetMs)
+	}
+}
+
+// TestClockCollector_CollectDarwin_PgrepMissing covers clock.go:37.8,40.3 and
+// clock.go:41.2,41.18 — the else branch when pgrep timed fails (timed not running),
+// which sets Synced=false and Source="unavailable".
+func TestClockCollector_CollectDarwin_PgrepMissing(t *testing.T) {
+	t.Parallel()
+	b := source.NewBundle()
+	b.PutCmd("pgrep", []string{"timed"}, "", 1) // non-zero exit → not running
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	info := &models.ClockInfo{}
+	result, err := (&ClockCollector{}).collectDarwin(context.Background(), info)
+	if err != nil {
+		t.Fatalf("collectDarwin returned error: %v", err)
+	}
+	got, ok := result.(*models.ClockInfo)
+	if !ok {
+		t.Fatalf("result is not *models.ClockInfo, got %T", result)
+	}
+	if got.Synced {
+		t.Error("expected Synced=false when pgrep timed fails")
+	}
+	if got.Source != "unavailable" {
+		t.Errorf("Source = %q, want %q", got.Source, "unavailable")
+	}
+}
