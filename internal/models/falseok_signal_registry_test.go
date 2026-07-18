@@ -45,6 +45,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.NeedsRoot":              "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
 	"SecurityInfo.PortsNeedRoot":          "analysis/heuristics_security_full_test.go (ports → 'run as root')",
 	"SecurityInfo.ShadowUnreadable":       "analysis/mac_shadow_unverified_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.SudoersUnreadable":      "cis/rules_test.go (5.3.4 sudo-nopasswd rule: SudoersUnreadable → CISSkipped, never false-OK)",
 	"SecurityInfo.FailedLoginsUnreadable": "analysis/failedlogins_pam_unverified_test.go",
 	"SecurityInfo.PAMFailuresUnreadable":  "analysis/failedlogins_pam_unverified_test.go",
 	"SecurityInfo.SSHConfigUnreadable":    "cis/ssh_unverified_test.go + cmd/security_falseok_test.go",

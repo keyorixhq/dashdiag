@@ -587,6 +587,13 @@ func parseSudoers(info *models.SecurityInfo) {
 func parseSudoersFile(path string, info *models.SecurityInfo) {
 	f, err := openFile(filepath.Clean(path))
 	if err != nil {
+		if path == "/etc/sudoers" {
+			// Primary sudoers file exists but is unreadable — signal to CIS rules
+			// that we can't distinguish "no NOPASSWD" from "couldn't check".
+			if _, statErr := statFile("/etc/sudoers"); statErr == nil {
+				info.SudoersUnreadable = true
+			}
+		}
 		return
 	}
 	defer f.Close() //nolint:errcheck
