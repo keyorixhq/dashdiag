@@ -46,7 +46,9 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering filesystem (1.x), kernel hardening (1.5.x), banners (1.7.x), services (2.x), SSH (5.2.x), cron (5.1.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering filesystem (1.x), kernel hardening (1.5.x), bootloader (1.4.x), banners (1.7.x),
+// services (2.x incl. legacy clients 2.2.x and server daemons 2.3.x), SSH (5.2.x),
+// cron (5.1.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -127,6 +129,77 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return pass(r)
 				}
 				return skipr(r, "no time sync daemon config found — check rule 2.1.1")
+			}},
+
+		// ── 2.2 Legacy Service Clients ───────────────────────────────────────
+		// CIS L1: these clients use cleartext/insecure protocols and must not be
+		// present on a hardened server. A binary at any known path means installed.
+
+		{ID: "2.2.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure NIS client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.1"), nisBinPaths,
+					"remove NIS client: apt purge nis / dnf remove ypbind")
+			}},
+
+		{ID: "2.2.2", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure rsh client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.2"), rshBinPaths,
+					"remove rsh client: apt purge rsh-client / dnf remove rsh")
+			}},
+
+		{ID: "2.2.3", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure talk client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.3"), talkBinPaths,
+					"remove talk: apt purge talk / dnf remove talk")
+			}},
+
+		{ID: "2.2.4", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure telnet client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.4"), telnetBinPaths,
+					"remove telnet: apt purge telnet / dnf remove telnet")
+			}},
+
+		// ── 2.3 Server Daemons Not Installed ─────────────────────────────────
+		// These daemons are not needed on a general-purpose server and increase
+		// attack surface. Binary presence → service is installed → FAIL.
+
+		{ID: "2.3.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure Xorg X11 server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.1"), xorgBinPaths,
+					"remove Xorg: apt purge xserver-xorg / dnf remove xorg-x11-server-Xorg")
+			}},
+
+		{ID: "2.3.2", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure Avahi server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.2"), avahiBinPaths,
+					"remove Avahi: apt purge avahi-daemon / dnf remove avahi")
+			}},
+
+		{ID: "2.3.3", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure CUPS printing server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.3"), cupsBinPaths,
+					"remove CUPS: apt purge cups / dnf remove cups")
+			}},
+
+		{ID: "2.3.4", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure DHCP server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.4"), dhcpBinPaths,
+					"remove DHCP server: apt purge isc-dhcp-server / dnf remove dhcp-server")
+			}},
+
+		{ID: "2.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure LDAP server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.5"), slapdBinPaths,
+					"remove LDAP server: apt purge slapd / dnf remove openldap-servers")
 			}},
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
@@ -457,6 +530,35 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						"schedule: 0 5 * * * root /usr/bin/aide --check")
 				}
 				return pass(r)
+			}},
+
+		// ── 1.4 Bootloader Configuration ─────────────────────────────────────
+		// Scan known GRUB config paths (Ubuntu/Debian vs RHEL/Rocky); use the
+		// first one found. SKIP when no GRUB config is found (e.g. UEFI-only or
+		// non-GRUB systems that use systemd-boot).
+
+		{ID: "1.4.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure GRUB bootloader config is not world-readable (≤ 0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.4.1")
+				for _, p := range grubCfgPaths {
+					if _, err := os.Stat(p); err == nil {
+						return checkFilePerm(r, p, 0o600, "chmod og-rwx "+p)
+					}
+				}
+				return skipr(r, "grub.cfg not found at any known path (UEFI-only or non-GRUB system)")
+			}},
+
+		{ID: "1.4.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure GRUB bootloader config is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.4.2")
+				for _, p := range grubCfgPaths {
+					if _, err := os.Stat(p); err == nil {
+						return checkFileOwnerRootRoot(r, p, "chown root:root "+p)
+					}
+				}
+				return skipr(r, "grub.cfg not found at any known path (UEFI-only or non-GRUB system)")
 			}},
 
 		// ── 1.7 Warning Banners ───────────────────────────────────────────────
@@ -1132,6 +1234,27 @@ var motdPath = "/etc/motd"
 var issuePath = "/etc/issue"
 var issueNetPath = "/etc/issue.net"
 
+// nisBinPaths, rshBinPaths, talkBinPaths, telnetBinPaths are the binary paths
+// checked by the "legacy service not installed" rules (2.2.x). If any path
+// exists on the host, the service is considered installed → FAIL.
+var nisBinPaths = []string{"/usr/sbin/ypbind", "/usr/bin/ypcat", "/usr/bin/ypmatch"}
+var rshBinPaths = []string{"/usr/bin/rsh", "/usr/bin/rlogin", "/usr/bin/rcp"}
+var talkBinPaths = []string{"/usr/bin/talk", "/usr/bin/ntalk"}
+var telnetBinPaths = []string{"/usr/bin/telnet", "/usr/lib/telnet/telnet"}
+
+// xorgBinPaths, avahiBinPaths, cupsBinPaths, dhcpBinPaths, slapdBinPaths are
+// checked by the "server daemon not installed" rules (2.3.x).
+var xorgBinPaths = []string{"/usr/bin/Xorg", "/usr/bin/X", "/usr/lib/xorg/Xorg"}
+var avahiBinPaths = []string{"/usr/sbin/avahi-daemon"}
+var cupsBinPaths = []string{"/usr/sbin/cupsd"}
+var dhcpBinPaths = []string{"/usr/sbin/dhcpd"}
+var slapdBinPaths = []string{"/usr/sbin/slapd"}
+
+// grubCfgPaths is the ordered list of GRUB config file locations checked by
+// rules 1.4.1 and 1.4.2. Ubuntu/Debian use /boot/grub/grub.cfg; RHEL/Rocky
+// use /boot/grub2/grub.cfg. Package-level var for test injection.
+var grubCfgPaths = []string{"/boot/grub/grub.cfg", "/boot/grub2/grub.cfg"}
+
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
 // notSetFinding/notSetFix are used when the field is entirely absent from the
@@ -1254,6 +1377,18 @@ func checkFileOwnerRootRootOrShadow(r Rule, path, fix string) models.CISResult {
 		}
 	}
 	return failr(r, fmt.Sprintf("%s not group root or shadow (gid=%d)", path, stat.Gid), fix)
+}
+
+// checkServiceNotInstalled passes when none of binPaths exist on the filesystem.
+// Used by the "ensure <service> is not installed" rules (2.2.x, 2.3.x): finding
+// any binary at one of the paths means the service is installed → FAIL.
+func checkServiceNotInstalled(r Rule, binPaths []string, fix string) models.CISResult {
+	for _, p := range binPaths {
+		if _, err := os.Stat(p); err == nil { //nolint:gosec // path is a package var, not user input
+			return failr(r, fmt.Sprintf("binary found: %s", p), fix)
+		}
+	}
+	return pass(r)
 }
 
 // ruleByID returns the Rule struct for the given ID by scanning CISRules.
