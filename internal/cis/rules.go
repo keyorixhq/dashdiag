@@ -4546,12 +4546,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "The SSH daemon must set ClientAliveCountMax to 0",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("V-238221")
-				// We don't currently parse ClientAliveCountMax — treat as manual
-				return models.CISResult{
-					ID: r.ID, Framework: cisBenchSTIG, Level: r.Level, Section: r.Section,
-					Description: r.Description, Status: models.CISManual,
-					Finding: "run: grep -i ClientAliveCountMax /etc/ssh/sshd_config — value must be 0",
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
 				}
+				if sec.SSHClientAliveCountMax != 0 {
+					return failr(r,
+						fmt.Sprintf("ClientAliveCountMax is %d (must be 0 — no grace retries after idle timeout)", sec.SSHClientAliveCountMax),
+						"set ClientAliveCountMax 0 in /etc/ssh/sshd_config")
+				}
+				return pass(r)
 			}},
 
 		// V-238226: SSH StrictModes

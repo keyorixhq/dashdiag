@@ -475,12 +475,33 @@ func TestStructDrivenRules(t *testing.T) {
 	}
 }
 
-// V-238221 is a fixed MANUAL check regardless of input.
-func TestManualRule(t *testing.T) {
-	got := ruleByID("V-238221").Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-	if got.Status != models.CISManual {
-		t.Errorf("V-238221 should be MANUAL, got %s", got.Status)
-	}
+// TestV238221_ClientAliveCountMax verifies that V-238221 passes when
+// ClientAliveCountMax is 0 (the STIG requirement) and fails otherwise.
+func TestV238221_ClientAliveCountMax(t *testing.T) {
+	t.Parallel()
+	r := ruleByID("V-238221")
+
+	t.Run("unreadable_→_SKIP", func(t *testing.T) {
+		t.Parallel()
+		got := r.Check(models.SecurityInfo{SSHConfigUnreadable: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("countmax_0_→_PASS", func(t *testing.T) {
+		t.Parallel()
+		got := r.Check(models.SecurityInfo{SSHClientAliveCountMax: 0}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("countmax_3_→_FAIL", func(t *testing.T) {
+		t.Parallel()
+		got := r.Check(models.SecurityInfo{SSHClientAliveCountMax: 3}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("want CISFail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
 }
 
 // ── Evaluate: framework filtering, level gating, STIG swap, tallying ──────────

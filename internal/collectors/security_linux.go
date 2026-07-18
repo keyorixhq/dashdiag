@@ -244,6 +244,10 @@ func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:c
 			if n, err := strconv.Atoi(val); err == nil {
 				info.SSHClientAliveInterval = n
 			}
+		case "clientalivecountmax":
+			if n, err := strconv.Atoi(val); err == nil {
+				info.SSHClientAliveCountMax = n
+			}
 		case "ignorerhosts":
 			info.SSHIgnoreRhosts = val != "no"
 		case "hostbasedauthentication":
