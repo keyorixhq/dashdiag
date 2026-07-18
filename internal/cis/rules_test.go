@@ -1574,9 +1574,9 @@ func TestCheckBannerContent_MissingFile(t *testing.T) {
 func TestRule1_7_4_5_6_BannerPermissions(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
-		id      string
-		mode    os.FileMode
-		wantSt  models.CISStatus
+		id     string
+		mode   os.FileMode
+		wantSt models.CISStatus
 	}{
 		{"1.7.4", 0o644, models.CISPass},
 		{"1.7.4", 0o600, models.CISPass},
