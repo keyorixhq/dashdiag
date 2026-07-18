@@ -159,6 +159,22 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"fs.suid_dumpable is not 0 — SUID programs can produce core dumps that may expose sensitive memory",
 					"sysctl -w fs.suid_dumpable=0 && echo 'fs.suid_dumpable=0' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "1.5.14", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure SysRq key is disabled (kernel.sysrq = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.14")
+				return checkSysctl(r, sysrqPath, "0",
+					"kernel.sysrq is not 0 — SysRq keys enable privileged kernel operations (reboot, kill, sync) from the console",
+					"sysctl -w kernel.sysrq=0 && echo 'kernel.sysrq=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "1.5.15", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure PID is included in core dump filename (kernel.core_uses_pid = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.15")
+				return checkSysctl(r, coreUsesPidPath, "1",
+					"kernel.core_uses_pid is not 1 — core dumps do not include PID, concurrent dumps may overwrite each other",
+					"sysctl -w kernel.core_uses_pid=1 && echo 'kernel.core_uses_pid=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
@@ -1473,6 +1489,22 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_timestamps", "0",
 					"net.ipv4.tcp_timestamps is not 0 — TCP timestamps may allow remote clock fingerprinting and sequence number inference",
 					"sysctl -w net.ipv4.tcp_timestamps=0 && echo 'net.ipv4.tcp_timestamps=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.23", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ARP requests are filtered on non-target interfaces (net.ipv4.conf.all.arp_ignore = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.23")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/arp_ignore", "1",
+					"net.ipv4.conf.all.arp_ignore is not 1 — host replies to ARP requests for IPs bound to other interfaces (ARP spoofing risk)",
+					"sysctl -w net.ipv4.conf.all.arp_ignore=1 && echo 'net.ipv4.conf.all.arp_ignore=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.24", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ARP announcements use the best local address (net.ipv4.conf.all.arp_announce = 2)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.24")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/arp_announce", "2",
+					"net.ipv4.conf.all.arp_announce is not 2 — ARP packets may advertise unroutable source IPs, confusing neighbours",
+					"sysctl -w net.ipv4.conf.all.arp_announce=2 && echo 'net.ipv4.conf.all.arp_announce=2' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
@@ -4257,6 +4289,10 @@ var mmapMinAddrPath = "/proc/sys/vm/mmap_min_addr"
 
 // sysctl path for SUID core dump restriction (1.5.13).
 var suidDumpablePath = "/proc/sys/fs/suid_dumpable"
+
+// sysctl paths for SysRq and core dump PID (1.5.14-1.5.15).
+var sysrqPath = "/proc/sys/kernel/sysrq"
+var coreUsesPidPath = "/proc/sys/kernel/core_uses_pid"
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}

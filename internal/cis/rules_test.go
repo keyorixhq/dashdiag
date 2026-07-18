@@ -7025,6 +7025,134 @@ func TestRule1_5_13_SuidDumpable(t *testing.T) {
 	})
 }
 
+// TestRule1_5_14_SysRq verifies rule 1.5.14 (kernel.sysrq = 0).
+// No t.Parallel(): mutates package-level sysrqPath.
+func TestRule1_5_14_SysRq(t *testing.T) {
+	dir := t.TempDir()
+	orig := sysrqPath
+	t.Cleanup(func() { sysrqPath = orig })
+	rule := ruleByID("1.5.14")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "1.5.14" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "sysrq") {
+			t.Errorf("description missing 'sysrq': %s", rule.Description)
+		}
+	})
+	t.Run("missing_→_SKIP", func(t *testing.T) {
+		sysrqPath = filepath.Join(dir, "nosuchfile")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_1_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "sysrq1")
+		if err := os.WriteFile(f, []byte("1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysrqPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("value=1: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_0_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "sysrq0")
+		if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysrqPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=0: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule1_5_15_CoreUsesPid verifies rule 1.5.15 (kernel.core_uses_pid = 1).
+// No t.Parallel(): mutates package-level coreUsesPidPath.
+func TestRule1_5_15_CoreUsesPid(t *testing.T) {
+	dir := t.TempDir()
+	orig := coreUsesPidPath
+	t.Cleanup(func() { coreUsesPidPath = orig })
+	rule := ruleByID("1.5.15")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "1.5.15" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "core_uses_pid") {
+			t.Errorf("description missing 'core_uses_pid': %s", rule.Description)
+		}
+	})
+	t.Run("missing_→_SKIP", func(t *testing.T) {
+		coreUsesPidPath = filepath.Join(dir, "nosuchfile")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_0_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "core_pid0")
+		if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		coreUsesPidPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("value=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_1_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "core_pid1")
+		if err := os.WriteFile(f, []byte("1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		coreUsesPidPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=1: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule3_2_23_24_ArpHardening verifies rules 3.2.23-3.2.24 (ARP hardening).
+func TestRule3_2_23_24_ArpHardening(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"3.2.23", "arp_ignore"},
+		{"3.2.24", "arp_announce"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
 // TestRule3_2_19_21_NetworkHardening verifies rules 3.2.19-3.2.21 (SYN cookies + ICMP).
 func TestRule3_2_19_21_NetworkHardening(t *testing.T) {
 	t.Parallel()
