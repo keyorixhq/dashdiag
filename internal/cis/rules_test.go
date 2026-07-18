@@ -7565,3 +7565,100 @@ func TestRule6_1_26_28_HostsOwnership(t *testing.T) {
 		})
 	}
 }
+
+// TestRule3_1_3_DefaultSendRedirects verifies 3.1.3 (net.ipv4.conf.default.send_redirects = 0).
+func TestRule3_1_3_DefaultSendRedirects(t *testing.T) {
+	t.Parallel()
+	t.Run("3.1.3_registered", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("3.1.3")
+		if r.ID != "3.1.3" {
+			t.Errorf("unexpected ID %s", r.ID)
+		}
+		if !strings.Contains(r.Description, "send_redirects") {
+			t.Errorf("description missing 'send_redirects': %s", r.Description)
+		}
+	})
+	t.Run("3.1.3_valid_status", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("3.1.3")
+		got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		switch got.Status {
+		case models.CISPass, models.CISFail, models.CISSkipped:
+		default:
+			t.Errorf("unexpected status %q", got.Status)
+		}
+	})
+}
+
+// TestRule3_2_32_35_DefaultInterfaceNetHardening verifies 3.2.32-3.2.35 (default interface network params).
+func TestRule3_2_32_35_DefaultInterfaceNetHardening(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"3.2.32", "accept_source_route"},
+		{"3.2.33", "accept_redirects"},
+		{"3.2.34", "secure_redirects"},
+		{"3.2.35", "log_martians"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
+// TestRule6_1_29_32_ResolvSysctlPerms verifies 6.1.29-6.1.32 (resolv.conf + sysctl.conf perms/ownership).
+func TestRule6_1_29_32_ResolvSysctlPerms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"6.1.29", "resolv.conf"},
+		{"6.1.30", "resolv.conf"},
+		{"6.1.31", "sysctl.conf"},
+		{"6.1.32", "sysctl.conf"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}

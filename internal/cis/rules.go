@@ -809,6 +809,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"send_redirects is 1 — host can send ICMP redirects (man-in-the-middle risk)",
 					"sysctl -w net.ipv4.conf.all.send_redirects=0 && sysctl -w net.ipv4.conf.default.send_redirects=0")
 			}},
+		{ID: "3.1.3", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure packet redirect sending is disabled on default interface (net.ipv4.conf.default.send_redirects = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.1.3")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/send_redirects", "0",
+					"net.ipv4.conf.default.send_redirects is not 0 — new interfaces will send ICMP redirects",
+					"sysctl -w net.ipv4.conf.default.send_redirects=0 && echo 'net.ipv4.conf.default.send_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		{ID: "3.2.1", StigID: "V-238328",
 			StigDescription: "Source routing must be disabled", Framework: cisBenchBOTH, Level: 1, Section: cisCatNetwork,
@@ -1590,6 +1598,38 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/proxy_arp", "0",
 					"net.ipv4.conf.default.proxy_arp is not 0 — new interfaces will answer ARP on behalf of other hosts",
 					"sysctl -w net.ipv4.conf.default.proxy_arp=0 && echo 'net.ipv4.conf.default.proxy_arp=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.32", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure source routed packets are not accepted on default interface (net.ipv4.conf.default.accept_source_route = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.32")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/accept_source_route", "0",
+					"net.ipv4.conf.default.accept_source_route is not 0 — source routing accepted on new interfaces",
+					"sysctl -w net.ipv4.conf.default.accept_source_route=0 && echo 'net.ipv4.conf.default.accept_source_route=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.33", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ICMP redirects are not accepted on default interface (net.ipv4.conf.default.accept_redirects = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.33")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/accept_redirects", "0",
+					"net.ipv4.conf.default.accept_redirects is not 0 — ICMP redirects accepted on new interfaces",
+					"sysctl -w net.ipv4.conf.default.accept_redirects=0 && echo 'net.ipv4.conf.default.accept_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.34", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure secure ICMP redirects are not accepted on default interface (net.ipv4.conf.default.secure_redirects = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.34")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/secure_redirects", "0",
+					"net.ipv4.conf.default.secure_redirects is not 0 — gateway ICMP redirects accepted on new interfaces",
+					"sysctl -w net.ipv4.conf.default.secure_redirects=0 && echo 'net.ipv4.conf.default.secure_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.35", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure suspicious packets are logged on default interface (net.ipv4.conf.default.log_martians = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.35")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/log_martians", "1",
+					"net.ipv4.conf.default.log_martians is not 1 — martian packets not logged on new interfaces",
+					"sysctl -w net.ipv4.conf.default.log_martians=1 && echo 'net.ipv4.conf.default.log_martians=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
@@ -3536,6 +3576,28 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/hosts.deny is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRoot(ruleByID("6.1.28"), "/etc/hosts.deny", "chown root:root /etc/hosts.deny")
+			}},
+		{ID: "6.1.29", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/resolv.conf permissions are configured (644 or more restrictive)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.29")
+				return checkFilePerm(r, "/etc/resolv.conf", 0o644, "chmod 644 /etc/resolv.conf")
+			}},
+		{ID: "6.1.30", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/resolv.conf is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.30"), "/etc/resolv.conf", "chown root:root /etc/resolv.conf")
+			}},
+		{ID: "6.1.31", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/sysctl.conf permissions are configured (600 or more restrictive)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.31")
+				return checkFilePerm(r, "/etc/sysctl.conf", 0o600, "chmod 600 /etc/sysctl.conf")
+			}},
+		{ID: "6.1.32", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/sysctl.conf is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.32"), "/etc/sysctl.conf", "chown root:root /etc/sysctl.conf")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
