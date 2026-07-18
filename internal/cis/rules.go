@@ -840,6 +840,66 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return pass(r)
 			}},
+		{ID: "5.2.25", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure only approved SSH cipher algorithms are used",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.25")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHCiphers == "" {
+					return skipr(r, "Ciphers not available (run as root for sshd -T)")
+				}
+				for algo := range strings.SplitSeq(sec.SSHCiphers, ",") {
+					algo = strings.ToLower(strings.TrimSpace(algo))
+					if strings.HasSuffix(algo, "-cbc") || strings.HasPrefix(algo, "arcfour") ||
+						strings.HasPrefix(algo, "3des") || strings.HasPrefix(algo, "blowfish") {
+						return failr(r, fmt.Sprintf("weak cipher in Ciphers list: %q", algo),
+							"set Ciphers aes128-ctr,aes192-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com,chacha20-poly1305@openssh.com")
+					}
+				}
+				return pass(r)
+			}},
+		{ID: "5.2.26", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure only approved SSH MAC algorithms are used",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.26")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHMACs == "" {
+					return skipr(r, "MACs not available (run as root for sshd -T)")
+				}
+				for algo := range strings.SplitSeq(sec.SSHMACs, ",") {
+					algo = strings.ToLower(strings.TrimSpace(algo))
+					if strings.Contains(algo, "md5") || strings.Contains(algo, "sha1") ||
+						strings.Contains(algo, "ripemd") || strings.HasPrefix(algo, "umac-64") ||
+						strings.HasPrefix(algo, "umac-96") {
+						return failr(r, fmt.Sprintf("weak MAC in MACs list: %q", algo),
+							"set MACs hmac-sha2-256,hmac-sha2-512,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com")
+					}
+				}
+				return pass(r)
+			}},
+		{ID: "5.2.27", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure only approved SSH key exchange algorithms are used",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.27")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHKexAlgorithms == "" {
+					return skipr(r, "KexAlgorithms not available (run as root for sshd -T)")
+				}
+				for algo := range strings.SplitSeq(sec.SSHKexAlgorithms, ",") {
+					algo = strings.ToLower(strings.TrimSpace(algo))
+					if strings.Contains(algo, "sha1") || strings.Contains(algo, "group1-") {
+						return failr(r, fmt.Sprintf("weak key exchange algorithm: %q", algo),
+							"set KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521")
+					}
+				}
+				return pass(r)
+			}},
 
 		// ── 3.x Network ───────────────────────────────────────────────────────
 
@@ -3725,6 +3785,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/profile is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRoot(ruleByID("6.1.36"), "/etc/profile", "chown root:root /etc/profile")
+			}},
+		{ID: "6.1.37", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/login.defs permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.37")
+				return checkFilePerm(r, "/etc/login.defs", 0o644, "chmod 644 /etc/login.defs")
+			}},
+		{ID: "6.1.38", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/login.defs is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.38"), "/etc/login.defs", "chown root:root /etc/login.defs")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",

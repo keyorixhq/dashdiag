@@ -7839,3 +7839,109 @@ func TestRule5_2_21_24_SSHBoolChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestRule5_2_25_27_SSHCryptoChecks verifies 5.2.25 (Ciphers), 5.2.26 (MACs),
+// 5.2.27 (KexAlgorithms) — SKIP on empty/unreadable, PASS on approved, FAIL on weak.
+func TestRule5_2_25_27_SSHCryptoChecks(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id         string
+		descHint   string
+		goodConfig models.SecurityInfo
+		badConfig  models.SecurityInfo
+	}{
+		{
+			id: "5.2.25", descHint: "cipher",
+			goodConfig: models.SecurityInfo{SSHCiphers: "aes256-ctr,aes128-gcm@openssh.com"},
+			badConfig:  models.SecurityInfo{SSHCiphers: "aes128-cbc,aes256-ctr"},
+		},
+		{
+			id: "5.2.26", descHint: "MAC",
+			goodConfig: models.SecurityInfo{SSHMACs: "hmac-sha2-256,hmac-sha2-512-etm@openssh.com"},
+			badConfig:  models.SecurityInfo{SSHMACs: "hmac-sha2-256,hmac-sha1"},
+		},
+		{
+			id: "5.2.27", descHint: "key exchange",
+			goodConfig: models.SecurityInfo{SSHKexAlgorithms: "curve25519-sha256,diffie-hellman-group16-sha512"},
+			badConfig:  models.SecurityInfo{SSHKexAlgorithms: "curve25519-sha256,diffie-hellman-group14-sha1"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(strings.ToLower(r.Description), strings.ToLower(tc.descHint)) {
+				t.Errorf("description missing %q: %s", tc.descHint, r.Description)
+			}
+		})
+		t.Run(tc.id+"_unreadable_→_SKIP", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{SSHConfigUnreadable: true}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_empty_→_SKIP", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_approved_→_PASS", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(tc.goodConfig, models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_weak_→_FAIL", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(tc.badConfig, models.KernelSecurityInfo{})
+			if got.Status != models.CISFail {
+				t.Errorf("want CISFail, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+	}
+}
+
+// TestRule6_1_37_38_LoginDefsPerms verifies 6.1.37-6.1.38 (/etc/login.defs).
+func TestRule6_1_37_38_LoginDefsPerms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"6.1.37", "login.defs"},
+		{"6.1.38", "login.defs"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
