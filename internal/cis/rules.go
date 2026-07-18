@@ -43,7 +43,7 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering filesystem (1.x), services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -278,6 +278,22 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "5.2.16", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH idle timeout interval is configured (ClientAliveInterval <= 900s)",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.16")
+				v := sec.SSHClientAliveInterval
+				if v == 0 {
+					return failr(r, "ClientAliveInterval not set — idle SSH sessions never expire",
+						"set ClientAliveInterval 900 and ClientAliveCountMax 0 in /etc/ssh/sshd_config")
+				}
+				if v > 900 {
+					return failr(r, fmt.Sprintf("ClientAliveInterval %ds exceeds 900s limit", v),
+						"set ClientAliveInterval 900 in /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
+
 		{ID: "5.2.17", StigID: "V-238222",
 			StigDescription: "The SSH daemon must not allow TCP port forwarding", Framework: cisBenchBOTH, Level: 1, Section: cisCatSSH,
 			Description: "Ensure SSH AllowTcpForwarding is disabled",
@@ -423,6 +439,20 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"remove NOPASSWD from /etc/sudoers and /etc/sudoers.d/")
 			}},
 
+		// ── 1.1 Filesystem ────────────────────────────────────────────────────
+
+		{ID: "1.1.22", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure sticky bit is set on all world-writable directories",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.1.22")
+				if len(sec.WorldWritableDirs) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("world-writable dirs missing sticky bit: %s", strings.Join(sec.WorldWritableDirs, ", ")),
+					"set sticky bit: chmod +t /tmp /var/tmp /dev/shm")
+			}},
+
 		// ── 6.x System Maintenance ────────────────────────────────────────────
 
 		{ID: "6.1.1", StigID: "V-238401", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
@@ -474,6 +504,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						"lock or remove these accounts: passwd -l <user>")
 				}
 				return pass(r)
+			}},
+
+		{ID: "6.2.4", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no accounts have empty passwords",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.4")
+				if sec.ShadowUnreadable {
+					return skipr(r, "/etc/shadow not readable — run as root for full coverage")
+				}
+				if len(sec.EmptyPasswordAccounts) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("accounts with empty passwords: %s", strings.Join(sec.EmptyPasswordAccounts, ", ")),
+					"set passwords or lock accounts: passwd -l <user>")
 			}},
 
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
