@@ -134,7 +134,10 @@ func parseMiB(s string) float64 {
 		return 0 // garbled size — not a real snapshot value
 	}
 	if isGiB {
-		return v * 1024
+		v *= 1024
+		if math.IsInf(v, 0) {
+			return 0 // overflow: value was near MaxFloat64 before ×1024
+		}
 	}
 	return v
 }
