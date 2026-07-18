@@ -183,3 +183,20 @@ func TestScanAllZypperLockedExitIsScanFailedNotEmpty(t *testing.T) {
 		t.Fatalf("ScanFailed reason should name the lock, got %q", res.StatusReason)
 	}
 }
+
+// TestCheckCVEZypper_ShortSecurityLineSkipped covers cve_linux.go:219.22,220.12 —
+// the `continue` when a line contains "security" but has fewer than 6
+// pipe-separated fields. Such a line must be skipped gracefully; with no
+// "needed" patches in the output the result is CVEPatched.
+func TestCheckCVEZypper_ShortSecurityLineSkipped(t *testing.T) {
+	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
+		// Two pipe-separated fields only — contains "security" but len(fields) < 6.
+		return source.Result{Stdout: []byte("security | partial"), ExitCode: 0}
+	}}
+	defer SetSource(SetSource(fake))
+
+	res := checkCVEZypper(context.Background(), "CVE-2024-9999")
+	if res.Status != models.CVEPatched {
+		t.Errorf("short security line must be skipped → CVEPatched, got %s", res.Status)
+	}
+}

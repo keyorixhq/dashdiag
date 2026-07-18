@@ -915,3 +915,17 @@ func TestGPUCollector_Collect_ContextCancelled(t *testing.T) {
 	// against whatever source a later test installs.
 	time.Sleep(1100 * time.Millisecond)
 }
+
+// TestCollectIntelGPUs_GlobError covers gpu_linux.go:414.16,416.3 — the early
+// nil return when glob fails. With a Replay source that has no DRM card glob
+// seeded, Glob returns ErrNotRecorded and collectIntelGPUs returns nil.
+func TestCollectIntelGPUs_GlobError(t *testing.T) {
+	// No t.Parallel(): withFixtureSource swaps the package-global source.
+	withFixtureSource(t, func(b *source.Bundle) {
+		// gpuDRMCardGlob ("/sys/class/drm/card[0-9]") is not seeded →
+		// Replay.Glob returns ErrNotRecorded → collectIntelGPUs returns nil.
+	})
+	if got := collectIntelGPUs(); got != nil {
+		t.Errorf("expected nil devices when glob returns error, got %v", got)
+	}
+}
