@@ -443,3 +443,32 @@ func TestParseNFSMounts_Unreadable(t *testing.T) {
 		t.Errorf("expected nil when /proc/mounts is unreadable, got %+v", mounts)
 	}
 }
+
+// TestNFSCollector_Collect_StaleMountCounted covers nfs_linux.go:41 — the
+// info.StaleMounts++ increment. An ESTALE statfs on the mount point causes
+// nfsCheckMount to set m.Stale=true, which Collect must count.
+func TestNFSCollector_Collect_StaleMountCounted(t *testing.T) {
+	// No t.Parallel(): SetSource swaps the package-global source.
+	b := source.NewBundle()
+	b.PutFile("/proc/mounts", []byte(
+		"nfs.example.com:/export/data /mnt/nfs nfs4 rw,vers=4.2 0 0\n",
+	))
+	b.PutCmd("systemctl", []string{"is-active", "rpcbind"}, "inactive\n", 3)
+	b.PutFile("/proc/net/rpc/nfs", []byte(""))
+	b.PutFile("/etc/fstab", []byte(""))
+	prev := SetSource(&fakeStatfsErrSource{
+		Replay: source.NewReplay(b),
+		errs:   map[string]error{"/mnt/nfs": syscall.ESTALE},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewNFSCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info := raw.(*models.NFSInfo) //nolint:errcheck
+	if info.StaleMounts != 1 {
+		t.Errorf("StaleMounts = %d, want 1 (ESTALE on mount must increment the counter)", info.StaleMounts)
+	}
+}
