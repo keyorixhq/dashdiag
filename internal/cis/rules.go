@@ -3,8 +3,10 @@ package cis
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
@@ -44,7 +46,7 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering filesystem (1.x), kernel hardening (1.5.x), services (2.x), SSH (5.2.x), cron (5.1.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering filesystem (1.x), kernel hardening (1.5.x), banners (1.7.x), services (2.x), SSH (5.2.x), cron (5.1.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -457,6 +459,47 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		// ── 1.7 Warning Banners ───────────────────────────────────────────────
+
+		{ID: "1.7.1", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/motd is configured (no OS fingerprinting sequences)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkBannerContent(ruleByID("1.7.1"), motdPath,
+					"add a warning banner to /etc/motd — no \\s \\m \\r \\v \\u sequences")
+			}},
+
+		{ID: "1.7.2", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue is configured (no OS fingerprinting sequences)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkBannerContent(ruleByID("1.7.2"), issuePath,
+					"add a warning banner to /etc/issue — no \\s \\m \\r \\v \\u sequences")
+			}},
+
+		{ID: "1.7.3", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue.net is configured (no OS fingerprinting sequences)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkBannerContent(ruleByID("1.7.3"), issueNetPath,
+					"add a warning banner to /etc/issue.net — no \\s \\m \\r \\v \\u sequences")
+			}},
+
+		{ID: "1.7.4", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/motd permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("1.7.4"), motdPath, 0o644, "chmod 644 /etc/motd")
+			}},
+
+		{ID: "1.7.5", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("1.7.5"), issuePath, 0o644, "chmod 644 /etc/issue")
+			}},
+
+		{ID: "1.7.6", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue.net permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("1.7.6"), issueNetPath, 0o644, "chmod 644 /etc/issue.net")
+			}},
+
 		{ID: "3.2.5", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure broadcast ICMP requests are ignored",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -705,6 +748,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add GROUP=0 to /etc/default/useradd")
 			}},
 
+		{ID: "5.4.6", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password expiration warning days is 7 or more (PASS_WARN_AGE ≥ 7)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkLoginDefsField(ruleByID("5.4.6"), loginDefsPath, "PASS_WARN_AGE",
+					func(days int) bool { return days < 7 },
+					"PASS_WARN_AGE is %d (must be ≥ 7)", "set PASS_WARN_AGE 7 in /etc/login.defs",
+					"PASS_WARN_AGE not set in /etc/login.defs", "add PASS_WARN_AGE 7 to /etc/login.defs")
+			}},
+
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
 
 		{ID: "5.1.2", Framework: cisBenchCIS, Level: 1, Section: "Cron",
@@ -819,6 +871,38 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.8")
 				return checkFilePerm(r, "/etc/group-", 0o644, "chmod 644 /etc/group-")
+			}},
+
+		// ── 6.1.9–6.1.13 File Ownership ──────────────────────────────────────
+
+		{ID: "6.1.9", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/passwd is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.9"), "/etc/passwd", "chown root:root /etc/passwd")
+			}},
+
+		{ID: "6.1.10", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/shadow is owned by root:root or root:shadow",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.10"), "/etc/shadow", "chown root:shadow /etc/shadow")
+			}},
+
+		{ID: "6.1.11", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/group is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.11"), "/etc/group", "chown root:root /etc/group")
+			}},
+
+		{ID: "6.1.12", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/passwd- is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.12"), "/etc/passwd-", "chown root:root /etc/passwd-")
+			}},
+
+		{ID: "6.1.13", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/shadow- is owned by root:root or root:shadow",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.13"), "/etc/shadow-", "chown root:shadow /etc/shadow-")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
@@ -1042,6 +1126,12 @@ var sudoBinPaths = []string{"/usr/bin/sudo", "/bin/sudo"}
 // Package-level var for test injection.
 var useraddDefaultPath = "/etc/default/useradd"
 
+// motdPath, issuePath, issueNetPath are the banner files checked by rules
+// 1.7.1–1.7.6. Package-level vars so tests can inject t.TempDir() fixtures.
+var motdPath = "/etc/motd"
+var issuePath = "/etc/issue"
+var issueNetPath = "/etc/issue.net"
+
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
 // notSetFinding/notSetFix are used when the field is entirely absent from the
@@ -1101,6 +1191,69 @@ func checkFilePerm(r Rule, path string, maxMode os.FileMode, fix string) models.
 		return failr(r, fmt.Sprintf("%s mode is %o (max %o)", path, fi.Mode().Perm(), maxMode), fix)
 	}
 	return pass(r)
+}
+
+// checkBannerContent verifies path holds a non-empty warning banner without
+// agetty OS-fingerprinting escape sequences (\s, \m, \r, \v, \u). A missing
+// or empty file means no warning is shown to users at login.
+func checkBannerContent(r Rule, path, fix string) models.CISResult {
+	data, err := os.ReadFile(path) //nolint:gosec // path is a package var, not user input
+	if err != nil {
+		return failr(r, fmt.Sprintf("%s not found — no login banner configured", path), fix)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return failr(r, fmt.Sprintf("%s is empty — configure a login warning banner", path), fix)
+	}
+	for _, seq := range []string{`\s`, `\m`, `\r`, `\v`, `\u`} {
+		if strings.Contains(string(data), seq) {
+			return failr(r, fmt.Sprintf("%s contains OS fingerprinting sequence %q", path, seq),
+				"remove \\s \\m \\r \\v \\u sequences from "+path)
+		}
+	}
+	return pass(r)
+}
+
+// checkFileOwnerRootRoot fails when path is not owned by uid=0, gid=0 (root:root).
+func checkFileOwnerRootRoot(r Rule, path, fix string) models.CISResult {
+	fi, err := os.Stat(path) //nolint:gosec // path is a hardcoded system path
+	if err != nil {
+		return skipr(r, fmt.Sprintf("%s not found", path))
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return skipr(r, fmt.Sprintf("cannot determine ownership of %s", path))
+	}
+	if stat.Uid != 0 || stat.Gid != 0 {
+		return failr(r, fmt.Sprintf("%s owned by uid=%d gid=%d (must be root:root)", path, stat.Uid, stat.Gid), fix)
+	}
+	return pass(r)
+}
+
+// checkFileOwnerRootRootOrShadow fails when path is not owned by uid=0 with
+// gid=0 (root:root) or gid matching the "shadow" group. Used for /etc/shadow
+// and /etc/shadow- which are typically owned root:shadow on Debian/Ubuntu.
+func checkFileOwnerRootRootOrShadow(r Rule, path, fix string) models.CISResult {
+	fi, err := os.Stat(path) //nolint:gosec // path is a hardcoded system path
+	if err != nil {
+		return skipr(r, fmt.Sprintf("%s not found", path))
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return skipr(r, fmt.Sprintf("cannot determine ownership of %s", path))
+	}
+	if stat.Uid != 0 {
+		return failr(r, fmt.Sprintf("%s not owned by root (uid=%d)", path, stat.Uid), fix)
+	}
+	if stat.Gid == 0 {
+		return pass(r)
+	}
+	// Accept shadow group GID (42 on Debian/Ubuntu — look up dynamically)
+	if g, err := user.LookupGroup("shadow"); err == nil {
+		if gid, err := strconv.ParseUint(g.Gid, 10, 32); err == nil && stat.Gid == uint32(gid) { //nolint:gosec // G115: gid is a non-negative group ID, conversion is safe
+			return pass(r)
+		}
+	}
+	return failr(r, fmt.Sprintf("%s not group root or shadow (gid=%d)", path, stat.Gid), fix)
 }
 
 // ruleByID returns the Rule struct for the given ID by scanning CISRules.

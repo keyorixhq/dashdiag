@@ -1519,3 +1519,252 @@ func TestCheckFilePerm6_1_Variants(t *testing.T) {
 		})
 	}
 }
+
+// ── 1.7 Warning Banners ──────────────────────────────────────────────────────
+
+// TestCheckBannerContent tests the checkBannerContent helper directly.
+// No t.Parallel(): modifies package-level motdPath.
+func TestCheckBannerContent(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name    string
+		content string
+		wantSt  models.CISStatus
+		wantHas string
+	}{
+		{"non-empty banner passes", "Authorized use only.", models.CISPass, ""},
+		{"empty file fails", "", models.CISFail, "empty"},
+		{`\s fingerprinting fails`, `Welcome to \s`, models.CISFail, `\s`},
+		{`\m fingerprinting fails`, `Machine: \m`, models.CISFail, `\m`},
+		{`\r fingerprinting fails`, `Release: \r`, models.CISFail, `\r`},
+		{`\v fingerprinting fails`, `Version: \v`, models.CISFail, `\v`},
+		{`\u fingerprinting fails`, `Users: \u`, models.CISFail, `\u`},
+	}
+	r := ruleByID("1.7.1")
+	for _, tc := range cases {
+		p := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "_"))
+		if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := checkBannerContent(r, p, "fix")
+		if got.Status != tc.wantSt {
+			t.Errorf("%s: got %s, want %s", tc.name, got.Status, tc.wantSt)
+		}
+		if tc.wantHas != "" && !strings.Contains(got.Finding, tc.wantHas) {
+			t.Errorf("%s: finding %q missing %q", tc.name, got.Finding, tc.wantHas)
+		}
+	}
+}
+
+// TestCheckBannerContent_MissingFile verifies that a missing file returns FAIL.
+// No t.Parallel(): uses checkBannerContent helper directly (no package var mutation).
+func TestCheckBannerContent_MissingFile(t *testing.T) {
+	r := ruleByID("1.7.1")
+	got := checkBannerContent(r, "/nonexistent/banner/file", "fix")
+	if got.Status != models.CISFail {
+		t.Errorf("got %s, want FAIL for missing file", got.Status)
+	}
+	if !strings.Contains(got.Finding, "not found") {
+		t.Errorf("finding %q missing 'not found'", got.Finding)
+	}
+}
+
+// TestRule1_7_4_5_6_BannerPermissions verifies rules 1.7.4-1.7.6 via checkFilePerm.
+// No t.Parallel(): modifies package-level motdPath, issuePath, issueNetPath.
+func TestRule1_7_4_5_6_BannerPermissions(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		id     string
+		mode   os.FileMode
+		wantSt models.CISStatus
+	}{
+		{"1.7.4", 0o644, models.CISPass},
+		{"1.7.4", 0o600, models.CISPass},
+		{"1.7.4", 0o664, models.CISFail},
+		{"1.7.5", 0o644, models.CISPass},
+		{"1.7.5", 0o777, models.CISFail},
+		{"1.7.6", 0o644, models.CISPass},
+		{"1.7.6", 0o646, models.CISFail},
+	}
+	for _, tc := range cases {
+		p := filepath.Join(dir, tc.id+"_"+tc.mode.String())
+		if err := os.WriteFile(p, []byte(""), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		r := ruleByID(tc.id)
+		got := checkFilePerm(r, p, 0o644, "fix")
+		if got.Status != tc.wantSt {
+			t.Errorf("rule %s mode %04o: got %s, want %s", tc.id, tc.mode, got.Status, tc.wantSt)
+		}
+	}
+}
+
+// TestRule1_7_1_ViaPackageVar verifies rule 1.7.1 end-to-end via motdPath injection.
+// No t.Parallel(): modifies package-level motdPath.
+func TestRule1_7_1_ViaPackageVar(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "motd")
+	if err := os.WriteFile(p, []byte("Authorized use only."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := motdPath
+	motdPath = p
+	t.Cleanup(func() { motdPath = orig })
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	var res *models.CISResult
+	for i := range report.Results {
+		if report.Results[i].ID == "1.7.1" {
+			res = &report.Results[i]
+			break
+		}
+	}
+	if res == nil {
+		t.Fatal("rule 1.7.1 not found in Evaluate output")
+	}
+	if res.Status != models.CISPass {
+		t.Errorf("got %s (%s), want PASS", res.Status, res.Finding)
+	}
+}
+
+// ── 5.4.6 PASS_WARN_AGE ──────────────────────────────────────────────────────
+
+// TestRule5_4_6_PassWarnAge verifies rule 5.4.6 (PASS_WARN_AGE ≥ 7).
+// No t.Parallel(): modifies package-level loginDefsPath.
+func TestRule5_4_6_PassWarnAge(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		wantSt  models.CISStatus
+	}{
+		{"warn age 7 passes", "PASS_WARN_AGE 7\n", models.CISPass},
+		{"warn age 14 passes", "PASS_WARN_AGE 14\n", models.CISPass},
+		{"warn age 6 fails", "PASS_WARN_AGE 6\n", models.CISFail},
+		{"warn age 0 fails", "PASS_WARN_AGE 0\n", models.CISFail},
+		{"field missing fails", "PASS_MAX_DAYS 365\n", models.CISFail},
+		{"commented out fails", "# PASS_WARN_AGE 7\n", models.CISFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "login.defs")
+			if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			orig := loginDefsPath
+			loginDefsPath = p
+			t.Cleanup(func() { loginDefsPath = orig })
+
+			sec := models.SecurityInfo{}
+			ks := models.KernelSecurityInfo{}
+			report := Evaluate(sec, ks, 1, false, "apt")
+			var res *models.CISResult
+			for i := range report.Results {
+				if report.Results[i].ID == "5.4.6" {
+					res = &report.Results[i]
+					break
+				}
+			}
+			if res == nil {
+				t.Fatal("rule 5.4.6 not found in Evaluate output")
+			}
+			if res.Status != tc.wantSt {
+				t.Errorf("%s: got %s (%s), want %s", tc.name, res.Status, res.Finding, tc.wantSt)
+			}
+		})
+	}
+}
+
+// ── 6.1.9–6.1.13 File Ownership ─────────────────────────────────────────────
+
+// TestCheckFileOwnerRootRoot_Fail verifies that a file not owned by root fails.
+// Uses the helper directly so we can inject a temp path without root.
+func TestCheckFileOwnerRootRoot_Fail(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(p, []byte("root:x:0:0::/root:/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := ruleByID("6.1.9")
+	got := checkFileOwnerRootRoot(r, p, "chown root:root /etc/passwd")
+	// Running as non-root in CI: uid != 0, so we expect FAIL.
+	if got.Status == models.CISSkipped {
+		t.Skip("file ownership stat unavailable on this platform")
+	}
+	if got.Status != models.CISFail {
+		t.Errorf("got %s, want FAIL (test runs as non-root)", got.Status)
+	}
+	if !strings.Contains(got.Finding, "uid=") {
+		t.Errorf("finding %q missing uid=", got.Finding)
+	}
+}
+
+// TestCheckFileOwnerRootRoot_Missing verifies SKIP when the file doesn't exist.
+func TestCheckFileOwnerRootRoot_Missing(t *testing.T) {
+	t.Parallel()
+	r := ruleByID("6.1.9")
+	got := checkFileOwnerRootRoot(r, "/nonexistent/file/xyz", "fix")
+	if got.Status != models.CISSkipped {
+		t.Errorf("got %s, want SKIP for missing file", got.Status)
+	}
+}
+
+// TestCheckFileOwnerRootRootOrShadow_Fail verifies a non-root-owned file fails.
+func TestCheckFileOwnerRootRootOrShadow_Fail(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "shadow")
+	if err := os.WriteFile(p, []byte("root:!:0:0:99999:7:::\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	r := ruleByID("6.1.10")
+	got := checkFileOwnerRootRootOrShadow(r, p, "chown root:shadow /etc/shadow")
+	if got.Status == models.CISSkipped {
+		t.Skip("file ownership stat unavailable on this platform")
+	}
+	if got.Status != models.CISFail {
+		t.Errorf("got %s, want FAIL (test runs as non-root, uid != 0)", got.Status)
+	}
+}
+
+// TestCheckFileOwnerRootRootOrShadow_Missing verifies SKIP when file absent.
+func TestCheckFileOwnerRootRootOrShadow_Missing(t *testing.T) {
+	t.Parallel()
+	r := ruleByID("6.1.10")
+	got := checkFileOwnerRootRootOrShadow(r, "/nonexistent/shadow", "fix")
+	if got.Status != models.CISSkipped {
+		t.Errorf("got %s, want SKIP for missing file", got.Status)
+	}
+}
+
+// TestRules6_1_9_to_6_1_13_InEvaluate verifies all five ownership rules appear
+// in Evaluate output with the expected IDs and section.
+func TestRules6_1_9_to_6_1_13_InEvaluate(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	want := map[string]bool{
+		"6.1.9": false, "6.1.10": false, "6.1.11": false,
+		"6.1.12": false, "6.1.13": false,
+	}
+	for _, res := range report.Results {
+		if _, ok := want[res.ID]; ok {
+			want[res.ID] = true
+			if res.Section != cisCatFiles {
+				t.Errorf("rule %s section = %q, want %q", res.ID, res.Section, cisCatFiles)
+			}
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Errorf("rule %s missing from Evaluate output", id)
+		}
+	}
+}
